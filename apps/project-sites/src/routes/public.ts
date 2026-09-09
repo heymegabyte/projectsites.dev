@@ -439,7 +439,8 @@ const INTEGRATIONS: readonly Integration[] = [
     name: 'SendGrid',
     category: 'Email',
     status: 'live',
-    description: 'Break-glass fallback email provider with automatic failover when Amazon SES is unreachable.',
+    description:
+      'Break-glass fallback email provider with automatic failover when Amazon SES is unreachable.',
     logo_url: 'https://logo.clearbit.com/sendgrid.com',
     docs_url: 'https://docs.sendgrid.com',
     mcp_supported: false,
