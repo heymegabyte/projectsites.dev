@@ -520,10 +520,9 @@ export interface Env {
   /** Payload CMS origin for the blog-feed proxy (default https://cms.projectsites.dev). */
   CMS_BASE_URL?: string;
 
-  // ── Email (Resend / SendGrid) ────────────────────────────
-  /** Resend API key for transactional email. Preferred provider. */
-  RESEND_API_KEY?: string;
-  /** SendGrid v3 API key for transactional email. Fallback provider. */
+  // ── Email (Amazon SES primary; SendGrid break-glass) ─────
+  // Resend removed 2026-09-09 (Brian directive) — SES is the canonical provider.
+  /** SendGrid v3 API key for transactional email. Break-glass fallback only. */
   SENDGRID_API_KEY?: string;
 
   // ── Native OAuth client credentials (per-provider — used by mcp_oauth.ts) ───

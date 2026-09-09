@@ -1,7 +1,7 @@
 /**
  * @module services/contact
  * @description Contact form handler that validates input and sends emails via
- * Amazon SES (primary, ADR-0019), falling back to Resend → SendGrid on failure.
+ * Amazon SES (primary, ADR-0019), falling back to SendGrid on failure.
  *
  * Sends two emails per submission:
  * 1. Main email to the brand contact address with all form fields.
@@ -25,7 +25,7 @@ import { log } from '../lib/log.js';
 const contactLog = log.child('contact');
 
 /* ------------------------------------------------------------------ */
-/*  Email Sending (Resend primary, SendGrid fallback)                 */
+/*  Email Sending (SES primary, SendGrid fallback)                    */
 /* ------------------------------------------------------------------ */
 
 interface EmailOpts {
@@ -33,32 +33,6 @@ interface EmailOpts {
   subject: string;
   html: string;
   replyTo?: string;
-}
-
-async function sendViaResend(apiKey: string, opts: EmailOpts): Promise<void> {
-  const body: Record<string, unknown> = {
-    from: 'Project Sites <noreply@projectsites.dev>',
-    to: [opts.to],
-    subject: opts.subject,
-    html: opts.html,
-  };
-  if (opts.replyTo) body.reply_to = opts.replyTo;
-
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    void text; // logged at level error for observability
-    contactLog.error('resend_api_error', { status: res.status });
-    throw badRequest(`Failed to send email (status ${res.status}).`);
-  }
 }
 
 async function sendViaSendGrid(apiKey: string, opts: EmailOpts): Promise<void> {
@@ -97,7 +71,7 @@ async function sendEmail(env: Env, opts: EmailOpts): Promise<void> {
 
   // ADR-0019: SES is the PRIMARY rail when configured (AWS creds + verified
   // sender). `replyTo` (the submitter) rides through so the brand can reply
-  // straight to the lead. CRITICAL: fall back to Resend → SendGrid on SES
+  // straight to the lead. CRITICAL: fall back to SendGrid on SES
   // FAILURE, not just on absence — a transient SES 5xx must never abort the
   // submission and lose the lead (the same fallback-on-absence-not-failure bug
   // fixed in notifications.ts). Progressive degradation by env, no flag.
@@ -116,22 +90,7 @@ async function sendEmail(env: Env, opts: EmailOpts): Promise<void> {
       contactLog.warn('ses_send_failed_falling_back', {
         error: err instanceof Error ? err.message : String(err),
       });
-      // fall through to Resend / SendGrid
-    }
-  }
-
-  if (env.RESEND_API_KEY) {
-    try {
-      return await sendViaResend(env.RESEND_API_KEY, opts);
-    } catch (err) {
-      failures.push(`Resend: ${err instanceof Error ? err.message : String(err)}`);
-      if (env.SENDGRID_API_KEY) {
-        contactLog.warn('resend_fallback_to_sendgrid', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-        return await sendViaSendGrid(env.SENDGRID_API_KEY, opts);
-      }
-      throw err;
+      // fall through to SendGrid
     }
   }
 
@@ -202,7 +161,7 @@ function buildContactConfirmationEmail(data: ContactForm): string {
  * @remarks
  * Email 1 lands in `BRAND.CONTACT_EMAIL` with `replyTo` set to the user's
  * address so a single reply round-trips. Email 2 is the user's receipt.
- * Provider order: SES primary → Resend → SendGrid (each falls back on failure).
+ * Provider order: SES primary → SendGrid (each falls back on failure).
  *
  * @example
  * ```ts

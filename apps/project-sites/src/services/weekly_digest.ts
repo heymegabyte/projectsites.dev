@@ -7,8 +7,8 @@
  *    AI traces, errors, top 3 referrers).
  * 2. Render a self-contained HTML email using the brand colors
  *    `#00E5FF` and `#060610` — no external template engine.
- * 3. Send via the existing Resend client in
- *    {@link ../services/notifications.ts | notifications.ts}.
+ * 3. Send via the central SES-primary seam in
+ *    {@link ../services/notifications.ts | notifications.ts} (Resend removed 2026-09-09).
  * 4. Insert a row in `weekly_digest_sent` keyed by `(org_id, week_iso)` so a
  *    re-run inside the same ISO week becomes a no-op.
  *
@@ -21,10 +21,11 @@
 import { escapeHtml } from '@project-sites/shared';
 import { dbQuery, dbQueryOne, dbInsert } from './db.js';
 import { getEmailProvider } from '../platform/email-router.js';
+import { sendEmail } from './notifications.js';
 import type { Env } from '../types/env.js';
 
 /**
- * Brand colors — kept inline so the email renders even if downstream Resend
+ * Brand colors — kept inline so the email renders even if a downstream provider
  * strips `<style>` blocks.
  */
 const BRAND_BG = '#060610';
@@ -368,8 +369,8 @@ export async function sendWeeklyDigestForOrg(
   // single-recipient lifecycle email, so it goes through the transactional seam
   // (Listmonk's MarketingEmailProvider only does campaigns, not single sends). The
   // List-Unsubscribe one-click headers ride through SES Content.Simple.Headers.
-  // Resend/SendGrid stay fallback until SES is proven live; we inline those here
-  // so callers can mock fetch directly.
+  // Resend removed 2026-09-09; when SES creds are absent, the else-branch routes
+  // through the central SES→SendGrid seam (`sendEmail`).
   if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY && env.SES_FROM_EMAIL) {
     try {
       await getEmailProvider(env).sendTransactional({
@@ -399,63 +400,30 @@ export async function sendWeeklyDigestForOrg(
       );
       return { sent: false, reason: 'ses_error' };
     }
-  } else if (env.RESEND_API_KEY) {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'Project Sites <noreply@projectsites.dev>',
-        to: [owner.email],
+  } else {
+    // ADR-0019 Resend→SES: Resend removed 2026-09-09 (Brian directive). When AWS
+    // SES creds aren't present in env, route through the central SES-primary seam
+    // (`sendEmail`, SES → SendGrid break-glass; Resend already removed from it). The
+    // List-Unsubscribe one-click headers the inline SES path set aren't modeled by
+    // the shared seam — the transactional rail applies its own compliance headers.
+    try {
+      await sendEmail(env, {
+        to: owner.email,
         subject: `Weekly digest · ${org.name}`,
         html,
-        headers: { 'List-Unsubscribe': `<${unsubscribeUrl}>` },
-      }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
+        category: 'transactional',
+      });
+    } catch (err) {
       console.warn(
         JSON.stringify({
           level: 'warn',
           service: 'weekly_digest',
-          message: 'resend failed',
-          status: res.status,
-          body: text,
+          message: 'send failed',
+          error: err instanceof Error ? err.message : String(err),
         }),
       );
-      return { sent: false, reason: `resend_${res.status}` };
+      return { sent: false, reason: 'send_error' };
     }
-  } else if (env.SENDGRID_API_KEY) {
-    const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.SENDGRID_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        personalizations: [{ to: [{ email: owner.email }] }],
-        from: { email: 'noreply@projectsites.dev', name: 'Project Sites' },
-        subject: `Weekly digest · ${org.name}`,
-        content: [{ type: 'text/html', value: html }],
-      }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      console.warn(
-        JSON.stringify({
-          level: 'warn',
-          service: 'weekly_digest',
-          message: 'sendgrid failed',
-          status: res.status,
-          body: text,
-        }),
-      );
-      return { sent: false, reason: `sendgrid_${res.status}` };
-    }
-  } else {
-    return { sent: false, reason: 'no_provider' };
   }
 
   // Idempotency row — insert AFTER the send succeeds so a transient provider

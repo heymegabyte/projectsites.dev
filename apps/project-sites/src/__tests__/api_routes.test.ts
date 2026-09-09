@@ -47,7 +47,7 @@ const createMockEnv = (overrides: Partial<Env> = {}): Env =>
   ({
     ENVIRONMENT: 'test',
     DB: {} as D1Database,
-    RESEND_API_KEY: 'test-resend-key',
+    // Resend removed 2026-09-09 (Brian directive); SendGrid is the break-glass rail.
     SENDGRID_API_KEY: 'test-sendgrid-key',
     GOOGLE_CLIENT_ID: 'test-google-id',
     GOOGLE_CLIENT_SECRET: 'test-google-secret',
@@ -198,11 +198,10 @@ describe('POST /api/contact', () => {
     expect(res.status).toBe(200);
   });
 
-  it('falls back to SendGrid when Resend fails', async () => {
-    mockFetch
-      .mockResolvedValueOnce(new Response('error', { status: 500 })) // Resend fails (notification)
-      .mockResolvedValueOnce(new Response('', { status: 202 })) // SendGrid succeeds
-      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'x' }), { status: 200 })); // Resend succeeds (confirmation)
+  it('delivers via SendGrid (SES unconfigured) and never touches Resend', async () => {
+    // Resend removed 2026-09-09 (Brian directive). With no SES creds, sendEmail
+    // routes through the SendGrid break-glass rail; Resend must never be called.
+    mockFetch.mockResolvedValue(new Response('', { status: 202 })); // SendGrid accepts every send
 
     const { app, env } = createApp();
 
@@ -212,17 +211,18 @@ describe('POST /api/contact', () => {
       body: JSON.stringify({
         name: 'Jane',
         email: 'jane@test.com',
-        message: 'Testing Resend to SendGrid fallback.',
+        message: 'Testing the SendGrid delivery rail.',
       }),
     });
 
     expect(res.status).toBe(200);
-    expect(mockFetch).toHaveBeenCalledTimes(3);
+    const urls = mockFetch.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes('api.sendgrid.com'))).toBe(true); // SendGrid delivered
+    expect(urls.every((u) => !u.includes('api.resend.com'))).toBe(true); // Resend never used
   });
 
   it('still succeeds when no email provider is configured (lead persisted to D1)', async () => {
     const { app, env } = createApp({
-      RESEND_API_KEY: undefined,
       SENDGRID_API_KEY: undefined,
     } as any);
 

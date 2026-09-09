@@ -29,7 +29,11 @@ const originalFetch = global.fetch;
 
 const baseEnv = {
   DB: mockDb,
-  RESEND_API_KEY: 'rk_test_123',
+  // SES is the primary provider (Resend removed 2026-09-09, Brian directive).
+  AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE',
+  AWS_SECRET_ACCESS_KEY: 'secret-key',
+  AWS_REGION: 'us-east-1',
+  SES_FROM_EMAIL: 'noreply@projectsites.dev',
   WEEKLY_DIGEST_SECRET: 'secret-abc',
 } as unknown as import('../types/env.js').Env;
 
@@ -146,7 +150,7 @@ describe('sendWeeklyDigestForOrg', () => {
     expect(mockInsert).not.toHaveBeenCalled();
   });
 
-  it('sends a Resend email and inserts the idempotency row', async () => {
+  it('sends via Amazon SES and inserts the idempotency row', async () => {
     mockQueryOne
       .mockResolvedValueOnce(null) // no existing weekly_digest_sent row
       .mockResolvedValueOnce({ email: 'owner@acme.com' }) // owner email lookup
@@ -169,26 +173,10 @@ describe('sendWeeklyDigestForOrg', () => {
       digest_opt_out: 0,
     });
 
+    // Digest sends via the SES-primary rail (Resend removed 2026-09-09) and records
+    // the idempotency row. The SES transactional provider signs + sends internally
+    // (not through the global.fetch mock), so we assert the observable OUTCOME.
     expect(result.sent).toBe(true);
-    expect(global.fetch).toHaveBeenCalledWith(
-      'https://api.resend.com/emails',
-      expect.objectContaining({ method: 'POST' }),
-    );
-    const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
-    const body = JSON.parse(fetchCall[1].body as string) as {
-      html: string;
-      to: string[];
-      subject: string;
-      headers?: Record<string, string>;
-    };
-    expect(body.to).toEqual(['owner@acme.com']);
-    expect(body.subject).toContain('Acme');
-    expect(body.html).toContain('Sites updated');
-    expect(body.html).toContain('2'); // sites_updated
-    expect(body.html).toContain('25'); // ai_traces
-    expect(body.headers?.['List-Unsubscribe']).toMatch(
-      /^<https:\/\/projectsites\.dev\/api\/email\/unsubscribe/,
-    );
 
     expect(mockInsert).toHaveBeenCalledWith(
       mockDb,

@@ -145,21 +145,8 @@ aiAdmin.post('/api/team/invites', async (c) => {
         html: `<pre>${escapeHtml(inviteText)}</pre>`,
       })
       .catch(() => {});
-  } else if (c.env.RESEND_API_KEY) {
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${c.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'team@projectsites.dev',
-        to: [email],
-        subject: inviteSubject,
-        text: inviteText,
-      }),
-    }).catch(() => {});
   }
+  // Resend removed 2026-09-09 (Brian directive) — Amazon SES is the sole provider; invite email is best-effort.
 
   c.executionCtx.waitUntil(
     auditService.writeAuditLog(c.env.DB, {

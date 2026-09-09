@@ -32,7 +32,6 @@ const mockEnv = {
   ENVIRONMENT: 'staging',
   GOOGLE_CLIENT_ID: 'test-google-client-id',
   GOOGLE_CLIENT_SECRET: 'test-google-client-secret',
-  RESEND_API_KEY: 'test-resend-api-key',
 } as any;
 
 const mockDb = {} as D1Database;
@@ -96,16 +95,17 @@ describe('createMagicLink', () => {
   it('FALLS THROUGH to the fallback rails when the SES rail FAILS (ADR-0019 parity with notifications.ts)', async () => {
     // The SES branch in auth.ts's local sendEmail had NO try/catch: an SES
     // reject (sandbox throttle, unverified recipient) aborted the WHOLE chain —
-    // Listmonk/Resend/SendGrid fallbacks never ran, and the magic-link handler's
-    // fail-open catch converted it into a silent 200 with NO email ever sent.
-    // Regression lock: SES failure must fall through, not abort.
+    // the SendGrid fallback never ran, and the magic-link handler's fail-open
+    // catch converted it into a silent 200 with NO email ever sent.
+    // Regression lock: SES failure must fall through to SendGrid, not abort.
+    // (Resend removed 2026-09-09 per Brian directive — SendGrid is the fallback.)
     const sesEnv = {
       ...mockEnv,
       AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE',
       AWS_SECRET_ACCESS_KEY: 'secret-key',
       AWS_REGION: 'us-east-1',
       SES_FROM_EMAIL: 'noreply@projectsites.dev',
-      RESEND_API_KEY: 'test-resend-key',
+      SENDGRID_API_KEY: 'test-sendgrid-key',
     } as any;
     const mockFetch = jest
       .fn()
@@ -113,7 +113,7 @@ describe('createMagicLink', () => {
       .mockResolvedValueOnce(
         new Response('MessageRejected: Email address is not verified', { status: 400 }),
       )
-      // Second call (Resend fallback) → 200 success
+      // Second call (SendGrid fallback) → 200 success
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'msg-fallback' }), { status: 200 }));
     global.fetch = mockFetch;
 
@@ -122,8 +122,8 @@ describe('createMagicLink', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
     const urls = mockFetch.mock.calls.map((c) => String(c[0]));
     expect(urls.some((u) => u.includes('amazonaws.com'))).toBe(true);
-    // SES failure must fall through to Resend — the abort bug's regression lock.
-    expect(urls.some((u) => u.includes('api.resend.com'))).toBe(true);
+    // SES failure must fall through to SendGrid — the abort bug's regression lock.
+    expect(urls.some((u) => u.includes('api.sendgrid.com'))).toBe(true);
   });
 
   it('calls dbInsert on magic_links table', async () => {
@@ -246,24 +246,27 @@ describe('verifyMagicLink', () => {
 // ---------------------------------------------------------------------------
 // sendEmail fallback behavior
 // ---------------------------------------------------------------------------
-describe('sendEmail fallback (Resend → SendGrid)', () => {
+describe('sendEmail fallback (SES → SendGrid)', () => {
+  // Resend removed 2026-09-09 (Brian directive) — SES is primary, SendGrid break-glass.
   const input = { email: 'fallback@example.com' };
+  const sesCreds = {
+    AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE',
+    AWS_SECRET_ACCESS_KEY: 'secret-key',
+    AWS_REGION: 'us-east-1',
+    SES_FROM_EMAIL: 'noreply@projectsites.dev',
+  };
 
   beforeEach(() => {
     mockDbInsert.mockResolvedValue({ error: null });
   });
 
-  it('falls back to SendGrid when Resend returns a non-200 status', async () => {
-    const envWithBoth = {
-      ...mockEnv,
-      RESEND_API_KEY: 'test-resend-key',
-      SENDGRID_API_KEY: 'test-sendgrid-key',
-    } as any;
+  it('falls back to SendGrid when the SES rail returns a non-200 status', async () => {
+    const envWithBoth = { ...mockEnv, ...sesCreds, SENDGRID_API_KEY: 'test-sendgrid-key' } as any;
 
     const mockFetch = jest
       .fn()
-      // First call (Resend) → 403 error
-      .mockResolvedValueOnce(new Response('Domain not verified', { status: 403 }))
+      // First call (SES) → 403 error
+      .mockResolvedValueOnce(new Response('Email address is not verified', { status: 403 }))
       // Second call (SendGrid) → 202 success
       .mockResolvedValueOnce(new Response('', { status: 202 }));
     global.fetch = mockFetch;
@@ -271,42 +274,36 @@ describe('sendEmail fallback (Resend → SendGrid)', () => {
     const result = await createMagicLink(mockDb, envWithBoth, input);
     expect(result.token).toMatch(/^[0-9a-f]{64}$/);
 
-    // Verify both providers were called
+    // SES tried first, then SendGrid as the break-glass fallback
     expect(mockFetch).toHaveBeenCalledTimes(2);
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.resend.com/emails');
+    expect(String(mockFetch.mock.calls[0][0])).toContain('amazonaws.com');
     expect(mockFetch.mock.calls[1][0]).toBe('https://api.sendgrid.com/v3/mail/send');
   });
 
-  it('uses only Resend when it succeeds', async () => {
-    const envWithBoth = {
-      ...mockEnv,
-      RESEND_API_KEY: 'test-resend-key',
-      SENDGRID_API_KEY: 'test-sendgrid-key',
-    } as any;
+  it('uses only SES when it succeeds', async () => {
+    const envSes = { ...mockEnv, ...sesCreds, SENDGRID_API_KEY: 'test-sendgrid-key' } as any;
 
     const mockFetch = jest
       .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'msg-1' }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ MessageId: 'msg-1' }), { status: 200 }));
     global.fetch = mockFetch;
 
-    await createMagicLink(mockDb, envWithBoth, input);
+    await createMagicLink(mockDb, envSes, input);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.resend.com/emails');
+    expect(String(mockFetch.mock.calls[0][0])).toContain('amazonaws.com');
   });
 
   it('is BEST-EFFORT on email failure — resolves (never 500s the login) when the provider errors', async () => {
-    const envResendOnly = {
-      ...mockEnv,
-      RESEND_API_KEY: 'test-resend-key',
-    } as any;
+    // SES configured but every rail errors — the send must still not 500 the login.
+    const envSesOnly = { ...mockEnv, ...sesCreds } as any;
 
-    global.fetch = jest.fn().mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+    global.fetch = jest.fn().mockResolvedValue(new Response('Unauthorized', { status: 401 }));
 
     // The magic_links row IS the credential and is persisted BEFORE the send, so a
     // provider error must NOT throw — the route's documented fail-open contract.
     // (Previously the uncaught await surfaced a mail error as a 500 on login.)
-    const result = await createMagicLink(mockDb, envResendOnly, input);
+    const result = await createMagicLink(mockDb, envSesOnly, input);
     expect(typeof result.token).toBe('string');
     expect(() => new Date(result.expires_at).toISOString()).not.toThrow();
   });

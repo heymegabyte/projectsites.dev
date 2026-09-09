@@ -53,7 +53,6 @@ const createMockEnv = (overrides: Partial<Env> = {}): Env =>
       get: jest.fn().mockResolvedValue(null),
       put: jest.fn().mockResolvedValue(undefined),
     },
-    RESEND_API_KEY: 'test-resend-key',
     SENDGRID_API_KEY: 'test-sendgrid-key',
     GOOGLE_CLIENT_ID: 'test-google-id',
     GOOGLE_CLIENT_SECRET: 'test-google-secret',

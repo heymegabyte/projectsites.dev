@@ -2,11 +2,11 @@
  * @module services/notifications
  * @description Transactional email notifications for domain verification and site builds.
  *
- * Rail order (ADR-0019 Resend→SES migration): Amazon SES is the PRIMARY rail the
- * moment it is configured (AWS creds + verified `SES_FROM_EMAIL`) — routed via
- * `getEmailProvider(env).sendTransactional`. Until then it degrades to Resend,
- * then SendGrid. The Resend/SendGrid fallbacks are removed once SES is proven
- * live. No feature flag — progressive degradation by env presence.
+ * Rail order (ADR-0019, Resend removed 2026-09-09 per Brian directive — SES is THE
+ * provider): Amazon SES is the PRIMARY + canonical rail (AWS creds + verified
+ * `SES_FROM_EMAIL`) — routed via `getEmailProvider(env).sendTransactional`. SendGrid
+ * remains ONLY as a break-glass fallback if SES is unconfigured. No feature flag —
+ * progressive degradation by env presence.
  *
  * Every fallback-rail call (success or failure) emits a structured log with
  * `{provider, status, body_excerpt, to, request_id, category}` so the operator
@@ -59,20 +59,19 @@ interface EmailOpts {
 }
 
 /**
- * Send an email via configured provider (Resend → SendGrid fallback).
+ * Send an email via Amazon SES (the canonical provider), with SendGrid as a
+ * break-glass fallback only when SES is unconfigured. Resend was removed
+ * 2026-09-09 (Brian directive; it could never send the `noreply@projectsites.dev`
+ * from-domain — only `megabyte.space` was verified in Resend).
  *
  * Wiring rules:
- *   - On `!res.ok` from Resend: `log.error('Resend invite send failed', {status,
- *     body_excerpt, to, request_id, category})` + throw so the caller can decide
- *     whether to bubble or swallow.
- *   - On `res.ok` from Resend: `log.info('Resend invite sent', { category:
- *     'email', request_id, ... })`.
- *   - SendGrid fallback path: mirrors the Resend instrumentation under
- *     `provider: 'sendgrid'` so the operator can see which rail delivered.
+ *   - SES send goes through `getEmailProvider(env).sendTransactional`; on failure
+ *     it falls through to SendGrid (if configured) and logs under `provider:'ses'`.
+ *   - SendGrid fallback path logs under `provider: 'sendgrid'` so the operator can
+ *     see which rail delivered.
  *
- * @throws Error when both Resend AND SendGrid attempts fail (or the only
- *   configured provider rejects). Caller-side `.catch(() => {})` policy is
- *   preserved upstream.
+ * @throws Error when SES (and the SendGrid fallback, if configured) both fail.
+ *   Caller-side `.catch(() => {})` policy is preserved upstream.
  */
 export async function sendEmail(
   env: Env,
@@ -135,7 +134,7 @@ export async function sendEmail(
           service: 'notifications',
           provider: 'ses',
           category,
-          message: 'SES send failed — falling through to Resend/SendGrid',
+          message: 'SES send failed — falling through to SendGrid',
           body_excerpt: excerpt,
           to: opts.to,
           subject: opts.subject,
@@ -151,87 +150,7 @@ export async function sendEmail(
     }
   }
 
-  // 2. Resend fallback.
-  if (env.RESEND_API_KEY) {
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${env.RESEND_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: 'Project Sites <noreply@projectsites.dev>',
-          to: [opts.to],
-          subject: opts.subject,
-          html: opts.html,
-        }),
-      });
-      const requestId = res.headers.get('x-resend-request-id') ?? res.headers.get('x-request-id');
-      if (!res.ok) {
-        const bodyExcerpt = (await res.text()).slice(0, 400);
-        console.warn(
-          JSON.stringify({
-            level: 'error',
-            service: 'notifications',
-            provider: 'resend',
-            category,
-            message: 'Resend send failed',
-            status: res.status,
-            body_excerpt: bodyExcerpt,
-            to: opts.to,
-            subject: opts.subject,
-            request_id: requestId,
-          }),
-        );
-        log.error('Resend invite send failed', {
-          provider: 'resend',
-          category,
-          status: res.status,
-          to: opts.to,
-          subject: opts.subject,
-          request_id: requestId,
-          body_excerpt: bodyExcerpt,
-        });
-        failures.push(`resend ${res.status}`); // fall through to SendGrid
-      } else {
-        console.warn(
-          JSON.stringify({
-            level: 'info',
-            service: 'notifications',
-            provider: 'resend',
-            category,
-            message: 'Resend send ok',
-            status: res.status,
-            body_excerpt: '',
-            to: opts.to,
-            subject: opts.subject,
-            request_id: requestId,
-          }),
-        );
-        log.info('Resend invite sent', {
-          provider: 'resend',
-          category,
-          to: opts.to,
-          subject: opts.subject,
-          request_id: requestId,
-        });
-        return;
-      }
-    } catch (err) {
-      const excerpt = (err instanceof Error ? err.message : String(err)).slice(0, 400);
-      failures.push(`resend(${excerpt})`);
-      log.error('Resend invite send failed', {
-        provider: 'resend',
-        category,
-        to: opts.to,
-        subject: opts.subject,
-        body_excerpt: excerpt,
-      });
-    }
-  }
-
-  // 3. SendGrid fallback.
+  // 2. SendGrid fallback (break-glass only — SES is the canonical provider; Resend removed 2026-09-09).
   if (env.SENDGRID_API_KEY) {
     try {
       const res = await fetch('https://api.sendgrid.com/v3/mail/send', {

@@ -220,21 +220,7 @@ contactNewsletter.post('/api/contact-form/:slug', async (c) => {
             content: [{ type: 'text/html', value: htmlBody }],
           }),
         });
-      } else if (c.env.RESEND_API_KEY) {
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${c.env.RESEND_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: `${site.business_name} <noreply@projectsites.dev>`,
-            to: [toEmail],
-            reply_to: body.email,
-            subject: `New message from ${body.name} via your website`,
-            html: htmlBody,
-          }),
-        });
+        // Resend removed 2026-09-09 (Brian directive) — SES + SendGrid only.
       } else {
         // No email provider configured — the owner email is NOT sent (the in-app
         // bell below is the only delivery). Surface it in logs so the operator

@@ -3,9 +3,12 @@
  * @description Unit coverage for the AI credit ledger (`services/credits.ts`).
  * Exercises balance reads, debit/topup atomic batch + ledger inserts, per-org
  * scoping, and the spend-alert engine (balance_low + daily_burn kinds, 12h
- * throttle, Resend fire-and-forget, enabled gate). D1 is mocked via a small
- * configurable stub of the `prepare().bind().first()/all()/run()` + `batch()`
- * chain; `fetch` is stubbed for the Resend call. No real APIs.
+ * throttle, fire-and-forget email via the central `sendEmail` seam, enabled
+ * gate). Email routes SES-primary (a non-fetching Fake without AWS creds) →
+ * SendGrid break-glass (`api.sendgrid.com`); Resend was removed 2026-09-09
+ * (Brian directive). D1 is mocked via a small configurable stub of the
+ * `prepare().bind().first()/all()/run()` + `batch()` chain; `fetch` is stubbed
+ * for the SendGrid/SES call. No real APIs.
  */
 import {
   CREDIT_BUNDLES,
@@ -305,21 +308,25 @@ describe('maybeFireAlerts', () => {
     expect(rec.params).toEqual(['org-scope']);
   });
 
-  it('fires a balance_low alert when balance <= threshold and Resend is configured', async () => {
+  it('fires a balance_low alert when balance <= threshold and SendGrid is configured', async () => {
     const h = makeDb();
     h.allQueue.push({ results: [alertRow({ threshold_credits: 10 })] });
-    const fetchSpy = jest.fn().mockResolvedValue({ ok: true });
+    const fetchSpy = jest.fn().mockResolvedValue({ ok: true, headers: new Headers() });
     global.fetch = fetchSpy as unknown as typeof fetch;
 
-    await maybeFireAlerts(makeEnv(h.db, { RESEND_API_KEY: 'rk_test' }), 'org-a', 5);
+    // Resend removed (Brian directive 2026-09-09); with no AWS creds the SES rail is a
+    // non-fetching Fake, so SendGrid is the break-glass rail that actually POSTs.
+    await maybeFireAlerts(makeEnv(h.db, { SENDGRID_API_KEY: 'SG.test' }), 'org-a', 5);
 
     // UPDATE last_triggered_at ran
     expect(h.prepared.some((p) => p.sql.includes('UPDATE spend_alerts'))).toBe(true);
-    // Resend POST fired
+    // SendGrid POST fired (never api.resend.com)
     expect(fetchSpy).toHaveBeenCalledWith(
-      'https://api.resend.com/emails',
+      'https://api.sendgrid.com/v3/mail/send',
       expect.objectContaining({ method: 'POST' }),
     );
+    const urls = fetchSpy.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((u) => u.includes('api.resend.com'))).toBe(false);
   });
 
   it('routes a balance_low alert through Amazon SES, not Resend, when SES is configured (ADR-0019)', async () => {
@@ -332,7 +339,6 @@ describe('maybeFireAlerts', () => {
 
     await maybeFireAlerts(
       makeEnv(h.db, {
-        RESEND_API_KEY: 'rk_test',
         AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE',
         AWS_SECRET_ACCESS_KEY: 'secret-key',
         AWS_DEFAULT_REGION: 'us-east-1',
@@ -353,19 +359,21 @@ describe('maybeFireAlerts', () => {
     const fetchSpy = jest.fn();
     global.fetch = fetchSpy as unknown as typeof fetch;
 
-    await maybeFireAlerts(makeEnv(h.db, { RESEND_API_KEY: 'rk_test' }), 'org-a', 50);
+    // A rail IS configured (SendGrid) so a fetch WOULD fire if the threshold tripped —
+    // asserting it didn't proves the balance-gate, not a missing provider.
+    await maybeFireAlerts(makeEnv(h.db, { SENDGRID_API_KEY: 'SG.test' }), 'org-a', 50);
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(h.prepared.some((p) => p.sql.includes('UPDATE spend_alerts'))).toBe(false);
   });
 
-  it('updates last_triggered_at but skips Resend when no API key configured', async () => {
+  it('updates last_triggered_at but skips the email send when no provider configured', async () => {
     const h = makeDb();
     h.allQueue.push({ results: [alertRow({ threshold_credits: 10 })] });
     const fetchSpy = jest.fn();
     global.fetch = fetchSpy as unknown as typeof fetch;
 
-    await maybeFireAlerts(makeEnv(h.db), 'org-a', 5); // no RESEND_API_KEY
+    await maybeFireAlerts(makeEnv(h.db), 'org-a', 5); // no AWS/SendGrid creds → no rail
 
     expect(h.prepared.some((p) => p.sql.includes('UPDATE spend_alerts'))).toBe(true);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -378,7 +386,7 @@ describe('maybeFireAlerts', () => {
     const fetchSpy = jest.fn();
     global.fetch = fetchSpy as unknown as typeof fetch;
 
-    await maybeFireAlerts(makeEnv(h.db, { RESEND_API_KEY: 'rk_test' }), 'org-a', 5);
+    await maybeFireAlerts(makeEnv(h.db, { SENDGRID_API_KEY: 'SG.test' }), 'org-a', 5);
 
     expect(fetchSpy).not.toHaveBeenCalled();
     // no UPDATE because throttled
@@ -389,10 +397,10 @@ describe('maybeFireAlerts', () => {
     const h = makeDb();
     const old = new Date(Date.now() - 13 * 60 * 60 * 1000).toISOString(); // 13h ago
     h.allQueue.push({ results: [alertRow({ threshold_credits: 10, last_fired_at: old })] });
-    const fetchSpy = jest.fn().mockResolvedValue({ ok: true });
+    const fetchSpy = jest.fn().mockResolvedValue({ ok: true, headers: new Headers() });
     global.fetch = fetchSpy as unknown as typeof fetch;
 
-    await maybeFireAlerts(makeEnv(h.db, { RESEND_API_KEY: 'rk_test' }), 'org-a', 5);
+    await maybeFireAlerts(makeEnv(h.db, { SENDGRID_API_KEY: 'SG.test' }), 'org-a', 5);
 
     expect(fetchSpy).toHaveBeenCalled();
   });
@@ -404,10 +412,10 @@ describe('maybeFireAlerts', () => {
     });
     // the daily-burn sub-query first() returns the spent total
     h.firstQueue.push({ spent: 150 });
-    const fetchSpy = jest.fn().mockResolvedValue({ ok: true });
+    const fetchSpy = jest.fn().mockResolvedValue({ ok: true, headers: new Headers() });
     global.fetch = fetchSpy as unknown as typeof fetch;
 
-    await maybeFireAlerts(makeEnv(h.db, { RESEND_API_KEY: 'rk_test' }), 'org-a', 80);
+    await maybeFireAlerts(makeEnv(h.db, { SENDGRID_API_KEY: 'SG.test' }), 'org-a', 80);
 
     expect(fetchSpy).toHaveBeenCalled();
     expect(h.prepared.some((p) => p.sql.includes('UPDATE spend_alerts'))).toBe(true);
@@ -422,7 +430,7 @@ describe('maybeFireAlerts', () => {
     const fetchSpy = jest.fn();
     global.fetch = fetchSpy as unknown as typeof fetch;
 
-    await maybeFireAlerts(makeEnv(h.db, { RESEND_API_KEY: 'rk_test' }), 'org-a', 80);
+    await maybeFireAlerts(makeEnv(h.db, { SENDGRID_API_KEY: 'SG.test' }), 'org-a', 80);
 
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -436,19 +444,19 @@ describe('maybeFireAlerts', () => {
     const fetchSpy = jest.fn();
     global.fetch = fetchSpy as unknown as typeof fetch;
 
-    await maybeFireAlerts(makeEnv(h.db, { RESEND_API_KEY: 'rk_test' }), 'org-a', 80);
+    await maybeFireAlerts(makeEnv(h.db, { SENDGRID_API_KEY: 'SG.test' }), 'org-a', 80);
 
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('swallows a failed Resend fetch (fire-and-forget)', async () => {
+  it('swallows a failed SendGrid fetch (fire-and-forget)', async () => {
     const h = makeDb();
     h.allQueue.push({ results: [alertRow({ threshold_credits: 10 })] });
     const fetchSpy = jest.fn().mockRejectedValue(new Error('network down'));
     global.fetch = fetchSpy as unknown as typeof fetch;
 
     await expect(
-      maybeFireAlerts(makeEnv(h.db, { RESEND_API_KEY: 'rk_test' }), 'org-a', 5),
+      maybeFireAlerts(makeEnv(h.db, { SENDGRID_API_KEY: 'SG.test' }), 'org-a', 5),
     ).resolves.toBeUndefined();
 
     expect(fetchSpy).toHaveBeenCalled();

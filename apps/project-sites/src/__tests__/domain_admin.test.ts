@@ -69,7 +69,6 @@ const createMockEnv = (overrides: Partial<Env> = {}): Env =>
     GOOGLE_PLACES_API_KEY: 'test-places-key',
     POSTHOG_API_KEY: 'test-posthog-key',
     SENTRY_DSN: '',
-    RESEND_API_KEY: 'test-resend-key',
     SENDGRID_API_KEY: 'test-sendgrid-key',
     ...overrides,
   }) as unknown as Env;

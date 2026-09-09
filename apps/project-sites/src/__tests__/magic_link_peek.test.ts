@@ -74,7 +74,6 @@ const createMockEnv = (overrides: Partial<Env> = {}): Env =>
     ENVIRONMENT: 'test',
     DB: {} as D1Database,
     CACHE_KV: createKvMock() as unknown as KVNamespace,
-    RESEND_API_KEY: 'test-resend-key',
     ...overrides,
   }) as unknown as Env;
 

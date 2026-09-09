@@ -71,7 +71,6 @@ const COLD_START_TIMEOUT_MS = 12_000;
  */
 const CONFIG_ENV_KEY: Readonly<Record<string, string>> = {
   stripe: 'STRIPE_SECRET_KEY',
-  resend: 'RESEND_API_KEY',
   deepgram: 'DEEPGRAM_API_KEY',
   langfuse: 'LANGFUSE_PUBLIC_KEY',
 };

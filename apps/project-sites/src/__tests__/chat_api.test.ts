@@ -63,7 +63,6 @@ function createApp(r2GetMock: jest.Mock, dbPrepare?: jest.Mock) {
       delete: jest.fn().mockResolvedValue(undefined),
       list: jest.fn().mockResolvedValue({ objects: [], truncated: false }),
     },
-    RESEND_API_KEY: 'test-resend-key',
     SENDGRID_API_KEY: 'test-sendgrid-key',
     GOOGLE_CLIENT_ID: 'test-google-id',
     GOOGLE_CLIENT_SECRET: 'test-google-secret',

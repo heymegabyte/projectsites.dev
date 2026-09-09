@@ -4,7 +4,7 @@
  * Spend alerts are checked after each debit and notified via Resend.
  */
 import { escapeHtml } from '@project-sites/shared';
-import { getEmailProvider } from '../platform/email-router.js';
+import { sendEmail } from './notifications.js';
 import type { Env } from '../types/env.js';
 
 export const CREDIT_BUNDLES = {
@@ -114,35 +114,16 @@ export async function maybeFireAlerts(env: Env, orgId: string, newBalance: numbe
     )
       .bind(a.id)
       .run();
-    // ADR-0019 Resend→SES: billing alerts route through SES when configured;
-    // Resend stays the fallback. The seam is html-only, so wrap the plain-text
+    // ADR-0019: billing alerts route through the central SES seam
+    // (`sendEmail`, SES-primary). The seam is html-only, so wrap the plain-text
     // alert in an escaped <pre> block. Fire-and-forget — never blocks the debit.
     const subject = `Project Sites spend alert: ${a.name}`;
     const text = `Alert "${a.name}" triggered.\nKind: ${a.trigger_type}\nThreshold: ${a.threshold_credits}\nCurrent balance: ${newBalance}\n\nManage alerts: https://projectsites.dev/admin/billing`;
-    if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY && env.SES_FROM_EMAIL) {
-      await getEmailProvider(env)
-        .sendTransactional({
-          kind: 'billing-alert',
-          from: 'alerts@projectsites.dev',
-          to: a.email,
-          subject,
-          html: `<pre>${escapeHtml(text)}</pre>`,
-        })
-        .catch(() => {});
-    } else if (env.RESEND_API_KEY) {
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${env.RESEND_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: 'alerts@projectsites.dev',
-          to: [a.email],
-          subject,
-          text,
-        }),
-      }).catch(() => {});
-    }
+    await sendEmail(env, {
+      to: a.email,
+      subject,
+      html: `<pre>${escapeHtml(text)}</pre>`,
+      category: 'billing-alert',
+    }).catch(() => {});
   }
 }

@@ -139,7 +139,7 @@ export const EnvSchema = z.object({
   CF_ACCESS_CLIENT_SECRET: z.string().optional(),
   INTERNAL_BUILD_SECRET: z.string().optional(),
   INTERNAL_CALLBACK_URL: z.string().url().optional(),
-  RESEND_API_KEY: z.string().optional(),
+  // RESEND_API_KEY removed 2026-09-09 (Brian directive) — Amazon SES is the canonical email provider.
   SENDGRID_API_KEY: z.string().optional(),
   CHATWOOT_API_URL: z.string().optional(),
   CHATWOOT_API_KEY: z.string().optional(),

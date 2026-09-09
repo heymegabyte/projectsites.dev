@@ -18,9 +18,11 @@ jest.mock('../services/db.js', () => ({
 import { dbInsert } from '../services/db.js';
 const mockDbInsert = dbInsert as unknown as jest.Mock;
 
+// Resend removed 2026-09-09 (Brian directive): Amazon SES is PRIMARY, SendGrid is the
+// break-glass fallback. With no AWS creds set, sendEmail() falls straight through to the
+// SendGrid rail, so the default env exercises the SendGrid `fetch` path.
 const mockEnv = {
   ENVIRONMENT: 'staging',
-  RESEND_API_KEY: 'test-resend-key',
   SENDGRID_API_KEY: 'test-sendgrid-key',
 } as any;
 
@@ -59,20 +61,20 @@ describe('handleContactForm – valid submission', () => {
   it('sends two emails (notification + confirmation)', async () => {
     await handleContactForm(mockEnv, validInput);
 
-    // Two fetch calls: one for notification, one for confirmation
+    // Two fetch calls: one for notification, one for confirmation — both via SendGrid.
     expect(mockFetch).toHaveBeenCalledTimes(2);
 
-    // First call: notification to team
+    // First call: notification to team (SendGrid body shape)
     const firstCallUrl = mockFetch.mock.calls[0][0];
-    expect(firstCallUrl).toBe('https://api.resend.com/emails');
+    expect(firstCallUrl).toBe('https://api.sendgrid.com/v3/mail/send');
     const firstBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(firstBody.to).toEqual(['hey@megabyte.space']);
+    expect(firstBody.personalizations[0].to).toEqual([{ email: 'hey@megabyte.space' }]);
     expect(firstBody.subject).toContain('Jane Doe');
-    expect(firstBody.reply_to).toBe('jane@example.com');
+    expect(firstBody.reply_to).toEqual({ email: 'jane@example.com' });
 
     // Second call: confirmation to user
     const secondBody = JSON.parse(mockFetch.mock.calls[1][1].body);
-    expect(secondBody.to).toEqual(['jane@example.com']);
+    expect(secondBody.personalizations[0].to).toEqual([{ email: 'jane@example.com' }]);
     expect(secondBody.subject).toContain('received your message');
   });
 
@@ -107,7 +109,7 @@ describe('handleContactForm – valid submission', () => {
     // Team notification still sent (Email 1); the receipt (Email 2) is suppressed
     // so a hard bounce never dents our sender reputation.
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.resend.com/emails');
+    expect(mockFetch.mock.calls[0][0]).toBe('https://api.sendgrid.com/v3/mail/send');
     expect(mockHasDeliverableMx).toHaveBeenCalledWith(expect.anything(), 'example.com');
   });
 
@@ -120,8 +122,9 @@ describe('handleContactForm – valid submission', () => {
     await handleContactForm(mockEnv, input);
 
     const notificationBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(notificationBody.html).toContain('&lt;b&gt;User&lt;/b&gt;');
-    expect(notificationBody.html).toContain('&amp; goodbye &quot;friend&quot;');
+    const notificationHtml = notificationBody.content[0].value;
+    expect(notificationHtml).toContain('&lt;b&gt;User&lt;/b&gt;');
+    expect(notificationHtml).toContain('&amp; goodbye &quot;friend&quot;');
   });
 });
 
@@ -234,27 +237,10 @@ describe('handleContactForm – validation', () => {
 // Email provider errors
 // ---------------------------------------------------------------------------
 describe('handleContactForm – email providers', () => {
-  it('falls back to SendGrid when Resend fails', async () => {
-    mockFetch
-      .mockResolvedValueOnce(new Response('error', { status: 500 })) // Resend fails (notification)
-      .mockResolvedValueOnce(new Response('', { status: 202 })) // SendGrid succeeds (notification)
-      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'x' }), { status: 200 })); // Resend succeeds (confirmation)
-
-    await handleContactForm(mockEnv, {
-      name: 'Jane',
-      email: 'jane@test.com',
-      message: 'Testing fallback behavior.',
-    });
-
-    expect(mockFetch).toHaveBeenCalledTimes(3);
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.resend.com/emails');
-    expect(mockFetch.mock.calls[1][0]).toBe('https://api.sendgrid.com/v3/mail/send');
-  });
-
-  it('falls back to Resend when SES FAILS (SES configured) — a transient SES 5xx never loses the lead', async () => {
+  it('falls back to SendGrid when SES fails (SES configured) — a transient SES 5xx never loses the lead', async () => {
     // The bug: when SES is configured, sendEmail used it exclusively and let a SES
     // failure propagate (no fallback) → the public /api/contact form 5xx'd and the
-    // lead was lost. SES must fall back to Resend → SendGrid on FAILURE, not absence.
+    // lead was lost. SES must fall back to SendGrid on FAILURE, not just absence.
     const sesEnv = {
       ...mockEnv,
       AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE',
@@ -262,23 +248,25 @@ describe('handleContactForm – email providers', () => {
       AWS_DEFAULT_REGION: 'us-east-1',
       SES_FROM_EMAIL: 'noreply@projectsites.dev',
     } as any;
-    // SES (amazonaws.com) 500s; Resend/SendGrid succeed.
+    // SES (amazonaws.com) 500s; SendGrid succeeds (202).
     mockFetch.mockImplementation(async (url: string) =>
       String(url).includes('amazonaws.com')
         ? new Response('ses temporarily unavailable', { status: 500 })
-        : new Response(JSON.stringify({ id: 'resend-ok' }), { status: 200 }),
+        : new Response('', { status: 202 }),
     );
 
     await handleContactForm(sesEnv, {
       name: 'Jane',
       email: 'jane@example.com',
-      message: 'Testing SES failure fallback to Resend.',
+      message: 'Testing SES failure fallback to SendGrid.',
     });
 
     const urls = mockFetch.mock.calls.map((c: unknown[]) => String(c[0]));
-    // SES was attempted first, then Resend picked up the send → lead delivered, not lost.
+    // SES was attempted first, then SendGrid picked up the send → lead delivered, not lost.
     expect(urls.some((u) => u.includes('amazonaws.com'))).toBe(true);
-    expect(urls.some((u) => u.includes('api.resend.com'))).toBe(true);
+    expect(urls.some((u) => u.includes('api.sendgrid.com'))).toBe(true);
+    // Resend is gone entirely — never called.
+    expect(urls.some((u) => u.includes('api.resend.com'))).toBe(false);
   });
 
   it('still succeeds when no email provider is configured — the lead persists to D1', async () => {
@@ -326,11 +314,12 @@ describe('handleContactForm – coverage gaps', () => {
     await handleContactForm(mockEnv, input);
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.html).toContain('&amp;');
-    expect(body.html).toContain('&lt;');
-    expect(body.html).toContain('&gt;');
-    expect(body.html).toContain('&quot;');
-    expect(body.html).not.toContain('<user>');
+    const html = body.content[0].value;
+    expect(html).toContain('&amp;');
+    expect(html).toContain('&lt;');
+    expect(html).toContain('&gt;');
+    expect(html).toContain('&quot;');
+    expect(html).not.toContain('<user>');
   });
 
   it('notification email contains all form fields', async () => {
@@ -343,12 +332,13 @@ describe('handleContactForm – coverage gaps', () => {
     await handleContactForm(mockEnv, input);
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.html).toContain('Alice');
-    expect(body.html).toContain('alice@example.com');
-    expect(body.html).toContain('+15551234567');
-    expect(body.html).toContain('premium plan');
+    const html = body.content[0].value;
+    expect(html).toContain('Alice');
+    expect(html).toContain('alice@example.com');
+    expect(html).toContain('+15551234567');
+    expect(html).toContain('premium plan');
     expect(body.subject).toContain('Alice');
-    expect(body.reply_to).toBe('alice@example.com');
+    expect(body.reply_to).toEqual({ email: 'alice@example.com' });
   });
 
   it('confirmation email contains user name and message copy', async () => {
@@ -360,10 +350,11 @@ describe('handleContactForm – coverage gaps', () => {
     await handleContactForm(mockEnv, input);
 
     const body = JSON.parse(mockFetch.mock.calls[1][1].body);
-    expect(body.html).toContain('Bob');
-    expect(body.html).toContain('demo of the platform');
+    const html = body.content[0].value;
+    expect(html).toContain('Bob');
+    expect(html).toContain('demo of the platform');
     expect(body.subject).toContain('received your message');
-    expect(body.to).toEqual(['bob@example.com']);
+    expect(body.personalizations[0].to).toEqual([{ email: 'bob@example.com' }]);
   });
 
   it('notification email omits phone row when not provided', async () => {
@@ -375,7 +366,7 @@ describe('handleContactForm – coverage gaps', () => {
     await handleContactForm(mockEnv, input);
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.html).not.toContain('Phone:');
+    expect(body.content[0].value).not.toContain('Phone:');
   });
 
   it('accepts name at boundary (200 chars)', async () => {
@@ -398,7 +389,7 @@ describe('handleContactForm – coverage gaps', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
-  it('sends via SendGrid only when Resend key is missing', async () => {
+  it('sends via SendGrid when SES is not configured (SendGrid-only rail)', async () => {
     const sendGridOnlyEnv = {
       ENVIRONMENT: 'staging',
       SENDGRID_API_KEY: 'test-sendgrid-key',

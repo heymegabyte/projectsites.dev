@@ -17,7 +17,6 @@ function mockEnv(overrides: Partial<Env> = {}): Env {
     TWENTY_API_URL: 'https://crm.projectsites.dev',
     TWENTY_API_KEY: 'test-jwt',
     STRIPE_SECRET_KEY: 'sk_test_...',
-    RESEND_API_KEY: 're_test_...',
     DEEPGRAM_API_KEY: 'dg_test_...',
     ...overrides,
   } as unknown as Env;
@@ -87,7 +86,6 @@ describe('GET /api/integrations/health', () => {
     const req = new Request('https://projectsites.dev/api/integrations/health');
     const env = mockEnv({
       TWENTY_API_KEY: '',
-      RESEND_API_KEY: '',
       DEEPGRAM_API_KEY: '',
     });
     const res = await app.fetch(req, env);

@@ -35,7 +35,6 @@ const createMockEnv = (): Env =>
   ({
     ENVIRONMENT: 'test',
     DB: {} as D1Database,
-    RESEND_API_KEY: 'test-resend-key',
     SENDGRID_API_KEY: 'test-sendgrid-key',
     GOOGLE_CLIENT_ID: 'test-google-id',
     GOOGLE_CLIENT_SECRET: 'test-google-secret',

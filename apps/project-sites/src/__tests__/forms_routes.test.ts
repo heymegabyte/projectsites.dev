@@ -113,7 +113,6 @@ function makeEnv(overrides: Partial<Record<string, unknown>> = {}): Env {
     DB: makeDbStub(),
     // The AI-router waitUntil block reads c.env.AI/.DB; never awaited by the test.
     AI: { run: jest.fn(async () => ({ response: '{}' })) },
-    RESEND_API_KEY: 'test-resend-key',
     ...overrides,
   } as unknown as Env;
 }
@@ -745,9 +744,11 @@ describe('POST /api/sites/:siteId/form-submissions/:submissionId/send-reply', ()
     expect(json.error?.code).toBe('VALIDATION_ERROR');
   });
 
-  it('returns 400 when RESEND_API_KEY is not configured', async () => {
+  it('returns 400 when no email provider (Amazon SES) is configured', async () => {
+    // Resend removed 2026-09-09 (Brian directive) — SES is the required rail. With no
+    // AWS creds set, send-reply has no provider and throws the "not configured" 400.
     mockDbQueryOne.mockResolvedValueOnce(OWNED_SITE).mockResolvedValueOnce(SUBMISSION_ROW);
-    const env = makeEnv({ RESEND_API_KEY: undefined });
+    const env = makeEnv();
     const res = await request(
       makeApp(AUTH),
       '/api/sites/site-1/form-submissions/sub-1/send-reply',
@@ -759,15 +760,17 @@ describe('POST /api/sites/:siteId/form-submissions/:submissionId/send-reply', ()
     expect(json.error?.message).toMatch(/not configured/i);
   });
 
-  it('sends via Resend, marks replied_at, and writes an audit log on success', async () => {
+  it('sends via Amazon SES, marks replied_at, and writes an audit log on success', async () => {
     mockDbQueryOne.mockResolvedValueOnce(OWNED_SITE).mockResolvedValueOnce(SUBMISSION_ROW);
-    fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('{"id":"email-1"}', {
-        status: 200,
-        headers: { 'x-resend-request-id': 'resend-req-1' },
-      }),
-    );
-    const env = makeEnv();
+    fetchSpy = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('{"MessageId":"ses-1"}', { status: 200 }));
+    const env = makeEnv({
+      AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE',
+      AWS_SECRET_ACCESS_KEY: 'secret-key',
+      AWS_DEFAULT_REGION: 'us-east-1',
+      SES_FROM_EMAIL: 'noreply@projectsites.dev',
+    });
     const res = await request(
       makeApp(AUTH),
       '/api/sites/site-1/form-submissions/sub-1/send-reply',
@@ -778,7 +781,10 @@ describe('POST /api/sites/:siteId/form-submissions/:submissionId/send-reply', ()
     const json = (await res.json()) as { data: { sent: boolean; to: string } };
     expect(json.data.sent).toBe(true);
     expect(json.data.to).toBe('visitor@example.com');
-    expect(fetchSpy).toHaveBeenCalledWith('https://api.resend.com/emails', expect.anything());
+    // The reply routes through SES (SigV4 POST to *.amazonaws.com), never Resend.
+    const urls = fetchSpy.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((u) => u.includes('amazonaws.com'))).toBe(true);
+    expect(urls.some((u) => u.includes('api.resend.com'))).toBe(false);
     // form_submissions UPDATE (replied_at) + audit log.
     expect(mockDbExecute).toHaveBeenCalledTimes(1);
     expect(mockAudit).toHaveBeenCalledTimes(1);
@@ -807,21 +813,27 @@ describe('POST /api/sites/:siteId/form-submissions/:submissionId/send-reply', ()
     expect(urls.some((u) => u.includes('api.resend.com'))).toBe(false);
   });
 
-  it('returns 400 when Resend rejects the send (non-2xx)', async () => {
+  it('surfaces an error and does not mark replied when SES rejects the send (non-2xx)', async () => {
+    // SES configured, but the SigV4 SES POST 429s → the provider throws, the route
+    // errors, and the submission is NEVER marked replied (no lying "sent").
     mockDbQueryOne.mockResolvedValueOnce(OWNED_SITE).mockResolvedValueOnce(SUBMISSION_ROW);
     fetchSpy = jest
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response('rate limited', { status: 429 }));
-    const env = makeEnv();
+    const env = makeEnv({
+      AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE',
+      AWS_SECRET_ACCESS_KEY: 'secret-key',
+      AWS_DEFAULT_REGION: 'us-east-1',
+      SES_FROM_EMAIL: 'noreply@projectsites.dev',
+    });
     const res = await request(
       makeApp(AUTH),
       '/api/sites/site-1/form-submissions/sub-1/send-reply',
       { method: 'POST', body: { subject: 'Re: quote', body: '<p>Thanks!</p>' } },
       env,
     );
-    expect(res.status).toBe(400);
-    const json = (await res.json()) as { error?: { message?: string } };
-    expect(json.error?.message).toMatch(/Resend rejected/i);
+    // An SES 5xx/4xx surfaces as a server error (the provider throws a plain Error).
+    expect(res.status).toBe(500);
     // Submission must NOT be marked replied when the send failed.
     expect(mockDbExecute).not.toHaveBeenCalled();
   });

@@ -1,9 +1,15 @@
 /**
  * weekly_digest — Monday 14:00 UTC summary email (convergence r34).
  *
+ * Resend was removed 2026-09-09 (Brian directive); SES is the PRIMARY rail and
+ * SendGrid the break-glass fallback. When SES creds are present the digest rides
+ * the SES rail directly (`getEmailProvider(env).sendTransactional` → SigV4 POST to
+ * email.{region}.amazonaws.com/v2/email/outbound-emails, honouring the one-click
+ * List-Unsubscribe headers via Content.Simple.Headers). Otherwise it routes through
+ * the central `sendEmail` seam (SES → SendGrid; SendGrid fetches api.sendgrid.com).
+ *
  * Locks the digest service end-to-end against its three boundaries (D1 via
- * db.js helpers, the Resend/SendGrid REST API via global.fetch, and Web Crypto
- * HMAC):
+ * db.js helpers, the SES/SendGrid REST API via global.fetch, and Web Crypto HMAC):
  *  - isoWeekString ISO-8601 week math (Thursday-anchored, year boundaries).
  *  - computeWeeklyMetrics 7-day rollup per query, null-coalescing to 0, the
  *    top-3 referrer aggregation/sort/slice, malformed-JSON skip, and the
@@ -12,8 +18,8 @@
  *    no-referrers fallback row.
  *  - sign/verifyUnsubscribeToken round-trip + every reject branch.
  *  - sendWeeklyDigestForOrg every skip reason (opted_out, already_sent,
- *    no_owner_email, no_provider), Resend success + the post-send idempotency
- *    insert, Resend/SendGrid non-2xx resilience, SendGrid fallback path, and
+ *    no_owner_email), the SES + SendGrid send paths + the post-send idempotency
+ *    insert, SES/SendGrid failure resilience, the no-rail no-op-success seam, and
  *    the secret fallback chain.
  *  - sendWeeklyDigestsForAllOrgs sent/skipped/failed tallying + per-org
  *    soft-fail.
@@ -55,11 +61,12 @@ global.fetch = mockFetch as unknown as typeof fetch;
 
 const mockDb = {} as D1Database;
 
-/** Email-API Response stub. */
+/** Email-API Response stub (SendGrid seam reads `headers.get(...)` for the message id). */
 function res(ok: boolean, opts: { status?: number; text?: string } = {}) {
   return {
     ok,
     status: opts.status ?? (ok ? 200 : 500),
+    headers: { get: (_name: string): string | null => null },
     text: jest.fn(async () => opts.text ?? ''),
   };
 }
@@ -67,7 +74,6 @@ function res(ok: boolean, opts: { status?: number; text?: string } = {}) {
 function makeEnv(over: Record<string, unknown> = {}): Env {
   return {
     DB: mockDb,
-    RESEND_API_KEY: 're_test_key',
     WEEKLY_DIGEST_SECRET: 'digest-secret',
     ...over,
   } as unknown as Env;
@@ -324,7 +330,10 @@ describe('sendWeeklyDigestForOrg (skip reasons)', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('skips with no_provider when neither Resend nor SendGrid is configured', async () => {
+  it('succeeds as a no-op through the central seam when no email rail is configured', async () => {
+    // Resend removed 2026-09-09. With neither SES creds nor SendGrid, the central
+    // `sendEmail` seam warns-and-returns (a successful no-op) rather than throwing —
+    // so the digest reports sent + writes the idempotency row, and no HTTP call fires.
     mockQueryOne
       .mockResolvedValueOnce(null) // idempotency miss
       .mockResolvedValueOnce({ email: 'owner@x.com' }) // owner
@@ -333,16 +342,16 @@ describe('sendWeeklyDigestForOrg (skip reasons)', () => {
       .mockResolvedValueOnce({ n: 0 }) // ai
       .mockResolvedValueOnce({ n: 0 }); // errors
     mockQuery.mockResolvedValueOnce({ data: [] }); // referrers
-    const env = makeEnv({ RESEND_API_KEY: undefined, SENDGRID_API_KEY: undefined });
+    const env = makeEnv({ SENDGRID_API_KEY: undefined });
 
     const out = await sendWeeklyDigestForOrg(env, mockDb, {
       id: 'o',
       name: 'O',
       digest_opt_out: 0,
     });
-    expect(out).toEqual({ sent: false, reason: 'no_provider' });
+    expect(out).toEqual({ sent: true });
     expect(mockFetch).not.toHaveBeenCalled();
-    expect(mockInsert).not.toHaveBeenCalled();
+    expect(mockInsert).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -362,13 +371,17 @@ describe('sendWeeklyDigestForOrg (send paths)', () => {
     mockQuery.mockResolvedValueOnce({ data: [] }); // referrers
   }
 
-  it('sends via Resend with Bearer auth + List-Unsubscribe, then writes the idempotency row', async () => {
+  it('sends via the SendGrid fallback with Bearer auth, then writes the idempotency row', async () => {
+    // Resend removed 2026-09-09. With no SES creds, the digest routes through the
+    // central `sendEmail` seam → SendGrid break-glass fetch (api.sendgrid.com). The
+    // seam applies its own compliance headers, so List-Unsubscribe is asserted on the
+    // SES path (next test), not here.
     primeHappyReads();
     mockFetch.mockResolvedValueOnce(res(true));
     const now = new Date('2026-05-25T14:00:00Z');
 
     const out = await sendWeeklyDigestForOrg(
-      makeEnv(),
+      makeEnv({ SENDGRID_API_KEY: 'SG.key' }),
       mockDb,
       {
         id: 'org-9',
@@ -380,15 +393,14 @@ describe('sendWeeklyDigestForOrg (send paths)', () => {
 
     expect(out).toEqual({ sent: true });
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://api.resend.com/emails');
+    expect(url).toBe('https://api.sendgrid.com/v3/mail/send');
     expect(init.method).toBe('POST');
-    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer re_test_key');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer SG.key');
     const body = JSON.parse(init.body as string);
-    expect(body.to).toEqual(['owner@x.com']);
+    expect(body.personalizations[0].to[0].email).toBe('owner@x.com');
     expect(body.subject).toBe('Weekly digest · Acme');
-    expect(body.headers['List-Unsubscribe']).toMatch(
-      /^<https:\/\/projectsites\.dev\/api\/email\/unsubscribe\?token=/,
-    );
+    // html rides content[0].value on the SendGrid rail.
+    expect(body.content[0].value).toContain('Acme');
     // Idempotency row written AFTER the send.
     expect(mockInsert).toHaveBeenCalledWith(
       mockDb,
@@ -427,23 +439,35 @@ describe('sendWeeklyDigestForOrg (send paths)', () => {
     expect(headers.some((h) => h.Name === 'List-Unsubscribe-Post')).toBe(true);
   });
 
-  it('returns resend_<status> and does NOT write the idempotency row on a non-2xx', async () => {
+  it('returns ses_error and does NOT write the idempotency row when the SES send fails', async () => {
+    // Resend removed 2026-09-09. On the SES rail a non-2xx makes the provider throw,
+    // which the digest maps to reason 'ses_error' and skips the idempotency insert so
+    // a transient outage doesn't permanently lock out a retry.
     primeHappyReads();
-    mockFetch.mockResolvedValueOnce(res(false, { status: 429, text: 'rate limited' }));
+    mockFetch.mockResolvedValueOnce(new Response('rate limited', { status: 429 }));
 
-    const out = await sendWeeklyDigestForOrg(makeEnv(), mockDb, {
-      id: 'org-9',
-      name: 'Acme',
-      digest_opt_out: 0,
-    });
-    expect(out).toEqual({ sent: false, reason: 'resend_429' });
+    const out = await sendWeeklyDigestForOrg(
+      makeEnv({
+        AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE',
+        AWS_SECRET_ACCESS_KEY: 'secret-key',
+        AWS_DEFAULT_REGION: 'us-east-1',
+        SES_FROM_EMAIL: 'noreply@projectsites.dev',
+      }),
+      mockDb,
+      {
+        id: 'org-9',
+        name: 'Acme',
+        digest_opt_out: 0,
+      },
+    );
+    expect(out).toEqual({ sent: false, reason: 'ses_error' });
     expect(mockInsert).not.toHaveBeenCalled();
   });
 
-  it('falls back to SendGrid when Resend is absent', async () => {
+  it('falls back to SendGrid when SES is absent', async () => {
     primeHappyReads();
     mockFetch.mockResolvedValueOnce(res(true));
-    const env = makeEnv({ RESEND_API_KEY: undefined, SENDGRID_API_KEY: 'SG.key' });
+    const env = makeEnv({ SENDGRID_API_KEY: 'SG.key' });
 
     const out = await sendWeeklyDigestForOrg(env, mockDb, {
       id: 'org-9',
@@ -460,24 +484,36 @@ describe('sendWeeklyDigestForOrg (send paths)', () => {
     expect(mockInsert).toHaveBeenCalledTimes(1);
   });
 
-  it('returns sendgrid_<status> on a SendGrid non-2xx', async () => {
+  it('returns send_error and skips the insert on a SendGrid non-2xx', async () => {
+    // Resend removed 2026-09-09. A SendGrid non-2xx makes the central seam throw
+    // "All email providers failed", which the digest maps to the generic 'send_error'
+    // reason (the seam no longer surfaces the per-provider status back to the caller).
     primeHappyReads();
     mockFetch.mockResolvedValueOnce(res(false, { status: 401, text: 'unauthorized' }));
-    const env = makeEnv({ RESEND_API_KEY: undefined, SENDGRID_API_KEY: 'SG.key' });
+    const env = makeEnv({ SENDGRID_API_KEY: 'SG.key' });
 
     const out = await sendWeeklyDigestForOrg(env, mockDb, {
       id: 'org-9',
       name: 'Acme',
       digest_opt_out: 0,
     });
-    expect(out).toEqual({ sent: false, reason: 'sendgrid_401' });
+    expect(out).toEqual({ sent: false, reason: 'send_error' });
     expect(mockInsert).not.toHaveBeenCalled();
   });
 
   it('uses the STRIPE_WEBHOOK_SECRET → static fallback chain when WEEKLY_DIGEST_SECRET is absent', async () => {
+    // Exercised on the SES rail — the one-click List-Unsubscribe header (carrying the
+    // signed token) is only emitted via Content.Simple.Headers there.
     primeHappyReads();
-    mockFetch.mockResolvedValueOnce(res(true));
-    const env = makeEnv({ WEEKLY_DIGEST_SECRET: undefined, STRIPE_WEBHOOK_SECRET: 'whsec_x' });
+    mockFetch.mockResolvedValueOnce(new Response('{"MessageId":"ses-1"}', { status: 200 }));
+    const env = makeEnv({
+      WEEKLY_DIGEST_SECRET: undefined,
+      STRIPE_WEBHOOK_SECRET: 'whsec_x',
+      AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE',
+      AWS_SECRET_ACCESS_KEY: 'secret-key',
+      AWS_DEFAULT_REGION: 'us-east-1',
+      SES_FROM_EMAIL: 'noreply@projectsites.dev',
+    });
 
     const out = await sendWeeklyDigestForOrg(env, mockDb, {
       id: 'org-secret',
@@ -487,9 +523,9 @@ describe('sendWeeklyDigestForOrg (send paths)', () => {
     expect(out).toEqual({ sent: true });
     // Token in the unsubscribe URL must verify against the chosen fallback secret.
     const body = JSON.parse((mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string);
-    const token = decodeURIComponent(
-      (body.headers['List-Unsubscribe'] as string).match(/token=([^>]+)>/)![1],
-    );
+    const headers = body.Content.Simple.Headers as Array<{ Name: string; Value: string }>;
+    const listUnsub = headers.find((h) => h.Name === 'List-Unsubscribe')!.Value;
+    const token = decodeURIComponent(listUnsub.match(/token=([^>]+)>/)![1]);
     expect(await verifyUnsubscribeToken(token, 'whsec_x')).toBe('org-secret');
   });
 });

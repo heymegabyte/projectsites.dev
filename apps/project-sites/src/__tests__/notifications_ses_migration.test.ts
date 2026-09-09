@@ -1,9 +1,9 @@
 /**
  * Convergence §42/ADR-0019 — sendEmail routes through SES when configured.
  *
- * The first real Resend→SES migration decrement: with AWS creds present, the
- * central transactional sender dispatches via the email router (SES), NOT Resend.
- * Resend stays the documented fallback until SES is proven live.
+ * With AWS creds present, the central transactional sender dispatches via the
+ * email router (SES). Resend was REMOVED 2026-09-09 (Brian directive) — SendGrid
+ * is now the sole break-glass fallback when SES fails/unconfigured.
  */
 import { sendEmail, categoryToEmailKind } from '../services/notifications.js';
 import type { EmailRouter } from '../platform/email-router.js';
@@ -25,8 +25,8 @@ describe('sendEmail SES migration (ADR-0019)', () => {
     AWS_ACCESS_KEY_ID: 'k',
     AWS_SECRET_ACCESS_KEY: 's',
     SES_FROM_EMAIL: 'noreply@mail.projectsites.dev',
-    // RESEND_API_KEY intentionally also set — SES must win regardless.
-    RESEND_API_KEY: 're_should_not_be_used',
+    // SENDGRID_API_KEY intentionally also set — SES must win regardless.
+    SENDGRID_API_KEY: 'sg-key-xyz',
   } as Env;
 
   function fakeRouter() {
@@ -77,13 +77,13 @@ describe('sendEmail SES migration (ADR-0019)', () => {
     };
   }
 
-  it('FALLS THROUGH to Resend when the SES rail FAILS (fallback, not abort)', async () => {
-    // A transient SES failure must NOT fail the send when Resend is configured —
-    // the documented Resend fallback (ADR-0019) has to actually kick in.
+  it('FALLS THROUGH to SendGrid when the SES rail FAILS (fallback, not abort)', async () => {
+    // A transient SES failure must NOT fail the send when SendGrid is configured —
+    // the break-glass SendGrid fallback (ADR-0019, post-Resend-removal) has to kick in.
     const fetchSpy = jest.fn().mockResolvedValue(
-      new Response(JSON.stringify({ id: 're-1' }), {
+      new Response(JSON.stringify({ id: 'sg-1' }), {
         status: 200,
-        headers: { 'x-resend-request-id': 'req-1' },
+        headers: { 'x-message-id': 'req-1' },
       }),
     );
     const orig = globalThis.fetch;
@@ -96,14 +96,14 @@ describe('sendEmail SES migration (ADR-0019)', () => {
           { email: failingRouter() },
         ),
       ).resolves.toBeUndefined();
-      expect(fetchSpy).toHaveBeenCalledTimes(1); // Resend WAS tried as the fallback
-      expect(String(fetchSpy.mock.calls[0][0])).toContain('api.resend.com');
+      expect(fetchSpy).toHaveBeenCalledTimes(1); // SendGrid WAS tried as the fallback
+      expect(String(fetchSpy.mock.calls[0][0])).toContain('api.sendgrid.com');
     } finally {
       globalThis.fetch = orig;
     }
   });
 
-  it('throws only when EVERY configured provider fails (SES + Resend both fail)', async () => {
+  it('throws only when EVERY configured provider fails (SES + SendGrid both fail)', async () => {
     const fetchSpy = jest.fn().mockResolvedValue(new Response('unprocessable', { status: 422 }));
     const orig = globalThis.fetch;
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
@@ -115,7 +115,7 @@ describe('sendEmail SES migration (ADR-0019)', () => {
           { email: failingRouter() },
         ),
       ).rejects.toThrow(/email/i);
-      expect(fetchSpy).toHaveBeenCalledTimes(1); // Resend WAS attempted before giving up
+      expect(fetchSpy).toHaveBeenCalledTimes(1); // SendGrid WAS attempted before giving up
     } finally {
       globalThis.fetch = orig;
     }

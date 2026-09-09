@@ -45,7 +45,9 @@ function makeEnv(overrides: Partial<Record<string, unknown>> = {}): Env {
   return {
     ENVIRONMENT: 'test',
     DB: makeDb(),
-    RESEND_API_KEY: 're_test_x',
+    // Resend removed 2026-09-09 (Brian directive). Default to the SendGrid rail
+    // (mockable fetch to api.sendgrid.com); SES-specific tests override with AWS creds.
+    SENDGRID_API_KEY: 'sg_test_x',
     ...overrides,
   } as unknown as Env;
 }
@@ -85,7 +87,8 @@ describe('POST /api/contact-form/:slug — HTML-injection defense', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const sentBody = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    const html: string = sentBody.html;
+    // SendGrid v3 body: content:[{ type:'text/html', value: <html> }]
+    const html: string = sentBody.content[0].value;
     expect(html).not.toContain('<a href="https://evil.com">');
     expect(html).toContain('&lt;a href=&quot;https://evil.com&quot;&gt;');
   });
@@ -157,8 +160,8 @@ describe('POST /api/contact-form/:slug — HTML-injection defense', () => {
     const fetchMock = jest.fn();
     global.fetch = fetchMock;
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    // Strip the default RESEND key → neither provider set.
-    const res = await submit(makeEnv({ RESEND_API_KEY: undefined }), {
+    // Strip the default SendGrid key → neither provider set.
+    const res = await submit(makeEnv({ SENDGRID_API_KEY: undefined }), {
       name: 'Visitor',
       email: 'visitor@example.com',
       message: 'a genuine inquiry that should still be accepted',
@@ -180,7 +183,7 @@ describe('POST /api/contact-form/:slug — HTML-injection defense', () => {
       message: 'line1\nline2 — a real note',
     });
     const sentBody = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    expect(sentBody.html).toContain('line1<br>line2');
+    expect(sentBody.content[0].value).toContain('line1<br>line2');
   });
 });
 

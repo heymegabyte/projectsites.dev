@@ -4,8 +4,13 @@
  * Covers: parseRouterAction (fence stripping, invalid JSON, missing tool),
  * buildPrompt (template resolution, tool-list injection, fallback copy,
  * context snippets), improveRouterPrompt (seed vs improved vs error fallback),
- * and executeRouterAction (noop, send_email Resend fallback, MCP tool dispatch,
+ * and executeRouterAction (noop, send_email SES rail, MCP tool dispatch,
  * error envelopes, edge inputs). D1/KV/fetch/AI/MCP are all mocked — no real APIs.
+ *
+ * Resend was removed 2026-09-09 (Brian directive) — the send_email built-in
+ * fallback now rides the central SES rail (`getEmailProvider(env).sendTransactional`
+ * → SigV4 POST to email.{region}.amazonaws.com/v2/email/outbound-emails). When SES
+ * creds are absent, send_email falls through to the MCP `executeTool` path.
  */
 import {
   parseRouterAction,
@@ -237,7 +242,15 @@ describe('improveRouterPrompt', () => {
 // executeRouterAction
 // ---------------------------------------------------------------------------
 describe('executeRouterAction', () => {
-  const baseEnv = { RESEND_API_KEY: 'resend-test-key' } as any;
+  // No email rail configured — send_email falls through to the MCP executeTool path.
+  const baseEnv = {} as any;
+  // SES-configured env — the built-in send_email fallback rides the SES rail.
+  const sesEnv = {
+    AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE',
+    AWS_SECRET_ACCESS_KEY: 'secret-key',
+    AWS_DEFAULT_REGION: 'us-east-1',
+    SES_FROM_EMAIL: 'noreply@projectsites.dev',
+  } as any;
 
   it('short-circuits on noop without touching fetch or MCP', async () => {
     const action: RouterAction = { tool: 'noop', reason: 'spam: empty email' };
@@ -263,30 +276,34 @@ describe('executeRouterAction', () => {
     expect(res.detail).toEqual({ reason: 'no action' });
   });
 
-  it('sends email via the Resend fallback when reply email + key are present', async () => {
+  it('sends email via the SES rail when reply email + SES creds are present', async () => {
+    mockFetch.mockResolvedValue(new Response('{"MessageId":"ses-1"}', { status: 200 }));
     const action: RouterAction = {
       tool: 'send_email',
       args: { subject: '[contact] hello', body: 'Name: Jane', reply_to: 'jane@x.co' },
     };
-    const res = await executeRouterAction(baseEnv, 'site-1', action, {
+    const res = await executeRouterAction(sesEnv, 'site-1', action, {
       replyEmail: 'owner@acme.co',
     });
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch.mock.calls[0][0]).toBe('https://api.resend.com/emails');
+    expect(String(mockFetch.mock.calls[0][0])).toContain('amazonaws.com');
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.to).toEqual(['owner@acme.co']);
-    expect(body.subject).toBe('[contact] hello');
-    expect(body.text).toBe('Name: Jane');
-    expect(body.reply_to).toBe('jane@x.co');
-    expect(body.from).toBe('noreply@projectsites.dev');
+    // SES rail: recipient in Destination, reply-to honored, html body carries the
+    // plaintext wrapped in an escaped <pre>. Never api.resend.com.
+    expect(body.Destination.ToAddresses).toEqual(['owner@acme.co']);
+    expect(body.ReplyToAddresses).toEqual(['jane@x.co']);
+    expect(body.Content.Simple.Subject.Data).toBe('[contact] hello');
+    expect(body.Content.Simple.Body.Html.Data).toBe('<pre>Name: Jane</pre>');
+    expect(body.FromEmailAddress).toBe('noreply@projectsites.dev');
     expect(res).toEqual({ tool: 'send_email', status: 'ok', detail: { to: 'owner@acme.co' } });
     expect(mockExecuteTool).not.toHaveBeenCalled();
   });
 
   it('routes send_email through Amazon SES, not Resend, when SES is configured (ADR-0019)', async () => {
+    // Resend removed 2026-09-09 — RESEND_API_KEY no longer exists on Env. This test
+    // guards that the send NEVER hits api.resend.com regardless (see url assertion below).
     const sesEnv = {
-      RESEND_API_KEY: 'resend-test-key',
       AWS_ACCESS_KEY_ID: 'AKIAEXAMPLE',
       AWS_SECRET_ACCESS_KEY: 'secret-key',
       AWS_DEFAULT_REGION: 'us-east-1',
@@ -310,23 +327,24 @@ describe('executeRouterAction', () => {
   });
 
   it('defaults subject and body when send_email args are missing', async () => {
+    mockFetch.mockResolvedValue(new Response('{"MessageId":"ses-1"}', { status: 200 }));
     const res = await executeRouterAction(
-      baseEnv,
+      sesEnv,
       'site-1',
       { tool: 'send_email' },
       { replyEmail: 'o@acme.co' },
     );
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.subject).toBe('New form submission');
-    // body falls back to a JSON dump of the (empty) args
-    expect(typeof body.text).toBe('string');
+    expect(body.Content.Simple.Subject.Data).toBe('New form submission');
+    // body falls back to a JSON dump of the (empty) args, escaped inside a <pre>
+    expect(typeof body.Content.Simple.Body.Html.Data).toBe('string');
     expect(res.status).toBe('ok');
   });
 
-  it('returns an error envelope when the Resend call fails', async () => {
+  it('returns an error envelope when the SES send fails', async () => {
     mockFetch.mockResolvedValueOnce(new Response('boom', { status: 502 }));
     const res = await executeRouterAction(
-      baseEnv,
+      sesEnv,
       'site-1',
       { tool: 'send_email', args: { subject: 's', body: 'b' } },
       { replyEmail: 'owner@acme.co' },
@@ -335,7 +353,7 @@ describe('executeRouterAction', () => {
       tool: 'send_email',
       status: 'error',
       detail: {},
-      error: 'resend 502',
+      error: 'ses SES send failed (502): boom',
     });
   });
 
@@ -355,11 +373,11 @@ describe('executeRouterAction', () => {
     expect(res).toEqual({ tool: 'send_email', status: 'ok', detail: { sent: true } });
   });
 
-  it('routes send_email through MCP when RESEND_API_KEY is absent', async () => {
+  it('routes send_email through MCP when no email rail is configured', async () => {
     mockExecuteTool.mockResolvedValue({ ok: true, data: {} });
-    const noKeyEnv = {} as any;
+    const noRailEnv = {} as any;
     await executeRouterAction(
-      noKeyEnv,
+      noRailEnv,
       'site-1',
       { tool: 'send_email', args: {} },
       { replyEmail: 'o@acme.co' },

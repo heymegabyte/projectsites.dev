@@ -160,16 +160,8 @@ authOrg.post('/api/auth/organization/invite-member', async (c) => {
         html: `<pre>${escapeHtml(text)}</pre>`,
       })
       .catch(() => {});
-  } else if (c.env.RESEND_API_KEY) {
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${c.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ from: 'team@projectsites.dev', to: [email], subject, text }),
-    }).catch(() => {});
   }
+  // Resend removed 2026-09-09 (Brian directive) — Amazon SES is the sole provider; invite email is best-effort (the invite row is already persisted).
   return c.json(
     {
       id,

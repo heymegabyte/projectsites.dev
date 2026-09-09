@@ -56,7 +56,6 @@ function createMockEnv(overrides: Partial<Env> = {}): Env {
     STRIPE_PUBLISHABLE_KEY: 'pk_test_123',
     GOOGLE_CLIENT_ID: 'test-google-id',
     GOOGLE_CLIENT_SECRET: 'test-google-secret',
-    RESEND_API_KEY: 'test-resend-key',
     SENDGRID_API_KEY: 'test-sendgrid-key',
     ...overrides,
   } as unknown as Env;

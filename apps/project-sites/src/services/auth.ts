@@ -48,12 +48,14 @@ import { getEmailProvider } from '../platform/email-router.js';
 import type { Env } from '../types/env.js';
 
 /**
- * Send a transactional email via Resend (preferred) or SendGrid (fallback).
+ * Send a transactional email via Amazon SES (primary), Listmonk, or SendGrid
+ * (break-glass fallback). Resend was removed 2026-09-09 (Brian directive; SES is
+ * the canonical provider).
  *
- * Tries `RESEND_API_KEY` first, then falls back to `SENDGRID_API_KEY`.
- * Throws if neither provider is configured.
+ * Rail order: SES (AWS creds + verified `SES_FROM_EMAIL`) → Listmonk → SendGrid.
+ * Throws if no provider is configured.
  *
- * @param env  - Worker environment (needs `RESEND_API_KEY` or `SENDGRID_API_KEY`).
+ * @param env  - Worker environment (needs SES creds, Listmonk, or `SENDGRID_API_KEY`).
  * @param opts - Email parameters (to, subject, html body).
  *
  * @example
@@ -71,8 +73,8 @@ async function sendEmail(
 ): Promise<void> {
   // ADR-0019 Resend→SES migration: Amazon SES is the PRIMARY transactional rail
   // the moment it is configured (AWS creds + verified `SES_FROM_EMAIL`), routed
-  // through the shared seam. Resend/SendGrid below remain the fallback until SES
-  // is proven live — progressive degradation by env presence, no feature flag.
+  // through the shared seam. Listmonk/SendGrid below remain the fallback rails
+  // (Resend removed 2026-09-09) — progressive degradation by env presence, no flag.
   // Auth emails are sign-in/magic-link, so they route to SES (SES_KINDS).
   // try/catch for ADR-0019 parity with notifications.ts: an SES reject (sandbox
   // throttle, unverified recipient) must FALL THROUGH to the fallback rails —
@@ -128,26 +130,6 @@ async function sendEmail(
     }
   }
 
-  if (env.RESEND_API_KEY) {
-    try {
-      return await sendViaResend(env.RESEND_API_KEY, opts);
-    } catch (err) {
-      if (env.SENDGRID_API_KEY) {
-        console.warn(
-          JSON.stringify({
-            level: 'warn',
-            service: 'auth',
-            message: 'Resend failed, falling back to SendGrid',
-            error: err instanceof Error ? err.message : String(err),
-            to: opts.to,
-          }),
-        );
-        return sendViaSendGrid(env.SENDGRID_API_KEY, opts);
-      }
-      throw err;
-    }
-  }
-
   if (env.SENDGRID_API_KEY) {
     return sendViaSendGrid(env.SENDGRID_API_KEY, opts);
   }
@@ -156,55 +138,11 @@ async function sendEmail(
     JSON.stringify({
       level: 'warn',
       service: 'auth',
-      message: 'No email provider configured (RESEND_API_KEY or SENDGRID_API_KEY)',
+      message: 'No email provider configured (SES or SENDGRID_API_KEY)',
       to: opts.to,
     }),
   );
   throw badRequest('Email delivery is not configured. Please contact support.');
-}
-
-/** Send email via Resend REST API. */
-async function sendViaResend(
-  apiKey: string,
-  opts: { to: string; subject: string; html: string },
-): Promise<void> {
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: 'Project Sites <noreply@projectsites.dev>',
-      to: [opts.to],
-      subject: opts.subject,
-      html: opts.html,
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    console.warn(
-      JSON.stringify({
-        level: 'error',
-        service: 'auth',
-        message: 'Resend API error',
-        status: res.status,
-        body: text.slice(0, 500),
-        to: opts.to,
-      }),
-    );
-    throw badRequest(`Failed to send email (status ${res.status}). Please try again.`);
-  }
-
-  console.warn(
-    JSON.stringify({
-      level: 'info',
-      service: 'auth',
-      message: 'Email sent via Resend',
-      to: opts.to,
-    }),
-  );
 }
 
 /** Send email via SendGrid v3 API. */

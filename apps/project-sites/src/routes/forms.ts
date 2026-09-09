@@ -863,42 +863,8 @@ forms.post('/api/sites/:siteId/form-submissions/:submissionId/send-reply', async
     });
     providerRequestId = sent.id;
   } else {
-    if (!c.env.RESEND_API_KEY) {
-      throw badRequest('Email delivery is not configured (RESEND_API_KEY missing)');
-    }
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${c.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: fromAddr,
-        to: [to],
-        subject: parsed.subject,
-        html: parsed.body,
-        tags: [
-          { name: 'category', value: 'form_reply' },
-          { name: 'site_slug', value: site.slug },
-        ],
-      }),
-    });
-    providerRequestId = res.headers.get('x-resend-request-id') ?? res.headers.get('x-request-id');
-    if (!res.ok) {
-      const text = await res.text();
-      console.warn(
-        JSON.stringify({
-          level: 'error',
-          service: 'forms.send_reply',
-          message: 'Resend send failed',
-          status: res.status,
-          body_excerpt: text.slice(0, 400),
-          to,
-          request_id: providerRequestId,
-        }),
-      );
-      throw badRequest(`Resend rejected the reply (${res.status})`);
-    }
+    // Resend removed 2026-09-09 (Brian directive) — Amazon SES is the required provider.
+    throw badRequest('Email delivery is not configured (Amazon SES is required).');
   }
   console.warn(
     JSON.stringify({

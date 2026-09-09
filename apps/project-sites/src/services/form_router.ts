@@ -341,18 +341,17 @@ export async function executeRouterAction(
   if (action.tool === 'noop') {
     return { tool: 'noop', status: 'ok', detail: { reason: action.reason ?? 'no action' } };
   }
-  // Built-in send_email fallback: if there's no Resend MCP, send via the
-  // worker's RESEND_API_KEY to the configured reply_email.
+  // Built-in send_email fallback: if there's no email MCP connected, send via
+  // the worker's SES rail to the configured reply_email.
   if (action.tool === 'send_email' && fallback.replyEmail) {
     const args = action.args ?? {};
     const subject = String(args['subject'] ?? 'New form submission');
     const text = String(args['body'] ?? JSON.stringify(args, null, 2));
     const replyTo = typeof args['reply_to'] === 'string' ? args['reply_to'] : undefined;
 
-    // ADR-0019 Resend→SES: SES is the PRIMARY rail when configured. The seam is
-    // html-only, so the plain-text body is wrapped in an escaped <pre>. Resend
-    // stays the fallback until SES is proven live; if neither is configured the
-    // block falls through to the MCP executeTool path below.
+    // ADR-0019: SES is the PRIMARY rail when configured. The seam is html-only,
+    // so the plain-text body is wrapped in an escaped <pre>. If SES is not
+    // configured the block falls through to the MCP executeTool path below.
     if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY && env.SES_FROM_EMAIL) {
       try {
         await getEmailProvider(env).sendTransactional({
@@ -371,26 +370,6 @@ export async function executeRouterAction(
           error: `ses ${err instanceof Error ? err.message : String(err)}`,
         };
       }
-    }
-
-    if (env.RESEND_API_KEY) {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${env.RESEND_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: 'noreply@projectsites.dev',
-          to: [fallback.replyEmail],
-          reply_to: replyTo,
-          subject,
-          text,
-        }),
-      });
-      return res.ok
-        ? { tool: 'send_email', status: 'ok', detail: { to: fallback.replyEmail } }
-        : { tool: 'send_email', status: 'error', detail: {}, error: `resend ${res.status}` };
     }
   }
   const result = await executeTool(env, siteId, {

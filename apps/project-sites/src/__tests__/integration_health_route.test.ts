@@ -28,7 +28,6 @@ function configuredEnv(overrides: Record<string, unknown> = {}): Env {
     TWENTY_API_KEY: 'tw-key',
     TWENTY_API_URL: 'https://crm.example.test',
     STRIPE_SECRET_KEY: 'sk_test_x',
-    RESEND_API_KEY: 're_x',
     DEEPGRAM_API_KEY: 'dg_x',
     LAGO_API_KEY: 'lago_x',
     LANGFUSE_PUBLIC_KEY: 'pk_x',
@@ -46,11 +45,12 @@ beforeEach(() => {
 });
 
 describe('buildSignal — config-only services reflect their secret presence', () => {
+  // resend was REMOVED as a tracked integration (Brian directive 2026-09-09 — SES is
+  // THE provider); it is no longer in CONFIG_ENV_KEY, so it's excluded here.
   for (const [name, envKey] of [
     ['stripe', 'STRIPE_SECRET_KEY'],
     ['deepgram', 'DEEPGRAM_API_KEY'],
     ['langfuse', 'LANGFUSE_PUBLIC_KEY'],
-    ['resend', 'RESEND_API_KEY'],
   ] as const) {
     it(`${name}: configured when ${envKey} is set, not-configured when unset`, async () => {
       const on = await buildSignal(name, configuredEnv());
