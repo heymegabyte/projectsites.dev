@@ -239,14 +239,14 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
   // ── Core always-on surfaces + fortress-backed flags ───────────────────────
   core_auth: {
     checklist: [
-      'Passwordless magic-link (Resend / SendGrid)',
+      'Passwordless magic-link (Amazon SES / SendGrid)',
       'Google OAuth (PKCE)',
       'Session cookies; magic links single-use, 15-min TTL',
       'Always-on sentinel — isFlagOn always true',
     ],
     e2e_tests: ['e2e/_fortress/auth/happy-path.spec.ts', 'e2e/_fortress/auth/adversarial.spec.ts'],
     explanation:
-      'Always-on auth surface: passwordless magic-link (Resend/SendGrid) + Google OAuth + session cookies. isFlagOn always returns true (sentinel). Sessions resolve userId/orgId in the auth middleware without rejecting unauthed requests — route guards decide access. Magic links are single-use, 15-min TTL; OAuth uses PKCE state in oauth_states.',
+      'Always-on auth surface: passwordless magic-link (Amazon SES/SendGrid) + Google OAuth + session cookies. isFlagOn always returns true (sentinel). Sessions resolve userId/orgId in the auth middleware without rejecting unauthed requests — route guards decide access. Magic links are single-use, 15-min TTL; OAuth uses PKCE state in oauth_states.',
     smoke_test: [
       "Homepage → Sign in → enter email → 'check your inbox' state shows",
       'POST /api/auth/magic-link {email} → 200 + magic_links row created',

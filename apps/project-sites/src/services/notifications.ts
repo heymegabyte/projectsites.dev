@@ -107,10 +107,10 @@ export async function sendEmail(
   }
 
   // ADR-0019 progressive-degradation: every CONFIGURED rail is tried in order
-  // (SES → Resend → SendGrid); a rail that FAILS falls through to the next. We throw
+  // (SES → SendGrid); a rail that FAILS falls through to the next. We throw
   // only when EVERY configured rail has failed — a single-provider outage (e.g. a SES
   // send-quota throttle) must NOT fail transactional email (magic-link login) while
-  // another configured rail is still available. Previously the SES/Resend failure
+  // another configured rail is still available. Previously the SES/SendGrid failure
   // paths threw immediately, so the documented fallback never actually kicked in.
   const failures: string[] = [];
 

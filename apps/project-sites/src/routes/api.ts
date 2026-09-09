@@ -18,7 +18,7 @@
  * ### Auth (public until verification completes)
  * | Method | Path | Purpose |
  * | ------ | ---- | ------- |
- * | POST   | `/api/auth/magic-link`            | Request a magic-link email (Resend → SendGrid fallback) |
+ * | POST   | `/api/auth/magic-link`            | Request a magic-link email (Amazon SES → SendGrid fallback) |
  * | GET    | `/api/auth/magic-link/verify`     | Verify token via email click → 302 redirect to homepage with session token |
  * | POST   | `/api/auth/magic-link/verify`     | Verify token programmatically → JSON session response |
  * | GET    | `/api/auth/magic-link/peek`       | E2E-only token peek — 404 dark unless `E2E_PEEK_SECRET` set |
@@ -215,7 +215,7 @@ const importFromUrlSchema = z.object({
  *
  * @throws VALIDATION_ERROR 400 on malformed email.
  * @throws INTERNAL_ERROR 500 only on email-provider catastrophic failure
- *   (Resend AND SendGrid both reject); transient failures are retried
+ *   (Amazon SES AND SendGrid both reject); transient failures are retried
  *   inside `authService.createMagicLink`.
  *
  * @remarks
@@ -3588,7 +3588,7 @@ api.post('/api/sites/:id/publish-bolt', async (c) => {
  *
  * @remarks
  * Two-stage best-effort flow: (1) `contactService.handleContactForm`
- * dispatches the transactional email (SES primary → Resend → SendGrid
+ * dispatches the transactional email (SES primary → SendGrid
  * fallback) and may throw — surfaced to the visitor as a 5xx via `error_handler`.
  * (2) Audit log write is fire-and-forget with `.catch(() => {})` so a
  * D1 hiccup never blocks the success response. Audit `org_id` is the

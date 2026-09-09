@@ -130,7 +130,7 @@ aiAdmin.post('/api/team/invites', async (c) => {
   )
     .bind(id, orgId, email, role, tokenHash, userId, expires)
     .run();
-  // Invites route through SES when configured, else Resend fallback. The SES
+  // Invites route through SES when configured (Resend removed 2026-09-09). The SES
   // seam is html-only, so the plain-text invite is wrapped in an escaped <pre>.
   // Fire-and-forget — the invite row is already persisted.
   const inviteSubject = 'You’ve been invited to a Project Sites team';

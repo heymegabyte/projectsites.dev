@@ -167,7 +167,7 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     default_enabled: true,
     default_rollout_percent: 100,
     description:
-      "Always-on sentinel for the auth surface: passwordless magic-link (Resend/SendGrid) + Google OAuth + D1 session cookies. isFlagOn always returns true.\n\n• Sessions resolve userId/orgId in auth middleware without rejecting unauthed requests — route guards decide access.\n• Magic links single-use, 15-min TTL; OAuth uses PKCE state in oauth_states.\n• Surface: /signin (Better Auth sign-in UI) + POST /api/auth/magic-link + GET /api/auth/me.\n• Protected 401s bounce to /signin?returnUrl=… via ApiService.\n• Core sentinel — the auth plane can't be flagged off.",
+      "Always-on sentinel for the auth surface: passwordless magic-link (Amazon SES/SendGrid) + Google OAuth + D1 session cookies. isFlagOn always returns true.\n\n• Sessions resolve userId/orgId in auth middleware without rejecting unauthed requests — route guards decide access.\n• Magic links single-use, 15-min TTL; OAuth uses PKCE state in oauth_states.\n• Surface: /signin (Better Auth sign-in UI) + POST /api/auth/magic-link + GET /api/auth/me.\n• Protected 401s bounce to /signin?returnUrl=… via ApiService.\n• Core sentinel — the auth plane can't be flagged off.",
     key: 'core_auth',
     owner_email: 'brian@megabyte.space',
     stage: 'stable',

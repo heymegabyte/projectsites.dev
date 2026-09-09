@@ -828,9 +828,9 @@ forms.post('/api/sites/:siteId/form-submissions/:submissionId/draft-reply', asyn
 /**
  * POST /api/sites/:siteId/form-submissions/:submissionId/send-reply
  *
- * Send the (potentially edited) reply via Resend, write the audit log
+ * Send the (potentially edited) reply via Amazon SES, write the audit log
  * `form.reply_sent`, and mark the submission `replied_at = now`. Uses the
- * existing Resend infra in services/notifications.ts via a direct fetch
+ * SES seam in platform/email-router.ts (getEmailProvider) via a direct fetch
  * so we control the from-address + reply-to per submission.
  *
  * @body `{ subject, body, override_to? }`
@@ -847,9 +847,9 @@ forms.post('/api/sites/:siteId/form-submissions/:submissionId/send-reply', async
   const to = parsed.override_to ?? submission.email ?? '';
   if (!to) throw badRequest('Submission has no email and no override_to provided');
 
-  // ADR-0019 Resend→SES: SES is the PRIMARY rail when configured; the per-site
-  // friendly from-address rides through `from`. Resend stays the fallback until
-  // SES is proven live. Both yield a providerRequestId for the audit trail.
+  // ADR-0019 Resend→SES: SES is the sole provider when configured; the per-site
+  // friendly from-address rides through `from` (Resend removed 2026-09-09 — the
+  // else-branch throws when SES is unset). Yields a providerRequestId for the audit trail.
   const fromAddr = `${site.slug} <noreply@projectsites.dev>`;
   let providerRequestId: string | null = null;
 

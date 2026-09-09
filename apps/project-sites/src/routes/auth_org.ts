@@ -146,7 +146,7 @@ authOrg.post('/api/auth/organization/invite-member', async (c) => {
   )
     .bind(id, orgId, email, role, tokenHash, userId, expires)
     .run();
-  // Best-effort invite email (SES when configured, Resend fallback) — the invite
+  // Best-effort invite email (Amazon SES when configured) — the invite
   // row is already persisted, so email failure never fails the request.
   const subject = 'You’ve been invited to a Project Sites team';
   const text = `You were invited as ${role}. Accept here: https://projectsites.dev/admin/accept-invite?token=${token}`;
