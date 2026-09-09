@@ -96,8 +96,10 @@ Status machine: `draft → collecting → imaging → generating → published |
   Platforms; owners define endpoints in a `functions/` folder in their site code, not a dashboard form. See
   `docs/decisions/0035-custom-code-endpoints-wfp.md` + `docs/FUNCTIONS-CONVERGENCE.md`. `wfp_dispatch.ts` is KEPT
   — it's the WfP plumbing Functions reuses).
-  Residual orphan columns (`users.phone`, `phone_otps`) are inert. **Resend + SendGrid are still LIVE** email
-  fallbacks behind SES (ADR-0019) — being phased out once SES is proven, NOT yet removed.
+  Residual orphan columns (`users.phone`, `phone_otps`) are inert. **Resend is REMOVED** (2026-09-09, Brian
+  directive) — Amazon SES is the SOLE email provider (`getEmailProvider`/`sendEmail`), with **SendGrid** as the
+  only break-glass fallback (ADR-0019). Do NOT reintroduce a Resend send rail. (The per-site **Resend MCP**
+  integration — a site owner connecting THEIR OWN Resend key — is a separate customer feature and is KEPT.)
 
 ---
 
