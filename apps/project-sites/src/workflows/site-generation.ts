@@ -752,8 +752,29 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
         `${safeName} is built around the people of ${cityPhrase}. We started with one belief: ${catService} should be easy to understand and easy to trust. Every day we work to earn that trust with clear communication, real follow-through, and results we stand behind.`,
         `For the families and neighbors of ${cityPhrase}, ${safeName} keeps ${catService} refreshingly simple. No jargon and no pressure, just careful work, straight answers, and a team that remembers your name.`,
       ]);
+      // AL-275: seed the HERO_HEADLINE (the <h1> ITSELF) business-specifically — the LAST
+      // pack-default uniqueness block still shipping generic ("Reliable service, done right
+      // the first time") on 5/5 real deliveries (Over Easy / Blooming Blossoms / City Hardware
+      // / Weissman / Xpress). The theme-selection gap is fixed (AL-256), so the H1 is the sole
+      // remaining generic-default miss (isolated AL-265). Fast-path builds carry NO research_data
+      // (D1 ground truth) so there is no AI hero_headline to wire — a per-vertical+city derivation
+      // from the seeded identity is the right fix. Same proven `_content.json` seam +
+      // existing-wins merge as HERO_SUBHEADLINE/SERVICES_INTRO/ABOUT_PARAGRAPH_1 (worker-side, no
+      // container rebuild; fail-soft — blank → pack default). Short + punchy for an <h1>,
+      // slop-free (no banned words), identity-woven so it never collides across businesses/cities
+      // and never trips build_validators' validateHeroNotPackDefault.
+      const heroHeadline = pick([
+        `${cityPhrase}'s trusted ${catService}`,
+        `Expert ${catService} in ${cityPhrase}`,
+        `Quality ${catService} ${cityPhrase} counts on`,
+      ]);
       contextFiles['content.json'] = JSON.stringify(
-        { SERVICES_INTRO: servicesIntro, HERO_SUBHEADLINE: heroSub, ABOUT_PARAGRAPH_1: aboutPara1 },
+        {
+          ABOUT_PARAGRAPH_1: aboutPara1,
+          HERO_HEADLINE: heroHeadline,
+          HERO_SUBHEADLINE: heroSub,
+          SERVICES_INTRO: servicesIntro,
+        },
         null,
         2,
       );
