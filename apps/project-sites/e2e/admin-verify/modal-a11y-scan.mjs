@@ -37,7 +37,11 @@ const MODALS = [
 ];
 
 const browser = await chromium.launch();
-const ctx = await browser.newContext({ userAgent: UA, viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+// Viewport configurable (VIEWPORT=390 for the mobile modal pass — modals that
+// overflow / park close+focus off-screen only bite on narrow screens); default
+// desktop. Mirrors admin-surf-audit + focus-not-obscured + target-size-scan.
+const VW = parseInt(process.env.VIEWPORT || '1280', 10);
+const ctx = await browser.newContext({ userAgent: UA, viewport: { width: VW, height: 900 }, serviceWorkers: 'block' });
 const page = await ctx.newPage();
 await page.goto(ORIGIN + '/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 await page.evaluate((k) => localStorage.setItem('ps_session', JSON.stringify({ token: k, identifier: 'e2e@megabyte.space', issuedAt: Date.now() })), KEY);
