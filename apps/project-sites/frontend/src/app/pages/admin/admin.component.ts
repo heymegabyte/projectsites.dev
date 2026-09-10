@@ -131,6 +131,7 @@ export class AdminComponent implements OnInit, OnDestroy {
   private metaService = inject(Meta);
   private translate = inject(TranslateService);
   private appShell = inject(AppShellService);
+  private el = inject<ElementRef<HTMLElement>>(ElementRef);
 
   // Setter-based ViewChild — the iframe is materialized LAZILY by
   // `@if (bolt.iframeUrl())` in the template, so it does NOT exist at
@@ -147,6 +148,14 @@ export class AdminComponent implements OnInit, OnDestroy {
   }
   @ViewChild('siteSearchInput') private siteSearchInputRef?: ElementRef<HTMLInputElement>;
   @ViewChildren('siteOption') private siteOptionRefs?: QueryList<ElementRef<HTMLButtonElement>>;
+  // The sticky admin topbar WRAPS to 2 rows on mobile (~115px vs 62px desktop),
+  // but `--ps-admin-topbar-h` was a hardcoded 62px — so the sticky section-search
+  // (dashboard) + the editor frame offset landed UNDER the wrapped topbar on mobile
+  // (WCAG 2.4.11 Focus Not Obscured AA failure, caught @390 by focus-not-obscured.mjs,
+  // AL-251). Measure the topbar's REAL height and publish it into the var so every
+  // consumer follows any wrap/height change. Set on the host (`:host` owns the var).
+  @ViewChild('adminTopbar') private adminTopbarRef?: ElementRef<HTMLElement>;
+  private topbarResizeObs?: ResizeObserver;
   private injector = inject(Injector);
 
   /** Track favicon URLs that failed to load so we can fall back to the monogram tile. */
@@ -352,6 +361,21 @@ export class AdminComponent implements OnInit, OnDestroy {
     // iframe exists; a registerIframe(null) here permanently nulled the
     // service's element and killed Save & Deploy). Keep the hook for other
     // view-child work; do NOT re-register the iframe here.
+
+    // Publish the topbar's REAL rendered height into --ps-admin-topbar-h so the
+    // sticky section-search + editor-frame offsets track the mobile 2-row wrap
+    // (fixes WCAG 2.4.11 Focus Not Obscured AA @390 — AL-251). Direct style write,
+    // no change detection needed (zoneless-safe); ResizeObserver guarded for SSR.
+    const topbar = this.adminTopbarRef?.nativeElement;
+    if (topbar && typeof ResizeObserver !== 'undefined') {
+      const syncTopbarHeight = () => {
+        const h = Math.round(topbar.getBoundingClientRect().height);
+        if (h > 0) this.el.nativeElement.style.setProperty('--ps-admin-topbar-h', `${h}px`);
+      };
+      syncTopbarHeight();
+      this.topbarResizeObs = new ResizeObserver(syncTopbarHeight);
+      this.topbarResizeObs.observe(topbar);
+    }
   }
 
   /**
@@ -385,6 +409,7 @@ export class AdminComponent implements OnInit, OnDestroy {
     this.shareLinkSub?.unsubscribe();
     this.state.stopPolling();
     this.bolt.teardown();
+    this.topbarResizeObs?.disconnect();
     if (typeof document !== 'undefined') document.body.classList.remove('drawer-scroll-lock');
   }
 

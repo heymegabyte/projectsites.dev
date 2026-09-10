@@ -39,7 +39,10 @@ const UA =
 const SECTIONS = (process.env.SECTIONS || 'audit,sites,settings,analytics').split(',');
 
 const browser = await chromium.launch();
-const ctx = await browser.newContext({ userAgent: UA, viewport: { width: 1280, height: 860 }, serviceWorkers: 'block' });
+// Viewport configurable (VIEWPORT=390 for the mobile pass); default desktop.
+// Mirrors admin-surf-audit's VIEWPORT convention.
+const VW = parseInt(process.env.VIEWPORT || '1280', 10);
+const ctx = await browser.newContext({ userAgent: UA, viewport: { width: VW, height: 860 }, serviceWorkers: 'block' });
 const page = await ctx.newPage();
 
 await page.goto(ORIGIN + '/', { waitUntil: 'domcontentloaded', timeout: 60000 });

@@ -29,7 +29,10 @@ const MIN = 24; // WCAG 2.2 2.5.8 AA minimum, CSS px
 const SECTIONS = (process.env.SECTIONS || 'dashboard,sites,forms,analytics,snapshots,billing,audit,docs,settings,mcp,apps,social,domains,seo,site-features,team,webhooks,leads,deliverability,voice,user,api-tokens,logs').split(',');
 
 const browser = await chromium.launch();
-const ctx = await browser.newContext({ userAgent: UA, viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+// Viewport configurable (VIEWPORT=390 for the mobile touch-target pass — 2.5.8 is most
+// critical on touch); default desktop. Mirrors admin-surf-audit's VIEWPORT convention.
+const VW = parseInt(process.env.VIEWPORT || '1280', 10);
+const ctx = await browser.newContext({ userAgent: UA, viewport: { width: VW, height: 900 }, serviceWorkers: 'block' });
 const page = await ctx.newPage();
 await page.goto(ORIGIN + '/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 await page.evaluate((k) => localStorage.setItem('ps_session', JSON.stringify({ token: k, identifier: 'e2e@megabyte.space', issuedAt: Date.now() })), KEY);
