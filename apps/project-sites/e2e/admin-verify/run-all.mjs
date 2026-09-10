@@ -35,6 +35,7 @@ const PROBES = [
   { label: 'surf @1280', file: 'admin-surf-audit.mjs', env: {} },
   { label: 'surf @390', file: 'admin-surf-audit.mjs', env: { VIEWPORT: '390' } },
   { label: 'sysadmin-render', file: 'verify-sysadmin-render.mjs', env: {} },
+  { label: 'admin-cwv', file: 'verify-admin-cwv.mjs', env: {} },
   { label: 'reconcile', file: 'reconcile-surfaces.mjs', env: {} },
   { label: 'reconcile-counts', file: 'reconcile-counts.mjs', env: {} },
   { label: 'dashboard-rollup', file: 'verify-dashboard-status-rollup-causal.mjs', env: {} },
