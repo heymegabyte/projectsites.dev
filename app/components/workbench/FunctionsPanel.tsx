@@ -162,7 +162,10 @@ export const FunctionsPanel = memo(() => {
 
       {/* Create-a-function inline form + template gallery (shown in both empty + populated states). */}
       {creating && (
-        <div className="border-b border-bolt-elements-borderColor/50 px-3 py-2.5 space-y-2" data-testid="functions-create-form">
+        <div
+          className="border-b border-bolt-elements-borderColor/50 px-3 py-2.5 space-y-2"
+          data-testid="functions-create-form"
+        >
           <div className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Template</div>
           <div className="grid grid-cols-2 gap-1.5" data-testid="functions-template-gallery">
             {FUNCTION_TEMPLATES.map((t) => {
@@ -246,7 +249,9 @@ export const FunctionsPanel = memo(() => {
           ) : (
             <p className="text-[10px] text-bolt-elements-textTertiary" data-testid="functions-template-blurb">
               {activeTemplate.blurb} Creates <code className="font-mono">functions/….ts</code> with an{' '}
-              <code className="font-mono">onRequest{activeTemplate.method[0] + activeTemplate.method.slice(1).toLowerCase()}</code>{' '}
+              <code className="font-mono">
+                onRequest{activeTemplate.method[0] + activeTemplate.method.slice(1).toLowerCase()}
+              </code>{' '}
               handler — a live route on deploy.
             </p>
           )}

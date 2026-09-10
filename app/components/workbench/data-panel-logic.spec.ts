@@ -97,7 +97,10 @@ describe('toCsv', () => {
 });
 
 describe('filterRows', () => {
-  const rows = [{ email: 'A@x.com', path: '/' }, { email: 'b@y.com', path: '/about' }];
+  const rows = [
+    { email: 'A@x.com', path: '/' },
+    { email: 'b@y.com', path: '/about' },
+  ];
   it('returns a fresh copy of all rows for a blank query', () => {
     const out = filterRows(rows, ['email', 'path'], '  ');
     expect(out).toHaveLength(2);

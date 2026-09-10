@@ -172,8 +172,10 @@ export const DataPanel = memo(() => {
     };
   }, [requestOverview]);
 
-  // Auto-refresh: re-pull the overview (and the open table) on an interval when enabled.
-  // Pauses while the tab is hidden — no wasted round-trips.
+  /*
+   * Auto-refresh: re-pull the overview (and the open table) on an interval when enabled.
+   * Pauses while the tab is hidden — no wasted round-trips.
+   */
   useEffect(() => {
     if (!autoRefresh || !isEmbedded) {
       return undefined;
@@ -187,7 +189,11 @@ export const DataPanel = memo(() => {
       requestOverview();
 
       if (active) {
-        postToParent({ type: 'PS_DATA_REQUEST', table: active, correlationId: (browseCid.current = newCorrelationId(active)) });
+        postToParent({
+          type: 'PS_DATA_REQUEST',
+          table: active,
+          correlationId: (browseCid.current = newCorrelationId(active)),
+        });
       }
     };
     const iv = setInterval(tick, AUTO_REFRESH_MS);
@@ -358,7 +364,8 @@ export const DataPanel = memo(() => {
             <span className="text-sm font-medium text-bolt-elements-textPrimary">{activeTable.label}</span>
             {/* HONEST disclosure — never imply the window is the whole table (silent-cap lesson). */}
             <span className="text-[10px] text-bolt-elements-textTertiary" data-testid="data-window-note">
-              {activeTable.row_count.toLocaleString()} total · showing latest {Math.min(activeTable.row_count, rows.length || 0).toLocaleString()}
+              {activeTable.row_count.toLocaleString()} total · showing latest{' '}
+              {Math.min(activeTable.row_count, rows.length || 0).toLocaleString()}
               {search && rows.length > 0 ? ` · ${visibleRows.length} match` : ''}
             </span>
             {rows.length > 0 && (

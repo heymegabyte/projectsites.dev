@@ -91,10 +91,13 @@ export type FunctionTemplate = 'blank' | 'contact' | 'webhook' | 'cron' | 'json-
 export interface TemplateMeta {
   kind: FunctionTemplate;
   label: string;
+
   /** HTTP verb the generated handler serves — for the gallery chip. */
   method: string;
+
   /** One-line description of what the template does. */
   blurb: string;
+
   /** Phosphor icon class for the gallery chip. */
   icon: string;
 }
@@ -109,12 +112,48 @@ export interface TemplateMeta {
  * FUNCTION_TEMPLATES.find((t) => t.kind === 'contact')?.method; // 'POST'
  */
 export const FUNCTION_TEMPLATES: readonly TemplateMeta[] = [
-  { kind: 'blank', label: 'Blank', method: 'GET', blurb: 'Minimal GET handler returning JSON.', icon: 'i-ph:file-dashed' },
-  { kind: 'contact', label: 'Contact form', method: 'POST', blurb: 'Parse a JSON body, validate, respond.', icon: 'i-ph:envelope' },
-  { kind: 'webhook', label: 'Webhook', method: 'POST', blurb: 'Signed-webhook receiver skeleton.', icon: 'i-ph:webhooks-logo' },
-  { kind: 'cron', label: 'Scheduled', method: 'GET', blurb: 'Cron-trigger handler + wrangler note.', icon: 'i-ph:clock-countdown' },
-  { kind: 'json-api', label: 'JSON API', method: 'GET', blurb: 'Typed JSON resource endpoint.', icon: 'i-ph:brackets-curly' },
-  { kind: 'proxy', label: 'Proxy', method: 'GET', blurb: 'Fetch an upstream and forward it.', icon: 'i-ph:arrows-left-right' },
+  {
+    kind: 'blank',
+    label: 'Blank',
+    method: 'GET',
+    blurb: 'Minimal GET handler returning JSON.',
+    icon: 'i-ph:file-dashed',
+  },
+  {
+    kind: 'contact',
+    label: 'Contact form',
+    method: 'POST',
+    blurb: 'Parse a JSON body, validate, respond.',
+    icon: 'i-ph:envelope',
+  },
+  {
+    kind: 'webhook',
+    label: 'Webhook',
+    method: 'POST',
+    blurb: 'Signed-webhook receiver skeleton.',
+    icon: 'i-ph:webhooks-logo',
+  },
+  {
+    kind: 'cron',
+    label: 'Scheduled',
+    method: 'GET',
+    blurb: 'Cron-trigger handler + wrangler note.',
+    icon: 'i-ph:clock-countdown',
+  },
+  {
+    kind: 'json-api',
+    label: 'JSON API',
+    method: 'GET',
+    blurb: 'Typed JSON resource endpoint.',
+    icon: 'i-ph:brackets-curly',
+  },
+  {
+    kind: 'proxy',
+    label: 'Proxy',
+    method: 'GET',
+    blurb: 'Fetch an upstream and forward it.',
+    icon: 'i-ph:arrows-left-right',
+  },
 ] as const;
 
 /**

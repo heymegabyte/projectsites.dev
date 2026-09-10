@@ -121,10 +121,7 @@ function safeJson(value: unknown): string {
  * @returns a CSV string ready for a Blob download
  * @example toCsv(['form_name'], [{ form_name: 'Contact' }]) // 'Form Name\r\nContact'
  */
-export function toCsv(
-  columns: readonly string[],
-  rows: readonly Record<string, unknown>[],
-): string {
+export function toCsv(columns: readonly string[], rows: readonly Record<string, unknown>[]): string {
   const head = columns.map((c) => csvCell(columnLabel(c))).join(',');
   const body = rows.map((r) => columns.map((c) => csvCell(r[c])).join(',')).join('\r\n');
 
@@ -164,10 +161,7 @@ export function filterRows(
  * @returns label/value pairs for a definition-list detail view
  * @example detailEntries({ path: '/' }, ['path']) // [['Path', '/']]
  */
-export function detailEntries(
-  row: Record<string, unknown>,
-  columns: readonly string[],
-): Array<[string, string]> {
+export function detailEntries(row: Record<string, unknown>, columns: readonly string[]): Array<[string, string]> {
   return columns.map((c) => {
     const v = row[c];
     const val =
