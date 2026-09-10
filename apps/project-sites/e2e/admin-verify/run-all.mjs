@@ -37,6 +37,7 @@ const PROBES = [
   { label: 'sysadmin-render', file: 'verify-sysadmin-render.mjs', env: {} },
   { label: 'reconcile', file: 'reconcile-surfaces.mjs', env: {} },
   { label: 'reconcile-counts', file: 'reconcile-counts.mjs', env: {} },
+  { label: 'dashboard-rollup', file: 'verify-dashboard-status-rollup-causal.mjs', env: {} },
   { label: 'billing-entitlements', file: 'verify-billing-entitlements-display.mjs', env: {} },
   { label: 'notif-badge', file: 'verify-notification-badge-honest.mjs', env: {} },
   { label: 'readiness-badge', file: 'verify-readiness-badge-honest.mjs', env: {} },
