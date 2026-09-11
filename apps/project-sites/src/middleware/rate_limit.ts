@@ -89,8 +89,18 @@ export const RATE_LIMIT_RULES: readonly RateLimitRule[] = [
   // (often harvested) addresses: storage abuse + real SES-reputation/cost damage.
   // 5/min/IP matches the email-sending contact budget (a human subscribes once).
   // Unsubscribe only flips a flag (no email) → looser 10/min. (AL-337 security audit.)
-  { path: '/api/newsletter/subscribe', maxRequests: 5, windowSeconds: 60, prefix: 'rl:newsletter-sub' },
-  { path: '/api/newsletter/unsubscribe', maxRequests: 10, windowSeconds: 60, prefix: 'rl:newsletter-unsub' },
+  {
+    path: '/api/newsletter/subscribe',
+    maxRequests: 5,
+    windowSeconds: 60,
+    prefix: 'rl:newsletter-sub',
+  },
+  {
+    path: '/api/newsletter/unsubscribe',
+    maxRequests: 10,
+    windowSeconds: 60,
+    prefix: 'rl:newsletter-unsub',
+  },
   {
     path: '/api/sites/create-from-search',
     maxRequests: 10,
