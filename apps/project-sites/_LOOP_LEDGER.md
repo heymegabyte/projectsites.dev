@@ -1631,3 +1631,12 @@ Verify-before-implement: git clean (HEAD 5c131e08a, my AL-356 push; CI/CD succes
 - **(3) TRUTHFUL MUTATIONS — CLEAN.** `verify-mutations-causal.mjs` (e2e-test-org, write→read-back) → **2/2 persisted**: site-update PATCH persists+restores; MCP connect(active)→disconnect(revoked). No lying-success / dropped write.
 - **Cross-confirmation:** sites display **18** == store **18** proves the AL-356 Ember golden delivery propagated end-to-end D1→API→UI (was 17 pre-delivery).
 - **Outcome:** admin verified-honest across all 3 dimensions; NO defect → no fix, no churn (gates-before-churn plateau per [[admin-sections-verified-complete-plateau]]). Slice = full DATA+MUTATIONS confirmation.
+
+## AL-358 — ADMIN INTEGRITY: TRUTHFUL MUTATIONS deepened (5 section-specific causal probes + both IDOR security probes) — all clean (2026-09-11)
+Verify-before-implement: git clean (HEAD aa686b34d = AL-357), no concurrent changes. Last fire ran the CONSOLIDATED 2-flow mutation probe; this fire goes DEEPER (plateau discipline — advance the map, don't re-run the same green check) by fanning out 5 un-run section-specific `verify-*-causal` probes on DISTINCT sections in parallel:
+- **cross-org IDOR (read) — ✅ 16/16** endpoints enforce org-ownership (foreign site_id → 404, own → 200): branches/deliverability/annotations/dashboard/sparkline + 11 more. The [[x-org-id-idor-class]] guard holds.
+- **cross-org IDOR (write) — ✅ 4/4** site-scoped compute writes enforce ownership (foreign → 404) AND validate input (own never 5xx): dashboard/metric, social/proposals, social/engagement, automation/validate. The [[publish-endpoint-body-slug-write-idor]] class stays closed.
+- **forms CRM — ✅** submit 200/200, apiCausal=50 rows, UI shows the submission, **XSS-safe** (xssFired=false, injAsText=false), 0 console errors.
+- **api-tokens — ✅** mint→read-back→revoke→gone all persisted; list is metadata-only (no plaintext/hash leak).
+- **webhooks — ✅** create/delete persist truthfully (count 0→1→0, url matches); list leaks NO signing secret.
+- **Outcome:** mutations verified honest across 7 flows (AL-357's 2 + these 5) + both IDOR/security probes — no lying-success / dropped-write / IDOR leak / secret leak / stored-XSS. NO defect → no fix, no churn (gates-before-churn). Admin honesty now confirmed this session on render+a11y (23/23 ×2 viewports), data (reconcile 0-divergence + D1 healthy), and mutations (deep, security-inclusive).
