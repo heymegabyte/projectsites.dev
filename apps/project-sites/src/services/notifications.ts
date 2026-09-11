@@ -427,7 +427,18 @@ export async function notifyDomainVerified(
 }
 
 /**
- * Send site build completion notification.
+ * Send site build completion notification ("your site is live") to the org owner.
+ *
+ * Returns the send OUTCOME so the caller can make delivery observable (AL-360): the
+ * site-generation workflow logs this to the site audit log, so a golden-journey
+ * delivery's completion email is verifiable from platform records — not only from
+ * the recipient's inbox. Best-effort: a send failure is logged + returned `ok:false`,
+ * never thrown (a failed courtesy email must not fail an already-published build).
+ *
+ * @returns `{ ok: true }` when the send resolved, or `{ ok: false, error }` when it
+ *   threw. NOTE: a suppression-skip (`ses-account-suppression-silently-drops-mail`)
+ *   currently resolves as `ok:true` because {@link sendEmail} returns void on skip —
+ *   surfacing that distinctly is a tracked follow-up on sendEmail's contract.
  */
 export async function notifySiteBuilt(
   env: Env,
@@ -439,7 +450,7 @@ export async function notifySiteBuilt(
     version: string;
     pagesGenerated?: number;
   },
-): Promise<void> {
+): Promise<{ ok: boolean; error?: string }> {
   const html = emailWrap(
     `
     ${emailBadge('&#9889;')}
@@ -464,12 +475,16 @@ export async function notifySiteBuilt(
     `${opts.siteName} is live at ${opts.siteUrl}`,
   );
 
-  await sendEmail(env, {
-    to: opts.email,
-    subject: `Site published: ${opts.siteName}`,
-    html,
-    category: 'site_built',
-  }).catch((err) => {
+  try {
+    await sendEmail(env, {
+      to: opts.email,
+      subject: `Site published: ${opts.siteName}`,
+      html,
+      category: 'site_built',
+    });
+    return { ok: true };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
     console.warn(
       JSON.stringify({
         level: 'warn',
@@ -477,10 +492,11 @@ export async function notifySiteBuilt(
         category: 'site_built',
         message: 'Failed to send site built email',
         to: opts.email,
-        error: err instanceof Error ? err.message : String(err),
+        error,
       }),
     );
-  });
+    return { ok: false, error };
+  }
 }
 
 /**

@@ -221,6 +221,22 @@ describe('notifySiteBuilt — payload embedding', () => {
   });
 });
 
+describe('notifySiteBuilt — send outcome is returned (AL-360, delivery observability)', () => {
+  it('returns { ok: true } when the send resolves — the workflow logs this to the site audit log', async () => {
+    mockFetchOnce({ headers: { 'x-message-id': 's-ok' } });
+    const res = await notifySiteBuilt(sendgridEnv(), SITE_OPTS);
+    expect(res).toEqual({ ok: true });
+  });
+
+  it('returns { ok: true } (resolved, best-effort) even when no provider is configured — a courtesy email never fails an already-published build', async () => {
+    const res = await notifySiteBuilt(noProviderEnv(), SITE_OPTS);
+    expect(res.ok).toBe(true);
+    // sendEmail handles HTTP/suppression internally (resolves void); ok:false is
+    // reserved for a genuine THROW, so notifySiteBuilt never rejects the build step.
+    expect(global.fetch as jest.Mock).not.toHaveBeenCalled();
+  });
+});
+
 describe('sendInviteEmail — payload embedding', () => {
   it('embeds org/inviter/accept-url, defaults role to member, tags category invite', async () => {
     mockFetchOnce({ headers: { 'x-message-id': 'i-1' } });

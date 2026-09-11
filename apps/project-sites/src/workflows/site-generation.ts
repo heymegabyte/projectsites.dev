@@ -2144,12 +2144,29 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
               .first()) as { email: string } | null;
             if (userRow?.email) {
               const { notifySiteBuilt } = await import('../services/notifications.js');
-              await notifySiteBuilt(env, {
+              const notifyRes = await notifySiteBuilt(env, {
                 email: userRow.email,
                 siteName: params.businessName,
                 slug: params.slug,
                 siteUrl: `https://${params.slug}${DOMAINS.SITES_SUFFIX}`,
                 version: (JSON.parse(filesJson) as { version: string }).version,
+              });
+              // AL-360 — make the "your site is live" delivery email OBSERVABLE from
+              // platform records. Until now the send outcome was swallowed + unlogged, so
+              // a golden-journey delivery's email could only be verified from the
+              // recipient's inbox (and a silent SES suppression would be invisible). Mask
+              // the address (never log raw PII per structured-logging).
+              await wfLog('workflow.owner_notified', {
+                to: userRow.email.replace(/^(.).*(@.*)$/, '$1***$2'),
+                ok: notifyRes.ok,
+                ...(notifyRes.error ? { error: notifyRes.error.slice(0, 200) } : {}),
+                message: notifyRes.ok
+                  ? 'Sent "site built" email to org owner'
+                  : 'Owner "site built" email FAILED to send',
+              });
+            } else {
+              await wfLog('workflow.owner_notify_skipped', {
+                reason: 'no active org member email',
               });
             }
           }
