@@ -179,6 +179,8 @@ describe('hero_copy — categoryFromName (AL-377: derive vertical from NAME when
       heroHeadlineOptions(categoryPhrase(categoryFromName('McGuckin Hardware')), 'Boulder'),
     ).toContain("Boulder's trusted hardware store");
     // a DECLARED category still wins over the name heuristic
-    expect(categoryPhrase('Coffee Shop' || categoryFromName('McGuckin Hardware'))).toBe('coffee shop');
+    expect(categoryPhrase('Coffee Shop' || categoryFromName('McGuckin Hardware'))).toBe(
+      'coffee shop',
+    );
   });
 });
