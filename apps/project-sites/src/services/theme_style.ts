@@ -4,7 +4,7 @@
  * personality PRESETS, emitted as the top-level `_brand.json.themeStyle`.
  *
  * WHY (producer gap, found 2026-09-08): the template
- * (`template/src/themePresets.ts` + `brand.ts`) ships 13 cohesive personalities
+ * (`template/src/themePresets.ts` + `brand.ts`) ships 16 cohesive personalities
  * (font pairing + radius + shadow + motion + `data-style` flourish), but the
  * workflow only ever seeded `businessClass='organization'` and NEVER wrote a
  * `themeStyle`. `brand.ts`'s fallback (`presetForClass('organization')`) then
@@ -37,7 +37,7 @@
  */
 
 /**
- * The 13 template preset names — a mirror of `PRESET_NAMES` in
+ * The 16 template preset names — a mirror of `PRESET_NAMES` in
  * `template/src/themePresets.ts`. Kept as a local literal because the template
  * lives in a separate repo the worker cannot import; the invariant test asserts
  * this list matches what the template ships.
@@ -56,6 +56,9 @@ export const THEME_STYLE_NAMES = [
   'precision',
   'heritage',
   'scholarly',
+  'noir',
+  'retro',
+  'artisan',
 ] as const;
 
 /** Union of valid preset names. */
@@ -100,6 +103,18 @@ const HINT_RULES: ReadonlyArray<readonly [ThemeStyleName, RegExp]> = [
     /\b(heritage|timeless|traditional|establish\w*|authoritative|corporate|institutional|dignified|old\s?money|trustworthy|trusted|reputable|prestigious|stately|classic\s?professional)\b/,
   ],
   [
+    'noir',
+    /\b(noir|cinematic|speakeas\w*|moody|after\s?dark|film\s?noir|dramatic\s?dark|sultry|candlelit|dimly\s?lit|smoky|theatrical\s?dark)\b/,
+  ],
+  [
+    'retro',
+    /\b(retro|vintage|nostalg\w*|throwback|mid\s?century|analog|old\s?school|americana|vinyl|fifties|sixties|seventies|eighties)\b/,
+  ],
+  [
+    'artisan',
+    /\b(artisan\w*|handcraft\w*|handmade|hand\s?made|small\s?batch|maker|craft\w*|homemade|home\s?made|kraft|hand\s?stamped)\b/,
+  ],
+  [
     'precision',
     /\b(precision|engineered|machined|metallic|technical|high\s?performance|motorsport|aerospace|billet|industrial\s?sleek)\b/,
   ],
@@ -123,7 +138,7 @@ const HINT_RULES: ReadonlyArray<readonly [ThemeStyleName, RegExp]> = [
     'warm',
     /\b(warm|cozy|cosy|inviting|friendly|welcoming|homey|homely|rustic|approachable|comfortable|hearth|hospitable)\b/,
   ],
-  ['boutique', /\b(chic|fashionable|stylish|trendy|tactile|curated|shoppable|artisan\w*)\b/],
+  ['boutique', /\b(chic|fashionable|stylish|trendy|tactile|curated|shoppable)\b/],
   [
     'scholarly',
     /\b(playful|whimsical|cheerful|bright|\bfun\b|kid\s?friendly|encouraging|scholarly)\b/,
@@ -179,6 +194,24 @@ const CATEGORY_RULES: ReadonlyArray<readonly [ThemeStyleName, RegExp]> = [
     'rugged',
     /\b(construction|home\s?services|\btrade\b|\btrades\b|plumb\w*|\bhvac\b|heating|cooling|air\s?condition\w*|furnace\w*|roof\w*|electric\w*|electrician|contractor\w*|landscap\w*|manufactur\w*|logistics|hardware|welding|mason\w*|concrete|excavat\w*|fencing|paving|demolition|\bmoving\b|junk\s?removal|pest\s?control|handyman|carpentr\w*|carpenter|flooring|drywall|septic|gutter\w*|remodel\w*|renovation|\bhauling\b|towing|locksmith|garage\s?door|excavation|\bpaint\w*\s?(contractor|company)|snow\s?removal)\b/,
   ],
+  // Style-forward hospitality/retail verticals that suit a MORE ELABORATE named
+  // personality than the generic warm/boutique catch-alls (AL-334) — checked
+  // before them so a cocktail lounge → noir (not warm's `\blounge\b`), a record
+  // store → retro (not boutique's `\bstore\b`), a coffee roaster → artisan (not
+  // warm's `\bcoffee\b`). These three FE-advertised themes were previously
+  // unreachable by the worker matcher → they silently shipped `classic`.
+  [
+    'noir',
+    /\b(speakeas\w*|cocktail\s?(?:bar|lounge|room)|night\s?club\w*|nightclub\w*|tattoo\w*|hookah\w*|cigar\s?(?:bar|lounge|shop)|whisk\w*\s?bar|jazz\s?(?:bar|club|lounge)|burlesque|piano\s?bar)\b/,
+  ],
+  [
+    'retro',
+    /\b(record\s?stor\w*|vinyl\s?(?:shop|store|record\w*)|arcade\w*|roller\s?rink|comic\s?(?:shop|store|book\s?stor\w*)|vintage\s?(?:shop|store|clothing|boutique|market)|retro\s?\w+|pinball)\b/,
+  ],
+  [
+    'artisan',
+    /\b(coffee\s?roaster\w*|\broaster\w*|creamer(?:y|ies)|cheesemong\w*|chocolatier\w*|confection\w*|potter\w*|ceramic\w*|woodwork\w*|glassblow\w*|leather\s?(?:goods|work\w*|smith\w*)|cooperage|distiller\w*|meader\w*|\bcandle\w*|soap\s?maker\w*|craft\s?(?:brewer\w*|distiller\w*|studio|goods)|artisan\w*|handmade\w*|handcraft\w*)\b/,
+  ],
   // warm BEFORE boutique so "Coffee Shop" / "Bakery" match food (warm) rather
   // than the generic `\bshop\b` in boutique.
   [
@@ -229,7 +262,7 @@ function firstMatch(
  *   category string) — the /create Industry field.
  * @param designHint - Freeform "Additional details" text where a user may name a
  *   look (e.g. `"elegant luxury feel"`, `"bold and energetic"`).
- * @returns One of the 13 template preset names, or `undefined` when nothing
+ * @returns One of the 16 template preset names, or `undefined` when nothing
  *   matches (the caller then omits `themeStyle` and the template falls back to
  *   its own `classic` default). Never throws.
  *

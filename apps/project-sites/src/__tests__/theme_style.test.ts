@@ -2,7 +2,7 @@ import { themeStyleFromInputs, THEME_STYLE_NAMES } from '../services/theme_style
 
 describe('theme_style — themeStyleFromInputs', () => {
   describe('preset registry invariant (drift guard vs template PRESET_NAMES)', () => {
-    it('is exactly the 13 template presets, lowercase + unique', () => {
+    it('is exactly the 16 template presets, lowercase + unique', () => {
       const expected = [
         'classic',
         'editorial',
@@ -17,6 +17,9 @@ describe('theme_style — themeStyleFromInputs', () => {
         'precision',
         'heritage',
         'scholarly',
+        'noir',
+        'retro',
+        'artisan',
       ];
       expect([...THEME_STYLE_NAMES].sort()).toEqual([...expected].sort());
       expect(new Set(THEME_STYLE_NAMES).size).toBe(THEME_STYLE_NAMES.length);
@@ -55,17 +58,20 @@ describe('theme_style — themeStyleFromInputs', () => {
       expect(themeStyleFromInputs(category)).toBe(expected);
     });
 
-    it('every one of the 13 presets is reachable via some category/hint', () => {
+    it('every one of the 16 presets is reachable via some category/hint', () => {
       const reached = new Set<string>();
       for (const [c] of cases) reached.add(themeStyleFromInputs(c) as string);
-      // categories cover 9 distinct presets; hints reach the rest.
+      // categories cover most presets; hints reach the rest.
       reached.add(themeStyleFromInputs(undefined, 'sleek high-tech gradient') as string); // futuristic
       reached.add(themeStyleFromInputs('Other', 'timeless trusted institution') as string); // heritage
       reached.add(themeStyleFromInputs('Other', 'raw brutalist stark') as string); // brutalist
       reached.add(themeStyleFromInputs('Other', 'engineered metallic precision') as string); // precision
       reached.add(themeStyleFromInputs('Other', 'chic curated boutique') as string); // boutique
-      // classic is the TEMPLATE fallback (undefined here), so 12 non-classic reachable.
-      expect(reached.size).toBeGreaterThanOrEqual(11);
+      reached.add(themeStyleFromInputs('Cocktail Bar') as string); // noir
+      reached.add(themeStyleFromInputs('Record Store') as string); // retro
+      reached.add(themeStyleFromInputs('Coffee Roaster') as string); // artisan
+      // classic is the TEMPLATE fallback (undefined here); all 15 non-classic reachable.
+      expect(reached.size).toBeGreaterThanOrEqual(14);
       expect(reached.has('undefined')).toBe(false);
     });
   });
@@ -103,7 +109,7 @@ describe('theme_style — themeStyleFromInputs', () => {
       ['plumber', 'rugged'],
       ['locksmith', 'rugged'],
       ['moving_company', 'rugged'],
-      ['night_club', 'warm'],
+      ['night_club', 'noir'], // AL-334: a nightclub reads noir (cinematic/after-dark), not warm
       ['grocery_or_supermarket', 'warm'],
       ['florist', 'boutique'],
       ['gym', 'bold'],
@@ -168,6 +174,42 @@ describe('theme_style — themeStyleFromInputs', () => {
       expect(themeStyleFromInputs('Clothing Boutique')).toBe('boutique');
       expect(themeStyleFromInputs('Gift Shop')).toBe('boutique');
       expect(themeStyleFromInputs('pet_store')).toBe('boutique');
+    });
+  });
+
+  describe('MORE ELABORATE themes — noir / retro / artisan now reachable (AL-334)', () => {
+    // These 3 personalities are advertised by the /create form's design
+    // recommendations + ship full dossiers, but the worker matcher + template
+    // couldn't render them → they silently degraded to `classic`. Now first-class.
+    it('noir via category (cocktail bar, speakeasy, tattoo, nightclub)', () => {
+      expect(themeStyleFromInputs('Cocktail Bar')).toBe('noir');
+      expect(themeStyleFromInputs('speakeasy lounge')).toBe('noir');
+      expect(themeStyleFromInputs('tattoo_parlor')).toBe('noir');
+      expect(themeStyleFromInputs('night_club')).toBe('noir');
+    });
+    it('retro via category (record store, arcade, vintage shop)', () => {
+      expect(themeStyleFromInputs('Record Store')).toBe('retro');
+      expect(themeStyleFromInputs('vintage clothing')).toBe('retro');
+      expect(themeStyleFromInputs('arcade')).toBe('retro');
+    });
+    it('artisan via category (coffee roaster, pottery, ceramics, chocolatier)', () => {
+      expect(themeStyleFromInputs('Coffee Roaster')).toBe('artisan');
+      expect(themeStyleFromInputs('pottery studio')).toBe('artisan');
+      expect(themeStyleFromInputs('ceramics')).toBe('artisan');
+      expect(themeStyleFromInputs('chocolatier')).toBe('artisan');
+    });
+    it('all three via explicit design hint (hint wins over category)', () => {
+      expect(themeStyleFromInputs('Restaurant / Café', 'moody cinematic speakeasy feel')).toBe(
+        'noir',
+      );
+      expect(themeStyleFromInputs('Retail / Shop', 'nostalgic vintage retro vibe')).toBe('retro');
+      expect(themeStyleFromInputs('Retail / Shop', 'handcrafted artisan small-batch maker')).toBe(
+        'artisan',
+      );
+    });
+    it('plain coffee shop stays warm; only a roaster/craft reads artisan', () => {
+      expect(themeStyleFromInputs('Bakery / Coffee Shop')).toBe('warm');
+      expect(themeStyleFromInputs('coffee roaster')).toBe('artisan');
     });
   });
 
