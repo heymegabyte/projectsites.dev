@@ -1,8 +1,15 @@
 // Authed admin a11y surf of the sections NOT covered by admin-a11y-critical*.spec.ts
 // (analytics + a few controls). Seeds ps_session from E2E_API_KEY (env, never inline).
 // Gotchas honored: newContext (AxeBuilder), domcontentloaded (networkidle hangs on served sites).
-import { chromium } from 'playwright';
-import AxeBuilder from '@axe-core/playwright';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+// playwright-core + @axe-core/playwright via createRequire from the frontend dir — reliably
+// hoisted after `npm ci`; bare `import from 'playwright'` throws MODULE_NOT_FOUND when unhoisted
+// (AL-144). Matches admin-surf-audit.mjs exactly.
+const require2 = createRequire(resolve(dirname(fileURLToPath(import.meta.url)), '../../frontend/'));
+const { chromium } = require2('playwright-core');
+const AxeBuilder = require2('@axe-core/playwright').default;
 
 const KEY = process.env.E2E_API_KEY;
 if (!KEY) { console.error('E2E_API_KEY env required'); process.exit(2); }

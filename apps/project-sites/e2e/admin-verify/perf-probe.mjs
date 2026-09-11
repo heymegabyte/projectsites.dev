@@ -1,6 +1,13 @@
 // Authed admin perf probe — LCP/FCP + resource weights. Seeds ps_session from E2E_API_KEY.
 // Local Playwright (reaches the authed SPA fine); domcontentloaded (networkidle hangs).
-import { chromium } from 'playwright';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+// playwright-core via createRequire from the frontend dir — reliably hoisted after `npm ci`;
+// bare `import from 'playwright'` throws MODULE_NOT_FOUND when unhoisted (AL-144). Matches admin-surf-audit.mjs.
+const { chromium } = createRequire(resolve(dirname(fileURLToPath(import.meta.url)), '../../frontend/'))(
+  'playwright-core',
+);
 const KEY = process.env.E2E_API_KEY;
 if (!KEY) { console.error('E2E_API_KEY required'); process.exit(2); }
 const ORIGIN = 'https://projectsites.dev';

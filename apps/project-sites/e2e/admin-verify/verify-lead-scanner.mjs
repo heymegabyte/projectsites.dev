@@ -13,8 +13,15 @@
  * Creds (get-secret): BROWSERBASE_API_KEY, BROWSERBASE_PROJECT_ID, E2E_TEST_PASSWORD.
  */
 
-import { chromium } from 'playwright';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+// playwright-core via createRequire from the frontend dir — reliably hoisted after `npm ci`;
+// bare `import from 'playwright'` throws MODULE_NOT_FOUND when unhoisted (AL-144). Matches admin-surf-audit.mjs.
+const { chromium } = createRequire(resolve(dirname(fileURLToPath(import.meta.url)), '../../frontend/'))(
+  'playwright-core',
+);
 
 const secret = (k) => {
   const r = spawnSync('/Users/Apple/.local/bin/get-secret', [k], { encoding: 'utf8' });
