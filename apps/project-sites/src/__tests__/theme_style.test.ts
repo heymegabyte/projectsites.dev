@@ -1,4 +1,9 @@
-import { themeStyleFromInputs, THEME_STYLE_NAMES } from '../services/theme_style.js';
+import {
+  themeStyleFromInputs,
+  THEME_STYLE_NAMES,
+  THEME_PERSONALITY_BRIEF,
+  personalityBriefFor,
+} from '../services/theme_style.js';
 
 describe('theme_style — themeStyleFromInputs', () => {
   describe('preset registry invariant (drift guard vs template PRESET_NAMES)', () => {
@@ -252,5 +257,47 @@ describe('theme_style — themeStyleFromInputs', () => {
     it('ignores a hint with no style keyword and uses category', () => {
       expect(themeStyleFromInputs('Automotive', 'open Mon-Fri 9-5, call us')).toBe('precision');
     });
+  });
+});
+
+describe('theme_style — personality content briefs (AL-356)', () => {
+  it('every one of the 16 preset names has a non-empty brief', () => {
+    for (const name of THEME_STYLE_NAMES) {
+      const brief = THEME_PERSONALITY_BRIEF[name];
+      expect(typeof brief).toBe('string');
+      expect(brief.length).toBeGreaterThan(80); // dense directive, not a stub
+      // Every brief must cover the four content levers CSS can't reach.
+      expect(brief.toLowerCase()).toContain('imagery');
+      expect(brief.toLowerCase()).toContain('copy');
+      expect(brief.toLowerCase()).toContain('sections');
+      expect(brief.toLowerCase()).toContain('motion');
+    }
+  });
+
+  it('the brief map keys are EXACTLY the 16 preset names (no drift, no extras)', () => {
+    expect(Object.keys(THEME_PERSONALITY_BRIEF).sort()).toEqual([...THEME_STYLE_NAMES].sort());
+  });
+
+  it('noir brief steers content toward cinematic/candlelit + AWAY from bright stock', () => {
+    const noir = personalityBriefFor('noir')!;
+    expect(noir.toLowerCase()).toMatch(/candlelit|cinematic|after-dark/);
+    expect(noir.toLowerCase()).toMatch(/never bright|not bright|no.*bright|never.*airy/);
+  });
+
+  it('personalityBriefFor round-trips a real vertical→personality lookup', () => {
+    // A steakhouse described as "cinematic, candlelit, after-dark" resolves to noir,
+    // and that name yields the noir brief — the exact chain buildPrompt uses.
+    const style = themeStyleFromInputs('Steakhouse', 'intimate cinematic candlelit after-dark');
+    expect(style).toBe('noir');
+    expect(personalityBriefFor(style)).toBe(THEME_PERSONALITY_BRIEF.noir);
+  });
+
+  it('personalityBriefFor is safe on unknown/empty/non-string (undefined, never throws)', () => {
+    expect(personalityBriefFor('nope')).toBeUndefined();
+    expect(personalityBriefFor('')).toBeUndefined();
+    expect(personalityBriefFor(undefined)).toBeUndefined();
+    expect(personalityBriefFor(null)).toBeUndefined();
+    // @ts-expect-error — defensive: non-string at runtime must not throw
+    expect(() => personalityBriefFor(42)).not.toThrow();
   });
 });

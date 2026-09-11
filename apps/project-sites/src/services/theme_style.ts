@@ -289,3 +289,74 @@ export function themeStyleFromInputs(
   }
   return undefined;
 }
+
+/**
+ * Per-personality CONTENT design brief for the build orchestrator (AL-356).
+ *
+ * WHY (producer gap, 2026-09-11): the template stamps each personality's
+ * fonts/color/radius/shadow/motion + a `:root[data-style]` flourish (CSS side —
+ * `themePresets.ts` + `index.css`), and `themeStyleFromInputs` already routes the
+ * right personality onto `_brand.json.themeStyle`. But the orchestrator PROMPT
+ * (`buildPrompt` in `workflows/site-generation.ts`) only told Claude Code to keep
+ * the theme FONTS — it never named the personality or its CONTENT design language.
+ * So a `noir` steakhouse could still get bright airy stock photos + flat corporate
+ * copy: the CSS read cinematic, the CONTENT didn't. This map closes that gap — one
+ * dense directive per personality covering the four content levers CSS can't reach:
+ * IMAGERY mood, COPY tone, SECTION emphasis, MOTION character. `buildPrompt` injects
+ * the matching brief so imagery/copy/section choices REINFORCE the theme, making it
+ * read as an elaborate real brand rather than a recolored template.
+ *
+ * Keyed by every {@link ThemeStyleName}; `personalityBriefFor` is the safe accessor.
+ */
+export const THEME_PERSONALITY_BRIEF: Record<ThemeStyleName, string> = {
+  classic:
+    'Modern, geometric, confident — the versatile default. Imagery: clean contemporary photography, crisp product/space shots. Copy: clear, confident, benefit-led. Sections: hero → services → about → proof → contact. Motion: smooth, modern reveals.',
+  editorial:
+    'Trustworthy, calm, magazine-grade. Imagery: honest documentary photography of real people/places, generous whitespace, zero glossy stock. Copy: measured, credible, mission-first with proof. Sections: emphasize mission/about, credentials, clearly-explained services. Motion: restrained, slow fades.',
+  warm: 'Inviting, soft, approachable. Imagery: golden-hour warmth, candid people, close-ups of food/space/hands. Copy: friendly second-person, welcoming, sensory. Sections: mood hero → signature offerings → hours & location up top. Motion: gentle, springy reveals.',
+  luxe: 'Refined, premium, editorial-elegant. Imagery: dramatic low-key hero, tight detail/craft shots, abundant negative space — no busy collages. Copy: understated confidence, sensory restraint, never salesy. Sections: signature experience, reservations/private appointments, provenance & craft. Motion: slow, deliberate.',
+  brutalist:
+    'High-impact, editorial-bold. Imagery: stark high-contrast, type-as-image, raw off-grid crops. Copy: short declarative punches, no filler. Sections: bold statement hero, work/portfolio grid, blunt CTA. Motion: snappy, hard cuts.',
+  bold: 'Athletic, loud, kinetic. Imagery: action shots, sweat, motion, high-energy crowds. Copy: imperative and motivational, punchy verbs. Sections: CTA hero → programs/classes → results/transformation → join. Motion: fast, punchy.',
+  futuristic:
+    'Sleek, glassy, gradient-forward. Imagery: product/UI, abstract gradients, dark glass, subtle grid. Copy: crisp, benefit-led, technically confident. Sections: product hero → feature grid → metrics/integrations → start CTA. Motion: floaty, soft glow reveals.',
+  rugged:
+    'Sturdy, industrial, dependable. Imagery: real job-sites, equipment, work-in-progress, actual crews — not stock suits. Copy: plain, direct, no-nonsense; licensed/insured/experience trust cues. Sections: services → service-area → free-estimate CTA. Motion: grounded, minimal.',
+  botanical:
+    'Calming, fresh, reassuring. Imagery: airy natural light, greenery, clean clinical warmth, unhurried faces. Copy: gentle, reassuring, patient-first. Sections: services → practitioners → book-appointment. Motion: soft, slow.',
+  boutique:
+    'Chic, tactile, editorial-shoppable. Imagery: styled flat-lays, lifestyle vignettes, editorial fashion crops. Copy: covetable, curated, tastemaker voice. Sections: featured collections → brand story → shop CTAs. Motion: elegant lifts.',
+  precision:
+    'Engineered, sharp, metallic. Imagery: crisp vehicle/product detail, spec close-ups, showroom light. Copy: technical, spec-forward, confident. Sections: inventory/specs → capabilities → book-service. Motion: fast, precise.',
+  heritage:
+    'Timeless, authoritative, trusted. Imagery: dignified portraits, established locations, subdued palette. Copy: formal, credible, legacy/experience cues. Sections: about/history → credentials → consultation CTA. Motion: dignified, quiet.',
+  scholarly:
+    'Bright, friendly, encouraging. Imagery: warm learning moments, real students/kids, cheerful spaces. Copy: encouraging, plain, framed around the learner. Sections: programs/courses → outcomes → enroll CTA. Motion: springy, welcoming.',
+  noir: 'Cinematic, intimate, after-dark. Imagery: candlelit low-key photography, deep shadow, warm highlights, moody close-ups — NEVER bright or airy stock. Copy: evocative, sensory, understated luxury; short confident lines. Sections: atmospheric hero → signature offerings (menu/cocktails) → reservations & private dining → late-night hours. Motion: slow, theatrical reveals.',
+  retro:
+    'Playful, nostalgic, joyfully vintage. Imagery: bold saturated color, vintage textures, characterful product shots. Copy: fun, cheeky, nostalgic. Sections: personality hero → offerings/menu → events/community. Motion: bouncy spring.',
+  artisan:
+    'Handmade, earthy, honest. Imagery: hands-at-work/process, raw materials, warm natural light, kraft/paper texture. Copy: honest, craft-proud, provenance-led. Sections: our craft/process → products → visit us. Motion: gentle, tactile.',
+};
+
+/**
+ * Return the CONTENT design brief for a personality name. Never throws.
+ *
+ * @param name - A theme-style name (any type); typically the result of
+ *   {@link themeStyleFromInputs}.
+ * @returns The matching {@link THEME_PERSONALITY_BRIEF} entry, or `undefined` for
+ *   any unknown/empty/non-string input (the caller then omits the prompt block,
+ *   exactly matching the pre-AL-356 behavior for unmatched verticals).
+ *
+ * @example
+ * personalityBriefFor('noir')      // → 'Cinematic, intimate, after-dark. …'
+ * personalityBriefFor('nope')      // → undefined
+ * personalityBriefFor(undefined)   // → undefined
+ */
+export function personalityBriefFor(name: unknown): string | undefined {
+  if (typeof name === 'string') {
+    const key = name.trim().toLowerCase();
+    if (key in THEME_PERSONALITY_BRIEF) return THEME_PERSONALITY_BRIEF[key as ThemeStyleName];
+  }
+  return undefined;
+}

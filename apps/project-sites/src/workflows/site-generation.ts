@@ -30,7 +30,7 @@ import { checkBudget, recordSpend } from '../services/build_budget.js';
 import { resolveActiveOrgPlan } from '../services/build_limits.js';
 import { isFlagOn } from '../modules/feature_flags/services.js';
 import { tryEmitEvent } from '../services/emit_event.js';
-import { themeStyleFromInputs } from '../services/theme_style.js';
+import { themeStyleFromInputs, personalityBriefFor } from '../services/theme_style.js';
 
 /**
  * Per-variant omit of the auto-injected base fields, distributed across the
@@ -261,6 +261,17 @@ export function buildPrompt(params: SiteGenerationParams): string {
   const website = params.businessWebsite || '';
   const slug = params.slug;
 
+  // AL-356 — surface the DETERMINISTIC theme personality's CONTENT design language
+  // (imagery mood / copy tone / section emphasis / motion) to the orchestrator. The
+  // CSS side (fonts/color/motion/data-style flourish) is already handled by the
+  // template + the _brand.json.themeStyle seed; this makes the CONTENT choices
+  // reinforce the personality too, so a noir steakhouse gets candlelit imagery +
+  // evocative copy instead of bright stock + flat corporate lines. Omitted (empty
+  // block, `.filter(Boolean)` drops it) when the vertical doesn't resolve to a
+  // personality — byte-identical to pre-AL-356 for those builds.
+  const themeStyle = themeStyleFromInputs(params.businessCategory, params.additionalContext);
+  const personalityBrief = personalityBriefFor(themeStyle);
+
   return [
     `# Mission: Orchestrate a BREATHTAKINGLY GORGEOUS website for "${safeName}"`,
     '',
@@ -285,6 +296,10 @@ export function buildPrompt(params: SiteGenerationParams): string {
     '',
     '## TEMPLATE-FIRST BUILD — customize, do NOT regenerate (hard budget: under 14 minutes)',
     "The Cloudflare Workers Container is KILLED at ~15 minutes wall-clock, so this build MUST finish under 14. The template in ~/template/ is ALREADY a complete, gorgeous, WCAG-2.2-AA, multi-page site (Stripe/Linear/Vercel polish, animations, dark theme, SEO scaffolding baked in). Your job is MINOR CUSTOMIZATION of that template with this business's real data — NOT a from-scratch rebuild and NOT a multi-subagent audit swarm (there is no time for either). Do the work DIRECTLY.",
+    '',
+    personalityBrief
+      ? `## Visual Personality: ${String(themeStyle).toUpperCase()} — reinforce it in CONTENT, not just CSS\nThe template already stamps this personality's fonts, color, radius, shadow, motion, and a matching flourish via data-style="${themeStyle}" — that side is DONE, do not fight it. Your job is to make the CONTENT match so the site reads as a real, elaborate brand and not a recolored template: ${personalityBrief}\nWhen you wire hero + section images from _assets.json and write copy, pick the ones that fit this personality — generic bright stock or flat corporate copy on a ${themeStyle} theme is a quality miss, not a neutral choice.`
+      : '',
     '',
     '## Build steps (do these IN ORDER, directly — no fan-out)',
     `0. _brand.json is ALREADY MATERIALIZED for you — the workflow wrote the real business data (name="${safeName}") into the build dir's _brand.json. NEVER rewrite or regenerate it; the template's shipped copy has {BUSINESS_NAME} placeholders and overwriting it ships those placeholders LIVE. Read it, use it.`,

@@ -181,6 +181,30 @@ describe('buildPrompt — template-first, ≤14-min', () => {
     expect(out).toMatch(/WRONG-VERTICAL|wrong-vertical/);
     expect(out).toContain("Vito's Salon"); // the seeded business name must anchor the H1 directive
   });
+
+  it('injects the theme-personality CONTENT directive [AL-356 — content must match the theme, not just CSS]', () => {
+    // 'salon' + 'warm premium feel' → luxe (the `premium` hint wins over `warm`).
+    // buildPrompt must now name the personality AND its imagery/copy/section design
+    // language so the CONTENT reinforces the theme — not just the CSS tokens. Real
+    // proof: a noir steakhouse shipped warm-restaurant copy ("Fresh, Local, Made From
+    // Scratch") because the orchestrator was never told the personality.
+    const out = buildPrompt(p);
+    expect(out).toMatch(/## Visual Personality: LUXE/);
+    expect(out).toMatch(/reinforce it in CONTENT/i);
+    expect(out).toContain('data-style="luxe"');
+    expect(out).toMatch(/refined|premium|editorial-elegant/i); // the luxe brief text
+    expect(out).toMatch(/imagery/i); // the four content levers CSS can't reach
+  });
+
+  it('omits the personality directive when the vertical does not resolve (byte-identical to pre-AL-356)', () => {
+    const unmatched = {
+      ...p,
+      businessCategory: 'Other',
+      additionalContext: 'call us Mon-Fri 9-5',
+    } as unknown as Parameters<typeof buildPrompt>[0];
+    const out = buildPrompt(unmatched);
+    expect(out).not.toMatch(/## Visual Personality/);
+  });
 });
 
 // ─── Heartbeat-loop coverage (sequence-driven replay mock) ───────────────────
