@@ -80,13 +80,40 @@ async function emitBuildEvent(env: Env, siteId: string, event: BuildEventBody): 
   }
 }
 
-/** Update site status in D1 (best-effort, never throws). */
+/**
+ * In-progress build statuses that must NOT be able to REGRESS an already-`published` site.
+ * The AL-379 race: a stale 2nd workflow instance calls `updateSiteStatus('generating')`
+ * AFTER the 1st instance already flipped the site to `published`, clobbering it back to
+ * `generating` (a transient lying-status the AL-380 belt then heals in ~30 min). The guard
+ * below prevents that clobber at the source.
+ */
+export const NO_REGRESS_FROM_PUBLISHED = new Set([
+  'collecting',
+  'imaging',
+  'generating',
+  'building',
+  'queued',
+  'uploading',
+]);
+
+/**
+ * The status-UPDATE SQL. For an in-progress transition, anchor `status != 'published'` so a
+ * stale / second-instance write can never clobber an already-`published` site (AL-385, the
+ * AL-379 race). A forward transition on a not-yet-published site is unaffected — the guard
+ * NEVER triggers on a normal initial build (status is draft/building/collecting, not
+ * published, when these fire); only the pathological published→in-progress write (the race)
+ * is blocked. Pure + exported for unit tests.
+ */
+export function statusUpdateSql(status: string): string {
+  return NO_REGRESS_FROM_PUBLISHED.has(status)
+    ? "UPDATE sites SET status = ?, updated_at = datetime('now') WHERE id = ? AND status != 'published'"
+    : "UPDATE sites SET status = ?, updated_at = datetime('now') WHERE id = ?";
+}
+
+/** Update site status in D1 (best-effort, never throws). Guards published→in-progress (AL-385). */
 async function updateSiteStatus(db: D1Database, siteId: string, status: string): Promise<void> {
   try {
-    await db
-      .prepare("UPDATE sites SET status = ?, updated_at = datetime('now') WHERE id = ?")
-      .bind(status, siteId)
-      .run();
+    await db.prepare(statusUpdateSql(status)).bind(status, siteId).run();
   } catch (err) {
     console.warn(
       JSON.stringify({
