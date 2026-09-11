@@ -86,7 +86,7 @@ describe('theme_style — themeStyleFromInputs', () => {
       ['hair_care', 'warm'],
       ['meal_takeaway', 'warm'],
       ['meal_delivery', 'warm'],
-      ['book_store', 'boutique'],
+      ['book_store', 'scholarly'],
       ['pet_store', 'boutique'],
       ['home_goods_store', 'boutique'],
       ['furniture_store', 'boutique'],
@@ -150,8 +150,24 @@ describe('theme_style — themeStyleFromInputs', () => {
     it('Jewelry Store → luxe (not boutique)', () => {
       expect(themeStyleFromInputs('Jewelry Store')).toBe('luxe');
     });
-    it('Book Store → boutique (generic retail still resolves)', () => {
-      expect(themeStyleFromInputs('Book Store')).toBe('boutique');
+    // AL-323: bookstores/bookshops/booksellers/libraries are BOOKS+READING, not a
+    // clothing boutique. They belong to `scholarly`, ordered ahead of the generic
+    // retail `\bstore\w*` catch-all (booksweet shipped boutique live before this).
+    it('Book Store → scholarly (not the boutique retail catch-all)', () => {
+      expect(themeStyleFromInputs('Book Store')).toBe('scholarly');
+    });
+    it('Bookshop / Bookseller → scholarly', () => {
+      expect(themeStyleFromInputs('Independent Bookshop')).toBe('scholarly');
+      expect(themeStyleFromInputs('Rare Bookseller')).toBe('scholarly');
+    });
+    it('Library → scholarly (books/learning, not civic-editorial)', () => {
+      expect(themeStyleFromInputs('Public Library')).toBe('scholarly');
+      expect(themeStyleFromInputs('library')).toBe('scholarly');
+    });
+    it('generic apparel/gift retail still resolves boutique (no over-broadening)', () => {
+      expect(themeStyleFromInputs('Clothing Boutique')).toBe('boutique');
+      expect(themeStyleFromInputs('Gift Shop')).toBe('boutique');
+      expect(themeStyleFromInputs('pet_store')).toBe('boutique');
     });
   });
 

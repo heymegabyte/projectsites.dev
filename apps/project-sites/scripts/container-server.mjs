@@ -540,8 +540,22 @@ function applyVerticalPreset(dir, preset, templateDir) {
   for (const idKey of ['business', 'social', 'logo']) {
     if (current && current[idKey]) merged[idKey] = current[idKey];
   }
+  // Preserve the worker's DETERMINISTIC themeStyle personality (theme_style.ts →
+  // _brand.json.themeStyle) across a pack force-apply. The pack supplies CONTENT +
+  // colorScheme, but the vertical's PERSONALITY (data-style) is the worker's call:
+  // a jeweler is `luxe`, a bookstore `scholarly` — even though both borrow the retail
+  // CONTENT pack. Without this the retail pack's `boutique` themeStyle clobbers them —
+  // the exact AL-298 (luna-felix→boutique) / AL-322 (booksweet→boutique) live
+  // mis-theme. Only preserves an EXISTING worker string; absent → the pack's own
+  // themeStyle stays. Guarded live by e2e/site-quality/verify-theme-match.mjs.
+  let themeStylePreserved = false;
+  const curThemeStyle = current && current.themeStyle;
+  if (typeof curThemeStyle === 'string' && curThemeStyle.trim()) {
+    merged.themeStyle = curThemeStyle.trim();
+    themeStylePreserved = true;
+  }
   fs.writeFileSync(brandPath, JSON.stringify(merged, null, 2));
-  return `applied ${preset} (default=${isDefault} schemeMismatch=${schemeMismatch})${classCarried ? ' +businessClass' : ''}`;
+  return `applied ${preset} (default=${isDefault} schemeMismatch=${schemeMismatch})${classCarried ? ' +businessClass' : ''}${themeStylePreserved ? ` +themeStyle=${merged.themeStyle}` : ''}`;
 }
 
 // ── Research-narrative uniqueness (loop FIRE-72) — first step of the content-

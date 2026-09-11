@@ -162,9 +162,14 @@ const CATEGORY_RULES: ReadonlyArray<readonly [ThemeStyleName, RegExp]> = [
     'precision',
     /\b(automotive|\bauto\b|\bcar\b|\bcars\b|dealership|\bdealer\b|vehicle\w*|mechanic\w*|motorsport|machinery|body\s?shop|\btire\w*|transmission|autobody|\bgarage\b|detailing|\bev\b|motorcycle\w*|\bmoto\b|powersports|collision|\bsmog\b|lube)\b/,
   ],
+  // scholarly = learning + books + reading. Bookstores / bookshops / booksellers /
+  // libraries belong HERE (books/reading/authors/staff-picks aesthetic), NOT in the
+  // generic retail `boutique` catch-all — a bookstore is scholarly, not a clothing
+  // boutique (AL-322/AL-323 live mis-theme: booksweet shipped boutique). Ordered before
+  // boutique (line below) so `\bbooks\b` wins over `\bstore\w*`.
   [
     'scholarly',
-    /\b(education\w*|educational|tutor\w*|\bschool\w*|academy|academ\w*|\bcourse\w*|coaching|learning|\bkids\b|children|childcare|university|universit\w*|college|preschool|kindergarten|daycare|montessori|\bstem\b|classes|teach\w*|pedagog\w*|training\s?cent)\b/,
+    /\b(education\w*|educational|tutor\w*|\bschool\w*|academy|academ\w*|\bcourse\w*|coaching|learning|\bkids\b|children|childcare|university|universit\w*|college|preschool|kindergarten|daycare|montessori|\bstem\b|classes|teach\w*|pedagog\w*|training\s?cent|book\s?stor\w*|bookstore\w*|bookshop\w*|booksell\w*|\bbooks\b|\blibrar\w*)\b/,
   ],
   [
     'luxe',
@@ -182,7 +187,7 @@ const CATEGORY_RULES: ReadonlyArray<readonly [ThemeStyleName, RegExp]> = [
   ],
   [
     'boutique',
-    /\b(retail|\bshop\w*|\bstore\w*|boutique\w*|apparel|clothing|fashion\w*|merchandise|\bgoods\b|florist\w*|\bgift\w*|book\s?stor\w*|bookstore\w*|\bbooks\b|pet\s?(store|shop)|home\s?goods|furniture|\btoys?\b|stationery|cosmetic\w*|accessor\w*|lifestyle|\bmarket\b|thrift|consignment|antique\w*|\bcrafts?\b)\b/,
+    /\b(retail|\bshop\w*|\bstore\w*|boutique\w*|apparel|clothing|fashion\w*|merchandise|\bgoods\b|florist\w*|\bgift\w*|pet\s?(store|shop)|home\s?goods|furniture|\btoys?\b|stationery|cosmetic\w*|accessor\w*|lifestyle|\bmarket\b|thrift|consignment|antique\w*|\bcrafts?\b)\b/,
   ],
   [
     'futuristic',
@@ -197,8 +202,10 @@ const CATEGORY_RULES: ReadonlyArray<readonly [ThemeStyleName, RegExp]> = [
     /\b(photograph\w*|creative|portfolio|\bart\b|\barts\b|design\s?studio|photo\s?studio|creative\s?studio|production\s?studio|art\s?studio|\bagenc\w*|\bfilm\w*|\bmusic\b|\bmedia\b|branding|advertis\w*|videograph\w*|graphic\s?design|animation|record\s?label|production\s?(house|company))\b/,
   ],
   [
+    // NOTE: `librar*` moved to the `scholarly` rule above (books/learning aesthetic
+    // suits a library better than civic-editorial) per AL-323.
     'editorial',
-    /\b(legal|\blaw\b|attorney\w*|lawyer\w*|nonprofit|non\s?profit|charit\w*|foundation|\bchurch\w*|place\s?of\s?worship|ministr\w*|synagogue|\bmosque\b|\btemple\b|congregation|\bngo\b|community\s?(cent|org)|government|municipal\w*|\blibrar\w*|\bmuseum\w*|association\w*|\bunion\b|advocacy|humanitarian|\bcivic\b|public\s?service|social\s?service\w*)\b/,
+    /\b(legal|\blaw\b|attorney\w*|lawyer\w*|nonprofit|non\s?profit|charit\w*|foundation|\bchurch\w*|place\s?of\s?worship|ministr\w*|synagogue|\bmosque\b|\btemple\b|congregation|\bngo\b|community\s?(cent|org)|government|municipal\w*|\bmuseum\w*|association\w*|\bunion\b|advocacy|humanitarian|\bcivic\b|public\s?service|social\s?service\w*)\b/,
   ],
 ];
 
