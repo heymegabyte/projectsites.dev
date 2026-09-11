@@ -48,10 +48,17 @@ export async function computeUsageGauges(env: Env, orgId: string): Promise<Usage
     [orgId],
   );
 
+  // Builds THIS MONTH — real source is the `workflow.build_complete` audit event.
+  // The old `workflow_jobs WHERE job_name='build'` query hit an UNUSED table (0 rows
+  // for every org) so the Builds gauge was a structural lying-empty (showed 0 while an
+  // org had done dozens — e2e-test-org had 51 completed builds this month rendering as
+  // "0 / 5"). Scoped to the current calendar month to match the `builds_per_month`
+  // limit's semantics (the old all-time-vs-per-month mismatch, AL-326 follow-on).
   const buildRow = await dbQueryOne<CountRow>(
     env.DB,
-    `SELECT COUNT(*) as cnt FROM workflow_jobs
-     WHERE org_id = ? AND job_name = 'build' AND deleted_at IS NULL`,
+    `SELECT COUNT(*) as cnt FROM audit_logs
+     WHERE org_id = ? AND action = 'workflow.build_complete'
+       AND created_at >= datetime('now', 'start of month')`,
     [orgId],
   );
 

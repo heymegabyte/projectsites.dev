@@ -83,6 +83,23 @@ describe('computeUsageGauges', () => {
     expect(gauges[2].limit).toBe(5000); // pro media MB
   });
 
+  it('counts builds from the workflow.build_complete audit event THIS MONTH (not the empty workflow_jobs table)', async () => {
+    (dbQueryOne as jest.Mock)
+      .mockResolvedValueOnce({ cnt: 1 })
+      .mockResolvedValueOnce({ cnt: 51 }) // builds this month
+      .mockResolvedValueOnce({ total_mb: 0 });
+    const gauges = await computeUsageGauges(env(), 'org-1');
+    // The Builds gauge MUST source real completed-build audit events (workflow_jobs is
+    // unused/empty → the old query was a structural lying-empty), scoped to the current
+    // calendar month to match the per-month limit.
+    const buildsSql = (dbQueryOne as jest.Mock).mock.calls[1][1] as string;
+    expect(buildsSql).toMatch(/FROM audit_logs/);
+    expect(buildsSql).toMatch(/workflow\.build_complete/);
+    expect(buildsSql).toMatch(/start of month/);
+    expect(buildsSql).not.toMatch(/workflow_jobs/);
+    expect(gauges[1].used).toBe(51); // real this-month builds surface (was always 0)
+  });
+
   it('reads media storage from media_assets.size_bytes (not the nonexistent sites.media_size_bytes)', async () => {
     (dbQueryOne as jest.Mock)
       .mockResolvedValueOnce({ cnt: 1 })
