@@ -170,6 +170,12 @@ describe('auth rate-limit (item #6)', () => {
     ['/api/contact', 5, 'POST'],
     ['/api/feedback', 10, 'POST'],
     ['/api/search/address', 30, 'GET'],
+    // AL-337: newsletter double-opt-in subscribe (INSERTs a row + sends a
+    // confirmation email per distinct address) + unsubscribe — were PUBLIC +
+    // UNMETERED (subscriber-row flood + unbounded SES confirmation sends /
+    // reputation abuse). Now budgeted like the other public email-write routes.
+    ['/api/newsletter/subscribe', 5, 'POST'],
+    ['/api/newsletter/unsubscribe', 10, 'POST'],
   ])('rate-limits the public cost endpoint %s (budget=%i)', async (path, budget, method) => {
     for (let i = 0; i < budget; i++) {
       const ok = await hit(path, method as 'GET' | 'POST');

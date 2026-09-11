@@ -82,6 +82,15 @@ export const RATE_LIMIT_RULES: readonly RateLimitRule[] = [
   // POST. Without a budget an attacker floods the table; 10/min/IP is generous
   // for a human rating a build.
   { path: '/api/feedback', maxRequests: 10, windowSeconds: 60, prefix: 'rl:feedback' },
+  // Newsletter double-opt-in subscribe — PUBLIC + unauthenticated, INSERTs a
+  // `newsletter_subscribers` row AND signals a confirmation email (double-opt-in,
+  // `confirm_email_sent:true`) per distinct address. Was UNMETERED → a flood of
+  // distinct emails = unbounded subscriber rows + unbounded SES confirmation sends to
+  // (often harvested) addresses: storage abuse + real SES-reputation/cost damage.
+  // 5/min/IP matches the email-sending contact budget (a human subscribes once).
+  // Unsubscribe only flips a flag (no email) → looser 10/min. (AL-337 security audit.)
+  { path: '/api/newsletter/subscribe', maxRequests: 5, windowSeconds: 60, prefix: 'rl:newsletter-sub' },
+  { path: '/api/newsletter/unsubscribe', maxRequests: 10, windowSeconds: 60, prefix: 'rl:newsletter-unsub' },
   {
     path: '/api/sites/create-from-search',
     maxRequests: 10,
