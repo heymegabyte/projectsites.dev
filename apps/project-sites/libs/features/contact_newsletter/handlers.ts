@@ -351,3 +351,77 @@ contactNewsletter.post('/api/newsletter/subscribe', async (c) => {
     return c.json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to subscribe' } }, 500);
   }
 });
+
+/**
+ * Newsletter UNSUBSCRIBE — the compliance counterpart to subscribe. Public +
+ * self-serve (same {siteId, email} trust model as subscribe): a subscriber (or a
+ * one-click email link) removes themselves from a site's native newsletter.
+ *
+ * @remarks
+ * Closes a real gap: `newsletter_subscribers.unsubscribed` had NO writer anywhere in
+ * the worker, so a native subscriber could never leave (CAN-SPAM/GDPR require a working
+ * unsubscribe) and the `newsletter-causal` probe's test rows could never be cleaned.
+ * Persist-first + error-checked (never a lying-success). Idempotent — unsubscribing a
+ * non-subscriber / already-unsubscribed row is a benign success no-op (`removed: 0`).
+ * Zod-validated; resolves the site by id-or-slug just like subscribe.
+ */
+const newsletterUnsubscribeSchema = z.object({
+  email: z.string().trim().email('A valid email is required.').max(320),
+  siteId: z.string().trim().min(1, 'siteId is required.').max(200),
+});
+
+contactNewsletter.post('/api/newsletter/unsubscribe', async (c) => {
+  const parsed = newsletterUnsubscribeSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return c.json(
+      {
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: parsed.error.issues[0]?.message ?? 'Invalid unsubscribe request',
+        },
+      },
+      400,
+    );
+  }
+  const { email, siteId } = parsed.data;
+
+  try {
+    const { dbQueryOne } = await import('../../../src/services/db.js');
+    const site = await dbQueryOne<{ id: string }>(
+      c.env.DB,
+      'SELECT id FROM sites WHERE (id = ? OR slug = ?) AND deleted_at IS NULL',
+      [siteId, siteId],
+    );
+    if (!site) return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+    const { newsletterUnsubscribe } = await import('../../../src/services/advanced_features.js');
+    const res = await newsletterUnsubscribe(c.env, { siteId: site.id, email });
+    if (res.error) {
+      // Persist failed for real — surface it, never a lying-success (the subscriber
+      // would think they unsubscribed while still receiving mail).
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          service: 'newsletter-unsubscribe',
+          message: 'unsubscribe_persist_failed',
+          site_id: site.id,
+          error: res.error,
+        }),
+      );
+      return c.json(
+        {
+          error: {
+            code: 'INTERNAL_ERROR',
+            message: 'Could not process your unsubscribe. Please try again.',
+          },
+        },
+        500,
+      );
+    }
+    // Idempotent success: `removed` is 0 when the email was not a live subscriber.
+    return c.json({ data: { unsubscribed: true, removed: res.updated } });
+  } catch (err) {
+    console.warn('[newsletter-unsubscribe] Error:', err);
+    return c.json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to unsubscribe' } }, 500);
+  }
+});

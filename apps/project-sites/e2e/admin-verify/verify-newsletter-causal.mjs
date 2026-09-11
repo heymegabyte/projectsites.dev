@@ -79,23 +79,40 @@ try {
   summary.total = { before: before.total, after: after.total, delta: after.total - before.total };
   summary.confirmed = { before: before.confirmed, after: after.confirmed };
 
-  const ok =
+  const subscribeOk =
     post.status === 200 &&
     summary.subscribe.subscribed &&
     summary.total.delta >= 1 &&
     after.confirmed === before.confirmed; // double-opt-in: NOT auto-confirmed
 
-  console.log('\n=== newsletter subscribe CAUSAL ===\n' + JSON.stringify(summary, null, 2));
+  // UNSUBSCRIBE leg — exercises the compliance endpoint (the `unsubscribed` column
+  // previously had NO writer) AND self-cleans this run's test subscriber, so
+  // `causal-newsletter-*` rows never pile up as LIVE (unsubscribed=0) subscribers.
+  const unsub = await fetch(`${BASE}/api/newsletter/unsubscribe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'User-Agent': UA, Origin: BASE },
+    body: JSON.stringify({ siteId: SITE_ID, email }),
+  });
+  const unsubBody = await unsub.json().catch(() => ({}));
+  summary.unsubscribe = { status: unsub.status, removed: unsubBody?.data?.removed ?? 0 };
+  // Idempotent endpoint, but THIS email was just subscribed (unsubscribed=0) → must flip 1 row.
+  const unsubscribeOk = unsub.status === 200 && (unsubBody?.data?.removed ?? 0) >= 1;
+
+  const ok = subscribeOk && unsubscribeOk;
+
+  console.log('\n=== newsletter subscribe→unsubscribe CAUSAL ===\n' + JSON.stringify(summary, null, 2));
   console.log(
     `\nVERDICT: ${ok ? '✅ PASS' : '🔴 CHECK'} ` +
       `post=${post.status} subscribed=${summary.subscribe.subscribed} ` +
       `total Δ=${summary.total.delta} (want ≥1) ` +
-      `confirmed=${before.confirmed}→${after.confirmed} (want unchanged — double-opt-in)`,
+      `confirmed=${before.confirmed}→${after.confirmed} (want unchanged — double-opt-in) ` +
+      `unsubscribe=${summary.unsubscribe.status} removed=${summary.unsubscribe.removed} (want ≥1)`,
   );
   if (!ok) {
     console.log(
-      '   ↳ Δtotal 0 → the subscribe route regressed (404?) or the newsletter tile lost its ' +
-        'writer; confirmed moving on a fresh subscribe → double-opt-in was bypassed.',
+      '   ↳ Δtotal 0 → subscribe route regressed (404?) / tile lost its writer; OR ' +
+        'unsubscribe removed=0 → the `unsubscribed`-column writer regressed (compliance + ' +
+        'self-clean path broken).',
     );
   }
   process.exit(ok ? 0 : 1);

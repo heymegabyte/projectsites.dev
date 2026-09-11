@@ -233,6 +233,38 @@ export async function newsletterSubscribe(
   return { id, ...p, confirm_email_sent: true, double_opt_in_required: true, error };
 }
 
+/**
+ * Newsletter UNSUBSCRIBE — sets `unsubscribed = 1` for a native subscriber.
+ *
+ * @remarks
+ * Closes a compliance + drift gap: `newsletter_subscribers.unsubscribed` existed
+ * as a column but had NO writer anywhere in the worker — a native subscriber could
+ * never leave the list (CAN-SPAM/GDPR require a working unsubscribe), and the
+ * `newsletter-causal` probe's test subscribers could never be cleaned. Mirrors
+ * `newsletterSubscribe`: error-AWARE (a real D1 failure returns `error` so the caller
+ * surfaces a 500, never a lying-success). Idempotent — unsubscribing a non-subscriber
+ * or an already-unsubscribed row is a benign 0-row no-op (`updated: 0`), not an error.
+ * The table has no `updated_at`/`deleted_at`, so this raw UPDATE touches only the flag.
+ */
+export async function newsletterUnsubscribe(
+  env: Env,
+  p: { siteId: string; email: string },
+): Promise<{ updated: number; error?: string }> {
+  let error: string | undefined;
+  let updated = 0;
+  try {
+    const res = await env.DB.prepare(
+      'UPDATE newsletter_subscribers SET unsubscribed = 1 WHERE site_id = ? AND email = ? AND unsubscribed = 0',
+    )
+      .bind(p.siteId, p.email)
+      .run();
+    updated = res.meta?.changes ?? 0;
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+  }
+  return { updated, error };
+}
+
 export async function membershipCreateTier(
   env: Env,
   p: { siteId: string; name: string; priceCents: number; perks: string[] },

@@ -39,6 +39,7 @@ import {
   communityListTopics,
   newsletterCreateCampaign,
   newsletterSubscribe,
+  newsletterUnsubscribe,
   membershipCreateTier,
   membershipListTiers,
   donationCreateCampaign,
@@ -361,6 +362,36 @@ describe('newsletterSubscribe', () => {
     const { env } = createMockEnv({ throwOn: 'first' });
     const r = await newsletterSubscribe(env, { siteId: 'site-1', email: 'a@b.co' });
     expect(r.double_opt_in_required).toBe(true);
+  });
+});
+
+// The compliance counterpart: the `unsubscribed` column previously had NO writer,
+// so a native subscriber could never leave (CAN-SPAM/GDPR) and the newsletter-causal
+// probe's test rows could never be cleaned. These lock the writer's contract.
+describe('newsletterUnsubscribe', () => {
+  it('flips unsubscribed=1 for live subscribers and reports the affected row count', async () => {
+    const { env, sqls } = createMockEnv({ runResult: { meta: { changes: 1 } } });
+    const r = await newsletterUnsubscribe(env, { siteId: 'site-1', email: 'a@b.co' });
+    expect(r.updated).toBe(1);
+    expect(r.error).toBeUndefined();
+    expect(sqls.some((s) => /UPDATE newsletter_subscribers SET unsubscribed = 1/.test(s))).toBe(true);
+    // Scoped to still-live rows so a repeat is a benign no-op, not a phantom update.
+    expect(sqls.some((s) => /WHERE site_id = \? AND email = \? AND unsubscribed = 0/.test(s))).toBe(true);
+  });
+
+  it('is idempotent — a non-subscriber / already-unsubscribed row is a 0-row no-op (no error)', async () => {
+    const { env } = createMockEnv({ runResult: { meta: { changes: 0 } } });
+    const r = await newsletterUnsubscribe(env, { siteId: 'site-1', email: 'ghost@b.co' });
+    expect(r.updated).toBe(0);
+    expect(r.error).toBeUndefined();
+  });
+
+  it('is error-AWARE — a real D1 failure returns { error }, never a lying-success', async () => {
+    const { env } = createMockEnv({ throwOn: 'run' });
+    const r = await newsletterUnsubscribe(env, { siteId: 'site-1', email: 'a@b.co' });
+    expect(r.updated).toBe(0);
+    expect(typeof r.error).toBe('string');
+    expect(r.error).toContain('boom');
   });
 });
 
