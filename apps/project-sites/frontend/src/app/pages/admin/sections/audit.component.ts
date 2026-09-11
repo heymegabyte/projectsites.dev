@@ -366,9 +366,9 @@ function actionToFallbackMessage(action: string): string {
 
         <div class="grid-footer">
           <label for="audit-page-size" class="page-size-label">
-            <select id="audit-page-size" class="site-select" aria-label="Rows per page" [value]="pagination().pageSize" (change)="onPageSize($event)">
+            <select id="audit-page-size" class="site-select" aria-label="Rows per page" (change)="onPageSize($event)">
               @for (n of pageSizeOptions; track n) {
-                <option [value]="n">{{ n }}</option>
+                <option [value]="n" [selected]="n === pagination().pageSize">{{ n }}</option>
               }
             </select>
           </label>

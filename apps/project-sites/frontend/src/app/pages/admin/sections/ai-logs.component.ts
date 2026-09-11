@@ -523,9 +523,9 @@ const NUMBER_FORMATTER = new Intl.NumberFormat('en-US');
 
         <div class="grid-footer">
           <label for="traces-page-size" class="page-size-label">
-            <select id="traces-page-size" class="site-select" aria-label="Rows per page" [value]="pagination().pageSize" (change)="onPageSize($event)">
+            <select id="traces-page-size" class="site-select" aria-label="Rows per page" (change)="onPageSize($event)">
               @for (n of pageSizeOptions; track n) {
-                <option [value]="n">{{ n }}</option>
+                <option [value]="n" [selected]="n === pagination().pageSize">{{ n }}</option>
               }
             </select>
           </label>

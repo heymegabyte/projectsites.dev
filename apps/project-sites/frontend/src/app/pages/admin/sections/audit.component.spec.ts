@@ -430,6 +430,27 @@ describe('AdminAuditComponent (cohesion + a11y source contract)', () => {
       expect(keyframeCount).toBe(0);
     }
   });
+
+  // Lying-control regression: the default pageSize (50) is NOT the first option
+  // (25). A bare `<select [value]="pagination().pageSize">` sets `select.value`
+  // before the `@for` renders its `<option>`s, so the browser falls back to the
+  // FIRST option (25) — the control displays "25 rows" while the table actually
+  // pages 50 ("Showing 1–50 of 500", "Page 1 of 10"). The fix moves the selected
+  // state onto each `<option>` via `[selected]`, evaluated as each option is
+  // created, so the control always reflects the true page size.
+  it('page-size <select> reflects the true page size via [selected] on each option — never the lying <select [value]> that shows 25 while paging 50', () => {
+    if (!reachable()) {
+      pending('decorator metadata not reachable — contract enforced by AOT build + prod a11y E2E');
+      return;
+    }
+    const t = template();
+    expect(t).withContext('each option owns its selected state (reliable across @for render order)').toContain(
+      '[selected]="n === pagination().pageSize"',
+    );
+    expect(t)
+      .withContext('the unreliable <select [value]="pagination().pageSize"> binding was the bug — must be gone')
+      .not.toMatch(/<select[^>]*\[value\]="pagination\(\)\.pageSize"/);
+  });
 });
 
 /**

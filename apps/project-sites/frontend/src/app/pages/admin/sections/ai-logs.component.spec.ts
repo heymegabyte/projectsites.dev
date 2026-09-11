@@ -404,3 +404,42 @@ describe('AdminAiLogsComponent — bounded auto-poll retry (error-recovery max 3
     expect(c.autoRefreshPaused()).withContext('a success resumes auto-poll').toBeFalse();
   });
 });
+
+/**
+ * Lying-control regression (traces page-size selector). Identical to the audit
+ * section: default pageSize is 50 but the option list starts at 25, so the old
+ * `<select [value]="pagination().pageSize">` binding fell back to the first
+ * option (25) while the grid actually paged 50 — the control lied about state.
+ * The fix moves the selected state onto each `<option>` via `[selected]`. This
+ * reads the component's decorator template as a string (guarded so a
+ * template-stripped runner never yields a false failure).
+ */
+describe('AdminAiLogsComponent (traces page-size selector reflects true page size)', () => {
+  function tracesTemplate(): string {
+    const cls = AdminAiLogsComponent as unknown as {
+      __annotations__?: Array<Record<string, unknown>>;
+      decorators?: Array<{ args?: Array<Record<string, unknown>> }>;
+    };
+    const fromAnn = Array.isArray(cls.__annotations__)
+      ? cls.__annotations__.find((a) => 'template' in a)
+      : undefined;
+    const fromDec = Array.isArray(cls.decorators)
+      ? cls.decorators.find((d) => d.args?.[0] && 'template' in d.args[0])?.args?.[0]
+      : undefined;
+    return ((fromAnn ?? fromDec ?? {}) as { template?: string }).template ?? '';
+  }
+
+  it('binds [selected] on each option — never the lying <select [value]> that shows 25 while paging 50', () => {
+    const t = tracesTemplate();
+    if (!t) {
+      pending('decorator template not reachable in this runner — contract enforced by AOT build + prod E2E');
+      return;
+    }
+    expect(t).withContext('each option owns its selected state (reliable across @for render order)').toContain(
+      '[selected]="n === pagination().pageSize"',
+    );
+    expect(t)
+      .withContext('the unreliable <select [value]="pagination().pageSize"> binding was the bug — must be gone')
+      .not.toMatch(/<select[^>]*\[value\]="pagination\(\)\.pageSize"/);
+  });
+});
