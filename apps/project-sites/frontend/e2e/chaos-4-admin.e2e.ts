@@ -369,8 +369,15 @@ test.describe('CHAOS 4 — Power Admin (authed dashboard sweep)', () => {
         .click({ timeout: 4000 });
       const cr = await createResp;
       expect(cr.status(), 'env var create must 200 (not 400 on null description)').toBe(200);
-      const created = (await cr.json().catch(() => ({}))) as { var?: { id?: string } };
-      createdId = created.var?.id ?? null;
+      const created = (await cr.json().catch(() => ({}))) as {
+        var?: { id?: string };
+        data?: { id?: string };
+        id?: string;
+      };
+      // Robust across every create-response shape ({var:{id}} | {data:{id}} | {id}).
+      // A null id here is exactly what skipped the finally delete on 6 prior runs →
+      // 6 E2E_PERSIST_* vars leaked into the org's exposed-to-AI set (Aug 16→Sep 8).
+      createdId = created.var?.id ?? created.data?.id ?? created.id ?? null;
       await expect(page.locator(`text=${testKey}`).first()).toBeVisible({ timeout: 8000 });
 
       // Persistence 1 — navigate away, come back, re-open the tab.
@@ -406,17 +413,31 @@ test.describe('CHAOS 4 — Power Admin (authed dashboard sweep)', () => {
     } finally {
       // Always remove the created row (real D1 in the E2E org) — via the API, which
       // avoids the destructive-confirm dialog and never leaves a stray test var.
-      if (createdId) {
-        await page
-          .evaluate(async (id) => {
-            const s = JSON.parse(localStorage.getItem('ps_session') || '{}');
-            await fetch(`/api/env-vars/${id}`, {
-              method: 'DELETE',
-              headers: { Authorization: `Bearer ${s.token}` },
-            }).catch(() => {});
-          }, createdId)
-          .catch(() => {});
-      }
+      // Belt-and-suspenders: ALSO sweep every stale E2E_PERSIST_* row (from this run if
+      // id-capture missed, or any prior run) — else each miss leaks one exposed-to-AI var
+      // into the org forever. Self-heals the 6 that accumulated before this guard.
+      // GET shape is `{ vars: [...] }`; mirrors verify-envvars-causal.mjs's CAUSAL_ sweep.
+      await page
+        .evaluate(async (id: string | null) => {
+          const s = JSON.parse(localStorage.getItem('ps_session') || '{}');
+          const hdr = { Authorization: `Bearer ${s.token}` };
+          const del = (vid: string) =>
+            fetch(`/api/env-vars/${vid}`, { method: 'DELETE', headers: hdr }).catch(() => {});
+          if (id) await del(id);
+          const body = await fetch('/api/env-vars', { headers: hdr })
+            .then((r) => r.json())
+            .catch(() => ({}));
+          const rows = (Array.isArray(body) ? body : (body?.vars ?? body?.data ?? [])) as Array<{
+            id?: string;
+            key?: string;
+          }>;
+          for (const v of rows) {
+            if (typeof v?.key === 'string' && v.key.startsWith('E2E_PERSIST') && v.id && v.id !== id) {
+              await del(v.id);
+            }
+          }
+        }, createdId)
+        .catch(() => {});
     }
   });
 
