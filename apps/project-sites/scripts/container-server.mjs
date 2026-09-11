@@ -558,6 +558,39 @@ function applyVerticalPreset(dir, preset, templateDir) {
   return `applied ${preset} (default=${isDefault} schemeMismatch=${schemeMismatch})${classCarried ? ' +businessClass' : ''}${themeStylePreserved ? ` +themeStyle=${merged.themeStyle}` : ''}`;
 }
 
+/**
+ * Force the worker's DETERMINISTIC theme PERSONALITY onto `_brand.json.themeStyle` from
+ * the IMMUTABLE `_theme_style.txt` sidecar. This is the authoritative fix for the
+ * vertical-mismatch class (St. Elmo steakhouse→warm-not-luxe, Waterloo record-store→
+ * boutique-not-retro): the workflow seeds BOTH `_brand.json.themeStyle` AND this sidecar
+ * (theme_style.ts → themeStyleFromInputs), but the orchestrator REWRITES `_brand.json`
+ * (the same fire-54 clobber that motivated `_category.txt`), dropping the seeded
+ * themeStyle — so `applyVerticalPreset`'s `_brand.json`-based preservation silently
+ * no-ops and the vertical PACK's own themeStyle wins. The sidecar is a file the
+ * orchestrator never touches, so it survives. Run this AFTER `applyVerticalPreset` so it
+ * re-stamps the personality over the pack's default. Runs BEFORE `npm run build` (same
+ * window as applyVerticalPreset), so brand.ts bundles the corrected value → `applyBrand`
+ * stamps the right `data-style`. Idempotent; safe no-op when the sidecar is absent
+ * (undefined category / legacy builds). Same immutable-signal pattern as
+ * [[authoritative-signal-immutable-against-unreliable-generator]].
+ *
+ * @param {string} dir - the build directory containing `_brand.json` + `_theme_style.txt`.
+ * @returns {string} a short status string for the build log.
+ */
+function applyThemeStyleSidecar(dir) {
+  let want = '';
+  try { want = fs.readFileSync(path.join(dir, '_theme_style.txt'), 'utf-8').trim(); } catch { return 'no-sidecar'; }
+  if (!want) return 'no-sidecar';
+  const brandPath = path.join(dir, '_brand.json');
+  let brand;
+  try { brand = JSON.parse(fs.readFileSync(brandPath, 'utf-8')); } catch { return 'brand-unreadable'; }
+  const cur = typeof brand.themeStyle === 'string' ? brand.themeStyle.trim() : '';
+  if (cur === want) return `already ${want}`;
+  brand.themeStyle = want;
+  try { fs.writeFileSync(brandPath, JSON.stringify(brand, null, 2)); } catch { return 'write-failed'; }
+  return `applied ${want}${cur ? ` (was ${cur})` : ''}`;
+}
+
 // ── Research-narrative uniqueness (loop FIRE-72) — first step of the content-
 // uniqueness arc. The research LLM produces a business-SPECIFIC profile.description +
 // mission_statement, but loadContentMap only ever wired research into 3 IDENTITY
@@ -1069,6 +1102,10 @@ function runJob(jobId, dir, prompt, envVars, timeoutMin, callbackUrl, callbackSe
           try {
             preset = pickVerticalPreset(dir, prompt);
             console.warn(`[${jobId}] Vertical theme: ${applyVerticalPreset(dir, preset, TEMPLATE_DIR)}`);
+            // Re-stamp the worker's authoritative personality from the orchestrator-proof
+            // _theme_style.txt sidecar AFTER the pack merge, so it wins over the pack's
+            // default themeStyle (fixes steakhouse→warm-not-luxe, record-store→boutique-not-retro).
+            console.warn(`[${jobId}] Theme personality (sidecar): ${applyThemeStyleSidecar(dir)}`);
             // Logo: recover the OFFICIAL mark, else generate an elegant one via Ideogram
             // (BEFORE npm build, so generate-favicons keeps it as apple-touch-icon.png).
             console.warn(`[${jobId}] Logo: ${await ensureLogo(dir, envVars.IDEOGRAM_API_KEY, envVars.ANTHROPIC_API_KEY)}`);

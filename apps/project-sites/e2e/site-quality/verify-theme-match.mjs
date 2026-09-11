@@ -40,6 +40,11 @@ const CASES = [
   { slug: 'savage-law-firm-charleston', vertical: 'law firm', bad: ['boutique', 'rugged'], ideal: ['editorial'] },
   { slug: 'city-hardware-burlington', vertical: 'hardware', bad: ['boutique', 'luxe'], ideal: ['rugged'] },
   { slug: 'weissman-family-dental-boulder', vertical: 'dental', bad: ['boutique', 'rugged'], ideal: ['botanical', 'classic'] },
+  // AL-345 sidecar regression: distinctive verticals whose PACK default clobbered the
+  // worker themeStyle until _theme_style.txt landed (RED before the fixed-container
+  // rebuild → GREEN after). steakhouse→luxe (pack warm), record store→retro (pack boutique).
+  { slug: 'st-elmo-steak-house-indy', vertical: 'steakhouse', bad: ['warm', 'boutique'], ideal: ['luxe'] },
+  { slug: 'waterloo-records-austin', vertical: 'record store', bad: ['warm', 'boutique'], ideal: ['retro'] },
 ];
 
 const override = (process.env.SITES || '').split(',').map((s) => s.trim()).filter(Boolean);

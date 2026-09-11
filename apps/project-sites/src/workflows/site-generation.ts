@@ -634,6 +634,15 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
     // string is EXACTLY what brand.ts reads (r.themeStyle); an undefined result
     // omits the key so the template keeps its own graceful classic fallback.
     const themeStyle = themeStyleFromInputs(params.businessCategory, params.additionalContext);
+    // IMMUTABLE themeStyle signal (mirrors the _category.txt sidecar). The seeded
+    // _brand.json.themeStyle below is CLOBBERABLE — the orchestrator rewrites _brand.json
+    // (the same fire-54 clobber that motivated _category.txt), dropping the top-level
+    // themeStyle, so applyVerticalPreset's _brand.json-based preservation silently no-ops
+    // and the vertical PACK's themeStyle wins (steakhouse→warm not luxe, record store→
+    // boutique not retro). So ALSO ship the personality as a standalone _theme_style.txt
+    // the orchestrator never touches; the container's applyThemeStyleSidecar re-stamps it
+    // onto _brand.json AFTER the pack merge → the worker's deterministic call wins.
+    if (themeStyle) contextFiles['theme_style.txt'] = themeStyle;
     contextFiles['brand.json'] = JSON.stringify(
       {
         ...(themeStyle ? { themeStyle } : {}),
