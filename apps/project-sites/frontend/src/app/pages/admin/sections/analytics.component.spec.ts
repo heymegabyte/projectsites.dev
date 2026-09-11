@@ -675,6 +675,27 @@ describe('AdminAnalyticsComponent (Top referrers — accurate channel labels)', 
     expect(c.referrerTag('organic')).toBe('');
   });
 
+  // Regression (2026-09-11, /admin vision inspection): a visit from the Gmail
+  // Android app arrived as the raw package `com.google.android.gm` and leaked into
+  // Top Referrers as developer jargon. Mobile-app packages (bare OR android-app://)
+  // must resolve to the friendly platform name + kind, like hosts do.
+  it('humanizes mobile-app-package referrers (bare + android-app://) with the right kind', () => {
+    expect(c.referrerLabel('com.google.android.gm')).toBe('Gmail');
+    expect(c.referrerTag('com.google.android.gm')).toBe('email');
+    expect(c.referrerLabel('android-app://com.google.android.gm')).toBe('Gmail'); // scheme-prefixed
+    expect(c.referrerLabel('com.google.android.googlequicksearchbox')).toBe('Google');
+    expect(c.referrerTag('com.google.android.googlequicksearchbox')).toBe('search');
+    expect(c.referrerLabel('com.linkedin.android')).toBe('LinkedIn');
+    expect(c.referrerTag('com.linkedin.android')).toBe('social');
+    expect(c.referrerLabel('com.instagram.android')).toBe('Instagram');
+    expect(c.referrerLabel('android-app://com.facebook.katana')).toBe('Facebook');
+    // The app row is still a "host" row → the kind tag renders after the name.
+    expect(c.referrerIsHost('com.google.android.gm')).toBe(true);
+    // An UNKNOWN app package still falls back to the bare package (no crash).
+    expect(c.referrerLabel('com.some.unknown.app')).toBe('com.some.unknown.app');
+    expect(c.referrerTag('com.some.unknown.app')).toBe('referral');
+  });
+
   // Truthfulness: the edge counts EVERY HTTP request, so raw top_pages includes PWA /
   // static infra (/site.webmanifest, /offline.html, favicons, robots.txt, *.js). "Top
   // PAGES" must show pages a visitor viewed — displayTopPages() filters the infra out

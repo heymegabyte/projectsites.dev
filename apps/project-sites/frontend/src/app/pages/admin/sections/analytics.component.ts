@@ -1171,6 +1171,40 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     { match: 'outlook.live.com', name: 'Outlook', kind: 'email' },
   ];
 
+  /**
+   * Known MOBILE-APP referrers → friendly source + kind. Android sends the
+   * referring app's PACKAGE id (`com.google.android.gm`), often prefixed
+   * `android-app://` (which `referrerHost` already strips to the bare package).
+   * A raw reverse-DNS package leaking into the UI reads as developer jargon
+   * ("com.google.android.gm" for a visit from the Gmail app), so map the common
+   * ones to their platform name — the app sibling of REFERRER_HOSTS. Keys are
+   * lowercase (matched against the lowercased package). MOST-common first.
+   */
+  private readonly REFERRER_APPS: Record<string, { name: string; kind: string }> = {
+    'com.google.android.gm': { name: 'Gmail', kind: 'email' },
+    'com.google.android.googlequicksearchbox': { name: 'Google', kind: 'search' },
+    'com.google.android.youtube': { name: 'YouTube', kind: 'social' },
+    'com.google.android.apps.docs': { name: 'Google Drive', kind: 'referral' },
+    'com.android.chrome': { name: 'Chrome', kind: 'referral' },
+    'com.linkedin.android': { name: 'LinkedIn', kind: 'social' },
+    'com.twitter.android': { name: 'X (Twitter)', kind: 'social' },
+    'com.facebook.katana': { name: 'Facebook', kind: 'social' },
+    'com.facebook.lite': { name: 'Facebook', kind: 'social' },
+    'com.instagram.android': { name: 'Instagram', kind: 'social' },
+    'com.zhiliaoapp.musically': { name: 'TikTok', kind: 'social' },
+    'com.ss.android.ugc.trill': { name: 'TikTok', kind: 'social' },
+    'com.reddit.frontpage': { name: 'Reddit', kind: 'social' },
+    'com.whatsapp': { name: 'WhatsApp', kind: 'social' },
+    'com.whatsapp.w4b': { name: 'WhatsApp', kind: 'social' },
+    'org.telegram.messenger': { name: 'Telegram', kind: 'social' },
+    'com.snapchat.android': { name: 'Snapchat', kind: 'social' },
+    'com.pinterest': { name: 'Pinterest', kind: 'social' },
+    'com.microsoft.office.outlook': { name: 'Outlook', kind: 'email' },
+    'com.yahoo.mobile.client.android.mail': { name: 'Yahoo Mail', kind: 'email' },
+    'com.slack': { name: 'Slack', kind: 'referral' },
+    'com.discord': { name: 'Discord', kind: 'social' },
+  };
+
   /** Exact-or-subdomain host match (`m.facebook.com` matches `facebook.com`). */
   private hostMatch(host: string, base: string): boolean {
     return host === base || host.endsWith('.' + base);
@@ -1189,6 +1223,16 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Resolve a MOBILE-APP-package referrer to a known `{ name, kind }`, or null
+   * when it isn't a recognized app. `referrerHost` normalizes both the bare
+   * (`com.google.android.gm`) and `android-app://…` forms to the package id.
+   */
+  private resolveApp(referrer: string): { name: string; kind: string } | null {
+    const pkg = this.referrerHost(referrer).toLowerCase();
+    return (pkg && this.REFERRER_APPS[pkg]) || null;
+  }
+
+  /**
    * Friendly primary label for a referrer row — names WHAT referred: a known
    * channel → its display name (`Direct`, `Organic search`); a known host → the
    * platform's friendly name (`Facebook`, `Google`, `Hacker News`, `ChatGPT`); an
@@ -1199,7 +1243,9 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     const raw = (referrer ?? '').trim().toLowerCase();
     if (!raw) return 'Direct';
     if (this.REFERRER_CHANNELS[raw]) return this.REFERRER_CHANNELS[raw];
-    return this.resolveHost(referrer)?.name ?? this.referrerHost(referrer);
+    return (
+      this.resolveApp(referrer)?.name ?? this.resolveHost(referrer)?.name ?? this.referrerHost(referrer)
+    );
   }
 
   /**
@@ -1211,7 +1257,7 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
   referrerTag(referrer: string): string {
     const raw = (referrer ?? '').trim().toLowerCase();
     if (!raw || raw in this.REFERRER_CHANNELS) return '';
-    return this.resolveHost(referrer)?.kind ?? 'referral';
+    return this.resolveApp(referrer)?.kind ?? this.resolveHost(referrer)?.kind ?? 'referral';
   }
 
   /** True only when the referrer is a real host — so the kind tag is shown (never on a channel row). */
