@@ -31,6 +31,7 @@ import { resolveActiveOrgPlan } from '../services/build_limits.js';
 import { isFlagOn } from '../modules/feature_flags/services.js';
 import { tryEmitEvent } from '../services/emit_event.js';
 import { themeStyleFromInputs, personalityBriefFor } from '../services/theme_style.js';
+import { categoryPhrase, heroHeadlineOptions } from '../services/hero_copy.js';
 
 /**
  * Per-variant omit of the auto-injected base fields, distributed across the
@@ -718,15 +719,11 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
     // LLM upgrade is a later fire on this same seam. contextFiles['research.json'] →
     // container writes _research.json (last, wins) → applyResearchNarrative consumes it.
     {
-      const catService =
-        (params.businessCategory || '')
-          .toLowerCase()
-          .replace(
-            /\b(clinics?|studios?|shops?|stores?|group|company|co|services?|practice|agency|firm|center|centre|salon|parlou?rs?|llc|inc)\b/g,
-            '',
-          )
-          .replace(/\s{2,}/g, ' ')
-          .trim() || 'local service';
+      // AL-361: keep the natural retail/venue noun phrase ("record store", "steak
+      // house") instead of the old strip that collapsed "Record Store" → the broken
+      // singular "record" ("Quality record Portland counts on" shipped live). Fixes
+      // EVERY downstream seeded string (about/services-intro/hero-sub/H1), not just the H1.
+      const catService = categoryPhrase(params.businessCategory);
       // City = the second-to-last comma field of the address ("…, Spokane, WA 99202" → "Spokane").
       const addrParts = (params.businessAddress || '')
         .split(',')
@@ -787,11 +784,10 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // container rebuild; fail-soft — blank → pack default). Short + punchy for an <h1>,
       // slop-free (no banned words), identity-woven so it never collides across businesses/cities
       // and never trips build_validators' validateHeroNotPackDefault.
-      const heroHeadline = pick([
-        `${cityPhrase}'s trusted ${catService}`,
-        `Expert ${catService} in ${cityPhrase}`,
-        `Quality ${catService} ${cityPhrase} counts on`,
-      ]);
+      // AL-361: frames now read naturally for BOTH service and product/retail/food
+      // verticals (the old "Expert ${x} in ${city}" mangled retail — "Expert record
+      // store in Portland"). heroHeadlineOptions is unit-tested + slop-free.
+      const heroHeadline = pick([...heroHeadlineOptions(catService, cityPhrase)]);
       contextFiles['content.json'] = JSON.stringify(
         {
           ABOUT_PARAGRAPH_1: aboutPara1,
