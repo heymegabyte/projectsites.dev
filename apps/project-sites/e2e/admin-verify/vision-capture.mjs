@@ -61,6 +61,29 @@ await page.evaluate((k) => {
   localStorage.setItem('ps_session', JSON.stringify({ token: k, identifier: 'e2e@megabyte.space', issuedAt: Date.now() }));
 }, KEY);
 
+/**
+ * Wait for a section's async content to SETTLE before screenshotting — otherwise a
+ * data-heavy section (e.g. the dashboard loading 100+ sites) captures its "Loading
+ * Dashboard…" spinner instead of real content, silently compromising the vision
+ * review. Bounded + fail-open: network-quiets, then waits for the "Loading …"
+ * spinner text to clear; if either lingers past its budget we fall through and
+ * capture anyway (never hang the run). Found 2026-09-11: the fixed 1600ms wait
+ * screenshotted the dashboard mid-load.
+ */
+async function waitForSettled() {
+  await page.waitForLoadState('networkidle', { timeout: 12000 }).catch(() => {});
+  await page
+    .waitForFunction(
+      () => {
+        const t = document.body?.innerText || '';
+        // Admin loading states read "Loading <Section>…" / "Loading <Section>...".
+        return !/\bLoading\b[^\n]{0,40}(…|\.\.\.)/.test(t);
+      },
+      { timeout: 12000 },
+    )
+    .catch(() => {});
+}
+
 /** Scroll top→bottom in viewport steps so every IntersectionObserver-gated counter fires + rolls. */
 async function fireObservers() {
   await page.evaluate(async () => {
@@ -78,7 +101,8 @@ async function fireObservers() {
 for (const s of SECTIONS) {
   try {
     await page.goto(`${ORIGIN}/admin/${s}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(1600);
+    await waitForSettled();
+    await page.waitForTimeout(500); // small floor so late paints (chart animations) land
     await fireObservers();
     const file = resolve(OUT, `${s}.png`);
     await page.screenshot({ path: file, fullPage: true });
