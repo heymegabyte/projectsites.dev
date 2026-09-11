@@ -37,7 +37,12 @@ describe('unstickStalledBuilds', () => {
     mockQuery.mockResolvedValueOnce({
       data: [
         // built: has a deployed R2 version → SERVING → a dropped publish-flip (AL-379 race) → published
-        { id: 's1', slug: 'built', business_name: 'Built Co', current_build_version: '2026-09-11T21-18Z' },
+        {
+          id: 's1',
+          slug: 'built',
+          business_name: 'Built Co',
+          current_build_version: '2026-09-11T21-18Z',
+        },
         // never built: nothing in R2 → genuinely dead workflow → error
         { id: 's2', slug: 'dead', business_name: 'Dead Co', current_build_version: null },
       ],
