@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const UsageGaugeSchema = z.object({
-  metric: z.enum(['sites', 'builds', 'media_gb', 'bandwidth_gb']),
+  metric: z.enum(['sites', 'builds', 'media']),
   label: z.string(),
   used: z.number(),
   limit: z.number(),

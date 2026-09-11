@@ -6,8 +6,11 @@
  * had NO UI consumer. Built `<app-usage-gauges>` + wired it under the subscription
  * card on the billing tab.
  *
- * Ground truth (e2e-test-org, GET /api/usage): 4 gauges — sites {used:4, limit:3,
- * pct:100} (OVER limit), builds {0/10}, media_gb {0/1 GB}, bandwidth_gb {0/5 GB}.
+ * Ground truth (e2e-test-org = FREE plan, GET /api/usage): 3 SSOT-backed gauges —
+ * sites {used:109, limit:1, pct:100} (OVER the free limit), builds {used:0, limit:5},
+ * media {used:0, limit:10, unit:MB}. Limits come from the plan_entitlement SSOT
+ * (free = 1 site / 5 builds / 10 MB), NOT the old fabricated 3 / 10 / 1 GB, and the
+ * fabricated bandwidth gauge (no enforced limit, never measured) is dropped (AL-326).
  * The sites gauge exercises the over-limit (danger) path.
  *
  * Real testids: usage-gauges, usage-gauge-<metric>, usage-value-<metric>,
@@ -46,11 +49,11 @@ test.describe('Full-flow · plan usage gauges', () => {
     expectClean(errors);
   });
 
-  test('02 all four usage gauges render (sites / builds / media / bandwidth)', async ({ page }) => {
+  test('02 the 3 SSOT-backed usage gauges render (sites / builds / media)', async ({ page }) => {
     await seedSession(page);
     await openBillingUsage(page);
     await expect(page.locator(CARD)).toBeVisible({ timeout: 20_000 });
-    for (const metric of ['sites', 'builds', 'media_gb', 'bandwidth_gb']) {
+    for (const metric of ['sites', 'builds', 'media']) {
       await expect(page.locator(`[data-testid="usage-gauge-${metric}"]`), `${metric} gauge renders`).toBeVisible();
     }
     await snap(page, 'usage-02-gauges');
@@ -72,7 +75,7 @@ test.describe('Full-flow · plan usage gauges', () => {
     }
   });
 
-  test('04 the over-limit metric (sites 4/3) renders in the danger state with an overage note', async ({ page }) => {
+  test('04 the over-limit metric (free sites 109/1) renders in the danger state with an overage note', async ({ page }) => {
     await seedSession(page);
     await openBillingUsage(page);
     await expect(page.locator(CARD)).toBeVisible({ timeout: 20_000 });

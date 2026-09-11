@@ -1,23 +1,17 @@
 /**
  * Usage Gauges service — per-org usage metrics from D1.
  *
- * Computes site count, build count, estimated media storage, and bandwidth
- * against plan limits. Designed to feed SVG gauge-ring components in the
- * admin dashboard.
+ * Computes site count, build count, and media storage against the org's REAL
+ * plan limits (sourced from the `plan_entitlement` SSOT matrix — NOT hardcoded),
+ * to feed the Billing "Plan & usage" gauges.
  *
  * @module libs/features/usage_gauges/service
  */
 import type { Env } from '../../../src/types/env.js';
-import { dbQuery, dbQueryOne } from '../../../src/services/db.js';
+import { dbQueryOne } from '../../../src/services/db.js';
+import { resolveActiveOrgPlan } from '../../../src/services/build_limits.js';
+import { getLimit, type PlanTier } from '../../../src/services/plan_entitlement.js';
 import type { UsageGauge } from './schemas.js';
-
-/** Default free-tier limits. */
-const FREE_LIMITS = {
-  sites: 3,
-  builds: 10,
-  media_gb: 1,
-  bandwidth_gb: 5,
-};
 
 interface CountRow {
   cnt: number;
@@ -28,17 +22,31 @@ interface SizeRow {
 }
 
 /**
- * Compute usage gauges for an org. Queries D1 for live counts and
- * compares against free-tier limits (paid plan limits TBD).
+ * Compute usage gauges for an org. Queries D1 for live counts and compares them
+ * against the org's ACTUAL plan limits from the `plan_entitlement` SSOT matrix.
+ *
+ * Was a hardcoded `FREE_LIMITS = { sites: 3, builds: 10, media_gb: 1, bandwidth_gb: 5 }`
+ * that (a) matched NO real plan tier (free is 1 site / 5 builds / 10 MB per the SSOT) and
+ * (b) ignored the org's plan entirely — so every free owner saw fabricated headroom and
+ * the "/ 3 sites" meter contradicted the "1 project" plan card (AL-326 lying-UI cap). Now
+ * the limits are plan-aware from `getLimit()`: an active|trialing `paid` sub resolves to
+ * the sold `pro` tier (unlimited sites → "∞", matching the Pro plan card), everything else
+ * to `free`. The fabricated `bandwidth_gb` gauge (no SSOT limit, never measured) is dropped
+ * so the meter only shows gauges backed by a real count AND a real enforced limit.
+ *
+ * @param env - Worker env (needs `DB`).
+ * @param orgId - Organisation UUID.
+ * @returns Sites / Builds / Media gauges — each `{used, limit, pct}` where `limit === -1`
+ *   means unlimited (the client renders "∞" and holds `pct` at 0).
  */
 export async function computeUsageGauges(env: Env, orgId: string): Promise<UsageGauge[]> {
-  const [siteRow] = await Promise.all([
-    dbQueryOne<CountRow>(
-      env.DB,
-      `SELECT COUNT(*) as cnt FROM sites WHERE org_id = ? AND deleted_at IS NULL`,
-      [orgId],
-    ),
-  ]);
+  const tier: PlanTier = (await resolveActiveOrgPlan(env.DB, orgId)) === 'paid' ? 'pro' : 'free';
+
+  const siteRow = await dbQueryOne<CountRow>(
+    env.DB,
+    `SELECT COUNT(*) as cnt FROM sites WHERE org_id = ? AND deleted_at IS NULL`,
+    [orgId],
+  );
 
   const buildRow = await dbQueryOne<CountRow>(
     env.DB,
@@ -52,7 +60,7 @@ export async function computeUsageGauges(env: Env, orgId: string): Promise<Usage
     // Media storage lives in `media_assets.size_bytes` (per-org), NOT on `sites` —
     // the old `SUM(media_size_bytes) FROM sites` referenced a column that doesn't
     // exist, so the query threw (swallowed by dbQuery) and the Media gauge always
-    // read 0 GB regardless of actual usage.
+    // read 0 regardless of actual usage.
     `SELECT COALESCE(SUM(size_bytes), 0) / 1048576.0 as total_mb
      FROM media_assets WHERE org_id = ? AND deleted_at IS NULL`,
     [orgId],
@@ -60,42 +68,21 @@ export async function computeUsageGauges(env: Env, orgId: string): Promise<Usage
 
   const sites = Number(siteRow?.cnt ?? 0);
   const builds = Number(buildRow?.cnt ?? 0);
-  const mediaGb = Number(((mediaRow?.total_mb ?? 0) / 1024).toFixed(2));
+  // Media is reported in MB (the SSOT `media_storage_mb` unit) — free is 10 MB, so a GB
+  // scale would render a misleading "0 / 0.01 GB". Round to whole MB.
+  const mediaMb = Math.round(Number(mediaRow?.total_mb ?? 0));
 
-  const gauges: UsageGauge[] = [
-    {
-      metric: 'sites',
-      label: 'Sites',
-      used: sites,
-      limit: FREE_LIMITS.sites,
-      unit: 'sites',
-      pct: Math.min(100, Math.round((sites / FREE_LIMITS.sites) * 100)),
-    },
-    {
-      metric: 'builds',
-      label: 'Builds',
-      used: builds,
-      limit: FREE_LIMITS.builds,
-      unit: 'builds',
-      pct: Math.min(100, Math.round((builds / FREE_LIMITS.builds) * 100)),
-    },
-    {
-      metric: 'media_gb',
-      label: 'Media',
-      used: mediaGb,
-      limit: FREE_LIMITS.media_gb,
-      unit: 'GB',
-      pct: Math.min(100, Math.round((mediaGb / FREE_LIMITS.media_gb) * 100)),
-    },
-    {
-      metric: 'bandwidth_gb',
-      label: 'Bandwidth',
-      used: 0,
-      limit: FREE_LIMITS.bandwidth_gb,
-      unit: 'GB',
-      pct: 0,
-    },
+  const sitesLimit = getLimit('sites', tier);
+  const buildsLimit = getLimit('builds_per_month', tier);
+  const mediaLimit = getLimit('media_storage_mb', tier);
+
+  /** Percent full; 0 for an unlimited (`-1`) or zero limit (the client shows "∞"). */
+  const pct = (used: number, limit: number): number =>
+    limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+
+  return [
+    { metric: 'sites', label: 'Sites', used: sites, limit: sitesLimit, unit: 'sites', pct: pct(sites, sitesLimit) },
+    { metric: 'builds', label: 'Builds', used: builds, limit: buildsLimit, unit: 'builds', pct: pct(builds, buildsLimit) },
+    { metric: 'media', label: 'Media', used: mediaMb, limit: mediaLimit, unit: 'MB', pct: pct(mediaMb, mediaLimit) },
   ];
-
-  return gauges;
 }
