@@ -159,6 +159,8 @@ export class RecentActivityComponent implements OnInit {
       'site.published': 'Published',
       'site.archived': 'Archived',
       'site.deleted': 'Deleted',
+      'snapshot.created': 'Snapshot',
+      'snapshot.deleted': 'Snapshot',
       'domain.added': 'Domain',
       'domain.removed': 'Domain removed',
       'billing.plan_changed': 'Billing',
@@ -169,6 +171,8 @@ export class RecentActivityComponent implements OnInit {
       'workflow.completed': 'Workflow',
       'integration.connected': 'Integration',
       'integration.disconnected': 'Integration',
+      'settings.updated': 'Settings',
+      'data.query': 'Data',
     };
     return map[kind] ?? 'Activity';
   }

@@ -22,24 +22,62 @@ interface AuditRow {
   created_at: string;
 }
 
+/**
+ * Map an audit-log `action` to a display `ActivityKind`. The explicit table uses the
+ * REAL action strings the worker emits (e.g. `workflow.build_complete`, not the old
+ * `build.completed` that never matched); the prefix buckets catch the rest of each
+ * family; and an unmapped action falls back to the neutral `'activity'` — NOT the old
+ * `'build.completed'`, which mislabeled every settings/snapshot/AI/env event as a green
+ * "Build" on the dashboard hub (AL-328). The FE renders `'activity'` as "Activity" + a
+ * neutral info dot.
+ */
 function mapKind(action: string): ActivityKind {
+  const a = action.toLowerCase();
   const m: Record<string, ActivityKind> = {
+    // builds (real actions are workflow.build_* / workflow.complete)
+    'workflow.build_complete': 'build.completed',
+    'workflow.complete': 'build.completed',
     'build.completed': 'build.completed',
+    'workflow.build_started': 'build.started',
+    'build.started': 'build.started',
+    'workflow.build_error': 'build.failed',
     'build.failed': 'build.failed',
+    // site lifecycle
     'site.published': 'site.published',
     'site.unpublished': 'site.archived',
+    'site.archived': 'site.archived',
+    'site.deleted': 'site.deleted',
+    'site.snapshot.created': 'snapshot.created',
+    'site.snapshot.deleted': 'snapshot.deleted',
+    // data / config surfaces (the high-frequency real events)
+    'site.sql.exec': 'data.query',
+    'ai_settings.updated': 'settings.updated',
+    'site.updated': 'settings.updated',
+    'site.name_changed': 'settings.updated',
+    'voice.agent_settings_updated': 'settings.updated',
+    'voice.mcp_attachments_updated': 'settings.updated',
+    'env_var.upsert': 'settings.updated',
+    'env_var.delete': 'settings.updated',
+    // domains / billing / members
     'hostname.added': 'domain.added',
     'hostname.deleted': 'domain.removed',
     'billing.subscription_updated': 'billing.plan_changed',
     'billing.payment_failed': 'billing.payment_failed',
     'member.added': 'member.invited',
     'member.removed': 'member.removed',
-    'workflow.started': 'workflow.started',
-    'workflow.completed': 'workflow.completed',
     'integration.connected': 'integration.connected',
     'integration.disconnected': 'integration.disconnected',
   };
-  return m[action] ?? 'build.completed';
+  if (m[a]) return m[a];
+  // Family prefix buckets — honest generics, never a false 'build.completed'.
+  if (a.startsWith('workflow.')) return 'workflow.started';
+  if (a.startsWith('billing.')) return 'billing.plan_changed';
+  if (a.startsWith('member.') || a.startsWith('team.')) return 'member.invited';
+  if (a.startsWith('hostname.') || a.startsWith('domain.')) return 'domain.added';
+  if (a.startsWith('mcp.') || a.startsWith('integration.')) return 'integration.connected';
+  if (a.startsWith('env_var.') || a.startsWith('ai_') || a.startsWith('voice.') || a.endsWith('.updated') || a.endsWith('.settings'))
+    return 'settings.updated';
+  return 'activity';
 }
 
 function actorName(row: AuditRow): string | null {

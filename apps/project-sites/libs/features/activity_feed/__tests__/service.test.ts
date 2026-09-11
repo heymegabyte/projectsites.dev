@@ -68,10 +68,34 @@ describe('getActivityFeed', () => {
     );
   });
 
-  it('maps unknown actions to build.completed', async () => {
-    (dbQuery as jest.Mock).mockResolvedValue({ data: [sampleRow({ action: 'custom.event' })] });
+  it('maps an unknown action to the neutral "activity" — NOT a false build.completed (AL-328)', async () => {
+    (dbQuery as jest.Mock).mockResolvedValue({ data: [sampleRow({ action: 'totally.custom.event' })] });
     const { entries } = await getActivityFeed(mockEnv(), 'org-1');
-    expect(entries[0].kind).toBe('build.completed');
+    expect(entries[0].kind).toBe('activity');
+  });
+
+  it('maps the REAL build/workflow/config/snapshot actions to honest kinds (was all → build.completed)', async () => {
+    const cases: Array<[string, string]> = [
+      ['workflow.build_complete', 'build.completed'],
+      ['workflow.complete', 'build.completed'],
+      ['workflow.build_started', 'build.started'],
+      ['workflow.build_error', 'build.failed'],
+      ['workflow.phase.research', 'workflow.started'], // prefix bucket
+      ['site.snapshot.created', 'snapshot.created'],
+      ['site.snapshot.deleted', 'snapshot.deleted'], // FE tones .deleted danger
+      ['ai_settings.updated', 'settings.updated'],
+      ['site.name_changed', 'settings.updated'],
+      ['env_var.delete', 'settings.updated'],
+      ['voice.agent_settings_updated', 'settings.updated'],
+      ['site.sql.exec', 'data.query'],
+      ['cmdk.ai.answered', 'activity'], // neutral generic (not the old false "Build")
+      ['billing.subscription_updated', 'billing.plan_changed'],
+    ];
+    for (const [action, expected] of cases) {
+      (dbQuery as jest.Mock).mockResolvedValue({ data: [sampleRow({ action })] });
+      const { entries } = await getActivityFeed(mockEnv(), 'org-1');
+      expect({ action, kind: entries[0].kind }).toEqual({ action, kind: expected });
+    }
   });
 
   it('extracts actor name from metadata_json', async () => {

@@ -4,11 +4,16 @@ import { z } from 'zod';
 export const ACTIVITY_KINDS = [
   'build.started', 'build.completed', 'build.failed',
   'site.published', 'site.archived', 'site.deleted',
+  'snapshot.created', 'snapshot.deleted',
   'domain.added', 'domain.removed',
   'billing.plan_changed', 'billing.payment_failed',
   'member.invited', 'member.removed',
   'workflow.started', 'workflow.completed',
   'integration.connected', 'integration.disconnected',
+  'settings.updated', 'data.query',
+  // Neutral generic — the honest fallback for an unmapped audit action (was wrongly
+  // `build.completed`, mislabeling every settings/snapshot/AI event as "Build").
+  'activity',
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
