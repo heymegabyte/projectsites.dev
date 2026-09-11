@@ -1159,37 +1159,6 @@ function runJob(jobId, dir, prompt, envVars, timeoutMin, callbackUrl, callbackSe
         } catch (fe) {
           console.warn(`[${jobId}] Token safety-net skipped: ${fe.message.slice(0, 200)}`);
         }
-        // AL-374 TEMP DIAGNOSTIC (remove after cracking the SEO_TAGLINE puzzle — the AL-352
-        // fetchable-diag technique). Static analysis is exhausted (AL-373): the seeded SEO_TAGLINE
-        // ships the PACK default in the <title> while HERO_HEADLINE (same seeded object, same
-        // uniform existing-wins merge) ships MINE. Write the post-fill token/content/pack state to a
-        // fetchable public/ps-tagline-diag.json so `curl {slug}.projectsites.dev/ps-tagline-diag.json`
-        // pins exactly where SEO_TAGLINE diverges from HERO_HEADLINE. Fail-soft; debug-only artifact.
-        try {
-          const readJ = (p) => { try { return JSON.parse(fs.readFileSync(path.join(dir, p), 'utf-8')); } catch { return null; } };
-          const leafV = (l) => (l && typeof l === 'object' && typeof l.$value === 'string' ? l.$value : (typeof l === 'string' ? l : null));
-          const cj = readJ('_content.json') || {};
-          const bj = readJ('_brand.json') || {};
-          const biz = bj.business || {};
-          let packName2 = null, packSeo = null;
-          if (preset) { packName2 = preset.replace('_brand.', '_content.'); const pp = readJ(`examples/${packName2}`); if (pp) packSeo = pp.SEO_TAGLINE ?? null; }
-          const diag = {
-            rev: 'al374-tagline-diag-1',
-            preset: preset || null, packName: packName2,
-            contentMap_SEO_TAGLINE: contentMap['SEO_TAGLINE'] ?? null,
-            contentMap_HERO_HEADLINE: contentMap['HERO_HEADLINE'] ?? null,
-            contentMap_BUSINESS_TAGLINE: contentMap['BUSINESS_TAGLINE'] ?? null,
-            contentJson_SEO_TAGLINE: cj.SEO_TAGLINE ?? null,
-            contentJson_HERO_HEADLINE: cj.HERO_HEADLINE ?? null,
-            packSEO_TAGLINE: packSeo,
-            bizTagline: leafV(biz.tagline),
-            themeStyle: leafV(bj.themeStyle),
-            fontHeading: leafV(bj.font && bj.font.heading),
-          };
-          fs.mkdirSync(path.join(dir, 'public'), { recursive: true });
-          fs.writeFileSync(path.join(dir, 'public', 'ps-tagline-diag.json'), JSON.stringify(diag, null, 2));
-          console.warn(`[${jobId}] ps-tagline-diag: ${JSON.stringify(diag)}`);
-        } catch (de) { console.warn(`[${jobId}] ps-tagline-diag failed: ${String(de).slice(0, 160)}`); }
         // --omit=dev: the template's build tools (vite/tsc/tailwind/postcss/plugin-react)
         // live in `dependencies`; the 8 devDependencies are ALL test-only (@playwright/test
         // — which downloads browsers, MINUTES — vitest, jsdom, testing-library, coverage) and
