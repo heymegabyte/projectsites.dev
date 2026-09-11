@@ -33,24 +33,38 @@ describe('IN_PROGRESS_BUILD_STATUSES', () => {
 });
 
 describe('unstickStalledBuilds', () => {
-  it('flips every stalled in-progress build to error + returns the count', async () => {
+  it('AL-380: recovers a built-but-stranded site to PUBLISHED, errors a never-built stall', async () => {
     mockQuery.mockResolvedValueOnce({
       data: [
-        { id: 's1', slug: 'a', business_name: 'A' },
-        { id: 's2', slug: 'b', business_name: 'B' },
+        // built: has a deployed R2 version → SERVING → a dropped publish-flip (AL-379 race) → published
+        { id: 's1', slug: 'built', business_name: 'Built Co', current_build_version: '2026-09-11T21-18Z' },
+        // never built: nothing in R2 → genuinely dead workflow → error
+        { id: 's2', slug: 'dead', business_name: 'Dead Co', current_build_version: null },
       ],
       error: null,
     } as never);
     const n = await unstickStalledBuilds(env);
     expect(n).toBe(2);
-    // One UPDATE per stalled site, each flipping to 'error'.
     expect(mockExecute).toHaveBeenCalledTimes(2);
-    expect(String(mockExecute.mock.calls[0][1])).toMatch(/UPDATE sites SET status = 'error'/);
+    // UPDATE is parameterized; the target status is the first bind param.
+    expect(String(mockExecute.mock.calls[0][1])).toMatch(/UPDATE sites SET status = \?/);
+    expect((mockExecute.mock.calls[0][2] as unknown[])[0]).toBe('published'); // built → published
+    expect((mockExecute.mock.calls[1][2] as unknown[])[0]).toBe('error'); // unbuilt → error
   });
 
-  it('scopes the SELECT to the collecting-inclusive status set + the stale window', async () => {
+  it('treats a blank/whitespace current_build_version as never-built (→ error)', async () => {
+    mockQuery.mockResolvedValueOnce({
+      data: [{ id: 's1', slug: 'a', business_name: 'A', current_build_version: '   ' }],
+      error: null,
+    } as never);
+    await unstickStalledBuilds(env);
+    expect((mockExecute.mock.calls[0][2] as unknown[])[0]).toBe('error');
+  });
+
+  it('SELECTs current_build_version + scopes to the collecting-inclusive status set + the stale window', async () => {
     await unstickStalledBuilds(env, 45);
     const [, sql, params] = mockQuery.mock.calls[0] as [unknown, string, unknown[]];
+    expect(sql).toMatch(/current_build_version/); // needed to decide published-vs-error
     expect(sql).toMatch(/status IN \(/);
     expect(sql).toMatch(/updated_at < datetime\('now', \?\)/);
     // Params carry every status (incl. collecting) THEN the stale window.
@@ -61,14 +75,14 @@ describe('unstickStalledBuilds', () => {
   it('does NOT count a dropped UPDATE (self-heals next sweep) + logs it', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockQuery.mockResolvedValueOnce({
-      data: [{ id: 's1', slug: 'a', business_name: 'A' }],
+      data: [{ id: 's1', slug: 'a', business_name: 'A', current_build_version: null }],
       error: null,
     } as never);
     mockExecute.mockResolvedValueOnce({ error: 'D1_ERROR: locked', changes: 0 });
     const n = await unstickStalledBuilds(env);
     expect(n).toBe(0);
     const logged = warn.mock.calls.map((c) => String(c[0])).join('\n');
-    expect(logged).toContain('failed to unstick a stalled build');
+    expect(logged).toContain('failed to reconcile a stalled build');
     warn.mockRestore();
   });
 

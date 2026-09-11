@@ -9,8 +9,12 @@
  * {@link ./site_serving.serveSiteFromR2}), so WITHOUT this sweep a dead build loops
  * that page FOREVER — the exact misleading reload-loop `serveSiteFromR2`'s own comment
  * warns against. The workflow heartbeats `updated_at` every ~30s, so 30 min of silence
- * = a dead workflow; those get flipped to `error`, and the serve layer then shows the
- * honest branded "the last build didn't finish — open your dashboard to rebuild" page.
+ * = a dead workflow. Reconciled by `current_build_version`: a stall that ALREADY has a
+ * deployed build (build_version set → the site is SERVING) is a dropped/overwritten
+ * publish-flip (the AL-379 multi-instance race), NOT a dead build → recovered to
+ * `published` (the truthful state); a never-built stall (no build_version) is genuinely
+ * dead → flipped to `error`, and the serve layer shows the honest branded "the last
+ * build didn't finish — open your dashboard to rebuild" page.
  *
  * ⚠️ Root cause this closes: the original INLINE sweep (in `index.ts` `scheduled()`)
  * listed `('building','queued','generating','imaging','uploading')` — it OMITTED
@@ -49,16 +53,23 @@ export const IN_PROGRESS_BUILD_STATUSES = [
  * @param staleMinutes - Silence window that marks a build dead (default 30; the
  *   workflow heartbeats every ~30s and the container is killed at ~15 min, so 30 min
  *   of frozen `updated_at` is unambiguously a dead workflow).
- * @returns The number of builds recovered (flipped to `error`).
+ * @returns The number of stalled builds RECONCILED — a built-but-stranded site (has a
+ *   deployed `current_build_version`, so it IS serving) recovers to `published`; a
+ *   never-built stall (no build version = nothing in R2) is flipped to `error`.
  *
  * @example
- * const recovered = await unstickStalledBuilds(env); // e.g. 2
+ * const reconciled = await unstickStalledBuilds(env); // e.g. 2
  */
 export async function unstickStalledBuilds(env: Env, staleMinutes = 30): Promise<number> {
   const placeholders = IN_PROGRESS_BUILD_STATUSES.map(() => '?').join(', ');
-  const { data } = await dbQuery<{ id: string; slug: string; business_name: string }>(
+  const { data } = await dbQuery<{
+    id: string;
+    slug: string;
+    business_name: string;
+    current_build_version: string | null;
+  }>(
     env.DB,
-    `SELECT id, slug, business_name FROM sites
+    `SELECT id, slug, business_name, current_build_version FROM sites
        WHERE status IN (${placeholders})
          AND updated_at < datetime('now', ?)
          AND deleted_at IS NULL`,
@@ -67,22 +78,33 @@ export async function unstickStalledBuilds(env: Env, staleMinutes = 30): Promise
 
   let recovered = 0;
   for (const site of data) {
+    // A site with a `current_build_version` HAS a deployed R2 build → it is SERVING that
+    // version right now. A stalled in-progress status on such a site is a DROPPED/overwritten
+    // publish flip — the AL-379 multi-instance race: one workflow instance published (set
+    // status + build_version together), a LATER instance's `generating` write clobbered the
+    // status while build_version survived. Flipping THAT to `error` would brand a LIVE,
+    // SERVING, owner-emailed site as failed (a compounding lie the serve layer then shows as a
+    // dead build). So: built → recover to the TRUTHFUL `published`; only a never-built stall
+    // (no build_version = nothing in R2 to serve) is a genuinely dead workflow → `error`.
+    const built = !!site.current_build_version && site.current_build_version.trim() !== '';
+    const target = built ? 'published' : 'error';
     // dbExecute NEVER throws — it returns { error } (see db.ts). The original inline
     // UPDATE discarded it; a dropped flip self-heals on the next sweep, but LOG it so a
     // recovery gap is observable rather than silently looping the "Building…" page.
     const { error } = await dbExecute(
       env.DB,
-      `UPDATE sites SET status = 'error', updated_at = datetime('now') WHERE id = ?`,
-      [site.id],
+      `UPDATE sites SET status = ?, updated_at = datetime('now') WHERE id = ?`,
+      [target, site.id],
     );
     if (error) {
       console.warn(
         JSON.stringify({
           level: 'warn',
           service: 'stuck_builds',
-          message: 'failed to unstick a stalled build',
+          message: 'failed to reconcile a stalled build',
           site_id: site.id,
           slug: site.slug,
+          target,
           error,
         }),
       );
@@ -93,10 +115,11 @@ export async function unstickStalledBuilds(env: Env, staleMinutes = 30): Promise
       JSON.stringify({
         level: 'warn',
         service: 'stuck_builds',
-        message: 'unstuck stalled build',
+        message: built ? 'recovered stranded-but-published build' : 'errored dead build',
         site_id: site.id,
         slug: site.slug,
         business_name: site.business_name,
+        target,
       }),
     );
   }
