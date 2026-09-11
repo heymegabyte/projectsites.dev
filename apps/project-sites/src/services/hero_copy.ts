@@ -80,3 +80,27 @@ export function heroHeadlineOptions(catPhrase: string, cityPhrase: string): read
     `Quality ${cat} ${city} counts on`,
   ];
 }
+
+/**
+ * `<title>` SEO_TAGLINE options (AL-369) — the value-prop title suffix in
+ * `<title>{BUSINESS_NAME} — {SEO_TAGLINE}</title>` (the template's Home.tsx appends
+ * `| {city}` itself, so these are CITY-FREE). The fast-path build left this as the
+ * per-industry content-pack default, so every restaurant shipped the IDENTICAL,
+ * colliding "Fresh, Local, Made From Scratch" (confirmed live on Ember + Cafe Dim Sum).
+ * These are VERTICAL-specific + keyword-bearing (good local SEO), capital-start
+ * (title-cased), slop-free, and DISTINCT from {@link heroHeadlineOptions} so the
+ * `<title>` and the `<h1>` don't read as duplicates. Short so `{name} — {tagline}`
+ * + the appended `| {city}` stays near the 50-60 char sweet spot (finalizeSeoInvariants
+ * clamps anyway). Caller picks one via the same `pick()` as HERO_HEADLINE.
+ *
+ * @param catPhrase - A phrase from {@link categoryPhrase} (e.g. `'record store'`).
+ * @returns Non-empty list of grammatical, city-free title-suffix candidates.
+ *
+ * @example
+ * seoTaglineOptions('record store')
+ * // → ['Trusted local record store', 'Your neighborhood record store', 'Local record store you can trust']
+ */
+export function seoTaglineOptions(catPhrase: string): readonly string[] {
+  const cat = (catPhrase || 'local business').trim();
+  return [`Trusted local ${cat}`, `Your neighborhood ${cat}`, `Local ${cat} you can trust`];
+}

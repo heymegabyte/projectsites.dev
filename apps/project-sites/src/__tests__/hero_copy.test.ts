@@ -1,4 +1,4 @@
-import { categoryPhrase, heroHeadlineOptions } from '../services/hero_copy.js';
+import { categoryPhrase, heroHeadlineOptions, seoTaglineOptions } from '../services/hero_copy.js';
 
 /**
  * Regression for AL-361 — the generic/broken hero <h1>. The old inline derivation
@@ -88,5 +88,45 @@ describe('hero_copy — heroHeadlineOptions (AL-361: grammatical for every verti
     expect(opts.every((o) => o.includes('local business') && o.includes('your community'))).toBe(
       true,
     );
+  });
+});
+
+/**
+ * Regression for AL-369 — the generic/colliding SEO_TAGLINE. Every restaurant shipped
+ * the IDENTICAL "Fresh, Local, Made From Scratch" `<title>` suffix (Ember + Cafe Dim Sum
+ * live). These lock the fix: vertical-specific, city-free, distinct from the H1.
+ */
+describe('hero_copy — seoTaglineOptions (AL-369: vertical-specific <title> suffix)', () => {
+  it('NEVER produces the generic colliding "Fresh, Local, Made From Scratch"', () => {
+    const opts = seoTaglineOptions(categoryPhrase('Dim Sum Restaurant'));
+    expect(opts).not.toContain('Fresh, Local, Made From Scratch');
+  });
+
+  it('every option is vertical-specific (carries the category), capital-start, city-free', () => {
+    const opts = seoTaglineOptions('record store');
+    expect(opts.length).toBeGreaterThanOrEqual(2);
+    for (const o of opts) {
+      expect(o).toContain('record store'); // vertical keyword, not a generic value-prop
+      expect(o[0]).toBe(o[0].toUpperCase()); // title-cased start
+      expect(o).not.toMatch(/\b(portland|burlington|austin|\| )/i); // city is appended by Home.tsx
+    }
+    expect(opts).toEqual([
+      'Trusted local record store',
+      'Your neighborhood record store',
+      'Local record store you can trust',
+    ]);
+  });
+
+  it('is DISTINCT from the H1 frames (so <title> suffix ≠ <h1>)', () => {
+    const cat = 'record store';
+    const h1s = new Set(heroHeadlineOptions(cat, 'Portland'));
+    for (const tag of seoTaglineOptions(cat)) expect(h1s.has(tag)).toBe(false);
+  });
+
+  it('contains no banned-slop words + is graceful on blank', () => {
+    const banned = /\b(limitless|revolutionize|cutting-edge|leverage|world-class)\b/i;
+    for (const o of seoTaglineOptions('steak house')) expect(banned.test(o)).toBe(false);
+    expect(() => seoTaglineOptions('')).not.toThrow();
+    expect(seoTaglineOptions('').every((o) => o.includes('local business'))).toBe(true);
   });
 });

@@ -31,7 +31,7 @@ import { resolveActiveOrgPlan } from '../services/build_limits.js';
 import { isFlagOn } from '../modules/feature_flags/services.js';
 import { tryEmitEvent } from '../services/emit_event.js';
 import { themeStyleFromInputs, personalityBriefFor } from '../services/theme_style.js';
-import { categoryPhrase, heroHeadlineOptions } from '../services/hero_copy.js';
+import { categoryPhrase, heroHeadlineOptions, seoTaglineOptions } from '../services/hero_copy.js';
 
 /**
  * Per-variant omit of the auto-injected base fields, distributed across the
@@ -788,11 +788,18 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // verticals (the old "Expert ${x} in ${city}" mangled retail — "Expert record
       // store in Portland"). heroHeadlineOptions is unit-tested + slop-free.
       const heroHeadline = pick([...heroHeadlineOptions(catService, cityPhrase)]);
+      // AL-369: seed the SEO_TAGLINE (the <title> "{name} — {tagline}" suffix, city-free —
+      // Home.tsx appends "| {city}") business/vertical-specifically. The LAST generic pack-
+      // default still shipping on real deliveries: every restaurant got the IDENTICAL colliding
+      // "Fresh, Local, Made From Scratch" (Ember + Cafe Dim Sum). Same _content.json seam +
+      // existing-wins merge as HERO_HEADLINE; slop-free + distinct from the H1 so <title> ≠ <h1>.
+      const seoTagline = pick([...seoTaglineOptions(catService)]);
       contextFiles['content.json'] = JSON.stringify(
         {
           ABOUT_PARAGRAPH_1: aboutPara1,
           HERO_HEADLINE: heroHeadline,
           HERO_SUBHEADLINE: heroSub,
+          SEO_TAGLINE: seoTagline,
           SERVICES_INTRO: servicesIntro,
         },
         null,
