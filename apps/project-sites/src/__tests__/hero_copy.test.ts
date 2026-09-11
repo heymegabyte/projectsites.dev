@@ -155,6 +155,8 @@ describe('hero_copy — categoryFromName (AL-377: derive vertical from NAME when
     ["Tony's Auto Repair", 'auto shop'],
     ['Summit Roofing', 'roofing'],
     ['Petals Florist', 'florist'],
+    ['Kabuki Springs & Spa', 'spa'], // AL-383: live miss — spa (+ massage/chiropractic) was dropped from the map
+    ['Serenity Massage Therapy', 'massage therapy'],
   ])('reads the vertical out of the name: %s → %s', (name, expected) => {
     expect(categoryFromName(name)).toBe(expected);
   });
