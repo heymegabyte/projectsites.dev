@@ -20,7 +20,15 @@
 //   SITES=studio-q-fitness-fort-collins node e2e/site-quality/verify-no-pageerror.mjs
 //   node e2e/site-quality/verify-no-pageerror.mjs --strict   # console errors also hard-fail
 
-import { chromium } from 'playwright';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+// `playwright-core` via createRequire from the frontend dir — reliably hoisted after
+// `npm ci`; bare `import from 'playwright'` throws MODULE_NOT_FOUND when the flat package
+// isn't hoisted to a resolvable node_modules (AL-144, seen live 2026-09-11). Same API.
+const { chromium } = createRequire(resolve(dirname(fileURLToPath(import.meta.url)), '../../frontend/'))(
+  'playwright-core',
+);
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
