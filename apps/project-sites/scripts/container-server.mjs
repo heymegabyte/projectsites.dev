@@ -22,10 +22,6 @@ import crypto from 'crypto';
 const JOBS_DIR = '/var/jobs';
 const SKILLS_DIR = '/home/cuser/.agentskills';
 const TEMPLATE_DIR = '/home/cuser/template';
-// AL-345 container-code revision marker — proves WHICH container-server.mjs the running
-// image executes. Written into every build's dist/ps-build-diag.txt so a live curl reveals
-// whether the deployed image actually runs the latest code (theme-sidecar deploy debug).
-const CONTAINER_BUILD_REV = 'al345-sidecar-diag-1';
 
 try { fs.mkdirSync(JOBS_DIR, { recursive: true }); } catch {}
 
@@ -582,32 +578,8 @@ function applyVerticalPreset(dir, preset, templateDir) {
  * @returns {string} a short status string for the build log.
  */
 function applyThemeStyleSidecar(dir) {
-  // ── AL-345 DIAGNOSTIC (temporary) — capture the FULL theme-chain state to a fetchable
-  // dist/ file so ONE live build reveals exactly where the chain breaks: is the deployed
-  // image running the latest code (rev), was `_theme_style.txt` materialized (sidecarExists),
-  // its value, does the container read sidecars at all (_category.txt control), and the
-  // pre-sidecar brand.themeStyle. Remove once root-caused. public/ → dist/ (Vite copies). ──
-  let sidecarRaw = null;
-  let sidecarErr = '';
-  try {
-    sidecarRaw = fs.readFileSync(path.join(dir, '_theme_style.txt'), 'utf-8');
-  } catch (e) {
-    sidecarErr = String((e && e.code) || e).slice(0, 40);
-  }
-  let catRaw = '(none)';
-  try { catRaw = fs.readFileSync(path.join(dir, '_category.txt'), 'utf-8').trim() || '(empty)'; } catch {}
-  let brandBefore = '(unreadable)';
-  try { brandBefore = String(JSON.parse(fs.readFileSync(path.join(dir, '_brand.json'), 'utf-8')).themeStyle ?? '(none)'); } catch {}
-  try {
-    const pub = path.join(dir, 'public');
-    fs.mkdirSync(pub, { recursive: true });
-    fs.writeFileSync(
-      path.join(pub, 'ps-build-diag.txt'),
-      `rev=${CONTAINER_BUILD_REV}\nsidecarExists=${sidecarRaw !== null}\nsidecarValue=${(sidecarRaw || '').trim()}\nsidecarErr=${sidecarErr}\ncategoryTxt=${catRaw}\nbrandThemeStyleBefore=${brandBefore}\n`,
-    );
-  } catch {}
-  // ── end diagnostic ──
-  const want = (sidecarRaw || '').trim();
+  let want = '';
+  try { want = fs.readFileSync(path.join(dir, '_theme_style.txt'), 'utf-8').trim(); } catch { return 'no-sidecar'; }
   if (!want) return 'no-sidecar';
   const brandPath = path.join(dir, '_brand.json');
   let brand;
