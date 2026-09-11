@@ -24,9 +24,18 @@
  * true total is reported in the row (precision: the refinement only tightens an
  * already-passing paged surface, never false-flags a total-exposing endpoint).
  *
- * Ground truth (org-brian-001 / site-megabytespace-001, measured 2026-08-06; re-swept 2026-09-05):
- *   sites 1 · visitor_events 109pv · analytics_daily 9 · media_assets 2 ·
- *   site_snapshots 4 · audit_logs 1129 · voice_numbers 1 · mcp_connections 2 ·
+ * ⚠️ IDENTITY (non-obvious, cost a phantom chase AL-325): THIS probe logs in AS BRIAN
+ * (`test-login`, org-brian-001) → its counts are BRIAN's org. The sibling
+ * `reconcile-counts.mjs` auths with E2E_API_KEY (org `e2e-test-org`) → a DIFFERENT org
+ * (109 sites, not 12). Don't cross-count the two: a brian-org number (sites 12) checked
+ * against an e2e-test-org D1 sweep (sites 109) reads as a fake undercount. Both are honest.
+ *
+ * Ground truth (org-brian-001, snapshot 2026-09-11 — GROWS per golden delivery, so these
+ * are a historical reference, NOT an exact-match assertion; the gt values below use floors /
+ * `mode:'populated'` + the API's own exposed total, and the sibling `reconcile-counts.mjs` is
+ * the LIVE automated `wrangler d1 execute` sweep — run it for the current true store):
+ *   sites 12 (was 1 on 2026-08-06; +11 via golden deliveries) · media_assets 2 ·
+ *   site_snapshots 4 · audit_logs 1129+ · voice_numbers 1 · mcp_connections 2 ·
  *   memberships 1 · ai_env_vars 3 · app_instances 3 · social_accounts 3 ·
  *   subscriptions 1 · notifications 5 (user-brian-001) ·
  *   (api_tokens/hostnames/form_submissions/webhook_endpoints/domain_purchases = 0 = honest-empty)
