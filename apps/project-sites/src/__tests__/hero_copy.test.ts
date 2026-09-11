@@ -1,4 +1,9 @@
-import { categoryPhrase, heroHeadlineOptions, seoTaglineOptions } from '../services/hero_copy.js';
+import {
+  categoryFromName,
+  categoryPhrase,
+  heroHeadlineOptions,
+  seoTaglineOptions,
+} from '../services/hero_copy.js';
 
 /**
  * Regression for AL-361 — the generic/broken hero <h1>. The old inline derivation
@@ -128,5 +133,52 @@ describe('hero_copy — seoTaglineOptions (AL-369: vertical-specific <title> suf
     for (const o of seoTaglineOptions('steak house')) expect(banned.test(o)).toBe(false);
     expect(() => seoTaglineOptions('')).not.toThrow();
     expect(seoTaglineOptions('').every((o) => o.includes('local business'))).toBe(true);
+  });
+});
+
+/**
+ * Regression for AL-377 — the category-less create-from-search generic hero. McGuckin
+ * Hardware (created with name+address, NO category) shipped a live H1 "Quality local
+ * business Boulder counts on" + a "…Local local business you can trust" <title> because
+ * the seed read params.businessCategory raw (empty) → categoryPhrase('') → 'local
+ * business'. categoryFromName derives the vertical from the NAME so the fast-path seed
+ * falls back to a business-specific category instead of the generic filler.
+ */
+describe('hero_copy — categoryFromName (AL-377: derive vertical from NAME when category-less)', () => {
+  it.each([
+    ['McGuckin Hardware', 'hardware store'], // the live defect ("Quality local business Boulder counts on")
+    ['Sunrise Bakery', 'bakery'],
+    ['Elm Street Dental', 'dental practice'],
+    ['Boulder Yoga Collective', 'yoga studio'],
+    ['Ace Plumbing', 'plumbing'],
+    ['Blue Ridge Law Group', 'law firm'],
+    ["Tony's Auto Repair", 'auto shop'],
+    ['Summit Roofing', 'roofing'],
+    ['Petals Florist', 'florist'],
+  ])('reads the vertical out of the name: %s → %s', (name, expected) => {
+    expect(categoryFromName(name)).toBe(expected);
+  });
+
+  it('is word-boundary-precise (no substring false positives)', () => {
+    expect(categoryFromName('Lawson & Sons')).toBe(''); // "Lawson" ≠ law
+    expect(categoryFromName('Autograph Studios')).toBe(''); // "Autograph" ≠ auto
+  });
+
+  it('returns "" for a name with no recognizable vertical (caller falls back to local business)', () => {
+    expect(categoryFromName('Harvest & Vine')).toBe('');
+    expect(categoryFromName('')).toBe('');
+    expect(categoryFromName(undefined)).toBe('');
+    // @ts-expect-error — defensive: non-string must not throw
+    expect(categoryFromName(42)).toBe('');
+  });
+
+  it('composes as the fast-path seed uses it: params.businessCategory || categoryFromName(name)', () => {
+    // category-less create → name-derived vertical drives the H1 (not the generic fallback)
+    expect(categoryPhrase('' || categoryFromName('McGuckin Hardware'))).toBe('hardware store');
+    expect(
+      heroHeadlineOptions(categoryPhrase(categoryFromName('McGuckin Hardware')), 'Boulder'),
+    ).toContain("Boulder's trusted hardware store");
+    // a DECLARED category still wins over the name heuristic
+    expect(categoryPhrase('Coffee Shop' || categoryFromName('McGuckin Hardware'))).toBe('coffee shop');
   });
 });

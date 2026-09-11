@@ -56,6 +56,76 @@ export function categoryPhrase(category?: unknown): string {
 }
 
 /**
+ * Ordered [pattern → natural category phrase] map for deriving a vertical from a
+ * business NAME when no category was declared. Most local businesses carry their
+ * vertical in the name ("McGuckin Hardware", "Sunrise Bakery", "Elm Street Dental").
+ * Word-boundary-anchored so "Lawson" ≠ law and "Autograph" ≠ auto; first match wins,
+ * so more-specific patterns lead.
+ */
+const NAME_CATEGORY: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\bhardware\b/, 'hardware store'],
+  [/\bbake(?:ry|house)\b/, 'bakery'],
+  [/\bpizz(?:eria|a)\b/, 'pizzeria'],
+  [/\bbrew(?:ery|ing)\b/, 'brewery'],
+  [/\bsteak\s?house\b/, 'steakhouse'],
+  [/\b(?:coffee|espresso|roasters?)\b/, 'coffee shop'],
+  [/\bcaf[eé]\b/, 'cafe'],
+  [/\b(?:deli|delicatessen)\b/, 'deli'],
+  [/\brestaurant\b/, 'restaurant'],
+  [/\b(?:bookstore|booksellers?|books)\b/, 'bookstore'],
+  [/\b(?:florist|floral|flowers)\b/, 'florist'],
+  [/\b(?:plumbing|plumbers?)\b/, 'plumbing'],
+  [/\broof(?:ing|ers?)\b/, 'roofing'],
+  [/\b(?:hvac|heating|cooling)\b/, 'HVAC service'],
+  [/\belectric(?:al|ian)?\b/, 'electrical service'],
+  [/\b(?:landscap(?:ing|e|ers?)|lawn\s?care)\b/, 'landscaping'],
+  [/\bbarber(?:shop)?\b/, 'barbershop'],
+  [/\bsalon\b/, 'salon'],
+  [/\byoga\b/, 'yoga studio'],
+  [/\bpilates\b/, 'pilates studio'],
+  [/\b(?:fitness|crossfit|gym)\b/, 'gym'],
+  [/\b(?:dental|dentist(?:ry)?|orthodont(?:ics|ist))\b/, 'dental practice'],
+  [/\b(?:attorneys?|law|legal)\b/, 'law firm'],
+  [/\b(?:accounting|accountants?|cpa)\b/, 'accounting firm'],
+  [/\binsurance\b/, 'insurance agency'],
+  [/\b(?:realty|realtors?|real\s?estate)\b/, 'real estate agency'],
+  [/\b(?:automotive|mechanic|auto)\b/, 'auto shop'],
+  [/\b(?:veterinary|animal\s?hospital|vet)\b/, 'veterinary clinic'],
+  [/\bpharmacy\b/, 'pharmacy'],
+  [/\b(?:jewelers?|jewelry|jewellery)\b/, 'jewelry store'],
+  [/\bboutique\b/, 'boutique'],
+  [/\b(?:nursery|garden\s?center)\b/, 'garden center'],
+  [/\b(?:winery|vineyard)\b/, 'winery'],
+  [/\bcatering\b/, 'catering service'],
+  [/\bphotograph(?:y|ers?)\b/, 'photography studio'],
+  [/\b(?:cleaners?|cleaning)\b/, 'cleaning service'],
+];
+
+/**
+ * Derive a category noun phrase from a business NAME, for the fast-path seed when
+ * `create-from-search` carried no declared category (else the hero copy falls to the
+ * generic "local business" — McGuckin Hardware shipped **"Quality local business
+ * Boulder counts on"** live, 2026-09-11). Feeds {@link categoryPhrase} as a fallback.
+ *
+ * @param name - The business name (e.g. `"McGuckin Hardware"`); any type.
+ * @returns A category phrase when the name contains a recognized vertical noun, else
+ *   `''` (so `params.businessCategory || categoryFromName(name)` cleanly falls through
+ *   to `categoryPhrase('')` → `'local business'` — no regression on unrecognizable names).
+ *
+ * @example
+ * categoryFromName('McGuckin Hardware')  // → 'hardware store'
+ * categoryFromName('Sunrise Bakery')     // → 'bakery'
+ * categoryFromName('Elm Street Dental')  // → 'dental practice'
+ * categoryFromName('Harvest & Vine')     // → ''  (no vertical noun → caller falls back)
+ */
+export function categoryFromName(name?: unknown): string {
+  const raw = typeof name === 'string' ? name.toLowerCase() : '';
+  if (!raw) return '';
+  for (const [re, phrase] of NAME_CATEGORY) if (re.test(raw)) return phrase;
+  return '';
+}
+
+/**
  * Hero `<h1>` headline options for a category phrase + city, worded to read naturally
  * for BOTH service and product/retail/food verticals (the old frames were
  * service-only). Identity-woven with the city so headlines never collide across

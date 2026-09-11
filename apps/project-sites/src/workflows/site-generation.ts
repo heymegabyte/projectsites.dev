@@ -31,7 +31,12 @@ import { resolveActiveOrgPlan } from '../services/build_limits.js';
 import { isFlagOn } from '../modules/feature_flags/services.js';
 import { tryEmitEvent } from '../services/emit_event.js';
 import { themeStyleFromInputs, personalityBriefFor } from '../services/theme_style.js';
-import { categoryPhrase, heroHeadlineOptions, seoTaglineOptions } from '../services/hero_copy.js';
+import {
+  categoryFromName,
+  categoryPhrase,
+  heroHeadlineOptions,
+  seoTaglineOptions,
+} from '../services/hero_copy.js';
 
 /**
  * Per-variant omit of the auto-injected base fields, distributed across the
@@ -723,7 +728,13 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // house") instead of the old strip that collapsed "Record Store" → the broken
       // singular "record" ("Quality record Portland counts on" shipped live). Fixes
       // EVERY downstream seeded string (about/services-intro/hero-sub/H1), not just the H1.
-      const catService = categoryPhrase(params.businessCategory);
+      // AL-377: when no category was declared (a category-less create-from-search —
+      // McGuckin Hardware shipped "Quality local business Boulder counts on" + a
+      // "Local local business you can trust" <title> live), derive the vertical from
+      // the business NAME so the H1/title/about are business-specific, not generic.
+      // Falls through to categoryPhrase('') → 'local business' when the name has no
+      // recognizable vertical noun (no regression).
+      const catService = categoryPhrase(params.businessCategory || categoryFromName(safeName));
       // City = the second-to-last comma field of the address ("…, Spokane, WA 99202" → "Spokane").
       const addrParts = (params.businessAddress || '')
         .split(',')
