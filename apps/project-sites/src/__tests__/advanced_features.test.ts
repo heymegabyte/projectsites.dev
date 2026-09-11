@@ -374,9 +374,13 @@ describe('newsletterUnsubscribe', () => {
     const r = await newsletterUnsubscribe(env, { siteId: 'site-1', email: 'a@b.co' });
     expect(r.updated).toBe(1);
     expect(r.error).toBeUndefined();
-    expect(sqls.some((s) => /UPDATE newsletter_subscribers SET unsubscribed = 1/.test(s))).toBe(true);
+    expect(sqls.some((s) => /UPDATE newsletter_subscribers SET unsubscribed = 1/.test(s))).toBe(
+      true,
+    );
     // Scoped to still-live rows so a repeat is a benign no-op, not a phantom update.
-    expect(sqls.some((s) => /WHERE site_id = \? AND email = \? AND unsubscribed = 0/.test(s))).toBe(true);
+    expect(sqls.some((s) => /WHERE site_id = \? AND email = \? AND unsubscribed = 0/.test(s))).toBe(
+      true,
+    );
   });
 
   it('is idempotent — a non-subscriber / already-unsubscribed row is a 0-row no-op (no error)', async () => {
