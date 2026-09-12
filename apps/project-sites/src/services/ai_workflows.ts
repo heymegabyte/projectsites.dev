@@ -840,6 +840,15 @@ export function registerAllPrompts(): void {
       system: [
         'You are a visual content strategist. Determine image needs for this business website.',
         'For hero carousel: 3 image concepts. For each: specific search query and stock fallback.',
+        // CRITICAL (AL-424): every search query MUST name the SPECIFIC thing this business
+        // type sells or does — a guitar shop → "vintage electric guitars on wall guitar store
+        // interior", a distillery → "copper still distillery barrels tasting room", a bakery →
+        // "artisan bread pastry case bakery counter", a bookstore → "bookstore shelves of books".
+        // NEVER a generic "modern retail store / boutique / storefront / shop interior" query:
+        // a generic retail/boutique query returns a CLOTHING-FASHION store (dress racks,
+        // handbags) that mismatches almost every vertical (a guitar shop must never show a
+        // fashion boutique). The theme aesthetic is irrelevant to the query SUBJECT — the query
+        // names the ACTUAL products/space of THIS business_type, not a "boutique retail" mood.
         'Include storefront, team, and service images with confidence scores.',
         'Return JSON: { hero_images[], storefront_image, team_image, service_images[],',
         'placeholder_strategy (gradient|pattern|illustration) }',

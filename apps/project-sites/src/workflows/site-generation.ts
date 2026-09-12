@@ -353,6 +353,15 @@ export function buildPrompt(params: SiteGenerationParams): string {
     '',
     `## Conversion Intent: ${commerceMode.toUpperCase()} — the PRIMARY CTAs must match how THIS business is patronized`,
     `${commerceBrief}\nThe hero CTA + every section CTA must reflect this. Choosing e-commerce checkout language ("Shop now" / "Add to cart" / "Free shipping" / "30-day returns" / "Browse collections") on a business that is NOT retail is a wrong-vertical defect, exactly like a wrong-vertical H1 — it makes the delivered site LOSE to the real one. Match the hero image to the same intent: a tasting room / dining room / job-site / consultation / community photo for those modes, never a generic retail storefront or product-rack stock image.`,
+    // AL-424: the hero IMAGE SUBJECT must show the SPECIFIC products/space of THIS vertical —
+    // even for a genuine RETAIL business. A guitar shop's hero must show GUITARS (wall of
+    // guitars, a luthier's bench), a bookstore → shelves of books, a florist → flower
+    // arrangements. NEVER a generic "modern boutique / retail store" stock photo — that
+    // returns a CLOTHING-FASHION store (dress racks, handbags) that mismatches almost every
+    // non-clothing vertical (the delivered guitar shop shipped a women's-clothing boutique
+    // hero — AL-423). Pick the `_assets.json` image whose SUBJECT is the business's real
+    // products; if none fits, prefer the branded gradient over a wrong-subject stock photo.
+    `## Hero + product imagery MUST show ${safeName}'s ACTUAL subject (${params.businessCategory || 'this business'}) — never a generic clothing-boutique / "retail store" stock photo, whatever the theme.`,
     '',
     '## Build steps (do these IN ORDER, directly — no fan-out)',
     `0. _brand.json is ALREADY MATERIALIZED for you — the workflow wrote the real business data (name="${safeName}") into the build dir's _brand.json. NEVER rewrite or regenerate it; the template's shipped copy has {BUSINESS_NAME} placeholders and overwriting it ships those placeholders LIVE. Read it, use it.`,
