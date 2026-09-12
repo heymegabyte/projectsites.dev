@@ -30,6 +30,32 @@ const REDUNDANT_SUFFIX =
   /\b(services?|company|co|llc|inc|corp|corporation|group|enterprises?|practice|agency|firm)\b/g;
 
 /**
+ * Adjectival / thin single-word categories that read awkwardly bare in the hero frames
+ * ("Quality dental Seattle counts on") → expanded to their natural noun phrase. Keyed on
+ * the EXACT post-suffix-strip phrase, so declared nouns ("dental clinic", "record store")
+ * and non-thin verticals ("insurance", "plumbing") are left untouched. Note REDUNDANT_SUFFIX
+ * strips "practice"/"firm", so "Dental Practice" → "dental" → re-expands here to "dental
+ * practice", and "Law Firm" → "law" → "law firm" (idempotent round-trip).
+ *
+ * WHY (AL-389, 2026-09-12 — live on Gentle Dental): create-from-search now sometimes carries
+ * a declared businessCategory ("Dental"), which bypasses the nicer {@link categoryFromName}
+ * map and left `categoryPhrase` returning the bare adjective — the same thin-noun defect class
+ * as AL-361's "record".
+ */
+const CATEGORY_NORMALIZE: Readonly<Record<string, string>> = {
+  dental: 'dental practice',
+  dentist: 'dental practice',
+  dentistry: 'dental practice',
+  orthodontist: 'orthodontic practice',
+  orthodontics: 'orthodontic practice',
+  chiropractic: 'chiropractic clinic',
+  chiropractor: 'chiropractic clinic',
+  medical: 'medical practice',
+  law: 'law firm',
+  legal: 'law firm',
+};
+
+/**
  * Derive a natural, prose-ready noun phrase from a declared business category.
  *
  * @param category - The declared vertical (e.g. `"Record Store"`, `"Plumbing Services"`,
@@ -42,6 +68,7 @@ const REDUNDANT_SUFFIX =
  * categoryPhrase('Plumbing Services')   // → 'plumbing'
  * categoryPhrase('Steakhouse')          // → 'steakhouse'
  * categoryPhrase('Coffee Shop')         // → 'coffee shop'
+ * categoryPhrase('Dental')              // → 'dental practice'  (AL-389: thin adjective expanded)
  * categoryPhrase('')                    // → 'local business'
  */
 export function categoryPhrase(category?: unknown): string {
@@ -52,7 +79,7 @@ export function categoryPhrase(category?: unknown): string {
     .replace(/[&/]+\s*$/, '') // a trailing "&"/"/" left by a stripped suffix ("smith &")
     .replace(/\s{2,}/g, ' ')
     .trim();
-  return phrase || 'local business';
+  return CATEGORY_NORMALIZE[phrase] || phrase || 'local business';
 }
 
 /**
@@ -73,6 +100,8 @@ const NAME_CATEGORY: ReadonlyArray<readonly [RegExp, string]> = [
   [/\b(?:deli|delicatessen)\b/, 'deli'],
   [/\brestaurant\b/, 'restaurant'],
   [/\b(?:bookstore|booksellers?|books)\b/, 'bookstore'],
+  [/\b(?:records?|vinyl)\b/, 'record store'],
+  [/\bmusic\b/, 'music shop'],
   [/\b(?:florist|floral|flowers)\b/, 'florist'],
   [/\b(?:plumbing|plumbers?)\b/, 'plumbing'],
   [/\broof(?:ing|ers?)\b/, 'roofing'],

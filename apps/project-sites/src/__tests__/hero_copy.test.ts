@@ -43,6 +43,22 @@ describe('hero_copy — categoryPhrase (AL-361: keep the retail/venue noun phras
     expect(categoryPhrase(42)).toBe('local business');
     expect(categoryPhrase('Services')).toBe('local business'); // strips to empty → fallback
   });
+
+  it('normalizes adjectival/thin categories to natural noun phrases (AL-389)', () => {
+    // live defect: Gentle Dental shipped "Quality dental Seattle counts on" (bare adjective)
+    expect(categoryPhrase('Dental')).toBe('dental practice');
+    expect(categoryPhrase('Dentist')).toBe('dental practice');
+    expect(categoryPhrase('Dental Practice')).toBe('dental practice'); // strip "practice" → "dental" → re-expand
+    expect(categoryPhrase('Medical')).toBe('medical practice');
+    expect(categoryPhrase('Law Firm')).toBe('law firm'); // strip "firm" → "law" → re-expand
+    expect(categoryPhrase('Legal')).toBe('law firm');
+    expect(categoryPhrase('Chiropractic')).toBe('chiropractic clinic');
+    // NOT over-normalized — kept nouns + non-thin verticals + categoryFromName output round-trip
+    expect(categoryPhrase('Dental Clinic')).toBe('dental clinic');
+    expect(categoryPhrase('record store')).toBe('record store');
+    expect(categoryPhrase('Insurance Agency')).toBe('insurance');
+    expect(categoryPhrase('Plumbing Services')).toBe('plumbing');
+  });
 });
 
 describe('hero_copy — heroHeadlineOptions (AL-361: grammatical for every vertical)', () => {
@@ -157,6 +173,9 @@ describe('hero_copy — categoryFromName (AL-377: derive vertical from NAME when
     ['Petals Florist', 'florist'],
     ['Kabuki Springs & Spa', 'spa'], // AL-383: live miss — spa (+ massage/chiropractic) was dropped from the map
     ['Serenity Massage Therapy', 'massage therapy'],
+    ['Waterloo Records', 'record store'], // AL-388: record/music retail fell to "local business" live
+    ['Grimeys Vinyl', 'record store'],
+    ['Apollon Music and Arts', 'music shop'],
   ])('reads the vertical out of the name: %s → %s', (name, expected) => {
     expect(categoryFromName(name)).toBe(expected);
   });
@@ -164,6 +183,7 @@ describe('hero_copy — categoryFromName (AL-377: derive vertical from NAME when
   it('is word-boundary-precise (no substring false positives)', () => {
     expect(categoryFromName('Lawson & Sons')).toBe(''); // "Lawson" ≠ law
     expect(categoryFromName('Autograph Studios')).toBe(''); // "Autograph" ≠ auto
+    expect(categoryFromName('Recorder Repair')).toBe(''); // AL-388: "Recorder" ≠ record
   });
 
   it('returns "" for a name with no recognizable vertical (caller falls back to local business)', () => {

@@ -1848,3 +1848,20 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 - **built-but-errored count = 0** (AL-381 heal + AL-380 belt holding).
 - **Spa Radiance (stranded `generating` pre-AL-385, built last fire) → now `published`** — the AL-380 belt recovered a FRESH stranded victim to the truthful status (live proof it heals new strands, not just the historical 7); Kabuki → published (stable).
 - No defect → no code change. The whole lying-status arc (AL-379 diagnose → 380 belt → 381 heal → 382 hold → 385 race-guard → 387 verify) is comprehensively GREEN on prod. Admin dim-2 truthful.
+
+## AL-388 — categoryFromName: record/music retail vertical (root-cause, same class as AL-383 spa)
+- Live gap: waterloo-records-austin shipped H1 "Austin's trusted record"; Apollon Music, Grimeys Vinyl → generic "local business" (categoryFromName had no records/vinyl/music pattern).
+- Fix: NAME_CATEGORY += `/\b(?:records?|vinyl)\b/→'record store'`, `/\bmusic\b/→'music shop'`. Word-boundary-safe ("Recorder"≠record). hero_copy.ts.
+
+## AL-389 — categoryPhrase: adjectival/thin category → natural noun phrase (found LIVE on Gentle Dental)
+- Live: Gentle Dental (delivered this fire) shipped H1 "Quality dental Seattle counts on" — a declared businessCategory ("Dental") bypasses categoryFromName's nicer "dental practice" and categoryPhrase returned the bare adjective (thin, like AL-361's "record").
+- Fix: CATEGORY_NORMALIZE map (dental/dentist/dentistry→'dental practice', medical→'medical practice', law/legal→'law firm', chiropractic→'chiropractic clinic', orthodontist→'orthodontic practice'). Exact-key on post-suffix-strip phrase → declared nouns + non-thin verticals untouched. Round-trips: "Dental Practice"→strip"practice"→"dental"→re-expand.
+- 41/41 hero_copy tests (was 37).
+
+## AL-390 — template prebuild ORDER: generate-favicons BEFORE strip-logo-bg (completes AL-386 logo-icon 404 fix)
+- Root cause d2ff32c alone missed: prebuild ran `strip-logo-bg && generate-favicons`, so strip saw the 741B committed placeholder apple-touch-icon (<2000B guard) → skipped icon → my always-emit fallback (inside the guard) never ran → logo-icon.png 404 persisted (verified live on gentle-dental-seattle post-fix).
+- Fix: reorder to `generate-favicons && strip-logo-bg` → real (>2000B) apple-touch exists when strip runs → logo-icon.png always emitted (transparent strip, or fallback copy). generate-favicons confirmed to not read logo-icon (safe reorder). Lands on next build.
+
+## DELIVERY (golden-journey) — gentle-dental-seattle (org-brian-001) — dental/medical vertical
+- create-from-search → generating→published in ~90s, NO strand (AL-385 guard held). HTTP 200, real business-specific H1 "Quality dental Seattle counts on" (AL-389 will make future dental builds "dental practice"), title set. Logo visible via Header apple-touch fallback (logo-icon/wordmark 404 → AL-390 fixes next build). 26th brian-org site.
+- Session status-truth HOLDING: all 12 recent org-brian-001 sites published, 0 stranded, 0 errored.
