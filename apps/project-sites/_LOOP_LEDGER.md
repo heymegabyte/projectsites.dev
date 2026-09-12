@@ -1865,3 +1865,14 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 ## DELIVERY (golden-journey) — gentle-dental-seattle (org-brian-001) — dental/medical vertical
 - create-from-search → generating→published in ~90s, NO strand (AL-385 guard held). HTTP 200, real business-specific H1 "Quality dental Seattle counts on" (AL-389 will make future dental builds "dental practice"), title set. Logo visible via Header apple-touch fallback (logo-icon/wordmark 404 → AL-390 fixes next build). 26th brian-org site.
 - Session status-truth HOLDING: all 12 recent org-brian-001 sites published, 0 stranded, 0 errored.
+
+## AL-391 — WebGLHeroBackdrop: cover noir/retro/artisan presets (drift-guard RED→GREEN, template)
+- PRESET_BACKDROP mapped only 13/16 presets; noir/retro/artisan (added AL-334) silently fell back to aurora — the per-industry beauty regression the component's own comment warns about; WebGLHeroBackdrop.test.ts was RED since AL-334.
+- Fix: noir→ember (after-dark steakhouse/lounge = intimate warm-glow-in-dark-room), retro→aurora (playful synthwave nostalgia = flowing color, not techy shimmer), artisan→ember (bakery/coffee/brewery = ember's exact domain). Test 13/13 green. Template 614ee16 — lands next build (no redeploy).
+
+## FULL JOURNEY (golden) — proven end-to-end for gentle-dental-seattle; admin EXHAUSTIVELY verified truthful
+- reconcile-surfaces (as brian): **0 divergences / 14 data surfaces** (display==store: sites 27, analytics 3528, media, snapshots, audit per-site 43 + org 2343, voice/mcp/team/env-vars/apps/social/notif/billing).
+- contract-sweep: **44/44 sections pass, 0 hard/soft** — incl. EVERY gentle-dental per-site route (detail, branches, mcp-server, copilot, dna, apps-detail, apps-instance-detail, domain-stack) + 11 alias redirects.
+- gentle-dental propagation (step 6): Sites list=published bv=2026-09-12; **Analytics CAUSAL closed**=7 pageviews (D1 visitor_events == admin /analytics display — I visited → it counts → it shows); Audit=17 build-lifecycle rows (research→generation→deployment→complete→owner_notified→build_validation→benchmark→retrospective).
+- FALSE ALARM avoided: direct D1 `... WHERE org_id ORDER BY created_at DESC` returned [] but COUNT/GROUP BY + the API read 2343 fine → D1 read-replica ORDER-BY artifact, NOT lying-empty (verify-before-concluding held).
+- Verdict: admin genuinely complete + truthful; full journey (build→view→analytics→admin) all green; 0 root-cause breaks this fire.
