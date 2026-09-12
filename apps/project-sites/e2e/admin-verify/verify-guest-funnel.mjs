@@ -51,20 +51,31 @@ try {
   if (home.hasSearch) {
     const search = page.locator('#homepage-search, .hero-search-shell input, input[type="search"], input[placeholder*="business" i], input[placeholder*="search" i]').first();
     await search.click().catch(() => {});
-    await search.fill('bakery').catch(() => {});
-    await search.pressSequentially(' coffee', { delay: 40 }).catch(() => {});
+    // A GUARANTEED-no-match business → deterministically exercises the degraded path (thin/empty
+    // results — also the live reality when Places 403s), so the forward-path floor is tested every run.
+    await search.fill('Zzqx').catch(() => {});
+    await search.pressSequentially(' Nonexistent Test Biz 90210', { delay: 40 }).catch(() => {});
     await page.waitForTimeout(3500); // debounced live search + Places/OSM round-trip
     const res = await page.evaluate(() => {
       const items = document.querySelectorAll('[role="listbox"] [role="option"], [data-testid*="result"], [data-testid*="business"], .search-result, li[role="option"]');
       const bodyTxt = document.body.innerText || '';
-      const unavailable = /lookup (is )?unavailable|couldn.t (search|reach)|try again|search is temporarily|enter your business name/i.test(bodyTxt);
-      // A "create anyway / continue with what you typed" CTA is the funnel's floor when results are thin.
-      const createCta = [...document.querySelectorAll('a,button')].some((e) => e.offsetParent && /create|continue|build (my|your)|get started|next/i.test((e.textContent || '')));
-      return { count: items.length, unavailable, createCta };
+      // Match the ACTUAL live degraded copy ("Business lookup is temporarily unavailable — choose
+      // 'Build a custom website' below to enter your details manually"), not a stale guess.
+      const unavailable = /lookup .{0,24}unavailable|temporarily unavailable|couldn.t (search|reach)|try again|enter your (business )?details manually/i.test(bodyTxt);
+      // The forward path is the funnel's OWN manual-build CTA — NOT the ever-present nav "Get Started"
+      // (matching the nav would false-green a broken fallback → a real prospect dead-ends). Exclude <nav>.
+      const nav = document.querySelector('nav');
+      const manualBuildCta = [...document.querySelectorAll('a,button')].some((e) => {
+        if (!e.offsetParent || (nav && nav.contains(e))) return false;
+        return /build a custom website|enter your (business )?details manually|build (it |from |a custom)|create (a )?(custom |new )?(site|website)|start fresh/i.test(e.textContent || '');
+      });
+      return { count: items.length, unavailable, manualBuildCta };
     });
-    // Honest outcomes: real results, OR graceful-unavailable, OR a create-anyway path — any is operable.
-    check('search operable (results OR graceful path forward)', res.count > 0 || res.unavailable || res.createCta,
-      `results=${res.count} unavailable=${res.unavailable} createCta=${res.createCta}`);
+    // Conversion floor: a prospect whose business isn't found MUST get a real path forward — either
+    // live results OR the in-funnel manual-build CTA. The nav "Get Started" alone is NOT that path.
+    check('degraded search offers a REAL forward path (results OR in-funnel manual-build CTA, not just nav)',
+      res.count > 0 || res.manualBuildCta,
+      `results=${res.count} unavailable=${res.unavailable} manualBuildCta=${res.manualBuildCta}`);
   }
 
   // 3. The /create ENTRY renders (the funnel's destination; sign-in bridges here for signed-out users).
