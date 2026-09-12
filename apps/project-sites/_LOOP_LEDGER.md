@@ -1902,3 +1902,9 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 - Genuinely-deferred § B legs (NOT churn-able): B.5 real-card charge (approval-required $; covered by billing_webhook_activation.test 6/6), B.6 WebContainer UI drive (Browserbase + $-gated, ~30-60s boot).
 - VERDICT: § B headless envelope complete + fresh-verified, 0 regression. Forward lever remains § C (C.2 edge-cache AL-394 deploying; C.7 beat-the-source).
 - CARRYOVER: AL-394 (C.2 edge-cache, commit 8daa373ac) verification pending — CI worker deploy in-flight; poller armed on the x-ps-edge header → will flip verify-edge-cache.mjs green + tick § C.2 (5/7→6/7) on land.
+
+## AL-394 (COMPLETE — PROD-VERIFIED GREEN) — C.2 CWV edge-cache: cold TTFB 1.3s → ~70ms
+- Shipped (commit 8daa373ac, CI-deployed ~22:20 UTC 2026-09-12): `serveSiteFromR2` edge-caches the assembled HTML in `caches.default` keyed by HOST+VERSION+path+paid. HTML-200 only; `meterSiteVisit` replicated on the hit branch.
+- PROD-VERIFIED: `verify-edge-cache.mjs` (new, auto-joins site-quality run-all) → vanta [hit,hit,hit] / ironhaus+gentle-dental [miss,hit,hit], all canon=own-host + 200. **Edge-hit TTFB: vanta 82ms, gentle-dental 70ms — was vanta 1339ms cold.**
+- HOT-PATH CORRECTNESS CHECK (metering survives the cache): gentle-dental `visitor_events` 7→18 across the poller's cache-hit fetches — the caller-level `recordPageviewFromRequest` (index.ts:1841) fires BEFORE serveSiteFromR2 regardless of hit/miss → analytics NEVER undercount. Canonical host-correct on every hit (host-key prevents cross-host clobber).
+- § C.2 TICKED → § C 6/7 (~86%); overall 29/32 (~91%). Only **C.7 beat-the-source** remains open in § C.
