@@ -131,6 +131,23 @@ describe('AdminAnalyticsComponent (site-reactive load)', () => {
     expect(c.dataTooltip()).withContext('tooltip surfaces the error').toBe('Server error');
   });
 
+  it('Top pages hides route-pattern artifacts (/*, /:param) + infra, keeps only real viewed pages', () => {
+    build({ id: 'site-tp' });
+    const c = fixture.componentInstance;
+    c.envelope.set({
+      top_pages: [
+        { path: '/', views: 413 },
+        { path: '/about', views: 9 },
+        { path: '/*', views: 1 }, // SPA catch-all / bot probe — never a page a visitor viewed
+        { path: '/:slug', views: 1 }, // a route-template token, not a real URL
+        { path: '/robots.txt', views: 4 }, // infra (already filtered)
+      ],
+    } as never);
+    expect(c.displayTopPages().map((r) => r.path))
+      .withContext('routing artifacts + infra filtered; real pages kept')
+      .toEqual(['/', '/about']);
+  });
+
   describe('pvTrend (period-over-period delta chip)', () => {
     function series(views: number[]): { series: { date: string; page_views: number; unique_visitors: number }[] } {
       return { series: views.map((v, i) => ({ date: `2026-06-0${i + 1}`, page_views: v, unique_visitors: v })) };

@@ -1405,6 +1405,10 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
   private isRealPage(path: string): boolean {
     if (!path) return false;
     const p = path.split('?')[0].toLowerCase();
+    // Route-pattern artifacts, never a page a visitor "viewed": the SPA catch-all `/*`,
+    // a bot probing `/*`, or a `/:param`-style template token. A `*` or a `/:token`
+    // segment can't be a genuine URL, so it reads as gibberish in the "Top pages" list.
+    if (p.includes('*') || /\/:[a-z]/.test(p)) return false;
     if (p.startsWith('/.well-known/') || p.startsWith('/assets/')) return false;
     if (/^\/(offline\.html|sw\.js|ngsw-worker\.js|ngsw\.json|robots\.txt|sitemap[\w-]*\.xml|manifest[\w.-]*|browserconfig\.xml|humans\.txt|security\.txt|favicon[\w.-]*)$/.test(p))
       return false;
