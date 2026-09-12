@@ -723,10 +723,14 @@ async function ensureLogo(dir, ideogramKey, anthropicKey) {
     // navbar renders the business name as a wordmark beside it).
     if (ideogramKey) {
       const prompt =
-        `Minimal, elegant, modern logo ICON for a ${type}. A simple flat ` +
-        `geometric emblem or abstract symbol mark, clean vector style, memorable, professional, ` +
-        `tasteful brand-appropriate color palette, centered on a soft solid background. ` +
-        `Absolutely NO text, NO words, NO letters, NO business name — symbol only.`;
+        `A big, bold, simple, elegant logo ICON for a ${type} — ONE memorable geometric emblem ` +
+        `or abstract symbol mark in a gorgeous minimal flat-vector style with thick confident ` +
+        `strokes, a single clear focal shape that FILLS the frame with even margins, distinctive ` +
+        `and instantly recognizable even at small sizes. Render the symbol in a SATURATED ` +
+        `brand-appropriate color (NEVER white or pale — it must knock out from white) on a PLAIN ` +
+        `FLAT SOLID WHITE background — uniform, no gradient, no shadow, no scene — so the colored ` +
+        `mark strips to full transparency cleanly. Absolutely NO text, NO words, NO letters, NO ` +
+        `business name — symbol only.`;
       const gen = await fetch('https://api.ideogram.ai/generate', {
         method: 'POST',
         headers: { 'Api-Key': ideogramKey, 'Content-Type': 'application/json' },
@@ -795,11 +799,14 @@ async function ensureWordmark(dir, ideogramKey) {
     // (2) Ideogram — a stylized wordmark of the NAME (text is intended here; no gate).
     if (!ideogramKey) return 'no ideogram key — HTML-text wordmark fallback';
     const prompt =
-      `A clean, elegant, horizontal WORDMARK logo showing ONLY the text "${name}" in modern ` +
-      `professional typography, set on a SINGLE line and FILLING THE FRAME EDGE-TO-EDGE with ` +
-      `minimal margins — large, bold, highly legible lettering that spans the full width. ` +
-      `Tasteful letterforms, subtle brand-appropriate color, TRANSPARENT background, NO icon, ` +
-      `NO symbol, NO tagline, NO border, NO background shapes — just the large stylized words "${name}".`;
+      `A gorgeous horizontal WORDMARK logo showing ONLY the text "${name}" in a THICK, HEAVY, ` +
+      `BOLD display typeface (black / extra-bold weight — a confident modern geometric or rounded ` +
+      `sans), set on ONE line and FILLING THE FRAME EDGE-TO-EDGE with even margins: large, crisp, ` +
+      `highly legible letterforms that span the full width. Render the lettering in a SATURATED ` +
+      `brand-appropriate color (NEVER white or pale — it must knock out from white) on a PLAIN ` +
+      `FLAT SOLID WHITE background — uniform, no gradient, no shadow — so the letters strip to full ` +
+      `transparency cleanly. NO icon, NO symbol, NO tagline, NO border, NO background shapes — just ` +
+      `the large stylized words "${name}".`;
     // ASPECT_3_1 (a true banner wordmark shape), NOT ASPECT_16_9 (1.78:1 ≈ square): a 16:9 canvas
     // makes Ideogram center short wordmark text with heavy padding, so the Header renders it tiny
     // (cafe-dim-sum's 1312×736/1.78:1 wordmark rendered a 71×40 illegible blob — AL-392). A 3:1

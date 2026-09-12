@@ -1908,3 +1908,12 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 - PROD-VERIFIED: `verify-edge-cache.mjs` (new, auto-joins site-quality run-all) → vanta [hit,hit,hit] / ironhaus+gentle-dental [miss,hit,hit], all canon=own-host + 200. **Edge-hit TTFB: vanta 82ms, gentle-dental 70ms — was vanta 1339ms cold.**
 - HOT-PATH CORRECTNESS CHECK (metering survives the cache): gentle-dental `visitor_events` 7→18 across the poller's cache-hit fetches — the caller-level `recordPageviewFromRequest` (index.ts:1841) fires BEFORE serveSiteFromR2 regardless of hit/miss → analytics NEVER undercount. Canonical host-correct on every hit (host-key prevents cross-host clobber).
 - § C.2 TICKED → § C 6/7 (~86%); overall 29/32 (~91%). Only **C.7 beat-the-source** remains open in § C.
+
+## AL-396 — logo GENERATION QUALITY (user re-prompt on gentle-dental — AL-392 under-delivered on quality)
+- GRADIENT: AL-392 fixed render SIZE (h-14/h-12) + wordmark TRIM + ASPECT_3_1, but the user re-prompted the SAME surface — the LOGO ITSELF isn't gorgeous. They want a DALL-E/Ideogram "big simple elegant beautiful gorgeous ICON" + a horizontal wordmark in a "gorgeous THICK font", BOTH transparent + visible on ANY background color.
+- gentle-dental (built PRE-AL-386/390/392) ships logo-icon.png + logo-wordmark.png BOTH 404 (9b) → falls back to the 736b OPAQUE apple-touch + plain HTML text wordmark = the poor logo the user sees. Needs a rebuild on the new pipeline.
+- ROOT FIX (container-server.mjs, Dockerfile FORCE-REBUILD 28, worker CI — lands on next build):
+  - ICON prompt (ensureLogo): "A big, bold, simple, elegant logo ICON … ONE memorable geometric emblem … thick confident strokes … single focal shape that FILLS the frame … recognizable at small sizes" (was "Minimal … simple flat geometric … soft solid background").
+  - WORDMARK prompt (ensureWordmark): "THICK, HEAVY, BOLD display typeface (black / extra-bold weight)" (was "large, bold … subtle brand-appropriate color").
+  - TRANSPARENCY (the real lever both missed): BOTH now render a SATURATED-color mark on a PLAIN FLAT SOLID WHITE background (was "soft solid" / "subtle color" / "TRANSPARENT" which Ideogram ignores) → strip-logo-bg edge-flood knocks out to CLEAN full transparency. A soft/gradient bg fails corner-agreement (→ no-strip → opaque box); a white/pale mark gets eaten by the flood. Explicit "NEVER white or pale — must knock out from white" guards the mark.
+- Pairs with AL-392 (Header h-14 icon / h-12 wordmark + wordmark trim). Rebuilding gentle-dental to prove it live.
