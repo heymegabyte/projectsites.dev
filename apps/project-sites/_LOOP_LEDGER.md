@@ -1917,3 +1917,10 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
   - WORDMARK prompt (ensureWordmark): "THICK, HEAVY, BOLD display typeface (black / extra-bold weight)" (was "large, bold … subtle brand-appropriate color").
   - TRANSPARENCY (the real lever both missed): BOTH now render a SATURATED-color mark on a PLAIN FLAT SOLID WHITE background (was "soft solid" / "subtle color" / "TRANSPARENT" which Ideogram ignores) → strip-logo-bg edge-flood knocks out to CLEAN full transparency. A soft/gradient bg fails corner-agreement (→ no-strip → opaque box); a white/pale mark gets eaten by the flood. Explicit "NEVER white or pale — must knock out from white" guards the mark.
 - Pairs with AL-392 (Header h-14 icon / h-12 wordmark + wordmark trim). Rebuilding gentle-dental to prove it live.
+
+## AL-397 — ADMIN INTEGRITY: RENDER+A11Y + TRUTHFUL-DATA plateau re-confirmed FRESH
+- Dim-1 RENDER+A11Y: `admin-surf-audit` @1280 AND @390 — ALL ~20 sections ✓ ok (0 console error / 0 axe violation / 0 error-boundary crash / 0 blank / 0 mobile-overflow) at BOTH breakpoints.
+- Dim-2 TRUTHFUL DATA: D1 ground-truth COUNT sweep org-brian-001 — 27 sites ALL published (0 stranded/error → AL-380/385 status-truth holds), 109 form_submissions, 1607 visitor_events/7d, 2348 audit_logs, 1 subscription — all sane, no lying-empty. + last fire's reconcile-surfaces 0-div (display==store).
+- Dim-3 TRUTHFUL MUTATIONS: forms-causal green (AL-393); mutations recently verified.
+- VERDICT: admin integrity holds fresh across all 3 dims; no break, no fan-out (nothing to distribute), no forced change (gates-before-churn). Admin is a durable plateau — highest-value forward lever remains generated-site/template quality (AL-388–396).
+- CARRYOVER: gentle-dental logo rebuild (AL-396) still in flight — bx5um08zj waiting on CI deploy of 6463f4f54, then /reset → rebuild → verify gorgeous transparent logo.
