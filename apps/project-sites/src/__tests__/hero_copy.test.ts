@@ -1,10 +1,28 @@
 import {
   categoryFromName,
   categoryPhrase,
+  heroCtasFor,
   heroHeadlineOptions,
   homepageFaq,
   seoTaglineOptions,
 } from '../services/hero_copy.js';
+
+describe('hero_copy — heroCtasFor (AL-420: seeded hero CTA labels, never "Reserve a table" on quickserve)', () => {
+  it('quickserve gets order/visit CTAs, NEVER a reservation', () => {
+    const c = heroCtasFor('quickserve');
+    expect(c.primary).toBe('Visit us');
+    expect(c.secondary).toBe('See our flavors');
+    expect(`${c.primary} ${c.secondary}`.toLowerCase()).not.toMatch(/reserve|reservation|table/);
+  });
+  it('every mode returns a non-empty, slop-free primary + secondary; unknown → general', () => {
+    for (const m of ['retail', 'quickserve', 'hospitality', 'service', 'professional', 'nonprofit', 'general', 'nope', '', null, undefined]) {
+      const c = heroCtasFor(m as string);
+      expect(c.primary.length).toBeGreaterThan(2);
+      expect(c.secondary.length).toBeGreaterThan(2);
+    }
+    expect(heroCtasFor('totally-unknown')).toEqual(heroCtasFor('general'));
+  });
+});
 
 /**
  * Regression for AL-361 — the generic/broken hero <h1>. The old inline derivation

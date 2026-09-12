@@ -39,6 +39,7 @@ import {
 import {
   categoryFromName,
   categoryPhrase,
+  heroCtasFor,
   heroHeadlineOptions,
   homepageFaq,
   seoTaglineOptions,
@@ -861,12 +862,15 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // proven existing-wins _content.json seam as ABOUT_PARAGRAPH_1/HERO/SERVICES —
       // renders deterministically regardless of the container's 14-min budget, adds
       // ~230 words of REAL homepage content, AND powers accurate FAQPage JSON-LD (GEO).
-      const faq = homepageFaq(
-        commerceModeFor(params.businessCategory, params.additionalContext),
-        safeName,
-        catService,
-        cityPhrase,
-      );
+      const commerceMode = commerceModeFor(params.businessCategory, params.additionalContext);
+      const faq = homepageFaq(commerceMode, safeName, catService, cityPhrase);
+      // AL-420: seed the hero CTA labels ({HERO_CTA} + {HERO_SECONDARY_CTA} in Home.tsx).
+      // The worker never seeded these, so the fast-path orchestrator filled the raw
+      // placeholders unreliably — it wrote "Reserve a table" + "View menu" onto Jeni's
+      // ICE CREAM shop (AL-419). Prose (the conversion brief) is inert on the fast path;
+      // the authoritative fix is the SAME existing-wins _content.json seam as HERO_HEADLINE.
+      // quickserve → "Visit us" / "See our flavors" — never a full-service reservation CTA.
+      const heroCtas = heroCtasFor(commerceMode);
       contextFiles['content.json'] = JSON.stringify(
         {
           ABOUT_PARAGRAPH_1: aboutPara1,
@@ -879,7 +883,9 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
           FAQ_4_A: faq.items[3].a,
           FAQ_4_Q: faq.items[3].q,
           FAQ_HEADLINE: faq.headline,
+          HERO_CTA: heroCtas.primary,
           HERO_HEADLINE: heroHeadline,
+          HERO_SECONDARY_CTA: heroCtas.secondary,
           HERO_SUBHEADLINE: heroSub,
           SEO_TAGLINE: seoTagline,
           SERVICES_INTRO: servicesIntro,

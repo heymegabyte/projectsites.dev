@@ -412,3 +412,35 @@ export function homepageFaq(
       : 'general';
   return { headline: 'Questions, answered', items: sets[key]! };
 }
+
+/**
+ * Per-commerce-mode hero CTA labels ({@link HERO_CTA} + {@link HERO_SECONDARY_CTA}
+ * `_content.json` seed tokens). The template Home hero links primary → /contact|/quote
+ * and secondary → /services, so labels are chosen to read naturally with those
+ * destinations. Seeding these makes the hero CTAs DETERMINISTIC — the fast-path
+ * orchestrator otherwise fills the raw `{HERO_CTA}` placeholder unreliably (it wrote
+ * "Reserve a table" onto an ice-cream shop, AL-419). A `quickserve` walk-up counter
+ * must never say "Reserve a table"; this is the authoritative-signal fix (same seam as
+ * HERO_HEADLINE), not the inert prompt-prose brief.
+ *
+ * @param mode - `commerceModeFor(...)` output. Unknown/empty → the `general` pair.
+ * @returns `{ primary, secondary }` CTA labels (both non-empty, slop-free).
+ *
+ * @example
+ * heroCtasFor('quickserve') // → { primary: 'Visit us', secondary: 'See our flavors' }
+ * heroCtasFor('hospitality')// → { primary: 'Visit us', secondary: 'View the menu' }
+ */
+export function heroCtasFor(mode: string | null | undefined): { primary: string; secondary: string } {
+  const sets: Record<string, { primary: string; secondary: string }> = {
+    quickserve: { primary: 'Visit us', secondary: 'See our flavors' },
+    hospitality: { primary: 'Visit us', secondary: 'View the menu' },
+    retail: { primary: 'Visit the shop', secondary: 'Browse our collection' },
+    service: { primary: 'Get a free quote', secondary: 'Our services' },
+    professional: { primary: 'Book a consultation', secondary: 'Our services' },
+    nonprofit: { primary: 'Get involved', secondary: 'See our programs' },
+    general: { primary: 'Get in touch', secondary: 'Learn more' },
+  };
+  const key =
+    typeof mode === 'string' && mode.trim().toLowerCase() in sets ? mode.trim().toLowerCase() : 'general';
+  return sets[key]!;
+}
