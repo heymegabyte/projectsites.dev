@@ -98,7 +98,7 @@ interface ReferralCodeResponse {
     .rc-stats { display: flex; gap: 1.1rem; }
     .rc-stat { display: flex; flex-direction: column; align-items: flex-end; line-height: 1; }
     .rc-num { font-size: 1.25rem; font-weight: 800; font-variant-numeric: tabular-nums; color: #a78bfa; }
-    .rc-lbl { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.45); margin-top: 3px; }
+    .rc-lbl { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.62); margin-top: 3px; }
     .rc-copy { font-size: 0.84rem; color: rgba(255,255,255,0.6); margin: 0 0 0.9rem; max-width: 52ch; }
     .rc-linkrow { display: flex; gap: 0.5rem; margin-bottom: 0.7rem; flex-wrap: wrap; }
     .rc-url {
@@ -110,14 +110,14 @@ interface ReferralCodeResponse {
     .rc-url:focus-visible { outline: 2px solid #a78bfa; outline-offset: 1px; }
     .rc-copy-btn {
       flex-shrink: 0; padding: 0.55rem 1.1rem; border-radius: 12px; border: 0; cursor: pointer;
-      font-size: 0.82rem; font-weight: 700; color: #0b0416;
-      background: linear-gradient(135deg, #a78bfa, #7c3aed);
+      font-size: 0.82rem; font-weight: 700; color: #fff;
+      background: linear-gradient(135deg, #7c3aed, #6d28d9);
       transition: filter 0.16s ease, transform 0.16s ease;
     }
     .rc-copy-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
     .rc-copy-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
     @media (prefers-reduced-motion: reduce) { .rc-copy-btn { transition: none; } .rc-copy-btn:hover { transform: none; } }
-    .rc-code { font-size: 0.72rem; color: rgba(255,255,255,0.45); margin: 0; }
+    .rc-code { font-size: 0.72rem; color: rgba(255,255,255,0.62); margin: 0; }
     .rc-code strong { color: #a78bfa; font-family: 'JetBrains Mono', ui-monospace, monospace; letter-spacing: 0.04em; }
     /* Loading skeleton — reuses .rc / .rc-head / .rc-linkrow so its height matches the
        real card (reserves space → no CLS when the code lands). */
