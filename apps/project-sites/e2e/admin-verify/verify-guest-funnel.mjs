@@ -69,13 +69,21 @@ try {
         if (!e.offsetParent || (nav && nav.contains(e))) return false;
         return /build a custom website|enter your (business )?details manually|build (it |from |a custom)|create (a )?(custom |new )?(site|website)|start fresh/i.test(e.textContent || '');
       });
-      return { count: items.length, unavailable, manualBuildCta };
+      const searchStatus = (document.querySelector('[data-testid="search-status"]')?.textContent || '').trim();
+      return { count: items.length, unavailable, manualBuildCta, searchStatus };
     });
     // Conversion floor: a prospect whose business isn't found MUST get a real path forward — either
     // live results OR the in-funnel manual-build CTA. The nav "Get Started" alone is NOT that path.
     check('degraded search offers a REAL forward path (results OR in-funnel manual-build CTA, not just nav)',
       res.count > 0 || res.manualBuildCta,
       `results=${res.count} unavailable=${res.unavailable} manualBuildCta=${res.manualBuildCta}`);
+    // WCAG 4.1.3 (Status Messages, AA): the live-search dropdown populates WITHOUT focus
+    // moving into it, so a screen-reader user needs an aria-live status announcing the result
+    // count. The success path was silent (only the degraded nudge had an announcement) — this
+    // asserts the role="status" region announces "N result(s) found" whenever the dropdown is open.
+    check('search results announced to screen readers (WCAG 4.1.3 aria-live status)',
+      /\d+\s+results?\s+found/i.test(res.searchStatus),
+      res.searchStatus ? `status="${res.searchStatus}"` : 'NO aria-live result-count status (SR gets no feedback results appeared)');
   }
 
   // 3. The /create ENTRY renders (the funnel's destination; sign-in bridges here for signed-out users).

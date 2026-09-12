@@ -5,6 +5,7 @@ import {
   type AfterViewInit,
   inject,
   signal,
+  computed,
   ElementRef,
   ViewChild,
   PLATFORM_ID,
@@ -128,6 +129,21 @@ export class HomepageComponent implements OnInit, OnDestroy, AfterViewInit {
   navScrolled = signal(false);
   mobileMenuOpen = signal(false);
   openFaqIndex = signal<number | null>(null);
+
+  /**
+   * WCAG 4.1.3 (Status Messages, AA). The business-search is a live-search whose
+   * matches populate a dropdown as the user types. The degraded/unavailable state is
+   * already announced (the aria-live nudge), but the SUCCESS path was silent — a
+   * screen-reader user got no feedback that N businesses appeared. This drives an
+   * always-present role="status" region that announces the result count for whichever
+   * search (hero or CTA) is open; empty string while closed so it never over-announces.
+   */
+  searchStatusMessage = computed(() => {
+    if (!this.heroDropdownOpen() && !this.ctaDropdownOpen()) return '';
+    const n = this.results().length;
+    if (n === 0) return '';
+    return `${n} ${n === 1 ? 'result' : 'results'} found. Use Tab to review, Enter to select.`;
+  });
 
   private searchSubject = new Subject<{ query: string; source: 'hero' | 'cta' }>();
   activeSource = signal<'hero' | 'cta'>('hero');
