@@ -1892,3 +1892,13 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 - Dim 6: contract-sweep 44/44 (prior fire, e39984af1).
 - Vision-inspect (Browserbase @1280, dashboard+forms+analytics): dashboard = honest status (1 attn/108 live) + CWV empty-state "Capture a snapshot →" CTA + real activity feed + dense cyan/black cards; forms = honest "No submissions yet" + Copy-install-snippet + Form-Handling-Prompt CTAs (harborline genuinely 0). Gorgeous, no dead controls, NO forced change.
 - VERDICT: admin at genuine complete+polished plateau. gates-before-churn → no structural change warranted. Only by-design-deferred surfaces = mcp/apps (pending real adapters — a feature, not a completeness-polish slice). Highest-value forward lever remains TEMPLATE/generated-site quality (AL-388/389/390/391/392), not admin.
+
+## AL-395 — FULL-FLOW E2E: § B plateau re-confirmed FRESH on prod (0 regression)
+- § B is a complete plateau (B.1–B.7 all [x], durable probes). No unchecked flow. Re-verified the highest-value NAMED flows FRESH this fire (real Chromium / fetch on prod):
+  - B.1 guest-funnel ✅ — homepage → search → /create operable end-to-end, 0 console errors.
+  - B.5 billing-full-flow ✅ — money flow LIVE+SECURE over headless envelope (session create + unspoofable UNSIGNED/BAD-SIG webhook 401 + causal-integrity free-lock + portal).
+  - B.7 auth-flow ✅ — magic-link request + verify fail-safe (no-token→302 missing_token, bad-token→302 invalid_or_expired, no 500) + Google/GitHub OAuth init graceful.
+- Vision-inspect homepage funnel (projectsites.dev/): polished — strong H1 "Tell us your business. We'll build your website.", "We don't sell websites. We deliver them.", prominent search-box entry, 3 CTAs, brand cyan/violet, 0 console errors. No forced change (gates-before-churn).
+- Genuinely-deferred § B legs (NOT churn-able): B.5 real-card charge (approval-required $; covered by billing_webhook_activation.test 6/6), B.6 WebContainer UI drive (Browserbase + $-gated, ~30-60s boot).
+- VERDICT: § B headless envelope complete + fresh-verified, 0 regression. Forward lever remains § C (C.2 edge-cache AL-394 deploying; C.7 beat-the-source).
+- CARRYOVER: AL-394 (C.2 edge-cache, commit 8daa373ac) verification pending — CI worker deploy in-flight; poller armed on the x-ps-edge header → will flip verify-edge-cache.mjs green + tick § C.2 (5/7→6/7) on land.
