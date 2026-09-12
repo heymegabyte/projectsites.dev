@@ -32,7 +32,7 @@ for (const slug of SITES) {
   const flag = (cond, code, detail) => { if (!cond) { fails.push(`${code} — ${detail}`); } };
 
   // Guard: got the REAL site (challenge pages have no real <title>/<h1>).
-  const title = textOf(html, /<title>([^<]*)<\/title>/i);
+  const title = textOf(html, /<title[^>]*>([^<]*)<\/title>/i);
   const isChallenge = /just a moment\b|checking your browser before|cf_chl_opt|turnstile/i.test(html) && !title;
   if (home.status !== 200 || isChallenge || !title) {
     perSite.push({ slug, note: `NOT AUDITABLE — status=${home.status} challenge=${isChallenge} title="${title}"` });
@@ -41,7 +41,14 @@ for (const slug of SITES) {
 
   // Meta title + description length.
   flag(title.length >= 50 && title.length <= 60, 'meta.title_length', `title ${title.length} chars ("${title.slice(0, 40)}") — want 50-60`);
-  const desc = (/<meta[^>]+name=["']description["'][^>]*content=["']([^"']*)["']/i.exec(html) || /<meta[^>]+content=["']([^"']*)["'][^>]*name=["']description["']/i.exec(html) || [])[1] || '';
+  // Extract the description tag (any attribute order), then read `content` with a
+  // backreference so the capture respects the value's OWN delimiter. A plain [^"'] class
+  // truncates a valid double-quoted value at the first apostrophe (content="Seattle's
+  // dependable…" → "Seattle" = a false 7-char FAIL on EVERY possessive business name —
+  // the generated meta uses "{City}'s dependable choice for {vertical}"). Mirrors
+  // build_validators.ts metaDescText so the probe + the build gate never drift.
+  const descTag = /<meta\s+[^>]*\bname=["']description["'][^>]*>/i.exec(html);
+  const desc = descTag ? (/\bcontent=(["'])([\s\S]*?)\1/i.exec(descTag[0]) || [])[2]?.trim() || '' : '';
   flag(desc.length >= 120 && desc.length <= 156, 'meta.description_length', `desc ${desc.length} chars — want 120-156`);
 
   // JSON-LD ≥4 REAL blocks. Count actual <script type="application/ld+json"> tags with
