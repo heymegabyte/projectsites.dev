@@ -23,8 +23,10 @@ import {
   Component,
   computed,
   effect,
+  ElementRef,
   inject,
   signal,
+  ViewChild,
   type OnDestroy,
   type OnInit,
 } from '@angular/core';
@@ -116,7 +118,9 @@ const LETTER_TO_DIGIT: Readonly<Record<string, string>> = Object.freeze({
           <app-empty-state
             icon="📞"
             title="No numbers yet"
-            body="Pick a vanity word below — your AI agent picks up the moment a caller dials."
+            body="Search a vanity word and your AI agent picks up the moment a caller dials."
+            primary="Find a vanity number"
+            (primaryClick)="focusSearch()"
           />
         } @else {
           <ul class="grid gap-2" role="list">
@@ -159,6 +163,7 @@ const LETTER_TO_DIGIT: Readonly<Record<string, string>> = Object.freeze({
           <label class="flex-1 min-w-0">
             <span class="sr-only">Search query</span>
             <input hlmInput class="w-full font-mono min-h-[44px]"
+                   #voiceSearchInput
                    type="text"
                    [(ngModel)]="query"
                    (ngModelChange)="onQueryChange($event)"
@@ -414,6 +419,23 @@ export class VoiceNumbersComponent implements OnInit, OnDestroy {
   /** Number ids currently being released — per-row double-submit guard (Release is destructive). */
   releasingIds = signal<ReadonlySet<string>>(new Set());
   isReleasing(id: string): boolean { return this.releasingIds().has(id); }
+
+  /** The vanity/area-code search input — focus target for the empty-state's "Find a vanity number" CTA. */
+  @ViewChild('voiceSearchInput') private searchInputRef?: ElementRef<HTMLInputElement>;
+
+  /**
+   * Jump straight to the number picker: focus the "Find a number" search input and scroll
+   * it into view. The empty-state CTA calls this so an operator with 0 numbers doesn't have
+   * to hunt down the page for the picker (on mobile it sits ~3 screens below the empty state)
+   * — the extra-mile "empty state → first-result action". Respects prefers-reduced-motion.
+   */
+  focusSearch(): void {
+    const el = this.searchInputRef?.nativeElement;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+    el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
+  }
 
   capped = computed(() => this.numbers().length >= MAX_NUMBERS);
   monthlySpend = computed(() =>

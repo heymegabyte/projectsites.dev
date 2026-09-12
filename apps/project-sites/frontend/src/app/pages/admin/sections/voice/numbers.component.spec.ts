@@ -287,3 +287,45 @@ describe('VoiceNumbersComponent — brand-aware vanity example', () => {
     expect(makeWithSite({ id: 's4', business_name: '' }).vanityExample()).toBe('HELLO');
   });
 });
+
+/**
+ * The 0-numbers empty state's "Find a vanity number" CTA calls focusSearch() so an
+ * operator doesn't have to hunt down the page for the picker (on mobile the search input
+ * sits ~3 screens below the empty state — the old "Pick a vanity word below" copy pointed
+ * at nothing reachable). extra-mile: empty state → first-result action. (ADMIN INTEGRITY.)
+ */
+describe('VoiceNumbersComponent — focusSearch (empty-state → first-result action)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  function bare(): VoiceNumbersComponent {
+    TestBed.configureTestingModule({
+      imports: [VoiceNumbersComponent],
+      providers: [
+        { provide: ApiService, useValue: { get: () => of({ data: [] }), post: () => of({ data: {} }), delete: () => of(undefined) } },
+        { provide: ToastService, useValue: { success: () => 0, error: () => 0, info: () => 0 } },
+        { provide: AdminStateService, useValue: { selectedSite: signal({ id: 's1' }) } },
+        { provide: ConfirmService, useValue: { confirm: () => Promise.resolve(true) } },
+      ],
+    });
+    TestBed.overrideComponent(VoiceNumbersComponent, { set: { template: '<div></div>', imports: [] } });
+    return TestBed.createComponent(VoiceNumbersComponent).componentInstance;
+  }
+
+  it('focuses the search input (preventScroll) AND scrolls it into view', () => {
+    const c = bare();
+    const focus = jasmine.createSpy('focus');
+    const scrollIntoView = jasmine.createSpy('scrollIntoView');
+    (c as unknown as { searchInputRef: unknown }).searchInputRef = { nativeElement: { focus, scrollIntoView } };
+    c.focusSearch();
+    // focus must NOT scroll (preventScroll) so the smooth scrollIntoView owns the motion.
+    expect(focus).toHaveBeenCalledOnceWith({ preventScroll: true });
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect((scrollIntoView.calls.mostRecent().args[0] as { block?: string }).block).toBe('center');
+  });
+
+  it('no-ops safely when the search input ref is not yet resolved (no throw)', () => {
+    const c = bare();
+    (c as unknown as { searchInputRef: unknown }).searchInputRef = undefined;
+    expect(() => c.focusSearch()).not.toThrow();
+  });
+});
