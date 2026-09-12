@@ -108,6 +108,11 @@ interface ForecastBar {
         <div role="tabpanel" id="billing-tab-panel-subscription" aria-labelledby="billing-tab-subscription" class="space-y-4">
 
           <!-- Subscription status panel (BILL-03, BILL-12, BILL-13) -->
+          @if (subStatusError()) {
+            <div class="card" role="status" data-testid="substatus-error">
+              <p class="text-[0.72rem] text-amber-300/90 m-0">Couldn't load your subscription right now. <button type="button" class="underline hover:text-white" (click)="retryTabData()">Retry</button></p>
+            </div>
+          }
           @if (subStatus(); as sub) {
             @if (sub.status === 'past_due') {
               <div class="billing-warning-banner" data-testid="billing-warning-banner" role="alert">
@@ -323,6 +328,11 @@ interface ForecastBar {
           <p class="text-[0.7rem] text-text-secondary m-0">Per-site usage events posted to Stripe Meters. Usage charges appear on your next invoice.</p>
 
           <!-- Upcoming invoice lines (BILL-09) -->
+          @if (invoiceError()) {
+            <div class="card" role="status" data-testid="invoice-error">
+              <p class="text-[0.72rem] text-amber-300/90 m-0">Couldn't load your upcoming invoice right now. <button type="button" class="underline hover:text-white" (click)="retryTabData()">Retry</button></p>
+            </div>
+          }
           @if (upcomingInvoice(); as inv) {
             <div class="card">
               <div class="text-[0.7rem] text-text-secondary uppercase tracking-wider font-bold mb-2">Upcoming invoice</div>
@@ -397,7 +407,12 @@ interface ForecastBar {
           <p class="text-[0.7rem] text-text-secondary m-0">Pending payout splits for your referrals.</p>
 
           <div class="card">
-            @if (affiliatePayouts().length === 0) {
+            @if (payoutsError()) {
+              <div class="empty-state-pretty-compact" role="status" data-testid="payouts-error">
+                <h3 class="empty-h">Couldn't load payouts</h3>
+                <p class="empty-p">A temporary problem stopped us fetching your referral payouts — this is not "you have none". <button type="button" class="underline hover:text-white" (click)="retryTabData()">Retry</button></p>
+              </div>
+            } @else if (affiliatePayouts().length === 0) {
               <div class="empty-state-pretty-compact" role="status">
                 <div class="empty-glyph-sm" aria-hidden="true">
                   <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M14.6 9.4a2.6 2 0 0 0-2.6-1.4c-1.4 0-2.6.7-2.6 1.8 0 2.4 5.2 1.2 5.2 3.6 0 1.1-1.2 1.8-2.6 1.8a2.6 2 0 0 1-2.6-1.4"/><path d="M12 6.4v1.6M12 16v1.6"/></svg>
@@ -1620,6 +1635,14 @@ export class AdminBillingComponent implements OnInit {
     created_at?: string;
   }>>([]);
 
+  /** Per-panel load-error flags. A transient fetch failure must degrade gracefully (a
+   * "couldn't load — retry" affordance), NOT silently blank the panel or — worse for
+   * payouts — render the EMPTY state ("No payouts yet") as if the user genuinely has none.
+   * Mirrors the entitlements graceful-fallback precedent in loadTabData. (AL-433, facet-5.) */
+  subStatusError = signal(false);
+  invoiceError = signal(false);
+  payoutsError = signal(false);
+
   /** Slugify a description string for data-testid (e.g. "Site renders" → "site_renders"). */
   slugify(s: string): string {
     return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -1778,7 +1801,18 @@ export class AdminBillingComponent implements OnInit {
     });
   }
 
+  /** Re-fetch the billing tab's data (subscription / upcoming invoice / affiliate payouts).
+   * Wired to the per-panel "Retry" affordance so a transient load failure is recoverable
+   * in place, without a full-page reload. */
+  retryTabData(): void {
+    this.loadTabData();
+  }
+
   private loadTabData(): void {
+    // A retry (or tab re-entry) clears stale per-panel error flags before re-fetching.
+    this.subStatusError.set(false);
+    this.invoiceError.set(false);
+    this.payoutsError.set(false);
     // Subscription status + entitlements (BILL-03, BILL-04, BILL-12, BILL-13)
     type SubResp = { status?: string; plan?: string; current_period_end?: string; last_webhook?: string; cancel_at?: string; };
     this.api.get<{ data?: SubResp }>('/billing/subscription').subscribe({
@@ -1800,7 +1834,12 @@ export class AdminBillingComponent implements OnInit {
             : null,
         );
       },
-      error: () => {},
+      error: () => {
+        // Don't silently blank the subscription card on a transient failure — flag it so
+        // the panel shows a "couldn't load — retry" affordance instead of vanishing.
+        this.subStatusError.set(true);
+        console.warn(JSON.stringify({ level: 'warn', msg: 'billing.subscription load failed' }));
+      },
     });
     this.api
       .get<{ data?: { maxCustomDomains?: number; maxTeamSeats?: number; analyticsEnabled?: boolean } }>(
@@ -1846,7 +1885,10 @@ export class AdminBillingComponent implements OnInit {
           currency: d.currency ?? 'usd',
         });
       },
-      error: () => {},
+      error: () => {
+        this.invoiceError.set(true);
+        console.warn(JSON.stringify({ level: 'warn', msg: 'billing.upcoming_invoice load failed' }));
+      },
     });
 
     // Affiliate payouts (BILL-15)
@@ -1855,7 +1897,12 @@ export class AdminBillingComponent implements OnInit {
         const d = r.data ?? (r as { payouts?: unknown[] });
         this.affiliatePayouts.set((d.payouts ?? []) as Array<{ affiliate_id: string; amount_cents: number; status: string; created_at?: string }>);
       },
-      error: () => {},
+      error: () => {
+        // Critical: without this, a failed fetch leaves affiliatePayouts=[] → the template
+        // renders "No payouts yet" — a LYING-EMPTY (an error masquerading as "you have none").
+        this.payoutsError.set(true);
+        console.warn(JSON.stringify({ level: 'warn', msg: 'billing.affiliate_payouts load failed' }));
+      },
     });
   }
 

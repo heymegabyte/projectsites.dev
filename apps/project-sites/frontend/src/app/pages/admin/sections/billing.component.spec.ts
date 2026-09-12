@@ -29,14 +29,15 @@ describe('AdminBillingComponent (cyan/black cohesion + a11y)', () => {
   let confirmSpy: jasmine.Spy;
   let delSpy: jasmine.Spy;
 
-  function build(confirmResult = true, failWallet = false): void {
+  function build(confirmResult = true, failWallet = false, failPayouts = false): void {
     // Every GET the component fires resolves to an empty/zeroed envelope so
     // ngOnInit settles synchronously without touching the network.
     delSpy = jasmine.createSpy('delete').and.returnValue(of({ ok: true }));
     confirmSpy = jasmine.createSpy('confirm').and.resolveTo(confirmResult);
     const apiStub = {
       get: (p?: string) =>
-        failWallet && typeof p === 'string' && p.includes('/wallet')
+        typeof p === 'string' &&
+        ((failWallet && p.includes('/wallet')) || (failPayouts && p.includes('/affiliates/payouts')))
           ? throwError(() => ({ status: 500 }))
           : of({ data: {} }),
       post: () => of({ data: {} }),
@@ -200,6 +201,24 @@ describe('AdminBillingComponent (cyan/black cohesion + a11y)', () => {
     expect(empty).withContext('affiliate payouts empty-state present').toBeTruthy();
     expect(empty!.querySelector('.empty-glyph-sm'))
       .withContext('cyan glyph matches the sibling billing empties (caps/costs/alerts/projects)').toBeTruthy();
+  });
+
+  // AL-433 (facet-5 error states): a FAILED /affiliates/payouts fetch used to leave the
+  // signal [] → the template rendered "No payouts yet" — a LYING-EMPTY (an error masquerading
+  // as "you genuinely have none"). The error handler now flags it + the template shows a
+  // graceful error+retry state, never the empty state.
+  it('a failed payouts fetch shows an error+retry state, NOT the "no payouts" lying-empty (AL-433)', () => {
+    build(true, false, true); // failPayouts → /affiliates/payouts 500s
+    const cmp = fixture.componentInstance;
+    expect(cmp.payoutsError()).withContext('the error handler flags the failure (no silent [])').toBe(true);
+    cmp.setTab('affiliates');
+    fixture.detectChanges();
+    const el: HTMLElement = fixture.nativeElement;
+    expect(el.querySelector('[data-testid="payouts-error"]'))
+      .withContext('graceful error+retry state renders on a failed fetch').toBeTruthy();
+    expect(el.querySelector('#billing-tab-panel-affiliates .empty-glyph-sm'))
+      .withContext('the "No payouts yet" lying-empty must NOT render on an error').toBeFalsy();
+    expect(typeof cmp.retryTabData).withContext('a retry affordance exists').toBe('function');
   });
 
   // ── Destructive action: removing a spend alert is confirmed ───────────────
