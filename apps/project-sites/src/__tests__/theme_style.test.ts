@@ -309,6 +309,7 @@ describe('theme_style — personality content briefs (AL-356)', () => {
 describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
   const ALL_MODES: CommerceMode[] = [
     'retail',
+    'quickserve',
     'hospitality',
     'service',
     'professional',
@@ -324,7 +325,7 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
     expect(commerceModeFor('Craft Spirits / Distillery')).toBe('hospitality');
   });
 
-  it('routes food+drink venues (that sell product but are patronized by visiting) to hospitality', () => {
+  it('routes FULL-SERVICE food+drink venues (visited/reserved/toured) to hospitality', () => {
     for (const v of [
       'Winery',
       'Vineyard',
@@ -332,13 +333,38 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
       'Cidery',
       'Restaurant',
       'Cocktail Bar',
-      'Coffee Roasters',
-      'Bakery',
+      'Coffee Roasters', // a roastery is an artisan/tasting brand, NOT a walk-up counter
       'Steakhouse',
       'Hotel',
       'Tasting Room',
     ]) {
       expect(commerceModeFor(v)).toBe('hospitality');
+    }
+  });
+
+  it('routes WALK-UP / counter-serve food to quickserve (AL-419 — no "Reserve a table" on a scoop shop)', () => {
+    for (const v of [
+      'Ice Cream Shop',
+      'ice cream',
+      'Ice Cream Parlor',
+      'Creamery',
+      'Gelato',
+      'Frozen Yogurt',
+      'Coffee Shop',
+      'Cafe', // NB: accented "Café" hits a pre-existing \b-after-non-ASCII normalize quirk
+      'Bakery',
+      'Donut Shop',
+      'Doughnut Shop',
+      'Juice Bar',
+      'Smoothie Bar',
+      'Deli',
+      'Delicatessen',
+      'Sandwich Shop',
+      'Food Truck',
+      'Bubble Tea',
+      'Patisserie',
+    ]) {
+      expect(commerceModeFor(v)).toBe('quickserve');
     }
   });
 
@@ -420,6 +446,7 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
     // The core AL-407 guard: every non-retail brief must explicitly reject
     // "Shop now" / "Add to cart" / "Free shipping" as primary framing.
     for (const mode of [
+      'quickserve',
       'hospitality',
       'service',
       'professional',
@@ -430,6 +457,8 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
       expect(b).toMatch(/forbidden|only use e-commerce|only mode/);
       expect(b).toMatch(/shop now|add to cart|free shipping|cart/);
     }
+    // quickserve additionally forbids full-service "Reserve a table" framing.
+    expect(COMMERCE_INTENT_BRIEF.quickserve.toLowerCase()).toMatch(/reserve a table|reservations/);
     // Retail is the one mode that PERMITS cart language.
     expect(COMMERCE_INTENT_BRIEF.retail.toLowerCase()).toMatch(/on-brand|add to cart|shop/);
   });

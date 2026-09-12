@@ -373,6 +373,7 @@ export function personalityBriefFor(name: unknown): string | undefined {
  */
 export type CommerceMode =
   | 'retail'
+  | 'quickserve'
   | 'hospitality'
   | 'service'
   | 'professional'
@@ -381,12 +382,15 @@ export type CommerceMode =
 
 /**
  * Ordered vertical → commerce mode. FIRST match wins, so the ordering matters:
- * nonprofit BEFORE hospitality (a food bank is charity, not a restaurant),
- * hospitality BEFORE retail (a distillery/winery/brewery is VISITED/TASTED, not
- * checked-out — even though it sells bottles), service + professional BEFORE
- * retail (a salon/law-firm is booked/retained, not carted). Retail is the genuine
- * sells-products bucket (shop/boutique/jewelry/florist/bookstore/hardware) where
- * e-commerce cart language is on-brand. Scanned against the NORMALIZED input.
+ * nonprofit BEFORE quickserve/hospitality (a food bank is charity, not a cafe),
+ * quickserve BEFORE hospitality (an ice-cream/coffee/bakery/juice counter is a
+ * WALK-UP order-and-go spot — "Reserve a table" is a wrong-vertical defect there;
+ * only full-service dining rooms / taprooms / hotels are hospitality), hospitality
+ * BEFORE retail (a distillery/winery/brewery is VISITED/TASTED, not checked-out —
+ * even though it sells bottles), service + professional BEFORE retail (a salon/
+ * law-firm is booked/retained, not carted). Retail is the genuine sells-products
+ * bucket (shop/boutique/jewelry/florist/bookstore/hardware) where e-commerce cart
+ * language is on-brand. Scanned against the NORMALIZED input.
  *
  * WHY (AL-407, 2026-09-12): the build prompt steered the H1 vertical but NOT the
  * CTA/commerce intent, so `artisan`/`luxe`/`warm` hospitality verticals shipped
@@ -400,6 +404,16 @@ const COMMERCE_MODE_RULES: ReadonlyArray<readonly [CommerceMode, RegExp]> = [
   [
     'nonprofit',
     /\b(soup\s?kitchen|food\s?(?:bank|pantr\w*|shelf)|\bpantr\w*|homeless|\bshelter\w*|nonprofit|non\s?profit|charit\w*|\bngo\b|humanitarian|relief\s?(?:org|fund|effort)|foundation|\bchurch\w*|ministr\w*|synagogue|\bmosque\b|\btemple\b|congregation|place\s?of\s?worship|community\s?(?:cent|org|kitchen)|advocacy|\bcivic\b|public\s?service|social\s?service\w*)\b/,
+  ],
+  [
+    // WALK-UP / counter-serve food + drink — patrons ORDER and GO, never reserve a
+    // table. Ordered BEFORE hospitality so ice cream / coffee / bakery / juice bars
+    // don't inherit the full-service "Reserve a table / View the menu" framing (the
+    // Jeni's Splendid Ice Creams misframe, AL-419). "coffee roaster" is intentionally
+    // NOT here (a roastery is an artisan/tasting brand → hospitality); only "coffee
+    // shop/house/bar" is quick-serve.
+    'quickserve',
+    /\b(ice\s?cream|gelato\w*|frozen\s?(?:yogurt|custard)|\bfroyo\b|creamer(?:y|ies)|shaved\s?ice|snow\s?cone|caf[eé]\w*|coffee\s?(?:shop|house|bar)|espresso(?:\s?bar)?|bakery|bakeries|patisserie|\bbagel\w*|\bdonut\w*|doughnut\w*|juice\s?bar|\bsmoothie\w*|a[çc]a[íi]|\bdeli\b|delicatessen|sandwich\s?(?:shop|bar)|\bsub\s?shop|\bhoagie\w*|food\s?(?:truck|cart|stand)|takeaway|take\s?out|takeout|teahouse|tea\s?room|bubble\s?tea|\bboba\b|cr[eê]per\w*|cupcake\w*|cookie\s?(?:shop|bar)|pretzel\w*|\bpopcorn\b|poke\s?(?:shop|bar))\b/,
   ],
   [
     'hospitality',
@@ -428,6 +442,8 @@ const COMMERCE_MODE_RULES: ReadonlyArray<readonly [CommerceMode, RegExp]> = [
 export const COMMERCE_INTENT_BRIEF: Record<CommerceMode, string> = {
   retail:
     'This business SELLS products, so genuine e-commerce affordances fit. Primary CTAs: Shop / Browse the collection / View products / Add to cart / Buy — plus store hours + location + a map. Product grids with price and a quick-add are appropriate. This is the ONE mode where "Shop now" / "Free shipping" / cart language is on-brand.',
+  quickserve:
+    'A WALK-UP / counter-serve spot (ice cream / coffee / bakery / juice bar / deli / food truck) — patrons ORDER and GO, they do NOT reserve a table or check out a cart. Primary CTAs: See our flavors / See the menu / Order online (pickup/delivery) / Order ahead / Visit us / Find us / See hours & location / Today\'s specials. Present offerings as a flavor list or menu to browse. FORBIDDEN as primary framing: "Reserve a table" / "Reservations" / "Book a table" (that is full-service dining, wrong for a scoop/coffee/pastry counter) AND e-commerce "Shop now" / "Add to cart" / "Free shipping" / "30-day returns" (a small "order online for pickup" link is fine, never a cart hero). Hero imagery: the product + counter — a scoop case, cones, a pastry case, an espresso bar, cups — NEVER an empty fine-dining dining room.',
   hospitality:
     'People VISIT, TASTE, DINE, BOOK, or RESERVE here — they do NOT check out a shopping cart. Primary CTAs: Reserve a table / Book a tour / View the menu / Visit us / Order online (pickup/delivery) / Find us / See hours & location. Present offerings as a MENU or a COLLECTION to explore, never a store to check out. FORBIDDEN as primary framing: "Shop now", "Add to cart", "Free shipping", "30-day returns", "Browse collections" — e-commerce checkout copy on a restaurant / bar / brewery / distillery / winery / cidery / hotel is a wrong-vertical defect (a small "where to buy our bottles" link is fine as a secondary, never the hero CTA).',
   service:
@@ -453,6 +469,9 @@ export const COMMERCE_INTENT_BRIEF: Record<CommerceMode, string> = {
  *
  * @example
  * commerceModeFor('Distillery')                  // → 'hospitality'
+ * commerceModeFor('Ice Cream Shop')              // → 'quickserve'
+ * commerceModeFor('Coffee Shop')                 // → 'quickserve'
+ * commerceModeFor('Coffee Roasters')             // → 'hospitality' (roastery, not a counter)
  * commerceModeFor('Jewelry Store')               // → 'retail'
  * commerceModeFor('Plumbing')                    // → 'service'
  * commerceModeFor('Law Firm')                    // → 'professional'

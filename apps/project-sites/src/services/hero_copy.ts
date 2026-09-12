@@ -278,6 +278,24 @@ export function homepageFaq(
   const city = (cityPhrase || 'your community').trim();
 
   const sets: Record<string, readonly [FaqEntry, FaqEntry, FaqEntry, FaqEntry]> = {
+    quickserve: [
+      {
+        q: 'What do you serve?',
+        a: `${biz} serves fresh ${cat} made for ${city} — come see what is ready today. Our lineup rotates with the seasons and the favorites everyone comes back for, so there is always something worth the trip. Walk right up, take a look at what is on the counter, and we will help you find something you love — no reservation needed.`,
+      },
+      {
+        q: 'Can I order ahead for pickup?',
+        a: `Yes — ${biz} makes it easy to order ahead so your ${city} order is boxed up and ready the moment you arrive, with no waiting in line. Use the contact details below to call it in or order online where available, and we will have it ready at the counter. It is the fastest way to grab a treat on a busy day.`,
+      },
+      {
+        q: 'What are your hours and where are you located?',
+        a: `${biz} is right here in ${city} — the address, map, and current hours are all in the contact section below, and we keep them updated around holidays. We are an easy walk-up stop whether you are a regular or just passing through, so swing by any time we are open. A quick call confirms hours on a busy weekend.`,
+      },
+      {
+        q: 'Do you have options for dietary needs?',
+        a: `We do our best to have something for everyone at ${biz}. Ask our ${city} team about dairy-free, vegan, gluten-friendly, or other options and we will point you to the right pick or tell you honestly what is in each item. Your comfort matters, so never hesitate to ask about ingredients before you order.`,
+      },
+    ],
     hospitality: [
       {
         q: 'Do you take reservations?',
