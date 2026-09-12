@@ -39,6 +39,11 @@ if (!KEY) {
 const BASE = process.env.PROD_URL || 'https://projectsites.dev';
 let SITE_ID = process.env.CAUSAL_SITE_ID || '';
 let SLUG = process.env.CAUSAL_SITE_SLUG || '';
+// Was CAUSAL_SITE_ID explicitly overridden? The owner read is scoped to the E2E_API_KEY's
+// org (e2e-test-org). A REAL delivery lands in org-brian-001, so pointing this probe at a
+// brian-org site 404s (cross-org) — that must read as "wrong org for this key", NOT the
+// misleading "flag off / not authed" the generic message implies. (AL-432.)
+const EXPLICIT_SITE = !!(process.env.CAUSAL_SITE_ID || '').trim();
 const N = Math.max(1, Number(process.argv[2] || 3));
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
@@ -50,7 +55,21 @@ async function readTraffic() {
   const res = await fetch(`${BASE}/api/sites/${SITE_ID}/analytics`, {
     headers: { Authorization: `Bearer ${KEY}`, 'User-Agent': UA },
   });
-  if (!res.ok) throw new Error(`analytics display ${res.status} (flag off / not authed?)`);
+  if (!res.ok) {
+    // A 404 on an EXPLICITLY-passed site is almost always cross-org (the site isn't in the
+    // E2E_API_KEY's org), not a flag/auth problem — say so, and point at the real path
+    // (brian auth via Browserbase, or a D1 visitor_events ground-truth causal check, which
+    // is exact/unsampled). An auto-resolved same-org site should never 404 here, so keep the
+    // flag/auth hypothesis for that case.
+    if (res.status === 404 && EXPLICIT_SITE) {
+      throw new Error(
+        `analytics 404 — site ${SITE_ID} is not in the E2E_API_KEY org (e2e-test-org). ` +
+          `Causal analytics for a real (brian-org) delivery needs brian auth (Browserbase test-login) ` +
+          `or a D1 visitor_events COUNT before/after — NOT this e2e-key owner read.`,
+      );
+    }
+    throw new Error(`analytics display ${res.status} (flag off / not authed?)`);
+  }
   const j = await res.json();
   const t = j?.traffic ?? {};
   return {
