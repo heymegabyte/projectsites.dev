@@ -283,7 +283,7 @@ interface NotificationGroup {
                     <td class="p-2"><span class="scope-pill">{{ k.scopes?.join(' · ') || 'read · write' }}</span></td>
                     <td class="p-2 text-text-secondary">{{ k.last_used_at ? (k.last_used_at | date:'short') : 'never' }}</td>
                     <td class="p-2 text-text-secondary">{{ k.rotated_at ? (k.rotated_at | date:'mediumDate') : '—' }}</td>
-                    <td class="p-2 text-text-secondary">{{ k.expires_at ? (k.expires_at | date:'mediumDate') : '—' }}</td>
+                    <td class="p-2 text-text-secondary">{{ showKeyExpiry(k) ? (k.expires_at | date:'mediumDate') : '—' }}</td>
                     <td class="p-2 text-right whitespace-nowrap">
                       @if (k.active) {
                         <button class="btn-tiny-ghost"
@@ -1333,6 +1333,16 @@ export class AdminUserSettingsComponent implements OnInit, OnDestroy {
     } catch {
       this.toast.error('Could not copy — select the text manually');
     }
+  }
+
+  /**
+   * Whether to render a REAL expiry date for a key. A REVOKED (`!active`) key is dead
+   * NOW, so its stored future `expires_at` is moot — advertising "expires Nov 24 2026"
+   * on a revoked key reads as "still valid until then" (a small honesty defect). Show the
+   * date only for an ACTIVE key that actually has one; otherwise the cell renders '—'.
+   */
+  showKeyExpiry(k: Pick<ApiKeyRow, 'active' | 'expires_at'>): boolean {
+    return !!(k.active && k.expires_at);
   }
 
   /**

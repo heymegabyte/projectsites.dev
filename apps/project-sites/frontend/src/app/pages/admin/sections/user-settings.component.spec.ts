@@ -265,6 +265,19 @@ describe('AdminUserSettingsComponent (destructive delete guard + notifications)'
     expect(after.find((p) => p.id === known.id)?.enabled).toBe(!known.enabled);
     expect(after.find((p) => p.id === unseen.id)?.enabled).withContext('a pref the server has not seen stays at its local value').toBe(unseenBefore);
   });
+
+  it('showKeyExpiry hides a REVOKED key\'s future expiry (a dead key must not advertise a future date)', () => {
+    const { c } = make();
+    expect(c.showKeyExpiry({ active: false, expires_at: '2026-11-24T00:00:00Z' }))
+      .withContext('revoked key → its future expiry is moot, render — not a date')
+      .toBe(false);
+    expect(c.showKeyExpiry({ active: true, expires_at: '2026-11-24T00:00:00Z' }))
+      .withContext('active key with an expiry → show the date')
+      .toBe(true);
+    expect(c.showKeyExpiry({ active: true, expires_at: null }))
+      .withContext('active key that never expires → dash')
+      .toBe(false);
+  });
 });
 
 /**
