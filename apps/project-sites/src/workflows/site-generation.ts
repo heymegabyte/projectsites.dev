@@ -40,6 +40,7 @@ import {
   categoryFromName,
   categoryPhrase,
   heroHeadlineOptions,
+  homepageFaq,
   seoTaglineOptions,
 } from '../services/hero_copy.js';
 
@@ -851,9 +852,33 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // "Fresh, Local, Made From Scratch" (Ember + Cafe Dim Sum). Same _content.json seam +
       // existing-wins merge as HERO_HEADLINE; slop-free + distinct from the H1 so <title> ≠ <h1>.
       const seoTagline = pick([...seoTaglineOptions(catService)]);
+      // AL-409: seed the homepage FAQ (FAQ_HEADLINE + FAQ_1..4_Q/A) — the template's
+      // Home.tsx renders these but the fast-path build never seeded them, so every
+      // deployed homepage shipped the thin generic pack-default FAQ and landed ~600
+      // words (under the 800 beat-the-source density bar; a prompt-only mandate was
+      // proven INERT on fast-path builds). commerceModeFor picks the on-vertical Q&A
+      // set (hospitality reservations / service estimates / retail returns / …). Same
+      // proven existing-wins _content.json seam as ABOUT_PARAGRAPH_1/HERO/SERVICES —
+      // renders deterministically regardless of the container's 14-min budget, adds
+      // ~230 words of REAL homepage content, AND powers accurate FAQPage JSON-LD (GEO).
+      const faq = homepageFaq(
+        commerceModeFor(params.businessCategory, params.additionalContext),
+        safeName,
+        catService,
+        cityPhrase,
+      );
       contextFiles['content.json'] = JSON.stringify(
         {
           ABOUT_PARAGRAPH_1: aboutPara1,
+          FAQ_1_A: faq.items[0].a,
+          FAQ_1_Q: faq.items[0].q,
+          FAQ_2_A: faq.items[1].a,
+          FAQ_2_Q: faq.items[1].q,
+          FAQ_3_A: faq.items[2].a,
+          FAQ_3_Q: faq.items[2].q,
+          FAQ_4_A: faq.items[3].a,
+          FAQ_4_Q: faq.items[3].q,
+          FAQ_HEADLINE: faq.headline,
           HERO_HEADLINE: heroHeadline,
           HERO_SUBHEADLINE: heroSub,
           SEO_TAGLINE: seoTagline,

@@ -2,6 +2,7 @@ import {
   categoryFromName,
   categoryPhrase,
   heroHeadlineOptions,
+  homepageFaq,
   seoTaglineOptions,
 } from '../services/hero_copy.js';
 
@@ -204,5 +205,62 @@ describe('hero_copy — categoryFromName (AL-377: derive vertical from NAME when
     expect(categoryPhrase('Coffee Shop' || categoryFromName('McGuckin Hardware'))).toBe(
       'coffee shop',
     );
+  });
+});
+
+describe('homepageFaq — homepage content-density lever (AL-409)', () => {
+  const BANNED = /limitless|revolutioniz|cutting-edge|leverage|world-class|game-chang|unlock|elevate|unparalleled|seamless/i;
+
+  it('returns exactly 4 Q&A pairs + a headline for every mode', () => {
+    for (const mode of ['hospitality', 'service', 'retail', 'professional', 'nonprofit', 'general']) {
+      const faq = homepageFaq(mode, 'Acme Co', 'widget shop', 'Springfield');
+      expect(faq.items).toHaveLength(4);
+      expect(faq.headline.length).toBeGreaterThan(3);
+      for (const it of faq.items) {
+        expect(it.q.trim().length).toBeGreaterThan(5);
+        expect(it.a.trim().length).toBeGreaterThan(40);
+      }
+    }
+  });
+
+  it('adds ≥225 words of real content (the density lever) with no banned slop', () => {
+    const faq = homepageFaq('hospitality', "Schramm's Mead", 'meadery', 'Ferndale');
+    const words = faq.items.map((i) => `${i.q} ${i.a}`).join(' ').split(/\s+/).filter(Boolean).length;
+    expect(words).toBeGreaterThanOrEqual(225);
+    for (const it of faq.items) {
+      expect(it.q).not.toMatch(BANNED);
+      expect(it.a).not.toMatch(BANNED);
+    }
+  });
+
+  it('is commerce-mode specific — hospitality asks reservations, service asks estimates', () => {
+    expect(homepageFaq('hospitality', 'X', 'bar', 'Y').items[0].q.toLowerCase()).toContain('reservation');
+    expect(homepageFaq('service', 'X', 'plumbing', 'Y').items[0].q.toLowerCase()).toContain('estimate');
+    expect(homepageFaq('retail', 'X', 'shop', 'Y').items.some((i) => /return/i.test(i.q))).toBe(true);
+    expect(homepageFaq('nonprofit', 'X', 'charity', 'Y').items.some((i) => /donation|help|volunteer/i.test(i.q))).toBe(true);
+  });
+
+  it('weaves the real business name + city into answers (never collides, never generic)', () => {
+    const faq = homepageFaq('hospitality', "Schramm's Mead", 'meadery', 'Ferndale');
+    const all = faq.items.map((i) => i.a).join(' ');
+    expect(all).toContain("Schramm's Mead");
+    expect(all).toContain('Ferndale');
+  });
+
+  it('falls back to the general set for unknown/empty/nullish mode; never throws', () => {
+    expect(homepageFaq('nope', 'X', 'shop', 'Y').items).toHaveLength(4);
+    expect(homepageFaq('', 'X', 'shop', 'Y').items).toHaveLength(4);
+    expect(homepageFaq(undefined, 'X', 'shop', 'Y').items).toHaveLength(4);
+    expect(homepageFaq(null, 'X', 'shop', 'Y').items).toHaveLength(4);
+    // @ts-expect-error — defensive: non-string mode must not throw
+    expect(() => homepageFaq(42, 'X', 'shop', 'Y')).not.toThrow();
+  });
+
+  it('handles empty name/category/city without producing undefined text', () => {
+    const faq = homepageFaq('general', '', '', '');
+    for (const it of faq.items) {
+      expect(it.a).not.toContain('undefined');
+      expect(it.a.length).toBeGreaterThan(20);
+    }
   });
 });

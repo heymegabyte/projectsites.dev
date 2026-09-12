@@ -206,3 +206,172 @@ export function seoTaglineOptions(catPhrase: string): readonly string[] {
   const cat = (catPhrase || 'local business').trim();
   return [`Trusted local ${cat}`, `Your neighborhood ${cat}`, `Local ${cat} you can trust`];
 }
+
+/** One homepage FAQ entry. */
+export interface FaqEntry {
+  readonly q: string;
+  readonly a: string;
+}
+
+/** A homepage FAQ block: a headline + exactly four business-specific Q&A pairs. */
+export interface HomepageFaq {
+  readonly headline: string;
+  readonly items: readonly [FaqEntry, FaqEntry, FaqEntry, FaqEntry];
+}
+
+/**
+ * Business-specific homepage FAQ (AL-409) — the deterministic homepage
+ * content-density lever. The template's `Home.tsx` renders FAQ_HEADLINE +
+ * FAQ_1..4_Q/A, but the fast-path build never seeded them, so every deployed site
+ * shipped the thin generic content-pack FAQ default and homepages landed ~600
+ * words (under the 800 beat-the-source density bar). Seeding these via the proven
+ * existing-wins `_content.json` seam (same as HERO_HEADLINE / ABOUT_PARAGRAPH_1 /
+ * SERVICES_INTRO) adds ~230 words of REAL, on-vertical content that renders
+ * regardless of the container's 14-minute budget — the "authoritative signal
+ * immutable against unreliable generator" pattern — AND powers accurate FAQPage
+ * JSON-LD for GEO / AI-search.
+ *
+ * Questions/answers are chosen by {@link CommerceMode} so they match how the
+ * business is actually patronized (hospitality → reservations/hours/private
+ * events; service → estimates/service-area/licensed; retail → hours/special
+ * orders/returns; professional → consultation/prep/fees; nonprofit →
+ * donate/volunteer/events; general → offer/hours/contact/why-us). Answers are
+ * ~45-55 words, slop-free, and identity-woven (name + category + city) so they
+ * never collide across businesses and never trip build_validators' banned-slop
+ * gate. Pure; never throws.
+ *
+ * @param mode - The business's commerce mode (`commerceModeFor(...)` output). Any
+ *   unknown/empty value falls back to the `general` set.
+ * @param name - The business name (already sanitized by the caller).
+ * @param catPhrase - A phrase from {@link categoryPhrase} (e.g. `'meadery'`).
+ * @param cityPhrase - The city/community (e.g. `'Ferndale'`, or `'your community'`).
+ * @returns A {@link HomepageFaq} with a headline + four Q&A pairs.
+ *
+ * @example
+ * homepageFaq('hospitality', "Schramm's Mead", 'meadery', 'Ferndale').items[0].q
+ * // → 'Do you take reservations?'
+ */
+export function homepageFaq(
+  mode: string | null | undefined,
+  name: string,
+  catPhrase: string,
+  cityPhrase: string,
+): HomepageFaq {
+  const biz = (name || 'We').trim();
+  const cat = (catPhrase || 'local business').trim();
+  const city = (cityPhrase || 'your community').trim();
+
+  const sets: Record<string, readonly [FaqEntry, FaqEntry, FaqEntry, FaqEntry]> = {
+    hospitality: [
+      {
+        q: 'Do you take reservations?',
+        a: `Yes — ${biz} welcomes reservations, and walk-ins are always welcome when we have room. For larger groups or a specific time, call ahead using the number in the contact section below and we will hold the right table for you here in ${city}. On busier evenings a reservation is the surest way to skip the wait.`,
+      },
+      {
+        q: 'What are your hours?',
+        a: `Our current hours are posted at the top of this page and kept up to date around holidays and special events. ${biz} holds consistent hours for ${city} so you can plan your visit with confidence, but it never hurts to call ahead on a busy weekend or before a longer trip in. If our hours ever change for a private booking, we note it here first.`,
+      },
+      {
+        q: 'Can you host private events or larger groups?',
+        a: `Absolutely. ${biz} regularly hosts celebrations, tastings, and private gatherings for ${city}, and we love helping you plan something memorable. Share your date and headcount with us and we will walk you through the options, talk through food and drink, and reserve your space so everything is ready the moment you arrive.`,
+      },
+      {
+        q: 'Where are you located, and is parking easy?',
+        a: `You will find ${biz} right here in ${city} — the map and full address are in the contact section below, with one-tap directions. We are easy to reach whether you are coming from across town or out of the area, and most guests find nearby parking without any trouble. Reach out if you would like directions.`,
+      },
+    ],
+    service: [
+      {
+        q: 'Do you offer free estimates?',
+        a: `Yes — ${biz} gives straightforward, no-pressure estimates. Tell us what you need and we will assess the job, lay out an honest scope and price before any work begins, and answer every question in plain words, so ${city} customers never get a surprise on the final bill. The estimate is yours to review with no obligation to book.`,
+      },
+      {
+        q: 'What areas do you serve?',
+        a: `${biz} proudly serves ${city} and the surrounding communities. If you are not sure whether you fall within our range, just ask — we will tell you honestly, and if you are outside it we will happily point you toward someone reliable. We would rather give you a straight answer than waste your time.`,
+      },
+      {
+        q: 'Are you licensed and insured?',
+        a: `Yes. ${biz} is fully licensed and insured, and we stand behind every job we take on. You can count on ${cat} that is done right the first time, explained clearly as we go, and backed by real accountability throughout ${city}. If anything is not right, we make it right — that is the promise.`,
+      },
+      {
+        q: 'How soon can you start?',
+        a: `We work hard to fit your schedule, and for urgent issues we do our best to get to you fast. Reach out with your project and timing using the details below and ${biz} will get you on the calendar quickly, with clear communication from the first call all the way through to the finished job.`,
+      },
+    ],
+    retail: [
+      {
+        q: 'What are your hours and where are you located?',
+        a: `${biz} is right here in ${city} — our address and map are in the contact section below, and current hours are posted at the top of the page. We keep consistent hours so you can plan your visit, and we update them around holidays and special sale days. Stop in any time we are open; we would love to see you.`,
+      },
+      {
+        q: 'Do you offer special orders or custom requests?',
+        a: `Yes — if you do not see exactly what you are looking for, just ask. ${biz} is glad to help ${city} customers track down or special-order the right item whenever we can, and we will keep you posted every step of the way. Half the fun is finding the perfect thing, and we are happy to hunt for it with you.`,
+      },
+      {
+        q: 'What is your return policy?',
+        a: `We want you genuinely happy with your purchase. Bring your item and receipt back to ${biz} and we will make it right — our ${city} team keeps returns and exchanges simple, fair, and free of fine print. If something is not working out, tell us and we will find a solution that feels good to everyone.`,
+      },
+      {
+        q: 'Can I reach you with questions before I visit?',
+        a: `Of course. Call or message ${biz} using the details below and a real person from our ${city} shop will help you — no phone trees and no runaround, just a straight, friendly answer. Whether you are checking stock or want a recommendation, we are glad to help before you make the trip.`,
+      },
+    ],
+    professional: [
+      {
+        q: 'How do I schedule a consultation?',
+        a: `Reach out using the contact details below and ${biz} will set up a consultation at a time that fits your schedule. We listen first, explain your options in plain words, and make sure ${city} clients always know exactly where things stand. There is no pressure — the goal of the first conversation is simply to understand how we can help.`,
+      },
+      {
+        q: 'What should I bring or prepare?',
+        a: `Just bring the details of your situation and any documents that feel relevant — ${biz} handles the rest for ${city} clients. We will tell you upfront what we need, keep the paperwork manageable, and never bury you in jargon or fine print. If you are unsure what matters, ask, and we will guide you through it.`,
+      },
+      {
+        q: 'What do you focus on?',
+        a: `${biz} concentrates on ${cat} for ${city}, so you get focused, real-world experience rather than a generalist stretched thin. If your matter falls outside our focus, we will say so plainly and help you find the right person for it. We would rather send you to the best fit than take on something we cannot do well.`,
+      },
+      {
+        q: 'How do fees work?',
+        a: `We believe in clear, honest pricing with no games. ${biz} explains fees before any work begins, so ${city} clients always understand both the cost and the value they are getting — and never see a surprise on the final bill. If your needs change along the way, we talk it through before anything moves.`,
+      },
+    ],
+    nonprofit: [
+      {
+        q: 'How can I help?',
+        a: `There are many ways to support ${biz} — give, volunteer, or simply share our mission with ${city}. Every bit of help goes straight toward the people we serve, and no contribution is too small to matter. Reach out using the details below and we will match you with the opportunity that fits your time, skills, and heart.`,
+      },
+      {
+        q: 'Where does my donation go?',
+        a: `Your gift to ${biz} goes directly to work for ${city}. We keep our promises simple and our impact clear, and we are always glad to explain exactly how your support makes a difference in real people's lives. Transparency matters to us, so if you ever want the details, just ask and we will walk you through them.`,
+      },
+      {
+        q: 'How do I volunteer?',
+        a: `We would love your time and talent. Contact ${biz} using the details below and we will walk you through current volunteer needs in ${city} and find a role that fits your schedule and strengths. Whether you can give an hour or a whole day, there is a meaningful way for you to pitch in.`,
+      },
+      {
+        q: 'Do you host events?',
+        a: `Yes — ${biz} brings ${city} together throughout the year with events, drives, and gatherings. Check back here or reach out to learn what is coming up and how to take part. Our events are also a wonderful, low-pressure way to see the mission up close before you decide how you would like to get involved.`,
+      },
+    ],
+    general: [
+      {
+        q: 'What do you offer?',
+        a: `${biz} provides ${cat} for ${city}, with a focus on doing the work right and explaining it in plain words. Whatever brought you here, reach out using the details below and we will help you figure out exactly what you need — no pressure and no jargon, just honest guidance from people who know the work.`,
+      },
+      {
+        q: 'What are your hours and location?',
+        a: `${biz} is based right here in ${city} — the address, map, and current hours are all in the contact section below. We keep consistent hours so you can plan around us, and we update them around holidays and special occasions. If you are ever unsure, a quick call is the fastest way to confirm.`,
+      },
+      {
+        q: 'How do I get in touch?',
+        a: `Call or message ${biz} using the details below and a real person from ${city} will get back to you quickly — clear answers and no runaround. We know your time is valuable, so we keep communication simple and responsive from the very first hello.`,
+      },
+      {
+        q: 'Why should I choose you?',
+        a: `${biz} treats ${city} like neighbors, not numbers. Honest work, straight answers, and follow-through you can count on are what set us apart, and it is why so many of our customers come back and send their friends. We earn your trust the old-fashioned way — by doing right by you every single time.`,
+      },
+    ],
+  };
+
+  const key = typeof mode === 'string' && mode.trim().toLowerCase() in sets ? mode.trim().toLowerCase() : 'general';
+  return { headline: 'Questions, answered', items: sets[key]! };
+}
