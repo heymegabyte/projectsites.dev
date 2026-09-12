@@ -359,19 +359,41 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
   });
 
   it('routes booked-work verticals to service', () => {
-    for (const v of ['Plumbing', 'HVAC', 'Hair Salon', 'Med Spa', 'Dental', 'Auto Repair', 'Gym / Fitness']) {
+    for (const v of [
+      'Plumbing',
+      'HVAC',
+      'Hair Salon',
+      'Med Spa',
+      'Dental',
+      'Auto Repair',
+      'Gym / Fitness',
+    ]) {
       expect(commerceModeFor(v)).toBe('service');
     }
   });
 
   it('routes retained-relationship verticals to professional', () => {
-    for (const v of ['Law Firm', 'Accounting', 'Financial Advisor', 'Real Estate', 'Consulting', 'Marketing Agency']) {
+    for (const v of [
+      'Law Firm',
+      'Accounting',
+      'Financial Advisor',
+      'Real Estate',
+      'Consulting',
+      'Marketing Agency',
+    ]) {
       expect(commerceModeFor(v)).toBe('professional');
     }
   });
 
   it('routes mission verticals to nonprofit (BEFORE hospitality — a food bank is not a restaurant)', () => {
-    for (const v of ['Soup Kitchen', 'Food Bank', 'Food Pantry', 'Charity', 'Church', 'Nonprofit']) {
+    for (const v of [
+      'Soup Kitchen',
+      'Food Bank',
+      'Food Pantry',
+      'Charity',
+      'Church',
+      'Nonprofit',
+    ]) {
       expect(commerceModeFor(v)).toBe('nonprofit');
     }
   });
@@ -397,7 +419,13 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
     }
     // The core AL-407 guard: every non-retail brief must explicitly reject
     // "Shop now" / "Add to cart" / "Free shipping" as primary framing.
-    for (const mode of ['hospitality', 'service', 'professional', 'nonprofit', 'general'] as CommerceMode[]) {
+    for (const mode of [
+      'hospitality',
+      'service',
+      'professional',
+      'nonprofit',
+      'general',
+    ] as CommerceMode[]) {
       const b = COMMERCE_INTENT_BRIEF[mode].toLowerCase();
       expect(b).toMatch(/forbidden|only use e-commerce|only mode/);
       expect(b).toMatch(/shop now|add to cart|free shipping|cart/);
@@ -417,6 +445,8 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
 
   it('hint names the vertical when category is generic', () => {
     // A generic "Other" category but a hint that names a distillery → hospitality.
-    expect(commerceModeFor('Other', 'a small-batch distillery and tasting room')).toBe('hospitality');
+    expect(commerceModeFor('Other', 'a small-batch distillery and tasting room')).toBe(
+      'hospitality',
+    );
   });
 });
