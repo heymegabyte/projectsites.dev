@@ -34,9 +34,12 @@ import {
 
 describe('validateConversionFraming (AL-421: no full-service reservation framing on a quick-serve site)', () => {
   const shell = (h1: string, title: string) =>
-    file('index.html', `<html><head><title>${title}</title></head><body><h1>${h1}</h1></body></html>`);
+    file(
+      'index.html',
+      `<html><head><title>${title}</title></head><body><h1>${h1}</h1></body></html>`,
+    );
 
-  it('FLAGS reservation framing on a quick-serve site (the Jeni\'s/Tartine misframe)', () => {
+  it("FLAGS reservation framing on a quick-serve site (the Jeni's/Tartine misframe)", () => {
     const v = validateConversionFraming([
       shell('Quality ice cream shop Columbus counts on', "Jeni's Splendid Ice Creams — ice cream"),
       file('assets/index-abc.js', 'const t="Reservations welcome";const u="Book a table online";'),
@@ -49,7 +52,10 @@ describe('validateConversionFraming (AL-421: no full-service reservation framing
   it('does NOT flag the CORRECT quick-serve copy "no reservation needed"', () => {
     const v = validateConversionFraming([
       shell('Columbus ice cream shop', 'Ice Cream Shop'),
-      file('assets/index-abc.js', 'const a="Walk right up — no reservation needed";const b="Walk-ins welcome";'),
+      file(
+        'assets/index-abc.js',
+        'const a="Walk right up — no reservation needed";const b="Walk-ins welcome";',
+      ),
     ]);
     expect(v).toHaveLength(0);
   });
