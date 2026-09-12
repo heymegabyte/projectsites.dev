@@ -209,10 +209,18 @@ describe('hero_copy — categoryFromName (AL-377: derive vertical from NAME when
 });
 
 describe('homepageFaq — homepage content-density lever (AL-409)', () => {
-  const BANNED = /limitless|revolutioniz|cutting-edge|leverage|world-class|game-chang|unlock|elevate|unparalleled|seamless/i;
+  const BANNED =
+    /limitless|revolutioniz|cutting-edge|leverage|world-class|game-chang|unlock|elevate|unparalleled|seamless/i;
 
   it('returns exactly 4 Q&A pairs + a headline for every mode', () => {
-    for (const mode of ['hospitality', 'service', 'retail', 'professional', 'nonprofit', 'general']) {
+    for (const mode of [
+      'hospitality',
+      'service',
+      'retail',
+      'professional',
+      'nonprofit',
+      'general',
+    ]) {
       const faq = homepageFaq(mode, 'Acme Co', 'widget shop', 'Springfield');
       expect(faq.items).toHaveLength(4);
       expect(faq.headline.length).toBeGreaterThan(3);
@@ -225,7 +233,11 @@ describe('homepageFaq — homepage content-density lever (AL-409)', () => {
 
   it('adds ≥225 words of real content (the density lever) with no banned slop', () => {
     const faq = homepageFaq('hospitality', "Schramm's Mead", 'meadery', 'Ferndale');
-    const words = faq.items.map((i) => `${i.q} ${i.a}`).join(' ').split(/\s+/).filter(Boolean).length;
+    const words = faq.items
+      .map((i) => `${i.q} ${i.a}`)
+      .join(' ')
+      .split(/\s+/)
+      .filter(Boolean).length;
     expect(words).toBeGreaterThanOrEqual(225);
     for (const it of faq.items) {
       expect(it.q).not.toMatch(BANNED);
@@ -234,10 +246,20 @@ describe('homepageFaq — homepage content-density lever (AL-409)', () => {
   });
 
   it('is commerce-mode specific — hospitality asks reservations, service asks estimates', () => {
-    expect(homepageFaq('hospitality', 'X', 'bar', 'Y').items[0].q.toLowerCase()).toContain('reservation');
-    expect(homepageFaq('service', 'X', 'plumbing', 'Y').items[0].q.toLowerCase()).toContain('estimate');
-    expect(homepageFaq('retail', 'X', 'shop', 'Y').items.some((i) => /return/i.test(i.q))).toBe(true);
-    expect(homepageFaq('nonprofit', 'X', 'charity', 'Y').items.some((i) => /donation|help|volunteer/i.test(i.q))).toBe(true);
+    expect(homepageFaq('hospitality', 'X', 'bar', 'Y').items[0].q.toLowerCase()).toContain(
+      'reservation',
+    );
+    expect(homepageFaq('service', 'X', 'plumbing', 'Y').items[0].q.toLowerCase()).toContain(
+      'estimate',
+    );
+    expect(homepageFaq('retail', 'X', 'shop', 'Y').items.some((i) => /return/i.test(i.q))).toBe(
+      true,
+    );
+    expect(
+      homepageFaq('nonprofit', 'X', 'charity', 'Y').items.some((i) =>
+        /donation|help|volunteer/i.test(i.q),
+      ),
+    ).toBe(true);
   });
 
   it('weaves the real business name + city into answers (never collides, never generic)', () => {

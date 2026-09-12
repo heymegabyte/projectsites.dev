@@ -372,6 +372,9 @@ export function homepageFaq(
     ],
   };
 
-  const key = typeof mode === 'string' && mode.trim().toLowerCase() in sets ? mode.trim().toLowerCase() : 'general';
+  const key =
+    typeof mode === 'string' && mode.trim().toLowerCase() in sets
+      ? mode.trim().toLowerCase()
+      : 'general';
   return { headline: 'Questions, answered', items: sets[key]! };
 }
