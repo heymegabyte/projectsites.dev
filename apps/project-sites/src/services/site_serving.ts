@@ -922,7 +922,11 @@ export async function serveSiteFromR2(
   // Populate the edge cache (AL-394) for the next visitor — only a real 200 HTML doc, so a
   // transient 404/503/asset never gets stored. `s-maxage=3600` on the response drives the TTL;
   // the version-keyed edgeKey means a rebuild simply writes a new key (old one expires unused).
-  if (edgeKey && resp.status === 200 && (resp.headers.get('content-type') || '').includes('text/html')) {
+  if (
+    edgeKey &&
+    resp.status === 200 &&
+    (resp.headers.get('content-type') || '').includes('text/html')
+  ) {
     resp.headers.set('x-ps-edge', 'miss');
     try {
       await caches.default.put(edgeKey, resp.clone());
