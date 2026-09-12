@@ -430,7 +430,10 @@ export function homepageFaq(
  * heroCtasFor('quickserve') // → { primary: 'Visit us', secondary: 'See our flavors' }
  * heroCtasFor('hospitality')// → { primary: 'Visit us', secondary: 'View the menu' }
  */
-export function heroCtasFor(mode: string | null | undefined): { primary: string; secondary: string } {
+export function heroCtasFor(mode: string | null | undefined): {
+  primary: string;
+  secondary: string;
+} {
   const sets: Record<string, { primary: string; secondary: string }> = {
     quickserve: { primary: 'Visit us', secondary: 'See our flavors' },
     hospitality: { primary: 'Visit us', secondary: 'View the menu' },
@@ -441,6 +444,8 @@ export function heroCtasFor(mode: string | null | undefined): { primary: string;
     general: { primary: 'Get in touch', secondary: 'Learn more' },
   };
   const key =
-    typeof mode === 'string' && mode.trim().toLowerCase() in sets ? mode.trim().toLowerCase() : 'general';
+    typeof mode === 'string' && mode.trim().toLowerCase() in sets
+      ? mode.trim().toLowerCase()
+      : 'general';
   return sets[key]!;
 }

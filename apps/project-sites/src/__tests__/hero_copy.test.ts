@@ -15,7 +15,19 @@ describe('hero_copy — heroCtasFor (AL-420: seeded hero CTA labels, never "Rese
     expect(`${c.primary} ${c.secondary}`.toLowerCase()).not.toMatch(/reserve|reservation|table/);
   });
   it('every mode returns a non-empty, slop-free primary + secondary; unknown → general', () => {
-    for (const m of ['retail', 'quickserve', 'hospitality', 'service', 'professional', 'nonprofit', 'general', 'nope', '', null, undefined]) {
+    for (const m of [
+      'retail',
+      'quickserve',
+      'hospitality',
+      'service',
+      'professional',
+      'nonprofit',
+      'general',
+      'nope',
+      '',
+      null,
+      undefined,
+    ]) {
       const c = heroCtasFor(m as string);
       expect(c.primary.length).toBeGreaterThan(2);
       expect(c.secondary.length).toBeGreaterThan(2);
