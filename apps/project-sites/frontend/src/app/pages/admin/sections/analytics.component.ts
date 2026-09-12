@@ -334,7 +334,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
             <div class="skel skel-line w-28 h-3"></div>
           } @else {
             <div class="muted-h">Bounce rate</div>
-            <div class="text-3xl font-bold text-white mt-1 leading-none tabular" [title]="bounceRate() == null ? 'No session data at this source' : bounceRate() + '% single-page sessions'">
+            <div class="text-3xl font-bold text-white mt-1 leading-none tabular" [title]="bounceRate() == null ? 'No session data at this source' : 'Estimated ~' + bounceRate() + '% single-page sessions — approximated from pages/visit (no per-session data at this source)'">
               {{ bounceRate() == null ? '—' : bounceRate() + '%' }}
             </div>
             <div class="text-[0.68rem] text-text-secondary mt-1">

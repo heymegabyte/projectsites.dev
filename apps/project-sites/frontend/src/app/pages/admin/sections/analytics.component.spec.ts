@@ -251,6 +251,31 @@ describe('AdminAnalyticsComponent (site-reactive load)', () => {
     expect(req?.getAttribute('aria-label')).toBe('5,000 total requests');
   });
 
+  // Truthfulness (AL-405): bounce rate is a LABELLED PROXY (2 − pages/visit) — no source in
+  // this stack measures real single-page sessions. The visible subtext says "Est.", and the
+  // on-card stat-pill tooltip says "Estimated" — but the big-number tooltip used to assert the
+  // proxy as a measured FACT ("0% single-page sessions"). At ppv ≥ 2 the proxy clamps to 0, so
+  // that tooltip claimed a perfect, almost-certainly-false "0% single-page sessions". The tooltip
+  // must frame the value as an ESTIMATE with the no-per-session-data caveat, consistent with the
+  // rest of the card — honest, never a bare factual claim.
+  it('bounce-rate KPI tooltip frames the value as an ESTIMATE, never a measured fact', () => {
+    build({ id: 'site-x' });
+    const c = fixture.componentInstance;
+    c.error.set(null);
+    c.envelope.set({ series: [], pageviews: 300, uniques: 100, total_requests: 300 } as never); // ppv 3 → proxy clamps to 0
+    fixture.detectChanges();
+    expect(c.bounceRate()).withContext('proxy clamps to 0 at ppv≥2').toBe(0);
+    const el = fixture.nativeElement as HTMLElement;
+    const bounceTile = Array.from(el.querySelectorAll('[title]')).find((n) =>
+      /single-page sessions/i.test(n.getAttribute('title') || ''),
+    ) as HTMLElement | undefined;
+    expect(bounceTile).withContext('bounce KPI value carries a tooltip').toBeTruthy();
+    const title = (bounceTile!.getAttribute('title') || '').toLowerCase();
+    expect(title).withContext('tooltip honestly framed as an estimate').toContain('estimated');
+    expect(title).withContext('carries the no-per-session-data caveat').toContain('no per-session data');
+    expect(title).withContext('NOT a bare factual assertion').not.toMatch(/^0% single-page sessions$/);
+  });
+
   // Beacon-overlay honesty (AL-161): every *.projectsites.dev subdomain reads KPIs from
   // the D1 visitor_events beacon (CF-zone is blind to subdomains), where total_requests
   // is set to the pageview count. The Total-requests card must NOT claim "All HTTP
