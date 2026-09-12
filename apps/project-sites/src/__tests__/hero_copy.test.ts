@@ -60,7 +60,9 @@ describe('hero_copy — categoryPhrase (AL-361: keep the retail/venue noun phras
     expect(heroHeadlineOptions(categoryPhrase('veterinary_care'), 'Bend')).toContain(
       'Your Bend veterinary clinic',
     );
-    expect(heroHeadlineOptions(categoryPhrase('veterinary_care'), 'Bend').join(' ')).not.toContain('_');
+    expect(heroHeadlineOptions(categoryPhrase('veterinary_care'), 'Bend').join(' ')).not.toContain(
+      '_',
+    );
   });
 
   it('normalizes adjectival/thin categories to natural noun phrases (AL-389)', () => {
