@@ -29,7 +29,8 @@ const data = await page.evaluate(() => {
   const wordmark = document.querySelector('header img[src*="wordmark"], nav img[src*="wordmark"]');
   const iconInfo = icon ? { src: icon.getAttribute('src'), w: icon.naturalWidth, h: icon.naturalHeight, complete: icon.complete } : null;
   const wmInfo = wordmark ? { src: wordmark.getAttribute('src'), w: wordmark.naturalWidth, h: wordmark.naturalHeight, complete: wordmark.complete } : null;
-  // e-commerce CTA scan (ice cream IS retail, so shop CTAs are expected/OK — just report)
+  // e-commerce CTA scan — shop/cart language is on-brand for a RETAIL vertical (shop/store),
+  // a wrong-vertical defect on non-retail (per commerceModeFor). Just report; classify by eye.
   const t = document.body.innerText.toLowerCase();
   const shopCTAs = ['add to cart', 'shop now', 'free shipping', 'add to bag'].filter((k) => t.includes(k));
   return { h1, title, desc, bodyWords, imgs, jsonld, iconInfo, wmInfo, shopCTAs };
@@ -56,10 +57,16 @@ console.log(`navbar icon: ${JSON.stringify(data.iconInfo)}`);
 console.log(`navbar wordmark: ${JSON.stringify(data.wmInfo)}`);
 console.log(`logo-icon.png asset: ${JSON.stringify(iconAsset)}`);
 console.log(`logo-wordmark.png asset: ${JSON.stringify(wmAsset)}`);
-console.log(`shop CTAs (retail-OK for ice cream): ${data.shopCTAs.join(', ') || '(none)'}`);
+console.log(`shop/cart CTAs (on-brand for RETAIL, wrong-vertical otherwise): ${data.shopCTAs.join(', ') || '(none)'}`);
 console.log(`console errors: ${errors.length}`);
 errors.forEach((e) => console.log('  ✗ ' + e));
 
-const bizSpecific = /jeni|ice cream|scoop|columbus/i.test(data.h1);
+// Business-specific check: derive expected tokens from the SLUG (e.g.
+// "gruhn-guitars-nashville" → gruhn/guitars/nashville) and require the H1 OR <title> to
+// carry at least one — a generic pack-default H1 would carry none. Business-agnostic, so
+// this tool works for EVERY delivery (was hardcoded to Jeni's terms → false 🟡 on all others).
+const slugTokens = SLUG.split('-').filter((t) => t.length >= 4);
+const hay = `${data.h1} ${data.title}`.toLowerCase();
+const bizSpecific = slugTokens.some((t) => hay.includes(t));
 const realBuild = status === 200 && data.bodyWords > 300 && data.imgs >= 4 && data.h1.length > 0;
 console.log(`\nverdict: ${realBuild && bizSpecific && errors.length === 0 ? '✅ REAL DELIVERY (biz-specific H1, content, 0 console errors)' : realBuild ? '🟡 real build but check H1/errors' : '❌ shell/thin — investigate premature-terminal'}`);
