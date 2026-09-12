@@ -796,12 +796,18 @@ async function ensureWordmark(dir, ideogramKey) {
     if (!ideogramKey) return 'no ideogram key — HTML-text wordmark fallback';
     const prompt =
       `A clean, elegant, horizontal WORDMARK logo showing ONLY the text "${name}" in modern ` +
-      `professional typography. Tasteful lettering, subtle brand-appropriate color, TRANSPARENT ` +
-      `background, NO icon, NO symbol, NO tagline — just the stylized words "${name}".`;
+      `professional typography, set on a SINGLE line and FILLING THE FRAME EDGE-TO-EDGE with ` +
+      `minimal margins — large, bold, highly legible lettering that spans the full width. ` +
+      `Tasteful letterforms, subtle brand-appropriate color, TRANSPARENT background, NO icon, ` +
+      `NO symbol, NO tagline, NO border, NO background shapes — just the large stylized words "${name}".`;
+    // ASPECT_3_1 (a true banner wordmark shape), NOT ASPECT_16_9 (1.78:1 ≈ square): a 16:9 canvas
+    // makes Ideogram center short wordmark text with heavy padding, so the Header renders it tiny
+    // (cafe-dim-sum's 1312×736/1.78:1 wordmark rendered a 71×40 illegible blob — AL-392). A 3:1
+    // frame + fill-the-frame prompt yields large text; strip-logo-bg then trims residual margin.
     const gen = await fetch('https://api.ideogram.ai/generate', {
       method: 'POST',
       headers: { 'Api-Key': ideogramKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image_request: { prompt, aspect_ratio: 'ASPECT_16_9', model: 'V_2', magic_prompt_option: 'OFF' } }),
+      body: JSON.stringify({ image_request: { prompt, aspect_ratio: 'ASPECT_3_1', model: 'V_2', magic_prompt_option: 'OFF' } }),
       signal: AbortSignal.timeout(90000),
     });
     if (!gen.ok) return `Ideogram wordmark HTTP ${gen.status} — HTML-text fallback`;

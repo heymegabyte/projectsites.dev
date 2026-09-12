@@ -1876,3 +1876,11 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 - gentle-dental propagation (step 6): Sites list=published bv=2026-09-12; **Analytics CAUSAL closed**=7 pageviews (D1 visitor_events == admin /analytics display — I visited → it counts → it shows); Audit=17 build-lifecycle rows (research→generation→deployment→complete→owner_notified→build_validation→benchmark→retrospective).
 - FALSE ALARM avoided: direct D1 `... WHERE org_id ORDER BY created_at DESC` returned [] but COUNT/GROUP BY + the API read 2343 fine → D1 read-replica ORDER-BY artifact, NOT lying-empty (verify-before-concluding held).
 - Verdict: admin genuinely complete + truthful; full journey (build→view→analytics→admin) all green; 0 root-cause breaks this fire.
+
+## AL-392 — automated logo now LARGE + legible + gorgeous for EVERY build (user report: cafe-dim-sum logo too small/hard to see)
+- Diagnosis (real-browser visual inspection of cafe-dim-sum-burlington): header logo = 44px icon + a squished 71×40 wordmark, lost against the hero. TWO root causes: (a) Header rendered the logo too small (icon h-11, wordmark h-9); (b) the GENERATED wordmark is a padded near-square 1.78:1 image (1312×736) — height-constraining it made the text tiny; ensureWordmark requested aspect_ratio ASPECT_16_9 (=1.78:1, the exact culprit).
+- THREE root fixes (all land next build, none redeploy existing sites):
+  1. TEMPLATE Header.tsx (27577f0): icon h-11→h-12 sm:h-14 (44→56px), wordmark h-9→h-10 sm:h-12, gap-3, wider max-w, text-fallback clamp 1.125-1.5rem→1.25-1.75rem. Header 68→80px, 0 nav overflow @375/1280.
+  2. TEMPLATE strip-logo-bg.mjs (27577f0): trim the wordmark's transparent margins after bg-strip → tight horizontal wordmark. VERIFIED locally: 1312×736 (1.78:1) → 520×150 (3.47:1); renders 71→166px wide at h-12. Fail-soft + over-trim guard.
+  3. WORKER container-server.mjs ensureWordmark (Dockerfile FORCE-REBUILD 27): aspect_ratio ASPECT_16_9→ASPECT_3_1 + fill-the-frame/single-line/large-lettering prompt → Ideogram generates a big banner wordmark natively.
+- Verified: Header.wordmark.test 7/7, typecheck clean, container-server.mjs node --check OK, real-browser desktop+mobile screenshots (icon 56, wordmark 166×48, no overflow @390/1280). Guaranteed fix = template trim+render (deterministic); prompt/aspect is complementary (reduces reliance on trim).
