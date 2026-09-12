@@ -86,6 +86,32 @@ try {
       res.searchStatus ? `status="${res.searchStatus}"` : 'NO aria-live result-count status (SR gets no feedback results appeared)');
   }
 
+  // 2b. Homepage TRUST-STATS must resolve to REAL non-zero values. A broken data-binding (or a stuck
+  // rolling-counter) that ships "0+ Sites Built / 0.00% Uptime / 0 Edge Locations" silently guts the
+  // marketing homepage's credibility (a prospect reads it as a dead product) while every functional
+  // gate (H1 / search / console) still passes. Phantom-zero aware: <app-rolling-counter> starts at 0
+  // and only rolls to its target on IntersectionObserver (+ a 2500ms below-fold fallback), so SCROLL
+  // the band into view + wait past the fallback BEFORE reading (memory: rolling-counter-fullpage-
+  // capture-shows-phantom-zero — a naive read false-fails on the pre-roll 0).
+  await page.evaluate(() => {
+    const s = [...document.querySelectorAll('section')].find((e) => /Sites Built|Uptime|Edge Location/i.test(e.innerText || ''));
+    s?.scrollIntoView({ block: 'center' });
+  });
+  await page.waitForTimeout(3200); // past the 2500ms rolling-counter fallback + the roll animation
+  const stats = await page.evaluate(() => {
+    const sec = [...document.querySelectorAll('section')].find((e) => /Sites Built|Uptime|Edge Location/i.test(e.innerText || ''));
+    const txt = (sec?.innerText || '').replace(/\s+/g, ' ');
+    // the numeric magnitude immediately before each label (strip commas). A stuck/broken counter reads 0.
+    const near = (label) => {
+      const m = new RegExp('([\\d.,]+)\\s*[%+]?\\s*' + label, 'i').exec(txt);
+      return m ? parseFloat(m[1].replace(/,/g, '')) : NaN;
+    };
+    return { raw: txt.slice(0, 110), sites: near('Sites Built'), uptime: near('Uptime'), edge: near('Edge Location') };
+  });
+  check('homepage trust-stats resolve to REAL non-zero values (not a phantom-0 / broken binding)',
+    stats.sites > 0 && stats.uptime > 0 && stats.edge > 0,
+    `sites=${stats.sites} uptime=${stats.uptime} edge=${stats.edge}`);
+
   // 3. The /create ENTRY renders (the funnel's destination; sign-in bridges here for signed-out users).
   await page.goto(`${ORIGIN}/create`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(2500);
