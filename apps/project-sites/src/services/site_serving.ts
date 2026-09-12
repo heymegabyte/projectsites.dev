@@ -849,6 +849,31 @@ export async function serveSiteFromR2(
   }
 
   if (!object) {
+    // Logo-icon serve-time fallback (AL-411): the template Header requests
+    // `/logo-icon.png` (the transparent Ideogram square mark) FIRST, with an
+    // apple-touch-icon `onError` fallback — but that onError still logs a hard 404
+    // to the browser console (fails the 0-console-errors bar + is a broken initial
+    // paint) on the ~half of builds where the flaky, budget-bound logo-gen didn't
+    // emit `logo-icon.png` (measured: 5/8 sampled sites 404 it). Serve the
+    // DETERMINISTICALLY-emitted `apple-touch-icon.png` (favicon pipeline always
+    // produces it — 200 on every sampled site) so the request is a clean 200 with a
+    // real brand icon, no console error, on EVERY deployed site — serve-time, NO
+    // rebuild (mirrors the applyServedRouteJsonLd serve-time pattern). Only the
+    // square ICON slot gets this; the wordmark keeps its onError→HTML-text fallback
+    // (a square icon in the wordmark slot would be wrong).
+    if (requestPath === '/logo-icon.png') {
+      const appleTouch = await env.SITES_BUCKET.get(versionedPath('/apple-touch-icon.png'));
+      if (appleTouch) {
+        serveLog.debug('serve_logo_icon_fallback', { slug: site.slug });
+        return new Response(appleTouch.body, {
+          headers: {
+            'Content-Type': 'image/png',
+            'Cache-Control': 'public, max-age=86400',
+          },
+        });
+      }
+    }
+
     // Try assets/ directory (logo, favicon, discovered images — not versioned)
     if (requestPath.startsWith('/assets/')) {
       const assetPath = `sites/${site.slug}${requestPath}`;
