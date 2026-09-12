@@ -707,6 +707,7 @@ export async function serveSiteFromR2(
     plan: string;
   },
   requestPath: string,
+  host?: string,
 ): Promise<Response> {
   // Block access to meta files and manifests
   if (requestPath.startsWith('/_meta/') || requestPath === '/_manifest.json') {
@@ -769,6 +770,41 @@ export async function serveSiteFromR2(
   } else if (filePath.endsWith('/')) {
     // /about/ → /about/index.html
     filePath += 'index.html';
+  }
+
+  // ── C.2 CWV: edge-cache the assembled HTML doc (AL-394) ───────────────────────────────
+  // Cold TTFB measured ~1.3s (vanta) — a cold browser re-ran the full KV/D1/R2 + injection
+  // pipeline; the response's `s-maxage=3600` is advisory-only for a Worker-constructed body.
+  // Store the finished HTML in `caches.default` keyed by HOST + VERSION + path + paid-flag:
+  // HOST keeps per-host canonical/OG correct, VERSION auto-invalidates on rebuild (no stale
+  // serve beyond the existing ~60s resolveSite KV window), paid-flag keeps the unpaid top-bar
+  // correct. A hit skips the R2 fetch + injection → edge-speed TTFB. HTML docs only; the visit
+  // meter still fires on hit (below) so analytics/usage never undercount a cache hit.
+  const isHtmlDoc = !filePath.includes('.') || filePath.endsWith('.html');
+  const edgeKey =
+    host && isHtmlDoc && version
+      ? new Request(
+          `https://ps-edge.internal/${host}/${encodeURIComponent(version)}${filePath}?p=${
+            site.plan && site.plan !== 'free' ? 1 : 0
+          }`,
+        )
+      : null;
+  if (edgeKey) {
+    const hit = await caches.default.match(edgeKey);
+    if (hit) {
+      void (async () => {
+        try {
+          const { meterSiteVisit } = await import('./usage_metering.js');
+          await meterSiteVisit(env, { siteId: site.site_id, slug: site.slug });
+        } catch {
+          /* hot path — never block serving */
+        }
+      })();
+      serveLog.debug('serve_edge_hit', { slug: site.slug, filePath });
+      const cached = new Response(hit.body, hit);
+      cached.headers.set('x-ps-edge', 'hit');
+      return cached;
+    }
   }
 
   // Branch previews store `current_build_version` as the full R2 prefix
@@ -882,7 +918,19 @@ export async function serveSiteFromR2(
     })();
   }
 
-  return buildSiteResponse(object, site, contentType, env, 200, requestPath);
+  const resp = await buildSiteResponse(object, site, contentType, env, 200, requestPath);
+  // Populate the edge cache (AL-394) for the next visitor — only a real 200 HTML doc, so a
+  // transient 404/503/asset never gets stored. `s-maxage=3600` on the response drives the TTL;
+  // the version-keyed edgeKey means a rebuild simply writes a new key (old one expires unused).
+  if (edgeKey && resp.status === 200 && (resp.headers.get('content-type') || '').includes('text/html')) {
+    resp.headers.set('x-ps-edge', 'miss');
+    try {
+      await caches.default.put(edgeKey, resp.clone());
+    } catch {
+      /* best-effort edge cache; never block serving */
+    }
+  }
+  return resp;
 }
 
 /**

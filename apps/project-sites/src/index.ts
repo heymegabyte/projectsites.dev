@@ -1842,8 +1842,9 @@ app.all('*', async (c) => {
     recordPageviewFromRequest(c.env, { orgId: site.org_id, siteId: site.site_id }, c.req.raw, path),
   );
 
-  // Serve static site from R2
-  return serveSiteFromR2(c.env, site, path);
+  // Serve static site from R2 (host passed for the AL-394 edge-cache key: per-host
+  // canonical/OG correctness + version-invalidation).
+  return serveSiteFromR2(c.env, site, path, hostname);
 });
 
 // ─── Queue Consumer ──────────────────────────────────────────
