@@ -690,7 +690,38 @@ async function imageHasText(anthropicKey, buf) {
   } catch { return false; }
 }
 
-async function ensureLogo(dir, ideogramKey, anthropicKey) {
+/**
+ * BACKUP image generator via the worker's FREE Cloudflare Workers AI flux route (AL-398, Brian
+ * directive). The external premium generators were all unavailable — Ideogram key INVALID (401),
+ * OpenAI + Replicate OUT OF CREDITS — so every site silently fell back to the 737B monogram.
+ * POSTs the prompt HMAC-signed (same callbackSecret as the build callback) to the worker's
+ * /api/internal/gen-image, which runs `@cf/black-forest-labs/flux-1-schnell` (free, always on the
+ * AI binding) and returns a base64 image. Keeps env.AI worker-side (no CF creds in this container).
+ * @returns {Promise<Buffer|null>} PNG/JPEG bytes, or null on any failure (caller falls through).
+ */
+async function fluxGenerate(prompt, callbackUrl, callbackSecret) {
+  if (!prompt || !callbackUrl || !callbackSecret) return null;
+  try {
+    const url = String(callbackUrl).replace(/\/build-status\/?$/, '/gen-image');
+    const body = JSON.stringify({ prompt, steps: 6 });
+    const sig = crypto.createHmac('sha256', callbackSecret).update(body).digest('hex');
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Build-Sig': sig },
+      body,
+      signal: AbortSignal.timeout(75000),
+    });
+    if (!r.ok) return null;
+    const j = await r.json().catch(() => null);
+    if (!j || !j.image) return null;
+    const buf = Buffer.from(j.image, 'base64');
+    return buf.length > 2000 ? buf : null;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureLogo(dir, ideogramKey, anthropicKey, fluxGen = async () => null) {
   const pub = path.join(dir, 'public');
   const dest = path.join(pub, 'apple-touch-icon.png');
   const downloadTo = async (url) => {
@@ -719,47 +750,58 @@ async function ensureLogo(dir, ideogramKey, anthropicKey) {
         try { if (await downloadTo(u)) return `official logo (${key})`; } catch { /* try next source */ }
       }
     }
-    // (2) IDEOGRAM fallback — generate a minimal, elegant brand ICON (no text; the
-    // navbar renders the business name as a wordmark beside it).
+    // (2) Generate an elegant brand ICON — premium generator (Ideogram) FIRST when its key
+    // works, FREE Cloudflare Workers AI flux as the BACKUP (AL-398) so a dead/invalid premium
+    // key never silently drops us to the monogram. Both outputs are vision-gated to stay
+    // text-free (the navbar renders the business NAME as a separate wordmark).
+    const iconPrompt =
+      `A big, bold, simple, elegant logo ICON for a ${type} — ONE memorable geometric emblem ` +
+      `or abstract symbol mark in a gorgeous minimal flat-vector style with thick confident ` +
+      `strokes, a single clear focal shape that FILLS the frame with even margins, distinctive ` +
+      `and instantly recognizable even at small sizes. Render the symbol in a SATURATED ` +
+      `brand-appropriate color (NEVER white or pale — it must knock out from white) on a PLAIN ` +
+      `FLAT SOLID WHITE background — uniform, no gradient, no shadow, no scene — so the colored ` +
+      `mark strips to full transparency cleanly. Absolutely NO text, NO words, NO letters, NO ` +
+      `business name — symbol only.`;
+    // Vision-gate the freshly-saved icon at `dest`: return `label` if text-free, else delete + null.
+    const acceptTextFreeIcon = async (label) => {
+      try {
+        if (await imageHasText(anthropicKey, fs.readFileSync(dest))) {
+          fs.unlinkSync(dest);
+          return null;
+        }
+      } catch { /* vision unavailable → keep the image (fail-soft) */ }
+      return label;
+    };
+    // premium: Ideogram (magic_prompt OFF respects the literal symbol-only prompt — AUTO re-injects
+    // the business name as rendered text, the old "VANTA STRENGTH CLUB" icon bug).
     if (ideogramKey) {
-      const prompt =
-        `A big, bold, simple, elegant logo ICON for a ${type} — ONE memorable geometric emblem ` +
-        `or abstract symbol mark in a gorgeous minimal flat-vector style with thick confident ` +
-        `strokes, a single clear focal shape that FILLS the frame with even margins, distinctive ` +
-        `and instantly recognizable even at small sizes. Render the symbol in a SATURATED ` +
-        `brand-appropriate color (NEVER white or pale — it must knock out from white) on a PLAIN ` +
-        `FLAT SOLID WHITE background — uniform, no gradient, no shadow, no scene — so the colored ` +
-        `mark strips to full transparency cleanly. Absolutely NO text, NO words, NO letters, NO ` +
-        `business name — symbol only.`;
-      const gen = await fetch('https://api.ideogram.ai/generate', {
-        method: 'POST',
-        headers: { 'Api-Key': ideogramKey, 'Content-Type': 'application/json' },
-        // magic_prompt OFF: AUTO silently rewrites the prompt and re-injects the business
-        // NAME as rendered text — that is why "no text" was ignored and the icon showed the
-        // full name (e.g. "VANTA STRENGTH CLUB"). OFF respects the literal symbol-only prompt.
-        body: JSON.stringify({ image_request: { prompt, aspect_ratio: 'ASPECT_1_1', model: 'V_2', magic_prompt_option: 'OFF' } }),
-        signal: AbortSignal.timeout(90000),
-      });
-      if (!gen.ok) return `Ideogram HTTP ${gen.status} — monogram fallback`;
-      const j = await gen.json().catch(() => ({}));
-      const url = j && j.data && j.data[0] && j.data[0].url;
-      if (url && (await downloadTo(url))) {
-        // VISION GATE: if the model still baked text/the name into the icon, REJECT it
-        // (delete → generate-favicons produces the clean deterministic monogram). An
-        // app-icon must be a text-free mark; the navbar shows the name as a wordmark.
-        // Only the AI-generated default is gated — an official/uploaded logo (step 1) is
-        // used verbatim (honors user-supplied context: it may legitimately contain text).
-        try {
-          if (await imageHasText(anthropicKey, fs.readFileSync(dest))) {
-            fs.unlinkSync(dest);
-            return 'Ideogram logo contained text → rejected (vision gate) → monogram fallback';
+      try {
+        const gen = await fetch('https://api.ideogram.ai/generate', {
+          method: 'POST',
+          headers: { 'Api-Key': ideogramKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_request: { prompt: iconPrompt, aspect_ratio: 'ASPECT_1_1', model: 'V_2', magic_prompt_option: 'OFF' } }),
+          signal: AbortSignal.timeout(90000),
+        });
+        if (gen.ok) {
+          const j = await gen.json().catch(() => ({}));
+          const url = j && j.data && j.data[0] && j.data[0].url;
+          if (url && (await downloadTo(url))) {
+            const ok = await acceptTextFreeIcon('Ideogram-generated logo (vision-verified text-free)');
+            if (ok) return ok;
           }
-        } catch { /* vision unavailable → keep the image (fail-soft) */ }
-        return 'Ideogram-generated logo (vision-verified text-free)';
-      }
-      return 'Ideogram returned no usable image — monogram fallback';
+        }
+      } catch { /* premium down/invalid → flux backup */ }
     }
-    return 'no official logo + no Ideogram key — monogram fallback';
+    // BACKUP: FREE Cloudflare Workers AI flux (via the worker's HMAC gen-image route)
+    const fluxIcon = await fluxGen(iconPrompt);
+    if (fluxIcon) {
+      fs.mkdirSync(pub, { recursive: true });
+      fs.writeFileSync(dest, fluxIcon);
+      const ok = await acceptTextFreeIcon('flux backup logo (Workers AI flux, vision-verified text-free)');
+      if (ok) return ok;
+    }
+    return 'no usable AI icon (Ideogram + flux) — monogram fallback';
   } catch (e) {
     return `skipped: ${String((e && e.message) || e).slice(0, 80)}`;
   }
@@ -773,7 +815,7 @@ async function ensureLogo(dir, ideogramKey, anthropicKey) {
  * HTML text when the image is absent/broken. A user/official wordmark URL wins (honors
  * user-supplied context). Writes public/logo-wordmark.png. Runs BEFORE `npm run build`.
  */
-async function ensureWordmark(dir, ideogramKey) {
+async function ensureWordmark(dir, ideogramKey, fluxGen = async () => null) {
   const pub = path.join(dir, 'public');
   const dest = path.join(pub, 'logo-wordmark.png');
   const save = async (url) => {
@@ -797,8 +839,7 @@ async function ensureWordmark(dir, ideogramKey) {
       if (u && /^https?:\/\//.test(u)) { try { if (await save(u)) return `official wordmark (${key})`; } catch { /* next */ } }
     }
     // (2) Ideogram — a stylized wordmark of the NAME (text is intended here; no gate).
-    if (!ideogramKey) return 'no ideogram key — HTML-text wordmark fallback';
-    const prompt =
+    const wordmarkPrompt =
       `A gorgeous horizontal WORDMARK logo showing ONLY the text "${name}" in a THICK, HEAVY, ` +
       `BOLD display typeface (black / extra-bold weight — a confident modern geometric or rounded ` +
       `sans), set on ONE line and FILLING THE FRAME EDGE-TO-EDGE with even margins: large, crisp, ` +
@@ -807,21 +848,33 @@ async function ensureWordmark(dir, ideogramKey) {
       `FLAT SOLID WHITE background — uniform, no gradient, no shadow — so the letters strip to full ` +
       `transparency cleanly. NO icon, NO symbol, NO tagline, NO border, NO background shapes — just ` +
       `the large stylized words "${name}".`;
-    // ASPECT_3_1 (a true banner wordmark shape), NOT ASPECT_16_9 (1.78:1 ≈ square): a 16:9 canvas
-    // makes Ideogram center short wordmark text with heavy padding, so the Header renders it tiny
-    // (cafe-dim-sum's 1312×736/1.78:1 wordmark rendered a 71×40 illegible blob — AL-392). A 3:1
-    // frame + fill-the-frame prompt yields large text; strip-logo-bg then trims residual margin.
-    const gen = await fetch('https://api.ideogram.ai/generate', {
-      method: 'POST',
-      headers: { 'Api-Key': ideogramKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image_request: { prompt, aspect_ratio: 'ASPECT_3_1', model: 'V_2', magic_prompt_option: 'OFF' } }),
-      signal: AbortSignal.timeout(90000),
-    });
-    if (!gen.ok) return `Ideogram wordmark HTTP ${gen.status} — HTML-text fallback`;
-    const j = await gen.json().catch(() => ({}));
-    const url = j && j.data && j.data[0] && j.data[0].url;
-    if (url && (await save(url))) return 'Ideogram-generated wordmark';
-    return 'Ideogram returned no wordmark — HTML-text fallback';
+    // premium: Ideogram FIRST (text intended — NOT vision-gated). ASPECT_3_1 = a true banner shape
+    // (16:9 ≈ square makes Ideogram center short text with heavy padding → tiny nav render, AL-392;
+    // strip-logo-bg trims residual margin). FREE Cloudflare Workers AI flux is the BACKUP (AL-398)
+    // so a dead/invalid Ideogram key never drops the wordmark to plain HTML text.
+    if (ideogramKey) {
+      try {
+        const gen = await fetch('https://api.ideogram.ai/generate', {
+          method: 'POST',
+          headers: { 'Api-Key': ideogramKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_request: { prompt: wordmarkPrompt, aspect_ratio: 'ASPECT_3_1', model: 'V_2', magic_prompt_option: 'OFF' } }),
+          signal: AbortSignal.timeout(90000),
+        });
+        if (gen.ok) {
+          const j = await gen.json().catch(() => ({}));
+          const url = j && j.data && j.data[0] && j.data[0].url;
+          if (url && (await save(url))) return 'Ideogram-generated wordmark';
+        }
+      } catch { /* premium down/invalid → flux backup */ }
+    }
+    // BACKUP: FREE Cloudflare Workers AI flux (via the worker's HMAC gen-image route)
+    const fluxWord = await fluxGen(wordmarkPrompt);
+    if (fluxWord) {
+      fs.mkdirSync(pub, { recursive: true });
+      fs.writeFileSync(dest, fluxWord);
+      return 'flux backup wordmark (Workers AI flux)';
+    }
+    return 'no usable AI wordmark (Ideogram + flux) — HTML-text fallback';
   } catch (e) {
     return `wordmark skipped: ${String((e && e.message) || e).slice(0, 80)}`;
   }
@@ -1121,8 +1174,13 @@ function runJob(jobId, dir, prompt, envVars, timeoutMin, callbackUrl, callbackSe
             console.warn(`[${jobId}] Theme personality (sidecar): ${applyThemeStyleSidecar(dir)}`);
             // Logo: recover the OFFICIAL mark, else generate an elegant one via Ideogram
             // (BEFORE npm build, so generate-favicons keeps it as apple-touch-icon.png).
-            console.warn(`[${jobId}] Logo: ${await ensureLogo(dir, envVars.IDEOGRAM_API_KEY, envVars.ANTHROPIC_API_KEY)}`);
-            console.warn(`[${jobId}] Wordmark: ${await ensureWordmark(dir, envVars.IDEOGRAM_API_KEY)}`);
+            // FREE Cloudflare Workers AI flux backup (AL-398): closes over this job's HMAC callback
+            // creds so ensureLogo/ensureWordmark can generate a real logo via the worker even when
+            // the external premium generators (Ideogram/DALL-E) are down.
+            const _job = jobs[jobId] || {};
+            const fluxGen = (p) => fluxGenerate(p, _job.callbackUrl, _job.callbackSecret);
+            console.warn(`[${jobId}] Logo: ${await ensureLogo(dir, envVars.IDEOGRAM_API_KEY, envVars.ANTHROPIC_API_KEY, fluxGen)}`);
+            console.warn(`[${jobId}] Wordmark: ${await ensureWordmark(dir, envVars.IDEOGRAM_API_KEY, fluxGen)}`);
             console.warn(`[${jobId}] Research narrative: ${applyResearchNarrative(dir)}`);
             console.warn(`[${jobId}] Vertical content: ${applyVerticalContentPack(dir, preset, TEMPLATE_DIR)}`);
             console.warn(`[${jobId}] Stub guard: ${guardAgainstStubPages(dir, TEMPLATE_DIR)}`);

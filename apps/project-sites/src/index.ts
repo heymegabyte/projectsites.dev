@@ -1144,6 +1144,53 @@ app.post('/api/_ps/turnstile/verify', handleFunctionTurnstileVerify);
 // Container POSTs status updates here. Worker writes to CACHE_KV at key
 // `build:{jobId}` so the workflow can poll KV instead of the container.
 // State survives container replacement.
+// Free CF-hosted image generation (Cloudflare Workers AI flux) — the BACKUP logo generator
+// (AL-398, Brian directive). The container calls this HMAC-signed (same INTERNAL_BUILD_SECRET +
+// x-build-sig as the build callback) when the external premium generators are unavailable —
+// Ideogram's key was INVALID (401) and OpenAI/Replicate were out of credits, so EVERY delivered
+// site was silently falling back to the 737B monogram. `@cf/black-forest-labs/flux-1-schnell` is
+// free on the AI binding + always available, so a site now always gets a REAL generated logo.
+// env.AI stays worker-side — no Cloudflare creds are ever forwarded into the build container.
+app.post('/api/internal/gen-image', async (c) => {
+  const secret = c.env.INTERNAL_BUILD_SECRET;
+  if (!secret) return c.json({ error: 'not configured' }, 500);
+  const gsig = c.req.header('x-build-sig') || '';
+  const gbody = await c.req.text();
+  const genc = new TextEncoder();
+  const gkey = await crypto.subtle.importKey(
+    'raw',
+    genc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const gExpected = Array.from(
+    new Uint8Array(await crypto.subtle.sign('HMAC', gkey, genc.encode(gbody))),
+  )
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  if (gsig !== gExpected) return c.json({ error: 'invalid signature' }, 401);
+  let gp: { prompt?: string; steps?: number };
+  try {
+    gp = JSON.parse(gbody);
+  } catch {
+    return c.json({ error: 'bad json' }, 400);
+  }
+  const prompt = typeof gp.prompt === 'string' ? gp.prompt.trim().slice(0, 1500) : '';
+  if (!prompt) return c.json({ error: 'missing prompt' }, 400);
+  const steps = Math.min(Math.max(Number(gp.steps) || 6, 1), 8);
+  try {
+    const out = (await c.env.AI.run('@cf/black-forest-labs/flux-1-schnell', {
+      prompt,
+      steps,
+    })) as { image?: string };
+    if (!out?.image) return c.json({ error: 'no image' }, 502);
+    return c.json({ image: out.image }); // base64 PNG/JPEG — container decodes + saves
+  } catch (e) {
+    return c.json({ error: `gen failed: ${String(e).slice(0, 80)}` }, 502);
+  }
+});
+
 app.post('/api/internal/build-status', async (c) => {
   const secret = c.env.INTERNAL_BUILD_SECRET;
   if (!secret) return c.json({ error: 'callback not configured' }, 500);
