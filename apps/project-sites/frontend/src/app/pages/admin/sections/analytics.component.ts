@@ -1377,14 +1377,19 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
    * Estimated bounce rate (% single-page sessions). No source in this stack reports a
    * true bounce (CF edge + visitor_events have no session-depth), so this is a labelled
    * PROXY derived from pages-per-visit: bounce ≈ share of visits that saw ≤1 page,
-   * approximated as `2 − pagesPerVisit` clamped to 0–100%. Returns `null` (→ renders
-   * "—") whenever the inputs are missing — never a fabricated figure.
+   * approximated as `2 − pagesPerVisit`. The proxy only carries signal BELOW 2 pages/visit
+   * (fewer pages ⇒ more single-page sessions). At ppv ≥ 2 the model would clamp to 0 — but
+   * the CF EDGE COUNTS EVERY REQUEST, so a single-page visitor who reloads the homepage
+   * inflates ppv past 2; asserting "0% bounce" there isn't just imprecise, it's BACKWARDS
+   * (a heavy single-page site would read as perfect retention). So return `null` → renders
+   * "—" ("Needs per-session data") at ppv ≥ 2 (and when inputs are missing) — honest, never
+   * a fabricated or backwards figure. (AL-430 refines AL-405: keep the proxy where it has
+   * signal, stop asserting an unsupportable 0% where it clamps.)
    */
   bounceRate = computed<number | null>(() => {
     const ppv = this.pagesPerVisit();
-    if (ppv == null) return null;
-    const est = Math.max(0, Math.min(1, 2 - ppv));
-    return Math.round(est * 100);
+    if (ppv == null || ppv >= 2) return null;
+    return Math.round((2 - ppv) * 100);
   });
 
   kpiBounceLabel = computed(() => {

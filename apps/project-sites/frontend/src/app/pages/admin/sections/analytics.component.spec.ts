@@ -268,20 +268,35 @@ describe('AdminAnalyticsComponent (site-reactive load)', () => {
     expect(req?.getAttribute('aria-label')).toBe('5,000 total requests');
   });
 
-  // Truthfulness (AL-405): bounce rate is a LABELLED PROXY (2 − pages/visit) — no source in
-  // this stack measures real single-page sessions. The visible subtext says "Est.", and the
-  // on-card stat-pill tooltip says "Estimated" — but the big-number tooltip used to assert the
-  // proxy as a measured FACT ("0% single-page sessions"). At ppv ≥ 2 the proxy clamps to 0, so
-  // that tooltip claimed a perfect, almost-certainly-false "0% single-page sessions". The tooltip
-  // must frame the value as an ESTIMATE with the no-per-session-data caveat, consistent with the
-  // rest of the card — honest, never a bare factual claim.
-  it('bounce-rate KPI tooltip frames the value as an ESTIMATE, never a measured fact', () => {
+  // Truthfulness (AL-430 refines AL-405): bounce is a LABELLED PROXY (2 − pages/visit) — no
+  // source in this stack measures real single-page sessions. The proxy only carries signal
+  // BELOW 2 pages/visit; at ppv ≥ 2 it would clamp to 0, but the CF edge counts EVERY request
+  // (a single-page visitor reloading the homepage inflates ppv past 2), so a "0% bounce" there
+  // is BACKWARDS — a heavy single-page site reading as perfect retention. So render "—"
+  // ("Needs per-session data") at ppv ≥ 2 instead of an unsupportable 0%.
+  it('renders "—" (NOT a false/backwards 0%) for the bounce proxy at pages/visit ≥ 2', () => {
     build({ id: 'site-x' });
     const c = fixture.componentInstance;
     c.error.set(null);
-    c.envelope.set({ series: [], pageviews: 300, uniques: 100, total_requests: 300 } as never); // ppv 3 → proxy clamps to 0
+    c.envelope.set({ series: [], pageviews: 300, uniques: 100, total_requests: 300 } as never); // ppv 3 → no signal
     fixture.detectChanges();
-    expect(c.bounceRate()).withContext('proxy clamps to 0 at ppv≥2').toBe(0);
+    expect(c.bounceRate()).withContext('no signal at ppv≥2 → null, not a backwards 0%').toBeNull();
+    const el = fixture.nativeElement as HTMLElement;
+    const bounceCard = el.querySelector('[data-testid="kpi-bounce"]') as HTMLElement;
+    expect(bounceCard.textContent).withContext('shows the honest em-dash, never "0%"').toContain('—');
+    expect(bounceCard.textContent).withContext('never asserts a 0% bounce').not.toContain('0%');
+  });
+
+  // Below 2 pages/visit the proxy DOES carry signal (fewer pages ⇒ more single-page sessions):
+  // keep the labelled estimate, and keep the big-number tooltip framed as an ESTIMATE with the
+  // no-per-session-data caveat — honest, never a bare factual claim.
+  it('shows the labelled bounce ESTIMATE (framed as estimate) when pages/visit < 2', () => {
+    build({ id: 'site-x' });
+    const c = fixture.componentInstance;
+    c.error.set(null);
+    c.envelope.set({ series: [], pageviews: 130, uniques: 100, total_requests: 130 } as never); // ppv 1.3 → 70%
+    fixture.detectChanges();
+    expect(c.bounceRate()).withContext('proxy has signal below ppv 2').toBe(70);
     const el = fixture.nativeElement as HTMLElement;
     const bounceTile = Array.from(el.querySelectorAll('[title]')).find((n) =>
       /single-page sessions/i.test(n.getAttribute('title') || ''),
@@ -290,7 +305,6 @@ describe('AdminAnalyticsComponent (site-reactive load)', () => {
     const title = (bounceTile!.getAttribute('title') || '').toLowerCase();
     expect(title).withContext('tooltip honestly framed as an estimate').toContain('estimated');
     expect(title).withContext('carries the no-per-session-data caveat').toContain('no per-session data');
-    expect(title).withContext('NOT a bare factual assertion').not.toMatch(/^0% single-page sessions$/);
   });
 
   // Beacon-overlay honesty (AL-161): every *.projectsites.dev subdomain reads KPIs from
