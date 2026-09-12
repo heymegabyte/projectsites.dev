@@ -27,9 +27,49 @@ import {
   repairDoubleDotCanonical,
   repairDanglingEmDash,
   finalizeSeoInvariants,
+  validateConversionFraming,
   validateBuild,
   type BuildFile,
 } from '../services/build_validators';
+
+describe('validateConversionFraming (AL-421: no full-service reservation framing on a quick-serve site)', () => {
+  const shell = (h1: string, title: string) =>
+    file('index.html', `<html><head><title>${title}</title></head><body><h1>${h1}</h1></body></html>`);
+
+  it('FLAGS reservation framing on a quick-serve site (the Jeni\'s/Tartine misframe)', () => {
+    const v = validateConversionFraming([
+      shell('Quality ice cream shop Columbus counts on', "Jeni's Splendid Ice Creams — ice cream"),
+      file('assets/index-abc.js', 'const t="Reservations welcome";const u="Book a table online";'),
+    ]);
+    expect(v).toHaveLength(1);
+    expect(v[0].code).toBe('conversion.reservation_on_quickserve');
+    expect(v[0].severity).toBe('warn'); // report-mode, never blocks
+  });
+
+  it('does NOT flag the CORRECT quick-serve copy "no reservation needed"', () => {
+    const v = validateConversionFraming([
+      shell('Columbus ice cream shop', 'Ice Cream Shop'),
+      file('assets/index-abc.js', 'const a="Walk right up — no reservation needed";const b="Walk-ins welcome";'),
+    ]);
+    expect(v).toHaveLength(0);
+  });
+
+  it('does NOT flag a FULL-SERVICE restaurant that legitimately takes reservations (no quickserve signal)', () => {
+    const v = validateConversionFraming([
+      shell("Austin's steakhouse", 'Ember & Oak Steakhouse — fine dining'),
+      file('assets/index-abc.js', 'const t="Reserve a table";const u="Reservations welcome";'),
+    ]);
+    expect(v).toHaveLength(0); // steakhouse is hospitality, reservations are correct
+  });
+
+  it('does NOT flag a quick-serve site with clean quick-serve framing', () => {
+    const v = validateConversionFraming([
+      shell('Columbus coffee shop', 'Bean Counter — coffee shop'),
+      file('assets/index-abc.js', 'const t="Order online for pickup";const u="See our menu";'),
+    ]);
+    expect(v).toHaveLength(0);
+  });
+});
 
 const html = (body: string, head = '') => `<!DOCTYPE html>
 <html lang="en">

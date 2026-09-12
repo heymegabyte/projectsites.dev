@@ -1028,6 +1028,51 @@ export const validateNoClientSecrets = (files: BuildFile[]): Violation[] => {
 };
 
 /** Run every gate and return a structured report. */
+/**
+ * Wrong-vertical CONVERSION framing on a QUICK-SERVE site — "Reserve a table" /
+ * "Reservations welcome" on an ice cream / coffee / bakery / juice counter reads like a
+ * mis-templated full-service restaurant and LOSES to the real business (§ C.7 beat-source),
+ * exactly like a wrong-vertical H1. The seeded surfaces (hero CTAs, FAQ) are fixed by the
+ * quickserve CommerceMode + HERO_CTA seed (AL-420); this catches the AI-generated SECTION
+ * copy (trust chips / feature blocks / process steps) the conversion brief can't reliably
+ * govern on the fast path. Report-mode (warn) — surfaces to the D1 audit + guides the
+ * validator-fixer, never blocks. Prod probe: `e2e/site-quality/verify-conversion-framing.mjs`.
+ *
+ * Precision (validator-precision-discipline): a STRONG quickserve signal from the shell H1 +
+ * <title> (never an incidental body mention — a steakhouse's "ice cream dessert" won't match)
+ * COEXISTING with AFFIRMATIVE reservation framing in any HTML/JS text (AI sections bundle as
+ * string literals). Negated forms ("no reservation needed", "walk-ins welcome") are the
+ * CORRECT quickserve copy and are stripped before matching.
+ */
+export const validateConversionFraming = (files: BuildFile[]): Violation[] => {
+  const shell = files.find((f) => f.path === 'index.html')?.text ?? '';
+  const h1 = (shell.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? '').replace(/<[^>]+>/g, ' ').trim();
+  const title = shell.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '';
+  const QUICKSERVE =
+    /\b(ice\s?cream|gelato|frozen\s?yogurt|froyo|creamer(?:y|ies)|coffee\s?(?:shop|house|bar)|\bcafe\b|café|espresso\s?bar|bakery|bakeries|patisserie|\bdonut|doughnut|juice\s?bar|smoothie|\bdeli\b|delicatessen|sandwich\s?(?:shop|bar)|food\s?truck|bubble\s?tea|\bboba\b)\b/i;
+  if (!QUICKSERVE.test(`${h1} ${title}`)) return [];
+  const RESERVATION =
+    /\b(reserve a table|reservations?\s+welcome|book (?:a|your) table|easy reservations?|make a reservation|table reservations?)\b/i;
+  const NEGATED =
+    /\b(no reservations?(?:\s+(?:needed|required|necessary))?|without a reservation|walk[- ]?ins?\s+welcome)\b/gi;
+  for (const f of files) {
+    if (!f.text || !/\.(html|js)$/i.test(f.path)) continue;
+    const m = f.text.replace(NEGATED, ' ').match(RESERVATION);
+    if (m) {
+      return [
+        {
+          code: 'conversion.reservation_on_quickserve',
+          severity: 'warn',
+          message: `Quick-serve site (${h1.slice(0, 40)}) uses full-service reservation framing "${m[0]}" — a walk-up counter takes orders, never table reservations. Rewrite the section to quick-serve (Order online / Visit us / See our flavors / Today's specials).`,
+          file: f.path,
+          detail: m[0],
+        },
+      ];
+    }
+  }
+  return [];
+};
+
 export const validateBuild = (
   files: BuildFile[],
   opts: { sourceRouteCount?: number; expectedBusinessName?: string } = {},
@@ -1058,6 +1103,7 @@ export const validateBuild = (
     ...validateNoClientSecrets(files),
     ...validateContactPath(files),
     ...validateImageWeightBudget(files),
+    ...validateConversionFraming(files),
     ...(typeof opts.sourceRouteCount === 'number'
       ? validateRouteCount(files, opts.sourceRouteCount)
       : []),
