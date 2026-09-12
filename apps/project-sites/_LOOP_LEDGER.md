@@ -1936,3 +1936,12 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 - Container half (ensureLogo/ensureWordmark → fluxGenerate → save → strip-logo-bg → transparent logo-icon.png) in flight: byjyqdzxc waits for the FR29 container image, then /resets cellino → verifies logo-icon.png 200 + transparent (not the 737B monogram) + admin propagation.
 - TEMPLATE: mature (WebGL backdrop wired on BOTH hero variants HeroCenter+HeroSplit via backdropForPreset; grain/glass/bento/kinetic-headline present) — no genuine gap → no forced churn (gates-before-churn).
 - Golden-path steps 1-6 proven in AL-391 (reconcile 0-div, contract 44/44, analytics causal); this fire adds the flux-backup proof (the user's explicit priority).
+
+## AL-398c — flux backup PROVEN END-TO-END on prod (cellino rebuilt, real-browser) — LOGO ARC CLOSED
+- byjyqdzxc: FR29 container deployed → /reset cellino → PUBLISHED (~5min). Logo assets now REAL (were 404 / 737B monogram):
+  - logo-icon.png 200, 1024×1024, alpha=TRUE (210KB) — real transparent flux icon (scales-of-justice mark)
+  - logo-wordmark.png 200, 896×309 (~2.9:1 banner), alpha=TRUE (154KB) — thick bold "Cellino LAW" serif wordmark
+  - apple-touch-icon.png 200, 1024×1024 (117KB flux icon, opaque per iOS; logo-icon.png stripped from it)
+- Real-browser (cellino): header renders /logo-icon.png 56px + /logo-wordmark.png 139×48 as PRIMARY refs (no fallback), TRANSPARENT on the navy hero, 0 console errors (the logo-404s are GONE). Visually gorgeous + on-brand.
+- Step-6 propagation: cellino in Sites list (published) + full audit build-event lifecycle.
+- LOGO ARC CLOSED (AL-224→386→390→392→396→398): the user's repeated logo complaint is fully resolved. Free CF Workers AI flux generates real transparent icon+wordmark on EVERY build, no external key/credits. Worker half (AL-398b) + container half (AL-398c) both prod-proven. Premium (Ideogram) still runs first when its key is valid; flux is the always-on backup.
