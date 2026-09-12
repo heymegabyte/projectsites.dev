@@ -171,6 +171,14 @@ export function sanitizeReturnUrl(raw: string | null | undefined): string {
         >
           {{ magicBusy() ? 'Sending…' : 'Email me a magic link' }}
         </button>
+        @if (!emailValid() && !magicBusy()) {
+          <!-- The magic-link button is disabled until a valid email is entered; a disabled
+               control can't surface a title/tooltip, so explain the dependency inline (why
+               it's dimmed + how to enable it) rather than leaving a silent dead-end. -->
+          <p class="mt-1.5 mb-0 text-center text-[0.72rem] text-text-secondary" data-testid="sign-in-magic-hint">
+            Enter your email above to get a passwordless magic link.
+          </p>
+        }
 
         <p class="mt-6 mb-0 text-center text-[0.82rem] text-text-secondary">
           New here?

@@ -75,6 +75,23 @@ describe('SignInComponent', () => {
     expect(btn.disabled).toBe(false);
   });
 
+  it('explains the disabled magic-link inline until a valid email is entered (AL-435)', () => {
+    const f = make();
+    const el = f.nativeElement as HTMLElement;
+    const magic = el.querySelector('[data-testid="sign-in-magic-link"]') as HTMLButtonElement;
+    // Empty email → magic-link disabled; a disabled control can't show a tooltip, so an inline
+    // hint must explain WHY it's dimmed + HOW to enable it (no silent dead-end).
+    expect(magic.disabled).withContext('magic-link disabled with no email').toBe(true);
+    expect(el.querySelector('[data-testid="sign-in-magic-hint"]'))
+      .withContext('inline hint present while the button is dimmed').toBeTruthy();
+    // A valid email enables the button + removes the now-redundant hint.
+    f.componentInstance.email.set('user@example.com');
+    f.detectChanges();
+    expect(magic.disabled).withContext('valid email enables the magic-link').toBe(false);
+    expect(el.querySelector('[data-testid="sign-in-magic-hint"]'))
+      .withContext('hint clears once the email is valid').toBeFalsy();
+  });
+
   it('does not call the API when submit fires while invalid', async () => {
     const f = make();
     await f.componentInstance.submit();
