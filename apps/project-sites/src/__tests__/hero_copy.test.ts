@@ -45,6 +45,24 @@ describe('hero_copy — categoryPhrase (AL-361: keep the retail/venue noun phras
     expect(categoryPhrase('Services')).toBe('local business'); // strips to empty → fallback
   });
 
+  it('normalizes snake_case Google-Places types — no raw type-token in copy (AL-410)', () => {
+    // Live defect: Blue Sky Vet shipped H1 "Your Bend veterinary_care" — create-from-search
+    // seeds business_category from Places types[0] (snake_case), and categoryPhrase passed the
+    // raw underscore token straight into the hero frame. Underscore → space + normalize.
+    expect(categoryPhrase('veterinary_care')).toBe('veterinary clinic');
+    expect(categoryPhrase('car_repair')).toBe('auto shop');
+    expect(categoryPhrase('beauty_salon')).toBe('salon');
+    expect(categoryPhrase('point_of_interest')).toBe('local business'); // junk type → clean fallback
+    // a snake_case type with no map entry still normalizes to a readable phrase (never a raw token)
+    expect(categoryPhrase('bicycle_store')).toBe('bicycle store');
+    expect(categoryPhrase('home_goods_store')).not.toContain('_');
+    // the H1 frame built from it is clean (the real delivered surface)
+    expect(heroHeadlineOptions(categoryPhrase('veterinary_care'), 'Bend')).toContain(
+      'Your Bend veterinary clinic',
+    );
+    expect(heroHeadlineOptions(categoryPhrase('veterinary_care'), 'Bend').join(' ')).not.toContain('_');
+  });
+
   it('normalizes adjectival/thin categories to natural noun phrases (AL-389)', () => {
     // live defect: Gentle Dental shipped "Quality dental Seattle counts on" (bare adjective)
     expect(categoryPhrase('Dental')).toBe('dental practice');

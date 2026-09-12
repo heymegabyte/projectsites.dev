@@ -53,6 +53,20 @@ const CATEGORY_NORMALIZE: Readonly<Record<string, string>> = {
   medical: 'medical practice',
   law: 'law firm',
   legal: 'law firm',
+  // Google-Places snake_case types that reach categoryPhrase via create-from-search
+  // (business_category is seeded from types[0]). AL-410: "veterinary_care" leaked the
+  // raw token into a live H1 ("Your Bend veterinary_care"). The `_`→space normalize in
+  // categoryPhrase turns these into readable phrases; these entries upgrade the thin
+  // ones to their natural business noun.
+  veterinary: 'veterinary clinic',
+  veterinarian: 'veterinary clinic',
+  'veterinary care': 'veterinary clinic',
+  'point of interest': 'local business',
+  establishment: 'local business',
+  'car repair': 'auto shop',
+  'car dealer': 'car dealership',
+  'beauty salon': 'salon',
+  'hair care': 'salon',
 };
 
 /**
@@ -69,12 +83,14 @@ const CATEGORY_NORMALIZE: Readonly<Record<string, string>> = {
  * categoryPhrase('Steakhouse')          // → 'steakhouse'
  * categoryPhrase('Coffee Shop')         // → 'coffee shop'
  * categoryPhrase('Dental')              // → 'dental practice'  (AL-389: thin adjective expanded)
+ * categoryPhrase('veterinary_care')     // → 'veterinary clinic'  (AL-410: snake_case Places type normalized)
  * categoryPhrase('')                    // → 'local business'
  */
 export function categoryPhrase(category?: unknown): string {
   const raw = typeof category === 'string' ? category : '';
   const phrase = raw
     .toLowerCase()
+    .replace(/[_]+/g, ' ') // AL-410: normalize snake_case Places types ("veterinary_care" → "veterinary care") BEFORE anything else — a raw type-token in the H1 is a machine-copy defect
     .replace(REDUNDANT_SUFFIX, '')
     .replace(/[&/]+\s*$/, '') // a trailing "&"/"/" left by a stripped suffix ("smith &")
     .replace(/\s{2,}/g, ' ')
