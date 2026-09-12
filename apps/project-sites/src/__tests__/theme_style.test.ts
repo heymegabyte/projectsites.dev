@@ -3,6 +3,10 @@ import {
   THEME_STYLE_NAMES,
   THEME_PERSONALITY_BRIEF,
   personalityBriefFor,
+  commerceModeFor,
+  commerceIntentBriefFor,
+  COMMERCE_INTENT_BRIEF,
+  type CommerceMode,
 } from '../services/theme_style.js';
 
 describe('theme_style — themeStyleFromInputs', () => {
@@ -299,5 +303,120 @@ describe('theme_style — personality content briefs (AL-356)', () => {
     expect(personalityBriefFor(null)).toBeUndefined();
     // @ts-expect-error — defensive: non-string at runtime must not throw
     expect(() => personalityBriefFor(42)).not.toThrow();
+  });
+});
+
+describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
+  const ALL_MODES: CommerceMode[] = [
+    'retail',
+    'hospitality',
+    'service',
+    'professional',
+    'nonprofit',
+    'general',
+  ];
+
+  it('classifies the AL-407 regression case: a distillery is HOSPITALITY, never retail', () => {
+    // The delivered defect: st-george-spirits shipped "Shop now / Free shipping /
+    // 30-day returns". A distillery is visited/tasted/toured — hospitality.
+    expect(commerceModeFor('Distillery')).toBe('hospitality');
+    expect(commerceModeFor('distiller')).toBe('hospitality');
+    expect(commerceModeFor('Craft Spirits / Distillery')).toBe('hospitality');
+  });
+
+  it('routes food+drink venues (that sell product but are patronized by visiting) to hospitality', () => {
+    for (const v of [
+      'Winery',
+      'Vineyard',
+      'Brewery',
+      'Cidery',
+      'Restaurant',
+      'Cocktail Bar',
+      'Coffee Roasters',
+      'Bakery',
+      'Steakhouse',
+      'Hotel',
+      'Tasting Room',
+    ]) {
+      expect(commerceModeFor(v)).toBe('hospitality');
+    }
+  });
+
+  it('routes GENUINE product sellers to retail (the only mode where cart language is on-brand)', () => {
+    for (const v of [
+      'Jewelry Store',
+      'Goldsmith',
+      'Bookstore',
+      'Record Store',
+      'Florist',
+      'Hardware Store',
+      'Clothing Boutique',
+      'Furniture Store',
+      'Gift Shop',
+    ]) {
+      expect(commerceModeFor(v)).toBe('retail');
+    }
+  });
+
+  it('routes booked-work verticals to service', () => {
+    for (const v of ['Plumbing', 'HVAC', 'Hair Salon', 'Med Spa', 'Dental', 'Auto Repair', 'Gym / Fitness']) {
+      expect(commerceModeFor(v)).toBe('service');
+    }
+  });
+
+  it('routes retained-relationship verticals to professional', () => {
+    for (const v of ['Law Firm', 'Accounting', 'Financial Advisor', 'Real Estate', 'Consulting', 'Marketing Agency']) {
+      expect(commerceModeFor(v)).toBe('professional');
+    }
+  });
+
+  it('routes mission verticals to nonprofit (BEFORE hospitality — a food bank is not a restaurant)', () => {
+    for (const v of ['Soup Kitchen', 'Food Bank', 'Food Pantry', 'Charity', 'Church', 'Nonprofit']) {
+      expect(commerceModeFor(v)).toBe('nonprofit');
+    }
+  });
+
+  it('falls back to general (never undefined) for an unclassifiable vertical', () => {
+    expect(commerceModeFor('Something Unclassifiable XYZ')).toBe('general');
+    expect(commerceModeFor('')).toBe('general');
+    expect(commerceModeFor(null)).toBe('general');
+    expect(commerceModeFor(undefined)).toBe('general');
+  });
+
+  it('normalizes snake_case Google-Places types + slash labels', () => {
+    expect(commerceModeFor('car_repair')).toBe('service');
+    expect(commerceModeFor('jewelry_store')).toBe('retail');
+    expect(commerceModeFor('Bar / Nightclub')).toBe('hospitality');
+  });
+
+  it('every mode has a non-empty brief; non-retail modes FORBID e-commerce cart language', () => {
+    for (const mode of ALL_MODES) {
+      const brief = COMMERCE_INTENT_BRIEF[mode];
+      expect(typeof brief).toBe('string');
+      expect(brief.length).toBeGreaterThan(80);
+    }
+    // The core AL-407 guard: every non-retail brief must explicitly reject
+    // "Shop now" / "Add to cart" / "Free shipping" as primary framing.
+    for (const mode of ['hospitality', 'service', 'professional', 'nonprofit', 'general'] as CommerceMode[]) {
+      const b = COMMERCE_INTENT_BRIEF[mode].toLowerCase();
+      expect(b).toMatch(/forbidden|only use e-commerce|only mode/);
+      expect(b).toMatch(/shop now|add to cart|free shipping|cart/);
+    }
+    // Retail is the one mode that PERMITS cart language.
+    expect(COMMERCE_INTENT_BRIEF.retail.toLowerCase()).toMatch(/on-brand|add to cart|shop/);
+  });
+
+  it('commerceIntentBriefFor is safe on unknown/empty/non-string (general fallback, never throws)', () => {
+    expect(commerceIntentBriefFor('hospitality')).toBe(COMMERCE_INTENT_BRIEF.hospitality);
+    expect(commerceIntentBriefFor('nope')).toBe(COMMERCE_INTENT_BRIEF.general);
+    expect(commerceIntentBriefFor('')).toBe(COMMERCE_INTENT_BRIEF.general);
+    expect(commerceIntentBriefFor(undefined)).toBe(COMMERCE_INTENT_BRIEF.general);
+    // @ts-expect-error — defensive: non-string at runtime must not throw
+    expect(() => commerceIntentBriefFor(42)).not.toThrow();
+  });
+
+  it('hint names the vertical when category is generic', () => {
+    // A generic "Other" category but a hint that names a distillery → hospitality.
+    expect(commerceModeFor('Other', 'a small-batch distillery and tasting room')).toBe('hospitality');
   });
 });

@@ -242,11 +242,15 @@ const CATEGORY_RULES: ReadonlyArray<readonly [ThemeStyleName, RegExp]> = [
   ],
 ];
 
-/** Return the preset of the first rule whose regex matches `text`. */
-function firstMatch(
+/**
+ * Return the label of the first rule whose regex matches `text`. Generic over the
+ * label type so it serves both the theme-style ({@link ThemeStyleName}) and the
+ * commerce-mode ({@link CommerceMode}) rule tables.
+ */
+function firstMatch<T extends string>(
   text: string,
-  rules: ReadonlyArray<readonly [ThemeStyleName, RegExp]>,
-): ThemeStyleName | undefined {
+  rules: ReadonlyArray<readonly [T, RegExp]>,
+): T | undefined {
   for (const [name, re] of rules) {
     if (re.test(text)) return name;
   }
@@ -359,4 +363,135 @@ export function personalityBriefFor(name: unknown): string | undefined {
     if (key in THEME_PERSONALITY_BRIEF) return THEME_PERSONALITY_BRIEF[key as ThemeStyleName];
   }
   return undefined;
+}
+
+/**
+ * How a business is actually PATRONIZED — an axis ORTHOGONAL to the visual
+ * {@link ThemeStyleName} personality. Personality drives look (fonts/color/motion);
+ * commerce mode drives the CONVERSION intent — which CTAs are on-brand and which
+ * are a wrong-vertical defect.
+ */
+export type CommerceMode =
+  | 'retail'
+  | 'hospitality'
+  | 'service'
+  | 'professional'
+  | 'nonprofit'
+  | 'general';
+
+/**
+ * Ordered vertical → commerce mode. FIRST match wins, so the ordering matters:
+ * nonprofit BEFORE hospitality (a food bank is charity, not a restaurant),
+ * hospitality BEFORE retail (a distillery/winery/brewery is VISITED/TASTED, not
+ * checked-out — even though it sells bottles), service + professional BEFORE
+ * retail (a salon/law-firm is booked/retained, not carted). Retail is the genuine
+ * sells-products bucket (shop/boutique/jewelry/florist/bookstore/hardware) where
+ * e-commerce cart language is on-brand. Scanned against the NORMALIZED input.
+ *
+ * WHY (AL-407, 2026-09-12): the build prompt steered the H1 vertical but NOT the
+ * CTA/commerce intent, so `artisan`/`luxe`/`warm` hospitality verticals shipped
+ * e-commerce heroes — a delivered DISTILLERY got "Shop now / Free shipping over
+ * $50 / Easy 30-day returns" + a clothing-store hero image, the opposite of
+ * "beat the source". This map + {@link COMMERCE_INTENT_BRIEF} give the orchestrator
+ * the missing conversion axis so hospitality/service/professional/nonprofit sites
+ * read as their real category instead of a recolored retail template.
+ */
+const COMMERCE_MODE_RULES: ReadonlyArray<readonly [CommerceMode, RegExp]> = [
+  [
+    'nonprofit',
+    /\b(soup\s?kitchen|food\s?(?:bank|pantr\w*|shelf)|\bpantr\w*|homeless|\bshelter\w*|nonprofit|non\s?profit|charit\w*|\bngo\b|humanitarian|relief\s?(?:org|fund|effort)|foundation|\bchurch\w*|ministr\w*|synagogue|\bmosque\b|\btemple\b|congregation|place\s?of\s?worship|community\s?(?:cent|org|kitchen)|advocacy|\bcivic\b|public\s?service|social\s?service\w*)\b/,
+  ],
+  [
+    'hospitality',
+    /\b(restaurant\w*|caf[eé]\w*|bakery|bakeries|coffee\s?(?:shop|house|roaster\w*)|\bcoffee\b|\bbar\b|brewery|breweries|brewpub|\bpub\b|bistro|diner|eatery|eateries|\bgrill\w*|pizzeria|\bpizza\b|taqueria|\bdeli\b|catering|caterer\w*|ice\s?cream|creamer(?:y|ies)|takeaway|takeout|nightlife|night\s?club\w*|nightclub\w*|\blounge\b|\bkitchen\b|smoothie|juice\s?bar|\bbbq\b|steak\s?house|steakhouse|sandwich\w*|\bdonut\w*|doughnut\w*|patisserie|teahouse|\btea\s?room|food\s?truck|distiller\w*|winer(?:y|ies)|vineyard\w*|cider\w*|cidery|meader\w*|meadery|tasting\s?room|\bhotel\w*|resort\w*|\binn\b|lodging|\bmotel\w*|\bbnb\b|bed\s?and\s?breakfast|hospitality|banquet|\bfood\b(?!\s?(?:bank|pantr|shelf|drive)))\b/,
+  ],
+  [
+    'service',
+    /\b(plumb\w*|\bhvac\b|heating|cooling|air\s?condition\w*|furnace\w*|roof\w*|electric\w*|electrician|contractor\w*|construction|landscap\w*|\blawn\b|cleaning|\bmaid\w*|janitor\w*|pest\s?control|handyman|carpentr\w*|carpenter|flooring|drywall|septic|gutter\w*|remodel\w*|renovation|towing|locksmith|garage\s?door|excavat\w*|fencing|paving|demolition|\bmoving\b|junk\s?removal|snow\s?removal|salon\w*|barber\w*|\bhair\b|\bnail\w*|\bspa\b|beauty|\bmed\s?spa|wellness|massage|\bclinic\w*|dental|dentist\w*|orthodont\w*|\bdoctor\w*|physician\w*|chiropract\w*|veterinar\w*|\bvet\b|optometr\w*|dermatolog\w*|physio\w*|acupunctur\w*|fitness|\bgym\w*|crossfit|yoga\b|pilates|personal\s?train\w*|dance\s?studio|automotive|\bauto\b|mechanic\w*|body\s?shop|\btire\w*|detailing|collision|\bsmog\b|lube|repair\w*|photograph\w*|\bmover\w*)\b/,
+  ],
+  [
+    'professional',
+    /\b(legal|\blaw\b|attorney\w*|lawyer\w*|law\s?firm|financ\w*|account\w*|\bcpa\b|bookkeep\w*|\btax\b|audit\w*|insurance|insur\w*|wealth|advisor\w*|\bbank\w*|mortgage|invest\w*|escrow|notary|payroll|real\s?estate|realty|realtor\w*|consult\w*|\bagenc\w*|architect\w*|engineer\w*|marketing|\bpr\b|public\s?relations|staffing|recruit\w*|\bsaas\b|software|startup\w*|\bit\s?services|web\s?(?:design|dev\w*)|technolog\w*)\b/,
+  ],
+  [
+    'retail',
+    /\b(retail|\bshop\w*|\bstore\w*|boutique\w*|apparel|clothing|fashion\w*|merchandise|\bgoods\b|florist\w*|\bflower\w*|\bgift\w*|pet\s?(?:store|shop|supply)|home\s?goods|furniture|\btoys?\b|stationery|cosmetic\w*|accessor\w*|jewel\w*|goldsmith\w*|\bwatch\w*\s?(?:shop|store|maker)|book\s?stor\w*|bookshop\w*|booksell\w*|\bbooks\b|record\s?stor\w*|vinyl\s?(?:shop|store)|hardware|\bmarket\b|thrift|consignment|antique\w*|grocer\w*|supermarket|electronics|garden\s?cent\w*|nursery|\bcrafts?\s?(?:shop|store|supply))\b/,
+  ],
+];
+
+/**
+ * Per-mode CONVERSION brief for the build orchestrator — names the on-brand
+ * primary CTAs and, for every non-retail mode, EXPLICITLY forbids e-commerce
+ * checkout language ("Shop now / Add to cart / Free shipping / 30-day returns /
+ * Browse collections"). `retail` is the ONLY mode where that language is on-brand.
+ */
+export const COMMERCE_INTENT_BRIEF: Record<CommerceMode, string> = {
+  retail:
+    'This business SELLS products, so genuine e-commerce affordances fit. Primary CTAs: Shop / Browse the collection / View products / Add to cart / Buy — plus store hours + location + a map. Product grids with price and a quick-add are appropriate. This is the ONE mode where "Shop now" / "Free shipping" / cart language is on-brand.',
+  hospitality:
+    'People VISIT, TASTE, DINE, BOOK, or RESERVE here — they do NOT check out a shopping cart. Primary CTAs: Reserve a table / Book a tour / View the menu / Visit us / Order online (pickup/delivery) / Find us / See hours & location. Present offerings as a MENU or a COLLECTION to explore, never a store to check out. FORBIDDEN as primary framing: "Shop now", "Add to cart", "Free shipping", "30-day returns", "Browse collections" — e-commerce checkout copy on a restaurant / bar / brewery / distillery / winery / cidery / hotel is a wrong-vertical defect (a small "where to buy our bottles" link is fine as a secondary, never the hero CTA).',
+  service:
+    'Customers BOOK, SCHEDULE, or REQUEST work — they do not buy from a cart. Primary CTAs: Book now / Schedule service / Request a free quote / Get an estimate / Call us. Emphasize service-area, credentials (licensed / insured / years in business), and before/after or portfolio proof. FORBIDDEN: shopping-cart / "Add to cart" / "Free shipping" language — a plumber / salon / clinic / gym / auto shop is booked, not checked out.',
+  professional:
+    'Clients CONSULT, RETAIN, and INQUIRE — a high-trust relationship, never a cart. Primary CTAs: Book a consultation / Contact us / Request a proposal / Schedule a call. Emphasize expertise, credentials, results/case studies, and trust signals. FORBIDDEN: e-commerce "Shop / Add to cart / Free shipping" — a law / accounting / financial / real-estate / consulting firm is retained, not purchased in a cart.',
+  nonprofit:
+    'Supporters DONATE, VOLUNTEER, and GET INVOLVED — mission-first, not commerce. Primary CTAs: Donate / Volunteer / Get involved / Sponsor / Learn how to help. Lead with impact, mission, and the people served. FORBIDDEN as primary framing: retail "Shop now" / "Add to cart" as the hero CTA (a merch/store link is fine only as a secondary).',
+  general:
+    'Use the primary CTAs that match how THIS business actually converts — typically Contact us / Learn more / Get in touch / Get a quote. Only use e-commerce cart language ("Shop now", "Add to cart", "Free shipping") if the business genuinely sells products online; otherwise it is a wrong-vertical defect.',
+};
+
+/**
+ * Classify a business's commerce mode from its declared category and/or freeform
+ * design hint. Returns `'general'` when nothing matches (never `undefined` — the
+ * conversion axis always applies, unlike the optional visual personality).
+ *
+ * @param category - The declared vertical (the /create Industry field, a freeform
+ *   category, or a Google-Places `type`).
+ * @param designHint - Freeform "Additional details" text (rarely decisive here; the
+ *   category is the primary signal, but a hint mentioning the vertical still counts).
+ * @returns One of the six {@link CommerceMode} values. Never throws.
+ *
+ * @example
+ * commerceModeFor('Distillery')                  // → 'hospitality'
+ * commerceModeFor('Jewelry Store')               // → 'retail'
+ * commerceModeFor('Plumbing')                    // → 'service'
+ * commerceModeFor('Law Firm')                    // → 'professional'
+ * commerceModeFor('Soup Kitchen')                // → 'nonprofit'
+ * commerceModeFor('Consulting')                  // → 'professional'
+ * commerceModeFor('Something Unclassifiable')    // → 'general'
+ */
+export function commerceModeFor(
+  category?: string | null,
+  designHint?: string | null,
+): CommerceMode {
+  const cat = normalizeForMatch(category);
+  if (cat) {
+    const byCat = firstMatch(cat, COMMERCE_MODE_RULES);
+    if (byCat) return byCat;
+  }
+  const hint = normalizeForMatch(designHint);
+  if (hint) {
+    const byHint = firstMatch(hint, COMMERCE_MODE_RULES);
+    if (byHint) return byHint;
+  }
+  return 'general';
+}
+
+/**
+ * Return the conversion brief for a commerce mode. Never throws; falls back to the
+ * `general` brief for any unknown/empty/non-string input.
+ *
+ * @param mode - A commerce mode (typically the result of {@link commerceModeFor}).
+ * @returns The matching {@link COMMERCE_INTENT_BRIEF} entry (always a non-empty string).
+ *
+ * @example
+ * commerceIntentBriefFor('hospitality') // → 'People VISIT, TASTE, DINE, BOOK…'
+ * commerceIntentBriefFor('nope')        // → COMMERCE_INTENT_BRIEF.general
+ */
+export function commerceIntentBriefFor(mode: unknown): string {
+  if (typeof mode === 'string') {
+    const key = mode.trim().toLowerCase();
+    if (key in COMMERCE_INTENT_BRIEF) return COMMERCE_INTENT_BRIEF[key as CommerceMode];
+  }
+  return COMMERCE_INTENT_BRIEF.general;
 }

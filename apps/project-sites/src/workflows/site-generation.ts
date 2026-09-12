@@ -30,7 +30,12 @@ import { checkBudget, recordSpend } from '../services/build_budget.js';
 import { resolveActiveOrgPlan } from '../services/build_limits.js';
 import { isFlagOn } from '../modules/feature_flags/services.js';
 import { tryEmitEvent } from '../services/emit_event.js';
-import { themeStyleFromInputs, personalityBriefFor } from '../services/theme_style.js';
+import {
+  themeStyleFromInputs,
+  personalityBriefFor,
+  commerceModeFor,
+  commerceIntentBriefFor,
+} from '../services/theme_style.js';
 import {
   categoryFromName,
   categoryPhrase,
@@ -305,6 +310,16 @@ export function buildPrompt(params: SiteGenerationParams): string {
   const themeStyle = themeStyleFromInputs(params.businessCategory, params.additionalContext);
   const personalityBrief = personalityBriefFor(themeStyle);
 
+  // AL-408 — the CONVERSION axis (orthogonal to the visual personality above).
+  // buildPrompt steered the H1 vertical + the CSS personality, but never the CTA
+  // intent, so hospitality/service/professional/nonprofit verticals shipped
+  // e-commerce heroes (a delivered distillery got "Shop now / Free shipping over
+  // $50 / 30-day returns" — AL-407). commerceModeFor always resolves (general
+  // fallback), so this block is ALWAYS injected — it names the on-brand primary
+  // CTAs and forbids cart language on non-retail businesses.
+  const commerceMode = commerceModeFor(params.businessCategory, params.additionalContext);
+  const commerceBrief = commerceIntentBriefFor(commerceMode);
+
   return [
     `# Mission: Orchestrate a BREATHTAKINGLY GORGEOUS website for "${safeName}"`,
     '',
@@ -333,6 +348,9 @@ export function buildPrompt(params: SiteGenerationParams): string {
     personalityBrief
       ? `## Visual Personality: ${String(themeStyle).toUpperCase()} — reinforce it in CONTENT, not just CSS\nThe template already stamps this personality's fonts, color, radius, shadow, motion, and a matching flourish via data-style="${themeStyle}" — that side is DONE, do not fight it. Your job is to make the CONTENT match so the site reads as a real, elaborate brand and not a recolored template: ${personalityBrief}\nWhen you wire hero + section images from _assets.json and write copy, pick the ones that fit this personality — generic bright stock or flat corporate copy on a ${themeStyle} theme is a quality miss, not a neutral choice.`
       : '',
+    '',
+    `## Conversion Intent: ${commerceMode.toUpperCase()} — the PRIMARY CTAs must match how THIS business is patronized`,
+    `${commerceBrief}\nThe hero CTA + every section CTA must reflect this. Choosing e-commerce checkout language ("Shop now" / "Add to cart" / "Free shipping" / "30-day returns" / "Browse collections") on a business that is NOT retail is a wrong-vertical defect, exactly like a wrong-vertical H1 — it makes the delivered site LOSE to the real one. Match the hero image to the same intent: a tasting room / dining room / job-site / consultation / community photo for those modes, never a generic retail storefront or product-rack stock image.`,
     '',
     '## Build steps (do these IN ORDER, directly — no fan-out)',
     `0. _brand.json is ALREADY MATERIALIZED for you — the workflow wrote the real business data (name="${safeName}") into the build dir's _brand.json. NEVER rewrite or regenerate it; the template's shipped copy has {BUSINESS_NAME} placeholders and overwriting it ships those placeholders LIVE. Read it, use it.`,
