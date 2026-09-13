@@ -48,6 +48,7 @@ const PROBES = [
   { label: 'modal-a11y', file: 'modal-a11y-scan.mjs', env: {} },
   { label: 'dragging-alt', file: 'dragging-alternative-scan.mjs', env: {} },
   { label: 'auth-a11y', file: 'verify-auth-a11y.mjs', env: {} },
+  { label: 'team-seat-client-gate', file: 'verify-team-seat-client-gate.mjs', env: {} },
   { label: 'auth-flow', file: 'verify-auth-flow.mjs', env: {} },
   { label: 'completeness', file: 'completeness-stub-scan.mjs', env: {} },
   { label: 'error-edge-states', file: 'verify-error-edge-states.mjs', env: {} },
