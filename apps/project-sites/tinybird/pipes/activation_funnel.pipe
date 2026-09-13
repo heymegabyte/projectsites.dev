@@ -19,18 +19,24 @@ SQL >
     %
     SELECT
         tenant_id,
-        event AS stage,
+        -- site.generated (the Cloudflare-Workflows delivery event that create-from-search
+        -- builds emit instead of site.published) CANONICALIZES to the site.published
+        -- Delivered stage, so it merges into that stage's DISTINCT-site count. Keep in
+        -- lockstep with DELIVERED_EVENTS + ACTIVATION_INGEST_EVENTS in
+        -- src/services/activation_funnel.ts (AL-472: site.published froze 2026-09-06 in
+        -- Tinybird → Delivered under-counted 106 vs 155; the union restores 106→151).
+        multiIf(event = 'site.generated', 'site.published', event) AS stage,
         multiIf(
             event = 'lead.discovered', 0,
             event = 'site.claim.started', 1,
-            event = 'site.published', 2,
+            event IN ('site.published', 'site.generated'), 2,
             event = 'subscription.active', 3,
             99
         ) AS ordinal,
         count(DISTINCT event_id) AS events,
         count(DISTINCT site_id) AS sites
     FROM projectsites_events
-    WHERE event IN ('lead.discovered', 'site.claim.started', 'site.published', 'subscription.active')
+    WHERE event IN ('lead.discovered', 'site.claim.started', 'site.published', 'site.generated', 'subscription.active')
         AND timestamp >= now() - interval {{ Int32(days, 30) }} day
         {% if defined(tenant_id) %} AND tenant_id = {{ String(tenant_id) }} {% end %}
     GROUP BY tenant_id, stage, ordinal

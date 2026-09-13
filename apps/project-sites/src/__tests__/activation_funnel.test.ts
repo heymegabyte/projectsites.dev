@@ -6,6 +6,8 @@
 import {
   ACTIVATION_STAGES,
   ACTIVATION_EVENTS,
+  ACTIVATION_INGEST_EVENTS,
+  DELIVERED_EVENTS,
   funnelStage,
   isActivationEvent,
 } from '../services/activation_funnel.js';
@@ -47,5 +49,30 @@ describe('activation funnel', () => {
   it('isActivationEvent discriminates funnel vs non-funnel events', () => {
     expect(isActivationEvent('lead.discovered')).toBe(true);
     expect(isActivationEvent('site.publish.failed')).toBe(false);
+  });
+});
+
+describe('activation funnel — site.generated Delivered alias (AL-472)', () => {
+  it('canonical stages stay 4 (site.generated is an alias, not a 5th stage)', () => {
+    expect(ACTIVATION_STAGES).toHaveLength(4);
+    expect(ACTIVATION_STAGES.map((s) => s.event)).not.toContain('site.generated');
+  });
+
+  it('funnelStage maps site.generated to the Delivered stage (the workflow delivery event)', () => {
+    expect(funnelStage('site.generated')).toEqual({
+      event: 'site.published',
+      label: 'Delivered',
+      ordinal: 2,
+    });
+    expect(isActivationEvent('site.generated')).toBe(true);
+  });
+
+  it('DELIVERED_EVENTS = both delivery events; ACTIVATION_INGEST_EVENTS adds the alias to the pipe WHERE set', () => {
+    expect(DELIVERED_EVENTS).toEqual(['site.published', 'site.generated']);
+    // The pipe's WHERE event IN (...) must ingest all four canonical stage events + site.generated.
+    expect([...ACTIVATION_INGEST_EVENTS].sort()).toEqual(
+      [...ACTIVATION_EVENTS, 'site.generated'].sort(),
+    );
+    for (const ev of ACTIVATION_INGEST_EVENTS) expect(EVENT_TYPES).toContain(ev);
   });
 });

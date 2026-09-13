@@ -39,12 +39,37 @@ export const ACTIVATION_STAGES: readonly ActivationStage[] = [
   { event: 'subscription.active', label: 'Converted', ordinal: 3 },
 ] as const;
 
-/** The event types that constitute the activation funnel (for `WHERE event IN`). */
+/** The canonical event types (one per stage). */
 export const ACTIVATION_EVENTS: readonly EventType[] = ACTIVATION_STAGES.map((s) => s.event);
 
-const STAGE_BY_EVENT: ReadonlyMap<string, ActivationStage> = new Map(
-  ACTIVATION_STAGES.map((s) => [s.event, s]),
-);
+/**
+ * Events that CANONICALIZE to the Delivered stage. The dominant create-from-search
+ * build path (Cloudflare Workflows) emits `site.generated` when it uploads a
+ * PUBLISHED bundle — NOT `site.published` (only the bolt-editor + claim-callback
+ * paths emit that). Both mean "a site went live", so the funnel's Delivered stage
+ * counts EITHER (the pipe canonicalizes `site.generated` → `site.published`).
+ *
+ * AL-472: `site.published` FROZE in Tinybird at 2026-09-06 (last7d=0) while
+ * `site.generated` kept flowing (Catbird 09-13) → the funnel Delivered under-counted
+ * 106 vs 155 published in D1. Counting the union restores it (verified 106→151,
+ * 7d 0→45 on live data). Keep this in lockstep with the pipe's `WHERE event IN`
+ * + `multiIf` in tinybird/pipes/activation_funnel.pipe.
+ */
+export const DELIVERED_EVENTS: readonly EventType[] = ['site.published', 'site.generated'];
+
+/** The FULL event set the pipe's `WHERE event IN (...)` ingests (canonical stages + Delivered aliases). */
+export const ACTIVATION_INGEST_EVENTS: readonly EventType[] = [
+  ...ACTIVATION_EVENTS.filter((e) => e !== 'site.published'),
+  ...DELIVERED_EVENTS,
+];
+
+const DELIVERED_STAGE = ACTIVATION_STAGES.find((s) => s.label === 'Delivered')!;
+
+const STAGE_BY_EVENT: ReadonlyMap<string, ActivationStage> = new Map<string, ActivationStage>([
+  ...ACTIVATION_STAGES.map((s) => [s.event, s] as const),
+  // site.generated is a Delivered-stage alias (the workflow delivery event).
+  ['site.generated', DELIVERED_STAGE],
+]);
 
 /**
  * Place an event type on the funnel.
