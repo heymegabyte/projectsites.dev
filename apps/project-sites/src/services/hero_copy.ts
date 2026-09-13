@@ -430,7 +430,22 @@ export function homepageFaq(
  * heroCtasFor('quickserve') // → { primary: 'Visit us', secondary: 'See our flavors' }
  * heroCtasFor('hospitality')// → { primary: 'Visit us', secondary: 'View the menu' }
  */
-export function heroCtasFor(mode: string | null | undefined): {
+// The `service` commerce mode lumps two conversion patterns that need OPPOSITE hero CTAs:
+//   • TRADES (plumber / HVAC / roofer / electrician / cleaning / moving / auto) — convert on a
+//     price-first "Get a free quote" / "Get an estimate".
+//   • APPOINTMENT / CLASS businesses (yoga / pilates / gym / salon / barber / spa / massage /
+//     clinic / dental / chiropractic / vet / …) — convert on "Book now"; they NEVER "quote".
+// So the flat `service → 'Get a free quote'` shipped a wrong-vertical CTA on a yoga studio
+// (Laughing Lotus: "Get a free quote" on a class business — AL-460). Sub-classify by category:
+// an appointment business gets the book CTA, a trade keeps the quote CTA. (The mode's own brief
+// already says these are "BOOKED, not checked out", so Book-now is the inclusive default.)
+const APPOINTMENT_CATEGORY =
+  /\b(yoga|pilates|gym\w*|fitness|crossfit|dance\s?studio|personal\s?train\w*|barre|spin\s?studio|salon\w*|barber\w*|\bhair\b|\bnail\w*|\bspa\b|beauty|med\s?spa|massage|wax\w*|lash\w*|brow\w*|esthetic\w*|\bclinic\w*|dental|dentist\w*|orthodont\w*|\bdoctor\w*|physician\w*|chiropract\w*|veterinar\w*|\bvet\b|optometr\w*|dermatolog\w*|physio\w*|physical\s?therap\w*|acupunctur\w*|therap\w*|counsel\w*|wellness|wellbeing|meditation|rehab\w*|nutrition\w*|dietician|dietitian|midwif\w*|tattoo|piercing)\b/i;
+
+export function heroCtasFor(
+  mode: string | null | undefined,
+  category?: string | null,
+): {
   primary: string;
   secondary: string;
 } {
@@ -447,5 +462,9 @@ export function heroCtasFor(mode: string | null | undefined): {
     typeof mode === 'string' && mode.trim().toLowerCase() in sets
       ? mode.trim().toLowerCase()
       : 'general';
+  // An APPOINTMENT/class business inside `service` books, never quotes.
+  if (key === 'service' && typeof category === 'string' && APPOINTMENT_CATEGORY.test(category)) {
+    return { primary: 'Book now', secondary: 'Our services' };
+  }
   return sets[key]!;
 }

@@ -879,7 +879,9 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // ICE CREAM shop (AL-419). Prose (the conversion brief) is inert on the fast path;
       // the authoritative fix is the SAME existing-wins _content.json seam as HERO_HEADLINE.
       // quickserve → "Visit us" / "See our flavors" — never a full-service reservation CTA.
-      const heroCtas = heroCtasFor(commerceMode);
+      // Pass the category so an APPOINTMENT business inside `service` (yoga/salon/gym/clinic)
+      // gets "Book now", not the trade-only "Get a free quote" (AL-460).
+      const heroCtas = heroCtasFor(commerceMode, params.businessCategory);
       contextFiles['content.json'] = JSON.stringify(
         {
           ABOUT_PARAGRAPH_1: aboutPara1,

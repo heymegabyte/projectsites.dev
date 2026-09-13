@@ -34,6 +34,34 @@ describe('hero_copy — heroCtasFor (AL-420: seeded hero CTA labels, never "Rese
     }
     expect(heroCtasFor('totally-unknown')).toEqual(heroCtasFor('general'));
   });
+
+  it('service mode: APPOINTMENT businesses BOOK, TRADES quote (AL-460 — no "free quote" on a yoga studio)', () => {
+    // Appointment / class businesses inside `service` convert on booking — never a quote.
+    for (const cat of [
+      'Yoga Studio',
+      'Hair Salon',
+      'Day Spa',
+      'Fitness Gym',
+      'CrossFit',
+      'Dental Clinic',
+      'Massage Therapy',
+      'Pilates Studio',
+      'Veterinary Clinic',
+      'Chiropractic',
+    ]) {
+      expect(heroCtasFor('service', cat).primary).toBe('Book now');
+      // the exact live defect — a quote/estimate CTA must NOT appear on an appointment business
+      expect(heroCtasFor('service', cat).primary.toLowerCase()).not.toMatch(/quote|estimate/);
+    }
+    // Trades inside `service` keep the price-first quote CTA (correct for them).
+    for (const cat of ['Plumbing', 'Roofing', 'HVAC', 'Electrician', 'Junk Removal', 'Auto Repair']) {
+      expect(heroCtasFor('service', cat).primary).toBe('Get a free quote');
+    }
+    // No category → the safe default is unchanged (back-compat).
+    expect(heroCtasFor('service').primary).toBe('Get a free quote');
+    // Non-service modes ignore the category (quote sub-split is service-only).
+    expect(heroCtasFor('retail', 'Yoga Studio').primary).toBe('Visit the shop');
+  });
 });
 
 /**
