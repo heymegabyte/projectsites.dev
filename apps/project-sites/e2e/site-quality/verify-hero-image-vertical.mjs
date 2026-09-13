@@ -8,7 +8,14 @@
 // only its SUBJECT is wrong. This decodes the hero Unsplash `ixid` (which carries the search
 // query) and checks the business's SPECIFIC vertical noun (from the H1/title, minus generic
 // retail words) appears in it. gentle-dental → "dental clinic interior" ✓; Gruhn guitar shop
-// → "boutique retail store" ✗ (no "guitar"); tartine bakery → "restaurant dining" ✗.
+// → "boutique retail store" ✗ (no "guitar").
+//
+// Food-service cluster bridge (AL-450): coffee/cafe/bakery/deli/restaurant/ice-cream/juice all
+// share ONE content-pack hero (a warm "cafe interior" scene) because the worker doesn't seed a
+// per-vertical HERO_IMAGE_URL. A cafe/counter hero is CORRECT for the whole cluster, so a coffee
+// shop's "coffee" vertical matches a "cafe" hero query (and a bakery vs the same). The bridge fires
+// ONLY when the business noun AND the hero query are both food-domain — a non-food business
+// (guitar/dental) gets no synonym help, so a wrong-vertical hero on those still flags.
 //
 // Precision (validator-precision): needs a REAL vertical noun in the H1 AND a decodable hero
 // query; skips sites whose hero isn't Unsplash-with-ixid (not auditable). Generic retail nouns
@@ -23,6 +30,12 @@ const SITES = (process.env.SITES || 'gruhn-guitars-nashville,gentle-dental-seatt
 // nouns (a guitar shop's vertical is "guitar", never the generic "shop"/"store"/"retail").
 const NON_VERTICAL =
   /^(quality|trusted|local|dependable|honest|personal|always|your|the|and|for|with|counts|side|get|one|session|time|welcome|choice|best|top|neighborhood|community|you|can|trust|our|home|of|to|in|at|a|an|shop|store|retail|boutique|storefront|business|company|co|inc|llc|services?|place|good|goods|nashville|seattle|austin|houston|portland|francisco|boston|columbus|bend|bozeman)$/i;
+
+// Food-service domain lexicon — a business noun AND a hero query that BOTH match here are the
+// same food cluster, so a shared "cafe interior" hero is a correct match for any of them (AL-450).
+// Only bridges within food; a non-food vertical noun never touches it.
+const FOOD_LEXICON =
+  /\b(coffee|cafe|caf[eé]|espresso|roaster|roastery|barista|bakery|bakeshop|pastry|patisserie|deli|delicatessen|restaurant|bistro|diner|eatery|brasserie|tavern|pub|grill|kitchen|creamery|cream|scoop|gelato|gelateria|ice[- ]?cream|froyo|frozen[- ]?yogurt|juice|smoothie|teahouse|dessert|sandwich|pizzeria|pizza|taqueria|food|dining|brunch|breakfast|lunch|dinner|menu)\b/i;
 
 // Decode the Unsplash `ixid` (base64 → pipe-delimited; the query is the URL-encoded field).
 function heroQueryFromHtml(html) {
@@ -63,9 +76,14 @@ try {
       } else if (verticalNouns.length === 0) {
         rows.push(`  ⏭️  ${slug} — no specific vertical noun in H1/title`);
       } else {
-        const matched = verticalNouns.some((n) => heroQuery.includes(n) || heroQuery.includes(n.replace(/s$/, '')));
+        const literalMatch = verticalNouns.some((n) => heroQuery.includes(n) || heroQuery.includes(n.replace(/s$/, '')));
+        // Food-cluster bridge: a food-domain business + a food-domain hero query is a correct match
+        // (coffee ↔ cafe, bakery ↔ cafe interior, …) even when the exact noun differs.
+        const foodMatch = verticalNouns.some((n) => FOOD_LEXICON.test(n)) && FOOD_LEXICON.test(heroQuery);
+        const matched = literalMatch || foodMatch;
         if (matched) {
-          rows.push(`  ✓ ${slug} — hero query "${heroQuery}" matches vertical {${verticalNouns.join(',')}}`);
+          const how = literalMatch ? '' : ' [food-cluster]';
+          rows.push(`  ✓ ${slug} — hero query "${heroQuery}" matches vertical {${verticalNouns.join(',')}}${how}`);
         } else {
           flags++;
           rows.push(`  ❌ ${slug} — hero query "${heroQuery}" shows NONE of the business vertical {${verticalNouns.join(',')}} (wrong-vertical hero image)`);
