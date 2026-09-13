@@ -116,16 +116,41 @@ try {
     /build|generat|publish|workflow|research|container/i.test(`${l.action ?? l.event ?? l.type ?? ''}`));
   out.audit = { httpStatus: logRes.status, total: Array.isArray(logs) ? logs.length : 0, buildEvents: buildEvents.length };
 
+  // --- 3. FORMS causal (facet 4: a public contact submit → the owner's /admin/forms shows it) ---
+  // Submit from the CF-clean Browserbase page (origin=projectsites.dev is allow-listed; Bot Fight
+  // passes with a real fingerprint — a bare Node POST 403s). Same ingestion path as
+  // verify-forms-causal.mjs (/api/v1/forms/submit + X-Site-Slug), read back via the owner API.
+  const causalEmail = `causal-propagation-${Date.now()}@example.com`;
+  const submit = await page.evaluate(async ({ slug, email }) => {
+    const res = await fetch('/api/v1/forms/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Site-Slug': slug },
+      body: JSON.stringify({ form_name: 'Contact', email, fields: { name: 'Propagation Probe', message: 'Delivered-site forms propagation causal check.' } }),
+    });
+    return { status: res.status };
+  }, { slug: SLUG, email: causalEmail });
+  await sleep(2500);
+  const formsRes = await readJson(`/api/sites/${SITE_ID}/forms`);
+  const formRows = Array.isArray(formsRes.j) ? formsRes.j : (formsRes.j?.data ?? formsRes.j?.forms ?? []);
+  out.forms = {
+    submitStatus: submit.status,
+    ownerHttpStatus: formsRes.status,
+    total: Array.isArray(formRows) ? formRows.length : 0,
+    causalShows: (Array.isArray(formRows) ? formRows : []).some((r) => (r.email || '') === causalEmail),
+  };
+
   const moved = out.analytics.delta >= N;
-  const propagated = out.sitesList.found && out.snapshots.count >= 1 && out.audit.total >= 1;
-  const ok = statuses.every((s) => s === 200) && moved && after.hasPageview && out.sitesList.found;
+  const formsOk = out.forms.submitStatus === 200 && out.forms.causalShows;
+  const propagated = out.sitesList.found && out.snapshots.count >= 1 && out.audit.total >= 1 && formsOk;
+  const ok = statuses.every((s) => s === 200) && moved && after.hasPageview && out.sitesList.found && formsOk;
 
   console.log('\n=== DELIVERED-SITE PROPAGATION (' + SLUG + ') ===\n' + JSON.stringify(out, null, 2));
   console.log(
     `\nVERDICT: ${ok && propagated ? '✅ PASS' : '🔴 CHECK'} ` +
       `analytics(before=${out.analytics.before}→after=${out.analytics.after} Δ${out.analytics.delta}≥${N}=${moved}) ` +
       `sites(found=${out.sitesList.found} status=${out.sitesList.status}) ` +
-      `snapshots=${out.snapshots.count} auditEvents=${out.audit.total}(build=${out.audit.buildEvents})`,
+      `snapshots=${out.snapshots.count} auditEvents=${out.audit.total}(build=${out.audit.buildEvents}) ` +
+      `forms(submit=${out.forms.submitStatus} owner=${out.forms.ownerHttpStatus} shows=${out.forms.causalShows})`,
   );
   process.exit(ok && propagated ? 0 : 1);
 } catch (err) {
