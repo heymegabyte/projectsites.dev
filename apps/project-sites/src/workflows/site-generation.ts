@@ -290,6 +290,53 @@ export function isTransientBuildError(err: string | null | undefined): boolean {
 }
 
 /**
+ * Derive a PWA `short_name` (the home-screen install label) from a business name.
+ * Android/iOS home-screen labels truncate around 12 chars, so we cap at ≤12 — but
+ * always at a WORD BOUNDARY, never mid-word. A naive `slice(0, 12)` produced ugly
+ * cuts like "Ironhaus Str" (from "Ironhaus Strength & Conditioning"); this yields
+ * "Ironhaus". Falls back to a hard 12-char cut ONLY when the first word alone
+ * exceeds 12 chars (unavoidable).
+ *
+ * @param name - Full business display name.
+ * @returns A clean ≤12-char short name with no mid-word truncation.
+ * @example derivePwaShortName('Ironhaus Strength & Conditioning') // 'Ironhaus'
+ * @example derivePwaShortName('Union Garage NYC') // 'Union Garage'
+ * @example derivePwaShortName('Vito') // 'Vito'
+ */
+export function derivePwaShortName(name: string): string {
+  const n = (name || '').trim();
+  if (n.length <= 12) return n;
+  let out = '';
+  for (const w of n.split(/\s+/)) {
+    const next = out ? `${out} ${w}` : w;
+    if (next.length > 12) break;
+    out = next;
+  }
+  return out || n.slice(0, 12);
+}
+
+/**
+ * A non-empty brand + PWA `description`. This value feeds BOTH the site-manifest
+ * `description` AND the visible Footer blurb (`business.description`), so an empty
+ * value ships a blank footer `<p>` + empty manifest. Prefer the owner's freeform
+ * context; otherwise fall back to a truthful "{name} — {category}" line derived
+ * from authoritative /create inputs (never fabricated, never empty). Clamped ≤156.
+ *
+ * @param name - Business display name.
+ * @param category - User-declared vertical category (may be empty).
+ * @param context - Owner's freeform additional context (may be empty).
+ * @returns A non-empty description ≤156 chars.
+ * @example deriveBrandDescription('Ironhaus', 'fitness', '') // 'Ironhaus — fitness'
+ */
+export function deriveBrandDescription(name: string, category: string, context: string): string {
+  const ctx = (context || '').trim();
+  if (ctx) return ctx.slice(0, 156);
+  const n = (name || '').trim();
+  const cat = (category || '').trim();
+  return (cat ? `${n} — ${cat}` : n).slice(0, 156);
+}
+
+/**
  * Build the orchestrator prompt for Claude Code.
  *
  * The orchestrator does NOT implement components itself. It delegates to
@@ -745,9 +792,15 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
         ...(themeStyle ? { themeStyle } : {}),
         business: {
           name: tok(safeName, 'Display name.'),
-          shortName: tok(safeName.slice(0, 12), 'Used in PWA install + nav.'),
+          shortName: tok(
+            derivePwaShortName(safeName),
+            'PWA install + nav label (≤12 chars, word-boundary — never mid-word).',
+          ),
           tagline: tok('', 'Eyebrow line above H1.'),
-          description: tok((params.additionalContext || '').slice(0, 156), 'Meta description.'),
+          description: tok(
+            deriveBrandDescription(safeName, params.businessCategory || '', params.additionalContext || ''),
+            'Manifest description + visible Footer blurb (never empty).',
+          ),
           url: tok(`https://${params.slug}${DOMAINS.SITES_SUFFIX}`, 'Canonical https URL.'),
           businessClass: tok('organization', 'storefront|restaurant|…|organization'),
           // The user-declared vertical category — the container classifier
