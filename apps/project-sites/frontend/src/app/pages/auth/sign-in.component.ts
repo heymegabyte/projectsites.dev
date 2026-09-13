@@ -44,8 +44,12 @@ export function sanitizeReturnUrl(raw: string | null | undefined): string {
           <h1 id="sign-in-heading" class="text-2xl font-extrabold tracking-tight m-0">
             Welcome back
           </h1>
-          <p class="text-[0.85rem] text-text-secondary mt-1.5 mb-0">
-            Sign in to manage your sites.
+          <p class="text-[0.85rem] text-text-secondary mt-1.5 mb-0" data-testid="signin-subtitle">
+            @if (returnContext(); as ctx) {
+              Sign in to continue to <span class="text-white font-semibold">{{ ctx }}</span>.
+            } @else {
+              Sign in to manage your sites.
+            }
           </p>
         </header>
 
@@ -252,6 +256,29 @@ export class SignInComponent implements OnInit {
   /** Post-sign-in destination — exposed for template OAuth button hrefs. */
   safeReturnUrl(): string {
     return sanitizeReturnUrl(this.route.snapshot.queryParamMap.get('returnUrl'));
+  }
+
+  /**
+   * A friendly label for where the visitor was headed when the route-guard bounced them to
+   * /signin (`?returnUrl=…`), shown as "Sign in to continue to {label}" so they know WHY they
+   * landed here. Null when they came to /signin directly (no returnUrl) → the generic welcome
+   * copy shows instead. Only a genuinely-present param triggers the contextual line.
+   */
+  returnContext(): string | null {
+    const raw = this.route.snapshot.queryParamMap.get('returnUrl');
+    if (!raw) return null;
+    const path = sanitizeReturnUrl(raw);
+    const labels: Record<string, string> = {
+      '/admin/billing': 'billing',
+      '/admin/team': 'your team',
+      '/admin/analytics': 'analytics',
+      '/admin/editor': 'the editor',
+      '/admin/settings': 'settings',
+      '/admin/forms': 'form submissions',
+      '/admin/domains': 'domains',
+    };
+    if (labels[path]) return labels[path];
+    return path.startsWith('/admin') ? 'your dashboard' : null;
   }
 
   readonly email = signal('');

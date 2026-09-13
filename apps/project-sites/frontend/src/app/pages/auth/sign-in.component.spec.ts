@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter, Router } from '@angular/router';
+import { ActivatedRoute, provideRouter, Router } from '@angular/router';
 import { SignInComponent, sanitizeReturnUrl } from './sign-in.component';
 import { AuthApiService } from './auth-api.service';
 import { AuthService } from '../../services/auth.service';
@@ -60,6 +60,36 @@ describe('SignInComponent', () => {
     expect(el.querySelector('[data-testid="sign-in-password"]')).toBeTruthy();
     expect(el.querySelector('[data-testid="sign-in-submit"]')).toBeTruthy();
     expect(el.querySelector('[data-testid="sign-in-magic-link"]')).toBeTruthy();
+  });
+
+  it('shows a "continue to {label}" subtitle when the guard bounced the user here (returnUrl context)', () => {
+    // The route-guard sends signed-out visitors to /signin?returnUrl=/admin/billing — the page
+    // should acknowledge WHERE they were headed instead of the generic "manage your sites".
+    TestBed.configureTestingModule({
+      imports: [SignInComponent],
+      providers: [
+        { provide: AuthApiService, useValue: { signInEmail, sendMagicLink, getSession } },
+        { provide: AuthService, useValue: { isLoggedIn: () => false, setSession } },
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParamMap: { get: (k: string) => (k === 'returnUrl' ? '/admin/billing' : null) } } },
+        },
+      ],
+    });
+    const f = TestBed.createComponent(SignInComponent);
+    f.detectChanges();
+    expect(f.componentInstance.returnContext()).toBe('billing');
+    const sub = (f.nativeElement.querySelector('[data-testid="signin-subtitle"]')?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    expect(sub).toContain('continue to');
+    expect(sub).toContain('billing');
+  });
+
+  it('returnContext is null (generic subtitle) when there is no returnUrl', () => {
+    const f = make();
+    expect(f.componentInstance.returnContext()).toBeNull();
+    const sub = (f.nativeElement.querySelector('[data-testid="signin-subtitle"]')?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    expect(sub).toContain('manage your sites');
   });
 
   it('disables submit until both fields are valid (submit guard)', () => {
