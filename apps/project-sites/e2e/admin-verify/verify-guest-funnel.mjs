@@ -1,7 +1,8 @@
 // verify-guest-funnel.mjs — B.1 GUEST ACQUISITION FUNNEL, headless PROD (COMPLETION map § B.1).
 //
 // The pre-auth funnel a real prospect walks BEFORE sign-in: land on the marketing homepage →
-// search their business → results render (or a graceful "lookup unavailable" when Places 403s —
+// click the hero CTA (which focuses the search) → search their business → results render (or a
+// graceful "lookup unavailable" when Places 403s —
 // both are HONEST) → the `/create` entry renders. This is the top of the golden path; if it's
 // broken (blank homepage, dead search, console errors, a non-rendering /create) no customer ever
 // reaches create→build. The authed continuation (create→build→publish) is the FULL JOURNEY loop;
@@ -46,6 +47,28 @@ try {
   });
   check('homepage renders', !home.challenge && home.len > 500 && home.h1.length > 0, `h1="${home.h1}" len=${home.len}`);
   check('homepage has a business-search entry', home.hasSearch, home.hasSearch ? 'search input present' : 'NO search input');
+
+  // 1b. The PRIMARY hero CTA a real prospect clicks ("Claim Your Site" → goGetStarted()) must be
+  // WIRED. Its contract is to focus the business-search input so the prospect starts the funnel (the
+  // guest hero CTA intentionally routes to SEARCH, not straight to /create). The probe used to jump
+  // straight to the search box, so a dead primary CTA (handler throws / the #heroSearch ViewChild is
+  // null / the button lost its (click)) would strand every prospect on the biggest button on the page
+  // while every other check stayed green — a lying-green exactly like the AL-402 degraded-path gap.
+  // Click it like a prospect + assert the search receives focus (homepage-first doctrine: click, not goto).
+  const heroCta = page.locator('[data-cta="hero-claim"]').first();
+  const ctaVisible = await heroCta.isVisible().catch(() => false);
+  if (ctaVisible) await heroCta.click().catch(() => {});
+  await page.waitForTimeout(500); // focus + (reduced-motion-aware) scroll settle
+  const ctaFocusedSearch = await page.evaluate(() => {
+    const a = document.activeElement;
+    if (!a || a.tagName !== 'INPUT') return false;
+    const meta = `${a.getAttribute('placeholder') || ''} ${a.getAttribute('aria-label') || ''}`;
+    return /business|search/i.test(meta) || !!a.closest('.hero-search-shell');
+  });
+  check('primary hero CTA is wired (click "Claim Your Site" → focuses the business-search, not a dead button)',
+    ctaVisible && ctaFocusedSearch,
+    !ctaVisible ? 'NO [data-cta="hero-claim"] button visible'
+      : ctaFocusedSearch ? 'clicked → search focused (funnel entry live)' : 'clicked but search NOT focused (CTA handler dead)');
 
   // 2. SEARCH is operable — type a business, results render OR a graceful "unavailable" (both honest).
   if (home.hasSearch) {
@@ -132,6 +155,6 @@ for (const r of rows) console.log(`  ${r.ok ? '✓' : '✗'} ${r.label.padEnd(46
 console.log(
   fails
     ? `\nVERDICT: ❌ FAIL — ${fails} guest-funnel break(s) (a prospect can't get from homepage → create).`
-    : `\nVERDICT: ✅ PASS — guest acquisition funnel operable end-to-end (homepage → search → /create), 0 console errors.`,
+    : `\nVERDICT: ✅ PASS — guest acquisition funnel operable end-to-end (homepage → hero CTA → search → /create), 0 console errors.`,
 );
 process.exit(fails ? 1 : 0);
