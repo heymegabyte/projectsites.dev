@@ -4,6 +4,7 @@ import {
   heroCtasFor,
   heroHeadlineOptions,
   homepageFaq,
+  personaHeroCopy,
   seoTaglineOptions,
 } from '../services/hero_copy.js';
 
@@ -369,5 +370,91 @@ describe('homepageFaq — homepage content-density lever (AL-409)', () => {
       expect(it.a).not.toContain('undefined');
       expect(it.a.length).toBeGreaterThan(20);
     }
+  });
+});
+
+/**
+ * Regression for AL-483 — personality-flat hero voice ("more elaborate themes"). Live defect:
+ * the-secret-society-portland (a NOIR cocktail lounge) shipped the plumber-voice H1 "Quality
+ * cocktail bar Portland counts on" + title "Local cocktail bar you can trust" — the dark noir
+ * CSS landed but the COPY read like a rugged trade. personaHeroCopy gives each DISTINCTIVE
+ * personality a voice-matched headline + subheadline so the delivered hero reads like its theme.
+ */
+describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)', () => {
+  const BANNED =
+    /limitless|revolutioniz|cutting-edge|leverage|world-class|game-chang|unlock|elevate|unparalleled|seamless|robust|synergy|holistic|turnkey|utilize/i;
+  const DISTINCTIVE = [
+    'noir',
+    'luxe',
+    'warm',
+    'bold',
+    'artisan',
+    'retro',
+    'boutique',
+    'heritage',
+    'botanical',
+    'scholarly',
+    'precision',
+    'brutalist',
+  ];
+
+  it('noir gets an after-dark voice, NOT the plumber-voice live defect', () => {
+    const p = personaHeroCopy('noir', 'cocktail bar', 'Portland');
+    expect(p).not.toBeNull();
+    // the exact live defect strings must NOT appear
+    expect(p!.headlines).not.toContain('Quality cocktail bar Portland counts on');
+    for (const h of p!.headlines) {
+      expect(h).not.toMatch(/quality .* counts on|you can trust|dependable choice/i);
+    }
+    // reads like an after-dark cocktail den
+    expect(p!.headlines.join(' ').toLowerCase()).toMatch(/after dark|night|room after dark/);
+    // subheadline still carries the category keyword (SEO) + city (anti-collision)
+    expect(p!.subheadlines.every((s) => s.includes('cocktail bar') && s.includes('Portland'))).toBe(
+      true,
+    );
+  });
+
+  it('every distinctive personality returns non-empty, city+category-woven, slop-free copy', () => {
+    for (const key of DISTINCTIVE) {
+      const p = personaHeroCopy(key, 'cocktail bar', 'Portland');
+      expect(p).not.toBeNull();
+      expect(p!.headlines.length).toBeGreaterThanOrEqual(2);
+      expect(p!.subheadlines.length).toBeGreaterThanOrEqual(2);
+      for (const h of p!.headlines) {
+        expect(h.trim().length).toBeGreaterThan(0);
+        expect(h).toContain('Portland'); // city-woven → anti-collision
+        expect(h).not.toMatch(BANNED);
+      }
+      for (const s of p!.subheadlines) {
+        expect(s).toContain('cocktail bar'); // category keyword for SEO
+        expect(s).toContain('Portland');
+        expect(s).not.toMatch(BANNED);
+        expect(s.length).toBeGreaterThan(40);
+      }
+    }
+  });
+
+  it('returns null for neutral/unknown/empty personalities (caller keeps generic frames)', () => {
+    for (const key of ['classic', 'editorial', 'futuristic', 'rugged', 'nope', '', null, undefined]) {
+      expect(personaHeroCopy(key as string, 'plumbing', 'Denver')).toBeNull();
+    }
+    // @ts-expect-error — defensive: non-string themeStyle must not throw
+    expect(personaHeroCopy(42, 'plumbing', 'Denver')).toBeNull();
+  });
+
+  it('is graceful on blank category/city (fallback tokens, never throws)', () => {
+    expect(() => personaHeroCopy('noir', '', '')).not.toThrow();
+    const p = personaHeroCopy('noir', '', '');
+    expect(p).not.toBeNull();
+    expect(p!.subheadlines.every((s) => s.includes('local business') && s.includes('your community'))).toBe(
+      true,
+    );
+  });
+
+  it('distinctive personalities read DISTINCTLY from each other (not the same template)', () => {
+    const noir = personaHeroCopy('noir', 'cafe', 'Austin')!.headlines[0];
+    const warm = personaHeroCopy('warm', 'cafe', 'Austin')!.headlines[0];
+    const bold = personaHeroCopy('bold', 'gym', 'Austin')!.headlines[0];
+    expect(new Set([noir, warm, bold]).size).toBe(3);
   });
 });

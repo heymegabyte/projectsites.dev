@@ -42,6 +42,7 @@ import {
   heroCtasFor,
   heroHeadlineOptions,
   homepageFaq,
+  personaHeroCopy,
   seoTaglineOptions,
 } from '../services/hero_copy.js';
 
@@ -905,10 +906,20 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // letting applyVerticalContentPack's existing-wins merge keep them is all it takes.
       // Kept short, slop-free, and identity-woven (name + category + city) so they read
       // naturally across all 10 verticals and never trip build_validators' banned-slop gate.
-      const heroSub = pick([
-        `Trusted ${catService} in ${cityPhrase} — clear answers, no surprises, and work we stand behind.`,
-        `${cityPhrase}'s dependable choice for ${catService}. Honest, personal, and always on your side.`,
-      ]);
+      // AL-483: personality-aware hero VOICE — the "elaborate themes" lever. The template
+      // already stamps the personality's CSS (a noir cocktail lounge ships a dark theme), but
+      // the seeded hero COPY was personality-FLAT — the-secret-society-portland shipped the
+      // plumber-voice H1 "Quality cocktail bar Portland counts on" on its noir theme. When a
+      // DISTINCTIVE personality resolves, prefer its voice-matched headline + subheadline
+      // (noir→after-dark, luxe→refined, warm→inviting, …); else keep the generic frames.
+      // Same existing-wins _content.json seam as HERO_HEADLINE — deterministic on the fast path.
+      const persona = personaHeroCopy(themeStyle, catService, cityPhrase);
+      const heroSub = persona
+        ? pick([...persona.subheadlines])
+        : pick([
+            `Trusted ${catService} in ${cityPhrase} — clear answers, no surprises, and work we stand behind.`,
+            `${cityPhrase}'s dependable choice for ${catService}. Honest, personal, and always on your side.`,
+          ]);
       const aboutPara1 = pick([
         `${safeName} is built around the people of ${cityPhrase}. We started with one belief: ${catService} should be easy to understand and easy to trust. Every day we work to earn that trust with clear communication, real follow-through, and results we stand behind.`,
         `For the families and neighbors of ${cityPhrase}, ${safeName} keeps ${catService} refreshingly simple. No jargon and no pressure, just careful work, straight answers, and a team that remembers your name.`,
@@ -927,7 +938,9 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // AL-361: frames now read naturally for BOTH service and product/retail/food
       // verticals (the old "Expert ${x} in ${city}" mangled retail — "Expert record
       // store in Portland"). heroHeadlineOptions is unit-tested + slop-free.
-      const heroHeadline = pick([...heroHeadlineOptions(catService, cityPhrase)]);
+      const heroHeadline = persona
+        ? pick([...persona.headlines])
+        : pick([...heroHeadlineOptions(catService, cityPhrase)]);
       // AL-369: seed the SEO_TAGLINE (the <title> "{name} — {tagline}" suffix, city-free —
       // Home.tsx appends "| {city}") business/vertical-specifically. The LAST generic pack-
       // default still shipping on real deliveries: every restaurant got the IDENTICAL colliding

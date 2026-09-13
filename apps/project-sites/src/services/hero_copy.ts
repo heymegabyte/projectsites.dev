@@ -199,6 +199,148 @@ export function heroHeadlineOptions(catPhrase: string, cityPhrase: string): read
   ];
 }
 
+/** Voice-matched hero copy for one visual personality: headline + subheadline candidates. */
+export interface PersonaHeroCopy {
+  readonly headlines: readonly string[];
+  readonly subheadlines: readonly string[];
+}
+
+/**
+ * Personality-aware hero copy — the "elaborate themes" lever (AL-483).
+ *
+ * WHY (confirmed live on `the-secret-society-portland`, a noir cocktail lounge that shipped
+ * the plumber-voice H1 "Quality cocktail bar Portland counts on" + title "Local cocktail bar
+ * you can trust"): the generic {@link heroHeadlineOptions} + inline hero-sub frames are
+ * personality-FLAT. {@link commerceModeFor} already varies CTAs + FAQ by how a business is
+ * patronized, and the template stamps each personality's CSS (fonts/color/motion/`data-style`),
+ * but the seeded hero VOICE ignored `themeStyle` entirely — so a noir speakeasy read like a
+ * rugged trade even though its dark CSS landed. That is the #1 "recolored template" tell: the
+ * look is on-theme, the words are not. This maps the DISTINCTIVE personalities to a voice-matched
+ * headline + subheadline set (noir → after-dark/evocative, luxe → refined restraint, warm →
+ * inviting second-person, bold → imperative, artisan → craft-proud, retro → nostalgic, boutique →
+ * tastemaker, heritage → legacy/trust, botanical → calm/reassuring, scholarly → encouraging,
+ * precision → exacting, brutalist → declarative). Lands on the SAME proven fast-path
+ * `_content.json` existing-wins seam as HERO_HEADLINE — deterministic regardless of the
+ * container's build budget (the `authoritative-signal-immutable-against-unreliable-generator`
+ * pattern), so the delivered hero READS like its theme instead of a template.
+ *
+ * Returns `null` for the neutral personalities (classic / editorial / futuristic / warm's
+ * absence) whose generic frames already fit — the caller then keeps {@link heroHeadlineOptions}
+ * + its inline sub. Every string is city/category-woven (anti-collision + keyword/SEO), slop-free
+ * (no `build_validators` BANNED_WORDS), and grammatical for its personality's vertical family.
+ * Pure; never throws.
+ *
+ * @param themeStyle - The resolved `themeStyle` (a `ThemeStyleName` or any value); non-distinctive
+ *   / unknown values yield `null`.
+ * @param catPhrase - A phrase from {@link categoryPhrase} (e.g. `'cocktail bar'`).
+ * @param cityPhrase - The city/community (e.g. `'Portland'`, or `'your community'`).
+ * @returns A {@link PersonaHeroCopy} for a distinctive personality, else `null`.
+ *
+ * @example
+ * personaHeroCopy('noir', 'cocktail bar', 'Portland')?.headlines[0]
+ * // → 'After dark, Portland comes alive'
+ * personaHeroCopy('classic', 'plumbing', 'Denver')
+ * // → null  (generic frames already fit)
+ */
+export function personaHeroCopy(
+  themeStyle: string | null | undefined,
+  catPhrase: string,
+  cityPhrase: string,
+): PersonaHeroCopy | null {
+  const cat = (catPhrase || 'local business').trim();
+  const city = (cityPhrase || 'your community').trim();
+  const key = typeof themeStyle === 'string' ? themeStyle.trim().toLowerCase() : '';
+
+  const map: Readonly<Record<string, PersonaHeroCopy>> = {
+    noir: {
+      headlines: [`After dark, ${city} comes alive`, `${city}'s room after dark`, `Where ${city} nights begin`],
+      subheadlines: [
+        `An intimate ${cat} in the heart of ${city} — low light, careful pours, and a night worth lingering over.`,
+        `${city}'s after-dark ${cat}: candlelit, unhurried, and made for the kind of evening you remember.`,
+      ],
+    },
+    luxe: {
+      headlines: [`The finest ${cat} in ${city}`, `${city}'s ${cat}, refined`, `Quiet luxury in ${city}`],
+      subheadlines: [
+        `A refined ${cat} for ${city} — considered, unhurried, and finished down to the last detail.`,
+        `${city} comes to us for ${cat} done with restraint, taste, and quiet confidence.`,
+      ],
+    },
+    warm: {
+      headlines: [`Pull up a chair, ${city}`, `Your ${city} ${cat}, always welcoming`, `${city}'s cozy corner`],
+      subheadlines: [
+        `A welcoming ${cat} in ${city} where the coffee is hot, the faces are friendly, and everyone has a seat.`,
+        `Come in, slow down, and feel at home — ${cat} made with heart for ${city}.`,
+      ],
+    },
+    bold: {
+      headlines: [`${city}, let's get to work`, `Train harder in ${city}`, `Your strongest self starts in ${city}`],
+      subheadlines: [
+        `High-energy ${cat} for ${city} — real coaching, real sweat, and results you can feel.`,
+        `Real ${cat} energy in ${city} — show up, push, and we will get you there.`,
+      ],
+    },
+    artisan: {
+      headlines: [`Made by hand in ${city}`, `${city}'s ${cat}, crafted slow`, `Small-batch, ${city}-made`],
+      subheadlines: [
+        `Handcrafted ${cat} in ${city} — made in small batches, the honest way, one at a time.`,
+        `Small-batch ${cat} from ${city} — real materials, patient hands, and work we stand behind.`,
+      ],
+    },
+    retro: {
+      headlines: [`${city}'s favorite throwback`, `A little ${city} nostalgia`, `Old-school ${cat} in ${city}`],
+      subheadlines: [
+        `A joyfully vintage ${cat} in ${city} — the classics you grew up on, done right and full of character.`,
+        `${city}, bring the whole crew: ${cat} with old-school soul and a wink of fun.`,
+      ],
+    },
+    boutique: {
+      headlines: [`${city}'s most-loved ${cat}`, `Find something special in ${city}`, `Your ${city} ${cat}, styled`],
+      subheadlines: [
+        `A chic ${cat} in ${city} — pieces worth the trip, chosen with a tastemaker's eye.`,
+        `${city} shops with us for ${cat} that feels personal, current, and quietly covetable.`,
+      ],
+    },
+    heritage: {
+      headlines: [`${city} has trusted us for years`, `A ${city} ${cat} built on trust`, `Generations of ${city} know us`],
+      subheadlines: [
+        `A ${cat} ${city} has relied on for years — steady, principled, and here for the long run.`,
+        `${city} turns to us for ${cat} grounded in experience, judgment, and a name that keeps its word.`,
+      ],
+    },
+    botanical: {
+      headlines: [`Feel better in ${city}`, `Calm, capable care in ${city}`, `${city}, take a deep breath`],
+      subheadlines: [
+        `Gentle, attentive ${cat} for ${city} — unhurried care that meets you where you are.`,
+        `${city} rests easy with ${cat} that is calm, clear, and always in your corner.`,
+      ],
+    },
+    scholarly: {
+      headlines: [`Where ${city} learns`, `${city}, let's grow together`, `Bright futures start in ${city}`],
+      subheadlines: [
+        `Encouraging ${cat} for ${city} — patient teaching, real progress, and a place every learner belongs.`,
+        `${city} families choose us for ${cat} that makes learning click and confidence grow.`,
+      ],
+    },
+    precision: {
+      headlines: [`Precision ${cat} in ${city}`, `${city}'s ${cat}, engineered right`, `Dialed in for ${city}`],
+      subheadlines: [
+        `Exacting ${cat} for ${city} — measured, meticulous, and done to spec the first time.`,
+        `${city} counts on us for ${cat} with the details right down to the last millimeter.`,
+      ],
+    },
+    brutalist: {
+      headlines: [`${city}. ${cat}. No compromise`, `Bold ${cat} for ${city}`, `${city}, made to stand out`],
+      subheadlines: [
+        `Uncompromising ${cat} in ${city} — sharp, deliberate, and impossible to ignore.`,
+        `${city} comes to us for ${cat} with a point of view and the work to back it up.`,
+      ],
+    },
+  };
+
+  return key in map ? map[key]! : null;
+}
+
 /**
  * `<title>` SEO_TAGLINE options (AL-369) — the value-prop title suffix in
  * `<title>{BUSINESS_NAME} — {SEO_TAGLINE}</title>` (the template's Home.tsx appends
