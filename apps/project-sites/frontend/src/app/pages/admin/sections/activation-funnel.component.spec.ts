@@ -1,7 +1,9 @@
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of, throwError } from 'rxjs';
 
 import { AdminActivationFunnelComponent } from './activation-funnel.component';
+import { AdminStateService } from '../admin-state.service';
 import {
   ActivationAnalyticsService,
   type ActivationFunnelResponse,
@@ -25,7 +27,7 @@ function resp(over: Partial<ActivationFunnelResponse> = {}): ActivationFunnelRes
   };
 }
 
-function setup(value = of(resp()), claimsRows: unknown[] = [], publishesRows: unknown[] = []) {
+function setup(value = of(resp()), claimsRows: unknown[] = [], publishesRows: unknown[] = [], superAdmin = true) {
   const getActivationFunnel = jasmine.createSpy('getActivationFunnel').and.returnValue(value);
   const getClaimsBySource = jasmine
     .createSpy('getClaimsBySource')
@@ -33,6 +35,9 @@ function setup(value = of(resp()), claimsRows: unknown[] = [], publishesRows: un
   const getPublishesBySource = jasmine
     .createSpy('getPublishesBySource')
     .and.returnValue(of({ rows: publishesRows, degraded: false, count: publishesRows.length }));
+  // The funnel gates its `/api/admin/*` fetches on the resolved super-admin flag; mock the shell
+  // state (loading already settled) so the effect decides synchronously on first CD.
+  const state = { loading: signal(false), isSuperAdmin: signal(superAdmin) };
   TestBed.configureTestingModule({
     imports: [AdminActivationFunnelComponent],
     providers: [
@@ -40,11 +45,12 @@ function setup(value = of(resp()), claimsRows: unknown[] = [], publishesRows: un
         provide: ActivationAnalyticsService,
         useValue: { getActivationFunnel, getClaimsBySource, getPublishesBySource },
       },
+      { provide: AdminStateService, useValue: state },
     ],
   });
   const fixture: ComponentFixture<AdminActivationFunnelComponent> =
     TestBed.createComponent(AdminActivationFunnelComponent);
-  fixture.detectChanges(); // ngOnInit → load
+  fixture.detectChanges(); // CD flushes the super-admin effect → load (when authorized)
   return { fixture, getActivationFunnel, getClaimsBySource, getPublishesBySource };
 }
 
@@ -123,5 +129,17 @@ describe('AdminActivationFunnelComponent', () => {
   it('hides the delivery-mix section when there are no publishes', () => {
     const { fixture } = setup(of(resp()), [], []);
     expect(fixture.nativeElement.querySelector('[data-testid="funnel-delivery"]')).toBeNull();
+  });
+
+  it('for a NON-super-admin: shows the admin-only state + fires NO /api/admin/* fetches (no 403 console errors)', () => {
+    const { fixture, getActivationFunnel, getClaimsBySource, getPublishesBySource } = setup(of(resp()), [], [], false);
+    // Honest gated state instead of a misleading "Couldn't load — Retry" error card.
+    expect(fixture.nativeElement.querySelector('[data-testid="funnel-admin-only"]')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-testid="funnel-error"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-testid="funnel-bars"]')).toBeNull();
+    // The whole point: the admin-only endpoints are NEVER called → no 403s in the console.
+    expect(getActivationFunnel).not.toHaveBeenCalled();
+    expect(getClaimsBySource).not.toHaveBeenCalled();
+    expect(getPublishesBySource).not.toHaveBeenCalled();
   });
 });

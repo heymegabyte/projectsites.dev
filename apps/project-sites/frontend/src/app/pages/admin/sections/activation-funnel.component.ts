@@ -1,6 +1,7 @@
-import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, effect, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
+import { AdminStateService } from '../admin-state.service';
 import {
   ActivationAnalyticsService,
   aggregateClaimsBySource,
@@ -43,7 +44,18 @@ import {
         }
       </div>
 
-      @if (loading()) {
+      @if (adminOnly()) {
+        <div
+          class="mt-6 rounded-xl border border-[#00e5ff]/20 bg-[#00e5ff]/[0.05] px-4 py-3"
+          data-testid="funnel-admin-only"
+          role="status"
+        >
+          <p class="text-[0.85rem] text-[#9fe8f5] m-0">
+            The activation funnel is a <strong class="text-white">platform-wide</strong> view for platform admins.
+            Your own site's traffic, forms, and visitor journey are in the other Analytics tabs.
+          </p>
+        </div>
+      } @else if (loading()) {
         <p class="text-[0.82rem] text-text-secondary mt-6" data-testid="funnel-loading">Loading funnel…</p>
       } @else if (loadError()) {
         <div class="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3" data-testid="funnel-error">
@@ -133,15 +145,40 @@ import {
 export class AdminActivationFunnelComponent implements OnInit {
   private analytics = inject(ActivationAnalyticsService);
   private destroyRef = inject(DestroyRef);
+  private state = inject(AdminStateService);
 
   readonly funnel = signal<ActivationFunnelResponse | null>(null);
   readonly channels = signal<ClaimChannel[]>([]);
   readonly deliveryMix = signal<DeliveryMix[]>([]);
   readonly loading = signal(true);
   readonly loadError = signal(false);
+  // The funnel reads `/api/admin/*` — PLATFORM analytics, super-admin only. A non-super-admin
+  // (every real business owner) firing them gets 3× 403 console errors AND a misleading
+  // "Couldn't load — Retry" error card (it's not transient — they're just not authorized).
+  // Gate on the resolved super-admin flag: authorized → load; not → an honest admin-only state.
+  readonly adminOnly = signal(false);
+  private decided = false;
+
+  constructor() {
+    // Decide once the shell's getMe (→ isSuperAdmin) has resolved (`state.loading` flips false).
+    // Deep-linking straight to this tab is handled — the effect re-runs when the flag settles.
+    effect(() => {
+      const settled = !this.state.loading();
+      const superAdmin = this.state.isSuperAdmin();
+      if (this.decided || !settled) return;
+      this.decided = true;
+      if (superAdmin) {
+        this.load();
+      } else {
+        this.adminOnly.set(true);
+        this.loading.set(false);
+      }
+    });
+  }
 
   ngOnInit(): void {
-    this.load();
+    // Loading is driven by the super-admin effect above (fires once getMe resolves) — this avoids
+    // firing the admin-only fetches before we know the caller's role (which would 403 + log errors).
   }
 
   /** Fetch the funnel (default 30-day window); fail-soft to an error card with Retry. */
