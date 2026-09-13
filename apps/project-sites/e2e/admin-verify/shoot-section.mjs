@@ -85,8 +85,17 @@ for (const s of SECTIONS) {
     window.scrollTo(0, 0);
   });
   await page.waitForTimeout(1600); // let the just-triggered counters finish animating
+  // Guard (validator-precision, AL-486): a slug that is NOT a real /admin route lands on the
+  // branded admin-404 shell ("This admin page doesn't exist"). Shooting it looks like a BROKEN
+  // section under vision-inspection — it cost a near-false "media section is broken" chase (media
+  // is a drag-drop library consumed contextually, NOT a routed section). Flag it so the shot is
+  // read as "not a section route", never a regression. Content sweeps (surf-audit) use a curated
+  // SECTIONS list and never hit this; ad-hoc shoot-section slugs can.
+  const is404 = await page
+    .evaluate(() => /this admin page doesn.?t exist|error\s*404/i.test(document.body?.innerText || ''))
+    .catch(() => false);
   const path = resolve(outDir, `${s}-${VW}.png`);
   await page.screenshot({ path, fullPage: true });
-  console.log(`shot ${s} → ${path}`);
+  console.log(`shot ${s} → ${path}${is404 ? '  ::notice:: admin-404 shell (not a known section route — shot is the 404 page, NOT a broken section)' : ''}`);
 }
 await browser.close();
