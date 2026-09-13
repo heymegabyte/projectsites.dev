@@ -232,7 +232,7 @@ export interface FaqEntry {
 /** A homepage FAQ block: a headline + exactly four business-specific Q&A pairs. */
 export interface HomepageFaq {
   readonly headline: string;
-  readonly items: readonly [FaqEntry, FaqEntry, FaqEntry, FaqEntry];
+  readonly items: readonly [FaqEntry, FaqEntry, FaqEntry, FaqEntry, FaqEntry];
 }
 
 /**
@@ -277,7 +277,7 @@ export function homepageFaq(
   const cat = (catPhrase || 'local business').trim();
   const city = (cityPhrase || 'your community').trim();
 
-  const sets: Record<string, readonly [FaqEntry, FaqEntry, FaqEntry, FaqEntry]> = {
+  const sets: Record<string, readonly [FaqEntry, FaqEntry, FaqEntry, FaqEntry, FaqEntry]> = {
     quickserve: [
       {
         q: 'What do you serve?',
@@ -294,6 +294,10 @@ export function homepageFaq(
       {
         q: 'Do you have options for dietary needs?',
         a: `We do our best to have something for everyone at ${biz}. Ask our ${city} team about dairy-free, vegan, gluten-friendly, or other options and we will point you to the right pick or tell you honestly what is in each item. Your comfort matters, so never hesitate to ask about ingredients before you order.`,
+      },
+      {
+        q: 'Can you handle catering or large orders?',
+        a: `Yes — ${biz} loves being part of ${city} gatherings, from an office drop-off to a party platter. Give us a little lead time using the contact details below and we will help you pick quantities, box everything for easy transport, and have it ready right on schedule. Ask about our most popular crowd-pleasers and we will steer you toward what travels best.`,
       },
     ],
     hospitality: [
@@ -313,6 +317,10 @@ export function homepageFaq(
         q: 'Where are you located, and is parking easy?',
         a: `You will find ${biz} right here in ${city} — the map and full address are in the contact section below, with one-tap directions. We are easy to reach whether you are coming from across town or out of the area, and most guests find nearby parking without any trouble. Reach out if you would like directions.`,
       },
+      {
+        q: 'Can you accommodate allergies or dietary needs?',
+        a: `Absolutely — just let ${biz} know when you book or when you sit down. Our ${city} kitchen handles common allergies and dietary requests every day, and we would rather you ask than wonder, so tell your server what you need and we will walk you through the safest choices. When in doubt, call ahead and we will make a plan before you arrive.`,
+      },
     ],
     service: [
       {
@@ -330,6 +338,10 @@ export function homepageFaq(
       {
         q: 'How soon can you start?',
         a: `We work hard to fit your schedule, and for urgent issues we do our best to get to you fast. Reach out with your project and timing using the details below and ${biz} will get you on the calendar quickly, with clear communication from the first call all the way through to the finished job.`,
+      },
+      {
+        q: 'Do you guarantee your work?',
+        a: `Yes — ${biz} stands behind every job long after we pack up. If something is not right, tell us and we will come back and fix it; that promise is a big part of why ${city} keeps calling us. We would rather do it right and make it last than cut a corner and lose your trust, so ask us about the guarantee on your specific project.`,
       },
     ],
     retail: [
@@ -349,6 +361,10 @@ export function homepageFaq(
         q: 'Can I reach you with questions before I visit?',
         a: `Of course. Call or message ${biz} using the details below and a real person from our ${city} shop will help you — no phone trees and no runaround, just a straight, friendly answer. Whether you are checking stock or want a recommendation, we are glad to help before you make the trip.`,
       },
+      {
+        q: 'Do you offer gift cards or shipping?',
+        a: `Many of our ${city} customers ask, so just reach out using the details below and ${biz} will let you know what we can do — gift cards make an easy present, and we will happily arrange to get an item to you when shipping or local delivery is available. If we cannot ship something ourselves, we will tell you straight and suggest the next best option.`,
+      },
     ],
     professional: [
       {
@@ -366,6 +382,10 @@ export function homepageFaq(
       {
         q: 'How do fees work?',
         a: `We believe in clear, honest pricing with no games. ${biz} explains fees before any work begins, so ${city} clients always understand both the cost and the value they are getting — and never see a surprise on the final bill. If your needs change along the way, we talk it through before anything moves.`,
+      },
+      {
+        q: 'How will we stay in touch on my matter?',
+        a: `You will always know where things stand. ${biz} keeps ${city} clients updated at every meaningful step, replies promptly, and gives you one clear point of contact rather than a maze of hand-offs. Anything you share with us stays confidential, and if a question comes up between updates, reach out — we would rather you ask than sit and wonder.`,
       },
     ],
     nonprofit: [
@@ -385,6 +405,10 @@ export function homepageFaq(
         q: 'Do you host events?',
         a: `Yes — ${biz} brings ${city} together throughout the year with events, drives, and gatherings. Check back here or reach out to learn what is coming up and how to take part. Our events are also a wonderful, low-pressure way to see the mission up close before you decide how you would like to get involved.`,
       },
+      {
+        q: 'Is my donation tax-deductible?',
+        a: `In most cases, yes — ${biz} will provide a receipt for your records with every gift, and our ${city} team is glad to answer questions about how to document your support at tax time. Reach out using the details below if you need specific paperwork, and we will get it to you promptly so nothing about giving feels complicated.`,
+      },
     ],
     general: [
       {
@@ -402,6 +426,10 @@ export function homepageFaq(
       {
         q: 'Why should I choose you?',
         a: `${biz} treats ${city} like neighbors, not numbers. Honest work, straight answers, and follow-through you can count on are what set us apart, and it is why so many of our customers come back and send their friends. We earn your trust the old-fashioned way — by doing right by you every single time.`,
+      },
+      {
+        q: 'How do I get started?',
+        a: `It is easy — reach out to ${biz} using the contact details below and tell us a little about what you are looking for. We will point you to the right next step for ${city}, answer any questions up front, and make the whole process feel simple from the very first message. There is no pressure and no obligation; we are just glad to help you figure it out.`,
       },
     ],
   };

@@ -297,7 +297,7 @@ describe('homepageFaq — homepage content-density lever (AL-409)', () => {
   const BANNED =
     /limitless|revolutioniz|cutting-edge|leverage|world-class|game-chang|unlock|elevate|unparalleled|seamless/i;
 
-  it('returns exactly 4 Q&A pairs + a headline for every mode', () => {
+  it('returns exactly 5 Q&A pairs + a headline for every mode (AL-466: 4→5 density lever)', () => {
     for (const mode of [
       'hospitality',
       'service',
@@ -307,7 +307,7 @@ describe('homepageFaq — homepage content-density lever (AL-409)', () => {
       'general',
     ]) {
       const faq = homepageFaq(mode, 'Acme Co', 'widget shop', 'Springfield');
-      expect(faq.items).toHaveLength(4);
+      expect(faq.items).toHaveLength(5);
       expect(faq.headline.length).toBeGreaterThan(3);
       for (const it of faq.items) {
         expect(it.q.trim().length).toBeGreaterThan(5);
@@ -355,10 +355,10 @@ describe('homepageFaq — homepage content-density lever (AL-409)', () => {
   });
 
   it('falls back to the general set for unknown/empty/nullish mode; never throws', () => {
-    expect(homepageFaq('nope', 'X', 'shop', 'Y').items).toHaveLength(4);
-    expect(homepageFaq('', 'X', 'shop', 'Y').items).toHaveLength(4);
-    expect(homepageFaq(undefined, 'X', 'shop', 'Y').items).toHaveLength(4);
-    expect(homepageFaq(null, 'X', 'shop', 'Y').items).toHaveLength(4);
+    expect(homepageFaq('nope', 'X', 'shop', 'Y').items).toHaveLength(5);
+    expect(homepageFaq('', 'X', 'shop', 'Y').items).toHaveLength(5);
+    expect(homepageFaq(undefined, 'X', 'shop', 'Y').items).toHaveLength(5);
+    expect(homepageFaq(null, 'X', 'shop', 'Y').items).toHaveLength(5);
     // @ts-expect-error — defensive: non-string mode must not throw
     expect(() => homepageFaq(42, 'X', 'shop', 'Y')).not.toThrow();
   });

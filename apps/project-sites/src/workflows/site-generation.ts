@@ -862,7 +862,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // "Fresh, Local, Made From Scratch" (Ember + Cafe Dim Sum). Same _content.json seam +
       // existing-wins merge as HERO_HEADLINE; slop-free + distinct from the H1 so <title> ≠ <h1>.
       const seoTagline = pick([...seoTaglineOptions(catService)]);
-      // AL-409: seed the homepage FAQ (FAQ_HEADLINE + FAQ_1..4_Q/A) — the template's
+      // AL-409/466: seed the homepage FAQ (FAQ_HEADLINE + FAQ_1..5_Q/A) — the template's
       // Home.tsx renders these but the fast-path build never seeded them, so every
       // deployed homepage shipped the thin generic pack-default FAQ and landed ~600
       // words (under the 800 beat-the-source density bar; a prompt-only mandate was
@@ -893,6 +893,8 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
           FAQ_3_Q: faq.items[2].q,
           FAQ_4_A: faq.items[3].a,
           FAQ_4_Q: faq.items[3].q,
+          FAQ_5_A: faq.items[4].a,
+          FAQ_5_Q: faq.items[4].q,
           FAQ_HEADLINE: faq.headline,
           HERO_CTA: heroCtas.primary,
           HERO_HEADLINE: heroHeadline,
