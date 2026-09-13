@@ -34,11 +34,14 @@ const { chromium } = req('playwright');
 const ORIGIN = process.env.ORIGIN || 'https://projectsites.dev';
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-// 12 data-heavy sections (was 6 — media/logs/sites/team/social/user added AL-131 after
-// verifying they too degrade gracefully under a forced data-500). Override via EDGE_SECTIONS.
+// 20 data-heavy sections (was 6 → 12 media/logs/sites/team/social/user AL-131 → 20
+// apps/voice/dashboard/settings/mcp/domains/webhooks/api-tokens AL-479, each verified to
+// degrade gracefully under a forced data-500 before being added — the settings hash-tabs
+// mcp/domains/webhooks/api-tokens each own a DISTINCT data load). Override via EDGE_SECTIONS.
 const SECTIONS = (
   process.env.EDGE_SECTIONS ||
-  'analytics,forms,audit,snapshots,billing,deliverability,media,logs,sites,team,social,user'
+  'analytics,forms,audit,snapshots,billing,deliverability,media,logs,sites,team,social,user,' +
+    'apps,voice,dashboard,settings,mcp,domains,webhooks,api-tokens'
 ).split(',');
 // Allow-list: session/shell + the sites LIST (so a site stays selected) + entitlements.
 const ALLOW = (u) =>
