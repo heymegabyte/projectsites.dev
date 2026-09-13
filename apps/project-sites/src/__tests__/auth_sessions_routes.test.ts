@@ -196,7 +196,11 @@ describe('POST /api/auth/sign-out (revoke CURRENT session — AL-506 replay-gap 
   });
 
   it('is a no-op 200 when there is NO bearer token (cookie/local-only sign-out — never blocks)', async () => {
-    const noBearer: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' };
+    const noBearer: RequestInit = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    };
     const res = await req(makeApp(AUTH), '/api/auth/sign-out', noBearer, makeEnv());
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: true });
