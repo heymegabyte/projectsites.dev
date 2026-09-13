@@ -58,6 +58,7 @@ const PROBES = [
   { label: 'funnel-reconcile', file: 'verify-funnel-reconcile.mjs', env: {} },
   ...causal,
   { label: 'guest-funnel', file: 'verify-guest-funnel.mjs', env: {} },
+  { label: 'guest-funnel-keyboard', file: 'verify-guest-funnel-keyboard.mjs', env: {} },
   { label: 'lead-claim-funnel', file: 'verify-lead-claim-funnel.mjs', env: {} },
   { label: 'billing-checkout', file: 'verify-billing-checkout.mjs', env: {} },
   { label: 'billing-full-flow', file: 'verify-billing-full-flow.mjs', env: {} },

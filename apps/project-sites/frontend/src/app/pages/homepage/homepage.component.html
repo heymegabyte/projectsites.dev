@@ -193,6 +193,8 @@
               [class.border-t]="item.type === 'custom'"
               [class.border-t-subtle]="item.type === 'custom'"
               (mousedown)="selectItem(item)"
+              (keydown.enter)="selectItem(item)"
+              (keydown.space)="$event.preventDefault(); selectItem(item)"
             >
               <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
                    [class.bg-primary-dim]="item.type !== 'custom'"
@@ -629,6 +631,8 @@
               [class.border-t]="item.type === 'custom'"
               [class.border-t-subtle]="item.type === 'custom'"
               (mousedown)="selectItem(item)"
+              (keydown.enter)="selectItem(item)"
+              (keydown.space)="$event.preventDefault(); selectItem(item)"
             >
               <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
                    [class.bg-primary-dim]="item.type !== 'custom'"
