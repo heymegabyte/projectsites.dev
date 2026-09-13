@@ -292,7 +292,11 @@
               @for (b of businessSuggestions(); track b.place_id) {
                 <div
                   class="py-2.5 px-4 text-[0.85rem] text-text-secondary cursor-pointer flex items-center gap-2.5 transition-colors border-b border-white/[0.03] last:border-b-0 hover:bg-[#12123a] hover:text-light"
+                  role="button"
+                  tabindex="0"
                   (mousedown)="selectBusiness(b)"
+                  (keydown.enter)="selectBusiness(b)"
+                  (keydown.space)="$event.preventDefault(); selectBusiness(b)"
                 >
                   <svg
                     class="text-primary flex-shrink-0"
@@ -382,7 +386,11 @@
               @for (s of addressSuggestions(); track s.description) {
                 <div
                   class="py-2.5 px-4 text-[0.85rem] text-text-secondary cursor-pointer flex items-center gap-2.5 transition-colors border-b border-white/[0.03] last:border-b-0 hover:bg-[#12123a] hover:text-light"
+                  role="button"
+                  tabindex="0"
                   (mousedown)="selectAddress(s)"
+                  (keydown.enter)="selectAddress(s)"
+                  (keydown.space)="$event.preventDefault(); selectAddress(s)"
                 >
                   <svg
                     class="text-primary flex-shrink-0"

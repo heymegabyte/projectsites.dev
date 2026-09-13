@@ -29,18 +29,18 @@ const RESULT_SEL = 'button:has-text("Pre-built"), [role="listbox"] button, .abso
 
 const b = await chromium.launch();
 
-/** Drive the funnel with one input method; return {rows, navigated, dest}. */
-async function attempt(useMouse) {
+/** Drive a funnel surface with one input method; return {rows, navigated, dest}. */
+async function attempt(useMouse, path = '/', rowSel = 'button:has-text("Pre-built")') {
   const p = await (await b.newContext({ userAgent: UA, viewport: { width: 1280, height: 900 } })).newPage();
   try {
-    await p.goto(`${ORIGIN}/?cb=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await p.goto(`${ORIGIN}${path}?cb=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await p.waitForTimeout(1800);
     const inp = p.locator(INPUT_SEL).first();
     await inp.click().catch(() => {});
     await inp.pressSequentially('coffee', { delay: 55 });
     await p.waitForTimeout(4000);
-    const rows = await p.locator('button:has-text("Pre-built")').count();
-    const row = p.locator(RESULT_SEL).first();
+    const rows = await p.locator(rowSel).count();
+    const row = p.locator(rowSel).first();
     const before = p.url();
     if (rows === 0) return { rows, navigated: false, dest: '(no results)' };
     if (useMouse) {
@@ -60,24 +60,31 @@ async function attempt(useMouse) {
 
 const mouse = await attempt(true);
 const kbd = await attempt(false);
+// Sibling surface (AL-482 class-sweep): the /search page result rows shared the same
+// `(mousedown)`-only bug — as bare <div>s (not even focusable). They're now role=button +
+// tabindex=0 + keydown. Guard keyboard-selectability here too. Fail-open on 0 results.
+const searchKbd = await attempt(false, '/search', '[role="button"][tabindex="0"]');
 await b.close();
 
 console.log('\n━━ § B.1 guest-funnel search result — keyboard + mouse operability (WCAG 2.1.1) ━━');
-console.log(`  mouse    rows=${mouse.rows} navigated=${mouse.navigated} → ${mouse.dest}`);
-console.log(`  keyboard rows=${kbd.rows} navigated=${kbd.navigated} → ${kbd.dest}`);
+console.log(`  homepage mouse    rows=${mouse.rows} navigated=${mouse.navigated} → ${mouse.dest}`);
+console.log(`  homepage keyboard rows=${kbd.rows} navigated=${kbd.navigated} → ${kbd.dest}`);
+console.log(`  /search  keyboard rows=${searchKbd.rows} navigated=${searchKbd.navigated} → ${searchKbd.dest}`);
 
 if (mouse.rows === 0 && kbd.rows === 0) {
-  console.log('\n::notice:: verify-guest-funnel-keyboard SKIPPED — search returned 0 results (Places+sites empty); nothing to select.');
+  console.log('\n::notice:: verify-guest-funnel-keyboard SKIPPED — homepage search returned 0 results (Places+sites empty); nothing to select.');
   process.exit(0);
 }
-const ok = mouse.navigated && kbd.navigated;
+// /search is fail-open (0 results = Places degraded there → nothing to select, not a regression).
+const searchOk = searchKbd.rows === 0 || searchKbd.navigated;
+const ok = mouse.navigated && kbd.navigated && searchOk;
 if (!ok) {
   console.error(
     `\n❌ § B.1 keyboard FAIL — a search result must be selectable by BOTH pointer AND keyboard ` +
-      `(mouse=${mouse.navigated}, keyboard=${kbd.navigated}). A mousedown-only handler strands keyboard users ` +
-      `(WCAG 2.1.1) + makes the "Enter to select" aria-live status a lie.`,
+      `(homepage mouse=${mouse.navigated} kbd=${kbd.navigated}; /search kbd=${searchKbd.navigated} rows=${searchKbd.rows}). ` +
+      `A mousedown-only handler strands keyboard users (WCAG 2.1.1) + makes the "Enter to select" aria-live status a lie.`,
   );
   process.exit(1);
 }
-console.log('\n✅ § B.1 PASS — search result selectable by mouse (mousedown) AND keyboard (Enter/Space) → funnel entry (WCAG 2.1.1).');
+console.log('\n✅ § B.1 PASS — homepage + /search results selectable by mouse AND keyboard (Enter/Space) → funnel entry (WCAG 2.1.1).');
 process.exit(0);
