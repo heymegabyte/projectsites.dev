@@ -1,0 +1,106 @@
+/**
+ * @module services/hero_image
+ * @description Curated per-SUB-VERTICAL hero image seed for the fast-path site-generation build.
+ *
+ * WHY (AL-485 — C.7 hero-image-vertical, the ONE documented-open § C dimension): the template
+ * content pack keys `HERO_IMAGE_URL` off ~14 BROAD verticals (medical/dental/…/retail/restaurant),
+ * so a plant shop / record store / cocktail lounge collapses to the generic bucket — "retail" ships
+ * "cozy independent shop interior shelves", a cocktail bar ships the "restaurant" cafe interior. The
+ * #1 visual element (the LCP hero) then shows the WRONG vertical: perennials-brooklyn (plant) +
+ * the-secret-society-portland (cocktail bar) were BOTH flagged live by `verify-hero-image-vertical`.
+ * The buildPrompt "pick the vertical-specific `_assets.json` image" instruction is INERT on the
+ * ~150s fast path (AL-409, the fast-path-renders-seeded-tokens law). Root fix (the prescribed lever,
+ * per `_APP_COMPLETION.md` § C AL-480): SEED a vertical-specific `HERO_IMAGE_URL` at delivery time
+ * from this curated map, on the SAME existing-wins `_content.json` seam as `HERO_HEADLINE` — the
+ * worker value wins over the pack default, so it lands on the fast path (deterministic, no rebuild
+ * of the container needed; the `authoritative-signal-immutable-against-unreliable-generator` pattern).
+ *
+ * Each URL is a REAL `images.unsplash.com` CDN link (already in `build_validators` external-host
+ * allowlist), sourced via the Unsplash search API (2026-09-13) for its vertical so BOTH hold:
+ *   (a) the PIXELS are on-vertical — each was picked by requiring the vertical noun in the photo's
+ *       own `alt_description` (tags are noisy; alt is the reliable signal);
+ *   (b) the `ixid` query param base64-decodes to a query containing the vertical noun — exactly what
+ *       `verify-hero-image-vertical.mjs` decodes to score the hero, so the probe flips green.
+ *
+ * Covers the sub-verticals that measurably collapse to a generic pack bucket. A business with no
+ * curated match returns `null` → the caller omits the seed → the pack's broad-vertical default still
+ * applies (no regression). Pure; never throws.
+ */
+
+/** A curated hero image: the Unsplash CDN URL + a clean, vertical-descriptive alt (a11y + SEO). */
+export interface HeroImage {
+  readonly url: string;
+  readonly alt: string;
+}
+
+// Sourced 2026-09-13 (Unsplash search API, alt-verified on-vertical). `w=1080` landscape, allowlisted host.
+const PLANT: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1758524056772-0b2f42ca8174?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHw3fHxwbGFudCUyMHNob3AlMjBpbnRlcmlvciUyMHBsYW50c3xlbnwxfDB8fHwxNzg5MzE1NjQxfDA&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'Lush greenery filling a bright, welcoming plant shop',
+};
+const FLORIST: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1487070183336-b863922373d4?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwyfHxmbG93ZXIlMjBzaG9wJTIwZmxvcmlzdCUyMGludGVyaW9yfGVufDF8MHx8fDE3ODkzMTU2NDF8MA&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'Fresh seasonal bouquets arranged in a flower shop',
+};
+const COCKTAIL: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1763771757330-3212b518e31c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHw0fHxjb2NrdGFpbCUyMGJhciUyMGludGVyaW9yfGVufDF8MHx8fDE3ODkzMTU2NDF8MA&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'A bartender crafting cocktails behind a dimly lit bar',
+};
+const RECORD: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1582730147924-d92f4da00252?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwyfHxyZWNvcmQlMjBzdG9yZSUyMHZpbnlsJTIwcmVjb3Jkc3xlbnwxfDB8fHwxNzg5MzE1NjQxfDA&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'Vinyl records lined up in a record store',
+};
+const BOOKSTORE: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1620388639945-990753377b58?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwzfHxib29rc3RvcmUlMjBib29rc2hlbHZlcyUyMGludGVyaW9yfGVufDF8MHx8fDE3ODkzMTU2NDJ8MA&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'Wooden shelves lined with books in a cozy bookstore',
+};
+const BREWERY: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1546622891-02c72c1537b6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwxfHxicmV3ZXJ5JTIwYmVlciUyMHRhcHMlMjBiYXJ8ZW58MXwwfHx8MTc4OTMxNTY0Mnww&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'A fresh beer poured from the taps at a craft brewery',
+};
+const JEWELRY: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1631560230221-faff391fd241?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwxMXx8amV3ZWxyeSUyMG5lY2tsYWNlJTIwcmluZyUyMGRpc3BsYXl8ZW58MXwwfHx8MTc4OTMxNTY0Mnww&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'A fine necklace on display in a jewelry store',
+};
+const TATTOO: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1760877611905-0f885a3ce551?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwxfHx0YXR0b28lMjBzdHVkaW8lMjBpbnRlcmlvcnxlbnwxfDB8fHwxNzg5MzE1NjQyfDA&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'The inviting interior of a modern tattoo studio',
+};
+
+/**
+ * Ordered [sub-vertical pattern → curated hero]. FIRST match wins. Scanned against the derived
+ * category phrase (`categoryPhrase(...)` output). Deliberately NARROW: only the sub-verticals a
+ * broad pack bucket gets visibly WRONG. No bare `\bbar\b` (would catch "barber"); no bare `record`
+ * (paired with store/shop/vinyl). Each pattern's noun is the same one the probe reads from the H1.
+ */
+const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
+  [/\b(plant\s?(shop|store|nursery)?|garden\s?cent\w*|nursery|greenhouse|succulent|houseplant)\b/, PLANT],
+  [/\b(florist|flower\s?(shop|store)?|floral)\b/, FLORIST],
+  [/\b(cocktail|speakeas\w*|night\s?club|nightclub|whisk\w*\s?bar|jazz\s?(bar|club|lounge)|piano\s?bar|cocktail\s?lounge)\b/, COCKTAIL],
+  [/\b(record\s?(store|shop)|vinyl)\b/, RECORD],
+  [/\b(book\s?stor\w*|bookshop\w*|booksell\w*|\bbooks\b)\b/, BOOKSTORE],
+  [/\b(brewery|breweries|brewpub|taproom|beer\s?(hall|garden))\b/, BREWERY],
+  [/\b(jewel\w*|goldsmith\w*|watch\s?(shop|store|maker))\b/, JEWELRY],
+  [/\b(tattoo\w*)\b/, TATTOO],
+];
+
+/**
+ * Return a curated hero image for a business's sub-vertical, or `null` when none applies (the caller
+ * then omits the `HERO_IMAGE_URL`/`HERO_IMAGE_ALT` seed and the pack's broad default stands).
+ *
+ * @param catPhrase - The derived category noun phrase (`categoryPhrase(...)` output, e.g.
+ *   `'plant shop'`, `'cocktail bar'`, `'record store'`); any non-string yields `null`.
+ * @returns The matching {@link HeroImage}, or `null`. Never throws.
+ *
+ * @example
+ * heroImageForVertical('plant shop')?.alt      // → 'Lush greenery filling a bright, welcoming plant shop'
+ * heroImageForVertical('cocktail bar')?.url    // → 'https://images.unsplash.com/photo-1763771757330-…'
+ * heroImageForVertical('plumbing')             // → null  (broad pack default is correct)
+ * heroImageForVertical('')                     // → null
+ */
+export function heroImageForVertical(catPhrase?: string | null): HeroImage | null {
+  const s = typeof catPhrase === 'string' ? catPhrase.toLowerCase().trim() : '';
+  if (!s) return null;
+  for (const [re, img] of RULES) if (re.test(s)) return img;
+  return null;
+}

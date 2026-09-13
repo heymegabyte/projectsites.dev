@@ -24,7 +24,10 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'gruhn-guitars-nashville,gentle-dental-seattle').split(',');
+// Default set includes a SUB-VERTICAL case (perennials-brooklyn, a plant shop) that the AL-485
+// worker HERO_IMAGE_URL seed targets — it tracks ❌ (fail-open ::notice) until that site rebuilds
+// with the curated plant hero, then flips ✓. gentle-dental is the known-good control.
+const SITES = (process.env.SITES || 'gruhn-guitars-nashville,gentle-dental-seattle,perennials-brooklyn').split(',');
 
 // Words in the H1/title that are NOT the vertical: filler, geo-agnostic, and GENERIC retail
 // nouns (a guitar shop's vertical is "guitar", never the generic "shop"/"store"/"retail").

@@ -45,6 +45,7 @@ import {
   personaHeroCopy,
   seoTaglineOptions,
 } from '../services/hero_copy.js';
+import { heroImageForVertical } from '../services/hero_image.js';
 
 /**
  * Per-variant omit of the auto-injected base fields, distributed across the
@@ -971,6 +972,15 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // Pass the category so an APPOINTMENT business inside `service` (yoga/salon/gym/clinic)
       // gets "Book now", not the trade-only "Get a free quote" (AL-460).
       const heroCtas = heroCtasFor(commerceMode, params.businessCategory);
+      // AL-485: seed the HERO IMAGE ({HERO_IMAGE_URL}+{HERO_IMAGE_ALT} in Home.tsx) for the
+      // sub-verticals the template pack collapses to a generic bucket (plant/record/cocktail/
+      // florist/brewery/bookstore/jewelry/tattoo → the wrong "retail shelves"/"cafe interior"
+      // hero). The pack keys HERO_IMAGE_URL off ~14 BROAD verticals, so the #1 visual element
+      // shipped wrong-vertical (perennials plant→retail, secret-society cocktail→cafe, both flagged
+      // live by verify-hero-image-vertical). buildPrompt "pick the vertical image" is INERT on the
+      // ~150s fast path (AL-409). Curated real-Unsplash map (on-vertical pixels + query-encoding
+      // ixid); same existing-wins _content.json seam. null → omit → pack default stands (no regress).
+      const heroImg = heroImageForVertical(catService);
       contextFiles['content.json'] = JSON.stringify(
         {
           ABOUT_PARAGRAPH_1: aboutPara1,
@@ -987,6 +997,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
           FAQ_HEADLINE: faq.headline,
           HERO_CTA: heroCtas.primary,
           HERO_HEADLINE: heroHeadline,
+          ...(heroImg ? { HERO_IMAGE_ALT: heroImg.alt, HERO_IMAGE_URL: heroImg.url } : {}),
           HERO_SECONDARY_CTA: heroCtas.secondary,
           HERO_SUBHEADLINE: heroSub,
           SEO_TAGLINE: seoTagline,
