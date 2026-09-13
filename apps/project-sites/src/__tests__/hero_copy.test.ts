@@ -54,7 +54,14 @@ describe('hero_copy — heroCtasFor (AL-420: seeded hero CTA labels, never "Rese
       expect(heroCtasFor('service', cat).primary.toLowerCase()).not.toMatch(/quote|estimate/);
     }
     // Trades inside `service` keep the price-first quote CTA (correct for them).
-    for (const cat of ['Plumbing', 'Roofing', 'HVAC', 'Electrician', 'Junk Removal', 'Auto Repair']) {
+    for (const cat of [
+      'Plumbing',
+      'Roofing',
+      'HVAC',
+      'Electrician',
+      'Junk Removal',
+      'Auto Repair',
+    ]) {
       expect(heroCtasFor('service', cat).primary).toBe('Get a free quote');
     }
     // No category → the safe default is unchanged (back-compat).
