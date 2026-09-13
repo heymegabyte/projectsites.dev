@@ -170,3 +170,48 @@ describe('POST /api/auth/revoke-other-sessions (bulk)', () => {
     expect(res.status).toBe(500);
   });
 });
+
+describe('POST /api/auth/sign-out (revoke CURRENT session — AL-506 replay-gap fix)', () => {
+  const bearerInit = (): RequestInit => ({
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer sess-token-abc' },
+    body: '{}',
+  });
+
+  it('returns 401 when unauthenticated', async () => {
+    const res = await req(makeApp(), '/api/auth/sign-out', bearerInit(), makeEnv());
+    expect(res.status).toBe(401);
+    expect(mockDbExecute).not.toHaveBeenCalled();
+  });
+
+  it('revokes THE CURRENT session (UPDATE by user_id + token_hash =, not !=) → 200 { status: true }', async () => {
+    const res = await req(makeApp(AUTH), '/api/auth/sign-out', bearerInit(), makeEnv());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: true });
+    expect(mockDbExecute).toHaveBeenCalledTimes(1);
+    const sql = mockDbExecute.mock.calls[0][1] as string;
+    expect(sql).toMatch(/UPDATE sessions SET deleted_at/i);
+    expect(sql).toMatch(/token_hash = \?/); // targets THE current session…
+    expect(sql).not.toMatch(/token_hash != \?/); // …never the revoke-OTHERS inverse (would keep the token alive)
+  });
+
+  it('is a no-op 200 when there is NO bearer token (cookie/local-only sign-out — never blocks)', async () => {
+    const noBearer: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' };
+    const res = await req(makeApp(AUTH), '/api/auth/sign-out', noBearer, makeEnv());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: true });
+    expect(mockDbExecute).not.toHaveBeenCalled();
+  });
+
+  it('stays 200 when changes===0 (already revoked / hash miss is idempotent — NOT 404)', async () => {
+    mockDbExecute.mockResolvedValueOnce({ error: null, changes: 0 });
+    const res = await req(makeApp(AUTH), '/api/auth/sign-out', bearerInit(), makeEnv());
+    expect(res.status).toBe(200);
+  });
+
+  it('returns 500 (never a lying 200) when the revoke UPDATE errors', async () => {
+    mockDbExecute.mockResolvedValueOnce({ error: 'D1_ERROR: disk full', changes: 0 });
+    const res = await req(makeApp(AUTH), '/api/auth/sign-out', bearerInit(), makeEnv());
+    expect(res.status).toBe(500);
+  });
+});

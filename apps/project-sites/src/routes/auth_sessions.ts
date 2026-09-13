@@ -124,3 +124,30 @@ authSessions.post('/api/auth/revoke-other-sessions', async (c) => {
   if (error) throw internalError(`Failed to revoke other sessions: ${error}`);
   return c.json({ status: true });
 });
+
+/**
+ * POST /api/auth/sign-out — revoke the caller's CURRENT session (identified by hashing the bearer
+ * token → `token_hash`). Closes the replay-risk gap (AL-506): the client `signOut()` cleared the
+ * local `ps_session` but the D1 session SURVIVED — the FE POST hit the Better-Auth `/api/auth/sign-out`
+ * (dark / a no-op for a legacy D1 token), so a Bearer token copied before sign-out still authed
+ * (`/api/auth/me` → 200 after "sign out", proven by `verify-signout-causal.mjs`). Mirrors
+ * `revoke-other-sessions` but targets the CURRENT session (`token_hash = currentHash`). Idempotent:
+ * no bearer / already-revoked → still `{status:true}` (local sign-out must never block on this).
+ */
+authSessions.post('/api/auth/sign-out', async (c) => {
+  const userId = c.get('userId');
+  if (!userId) return unauthorized(c);
+  const token = bearerToken(c.req.header('authorization') ?? null);
+  const currentHash = token ? await sha256Hex(token) : '';
+  if (!currentHash) return c.json({ status: true }); // cookie/local-only sign-out; nothing D1 to revoke
+  const now = new Date().toISOString();
+  const { error } = await dbExecute(
+    c.env.DB,
+    `UPDATE sessions SET deleted_at = ?, updated_at = ? WHERE user_id = ? AND token_hash = ? AND deleted_at IS NULL`,
+    [now, now, userId, currentHash],
+  );
+  // Revoking the CURRENT session — changes===0 is valid (already revoked / hash miss); only a DB
+  // error must surface (a swallowed failure would falsely claim the token was killed).
+  if (error) throw internalError(`Failed to sign out: ${error}`);
+  return c.json({ status: true });
+});

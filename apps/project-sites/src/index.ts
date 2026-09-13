@@ -506,6 +506,10 @@ app.use('/api/auth/*', async (c, next) => {
     '/api/auth/list-sessions',
     '/api/auth/revoke-session',
     '/api/auth/revoke-other-sessions',
+    // Sign-out MUST revoke the CURRENT D1 Bearer session (routes/auth_sessions.ts). Without this
+    // passthrough the BA handler owns /api/auth/sign-out and 200s WITHOUT revoking the legacy token
+    // → a copied Bearer survives "sign out" (replay gap, AL-506; proven by verify-signout-causal).
+    '/api/auth/sign-out',
     // Custom-auth Team/Organization for /admin/team (routes/auth_org.ts) — over
     // the live memberships/users/team_invites tables, not the BA org plugin.
     '/api/auth/organization/get-full-organization',
