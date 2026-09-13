@@ -1210,6 +1210,13 @@ export interface SeoFinalizeContext {
   businessName: string;
   /** Canonical site origin, e.g. `https://vanta-strength-austin.projectsites.dev` (no trailing slash). */
   hostname: string;
+  /**
+   * Locality (the address's city, e.g. `"Brooklyn"`) used to LENGTHEN a too-short
+   * `<title>` to the 50-60 SEO sweet spot by appending ` | {city}` — the same suffix
+   * the client PAGE_META adds at runtime, which non-JS crawlers never see. Omit when
+   * unknown (the title is then left to the build-prompt belt).
+   */
+  city?: string;
 }
 
 export interface SeoFinalizeReport {
@@ -1217,6 +1224,8 @@ export interface SeoFinalizeReport {
   escapesRepaired: number;
   descExpanded: number;
   titleClamped: number;
+  /** Titles LENGTHENED from <50 chars into the 50-60 range by appending ` | {city}`. */
+  titleExpanded: number;
 }
 
 const truncateAtWord = (s: string, max: number): string => {
@@ -1318,6 +1327,7 @@ export const finalizeSeoInvariants = (
     escapesRepaired: 0,
     descExpanded: 0,
     titleClamped: 0,
+    titleExpanded: 0,
   };
   const rootUrl = `${ctx.hostname.replace(/\/+$/, '')}/`;
   const brandName = (ctx.businessName || 'Business').trim();
@@ -1382,14 +1392,34 @@ export const finalizeSeoInvariants = (
       }
     }
 
-    // 3. Title clamp when >60 (leave <50 lengthening to the build-prompt mandate).
-    if (titleTag && titleTag.length > 60) {
-      const clamped = truncateAtWord(titleTag, 60);
-      if (clamped && clamped.length <= 60 && clamped !== titleTag) {
-        text = text.replace(/(<title[^>]*>)[\s\S]*?(<\/title>)/i, `$1${clamped}$2`);
-        text = setAttrContent(text, /<meta\s+[^>]*\bproperty=["']og:title["'][^>]*>/i, clamped);
-        text = setAttrContent(text, /<meta\s+[^>]*\bname=["']twitter:title["'][^>]*>/i, clamped);
-        report.titleClamped++;
+    // 3. Title into the 50-60 SEO window: EXPAND <50 by appending ` | {city}` (the
+    //    exact suffix the client PAGE_META adds at runtime — but non-JS crawlers only
+    //    see the baked short title), else CLAMP >60. Deterministic: the old
+    //    "leave <50 to the build-prompt mandate" punt kept shipping 41-char titles
+    //    (e.g. "Catbird — Your neighborhood jewelry store") that the C.1 gate flags.
+    if (titleTag) {
+      let nextTitle = titleTag;
+      const city = (ctx.city || '').trim();
+      if (nextTitle.length < 50 && city && !nextTitle.toLowerCase().includes(city.toLowerCase())) {
+        const withCity = `${nextTitle} | ${city}`;
+        // Append ONLY when it lands in [50,60] — never overshoot 60, and don't append a
+        // city so short the title still misses the 50 floor (leave those to the belt).
+        if (withCity.length >= 50 && withCity.length <= 60) {
+          nextTitle = withCity;
+          report.titleExpanded++;
+        }
+      }
+      if (nextTitle.length > 60) {
+        const clamped = truncateAtWord(nextTitle, 60);
+        if (clamped && clamped.length <= 60) {
+          nextTitle = clamped;
+          report.titleClamped++;
+        }
+      }
+      if (nextTitle !== titleTag) {
+        text = text.replace(/(<title[^>]*>)[\s\S]*?(<\/title>)/i, `$1${nextTitle}$2`);
+        text = setAttrContent(text, /<meta\s+[^>]*\bproperty=["']og:title["'][^>]*>/i, nextTitle);
+        text = setAttrContent(text, /<meta\s+[^>]*\bname=["']twitter:title["'][^>]*>/i, nextTitle);
       }
     }
 

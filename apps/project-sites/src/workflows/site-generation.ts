@@ -1865,12 +1865,23 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
             const [seoFiles, seoReport] = finalizeSeoInvariants(dashFiles, {
               businessName: params.businessName,
               hostname: `https://${params.slug}${DOMAINS.SITES_SUFFIX}`,
+              // City = second-to-last comma field of the address ("…, Brooklyn, NY 11249"
+              // → "Brooklyn") — same parse as the About-narrative weave above; lets the
+              // finalizer lengthen a <50 title to 50-60 by appending ` | {city}`.
+              city: ((): string | undefined => {
+                const parts = (params.businessAddress || '')
+                  .split(',')
+                  .map((p) => p.trim())
+                  .filter(Boolean);
+                return parts.length >= 2 ? parts[parts.length - 2] : undefined;
+              })(),
             });
             const seoChanged =
               seoReport.jsonLdInjected +
               seoReport.escapesRepaired +
               seoReport.descExpanded +
-              seoReport.titleClamped;
+              seoReport.titleClamped +
+              seoReport.titleExpanded;
             if (seoChanged > 0) {
               for (let i = 0; i < seoFiles.length; i++) {
                 const f = seoFiles[i];

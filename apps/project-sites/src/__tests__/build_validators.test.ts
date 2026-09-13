@@ -1207,6 +1207,51 @@ describe('finalizeSeoInvariants (C.1 structured-data + meta backstop)', () => {
     expect(out).toContain("var msg='it\\'s open'"); // JS body left untouched
   });
 
+  it('EXPANDS a <50 title into the 50-60 window by appending " | {city}" (C.1 title gate; AL-471)', () => {
+    const shell = `<!DOCTYPE html><html><head>
+<title>Catbird — Your neighborhood jewelry store</title>
+<meta property="og:title" content="Catbird — Your neighborhood jewelry store">
+<meta name="twitter:title" content="Catbird — Your neighborhood jewelry store">
+<meta name="description" content="Catbird is Brooklyn's dependable jewelry store — thoughtfully curated pieces, honest prices, and friendly no-pressure service.">
+<link rel="canonical" href="https://catbird-brooklyn.projectsites.dev/">
+</head><body><h1>Catbird</h1></body></html>`;
+    const [files, report] = finalizeSeoInvariants([{ path: 'index.html', size: shell.length, text: shell }], {
+      businessName: 'Catbird',
+      hostname: 'https://catbird-brooklyn.projectsites.dev',
+      city: 'Brooklyn',
+    });
+    expect(report.titleExpanded).toBe(1);
+    const out = files[0].text as string;
+    const title = out.match(/<title[^>]*>([\s\S]*?)<\/title>/i)![1];
+    expect(title).toBe('Catbird — Your neighborhood jewelry store | Brooklyn');
+    expect(title.length).toBeGreaterThanOrEqual(50);
+    expect(title.length).toBeLessThanOrEqual(60);
+    // og:title + twitter:title mirror the expansion (social cards must see the full title).
+    expect(out).toContain('property="og:title" content="Catbird — Your neighborhood jewelry store | Brooklyn"');
+    expect(out).toContain('name="twitter:title" content="Catbird — Your neighborhood jewelry store | Brooklyn"');
+  });
+
+  it('leaves an in-range title untouched, and never fabricates a suffix when city is absent', () => {
+    // (a) already 50-60 → unchanged even with a city present (no double-append).
+    const ok = 'Catbird — Your neighborhood fine jewelry store, Brooklyn'; // 56 chars
+    const okShell = `<head><title>${ok}</title><meta name="description" content="${'word '.repeat(28).trim()}"><link rel="canonical" href="https://x.projectsites.dev/"></head>`;
+    const [f1, r1] = finalizeSeoInvariants([{ path: 'index.html', size: okShell.length, text: okShell }], {
+      businessName: 'Catbird',
+      hostname: 'https://x.projectsites.dev',
+      city: 'Brooklyn',
+    });
+    expect(r1.titleExpanded).toBe(0);
+    expect(f1[0].text as string).toContain(`<title>${ok}</title>`);
+    // (b) short title but NO city → left to the build-prompt belt (never a fabricated locality).
+    const shortShell = `<head><title>Catbird — jewelry</title><meta name="description" content="${'word '.repeat(28).trim()}"><link rel="canonical" href="https://x.projectsites.dev/"></head>`;
+    const [f2, r2] = finalizeSeoInvariants([{ path: 'index.html', size: shortShell.length, text: shortShell }], {
+      businessName: 'Catbird',
+      hostname: 'https://x.projectsites.dev',
+    });
+    expect(r2.titleExpanded).toBe(0);
+    expect(f2[0].text as string).toContain('<title>Catbird — jewelry</title>');
+  });
+
   it('expands a sub-120-char description into the 120-156 window across meta/og/twitter', () => {
     const [files, report] = run();
     const out = files[0].text as string;
@@ -1229,6 +1274,7 @@ describe('finalizeSeoInvariants (C.1 structured-data + meta backstop)', () => {
       escapesRepaired: 0,
       descExpanded: 0,
       titleClamped: 0,
+      titleExpanded: 0,
     });
     expect(files[0]).toBe(good);
   });
