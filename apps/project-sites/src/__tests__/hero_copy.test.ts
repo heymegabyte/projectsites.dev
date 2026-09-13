@@ -5,6 +5,7 @@ import {
   heroHeadlineOptions,
   homepageFaq,
   personaHeroCopy,
+  seoDescriptionFor,
   seoTaglineOptions,
 } from '../services/hero_copy.js';
 
@@ -465,5 +466,58 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
     const warm = personaHeroCopy('warm', 'cafe', 'Austin')!.headlines[0];
     const bold = personaHeroCopy('bold', 'gym', 'Austin')!.headlines[0];
     expect(new Set([noir, warm, bold]).size).toBe(3);
+  });
+});
+
+/**
+ * AL-491 — the CLIENT homepage meta-description ({SEO_DESCRIPTION} → Home.tsx useSEO) collapsed
+ * sub-verticals to the wrong broad-vertical pack default: a brewery + a cocktail bar both shipped
+ * "Fresh, made-from-scratch food from local ingredients" (restaurant). seoDescriptionFor composes a
+ * commerce-mode-angled, name+cat+city-woven description, GUARANTEED in the 120-156 SEO sweet spot.
+ */
+describe('hero_copy — seoDescriptionFor (AL-491: per-commerce-mode homepage meta description)', () => {
+  const BANNED =
+    /limitless|revolutioniz|cutting-edge|leverage|world-class|game-chang|unlock|elevate|unparalleled|seamless|robust|synergy|holistic/i;
+  const MODES = ['hospitality', 'quickserve', 'retail', 'service', 'professional', 'nonprofit', 'general'];
+
+  it('is ALWAYS in the 120-156 SEO sweet spot — every mode, across short + long name/cat/city', () => {
+    const samples: Array<[string, string, string]> = [
+      ['Half Acre Beer Company', 'brewery', 'Chicago'],
+      ['The Secret Society', 'cocktail bar', 'Portland'],
+      ['Electric Fetus', 'record store', 'Minneapolis'],
+      ['Bo', 'bar', 'LA'], // very short → must PAD to ≥120
+      ['The Extraordinarily Long-Winded Neighborhood Mercantile & Sundries Emporium', 'general store', 'San Francisco'], // very long → must TRUNCATE to ≤156
+      ['', '', ''], // fallbacks
+    ];
+    for (const mode of MODES) {
+      for (const [n, c, city] of samples) {
+        const d = seoDescriptionFor(mode, n, c, city);
+        expect(d.length).toBeGreaterThanOrEqual(120);
+        expect(d.length).toBeLessThanOrEqual(156);
+        expect(d).not.toMatch(BANNED);
+        expect(d).not.toContain('undefined');
+        expect(/[.!?]$/.test(d.trim())).toBe(true); // ends on a clean sentence, never mid-word
+      }
+    }
+  });
+
+  it('weaves the real business + vertical + city (keyword-rich, not generic filler)', () => {
+    const d = seoDescriptionFor('hospitality', 'Half Acre Beer Company', 'brewery', 'Chicago');
+    expect(d).toContain('Half Acre Beer Company');
+    expect(d).toContain('brewery');
+    expect(d).toContain('Chicago');
+    // the exact live wrong-vertical defect must NOT appear
+    expect(d).not.toMatch(/made-from-scratch food|fresh flavors/i);
+  });
+
+  it('gives each commerce mode its own conversion angle', () => {
+    expect(seoDescriptionFor('hospitality', 'X', 'bar', 'Y')).toMatch(/gather|taste|linger|coming back/i);
+    expect(seoDescriptionFor('retail', 'X', 'shop', 'Y')).toMatch(/selection|browse|prices/i);
+    expect(seoDescriptionFor('service', 'X', 'plumbing', 'Y')).toMatch(/book|dependable|detail/i);
+    expect(seoDescriptionFor('nonprofit', 'X', 'charity', 'Y')).toMatch(/mission|impact|involved/i);
+    // unknown/empty mode → the general template (still in range)
+    const g = seoDescriptionFor('nope', 'X', 'shop', 'Y');
+    expect(g.length).toBeGreaterThanOrEqual(120);
+    expect(g.length).toBeLessThanOrEqual(156);
   });
 });

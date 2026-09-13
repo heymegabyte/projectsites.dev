@@ -686,3 +686,76 @@ export function heroCtasFor(
   }
   return sets[key]!;
 }
+
+/**
+ * Clamp a composed description into the SEO sweet spot [120, 156] (what Google shows
+ * un-truncated). Truncates at a word boundary when too long (drops any trailing
+ * punctuation/space); pads with a short, true tail when too short. Never throws.
+ */
+function clampSeoDesc(s: string, city: string): string {
+  let out = s.replace(/\s+/g, ' ').trim();
+  if (out.length > 156) {
+    const cut = out.slice(0, 156);
+    out = cut.slice(0, cut.lastIndexOf(' ')).replace(/[\s,;:—–-]+$/, '');
+    if (!/[.!?]$/.test(out)) out = `${out}.`;
+  }
+  // Pad a too-short desc with true, generic-but-safe tails until it clears 120.
+  const pads = [
+    ` Find our hours and location in ${city} below.`,
+    ` Reach out with any question — we are glad to help.`,
+    ` Stop by and see for yourself.`,
+  ];
+  for (const p of pads) {
+    if (out.length >= 120) break;
+    out = (out + p).trim();
+  }
+  return out.length > 156 ? clampSeoDesc(out.slice(0, 156), city) : out;
+}
+
+/**
+ * Per-commerce-mode homepage META DESCRIPTION (the `{SEO_DESCRIPTION}` token Home.tsx feeds to
+ * `useSEO` → the CLIENT `<meta name="description">`). AL-491.
+ *
+ * WHY: the template content pack keys `SEO_DESCRIPTION` off the BROAD visual vertical
+ * (`DESCRIPTION[v]`), so a sub-vertical that collapses to the wrong bucket ships a WRONG-vertical
+ * SERP snippet — a brewery + a cocktail bar both collapse to `restaurant` and shipped "Fresh,
+ * made-from-scratch food from local ingredients" (confirmed live on half-acre-beer-chicago +
+ * the-secret-society-portland). The worker never seeded `SEO_DESCRIPTION`, so the pack default
+ * always won. Seeding a commerce-mode-angled, name+category+city-woven description (for exactly the
+ * collapsing sub-verticals — gated by {@link heroImageForVertical} in the caller, so core verticals
+ * keep their crafted pack descriptions) overrides it via the existing-wins `_content.json` merge,
+ * so Google's rendered snippet reads as the real vertical. The mode gives the right ANGLE
+ * (hospitality → visit/taste, retail → browse/shop, service → book, …); the woven cat/city give the
+ * keywords. Length is GUARANTEED in the 120-156 SEO sweet spot via {@link clampSeoDesc}.
+ *
+ * @param mode - `commerceModeFor(...)` output. Unknown/empty → the `general` template.
+ * @param name - The business name (sanitized by the caller).
+ * @param catPhrase - A phrase from {@link categoryPhrase} (e.g. `'brewery'`, `'record store'`).
+ * @param cityPhrase - The city/community (e.g. `'Chicago'`, or `'your community'`).
+ * @returns A 120-156 char description. Never throws.
+ *
+ * @example
+ * seoDescriptionFor('hospitality', 'Half Acre Beer Company', 'brewery', 'Chicago')
+ * // → 'Half Acre Beer Company is Chicago's brewery — a welcoming place to gather, taste, and stay awhile. …'
+ */
+export function seoDescriptionFor(
+  mode: string | null | undefined,
+  name: string,
+  catPhrase: string,
+  cityPhrase: string,
+): string {
+  const biz = (name || 'This local business').trim();
+  const cat = (catPhrase || 'local business').trim();
+  const city = (cityPhrase || 'your community').trim();
+  const templates: Record<string, string> = {
+    hospitality: `${biz} is ${city}'s ${cat} — a welcoming place to gather, taste, and linger. Come see why ${city} keeps coming back, and find our hours and what's on right now.`,
+    quickserve: `${biz} is ${city}'s ${cat} — fresh favorites made to order at a friendly counter. Swing by to see what's ready today, and find our hours and location below.`,
+    retail: `${biz} is ${city}'s ${cat} — a carefully chosen selection, honest prices, and real help finding just what you want. Stop in to browse, or reach out with any question.`,
+    service: `${biz} is ${city}'s ${cat} — careful, dependable work and a comfortable experience start to finish. Book a visit and see why ${city} trusts us to get every detail right.`,
+    professional: `${biz} is ${city}'s ${cat} — clear guidance, real expertise, and a team that puts your goals first. Reach out for a consultation and see how we help ${city} move forward.`,
+    nonprofit: `${biz} serves ${city} as a ${cat} — real, lasting impact powered by neighbors who show up. Learn our mission, meet the people we help, and find the many ways to get involved.`,
+    general: `${biz} is ${city}'s ${cat} — dependable, friendly, and focused on doing right by everyone who walks in. Reach out to learn more, and find our hours and location below.`,
+  };
+  const key = typeof mode === 'string' && mode.trim().toLowerCase() in templates ? mode.trim().toLowerCase() : 'general';
+  return clampSeoDesc(templates[key]!, city);
+}

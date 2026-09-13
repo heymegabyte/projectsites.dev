@@ -43,6 +43,7 @@ import {
   heroHeadlineOptions,
   homepageFaq,
   personaHeroCopy,
+  seoDescriptionFor,
   seoTaglineOptions,
 } from '../services/hero_copy.js';
 import { heroImageForVertical } from '../services/hero_image.js';
@@ -997,9 +998,22 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
           FAQ_HEADLINE: faq.headline,
           HERO_CTA: heroCtas.primary,
           HERO_HEADLINE: heroHeadline,
-          ...(heroImg ? { HERO_IMAGE_ALT: heroImg.alt, HERO_IMAGE_URL: heroImg.url } : {}),
           HERO_SECONDARY_CTA: heroCtas.secondary,
           HERO_SUBHEADLINE: heroSub,
+          // AL-491: seed the homepage META DESCRIPTION ({SEO_DESCRIPTION} → Home.tsx useSEO → the
+          // CLIENT <meta name="description">) for the SAME collapsing sub-verticals as the hero image
+          // (heroImg gate). The pack keys SEO_DESCRIPTION off the BROAD vertical, so a brewery/cocktail
+          // bar collapsed to `restaurant` and shipped a wrong-vertical "made-from-scratch food" snippet
+          // (live on half-acre + secret-society). A commerce-mode-angled, cat+city-woven, 120-156
+          // description overrides it (existing-wins); core verticals (heroImg=null) keep their crafted
+          // pack descriptions (no regression).
+          ...(heroImg
+            ? {
+                HERO_IMAGE_ALT: heroImg.alt,
+                HERO_IMAGE_URL: heroImg.url,
+                SEO_DESCRIPTION: seoDescriptionFor(commerceMode, safeName, catService, cityPhrase),
+              }
+            : {}),
           SEO_TAGLINE: seoTagline,
           SERVICES_INTRO: servicesIntro,
         },
