@@ -566,4 +566,26 @@ describe('hero_copy — seoDescriptionFor (AL-491: per-commerce-mode homepage me
     expect(g.length).toBeGreaterThanOrEqual(120);
     expect(g.length).toBeLessThanOrEqual(156);
   });
+
+  it('AL-507: a truncated desc never ends on a dangling article/preposition ("Reach out for a.")', () => {
+    // The `professional` template + a SHORT category was the exact combo that clamped to
+    // "…Reach out for a." — a broken meta description. Finance is the first seeded professional
+    // vertical (heroImageForVertical now covers wealth/insurance/accounting), so it exposed it.
+    const DANGLING = /\b(?:a|an|the|for|to|of|and|or|with|your|our|how|we|is)\.$/i;
+    for (const cat of [
+      'wealth management',
+      'financial advisor',
+      'insurance agency',
+      'accounting firm',
+      'tax preparation',
+    ]) {
+      const d = seoDescriptionFor('professional', 'Hill Wealth Strategies', cat, 'Richmond');
+      expect(d).not.toMatch(DANGLING); // never "…Reach out for a."
+      expect(/[.!?]$/.test(d)).toBe(true);
+      expect(d.length).toBeGreaterThanOrEqual(120);
+      expect(d.length).toBeLessThanOrEqual(156);
+      // a finance firm must NOT read as legal (the AL-504 wealth→legal defect)
+      expect(d).not.toMatch(/legal counsel|attorney|law office/i);
+    }
+  });
 });

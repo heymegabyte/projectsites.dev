@@ -66,12 +66,28 @@ const TATTOO: HeroImage = {
   url: 'https://images.unsplash.com/photo-1760877611905-0f885a3ce551?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwxfHx0YXR0b28lMjBzdHVkaW8lMjBpbnRlcmlvcnxlbnwxfDB8fHwxNzg5MzE1NjQyfDA&ixlib=rb-4.1.0&q=80&w=1080',
   alt: 'The inviting interior of a modern tattoo studio',
 };
+// FINANCE CLUSTER (AL-507): one hero for the whole financial-services domain — wealth mgmt,
+// financial advisory, investment, insurance, accounting, bookkeeping, tax, CPA. WHY a cluster
+// (not one-hero-per-noun like the retail verticals above): these sub-verticals share ONE visual
+// domain — a professional financial office — exactly like the food cluster shares a cafe interior.
+// The pack collapsed all of them to a LAW-flavored "professional" bucket (scales-of-justice icon
+// + "law office interior" hero + "legal counsel" meta-desc — the AL-504 wealth→legal defect). This
+// seeds a real finance hero; the probe's FINANCE_LEXICON bridge (verify-hero-image-vertical) accepts
+// this one hero for any finance-domain noun, so "wealth"/"insurance"/"accounting" all match without a
+// per-noun image. Sourced via Unsplash search API 2026-09-13 ("financial advisor office meeting").
+const FINANCE: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1713461983836-de0a45009424?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwxfHxmaW5hbmNpYWwlMjBhZHZpc29yJTIwb2ZmaWNlJTIwbWVldGluZ3xlbnwwfDB8fHwxNzg5MzQzMTcyfDA&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'A financial advisor reviewing figures at a desk',
+};
 
 /**
  * Ordered [sub-vertical pattern → curated hero]. FIRST match wins. Scanned against the derived
  * category phrase (`categoryPhrase(...)` output). Deliberately NARROW: only the sub-verticals a
  * broad pack bucket gets visibly WRONG. No bare `\bbar\b` (would catch "barber"); no bare `record`
  * (paired with store/shop/vinyl). Each pattern's noun is the same one the probe reads from the H1.
+ * The FINANCE row is a CLUSTER (one hero for the whole financial-services domain, paired with the
+ * probe's FINANCE_LEXICON bridge) — `invest(ment|ing|or)` never matches "investigator"; `\btax\b`
+ * never matches "taxi"; no bare `bank` (would catch food/blood bank).
  */
 const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
   [
@@ -88,6 +104,10 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
   [/\b(brewery|breweries|brewpub|taproom|beer\s?(hall|garden))\b/, BREWERY],
   [/\b(jewel\w*|goldsmith\w*|watch\s?(shop|store|maker))\b/, JEWELRY],
   [/\b(tattoo\w*)\b/, TATTOO],
+  [
+    /\b(wealth|financ\w*|invest(ment|ing|or)\w*|asset\s?manage\w*|retirement\s?plan\w*|insuranc\w*|accounting|accountan\w*|bookkeep\w*|cpa|tax(es)?)\b/,
+    FINANCE,
+  ],
 ];
 
 /**
@@ -101,6 +121,7 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
  * @example
  * heroImageForVertical('plant shop')?.alt      // → 'Lush greenery filling a bright, welcoming plant shop'
  * heroImageForVertical('cocktail bar')?.url    // → 'https://images.unsplash.com/photo-1763771757330-…'
+ * heroImageForVertical('wealth management')?.alt // → 'A financial advisor reviewing figures at a desk'
  * heroImageForVertical('plumbing')             // → null  (broad pack default is correct)
  * heroImageForVertical('')                     // → null
  */

@@ -711,8 +711,14 @@ function clampSeoDesc(s: string, city: string): string {
   let out = s.replace(/\s+/g, ' ').trim();
   if (out.length > 156) {
     const cut = out.slice(0, 156);
-    out = cut.slice(0, cut.lastIndexOf(' ')).replace(/[\s,;:—–-]+$/, '');
-    if (!/[.!?]$/.test(out)) out = `${out}.`;
+    let trimmed = cut.slice(0, cut.lastIndexOf(' ')).replace(/[\s,;:—–-]+$/, '');
+    // Never end a truncation on a dangling article/preposition ("Reach out for a." — AL-507, the
+    // first seeded `professional`-mode desc exposed it). Drop trailing stop-words back to the last
+    // content word so the sentence closes cleanly (keeps a shorter CTA when one still fits).
+    while (/\s(?:a|an|the|and|or|for|to|of|with|your|our|how|we|is)$/i.test(trimmed)) {
+      trimmed = trimmed.slice(0, trimmed.lastIndexOf(' ')).replace(/[\s,;:—–-]+$/, '');
+    }
+    out = /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
   }
   // Pad a too-short desc with true, generic-but-safe tails until it clears 120.
   const pads = [

@@ -40,6 +40,16 @@ const NON_VERTICAL =
 const FOOD_LEXICON =
   /\b(coffee|cafe|caf[eé]|espresso|roaster|roastery|barista|bakery|bakeshop|pastry|patisserie|deli|delicatessen|restaurant|bistro|diner|eatery|brasserie|tavern|pub|grill|kitchen|creamery|cream|scoop|gelato|gelateria|ice[- ]?cream|froyo|frozen[- ]?yogurt|juice|smoothie|teahouse|dessert|sandwich|pizzeria|pizza|taqueria|food|dining|brunch|breakfast|lunch|dinner|menu)\b/i;
 
+// Finance-services domain lexicon (AL-507) — the SAME cluster idea as FOOD_LEXICON, for the
+// financial-services domain. A finance-domain business (wealth mgmt / advisor / investment /
+// insurance / accounting / bookkeeping / tax / CPA) AND a finance-domain hero query (the seeded
+// "financial advisor office meeting") are the same visual domain — a professional financial office
+// — so one hero is a correct match for any of them. This bridges the AL-504 wealth→legal defect:
+// a finance firm still on the pack's "law office" hero has a NON-finance query → no bridge → still
+// FLAGS. `invest(ment|ing|or)` never touches "investigator"; `tax(es)?` never touches "taxi".
+const FINANCE_LEXICON =
+  /\b(wealth|financ\w*|invest(ment|ing|or)\w*|asset\s?manage\w*|retirement|insuranc\w*|accountan\w*|accounting|bookkeep\w*|cpa|tax(es)?|fiduciar\w*|advisor\w*|advisory|brokerage|portfolio)\b/i;
+
 // Decode the Unsplash `ixid` (base64 → pipe-delimited; the query is the URL-encoded field).
 function heroQueryFromHtml(html) {
   const m = html.match(/ixid=([A-Za-z0-9]+)/);
@@ -83,9 +93,14 @@ try {
         // Food-cluster bridge: a food-domain business + a food-domain hero query is a correct match
         // (coffee ↔ cafe, bakery ↔ cafe interior, …) even when the exact noun differs.
         const foodMatch = verticalNouns.some((n) => FOOD_LEXICON.test(n)) && FOOD_LEXICON.test(heroQuery);
-        const matched = literalMatch || foodMatch;
+        // Finance-cluster bridge (AL-507): a finance-domain business + a finance-domain hero query
+        // (wealth ↔ "financial advisor office", insurance ↔ same) is a correct match — one financial-
+        // office hero serves the whole cluster, mirroring the food bridge above.
+        const financeMatch =
+          verticalNouns.some((n) => FINANCE_LEXICON.test(n)) && FINANCE_LEXICON.test(heroQuery);
+        const matched = literalMatch || foodMatch || financeMatch;
         if (matched) {
-          const how = literalMatch ? '' : ' [food-cluster]';
+          const how = literalMatch ? '' : foodMatch ? ' [food-cluster]' : ' [finance-cluster]';
           rows.push(`  ✓ ${slug} — hero query "${heroQuery}" matches vertical {${verticalNouns.join(',')}}${how}`);
         } else {
           flags++;

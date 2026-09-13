@@ -31,6 +31,8 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
     expect(heroImageForVertical('brewery')?.alt).toMatch(/beer|brew/i);
     expect(heroImageForVertical('jewelry store')?.alt).toMatch(/necklace|jewel/i);
     expect(heroImageForVertical('tattoo studio')?.alt).toMatch(/tattoo/i);
+    // AL-507 — finance cluster (was the wealth→legal defect: scales-of-justice + "law office" hero):
+    expect(heroImageForVertical('wealth management')?.alt).toMatch(/financial|advisor|figures/i);
   });
 
   it('matches sub-vertical SYNONYMS to the right hero', () => {
@@ -41,6 +43,36 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
     expect(heroImageForVertical('vinyl shop')).toBe(heroImageForVertical('record store'));
     expect(heroImageForVertical('taproom')).toBe(heroImageForVertical('brewery'));
     expect(heroImageForVertical('flower shop')).toBe(heroImageForVertical('florist'));
+  });
+
+  it('AL-507: the whole finance CLUSTER shares ONE financial-office hero', () => {
+    const finance = heroImageForVertical('wealth management')!;
+    expect(finance).not.toBeNull();
+    for (const v of [
+      'financial advisor',
+      'financial planning',
+      'investment firm',
+      'asset management',
+      'retirement planning',
+      'insurance agency',
+      'accounting firm',
+      'accountant',
+      'bookkeeping service',
+      'CPA firm',
+      'tax preparation',
+    ]) {
+      expect(heroImageForVertical(v)).toBe(finance); // one hero for the whole cluster
+    }
+  });
+
+  it('AL-507: finance patterns do NOT false-match adjacent verticals', () => {
+    // legal is NOT finance — a law firm keeps the pack's (correct) law-office default:
+    expect(heroImageForVertical('law firm')).toBeNull();
+    expect(heroImageForVertical('legal services')).toBeNull();
+    // precision guards baked into the regex:
+    expect(heroImageForVertical('private investigator')).toBeNull(); // invest(ment|ing|or), not "investig"
+    expect(heroImageForVertical('taxi service')).toBeNull(); // tax(es)?, not "taxi"
+    expect(heroImageForVertical('food bank')).toBeNull(); // no bare "bank"
   });
 
   it('returns null for broad/unknown verticals (pack default stands — no regression)', () => {
@@ -79,6 +111,7 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
       'brewery',
       'jewelry store',
       'tattoo studio',
+      'wealth management',
     ]) {
       const img = heroImageForVertical(v)!;
       expect(img.url.startsWith('https://images.unsplash.com/photo-')).toBe(true);
@@ -96,6 +129,9 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
       ['brewery', /brew|beer/],
       ['jewelry store', /jewelry|jewel/],
       ['tattoo studio', /tattoo/],
+      // finance-cluster: query carries "financial" → the probe's FINANCE_LEXICON bridge accepts it
+      // for any finance-domain H1 noun (wealth/insurance/accounting/…), no per-noun image needed.
+      ['wealth management', /financ|advisor/],
     ];
     for (const [v, re] of cases) {
       const q = heroQuery(heroImageForVertical(v)!.url);
