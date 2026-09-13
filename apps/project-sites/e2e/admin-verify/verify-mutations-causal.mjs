@@ -70,6 +70,33 @@ try {
     );
   }
 
+  // ── A2. Settings→General identity round-trip: business_address + business_phone ──
+  // The General settings form (settings.component `saveGeneral`) PATCHes name+address+phone,
+  // but the causal probe only guarded business_name. A future regression dropping
+  // business_address/business_phone from the PATCH allow-list (`businessFields` in api.ts —
+  // the `settings-field-removal-keeps-columns` class) would be a LYING-SUCCESS: the form
+  // toasts "Saved" while the field never persists. Round-trip both to lock the multi-field save.
+  {
+    const g0 = unwrap(await (await api(`/api/sites/${SITE_ID}`)).json()) ?? {};
+    const origAddr = g0.business_address ?? null;
+    const origPhone = g0.business_phone ?? null;
+    const pAddr = `ADDR-PROBE-${Date.now()}`;
+    const pPhone = `PH-${Date.now()}`;
+    const st = (await api(`/api/sites/${SITE_ID}`, { method: 'PATCH', body: JSON.stringify({ business_address: pAddr, business_phone: pPhone }) })).status;
+    const g1 = unwrap(await (await api(`/api/sites/${SITE_ID}`)).json()) ?? {};
+    const addrOk = g1.business_address === pAddr;
+    const phoneOk = g1.business_phone === pPhone;
+    // Restore both (null for an originally-empty field — the form sends null to clear).
+    await api(`/api/sites/${SITE_ID}`, { method: 'PATCH', body: JSON.stringify({ business_address: origAddr, business_phone: origPhone }) });
+    const g2 = unwrap(await (await api(`/api/sites/${SITE_ID}`)).json()) ?? {};
+    const restoredOk = (g2.business_address ?? null) === origAddr && (g2.business_phone ?? null) === origPhone;
+    record(
+      'settings identity PATCH persists address + phone (not just name) + restores',
+      st === 200 && addrOk && phoneOk && restoredOk,
+      `patch=${st} addr=${addrOk} phone=${phoneOk} restored=${restoredOk}`,
+    );
+  }
+
   // ── B. MCP paste-connect → read-active → disconnect → read-revoked ─────────
   {
     const connStatus = (await api(`/api/mcp/resend/paste?site_id=${SITE_ID}`, { method: 'POST', body: JSON.stringify({ api_key: `mut-probe-${Date.now()}` }) })).status;
