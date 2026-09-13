@@ -188,6 +188,20 @@ export function categoryFromName(name?: unknown): string {
  * // → ["Portland's record store", "Portland's trusted record store",
  * //    "Your Portland record store", "Quality record store Portland counts on"]
  */
+/**
+ * The correct English indefinite article for a noun phrase — `'an'` before a vowel-initial word,
+ * else `'a'`. Sufficient for business CATEGORY nouns (bookstore→a, art gallery→an, ice cream shop→an);
+ * it does NOT handle silent-h / vowel-sound-consonant edge cases (no business category needs them).
+ * Keeps a hero subheadline grammatical when a category noun follows a preposition (`for ${art} ${cat}`)
+ * instead of a bare "for bookstore that…" (AL-501 — the 2×-confirmed persona-subhead grammar defect).
+ *
+ * @example indefiniteArticle('bookstore')    // 'a'
+ * @example indefiniteArticle('art gallery')  // 'an'
+ */
+export function indefiniteArticle(noun: string): 'a' | 'an' {
+  return /^[aeiou]/i.test((noun || '').trim()) ? 'an' : 'a';
+}
+
 export function heroHeadlineOptions(catPhrase: string, cityPhrase: string): readonly string[] {
   const cat = (catPhrase || 'local business').trim();
   const city = (cityPhrase || 'your community').trim();
@@ -249,6 +263,7 @@ export function personaHeroCopy(
 ): PersonaHeroCopy | null {
   const cat = (catPhrase || 'local business').trim();
   const city = (cityPhrase || 'your community').trim();
+  const art = indefiniteArticle(cat); // grammatical article for the category noun in preposition slots
   const key = typeof themeStyle === 'string' ? themeStyle.trim().toLowerCase() : '';
 
   const map: Readonly<Record<string, PersonaHeroCopy>> = {
@@ -271,7 +286,7 @@ export function personaHeroCopy(
       ],
       subheadlines: [
         `A refined ${cat} for ${city} — considered, unhurried, and finished down to the last detail.`,
-        `${city} comes to us for ${cat} done with restraint, taste, and quiet confidence.`,
+        `${city} comes to us for ${art} ${cat} done with restraint, taste, and quiet confidence.`,
       ],
     },
     warm: {
@@ -282,7 +297,7 @@ export function personaHeroCopy(
       ],
       subheadlines: [
         `A welcoming ${cat} in ${city} where the coffee is hot, the faces are friendly, and everyone has a seat.`,
-        `Come in, slow down, and feel at home — ${cat} made with heart for ${city}.`,
+        `Come in, slow down, and feel at home — ${art} ${cat} made with heart for ${city}.`,
       ],
     },
     bold: {
@@ -315,7 +330,7 @@ export function personaHeroCopy(
       ],
       subheadlines: [
         `A joyfully vintage ${cat} in ${city} — the classics you grew up on, done right and full of character.`,
-        `${city}, bring the whole crew: ${cat} with old-school soul and a wink of fun.`,
+        `${city}, bring the whole crew: ${art} ${cat} with old-school soul and a wink of fun.`,
       ],
     },
     boutique: {
@@ -326,7 +341,7 @@ export function personaHeroCopy(
       ],
       subheadlines: [
         `A chic ${cat} in ${city} — pieces worth the trip, chosen with a tastemaker's eye.`,
-        `${city} shops with us for ${cat} that feels personal, current, and quietly covetable.`,
+        `${city} shops with us for ${art} ${cat} that feels personal, current, and quietly covetable.`,
       ],
     },
     heritage: {
@@ -336,8 +351,8 @@ export function personaHeroCopy(
         `Generations of ${city} know us`,
       ],
       subheadlines: [
-        `A ${cat} ${city} has relied on for years — steady, principled, and here for the long run.`,
-        `${city} turns to us for ${cat} grounded in experience, judgment, and a name that keeps its word.`,
+        `The ${cat} ${city} has relied on for years — steady, principled, and here for the long run.`,
+        `${city} turns to us for ${art} ${cat} grounded in experience, judgment, and a name that keeps its word.`,
       ],
     },
     botanical: {
@@ -348,7 +363,7 @@ export function personaHeroCopy(
       ],
       subheadlines: [
         `Gentle, attentive ${cat} for ${city} — unhurried care that meets you where you are.`,
-        `${city} rests easy with ${cat} that is calm, clear, and always in your corner.`,
+        `${city} rests easy with ${art} ${cat} that is calm, clear, and always in your corner.`,
       ],
     },
     scholarly: {
@@ -359,7 +374,7 @@ export function personaHeroCopy(
       ],
       subheadlines: [
         `Encouraging ${cat} for ${city} — patient teaching, real progress, and a place every learner belongs.`,
-        `${city} families choose us for ${cat} that makes learning click and confidence grow.`,
+        `${city} families choose us for ${art} ${cat} that makes learning click and confidence grow.`,
       ],
     },
     precision: {
@@ -370,7 +385,7 @@ export function personaHeroCopy(
       ],
       subheadlines: [
         `Exacting ${cat} for ${city} — measured, meticulous, and done to spec the first time.`,
-        `${city} counts on us for ${cat} with the details right down to the last millimeter.`,
+        `${city} counts on us for ${art} ${cat} with the details right down to the last millimeter.`,
       ],
     },
     brutalist: {
@@ -381,7 +396,7 @@ export function personaHeroCopy(
       ],
       subheadlines: [
         `Uncompromising ${cat} in ${city} — sharp, deliberate, and impossible to ignore.`,
-        `${city} comes to us for ${cat} with a point of view and the work to back it up.`,
+        `${city} comes to us for ${art} ${cat} with a point of view and the work to back it up.`,
       ],
     },
   };
@@ -747,13 +762,14 @@ export function seoDescriptionFor(
   const biz = (name || 'This local business').trim();
   const cat = (catPhrase || 'local business').trim();
   const city = (cityPhrase || 'your community').trim();
+  const art = indefiniteArticle(cat);
   const templates: Record<string, string> = {
     hospitality: `${biz} is ${city}'s ${cat} — a welcoming place to gather, taste, and linger. Come see why ${city} keeps coming back, and find our hours and what's on right now.`,
     quickserve: `${biz} is ${city}'s ${cat} — fresh favorites made to order at a friendly counter. Swing by to see what's ready today, and find our hours and location below.`,
     retail: `${biz} is ${city}'s ${cat} — a carefully chosen selection, honest prices, and real help finding just what you want. Stop in to browse, or reach out with any question.`,
     service: `${biz} is ${city}'s ${cat} — careful, dependable work and a comfortable experience start to finish. Book a visit and see why ${city} trusts us to get every detail right.`,
     professional: `${biz} is ${city}'s ${cat} — clear guidance, real expertise, and a team that puts your goals first. Reach out for a consultation and see how we help ${city} move forward.`,
-    nonprofit: `${biz} serves ${city} as a ${cat} — real, lasting impact powered by neighbors who show up. Learn our mission, meet the people we help, and find the many ways to get involved.`,
+    nonprofit: `${biz} serves ${city} as ${art} ${cat} — real, lasting impact powered by neighbors who show up. Learn our mission, meet the people we help, and find the many ways to get involved.`,
     general: `${biz} is ${city}'s ${cat} — dependable, friendly, and focused on doing right by everyone who walks in. Reach out to learn more, and find our hours and location below.`,
   };
   const key =

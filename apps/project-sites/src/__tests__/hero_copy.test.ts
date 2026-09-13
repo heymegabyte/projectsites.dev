@@ -4,6 +4,7 @@ import {
   heroCtasFor,
   heroHeadlineOptions,
   homepageFaq,
+  indefiniteArticle,
   personaHeroCopy,
   seoDescriptionFor,
   seoTaglineOptions,
@@ -433,6 +434,37 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
         expect(s.length).toBeGreaterThan(40);
       }
     }
+  });
+
+  // AL-501: the 2×-confirmed persona-subhead grammar defect — a category noun bare after a
+  // preposition ("for bookstore that…" / "jewelry store done with…"). Now every preposition slot
+  // carries a grammatical article; assert it across categories INCLUDING vowel-initial ones.
+  it('AL-501: subheadlines grammatical for every category — no bare noun after a preposition, correct a/an', () => {
+    const cats = ['bookstore', 'jewelry store', 'art gallery', 'ice cream shop', 'urgent care'];
+    for (const cat of cats) {
+      const vowel = /^[aeiou]/i.test(cat); // vowel-initial → "a X" would be the WRONG article
+      for (const key of DISTINCTIVE) {
+        const p = personaHeroCopy(key, cat, 'Seattle');
+        expect(p).not.toBeNull();
+        for (const s of [...p!.headlines, ...p!.subheadlines]) {
+          expect(s.includes(`for ${cat}`)).toBe(false); // "for a/an ${cat}", never bare
+          expect(s.includes(`with ${cat}`)).toBe(false);
+          expect(s.includes(`— ${cat}`)).toBe(false);
+          expect(s.includes(`: ${cat}`)).toBe(false);
+          expect(s.includes(`A ${cat}`)).toBe(false); // sentence-initial bare article → reworded to "The ${cat}"
+          if (vowel) expect(s.includes(`a ${cat}`)).toBe(false); // never "a art gallery" — must be "an"
+        }
+      }
+    }
+  });
+
+  it('indefiniteArticle — "an" before a vowel, "a" otherwise', () => {
+    expect(indefiniteArticle('bookstore')).toBe('a');
+    expect(indefiniteArticle('jewelry store')).toBe('a');
+    expect(indefiniteArticle('art gallery')).toBe('an');
+    expect(indefiniteArticle('ice cream shop')).toBe('an');
+    expect(indefiniteArticle('urgent care')).toBe('an');
+    expect(indefiniteArticle('')).toBe('a');
   });
 
   it('returns null for neutral/unknown/empty personalities (caller keeps generic frames)', () => {
