@@ -74,9 +74,15 @@ const TATTOO: HeroImage = {
  * (paired with store/shop/vinyl). Each pattern's noun is the same one the probe reads from the H1.
  */
 const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
-  [/\b(plant\s?(shop|store|nursery)?|garden\s?cent\w*|nursery|greenhouse|succulent|houseplant)\b/, PLANT],
+  [
+    /\b(plant\s?(shop|store|nursery)?|garden\s?cent\w*|nursery|greenhouse|succulent|houseplant)\b/,
+    PLANT,
+  ],
   [/\b(florist|flower\s?(shop|store)?|floral)\b/, FLORIST],
-  [/\b(cocktail|speakeas\w*|night\s?club|nightclub|whisk\w*\s?bar|jazz\s?(bar|club|lounge)|piano\s?bar|cocktail\s?lounge)\b/, COCKTAIL],
+  [
+    /\b(cocktail|speakeas\w*|night\s?club|nightclub|whisk\w*\s?bar|jazz\s?(bar|club|lounge)|piano\s?bar|cocktail\s?lounge)\b/,
+    COCKTAIL,
+  ],
   [/\b(record\s?(store|shop)|vinyl)\b/, RECORD],
   [/\b(book\s?stor\w*|bookshop\w*|booksell\w*|\bbooks\b)\b/, BOOKSTORE],
   [/\b(brewery|breweries|brewpub|taproom|beer\s?(hall|garden))\b/, BREWERY],

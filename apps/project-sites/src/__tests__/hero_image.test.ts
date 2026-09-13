@@ -44,7 +44,18 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
   });
 
   it('returns null for broad/unknown verticals (pack default stands — no regression)', () => {
-    for (const v of ['plumbing', 'dental practice', 'restaurant', 'law firm', 'gym', 'coffee shop', 'local business', '', '   ', 'other']) {
+    for (const v of [
+      'plumbing',
+      'dental practice',
+      'restaurant',
+      'law firm',
+      'gym',
+      'coffee shop',
+      'local business',
+      '',
+      '   ',
+      'other',
+    ]) {
       expect(heroImageForVertical(v)).toBeNull();
     }
     expect(heroImageForVertical(null)).toBeNull();
@@ -59,7 +70,16 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
   });
 
   it('every curated hero URL is an allowlisted images.unsplash.com CDN link', () => {
-    for (const v of ['plant shop', 'florist', 'cocktail bar', 'record store', 'bookstore', 'brewery', 'jewelry store', 'tattoo studio']) {
+    for (const v of [
+      'plant shop',
+      'florist',
+      'cocktail bar',
+      'record store',
+      'bookstore',
+      'brewery',
+      'jewelry store',
+      'tattoo studio',
+    ]) {
       const img = heroImageForVertical(v)!;
       expect(img.url.startsWith('https://images.unsplash.com/photo-')).toBe(true);
       expect(img.alt.length).toBeGreaterThan(10);
