@@ -1,5 +1,7 @@
 import {
   themeStyleFromInputs,
+  resolveThemeStyle,
+  isThemeStyleName,
   THEME_STYLE_NAMES,
   THEME_PERSONALITY_BRIEF,
   personalityBriefFor,
@@ -477,5 +479,71 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
     expect(commerceModeFor('Other', 'a small-batch distillery and tasting room')).toBe(
       'hospitality',
     );
+  });
+});
+
+describe('theme_style — isThemeStyleName (explicit-signal guard, AL-467)', () => {
+  it('accepts every canonical preset name, case/whitespace-insensitive', () => {
+    for (const name of THEME_STYLE_NAMES) {
+      expect(isThemeStyleName(name)).toBe(true);
+      expect(isThemeStyleName(name.toUpperCase())).toBe(true);
+      expect(isThemeStyleName(`  ${name}  `)).toBe(true);
+    }
+  });
+
+  it('rejects unknown / empty / non-string values (never throws)', () => {
+    expect(isThemeStyleName('nonsense')).toBe(false);
+    expect(isThemeStyleName('')).toBe(false);
+    expect(isThemeStyleName('   ')).toBe(false);
+    expect(isThemeStyleName(undefined)).toBe(false);
+    expect(isThemeStyleName(null)).toBe(false);
+    expect(isThemeStyleName(42)).toBe(false);
+    expect(isThemeStyleName({})).toBe(false);
+  });
+});
+
+describe('theme_style — resolveThemeStyle (explicit wins, derivation is fallback, AL-467)', () => {
+  it('an explicit valid preset is AUTHORITATIVE — even over a category that derives elsewhere', () => {
+    // Salon derives to warm from CATEGORY_RULES, but the /create form deliberately
+    // chose luxe — the explicit signal must win so the elaborate theme lands.
+    expect(themeStyleFromInputs('Salon / Barbershop')).toBe('warm');
+    expect(resolveThemeStyle('luxe', 'Salon / Barbershop')).toBe('luxe');
+    // Beauty/Spa derives botanical; form chose artisan → artisan wins.
+    expect(resolveThemeStyle('artisan', 'Beauty / Spa / Wellness')).toBe('artisan');
+  });
+
+  it('normalizes the explicit value (case + whitespace)', () => {
+    expect(resolveThemeStyle('  NOIR ', 'Financial / Accounting')).toBe('noir');
+  });
+
+  it('an INVALID explicit value falls back to category/hint derivation (never forces a bad theme)', () => {
+    expect(resolveThemeStyle('NONSENSE', 'car_dealer')).toBe('precision');
+    expect(resolveThemeStyle('', 'Financial / Accounting')).toBe('heritage');
+    // @ts-expect-error — defensive: non-string explicit at runtime must fall back, not throw
+    expect(resolveThemeStyle(42, 'hardware_store')).toBe('rugged');
+  });
+
+  it('omitting the explicit value is byte-identical to themeStyleFromInputs (no regression)', () => {
+    for (const cat of [
+      'Financial / Accounting',
+      'car_dealer',
+      'hardware_store',
+      'Beauty / Spa / Wellness',
+      'Other',
+      '',
+    ]) {
+      expect(resolveThemeStyle(undefined, cat)).toBe(themeStyleFromInputs(cat));
+      expect(resolveThemeStyle(null, cat)).toBe(themeStyleFromInputs(cat));
+    }
+  });
+
+  it('returns undefined when explicit is invalid AND nothing derives (template keeps classic)', () => {
+    expect(resolveThemeStyle('bogus', 'Other')).toBeUndefined();
+    expect(resolveThemeStyle(undefined, undefined, undefined)).toBeUndefined();
+  });
+
+  it('an explicit preset resolves even with an empty/unmatchable category', () => {
+    expect(resolveThemeStyle('brutalist', 'Other')).toBe('brutalist');
+    expect(resolveThemeStyle('editorial')).toBe('editorial');
   });
 });

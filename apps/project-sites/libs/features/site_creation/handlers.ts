@@ -33,6 +33,7 @@ import type { Env, Variables } from '../../../src/types/env.js';
 import { dbInsert, dbQueryOne } from '../../../src/services/db.js';
 import { writeAuditLog } from '../../../src/services/audit.js';
 import { runObservedWorkersAI } from '../../../src/lib/workers_ai.js';
+import { isThemeStyleName } from '../../../src/services/theme_style.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 
@@ -73,6 +74,14 @@ interface CreateFromSearchBody {
   business?: BusinessPayload;
   /** Creation mode: 'business' or 'custom' */
   mode?: string;
+  /**
+   * Explicit visual personality the /create form chose for this category (one of
+   * the 16 theme-style preset names). AUTHORITATIVE when valid — the workflow
+   * prefers it over re-deriving the personality from `additional_context` prose,
+   * so the deliberate elaborate theme reliably lands (AL-467). Ignored when it is
+   * not a known preset name (the workflow falls back to derivation).
+   */
+  theme_style?: string;
 }
 
 siteCreation.post('/api/sites/create-from-search', async (c) => {
@@ -147,6 +156,14 @@ siteCreation.post('/api/sites/create-from-search', async (c) => {
     ? sanitizeHtml(String(body.additional_context).slice(0, 5000))
     : null;
 
+  // Explicit visual personality (AL-467): the /create form's deliberate per-category
+  // choice, forwarded ONLY when it is a valid preset name so the workflow can prefer
+  // it over re-deriving from `additional_context` prose. Invalid/absent → undefined →
+  // the workflow's derivation fallback runs, byte-identical to prior behavior.
+  const themeStyle = isThemeStyleName(body.theme_style)
+    ? String(body.theme_style).trim().toLowerCase()
+    : undefined;
+
   if (businessAddress && String(businessAddress).length > 500) {
     throw badRequest('Business address must be 500 characters or fewer');
   }
@@ -218,6 +235,9 @@ siteCreation.post('/api/sites/create-from-search', async (c) => {
         // create (weave fell back to "local service", classification to fragile name-
         // inference — the "Harvest & Vine → nonprofit" class). Mirror the NAP flat-key chain.
         businessCategory: businessCategory ?? undefined,
+        // AL-467: authoritative theme signal (the /create form's deliberate pick);
+        // the workflow prefers it over re-deriving the personality from prose.
+        themeStyle,
         googlePlaceId: googlePlaceId ?? undefined,
         additionalContext: additionalContext ?? undefined,
         uploadId: (body as Record<string, unknown>).upload_id as string | undefined,
@@ -244,6 +264,9 @@ siteCreation.post('/api/sites/create-from-search', async (c) => {
       business_phone: businessPhone ?? null,
       google_place_id: googlePlaceId ?? null,
       additional_context: additionalContext,
+      // AL-467: carry the authoritative theme signal on the queue-fallback message too
+      // (contract parity with SITE_WORKFLOW.create above) so the consumer can honor it.
+      theme_style: themeStyle ?? null,
     });
   }
 

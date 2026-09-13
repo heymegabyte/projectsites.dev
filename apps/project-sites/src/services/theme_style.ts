@@ -295,6 +295,67 @@ export function themeStyleFromInputs(
 }
 
 /**
+ * Type guard: is `value` one of the 16 canonical {@link ThemeStyleName}s
+ * (case-insensitive, trimmed)? Gates a caller-supplied explicit theme signal
+ * before it is trusted over the derived one.
+ *
+ * @param value - Any candidate (string or otherwise).
+ * @returns `true` only when `value` normalizes to a known preset name.
+ *
+ * @example
+ * isThemeStyleName('Artisan')   // → true
+ * isThemeStyleName('nonsense')  // → false
+ * isThemeStyleName(undefined)   // → false
+ */
+export function isThemeStyleName(value: unknown): value is ThemeStyleName {
+  if (typeof value !== 'string') return false;
+  return (THEME_STYLE_NAMES as readonly string[]).includes(value.trim().toLowerCase());
+}
+
+/**
+ * Resolve the site's visual personality, PREFERRING an explicit caller-supplied
+ * theme-style over category/hint re-derivation.
+ *
+ * WHY (producer gap, AL-467): the /create form already picks a deliberate, often
+ * more distinctive personality per category in `getDesignRecommendations`
+ * (Beauty/Spa→artisan, Salon→luxe, Bar→noir), but only ever shipped it as PROSE
+ * embedded in `additional_context` — the worker then RE-DERIVED the personality
+ * by regex-scanning that prose via {@link themeStyleFromInputs}. That recovery is
+ * fragile (a user edit to the context textarea, or dossier-prose drift, silently
+ * degrades the theme) and NON-form paths (golden-journey / Places-seeded creates)
+ * skip the prose entirely and land on the blander CATEGORY default (a salon → warm
+ * food-photography theme, a cocktail bar → warm not noir). Honoring an explicit
+ * signal makes the chosen personality AUTHORITATIVE + immutable against the
+ * generator (the `authoritative-signal-immutable-against-unreliable-generator`
+ * pattern): what the form picked is exactly what seeds `_brand.json.themeStyle` +
+ * the template's `data-style`. {@link themeStyleFromInputs} stays the fallback for
+ * callers that omit (or send an invalid) explicit style — so this never REGRESSES
+ * the derived path, it only lets a trusted signal short-circuit it.
+ *
+ * @param explicit - A caller-declared theme-style (the /create payload's
+ *   `theme_style`); used verbatim (normalized) when it is a valid preset name.
+ * @param category - Declared vertical, for the fallback derivation.
+ * @param designHint - Freeform hint, for the fallback derivation.
+ * @returns A valid {@link ThemeStyleName}, or `undefined` when nothing resolves
+ *   (caller then omits `themeStyle` and the template keeps its `classic` default).
+ *   Never throws.
+ *
+ * @example
+ * resolveThemeStyle('artisan', 'Beauty / Spa / Wellness') // → 'artisan' (explicit wins)
+ * resolveThemeStyle('NONSENSE', 'car_dealer')             // → 'precision' (invalid → derived)
+ * resolveThemeStyle(undefined, 'Financial / Accounting')  // → 'heritage' (derived)
+ * resolveThemeStyle(null, 'Other')                        // → undefined
+ */
+export function resolveThemeStyle(
+  explicit?: string | null,
+  category?: string | null,
+  designHint?: string | null,
+): ThemeStyleName | undefined {
+  if (isThemeStyleName(explicit)) return explicit.trim().toLowerCase() as ThemeStyleName;
+  return themeStyleFromInputs(category, designHint);
+}
+
+/**
  * Per-personality CONTENT design brief for the build orchestrator (AL-356).
  *
  * WHY (producer gap, 2026-09-11): the template stamps each personality's

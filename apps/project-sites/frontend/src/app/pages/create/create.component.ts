@@ -1870,6 +1870,14 @@ export class CreateComponent implements OnInit, OnDestroy {
         category: this.businessCategory || undefined,
       },
     };
+    // AL-467: forward the deliberate theme personality as an AUTHORITATIVE signal
+    // (not just the dossier prose baked into additional_context) — but ONLY for a
+    // known dropdown category, so the worker still derives from the business name /
+    // Places type for '' / 'Other' / freeform verticals (never forced to classic).
+    const cat = this.businessCategory?.trim();
+    if (cat && cat !== 'Other' && this.categories.includes(cat)) {
+      payload.theme_style = this.getDesignRecommendations(cat).themeStyle;
+    }
     if (uploadId) payload.upload_id = uploadId;
 
     this.api.createSiteFromSearch(payload).subscribe({

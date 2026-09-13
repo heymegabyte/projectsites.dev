@@ -1030,6 +1030,13 @@ export interface CreateSitePayload {
     types?: string[];
     category?: string;
   };
+  /**
+   * Explicit visual personality the form chose for the selected category (one of
+   * the 16 theme-style preset names). The worker prefers it over re-deriving the
+   * theme from `additional_context` prose, so the deliberate elaborate theme
+   * reliably lands (AL-467). Sent only for known dropdown categories.
+   */
+  theme_style?: string;
   budget_tier?: BudgetTier;
 }
 

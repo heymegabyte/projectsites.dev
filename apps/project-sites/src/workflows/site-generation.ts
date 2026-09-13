@@ -31,7 +31,7 @@ import { resolveActiveOrgPlan } from '../services/build_limits.js';
 import { isFlagOn } from '../modules/feature_flags/services.js';
 import { tryEmitEvent } from '../services/emit_event.js';
 import {
-  themeStyleFromInputs,
+  resolveThemeStyle,
   personalityBriefFor,
   commerceModeFor,
   commerceIntentBriefFor,
@@ -222,6 +222,14 @@ export interface SiteGenerationParams {
   businessWebsite?: string;
   googlePlaceId?: string;
   additionalContext?: string;
+  /**
+   * Explicit visual personality chosen by the caller (the /create form's
+   * `getDesignRecommendations`). When a valid preset name, it is AUTHORITATIVE —
+   * preferred over category/hint re-derivation via {@link resolveThemeStyle} — so
+   * the deliberate elaborate theme reliably lands instead of being recovered from
+   * (and degraded by) the dossier prose in `additionalContext` (AL-467).
+   */
+  themeStyle?: string;
   uploadedAssets?: string[];
   uploadId?: string;
   orgId: string;
@@ -309,7 +317,11 @@ export function buildPrompt(params: SiteGenerationParams): string {
   // evocative copy instead of bright stock + flat corporate lines. Omitted (empty
   // block, `.filter(Boolean)` drops it) when the vertical doesn't resolve to a
   // personality — byte-identical to pre-AL-356 for those builds.
-  const themeStyle = themeStyleFromInputs(params.businessCategory, params.additionalContext);
+  const themeStyle = resolveThemeStyle(
+    params.themeStyle,
+    params.businessCategory,
+    params.additionalContext,
+  );
   const personalityBrief = personalityBriefFor(themeStyle);
 
   // AL-408 — the CONVERSION axis (orthogonal to the visual personality above).
@@ -711,7 +723,14 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
     // freeform design hint (both authoritative /create inputs). Top-level plain
     // string is EXACTLY what brand.ts reads (r.themeStyle); an undefined result
     // omits the key so the template keeps its own graceful classic fallback.
-    const themeStyle = themeStyleFromInputs(params.businessCategory, params.additionalContext);
+    // AL-467: prefer an EXPLICIT caller-supplied themeStyle (the /create form's
+    // deliberate choice) over re-derivation — the form's elaborate pick then
+    // seeds this IMMUTABLE signal directly instead of being recovered from prose.
+    const themeStyle = resolveThemeStyle(
+      params.themeStyle,
+      params.businessCategory,
+      params.additionalContext,
+    );
     // IMMUTABLE themeStyle signal (mirrors the _category.txt sidecar). The seeded
     // _brand.json.themeStyle below is CLOBBERABLE — the orchestrator rewrites _brand.json
     // (the same fire-54 clobber that motivated _category.txt), dropping the top-level
