@@ -27,6 +27,7 @@ auth:
   signin:           { status: covered, specs: [auth-and-signin.spec.ts] }
   full_flow:        { status: covered, specs: [auth-full-flow.spec.ts, auth-full-oauth-flow.spec.ts] }
   oidc_callback:    { status: covered, specs: [oidc-oauth-callback.spec.ts] }
+  super_admin_guard: { status: covered, specs: [admin-verify/verify-super-admin-guard.mjs] }  # P0 privilege boundary: regular user 403 / unauth 401 on every /api/super-admin/*
 
 site_lifecycle:
   golden_path:      { status: covered, specs: [golden-path.spec.ts, vitos-full-flow.spec.ts] }

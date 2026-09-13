@@ -57,6 +57,7 @@
 
 | Feature | Spec | Owner | Status | Notes |
 |---------|------|-------|--------|-------|
+| Super-admin privilege boundary (regular user 403 / unauth 401 on every `/api/super-admin/*`) | `verify-super-admin-guard.mjs` | admin-verify | GREEN | 14/14 prod ✅ (P0 escalation guard) |
 | Auth OAuth — Google button visible | `auth-oauth-buttons.spec.ts` | convergence | GREEN | 4/4 pass ✅ |
 | Auth OAuth — GitHub button visible | `auth-oauth-buttons.spec.ts` | convergence | GREEN | 4/4 pass ✅ |
 | Auth sign-up OAuth — Google button | `auth-signup-oauth.spec.ts` | convergence | GREEN | 4/4 pass ✅ |
