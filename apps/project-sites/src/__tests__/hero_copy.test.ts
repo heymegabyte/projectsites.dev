@@ -435,7 +435,16 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
   });
 
   it('returns null for neutral/unknown/empty personalities (caller keeps generic frames)', () => {
-    for (const key of ['classic', 'editorial', 'futuristic', 'rugged', 'nope', '', null, undefined]) {
+    for (const key of [
+      'classic',
+      'editorial',
+      'futuristic',
+      'rugged',
+      'nope',
+      '',
+      null,
+      undefined,
+    ]) {
       expect(personaHeroCopy(key as string, 'plumbing', 'Denver')).toBeNull();
     }
     // @ts-expect-error — defensive: non-string themeStyle must not throw
@@ -446,9 +455,9 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
     expect(() => personaHeroCopy('noir', '', '')).not.toThrow();
     const p = personaHeroCopy('noir', '', '');
     expect(p).not.toBeNull();
-    expect(p!.subheadlines.every((s) => s.includes('local business') && s.includes('your community'))).toBe(
-      true,
-    );
+    expect(
+      p!.subheadlines.every((s) => s.includes('local business') && s.includes('your community')),
+    ).toBe(true);
   });
 
   it('distinctive personalities read DISTINCTLY from each other (not the same template)', () => {

@@ -253,84 +253,132 @@ export function personaHeroCopy(
 
   const map: Readonly<Record<string, PersonaHeroCopy>> = {
     noir: {
-      headlines: [`After dark, ${city} comes alive`, `${city}'s room after dark`, `Where ${city} nights begin`],
+      headlines: [
+        `After dark, ${city} comes alive`,
+        `${city}'s room after dark`,
+        `Where ${city} nights begin`,
+      ],
       subheadlines: [
         `An intimate ${cat} in the heart of ${city} — low light, careful pours, and a night worth lingering over.`,
         `${city}'s after-dark ${cat}: candlelit, unhurried, and made for the kind of evening you remember.`,
       ],
     },
     luxe: {
-      headlines: [`The finest ${cat} in ${city}`, `${city}'s ${cat}, refined`, `Quiet luxury in ${city}`],
+      headlines: [
+        `The finest ${cat} in ${city}`,
+        `${city}'s ${cat}, refined`,
+        `Quiet luxury in ${city}`,
+      ],
       subheadlines: [
         `A refined ${cat} for ${city} — considered, unhurried, and finished down to the last detail.`,
         `${city} comes to us for ${cat} done with restraint, taste, and quiet confidence.`,
       ],
     },
     warm: {
-      headlines: [`Pull up a chair, ${city}`, `Your ${city} ${cat}, always welcoming`, `${city}'s cozy corner`],
+      headlines: [
+        `Pull up a chair, ${city}`,
+        `Your ${city} ${cat}, always welcoming`,
+        `${city}'s cozy corner`,
+      ],
       subheadlines: [
         `A welcoming ${cat} in ${city} where the coffee is hot, the faces are friendly, and everyone has a seat.`,
         `Come in, slow down, and feel at home — ${cat} made with heart for ${city}.`,
       ],
     },
     bold: {
-      headlines: [`${city}, let's get to work`, `Train harder in ${city}`, `Your strongest self starts in ${city}`],
+      headlines: [
+        `${city}, let's get to work`,
+        `Train harder in ${city}`,
+        `Your strongest self starts in ${city}`,
+      ],
       subheadlines: [
         `High-energy ${cat} for ${city} — real coaching, real sweat, and results you can feel.`,
         `Real ${cat} energy in ${city} — show up, push, and we will get you there.`,
       ],
     },
     artisan: {
-      headlines: [`Made by hand in ${city}`, `${city}'s ${cat}, crafted slow`, `Small-batch, ${city}-made`],
+      headlines: [
+        `Made by hand in ${city}`,
+        `${city}'s ${cat}, crafted slow`,
+        `Small-batch, ${city}-made`,
+      ],
       subheadlines: [
         `Handcrafted ${cat} in ${city} — made in small batches, the honest way, one at a time.`,
         `Small-batch ${cat} from ${city} — real materials, patient hands, and work we stand behind.`,
       ],
     },
     retro: {
-      headlines: [`${city}'s favorite throwback`, `A little ${city} nostalgia`, `Old-school ${cat} in ${city}`],
+      headlines: [
+        `${city}'s favorite throwback`,
+        `A little ${city} nostalgia`,
+        `Old-school ${cat} in ${city}`,
+      ],
       subheadlines: [
         `A joyfully vintage ${cat} in ${city} — the classics you grew up on, done right and full of character.`,
         `${city}, bring the whole crew: ${cat} with old-school soul and a wink of fun.`,
       ],
     },
     boutique: {
-      headlines: [`${city}'s most-loved ${cat}`, `Find something special in ${city}`, `Your ${city} ${cat}, styled`],
+      headlines: [
+        `${city}'s most-loved ${cat}`,
+        `Find something special in ${city}`,
+        `Your ${city} ${cat}, styled`,
+      ],
       subheadlines: [
         `A chic ${cat} in ${city} — pieces worth the trip, chosen with a tastemaker's eye.`,
         `${city} shops with us for ${cat} that feels personal, current, and quietly covetable.`,
       ],
     },
     heritage: {
-      headlines: [`${city} has trusted us for years`, `A ${city} ${cat} built on trust`, `Generations of ${city} know us`],
+      headlines: [
+        `${city} has trusted us for years`,
+        `A ${city} ${cat} built on trust`,
+        `Generations of ${city} know us`,
+      ],
       subheadlines: [
         `A ${cat} ${city} has relied on for years — steady, principled, and here for the long run.`,
         `${city} turns to us for ${cat} grounded in experience, judgment, and a name that keeps its word.`,
       ],
     },
     botanical: {
-      headlines: [`Feel better in ${city}`, `Calm, capable care in ${city}`, `${city}, take a deep breath`],
+      headlines: [
+        `Feel better in ${city}`,
+        `Calm, capable care in ${city}`,
+        `${city}, take a deep breath`,
+      ],
       subheadlines: [
         `Gentle, attentive ${cat} for ${city} — unhurried care that meets you where you are.`,
         `${city} rests easy with ${cat} that is calm, clear, and always in your corner.`,
       ],
     },
     scholarly: {
-      headlines: [`Where ${city} learns`, `${city}, let's grow together`, `Bright futures start in ${city}`],
+      headlines: [
+        `Where ${city} learns`,
+        `${city}, let's grow together`,
+        `Bright futures start in ${city}`,
+      ],
       subheadlines: [
         `Encouraging ${cat} for ${city} — patient teaching, real progress, and a place every learner belongs.`,
         `${city} families choose us for ${cat} that makes learning click and confidence grow.`,
       ],
     },
     precision: {
-      headlines: [`Precision ${cat} in ${city}`, `${city}'s ${cat}, engineered right`, `Dialed in for ${city}`],
+      headlines: [
+        `Precision ${cat} in ${city}`,
+        `${city}'s ${cat}, engineered right`,
+        `Dialed in for ${city}`,
+      ],
       subheadlines: [
         `Exacting ${cat} for ${city} — measured, meticulous, and done to spec the first time.`,
         `${city} counts on us for ${cat} with the details right down to the last millimeter.`,
       ],
     },
     brutalist: {
-      headlines: [`${city}. ${cat}. No compromise`, `Bold ${cat} for ${city}`, `${city}, made to stand out`],
+      headlines: [
+        `${city}. ${cat}. No compromise`,
+        `Bold ${cat} for ${city}`,
+        `${city}, made to stand out`,
+      ],
       subheadlines: [
         `Uncompromising ${cat} in ${city} — sharp, deliberate, and impossible to ignore.`,
         `${city} comes to us for ${cat} with a point of view and the work to back it up.`,

@@ -799,7 +799,11 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
           ),
           tagline: tok('', 'Eyebrow line above H1.'),
           description: tok(
-            deriveBrandDescription(safeName, params.businessCategory || '', params.additionalContext || ''),
+            deriveBrandDescription(
+              safeName,
+              params.businessCategory || '',
+              params.additionalContext || '',
+            ),
             'Manifest description + visible Footer blurb (never empty).',
           ),
           url: tok(`https://${params.slug}${DOMAINS.SITES_SUFFIX}`, 'Canonical https URL.'),
