@@ -756,6 +756,9 @@ export function seoDescriptionFor(
     nonprofit: `${biz} serves ${city} as a ${cat} — real, lasting impact powered by neighbors who show up. Learn our mission, meet the people we help, and find the many ways to get involved.`,
     general: `${biz} is ${city}'s ${cat} — dependable, friendly, and focused on doing right by everyone who walks in. Reach out to learn more, and find our hours and location below.`,
   };
-  const key = typeof mode === 'string' && mode.trim().toLowerCase() in templates ? mode.trim().toLowerCase() : 'general';
+  const key =
+    typeof mode === 'string' && mode.trim().toLowerCase() in templates
+      ? mode.trim().toLowerCase()
+      : 'general';
   return clampSeoDesc(templates[key]!, city);
 }

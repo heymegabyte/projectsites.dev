@@ -478,7 +478,15 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
 describe('hero_copy — seoDescriptionFor (AL-491: per-commerce-mode homepage meta description)', () => {
   const BANNED =
     /limitless|revolutioniz|cutting-edge|leverage|world-class|game-chang|unlock|elevate|unparalleled|seamless|robust|synergy|holistic/i;
-  const MODES = ['hospitality', 'quickserve', 'retail', 'service', 'professional', 'nonprofit', 'general'];
+  const MODES = [
+    'hospitality',
+    'quickserve',
+    'retail',
+    'service',
+    'professional',
+    'nonprofit',
+    'general',
+  ];
 
   it('is ALWAYS in the 120-156 SEO sweet spot — every mode, across short + long name/cat/city', () => {
     const samples: Array<[string, string, string]> = [
@@ -486,7 +494,11 @@ describe('hero_copy — seoDescriptionFor (AL-491: per-commerce-mode homepage me
       ['The Secret Society', 'cocktail bar', 'Portland'],
       ['Electric Fetus', 'record store', 'Minneapolis'],
       ['Bo', 'bar', 'LA'], // very short → must PAD to ≥120
-      ['The Extraordinarily Long-Winded Neighborhood Mercantile & Sundries Emporium', 'general store', 'San Francisco'], // very long → must TRUNCATE to ≤156
+      [
+        'The Extraordinarily Long-Winded Neighborhood Mercantile & Sundries Emporium',
+        'general store',
+        'San Francisco',
+      ], // very long → must TRUNCATE to ≤156
       ['', '', ''], // fallbacks
     ];
     for (const mode of MODES) {
@@ -511,7 +523,9 @@ describe('hero_copy — seoDescriptionFor (AL-491: per-commerce-mode homepage me
   });
 
   it('gives each commerce mode its own conversion angle', () => {
-    expect(seoDescriptionFor('hospitality', 'X', 'bar', 'Y')).toMatch(/gather|taste|linger|coming back/i);
+    expect(seoDescriptionFor('hospitality', 'X', 'bar', 'Y')).toMatch(
+      /gather|taste|linger|coming back/i,
+    );
     expect(seoDescriptionFor('retail', 'X', 'shop', 'Y')).toMatch(/selection|browse|prices/i);
     expect(seoDescriptionFor('service', 'X', 'plumbing', 'Y')).toMatch(/book|dependable|detail/i);
     expect(seoDescriptionFor('nonprofit', 'X', 'charity', 'Y')).toMatch(/mission|impact|involved/i);
