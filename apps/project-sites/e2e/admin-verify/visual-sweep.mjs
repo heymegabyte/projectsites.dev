@@ -25,6 +25,7 @@
  */
 import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
+import { waitForCaptureSettle } from './_capture-helpers.mjs';
 // Optional axe-core a11y (PSVIS_AXE=1) — the ONLY way to verify the super-admin
 // sections' a11y (they 403 for the e2e-org E2E harness, so they can't be axe'd there).
 let AxeBuilder = null;
@@ -148,6 +149,9 @@ try {
         const picked = await selectSiteOnPage();
         if (picked) (report._selectedSite ??= {})[name] = picked;
       }
+      // Let lazy widgets/skeletons settle so the shot shows the REAL state, not a loading
+      // frame — was a fixed 5500ms only, which could capture a mid-flight skeleton (AL-551).
+      await waitForCaptureSettle(page);
       await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: false });
       const info = await page.evaluate(() => {
         // The section error boundary renders "This section ran into a problem" on

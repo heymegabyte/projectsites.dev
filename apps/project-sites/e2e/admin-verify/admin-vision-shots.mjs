@@ -14,6 +14,7 @@
 // 2500ms fallback BEFORE the fullPage capture, so screenshots show the TRUE resolved state.
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
+import { waitForCaptureSettle, hasLoadingSkeleton } from './_capture-helpers.mjs';
 
 const KEY = process.env.E2E_API_KEY;
 if (!KEY) {
@@ -46,25 +47,9 @@ async function scrollThrough(page) {
   });
 }
 
-// Sibling of the phantom-zero scroll guard: both stop the capture racing async UI.
-// Height-reserving loading SKELETONS (billing usage-gauges + credit-wallet, and any
-// section whose child widget fetches AFTER the route settles) shimmer for a beat while
-// their `/api/*` calls land. A fixed wait caught them mid-flight → false "stuck skeleton"
-// findings every admin-integrity fire (the exact churn this loop must avoid). Before the
-// fullPage capture: (1) let the network go idle, then (2) poll until no loading-skeleton
-// element remains — BOTH bounded, so a GENUINELY stuck skeleton still gets captured (and
-// flagged by stillLoading below) after the cap rather than hanging the tool.
-const SKELETON_SEL = '.skeleton, [data-testid$="-skeleton"], [aria-busy="true"]';
-async function waitForSettle(page, { idleMs = 6000, skelMs = 8000 } = {}) {
-  await page.waitForLoadState('networkidle', { timeout: idleMs }).catch(() => {});
-  await page
-    .waitForFunction((sel) => !document.querySelector(sel), SKELETON_SEL, { timeout: skelMs, polling: 200 })
-    .catch(() => {});
-}
-async function stillLoading(page) {
-  return page.evaluate((sel) => !!document.querySelector(sel), SKELETON_SEL);
-}
-
+// waitForCaptureSettle + hasLoadingSkeleton are the canonical capture-settle guard shared
+// across every admin-verify capture tool (./_capture-helpers.mjs) — sibling of the
+// phantom-zero scroll guard: both stop the capture racing async UI (see AL-550).
 const browser = await chromium.launch();
 const ctx = await browser.newContext({
   userAgent: UA,
@@ -86,9 +71,9 @@ for (const s of SECTIONS) {
     await page.waitForTimeout(1200); // initial data load
     await scrollThrough(page); // fire every counter/reveal observer
     await page.waitForTimeout(1600); // settle rolls + clear the 2500ms below-fold fallback window
-    await waitForSettle(page); // let lazy child-widget fetches resolve before capture (no false skeletons)
+    await waitForCaptureSettle(page); // let lazy child-widget fetches resolve before capture (no false skeletons)
     const file = `${OUT}/${s}.png`;
-    const stuck = await stillLoading(page); // a skeleton surviving the settle window = a REAL stuck state
+    const stuck = await hasLoadingSkeleton(page); // a skeleton surviving the settle window = a REAL stuck state
     await page.screenshot({ path: file, fullPage: true });
     console.log(`✓ ${s} → ${file}${stuck ? '  ⚠ loading skeleton persists after settle — inspect for a genuinely stuck async widget' : ''}`);
   } catch (e) {
