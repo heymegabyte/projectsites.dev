@@ -49,6 +49,7 @@ import {
   DEFAULT_ROUTER_PROMPT,
   DEFAULT_CHAT_SYSTEM_PROMPT,
 } from '../../../src/services/form_router.js';
+import { dbQuery } from '../../../src/services/db.js';
 import * as auditService from '../../../src/services/audit.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
@@ -304,6 +305,33 @@ aiSettings.post('/api/sites/:siteId/ai-settings/improve', async (c) => {
 });
 
 /* ────────────────────────── Per-site AI credit cap ────────────────────────── */
+
+/**
+ * `GET /api/credit-caps` — Batch-read EVERY site's monthly AI credit cap for the
+ * caller's org in ONE org-scoped query.
+ *
+ * @remarks
+ * Kills an N+1 waterfall on the admin billing page, which previously fired one
+ * `GET /api/sites/:siteId/credit-cap` per site (~110 sequential requests / ~9s
+ * load on a large roster) purely to seed each row's cap draft. This returns the
+ * whole set at once. Only rows the caller's org owns are returned (`WHERE org_id
+ * = ?`), so no cross-org cap ever leaks. Sites without a cap row simply don't
+ * appear — the client treats a missing entry as "no cap", identical to the
+ * single-site route's `monthly_credit_cap: null`.
+ *
+ * @returns `{ data: Array<{ site_id: string; monthly_credit_cap: number | null }> }`
+ * @throws 401 UNAUTHORIZED when org/user context is missing.
+ */
+aiSettings.get('/api/credit-caps', async (c) => {
+  const { orgId } = need(c);
+  const { data } = await dbQuery<{ site_id: string; monthly_credit_cap: number | null }>(
+    c.env.DB,
+    `SELECT site_id, monthly_credit_cap FROM site_credit_caps WHERE org_id = ?`,
+    [orgId],
+  );
+  return c.json({ data });
+});
+
 aiSettings.get('/api/sites/:siteId/credit-cap', async (c) => {
   const { orgId } = need(c);
   const row = await c.env.DB.prepare(

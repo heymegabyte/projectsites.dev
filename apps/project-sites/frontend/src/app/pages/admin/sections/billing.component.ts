@@ -2299,12 +2299,22 @@ export class AdminBillingComponent implements OnInit {
         const effective = rows.length > 0 ? rows : this.zeroFillFromSites();
         this.siteCosts.set(effective);
         this.loadingCosts.set(false);
-        for (const row of effective) {
-          this.api.get<{ data: { monthly_credit_cap: number | null } }>(`/sites/${row.site_id}/credit-cap`).subscribe({
-            next: (cap) => { this.capDraft[row.site_id] = cap.data?.monthly_credit_cap ?? ''; },
+        // Seed each row's cap draft from ONE batch request. Previously this fired
+        // a `GET /sites/:id/credit-cap` PER site — an N+1 waterfall (~110 requests
+        // / ~9s load on a large roster). The batch route returns every cap the org
+        // owns in one org-scoped query; sites without a cap row are simply absent,
+        // and every read path treats a missing entry the same as '' (no cap), so
+        // behavior is identical. Degrades to empty drafts on error, same as before.
+        this.api
+          .get<{ data: { site_id: string; monthly_credit_cap: number | null }[] }>('/credit-caps')
+          .subscribe({
+            next: (caps) => {
+              for (const cap of caps.data ?? []) {
+                this.capDraft[cap.site_id] = cap.monthly_credit_cap ?? '';
+              }
+            },
             error: () => { /* api.service already toasted */ },
           });
-        }
       },
       error: () => {
         // Error fallback: still surface the user's sites with zero usage so
