@@ -43,6 +43,7 @@ const PROBES = [
   { label: 'notif-badge', file: 'verify-notification-badge-honest.mjs', env: {} },
   { label: 'readiness-badge', file: 'verify-readiness-badge-honest.mjs', env: {} },
   { label: 'social-connect', file: 'verify-social-connect-endpoints.mjs', env: {} },
+  { label: 'deliverability-control', file: 'verify-deliverability-control.mjs', env: {} },
   { label: 'focus-obscured', file: 'focus-not-obscured.mjs', env: {} },
   { label: 'target-size', file: 'target-size-scan.mjs', env: {} },
   { label: 'modal-a11y', file: 'modal-a11y-scan.mjs', env: {} },
