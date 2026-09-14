@@ -34,6 +34,11 @@ const DENY = [
 // A bare "gear" in an /about|hero H1 is the leak signature — but NOT for businesses that
 // genuinely sell gear (outdoor / sporting / tactical / bike / ski / climbing / auto).
 const GEAR_OK = /\b(outdoor|sporting|sports|tactical|bike|bicycle|cycl|ski|snowboard|climb|camp|hik|fish|hunt|auto|motor|dive|surf|gym|fitness)\b/i;
+// "Licensed & insured" is a promise-grade FACT only for genuine trades/auto/home-services — a
+// FABRICATED credential on a salon / agency / consultant / studio that also quotes (AL-559,
+// TrustBar `svc` default). Flag it unless the business is a real trade.
+const TRADE_OK =
+  /\b(plumb|hvac|heating|cooling|air\s?condition|furnace|roof|electric|contractor|construction|landscap|lawn|cleaning|maid|janitor|pest|handyman|carpent|floor|drywall|septic|gutter|remodel|renovation|towing|locksmith|garage|excavat|fencing|paving|demolition|moving|mover|junk|hauling|snow|auto|mechanic|collision|body\s?shop|detailing|security|alarm|pool|tree\s?service|pressure\s?wash|chimney|insulation|solar|paint|glass|window|door|deck|masonry|concrete|welding|appliance)\b/i;
 const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 const hits = [];
@@ -44,6 +49,7 @@ try {
     const page = await ctx.newPage();
     const siteName = norm(slug.replace(/-/g, ' '));
     const gearOkBiz = GEAR_OK.test(siteName);
+    const tradeOkBiz = TRADE_OK.test(siteName);
     for (const route of ROUTES) {
       try {
         const r = await page.goto(`https://${slug}.projectsites.dev${route}`, { waitUntil: 'load', timeout: 45000 });
@@ -57,6 +63,8 @@ try {
         const nH1 = norm(h1);
         for (const phrase of DENY) if (nBody.includes(phrase)) hits.push({ slug, route, kind: 'deny-phrase', detail: phrase });
         if (/\bgear\b/.test(nH1) && !gearOkBiz) hits.push({ slug, route, kind: 'h1-gear', detail: nH1.slice(0, 60) });
+        if (nBody.includes('licensed & insured') && !tradeOkBiz)
+          hits.push({ slug, route, kind: 'licensed-insured-nontrade', detail: 'licensed & insured (fabricated credential on a non-trade business)' });
       } catch {
         /* route unreachable → skip (don't false-fail) */
       }
