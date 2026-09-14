@@ -50,6 +50,17 @@ const FOOD_LEXICON =
 const FINANCE_LEXICON =
   /\b(wealth|financ\w*|invest(ment|ing|or)\w*|asset\s?manage\w*|retirement|insuranc\w*|accountan\w*|accounting|bookkeep\w*|cpa|tax(es)?|fiduciar\w*|advisor\w*|advisory|brokerage|portfolio)\b/i;
 
+// Creative-services domain lexicon (AL-544) — SAME cluster idea as FOOD/FINANCE, for the creative
+// domain (design studio / graphic design / creative-branding-ad agency / photography / videography /
+// art studio-gallery / production / animation / record label). These share ONE visual domain — a
+// design/creative workspace — so one hero ("graphic design studio workspace") is a correct match for
+// any of them. Bridges the design-studio → generic "creative agency team meeting" defect: a design
+// studio (nouns {design,studio}) + a creative-domain hero query is a correct cluster match, exactly
+// like wealth ↔ "financial advisor office". No bare `agency` here → an insurance/real-estate agency
+// (finance/luxe hero) never false-bridges (its hero query isn't in this lexicon).
+const CREATIVE_LEXICON =
+  /\b(design|graphic|creative|agenc\w*|brand\w*|photograph\w*|videograph\w*|gallery|galleries|portfolio|advertis\w*|animation|production|illustrat\w*)\b/i;
+
 // Decode the Unsplash `ixid` (base64 → pipe-delimited; the query is the URL-encoded field).
 function heroQueryFromHtml(html) {
   const m = html.match(/ixid=([A-Za-z0-9]+)/);
@@ -98,9 +109,20 @@ try {
         // office hero serves the whole cluster, mirroring the food bridge above.
         const financeMatch =
           verticalNouns.some((n) => FINANCE_LEXICON.test(n)) && FINANCE_LEXICON.test(heroQuery);
-        const matched = literalMatch || foodMatch || financeMatch;
+        // Creative-cluster bridge (AL-544): a creative-domain business (design/agency/photography/
+        // branding/art/production) + a creative-domain hero query is a correct match — one design-
+        // studio-workspace hero serves the whole cluster, mirroring the food + finance bridges.
+        const creativeMatch =
+          verticalNouns.some((n) => CREATIVE_LEXICON.test(n)) && CREATIVE_LEXICON.test(heroQuery);
+        const matched = literalMatch || foodMatch || financeMatch || creativeMatch;
         if (matched) {
-          const how = literalMatch ? '' : foodMatch ? ' [food-cluster]' : ' [finance-cluster]';
+          const how = literalMatch
+            ? ''
+            : foodMatch
+              ? ' [food-cluster]'
+              : financeMatch
+                ? ' [finance-cluster]'
+                : ' [creative-cluster]';
           rows.push(`  ✓ ${slug} — hero query "${heroQuery}" matches vertical {${verticalNouns.join(',')}}${how}`);
         } else {
           flags++;

@@ -79,6 +79,19 @@ const FINANCE: HeroImage = {
   url: 'https://images.unsplash.com/photo-1713461983836-de0a45009424?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwxfHxmaW5hbmNpYWwlMjBhZHZpc29yJTIwb2ZmaWNlJTIwbWVldGluZ3xlbnwwfDB8fHwxNzg5MzQzMTcyfDA&ixlib=rb-4.1.0&q=80&w=1080',
   alt: 'A financial advisor reviewing figures at a desk',
 };
+// CREATIVE CLUSTER (AL-544): one hero for the whole creative-services domain — design studio,
+// graphic design, creative/branding/ad agency, photography/photo studio, videography, art studio/
+// gallery, production studio/house, animation, record label. WHY a cluster (like FINANCE): these
+// share ONE visual domain — a design/creative WORKSPACE. brutalist (the preset for `design studio|
+// creative|photography|agency|…` per theme_style.ts CATEGORY_RULES) had NO curated hero, so a
+// design studio (pentagram-nyc) fell to the pack's generic "creative agency team meeting" (a cafe-
+// ish team photo) — flagged live by verify-hero-image-vertical. Seeds a real design-studio desk;
+// the probe's CREATIVE_LEXICON bridge accepts this one hero for any creative-domain noun. Sourced
+// via Unsplash search API 2026-09-14 ("graphic design studio workspace"), alt-verified on-vertical.
+const CREATIVE: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1765758014805-a7a6cc272982?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHw0fHxncmFwaGljJTIwZGVzaWduJTIwc3R1ZGlvJTIwd29ya3NwYWNlfGVufDB8MHx8fDE3ODkzOTQ2MTB8MA&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: "A designer's desk with a computer and creative work in a studio",
+};
 
 /**
  * Ordered [sub-vertical pattern → curated hero]. FIRST match wins. Scanned against the derived
@@ -107,6 +120,13 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
   [
     /\b(wealth|financ\w*|invest(ment|ing|or)\w*|asset\s?manage\w*|retirement\s?plan\w*|insuranc\w*|accounting|accountan\w*|bookkeep\w*|cpa|tax(es)?)\b/,
     FINANCE,
+  ],
+  // CREATIVE cluster — AFTER finance so "insurance agency"/"real estate agency" hit their own rules
+  // first (this row never uses a bare `agency`). Precise creative-services nouns only, so a yoga/
+  // dance/pilates "studio" (fitness) never matches (no bare `\bstudio\b`), and tattoo is caught above.
+  [
+    /\b(design\s?studio|graphic\s?design|creative\s?(studio|agency|shop|services)|design\s?(agency|firm)|branding|brand\s?studio|art\s?(studio|gallery)|\bgaller(y|ies)\b|photograph\w*|photo\s?studio|videograph\w*|production\s?(studio|house|company)|advertis\w*|animation\s?studio|record\s?label)\b/,
+    CREATIVE,
   ],
 ];
 

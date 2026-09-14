@@ -75,6 +75,41 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
     expect(heroImageForVertical('food bank')).toBeNull(); // no bare "bank"
   });
 
+  it('AL-544: the whole CREATIVE cluster shares ONE design-studio-workspace hero', () => {
+    const creative = heroImageForVertical('design studio')!; // pentagram-nyc's vertical
+    expect(creative).not.toBeNull();
+    expect(creative.alt).toMatch(/design|studio|creative/i);
+    for (const v of [
+      'graphic design',
+      'creative agency',
+      'creative studio',
+      'design agency',
+      'design firm',
+      'branding',
+      'brand studio',
+      'art gallery',
+      'art studio',
+      'photography studio',
+      'photo studio',
+      'videography',
+      'production studio',
+      'production house',
+      'record label',
+      'advertising agency',
+    ]) {
+      expect(heroImageForVertical(v)).toBe(creative); // one hero for the whole cluster
+    }
+    // probe-compat: the ixid base64-decodes to a query naming the vertical (design/studio)
+    expect(heroQuery(creative.url)).toMatch(/design|studio/i);
+  });
+
+  it('AL-544: creative patterns do NOT false-match insurance/real-estate agencies or fitness studios (no bare "agency"/"studio")', () => {
+    expect(heroImageForVertical('insurance agency')).toBe(heroImageForVertical('wealth management')); // → FINANCE, not CREATIVE
+    expect(heroImageForVertical('real estate agency')).toBeNull(); // luxe pack default, not creative
+    expect(heroImageForVertical('yoga studio')).toBeNull(); // no bare \bstudio\b → fitness stays pack default
+    expect(heroImageForVertical('dance studio')).toBeNull();
+  });
+
   it('returns null for broad/unknown verticals (pack default stands — no regression)', () => {
     for (const v of [
       'plumbing',
