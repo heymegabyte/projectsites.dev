@@ -108,12 +108,6 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types/env.js';
 import { dbExecute, dbInsert, dbQuery, dbQueryOne } from '../services/db.js';
-import {
-  SITE_DATA_TABLES,
-  resolveSiteDataTable,
-  clampDataLimit,
-  siteDataColumnsSql,
-} from '../services/site_data_tables.js';
 import { gatherProfileContext } from '../services/profile_context.js';
 import {
   PageAudioInputSchema,
@@ -1759,100 +1753,6 @@ api.get('/api/sites/:id/logs', async (c) => {
       has_more: offset + (result.data as unknown[]).length < total,
     },
   });
-});
-
-/**
- * @route GET /api/sites/:id/data-overview
- * @auth Bearer — `orgId` MUST resolve
- * @returns 200 OK `{ data: { tables: SiteDataTable[] } }` — one whitelisted per-site
- *   table with its live `row_count` (site-scoped COUNT).
- * @throws {AppError} `UNAUTHORIZED` — session missing orgId.
- * @throws {AppError} `NOT_FOUND` — site missing or not owned by caller's org.
- *
- * @remarks
- * Powers the bolt.diy editor Data workbench tab (`DataPanel.tsx`) via the admin
- * `PS_DATA` bridge. AL-520: the panel + admin bridge shipped 2026-09-08 but this
- * server leg was never implemented — the tab was built-but-unwired (every request
- * 404'd → error state). Cross-org IDOR guard mirrors `/logs`; per-table COUNT is
- * fail-soft (a missing table yields 0, never a 500 for the whole overview). Table
- * set is the fixed {@link SITE_DATA_TABLES} whitelist — no client-derived names.
- */
-api.get('/api/sites/:id/data-overview', async (c) => {
-  const orgId = c.get('orgId');
-  if (!orgId) throw unauthorized('Must be authenticated');
-
-  const siteId = c.req.param('id');
-  const site = await dbQueryOne<Record<string, unknown>>(
-    c.env.DB,
-    'SELECT id FROM sites WHERE id = ? AND org_id = ?',
-    [siteId, orgId],
-  );
-  if (!site) throw notFound('Site not found');
-
-  const tables = await Promise.all(
-    SITE_DATA_TABLES.map(async (t) => {
-      let rowCount = 0;
-      try {
-        // `t.table` is from the fixed whitelist (never client input) — safe to interpolate.
-        const row = await dbQueryOne<{ n: number }>(
-          c.env.DB,
-          `SELECT COUNT(*) AS n FROM ${t.table} WHERE site_id = ?`,
-          [siteId],
-        );
-        rowCount = Number(row?.n ?? 0);
-      } catch {
-        rowCount = 0; // fail-soft: schema drift on one table never breaks the whole overview
-      }
-      return {
-        key: t.key,
-        label: t.label,
-        description: t.description,
-        row_count: rowCount,
-        browsable: true,
-      };
-    }),
-  );
-
-  return c.json({ data: { tables } });
-});
-
-/**
- * @route GET /api/sites/:id/data-overview/:table
- * @auth Bearer — `orgId` MUST resolve
- * @queryParam limit — default 25, clamped to 1..100
- * @returns 200 OK `{ data: { columns: string[], rows: Record<string, unknown>[] } }` —
- *   the latest N rows of one whitelisted table, newest first.
- * @throws {AppError} `UNAUTHORIZED` — session missing orgId.
- * @throws {AppError} `NOT_FOUND` — site not owned, OR `:table` not in the whitelist.
- *
- * @remarks
- * `:table` is resolved via {@link resolveSiteDataTable} — a non-whitelisted key 404s
- * and the raw value is never touched again (injection guard). Column list + table
- * name are trusted constants; site_id + limit are parameterized.
- */
-api.get('/api/sites/:id/data-overview/:table', async (c) => {
-  const orgId = c.get('orgId');
-  if (!orgId) throw unauthorized('Must be authenticated');
-
-  const siteId = c.req.param('id');
-  const site = await dbQueryOne<Record<string, unknown>>(
-    c.env.DB,
-    'SELECT id FROM sites WHERE id = ? AND org_id = ?',
-    [siteId, orgId],
-  );
-  if (!site) throw notFound('Site not found');
-
-  const spec = resolveSiteDataTable(c.req.param('table'));
-  if (!spec) throw notFound('Unknown data table');
-
-  const limit = clampDataLimit(c.req.query('limit'));
-  const result = await dbQuery<Record<string, unknown>>(
-    c.env.DB,
-    `SELECT ${siteDataColumnsSql(spec)} FROM ${spec.table} WHERE site_id = ? ORDER BY created_at DESC LIMIT ?`,
-    [siteId, limit],
-  );
-
-  return c.json({ data: { columns: [...spec.columns], rows: result.data } });
 });
 
 // NOTE: `GET /api/sites/:id/readiness` is served by the `prod_readiness_score`
