@@ -104,7 +104,9 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
   });
 
   it('AL-544: creative patterns do NOT false-match insurance/real-estate agencies or fitness studios (no bare "agency"/"studio")', () => {
-    expect(heroImageForVertical('insurance agency')).toBe(heroImageForVertical('wealth management')); // → FINANCE, not CREATIVE
+    expect(heroImageForVertical('insurance agency')).toBe(
+      heroImageForVertical('wealth management'),
+    ); // → FINANCE, not CREATIVE
     expect(heroImageForVertical('real estate agency')).toBeNull(); // luxe pack default, not creative
     expect(heroImageForVertical('yoga studio')).toBeNull(); // no bare \bstudio\b → fitness stays pack default
     expect(heroImageForVertical('dance studio')).toBeNull();
