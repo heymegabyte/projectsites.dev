@@ -197,10 +197,10 @@ describe('hero_copy — categoryPhrase (AL-361: keep the retail/venue noun phras
   });
 
   it.each([
-    ['Plumbing Services', 'plumbing'], // redundant corporate suffix stripped
-    ['Insurance Agency', 'insurance'],
-    ['Consulting Group', 'consulting'],
+    ['Plumbing Services', 'plumbing'], // redundant corporate suffix stripped (no re-expansion)
     ['Acme LLC', 'acme'],
+    // NB: 'Insurance Agency'/'Consulting Group' strip THEN re-expand to the business noun
+    // ('insurance agency'/'consulting firm') — asserted in the AL-565 professional-services test.
   ])('strips redundant corporate suffixes: %s → %s', (input, expected) => {
     expect(categoryPhrase(input)).toBe(expected);
   });
@@ -246,8 +246,37 @@ describe('hero_copy — categoryPhrase (AL-361: keep the retail/venue noun phras
     // NOT over-normalized — kept nouns + non-thin verticals + categoryFromName output round-trip
     expect(categoryPhrase('Dental Clinic')).toBe('dental clinic');
     expect(categoryPhrase('record store')).toBe('record store');
-    expect(categoryPhrase('Insurance Agency')).toBe('insurance');
     expect(categoryPhrase('Plumbing Services')).toBe('plumbing');
+  });
+
+  it('suffixes professional-services DISCIPLINE nouns to a business noun (AL-565)', () => {
+    // live defects: olson-kundig-seattle H1 "Seattle's trusted architecture" + title "Your
+    // neighborhood architecture"; ben-badgley-cpa title "Your neighborhood accounting". A bare
+    // discipline noun reads as a FIELD, not a business — suffix firm/agency/studio.
+    expect(categoryPhrase('Architecture')).toBe('architecture firm');
+    expect(categoryPhrase('architect')).toBe('architecture firm');
+    expect(categoryPhrase('Accounting')).toBe('accounting firm');
+    expect(categoryPhrase('CPA')).toBe('accounting firm');
+    expect(categoryPhrase('Consulting')).toBe('consulting firm');
+    expect(categoryPhrase('Engineering')).toBe('engineering firm');
+    expect(categoryPhrase('Marketing')).toBe('marketing agency');
+    // round-trips: REDUNDANT_SUFFIX strips firm/agency/studio, then CATEGORY_NORMALIZE re-expands
+    expect(categoryPhrase('Architecture Firm')).toBe('architecture firm');
+    expect(categoryPhrase('Insurance Agency')).toBe('insurance agency'); // AL-565: was bare 'insurance'
+    expect(categoryPhrase('Consulting Group')).toBe('consulting firm'); // strip "group" → re-expand
+    expect(categoryPhrase('Marketing Agency')).toBe('marketing agency');
+    // the woven H1 + title are now grammatical (not "Seattle's trusted architecture")
+    expect(heroHeadlineOptions('architecture firm', 'Seattle')).toContain("Seattle's trusted architecture firm");
+    // NOT over-reaching: concrete verticals + real estate/design map correctly
+    expect(categoryPhrase('Real Estate')).toBe('real estate agency');
+    expect(categoryPhrase('Design')).toBe('design studio');
+  });
+
+  it('derives an architecture firm from the business NAME (AL-565)', () => {
+    expect(categoryFromName('Olson Kundig Architects')).toBe('architecture firm');
+    expect(categoryFromName('Gensler Architecture')).toBe('architecture firm');
+    // distinctive token — no false match on unrelated names
+    expect(categoryFromName('Archie Comics')).toBe('');
   });
 });
 

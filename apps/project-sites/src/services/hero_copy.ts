@@ -67,6 +67,28 @@ const CATEGORY_NORMALIZE: Readonly<Record<string, string>> = {
   'car dealer': 'car dealership',
   'beauty salon': 'salon',
   'hair care': 'salon',
+  // Professional-services DISCIPLINE nouns — bare, these read as an abstract FIELD, not a
+  // business: "Seattle's trusted architecture" / "Your neighborhood accounting" (both live on
+  // prod — olson-kundig-seattle + ben-badgley-cpa, AL-565). Suffix to the business noun so the
+  // H1 + SEO title + about/services copy (all woven from this one phrase) stay grammatical.
+  // Mirrors the NAME_CATEGORY forms for the DECLARED-category path (which strips "firm"/"agency"
+  // via REDUNDANT_SUFFIX then re-expands here, idempotent) + adds disciplines NAME_CATEGORY lacked.
+  accounting: 'accounting firm',
+  accountant: 'accounting firm',
+  cpa: 'accounting firm',
+  architecture: 'architecture firm',
+  architect: 'architecture firm',
+  architectural: 'architecture firm',
+  consulting: 'consulting firm',
+  consultant: 'consulting firm',
+  engineering: 'engineering firm',
+  marketing: 'marketing agency',
+  advertising: 'advertising agency',
+  insurance: 'insurance agency',
+  'real estate': 'real estate agency',
+  realty: 'real estate agency',
+  realtor: 'real estate agency',
+  design: 'design studio',
 };
 
 /**
@@ -135,6 +157,7 @@ const NAME_CATEGORY: ReadonlyArray<readonly [RegExp, string]> = [
   [/\b(?:dental|dentist(?:ry)?|orthodont(?:ics|ist))\b/, 'dental practice'],
   [/\b(?:attorneys?|law|legal)\b/, 'law firm'],
   [/\b(?:accounting|accountants?|cpa)\b/, 'accounting firm'],
+  [/\barchitect(?:s|ure|ural)?\b/, 'architecture firm'],
   [/\binsurance\b/, 'insurance agency'],
   [/\b(?:realty|realtors?|real\s?estate)\b/, 'real estate agency'],
   [/\b(?:automotive|mechanic|auto)\b/, 'auto shop'],
