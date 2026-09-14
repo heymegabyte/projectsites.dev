@@ -559,6 +559,20 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
     }
   });
 
+  it('AL-542: brutalist headline capitalizes the sentence-initial category (never "New York. design studio.")', () => {
+    // Live on pentagram-nyc: "New York. design studio. No compromise" — `cat` is lowercase AND
+    // sentence-initial (it follows a period), so it read cap/lower/cap like a capitalization bug.
+    // The fragment after ". " must be capitalized; only the first letter (multi-word phrase stays
+    // "Design studio", never "Design Studio").
+    for (const cat of ['design studio', 'creative studio', 'art gallery']) {
+      const p = personaHeroCopy('brutalist', cat, 'New York');
+      const h = p!.headlines.find((x) => x.includes('No compromise'))!;
+      const capCat = cat.charAt(0).toUpperCase() + cat.slice(1);
+      expect(h).toBe(`New York. ${capCat}. No compromise`);
+      expect(h).not.toContain(`. ${cat}.`); // never the lowercase sentence-initial form
+    }
+  });
+
   it('indefiniteArticle — "an" before a vowel, "a" otherwise', () => {
     expect(indefiniteArticle('bookstore')).toBe('a');
     expect(indefiniteArticle('jewelry store')).toBe('a');

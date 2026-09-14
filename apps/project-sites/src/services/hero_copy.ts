@@ -267,6 +267,11 @@ export function personaHeroCopy(
   const cat = (catPhrase || 'local business').trim();
   const city = (cityPhrase || 'your community').trim();
   const art = indefiniteArticle(cat); // grammatical article for the category noun in preposition slots
+  // Sentence-initial category (a headline fragment that FOLLOWS a period) must be capitalized —
+  // `cat` is lowercase ("design studio"), so `${city}. ${cat}.` shipped "New York. design studio.
+  // No compromise" (cap/lower/cap — reads as a bug). Cap only the first letter (keeps multi-word
+  // phrases like "design studio" → "Design studio", never "Design Studio"). AL-542.
+  const catCap = cat.charAt(0).toUpperCase() + cat.slice(1);
   const key = typeof themeStyle === 'string' ? themeStyle.trim().toLowerCase() : '';
 
   const map: Readonly<Record<string, PersonaHeroCopy>> = {
@@ -395,7 +400,7 @@ export function personaHeroCopy(
     },
     brutalist: {
       headlines: [
-        `${city}. ${cat}. No compromise`,
+        `${city}. ${catCap}. No compromise`,
         `Bold ${cat} for ${city}`,
         `${city}, made to stand out`,
       ],
