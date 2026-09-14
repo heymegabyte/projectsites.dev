@@ -111,7 +111,9 @@ describe('hero_copy — trustBadgesFor (AL-518: commerce-mode trust badges, neve
       for (const badge of b) {
         expect(badge.length).toBeGreaterThan(2);
         // banned-slop guard mirrors build_validators.ts
-        expect(badge.toLowerCase()).not.toMatch(/world-class|cutting-edge|revolutioniz|limitless|leverage/);
+        expect(badge.toLowerCase()).not.toMatch(
+          /world-class|cutting-edge|revolutioniz|limitless|leverage/,
+        );
       }
     }
     expect(trustBadgesFor('totally-unknown')).toEqual(trustBadgesFor('general'));
@@ -119,7 +121,14 @@ describe('hero_copy — trustBadgesFor (AL-518: commerce-mode trust badges, neve
   });
 
   it('ONLY retail may carry shipping/returns copy — every other mode is free of e-commerce chips', () => {
-    for (const m of ['quickserve', 'hospitality', 'service', 'professional', 'nonprofit', 'general']) {
+    for (const m of [
+      'quickserve',
+      'hospitality',
+      'service',
+      'professional',
+      'nonprofit',
+      'general',
+    ]) {
       const joined = trustBadgesFor(m).join(' ').toLowerCase();
       expect(joined).not.toMatch(/shipping|returns?/);
     }
