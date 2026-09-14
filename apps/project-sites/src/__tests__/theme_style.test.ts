@@ -344,7 +344,6 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
       'Cidery',
       'Restaurant',
       'Cocktail Bar',
-      'Coffee Roasters', // a roastery is an artisan/tasting brand, NOT a walk-up counter
       'Steakhouse',
       'Hotel',
       'Tasting Room',
@@ -362,6 +361,9 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
       'Gelato',
       'Frozen Yogurt',
       'Coffee Shop',
+      'Coffee Roasters', // AL-549: a roaster's cafe is a walk-up counter — "Reservations welcome" read wrong on stumptown-coffee-portland (reversed the AL-419 roaster→hospitality call)
+      'coffee roaster',
+      'Roastery',
       'Cafe', // NB: accented "Café" hits a pre-existing \b-after-non-ASCII normalize quirk
       'Bakery',
       'Donut Shop',

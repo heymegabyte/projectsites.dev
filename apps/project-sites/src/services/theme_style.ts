@@ -470,15 +470,18 @@ const COMMERCE_MODE_RULES: ReadonlyArray<readonly [CommerceMode, RegExp]> = [
     // WALK-UP / counter-serve food + drink — patrons ORDER and GO, never reserve a
     // table. Ordered BEFORE hospitality so ice cream / coffee / bakery / juice bars
     // don't inherit the full-service "Reserve a table / View the menu" framing (the
-    // Jeni's Splendid Ice Creams misframe, AL-419). "coffee roaster" is intentionally
-    // NOT here (a roastery is an artisan/tasting brand → hospitality); only "coffee
-    // shop/house/bar" is quick-serve.
+    // Jeni's Splendid Ice Creams misframe, AL-419). A COFFEE ROASTER / roastery is here too
+    // (AL-549, reversing the AL-419 call): a roaster's retail face is a walk-up counter, so
+    // hospitality's "Reservations welcome / reserve a table" framing read WRONG on the delivered
+    // stumptown-coffee-portland (vision-caught — a roaster does not take table reservations);
+    // "Order ahead / no reservation needed / made to order" fits. (DISTILLERY / WINERY / MEADERY
+    // stay hospitality below — they genuinely run tasting rooms that DO take reservations.)
     'quickserve',
-    /\b(ice\s?cream|gelato\w*|frozen\s?(?:yogurt|custard)|\bfroyo\b|creamer(?:y|ies)|shaved\s?ice|snow\s?cone|caf[eé]\w*|coffee\s?(?:shop|house|bar)|espresso(?:\s?bar)?|bakery|bakeries|patisserie|\bbagel\w*|\bdonut\w*|doughnut\w*|juice\s?bar|\bsmoothie\w*|a[çc]a[íi]|\bdeli\b|delicatessen|sandwich\s?(?:shop|bar)|\bsub\s?shop|\bhoagie\w*|food\s?(?:truck|cart|stand)|takeaway|take\s?out|takeout|teahouse|tea\s?room|bubble\s?tea|\bboba\b|cr[eê]per\w*|cupcake\w*|cookie\s?(?:shop|bar)|pretzel\w*|\bpopcorn\b|poke\s?(?:shop|bar))\b/,
+    /\b(ice\s?cream|gelato\w*|frozen\s?(?:yogurt|custard)|\bfroyo\b|creamer(?:y|ies)|shaved\s?ice|snow\s?cone|caf[eé]\w*|coffee\s?(?:shop|house|bar|roaster\w*)|\broaster(?:y|ies)\b|espresso(?:\s?bar)?|bakery|bakeries|patisserie|\bbagel\w*|\bdonut\w*|doughnut\w*|juice\s?bar|\bsmoothie\w*|a[çc]a[íi]|\bdeli\b|delicatessen|sandwich\s?(?:shop|bar)|\bsub\s?shop|\bhoagie\w*|food\s?(?:truck|cart|stand)|takeaway|take\s?out|takeout|teahouse|tea\s?room|bubble\s?tea|\bboba\b|cr[eê]per\w*|cupcake\w*|cookie\s?(?:shop|bar)|pretzel\w*|\bpopcorn\b|poke\s?(?:shop|bar))\b/,
   ],
   [
     'hospitality',
-    /\b(restaurant\w*|caf[eé]\w*|bakery|bakeries|coffee\s?(?:shop|house|roaster\w*)|\bcoffee\b|\bbar\b|brewery|breweries|brewpub|\bpub\b|bistro|diner|eatery|eateries|\bgrill\w*|pizzeria|\bpizza\b|taqueria|\bdeli\b|catering|caterer\w*|ice\s?cream|creamer(?:y|ies)|takeaway|takeout|nightlife|night\s?club\w*|nightclub\w*|\blounge\b|\bkitchen\b|smoothie|juice\s?bar|\bbbq\b|steak\s?house|steakhouse|sandwich\w*|\bdonut\w*|doughnut\w*|patisserie|teahouse|\btea\s?room|food\s?truck|distiller\w*|winer(?:y|ies)|vineyard\w*|cider\w*|cidery|meader\w*|meadery|tasting\s?room|\bhotel\w*|resort\w*|\binn\b|lodging|\bmotel\w*|\bbnb\b|bed\s?and\s?breakfast|hospitality|banquet|\bfood\b(?!\s?(?:bank|pantr|shelf|drive)))\b/,
+    /\b(restaurant\w*|caf[eé]\w*|bakery|bakeries|coffee\s?(?:shop|house)|\bcoffee\b|\bbar\b|brewery|breweries|brewpub|\bpub\b|bistro|diner|eatery|eateries|\bgrill\w*|pizzeria|\bpizza\b|taqueria|\bdeli\b|catering|caterer\w*|ice\s?cream|creamer(?:y|ies)|takeaway|takeout|nightlife|night\s?club\w*|nightclub\w*|\blounge\b|\bkitchen\b|smoothie|juice\s?bar|\bbbq\b|steak\s?house|steakhouse|sandwich\w*|\bdonut\w*|doughnut\w*|patisserie|teahouse|\btea\s?room|food\s?truck|distiller\w*|winer(?:y|ies)|vineyard\w*|cider\w*|cidery|meader\w*|meadery|tasting\s?room|\bhotel\w*|resort\w*|\binn\b|lodging|\bmotel\w*|\bbnb\b|bed\s?and\s?breakfast|hospitality|banquet|\bfood\b(?!\s?(?:bank|pantr|shelf|drive)))\b/,
   ],
   [
     'service',
