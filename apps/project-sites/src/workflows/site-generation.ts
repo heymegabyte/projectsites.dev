@@ -1013,18 +1013,23 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
           TRUST_BADGE_1: trustBadges[0],
           TRUST_BADGE_2: trustBadges[1],
           TRUST_BADGE_3: trustBadges[2],
-          // AL-491: seed the homepage META DESCRIPTION ({SEO_DESCRIPTION} → Home.tsx useSEO → the
-          // CLIENT <meta name="description">) for the SAME collapsing sub-verticals as the hero image
-          // (heroImg gate). The pack keys SEO_DESCRIPTION off the BROAD vertical, so a brewery/cocktail
-          // bar collapsed to `restaurant` and shipped a wrong-vertical "made-from-scratch food" snippet
-          // (live on half-acre + secret-society). A commerce-mode-angled, cat+city-woven, 120-156
-          // description overrides it (existing-wins); core verticals (heroImg=null) keep their crafted
-          // pack descriptions (no regression).
+          // AL-539: seed the homepage META DESCRIPTION ({SEO_DESCRIPTION} → Home.tsx useSEO → the
+          // CLIENT <meta name="description">) for EVERY vertical — DECOUPLED from the heroImg gate.
+          // AL-491 originally gated this to the same collapsing sub-verticals as the curated hero image
+          // (heroImg truthy), but the two concerns are different: a vertical can have a CORRECT pack
+          // hero image yet a WRONG-vertical pack meta-desc. A BAKERY (heroImg=null → skipped) collapsed
+          // to the `restaurant` pack default "made-from-scratch food from local ingredients" and shipped
+          // that wrong-vertical SERP snippet (live on tartine-bakery-sf, flagged by
+          // verify-meta-desc-vertical). seoDescriptionFor weaves the real name+category+city with a
+          // commerce-mode angle, GUARANTEED 120-156 chars — strictly more specific than any static,
+          // business-agnostic pack default — so seeding it unconditionally is a net SEO win with no
+          // vertical left behind. The existing-wins _content.json merge still lets a genuinely-crafted
+          // build value override it.
+          SEO_DESCRIPTION: seoDescriptionFor(commerceMode, safeName, catService, cityPhrase),
           ...(heroImg
             ? {
                 HERO_IMAGE_ALT: heroImg.alt,
                 HERO_IMAGE_URL: heroImg.url,
-                SEO_DESCRIPTION: seoDescriptionFor(commerceMode, safeName, catService, cityPhrase),
               }
             : {}),
           SEO_TAGLINE: seoTagline,

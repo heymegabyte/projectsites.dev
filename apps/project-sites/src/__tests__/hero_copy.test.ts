@@ -669,6 +669,21 @@ describe('hero_copy — seoDescriptionFor (AL-491: per-commerce-mode homepage me
     expect(d).not.toMatch(/made-from-scratch food|fresh flavors/i);
   });
 
+  it('AL-539: a BAKERY names itself + vertical + city, never the restaurant "made-from-scratch food" default', () => {
+    // tartine-bakery-sf shipped the RESTAURANT pack default ("made-from-scratch food from local
+    // ingredients") because AL-491 gated the SEO_DESCRIPTION seed to the heroImg (curated-image)
+    // sub-verticals only — a bakery (heroImg=null, "core" vertical) slipped through to the
+    // wrong-vertical SERP snippet. AL-539 decouples the seed from the heroImg gate (seeds every
+    // vertical); this locks the exact case for whichever mode a bakery resolves to.
+    for (const mode of ['quickserve', 'hospitality']) {
+      const d = seoDescriptionFor(mode, 'Tartine Bakery', 'bakery', 'San Francisco');
+      expect(d).toContain('Tartine Bakery');
+      expect(d).toContain('bakery');
+      expect(d).toContain('San Francisco');
+      expect(d).not.toMatch(/made-from-scratch food/i);
+    }
+  });
+
   it('gives each commerce mode its own conversion angle', () => {
     expect(seoDescriptionFor('hospitality', 'X', 'bar', 'Y')).toMatch(
       /gather|taste|linger|coming back/i,
