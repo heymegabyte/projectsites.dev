@@ -266,7 +266,9 @@ describe('hero_copy — categoryPhrase (AL-361: keep the retail/venue noun phras
     expect(categoryPhrase('Consulting Group')).toBe('consulting firm'); // strip "group" → re-expand
     expect(categoryPhrase('Marketing Agency')).toBe('marketing agency');
     // the woven H1 + title are now grammatical (not "Seattle's trusted architecture")
-    expect(heroHeadlineOptions('architecture firm', 'Seattle')).toContain("Seattle's trusted architecture firm");
+    expect(heroHeadlineOptions('architecture firm', 'Seattle')).toContain(
+      "Seattle's trusted architecture firm",
+    );
     // NOT over-reaching: concrete verticals + real estate/design map correctly
     expect(categoryPhrase('Real Estate')).toBe('real estate agency');
     expect(categoryPhrase('Design')).toBe('design studio');
