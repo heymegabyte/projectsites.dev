@@ -121,13 +121,20 @@ try {
       continue;
     }
     line(s.scanned > 0, `"${query}" → scanned ${s.scanned ?? 0} (source=${scan.body?.source})`);
-    // First run: created>0. Re-runs: the DB unique index rejects every prior
-    // place_id → errors>0 with the list still populated = dedupe working, also
-    // green. skippedDuplicate covers in-batch repeats.
+    // A scan is healthy when it produced fresh leads (`created`) OR correctly skipped
+    // already-stored ones (`skippedDuplicate`) — a re-scan of a saturated area is ALL skips.
     line(
-      s.created > 0 || s.errors > 0 || s.skippedDuplicate > 0,
+      s.created > 0 || s.skippedDuplicate > 0,
       `"${query}" → created ${s.created ?? 0} · errors ${s.errors ?? 0} · duplicate-skipped ${s.skippedDuplicate ?? 0}`,
     );
+    if (!(s.created > 0 || s.skippedDuplicate > 0)) failures++;
+    // AL-564 honest-metric invariant: a benign re-scan (every place_id already stored) is
+    // counted as `skippedDuplicate`, NEVER `errors`. Pre-fix a re-scan read "created 1 ·
+    // errors 199" — the scanned_leads.place_id UNIQUE index rejected each re-insert and the
+    // per-lead catch miscounted the rejection. createLead now dedupes pre-insert, so `errors`
+    // means a REAL failure (validation/DB) again — assert it stays 0 (regression guard).
+    line(!(s.errors > 0), `"${query}" → errors ${s.errors ?? 0} (honest re-scan = 0, not the pre-AL-564 199)`);
+    if (s.errors > 0) failures++;
     if (scan.body?.degraded) {
       console.log(`   ⚠ degraded note: ${scan.body.degraded}`);
     }
@@ -192,8 +199,8 @@ try {
       }
       if (list.status !== 200 || list.leads.length === 0) failures++;
       // Display-vs-store: the list must show REAL no-website businesses — the
-      // whole point of the scanner. created>0 fresh OR errors>0 (dedupe) both
-      // leave rows here; an empty list with a green scan is the lying-empty bug.
+      // whole point of the scanner. created>0 (fresh) OR skippedDuplicate>0 (re-scan
+      // dedupe) both leave rows here; an empty list with a green scan is the lying-empty bug.
       if (noWebsiteCount === 0) failures++;
       else provenQueries++;
       }
