@@ -11,6 +11,12 @@
 // (per verify-beat-source's density lesson: gentle-dental shell=509 → rendered=619). Runs the same
 // mobile-first viewport as the CWV/a11y probes.
 //
+// AL-527: counts VISIBLE innerText + the COLLAPSED FAQ-accordion answers (`.faq-answer` in
+// non-open `.faq-item`s). `innerText` omits collapsed-grid text, so the old measure UNDERCOUNTED
+// every accordion-FAQ homepage by ~4 answers (~240 words) — a false-thin that hid how dense fresh
+// builds really are (a fresh retail/hospitality site measured ~750 visible but carries ~1000 words
+// of real, Google-INDEXED content). The report prints the `visible + faq` split for transparency.
+//
 // Fixes are ROOT-CAUSE in the site-gen content levers (the uniform `homepageFaq` density block in
 // `hero_copy.ts` + per-vertical `template/scripts/gen-content-packs.mjs` copy) — NEVER a one-off
 // edit to one deployed site. Usage:
@@ -44,10 +50,23 @@ try {
       await page.waitForTimeout(2500); // let the SPA hydrate + lazy sections settle
       const m = await page.evaluate(() => {
         const main = document.querySelector('main') || document.body;
-        const words = (main.innerText || '').split(/\s+/).filter(Boolean).length;
+        const visible = (main.innerText || '').split(/\s+/).filter(Boolean).length;
+        // AL-527: the homepage FAQ is an accordion — only item 0 is open by default, so items
+        // 1-4's answers sit in COLLAPSED panels (`grid-rows-[0fr]`, overflow-hidden). `innerText`
+        // OMITS collapsed text, so it systematically UNDERCOUNTS every accordion-FAQ homepage by
+        // ~4×70 words — a FALSE-THIN reading that mis-flagged visual-first verticals (a digital
+        // studio measured 626 visible while its real, Google-INDEXED content was ~900). The
+        // collapsed `.faq-answer` text IS in the DOM + indexed, so count it (open items are
+        // already in `visible`). This measures the page's REAL content, not just what's expanded.
+        let faqCollapsed = 0;
+        document.querySelectorAll('.faq-item').forEach((li) => {
+          if (li.hasAttribute('data-faq-open')) return; // open → already in `visible`
+          const ans = li.querySelector('.faq-answer');
+          if (ans) faqCollapsed += (ans.textContent || '').split(/\s+/).filter(Boolean).length;
+        });
         const imgs = document.querySelectorAll('img').length;
         const sections = document.querySelectorAll('section').length;
-        return { words, imgs, sections };
+        return { words: visible + faqCollapsed, visible, faqCollapsed, imgs, sections };
       });
       const ok = m.words >= WORD_FLOOR && m.imgs >= IMG_FLOOR;
       if (!ok) below++;
@@ -65,7 +84,8 @@ console.log(`\n━━ § C.7 content density — rendered homepage ≥ ${WORD_FL
 for (const r of rows) {
   if (r.note) { console.log(`  ⏭️  ${r.slug} — ${r.note}`); continue; }
   const badge = !r.ok ? '❌' : r.aim ? '✓★' : '✓';
-  console.log(`  ${badge} ${r.slug.padEnd(26)} words=${String(r.words).padStart(4)} imgs=${String(r.imgs).padStart(2)} sections=${r.sections}${r.aim ? ' (clears 800 aim)' : ''}`);
+  const split = r.faqCollapsed ? ` (visible ${r.visible} + faq ${r.faqCollapsed})` : '';
+  console.log(`  ${badge} ${r.slug.padEnd(26)} words=${String(r.words).padStart(4)}${split} imgs=${String(r.imgs).padStart(2)} sections=${r.sections}${r.aim ? ' (clears 800 aim)' : ''}`);
 }
 const measured = rows.filter((r) => !r.note);
 if (measured.length === 0) {
@@ -80,6 +100,6 @@ if (below === 0) {
 // win via PWA/JSON-LD/warm-speed), and thin verticals (retail/dental pack copy) flip green as the
 // site-gen content levers densify. Promote to a hard gate once the fleet clears the floor.
 console.log(
-  `\n::notice:: § C.7 content-density — ${below}/${measured.length} homepage(s) below ${WORD_FLOOR} words or ${IMG_FLOOR} imgs (thin content pack; root-fix in hero_copy homepageFaq + gen-content-packs, tracking not blocking).`,
+  `\n::notice:: § C.7 content-density — ${below}/${measured.length} homepage(s) below ${WORD_FLOOR} words (real content incl. collapsed FAQ). FRESH builds carry the dense seeded homepageFaq (AL-409, ~240 collapsed words) + clear the floor comfortably (992-1077); a sub-floor site is a STALE pre-AL-409 build (thin ~60-word FAQ) that densifies on rebuild — NOT a current site-gen gap. Tracking not blocking.`,
 );
 process.exit(0);
