@@ -691,7 +691,7 @@ const PACK_DEFAULT_HEROES = [
   'Fresh flavors, made from scratch',
   'Reliable service, done right the first time',
   'Together, we can do more',
-  'Gear built for how you live',
+  'Built for how you live',
   'Ship faster with less busywork',
   'Find the home that fits your life',
   'Ideas that move the needle',
