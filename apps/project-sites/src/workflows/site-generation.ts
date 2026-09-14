@@ -982,7 +982,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // seed commerce-mode-appropriate badges so the worker value wins over the pack default on the
       // ~150s fast path. retail KEEPS shipping/returns (correct there); every other mode gets its
       // own honest, non-retail triad. Unconditional — every commerce mode gets fitting badges.
-      const trustBadges = trustBadgesFor(commerceMode);
+      const trustBadges = trustBadgesFor(commerceMode, params.businessCategory);
       // AL-485: seed the HERO IMAGE ({HERO_IMAGE_URL}+{HERO_IMAGE_ALT} in Home.tsx) for the
       // sub-verticals the template pack collapses to a generic bucket (plant/record/cocktail/
       // florist/brewery/bookstore/jewelry/tattoo → the wrong "retail shelves"/"cafe interior"

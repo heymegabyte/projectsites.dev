@@ -720,12 +720,20 @@ export function heroCtasFor(
  * a florist DOES ship + return); every OTHER mode gets its own honest, non-retail triad. Pure; never throws.
  *
  * @param mode - `commerceModeFor(...)` output. Unknown/empty → the `general` triad.
+ * @param category - The raw business category. Inside `service`, an APPOINTMENT/class business
+ *   (salon/barber/spa/yoga/clinic) gets a BOOKING-first triad instead of the trades "licensed &
+ *   insured" framing — mirrors {@link heroCtasFor}'s appointment-vs-trades sub-split (AL-518b,
+ *   watched live on the rudy-seattle barbershop delivery, which read trades-y as plain `service`).
  * @returns A 3-tuple of short, honest, slop-free trust-badge labels.
  *
- * @example trustBadgesFor('service') // → ['Licensed & insured', 'Free consultation', 'Satisfaction guaranteed']
- * @example trustBadgesFor('retail')  // → ['Free shipping over $50', 'Easy 30-day returns', 'Quality guaranteed']
+ * @example trustBadgesFor('service', 'Plumber')     // → ['Licensed & insured', 'Free consultation', 'Satisfaction guaranteed']
+ * @example trustBadgesFor('service', 'Barbershop')  // → ['Easy online booking', 'Experienced professionals', 'Satisfaction guaranteed']
+ * @example trustBadgesFor('retail')                 // → ['Free shipping over $50', 'Easy 30-day returns', 'Quality guaranteed']
  */
-export function trustBadgesFor(mode: string | null | undefined): [string, string, string] {
+export function trustBadgesFor(
+  mode: string | null | undefined,
+  category?: string | null,
+): [string, string, string] {
   const sets: Record<string, [string, string, string]> = {
     quickserve: ['Made to order', 'Order ahead', 'Grab & go'],
     hospitality: ['Reservations welcome', 'Walk-ins welcome', 'Fresh daily'],
@@ -739,6 +747,11 @@ export function trustBadgesFor(mode: string | null | undefined): [string, string
     typeof mode === 'string' && mode.trim().toLowerCase() in sets
       ? mode.trim().toLowerCase()
       : 'general';
+  // AL-518b: an appointment/class service (salon/barber/spa/yoga/clinic) converts on BOOKING —
+  // "Licensed & insured" is the trades framing (plumber/electrician), which reads off on a barber.
+  if (key === 'service' && typeof category === 'string' && APPOINTMENT_CATEGORY.test(category)) {
+    return ['Easy online booking', 'Experienced professionals', 'Satisfaction guaranteed'];
+  }
   return sets[key]!;
 }
 

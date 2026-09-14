@@ -133,6 +133,31 @@ describe('hero_copy — trustBadgesFor (AL-518: commerce-mode trust badges, neve
       expect(joined).not.toMatch(/shipping|returns?/);
     }
   });
+
+  it('AL-518b: APPOINTMENT services book, TRADES stay "licensed & insured" (rudy-seattle barbershop read trades-y)', () => {
+    // Appointment/class businesses inside `service` convert on booking — not a trades credential claim.
+    for (const cat of ['Barbershop', 'Hair Salon', 'Day Spa', 'Yoga Studio', 'Dental Clinic', 'Massage Therapy']) {
+      const b = trustBadgesFor('service', cat);
+      expect(b).toEqual(['Easy online booking', 'Experienced professionals', 'Satisfaction guaranteed']);
+      expect(b.join(' ').toLowerCase()).not.toMatch(/licensed & insured/);
+    }
+    // Trades inside `service` keep the credential-first triad (correct for plumber/electrician/HVAC).
+    for (const cat of ['Plumber', 'Electrician', 'HVAC Contractor', 'Roofing', 'Landscaping']) {
+      expect(trustBadgesFor('service', cat)).toEqual([
+        'Licensed & insured',
+        'Free consultation',
+        'Satisfaction guaranteed',
+      ]);
+    }
+    // No category → the generic service triad (unchanged; safe default).
+    expect(trustBadgesFor('service')).toEqual(['Licensed & insured', 'Free consultation', 'Satisfaction guaranteed']);
+    // Category only sub-splits `service` — a retail category is ignored.
+    expect(trustBadgesFor('retail', 'Barbershop')).toEqual([
+      'Free shipping over $50',
+      'Easy 30-day returns',
+      'Quality guaranteed',
+    ]);
+  });
 });
 
 /**
