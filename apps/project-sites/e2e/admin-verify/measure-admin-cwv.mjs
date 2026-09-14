@@ -8,11 +8,16 @@
  * / CLS per route, on a COLD direct navigation (a user hitting the deep link fresh), so
  * the number reflects shell-load + Angular bootstrap + lazy-chunk + first data render.
  *
- * Session seeded from E2E_API_KEY (page.evaluate ARG, never inlined) — the same pattern
- * as shoot-section.mjs; the CF bot challenge gates public HTML + analytics ingest, NOT the
- * authed SPA shell, so local Chromium loads /admin fine. Targets (cinematic): LCP≤2000ms,
- * CLS≤0.05. Prints a table + the single worst offender + exits non-zero if any route
- * exceeds a generous 3000ms LCP ceiling (a real regression signal, not the strict target).
+ * Session seeded from E2E_API_KEY (addInitScript ARG, never inlined) into a FRESH context
+ * PER ROUTE — the CF bot challenge gates public HTML + analytics ingest, NOT the authed SPA
+ * shell, so local Chromium loads /admin fine. Fresh-context-per-route is what makes the
+ * numbers fair: one shared page pinned the one-time cold Angular bootstrap on whichever route
+ * ran first (AL-563 false 3820ms). Targets (cinematic): LCP≤2000ms, CLS≤0.05. Prints a table +
+ * the single worst offender + exits non-zero if any route exceeds a generous 3000ms LCP ceiling
+ * (a real regression signal, not the strict target). NB: the first route measured still carries
+ * one-time BROWSER-PROCESS warmup (V8 compile of the shared vendor chunk, first TLS) since all
+ * contexts share one browser process — that's the honest cold-first-admin-page number, not a
+ * per-route defect.
  *
  * Usage:
  *   E2E_API_KEY=$(get-secret E2E_API_KEY) node e2e/admin-verify/measure-admin-cwv.mjs
@@ -39,20 +44,30 @@ const slugs = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const ROUTES = slugs.length ? slugs : ['dashboard', 'analytics', 'billing', 'settings', 'audit', 'logs'];
 
 const browser = await chromium.launch();
-const ctx = await browser.newContext({
-  userAgent: UA,
-  viewport: { width: 1280, height: 900 },
-  serviceWorkers: 'block', // avoid a stale ngsw serving old JS skewing the measure
-});
-const page = await ctx.newPage();
-await page.goto(`${ORIGIN}/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-await page.evaluate(
-  (k) => localStorage.setItem('ps_session', JSON.stringify({ token: k, identifier: 'e2e@megabyte.space', issuedAt: Date.now() })),
-  KEY,
-);
-
 const rows = [];
 for (const slug of ROUTES) {
+  // Fresh context PER ROUTE → each is a genuine INDEPENDENT cold authed load. Measuring all
+  // routes on ONE shared page unfairly pinned the one-time cold Angular bootstrap (~1.4s long
+  // task) on whichever route ran FIRST (dashboard) — a false "3820ms worst offender" while the
+  // warm subsequent routes looked fast (AL-563; a rigorous per-route measure showed dashboard
+  // LCP ~300-430ms, no worse than peers). Seeding the session via addInitScript (BEFORE any
+  // load) + going straight to the route mirrors a real authed user's cold load of that route.
+  const ctx = await browser.newContext({
+    userAgent: UA,
+    viewport: { width: 1280, height: 900 },
+    serviceWorkers: 'block', // avoid a stale ngsw serving old JS skewing the measure
+  });
+  await ctx.addInitScript(
+    (k) => {
+      try {
+        localStorage.setItem('ps_session', JSON.stringify({ token: k, identifier: 'e2e@megabyte.space', issuedAt: Date.now() }));
+      } catch {
+        /* opaque origin */
+      }
+    },
+    KEY,
+  );
+  const page = await ctx.newPage();
   await page.goto(`${ORIGIN}/admin/${slug}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   // Wait for the SPA chrome to render, then let LCP settle (never networkidle — the admin
   // polls, so networkidle hangs). A generous settle so the largest paint is captured.
@@ -88,6 +103,7 @@ for (const slug of ROUTES) {
       }),
   );
   rows.push({ slug, ...m });
+  await ctx.close();
 }
 await browser.close();
 
