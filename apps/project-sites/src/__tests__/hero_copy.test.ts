@@ -467,6 +467,20 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
     expect(indefiniteArticle('')).toBe('a');
   });
 
+  it('AL-508: heritage headline article agrees with the CITY (An Asheville / A Boston, never "A Asheville")', () => {
+    // Live defect on ben-badgley-cpa: "A Asheville accounting built on trust" (hardcoded "A").
+    const line = (city: string) =>
+      personaHeroCopy('heritage', 'accounting', city)!.headlines.find((h) =>
+        /built on trust/.test(h),
+      )!;
+    expect(line('Asheville')).toBe('An Asheville accounting built on trust'); // vowel → An
+    expect(line('Austin')).toBe('An Austin accounting built on trust');
+    expect(line('Boston')).toBe('A Boston accounting built on trust'); // consonant → A
+    expect(line('Houston')).toBe('A Houston accounting built on trust'); // H consonant → A
+    // the exact live defect must never recur:
+    expect(line('Asheville')).not.toMatch(/^A Asheville/);
+  });
+
   it('returns null for neutral/unknown/empty personalities (caller keeps generic frames)', () => {
     for (const key of [
       'classic',

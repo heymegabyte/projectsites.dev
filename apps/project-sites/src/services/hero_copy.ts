@@ -194,9 +194,12 @@ export function categoryFromName(name?: unknown): string {
  * it does NOT handle silent-h / vowel-sound-consonant edge cases (no business category needs them).
  * Keeps a hero subheadline grammatical when a category noun follows a preposition (`for ${art} ${cat}`)
  * instead of a bare "for bookstore that…" (AL-501 — the 2×-confirmed persona-subhead grammar defect).
+ * Also drives the heritage headline's leading article on the CITY (`An Asheville …` / `A Boston …`,
+ * AL-508) — proper-noun cities carry the same low edge-case risk as category nouns.
  *
  * @example indefiniteArticle('bookstore')    // 'a'
  * @example indefiniteArticle('art gallery')  // 'an'
+ * @example indefiniteArticle('Asheville')    // 'an'  (heritage headline city slot)
  */
 export function indefiniteArticle(noun: string): 'a' | 'an' {
   return /^[aeiou]/i.test((noun || '').trim()) ? 'an' : 'a';
@@ -347,7 +350,9 @@ export function personaHeroCopy(
     heritage: {
       headlines: [
         `${city} has trusted us for years`,
-        `A ${city} ${cat} built on trust`,
+        // AL-508: the indefinite article must agree with the CITY's initial sound — a hardcoded
+        // "A" shipped the ungrammatical "A Asheville accounting built on trust" (live, ben-badgley-cpa).
+        `${indefiniteArticle(city) === 'an' ? 'An' : 'A'} ${city} ${cat} built on trust`,
         `Generations of ${city} know us`,
       ],
       subheadlines: [
