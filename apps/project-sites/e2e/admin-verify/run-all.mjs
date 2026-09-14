@@ -53,6 +53,7 @@ const PROBES = [
   { label: 'super-admin-guard', file: 'verify-super-admin-guard.mjs', env: {} },
   { label: 'analytics-tabs-live', file: 'verify-analytics-tabs-live.mjs', env: {} },
   { label: 'billing-tabs-live', file: 'verify-billing-tabs-live.mjs', env: {} },
+  { label: 'billing-widgets-resolve', file: 'verify-billing-widgets-resolve.mjs', env: {} },
   { label: 'auth-flow', file: 'verify-auth-flow.mjs', env: {} },
   { label: 'completeness', file: 'completeness-stub-scan.mjs', env: {} },
   { label: 'error-edge-states', file: 'verify-error-edge-states.mjs', env: {} },
