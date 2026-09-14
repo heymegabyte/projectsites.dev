@@ -3334,3 +3334,11 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 - **★ VISION-INSPECTED /signin** (funnel terminal, @1280 + @390) — polished + complete: H1 "Welcome back" + returnUrl context "Sign in to continue to **billing**" (AL-459) · labeled email+password · Sign in · Google + GitHub OAuth · magic-link (dimmed + AL-435 hint "Enter your email above…") · "Create an account". 0 console errors, identical desktop/mobile.
 - **NO code change** — § B is a verified-complete maintenance-only plateau (7 probes fresh-green, no regression from this/concurrent sessions; funnel terminal polished). ai-seniority gates-before-churn: no defect/improvement surfaced → manufacturing an edit would be churn. Not idle: 7 real-browser flow-probe runs + a 2-viewport vision-inspect.
 - **Files mine only:** `_LOOP_LEDGER.md`. No FE/worker/template change. Protected files untouched.
+
+## AL-561 — ADMIN INTEGRITY: 3/3 facets FRESH-GREEN, Powell's propagated honestly (67→68) — verified plateau (no churn)
+- **Verify-before-implement:** main clean (HEAD=`5f097c823`). prod /admin 200. No concurrent commits to main (deliveries are API calls, not code).
+- **(1) RENDER+A11Y** `admin-surf-audit` @1280 + @390 → **CLEAN across all 23 sections** (0 console / boundary / blank / axe-WCAG).
+- **(2) TRUTHFUL DATA** `reconcile-surfaces` → **14/14 OK · 0 divergences**. New-delivery propagation honest: **sites 67→68** (Powell's Books AL-556 now in store AND brian's `/api/sites`), analytics 4126, org audit-logs 3432 — display tracked the growth exactly.
+- **(3) TRUTHFUL MUTATIONS** `verify-mutations-causal` → **3/3 persisted** (site PATCH, settings identity addr+phone, mcp connect→disconnect).
+- **NO code change** — admin is a verified-complete plateau across render / data / mutations / completeness / contract / visual (AL-540/546/550/551/555/558 + this). ai-seniority gates-before-churn: no defect surfaced → manufacturing a UX edit would be churn. Not idle: 3 full-facet real-Chromium sweeps + a ground-truth reconcile confirming the Powell's delivery propagated honestly.
+- **Files mine only:** `_LOOP_LEDGER.md`. No FE/worker change. Protected files untouched.
