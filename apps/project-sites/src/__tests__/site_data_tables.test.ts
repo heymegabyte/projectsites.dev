@@ -43,7 +43,14 @@ describe('site_data_tables — whitelist integrity + injection guard', () => {
   });
 
   it('never selects a blob / PII-heavy column (payload, metadata, ip_address, user_agent)', () => {
-    const banned = ['payload', 'metadata', 'metadata_json', 'ip_address', 'user_agent', 'reply_body'];
+    const banned = [
+      'payload',
+      'metadata',
+      'metadata_json',
+      'ip_address',
+      'user_agent',
+      'reply_body',
+    ];
     for (const t of SITE_DATA_TABLES) {
       for (const b of banned) {
         expect(t.columns).not.toContain(b);
