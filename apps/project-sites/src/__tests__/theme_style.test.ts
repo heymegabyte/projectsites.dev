@@ -327,6 +327,15 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
     expect(commerceModeFor('Craft Spirits / Distillery')).toBe('hospitality');
   });
 
+  it('classifies the AL-516 regression case: a tattoo/piercing studio is SERVICE, never general/retail', () => {
+    // Delivery-discovered (seven-swords-tattoo-phila): tattoo studio fell to the 'general'
+    // catch-all (no commerce rule matched) → generic framing. It is an APPOINTMENT personal-care
+    // service like a salon/barber — booked, not shopped. (Its noir THEME is a separate axis.)
+    expect(commerceModeFor('tattoo studio')).toBe('service');
+    expect(commerceModeFor('Tattoo Parlor')).toBe('service');
+    expect(commerceModeFor('piercing studio')).toBe('service');
+  });
+
   it('routes FULL-SERVICE food+drink venues (visited/reserved/toured) to hospitality', () => {
     for (const v of [
       'Winery',

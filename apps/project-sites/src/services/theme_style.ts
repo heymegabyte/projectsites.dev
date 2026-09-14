@@ -482,7 +482,11 @@ const COMMERCE_MODE_RULES: ReadonlyArray<readonly [CommerceMode, RegExp]> = [
   ],
   [
     'service',
-    /\b(plumb\w*|\bhvac\b|heating|cooling|air\s?condition\w*|furnace\w*|roof\w*|electric\w*|electrician|contractor\w*|construction|landscap\w*|\blawn\b|cleaning|\bmaid\w*|janitor\w*|pest\s?control|handyman|carpentr\w*|carpenter|flooring|drywall|septic|gutter\w*|remodel\w*|renovation|towing|locksmith|garage\s?door|excavat\w*|fencing|paving|demolition|\bmoving\b|junk\s?removal|snow\s?removal|salon\w*|barber\w*|\bhair\b|\bnail\w*|\bspa\b|beauty|\bmed\s?spa|wellness|massage|\bclinic\w*|dental|dentist\w*|orthodont\w*|\bdoctor\w*|physician\w*|chiropract\w*|veterinar\w*|\bvet\b|optometr\w*|dermatolog\w*|physio\w*|acupunctur\w*|fitness|\bgym\w*|crossfit|yoga\b|pilates|personal\s?train\w*|dance\s?studio|automotive|\bauto\b|mechanic\w*|body\s?shop|\btire\w*|detailing|collision|\bsmog\b|lube|repair\w*|photograph\w*|\bmover\w*)\b/,
+    // tattoo/piercing are APPOINTMENT personal-care services (like salon/barber) — booked, not
+    // shopped; adding them here flips a tattoo studio off the 'general' catch-all onto 'service'
+    // framing (Book now / credentials / portfolio), NOT retail "Shop now" (AL-516). The noir
+    // THEME (line 205, tattoo→after-dark aesthetic) is a SEPARATE axis and is unchanged.
+    /\b(plumb\w*|\bhvac\b|heating|cooling|air\s?condition\w*|furnace\w*|roof\w*|electric\w*|electrician|contractor\w*|construction|landscap\w*|\blawn\b|cleaning|\bmaid\w*|janitor\w*|pest\s?control|handyman|carpentr\w*|carpenter|flooring|drywall|septic|gutter\w*|remodel\w*|renovation|towing|locksmith|garage\s?door|excavat\w*|fencing|paving|demolition|\bmoving\b|junk\s?removal|snow\s?removal|salon\w*|barber\w*|\bhair\b|\bnail\w*|tattoo\w*|piercing\w*|\bspa\b|beauty|\bmed\s?spa|wellness|massage|\bclinic\w*|dental|dentist\w*|orthodont\w*|\bdoctor\w*|physician\w*|chiropract\w*|veterinar\w*|\bvet\b|optometr\w*|dermatolog\w*|physio\w*|acupunctur\w*|fitness|\bgym\w*|crossfit|yoga\b|pilates|personal\s?train\w*|dance\s?studio|automotive|\bauto\b|mechanic\w*|body\s?shop|\btire\w*|detailing|collision|\bsmog\b|lube|repair\w*|photograph\w*|\bmover\w*)\b/,
   ],
   [
     'professional',
