@@ -56,6 +56,35 @@ describe('createLead', () => {
     await expect(createLead(db, { phone: '555' } as never)).rejects.toBeDefined();
     expect(mockInsert).not.toHaveBeenCalled();
   });
+
+  it('dedupes a re-scanned place_id: returns the existing leadId + duplicate:true, NO insert', async () => {
+    // AL-563b root fix: a re-scan hits the scanned_leads.place_id UNIQUE index. createLead
+    // pre-checks and reports the existing row as a benign duplicate instead of letting the
+    // insert throw (which the scanner would miscount as `errors`).
+    mockQueryOne.mockResolvedValueOnce({ id: 'lead_existing' });
+    const r = await createLead(
+      db,
+      { businessName: 'Acme Roofing', phone: '555' },
+      { placeId: 'place_xyz', source: 'osm' },
+    );
+    expect(r).toEqual({ leadId: 'lead_existing', duplicate: true });
+    expect(mockQueryOne).toHaveBeenCalledTimes(1);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it('inserts a fresh place_id (pre-check finds nothing) with a new leadId', async () => {
+    mockQueryOne.mockResolvedValueOnce(undefined); // no existing row for this place_id
+    const r = await createLead(
+      db,
+      { businessName: 'New Cafe' },
+      { placeId: 'place_new', source: 'osm' },
+    );
+    expect(r.duplicate).toBeUndefined();
+    expect(r.leadId).toMatch(/[0-9a-f-]{8,}/i);
+    expect(mockInsert).toHaveBeenCalledTimes(1);
+    const [, , record] = mockInsert.mock.calls[0];
+    expect(record.place_id).toBe('place_new');
+  });
 });
 
 describe('getLead', () => {

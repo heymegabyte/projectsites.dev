@@ -22,7 +22,10 @@ import type { LeadMeta } from './lead_store.js';
 
 /** Injected persistence (db already bound). */
 export interface ScanDeps {
-  createLead: (profile: ClaimLeadProfile, meta: LeadMeta) => Promise<{ leadId: string }>;
+  createLead: (
+    profile: ClaimLeadProfile,
+    meta: LeadMeta,
+  ) => Promise<{ leadId: string; duplicate?: boolean }>;
 }
 
 /** Outcome tally of a scan batch. */
@@ -98,7 +101,7 @@ export async function scanResultsToLeads(
     }
 
     try {
-      await deps.createLead(toProfile(r), {
+      const res = await deps.createLead(toProfile(r), {
         placeId: r.place_id,
         hasWebsite: score.hasWebsite,
         leadScore: score.leadScore,
@@ -108,7 +111,10 @@ export async function scanResultsToLeads(
         ...(r.email ? { email: r.email } : {}),
         ...(r.socials && Object.keys(r.socials).length > 0 ? { socials: r.socials } : {}),
       });
-      summary.created++;
+      // A cross-scan duplicate (place_id already stored) comes back flagged, NOT thrown —
+      // tally it as skippedDuplicate so a re-scan reports honestly (never as `errors`).
+      if (res.duplicate) summary.skippedDuplicate++;
+      else summary.created++;
     } catch {
       summary.errors++;
     }

@@ -57,15 +57,31 @@ export async function createLead(
   db: D1Database,
   profile: ClaimLeadProfile,
   meta: LeadMeta = {},
-): Promise<{ leadId: string }> {
+): Promise<{ leadId: string; duplicate?: boolean }> {
   const validated = ClaimLeadProfileSchema.parse(profile); // throws on missing businessName
+  const placeId = meta.placeId ?? null;
+  // Cross-scan dedup (the honest counterpart to the intra-batch `seen` set in
+  // scanResultsToLeads): scanned_leads.place_id carries a UNIQUE index, so a re-scanned
+  // business's insert would FAIL → the caller's per-lead catch miscounts a HEALTHY re-scan
+  // of an already-scanned area as `errors` (an operator reads "created 1 · errors 199" and
+  // panics — AL-564). Detect the existing row here and report it as a benign duplicate so
+  // the scan tallies `skippedDuplicate`, not `errors`. Only place_id-bearing leads dedupe;
+  // a null place_id (manual/enriched lead) always inserts.
+  if (placeId) {
+    const existing = await dbQueryOne<{ id: string }>(
+      db,
+      `SELECT id FROM ${TABLE} WHERE place_id = ?`,
+      [placeId],
+    );
+    if (existing) return { leadId: existing.id, duplicate: true };
+  }
   const leadId = crypto.randomUUID();
   const socials = meta.socials ?? validated.socials;
   const { error } = await dbInsert(db, TABLE, {
     id: leadId,
     business_name: validated.businessName,
     profile_json: JSON.stringify(validated),
-    place_id: meta.placeId ?? null,
+    place_id: placeId,
     has_website: meta.hasWebsite ? 1 : 0,
     lead_score: meta.leadScore ?? 0,
     priority: meta.priority ? 1 : 0,

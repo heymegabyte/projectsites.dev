@@ -89,4 +89,22 @@ describe('scanResultsToLeads', () => {
     expect(summary.created).toBe(1);
     expect(summary.errors).toBe(1);
   });
+
+  it('counts a cross-scan duplicate (createLead → duplicate:true) as skippedDuplicate, NOT errors', async () => {
+    // A re-scan of an already-scanned area: createLead detects the existing place_id and
+    // returns { duplicate: true } instead of throwing on the UNIQUE index. The scan must
+    // tally it as a benign skip — regression for AL-564 (was miscounted as `errors`, so a
+    // healthy re-scan read "created 1 · errors 199").
+    const createLead = jest
+      .fn()
+      .mockResolvedValueOnce({ leadId: 'new', duplicate: false })
+      .mockResolvedValue({ leadId: 'existing', duplicate: true });
+    const summary = await scanResultsToLeads(
+      [place({ place_id: 'a' }), place({ place_id: 'b' }), place({ place_id: 'c' })] as never,
+      { createLead },
+    );
+    expect(summary.created).toBe(1);
+    expect(summary.skippedDuplicate).toBe(2);
+    expect(summary.errors).toBe(0);
+  });
 });
