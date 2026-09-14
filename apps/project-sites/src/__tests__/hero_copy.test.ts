@@ -8,6 +8,7 @@ import {
   personaHeroCopy,
   seoDescriptionFor,
   seoTaglineOptions,
+  trustBadgesFor,
 } from '../services/hero_copy.js';
 
 describe('hero_copy — heroCtasFor (AL-420: seeded hero CTA labels, never "Reserve a table" on quickserve)', () => {
@@ -71,6 +72,57 @@ describe('hero_copy — heroCtasFor (AL-420: seeded hero CTA labels, never "Rese
     expect(heroCtasFor('service').primary).toBe('Get a free quote');
     // Non-service modes ignore the category (quote sub-split is service-only).
     expect(heroCtasFor('retail', 'Yoga Studio').primary).toBe('Visit the shop');
+  });
+});
+
+describe('hero_copy — trustBadgesFor (AL-518: commerce-mode trust badges, never "Free shipping" on a tattoo studio)', () => {
+  it('SERVICE gets service-appropriate badges, NEVER retail shipping/returns (the live defect)', () => {
+    const b = trustBadgesFor('service');
+    expect(b).toEqual(['Licensed & insured', 'Free consultation', 'Satisfaction guaranteed']);
+    // the exact seven-swords tattoo defect — no e-commerce chips on a non-retail site
+    const joined = b.join(' ').toLowerCase();
+    expect(joined).not.toMatch(/shipping|returns?|free shipping|30-day/);
+  });
+
+  it('RETAIL keeps the shipping/returns/quality triad (correct there — a florist DOES ship + return)', () => {
+    expect(trustBadgesFor('retail')).toEqual([
+      'Free shipping over $50',
+      'Easy 30-day returns',
+      'Quality guaranteed',
+    ]);
+  });
+
+  it('every mode returns exactly 3 non-empty, slop-free badges; unknown → general', () => {
+    for (const m of [
+      'quickserve',
+      'hospitality',
+      'retail',
+      'service',
+      'professional',
+      'nonprofit',
+      'general',
+      'nope',
+      '',
+      null,
+      undefined,
+    ]) {
+      const b = trustBadgesFor(m as string);
+      expect(b).toHaveLength(3);
+      for (const badge of b) {
+        expect(badge.length).toBeGreaterThan(2);
+        // banned-slop guard mirrors build_validators.ts
+        expect(badge.toLowerCase()).not.toMatch(/world-class|cutting-edge|revolutioniz|limitless|leverage/);
+      }
+    }
+    expect(trustBadgesFor('totally-unknown')).toEqual(trustBadgesFor('general'));
+    expect(trustBadgesFor('  SERVICE  ')).toEqual(trustBadgesFor('service')); // case + trim insensitive
+  });
+
+  it('ONLY retail may carry shipping/returns copy — every other mode is free of e-commerce chips', () => {
+    for (const m of ['quickserve', 'hospitality', 'service', 'professional', 'nonprofit', 'general']) {
+      const joined = trustBadgesFor(m).join(' ').toLowerCase();
+      expect(joined).not.toMatch(/shipping|returns?/);
+    }
   });
 });
 

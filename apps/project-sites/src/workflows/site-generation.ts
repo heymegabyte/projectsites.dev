@@ -45,6 +45,7 @@ import {
   personaHeroCopy,
   seoDescriptionFor,
   seoTaglineOptions,
+  trustBadgesFor,
 } from '../services/hero_copy.js';
 import { heroImageForVertical } from '../services/hero_image.js';
 
@@ -973,6 +974,15 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // Pass the category so an APPOINTMENT business inside `service` (yoga/salon/gym/clinic)
       // gets "Book now", not the trade-only "Get a free quote" (AL-460).
       const heroCtas = heroCtasFor(commerceMode, params.businessCategory);
+      // AL-518: seed the hero TRUST BADGES ({TRUST_BADGE_1..3} in HeroVariants.tsx). They're
+      // sourced from the per-vertical content pack (`examples/_content.<vertical>.json`); a SERVICE
+      // business that collapsed to the RETAIL pack shipped e-commerce chips on a non-retail site —
+      // the seven-swords TATTOO studio advertised "Free shipping over $50 / Easy 30-day returns"
+      // (you can't ship or return a tattoo). Same existing-wins _content.json seam as HERO_CTA:
+      // seed commerce-mode-appropriate badges so the worker value wins over the pack default on the
+      // ~150s fast path. retail KEEPS shipping/returns (correct there); every other mode gets its
+      // own honest, non-retail triad. Unconditional — every commerce mode gets fitting badges.
+      const trustBadges = trustBadgesFor(commerceMode);
       // AL-485: seed the HERO IMAGE ({HERO_IMAGE_URL}+{HERO_IMAGE_ALT} in Home.tsx) for the
       // sub-verticals the template pack collapses to a generic bucket (plant/record/cocktail/
       // florist/brewery/bookstore/jewelry/tattoo → the wrong "retail shelves"/"cafe interior"
@@ -1000,6 +1010,9 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
           HERO_HEADLINE: heroHeadline,
           HERO_SECONDARY_CTA: heroCtas.secondary,
           HERO_SUBHEADLINE: heroSub,
+          TRUST_BADGE_1: trustBadges[0],
+          TRUST_BADGE_2: trustBadges[1],
+          TRUST_BADGE_3: trustBadges[2],
           // AL-491: seed the homepage META DESCRIPTION ({SEO_DESCRIPTION} → Home.tsx useSEO → the
           // CLIENT <meta name="description">) for the SAME collapsing sub-verticals as the hero image
           // (heroImg gate). The pack keys SEO_DESCRIPTION off the BROAD vertical, so a brewery/cocktail

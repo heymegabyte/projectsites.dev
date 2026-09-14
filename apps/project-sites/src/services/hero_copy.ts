@@ -708,6 +708,41 @@ export function heroCtasFor(
 }
 
 /**
+ * Per-commerce-mode HERO TRUST BADGES — the 3 `{TRUST_BADGE_1..3}` chips shown under the hero CTAs.
+ *
+ * WHY (AL-518, the AL-516 fix-B): the badges are `TRUST_BADGE_1/2/3` tokens sourced from the
+ * per-vertical content pack (`examples/_content.<vertical>.json`). A SERVICE business that
+ * collapsed to the RETAIL pack shipped e-commerce chips on a non-retail site — the seven-swords
+ * TATTOO studio advertised "Free shipping over $50 / Easy 30-day returns" (you cannot ship or
+ * return a tattoo). Root fix: SEED commerce-mode-appropriate badges at delivery time on the SAME
+ * existing-wins `_content.json` seam as {HERO_CTA} (AL-420), so the worker value wins over the pack
+ * default on the ~150s fast path. `retail` KEEPS the shipping/returns/quality triad (correct there —
+ * a florist DOES ship + return); every OTHER mode gets its own honest, non-retail triad. Pure; never throws.
+ *
+ * @param mode - `commerceModeFor(...)` output. Unknown/empty → the `general` triad.
+ * @returns A 3-tuple of short, honest, slop-free trust-badge labels.
+ *
+ * @example trustBadgesFor('service') // → ['Licensed & insured', 'Free consultation', 'Satisfaction guaranteed']
+ * @example trustBadgesFor('retail')  // → ['Free shipping over $50', 'Easy 30-day returns', 'Quality guaranteed']
+ */
+export function trustBadgesFor(mode: string | null | undefined): [string, string, string] {
+  const sets: Record<string, [string, string, string]> = {
+    quickserve: ['Made to order', 'Order ahead', 'Grab & go'],
+    hospitality: ['Reservations welcome', 'Walk-ins welcome', 'Fresh daily'],
+    retail: ['Free shipping over $50', 'Easy 30-day returns', 'Quality guaranteed'],
+    service: ['Licensed & insured', 'Free consultation', 'Satisfaction guaranteed'],
+    professional: ['Free consultation', 'Confidential', 'By appointment'],
+    nonprofit: ['Tax-deductible', 'Community-driven', 'Volunteers welcome'],
+    general: ['Trusted locally', 'Friendly service', 'Quality guaranteed'],
+  };
+  const key =
+    typeof mode === 'string' && mode.trim().toLowerCase() in sets
+      ? mode.trim().toLowerCase()
+      : 'general';
+  return sets[key]!;
+}
+
+/**
  * Clamp a composed description into the SEO sweet spot [120, 156] (what Google shows
  * un-truncated). Truncates at a word boundary when too long (drops any trailing
  * punctuation/space); pads with a short, true tail when too short. Never throws.
