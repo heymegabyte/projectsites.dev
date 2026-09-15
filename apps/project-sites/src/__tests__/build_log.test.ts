@@ -19,9 +19,7 @@ describe('build_log — redactStreamSecrets', () => {
       'sk-***REDACTED***',
     );
     expect(redactStreamSecrets('aws key AKIA1234567890ABCD found')).toContain('AKIA***REDACTED***');
-    expect(redactStreamSecrets('posthog phc_0123456789abcdef0123')).toContain(
-      'phc_***REDACTED***',
-    );
+    expect(redactStreamSecrets('posthog phc_0123456789abcdef0123')).toContain('phc_***REDACTED***');
     expect(redactStreamSecrets('resend re_0123456789ab')).toContain('re_***REDACTED***');
     expect(redactStreamSecrets('Authorization: Bearer abcdefghij12345')).toContain(
       'Bearer ***REDACTED***',
@@ -39,9 +37,10 @@ describe('build_log — redactStreamSecrets', () => {
 
 describe('build_log — prepareBuildLogLines', () => {
   it('drops non-strings, blanks, and trims trailing whitespace', () => {
-    expect(
-      prepareBuildLogLines(['  writing App.tsx  ', '', 42, null, '   ', 'done']),
-    ).toEqual(['writing App.tsx', 'done']);
+    expect(prepareBuildLogLines(['  writing App.tsx  ', '', 42, null, '   ', 'done'])).toEqual([
+      'writing App.tsx',
+      'done',
+    ]);
   });
 
   it('redacts every line', () => {
