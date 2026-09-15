@@ -922,11 +922,9 @@ publicRoutes.get('/api/public/stats', async (c) => {
   } catch {
     /* DB hiccup → 0; the homepage keeps its honest static fallback, never the fabricated number */
   }
-  return c.json(
-    { sites_built: sitesBuilt, edge_locations: 330, uptime_pct: 99.99 },
-    200,
-    { 'Cache-Control': 'public, max-age=600, s-maxage=600' },
-  );
+  return c.json({ sites_built: sitesBuilt, edge_locations: 330, uptime_pct: 99.99 }, 200, {
+    'Cache-Control': 'public, max-age=600, s-maxage=600',
+  });
 });
 
 export { publicRoutes };
