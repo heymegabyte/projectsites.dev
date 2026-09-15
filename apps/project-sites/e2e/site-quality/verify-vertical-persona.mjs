@@ -39,6 +39,19 @@ const GEAR_OK = /\b(outdoor|sporting|sports|tactical|bike|bicycle|cycl|ski|snowb
 // TrustBar `svc` default). Flag it unless the business is a real trade.
 const TRADE_OK =
   /\b(plumb|hvac|heating|cooling|air\s?condition|furnace|roof|electric|contractor|construction|landscap|lawn|cleaning|maid|janitor|pest|handyman|carpent|floor|drywall|septic|gutter|remodel|renovation|towing|locksmith|garage|excavat|fencing|paving|demolition|moving|mover|junk|hauling|snow|auto|mechanic|collision|body\s?shop|detailing|security|alarm|pool|tree\s?service|pressure\s?wash|chimney|insulation|solar|paint|glass|window|door|deck|masonry|concrete|welding|appliance)\b/i;
+// AL-611: the `botanical` themeStyle is shared by health/wellness AND plant/garden/florist RETAIL
+// (routed there for the petals scene). Its wellness-CARE hero copy ("Feel better" / "unhurried care"
+// / "take a deep breath") is a MISFIT on a plant/garden/florist shop — flora-grubb-san-francisco
+// shipped H1 "Feel better in San Francisco" + "unhurried care that meets you where you are". Root-fixed
+// in hero_copy.ts (personaHeroCopy plant branch → GROW copy) + THEME_PERSONALITY_BRIEF; clears on
+// rebuild. Flag ONLY when the business IS plant-retail (a wellness site SHOULD say "feel better") AND
+// only in the HERO region (top ~450 chars) so deeper body prose never false-fires. NB detect the
+// vertical from PAGE CONTENT (the eyebrow "GARDEN SHOP & PLANT NURSERY"), NOT the slug — "flora grubb"
+// carries no plant token.
+const WELLNESS_CARE =
+  /\b(feel better|take a deep breath|unhurried care|patient-first|meets you where you are|always in your corner)\b/i;
+const PLANT_RETAIL_SIGNAL =
+  /\b(garden\s?(?:shop|cent\w*|store|nurser\w*|suppl\w*)|plant\s?(?:shop|store|nurser\w*)|\bnurser(?:y|ies)\b|greenhouse|florist|flower\s?(?:shop|store|market)|botanical\s?garden|houseplant|horticultur\w*)\b/i;
 const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 const hits = [];
@@ -65,6 +78,17 @@ try {
         if (/\bgear\b/.test(nH1) && !gearOkBiz) hits.push({ slug, route, kind: 'h1-gear', detail: nH1.slice(0, 60) });
         if (nBody.includes('licensed & insured') && !tradeOkBiz)
           hits.push({ slug, route, kind: 'licensed-insured-nontrade', detail: 'licensed & insured (fabricated credential on a non-trade business)' });
+        // AL-611: a plant/garden/florist RETAIL site must not wear the botanical WELLNESS-care hero
+        // copy ("Feel better"/"unhurried care"). Gate on the business being plant-retail (page content,
+        // not slug) + the wellness phrase living in the HERO region (H1 or top ~450 chars) — so a
+        // wellness site keeps its correct "feel better" and deep body prose never false-fires.
+        if (
+          PLANT_RETAIL_SIGNAL.test(nBody) &&
+          (WELLNESS_CARE.test(nH1) || WELLNESS_CARE.test(nBody.slice(0, 450)))
+        ) {
+          const m = WELLNESS_CARE.exec(nH1) || WELLNESS_CARE.exec(nBody.slice(0, 450));
+          hits.push({ slug, route, kind: 'wellness-copy-on-plant', detail: `plant-retail hero wears wellness-care copy "${m?.[0]}" (AL-611 misfit)` });
+        }
       } catch {
         /* route unreachable → skip (don't false-fail) */
       }
@@ -87,5 +111,5 @@ if (STRICT) {
 }
 // flips-GREEN-on-rebuild tracker: a stale pre-fix build still renders the leak; the retail-pack
 // de-"Gear" fix lands next build (NO redeploy of existing sites), so these clear on rebuild.
-console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-AL-554 build; clears on rebuild — set STRICT=1 to enforce)`);
+console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
 process.exit(0);
