@@ -14,7 +14,7 @@ You may CREATE ONLY new files at:
 - `src/components/sections/**/*.tsx`
 - `src/components/sections/**/*.css`
 
-You may EDIT only the route entry (`src/pages/Home.tsx` or equivalent) to (a) FILL the first-class industry-section `{TOKEN}`s for the applicable vertical (the five sections — Menu / ServiceMenu / OpeningHours / DonationTiers / FeaturedCollection — are ALREADY imported + rendered there, token-gated), and (b) import + render any NEW section you had to create. Never touch other existing components.
+You may EDIT only the route entry (`src/pages/Home.tsx` or equivalent) to (a) FILL the first-class industry-section `{TOKEN}`s for the applicable vertical (the four sections — Menu / ServiceMenu / DonationTiers / FeaturedCollection — are ALREADY imported + rendered there, token-gated), and (b) import + render any NEW section you had to create. Never touch other existing components.
 
 ## Process
 1. Read `_domain_features.json` (which features apply: donation, menu, booking, medical, child-safety, local-business, ecommerce). Read `_research.json` for business context.
@@ -23,7 +23,7 @@ You may EDIT only the route entry (`src/pages/Home.tsx` or equivalent) to (a) FI
    **First-class — FILL TOKENS in `Home.tsx` (never re-create; see `src/components/sections/AGENTS.md` § Industry):**
    - **Menu** (food/bev) → `Menu`. Tokens: `MENU_HEADLINE`, `MENU_CAT_{1,2}_NAME`, `MENU_CAT_{1,2}_ITEM_{1,2,3}_{NAME,DESC,PRICE}`, `MENU_URL`. From `_research.json.menu_items`. Emits `Menu` JSON-LD.
    - **Services** (salon/spa/trades/pro/medical) → `ServiceMenu`. Tokens: `SERVICES_HEADLINE`, `SERVICE_CAT_{1,2}_NAME`, `SERVICE_{1..5}_{NAME,DESC,PRICE,DURATION}`, `BOOK_URL`. Emits `OfferCatalog`.
-   - **Hours** (any storefront) → `OpeningHours`. Tokens: `HOURS_HEADLINE`, `HOURS_{MON,TUE,WED,THU,FRI,SAT,SUN}_{OPEN,CLOSE}` ("09:00" or "9:00 AM"). Emits `openingHoursSpecification` + a live open-now badge. Self-hides unless ≥1 day has real times.
+   - **Hours** (any storefront) → NOT an industry section. Fill the business's freeform `hours` (e.g. "Mon–Fri 9–5, Sat 10–4") in `_brand.json.business.hours` (seeded from the `hours` create param) → the shipped `LocationMap` renders the map + weekly grid + a live open-now chip + directions, and `businessSchema` emits the `OpeningHoursSpecification` JSON-LD. Never add a second hours section.
    - **Donation** (nonprofit) → `DonationTiers`. Tokens: `DONATE_HEADLINE`, `DONATION_{1..4}_{AMOUNT,LABEL,IMPACT}`, `DONATE_URL` (Stripe/Square, or a `mailto:`/`tel:` until billing is wired). Impact copy cites quantitative claims. Emits `DonateAction`. Gated STRICTLY on a real `DONATE_URL` (never shows just because a phone exists).
    - **Retail collection** (jewelers/books/records/boutiques/outdoor/plants) → `FeaturedCollection`. Tokens: `COLLECTION_HEADLINE`, `PRODUCT_{1..4}_{NAME,PRICE,IMAGE_URL,URL,BADGE}`, `SHOP_URL`. Emits `ItemList`/`Product`.
    **CREATE a new file ONLY for (no first-class section yet):**

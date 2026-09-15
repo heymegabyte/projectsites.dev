@@ -63,7 +63,6 @@ try {
         bodyText: document.body.innerText || '',
         scripts: [...document.querySelectorAll('script[type="application/ld+json"]')].map((s) => s.textContent || ''),
         bcl: [...document.querySelectorAll('[data-bcl]')].map((e) => e.getAttribute('data-bcl')),
-        hasOpenNow: !!document.querySelector('[data-testid="open-now-badge"]'),
       }));
 
       // (1) token-leak firewall — the always-on assertion.
@@ -82,9 +81,10 @@ try {
       if (types.has('Menu')) present.push('Menu');
       if (types.has('OfferCatalog')) present.push('ServiceMenu');
       if (types.has('ItemList')) present.push('FeaturedCollection');
-      if (nodes.some((n) => n && n.openingHoursSpecification)) present.push('OpeningHours');
       if (nodes.some((n) => n && n.potentialAction && n.potentialAction['@type'] === 'DonateAction'))
         present.push('DonationTiers');
+      // Hours are NOT an industry section — LocationMap + businessSchema own the
+      // OpeningHoursSpecification JSON-LD, so it's intentionally not detected here.
 
       // (3) required-field spot-checks on the industry JSON-LD present.
       const bad = [];
@@ -102,7 +102,7 @@ try {
         rows.push(`  ✓ ${slug} — no industry sections rendered (vertical uses none) + 0 token leaks`);
       } else {
         rows.push(
-          `  ✓ ${slug} — industry sections OK: ${present.join(', ')}${data.hasOpenNow ? ' [open-now badge]' : ''} · data-bcl: [${[...new Set(data.bcl)].join(', ') || 'none'}]`,
+          `  ✓ ${slug} — industry sections OK: ${present.join(', ')} · data-bcl: [${[...new Set(data.bcl)].join(', ') || 'none'}]`,
         );
       }
     } catch (e) {
