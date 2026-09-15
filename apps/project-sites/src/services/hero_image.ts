@@ -111,6 +111,18 @@ const BIKE: HeroImage = {
   url: 'https://images.unsplash.com/photo-1750341472956-e69e84cc71a9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHw2fHxiaWN5Y2xlJTIwc2hvcCUyMGJpa2VzJTIwcmVwYWlyfGVufDB8MHx8fDE3ODk0NjY1OTF8MA&ixlib=rb-4.1.0&q=80&w=1080',
   alt: 'Bicycles lined up in a neighborhood bike shop',
 };
+// OUTDOOR / SKI / MOUNTAINEERING (AL-614): the outdoor-outfitter vertical (outdoor gear / ski shop /
+// mountaineering / climbing / snowboard / backcountry / camping) had NO curated hero → the pack's
+// generic "retail" bucket shipped a gift-shop/home-goods interior as the LCP hero (vision-caught live
+// on alpenglow-sports-tahoe-city, a Tahoe outdoor & ski outfitter). Route to a real climbing/
+// mountaineering-gear Unsplash hero (sourced 2026-09-15 via the search API, alt-verified; the ixid
+// base64-decodes to "mountaineering equipment store" so the probe's OUTDOOR_LEXICON bridge matches an
+// "outdoor gear" business against it). Pairs with the theme_style rugged→terrain scene (theme = VOICE +
+// scene; this = the HERO IMAGE).
+const OUTDOOR: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1573763769528-b9a21a45ce2a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHw1fHxtb3VudGFpbmVlcmluZyUyMGVxdWlwbWVudCUyMHN0b3JlfGVufDB8MHx8fDE3ODk0OTE2MzJ8MA&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'Climbing and mountaineering gear in an outdoor outfitter',
+};
 
 /**
  * Ordered [sub-vertical pattern → curated hero]. FIRST match wins. Scanned against the derived
@@ -144,6 +156,13 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
     CHEESE,
   ],
   [/\b(bicycle\w*|\bbike\w*|cycling|cyclery|cyclist\w*)\b/, BIKE],
+  // AL-614 outdoor/ski/mountaineering outfitter — precise: bare `outdoor` needs a gear/shop suffix
+  // (so "outdoor dining" never matches) + `\bskis\b`/`ski shop` not bare "ski" (so "skincare" never
+  // matches). Distinct from BIKE (cycling) above and from `precision` (motorsports).
+  [
+    /\b(outdoor\s?(gear|outfitter\w*|equipment|apparel|clothing|shop|store)|outfitter\w*|ski\s?(shop|store|rental|resort|gear|&?\s?snowboard)|\bskis\b|snowboard\s?(shop|store|gear)?|mountaineer\w*|\bclimbing\b|backcountry|camping\s?(gear|store|shop)|\bkayak\w*|paddleboard\w*)\b/,
+    OUTDOOR,
+  ],
   [
     /\b(wealth|financ\w*|invest(ment|ing|or)\w*|asset\s?manage\w*|retirement\s?plan\w*|insuranc\w*|accounting|accountan\w*|bookkeep\w*|cpa|tax(es)?)\b/,
     FINANCE,

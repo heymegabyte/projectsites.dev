@@ -87,6 +87,34 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
     expect(heroQuery(heroImageForVertical('bicycle shop')!.url)).toMatch(/bicycle/);
   });
 
+  it('AL-614: outdoor/ski/mountaineering CLUSTER shares ONE gear hero (was generic retail)', () => {
+    // alpenglow-sports-tahoe-city (outdoor & ski outfitter) shipped a generic gift-shop/home-goods
+    // interior hero — now the whole outdoor cluster gets a real climbing/mountaineering-gear image.
+    const outdoor = heroImageForVertical('outdoor gear & ski shop')!;
+    expect(outdoor).not.toBeNull();
+    expect(outdoor.alt).toMatch(/outdoor|climb|mountaineer|gear/i);
+    for (const v of [
+      'ski shop',
+      'outdoor outfitter',
+      'mountaineering',
+      'climbing gym',
+      'snowboard shop',
+      'backcountry',
+      'camping gear',
+    ]) {
+      expect(heroImageForVertical(v)).toBe(outdoor); // one gear hero for the whole cluster
+    }
+    // the ixid decodes to an outdoor-domain query (what verify-hero-image-vertical's OUTDOOR_LEXICON reads → green):
+    expect(heroQuery(outdoor.url)).toMatch(/mountaineer|equipment|outdoor|ski/);
+  });
+
+  it('AL-614: outdoor patterns do NOT false-match adjacent verticals', () => {
+    expect(heroImageForVertical('outdoor dining')).toBeNull(); // bare "outdoor" needs a gear/shop suffix
+    expect(heroImageForVertical('skincare clinic')).toBeNull(); // \bskis\b / "ski shop", never "skin"
+    // a bicycle shop stays on the BIKE hero (its rule is ordered before OUTDOOR), not the gear hero:
+    expect(heroImageForVertical('bicycle shop')?.alt).toMatch(/bicycle|bike/i);
+  });
+
   it('AL-597: synonyms route correctly + no false-match', () => {
     expect(heroImageForVertical('cheesemonger')).toBe(heroImageForVertical('cheese shop'));
     expect(heroImageForVertical('delicatessen')).toBe(heroImageForVertical('cheese shop'));

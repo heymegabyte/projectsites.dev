@@ -61,6 +61,16 @@ const FINANCE_LEXICON =
 const CREATIVE_LEXICON =
   /\b(design|graphic|creative|agenc\w*|brand\w*|photograph\w*|videograph\w*|gallery|galleries|portfolio|advertis\w*|animation|production|illustrat\w*)\b/i;
 
+// Outdoor-recreation domain lexicon (AL-614) — SAME cluster idea as FOOD/FINANCE/CREATIVE, for the
+// outdoor-outfitter domain (outdoor gear / ski / snowboard / mountaineering / climbing / backcountry /
+// camping / kayak). These share ONE visual domain — a gear-filled outfitter — so one climbing/
+// mountaineering-gear hero (seeded query "mountaineering equipment store") is a correct match for any
+// of them. Bridges the outdoor→generic-retail defect: an outdoor business (nouns {outdoor,gear,ski,…})
+// + an outdoor-domain hero query is a correct cluster match, exactly like coffee ↔ "cafe interior". No
+// bare `gear`/`mountain`/`camp`/`trail` (would over-bridge) — outdoor-specific nouns only.
+const OUTDOOR_LEXICON =
+  /\b(outdoor|outfitter\w*|\bskis?\b|snowboard\w*|snowshoe\w*|mountaineer\w*|climb\w*|backcountry|backpack\w*|camping|kayak\w*|paddleboard\w*|trekking|alpine|\bhiking\b)\b/i;
+
 // Decode the Unsplash `ixid` (base64 → pipe-delimited; the query is the URL-encoded field).
 function heroQueryFromHtml(html) {
   const m = html.match(/ixid=([A-Za-z0-9]+)/);
@@ -114,7 +124,13 @@ try {
         // studio-workspace hero serves the whole cluster, mirroring the food + finance bridges.
         const creativeMatch =
           verticalNouns.some((n) => CREATIVE_LEXICON.test(n)) && CREATIVE_LEXICON.test(heroQuery);
-        const matched = literalMatch || foodMatch || financeMatch || creativeMatch;
+        // Outdoor-cluster bridge (AL-614): an outdoor-domain business (nouns {outdoor,gear,ski,
+        // mountaineering,climbing,…}) + an outdoor-domain hero query (the seeded "mountaineering
+        // equipment store") is a correct match — one gear-outfitter hero serves the whole cluster,
+        // mirroring the food/finance/creative bridges above.
+        const outdoorMatch =
+          verticalNouns.some((n) => OUTDOOR_LEXICON.test(n)) && OUTDOOR_LEXICON.test(heroQuery);
+        const matched = literalMatch || foodMatch || financeMatch || creativeMatch || outdoorMatch;
         if (matched) {
           const how = literalMatch
             ? ''
@@ -122,7 +138,9 @@ try {
               ? ' [food-cluster]'
               : financeMatch
                 ? ' [finance-cluster]'
-                : ' [creative-cluster]';
+                : creativeMatch
+                  ? ' [creative-cluster]'
+                  : ' [outdoor-cluster]';
           rows.push(`  ✓ ${slug} — hero query "${heroQuery}" matches vertical {${verticalNouns.join(',')}}${how}`);
         } else {
           flags++;
