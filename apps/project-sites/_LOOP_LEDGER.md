@@ -3618,3 +3618,10 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 - **★ ALL 6 § B FLOW PROBES GREEN on prod:** B.1 `verify-guest-funnel` ✅ (homepage→hero CTA→search→/create, 0 console errors) + `verify-create-wizard` ✅ (step 1→2→3→signin bridge) · B.5 `verify-billing-full-flow` ✅ (checkout create + unspoofable webhook + honest free-lock + portal) · B.6 `verify-editor-roundtrip` ✅ (bootstrap + publish auth/org/IDOR/validation-gated) · B.7 `verify-auth-flow` ✅ + `verify-auth-guard` ✅ (magic-link + Google OAuth + 5 protected routes bounce unauth). 0 regression from the 4 recent deploys.
 - **NO code change** — § B is a verified-complete maintenance-only plateau; ai-seniority gates-before-churn (no defect, no unchecked box). Not idle: full 6-probe fresh re-sweep confirming no regression.
 - **Files mine only:** `_LOOP_LEDGER.md`. No FE/worker/editor change. Protected files untouched.
+
+## AL-593 — ADMIN INTEGRITY: render + data fresh-green (fast confirm) — plateau, 0 regression from AL-585/586/589/591
+- **Verify-before-implement:** main clean + in-sync (HEAD=`234a007f2`, last commits mine). prod /admin 200. Recent deploys (AL-585/586/589 site-gen worker, AL-591 template Header) touch GENERATED sites, NOT the admin Angular FE or its data endpoints → regression risk ~0; confirmed FAST via the two highest-signal facets (~2min) per the plateau memory.
+- **(1) RENDER+A11Y** `admin-surf-audit` @1280 → **CLEAN across all sections** (console + pageerror + error-boundary + content + axe).
+- **(2) TRUTHFUL DATA** `reconcile-counts` → **14/14 PASS** (display == store, incl. the AL-582 usage_sites 109==109 + usage_builds 51==51 gauges).
+- **NO code change** — 5th admin plateau confirmation this session (AL-578/582/587/590/593), all no-defect; ai-seniority gates-before-churn. Not idle: fresh render + data re-verify.
+- **Files mine only:** `_LOOP_LEDGER.md`. Protected files untouched.
