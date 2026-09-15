@@ -301,6 +301,17 @@ export function personaHeroCopy(
   // phrases like "design studio" → "Design studio", never "Design Studio"). AL-542.
   const catCap = cat.charAt(0).toUpperCase() + cat.slice(1);
   const key = typeof themeStyle === 'string' ? themeStyle.trim().toLowerCase() : '';
+  // AL-611: `botanical` is a SHARED visual personality (calm/fresh/green + the petals scene) worn by
+  // TWO verticals — health/wellness AND plant/garden/florist RETAIL (routed here by theme_style.ts
+  // AL-610). The wellness hero copy below ("Feel better", "take a deep breath", "unhurried care") is a
+  // MISFIT on a garden shop (live: flora-grubb-san-francisco shipped H1 "Feel better in San Francisco").
+  // Sub-classify by category — a plant/garden/florist business gets GROW copy, wellness keeps CARE copy.
+  // Same pattern as `heroCtasFor`'s APPOINTMENT_CATEGORY branch. Gated by themeStyle===botanical, so a
+  // wellness category (spa/dental/yoga) never matches these plant nouns → the two never cross-fire.
+  const isPlantRetail =
+    /\b(plant\s?(?:shop|store|nurser\w*)|garden\s?(?:cent\w*|shop|store|nurser\w*|suppl\w*)|nurser(?:y|ies)|greenhouse\w*|florist\w*|flower\s?(?:shop|store|market)|houseplant\w*|botanic(?:al)?\s?garden|horticultur\w*|\bplant\w*)\b/i.test(
+      cat,
+    );
 
   const map: Readonly<Record<string, PersonaHeroCopy>> = {
     noir: {
@@ -398,17 +409,32 @@ export function personaHeroCopy(
         `${city} turns to us for ${art} ${cat} grounded in experience, judgment, and a name that keeps its word.`,
       ],
     },
-    botanical: {
-      headlines: [
-        `Feel better in ${city}`,
-        `Calm, capable care in ${city}`,
-        `${city}, take a deep breath`,
-      ],
-      subheadlines: [
-        `Gentle, attentive ${cat} for ${city} — unhurried care that meets you where you are.`,
-        `${city} rests easy with ${art} ${cat} that is calm, clear, and always in your corner.`,
-      ],
-    },
+    botanical: isPlantRetail
+      ? {
+          // GROW copy for plant/garden/florist retail (AL-611) — the shared botanical petals scene,
+          // but a garden-shop voice, never the wellness "Feel better"/"take a deep breath" misfit.
+          headlines: [
+            `Grow something beautiful in ${city}`,
+            `Where ${city} comes to grow`,
+            `${city}, let's get growing`,
+          ],
+          subheadlines: [
+            `Plants, tools, and expert advice for ${city} — healthy, well-rooted, and ready to thrive.`,
+            `${city} grows with us: ${art} ${cat} full of thriving plants and honest guidance.`,
+          ],
+        }
+      : {
+          // CARE copy for health/wellness (the original botanical reading — spa/dental/medical/clinic).
+          headlines: [
+            `Feel better in ${city}`,
+            `Calm, capable care in ${city}`,
+            `${city}, take a deep breath`,
+          ],
+          subheadlines: [
+            `Gentle, attentive ${cat} for ${city} — unhurried care that meets you where you are.`,
+            `${city} rests easy with ${art} ${cat} that is calm, clear, and always in your corner.`,
+          ],
+        },
     scholarly: {
       headlines: [
         `Where ${city} learns`,

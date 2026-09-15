@@ -417,7 +417,7 @@ export const THEME_PERSONALITY_BRIEF: Record<ThemeStyleName, string> = {
   rugged:
     'Sturdy, industrial, dependable. Imagery: real job-sites, equipment, work-in-progress, actual crews — not stock suits. Copy: plain, direct, no-nonsense; licensed/insured/experience trust cues. Sections: services → service-area → free-estimate CTA. Motion: grounded, minimal.',
   botanical:
-    'Calming, fresh, reassuring. Imagery: airy natural light, greenery, clean clinical warmth, unhurried faces. Copy: gentle, reassuring, patient-first. Sections: services → practitioners → book-appointment. Motion: soft, slow.',
+    'Calming, fresh, natural, alive. Imagery: airy natural light, abundant greenery, growing things, unhurried calm — never sterile. Copy: gentle, warm, reassuring, unhurried. Sections: lead with what you offer, then the people/place behind it, then a soft invitation to visit or book. Motion: soft, slow, organic. (Botanical is worn by BOTH wellness AND plant/garden/florist retail — keep the tone vertical-neutral; the category + commerce mode carry the healthcare-vs-shop specifics.)',
   boutique:
     'Chic, tactile, editorial-shoppable. Imagery: styled flat-lays, lifestyle vignettes, editorial fashion crops. Copy: covetable, curated, tastemaker voice. Sections: featured collections → brand story → shop CTAs. Motion: elegant lifts.',
   precision:

@@ -676,6 +676,49 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
     const bold = personaHeroCopy('bold', 'gym', 'Austin')!.headlines[0];
     expect(new Set([noir, warm, bold]).size).toBe(3);
   });
+
+  // AL-611: `botanical` is worn by BOTH health/wellness AND plant/garden/florist retail (routed here
+  // by theme_style.ts AL-610). The wellness hero copy ("Feel better" / "take a deep breath" /
+  // "unhurried care") is a MISFIT on a garden shop — flora-grubb-san-francisco shipped H1 "Feel
+  // better in San Francisco". Sub-classify by category: plant/garden/florist → GROW copy, wellness
+  // keeps CARE copy. Same lever as heroCtasFor's APPOINTMENT_CATEGORY branch.
+  describe('AL-611: botanical splits plant/garden GROW copy from wellness CARE copy', () => {
+    const PLANT = [
+      'garden shop & plant nursery',
+      'plant nursery',
+      'garden center',
+      'florist',
+      'flower shop',
+      'greenhouse',
+    ];
+    const WELLNESS = ['family dentistry', 'day spa', 'yoga studio', 'med spa', 'chiropractic clinic'];
+
+    it('plant/garden/florist → GROW copy, never the wellness "Feel better"/"deep breath"', () => {
+      for (const cat of PLANT) {
+        const p = personaHeroCopy('botanical', cat, 'San Francisco');
+        expect(p).not.toBeNull();
+        for (const h of p!.headlines) {
+          expect(h).not.toMatch(/feel better|deep breath|capable care/i); // no wellness misfit
+        }
+        expect(p!.headlines.some((h) => /grow/i.test(h))).toBe(true); // unmistakably garden-retail
+        expect(p!.subheadlines.some((s) => /plant|thrive|grow/i.test(s))).toBe(true);
+      }
+    });
+
+    it('health/wellness KEEPS the CARE copy (no regression — plant branch never steals wellness)', () => {
+      for (const cat of WELLNESS) {
+        const p = personaHeroCopy('botanical', cat, 'Denver');
+        expect(p).not.toBeNull();
+        expect(p!.headlines.some((h) => /feel better|deep breath|care/i.test(h))).toBe(true);
+        expect(p!.headlines.some((h) => /grow/i.test(h))).toBe(false); // wellness never gets grow copy
+      }
+    });
+
+    it('the exact live defect never recurs: flora-grubb category no longer yields "Feel better in {city}"', () => {
+      const p = personaHeroCopy('botanical', 'garden shop & plant nursery', 'San Francisco');
+      expect(p!.headlines).not.toContain('Feel better in San Francisco');
+    });
+  });
 });
 
 /**
