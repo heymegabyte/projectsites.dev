@@ -21,7 +21,7 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'olson-kundig-seattle,ben-badgley-cpa')
+const SITES = (process.env.SITES || 'olson-kundig-seattle,ben-badgley-cpa,bicycle-habitat-nyc')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
@@ -40,6 +40,11 @@ const bareRe = new RegExp(`\\b(${DISCIPLINE})\\b(?!\\s+(?:${SUFFIX})\\b)`, 'i');
 // relative clause ("The {cat} {city} counts on"); this flags any deployed site still on the old
 // frame (flips green on rebuild).
 const weakLeadRe = /^Quality\b.+\bcounts on$/i;
+// AL-585: the boutique persona's vertical-AGNOSTIC filler H1 ("Find something special in {city}" —
+// drops the category, so a bike shop read indistinguishable from any gift shop). Replaced in
+// hero_copy with a category-bearing "The {city} {cat} worth the trip"; this flags any deployed site
+// still on the old filler (flips green on rebuild).
+const fillerRe = /^Find something special in\b/i;
 const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 
 const hits = [];
@@ -66,6 +71,7 @@ try {
       if (mH1) hits.push({ slug, where: 'h1', detail: `"${nH1}" → bare "${mH1[1]}"` });
       if (mT) hits.push({ slug, where: 'title', detail: `"${nTitle}" → bare "${mT[1]}"` });
       if (weakLeadRe.test(nH1)) hits.push({ slug, where: 'h1', detail: `"${nH1}" → weak "Quality … counts on" lead (AL-576)` });
+      if (fillerRe.test(nH1)) hits.push({ slug, where: 'h1', detail: `"${nH1}" → vertical-agnostic "Find something special" filler (AL-585)` });
     } catch {
       /* route unreachable → skip (don't false-fail) */
     }

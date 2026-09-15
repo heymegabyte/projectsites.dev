@@ -605,6 +605,22 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
     }
   });
 
+  // AL-585: the boutique persona shipped a vertical-AGNOSTIC filler headline ("Find something
+  // special in New York" on a bike shop — indistinguishable from any gift shop). Every boutique
+  // headline candidate must now carry the category so `pick()` can never select a hero that drops
+  // the vertical (same class as AL-576's "Quality … counts on" weak-lead fix).
+  it('AL-585: boutique headlines all carry the category — no vertical-agnostic "Find something special" filler', () => {
+    for (const cat of ['bicycle shop', 'record store', 'plant shop', 'boutique']) {
+      const p = personaHeroCopy('boutique', cat, 'New York');
+      expect(p).not.toBeNull();
+      for (const h of p!.headlines) {
+        expect(h).not.toMatch(/find something special/i); // the exact retired filler
+        expect(h.toLowerCase()).toContain(cat.toLowerCase()); // every candidate is category-bearing
+      }
+      expect(p!.headlines).toContain(`The New York ${cat} worth the trip`);
+    }
+  });
+
   it('indefiniteArticle — "an" before a vowel, "a" otherwise', () => {
     expect(indefiniteArticle('bookstore')).toBe('a');
     expect(indefiniteArticle('jewelry store')).toBe('a');

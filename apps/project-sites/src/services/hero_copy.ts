@@ -372,7 +372,12 @@ export function personaHeroCopy(
     boutique: {
       headlines: [
         `${city}'s most-loved ${cat}`,
-        `Find something special in ${city}`,
+        // AL-585: was `Find something special in ${city}` — the boutique persona's generic-filler
+        // candidate (drops ${cat} → a vertical-AGNOSTIC hero; a bike shop shipped "Find something
+        // special in New York", indistinguishable from any gift shop). Same class AL-576 fixed for
+        // the "Quality … counts on" filler: replace the ${cat}-less candidate with a category-bearing
+        // boutique-voice line ("worth the trip" echoes the persona's own subheadline).
+        `The ${city} ${cat} worth the trip`,
         `Your ${city} ${cat}, styled`,
       ],
       subheadlines: [
