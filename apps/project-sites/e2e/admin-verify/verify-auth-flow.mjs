@@ -2,10 +2,11 @@
 /**
  * verify-auth-flow.mjs — COMPLETION § B.7: prove the AUTH mechanics a real prospect
  * walks, end-to-end + headless on prod. Scope is the "render+state" portions B.7 names
- * — the emailed magic-link CLICK (token consumption) needs either a human inbox or the
- * E2E_PEEK_SECRET stash seam (dark on prod: enabling it would briefly KV-stash every
- * user's plaintext token — a security-policy change, approval-required, not flipped here).
- * Everything short of the click IS verifiable and IS what gates real sign-ins:
+ * — the emailed magic-link CLICK (token consumption) is the crown-jewel MANUAL roundtrip
+ * (e2e/auth-magic-link-roundtrip.spec.ts: request→peek→verify→session→single-use), which needs
+ * the real E2E_PEEK_SECRET + sends real email. THIS probe covers everything short of the click
+ * that gates real sign-ins, PLUS the SECURITY of the peek seam itself — it must stay DARK to an
+ * unauthorized caller so it never hands out a plaintext magic-link token:
  *
  *   1. magic-link REQUEST   — POST /api/auth/magic-link {email} → 200 + {expires_at}.
  *   2. request VALIDATION   — a malformed email → 400 (Zod boundary), not a 500.
@@ -15,6 +16,8 @@
  *                             our redirect_uri + response_type=code + scope openid/email/profile + a CSRF state.
  *   6. Google callback safe — GET /api/auth/google/callback (no code/state) → 302 (graceful), never 500.
  *   7. me unauthenticated   — GET /api/auth/me with no session → 401 (clean), not 500 / not a false 200.
+ *   8. peek seam DARK       — GET …/magic-link/peek WITHOUT (or with a WRONG) E2E_PEEK_SECRET → 404,
+ *                             no plaintext token in the body (a broken gate would leak every user's token).
  *
  * Pure-HTTP on prod (public auth endpoints) with the Origin header (omitting it trips
  * Bot Fight). Step 1 sends ONE magic-link email to the e2e identity (a real test login) —
@@ -93,10 +96,26 @@ try {
   const me = await req('/api/auth/me');
   check('me unauthenticated → 401 (clean)', me.status === 401, `status=${me.status}`);
 
+  // 8. Token-PEEK seam is DARK — the E2E consume roundtrip reads the plaintext magic-link token
+  //    through /api/auth/magic-link/peek gated behind E2E_PEEK_SECRET. If that gate ever broke
+  //    (secret unset / check dropped) the endpoint would hand out EVERY user's token — a critical
+  //    auth leak. Assert 404-dark + NO token/verify-URL in the body for BOTH no-secret AND a wrong
+  //    secret (a wrong secret must not even reveal the endpoint exists).
+  const leaks = (b) => /(magic-link\/verify\?token=)|("token"\s*:)|("url"\s*:\s*"https)/i.test(b || '');
+  const peekNo = await req(`/api/auth/magic-link/peek?email=${encodeURIComponent(email)}`, { redirect: 'manual' });
+  const peekNoBody = await peekNo.text().catch(() => '');
+  const peekWrong = await req(`/api/auth/magic-link/peek?email=${encodeURIComponent(email)}&secret=wrong-${Date.now()}`, { redirect: 'manual' });
+  const peekWrongBody = await peekWrong.text().catch(() => '');
+  check(
+    'magic-link peek seam DARK (no token leak w/o or w/ wrong secret)',
+    peekNo.status === 404 && peekWrong.status === 404 && !leaks(peekNoBody) && !leaks(peekWrongBody),
+    `no-secret=${peekNo.status} wrong-secret=${peekWrong.status} leak=${leaks(peekNoBody) || leaks(peekWrongBody)}`,
+  );
+
   for (const r of rows) console.log(`  ${r.ok ? '✓' : '✗'} ${r.label.padEnd(64)} ${r.detail}`);
   const ok = fails === 0;
   console.log(
-    `\nVERDICT: ${ok ? '✅ PASS' : '🔴 CHECK'} — auth flow (magic-link request + verify fail-safe + Google OAuth init) ${ok ? 'is sound on prod' : 'has a break'} [emailed-click token consumption out of headless scope]`,
+    `\nVERDICT: ${ok ? '✅ PASS' : '🔴 CHECK'} — auth flow (magic-link request + verify fail-safe + Google OAuth init + peek-seam darkness) ${ok ? 'is sound on prod' : 'has a break'} [full emailed-click consume = the manual crown-jewel roundtrip spec]`,
   );
   process.exit(ok ? 0 : 1);
 } catch (err) {
