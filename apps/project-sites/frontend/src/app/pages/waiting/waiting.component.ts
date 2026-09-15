@@ -152,6 +152,32 @@ export function toBuildLogLine(entry: LogEntry): BuildLogLine {
   return { time, text: redactBuildLogSecrets(message || label), kind };
 }
 
+/**
+ * Build the /waiting terminal HEARTBEAT string (pure — exported for unit coverage). Keeps the
+ * terminal visibly alive during long silent gaps in the container build. Returns '' once the
+ * build is terminal (published/error) or before it starts; escalates to "still working" after
+ * 10s of no new log line so a ~40-min build step never looks frozen.
+ *
+ * @param status - The site's current lifecycle status.
+ * @param buildStartedAtMs - Epoch ms when the /waiting page began tracking (0 = not started).
+ * @param lastActivityAtMs - Epoch ms of the last new build log line.
+ * @param nowMs - Current epoch ms (injected — pure).
+ */
+export function formatHeartbeat(
+  status: string,
+  buildStartedAtMs: number,
+  lastActivityAtMs: number,
+  nowMs: number,
+): string {
+  if (status === 'published' || status === 'error' || buildStartedAtMs === 0) return '';
+  const fmt = (s: number): string => (s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`);
+  const elapsed = Math.max(0, Math.floor((nowMs - buildStartedAtMs) / 1000));
+  const idle = Math.max(0, Math.floor((nowMs - lastActivityAtMs) / 1000));
+  return idle > 10
+    ? `still building — ${fmt(elapsed)} elapsed · working (${fmt(idle)} since last update)`
+    : `building — ${fmt(elapsed)} elapsed`;
+}
+
 @Component({
   selector: 'app-waiting',
   standalone: true,
@@ -192,6 +218,20 @@ export class WaitingComponent implements OnInit, OnDestroy {
     }));
   });
 
+  // Heartbeat — keeps the terminal visibly ALIVE during the long container build, where
+  // minutes pass with no new audit line (the ~40-min build-orchestrator step) and the widget
+  // would otherwise look frozen. A 1s ticker drives an elapsed/idle readout in the cursor line.
+  private buildStartedAt = 0;
+  private lastLogCount = 0;
+  readonly lastActivityAt = signal(0);
+  readonly nowTick = signal(0);
+
+  /** Live "building — {elapsed}" line; escalates to "still working" after 10s of silence. Empty once done. */
+  readonly heartbeat = computed<string>(() => {
+    this.nowTick(); // recompute every tick so the readout breathes each second
+    return formatHeartbeat(this.status(), this.buildStartedAt, this.lastActivityAt(), Date.now());
+  });
+
   constructor() {
     // Tail the terminal to the newest line whenever the stream grows.
     effect(() => {
@@ -210,11 +250,21 @@ export class WaitingComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.buildStartedAt = Date.now();
+    this.lastActivityAt.set(Date.now());
     this.startPolling();
+    this.startHeartbeat();
   }
 
   ngOnDestroy(): void {
     this.alive = false;
+  }
+
+  /** 1s ticker driving the heartbeat readout; stops when the build finishes (alive=false). */
+  private startHeartbeat(): void {
+    timer(0, 1000)
+      .pipe(takeWhile(() => this.alive))
+      .subscribe(() => this.nowTick.update((n) => n + 1));
   }
 
   private startPolling(): void {
@@ -236,6 +286,11 @@ export class WaitingComponent implements OnInit, OnDestroy {
 
           const logs = logsRes?.data ?? [];
           this.logs.set(logs);
+          // Heartbeat activity marker — reset the idle timer whenever a new build line arrives.
+          if (logs.length > this.lastLogCount) {
+            this.lastLogCount = logs.length;
+            this.lastActivityAt.set(Date.now());
+          }
           this.updateStatusFromLogs(logs, site.status);
 
           // A published row is "live" ONLY once its build landed — a published +

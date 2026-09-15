@@ -1,5 +1,33 @@
-import { redactBuildLogSecrets, toBuildLogLine, resolveBuildOutcome } from './waiting.component';
+import {
+  redactBuildLogSecrets,
+  toBuildLogLine,
+  resolveBuildOutcome,
+  formatHeartbeat,
+} from './waiting.component';
 import type { LogEntry } from '../../services/api.service';
+
+describe('formatHeartbeat (terminal keeps breathing during long build gaps)', () => {
+  const START = Date.parse('2026-09-15T12:00:00Z');
+  it('is empty before the build starts (buildStartedAt=0)', () => {
+    expect(formatHeartbeat('building', 0, 0, START)).toBe('');
+  });
+  it('is empty once terminal (published / error)', () => {
+    expect(formatHeartbeat('published', START, START, START + 5000)).toBe('');
+    expect(formatHeartbeat('error', START, START, START + 5000)).toBe('');
+  });
+  it('shows elapsed while active + recent activity (≤10s idle)', () => {
+    const out = formatHeartbeat('generating', START, START + 131000, START + 134000);
+    expect(out).toBe('building — 2m 14s elapsed');
+  });
+  it('escalates to "still working" after >10s of silence', () => {
+    const out = formatHeartbeat('generating', START, START + 15000, START + 40000);
+    expect(out).toContain('still building — 40s elapsed');
+    expect(out).toContain('working (25s since last update)');
+  });
+  it('never emits negative durations under clock skew', () => {
+    expect(formatHeartbeat('building', START, START, START - 5000)).toBe('building — 0s elapsed');
+  });
+});
 
 describe('resolveBuildOutcome (build-progress terminal state)', () => {
   it('published WITH a build → live', () => {
