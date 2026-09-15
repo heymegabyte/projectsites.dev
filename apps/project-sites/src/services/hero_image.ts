@@ -107,6 +107,16 @@ const CHEESE: HeroImage = {
   url: 'https://images.unsplash.com/photo-1769317047898-77997c1451c4?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHw0fHxjaGVlc2UlMjBzaG9wJTIwY291bnRlciUyMGRpc3BsYXl8ZW58MHwwfHx8MTc4OTQ2NjYxMnww&ixlib=rb-4.1.0&q=80&w=1080',
   alt: 'A cheese shop counter stacked with wheels of cheese',
 };
+// DELI (this fire): a delicatessen (sandwich / cured-meat counter) is its OWN vertical, visually
+// distinct from a cheese shop — but the CHEESE rule used to also match `delicatessen|\bdeli\b`, so
+// zingermans-ann-arbor-2 (a deli) shipped the cheese-shop hero (flagged live by
+// verify-hero-image-vertical). Route deli/delicatessen to a real deli-counter hero + narrow CHEESE
+// to cheese-only. Sourced via Unsplash search API 2026-09-15 ("delicatessen deli counter sandwiches",
+// alt-verified; ixid base64-decodes to "delicatessen" so the probe reads it green off the H1 noun).
+const DELI: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1705647405231-c481e117e609?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwxfHxkZWxpY2F0ZXNzZW4lMjBkZWxpJTIwY291bnRlciUyMHNhbmR3aWNoZXN8ZW58MHwwfHx8MTc4OTUxNTg3OXww&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'A deli counter display case filled with fresh sandwiches',
+};
 const BIKE: HeroImage = {
   url: 'https://images.unsplash.com/photo-1750341472956-e69e84cc71a9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHw2fHxiaWN5Y2xlJTIwc2hvcCUyMGJpa2VzJTIwcmVwYWlyfGVufDB8MHx8fDE3ODk0NjY1OTF8MA&ixlib=rb-4.1.0&q=80&w=1080',
   alt: 'Bicycles lined up in a neighborhood bike shop',
@@ -151,8 +161,11 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
   // AL-597 specialty-food + active-gear — precise nouns; `meat` paired with shop/market/counter (no
   // bare `meat` → never a restaurant); `\bdeli\b` never matches "delivery"/"delicatessen" (own token).
   [/\b(butcher\w*|meat\s?(shop|market|counter)|charcuterie|salumeria)\b/, BUTCHER],
+  // DELI before CHEESE: a delicatessen gets a deli-counter hero, NOT the cheese-shop one. `deli` is a
+  // whole word (never matches "delivery"/"delish"); `delicatessen` is its own token.
+  [/\b(delicatessen|deli)\b/, DELI],
   [
-    /\b(cheese\s?(shop|monger\w*)?|cheesemong\w*|fromager\w*|creamer(?:y|ies)|delicatessen|\bdeli\b)\b/,
+    /\b(cheese\s?(shop|monger\w*)?|cheesemong\w*|fromager\w*|creamer(?:y|ies))\b/,
     CHEESE,
   ],
   [/\b(bicycle\w*|\bbike\w*|cycling|cyclery|cyclist\w*)\b/, BIKE],

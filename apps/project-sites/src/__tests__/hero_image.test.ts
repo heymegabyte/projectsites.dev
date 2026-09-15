@@ -117,13 +117,28 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
 
   it('AL-597: synonyms route correctly + no false-match', () => {
     expect(heroImageForVertical('cheesemonger')).toBe(heroImageForVertical('cheese shop'));
-    expect(heroImageForVertical('delicatessen')).toBe(heroImageForVertical('cheese shop'));
+    // a delicatessen is now its OWN vertical (deli-counter hero), NOT the cheese-shop hero:
+    expect(heroImageForVertical('delicatessen')).not.toBe(heroImageForVertical('cheese shop'));
     expect(heroImageForVertical('meat market')).toBe(heroImageForVertical('butcher shop'));
     expect(heroImageForVertical('cyclery')).toBe(heroImageForVertical('bicycle shop'));
     expect(heroImageForVertical('bike shop')).toBe(heroImageForVertical('bicycle shop'));
     // precision: a motorcycle is NOT a bicycle; "meat" needs shop/market/counter (never a restaurant)
     expect(heroImageForVertical('motorcycle dealer')).toBeNull();
     expect(heroImageForVertical('meatball restaurant')).toBeNull();
+  });
+
+  it('DELI (this fire): a delicatessen gets a deli-counter hero, distinct from cheese', () => {
+    // zingermans-ann-arbor-2 (a deli) shipped the CHEESE hero (flagged live by verify-hero-image-vertical);
+    // a delicatessen (sandwich/cured-meat counter) is its own vertical.
+    const deli = heroImageForVertical('delicatessen')!;
+    expect(deli).not.toBeNull();
+    expect(deli.alt).toMatch(/deli|sandwich/i);
+    expect(heroImageForVertical('deli')).toBe(deli); // synonym
+    expect(deli).not.toBe(heroImageForVertical('cheese shop')); // the fix: no longer the cheese hero
+    // probe-compat: the ixid decodes to the deli vertical noun (verify-hero-image-vertical → green):
+    expect(heroQuery(deli.url)).toMatch(/deli|delicatessen/);
+    // precision: "delivery"/"delish" must NOT match the deli rule (whole-word `deli`):
+    expect(heroImageForVertical('delivery service')).toBeNull();
   });
 
   it('AL-544: the whole CREATIVE cluster shares ONE design-studio-workspace hero', () => {
