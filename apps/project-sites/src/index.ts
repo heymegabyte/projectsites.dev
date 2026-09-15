@@ -184,6 +184,8 @@ import { resolveAppHost } from './services/app_host_resolver.js';
 import { getContentType, resolveSite, serveSiteFromR2 } from './services/site_serving.js';
 import { maybeDispatchFunctions } from './services/functions_dispatch.js'; // Stage 3.1: child-host /api/* → site's WfP functions worker (ADR-0035 §30)
 import { dbQueryOne, dbUpdate } from './services/db.js';
+import { writeAuditLog } from './services/audit.js';
+import { prepareBuildLogLines } from './services/build_log.js';
 import { deploySiteFunctions, type FunctionsBuildResult } from './services/functions_deploy.js';
 import {
   handleFunctionAiRun,
@@ -1298,6 +1300,84 @@ app.post('/api/internal/build-status', async (c) => {
   }
 
   return c.json({ ok: true });
+});
+
+/**
+ * `POST /api/internal/build-log` — HMAC-signed LIVE build-log ingest. The build
+ * container streams its Claude Code stdout here in throttled batches; each line is
+ * redacted + written to `audit_logs` as action `claude.output` with the raw text in
+ * `metadata_json.message`, so the /waiting page's existing gorgeous terminal
+ * (getSiteLogs poll → toBuildLogLine, which prefers `metadata_json.message`) renders
+ * it live — the owner watches the AI actually building their site.
+ *
+ * DARK by default behind the `live_build_stream` flag (unseeded → false → 404). The
+ * STREAMING BUILD THEATER loop seeds+promotes the flag and teaches container-server.mjs
+ * to POST here. Same `INTERNAL_BUILD_SECRET` + `x-build-sig` HMAC as
+ * `/api/internal/build-status`; `env` stays worker-side (no CF creds enter the container).
+ * Fail-closed: any flag error → 404, so a half-wired container can never flood audit_logs.
+ */
+app.post('/api/internal/build-log', async (c) => {
+  const secret = c.env.INTERNAL_BUILD_SECRET;
+  if (!secret) return c.json({ error: 'callback not configured' }, 500);
+  const sig = c.req.header('x-build-sig') || '';
+  const body = await c.req.text();
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sigBytes = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(body)));
+  const expected = Array.from(sigBytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  if (sig !== expected) return c.json({ error: 'invalid signature' }, 401);
+
+  // Dark by default: the flag is unseeded until the STREAMING BUILD THEATER loop
+  // wires the container + promotes it. Fail-closed (404) on any flag error.
+  const streamOn = await isFlagOnBetterAuth(c.env, 'live_build_stream').catch(() => false);
+  if (!streamOn) return c.json({ error: 'not found' }, 404);
+
+  let payload: { jobId?: string; lines?: unknown };
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    return c.json({ error: 'bad json' }, 400);
+  }
+  const jobId = payload.jobId;
+  if (!jobId || typeof jobId !== 'string') return c.json({ error: 'missing jobId' }, 400);
+
+  // Redact + bound the batch (≤40 lines, ≤500 chars each) so a runaway container can
+  // never write unbounded audit rows; the container throttles to meaningful lines
+  // (Loop C's job). prepareBuildLogLines is the pure, unit-tested core.
+  const lines = prepareBuildLogLines(payload.lines);
+  if (lines.length === 0) return c.json({ ok: true, written: 0 });
+
+  // jobId is the CONTAINER job id — map it back to the siteId via the same
+  // `job2site:{jobId}` KV mapping the build-status callback uses; fall back to jobId
+  // for claim builds where jobId == siteId.
+  const siteId = (await c.env.CACHE_KV.get(`job2site:${jobId}`)) || jobId;
+  const site = await dbQueryOne<{ org_id: string }>(
+    c.env.DB,
+    'SELECT org_id FROM sites WHERE id = ? AND deleted_at IS NULL',
+    [siteId],
+  );
+  if (!site?.org_id) return c.json({ error: 'unknown site' }, 404);
+
+  for (const line of lines) {
+    await writeAuditLog(c.env.DB, {
+      org_id: site.org_id,
+      actor_id: 'system',
+      action: 'claude.output',
+      message: line,
+      target_type: 'site',
+      target_id: siteId,
+      metadata_json: { message: line, source: 'build-container' },
+    });
+  }
+  return c.json({ ok: true, written: lines.length });
 });
 
 /**
