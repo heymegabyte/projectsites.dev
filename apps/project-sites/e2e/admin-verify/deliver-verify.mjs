@@ -36,13 +36,29 @@ const data = await page.evaluate(() => {
   return { h1, title, desc, bodyWords, imgs, jsonld, iconInfo, wmInfo, shopCTAs };
 });
 
-// Fetch the logo assets directly to confirm they 200 + are PNG (transparency = AL-224)
-async function head(pathname) {
-  try { const r = await fetch(base + pathname, { headers: { 'User-Agent': UA } }); return { status: r.status, type: r.headers.get('content-type'), len: r.headers.get('content-length') }; }
-  catch (e) { return { status: 0, err: String(e) }; }
+// Fetch the logo assets directly: confirm they 200 AND actually carry an ALPHA channel (AL-224).
+// A PNG's colour-type byte sits at offset 25 (in the IHDR chunk): 6=RGBA / 4=grey+alpha are
+// transparent (GOOD); 2=RGB / 0=grey are OPAQUE (a boxed logo — the AL-224 defect); 3=palette is
+// ambiguous (alpha only via a tRNS chunk). content-type alone is a NO-OP check — an opaque PNG is
+// still `image/png` — so we read the byte to verify transparency for real.
+async function pngInfo(pathname) {
+  try {
+    const r = await fetch(base + pathname, { headers: { 'User-Agent': UA } });
+    if (!r.ok) return { status: r.status, type: r.headers.get('content-type') };
+    const buf = new Uint8Array(await r.arrayBuffer());
+    const isPng =
+      buf.length > 25 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+    const colorType = isPng ? buf[25] : null;
+    const hasAlpha = colorType === 6 || colorType === 4; // definite alpha; 3=palette is ambiguous
+    return { status: r.status, type: r.headers.get('content-type'), len: buf.length, colorType, hasAlpha };
+  } catch (e) {
+    return { status: 0, err: String(e) };
+  }
 }
-const iconAsset = await head('/logo-icon.png');
-const wmAsset = await head('/logo-wordmark.png');
+const iconAsset = await pngInfo('/logo-icon.png');
+const wmAsset = await pngInfo('/logo-wordmark.png');
+// AL-224 verdict: the navbar icon MUST carry alpha (transparent), never an opaque box.
+const iconTransparent = iconAsset.status === 200 ? iconAsset.hasAlpha === true : null;
 
 await page.screenshot({ path: '/tmp/deliver-jenis.png', fullPage: false });
 await browser.close();
@@ -57,6 +73,15 @@ console.log(`navbar icon: ${JSON.stringify(data.iconInfo)}`);
 console.log(`navbar wordmark: ${JSON.stringify(data.wmInfo)}`);
 console.log(`logo-icon.png asset: ${JSON.stringify(iconAsset)}`);
 console.log(`logo-wordmark.png asset: ${JSON.stringify(wmAsset)}`);
+console.log(
+  `logo transparency (AL-224): icon colorType=${iconAsset.colorType} ${
+    iconTransparent === null
+      ? '(no icon asset)'
+      : iconTransparent
+        ? '✓ transparent (has alpha)'
+        : '✗ OPAQUE — boxed logo, AL-224 regression'
+  }`,
+);
 console.log(`shop/cart CTAs (on-brand for RETAIL, wrong-vertical otherwise): ${data.shopCTAs.join(', ') || '(none)'}`);
 console.log(`console errors: ${errors.length}`);
 errors.forEach((e) => console.log('  ✗ ' + e));
@@ -69,4 +94,17 @@ const slugTokens = SLUG.split('-').filter((t) => t.length >= 4);
 const hay = `${data.h1} ${data.title}`.toLowerCase();
 const bizSpecific = slugTokens.some((t) => hay.includes(t));
 const realBuild = status === 200 && data.bodyWords > 300 && data.imgs >= 4 && data.h1.length > 0;
-console.log(`\nverdict: ${realBuild && bizSpecific && errors.length === 0 ? '✅ REAL DELIVERY (biz-specific H1, content, 0 console errors)' : realBuild ? '🟡 real build but check H1/errors' : '❌ shell/thin — investigate premature-terminal'}`);
+// Opaque navbar logo is a real AL-224 defect even on an otherwise-perfect build — surface it in
+// the verdict so a delivery is never called ✅ while shipping a boxed logo.
+const logoOk = iconTransparent !== false; // null (no asset) or true both acceptable here
+console.log(
+  `\nverdict: ${
+    realBuild && bizSpecific && errors.length === 0 && logoOk
+      ? '✅ REAL DELIVERY (biz-specific H1, content, 0 console errors, transparent logo)'
+      : realBuild && !logoOk
+        ? '🟡 real build but OPAQUE LOGO (AL-224) — fix logo transparency'
+        : realBuild
+          ? '🟡 real build but check H1/errors'
+          : '❌ shell/thin — investigate premature-terminal'
+  }`,
+);
