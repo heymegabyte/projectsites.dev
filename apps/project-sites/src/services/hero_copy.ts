@@ -209,7 +209,7 @@ export function categoryFromName(name?: unknown): string {
  * @example
  * heroHeadlineOptions('record store', 'Portland')
  * // → ["Portland's record store", "Portland's trusted record store",
- * //    "Your Portland record store", "Quality record store Portland counts on"]
+ * //    "Your Portland record store", "The record store Portland counts on"]
  */
 /**
  * The correct English indefinite article for a noun phrase — `'an'` before a vowel-initial word,
@@ -235,7 +235,12 @@ export function heroHeadlineOptions(catPhrase: string, cityPhrase: string): read
     `${city}'s ${cat}`,
     `${city}'s trusted ${cat}`,
     `Your ${city} ${cat}`,
-    `Quality ${cat} ${city} counts on`,
+    // AL-576: was `Quality ${cat} ${city} counts on` — the weakest of the four (a generic
+    // "Quality" lead + a clunky dropped-relative-pronoun) shipped live on 6 neutral-personality
+    // sites (secret-society/perennials/verve/gruhn/jenis/laughing-lotus via the `pick()` selector).
+    // A clean relative-clause frame keeps the cat+city SEO keywords + the trust sentiment without
+    // the generic opener: "The cocktail bar Portland counts on".
+    `The ${cat} ${city} counts on`,
   ];
 }
 

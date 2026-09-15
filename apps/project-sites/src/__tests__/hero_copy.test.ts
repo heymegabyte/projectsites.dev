@@ -283,11 +283,12 @@ describe('hero_copy — categoryPhrase (AL-361: keep the retail/venue noun phras
 });
 
 describe('hero_copy — heroHeadlineOptions (AL-361: grammatical for every vertical)', () => {
-  it('NEVER produces the broken live string "Quality record Portland counts on"', () => {
+  it('no bare-noun "Quality record …" (AL-361) AND no weak "Quality" lead at all (AL-576)', () => {
     const opts = heroHeadlineOptions(categoryPhrase('Record Store'), 'Portland');
-    expect(opts).not.toContain('Quality record Portland counts on');
-    // the fixed "Quality …" frame reads naturally with the full noun phrase:
-    expect(opts).toContain('Quality record store Portland counts on');
+    expect(opts).not.toContain('Quality record Portland counts on'); // AL-361: never the bare "record"
+    // AL-576: the weak generic "Quality … counts on" 4th frame is replaced by a clean relative clause.
+    expect(opts).toContain('The record store Portland counts on');
+    expect(opts.join(' ')).not.toMatch(/\bQuality\b/); // no "Quality" opener anywhere in the option set
   });
 
   it('every option carries the FULL noun phrase + the city, and is non-empty', () => {
@@ -302,7 +303,7 @@ describe('hero_copy — heroHeadlineOptions (AL-361: grammatical for every verti
       "Portland's record store",
       "Portland's trusted record store",
       'Your Portland record store',
-      'Quality record store Portland counts on',
+      'The record store Portland counts on',
     ]);
   });
 
