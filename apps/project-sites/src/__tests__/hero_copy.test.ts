@@ -691,7 +691,13 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
       'flower shop',
       'greenhouse',
     ];
-    const WELLNESS = ['family dentistry', 'day spa', 'yoga studio', 'med spa', 'chiropractic clinic'];
+    const WELLNESS = [
+      'family dentistry',
+      'day spa',
+      'yoga studio',
+      'med spa',
+      'chiropractic clinic',
+    ];
 
     it('plant/garden/florist → GROW copy, never the wellness "Feel better"/"deep breath"', () => {
       for (const cat of PLANT) {
