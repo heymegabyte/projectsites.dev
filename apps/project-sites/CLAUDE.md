@@ -5,6 +5,16 @@
 >
 > **Template repo:** https://github.com/HeyMegabyte/template.projectsites.dev
 
+## ⟳ Loop Charter (READ on EVERY `/loop` fire)
+
+Every scheduled `/loop` cron MUST obey **`apps/project-sites/_LOOP_CHARTER.md`** — the SSOT
+for all loops. Three mandates, every fire: (1) prove the touched surface through a **complete
+real-user journey** covering all its sub-actions; (2) **progressively enhance** — advance
+several of {polished feature · enhancement · debugging · hardened error-handling · structured
+log/trace/event enhancing} in one fire; (3) **faster pace** — ship MORE each fire via 4-6
+parallel agents, escalating velocity while every gate stays green. This is the floor beneath
+each loop's specialty. (Brian directive 2026-09-15.)
+
 ## Infrastructure doctrine (READ FIRST — Cloudflare-first, finalized 2026-06-19)
 
 **Authoritative:** [`docs/architecture/cloudflare-first.md`](docs/architecture/cloudflare-first.md) (mirror: `~/.agentskills/rules/projectsites-cloudflare-first.md`).
