@@ -210,7 +210,22 @@ const CATEGORY_RULES: ReadonlyArray<readonly [ThemeStyleName, RegExp]> = [
   ],
   [
     'artisan',
-    /\b(coffee\s?roaster\w*|\broaster\w*|creamer(?:y|ies)|cheesemong\w*|chocolatier\w*|confection\w*|potter\w*|ceramic\w*|woodwork\w*|glassblow\w*|leather\s?(?:goods|work\w*|smith\w*)|cooperage|distiller\w*|meader\w*|\bcandle\w*|soap\s?maker\w*|craft\s?(?:brewer\w*|distiller\w*|studio|goods)|artisan\w*|handmade\w*|handcraft\w*)\b/,
+    // AL-589: added the specialty-FOOD shops (cheese/deli/charcuterie/butcher/fromagerie) — they
+    // are artisanal/small-batch/made-by-hand (the artisan voice + weave scene fit), but "cheese
+    // shop"/"deli"/"butcher" don't match the `cheesemong\w*` token so they were falling to the
+    // generic boutique `\bshop\b` catch-all → a FASHION voice ("quietly covetable" cheese, live on
+    // murrays-cheese-nyc, AL-588). `creamer`/`cheesemong`/`chocolatier` were already here.
+    /\b(coffee\s?roaster\w*|\broaster\w*|creamer(?:y|ies)|cheesemong\w*|\bcheese\s?(?:shop|monger\w*|maker\w*)|\bdeli\b|delicatessen|charcuterie|fromager\w*|\bbutcher\w*|chocolatier\w*|confection\w*|potter\w*|ceramic\w*|woodwork\w*|glassblow\w*|leather\s?(?:goods|work\w*|smith\w*)|cooperage|distiller\w*|meader\w*|\bcandle\w*|soap\s?maker\w*|craft\s?(?:brewer\w*|distiller\w*|studio|goods)|artisan\w*|handmade\w*|handcraft\w*)\b/,
+  ],
+  // AL-589: active/outdoor GEAR retail — bike/cycling/ski/skate/surf/sporting-goods — had NO rule,
+  // so it fell to the generic boutique `\bshop\b` catch-all → a FASHION voice ("A chic bicycle
+  // shop … chosen with a tastemaker's eye") + silk scene on a bike shop (bicycle-habitat-nyc,
+  // AL-583). Route to `rugged` (active/outdoor identity, terrain scene, category-bearing generic
+  // hero) — far better than fashion-boutique. Ordered before the warm/boutique catch-all; distinct
+  // from `precision` (motorcycle/moto/powersports) above — a bicycle is not a motorcycle.
+  [
+    'rugged',
+    /\b(bicycle\w*|\bbike\w*|cycling|cyclery|cyclist\w*|sporting\s?goods|ski\s?(?:shop|store|rental|resort)|snowboard\w*|skate\s?(?:shop|board\w*|park)|surf\s?(?:shop|board\w*)|outdoor\s?(?:gear|outfitter\w*)|kayak\w*)\b/,
   ],
   // warm BEFORE boutique so "Coffee Shop" / "Bakery" match food (warm) rather
   // than the generic `\bshop\b` in boutique.

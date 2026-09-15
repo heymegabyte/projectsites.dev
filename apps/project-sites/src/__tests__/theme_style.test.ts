@@ -124,9 +124,42 @@ describe('theme_style — themeStyleFromInputs', () => {
       ['grocery_or_supermarket', 'warm'],
       ['florist', 'boutique'],
       ['gym', 'bold'],
+      // AL-589: active/outdoor gear → rugged (was the boutique `\bshop\b` catch-all)
+      ['bicycle_store', 'rugged'],
+      ['sporting_goods_store', 'rugged'],
     ];
     it.each(places)('%s → %s', (type, expected) => {
       expect(themeStyleFromInputs(type)).toBe(expected);
+    });
+  });
+
+  // AL-589: specialty-retail sub-verticals were falling to the generic boutique `\bshop\b`
+  // catch-all → a FASHION voice ("quietly covetable"/"chic … tastemaker's eye") on a cheese
+  // shop (murrays-cheese-nyc) + bike shop (bicycle-habitat-nyc). Route specialty-FOOD → artisan
+  // (made-by-hand/small-batch voice + weave scene) and active-GEAR → rugged. Genuine generic
+  // retail (pet/home-goods/furniture/florist above) still routes to boutique — not stolen.
+  describe('AL-589: specialty retail routes AWAY from boutique-fashion', () => {
+    const cases: Array<[string, string]> = [
+      ['Cheese Shop', 'artisan'],
+      ['cheese shop', 'artisan'],
+      ['Deli', 'artisan'],
+      ['Delicatessen', 'artisan'],
+      ['Butcher Shop', 'artisan'],
+      ['Charcuterie', 'artisan'],
+      ['Bicycle Shop', 'rugged'],
+      ['bike shop', 'rugged'],
+      ['Cyclery', 'rugged'],
+      ['Ski Shop', 'rugged'],
+      ['Surf Shop', 'rugged'],
+    ];
+    it.each(cases)('%s → %s (not boutique)', (category, expected) => {
+      expect(themeStyleFromInputs(category)).toBe(expected);
+    });
+    it('a genuine clothing boutique still resolves to boutique (not stolen)', () => {
+      expect(themeStyleFromInputs('Other', 'chic curated fashion boutique')).toBe('boutique');
+    });
+    it('a motorcycle shop stays precision, NOT the new bicycle rugged rule', () => {
+      expect(themeStyleFromInputs('motorcycle_dealer')).toBe('precision');
     });
   });
 
