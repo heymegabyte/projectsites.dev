@@ -18,12 +18,13 @@
 //   (1) HARD (exit 1) — every categorized site MUST carry a NON-BLANK known preset in the
 //       live DOM. A missing/`classic` fallback on a distinctive vertical is the AL-256
 //       "undefined→bland classic" render defect.
-//   (2) SURFACE (report-only, exit 0 unless --strict) — flag a site whose live theme is a
-//       CONFIRMED-INAPPROPRIATE one for its vertical (bookstore/jeweler → `boutique`).
-//       Non-blocking per the audit-arc ladder until the root fix (theme_style.ts:185
-//       book/library→scholarly + container honor-themeStyle for jewelry) lands + a rebuilt
-//       site is prod-verified; then promote with `--strict`. Conservative (prefers
-//       false-negatives per validator-precision).
+//   (2) VERTICAL-MATCH (HARD by default since AL-602; `--report` restores non-blocking) —
+//       flag a site whose live theme is a CONFIRMED-INAPPROPRIATE one for its vertical
+//       (bookstore/jeweler → `boutique`). PROMOTED to a hard gate after the root fix
+//       (theme_style.ts vertical rules + container `_theme_style.txt` sidecar honor) landed
+//       AND all 4 stale mismatches flipped correct on rebuild (mismatch 4→0, prod-verified).
+//       Still conservative: unreachable sites fail-OPEN (skip), so only a CONFIRMED wrong
+//       theme on a reachable fixture fails (validator-precision — no false-red on absence).
 //
 // Usage: node e2e/site-quality/verify-theme-match.mjs [--strict]
 //        SITES=booksweet-ann-arbor node e2e/site-quality/verify-theme-match.mjs
@@ -41,7 +42,16 @@ const { chromium } = createRequire(resolve(dirname(fileURLToPath(import.meta.url
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const STRICT = process.argv.includes('--strict');
+// PROMOTED to a HARD gate (AL-602). The root fix — worker `theme_style.ts` vertical rules
+// + the container `_theme_style.txt` sidecar honor (so the retail CONTENT pack can't clobber
+// the authoritative themeStyle) — is landed AND prod-verified: the 4 stale mismatches
+// (booksweet→scholarly, luna-felix JEWELER→luxe, st-elmo STEAKHOUSE→luxe, waterloo RECORD→retro)
+// all flipped CORRECT on rebuild (vertical-mismatch 4→0). This satisfies the probe's own
+// promotion trigger ("root fix lands + a rebuilt site is prod-verified; then promote with --strict"),
+// so STRICT is now the DEFAULT (a confirmed CASE mismatch → exit 1). Pass `--report` for the old
+// non-blocking behavior. Unreachable/blank-unreachable sites still fail-OPEN (skip, above), so a
+// later-archived fixture never false-reds — only a CONFIRMED wrong-theme on a reachable CASE fails.
+const STRICT = !process.argv.includes('--report');
 
 const CASES = [
   { slug: 'booksweet-ann-arbor', vertical: 'bookstore', bad: ['boutique'], ideal: ['scholarly', 'editorial'] },
@@ -118,6 +128,6 @@ for (const r of rows) console.log(`  ${r.slug.padEnd(34)} ${String(r.style).padE
 const strictFail = hardFail > 0 || (STRICT && mismatch > 0);
 const summary =
   `blank/classic=${hardFail} (HARD) · vertical-mismatch=${mismatch} ` +
-  `(${STRICT ? 'HARD --strict' : 'report — root-fix pending: theme_style.ts:185 book→scholarly + container honor-themeStyle for jewelry'})`;
+  `(${STRICT ? 'HARD (default; root fix landed + prod-verified AL-602)' : 'report (--report opt-out)'})`;
 console.log(`\nVERDICT: ${strictFail ? '🔴 FAIL' : mismatch > 0 ? '⚠️ REPORT' : '✅ PASS'} — ${summary}`);
 process.exit(strictFail ? 1 : 0);
