@@ -925,7 +925,12 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
         ? pick([...persona.subheadlines])
         : pick([
             `Trusted ${catService} in ${cityPhrase} — clear answers, no surprises, and work we stand behind.`,
-            `${cityPhrase}'s dependable choice for ${catService}. Honest, personal, and always on your side.`,
+            // AL-586: was `dependable choice for ${catService}` — a bare category noun after "for" is
+            // ungrammatical for COUNT nouns ("dependable choice for gym" / "for architecture firm",
+            // live on vanta-strength-austin + olson-kundig-seattle) though fine for mass nouns
+            // ("for strength training"). The possessive "${city}'s dependable ${cat}" needs no article,
+            // so it reads right for EVERY vertical (persona-subhead-bare-category-noun-grammar class).
+            `${cityPhrase}'s dependable ${catService}. Honest, personal, and always on your side.`,
           ]);
       const aboutPara1 = pick([
         `${safeName} is built around the people of ${cityPhrase}. We started with one belief: ${catService} should be easy to understand and easy to trust. Every day we work to earn that trust with clear communication, real follow-through, and results we stand behind.`,

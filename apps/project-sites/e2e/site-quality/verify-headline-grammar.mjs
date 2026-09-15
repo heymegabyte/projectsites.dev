@@ -21,7 +21,7 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'olson-kundig-seattle,ben-badgley-cpa,bicycle-habitat-nyc')
+const SITES = (process.env.SITES || 'olson-kundig-seattle,ben-badgley-cpa,bicycle-habitat-nyc,vanta-strength-austin')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
@@ -45,6 +45,12 @@ const weakLeadRe = /^Quality\b.+\bcounts on$/i;
 // hero_copy with a category-bearing "The {city} {cat} worth the trip"; this flags any deployed site
 // still on the old filler (flips green on rebuild).
 const fillerRe = /^Find something special in\b/i;
+// AL-586: the generic-fallback hero SUBHEADLINE wove a bare category noun after "for" —
+// "{city}'s dependable choice for {cat}" → "dependable choice for gym" / "for architecture firm"
+// (ungrammatical for count nouns; live on vanta-strength-austin + olson-kundig-seattle). Root-fixed
+// in site-generation.ts to the article-free possessive "{city}'s dependable {cat}". This flags any
+// deployed site still on the old bare-noun subheadline (flips green on rebuild).
+const subGrammarRe = /\bdependable choice for\b/i;
 const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 
 const hits = [];
@@ -60,18 +66,22 @@ try {
         continue;
       }
       await page.waitForTimeout(1500); // let the SPA settle its client <title>
-      const { h1, title } = await page.evaluate(() => ({
-        h1: document.querySelector('h1')?.textContent || '',
-        title: document.title || '',
-      }));
+      const { h1, title, sub } = await page.evaluate(() => {
+        const h = document.querySelector('h1');
+        // the hero subheadline is the H1's sibling <p> in the same hero text container
+        const p = h?.parentElement?.querySelector('p');
+        return { h1: h?.textContent || '', title: document.title || '', sub: p?.textContent || '' };
+      });
       const nH1 = norm(h1);
       const nTitle = norm(title);
+      const nSub = norm(sub);
       const mH1 = nH1.match(bareRe);
       const mT = nTitle.match(bareRe);
       if (mH1) hits.push({ slug, where: 'h1', detail: `"${nH1}" → bare "${mH1[1]}"` });
       if (mT) hits.push({ slug, where: 'title', detail: `"${nTitle}" → bare "${mT[1]}"` });
       if (weakLeadRe.test(nH1)) hits.push({ slug, where: 'h1', detail: `"${nH1}" → weak "Quality … counts on" lead (AL-576)` });
       if (fillerRe.test(nH1)) hits.push({ slug, where: 'h1', detail: `"${nH1}" → vertical-agnostic "Find something special" filler (AL-585)` });
+      if (subGrammarRe.test(nSub)) hits.push({ slug, where: 'subheadline', detail: `"${nSub}" → bare-noun "dependable choice for {cat}" (AL-586)` });
     } catch {
       /* route unreachable → skip (don't false-fail) */
     }
