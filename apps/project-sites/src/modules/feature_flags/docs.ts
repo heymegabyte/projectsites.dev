@@ -518,6 +518,21 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Disable the flag → the studio routes 404',
     ],
   },
+  prompt_schedule: {
+    checklist: [
+      'Time-windowed activation of a prompt-registry variant for a key',
+      'Read-time evaluation — no cron; most-recently-activated window wins on overlap',
+      'Org-scoped CRUD, Zod-validated, structured JSON logs',
+      'getActiveVariant(key, now) is the pipeline consumption API (wired on promotion)',
+    ],
+    explanation:
+      'Schedules a prompt-registry variant to be active for a time window [activate_at, deactivate_at). The generation pipeline consults getActiveVariant(key, now) at prompt-resolve time and uses the scheduled variant when a window is live; read-time evaluation means no cron. Enables seasonal/campaign prompts (e.g. a holiday hero prompt Dec 1-26) with zero owner config. When off, the routes 404 and prompt resolution falls back to the default variant unchanged.',
+    smoke_test: [
+      'POST /api/prompt-schedules (authed) creates a window; GET /api/prompt-schedules lists it',
+      'GET /api/prompt-schedules/active?key=hero returns the variant active now (or null)',
+      'Disable the flag → the routes 404 and default prompt resolution is unchanged',
+    ],
+  },
   referral_loop: {
     checklist: [
       'In-product refer-a-friend with tracked codes/links',
