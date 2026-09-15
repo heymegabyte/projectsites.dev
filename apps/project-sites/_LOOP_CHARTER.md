@@ -46,17 +46,17 @@ Every fire advances **at least one**, and over a cohort of fires a loop touches 
 - **One coherent slice per fire; never idle.** Append findings + closures to `_LOOP_LEDGER.md`.
 - **GUARDRAILS:** git status first; `git pull --rebase --autostash` before push; commit ONLY your files; NEVER touch `.claude/loop.md`, `.claude/scheduled_tasks.json`, `src/generated/app_js.ts`, `src/services/analytics_events.ts`. Worker+container via CI on push; FE via `cd apps/project-sites/frontend && npm run build:prod && npm run deploy:production`. Approval-required ONLY for DROP TABLE / secret rotation / bulk customer mutation.
 
-## Active loop roster (the best-10, each carrying this charter)
+## Active loop roster (all 14 carry this charter — cron IDs rotate on every rewrite, so listed by cadence not ID; `/loop` list is the live source)
 
-1. **FULL-JOURNEY TDD** (`9bbc1347`, 3h :03) — drive to 100% real-journey coverage of every sub-action.
-2. **COMPLETENESS + GAP-IMPLEMENTATION** (`635c5af1`, 3h :19) — build what's missing (prompt scheduler, scheduled publishing, backup/restore, bulk ops, …).
-3. **STREAMING BUILD THEATER** (`7ac7c7cd`, 6h :33) — pipe live Claude Code stdout → gorgeous /waiting terminal.
-4. **GENERATED-SITE QUALITY** — the delivered sites beat their source; cohort-freshness triage.
-5. **GOLDEN-JOURNEY DELIVERY** — deliver a real business end-to-end + email-verify.
-6. **ADMIN INTEGRITY + QUALITY** — admin sections reconcile display vs store; a11y/perf/security app-wide.
-7. **CODE-QUALITY SWEEP** (`1534cb49`, hourly :53) — every file, every dimension incl. error-handling + structured logging.
-8. **CINEMATIC-3D** (`840b9800`, 2h) — immersive, entice-to-register templates.
-9. **EMBARRASSINGLY-EASY** — remove friction so the app is embarrassingly easy to use.
-10. **BLEEDING-EDGE** — scan the frontier, ship one AI-native feature behind a flag.
+1. **FULL-JOURNEY TDD** (3h :03) — drive to 100% real-journey coverage of every sub-action.
+2. **COMPLETENESS + GAP-IMPLEMENTATION** (3h :19) — build what's missing (prompt scheduler, scheduled publishing, backup/restore, bulk ops, …).
+3. **STREAMING BUILD THEATER** (6h :33) — pipe live Claude Code stdout → gorgeous /waiting terminal.
+4. **GENERATED-SITE QUALITY** (2h :29) — the delivered sites beat their source; cohort-freshness triage.
+5. **GOLDEN-JOURNEY DELIVERY** (2h :13) — deliver a real business end-to-end + email-verify.
+6. **FULL JOURNEY (golden)** (2h :47) — whole product end-to-end + every admin section reflects it.
+7. **FULL-FLOW E2E** (3h :41) — the complete flows around the golden path (billing, editor round-trip, auth).
+8. **ADMIN INTEGRITY** (2h :11) + **ADMIN COMPLETENESS** (3h :21) + **ADMIN QUALITY** (4:37/16:37) — render-true, functionally-complete, perf/security/polish.
+9. **CODE-QUALITY SWEEP** (hourly :53) — every file, every dimension incl. error-handling + structured logging.
+10. **CINEMATIC-3D** (2h :07) + **EMBARRASSINGLY-EASY** (2h :43) + **BLEEDING-EDGE** (3h :57) — immersive templates, friction removal, frontier features behind flags.
 
-Every one of the above ALSO obeys mandates #1 and #2 above — that is the point of this charter.
+Every one of the above ALSO obeys mandates #1, #2, and #3 above — that is the point of this charter.
