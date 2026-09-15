@@ -338,6 +338,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  prompt_schedule: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Prompt Scheduler: time-windowed activation of a prompt-registry variant for a prompt key.\n\n• isFlagOn-gated — off 404, unauth 401. Org-scoped, Zod-validated.\n• POST /api/prompt-schedules creates a window (prompt_key, variant, activate_at, deactivate_at?); GET lists; GET /active?key= returns the variant active NOW; DELETE soft-deletes (IDOR-safe).\n• Read-time evaluation (no cron): the pipeline calls getActiveVariant(key, now) at prompt-resolve; most-recently-activated window wins on overlap. Off → default variant, unchanged. Enables seasonal/campaign prompts with zero owner config.',
+    key: 'prompt_schedule',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   // Multi-tenant + agency (items 9-13)
   // CWV (items 14-19, 15 already shipped)
   // GEO (items 20-24, 20-22 already stable)
