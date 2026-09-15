@@ -3635,3 +3635,11 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 - **★ EMAIL DELIVERED:** Gmail `1a0a4430…` — "Site published: The Meat Hook" → **brian@megabyte.space**, INBOX, **08:50:51Z** (~1min post-publish).
 - **Quality note:** dense clean butcher build (823w/18imgs/6 JSON-LD/0 errors, transparent banner logo, email landed) with the CORRECT artisan voice for a craft butcher — the AL-589 remap + AL-591 wordmark fix both proven on this fresh delivery. Fleet now spans butcher + cheese + hardware + bike + architecture + advertising + gym + …
 - **Files mine only:** `_LOOP_LEDGER.md`. Delivered: the-meat-hook-brooklyn (org-brian-001). No code change (delivery fire). Protected files untouched.
+
+## AL-595 — ADMIN QUALITY: PERF (facet 8) + SECURITY (facet 9) verified healthy — LCP ≤283ms all routes, IDOR 20/20 closed
+- **Verify-before-implement:** main clean + in-sync (HEAD=`7324d754a`, last commits mine). prod /admin 200. First run of the perf+security facets this session (distinct from the INTEGRITY render/data/mutation + COMPLETENESS contract/editor facets), so a genuine verification.
+- **(8) PERF** `verify-admin-cwv` (cold per-route LCP) → **✅ all 6 routes ≤ 2000ms**: /admin 96ms · /admin/analytics 191ms · /admin/logs?tab=traces 266ms · /admin/editor 198ms · /admin/social 283ms (worst) · /admin/billing 236ms. Every route is FAR under the 2.0s budget (worst is 283ms = 14% of budget) — no perf offender to fix.
+- **(9) SECURITY** — IDOR fully closed: `verify-cross-org-idor-causal` **16/16** read endpoints enforce org-ownership (foreign siteId → 404, own → 200) + `verify-cross-org-write-idor-causal` **4/4** compute-write endpoints (foreign → 404, own validates input, never 5xx). Combined with the AL-582 `verify-secret-masking-causal` PASS (env-vars masked, api-tokens/mcp metadata-only, no plaintext leak), the admin's org-scoping + no-secret-leak posture is sound. orgId comes from the session (`c.get('orgId')`), never a client header.
+- **(10) POLISH** — admin already vision-verified polished (AL-582, 8 sections); no manufactured aesthetic edit (churn).
+- **NO code change** — ADMIN QUALITY (perf + security) is a healthy plateau; ai-seniority gates-before-churn. Not idle: fresh per-route CWV + 20-endpoint IDOR sweep + secret-leak posture.
+- **Files mine only:** `_LOOP_LEDGER.md`. Protected files untouched.
