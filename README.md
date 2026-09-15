@@ -12,6 +12,15 @@ their business, signs in, and receives a professionally built, AI-generated webs
 > [`CLAUDE.md`](./CLAUDE.md) (root depth) → the per-surface `CLAUDE.md`
 > (e.g. [`apps/project-sites/CLAUDE.md`](./apps/project-sites/CLAUDE.md)).
 
+> ### ⭐ Prime directive — embarrassingly easy to use
+> **Continually, always, make the entire application embarrassingly easy to use.** Every surface
+> (admin, generated sites, create flow, editor), every change, forever: a busy non-technical owner
+> succeeds on the first try with no manual — if they'd have to ask a question, it isn't done. AI does
+> the work, the user confirms; zero-config defaults; one obvious action per screen; ≤3 steps to any
+> outcome; undo everywhere; empty states launch the first result. Every iteration must be more
+> beautiful AND more effortless. Full mandate: `CLAUDE.md` § SUPREME + global rule
+> `embarrassingly-easy-to-use`.
+
 ## What's New (May 2026)
 
 The `apps/project-sites/` worker — the SaaS website delivery engine at

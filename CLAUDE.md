@@ -45,6 +45,20 @@ events (requestId + traceId + tenantId); JSDoc on exports. Global rules own the 
 discipline — `zod-everywhere`, `verification-loop`, `structured-logging`,
 `feature-module-architecture`, `drift-detection`, `feature-flags`, `quality-metrics`.
 
+### ⭐ SUPREME: Embarrassingly Easy to Use (Brian, 2026-09-15 — continually, always)
+
+**Continually, always, make the entire application embarrassingly easy to use.** Standing mandate on
+EVERY surface (admin · generated sites · create flow · editor), EVERY fire, forever. A busy,
+non-technical small-business owner must succeed on the FIRST try — no manual, no training, no
+thinking. If they'd have to ask a question, it isn't done. Every UX-touching change leaves the
+surface EASIER than before, never harder (adding a step is a regression). **AI does the work, the
+user confirms** — prefill/auto-detect/suggest/generate rather than make them configure. Zero-config
+defaults · one obvious primary action per screen · ≤3 steps to any outcome · inline guidance not
+manuals · instant feedback + undo · empty states are first-action launchpads · never a doomed/dead
+control · the user's words not our jargon. Test: "would a busy owner finish WITHOUT asking a
+question?" — no → simplify until yes. Sits beside gorgeous-by-default: every iteration more
+beautiful AND more effortless, both, always. Full mandate: global rule `embarrassingly-easy-to-use`.
+
 ---
 
 ## Project Sites Worker stack
