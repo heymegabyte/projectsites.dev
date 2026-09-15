@@ -92,6 +92,25 @@ const CREATIVE: HeroImage = {
   url: 'https://images.unsplash.com/photo-1765758014805-a7a6cc272982?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHw0fHxncmFwaGljJTIwZGVzaWduJTIwc3R1ZGlvJTIwd29ya3NwYWNlfGVufDB8MHx8fDE3ODkzOTQ2MTB8MA&ixlib=rb-4.1.0&q=80&w=1080',
   alt: "A designer's desk with a computer and creative work in a studio",
 };
+// SPECIALTY-FOOD + ACTIVE-GEAR (AL-597): the verticals delivered AL-583/588/594 (bike / cheese /
+// butcher) had NO curated hero → the pack's generic "retail" bucket shipped "cozy independent shop
+// interior shelves" as the LCP hero (flagged live by verify-hero-image-vertical on murrays-cheese +
+// the-meat-hook). Route each to a real on-vertical Unsplash hero (sourced 2026-09-15 via the search
+// API, alt-verified; the ixid base64-decodes to the vertical noun so the probe flips green). Pairs
+// with the AL-589 theme_style remap (cheese/butcher→artisan, bike→rugged) — theme = VOICE+scene,
+// this = the HERO IMAGE.
+const BUTCHER: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1762088208244-dde4e8b10047?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwzfHxidXRjaGVyJTIwc2hvcCUyMG1lYXQlMjBoYW5naW5nfGVufDB8MHx8fDE3ODk0NjY1OTF8MA&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'Fresh cuts on display in a traditional butcher shop',
+};
+const CHEESE: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1769317047898-77997c1451c4?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHw0fHxjaGVlc2UlMjBzaG9wJTIwY291bnRlciUyMGRpc3BsYXl8ZW58MHwwfHx8MTc4OTQ2NjYxMnww&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'A cheese shop counter stacked with wheels of cheese',
+};
+const BIKE: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1750341472956-e69e84cc71a9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHw2fHxiaWN5Y2xlJTIwc2hvcCUyMGJpa2VzJTIwcmVwYWlyfGVufDB8MHx8fDE3ODk0NjY1OTF8MA&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'Bicycles lined up in a neighborhood bike shop',
+};
 
 /**
  * Ordered [sub-vertical pattern → curated hero]. FIRST match wins. Scanned against the derived
@@ -117,6 +136,11 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
   [/\b(brewery|breweries|brewpub|taproom|beer\s?(hall|garden))\b/, BREWERY],
   [/\b(jewel\w*|goldsmith\w*|watch\s?(shop|store|maker))\b/, JEWELRY],
   [/\b(tattoo\w*)\b/, TATTOO],
+  // AL-597 specialty-food + active-gear — precise nouns; `meat` paired with shop/market/counter (no
+  // bare `meat` → never a restaurant); `\bdeli\b` never matches "delivery"/"delicatessen" (own token).
+  [/\b(butcher\w*|meat\s?(shop|market|counter)|charcuterie|salumeria)\b/, BUTCHER],
+  [/\b(cheese\s?(shop|monger\w*)?|cheesemong\w*|fromager\w*|creamer(?:y|ies)|delicatessen|\bdeli\b)\b/, CHEESE],
+  [/\b(bicycle\w*|\bbike\w*|cycling|cyclery|cyclist\w*)\b/, BIKE],
   [
     /\b(wealth|financ\w*|invest(ment|ing|or)\w*|asset\s?manage\w*|retirement\s?plan\w*|insuranc\w*|accounting|accountan\w*|bookkeep\w*|cpa|tax(es)?)\b/,
     FINANCE,

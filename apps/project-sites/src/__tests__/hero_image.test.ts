@@ -75,6 +75,29 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
     expect(heroImageForVertical('food bank')).toBeNull(); // no bare "bank"
   });
 
+  it('AL-597: specialty-food + active-gear map to on-vertical heroes (was the generic retail default)', () => {
+    // the-meat-hook-brooklyn / murrays-cheese-nyc / bicycle-habitat-nyc all shipped the generic
+    // "cozy independent shop interior shelves" retail hero — now each gets a real on-vertical image.
+    expect(heroImageForVertical('butcher shop')?.alt).toMatch(/butcher|cuts|meat/i);
+    expect(heroImageForVertical('cheese shop')?.alt).toMatch(/cheese/i);
+    expect(heroImageForVertical('bicycle shop')?.alt).toMatch(/bicycle|bike/i);
+    // the ixid decodes to the vertical noun (exactly what verify-hero-image-vertical scores → green):
+    expect(heroQuery(heroImageForVertical('butcher shop')!.url)).toMatch(/butcher/);
+    expect(heroQuery(heroImageForVertical('cheese shop')!.url)).toMatch(/cheese/);
+    expect(heroQuery(heroImageForVertical('bicycle shop')!.url)).toMatch(/bicycle/);
+  });
+
+  it('AL-597: synonyms route correctly + no false-match', () => {
+    expect(heroImageForVertical('cheesemonger')).toBe(heroImageForVertical('cheese shop'));
+    expect(heroImageForVertical('delicatessen')).toBe(heroImageForVertical('cheese shop'));
+    expect(heroImageForVertical('meat market')).toBe(heroImageForVertical('butcher shop'));
+    expect(heroImageForVertical('cyclery')).toBe(heroImageForVertical('bicycle shop'));
+    expect(heroImageForVertical('bike shop')).toBe(heroImageForVertical('bicycle shop'));
+    // precision: a motorcycle is NOT a bicycle; "meat" needs shop/market/counter (never a restaurant)
+    expect(heroImageForVertical('motorcycle dealer')).toBeNull();
+    expect(heroImageForVertical('meatball restaurant')).toBeNull();
+  });
+
   it('AL-544: the whole CREATIVE cluster shares ONE design-studio-workspace hero', () => {
     const creative = heroImageForVertical('design studio')!; // pentagram-nyc's vertical
     expect(creative).not.toBeNull();
