@@ -34,7 +34,20 @@ try {
     const page = await ctx.newPage();
     try {
       await page.goto(`${ORIGIN}${route}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-      await page.waitForTimeout(2500); // let the client route-guard run + redirect
+      // CONDITION-BASED wait (not a fixed sleep): the client route-guard bounces an unauth visitor to
+      // /signin via the Angular Router. Await the redirect itself — it resolves the instant the guard
+      // lands, tolerating a slow bundle-parse / GC pause, so a slow-but-CORRECT guard is never
+      // mis-flagged as a leak. (The old fixed 2.5s sleep raced → intermittent FALSE "leak" RED on a
+      // security probe.) A genuine fail-OPEN guard never navigates → this times out → onSignin=false
+      // → correctly flagged below. (error-recovery § condition-based-waiting + validator-precision-discipline.)
+      await page.waitForURL(/\/signin(?:[/?#]|$)/, { timeout: 15000 }).catch(() => {});
+      // Let the /signin component paint before the UI-text assertion (still condition-based, not a sleep).
+      await page
+        .waitForFunction(
+          () => /sign.?in|magic link|continue with google|email me a magic link/i.test(document.body.innerText || ''),
+          { timeout: 6000 },
+        )
+        .catch(() => {});
       const url = new URL(page.url());
       const onSignin = url.pathname.startsWith('/signin');
       // returnUrl must round-trip the ORIGINAL route (so post-sign-in lands them back there).
