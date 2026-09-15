@@ -233,9 +233,23 @@ const CATEGORY_RULES: ReadonlyArray<readonly [ThemeStyleName, RegExp]> = [
     'warm',
     /\b(restaurant\w*|caf[eé]\w*|bakery|bakeries|\bcoffee\b|\bbar\b|brewery|breweries|brewpub|\bpub\b|bistro|diner|eatery|eateries|salon\w*|barber\w*|\bhair\b|\bnail\w*|\bgrill\w*|pizzeria|\bpizza\b|taqueria|\bdeli\b|\bfood\b(?!\s?(?:bank|pantr|shelf|drive))|catering|caterer\w*|ice\s?cream|\bmeal\w*|takeaway|takeout|nightlife|night\s?club|\blounge\b|\bkitchen\b|grocer\w*|supermarket|smoothie|juice\s?bar|\bbbq\b|steak\s?house|sandwich\w*|\bdonut\w*|doughnut\w*|creamery|patisserie|teahouse|\btea\s?room|food\s?truck)\b/,
   ],
+  // AL-610: plant / garden / florist / greenhouse RETAIL is BOTANICAL (falling-petals scene +
+  // a fresh, green voice), NOT the generic boutique `\bshop\w*`/`\bstore\w*` catch-all. Live
+  // mis-theme: "plant nursery & garden shop" (pistils-nursery-portland) shipped `boutique` (a
+  // clothing-boutique personality + silk scene) because "garden shop" hit boutique's `\bshop\w*`
+  // before any greener rule — and `florist` even lived INSIDE boutique. Ordered AFTER scholarly
+  // (line above) so a CHILDREN'S nursery categorized preschool/daycare/childcare still wins
+  // scholarly; a bare "nursery" resolves botanical (plant-nursery is the dominant business sense).
+  // `florist` MOVED here out of boutique. Extends the AL-588/589 specialty-retail remap
+  // (cheese→artisan, bike→rugged) to the plant vertical. (Commerce axis is unaffected — a
+  // plant/florist shop still sells products → `retail` commerceMode; theme ≠ commerce.)
+  [
+    'botanical',
+    /\b(plant\s?(?:shop|store|nurser\w*|parlou?r)|garden\s?(?:cent\w*|shop|store|nurser\w*|suppl\w*)|\bnurser(?:y|ies)\b|greenhouse\w*|florist\w*|\bflower\s?(?:shop|store|market)|houseplant\w*|botanic(?:al)?\s?garden|\bhorticultur\w*)\b/,
+  ],
   [
     'boutique',
-    /\b(retail|\bshop\w*|\bstore\w*|boutique\w*|apparel|clothing|fashion\w*|merchandise|\bgoods\b|florist\w*|\bgift\w*|pet\s?(store|shop)|home\s?goods|furniture|\btoys?\b|stationery|cosmetic\w*|accessor\w*|lifestyle|\bmarket\b|thrift|consignment|antique\w*|\bcrafts?\b)\b/,
+    /\b(retail|\bshop\w*|\bstore\w*|boutique\w*|apparel|clothing|fashion\w*|merchandise|\bgoods\b|\bgift\w*|pet\s?(store|shop)|home\s?goods|furniture|\btoys?\b|stationery|cosmetic\w*|accessor\w*|lifestyle|\bmarket\b|thrift|consignment|antique\w*|\bcrafts?\b)\b/,
   ],
   [
     'futuristic',

@@ -122,7 +122,7 @@ describe('theme_style — themeStyleFromInputs', () => {
       ['moving_company', 'rugged'],
       ['night_club', 'noir'], // AL-334: a nightclub reads noir (cinematic/after-dark), not warm
       ['grocery_or_supermarket', 'warm'],
-      ['florist', 'boutique'],
+      ['florist', 'botanical'], // AL-610: a florist is petals-scene botanical, not boutique-fashion
       ['gym', 'bold'],
       // AL-589: active/outdoor gear → rugged (was the boutique `\bshop\b` catch-all)
       ['bicycle_store', 'rugged'],
@@ -137,7 +137,8 @@ describe('theme_style — themeStyleFromInputs', () => {
   // catch-all → a FASHION voice ("quietly covetable"/"chic … tastemaker's eye") on a cheese
   // shop (murrays-cheese-nyc) + bike shop (bicycle-habitat-nyc). Route specialty-FOOD → artisan
   // (made-by-hand/small-batch voice + weave scene) and active-GEAR → rugged. Genuine generic
-  // retail (pet/home-goods/furniture/florist above) still routes to boutique — not stolen.
+  // retail (pet/home-goods/furniture above) still routes to boutique — not stolen. (florist +
+  // plant/garden/greenhouse now route to botanical per AL-610, ordered before this boutique rule.)
   describe('AL-589: specialty retail routes AWAY from boutique-fashion', () => {
     const cases: Array<[string, string]> = [
       ['Cheese Shop', 'artisan'],
@@ -160,6 +161,52 @@ describe('theme_style — themeStyleFromInputs', () => {
     });
     it('a motorcycle shop stays precision, NOT the new bicycle rugged rule', () => {
       expect(themeStyleFromInputs('motorcycle_dealer')).toBe('precision');
+    });
+  });
+
+  // AL-610: plant / garden / florist / greenhouse RETAIL was hitting the generic boutique
+  // `\bshop\w*`/`\bstore\w*` catch-all (and `florist` literally lived inside boutique) → a
+  // clothing-boutique personality + silk scene on a plant nursery. Live mis-theme:
+  // pistils-nursery-portland ("plant nursery & garden shop") shipped style=boutique. Route the
+  // whole green-retail vertical to `botanical` (petals scene + fresh voice), ordered before
+  // boutique and AFTER scholarly (so childcare still wins scholarly).
+  describe('AL-610: plant / garden / florist retail routes to botanical (not boutique)', () => {
+    const cases: Array<[string, string]> = [
+      ['plant nursery & garden shop', 'botanical'], // the exact pistils-nursery-portland category
+      ['Plant Nursery', 'botanical'],
+      ['Garden Center', 'botanical'],
+      ['garden_center', 'botanical'], // Google-Places-style snake_case
+      ['Garden Shop', 'botanical'],
+      ['Greenhouse', 'botanical'],
+      ['Florist', 'botanical'],
+      ['Flower Shop', 'botanical'],
+      ['Plant Shop', 'botanical'],
+      ['Houseplant Store', 'botanical'],
+      ['Nursery', 'botanical'], // bare "nursery" = plant-nursery (dominant business sense)
+    ];
+    it.each(cases)('%s → %s (not boutique)', (category, expected) => {
+      expect(themeStyleFromInputs(category)).toBe(expected);
+    });
+
+    it("a CHILDREN'S nursery categorized preschool/daycare still wins scholarly (ordering guard)", () => {
+      // scholarly is ordered BEFORE the botanical plant rule, so childcare verticals that name
+      // themselves preschool/daycare/childcare are never stolen by the bare-nursery botanical token.
+      expect(themeStyleFromInputs('Preschool')).toBe('scholarly');
+      expect(themeStyleFromInputs('Daycare')).toBe('scholarly');
+      expect(themeStyleFromInputs('Montessori')).toBe('scholarly');
+    });
+
+    it('a genuine clothing/gift boutique still resolves to boutique (green retail not over-broadened)', () => {
+      expect(themeStyleFromInputs('Clothing Boutique')).toBe('boutique');
+      expect(themeStyleFromInputs('Gift Shop')).toBe('boutique');
+    });
+
+    it('a plant/florist shop keeps RETAIL commerce mode (theme≠commerce — it still sells products)', () => {
+      // The theme goes botanical (petals/green) but the CONVERSION axis stays retail: a nursery
+      // sells plants, so cart language is on-brand. These two axes must not be conflated.
+      expect(commerceModeFor('Florist')).toBe('retail');
+      expect(commerceModeFor('plant nursery & garden shop')).toBe('retail');
+      expect(commerceModeFor('Garden Center')).toBe('retail');
     });
   });
 
