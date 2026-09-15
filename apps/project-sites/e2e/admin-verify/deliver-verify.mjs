@@ -11,7 +11,16 @@ const page = await ctx.newPage();
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error' && !IGNORE.test(m.text())) errors.push(m.text().slice(0, 140)); });
 page.on('pageerror', (e) => { if (!IGNORE.test(String(e))) errors.push('pageerror: ' + String(e).slice(0, 140)); });
-page.on('requestfailed', (req) => { const u = req.url(); if (/logo-icon|logo-wordmark|\.png|\.webp|\.jpg/i.test(u) && !IGNORE.test(u)) errors.push('reqfail: ' + u.split('/').pop()); });
+page.on('requestfailed', (req) => {
+  const u = req.url();
+  // net::ERR_ABORTED is a CANCELED request, not a broken asset — the template's Header
+  // probes /logo-wordmark.png with a fetch() then aborts it, falling back to the HTML text
+  // wordmark (the asset itself 200s, validated separately by pngInfo). Counting the abort as
+  // a console error was a FALSE POSITIVE that dragged real deliveries to 🟡 (validator-precision).
+  if (req.failure()?.errorText === 'net::ERR_ABORTED') return;
+  if (/logo-icon|logo-wordmark|\.png|\.webp|\.jpg/i.test(u) && !IGNORE.test(u))
+    errors.push('reqfail: ' + u.split('/').pop());
+});
 
 const resp = await page.goto(base, { waitUntil: 'load', timeout: 45000 });
 await page.waitForTimeout(1500);
