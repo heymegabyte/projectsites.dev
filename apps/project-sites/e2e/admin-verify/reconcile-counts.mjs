@@ -67,7 +67,8 @@ const COUNT_SQL = `SELECT
   (SELECT COUNT(*) FROM api_tokens WHERE org_id='${ORG}' AND revoked_at IS NULL AND deleted_at IS NULL) AS api_tokens,
   (SELECT COUNT(*) FROM audit_logs WHERE org_id='${ORG}') AS audit_logs,
   (SELECT COUNT(*) FROM memberships WHERE org_id='${ORG}' AND deleted_at IS NULL) AS team_members,
-  (SELECT COUNT(*) FROM mcp_connections WHERE org_id='${ORG}') AS mcp_connections;`;
+  (SELECT COUNT(*) FROM mcp_connections WHERE org_id='${ORG}') AS mcp_connections,
+  (SELECT COUNT(*) FROM audit_logs WHERE org_id='${ORG}' AND action='workflow.build_complete' AND created_at >= datetime('now','start of month')) AS builds_month;`;
 
 /** Fetch a display count from the authed admin API (workers.dev bypasses Bot-Fight). */
 async function display(path, pick) {
@@ -207,6 +208,26 @@ if (sub) {
   });
   const storeV = `${sub.plan}/${sub.status}`;
   rows.push({ key: 'subscription', store: storeV, display: d.err ?? d.n, ok: !d.err && d.n === storeV });
+}
+
+// Plan-usage gauges (/api/usage, feature: usage_gauges) — the BILLING "Plan usage" meter the
+// customer reads. These are SEPARATE COUNT queries (usage_gauges/service.ts), so they can drift
+// from the store INDEPENDENTLY of /api/sites. Reference bug the service comment records: builds
+// read a dead `workflow_jobs` table → rendered "0 / 5" while 51 real builds existed — a
+// lying-EMPTY gauge that no reconcile probe covered. Reconcile each gauge's `used` vs the
+// authoritative store: sites.used == active sites, builds.used == build_complete THIS MONTH.
+// Flag-gated: a 404 = usage_gauges off = honest-dark → nothing to reconcile (skip).
+{
+  const res = await fetch(`${API}/api/usage`, { headers: { authorization: `Bearer ${KEY}`, 'user-agent': UA } });
+  if (res.status !== 404) {
+    const j = res.ok ? await res.json().catch(() => null) : null;
+    const gauges = Array.isArray(j?.data) ? j.data : [];
+    const used = (metric) => { const g = gauges.find((x) => x.metric === metric); return g ? Number(g.used) : NaN; };
+    const gSites = used('sites');
+    const gBuilds = used('builds');
+    rows.push({ key: 'usage_sites', store: Number(store.sites), display: res.ok ? gSites : `HTTP ${res.status}`, ok: res.ok && Number.isFinite(gSites) && gSites === Number(store.sites) });
+    rows.push({ key: 'usage_builds', store: Number(store.builds_month), display: res.ok ? gBuilds : `HTTP ${res.status}`, ok: res.ok && Number.isFinite(gBuilds) && gBuilds === Number(store.builds_month) });
+  }
 }
 
 const fails = rows.filter((r) => !r.ok);
