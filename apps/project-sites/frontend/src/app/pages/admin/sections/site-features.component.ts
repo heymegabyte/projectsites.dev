@@ -140,21 +140,18 @@ const FEATURE_CAPABILITIES: Readonly<Record<string, readonly string[]>> = {};
           (retry)="reload()"
         />
       } @else if (features().length === 0) {
-        @if (plan() === 'free') {
-          <app-empty-state
-            icon="✨"
-            title="No features yet"
-            message="Site features unlock on paid plans. Upgrade to turn on advanced capabilities for this site."
-            ctaLabel="Upgrade plan"
-            (ctaClick)="upgradePlan()"
-          />
-        } @else {
-          <app-empty-state
-            icon="✨"
-            title="No features yet"
-            message="No site features are available on your plan right now — check back soon."
-          />
-        }
+        <!-- An empty features array means the catalog is GLOBALLY empty. The worker maps
+             the ENTIRE catalog regardless of plan, so any plan-locked feature always arrives
+             as a locked CARD (length > 0) — never this empty state. So there is nothing to
+             unlock at ANY tier: the old free-plan "Upgrade to turn on advanced capabilities"
+             CTA was a FALSE pay-inducement (upgrading unlocked nothing). One honest,
+             plan-agnostic empty state instead — never promises a paid unlock that doesn't exist. -->
+        <app-empty-state
+          icon="✨"
+          title="No add-on features right now"
+          message="Your site's core capabilities are always on. There are no optional add-on features to configure yet — we'll surface them here as we roll new ones out."
+          data-testid="sf-empty-catalog"
+        />
       } @else if (filtered().length === 0) {
         <app-empty-state
           icon="⊘"
@@ -926,14 +923,6 @@ export class AdminSiteFeaturesComponent implements OnInit {
       const feature = this.features().find((f) => f.key === spec);
       if (feature) this.openDossier(feature);
     }
-  }
-
-  /**
-   * Navigate to billing so a free-plan owner has a path to unlock site features.
-   * The zero-features empty state was previously a dead-end with no upgrade CTA.
-   */
-  upgradePlan(): void {
-    void this.router.navigate(['/admin/billing']);
   }
 
   private get siteQuery(): string {
