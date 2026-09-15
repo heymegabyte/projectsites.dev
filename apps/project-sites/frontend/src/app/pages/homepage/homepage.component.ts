@@ -131,6 +131,14 @@ export class HomepageComponent implements OnInit, OnDestroy, AfterViewInit {
   openFaqIndex = signal<number | null>(null);
 
   /**
+   * Live "Sites Built" hero counter — an HONEST, self-updating count of published sites from
+   * `GET /api/public/stats` (AL-581). The `182` default is the real store count at fix-time; the
+   * browser fetch refreshes it as the fleet grows. Replaces a hard-coded fabricated `2480+` that
+   * inflated the real count ~13× — a lying stat on the platform's OWN public face.
+   */
+  sitesBuilt = signal(182);
+
+  /**
    * WCAG 4.1.3 (Status Messages, AA). The business-search is a live-search whose
    * matches populate a dropdown as the user types. The degraded/unavailable state is
    * already announced (the aria-live nudge), but the SUCCESS path was silent — a
@@ -154,6 +162,7 @@ export class HomepageComponent implements OnInit, OnDestroy, AfterViewInit {
     this.currentLang.set(this.translate.currentLang || this.translate.defaultLang || 'en');
     this.resolveHeroVariant();
     this.injectFaqJsonLd();
+    this.loadPublicStats();
 
     this.searchSubject
       .pipe(
@@ -460,6 +469,24 @@ export class HomepageComponent implements OnInit, OnDestroy, AfterViewInit {
       }
       if (qa.length) this.meta.setJsonLd(graph([faqPage(qa)]));
     });
+  }
+
+  /**
+   * Refresh the "Sites Built" hero counter from the live platform count
+   * (`GET /api/public/stats`, AL-581). Browser-only + fail-soft: any error keeps the
+   * honest at-fix-time default so the hero never renders a fabricated or zeroed stat.
+   */
+  private loadPublicStats(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    fetch('/api/public/stats')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { sites_built?: number } | null) => {
+        const n = data?.sites_built;
+        if (typeof n === 'number' && n > 0) this.sitesBuilt.set(n);
+      })
+      .catch(() => {
+        /* keep honest default; a degraded stats fetch must never blank the hero */
+      });
   }
 
   private resolveHeroVariant(): void {

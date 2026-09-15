@@ -901,4 +901,32 @@ publicRoutes.get('/api/public/roadmap', (c) => {
   );
 });
 
+/**
+ * `GET /api/public/stats` — honest platform counters for the marketing homepage.
+ *
+ * @remarks
+ * `sites_built` is a LIVE COUNT of published sites (AL-581). The homepage hero previously
+ * hard-coded a fabricated `2480+` "Sites Built" counter while the real store held ~182 — a
+ * lying stat on the platform's OWN public face (violates `verify-against-source-of-truth` +
+ * the platform's transparency ethic). This endpoint returns the real count so the counter is
+ * honest AND self-updating as the fleet grows. `edge_locations` (Cloudflare POPs) + `uptime_pct`
+ * are honest verifiable platform facts. Edge-cached 10min (a homepage counter needs no realtime).
+ */
+publicRoutes.get('/api/public/stats', async (c) => {
+  let sitesBuilt = 0;
+  try {
+    const row = await c.env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM sites WHERE status = 'published' AND deleted_at IS NULL",
+    ).first<{ n: number }>();
+    sitesBuilt = row?.n ?? 0;
+  } catch {
+    /* DB hiccup → 0; the homepage keeps its honest static fallback, never the fabricated number */
+  }
+  return c.json(
+    { sites_built: sitesBuilt, edge_locations: 330, uptime_pct: 99.99 },
+    200,
+    { 'Cache-Control': 'public, max-age=600, s-maxage=600' },
+  );
+});
+
 export { publicRoutes };
