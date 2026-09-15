@@ -4,8 +4,8 @@ Tracks the hourly CODE-QUALITY SWEEP loop (cron `1534cb49`, every hour at :53). 
 
 ## Coverage map (sweep order)
 
-- [~] **T. template sections** — `template.../src/components/sections/*` — img a11y/perf class SWEPT tree-wide (Fire 1 alt, Fire 2 decoding); deeper per-dimension sweeps recur ← _next batch: template components_
-- [ ] template components — `template.../src/components/*` (Header, Footer, ContactForm, AiChat, Breadcrumbs, CommandPalette, …)
+- [~] **T. template sections** — `template.../src/components/sections/*` — img a11y/perf class SWEPT tree-wide (Fire 1 alt, Fire 2 decoding); deeper per-dimension sweeps recur
+- [~] **template components** — `template.../src/components/*` — high-signal classes SWEPT (Fire 3): no React-19 inline-`<style>` bug, no missing-alt imgs, DevA11yBadge DEV-gated, forms error-handled; TS-strict fix landed (AiChat `as unknown as FormEvent` → native requestSubmit). Deeper per-dimension sweeps recur ← _next batch: template pages_
 - [ ] template pages — `template.../src/pages/*` (Home, About, Services, Contact, Blog, …)
 - [ ] template lib — `template.../src/lib/*` + `src/brand.ts` + `src/*.ts`
 - [ ] worker routes — `apps/project-sites/src/routes/*`
@@ -35,3 +35,10 @@ correctness/bugs · Zod at every boundary · TS strictness (no `any`/`@ts-ignore
 - **★ ROOT FIX:** added `decoding="async"` to every below-the-fold section img (10 files: BentoGrid, BlogList×2, CaseStudyCard, Demo, FeatureSplit, Quote, Spotlight, TeamGrid, Timeline, VideoEmbed) via a context-aware script (correctly skipped Demo's `<iframe>` + inlined Timeline's single-line tag). **HeroVariants EXEMPT** (LCP hero — async decode can delay the largest paint, per ttfr-north-star).
 - **★ REGRESSION GATE:** `section-img-decoding.test.ts` — asserts every real section `<img>` (except HeroVariants, comment-mentions stripped) sets `decoding="async"`, so the class can't drift back. tsc clean · 22 section tests green · template build green (validate-site 19 routes / 217 tokens). Pushed template `36a6d81` (lands next build, NO redeploy).
 - **Result:** ✅ every generated site's below-fold images now async-decode (non-blocking) + a durable gate. Next batch: **template components** (Header, Footer, ContactForm, AiChat, Breadcrumbs, CommandPalette, …).
+
+### Fire 3 — 2026-09-15 — template components: high-signal defect-class sweep + AiChat TS-strict root fix (batch "template components")
+- **Verify-before-implement:** worker HEAD `a8533ad82`; template repo dirty only in generated feeds (`public/atom.xml`/`feed.*`/`sitemap.xml` — build artifacts, another session's build) — avoided; touched only `src/components/*` source. worker tree clean, prod 200.
+- **Swept** all 56 top-level template components across the high-signal classes: React-19 inline-`<style>{` client-drop bug (0 — the sections-era class stays fixed), `<img>` without `alt` (0), TS-strict (`: any`/`@ts-ignore`/`as any`/`as unknown as`), `console.log`, form fetch error-handling.
+- **★ ROOT FIX — AiChat.tsx `as unknown as FormEvent`:** the chat textarea's Enter-to-send fabricated a `FormEvent` from a `KeyboardEvent` via `onSubmit(e as unknown as FormEvent)` (a TS-strict double-cast smell). Replaced with `e.currentTarget.form?.requestSubmit()` — fires the form's REAL SubmitEvent (identical behavior, since `onSubmit` only did `preventDefault()`) AND runs native constraint validation the direct call skipped. **★ REGRESSION GATE** `AiChat.submit.test.ts` (2 tests, source-idiom: asserts `requestSubmit()` present + `as unknown as FormEvent` absent). tsc clean · vitest 2/2 · template build green (19 routes / 217 tokens). Pushed template `94c984d` (lands next build, NO redeploy).
+- **False positives correctly NOT touched (validator-precision):** Header.tsx:216 `any` is prose in a comment ("Best-effort: any failure"), not a type; DevA11yBadge `console.log` is inside a fully DEV-gated component (early-returns null in prod + DEV-only effect) — legitimate dev-tooling, zero prod impact; ContactForm/QuoteForm/Newsletter already carry robust error-handling (18/20/7 refs).
+- **Result:** ✅ template components batch swept on the high-signal classes; 1 real TS-strict root fix + durable gate; the rest clean. Next batch: **template pages** (`src/pages/*`).
