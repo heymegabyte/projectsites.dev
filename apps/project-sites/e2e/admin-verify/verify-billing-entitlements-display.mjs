@@ -14,7 +14,7 @@
  * the authoritative store (GET /api/billing/entitlements):
  *   • [data-testid="entitlement-custom_domains"] == maxCustomDomains
  *   • [data-testid="entitlement-seats"]          == maxTeamSeats
- *   • [data-testid="entitlement-analytics"]      == (analyticsEnabled ? 'Included' : '—')
+ *   • [data-testid="entitlement-analytics"]      == (analyticsEnabled ? 'Included' : 'Not included')
  *
  * Local Chromium (the authed admin shell is NOT CF-bot-challenged — seed ps_session
  * + goto /admin/billing). Waits for the counters to finish (they animate 0→value, so
@@ -54,7 +54,9 @@ try {
   const store = (await entRes.json().catch(() => ({})))?.data ?? {};
   const wantDomains = String(store.maxCustomDomains ?? '');
   const wantSeats = String(store.maxTeamSeats ?? '');
-  const wantAnalytics = store.analyticsEnabled ? 'Included' : '—';
+  // AL-600: the false state is the SYMMETRIC honest "Not included" (was a bare "—" that
+  // read as "no data" next to the numeric domains/seats entitlements). Keeps display==store.
+  const wantAnalytics = store.analyticsEnabled ? 'Included' : 'Not included';
 
   // ── DISPLAY: what the Billing card actually renders (after counters settle) ──
   const b = await chromium.launch();

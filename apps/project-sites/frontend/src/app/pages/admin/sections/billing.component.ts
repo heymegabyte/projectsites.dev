@@ -177,7 +177,7 @@ interface ForecastBar {
                   </div>
                   <div class="rounded-lg border border-white/8 bg-black/20 px-3 py-2">
                     <div class="text-[0.6rem] uppercase tracking-wider text-text-secondary">Analytics</div>
-                    <div class="text-white font-bold" data-testid="entitlement-analytics">{{ ent.analyticsEnabled ? 'Included' : '—' }}</div>
+                    <div class="text-white font-bold" data-testid="entitlement-analytics">{{ ent.analyticsEnabled ? 'Included' : 'Not included' }}</div>
                   </div>
                 </div>
               </div>

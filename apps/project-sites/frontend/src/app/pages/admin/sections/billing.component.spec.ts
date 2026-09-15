@@ -104,6 +104,26 @@ describe('AdminBillingComponent (cyan/black cohesion + a11y)', () => {
     expect(walletStat!.querySelector('app-rolling-counter')).toBeTruthy();
   });
 
+  it('renders a boolean entitlement HONESTLY — "Not included" on free, never an ambiguous bare dash', () => {
+    // The Analytics entitlement is a boolean; rendered next to the numeric Custom-domains
+    // (0) + Team-seats (1) entitlements, a bare "—" for false read as "no data" rather
+    // than "not on your plan". Assert the symmetric Included / Not-included pair (AL-600).
+    build();
+    const cmp = fixture.componentInstance;
+    const el: HTMLElement = fixture.nativeElement;
+
+    cmp.entitlements.set({ maxCustomDomains: 0, maxTeamSeats: 1, analyticsEnabled: false });
+    fixture.detectChanges();
+    const analytics = el.querySelector('[data-testid="entitlement-analytics"]');
+    expect(analytics).withContext('entitlements block renders on the Subscription tab').toBeTruthy();
+    expect(analytics!.textContent!.trim()).toBe('Not included');
+    expect(analytics!.textContent).not.toContain('—'); // no ambiguous dash
+
+    cmp.entitlements.set({ maxCustomDomains: 10, maxTeamSeats: 5, analyticsEnabled: true });
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="entitlement-analytics"]')!.textContent!.trim()).toBe('Included');
+  });
+
   it('applies the appReveal entrance host on the header + each tab\'s sections', () => {
     build();
     const el: HTMLElement = fixture.nativeElement;
