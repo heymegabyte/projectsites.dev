@@ -139,7 +139,10 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
   // AL-597 specialty-food + active-gear — precise nouns; `meat` paired with shop/market/counter (no
   // bare `meat` → never a restaurant); `\bdeli\b` never matches "delivery"/"delicatessen" (own token).
   [/\b(butcher\w*|meat\s?(shop|market|counter)|charcuterie|salumeria)\b/, BUTCHER],
-  [/\b(cheese\s?(shop|monger\w*)?|cheesemong\w*|fromager\w*|creamer(?:y|ies)|delicatessen|\bdeli\b)\b/, CHEESE],
+  [
+    /\b(cheese\s?(shop|monger\w*)?|cheesemong\w*|fromager\w*|creamer(?:y|ies)|delicatessen|\bdeli\b)\b/,
+    CHEESE,
+  ],
   [/\b(bicycle\w*|\bbike\w*|cycling|cyclery|cyclist\w*)\b/, BIKE],
   [
     /\b(wealth|financ\w*|invest(ment|ing|or)\w*|asset\s?manage\w*|retirement\s?plan\w*|insuranc\w*|accounting|accountan\w*|bookkeep\w*|cpa|tax(es)?)\b/,
