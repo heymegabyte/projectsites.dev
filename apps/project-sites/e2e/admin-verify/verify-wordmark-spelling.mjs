@@ -15,18 +15,30 @@
  * "heaath"↔"heath", "perennenials"↔"perennials"), so a fuzzy compare misses it and a single
  * exact read can't clear it.
  *
- * OCR backend: Workers AI vision `@cf/meta/llama-3.2-11b-vision-instruct` (CF-native, preferred;
- * OpenAI gpt-4o-mini fallback only if its balance isn't exhausted). The site's declared NAME
- * is the authoritative signal ([[authoritative-signal-immutable-against-unreliable-generator]]).
+ * OCR backends (in preference order):
+ *   1. AL-607 — LITERAL classical OCR via the `tesseract` CLI (when installed). tesseract does
+ *      NOT auto-correct — it reads the baked characters, so it sees "ANIVIL"/"Heaath"/"PERENNENIALS"
+ *      where the vision-LM reads through the typo. Deterministic → 3 PSM modes; a close-variant that
+ *      dominates with NO exact read is a confident FAIL. This is what finally ACTIVATES the gate
+ *      (empirically: on the live Anvil wordmark tesseract reads "ANIVIL", dist-1 from "anvil").
+ *   2. Workers AI vision `@cf/meta/llama-3.2-11b-vision-instruct` (CF-native) — K-sample fallback
+ *      when tesseract is absent/inconclusive; it auto-corrects, hence the multi-sample dominance rule.
+ *   3. OpenAI gpt-4o-mini — only if its balance isn't exhausted.
+ * The site's declared NAME is the authoritative signal ([[authoritative-signal-immutable-against-unreliable-generator]]).
  *
- * FAIL only when closeCount ≥ 2 AND closeCount > exactCount across K samples. Fail-OPEN on
- * everything else — exact-dominant, all-noise, no backend, 404 wordmark (→ Header's always-
- * correct styled TEXT wordmark) — per validator-precision-discipline (prefer false-negatives).
+ * FAIL only on a DOMINANT close-variant with no exact read (tesseract: ≥2/3 PSM modes; vision-LM:
+ * closeCount ≥ 2 AND > exactCount across K). Fail-OPEN on everything else — exact-dominant, all-noise,
+ * no backend, 404 wordmark (→ Header's always-correct styled TEXT wordmark) — per
+ * validator-precision-discipline (prefer false-negatives).
  *
- * Run: SLUG=heath-ceramics-sausalito \
+ * Run: SLUG=anvil-bar-houston \
  *   CLOUDFLARE_API_KEY=$(get-secret CLOUDFLARE_API_KEY) CLOUDFLARE_EMAIL=blzalewski@gmail.com \
  *   node e2e/admin-verify/verify-wordmark-spelling.mjs
  */
+import { execFileSync } from 'node:child_process';
+import { writeFileSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 const HOST = 'projectsites.dev';
 const SLUG = process.env.SLUG || 'harborline-coffee-roasters-boston';
 const BASE = `https://${SLUG}.${HOST}`;
@@ -126,7 +138,42 @@ async function ocrOnce(bytes) {
   return null;
 }
 
-if (!CF_KEY && !OPENAI_KEY) skip('no OCR backend (set CLOUDFLARE_API_KEY or OPENAI_API_KEY)');
+/**
+ * LITERAL OCR via the `tesseract` CLI (AL-607) — deterministic + no auto-correct. Runs 3 PSM
+ * modes; each read is augmented with a de-spaced join so a letter-tracked wordmark ("ANI V IL")
+ * still fuzzy-matches the name word ("anvil"). Returns [] when the binary is absent (ENOENT) or
+ * every mode errors → the caller falls back to the vision-LM (fail-open).
+ */
+function ocrTesseract(bytes) {
+  const tmp = join(tmpdir(), `wordmark-${process.pid}.png`);
+  const reads = [];
+  try {
+    writeFileSync(tmp, bytes);
+    for (const psm of [7, 11, 6]) {
+      try {
+        const out = execFileSync('tesseract', [tmp, 'stdout', '--psm', String(psm)], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          timeout: 15000,
+        }).trim();
+        // Append the fully de-spaced join so classifySample sees "anivil" (not "ani"/"v"/"il")
+        // and the dist-1 close-variant compare against "anvil" fires despite letter-tracking.
+        if (out) reads.push(`${out} ${norm(out).replace(/\s+/g, '')}`);
+      } catch {
+        /* this PSM mode (or the binary) failed — try the next; all-fail → [] → vision-LM */
+      }
+    }
+  } catch {
+    /* temp write failed → [] → caller falls back */
+  } finally {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      /* ignore */
+    }
+  }
+  return reads;
+}
 
 const htmlRes = await fetch(BASE + '/', { headers: { 'User-Agent': UA, Accept: 'text/html,*/*' } });
 if (!htmlRes.ok) skip(`${BASE} → HTTP ${htmlRes.status}`);
@@ -141,6 +188,42 @@ if (!wmRes.ok) {
   process.exit(0);
 }
 const bytes = new Uint8Array(await wmRes.arrayBuffer());
+
+// ── PREFERRED: literal tesseract (deterministic, no auto-correct) — this ACTIVATES the gate.
+// A close-variant that dominates the 3 PSM reads with NO exact read is a high-confidence typo
+// (a real baked misspelling reads close CONSISTENTLY across modes; random garble does not).
+const tessReads = ocrTesseract(bytes);
+if (tessReads.length >= 2) {
+  const tf = tessReads.map((s) => ({ sample: s.slice(0, 40), ...classifySample(nameWords, s) }));
+  const tExact = tf.filter((f) => f.kind === 'exact').length;
+  const tClose = tf.filter((f) => f.kind === 'close').length;
+  const tCloseEx = tf.find((f) => f.kind === 'close');
+  const tDetail = {
+    slug: SLUG,
+    authoritativeName: name,
+    engine: 'tesseract',
+    reads: tf.map((f) => `${f.kind}:${JSON.stringify(f.sample)}`),
+    exactCount: tExact,
+    closeCount: tClose,
+  };
+  if (tClose >= 2 && tExact === 0) {
+    console.log(JSON.stringify({ ...tDetail, verdict: '❌ FAIL — wordmark misspells the business name (literal OCR)' }, null, 2));
+    console.log(
+      `❌ FAIL — logo-wordmark.png renders "${tCloseEx?.ocrWord}" where the name has "${tCloseEx?.nameWord}" ` +
+        `(tesseract read it LITERALLY in ${tClose}/${tessReads.length} PSM modes — not a vision-LM auto-correct artifact). ` +
+        `Root fix: build-time OCR-gate → discard the wordmark → styled TEXT fallback.`,
+    );
+    process.exit(1);
+  }
+  if (tExact >= 2 && tClose === 0) {
+    console.log(JSON.stringify({ ...tDetail, verdict: '✅ PASS (literal OCR)' }, null, 2));
+    console.log(`✅ PASS — wordmark spelling OK for "${name}" (tesseract exact=${tExact} close=${tClose} of ${tessReads.length})`);
+    process.exit(0);
+  }
+  // tesseract mixed/garbled → inconclusive → fall through to the vision-LM below.
+}
+
+if (!CF_KEY && !OPENAI_KEY) skip('tesseract inconclusive/absent + no vision OCR backend (set CLOUDFLARE_API_KEY or OPENAI_API_KEY)');
 
 const samples = [];
 for (let i = 0; i < K; i++) {
