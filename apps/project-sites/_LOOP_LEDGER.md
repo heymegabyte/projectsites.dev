@@ -3625,3 +3625,13 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 - **(2) TRUTHFUL DATA** `reconcile-counts` → **14/14 PASS** (display == store, incl. the AL-582 usage_sites 109==109 + usage_builds 51==51 gauges).
 - **NO code change** — 5th admin plateau confirmation this session (AL-578/582/587/590/593), all no-defect; ai-seniority gates-before-churn. Not idle: fresh render + data re-verify.
 - **Files mine only:** `_LOOP_LEDGER.md`. Protected files untouched.
+
+## AL-594 — GOLDEN-JOURNEY DELIVERY: The Meat Hook (Brooklyn, butcher) PUBLISHED + EMAILED · fresh vertical · PROVES AL-589 (butcher→artisan) + AL-591 (no wordmark 404) on a fresh build
+- **Verify-before-implement:** main clean + in-sync (HEAD=`234a007f2`). prod / 200. butcher fresh. Picked **The Meat Hook** (397 Graham Ave, Brooklyn NY 11211, (718) 302-4665, the-meathook.com — iconic Brooklyn whole-animal butcher) → a FRESH vertical that also VALIDATES the AL-589 `\bbutcher\w*`→artisan route live.
+- **★ DELIVERED:** create-from-search into **org-brian-001** → siteId `e7da2a02…`, HTTP **201** → `the-meat-hook-brooklyn` → **~7min build → published @ 04:50** (clean, no eviction).
+- **★ VERIFIED (real browser):** HTTP **200** · **0 console errors** · H1 **"Small-batch, Brooklyn-made"** · SUB "Small-batch butcher shop from Brooklyn — real materials, patient hands, and work we stand behind." (**ARTISAN voice** — AL-589 butcher→artisan landed on a fresh build; NO boutique-fashion misfit) · title "The Meat Hook — Local butcher shop you can trust · Brooklyn" · words **823** · imgs **18** · JSON-LD **6** · header logo-icon + logo-wordmark.
+- **★ PROVES 3 recent root-fixes on ONE fresh build:** AL-589 (butcher→artisan, not boutique-fashion) · AL-591 (0 console errors — no `/logo-wordmark.png` 404; the fresh build generated a clean **882×142 = 6.2:1 banner** wordmark) · AL-585/586 (H1 + subheadline grammatical).
+- **★ LOGO TRANSPARENT (AL-224):** logo-icon.png **1024×1024 colorType 6 RGBA** + logo-wordmark.png **882×142 colorType 6 RGBA** — both transparent, big + compact.
+- **★ EMAIL DELIVERED:** Gmail `1a0a4430…` — "Site published: The Meat Hook" → **brian@megabyte.space**, INBOX, **08:50:51Z** (~1min post-publish).
+- **Quality note:** dense clean butcher build (823w/18imgs/6 JSON-LD/0 errors, transparent banner logo, email landed) with the CORRECT artisan voice for a craft butcher — the AL-589 remap + AL-591 wordmark fix both proven on this fresh delivery. Fleet now spans butcher + cheese + hardware + bike + architecture + advertising + gym + …
+- **Files mine only:** `_LOOP_LEDGER.md`. Delivered: the-meat-hook-brooklyn (org-brian-001). No code change (delivery fire). Protected files untouched.
