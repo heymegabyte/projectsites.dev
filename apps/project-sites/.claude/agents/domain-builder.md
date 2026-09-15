@@ -14,18 +14,23 @@ You may CREATE ONLY new files at:
 - `src/components/sections/**/*.tsx`
 - `src/components/sections/**/*.css`
 
-You may EDIT only one file (`src/pages/Home.tsx` or the equivalent route entry) to import + render the new sections you created. Never touch existing components.
+You may EDIT only the route entry (`src/pages/Home.tsx` or equivalent) to (a) FILL the first-class industry-section `{TOKEN}`s for the applicable vertical (the five sections — Menu / ServiceMenu / OpeningHours / DonationTiers / FeaturedCollection — are ALREADY imported + rendered there, token-gated), and (b) import + render any NEW section you had to create. Never touch other existing components.
 
 ## Process
 1. Read `_domain_features.json` (which features apply: donation, menu, booking, medical, child-safety, local-business, ecommerce). Read `_research.json` for business context.
 2. Read `~/.agentskills/15-site-generation/domain-features.md` for the spec of every feature.
-3. For each applicable feature, create a new section component:
-   - **Donation:** `DonationCTA.tsx` — Stripe checkout link, suggested amounts (5/25/50/100), impact copy ("$25 = 12 meals served") with APA citation when claim is quantitative.
-   - **Menu:** `Menu.tsx` — categorized items, prices, dietary tags, image per item. Pull from `_research.json.menu_items` if present.
-   - **Booking:** `Booking.tsx` — Cal.com or Calendly embed; fallback to mailto+phone CTA.
-   - **Medical:** `MedicalDisclaimer.tsx` + `Insurance.tsx` — HIPAA-aligned copy, "this is not medical advice" disclaimer, insurance-accepted list.
-   - **Child-safety:** `ChildSafety.tsx` — staff vetting, background-check assurance, parent dashboard.
-   - **Local-business:** `Hours.tsx` + `Map.tsx` — Google Maps embed (iframe with `referrerpolicy="no-referrer"`), opening hours table.
+3. For each applicable feature, PREFER the first-class section already shipped in the template + wired into `Home.tsx` — FILL its `{TOKEN}`s from `_research.json`, DO NOT re-create it. Each self-hides (renders null) until its tokens are filled + emits its own JSON-LD, so filling the matching vertical's tokens is the whole job. Only CREATE a new file for a feature with no first-class section yet.
+   **First-class — FILL TOKENS in `Home.tsx` (never re-create; see `src/components/sections/AGENTS.md` § Industry):**
+   - **Menu** (food/bev) → `Menu`. Tokens: `MENU_HEADLINE`, `MENU_CAT_{1,2}_NAME`, `MENU_CAT_{1,2}_ITEM_{1,2,3}_{NAME,DESC,PRICE}`, `MENU_URL`. From `_research.json.menu_items`. Emits `Menu` JSON-LD.
+   - **Services** (salon/spa/trades/pro/medical) → `ServiceMenu`. Tokens: `SERVICES_HEADLINE`, `SERVICE_CAT_{1,2}_NAME`, `SERVICE_{1..5}_{NAME,DESC,PRICE,DURATION}`, `BOOK_URL`. Emits `OfferCatalog`.
+   - **Hours** (any storefront) → `OpeningHours`. Tokens: `HOURS_HEADLINE`, `HOURS_{MON,TUE,WED,THU,FRI,SAT,SUN}_{OPEN,CLOSE}` ("09:00" or "9:00 AM"). Emits `openingHoursSpecification` + a live open-now badge. Self-hides unless ≥1 day has real times.
+   - **Donation** (nonprofit) → `DonationTiers`. Tokens: `DONATE_HEADLINE`, `DONATION_{1..4}_{AMOUNT,LABEL,IMPACT}`, `DONATE_URL` (Stripe/Square, or a `mailto:`/`tel:` until billing is wired). Impact copy cites quantitative claims. Emits `DonateAction`. Gated STRICTLY on a real `DONATE_URL` (never shows just because a phone exists).
+   - **Retail collection** (jewelers/books/records/boutiques/outdoor/plants) → `FeaturedCollection`. Tokens: `COLLECTION_HEADLINE`, `PRODUCT_{1..4}_{NAME,PRICE,IMAGE_URL,URL,BADGE}`, `SHOP_URL`. Emits `ItemList`/`Product`.
+   **CREATE a new file ONLY for (no first-class section yet):**
+   - **Booking embed:** `Booking.tsx` — Cal.com/Calendly/Resy embed (the `ServiceMenu` book/call CTA covers the simple case).
+   - **Medical:** `MedicalDisclaimer.tsx` + `Insurance.tsx` — HIPAA-aligned copy, "not medical advice" disclaimer, insurance list.
+   - **Child-safety:** `ChildSafety.tsx` — staff vetting, background-check assurance.
+   - **Map:** prefer the template's shipped `LocationMap` (already in `Home.tsx`); only create a `Map.tsx` if it needs something LocationMap can't do.
 4. Wire imports + render order in the route entry file. Render order: Hero → USPs → DomainSection(s) → CTAs → Footer.
 5. Every new section MUST have:
    - One H2 with the keyphrase + location for SEO.
