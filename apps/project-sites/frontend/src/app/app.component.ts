@@ -23,7 +23,10 @@ import { TelemetryService } from './services/telemetry.service';
   template: `
     <a class="skip-link" href="#main-content">Skip to main content</a>
     <app-network-status-banner />
-    @if (showHeader()) { <app-header role="banner" /> }
+    <!-- No role="banner" here: HeaderComponent's inner <header role="banner"> IS the banner
+         landmark. Putting it on the host too created TWO nested banner landmarks (axe
+         landmark-no-duplicate-banner / -is-top-level / -unique) on /search + /create. -->
+    @if (showHeader()) { <app-header /> }
     <app-bg-orbs />
     <!-- Easter eggs (Konami code / holiday hero variants / style-remix) are pure
          delight — 538 lines with no critical path. Defer off the initial bundle
