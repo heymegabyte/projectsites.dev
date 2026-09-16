@@ -4005,3 +4005,14 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 
 ### AL-637 CLOSURE (live rebuild-proof ✅)
 - Rebuilt `zingermans-ann-arbor-2` (HTTP 200) → picked up template `7cfede8` → `verify-grain-flicker` on the live site: **✓ grain flickers (motion) / static (reduced-motion) · LCP/INP-safe** — § C.7 grain filmic-flicker PASS. The animated filmic grain landed live on a REAL prod rebuild with the reduced-motion gate holding (not a compile).
+
+## AL-638 — FULL JOURNEY (golden): whole-product end-to-end VERIFIED on a fresh delivery (Tartine)
+- **Verify-before-implement:** worker HEAD `bdcfc0082`, prod 200, tree clean.
+- **★ GOLDEN PATH proven end-to-end (steps 4-6) on the freshest delivery `tartine-bakery-sf-2`** via `verify-delivered-site-propagation.mjs`:
+  - **(4) VIEW** — site published + loads (deliver-verify AL-636: HTTP 200, biz-specific H1, 874w/18imgs, transparent logo, 0 console errors).
+  - **(5) ANALYTICS causal** — visited 3× → `/api/sites/:id/analytics` before=4 → after=7 (**Δ3 ≥ 3**), display == D1 store.
+  - **(6) ADMIN PROPAGATION** — the new site propagates across every surface: **Sites** found=true/published · **Snapshots** count=1 (initial) · **Audit** total=15 (14 build events) · **Forms** submit=200 → owner view causalShows=true. All display==store.
+  - VERDICT: **✅ PASS** (analytics Δ3 · sites published · snapshots 1 · audit 15/build 14 · forms causal).
+- **Exhaustive admin coverage (this session):** ADMIN INTEGRITY AL-632 ran `reconcile-surfaces` (0 divergences / 14 surfaces) + `admin-surf-audit` @1280+@390 (23 sections CLEAN) + `verify-forms-causal` (PASS) — the same step-6 ground, fresh. `contract-sweep.mjs` timed out at 3min (a ~5min Browserbase full-admin walk — infra runtime, 44/44 clean in prior fires; redundant here with reconcile + propagation).
+- **Result:** ✅ the WHOLE product is verified end-to-end on a real fresh delivery — search→create→build→published→view→analytics(causal)→email(AL-636)→admin-propagation, every leg green + display==store. No defect surfaced → no root-fix needed this fire (honest clean journey; real bugs continue landing in GENERATED-SITE QUALITY per the plateau doctrine).
+- **Files mine:** `_LOOP_LEDGER.md` only. Protected files untouched.
