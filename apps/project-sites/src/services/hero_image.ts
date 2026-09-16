@@ -186,6 +186,14 @@ const GROCERY: HeroImage = {
   url: 'https://images.unsplash.com/photo-1770234849035-4cd18beb4202?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwzfHxncm9jZXJ5JTIwc3RvcmUlMjBwcm9kdWNlJTIwbWFya2V0JTIwaW50ZXJpb3J8ZW58MHwwfHx8MTc4OTU0NDMwNHww&ixlib=rb-4.1.0&q=80&w=1080',
   alt: 'Fresh produce and full shelves in a well-stocked neighborhood grocery',
 };
+// AL-669 CERAMICS / pottery studio — a ceramics studio / pottery shop is a craft-retail vertical
+// with a distinct maker identity; the broad "retail" bucket shipped the generic "cozy independent
+// shop interior shelves" hero (vision-caught live on heath-ceramics-sausalito). ixid decodes to
+// "ceramics pottery studio" so verify-hero-image-vertical reads the "ceramics" noun as a match.
+const CERAMICS: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1595351298020-038700609878?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwxfHxjZXJhbWljcyUyMHBvdHRlcnklMjBzdHVkaW98ZW58MHwwfHx8MTc4OTU2NjMxMHww&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'A potter shaping clay on a spinning wheel in a ceramics studio',
+};
 
 /**
  * Ordered [sub-vertical pattern → curated hero]. FIRST match wins. Scanned against the derived
@@ -247,6 +255,13 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
   [
     /\b(hardware|home\s?improvement|tool\s?(shop|store)|lumber\s?(yard|\s?&?\s?supply)|paint\s?(shop|store)|ace\s?hardware|true\s?value)\b/,
     HARDWARE,
+  ],
+  // AL-669 CERAMICS / pottery — a ceramics studio / pottery shop. `ceramic\w*` covers
+  // ceramics/ceramic; pottery + potter's-studio/shop; clay studio/works; stoneware/earthenware.
+  // No bare `potter` (never "Harry Potter") / no bare `clay` (never a person's name).
+  [
+    /\b(ceramic\w*|pottery|potter(?:'s)?\s?(studio|shop|workshop)|clay\s?(studio|works)|stonewar\w*|earthenwar\w*)\b/,
+    CERAMICS,
   ],
   [
     /\b(wealth|financ\w*|invest(ment|ing|or)\w*|asset\s?manage\w*|retirement\s?plan\w*|insuranc\w*|accounting|accountan\w*|bookkeep\w*|cpa|tax(es)?)\b/,

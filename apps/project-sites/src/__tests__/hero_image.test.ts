@@ -33,9 +33,12 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
     expect(heroImageForVertical('tattoo studio')?.alt).toMatch(/tattoo/i);
     // AL-507 — finance cluster (was the wealth→legal defect: scales-of-justice + "law office" hero):
     expect(heroImageForVertical('wealth management')?.alt).toMatch(/financial|advisor|figures/i);
+    // AL-669 — ceramics/pottery (was the generic "cozy shop interior" on heath-ceramics-sausalito):
+    expect(heroImageForVertical('ceramics studio')?.alt).toMatch(/ceramic|pottery|clay|potter/i);
   });
 
   it('matches sub-vertical SYNONYMS to the right hero', () => {
+    expect(heroImageForVertical('pottery shop')).toBe(heroImageForVertical('ceramics studio')); // AL-669
     expect(heroImageForVertical('garden center')).toBe(heroImageForVertical('plant shop'));
     expect(heroImageForVertical('plant nursery')).toBe(heroImageForVertical('plant shop'));
     expect(heroImageForVertical('speakeasy')).toBe(heroImageForVertical('cocktail bar'));
