@@ -1408,15 +1408,29 @@ export const finalizeSeoInvariants = (
       if (desc.length > 156) {
         finalDesc = truncateAtWord(desc, 156);
       } else {
-        const ctas = [
-          `Visit ${rawName} to learn more and get in touch today.`,
-          `Explore our services and see how ${rawName} can help you.`,
-        ];
+        // Pad a too-short description toward [120,156] with COMPLETE sentences only:
+        // append a pad ONLY when the whole thing still fits under 156, so the snippet
+        // never truncates mid-word or mid-name. The old code appended a whole generic
+        // CTA and THEN cut at 156, shipping broken filler like "…and see how French" /
+        // "…see how Koval Distillery" (live cross-vertical, 2026-09-16). City-anchored
+        // real copy is preferred over the generic CTA so the SERP reads specific, not
+        // boilerplate; pads are distinct (no phrase overlap) and skipped when already
+        // present. Mirrors the template fitMetaDescription discipline (placeholders.ts).
+        const city = (ctx.city || '').trim();
+        const pads = [
+          city && !desc.toLowerCase().includes(city.toLowerCase())
+            ? `Proudly serving ${city} and the surrounding area.`
+            : '',
+          `Get in touch with ${rawName} today to see how we can help.`,
+          'Explore what we offer and reach out with any questions.',
+          'We would be glad to hear from you.',
+        ].filter((p): p is string => p.length > 0);
         let out = (desc.length >= 30 ? desc : titleTag || desc).trim();
-        for (const cta of ctas) {
+        for (const pad of pads) {
           if (out.length >= 120) break;
-          if (!/[.!?]$/.test(out)) out = `${out}.`; // clean sentence break before the CTA
-          out = `${out} ${cta}`.trim();
+          if (out.toLowerCase().includes(pad.toLowerCase())) continue;
+          const sep = /[.!?]$/.test(out) ? ' ' : '. ';
+          if ((out + sep + pad).length <= 156) out = `${out}${sep}${pad}`;
         }
         finalDesc = out.length > 156 ? truncateAtWord(out, 156) : out;
       }

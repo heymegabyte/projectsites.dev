@@ -1383,6 +1383,58 @@ describe('finalizeSeoInvariants (C.1 structured-data + meta backstop)', () => {
     expect(out).toContain(`name="twitter:description" content="${desc}"`);
   });
 
+  it('pads a short description with COMPLETE, city-anchored copy — never truncating mid-name (the live "…see how Koval Distillery" / "…and see how French" cross-vertical defect, 2026-09-16)', () => {
+    // Reproduces the exact live shape: a short "{Name} — {category}." description the OLD
+    // auto-fix padded with a whole generic CTA and THEN cut at 156, shipping broken filler
+    // ("…Explore our services and see how Koval Distillery"). The fix appends ONLY whole
+    // sentences that still fit, city-first, so the snippet is grammatical, specific, and
+    // never truncated mid-word/mid-name.
+    const shell = `<head>
+<title>Koval Distillery — Trusted local distillery | Chicago</title>
+<meta property="og:title" content="Koval Distillery — Trusted local distillery | Chicago">
+<meta name="description" content="Koval Distillery — Trusted local distillery.">
+<meta property="og:description" content="Koval Distillery — Trusted local distillery.">
+<meta name="twitter:description" content="Koval Distillery — Trusted local distillery.">
+<link rel="canonical" href="https://koval-distillery-chicago.projectsites.dev/">
+</head><body><h1>Made by hand in Chicago</h1></body>`;
+    const [files, report] = finalizeSeoInvariants(
+      [{ path: 'index.html', size: shell.length, text: shell }],
+      {
+        businessName: 'Koval Distillery',
+        hostname: 'https://koval-distillery-chicago.projectsites.dev',
+        city: 'Chicago',
+      },
+    );
+    expect(report.descExpanded).toBe(1);
+    const desc =
+      /<meta\s+name="description"\s+content="([^"]*)"/i.exec(files[0].text as string)?.[1] ?? '';
+    // In the SEO window.
+    expect(desc.length).toBeGreaterThanOrEqual(120);
+    expect(desc.length).toBeLessThanOrEqual(156);
+    // Specific, not boilerplate: the locality anchors the snippet.
+    expect(desc).toContain('Chicago');
+    // The OLD slop skeleton is gone for good.
+    expect(desc).not.toContain('Explore our services and see how');
+    expect(desc).not.toContain('to learn more and get in touch today');
+    // NEVER truncated mid-thought: ends on real sentence punctuation (a cut pad would not),
+    // and never on a dangling connector or half-written name ("…see how Koval" / "…and").
+    expect(desc).toMatch(/[.!?]$/);
+    expect(desc).not.toMatch(/\b(and|the|see|how|with|to|of|for|a|an|or|we)$/i);
+    // og + twitter mirror the finalized description.
+    expect(files[0].text as string).toContain(`property="og:description" content="${desc}"`);
+    expect(files[0].text as string).toContain(`name="twitter:description" content="${desc}"`);
+  });
+
+  it('never appends the generic CTA slop even when NO city is known — pads stay complete + punctuated', () => {
+    const [files] = run(); // ctx has no city; prod-like shell desc is ~85 chars (<120)
+    const desc =
+      /<meta\s+name="description"\s+content="([^"]*)"/i.exec(files[0].text as string)?.[1] ?? '';
+    expect(desc.length).toBeGreaterThanOrEqual(120);
+    expect(desc.length).toBeLessThanOrEqual(156);
+    expect(desc).not.toContain('Explore our services and see how');
+    expect(desc).toMatch(/[.!?]$/); // ends on a complete sentence, never mid-name
+  });
+
   it('is a NO-OP (same file reference) when the shell already satisfies the invariants', () => {
     const good = completeBuild()[0]; // html() ships 4 blocks + in-range title/desc
     const [files, report] = finalizeSeoInvariants([good], {
