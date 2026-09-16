@@ -162,6 +162,18 @@ const HARDWARE: HeroImage = {
   url: 'https://images.unsplash.com/photo-1510016290251-68aaad49723e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwyfHxoYXJkd2FyZSUyMHN0b3JlJTIwdG9vbHN8ZW58MHwwfHx8MTc4OTUzMDUzMnww&ixlib=rb-4.1.0&q=80&w=1080',
   alt: 'Shelves of paint tins and tools in a neighborhood hardware store',
 };
+// GROCERY / MARKET (this fire): a neighborhood grocery / supermarket / greengrocer / bodega had NO
+// curated hero → the pack's generic "retail" bucket shipped a gift-shop/gallery-looking interior as
+// the LCP hero (vision-caught live on bi-rite-market-sf — an art-gallery interior on a grocery). Route
+// to a real well-stocked grocery-aisle hero. Sourced via Unsplash search API 2026-09-16 ("grocery
+// store produce market interior"), alt-verified on-vertical, URL prod-200 (281KB); the ixid base64-
+// decodes to "grocery store produce market interior" so verify-hero-image-vertical reads it green off
+// the H1 "grocery"/"market" noun. Pairs with the commerceModeFor grocery→quickserve fix (theme_style.ts,
+// this fire) — a market is a walk-in FOOD seller, not a mail-order retail store.
+const GROCERY: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1770234849035-4cd18beb4202?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwzfHxncm9jZXJ5JTIwc3RvcmUlMjBwcm9kdWNlJTIwbWFya2V0JTIwaW50ZXJpb3J8ZW58MHwwfHx8MTc4OTU0NDMwNHww&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'Fresh produce and full shelves in a well-stocked neighborhood grocery',
+};
 
 /**
  * Ordered [sub-vertical pattern → curated hero]. FIRST match wins. Scanned against the derived
@@ -194,6 +206,14 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
   // whole word (never matches "delivery"/"delish"); `delicatessen` is its own token.
   [/\b(delicatessen|deli)\b/, DELI],
   [/\b(cheese\s?(shop|monger\w*)?|cheesemong\w*|fromager\w*|creamer(?:y|ies))\b/, CHEESE],
+  // GROCERY / MARKET — a neighborhood grocery / supermarket / greengrocer / bodega. Precise food-
+  // grocery nouns only (NO bare `\bmarket\b` → "flea/art/night market" never false-match); `meat
+  // market` is already caught by BUTCHER above, "food market" is a grocer. Pairs with the
+  // commerceModeFor grocery→quickserve fix (a walk-in food seller, not mail-order retail).
+  [
+    /\b(grocer\w*|supermarket|greengrocer\w*|green\s?grocer\w*|food\s?market|farm\s?stand|produce\s?market|\bbodega\b|corner\s?(store|grocer\w*)|mini\s?mart|convenience\s?store|fishmonger\w*)\b/,
+    GROCERY,
+  ],
   [/\b(bicycle\w*|\bbike\w*|cycling|cyclery|cyclist\w*)\b/, BIKE],
   // AL-614 outdoor/ski/mountaineering outfitter — precise: bare `outdoor` needs a gear/shop suffix
   // (so "outdoor dining" never matches) + `\bskis\b`/`ski shop` not bare "ski" (so "skincare" never
@@ -241,6 +261,7 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
  * heroImageForVertical('plant shop')?.alt      // → 'Lush greenery filling a bright, welcoming plant shop'
  * heroImageForVertical('cocktail bar')?.url    // → 'https://images.unsplash.com/photo-1763771757330-…'
  * heroImageForVertical('wealth management')?.alt // → 'A financial advisor reviewing figures at a desk'
+ * heroImageForVertical('grocery store')?.alt   // → 'Fresh produce and full shelves in a well-stocked neighborhood grocery'
  * heroImageForVertical('plumbing')             // → null  (broad pack default is correct)
  * heroImageForVertical('')                     // → null
  */

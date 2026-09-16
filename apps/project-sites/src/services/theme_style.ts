@@ -513,8 +513,14 @@ const COMMERCE_MODE_RULES: ReadonlyArray<readonly [CommerceMode, RegExp]> = [
     // stumptown-coffee-portland (vision-caught — a roaster does not take table reservations);
     // "Order ahead / no reservation needed / made to order" fits. (DISTILLERY / WINERY / MEADERY
     // stay hospitality below — they genuinely run tasting rooms that DO take reservations.)
+    // A neighborhood GROCERY / MARKET / greengrocer / bodega is here too (this fire): a walk-in
+    // local FOOD seller is "Visit us / See hours & location / Today's fresh / order online for
+    // pickup", NEVER mail-order e-commerce ("Free shipping over $50 / 30-day returns" — the
+    // bi-rite-market-sf misframe, vision-caught: grocery matched the `grocer\w*` token in the RETAIL
+    // regex → shopping-cart badges on a corner grocery). Precise food-grocery nouns only (NOT bare
+    // `\bmarket\b` — that stays retail so "flea/art/night market" never false-match here).
     'quickserve',
-    /\b(ice\s?cream|gelato\w*|frozen\s?(?:yogurt|custard)|\bfroyo\b|creamer(?:y|ies)|shaved\s?ice|snow\s?cone|caf[eé]\w*|coffee\s?(?:shop|house|bar|roaster\w*)|\broaster(?:y|ies)\b|espresso(?:\s?bar)?|bakery|bakeries|patisserie|\bbagel\w*|\bdonut\w*|doughnut\w*|juice\s?bar|\bsmoothie\w*|a[çc]a[íi]|\bdeli\b|delicatessen|sandwich\s?(?:shop|bar)|\bsub\s?shop|\bhoagie\w*|food\s?(?:truck|cart|stand)|takeaway|take\s?out|takeout|teahouse|tea\s?room|bubble\s?tea|\bboba\b|cr[eê]per\w*|cupcake\w*|cookie\s?(?:shop|bar)|pretzel\w*|\bpopcorn\b|poke\s?(?:shop|bar))\b/,
+    /\b(ice\s?cream|gelato\w*|frozen\s?(?:yogurt|custard)|\bfroyo\b|creamer(?:y|ies)|shaved\s?ice|snow\s?cone|caf[eé]\w*|coffee\s?(?:shop|house|bar|roaster\w*)|\broaster(?:y|ies)\b|espresso(?:\s?bar)?|bakery|bakeries|patisserie|\bbagel\w*|\bdonut\w*|doughnut\w*|juice\s?bar|\bsmoothie\w*|a[çc]a[íi]|\bdeli\b|delicatessen|sandwich\s?(?:shop|bar)|\bsub\s?shop|\bhoagie\w*|food\s?(?:truck|cart|stand)|takeaway|take\s?out|takeout|teahouse|tea\s?room|bubble\s?tea|\bboba\b|cr[eê]per\w*|cupcake\w*|cookie\s?(?:shop|bar)|pretzel\w*|\bpopcorn\b|poke\s?(?:shop|bar)|grocer\w*|supermarket|greengrocer\w*|green\s?grocer\w*|food\s?(?:market|hall)|farm\s?stand|farmstand|farmers?\s?market|produce\s?(?:market|stand)|\bbodega\b|corner\s?(?:store|grocer\w*)|mini\s?mart|convenience\s?store|fishmonger\w*|fish\s?monger\w*)\b/,
   ],
   [
     'hospitality',
@@ -534,7 +540,7 @@ const COMMERCE_MODE_RULES: ReadonlyArray<readonly [CommerceMode, RegExp]> = [
   ],
   [
     'retail',
-    /\b(retail|\bshop\w*|\bstore\w*|boutique\w*|apparel|clothing|fashion\w*|merchandise|\bgoods\b|florist\w*|\bflower\w*|\bgift\w*|pet\s?(?:store|shop|supply)|home\s?goods|furniture|\btoys?\b|stationery|cosmetic\w*|accessor\w*|jewel\w*|goldsmith\w*|\bwatch\w*\s?(?:shop|store|maker)|book\s?stor\w*|bookshop\w*|booksell\w*|\bbooks\b|record\s?stor\w*|vinyl\s?(?:shop|store)|hardware|\bmarket\b|thrift|consignment|antique\w*|grocer\w*|supermarket|electronics|garden\s?cent\w*|nursery|\bcrafts?\s?(?:shop|store|supply))\b/,
+    /\b(retail|\bshop\w*|\bstore\w*|boutique\w*|apparel|clothing|fashion\w*|merchandise|\bgoods\b|florist\w*|\bflower\w*|\bgift\w*|pet\s?(?:store|shop|supply)|home\s?goods|furniture|\btoys?\b|stationery|cosmetic\w*|accessor\w*|jewel\w*|goldsmith\w*|\bwatch\w*\s?(?:shop|store|maker)|book\s?stor\w*|bookshop\w*|booksell\w*|\bbooks\b|record\s?stor\w*|vinyl\s?(?:shop|store)|hardware|\bmarket\b|thrift|consignment|antique\w*|electronics|garden\s?cent\w*|nursery|\bcrafts?\s?(?:shop|store|supply))\b/,
   ],
 ];
 
@@ -548,7 +554,7 @@ export const COMMERCE_INTENT_BRIEF: Record<CommerceMode, string> = {
   retail:
     'This business SELLS products, so genuine e-commerce affordances fit. Primary CTAs: Shop / Browse the collection / View products / Add to cart / Buy — plus store hours + location + a map. Product grids with price and a quick-add are appropriate. This is the ONE mode where "Shop now" / "Free shipping" / cart language is on-brand.',
   quickserve:
-    'A WALK-UP / counter-serve spot (ice cream / coffee / bakery / juice bar / deli / food truck) — patrons ORDER and GO, they do NOT reserve a table or check out a cart. Primary CTAs: See our flavors / See the menu / Order online (pickup/delivery) / Order ahead / Visit us / Find us / See hours & location / Today\'s specials. Present offerings as a flavor list or menu to browse. FORBIDDEN as primary framing: "Reserve a table" / "Reservations" / "Book a table" (that is full-service dining, wrong for a scoop/coffee/pastry counter) AND e-commerce "Shop now" / "Add to cart" / "Free shipping" / "30-day returns" (a small "order online for pickup" link is fine, never a cart hero). Hero imagery: the product + counter — a scoop case, cones, a pastry case, an espresso bar, cups — NEVER an empty fine-dining dining room.',
+    'A WALK-UP / counter-serve spot (ice cream / coffee / bakery / juice bar / deli / food truck) OR a neighborhood GROCERY / MARKET / greengrocer / bodega — patrons VISIT and ORDER/SHOP IN PERSON, they do NOT reserve a table or check out a mail-order cart. Primary CTAs: See our flavors / See the menu / See what\'s fresh / Today\'s picks / Order online (pickup/delivery) / Order ahead / Visit us / Find us / See hours & location / Today\'s specials. Present offerings as a flavor list, menu, or fresh-selection to browse. FORBIDDEN as primary framing: "Reserve a table" / "Reservations" / "Book a table" (that is full-service dining, wrong for a scoop/coffee/pastry counter) AND e-commerce "Shop now" / "Add to cart" / "Free shipping" / "30-day returns" (a small "order online for pickup" link is fine, never a cart hero — a corner grocery does not free-ship or take 30-day returns). Hero imagery: the product + counter — a scoop case, cones, a pastry case, an espresso bar, cups, or a grocery\'s produce & market shelves — NEVER an empty fine-dining dining room OR a gift-shop/gallery interior.',
   hospitality:
     'People VISIT, TASTE, DINE, BOOK, or RESERVE here — they do NOT check out a shopping cart. Primary CTAs: Reserve a table / Book a tour / View the menu / Visit us / Order online (pickup/delivery) / Find us / See hours & location. Present offerings as a MENU or a COLLECTION to explore, never a store to check out. FORBIDDEN as primary framing: "Shop now", "Add to cart", "Free shipping", "30-day returns", "Browse collections" — e-commerce checkout copy on a restaurant / bar / brewery / distillery / winery / cidery / hotel is a wrong-vertical defect (a small "where to buy our bottles" link is fine as a secondary, never the hero CTA).',
   service:
@@ -577,6 +583,8 @@ export const COMMERCE_INTENT_BRIEF: Record<CommerceMode, string> = {
  * commerceModeFor('Ice Cream Shop')              // → 'quickserve'
  * commerceModeFor('Coffee Shop')                 // → 'quickserve'
  * commerceModeFor('Coffee Roasters')             // → 'hospitality' (roastery, not a counter)
+ * commerceModeFor('Grocery Store')               // → 'quickserve' (walk-in food, NOT mail-order retail)
+ * commerceModeFor('Supermarket')                 // → 'quickserve'
  * commerceModeFor('Jewelry Store')               // → 'retail'
  * commerceModeFor('Plumbing')                    // → 'service'
  * commerceModeFor('Law Firm')                    // → 'professional'

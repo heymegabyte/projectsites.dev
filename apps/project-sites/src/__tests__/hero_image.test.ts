@@ -251,6 +251,32 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
     expect(heroImageForVertical('barber')).toBeNull();
   });
 
+  it('this fire: a neighborhood GROCERY / MARKET gets the grocery-aisle hero (not the generic gift-shop/gallery interior)', () => {
+    // Delivered defect (vision-caught, bi-rite-market-sf): a grocery had no curated hero → the pack's
+    // generic retail bucket shipped an art-gallery-looking interior as the LCP hero.
+    const grocery = heroImageForVertical('grocery store');
+    expect(grocery).not.toBeNull();
+    expect(grocery!.url.startsWith('https://images.unsplash.com/photo-')).toBe(true);
+    for (const v of [
+      'grocery',
+      'grocer',
+      'Supermarket',
+      'Greengrocer',
+      'green grocer',
+      'Bodega',
+      'Corner Store',
+      'Food Market',
+      'Fishmonger',
+    ]) {
+      expect(heroImageForVertical(v)).toBe(grocery); // one hero for the whole grocery/market cluster
+    }
+    // Narrow: bare/non-food "market" nouns do NOT grab the grocery hero (no bare \bmarket\b).
+    expect(heroImageForVertical('flea market')).not.toBe(grocery);
+    expect(heroImageForVertical('art market')).not.toBe(grocery);
+    // A meat market stays the BUTCHER hero (caught before GROCERY), never the grocery aisle.
+    expect(heroImageForVertical('meat market')).not.toBe(grocery);
+  });
+
   it('every curated hero URL is an allowlisted images.unsplash.com CDN link', () => {
     for (const v of [
       'plant shop',
@@ -262,6 +288,7 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
       'jewelry store',
       'tattoo studio',
       'wealth management',
+      'grocery store',
     ]) {
       const img = heroImageForVertical(v)!;
       expect(img.url.startsWith('https://images.unsplash.com/photo-')).toBe(true);
@@ -282,6 +309,7 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
       // finance-cluster: query carries "financial" → the probe's FINANCE_LEXICON bridge accepts it
       // for any finance-domain H1 noun (wealth/insurance/accounting/…), no per-noun image needed.
       ['wealth management', /financ|advisor/],
+      ['grocery store', /grocery|market|produce/],
     ];
     for (const [v, re] of cases) {
       const q = heroQuery(heroImageForVertical(v)!.url);

@@ -461,6 +461,40 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
     }
   });
 
+  it('classifies the bi-rite-market-sf regression: a neighborhood GROCERY / MARKET is quickserve, NEVER retail-ecommerce', () => {
+    // Delivered defect (this fire, vision-caught): bi-rite-market-sf (grocery store) shipped a
+    // "Free shipping over $50 / Easy 30-day returns / Browse our collection" e-commerce triad —
+    // grocery matched `grocer\w*` in the RETAIL regex. A walk-in corner grocery does not free-ship
+    // or take 30-day returns; it is a VISIT-and-shop-in-person food seller (quickserve framing).
+    for (const v of [
+      'Grocery Store',
+      'grocery',
+      'grocer',
+      'Supermarket',
+      'Greengrocer',
+      'green grocer',
+      'Bodega',
+      'Corner Store',
+      'Food Market',
+      'Farm Stand',
+      'Farmers Market',
+      'Produce Market',
+      'Convenience Store',
+      'Fishmonger',
+    ]) {
+      expect(commerceModeFor(v)).toBe('quickserve');
+      expect(commerceModeFor(v)).not.toBe('retail'); // the actual defect: no shipping/returns/cart
+    }
+  });
+
+  it('does NOT over-match non-food "market" nouns into quickserve (flea/art/night market stay retail/general)', () => {
+    // The grocery fix adds precise food-grocery tokens only — bare `\bmarket\b` stays in RETAIL, so
+    // a flea/antique/art market is never mis-framed as a walk-in food counter.
+    expect(commerceModeFor('Flea Market')).toBe('retail');
+    expect(commerceModeFor('Antique Market')).toBe('retail');
+    expect(commerceModeFor('Art Market')).toBe('retail');
+  });
+
   it('routes GENUINE product sellers to retail (the only mode where cart language is on-brand)', () => {
     for (const v of [
       'Jewelry Store',
