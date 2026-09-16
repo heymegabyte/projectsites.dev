@@ -1,6 +1,7 @@
 import {
   redactBuildLogSecrets,
   toBuildLogLine,
+  classifyLogLine,
   resolveBuildOutcome,
   formatHeartbeat,
 } from './waiting.component';
@@ -113,5 +114,39 @@ describe('toBuildLogLine', () => {
 
   it('survives non-JSON metadata without throwing', () => {
     expect(() => toBuildLogLine(entry({ metadata_json: 'not-json{' }))).not.toThrow();
+  });
+
+  it('colors a streamed claude.output success line green (kind=success)', () => {
+    const line = toBuildLogLine(
+      entry({ action: 'claude.output', metadata_json: JSON.stringify({ message: '✓ created src/App.tsx' }) }),
+    );
+    expect(line.kind).toBe('success');
+  });
+});
+
+describe('classifyLogLine (STREAMING BUILD THEATER coloring)', () => {
+  it('flags an error-shaped action OR message as error', () => {
+    expect(classifyLogLine('workflow.step.generation_failed', 'x')).toBe('error');
+    expect(classifyLogLine('claude.output', 'Error: cannot resolve module')).toBe('error');
+  });
+  it('keeps workflow.* pipeline actions as phase', () => {
+    expect(classifyLogLine('workflow.step.upload_started', 'anything')).toBe('phase');
+  });
+  it('colors finished-unit stdout (past-tense / ✓) as success', () => {
+    for (const m of ['✓ wrote index.html', 'created 12 files', 'npm install: installed 340 packages', 'Done.']) {
+      expect(classifyLogLine('claude.output', m)).toBe('success');
+    }
+  });
+  it('colors in-progress stdout (present-participle) as phase', () => {
+    for (const m of ['Running validator-fixer', 'building dist', 'generating hero image']) {
+      expect(classifyLogLine('claude.output', m)).toBe('phase');
+    }
+  });
+  it('defaults ordinary stdout to info (dim)', () => {
+    expect(classifyLogLine('claude.output', 'the quick brown fox')).toBe('info');
+  });
+  it('does not confuse creating (phase) with created (success)', () => {
+    expect(classifyLogLine('claude.output', 'creating components')).toBe('phase');
+    expect(classifyLogLine('claude.output', 'created components')).toBe('success');
   });
 });

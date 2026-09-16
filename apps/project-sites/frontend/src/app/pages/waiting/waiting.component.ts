@@ -65,7 +65,7 @@ const PHASES: readonly { step: number; label: string }[] = [
 export interface BuildLogLine {
   time: string;
   text: string;
-  kind: 'phase' | 'info' | 'error';
+  kind: 'phase' | 'info' | 'error' | 'success';
 }
 
 /** One phase chip with its live state. */
@@ -122,6 +122,33 @@ function humanizeAction(action: string): string {
 }
 
 /**
+ * Classify a build-log line for terminal COLORING (STREAMING BUILD THEATER). Pure +
+ * exported for unit coverage. Precedence:
+ *   1. error  — an error-shaped action OR message (red).
+ *   2. phase  — a `workflow.*` pipeline action (cyan), OR streamed stdout describing
+ *               in-progress work (present-participle: running/building/generating/…).
+ *   3. success — streamed stdout announcing a finished unit (past-tense/✓:
+ *               created/wrote/installed/done/✓…) → green, so the live terminal reads as
+ *               steady forward progress rather than one flat grey wall.
+ *   4. info   — everything else (dim).
+ * The content split matters only for streamed `claude.output` lines; known pipeline
+ * actions keep their phase/error class regardless of message.
+ *
+ * @param action - The audit-log entry action (e.g. `claude.output`, `workflow.step.…`).
+ * @param message - The rendered line text (raw container stdout or a humanized label).
+ */
+export function classifyLogLine(action: string, message: string): BuildLogLine['kind'] {
+  if (/error|fail/i.test(action) || /\b(error|failed|failure|exception|denied|cannot|✗|✘)\b/i.test(message))
+    return 'error';
+  if (action.startsWith('workflow.')) return 'phase';
+  if (/(^|\s)(✓|✔|✅|done|complete|completed|created|wrote|added|installed|generated|published|deployed|passed|success|succeeded)\b/i.test(message))
+    return 'success';
+  if (/(^|\s)(running|executing|analy[sz]ing|building|installing|fetching|generating|writing|reading|planning|scaffolding|updating|creating)\b/i.test(message))
+    return 'phase';
+  return 'info';
+}
+
+/**
  * Map a raw audit-log entry to a redacted terminal line. Prefers the raw
  * `metadata_json.message` (the actual container stdout) when present, else a
  * human label for the known pipeline action. Pure + exported for unit coverage.
@@ -138,11 +165,7 @@ export function toBuildLogLine(entry: LogEntry): BuildLogLine {
   }
   const label =
     PIPELINE_STEPS.find((s) => s.action === entry.action)?.label ?? humanizeAction(entry.action);
-  const kind: BuildLogLine['kind'] = /error|fail/i.test(entry.action)
-    ? 'error'
-    : entry.action.startsWith('workflow.')
-      ? 'phase'
-      : 'info';
+  const kind: BuildLogLine['kind'] = classifyLogLine(entry.action, message || label);
   let time = '';
   try {
     time = new Date(entry.created_at).toLocaleTimeString([], { hour12: false });

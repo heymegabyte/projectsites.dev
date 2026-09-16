@@ -152,6 +152,9 @@
     color: #f87171;
     font-weight: 600;
   }
+  &--success &__text {
+    color: #4ade80;
+  }
   &--info &__text {
     color: rgba(244, 244, 255, 0.55);
   }

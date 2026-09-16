@@ -1119,8 +1119,56 @@ function runJob(jobId, dir, prompt, envVars, timeoutMin, callbackUrl, callbackSe
   child.on('close', () => clearTimeout(killTimer));
   child.on('error', () => clearTimeout(killTimer));
   let stdout = '', stderr = '';
-  child.stdout.on('data', d => { stdout += d.toString(); });
-  child.stderr.on('data', d => { stderr += d.toString(); });
+
+  // ── LIVE BUILD STREAM (STREAMING BUILD THEATER) ──────────────────────────────
+  // Pipe Claude Code's stdout/stderr line-by-line to the worker's HMAC-signed ingest
+  // (POST /api/internal/build-log → audit_logs → the /waiting page's live terminal)
+  // so the owner watches the AI actually build their site. Mirrors pushStatus's HMAC
+  // (same callbackSecret) + fluxGenerate's URL derivation (/build-status → /build-log).
+  // Fail-soft: a stream error NEVER breaks the build. Bounded: throttled to one POST
+  // per STREAM_INTERVAL_MS, ≤STREAM_BATCH lines/POST (under the worker's 40-line cap),
+  // a per-build STREAM_TOTAL_CAP, and a recent-tail buffer cap — so a runaway build can
+  // never flood audit_logs. The `live_build_stream` flag gates the WRITE worker-side, so
+  // when dark these POSTs just 404 harmlessly (no container-side gate needed).
+  const _bl = jobs[jobId] || {};
+  const buildLogUrl = _bl.callbackUrl
+    ? String(_bl.callbackUrl).replace(/\/build-status\/?$/, '/build-log')
+    : null;
+  const buildLogSecret = _bl.callbackSecret || null;
+  const STREAM_BATCH = 24; // ≤ worker MAX_LINES_PER_CALL (40)
+  const STREAM_INTERVAL_MS = 3500; // throttle window between POSTs
+  const STREAM_TOTAL_CAP = 1500; // hard ceiling of streamed lines per build
+  const STREAM_BUF_CAP = 240; // keep only the RECENT tail between flushes
+  let _blBuf = [], _blCarry = '', _blTotal = 0, _blTimer = null;
+  function flushBuildLog() {
+    if (_blTimer) { clearTimeout(_blTimer); _blTimer = null; }
+    if (!buildLogUrl || !buildLogSecret || _blBuf.length === 0) { _blBuf = []; return; }
+    if (_blTotal >= STREAM_TOTAL_CAP) { _blBuf = []; return; }
+    const lines = _blBuf.slice(0, STREAM_BATCH);
+    _blBuf = _blBuf.slice(STREAM_BATCH);
+    _blTotal += lines.length;
+    try {
+      const body = JSON.stringify({ jobId, lines });
+      const sig = crypto.createHmac('sha256', buildLogSecret).update(body).digest('hex');
+      fetch(buildLogUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-build-sig': sig },
+        body,
+      }).catch(() => {}); // fail-soft — the build must never break on a stream error
+    } catch { /* signing/JSON fault is non-fatal to the build */ }
+    if (_blBuf.length > 0 && _blTotal < STREAM_TOTAL_CAP) _blTimer = setTimeout(flushBuildLog, STREAM_INTERVAL_MS);
+  }
+  function streamChunk(chunk) {
+    if (!buildLogUrl) return;
+    const parts = (_blCarry + chunk).split(/\r?\n/);
+    _blCarry = parts.pop() ?? '';
+    for (const raw of parts) { const l = raw.replace(/\s+$/, ''); if (l.trim()) _blBuf.push(l); }
+    if (_blBuf.length > STREAM_BUF_CAP) _blBuf = _blBuf.slice(-STREAM_BUF_CAP);
+    if (!_blTimer) _blTimer = setTimeout(flushBuildLog, STREAM_INTERVAL_MS);
+  }
+
+  child.stdout.on('data', d => { const s = d.toString(); stdout += s; streamChunk(s); });
+  child.stderr.on('data', d => { const s = d.toString(); stderr += s; streamChunk(s); });
 
   // Run a shell command async via spawn so the Node event loop stays free for setInterval heartbeats.
   // Returns { code, stdout } or throws on timeout/spawn error.
@@ -1138,6 +1186,9 @@ function runJob(jobId, dir, prompt, envVars, timeoutMin, callbackUrl, callbackSe
   }
 
   child.on('close', async code => {
+    // Flush the final buffered stdout line to the live /waiting terminal before npm-build.
+    if (_blCarry.trim()) { _blBuf.push(_blCarry.replace(/\s+$/, '')); _blCarry = ''; }
+    flushBuildLog();
     console.warn(`[${jobId}] Claude Code exited code=${code} stdout=${stdout.length}b stderr=${stderr.length}b elapsed=${((Date.now() - jobs[jobId].startTime) / 1000) | 0}s`);
 
     setStatus(jobId, { step: 'npm-build' });

@@ -125,6 +125,8 @@
               class="build-line"
               [class.build-line--phase]="line.kind === 'phase'"
               [class.build-line--error]="line.kind === 'error'"
+              [class.build-line--success]="line.kind === 'success'"
+              [class.build-line--info]="line.kind === 'info'"
             >
               <span class="build-line__time">{{ line.time }}</span>
               <span class="build-line__text">{{ line.text }}</span>

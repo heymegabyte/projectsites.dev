@@ -263,6 +263,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  live_build_stream: {
+    default_enabled: true,
+    default_rollout_percent: 100,
+    description:
+      'STREAMING BUILD THEATER — pipes the REAL Claude Code build container stdout to the /waiting page\'s live terminal so the owner watches the AI actually build their site.\n\n• Gates POST /api/internal/build-log (HMAC-signed, x-build-sig + INTERNAL_BUILD_SECRET): the build container streams throttled, bounded, secret-redacted stdout batches; the worker writes each line to audit_logs (action claude.output) and the /waiting terminal renders them via the existing getSiteLogs poll + toBuildLogLine (redacted, auto-scroll, coloring + heartbeat).\n• Fail-CLOSED: any flag error → the ingest 404s, so a half-wired container can never flood audit_logs. OFF → the container POSTs harmlessly 404 and /waiting shows only the phase-step lines (no regression).\n• Promoted to beta/100% (2026-09-16) — the stream ships complete + verified end-to-end this fire.',
+    key: 'live_build_stream',
+    owner_email: 'brian@megabyte.space',
+    stage: 'beta',
+  },
   marketing_dashboard: {
     default_enabled: true,
     default_rollout_percent: 100,
