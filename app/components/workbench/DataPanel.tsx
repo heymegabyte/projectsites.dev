@@ -28,6 +28,7 @@ import {
   toCsv,
   filterRows,
   detailEntries,
+  isRowActivationKey,
 } from './data-panel-logic';
 import { classNames } from '~/utils/classNames';
 
@@ -468,9 +469,20 @@ export const DataPanel = memo(() => {
                     <React.Fragment key={i}>
                       <tr
                         onClick={() => setDetailIdx(detailIdx === i ? null : i)}
+                        onKeyDown={(e) => {
+                          // Keyboard parity with the click toggle (WCAG 2.1.1). Space would
+                          // otherwise scroll the table body — prevent that before toggling.
+                          if (isRowActivationKey(e.key)) {
+                            e.preventDefault();
+                            setDetailIdx(detailIdx === i ? null : i);
+                          }
+                        }}
+                        tabIndex={0}
+                        aria-expanded={detailIdx === i}
+                        aria-label={`Row ${i + 1} of ${visibleRows.length} — ${detailIdx === i ? 'hide' : 'show'} detail`}
                         data-testid="data-row"
                         className={classNames(
-                          'border-b border-bolt-elements-borderColor/20 cursor-pointer',
+                          'border-b border-bolt-elements-borderColor/20 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
                           detailIdx === i
                             ? 'bg-bolt-elements-item-backgroundActive'
                             : 'hover:bg-bolt-elements-background-depth-2/50',

@@ -12,6 +12,7 @@ import {
   toCsv,
   filterRows,
   detailEntries,
+  isRowActivationKey,
 } from './data-panel-logic';
 
 describe('iconForTable', () => {
@@ -124,5 +125,20 @@ describe('detailEntries', () => {
   });
   it('em-dashes null/empty scalars', () => {
     expect(detailEntries({ a: null }, ['a'])).toEqual([['A', '—']]);
+  });
+});
+
+describe('isRowActivationKey', () => {
+  it('activates on Enter and both Space spellings (keyboard parity for the click-toggle row — WCAG 2.1.1)', () => {
+    expect(isRowActivationKey('Enter')).toBe(true);
+    expect(isRowActivationKey(' ')).toBe(true);
+    expect(isRowActivationKey('Spacebar')).toBe(true);
+  });
+  it('ignores navigation / other keys (Tab must move focus, not toggle)', () => {
+    expect(isRowActivationKey('Tab')).toBe(false);
+    expect(isRowActivationKey('ArrowDown')).toBe(false);
+    expect(isRowActivationKey('Escape')).toBe(false);
+    expect(isRowActivationKey('a')).toBe(false);
+    expect(isRowActivationKey('')).toBe(false);
   });
 });

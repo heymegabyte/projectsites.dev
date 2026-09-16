@@ -178,3 +178,21 @@ export function detailEntries(row: Record<string, unknown>, columns: readonly st
     return [columnLabel(c), val];
   });
 }
+
+/**
+ * Whether a KeyboardEvent key should ACTIVATE a clickable row (toggle its detail
+ * drill-down). Enter and Space are the ARIA activation keys for a widget with
+ * `role`/`aria-expanded`; a browse row is click-toggleable, so it must be
+ * keyboard-toggleable too (WCAG 2.2 · 2.1.1 Keyboard, Level A — a click-only row
+ * strands keyboard + switch users). Space is normalized as both `' '` and the
+ * legacy `'Spacebar'`.
+ *
+ * @param key - the `KeyboardEvent.key` value
+ * @returns true when the key should toggle the row detail
+ * @example isRowActivationKey('Enter') // true
+ * @example isRowActivationKey(' ') // true
+ * @example isRowActivationKey('Tab') // false
+ */
+export function isRowActivationKey(key: string): boolean {
+  return key === 'Enter' || key === ' ' || key === 'Spacebar';
+}
