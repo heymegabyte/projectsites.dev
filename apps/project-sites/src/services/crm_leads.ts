@@ -72,7 +72,9 @@ export interface CrmUpsertResult {
 }
 
 /** Whether the Twenty CRM HTTP coordinates are configured. */
-export function isCrmConfigured(env: Env): boolean {
+export function isCrmConfigured(
+  env: Env,
+): env is Env & { TWENTY_API_URL: string; TWENTY_API_KEY: string } {
   return Boolean(env.TWENTY_API_URL && env.TWENTY_API_KEY);
 }
 
@@ -167,7 +169,7 @@ export async function upsertLeadToCrm(
   if (!isCrmConfigured(env)) {
     return { ok: false, skipped: true };
   }
-  const base = env.TWENTY_API_URL!.replace(/\/+$/, '');
+  const base = env.TWENTY_API_URL.replace(/\/+$/, '');
 
   if (payload.externalId) {
     const existing = await findByExternalId(base, env, payload.externalId, fetchImpl);

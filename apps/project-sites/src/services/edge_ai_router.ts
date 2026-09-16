@@ -168,18 +168,26 @@ async function workersAiToOpenAiSse(
   env: Env,
   messages: { role: string; content: string }[],
 ): Promise<Response> {
+  // One fallback SSE for BOTH the throw path AND a null/undefined stream — returning
+  // it (instead of a non-null `!` at read time) keeps the instant router fail-soft:
+  // a Workers-AI hiccup degrades to a clean [DONE] frame, never a crash inside the
+  // ReadableStream `start()` closure below.
+  const aiUnavailable = (): Response =>
+    new Response(
+      `data: {"error":{"code":"INSTANT_AI_FAILED","message":"Workers AI unavailable"}}\n\ndata: [DONE]\n\n`,
+      { status: 200, headers: { 'Content-Type': 'text/event-stream; charset=utf-8' } },
+    );
   let stream: ReadableStream<string> | null = null;
   try {
     const ai = env.AI as unknown as {
       run: (model: string, opts: unknown) => Promise<ReadableStream<string>>;
     };
     stream = await ai.run(INSTANT_MODEL, { messages, stream: true, max_tokens: 1024 });
-  } catch (err) {
-    return new Response(
-      `data: {"error":{"code":"INSTANT_AI_FAILED","message":"Workers AI unavailable"}}\n\ndata: [DONE]\n\n`,
-      { status: 200, headers: { 'Content-Type': 'text/event-stream; charset=utf-8' } },
-    );
+  } catch {
+    return aiUnavailable();
   }
+  if (!stream) return aiUnavailable();
+  const readable = stream;
 
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
@@ -194,7 +202,7 @@ async function workersAiToOpenAiSse(
         //     again double-encodes and breaks AI SDK clients (live-incident:
         //     the editor bounced to its landing screen on nested `data:`).
         //   • raw text deltas — wrapped into an OpenAI delta frame here.
-        const reader = stream!.getReader();
+        const reader = readable.getReader();
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;

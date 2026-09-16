@@ -122,8 +122,9 @@ export async function lookupBusiness(
     // Parse hours
     let hours: PlacesResult['hours'] = null;
     if (d.opening_hours?.periods) {
+      const periods = d.opening_hours.periods;
       hours = DAY_NAMES.map((dayName, idx) => {
-        const period = d.opening_hours!.periods!.find((p) => p.open.day === idx);
+        const period = periods.find((p) => p.open.day === idx);
         if (!period)
           return {
             day: dayName,

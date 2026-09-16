@@ -33,7 +33,7 @@ export async function loadAccount(env: Env, id: string): Promise<SocialAccountCt
     [id],
   );
   if (!row || !row.access_token_encrypted) return null;
-  return buildCtx(env, row);
+  return buildCtx(env, row, row.access_token_encrypted);
 }
 
 export async function loadAccountsByIds(
@@ -53,13 +53,19 @@ export async function loadAccountsByIds(
   const out: SocialAccountCtx[] = [];
   for (const row of data) {
     if (!row.access_token_encrypted) continue;
-    out.push(await buildCtx(env, row));
+    // The guard above narrows access_token_encrypted to `string`; pass it explicitly
+    // so buildCtx needs no non-null assertion (the narrowing is lost across the call).
+    out.push(await buildCtx(env, row, row.access_token_encrypted));
   }
   return out;
 }
 
-async function buildCtx(env: Env, row: SocialAccountRow): Promise<SocialAccountCtx> {
-  const access_token = await decrypt(env, row.access_token_encrypted!);
+async function buildCtx(
+  env: Env,
+  row: SocialAccountRow,
+  accessTokenEncrypted: string,
+): Promise<SocialAccountCtx> {
+  const access_token = await decrypt(env, accessTokenEncrypted);
   const refresh_token = row.refresh_token_encrypted
     ? await decrypt(env, row.refresh_token_encrypted)
     : null;

@@ -142,9 +142,10 @@ export function diffVersions(older: string, newer: string): ContentDiff {
     } else if (newLine === undefined && oldLine !== undefined) {
       // Line exists only in old
       removed.push(oldLine);
-    } else if (oldLine !== newLine) {
-      // Both exist but differ
-      changed.push(newLine!);
+    } else if (oldLine !== undefined && newLine !== undefined && oldLine !== newLine) {
+      // Both exist but differ (the two branches above already handled the
+      // add/remove cases, so here both lines are defined — no non-null needed)
+      changed.push(newLine);
     }
   }
 

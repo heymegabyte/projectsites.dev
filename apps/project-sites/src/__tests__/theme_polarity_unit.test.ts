@@ -91,4 +91,27 @@ describe('resolveThemePolarity', () => {
     const r = resolveThemePolarity({ logoHex: 'not-a-color' });
     expect(r.theme).toBe('dark');
   });
+
+  it('drives theme from the VALIDATED normalized hex, not the raw logoHex (non-null-! sweep)', () => {
+    // Regression for the code-quality sweep: resolveThemePolarity feeds the validated,
+    // 3→6-expanded `normalized` hex into relativeLuminance/contrastRatio (not the raw
+    // `logoHex!`). A 3-char, #-prefixed logo must resolve IDENTICALLY to its 6-char form.
+    const short = resolveThemePolarity({ logoHex: '#f0f' }); // expands to ff00ff
+    const long = resolveThemePolarity({ logoHex: '#ff00ff' });
+    expect(short.theme).toBe(long.theme);
+    expect(short.reason).toBe(long.reason);
+    // a dark 3-char logo still drives a LIGHT theme via the normalized-luminance path
+    expect(resolveThemePolarity({ logoHex: '#111' }).theme).toBe('light');
+    // the mid-luminance contrast path also uses `normalized` — a 3-char logo failing
+    // contrast against a candidate bg flips identically to its 6-char form
+    const shortContrast = resolveThemePolarity({
+      logoHex: '#b0b',
+      candidateBackgrounds: ['#bb00bb'],
+    });
+    const longContrast = resolveThemePolarity({
+      logoHex: '#bb00bb',
+      candidateBackgrounds: ['#bb00bb'],
+    });
+    expect(shortContrast.theme).toBe(longContrast.theme);
+  });
 });

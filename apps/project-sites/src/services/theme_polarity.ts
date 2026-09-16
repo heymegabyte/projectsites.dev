@@ -136,7 +136,7 @@ export function resolveThemePolarity(input: ThemePolarityInput): ThemePolarityDe
     };
   }
 
-  const lum = relativeLuminance(logoHex!);
+  const lum = relativeLuminance(normalized);
 
   // (2) Dark logo → light theme.
   if (lum < DARK_LOGO_MAX) {
@@ -158,7 +158,7 @@ export function resolveThemePolarity(input: ThemePolarityInput): ThemePolarityDe
 
   // (3) Mid-luminance logo: default dark, flip to light on any contrast failure.
   const failing = (candidateBackgrounds ?? []).find(
-    (bg) => contrastRatio(logoHex!, bg) < MIN_LOGO_CONTRAST,
+    (bg) => contrastRatio(normalized, bg) < MIN_LOGO_CONTRAST,
   );
   if (failing) {
     return {

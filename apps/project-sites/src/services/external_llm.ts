@@ -523,7 +523,8 @@ async function callAnthropic(
   if (messages) {
     resolvedMessages = messages;
   } else if (hasDocuments) {
-    const documentBlocks = options.documents!.map((doc) => {
+    const documents = options.documents ?? [];
+    const documentBlocks = documents.map((doc) => {
       const base: Record<string, unknown> = {
         type: 'document',
         citations: { enabled: true },

@@ -65,17 +65,19 @@ export async function provisionInfra(
   try {
     if (infra.includes('postgres')) {
       const name = `app-${ctx.slug}-${ctx.instanceId.slice(0, 8)}`;
-      result.postgres = await neon.createProject(env, name);
+      const createdPg = await neon.createProject(env, name);
+      result.postgres = createdPg;
       rollback.push(() =>
-        neon.deleteProject(env, result.postgres!.projectId).catch(() => undefined),
+        neon.deleteProject(env, createdPg.projectId).catch(() => undefined),
       );
     }
 
     if (infra.includes('redis')) {
       const name = `app-${ctx.slug}-${ctx.instanceId.slice(0, 8)}`;
-      result.redis = await upstash.createDatabase(env, name);
+      const createdRedis = await upstash.createDatabase(env, name);
+      result.redis = createdRedis;
       rollback.push(() =>
-        upstash.deleteDatabase(env, result.redis!.databaseId).catch(() => undefined),
+        upstash.deleteDatabase(env, createdRedis.databaseId).catch(() => undefined),
       );
     }
 
