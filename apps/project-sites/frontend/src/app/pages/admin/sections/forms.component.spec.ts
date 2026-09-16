@@ -239,6 +239,24 @@ describe('AdminFormsComponent (cohesion + a11y, convergence r17)', () => {
       .withContext('no link when there is no email').toBeNull();
   });
 
+  // A projectsites-generated site ALREADY ships a working contact form — the empty state must NOT
+  // tell the owner to "Drop the app.js snippet on your site" (confusing jargon for a site we built,
+  // per embarrassingly-easy-to-use). It leads with the form being live + sets the expectation that
+  // messages land here; the snippet stays only as a secondary "embed elsewhere" affordance.
+  it('empty state leads with the form being LIVE, not the confusing "drop the app.js snippet" instruction', () => {
+    build({ id: 'site-1' });
+    component.submissions.set([]);
+    component.loading.set(false);
+    component.loadError.set(null);
+    fixture.detectChanges();
+    const empty = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="forms-empty"]');
+    expect(empty).withContext('empty state renders with 0 submissions').toBeTruthy();
+    const body = (empty?.querySelector('.empty-body')?.textContent ?? '').toLowerCase();
+    expect(body).withContext('no confusing snippet-install instruction').not.toContain('drop the app.js snippet');
+    expect(body).withContext('leads with the form already being live').toContain('already live');
+    expect(body).withContext('sets the expectation that messages land here').toContain('lands right here');
+  });
+
   // When submissions exist but the active VIEW filters out every one, the table
   // rendered header-only (blank body). Show a "no match" notice + a Show-all
   // reset instead. (filtered-list-blank class — forms was missed in that sweep.)

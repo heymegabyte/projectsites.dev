@@ -467,10 +467,10 @@ const POLL_INTERVAL_MS = 10_000;
               <path d="M4 4h16v12H5.5L4 18z"/><path d="M8 9h8M8 13h5"/>
             </svg>
             <h3 class="empty-title">No submissions yet</h3>
-            <p class="empty-body">Drop the app.js snippet on your site and form replies stream in here — no backend, no config.</p>
+            <p class="empty-body">Your contact form is already live on your site — the moment a visitor sends a message, it lands right here. No backend, no setup.</p>
             <button type="button" class="empty-snippet-btn" data-testid="forms-copy-snippet"
                     (click)="copyInstallSnippet()"
-                    [brnTooltip]="'Copy the app.js script tag to paste on your site'">
+                    [brnTooltip]="'Want this form on another site too? Copy the app.js script tag'">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               Copy install snippet
             </button>
