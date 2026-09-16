@@ -2193,9 +2193,8 @@ export default {
     // scheduled(). Flag-off is a no-op (no rows are ever written while the routes 404).
     if (_event.cron === '* * * * *') {
       try {
-        const { fireDuePublishSchedules } = await import(
-          '../libs/features/site_publish_schedule/service.js'
-        );
+        const { fireDuePublishSchedules } =
+          await import('../libs/features/site_publish_schedule/service.js');
         const { fired, skipped } = await fireDuePublishSchedules(env, Date.now());
         if (fired > 0 || skipped > 0) {
           console.warn(
