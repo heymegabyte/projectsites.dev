@@ -14,8 +14,8 @@ marketing:
   integrations:    { status: covered, specs: [marketing-a11y.e2e.ts, marketing-responsive.e2e.ts] }
   contact:         { status: covered, specs: [marketing-a11y.e2e.ts, marketing-responsive.e2e.ts, contact-form.e2e.ts] }
   signin:          { status: covered, specs: [signin.spec.ts, marketing-a11y.e2e.ts, marketing-responsive.e2e.ts] }
-  changelog:       { status: blocked, specs: [marketing-a11y.e2e.ts], reason: "worker-served HTML; needs worker deploy (Docker)" }
-  status_page:     { status: blocked, specs: [marketing-a11y.e2e.ts], reason: "worker-served HTML; needs worker deploy (Docker)" }
+  changelog:       { status: covered, specs: [marketing-a11y.e2e.ts], note: "AL-668 — worker fix deployed; re-added to marketing-a11y ROUTES (4/4 axe-clean on PROD) + homepage-first CLICK journey home→Developers→Changelog in e2e/admin-verify/verify-platform-footer-pages.mjs" }
+  status_page:     { status: covered, specs: [marketing-a11y.e2e.ts], note: "AL-668 — link-in-text-block fixed; re-added to marketing-a11y ROUTES (axe-clean on PROD, 'All systems operational') + e2e/admin-verify/verify-platform-footer-pages.mjs" }
   mobile:          { status: covered, specs: [mobile.spec.ts, marketing-responsive.e2e.ts] }
   jsonld:          { status: covered, specs: [marketing-jsonld.e2e.ts], note: "FAQPage only where visible; single route-accurate WebPage + BreadcrumbList per route" }
   internal_links:  { status: covered, specs: [marketing-links.e2e.ts], note: "no 4xx/5xx on internal nav links" }

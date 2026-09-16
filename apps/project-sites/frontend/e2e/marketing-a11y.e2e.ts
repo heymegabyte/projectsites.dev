@@ -39,22 +39,18 @@ const ROUTES = [
   // coverage GAPS in this gate: /pricing is a high-traffic conversion page
   // (i18n-rewritten iter-170) and /developers is the MCP acquisition surface.
   '/pricing', '/developers',
+  // RE-ADDED AL-668 — the worker fixes are deployed + both verified axe-clean on
+  // PROD (0 serious/critical, STRICT run) via e2e/admin-verify/verify-platform-footer-pages.mjs.
+  //   /status    → the `link-in-text-block` on the `/health/deep` footer link is fixed
+  //                (footer <a> now underlined); "All systems operational" renders clean.
+  //   /changelog → the flag-off/404 is resolved (public_changelog live, accessible HTML);
+  //                "What we shipped…" renders clean + is CLICK-reachable (home → Developers → Changelog).
+  '/status', '/changelog',
 ];
 // STILL EXCLUDED (genuinely blocked, NOT faked):
-//   /status    → `link-in-text-block` on the `/health/deep` footer link.
-//                FIXED IN SOURCE (apps/project-sites/src/index.ts — footer a
-//                now text-decoration:underline). Awaiting worker deploy
-//                (local wrangler needs Docker; lands via push → Workers Builds).
-//   /changelog → flag-off (public_changelog) returned Hono's bare default 404
-//                (no <title>/lang). FIXED IN SOURCE via a global app.notFound()
-//                serving accessible HTML (apps/project-sites/src/lib/
-//                not_found_page.ts, unit-tested in not_found_page.test.ts).
-//                Awaiting the same worker deploy.
 //   /search    → 18 contrast violations are a TRANSIENT loading-skeleton flash
 //                (0 at 900ms, 18 at ~1000ms, 0 at 1200ms+) — settles clean;
 //                adding it would make the gate flaky. Not a stable defect.
-// Re-add /status + /changelog to ROUTES once the worker fix is deployed
-// (verify live: both should be axe-clean after Workers Builds picks up the push).
 
 test.describe('marketing — public pages WCAG 2.2 AA (axe-core)', () => {
   test.describe.configure({ retries: 2 });

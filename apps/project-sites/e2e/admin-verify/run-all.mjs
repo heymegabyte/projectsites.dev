@@ -66,6 +66,7 @@ const PROBES = [
   { label: 'create-wizard', file: 'verify-create-wizard.mjs', env: {} },
   { label: 'owner-site-journey', file: 'verify-owner-site-journey.mjs', env: {} },
   { label: 'waiting-page', file: 'verify-waiting-page.mjs', env: {} },
+  { label: 'platform-footer-pages', file: 'verify-platform-footer-pages.mjs', env: {} },
   { label: 'lead-claim-funnel', file: 'verify-lead-claim-funnel.mjs', env: {} },
   { label: 'billing-checkout', file: 'verify-billing-checkout.mjs', env: {} },
   { label: 'billing-full-flow', file: 'verify-billing-full-flow.mjs', env: {} },
