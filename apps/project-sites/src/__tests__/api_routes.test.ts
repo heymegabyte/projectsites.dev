@@ -488,7 +488,9 @@ describe('OAuth start persists returnUrl into oauth_states (deep-link round-trip
     } as Partial<Env>);
     const res = await makeRequest(app, env, '/api/auth/github?returnUrl=/admin/analytics');
     expect(res.status).toBe(302);
-    const gh = oauthStateInserts().find((c: unknown[]) => (c[2] as { provider?: string })?.provider === 'github');
+    const gh = oauthStateInserts().find(
+      (c: unknown[]) => (c[2] as { provider?: string })?.provider === 'github',
+    );
     expect(gh?.[2]).toEqual(expect.objectContaining({ redirect_url: '/admin/analytics' }));
   });
 });
