@@ -1059,7 +1059,14 @@ export const validateConversionFraming = (files: BuildFile[]): Violation[] => {
   const RETAIL =
     /\b(shop|store|boutique|jewel\w*|goldsmith|florist|book(?:shop|store)|record\s?store|vinyl|hardware|furniture|gift\s?shop|apparel|clothing|home\s?goods|\bgoods\b|market|thrift|consignment|antique\w*|nursery|garden\s?cent\w*|shoe\w*|\bwatch\w*)\b/i;
   const isQuickserve = QUICKSERVE.test(head);
-  const isRetail = RETAIL.test(head);
+  // A SERVICE business colloquially called a "…shop" (tattoo / barber / body / auto / repair /
+  // machine / brake / muffler shop) is NOT a retail storefront — it's BOOKED, not checked out. The
+  // bare `shop` token in RETAIL would otherwise mis-classify it as retail and SUPPRESS the
+  // cart-framing guard below → a "tattoo shop" (or "barber shop") with AI-generated "Free shipping /
+  // Shop now" sections would ship UNFLAGGED (the three-kings-tattoo class — it dodged this only
+  // because its title said "studio", but "tattoo shop" is the far more common phrasing).
+  const SERVICE_SHOP = /\b(tattoo|barber|body|auto|repair|machine|brake|muffler|welding|fix[- ]?it)\s?shop\b/i;
+  const isRetail = RETAIL.test(head) && !SERVICE_SHOP.test(head);
 
   const RESERVATION =
     /\b(reserve a table|reservations?\s+welcome|book (?:a|your) table|easy reservations?|make a reservation|table reservations?)\b/i;

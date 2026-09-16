@@ -106,6 +106,38 @@ describe('validateConversionFraming (AL-421: no full-service reservation framing
     ]);
     expect(v).toHaveLength(0);
   });
+
+  // A SERVICE business colloquially called a "…shop" (tattoo/barber/body/auto shop) must NOT be
+  // mis-classified retail by the bare `shop` token — else its AI-generated cart sections ship
+  // UNFLAGGED (the three-kings-tattoo class: a tattoo studio that shipped "free shipping over $50 /
+  // Shop now"). Before the SERVICE_SHOP guard, "tattoo shop" → isRetail=true → this was suppressed.
+  it('FLAGS cart framing on a "tattoo shop" (a service colloquially called a shop, not retail)', () => {
+    const v = validateConversionFraming([
+      shell("Brooklyn's room after dark", 'Three Kings Tattoo — neighborhood tattoo shop'),
+      file('assets/index-abc.js', 'const a="free shipping over $50";const b="Shop now";'),
+    ]);
+    expect(v).toHaveLength(1);
+    expect(v[0].code).toBe('conversion.cart_on_non_retail');
+    expect(v[0].severity).toBe('warn');
+  });
+
+  it('FLAGS cart framing on "barber shop" + "auto body shop" (service shops)', () => {
+    for (const title of ['Fade Kings — barber shop', 'Ace Collision — auto body shop']) {
+      const v = validateConversionFraming([
+        shell('Best in town', title),
+        file('assets/index-abc.js', 'const a="Add to cart";const b="Free shipping";'),
+      ]);
+      expect(v.some((x) => x.code === 'conversion.cart_on_non_retail')).toBe(true);
+    }
+  });
+
+  it('does NOT over-suppress a genuine "gift shop" (retail — the SERVICE_SHOP guard is precise)', () => {
+    const v = validateConversionFraming([
+      shell("Austin's favorite gift shop", 'The Paper Place — gift shop'),
+      file('assets/index-abc.js', 'const t="Shop now";const u="Free shipping over $50";'),
+    ]);
+    expect(v).toHaveLength(0); // a gift shop genuinely sells + ships → retail, cart on-brand
+  });
 });
 
 const html = (body: string, head = '') => `<!DOCTYPE html>

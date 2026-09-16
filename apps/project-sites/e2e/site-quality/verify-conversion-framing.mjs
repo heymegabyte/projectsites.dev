@@ -37,13 +37,17 @@ const RESERVATION_NEGATED =
 const CART_FRAMING = /\b(add to cart|free shipping|shop now|browse (?:the )?collection|30[- ]day returns?)\b/i;
 const RETAIL_SIGNAL =
   /\b(shop|store|boutique|jewel\w*|florist|book(?:shop|store)|record store|hardware|furniture|gift shop|apparel|clothing)\b/i;
+// A SERVICE business colloquially called a "…shop" (tattoo/barber/body/auto/repair shop) is NOT
+// retail — the bare `shop` token would otherwise mis-classify it as retail and SUPPRESS the
+// cart-framing check (the three-kings-tattoo class). Mirrors build_validators.validateConversionFraming.
+const SERVICE_SHOP = /\b(tattoo|barber|body|auto|repair|machine|brake|muffler|welding|fix[- ]?it)\s?shop\b/i;
 
 function scan(text, h1, title) {
   const head = `${h1}\n${title}`.toLowerCase();
   const body = text.toLowerCase();
   const findings = [];
   const isQuickserve = QUICKSERVE_SIGNAL.test(head);
-  const isRetail = RETAIL_SIGNAL.test(head);
+  const isRetail = RETAIL_SIGNAL.test(head) && !SERVICE_SHOP.test(head);
   if (isQuickserve) {
     // strip negated reservation phrases, then look for affirmative framing
     const stripped = body.replace(RESERVATION_NEGATED, ' ');
