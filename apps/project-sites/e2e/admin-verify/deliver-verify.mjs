@@ -69,7 +69,9 @@ const wmAsset = await pngInfo('/logo-wordmark.png');
 // AL-224 verdict: the navbar icon MUST carry alpha (transparent), never an opaque box.
 const iconTransparent = iconAsset.status === 200 ? iconAsset.hasAlpha === true : null;
 
-await page.screenshot({ path: '/tmp/deliver-jenis.png', fullPage: false });
+// Name the artifact per-SLUG in the repo (was hardcoded /tmp/deliver-jenis.png — a Jeni's
+// leftover that mislabeled + overwrote every later delivery's screenshot).
+await page.screenshot({ path: `e2e/admin-verify/_deliver-verify-${SLUG}.png`, fullPage: false }).catch(() => {});
 await browser.close();
 
 console.log(`\n=== DELIVERY VERIFY — ${base} ===`);
