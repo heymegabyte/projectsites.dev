@@ -393,6 +393,25 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Non-operator or lead_scanner OFF → 404 (never 403 leak)',
     ],
   },
+  live_build_stream: {
+    checklist: [
+      'Build container streams Claude Code stdout/stderr line-by-line to POST /api/internal/build-log',
+      'HMAC-signed (x-build-sig + INTERNAL_BUILD_SECRET) — same trust boundary as the build-status callback',
+      'Throttled + bounded: ≤24 lines/POST, ≤1 POST/3.5s, ≤1500 lines/build — never floods audit_logs',
+      'Secret-redacted twice: services/build_log.ts (worker, at rest) + redactBuildLogSecrets (FE, at render)',
+      '/waiting terminal renders it live via getSiteLogs poll → toBuildLogLine (coloring + heartbeat + auto-scroll)',
+      'Flag OFF → the ingest 404s (fail-closed); the container POSTs harmlessly and /waiting shows phase-steps only',
+    ],
+    explanation:
+      'STREAMING BUILD THEATER — turns the /waiting page into a live, trust-building view of the AI actually building the site. The build container (container-server.mjs) captures the Claude Code process stdout/stderr, buffers complete lines, and POSTs throttled, bounded, secret-redacted batches to the worker’s HMAC-signed ingest (POST /api/internal/build-log). The worker (gated by THIS flag, fail-closed to 404) redacts + caps each batch (build_log.ts) and writes one audit_logs row per line (action claude.output); the existing /waiting terminal poll (getSiteLogs → toBuildLogLine) renders them with tasteful coloring (green success / cyan phase / red error) + a heartbeat so a long build never looks frozen. Bounded end-to-end so a runaway build can neither flood audit_logs nor break the build (every stream fault is fail-soft). OFF is a clean no-op: the container’s POSTs 404 and the terminal shows only the coarse phase-step lines.',
+    smoke_test: [
+      'Deliver a site (e2e/admin-verify/deliver-business.mjs) and open /waiting?site=<id> during the build',
+      'The claude-code terminal streams live stdout lines within ~10-20s of the generating phase',
+      'Lines are colored (created/✓ green, running/building cyan, error red) + the heartbeat shows elapsed',
+      'No secret-shaped token ever renders (KEY=…/sk-…/Bearer … show ***REDACTED***)',
+      'Flag OFF → the terminal shows only phase-step lines (no live claude output), no console errors',
+    ],
+  },
   marketing_dashboard: {
     checklist: [
       'Widget-based analytics dashboard: 11 default widgets across 6 sources (website/email/social/ads/crm/booking)',
