@@ -8,6 +8,7 @@
  */
 import type { Context } from 'hono';
 import type { Env, Variables } from '../../../src/types/env.js';
+import { requireOrgId } from '../../../src/middleware/require_org.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
 import { getActivityFeed } from './service.js';
 
@@ -15,12 +16,12 @@ import { getActivityFeed } from './service.js';
 export async function handleActivityFeed(
   c: Context<{ Bindings: Env; Variables: Variables }>,
 ): Promise<Response> {
-  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: c.get('orgId')! }))) {
+  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: requireOrgId(c) }))) {
     return c.notFound();
   }
   const limit = Math.min(Number(c.req.query('limit') ?? '50'), 100);
   const cursor = c.req.query('cursor') ?? undefined;
-  const { entries, hasMore } = await getActivityFeed(c.env, c.get('orgId')!, limit, cursor);
+  const { entries, hasMore } = await getActivityFeed(c.env, requireOrgId(c), limit, cursor);
   return c.json({
     data: entries,
     cursor: entries.length > 0 ? entries[entries.length - 1].timestamp : null,
