@@ -1324,12 +1324,15 @@ describe('finalizeSeoInvariants (C.1 structured-data + meta backstop)', () => {
   it('still PREFERS the full city when it fits — the region fallback only fires on overshoot', () => {
     const t = 'Vanta Strength Club — Train Hard, Get Strong'; // 44 chars; " | Austin" (9) → 53, fits
     const shell = `<head><title>${t}</title><meta name="description" content="${'word '.repeat(28).trim()}"><link rel="canonical" href="https://x.projectsites.dev/"></head>`;
-    const [files] = finalizeSeoInvariants([{ path: 'index.html', size: shell.length, text: shell }], {
-      businessName: 'Vanta Strength Club',
-      hostname: 'https://x.projectsites.dev',
-      city: 'Austin',
-      region: 'TX',
-    });
+    const [files] = finalizeSeoInvariants(
+      [{ path: 'index.html', size: shell.length, text: shell }],
+      {
+        businessName: 'Vanta Strength Club',
+        hostname: 'https://x.projectsites.dev',
+        city: 'Austin',
+        region: 'TX',
+      },
+    );
     const title = (files[0].text as string).match(/<title[^>]*>([\s\S]*?)<\/title>/i)![1];
     expect(title).toContain('Austin'); // full city preferred (it fits)
     expect(title).not.toMatch(/\| TX$/); // region NOT used when the city lands in-range
