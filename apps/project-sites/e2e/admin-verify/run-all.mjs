@@ -52,6 +52,7 @@ const PROBES = [
   { label: 'team-seat-client-gate', file: 'verify-team-seat-client-gate.mjs', env: {} },
   { label: 'auth-guard', file: 'verify-auth-guard.mjs', env: {} },
   { label: 'super-admin-guard', file: 'verify-super-admin-guard.mjs', env: {} },
+  { label: 'admin-security-invariants', file: 'verify-admin-security-invariants.mjs', env: {} },
   { label: 'analytics-tabs-live', file: 'verify-analytics-tabs-live.mjs', env: {} },
   { label: 'billing-tabs-live', file: 'verify-billing-tabs-live.mjs', env: {} },
   { label: 'billing-widgets-resolve', file: 'verify-billing-widgets-resolve.mjs', env: {} },
