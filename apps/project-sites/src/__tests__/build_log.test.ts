@@ -91,7 +91,9 @@ describe('build_log — prepareBuildLogLines', () => {
 
 describe('build_log — isBuildLogNoise', () => {
   it('flags Claude Code internal control-plane lines', () => {
-    expect(isBuildLogNoise('[claude-code:unrecognized_model] {"model":"deepseek-chat"}')).toBe(true);
+    expect(isBuildLogNoise('[claude-code:unrecognized_model] {"model":"deepseek-chat"}')).toBe(
+      true,
+    );
     expect(isBuildLogNoise('foo unrecognized_model bar')).toBe(true);
     expect(isBuildLogNoise('query_source":"generate_session_title"')).toBe(true);
     expect(isBuildLogNoise("isn't described by this version's model catalog")).toBe(true);
