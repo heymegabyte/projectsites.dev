@@ -65,6 +65,7 @@ const PROBES = [
   ...causal,
   { label: 'guest-funnel', file: 'verify-guest-funnel.mjs', env: {} },
   { label: 'guest-funnel-keyboard', file: 'verify-guest-funnel-keyboard.mjs', env: {} },
+  { label: 'pivot-speed', file: 'verify-conversion-pivot-speed.mjs', env: {} },
   { label: 'create-wizard', file: 'verify-create-wizard.mjs', env: {} },
   { label: 'owner-site-journey', file: 'verify-owner-site-journey.mjs', env: {} },
   { label: 'waiting-page', file: 'verify-waiting-page.mjs', env: {} },
