@@ -2,6 +2,7 @@ import {
   redactBuildLogSecrets,
   toBuildLogLine,
   classifyLogLine,
+  isBuildLogNoise,
   resolveBuildOutcome,
   formatHeartbeat,
 } from './waiting.component';
@@ -148,5 +149,28 @@ describe('classifyLogLine (STREAMING BUILD THEATER coloring)', () => {
   it('does not confuse creating (phase) with created (success)', () => {
     expect(classifyLogLine('claude.output', 'creating components')).toBe('phase');
     expect(classifyLogLine('claude.output', 'created components')).toBe('success');
+  });
+});
+
+describe('isBuildLogNoise (drops control-plane + transport noise from the terminal)', () => {
+  it('drops Claude Code control-plane + provider-transport lines', () => {
+    // Ground truth 2026-09-16: these are the exact lines a dead build-LLM balance streamed —
+    // 42/43 rows. An owner watching their site build must never see them.
+    for (const m of [
+      'API Error: 402 Insufficient Balance',
+      'API Error: 429 Too Many Requests',
+      '[claude-code:unrecognized_model] {"model":"deepseek-chat"}',
+      '"deepseek-chat" isn\'t described by this version\'s model catalog',
+      'map it with behavesAs on a modelPicker row',
+      '{"query_source":"generate_session_title"}',
+    ]) {
+      expect(isBuildLogNoise(m)).toBe(true);
+    }
+  });
+
+  it('keeps real narration AND genuine build errors (specific, not generic)', () => {
+    for (const m of ['writing src/App.tsx', '✓ created 12 sections', "Error: Cannot find module './Hero'"]) {
+      expect(isBuildLogNoise(m)).toBe(false);
+    }
   });
 });

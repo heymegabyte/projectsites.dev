@@ -1,6 +1,7 @@
 import {
   redactStreamSecrets,
   prepareBuildLogLines,
+  isBuildLogNoise,
   MAX_LINES_PER_CALL,
   MAX_LINE_CHARS,
 } from '../services/build_log';
@@ -68,5 +69,46 @@ describe('build_log — prepareBuildLogLines', () => {
   it('caps each line at MAX_LINE_CHARS', () => {
     const [line] = prepareBuildLogLines(['x'.repeat(5000)]);
     expect(line).toHaveLength(MAX_LINE_CHARS);
+  });
+
+  it('drops Claude Code control-plane + provider-transport NOISE (trust-building theater)', () => {
+    // Ground truth 2026-09-16: 42/43 streamed rows were this exact noise (a dead DeepSeek
+    // balance 402'd every build), so the /waiting terminal showed scary infra errors, not a
+    // build. The filter keeps the theater clean: real narration passes, control-plane noise drops.
+    const raw = [
+      'API Error: 402 Insufficient Balance',
+      '[claude-code:unrecognized_model] {"model":"deepseek-chat","query_source":"generate_session_title"}',
+      '"deepseek-chat" isn\'t described by this version\'s model catalog; map it with behavesAs on a modelPicker row',
+      'writing src/components/Hero.tsx (2.4 KB)', // real work — MUST survive
+      'created 12 sections, running npm build', // real work — MUST survive
+    ];
+    expect(prepareBuildLogLines(raw)).toEqual([
+      'writing src/components/Hero.tsx (2.4 KB)',
+      'created 12 sections, running npm build',
+    ]);
+  });
+});
+
+describe('build_log — isBuildLogNoise', () => {
+  it('flags Claude Code internal control-plane lines', () => {
+    expect(isBuildLogNoise('[claude-code:unrecognized_model] {"model":"deepseek-chat"}')).toBe(true);
+    expect(isBuildLogNoise('foo unrecognized_model bar')).toBe(true);
+    expect(isBuildLogNoise('query_source":"generate_session_title"')).toBe(true);
+    expect(isBuildLogNoise("isn't described by this version's model catalog")).toBe(true);
+    expect(isBuildLogNoise('map it with behavesAs on a modelPicker row')).toBe(true);
+  });
+
+  it('flags provider/transport error lines that would scare an owner', () => {
+    expect(isBuildLogNoise('API Error: 402 Insufficient Balance')).toBe(true);
+    expect(isBuildLogNoise('API Error: 429 Too Many Requests')).toBe(true);
+    expect(isBuildLogNoise('the account has Insufficient Balance')).toBe(true);
+  });
+
+  it('does NOT flag real build narration or genuine build errors', () => {
+    expect(isBuildLogNoise('writing src/components/Hero.tsx')).toBe(false);
+    expect(isBuildLogNoise('npm run build → 19 routes')).toBe(false);
+    // A REAL build error the owner benefits from (classifyLogLine colors it red) must survive.
+    expect(isBuildLogNoise("Error: Cannot find module './Hero'")).toBe(false);
+    expect(isBuildLogNoise('✓ created 12 sections')).toBe(false);
   });
 });

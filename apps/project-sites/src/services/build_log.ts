@@ -44,15 +44,55 @@ export function redactStreamSecrets(text: string): string {
 }
 
 /**
+ * Claude Code control-plane + provider-transport lines that must NEVER reach the
+ * owner-facing /waiting terminal. These are internal telemetry / model-catalog
+ * warnings and raw upstream API errors (e.g. a `402 Insufficient Balance` when the
+ * build LLM balance is exhausted) — meaningless AND alarming to a business owner
+ * watching their site build. Dropping them keeps the theater trust-building: real
+ * narration streams; control-plane noise + scary infra errors do not.
+ *
+ * SPECIFIC by design — matches only Claude Code's own control-plane tags + upstream
+ * transport errors, never a generic `error`, so a GENUINE build error
+ * (`Error: Cannot find module …`) still streams (and `classifyLogLine` colors it red).
+ */
+const BUILD_LOG_NOISE: readonly RegExp[] = [
+  /\[claude-code:/i, // internal control-plane tag, e.g. [claude-code:unrecognized_model]
+  /\bunrecognized_model\b/i,
+  /\bgenerate_session_title\b/i,
+  /model catalog/i, // "…isn't described by this version's model catalog…"
+  /\bbehavesAs\b/i, // "…map it with behavesAs on a modelPicker row"
+  /"query_source"\s*:/i, // the raw JSON control payload
+  /^\s*API Error:\s*\d{3}\b/i, // upstream provider transport error (402 / 429 / 5xx)
+  /\binsufficient balance\b/i, // billing/quota exhaustion — never show to the owner
+];
+
+/**
+ * True when a build-log line is Claude Code control-plane / provider-transport NOISE
+ * that must be dropped before it reaches `audit_logs` or the /waiting terminal. Pure +
+ * exported for unit coverage; mirrored on the frontend (`waiting.component` isBuildLogNoise)
+ * so the stored row AND the rendered line stay clean.
+ *
+ * @param line - One raw stdout line from the build container.
+ * @returns `true` to DROP the line, `false` to keep it.
+ * @example
+ * isBuildLogNoise('API Error: 402 Insufficient Balance') // → true
+ * isBuildLogNoise('writing src/components/Hero.tsx')      // → false
+ */
+export function isBuildLogNoise(line: string): boolean {
+  return BUILD_LOG_NOISE.some((re) => re.test(line));
+}
+
+/**
  * Normalize a raw `lines` payload into the bounded, redacted set that will be
  * written to `audit_logs`. Drops non-strings + blank lines, trims trailing
- * whitespace, caps the batch at {@link MAX_LINES_PER_CALL} and each line at
- * {@link MAX_LINE_CHARS}, and redacts secrets. Pure — same input → same output.
+ * whitespace, drops Claude Code control-plane + provider-transport {@link isBuildLogNoise},
+ * caps the batch at {@link MAX_LINES_PER_CALL} and each line at {@link MAX_LINE_CHARS},
+ * and redacts secrets. Pure — same input → same output.
  *
  * @param rawLines - The `lines` field from the ingest payload (untrusted `unknown`).
- * @returns Up to {@link MAX_LINES_PER_CALL} clean, redacted, non-empty lines.
+ * @returns Up to {@link MAX_LINES_PER_CALL} clean, redacted, non-empty, non-noise lines.
  * @example
- * prepareBuildLogLines(['  writing App.tsx  ', '', 42, 'TOKEN=sk-secret'])
+ * prepareBuildLogLines(['  writing App.tsx  ', '', 42, 'TOKEN=sk-secret', 'API Error: 402 Insufficient Balance'])
  * // → ['writing App.tsx', 'TOKEN=***REDACTED***']
  */
 export function prepareBuildLogLines(rawLines: unknown): string[] {
@@ -60,6 +100,7 @@ export function prepareBuildLogLines(rawLines: unknown): string[] {
     .filter((l): l is string => typeof l === 'string')
     .map((l) => l.replace(/\s+$/, '').trim())
     .filter(Boolean)
+    .filter((l) => !isBuildLogNoise(l))
     .slice(0, MAX_LINES_PER_CALL)
     .map((l) => redactStreamSecrets(l).slice(0, MAX_LINE_CHARS));
 }

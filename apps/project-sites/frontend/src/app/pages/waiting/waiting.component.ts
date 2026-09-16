@@ -112,6 +112,35 @@ export function redactBuildLogSecrets(text: string): string {
     .replace(/\bBearer\s+[A-Za-z0-9._-]{10,}\b/gi, 'Bearer ***REDACTED***');
 }
 
+/**
+ * Claude Code control-plane + provider-transport lines that must NEVER render in the
+ * owner-facing terminal — internal telemetry / model-catalog warnings and raw upstream
+ * API errors (e.g. `402 Insufficient Balance` when the build LLM balance is exhausted).
+ * Server mirror of `build_log.ts` isBuildLogNoise (defense-in-depth: the stored row is
+ * already filtered, but old rows + any future drift are also scrubbed here on render).
+ * SPECIFIC by design — a GENUINE build error (`Error: Cannot find module …`) still renders
+ * (and `classifyLogLine` colors it red); only Claude Code's own noise + transport errors drop.
+ */
+const BUILD_LOG_NOISE: readonly RegExp[] = [
+  /\[claude-code:/i,
+  /\bunrecognized_model\b/i,
+  /\bgenerate_session_title\b/i,
+  /model catalog/i,
+  /\bbehavesAs\b/i,
+  /"query_source"\s*:/i,
+  /^\s*API Error:\s*\d{3}\b/i,
+  /\binsufficient balance\b/i,
+];
+
+/**
+ * True when a build-log line is Claude Code control-plane / provider-transport NOISE that
+ * must be dropped before it renders in the /waiting terminal. Pure + exported for unit
+ * coverage; mirrors the server `build_log.ts` isBuildLogNoise so display == stored intent.
+ */
+export function isBuildLogNoise(text: string): boolean {
+  return BUILD_LOG_NOISE.some((re) => re.test(text));
+}
+
 /** Humanize a raw event action (`workflow.step.upload_started` → `upload started`). */
 function humanizeAction(action: string): string {
   return action
@@ -228,8 +257,17 @@ export class WaitingComponent implements OnInit, OnDestroy {
 
   stepProgress = computed(() => `Step ${this.currentStep()} of ${this.totalSteps}`);
 
-  /** Redacted, human/raw terminal lines for the live-logs widget. */
-  logLines = computed<BuildLogLine[]>(() => this.logs().map(toBuildLogLine));
+  /**
+   * Redacted, human/raw terminal lines for the live-logs widget. Claude Code
+   * control-plane + provider-transport noise (isBuildLogNoise) is dropped so the
+   * owner sees a clean build story, never `402 Insufficient Balance` or model-catalog
+   * warnings — a real build error still renders (red) because the filter is specific.
+   */
+  logLines = computed<BuildLogLine[]>(() =>
+    this.logs()
+      .map(toBuildLogLine)
+      .filter((l) => !isBuildLogNoise(l.text)),
+  );
 
   /** Per-phase chips with live state derived from the current step + status. */
   phases = computed<BuildPhaseChip[]>(() => {
