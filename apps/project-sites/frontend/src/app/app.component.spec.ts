@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { Subject, of } from 'rxjs';
 import { AppComponent } from './app.component';
 import { AuthService } from './services/auth.service';
@@ -110,6 +110,68 @@ describe('AppComponent — restoreSession validates SILENTLY (no false-alarm toa
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges(); // ngOnInit → restoreSession (isLoggedIn=true)
     expect(getMe).toHaveBeenCalledWith({ silent: true });
+    fixture.destroy();
+  });
+});
+
+/**
+ * handleAuthCallback() is the post-sign-in landing seam: the OAuth/magic-link callback
+ * 302s the browser to `<returnUrl>?token=…&email=…&auth_callback=…`. It must (a) establish
+ * the session, (b) strip the token from the URL, and (c) land the owner on the returnUrl deep
+ * route they were bounced from — NOT dump them on the dashboard to re-navigate. Regression for
+ * the bug where it hardcoded `router.navigate(['/admin'])`, defeating the returnUrl round-trip.
+ */
+describe('AppComponent — handleAuthCallback honors the returnUrl deep-link', () => {
+  const originalUrl = window.location.href;
+
+  function boot(startUrl: string, business: unknown = null) {
+    const setSession = jasmine.createSpy('setSession');
+    TestBed.configureTestingModule({
+      imports: [AppComponent],
+      providers: [
+        provideRouter([]),
+        { provide: AuthService, useValue: { isLoggedIn: () => false, getSelectedBusiness: () => business, getMode: () => 'create', setSession } },
+        { provide: ApiService, useValue: { getMe: () => of({ data: null }), post: () => of({}) } },
+        { provide: MetaService, useValue: { init: () => undefined } },
+        { provide: AppShellService, useValue: { applyLanguage: () => undefined } },
+        { provide: TelemetryService, useValue: { init: () => undefined, pageView: () => undefined, track: () => undefined, identify: () => undefined } },
+        { provide: TranslateService, useValue: { currentLang: 'en', onLangChange: new Subject() } },
+      ],
+    });
+    const router = TestBed.inject(Router);
+    const navByUrl = spyOn(router, 'navigateByUrl').and.returnValue(Promise.resolve(true));
+    const navigate = spyOn(router, 'navigate').and.returnValue(Promise.resolve(true));
+    // Set the landed URL the callback would have produced, THEN boot (ngOnInit → handleAuthCallback).
+    window.history.replaceState({}, '', startUrl);
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+    return { fixture, navByUrl, navigate, setSession };
+  }
+
+  afterEach(() => {
+    window.history.replaceState({}, '', originalUrl); // restore for sibling specs
+    TestBed.resetTestingModule();
+  });
+
+  it('lands the owner on the deep returnUrl route (/admin/billing), not the dashboard', () => {
+    const { fixture, navByUrl, navigate, setSession } = boot('/admin/billing?token=tok_1&email=o%40x.co&auth_callback=google');
+    expect(setSession).toHaveBeenCalledWith('tok_1', 'o@x.co');
+    expect(navByUrl).toHaveBeenCalledWith('/admin/billing');
+    expect(navigate).not.toHaveBeenCalledWith(['/admin']);
+    fixture.destroy();
+  });
+
+  it('strips the session token from the URL (never persists in history/referrer)', () => {
+    const { fixture } = boot('/admin/billing?token=tok_secret&email=o%40x.co&auth_callback=google');
+    expect(window.location.search).not.toContain('token');
+    expect(window.location.search).not.toContain('tok_secret');
+    fixture.destroy();
+  });
+
+  it('falls back to /admin for a bare-homepage landing (no returnUrl, no business)', () => {
+    const { fixture, navigate, navByUrl } = boot('/?token=tok_2&email=o%40x.co&auth_callback=google');
+    expect(navigate).toHaveBeenCalledWith(['/admin']);
+    expect(navByUrl).not.toHaveBeenCalled();
     fixture.destroy();
   });
 });

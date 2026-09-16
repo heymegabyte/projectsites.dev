@@ -351,25 +351,50 @@ export class AppComponent implements OnInit, OnDestroy {
 
     if (token && email) {
       this.auth.setSession(token, email);
-      // Clean URL
+      // Clean the sensitive params out of the URL FIRST — the session token must never
+      // persist in history / referrer / a subsequent analytics $pageview.
       const url = new URL(window.location.href);
       url.searchParams.delete('token');
       url.searchParams.delete('email');
       url.searchParams.delete('auth_callback');
       window.history.replaceState({}, '', url.toString());
 
-      // Restore business and navigate
+      // Destination priority — honor the returnUrl round-trip:
+      //  1. The deep app route the server already landed us on (returnUrl honored
+      //     server-side — e.g. /admin/billing when the owner clicked "Billing" while
+      //     logged out and the 401-guard bounced them to /signin?returnUrl=/admin/billing).
+      //     STAY there. Dumping them on the dashboard to re-navigate is exactly the friction
+      //     the returnUrl exists to remove (embarrassingly-easy). Safe against the guard: the
+      //     router runs non-blocking initial navigation, so setSession() above lands BEFORE the
+      //     guard resolves and this navigate cancels+restarts the pending nav with the session set.
+      //  2. A pending create flow (business selected pre-signin) → /create.
+      //  3. Otherwise the dashboard.
+      const landed = url.pathname;
+      const isDeepAppRoute =
+        landed !== '/' &&
+        landed !== '/signin' &&
+        (landed.startsWith('/admin') ||
+          landed.startsWith('/create') ||
+          landed.startsWith('/waiting'));
       const business = this.auth.getSelectedBusiness();
-      if (business) {
+      let destination: string;
+      if (isDeepAppRoute) {
+        destination = landed + url.search;
+        this.router.navigateByUrl(destination);
+      } else if (business) {
+        destination = '/create';
         this.router.navigate(['/create']);
       } else {
+        destination = '/admin';
         this.router.navigate(['/admin']);
       }
       // Telemetry: this is the moment a session lands — fires GA4 `signup`
-      // via the conversion-alias inside TelemetryService.
+      // via the conversion-alias inside TelemetryService. `returned_to` lets us see
+      // whether the returnUrl round-trip actually deep-links owners or dumps them on /admin.
       this.telemetry.track('auth.signin.succeeded', {
         provider: authCallback ?? 'email',
         had_selected_business: !!business,
+        returned_to: destination,
       });
       // Best-effort analytics — never blocks the session.
       if (authCallback) {

@@ -583,7 +583,7 @@ api.get('/api/auth/magic-link/peek', async (c) => {
  * @route GET /api/auth/google
  * @public Anonymous funnel — Google's consent screen gates further access.
  *
- * @queryParam redirect_url - Optional post-verify redirect target.
+ * @queryParam returnUrl - Optional post-verify redirect target (legacy alias: `redirect_url`).
  *   Stored in `oauth_states` and validated on the callback side against
  *   the same allowlist as the magic-link variants.
  *
@@ -593,7 +593,11 @@ api.get('/api/auth/magic-link/peek', async (c) => {
  * @throws INTERNAL_ERROR 500 on D1 failure when writing `oauth_states`.
  */
 api.get('/api/auth/google', async (c) => {
-  const redirectUrl = c.req.query('redirect_url');
+  // The sign-in page + the 401 route-guard bounce (AL-459) send `?returnUrl=…`; accept that
+  // FIRST, falling back to the legacy `redirect_url` name. Reading only `redirect_url` silently
+  // dropped the OAuth returnUrl → every Google sign-in landed on the dashboard even when the
+  // owner clicked "Billing" while logged out (the returnUrl round-trip was a no-op for OAuth).
+  const redirectUrl = c.req.query('returnUrl') ?? c.req.query('redirect_url');
   const result = await authService.createGoogleOAuthState(c.env.DB, c.env, redirectUrl);
 
   auditService
@@ -728,7 +732,9 @@ api.get('/api/auth/google/callback', async (c) => {
  * @see {@link authService.createGitHubOAuthState}
  */
 api.get('/api/auth/github', async (c) => {
-  const redirectUrl = c.req.query('redirect_url');
+  // Same param-name contract as Google: the sign-in page sends `?returnUrl=…` — accept it FIRST,
+  // fall back to legacy `redirect_url`, so the GitHub returnUrl round-trip isn't silently dropped.
+  const redirectUrl = c.req.query('returnUrl') ?? c.req.query('redirect_url');
   let result: { authUrl: string; state: string };
   try {
     result = await authService.createGitHubOAuthState(c.env.DB, c.env, redirectUrl);

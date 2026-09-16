@@ -448,3 +448,47 @@ describe('POST /api/feedback', () => {
     expect(mockDbInsert).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// OAuth-start returnUrl round-trip (post-sign-in deep-link).
+// Regression for the param-name mismatch: the sign-in page + the 401 route-guard
+// bounce send `?returnUrl=…`, but the route read ONLY `redirect_url` → the OAuth
+// returnUrl was silently dropped, so every Google/GitHub sign-in landed on /admin
+// even when the owner clicked "Billing" logged-out. The route must persist the
+// returnUrl into the `oauth_states` row so the callback can redirect back to it.
+// ---------------------------------------------------------------------------
+describe('OAuth start persists returnUrl into oauth_states (deep-link round-trip)', () => {
+  const oauthStateInserts = () =>
+    mockDbInsert.mock.calls.filter(([, table]: [unknown, string]) => table === 'oauth_states');
+
+  it('GET /api/auth/google?returnUrl=… → stores it as redirect_url on the state row', async () => {
+    const { app, env } = createApp();
+    const res = await makeRequest(app, env, '/api/auth/google?returnUrl=/admin/billing');
+    expect(res.status).toBe(302); // redirects to accounts.google.com
+    const inserts = oauthStateInserts();
+    expect(inserts.length).toBe(1);
+    expect(inserts[0][2]).toEqual(
+      expect.objectContaining({ provider: 'google', redirect_url: '/admin/billing' }),
+    );
+  });
+
+  it('GET /api/auth/google?redirect_url=… → still honored (legacy alias, backward-compatible)', async () => {
+    const { app, env } = createApp();
+    const res = await makeRequest(app, env, '/api/auth/google?redirect_url=/admin/team');
+    expect(res.status).toBe(302);
+    expect(oauthStateInserts()[0][2]).toEqual(
+      expect.objectContaining({ provider: 'google', redirect_url: '/admin/team' }),
+    );
+  });
+
+  it('GET /api/auth/github?returnUrl=… → stores it as redirect_url on the state row', async () => {
+    const { app, env } = createApp({
+      GITHUB_CLIENT_ID: 'gh-id',
+      GITHUB_CLIENT_SECRET: 'gh-secret',
+    } as Partial<Env>);
+    const res = await makeRequest(app, env, '/api/auth/github?returnUrl=/admin/analytics');
+    expect(res.status).toBe(302);
+    const gh = oauthStateInserts().find((c: unknown[]) => (c[2] as { provider?: string })?.provider === 'github');
+    expect(gh?.[2]).toEqual(expect.objectContaining({ redirect_url: '/admin/analytics' }));
+  });
+});
