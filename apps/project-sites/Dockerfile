@@ -49,6 +49,13 @@ COPY scripts/inspect.js /home/cuser/inspect.js
 COPY scripts/upload-to-r2.mjs /home/cuser/upload-to-r2.mjs
 
 # Container HTTP server with disk-persisted job state (survives container restart)
+# ── CONTAINER-SERVER CACHE-BUST (AL-666) ─────────────────────────────────────
+# The FORCE-REBUILD markers below (~L100) sit AFTER this COPY, so bumping one can
+# NEVER invalidate this layer — Docker caches top-to-bottom. This RUN sits BEFORE
+# the COPY, so bumping its string forces CF's build pipeline to re-run everything
+# from here down, re-copying the LATEST container-server.mjs into the image. Bump
+# the token on any change that must reach the running build container reliably.
+RUN echo "container-server-cache-bust: al666-streaming-build-theater-2026-09-16"
 COPY scripts/container-server.mjs /home/cuser/container-server.mjs
 
 # Validator runner + the validator module it imports. Lets the validator-fixer
