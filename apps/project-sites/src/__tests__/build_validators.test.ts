@@ -1296,6 +1296,47 @@ describe('finalizeSeoInvariants (C.1 structured-data + meta backstop)', () => {
     expect(f2[0].text as string).toContain('<title>Catbird — jewelry</title>');
   });
 
+  it('rescues a 45-49 title with a LONG city via the " | {region}" state fallback (bi-rite AL-657)', () => {
+    // bi-rite-market-sf shipped a 48-char <title>: " | San Francisco" (16) overshoots 60, so the
+    // old city-only belt left it UNDER the 50 floor. The region (state) fallback lands it in-range.
+    const t = 'Bi-Rite Market — Your neighborhood grocery store'; // 48 chars (matches live prod)
+    expect(t.length).toBeLessThan(50); // guard: this IS the sub-50 case
+    const shell = `<head><title>${t}</title><meta property="og:title" content="${t}"><meta name="twitter:title" content="${t}"><meta name="description" content="${'word '.repeat(28).trim()}"><link rel="canonical" href="https://bi-rite-market-sf.projectsites.dev/"></head>`;
+    const [files, report] = finalizeSeoInvariants(
+      [{ path: 'index.html', size: shell.length, text: shell }],
+      {
+        businessName: 'Bi-Rite Market',
+        hostname: 'https://bi-rite-market-sf.projectsites.dev',
+        city: 'San Francisco',
+        region: 'CA',
+      },
+    );
+    expect(report.titleExpanded).toBe(1);
+    const title = (files[0].text as string).match(/<title[^>]*>([\s\S]*?)<\/title>/i)![1];
+    expect(title.length).toBeGreaterThanOrEqual(50);
+    expect(title.length).toBeLessThanOrEqual(60);
+    expect(title).toContain(' | CA'); // the short state suffix rescued it
+    expect(title).not.toContain('San Francisco'); // the long city was tried first + rejected (>60)
+    // social cards mirror the expansion
+    expect(files[0].text as string).toContain('property="og:title" content="' + title + '"');
+  });
+
+  it('still PREFERS the full city when it fits — the region fallback only fires on overshoot', () => {
+    const t = 'Vanta Strength Club — Train Hard, Get Strong'; // 44 chars; " | Austin" (9) → 53, fits
+    const shell = `<head><title>${t}</title><meta name="description" content="${'word '.repeat(28).trim()}"><link rel="canonical" href="https://x.projectsites.dev/"></head>`;
+    const [files] = finalizeSeoInvariants([{ path: 'index.html', size: shell.length, text: shell }], {
+      businessName: 'Vanta Strength Club',
+      hostname: 'https://x.projectsites.dev',
+      city: 'Austin',
+      region: 'TX',
+    });
+    const title = (files[0].text as string).match(/<title[^>]*>([\s\S]*?)<\/title>/i)![1];
+    expect(title).toContain('Austin'); // full city preferred (it fits)
+    expect(title).not.toMatch(/\| TX$/); // region NOT used when the city lands in-range
+    expect(title.length).toBeGreaterThanOrEqual(50);
+    expect(title.length).toBeLessThanOrEqual(60);
+  });
+
   it('expands a sub-120-char description into the 120-156 window across meta/og/twitter', () => {
     const [files, report] = run();
     const out = files[0].text as string;

@@ -1244,6 +1244,15 @@ export interface SeoFinalizeContext {
    * unknown (the title is then left to the build-prompt belt).
    */
   city?: string;
+  /**
+   * Short region / 2-letter state (e.g. `"CA"`), parsed from the address's last field
+   * (`"…, San Francisco, CA 94110"` → `"CA"`). A SHORT geo fallback for the title-length
+   * belt: when the city is long enough that ` | {city}` overshoots 60 (e.g. a 48-char
+   * title + `"San Francisco"` = 64), the belt falls back to ` | {region}` which lands a
+   * 45-49-char title inside [50,60] instead of shipping it under the 50 floor. Omit when
+   * unknown. Reference incident: bi-rite-market-sf shipped a 48-char `<title>` (AL-657).
+   */
+  region?: string;
 }
 
 export interface SeoFinalizeReport {
@@ -1427,12 +1436,20 @@ export const finalizeSeoInvariants = (
     if (titleTag) {
       let nextTitle = titleTag;
       const city = (ctx.city || '').trim();
-      if (nextTitle.length < 50 && city && !nextTitle.toLowerCase().includes(city.toLowerCase())) {
-        const withCity = `${nextTitle} | ${city}`;
-        // Append ONLY when it lands in [50,60] — never overshoot 60, and don't append a
-        // city so short the title still misses the 50 floor (leave those to the belt).
-        if (withCity.length >= 50 && withCity.length <= 60) {
-          nextTitle = withCity;
+      const region = (ctx.region || '').trim();
+      if (nextTitle.length < 50) {
+        // Suffix LADDER — first candidate that lands the title in [50,60] wins. ` | {city}`
+        // is preferred; ` | {region}` (2-letter state) is the SHORT fallback that rescues a
+        // 45-49-char title when a long city (e.g. "San Francisco") makes the city suffix
+        // overshoot 60 — before this, such titles shipped UNDER the 50 floor (bi-rite AL-657).
+        const lower = nextTitle.toLowerCase();
+        const candidates = [
+          city && !lower.includes(city.toLowerCase()) ? `${nextTitle} | ${city}` : '',
+          region && !lower.includes(`| ${region.toLowerCase()}`) ? `${nextTitle} | ${region}` : '',
+        ];
+        const fit = candidates.find((c) => c.length >= 50 && c.length <= 60);
+        if (fit) {
+          nextTitle = fit;
           report.titleExpanded++;
         }
       }

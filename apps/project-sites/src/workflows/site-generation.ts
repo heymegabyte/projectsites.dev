@@ -1996,6 +1996,17 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
                   .filter(Boolean);
                 return parts.length >= 2 ? parts[parts.length - 2] : undefined;
               })(),
+              // Region = the 2-letter state from the address's LAST field ("…, CA 94110" → "CA").
+              // A short geo fallback for the title-length belt when a long city overshoots 60.
+              region: ((): string | undefined => {
+                const parts = (params.businessAddress || '')
+                  .split(',')
+                  .map((p) => p.trim())
+                  .filter(Boolean);
+                const last = parts[parts.length - 1] || '';
+                const st = last.split(/\s+/)[0] || '';
+                return /^[A-Z]{2}$/.test(st) ? st : undefined;
+              })(),
             });
             const seoChanged =
               seoReport.jsonLdInjected +
