@@ -476,6 +476,7 @@ export type CommerceMode =
   | 'service'
   | 'professional'
   | 'nonprofit'
+  | 'gallery'
   | 'general';
 
 /**
@@ -539,6 +540,19 @@ const COMMERCE_MODE_RULES: ReadonlyArray<readonly [CommerceMode, RegExp]> = [
     /\b(legal|\blaw\b|attorney\w*|lawyer\w*|law\s?firm|financ\w*|account\w*|\bcpa\b|bookkeep\w*|\btax\b|audit\w*|insurance|insur\w*|wealth|advisor\w*|\bbank\w*|mortgage|invest\w*|escrow|notary|payroll|real\s?estate|realty|realtor\w*|consult\w*|\bagenc\w*|architect\w*|engineer\w*|marketing|\bpr\b|public\s?relations|staffing|recruit\w*|\bsaas\b|software|startup\w*|\bit\s?services|web\s?(?:design|dev\w*)|technolog\w*)\b/,
   ],
   [
+    // CURATORIAL art spaces — an art GALLERY / fine-art dealer / art museum is VIEWED and
+    // VISITED and pieces are INQUIRED-about + ACQUIRED, never checked out of a cart. Ordered
+    // BEFORE retail so a gallery never inherits e-commerce "Shop / Add to cart / Free shipping /
+    // the counter" framing (the wally-workman-gallery-austin misfit: a fresh gallery build shipped
+    // "Browse our collection / the people behind the counter / Free shipping" because "art gallery"
+    // matched NO commerce rule → fell to `general`, whose vacuum the content-writer filled with
+    // retail-shop copy). AL-641 mapped galler*→`luxe` THEME but left the COMMERCE axis unset; this
+    // is its commerce twin. `art studio` stays OUT (a working studio is `service`/`general`, and
+    // dance/yoga/photo/tattoo studios are `service`) — only the gallery/dealer/museum face is curatorial.
+    'gallery',
+    /\b(art\s?galler\w*|\bgaller(?:y|ies)\b|fine\s?art\w*|art\s?dealer\w*|art\s?museum\w*|\bmuseum\w*|exhibition\s?(?:space|hall)|art\s?space)\b/,
+  ],
+  [
     'retail',
     /\b(retail|\bshop\w*|\bstore\w*|boutique\w*|apparel|clothing|fashion\w*|merchandise|\bgoods\b|florist\w*|\bflower\w*|\bgift\w*|pet\s?(?:store|shop|supply)|home\s?goods|furniture|\btoys?\b|stationery|cosmetic\w*|accessor\w*|jewel\w*|goldsmith\w*|\bwatch\w*\s?(?:shop|store|maker)|book\s?stor\w*|bookshop\w*|booksell\w*|\bbooks\b|record\s?stor\w*|vinyl\s?(?:shop|store)|hardware|\bmarket\b|thrift|consignment|antique\w*|electronics|garden\s?cent\w*|nursery|\bcrafts?\s?(?:shop|store|supply))\b/,
   ],
@@ -563,6 +577,8 @@ export const COMMERCE_INTENT_BRIEF: Record<CommerceMode, string> = {
     'Clients CONSULT, RETAIN, and INQUIRE — a high-trust relationship, never a cart. Primary CTAs: Book a consultation / Contact us / Request a proposal / Schedule a call. Emphasize expertise, credentials, results/case studies, and trust signals. FORBIDDEN: e-commerce "Shop / Add to cart / Free shipping" — a law / accounting / financial / real-estate / consulting firm is retained, not purchased in a cart.',
   nonprofit:
     'Supporters DONATE, VOLUNTEER, and GET INVOLVED — mission-first, not commerce. Primary CTAs: Donate / Volunteer / Get involved / Sponsor / Learn how to help. Lead with impact, mission, and the people served. FORBIDDEN as primary framing: retail "Shop now" / "Add to cart" as the hero CTA (a merch/store link is fine only as a secondary).',
+  gallery:
+    'Patrons VIEW the collection, VISIT the space, INQUIRE about a work, and attend OPENINGS / exhibitions — a curatorial experience, not a shopping cart. Primary CTAs: View the collection / Plan your visit / Inquire about a work / Request a private viewing / See current & upcoming exhibitions. Emphasize the artists represented, the current show, the space itself, and provenance / authenticity. FORBIDDEN: e-commerce checkout language — "Add to cart" / "Free shipping" / "30-day returns" / "Browse our shop" / a walk-up "counter" — a gallery or museum presents and sells art through inquiry and acquisition, never a retail checkout counter; "the people behind the counter" / "Find your new favorite" are wrong-vertical retail copy here.',
   general:
     'Use the primary CTAs that match how THIS business actually converts — typically Contact us / Learn more / Get in touch / Get a quote. Only use e-commerce cart language ("Shop now", "Add to cart", "Free shipping") if the business genuinely sells products online; otherwise it is a wrong-vertical defect.',
 };

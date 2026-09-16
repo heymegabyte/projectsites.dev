@@ -100,6 +100,7 @@ describe('hero_copy — trustBadgesFor (AL-518: commerce-mode trust badges, neve
       'service',
       'professional',
       'nonprofit',
+      'gallery',
       'general',
       'nope',
       '',
@@ -127,11 +128,27 @@ describe('hero_copy — trustBadgesFor (AL-518: commerce-mode trust badges, neve
       'service',
       'professional',
       'nonprofit',
+      'gallery',
       'general',
     ]) {
       const joined = trustBadgesFor(m).join(' ').toLowerCase();
       expect(joined).not.toMatch(/shipping|returns?/);
     }
+  });
+
+  it('gallery mode is CURATORIAL — inquiry/viewing CTAs + non-retail badges, never cart/counter/shipping (wally-workman fix)', () => {
+    const cta = heroCtasFor('gallery');
+    expect(cta.primary).toBe('View the collection');
+    expect(cta.secondary).toBe('Plan your visit');
+    const badges = trustBadgesFor('gallery').join(' ').toLowerCase();
+    expect(badges).not.toMatch(/shipping|returns?|cart|counter/);
+    const faq = homepageFaq('gallery', 'Wally Workman Gallery', 'art gallery', 'Austin');
+    const faqText = faq.items.map((i) => i.q + ' ' + i.a).join(' ').toLowerCase();
+    expect(faqText).toMatch(/exhibition|collection|viewing|acquir|artist/); // curatorial vocabulary
+    expect(faqText).not.toMatch(/the counter|free shipping|add to cart|30-day return/); // never retail
+    const desc = seoDescriptionFor('gallery', 'Wally Workman Gallery', 'art gallery', 'Austin').toLowerCase();
+    expect(desc).toMatch(/collection|exhibition|artist|visit/);
+    expect(desc).not.toMatch(/the counter|free shipping/);
   });
 
   it('AL-518b: APPOINTMENT services book, TRADES stay "licensed & insured" (rudy-seattle barbershop read trades-y)', () => {

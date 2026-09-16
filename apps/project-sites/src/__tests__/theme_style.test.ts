@@ -396,6 +396,7 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
     'service',
     'professional',
     'nonprofit',
+    'gallery',
     'general',
   ];
 
@@ -414,6 +415,21 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
     expect(commerceModeFor('tattoo studio')).toBe('service');
     expect(commerceModeFor('Tattoo Parlor')).toBe('service');
     expect(commerceModeFor('piercing studio')).toBe('service');
+  });
+
+  it('classifies a fresh-build gallery defect: an art gallery / museum is GALLERY (curatorial), never retail/general', () => {
+    // Delivery-discovered (wally-workman-gallery-austin, a FRESH 2026-09-16 build): "art gallery"
+    // matched NO commerce rule → fell to 'general', whose vacuum the content-writer filled with
+    // RETAIL shop copy ("Browse our collection", "the people behind the counter", "Free shipping").
+    // AL-641 mapped galler*→luxe THEME but left the COMMERCE axis unset; a gallery is VIEWED +
+    // VISITED + INQUIRED-about, a curatorial mode, never a checkout counter.
+    for (const v of ['art gallery', 'Fine Art Gallery', 'art dealer', 'Contemporary Art Gallery', 'Art Museum', 'museum']) {
+      expect(commerceModeFor(v)).toBe('gallery');
+    }
+    // The gallery rule must NOT swallow working creative STUDIOS (they stay service/general — a
+    // photo/dance/tattoo studio is booked, an art studio is a workspace, none is curatorial-commerce).
+    expect(commerceModeFor('photography studio')).not.toBe('gallery');
+    expect(commerceModeFor('dance studio')).not.toBe('gallery');
   });
 
   it('routes FULL-SERVICE food+drink venues (visited/reserved/toured) to hospitality', () => {
@@ -578,6 +594,7 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
       'service',
       'professional',
       'nonprofit',
+      'gallery',
       'general',
     ] as CommerceMode[]) {
       const b = COMMERCE_INTENT_BRIEF[mode].toLowerCase();

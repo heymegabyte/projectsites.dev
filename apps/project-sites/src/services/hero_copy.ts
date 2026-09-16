@@ -684,6 +684,28 @@ export function homepageFaq(
         a: `In most cases, yes — ${biz} will provide a receipt for your records with every gift, and our ${city} team is glad to answer questions about how to document your support at tax time. Reach out using the details below if you need specific paperwork, and we will get it to you promptly so nothing about giving feels complicated.`,
       },
     ],
+    gallery: [
+      {
+        q: 'What is currently on view?',
+        a: `${biz} keeps a rotating program of exhibitions and a standing collection of original work for ${city} to explore. The current show and featured artists are highlighted on this page, and the collection is always evolving as new pieces arrive. Plan a visit using the details below, or reach out and we will tell you what is on the walls right now.`,
+      },
+      {
+        q: 'How do I visit or plan a private viewing?',
+        a: `${biz} welcomes visitors during the hours posted at the top of this page, and we are always happy to arrange a private viewing for ${city} collectors who want unhurried time with a work. Use the contact details below to tell us what you would like to see, and we will set aside the space and walk you through the pieces in person.`,
+      },
+      {
+        q: 'How do I acquire or inquire about a work?',
+        a: `Acquiring a piece from ${biz} starts with a simple inquiry — reach out using the details below and we will share pricing, availability, and provenance for any work that catches your eye. Our ${city} team guides you through the acquisition at your pace, answers every question honestly, and helps with framing or delivery when the piece is yours.`,
+      },
+      {
+        q: 'Do you represent or show local artists?',
+        a: `Yes — championing artists is the heart of what ${biz} does, and our ${city} program pairs represented names with new voices worth discovering. If you are an artist hoping to show with us, or a visitor curious about who we represent, reach out using the details below and we will tell you about the current roster and how we build each exhibition.`,
+      },
+      {
+        q: 'Where are you located, and is there an opening to attend?',
+        a: `You will find ${biz} right here in ${city} — the map and full address are in the contact section below. We host openings and events throughout the season to celebrate each new exhibition, and everyone is welcome. Reach out or check this page for the next opening, and come see the work the way it is meant to be seen — in person.`,
+      },
+    ],
     general: [
       {
         q: 'What do you offer?',
@@ -758,6 +780,7 @@ export function heroCtasFor(
     service: { primary: 'Get a free quote', secondary: 'Our services' },
     professional: { primary: 'Book a consultation', secondary: 'Our services' },
     nonprofit: { primary: 'Get involved', secondary: 'See our programs' },
+    gallery: { primary: 'View the collection', secondary: 'Plan your visit' },
     general: { primary: 'Get in touch', secondary: 'Learn more' },
   };
   const key =
@@ -805,6 +828,7 @@ export function trustBadgesFor(
     service: ['Licensed & insured', 'Free consultation', 'Satisfaction guaranteed'],
     professional: ['Free consultation', 'Confidential', 'By appointment'],
     nonprofit: ['Tax-deductible', 'Community-driven', 'Volunteers welcome'],
+    gallery: ['Original works', 'Represented artists', 'Viewings by appointment'],
     general: ['Trusted locally', 'Friendly service', 'Quality guaranteed'],
   };
   const key =
@@ -893,6 +917,7 @@ export function seoDescriptionFor(
     service: `${biz} is ${city}'s ${cat} — careful, dependable work and a comfortable experience start to finish. Book a visit and see why ${city} trusts us to get every detail right.`,
     professional: `${biz} is ${city}'s ${cat} — clear guidance, real expertise, and a team that puts your goals first. Reach out for a consultation and see how we help ${city} move forward.`,
     nonprofit: `${biz} serves ${city} as ${art} ${cat} — real, lasting impact powered by neighbors who show up. Learn our mission, meet the people we help, and find the many ways to get involved.`,
+    gallery: `${biz} is ${city}'s ${cat} — a curated collection of original work, thoughtfully presented. Explore the current exhibition, discover the artists we represent, and plan your visit below.`,
     general: `${biz} is ${city}'s ${cat} — dependable, friendly, and focused on doing right by everyone who walks in. Reach out to learn more, and find our hours and location below.`,
   };
   const key =

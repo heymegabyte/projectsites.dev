@@ -19,7 +19,7 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'jenis-splendid-ice-creams-columbus,gentle-dental-seattle').split(',');
+const SITES = (process.env.SITES || 'jenis-splendid-ice-creams-columbus,gentle-dental-seattle,wally-workman-gallery-austin').split(',');
 
 // A quickserve WALK-UP counter vertical, detected from the H1 + <title> (the authoritative
 // vertical signal). These businesses take orders at a counter — never table reservations.
@@ -34,9 +34,24 @@ const RESERVATION_NEGATED =
   /\b(no reservations?(?:\s+(?:needed|required|necessary))?|without a reservation|walk[- ]?ins?\s+welcome|no reservation needed)\b/i;
 
 // E-commerce cart framing — a wrong-vertical defect on any NON-retail site (the AL-408 class).
-const CART_FRAMING = /\b(add to cart|free shipping|shop now|browse (?:the )?collection|30[- ]day returns?)\b/i;
+const CART_FRAMING = /\b(add to cart|free shipping|shop now|browse (?:the |our )?collection|30[- ]day returns?)\b/i;
 const RETAIL_SIGNAL =
   /\b(shop|store|boutique|jewel\w*|florist|book(?:shop|store)|record store|hardware|furniture|gift shop|apparel|clothing)\b/i;
+
+// A CURATORIAL art space (gallery / fine-art dealer / art museum) — detected from the H1 + <title>.
+// It is VIEWED, VISITED, and pieces are INQUIRED-about, never checked out of a cart or ordered at a
+// walk-up "counter". A gallery is NEVER retail (its own dedicated `gallery` CommerceMode, AL-679).
+const GALLERY_SIGNAL = /\b(art\s?galler\w*|fine\s?art\w*|art\s?dealer\w*|art\s?museum\w*|\bmuseum\b)\b/i;
+// Retail-shop framing that mis-fits a gallery — the wally-workman-gallery-austin defect: a fresh
+// gallery build shipped "the people behind the counter" / "Browse our collection" / "Find your new
+// favorite" / "Visit the shop" because "art gallery" matched NO commerce rule → fell to `general`,
+// whose vacuum the content-writer filled with retail copy. The `gallery` CommerceMode + brief steer
+// this to curatorial copy on the next build. `the counter` / `visit the shop` are gallery-specific
+// misfits (a real shop legitimately says them), so they only flag WHEN the site is a gallery.
+const GALLERY_RETAIL_MISFIT =
+  /\b(the counter|people behind the counter|behind the counter|find your new favorite|visit the shop|browse our collection|add to cart|free shipping|30[- ]day returns?)\b/i;
+// Curatorial vocabulary a real gallery site SHOULD carry (positive signal — its absence is a soft miss).
+const GALLERY_CURATORIAL = /\b(exhibition|collection|viewing|acquir\w*|artist|on view|curat\w*)\b/i;
 // A SERVICE business colloquially called a "…shop" (tattoo/barber/body/auto/repair shop) is NOT
 // retail — the bare `shop` token would otherwise mis-classify it as retail and SUPPRESS the
 // cart-framing check (the three-kings-tattoo class). Mirrors build_validators.validateConversionFraming.
@@ -46,19 +61,27 @@ function scan(text, h1, title) {
   const head = `${h1}\n${title}`.toLowerCase();
   const body = text.toLowerCase();
   const findings = [];
+  const isGallery = GALLERY_SIGNAL.test(head);
   const isQuickserve = QUICKSERVE_SIGNAL.test(head);
-  const isRetail = RETAIL_SIGNAL.test(head) && !SERVICE_SHOP.test(head);
+  // A gallery is curatorial, never retail — even if an incidental "shop" token appears.
+  const isRetail = !isGallery && RETAIL_SIGNAL.test(head) && !SERVICE_SHOP.test(head);
   if (isQuickserve) {
     // strip negated reservation phrases, then look for affirmative framing
     const stripped = body.replace(RESERVATION_NEGATED, ' ');
     const m = stripped.match(RESERVATION_FRAMING);
     if (m) findings.push({ kind: 'reservation_on_quickserve', hit: m[0] });
   }
-  if (!isRetail) {
+  if (isGallery) {
+    // A gallery must read curatorially — flag retail-shop/counter/cart framing that mis-fits it.
+    const m = body.match(GALLERY_RETAIL_MISFIT);
+    if (m) findings.push({ kind: 'retail_framing_on_gallery', hit: m[0] });
+    if (!GALLERY_CURATORIAL.test(body))
+      findings.push({ kind: 'gallery_missing_curatorial_voice', hit: 'no exhibition/collection/viewing/artist vocabulary' });
+  } else if (!isRetail) {
     const m = body.match(CART_FRAMING);
     if (m) findings.push({ kind: 'cart_on_non_retail', hit: m[0] });
   }
-  return { isQuickserve, isRetail, findings };
+  return { isGallery, isQuickserve, isRetail, findings };
 }
 
 const browser = await chromium.launch({ headless: true });
@@ -82,8 +105,8 @@ try {
         title: document.title,
         text: document.body.innerText,
       }));
-      const { isQuickserve, isRetail, findings } = scan(d.text, d.h1, d.title);
-      const tag = isQuickserve ? 'quickserve' : isRetail ? 'retail' : 'other';
+      const { isGallery, isQuickserve, isRetail, findings } = scan(d.text, d.h1, d.title);
+      const tag = isGallery ? 'gallery' : isQuickserve ? 'quickserve' : isRetail ? 'retail' : 'other';
       if (findings.length) {
         totalFindings += findings.length;
         rows.push(`  ❌ ${slug} [${tag}] — ${findings.map((f) => `${f.kind}:"${f.hit}"`).join(', ')}`);
