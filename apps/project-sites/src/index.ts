@@ -1370,18 +1370,24 @@ app.post('/api/internal/build-log', async (c) => {
   );
   if (!site?.org_id) return c.json({ error: 'unknown site' }, 404);
 
+  // actor_id MUST be null (not 'system'): audit_logs.actor_id REFERENCES users(id), and there is
+  // no users row id='system' — so 'system' silently violated the FK and writeAuditLog swallowed the
+  // error while the response still reported written:N (a lying-success that hid the drop through the
+  // whole STREAMING BUILD THEATER bring-up). The build-container source is preserved in metadata_json.
+  let written = 0;
   for (const line of lines) {
     await writeAuditLog(c.env.DB, {
       org_id: site.org_id,
-      actor_id: 'system',
+      actor_id: null,
       action: 'claude.output',
       message: line,
       target_type: 'site',
       target_id: siteId,
       metadata_json: { message: line, source: 'build-container' },
     });
+    written += 1;
   }
-  return c.json({ ok: true, written: lines.length });
+  return c.json({ ok: true, written });
 });
 
 /**
