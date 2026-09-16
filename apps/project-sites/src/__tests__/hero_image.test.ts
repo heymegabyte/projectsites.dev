@@ -115,6 +115,38 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
     expect(heroImageForVertical('bicycle shop')?.alt).toMatch(/bicycle|bike/i);
   });
 
+  it('AL-647: steakhouse + hardware map to on-vertical heroes (was the generic cafe/retail default)', () => {
+    // st-elmo-steak-house-indy shipped the generic "cozy warm neighborhood cafe interior" hero;
+    // cole-hardware-sf shipped the generic "cozy independent shop interior shelves" retail hero.
+    const steak = heroImageForVertical('steakhouse')!;
+    expect(steak).not.toBeNull();
+    expect(steak.alt).toMatch(/steakhouse|dining/i);
+    expect(heroImageForVertical('steak house')).toBe(steak); // spaced synonym
+    expect(heroImageForVertical('chophouse')).toBe(steak); // chophouse synonym
+    const hardware = heroImageForVertical('hardware store')!;
+    expect(hardware).not.toBeNull();
+    expect(hardware.alt).toMatch(/hardware|paint|tools/i);
+    expect(heroImageForVertical('hardware')).toBe(hardware); // bare noun (cole-hardware-sf's category)
+    expect(heroImageForVertical('home improvement store')).toBe(hardware); // synonym
+    expect(heroImageForVertical('lumber yard')).toBe(hardware);
+    // the two new heroes are distinct from each other + from the food/retail clusters:
+    expect(steak).not.toBe(hardware);
+    expect(steak).not.toBe(heroImageForVertical('butcher shop')); // a steakhouse ≠ a butcher counter
+    // probe-compat: each ixid decodes to the vertical noun (verify-hero-image-vertical → green):
+    expect(heroQuery(steak.url)).toMatch(/steakhouse/);
+    expect(heroQuery(hardware.url)).toMatch(/hardware/);
+  });
+
+  it('AL-647: steakhouse/hardware patterns do NOT false-match adjacent verticals', () => {
+    // a plain restaurant stays on the pack default (no bare "steak"); a steakhouse is the exception:
+    expect(heroImageForVertical('restaurant')).toBeNull();
+    expect(heroImageForVertical('meatball restaurant')).toBeNull(); // no bare "steak", and "meat" needs shop/market
+    // "paint studio" (an art/creative workspace) must NOT grab the HARDWARE hero (paint\s?(shop|store) only):
+    expect(heroImageForVertical('paint studio')).not.toBe(heroImageForVertical('hardware store'));
+    // bare "tool" alone (e.g. a SaaS "tool") never matches — tool needs shop/store:
+    expect(heroImageForVertical('productivity tool')).toBeNull();
+  });
+
   it('AL-597: synonyms route correctly + no false-match', () => {
     expect(heroImageForVertical('cheesemonger')).toBe(heroImageForVertical('cheese shop'));
     // a delicatessen is now its OWN vertical (deli-counter hero), NOT the cheese-shop hero:

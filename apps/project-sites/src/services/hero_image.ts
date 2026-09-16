@@ -143,6 +143,25 @@ const OUTDOOR: HeroImage = {
   url: 'https://images.unsplash.com/photo-1573763769528-b9a21a45ce2a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHw1fHxtb3VudGFpbmVlcmluZyUyMGVxdWlwbWVudCUyMHN0b3JlfGVufDB8MHx8fDE3ODk0OTE2MzJ8MA&ixlib=rb-4.1.0&q=80&w=1080',
   alt: 'Climbing and mountaineering gear in an outdoor outfitter',
 };
+// STEAKHOUSE (AL-647): a steakhouse / chophouse is a DINING restaurant with a distinct upscale
+// dining-room identity — but "restaurant" is a broad pack bucket with NO curated hero, so
+// st-elmo-steak-house-indy shipped the generic "cozy warm neighborhood cafe interior" hero (flagged
+// live by verify-hero-image-vertical). Route steakhouse/chophouse to a real plated dining-room hero.
+// Sourced via Unsplash search API 2026-09-15 ("steakhouse restaurant dining room"), alt-verified,
+// URL prod-200 (140KB); ixid base64-decodes to "steakhouse …" so the probe reads it green off the H1.
+const STEAKHOUSE: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1776993298422-5b7df704c2c1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwyfHxzdGVha2hvdXNlJTIwcmVzdGF1cmFudCUyMGRpbmluZyUyMHJvb218ZW58MHwwfHx8MTc4OTUzMDUzMnww&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'An elegant steakhouse dining room with set tables and warm lighting',
+};
+// HARDWARE (AL-647): a hardware store / home-improvement / paint / lumber shop had NO curated hero →
+// the pack's generic "retail" bucket shipped "cozy independent shop interior shelves" as the LCP hero
+// (flagged live on cole-hardware-sf). Route to a real hardware-shelf image (paint tins + tools).
+// Sourced via Unsplash search API 2026-09-15 ("hardware store tools"), alt-verified, URL prod-200
+// (77KB); ixid base64-decodes to "hardware store tools" so the probe reads it green off the H1 noun.
+const HARDWARE: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1510016290251-68aaad49723e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwyfHxoYXJkd2FyZSUyMHN0b3JlJTIwdG9vbHN8ZW58MHwwfHx8MTc4OTUzMDUzMnww&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'Shelves of paint tins and tools in a neighborhood hardware store',
+};
 
 /**
  * Ordered [sub-vertical pattern → curated hero]. FIRST match wins. Scanned against the derived
@@ -182,6 +201,17 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
   [
     /\b(outdoor\s?(gear|outfitter\w*|equipment|apparel|clothing|shop|store)|outfitter\w*|ski\s?(shop|store|rental|resort|gear|&?\s?snowboard)|\bskis\b|snowboard\s?(shop|store|gear)?|mountaineer\w*|\bclimbing\b|backcountry|camping\s?(gear|store|shop)|\bkayak\w*|paddleboard\w*)\b/,
     OUTDOOR,
+  ],
+  // AL-647 STEAKHOUSE — a steakhouse/chophouse is a dining restaurant with its own upscale
+  // dining-room identity; "restaurant" alone has no curated hero (broad bucket). `steak\s?house`
+  // matches "steakhouse"+"steak house"; no bare `steak` (never a butcher/grocery "steak" counter).
+  [/\b(steak\s?house|chop\s?house|chophouse|prime\s?steak\w*)\b/, STEAKHOUSE],
+  // AL-647 HARDWARE — hardware / home-improvement / paint / lumber retail. In a local-business hero
+  // context "hardware" is overwhelmingly a hardware store; the softer nouns carry a shop/store/yard
+  // suffix so "paint studio"(art) / bare "tool" never false-match.
+  [
+    /\b(hardware|home\s?improvement|tool\s?(shop|store)|lumber\s?(yard|\s?&?\s?supply)|paint\s?(shop|store)|ace\s?hardware|true\s?value)\b/,
+    HARDWARE,
   ],
   [
     /\b(wealth|financ\w*|invest(ment|ing|or)\w*|asset\s?manage\w*|retirement\s?plan\w*|insuranc\w*|accounting|accountan\w*|bookkeep\w*|cpa|tax(es)?)\b/,
