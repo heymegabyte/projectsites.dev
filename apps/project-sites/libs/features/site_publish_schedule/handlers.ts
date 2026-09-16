@@ -3,6 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import type { Env, Variables } from '../../../src/types/env.js';
 import { unauthorized, notFound } from '../../../src/lib/feature_guard.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
+import { assertSiteOwned } from '../../../src/services/site_ownership.js';
 import { FLAG_KEY, scheduleForSite, getSchedulesForSite, cancelForSite } from './service.js';
 import {
   CreatePublishScheduleSchema,
@@ -46,6 +47,10 @@ sitePublishSchedule.post(
     const orgId = c.get('orgId');
     if (!orgId) return unauthorized(c);
     const siteId = c.req.param('id');
+    // Multi-tenant ownership gate (IDOR): 404 a site that isn't the caller's org's — before any
+    // date validation, so a prober can't distinguish a foreign site from a bad date. Defense in
+    // depth (the service also scopes every query by org_id).
+    if (!(await assertSiteOwned(c.env, orgId, siteId))) return notFound(c);
     const { publish_at, label } = c.req.valid('json');
     // FUTURE guard (a Zod schema can't read the clock): reject a past/now datetime.
     if (Date.parse(publish_at) <= Date.now()) {
@@ -85,7 +90,9 @@ sitePublishSchedule.get('/api/sites/:id/publish-schedule', async (c) => {
   if (blocked) return blocked;
   const orgId = c.get('orgId');
   if (!orgId) return unauthorized(c);
-  const schedules = await getSchedulesForSite(c.env, orgId, c.req.param('id'));
+  const siteId = c.req.param('id');
+  if (!(await assertSiteOwned(c.env, orgId, siteId))) return notFound(c);
+  const schedules = await getSchedulesForSite(c.env, orgId, siteId);
   return c.json(PublishScheduleListResponseSchema.parse({ schedules, count: schedules.length }));
 });
 
@@ -96,6 +103,7 @@ sitePublishSchedule.delete('/api/sites/:id/publish-schedule', async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return unauthorized(c);
   const siteId = c.req.param('id');
+  if (!(await assertSiteOwned(c.env, orgId, siteId))) return notFound(c);
   const ok = await cancelForSite(c.env, orgId, siteId);
   if (!ok) return notFound(c);
   log(c, 'schedule.canceled', { siteId });
