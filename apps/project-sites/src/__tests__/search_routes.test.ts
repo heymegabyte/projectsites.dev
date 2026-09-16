@@ -370,6 +370,52 @@ describe('GET /api/search/address', () => {
     expect(body._error).toBeUndefined();
     expect(mockFetch).toHaveBeenCalledTimes(1); // fallback not needed
   });
+
+  it('drops autocomplete predictions missing a placeId and keeps only actionable rows (type-predicate regression, AL-663)', async () => {
+    // The map body reads placePrediction WITHOUT a non-null `!` — a type-predicate filter
+    // narrows it AND requires a truthy placeId, so a blank-id prediction or a non-place
+    // suggestion (queryPrediction) is a dead row the client can't resolve and is dropped.
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          suggestions: [
+            { placePrediction: { placeId: 'p1', text: { text: '350 5th Ave, New York, NY' } } },
+            { placePrediction: { placeId: '', text: { text: 'no id — dead row' } } },
+            { queryPrediction: { text: { text: 'not a resolvable place' } } },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const res = await makeRequest('/api/search/address?q=350+Fifth');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.length).toBe(1);
+    expect(body.data[0].place_id).toBe('p1');
+    expect(mockFetch).toHaveBeenCalledTimes(1); // one real hit → fallback not needed
+  });
+
+  it('treats an all-dead-prediction autocomplete as a miss and falls through to Text-Search (never serves phantom rows)', async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            suggestions: [
+              { placePrediction: { placeId: '', text: { text: 'blank id' } } },
+              { queryPrediction: { text: { text: 'query, not a place' } } },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ places: [] }), { status: 200 }));
+    const res = await makeRequest('/api/search/address?q=nowhere');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toEqual([]);
+    expect(body._error).toBeUndefined();
+    expect(mockFetch).toHaveBeenCalledTimes(2); // dead rows weren't served as hits → fallback ran
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

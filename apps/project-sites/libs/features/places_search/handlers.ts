@@ -227,13 +227,19 @@ placesSearch.get('/api/search/address', async (c) => {
     if (response.ok) {
       const json = (await response.json()) as AutocompleteResponse;
       const suggestions = (json.suggestions ?? []).slice(0, 8);
+      // Type-predicate filter narrows `placePrediction` to non-optional so the map body
+      // needs no non-null `!` appeasement; then drop any prediction missing a placeId —
+      // a suggestion the client can't resolve is a dead row (embarrassingly-easy-to-use).
+      type ResolvedPrediction = AutocompleteSuggestion & {
+        placePrediction: NonNullable<AutocompleteSuggestion['placePrediction']>;
+      };
       const data = suggestions
-        .filter((s) => s.placePrediction)
+        .filter((s): s is ResolvedPrediction => Boolean(s.placePrediction?.placeId))
         .map((s) => ({
-          place_id: s.placePrediction!.placeId,
-          description: s.placePrediction!.text?.text ?? '',
-          main_text: s.placePrediction!.structuredFormat?.mainText?.text ?? '',
-          secondary_text: s.placePrediction!.structuredFormat?.secondaryText?.text ?? '',
+          place_id: s.placePrediction.placeId,
+          description: s.placePrediction.text?.text ?? '',
+          main_text: s.placePrediction.structuredFormat?.mainText?.text ?? '',
+          secondary_text: s.placePrediction.structuredFormat?.secondaryText?.text ?? '',
         }));
 
       if (data.length > 0) {

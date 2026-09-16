@@ -1103,6 +1103,7 @@ mediaAi.post('/api/ai/discover-images', async (c) => {
     has_professional_logo: boolean;
     has_quality_favicon: boolean;
     recommendation: string;
+    brandfetch?: NonNullable<typeof brandfetchData>;
   } | null = null;
 
   if (openaiKey && domain && scrapedHtml) {
@@ -1165,7 +1166,7 @@ mediaAi.post('/api/ai/discover-images', async (c) => {
   }
 
   if (brandAssessment && brandfetchData) {
-    (brandAssessment as any).brandfetch = brandfetchData;
+    brandAssessment.brandfetch = brandfetchData;
   }
 
   // Strip internal fields from the response.
