@@ -68,6 +68,11 @@ const iconAsset = await pngInfo('/logo-icon.png');
 const wmAsset = await pngInfo('/logo-wordmark.png');
 // AL-224 verdict: the navbar icon MUST carry alpha (transparent), never an opaque box.
 const iconTransparent = iconAsset.status === 200 ? iconAsset.hasAlpha === true : null;
+// AL-224 applies to the WORDMARK too — a boxed opaque wordmark over the transparent-nav hero is
+// the same defect the icon check guards against. The verifier fetched wmAsset all along but never
+// gated its transparency, so a transparent-icon + OPAQUE-wordmark delivery passed ✅ (a real hole).
+// Gate both. null (HTML text wordmark → /logo-wordmark.png 404s) is acceptable, exactly like the icon.
+const wmTransparent = wmAsset.status === 200 ? wmAsset.hasAlpha === true : null;
 
 // Name the artifact per-SLUG in the repo (was hardcoded /tmp/deliver-jenis.png — a Jeni's
 // leftover that mislabeled + overwrote every later delivery's screenshot).
@@ -93,6 +98,15 @@ console.log(
         : '✗ OPAQUE — boxed logo, AL-224 regression'
   }`,
 );
+console.log(
+  `logo transparency (AL-224): wordmark colorType=${wmAsset.colorType} ${
+    wmTransparent === null
+      ? '(no wordmark asset — HTML text wordmark)'
+      : wmTransparent
+        ? '✓ transparent (has alpha)'
+        : '✗ OPAQUE — boxed wordmark, AL-224 regression'
+  }`,
+);
 console.log(`shop/cart CTAs (on-brand for RETAIL, wrong-vertical otherwise): ${data.shopCTAs.join(', ') || '(none)'}`);
 console.log(`console errors: ${errors.length}`);
 errors.forEach((e) => console.log('  ✗ ' + e));
@@ -107,15 +121,36 @@ const bizSpecific = slugTokens.some((t) => hay.includes(t));
 const realBuild = status === 200 && data.bodyWords > 300 && data.imgs >= 4 && data.h1.length > 0;
 // Opaque navbar logo is a real AL-224 defect even on an otherwise-perfect build — surface it in
 // the verdict so a delivery is never called ✅ while shipping a boxed logo.
-const logoOk = iconTransparent !== false; // null (no asset) or true both acceptable here
+// null (no asset) or true both acceptable; gate icon AND wordmark — a boxed opaque EITHER is AL-224.
+const logoOk = iconTransparent !== false && wmTransparent !== false;
+const opaqueParts = [iconTransparent === false ? 'ICON' : '', wmTransparent === false ? 'WORDMARK' : ''].filter(Boolean).join(' + ');
+const pass = realBuild && bizSpecific && errors.length === 0 && logoOk;
 console.log(
   `\nverdict: ${
-    realBuild && bizSpecific && errors.length === 0 && logoOk
-      ? '✅ REAL DELIVERY (biz-specific H1, content, 0 console errors, transparent logo)'
+    pass
+      ? '✅ REAL DELIVERY (biz-specific H1, content, 0 console errors, transparent logo + wordmark)'
       : realBuild && !logoOk
-        ? '🟡 real build but OPAQUE LOGO (AL-224) — fix logo transparency'
+        ? `🟡 real build but OPAQUE ${opaqueParts} (AL-224) — fix logo transparency`
         : realBuild
           ? '🟡 real build but check H1/errors'
           : '❌ shell/thin — investigate premature-terminal'
   }`,
+);
+// Structured, machine-readable verdict so the delivery loop can parse PASS/WARN/FAIL programmatically
+// (the prose above stays for humans). Composable — a wrapper can grep DELIVER_VERIFY_RESULT.
+console.log(
+  `\nDELIVER_VERIFY_RESULT ${JSON.stringify({
+    slug: SLUG,
+    status,
+    h1: data.h1,
+    words: data.bodyWords,
+    imgs: data.imgs,
+    jsonld: data.jsonld,
+    iconTransparent,
+    wmTransparent,
+    consoleErrors: errors.length,
+    bizSpecific,
+    realBuild,
+    verdict: pass ? 'PASS' : realBuild ? 'WARN' : 'FAIL',
+  })}`,
 );
