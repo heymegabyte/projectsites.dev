@@ -3985,3 +3985,6 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 - **GATES:** `hero_image` unit **15/15** (new DELI test: delicatessen→DELI, `deli` synonym, DISTINCT from cheese, ixid decodes to deli, "delivery service"→null) · tsc clean · DELI asset live (200 image/jpeg). Pushed worker `229dd3043` → CI deploys the seed logic; the DELI hero lands on the next deli build (seed-time, same existing-wins `_content.json` seam as the 14 other curated verticals). Live rebuild-proof backgrounded (rebuild zingermans post-deploy → re-probe → expect green).
 - **§ C.7 status:** the hero-vertical dimension gains its 15th curated sub-vertical (DELI); the generic-bucket collapse for delicatessens is closed at root (template/seed, not a one-off).
 - **Files mine:** `src/services/hero_image.ts`, `src/__tests__/hero_image.test.ts`, `_LOOP_LEDGER.md`, `_APP_COMPLETION.md`. Protected files untouched.
+
+### AL-635 CLOSURE (live rebuild-proof ✅)
+- Worker CI deployed the DELI seed → rebuilt `zingermans-ann-arbor-2` (org-brian, HTTP 200) → re-ran `verify-hero-image-vertical`: **✓ hero query "delicatessen deli counter sandwiches" matches vertical {made,hand,arbor,zingerman,delicatessen} — § C.7 PASS**. The probe flipped ❌ (cheese-shop hero) → ✓ (deli hero) on a REAL prod rebuild — not a compile. Delicatessen hero-vertical gap closed + proven live.
