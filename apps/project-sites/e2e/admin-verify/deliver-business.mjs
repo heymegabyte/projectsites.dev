@@ -47,6 +47,28 @@ try {
   if (!token) { console.log('::error:: test-login returned no token'); process.exit(4); }
   console.log('✓ authed as brian (org-brian-001)');
 
+  // DEDUP GUARD — never rebuild a business we already have (create-from-search does NOT dedup;
+  // it just appends `-N` to the slug, so 3 "Tartine Bakery" sites shipped before this was added,
+  // each a wasted ~$5-15 build). Query the pre-built site search for this name/slug; if a match
+  // already exists, bail (exit 6) so the loop picks a genuinely-new business.
+  const wantName = (FALLBACK.business_name || QUERY).toLowerCase().trim();
+  const wantSlug = wantName.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const existing = await page.evaluate(async ({ tok, q }) => {
+    try {
+      const r = await fetch(`/api/sites/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${tok}` } });
+      const j = await r.json().catch(() => ({}));
+      const list = Array.isArray(j) ? j : (j.data ?? j.sites ?? j.results ?? []);
+      return list.map((s) => ({ name: s.business_name || s.name || '', slug: s.slug || '', status: s.status || '' }));
+    } catch { return []; }
+  }, { tok: token, q: FALLBACK.business_name || QUERY });
+  const dup = existing.find(
+    (s) => (s.name || '').toLowerCase().trim() === wantName || (s.slug || '').startsWith(wantSlug),
+  );
+  if (dup) {
+    console.log(`::notice:: ALREADY BUILT — "${dup.name || dup.slug}" (${dup.slug}, ${dup.status}). Pick a DIFFERENT business — not rebuilding a duplicate.`);
+    process.exit(6);
+  }
+
   // Real business search (Places proxy). Degrades gracefully → we use FALLBACK.
   const searchOut = await page.evaluate(async ({ tok, q }) => {
     try {
