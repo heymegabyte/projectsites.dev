@@ -202,9 +202,13 @@ analyticsRoutes.post('/api/events', async (c) => {
   }
 
   if (env.EVENT_DISPATCHER) {
+    // Narrowed const so the async closure needs no non-null assertion — TS drops the outer
+    // `if (env.EVENT_DISPATCHER)` narrowing across the closure boundary, so capturing it here
+    // keeps the code assertion-free (TS-strictness) AND robust to future refactors.
+    const dispatcher = env.EVENT_DISPATCHER;
     const p = (async () => {
       try {
-        const stub = env.EVENT_DISPATCHER!.get(env.EVENT_DISPATCHER!.idFromName(event.siteId));
+        const stub = dispatcher.get(dispatcher.idFromName(event.siteId));
         await stub.fetch(
           new Request('https://do/enqueue', {
             method: 'POST',
@@ -407,9 +411,11 @@ analyticsRoutes.post('/api/test-event', async (c) => {
   let dispatched = false;
   if (env.EVENT_DISPATCHER) {
     dispatched = true;
+    // Narrowed const (see the enqueue path above) → assertion-free async closure.
+    const dispatcher = env.EVENT_DISPATCHER;
     const p = (async () => {
       try {
-        const stub = env.EVENT_DISPATCHER!.get(env.EVENT_DISPATCHER!.idFromName(siteId));
+        const stub = dispatcher.get(dispatcher.idFromName(siteId));
         await stub.fetch(
           new Request('https://do/enqueue', { method: 'POST', body: JSON.stringify(event) }),
         );
