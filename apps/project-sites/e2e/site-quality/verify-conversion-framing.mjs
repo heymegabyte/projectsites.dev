@@ -19,7 +19,7 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'jenis-splendid-ice-creams-columbus,gentle-dental-seattle,wally-workman-gallery-austin').split(',');
+const SITES = (process.env.SITES || 'jenis-splendid-ice-creams-columbus,gentle-dental-seattle,wally-workman-gallery-austin,hotel-emma-san-antonio').split(',');
 
 // A quickserve WALK-UP counter vertical, detected from the H1 + <title> (the authoritative
 // vertical signal). These businesses take orders at a counter — never table reservations.
@@ -42,16 +42,20 @@ const RETAIL_SIGNAL =
 // It is VIEWED, VISITED, and pieces are INQUIRED-about, never checked out of a cart or ordered at a
 // walk-up "counter". A gallery is NEVER retail (its own dedicated `gallery` CommerceMode, AL-679).
 const GALLERY_SIGNAL = /\b(art\s?galler\w*|fine\s?art\w*|art\s?dealer\w*|art\s?museum\w*|\bmuseum\b)\b/i;
-// Retail-shop framing that mis-fits a gallery — the wally-workman-gallery-austin defect: a fresh
-// gallery build shipped "the people behind the counter" / "Browse our collection" / "Find your new
-// favorite" / "Visit the shop" because "art gallery" matched NO commerce rule → fell to `general`,
-// whose vacuum the content-writer filled with retail copy. The `gallery` CommerceMode + brief steer
-// this to curatorial copy on the next build. `the counter` / `visit the shop` are gallery-specific
-// misfits (a real shop legitimately says them), so they only flag WHEN the site is a gallery.
-const GALLERY_RETAIL_MISFIT =
-  /\b(the counter|people behind the counter|behind the counter|find your new favorite|visit the shop|browse our collection|add to cart|free shipping|30[- ]day returns?)\b/i;
 // Curatorial vocabulary a real gallery site SHOULD carry (positive signal — its absence is a soft miss).
 const GALLERY_CURATORIAL = /\b(exhibition|collection|viewing|acquir\w*|artist|on view|curat\w*)\b/i;
+// LODGING (hotel / resort / inn / B&B) — hospitality, NEVER retail. Detected from H1 + <title>. A
+// "boutique hotel" carries the RETAIL token `boutique`, so the base RETAIL_SIGNAL wrongly reads it as
+// a shop → SUPPRESSES the cart-framing check → "Free shipping" / "the counter" ship UNFLAGGED on a
+// hotel (the hotel-emma-san-antonio defect, AL-680: a boutique hotel with no per-vertical content pack
+// mis-routes to the RETAIL pack). Like GALLERY, lodging overrides isRetail=false so the misfit fires.
+const LODGING_SIGNAL =
+  /\b(hotel\w*|resort\w*|\binn\b|motel\w*|lodge\b|lodging|bed\s?and\s?breakfast|\bb&b\b|guesthouse|hostel\w*)\b/i;
+// Retail-shop framing that mis-fits ANY pack-less non-retail vertical (gallery / lodging): the RETAIL
+// content pack's "the counter" / "Find your new favorite" / "Free shipping" / cart copy. Shared by the
+// gallery + lodging checks; both are curatorial/hospitality verticals a retail pack should never own.
+const RETAIL_MISFIT =
+  /\b(the counter|people behind the counter|behind the counter|find your new favorite|visit the shop|browse our collection|add to cart|free shipping|30[- ]day returns?)\b/i;
 // A SERVICE business colloquially called a "…shop" (tattoo/barber/body/auto/repair shop) is NOT
 // retail — the bare `shop` token would otherwise mis-classify it as retail and SUPPRESS the
 // cart-framing check (the three-kings-tattoo class). Mirrors build_validators.validateConversionFraming.
@@ -62,9 +66,11 @@ function scan(text, h1, title) {
   const body = text.toLowerCase();
   const findings = [];
   const isGallery = GALLERY_SIGNAL.test(head);
+  const isLodging = LODGING_SIGNAL.test(head);
   const isQuickserve = QUICKSERVE_SIGNAL.test(head);
-  // A gallery is curatorial, never retail — even if an incidental "shop" token appears.
-  const isRetail = !isGallery && RETAIL_SIGNAL.test(head) && !SERVICE_SHOP.test(head);
+  // A gallery OR a hotel/lodging is curatorial/hospitality, NEVER retail — even if an incidental
+  // "shop"/"boutique" token appears (a "boutique hotel" is a hotel, not a boutique shop).
+  const isRetail = !isGallery && !isLodging && RETAIL_SIGNAL.test(head) && !SERVICE_SHOP.test(head);
   if (isQuickserve) {
     // strip negated reservation phrases, then look for affirmative framing
     const stripped = body.replace(RESERVATION_NEGATED, ' ');
@@ -73,15 +79,19 @@ function scan(text, h1, title) {
   }
   if (isGallery) {
     // A gallery must read curatorially — flag retail-shop/counter/cart framing that mis-fits it.
-    const m = body.match(GALLERY_RETAIL_MISFIT);
+    const m = body.match(RETAIL_MISFIT);
     if (m) findings.push({ kind: 'retail_framing_on_gallery', hit: m[0] });
     if (!GALLERY_CURATORIAL.test(body))
       findings.push({ kind: 'gallery_missing_curatorial_voice', hit: 'no exhibition/collection/viewing/artist vocabulary' });
+  } else if (isLodging) {
+    // A hotel/lodging must read hospitality — flag the RETAIL content pack's cart/counter/shipping copy.
+    const m = body.match(RETAIL_MISFIT);
+    if (m) findings.push({ kind: 'retail_framing_on_lodging', hit: m[0] });
   } else if (!isRetail) {
     const m = body.match(CART_FRAMING);
     if (m) findings.push({ kind: 'cart_on_non_retail', hit: m[0] });
   }
-  return { isGallery, isQuickserve, isRetail, findings };
+  return { isGallery, isLodging, isQuickserve, isRetail, findings };
 }
 
 const browser = await chromium.launch({ headless: true });
@@ -105,8 +115,8 @@ try {
         title: document.title,
         text: document.body.innerText,
       }));
-      const { isGallery, isQuickserve, isRetail, findings } = scan(d.text, d.h1, d.title);
-      const tag = isGallery ? 'gallery' : isQuickserve ? 'quickserve' : isRetail ? 'retail' : 'other';
+      const { isGallery, isLodging, isQuickserve, isRetail, findings } = scan(d.text, d.h1, d.title);
+      const tag = isGallery ? 'gallery' : isLodging ? 'lodging' : isQuickserve ? 'quickserve' : isRetail ? 'retail' : 'other';
       if (findings.length) {
         totalFindings += findings.length;
         rows.push(`  ❌ ${slug} [${tag}] — ${findings.map((f) => `${f.kind}:"${f.hit}"`).join(', ')}`);
