@@ -75,6 +75,34 @@ describe('validateConversionFraming (AL-421: no full-service reservation framing
     ]);
     expect(v).toHaveLength(0);
   });
+
+  // AL-646: e-commerce cart framing on a NON-retail vertical (the fine-art-gallery misframe —
+  // wally-workman-gallery shipped "free shipping / shop now" live).
+  it('FLAGS e-commerce cart framing on a fine-art GALLERY (non-retail)', () => {
+    const v = validateConversionFraming([
+      shell('The finest art gallery in Austin', 'Wally Workman Gallery — art gallery'),
+      file('assets/index-abc.js', 'const t="Fast, free shipping";const u="Shop now";const c="Secure checkout";'),
+    ]);
+    expect(v).toHaveLength(1);
+    expect(v[0].code).toBe('conversion.cart_on_non_retail');
+    expect(v[0].severity).toBe('warn');
+  });
+
+  it('does NOT flag a genuine RETAIL storefront using cart framing (on-brand there)', () => {
+    const v = validateConversionFraming([
+      shell("Austin's favorite record store", 'Waterloo Records — record store'),
+      file('assets/index-abc.js', 'const t="Shop now";const u="Free shipping over $50";'),
+    ]);
+    expect(v).toHaveLength(0); // a record store legitimately sells + ships products
+  });
+
+  it('does NOT flag a gallery that says "the collection" (curated wall, not a cart)', () => {
+    const v = validateConversionFraming([
+      shell('The finest art gallery in Austin', 'Wally Workman Gallery — art gallery'),
+      file('assets/index-abc.js', 'const t="View the collection";const u="Inquire about a piece";'),
+    ]);
+    expect(v).toHaveLength(0);
+  });
 });
 
 const html = (body: string, head = '') => `<!DOCTYPE html>

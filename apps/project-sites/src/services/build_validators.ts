@@ -1048,29 +1048,55 @@ export const validateConversionFraming = (files: BuildFile[]): Violation[] => {
   const shell = files.find((f) => f.path === 'index.html')?.text ?? '';
   const h1 = (shell.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? '').replace(/<[^>]+>/g, ' ').trim();
   const title = shell.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '';
+  const head = `${h1} ${title}`;
+  const out: Violation[] = [];
+
   const QUICKSERVE =
     /\b(ice\s?cream|gelato|frozen\s?yogurt|froyo|creamer(?:y|ies)|coffee\s?(?:shop|house|bar)|\bcafe\b|café|espresso\s?bar|bakery|bakeries|patisserie|\bdonut|doughnut|juice\s?bar|smoothie|\bdeli\b|delicatessen|sandwich\s?(?:shop|bar)|food\s?truck|bubble\s?tea|\bboba\b)\b/i;
-  if (!QUICKSERVE.test(`${h1} ${title}`)) return [];
+  // A genuine sells-products RETAIL storefront where e-commerce cart language is on-brand (mirrors
+  // verify-conversion-framing.mjs RETAIL_SIGNAL). Anything else — a gallery/museum, a service,
+  // a professional, a restaurant — is NON-retail and must NOT use cart framing (AL-408 class).
+  const RETAIL =
+    /\b(shop|store|boutique|jewel\w*|goldsmith|florist|book(?:shop|store)|record\s?store|vinyl|hardware|furniture|gift\s?shop|apparel|clothing|home\s?goods|\bgoods\b|market|thrift|consignment|antique\w*|nursery|garden\s?cent\w*|shoe\w*|\bwatch\w*)\b/i;
+  const isQuickserve = QUICKSERVE.test(head);
+  const isRetail = RETAIL.test(head);
+
   const RESERVATION =
     /\b(reserve a table|reservations?\s+welcome|book (?:a|your) table|easy reservations?|make a reservation|table reservations?)\b/i;
   const NEGATED =
     /\b(no reservations?(?:\s+(?:needed|required|necessary))?|without a reservation|walk[- ]?ins?\s+welcome)\b/gi;
+  // Unambiguous e-commerce cart phrases. "the collection" is deliberately EXCLUDED — a gallery
+  // legitimately has "The collection" (a curated wall), so only true cart/shipping/checkout copy flags.
+  const CART = /\b(add to cart|free shipping|shop now|secure checkout|30[- ]day returns?|add to (?:bag|basket))\b/i;
+
   for (const f of files) {
     if (!f.text || !/\.(html|js)$/i.test(f.path)) continue;
-    const m = f.text.replace(NEGATED, ' ').match(RESERVATION);
-    if (m) {
-      return [
-        {
+    if (isQuickserve && !out.some((v) => v.code === 'conversion.reservation_on_quickserve')) {
+      const m = f.text.replace(NEGATED, ' ').match(RESERVATION);
+      if (m) {
+        out.push({
           code: 'conversion.reservation_on_quickserve',
           severity: 'warn',
           message: `Quick-serve site (${h1.slice(0, 40)}) uses full-service reservation framing "${m[0]}" — a walk-up counter takes orders, never table reservations. Rewrite the section to quick-serve (Order online / Visit us / See our flavors / Today's specials).`,
           file: f.path,
           detail: m[0],
-        },
-      ];
+        });
+      }
+    }
+    if (!isRetail && !out.some((v) => v.code === 'conversion.cart_on_non_retail')) {
+      const m = f.text.match(CART);
+      if (m) {
+        out.push({
+          code: 'conversion.cart_on_non_retail',
+          severity: 'warn',
+          message: `Non-retail site (${h1.slice(0, 40)}) uses e-commerce cart framing "${m[0]}" — a gallery / museum / service / restaurant is inquired-at or visited, never checked out. Rewrite to fit the vertical (Inquire / View the collection / Visit us / Contact us) — never "Shop now / Free shipping / Add to cart".`,
+          file: f.path,
+          detail: m[0],
+        });
+      }
     }
   }
-  return [];
+  return out;
 };
 
 export const validateBuild = (
