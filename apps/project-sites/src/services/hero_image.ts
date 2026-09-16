@@ -58,6 +58,18 @@ const BREWERY: HeroImage = {
   url: 'https://images.unsplash.com/photo-1546622891-02c72c1537b6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwxfHxicmV3ZXJ5JTIwYmVlciUyMHRhcHMlMjBiYXJ8ZW58MXwwfHx8MTc4OTMxNTY0Mnww&ixlib=rb-4.1.0&q=80&w=1080',
   alt: 'A fresh beer poured from the taps at a craft brewery',
 };
+// DISTILLERY (this fire): a craft distillery is a HOSPITALITY tasting-room vertical (AL-549) with a
+// distinct visual identity — copper pot stills — but "distillery" had NO curated hero, so
+// koval-distillery-chicago fell to the pack's generic hero (a gift-shop/gallery interior, the exact
+// pre-AL-656 fallback), vision-caught live. Route distiller* to a real copper-stills hero. Sourced
+// via Unsplash search API 2026-09-16 ("distillery copper still spirits"), alt-verified on-vertical,
+// URL prod-200 (120KB); ixid base64-decodes to "distillery …" so verify-hero-image-vertical reads it
+// green off the H1/title "distillery" noun. Beer/brewery stays BREWERY above; wine/cider get their
+// own hero when delivered.
+const DISTILLERY: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1765989506097-e8f1a3e03844?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwzfHxkaXN0aWxsZXJ5JTIwY29wcGVyJTIwc3RpbGwlMjBzcGlyaXRzfGVufDB8MHx8fDE3ODk1NTA4Mzl8MA&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'Gleaming copper pot stills in a craft distillery',
+};
 const JEWELRY: HeroImage = {
   url: 'https://images.unsplash.com/photo-1631560230221-faff391fd241?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwxMXx8amV3ZWxyeSUyMG5lY2tsYWNlJTIwcmluZyUyMGRpc3BsYXl8ZW58MXwwfHx8MTc4OTMxNTY0Mnww&ixlib=rb-4.1.0&q=80&w=1080',
   alt: 'A fine necklace on display in a jewelry store',
@@ -197,6 +209,9 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
   [/\b(record\s?(store|shop)|vinyl)\b/, RECORD],
   [/\b(book\s?stor\w*|bookshop\w*|booksell\w*|\bbooks\b)\b/, BOOKSTORE],
   [/\b(brewery|breweries|brewpub|taproom|beer\s?(hall|garden))\b/, BREWERY],
+  // DISTILLERY — a craft distillery/distiller (copper pot stills). `distiller\w*` covers
+  // distillery/distiller/distilleries/distilling; nothing else starts "distiller" (no false-match).
+  [/\bdistiller\w*\b/, DISTILLERY],
   [/\b(jewel\w*|goldsmith\w*|watch\s?(shop|store|maker))\b/, JEWELRY],
   [/\b(tattoo\w*)\b/, TATTOO],
   // AL-597 specialty-food + active-gear — precise nouns; `meat` paired with shop/market/counter (no
@@ -262,6 +277,7 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
  * heroImageForVertical('cocktail bar')?.url    // → 'https://images.unsplash.com/photo-1763771757330-…'
  * heroImageForVertical('wealth management')?.alt // → 'A financial advisor reviewing figures at a desk'
  * heroImageForVertical('grocery store')?.alt   // → 'Fresh produce and full shelves in a well-stocked neighborhood grocery'
+ * heroImageForVertical('distillery')?.alt      // → 'Gleaming copper pot stills in a craft distillery'
  * heroImageForVertical('plumbing')             // → null  (broad pack default is correct)
  * heroImageForVertical('')                     // → null
  */

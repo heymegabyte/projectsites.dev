@@ -277,6 +277,19 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
     expect(heroImageForVertical('meat market')).not.toBe(grocery);
   });
 
+  it('this fire: a craft DISTILLERY gets the copper-stills hero (not the generic gift-shop/gallery interior)', () => {
+    // Delivered defect (vision-caught, koval-distillery-chicago): a distillery had no curated hero →
+    // the pack's generic hero (an art-gallery interior). A distillery's identity is copper pot stills.
+    const distillery = heroImageForVertical('distillery');
+    expect(distillery).not.toBeNull();
+    expect(distillery!.url.startsWith('https://images.unsplash.com/photo-')).toBe(true);
+    for (const v of ['distiller', 'Craft Distillery', 'distilleries', 'whiskey distillery']) {
+      expect(heroImageForVertical(v)).toBe(distillery);
+    }
+    // Beer/brewery keeps its own hero (a distillery is not a brewery).
+    expect(heroImageForVertical('brewery')).not.toBe(distillery);
+  });
+
   it('every curated hero URL is an allowlisted images.unsplash.com CDN link', () => {
     for (const v of [
       'plant shop',
@@ -289,6 +302,7 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
       'tattoo studio',
       'wealth management',
       'grocery store',
+      'distillery',
     ]) {
       const img = heroImageForVertical(v)!;
       expect(img.url.startsWith('https://images.unsplash.com/photo-')).toBe(true);
@@ -310,6 +324,7 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
       // for any finance-domain H1 noun (wealth/insurance/accounting/…), no per-noun image needed.
       ['wealth management', /financ|advisor/],
       ['grocery store', /grocery|market|produce/],
+      ['distillery', /distillery|still|spirits/],
     ];
     for (const [v, re] of cases) {
       const q = heroQuery(heroImageForVertical(v)!.url);
