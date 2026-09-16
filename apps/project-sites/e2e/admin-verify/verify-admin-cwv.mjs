@@ -29,6 +29,11 @@ if (!KEY) {
 }
 const ORIGIN = process.env.ORIGIN || 'https://projectsites.dev';
 const LCP_BUDGET = parseInt(process.env.LCP_BUDGET || '2000', 10);
+// CLS two-tier (mirrors the LCP philosophy + validator-precision — a flaky CLS gate is worse than
+// none): HARD-fail a real regression (>0.1, the WCAG/Google "poor" boundary), TRACK the 0.05
+// cinematic band as a ::notice. The admin topbar row-height reserve (AL-660) put analytics at 0.034.
+const CLS_HARD = parseFloat(process.env.CLS_HARD || '0.1');
+const CLS_TARGET = 0.05;
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
 
@@ -68,14 +73,24 @@ const ROUTES = (
 const measure = () =>
   new Promise((res) => {
     let lcp = 0;
+    let cls = 0;
     new PerformanceObserver((l) => {
       const e = l.getEntries();
       lcp = e[e.length - 1].startTime;
     }).observe({ type: 'largest-contentful-paint', buffered: true });
+    // Cumulative layout shift — sum shift values NOT following a recent user input (field CLS).
+    new PerformanceObserver((l) => {
+      for (const e of l.getEntries()) if (!e.hadRecentInput) cls += e.value;
+    }).observe({ type: 'layout-shift', buffered: true });
     setTimeout(() => {
       const nav = performance.getEntriesByType('navigation')[0] || {};
       const fcp = (performance.getEntriesByName('first-contentful-paint')[0] || {}).startTime || 0;
-      res({ ttfb: Math.round(nav.responseStart || 0), fcp: Math.round(fcp), lcp: Math.round(lcp) });
+      res({
+        ttfb: Math.round(nav.responseStart || 0),
+        fcp: Math.round(fcp),
+        lcp: Math.round(lcp),
+        cls: Math.round(cls * 1e4) / 1e4,
+      });
     }, 4000);
   });
 
@@ -85,30 +100,42 @@ for (const route of ROUTES) {
   try {
     await page.goto(`${ORIGIN}${route}`, { waitUntil: 'load', timeout: 60000 });
     const cwv = await page.evaluate(measure);
-    rows.push({ route, ...cwv, pass: cwv.lcp > 0 && cwv.lcp <= LCP_BUDGET });
+    rows.push({
+      route,
+      ...cwv,
+      pass: cwv.lcp > 0 && cwv.lcp <= LCP_BUDGET && (cwv.cls ?? 0) <= CLS_HARD,
+    });
   } catch (e) {
-    rows.push({ route, lcp: 0, ttfb: 0, fcp: 0, err: String(e).slice(0, 50), pass: false });
+    rows.push({ route, lcp: 0, ttfb: 0, fcp: 0, cls: 0, err: String(e).slice(0, 50), pass: false });
   }
   await page.close();
 }
 
 await browser.close();
 
-console.log(`=== ADMIN SPA CWV (cold per-route load, LCP ≤ ${LCP_BUDGET}ms) ===\n`);
+console.log(`=== ADMIN SPA CWV (cold per-route load, LCP ≤ ${LCP_BUDGET}ms · CLS ≤ ${CLS_HARD}) ===\n`);
 for (const r of rows) {
+  const clsFlag = (r.cls ?? 0) > CLS_HARD ? ' ✗CLS' : (r.cls ?? 0) > CLS_TARGET ? ' ⚠cls' : '';
   console.log(
-    `  ${r.pass ? '✓' : '✗'} ${r.route.padEnd(26)} LCP ${String(r.lcp).padStart(4)}ms · TTFB ${r.ttfb} · FCP ${r.fcp}${r.err ? '  ERR ' + r.err : ''}`,
+    `  ${r.pass ? '✓' : '✗'} ${r.route.padEnd(26)} LCP ${String(r.lcp).padStart(4)}ms · CLS ${String(r.cls ?? 0).padEnd(6)}${clsFlag} · TTFB ${r.ttfb} · FCP ${r.fcp}${r.err ? '  ERR ' + r.err : ''}`,
   );
 }
+const clsWatch = rows.filter((r) => (r.cls ?? 0) > CLS_TARGET && (r.cls ?? 0) <= CLS_HARD);
+if (clsWatch.length)
+  console.log(
+    `\n::notice:: ${clsWatch.length} route(s) in the 0.05–${CLS_HARD} CLS band (under the hard gate, over the cinematic target): ${clsWatch.map((r) => r.route + ' ' + r.cls).join(', ')}`,
+  );
 const ranked = rows.filter((r) => r.lcp > 0).sort((a, b) => b.lcp - a.lcp)[0];
 if (ranked)
   console.log(
     `\n  worst offender: ${ranked.route} @ ${ranked.lcp}ms (analytics is data-fetch-gated on the slow CF-GraphQL envelope — LCP tracks data-arrival, skeletons are CSS-gradients that don't count as LCP; AL-438)`,
   );
 const fails = rows.filter((r) => !r.pass);
+const reason = (f) =>
+  f.lcp > LCP_BUDGET || f.lcp === 0 ? `${f.route} LCP ${f.lcp}ms` : `${f.route} CLS ${f.cls}`;
 console.log(
   fails.length === 0
-    ? `\nVERDICT: ✅ PASS — all ${rows.length} admin routes cold-load LCP ≤ ${LCP_BUDGET}ms.`
-    : `\nVERDICT: ❌ FAIL — ${fails.length}/${rows.length} admin route(s) exceed ${LCP_BUDGET}ms: ${fails.map((f) => f.route + ' ' + f.lcp + 'ms').join(', ')}.`,
+    ? `\nVERDICT: ✅ PASS — all ${rows.length} admin routes cold-load LCP ≤ ${LCP_BUDGET}ms + CLS ≤ ${CLS_HARD}.`
+    : `\nVERDICT: ❌ FAIL — ${fails.length}/${rows.length} admin route(s) over budget: ${fails.map(reason).join(', ')}.`,
 );
 process.exit(fails.length === 0 ? 0 : 1);
