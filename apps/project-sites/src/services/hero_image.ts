@@ -92,6 +92,16 @@ const CREATIVE: HeroImage = {
   url: 'https://images.unsplash.com/photo-1765758014805-a7a6cc272982?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHw0fHxncmFwaGljJTIwZGVzaWduJTIwc3R1ZGlvJTIwd29ya3NwYWNlfGVufDB8MHx8fDE3ODkzOTQ2MTB8MA&ixlib=rb-4.1.0&q=80&w=1080',
   alt: "A designer's desk with a computer and creative work in a studio",
 };
+// GALLERY (AL-641): a fine-art GALLERY is NOT a creative WORKSPACE — the CREATIVE cluster's
+// messy designer's desk (above) is a misfit (live: jackson-fine-art-atlanta shipped that desk).
+// A gallery's hero is its curated INTERIOR — framed works on clean walls. Carved out of CREATIVE
+// (which keeps design/photo/art-STUDIOS); an art gallery/dealer gets this refined interior instead.
+// Pairs with the luxe theme remap (theme_style.ts AL-641). Sourced via Unsplash search API
+// 2026-09-15 ("art gallery interior paintings walls"), alt-verified on-vertical, URL prod-200 (107KB).
+const GALLERY: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1606819717115-9159c900370b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwxfHxhcnQlMjBnYWxsZXJ5JTIwaW50ZXJpb3IlMjBwYWludGluZ3MlMjB3YWxsc3xlbnwwfDB8fHwxNzg5NTIzNTMyfDA&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'Framed artworks on the walls of a fine-art gallery',
+};
 // SPECIALTY-FOOD + ACTIVE-GEAR (AL-597): the verticals delivered AL-583/588/594 (bike / cheese /
 // butcher) had NO curated hero → the pack's generic "retail" bucket shipped "cozy independent shop
 // interior shelves" as the LCP hero (flagged live by verify-hero-image-vertical on murrays-cheese +
@@ -180,11 +190,17 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
     /\b(wealth|financ\w*|invest(ment|ing|or)\w*|asset\s?manage\w*|retirement\s?plan\w*|insuranc\w*|accounting|accountan\w*|bookkeep\w*|cpa|tax(es)?)\b/,
     FINANCE,
   ],
+  // GALLERY — BEFORE creative so an art gallery/dealer gets the curated gallery INTERIOR, not the
+  // creative-workspace desk (`art studio` stays creative below). Mirrors the luxe theme remap (AL-641).
+  [
+    /\b(art\s?galler\w*|fine\s?art\s?galler\w*|\bgaller(?:y|ies)\b|art\s?dealer\w*)\b/,
+    GALLERY,
+  ],
   // CREATIVE cluster — AFTER finance so "insurance agency"/"real estate agency" hit their own rules
   // first (this row never uses a bare `agency`). Precise creative-services nouns only, so a yoga/
   // dance/pilates "studio" (fitness) never matches (no bare `\bstudio\b`), and tattoo is caught above.
   [
-    /\b(design\s?studio|graphic\s?design|creative\s?(studio|agency|shop|services)|design\s?(agency|firm)|branding|brand\s?studio|art\s?(studio|gallery)|\bgaller(y|ies)\b|photograph\w*|photo\s?studio|videograph\w*|production\s?(studio|house|company)|advertis\w*|animation\s?studio|record\s?label)\b/,
+    /\b(design\s?studio|graphic\s?design|creative\s?(studio|agency|shop|services)|design\s?(agency|firm)|branding|brand\s?studio|art\s?studio|photograph\w*|photo\s?studio|videograph\w*|production\s?(studio|house|company)|advertis\w*|animation\s?studio|record\s?label)\b/,
     CREATIVE,
   ],
 ];

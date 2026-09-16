@@ -187,8 +187,16 @@ const CATEGORY_RULES: ReadonlyArray<readonly [ThemeStyleName, RegExp]> = [
     /\b(education\w*|educational|tutor\w*|\bschool\w*|academy|academ\w*|\bcourse\w*|coaching|learning|\bkids\b|children|childcare|university|universit\w*|college|preschool|kindergarten|daycare|montessori|\bstem\b|classes|teach\w*|pedagog\w*|training\s?cent|book\s?stor\w*|bookstore\w*|bookshop\w*|booksell\w*|\bbooks\b|\blibrar\w*)\b/,
   ],
   [
+    // AL-641: `art gallery|fine art|gallery|art dealer` → `luxe` (refined, Playfair-serif,
+    // "The finest… / Quiet luxury / restraint, taste, quiet confidence"), NOT `brutalist`. A
+    // fine-art gallery is a REFINED, curatorial vertical — but "art gallery" matched `\bart\b` in
+    // the brutalist CREATIVE cluster below (line ~264, shared with design/photo/ad studios) and
+    // shipped a bold "No compromise / Uncompromising… impossible to ignore" persona (live:
+    // jackson-fine-art-atlanta H1 "Atlanta. Art gallery. No compromise"). Ordered here (before
+    // brutalist) so galleries win luxe; design/photo/art-STUDIOS keep brutalist. `art studio` (a
+    // working creative studio) intentionally stays brutalist — only the gallery/dealer face is luxe.
     'luxe',
-    /\b(real\s?estate|realty|realtor\w*|jewel\w*|fine\s?dining|hospitality|\bhotel\w*|resort\w*|lodging|steakhouse|winery|wineries|vineyard|country\s?club|\byacht\w*|concierge|penthouse|five\s?star|boutique\s?hotel|\bspa\s?resort|bridal|\bwatch\w*\s?(shop|store|maker))\b/,
+    /\b(real\s?estate|realty|realtor\w*|jewel\w*|galler\w*|fine\s?art\w*|art\s?dealer\w*|fine\s?dining|hospitality|\bhotel\w*|resort\w*|lodging|steakhouse|winery|wineries|vineyard|country\s?club|\byacht\w*|concierge|penthouse|five\s?star|boutique\s?hotel|\bspa\s?resort|bridal|\bwatch\w*\s?(shop|store|maker))\b/,
   ],
   [
     'rugged',

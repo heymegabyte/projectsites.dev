@@ -21,7 +21,7 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'heath-ceramics-sausalito').split(',').map((s) => s.trim()).filter(Boolean);
+const SITES = (process.env.SITES || 'heath-ceramics-sausalito,jackson-fine-art-atlanta').split(',').map((s) => s.trim()).filter(Boolean);
 const ROUTES = (process.env.ROUTES || '/,/about,/services').split(',');
 const STRICT = process.env.STRICT === '1';
 
@@ -52,6 +52,15 @@ const WELLNESS_CARE =
   /\b(feel better|take a deep breath|unhurried care|patient-first|meets you where you are|always in your corner)\b/i;
 const PLANT_RETAIL_SIGNAL =
   /\b(garden\s?(?:shop|cent\w*|store|nurser\w*|suppl\w*)|plant\s?(?:shop|store|nurser\w*)|\bnurser(?:y|ies)\b|greenhouse|florist|flower\s?(?:shop|store|market)|botanical\s?garden|houseplant|horticultur\w*)\b/i;
+// AL-641: a fine-art GALLERY is REFINED/curatorial — it must not wear the BRUTALIST persona ("No
+// compromise" / "Uncompromising … impossible to ignore" / "made to stand out"), the bold voice
+// shared with design/photo/ad studios that shipped on jackson-fine-art-atlanta (H1 "Atlanta. Art
+// gallery. No compromise"). Root-fixed in theme_style.ts (galler*|fine art|art dealer → luxe, the
+// refined "The finest … / Quiet luxury" persona) + hero_image.ts (gallery-interior hero, not the
+// creative desk). Flag ONLY when the business IS a gallery (page content) AND the brutalist phrase
+// is in the HERO region — so a design studio keeps its correct bold voice.
+const GALLERY_SIGNAL = /\b(art\s?galler\w*|fine\s?art\b|\bgaller(?:y|ies)\b|art\s?dealer\w*)\b/i;
+const BRUTALIST_MISFIT = /\b(no compromise|uncompromising|impossible to ignore|made to stand out)\b/i;
 const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 const hits = [];
@@ -89,6 +98,14 @@ try {
           const m = WELLNESS_CARE.exec(nH1) || WELLNESS_CARE.exec(nBody.slice(0, 450));
           hits.push({ slug, route, kind: 'wellness-copy-on-plant', detail: `plant-retail hero wears wellness-care copy "${m?.[0]}" (AL-611 misfit)` });
         }
+        // AL-641: a fine-art gallery must not wear the brutalist bold persona.
+        if (
+          GALLERY_SIGNAL.test(nBody) &&
+          (BRUTALIST_MISFIT.test(nH1) || BRUTALIST_MISFIT.test(nBody.slice(0, 450)))
+        ) {
+          const m = BRUTALIST_MISFIT.exec(nH1) || BRUTALIST_MISFIT.exec(nBody.slice(0, 450));
+          hits.push({ slug, route, kind: 'brutalist-persona-on-gallery', detail: `fine-art gallery hero wears brutalist copy "${m?.[0]}" (AL-641 misfit — should be luxe)` });
+        }
       } catch {
         /* route unreachable → skip (don't false-fail) */
       }
@@ -111,5 +128,5 @@ if (STRICT) {
 }
 // flips-GREEN-on-rebuild tracker: a stale pre-fix build still renders the leak; the retail-pack
 // de-"Gear" fix lands next build (NO redeploy of existing sites), so these clear on rebuild.
-console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
+console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant / AL-641 brutalist-on-gallery; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
 process.exit(0);

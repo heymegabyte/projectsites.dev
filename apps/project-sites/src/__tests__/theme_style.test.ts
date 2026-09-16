@@ -115,7 +115,7 @@ describe('theme_style — themeStyleFromInputs', () => {
       ['university', 'scholarly'],
       ['place_of_worship', 'editorial'],
       ['local_government_office', 'editorial'],
-      ['art_gallery', 'brutalist'],
+      ['art_gallery', 'luxe'], // AL-641: a fine-art gallery is REFINED/curatorial (luxe), not brutalist (the bold design/photo-studio persona shipped "Atlanta. Art gallery. No compromise" live on jackson-fine-art-atlanta)
       ['electrician', 'rugged'],
       ['plumber', 'rugged'],
       ['locksmith', 'rugged'],

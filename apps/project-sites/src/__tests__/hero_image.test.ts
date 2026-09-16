@@ -153,8 +153,7 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
       'design firm',
       'branding',
       'brand studio',
-      'art gallery',
-      'art studio',
+      'art studio', // a working art STUDIO is a creative workspace (stays CREATIVE); a GALLERY is not (AL-641)
       'photography studio',
       'photo studio',
       'videography',
@@ -167,6 +166,22 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
     }
     // probe-compat: the ixid base64-decodes to a query naming the vertical (design/studio)
     expect(heroQuery(creative.url)).toMatch(/design|studio/i);
+  });
+
+  it('AL-641: a fine-art GALLERY gets the gallery-interior hero, NOT the creative-workspace desk', () => {
+    const gallery = heroImageForVertical('art gallery')!;
+    expect(gallery).not.toBeNull();
+    expect(gallery.alt).toMatch(/gallery|artwork|framed/i);
+    // distinct from the CREATIVE cluster (design-studio desk) — a gallery ≠ a working studio
+    expect(gallery).not.toBe(heroImageForVertical('design studio'));
+    // gallery / fine art / art dealer all share the one gallery hero
+    for (const v of ['fine art gallery', 'gallery', 'art dealer', 'contemporary art gallery']) {
+      expect(heroImageForVertical(v)).toBe(gallery);
+    }
+    // an art STUDIO stays creative (working workspace), never the gallery interior
+    expect(heroImageForVertical('art studio')).not.toBe(gallery);
+    // probe-compat: the ixid base64-decodes to a query naming the vertical (gallery)
+    expect(heroQuery(gallery.url)).toMatch(/gallery/i);
   });
 
   it('AL-544: creative patterns do NOT false-match insurance/real-estate agencies or fitness studios (no bare "agency"/"studio")', () => {
