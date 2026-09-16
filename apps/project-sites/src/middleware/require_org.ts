@@ -27,7 +27,9 @@ import { UnauthorizedError } from '../platform/errors.js';
 export function requireOrgId(c: Context<{ Bindings: Env; Variables: Variables }>): string {
   const orgId = c.get('orgId');
   if (!orgId) {
-    throw new UnauthorizedError('Authentication required — no organization in the request context.');
+    throw new UnauthorizedError(
+      'Authentication required — no organization in the request context.',
+    );
   }
   return orgId;
 }
