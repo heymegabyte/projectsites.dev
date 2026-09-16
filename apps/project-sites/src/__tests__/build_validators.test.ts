@@ -81,7 +81,10 @@ describe('validateConversionFraming (AL-421: no full-service reservation framing
   it('FLAGS e-commerce cart framing on a fine-art GALLERY (non-retail)', () => {
     const v = validateConversionFraming([
       shell('The finest art gallery in Austin', 'Wally Workman Gallery — art gallery'),
-      file('assets/index-abc.js', 'const t="Fast, free shipping";const u="Shop now";const c="Secure checkout";'),
+      file(
+        'assets/index-abc.js',
+        'const t="Fast, free shipping";const u="Shop now";const c="Secure checkout";',
+      ),
     ]);
     expect(v).toHaveLength(1);
     expect(v[0].code).toBe('conversion.cart_on_non_retail');

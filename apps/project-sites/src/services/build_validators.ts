@@ -1067,7 +1067,8 @@ export const validateConversionFraming = (files: BuildFile[]): Violation[] => {
     /\b(no reservations?(?:\s+(?:needed|required|necessary))?|without a reservation|walk[- ]?ins?\s+welcome)\b/gi;
   // Unambiguous e-commerce cart phrases. "the collection" is deliberately EXCLUDED — a gallery
   // legitimately has "The collection" (a curated wall), so only true cart/shipping/checkout copy flags.
-  const CART = /\b(add to cart|free shipping|shop now|secure checkout|30[- ]day returns?|add to (?:bag|basket))\b/i;
+  const CART =
+    /\b(add to cart|free shipping|shop now|secure checkout|30[- ]day returns?|add to (?:bag|basket))\b/i;
 
   for (const f of files) {
     if (!f.text || !/\.(html|js)$/i.test(f.path)) continue;
