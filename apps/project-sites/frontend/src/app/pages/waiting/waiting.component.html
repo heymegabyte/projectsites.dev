@@ -18,7 +18,16 @@
         </svg>
       </div>
       <h2 class="text-xl font-bold text-green-400 mb-2">Your site is live!</h2>
-      <p class="text-[0.85rem] text-gray-400 mb-2">{{ slug }}.projectsites.dev</p>
+      <!-- The subdomain is the most natural thing to click — make it a real link (new tab), not plain
+           text. Keyboard-focusable + hover affordance; the "View Your Site" button stays the primary. -->
+      <a
+        [href]="'https://' + slug + '.projectsites.dev'"
+        target="_blank"
+        rel="noopener"
+        data-testid="waiting-live-url"
+        class="inline-block text-[0.85rem] text-gray-400 hover:text-primary underline decoration-dotted underline-offset-4 mb-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 rounded"
+        >{{ slug }}.projectsites.dev</a
+      >
 
       <div class="flex gap-3 justify-center my-6 flex-wrap">
         <button
