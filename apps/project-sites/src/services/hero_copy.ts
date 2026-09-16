@@ -343,7 +343,7 @@ export function personaHeroCopy(
         `${city}'s cozy corner`,
       ],
       subheadlines: [
-        `A welcoming ${cat} in ${city} where the coffee is hot, the faces are friendly, and everyone has a seat.`,
+        `A neighborhood ${cat} in ${city} where the welcome is warm, the faces are friendly, and everyone has a seat.`,
         `Come in, slow down, and feel at home — ${art} ${cat} made with heart for ${city}.`,
       ],
     },

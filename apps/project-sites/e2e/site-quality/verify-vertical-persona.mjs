@@ -61,6 +61,14 @@ const PLANT_RETAIL_SIGNAL =
 // is in the HERO region — so a design studio keeps its correct bold voice.
 const GALLERY_SIGNAL = /\b(art\s?galler\w*|fine\s?art\b|\bgaller(?:y|ies)\b|art\s?dealer\w*)\b/i;
 const BRUTALIST_MISFIT = /\b(no compromise|uncompromising|impossible to ignore|made to stand out)\b/i;
+// AL-654: the `warm` persona subhead hardcoded a cafe-ism ("where the coffee is hot") that shipped
+// on EVERY hospitality vertical — franklin-barbecue (BBQ) + pizzeria-bianco (pizzeria) both read
+// "…where the coffee is hot". Root-fixed in hero_copy.ts (warm subhead → "where the welcome is
+// warm", vertical-neutral). Flag the cafe-ism ONLY when the business is NOT a coffee/cafe/tea/bakery
+// vertical (those legitimately have hot coffee) + in the HERO region.
+const COFFEE_SIGNAL =
+  /\b(coffee|caf[eé]|espresso|roaster|roastery|tea\s?(?:shop|house|room)|bakery|patisserie|brunch|diner|breakfast)\b/i;
+const COFFEE_MISFIT = /\bthe coffee is hot\b/i;
 const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 const hits = [];
@@ -106,6 +114,16 @@ try {
           const m = BRUTALIST_MISFIT.exec(nH1) || BRUTALIST_MISFIT.exec(nBody.slice(0, 450));
           hits.push({ slug, route, kind: 'brutalist-persona-on-gallery', detail: `fine-art gallery hero wears brutalist copy "${m?.[0]}" (AL-641 misfit — should be luxe)` });
         }
+        // AL-654: a non-coffee hospitality business must not render the cafe-ism "the coffee is hot".
+        // Detect the cafe VERTICAL from the body with the misfit phrase STRIPPED — else the phrase's
+        // own "coffee" token self-exempts it (a BBQ joint's ONLY "coffee" is the misfit itself; a real
+        // cafe still says coffee/espresso/cafe elsewhere).
+        if (
+          COFFEE_MISFIT.test(nBody.slice(0, 450)) &&
+          !COFFEE_SIGNAL.test(nBody.replace(/the coffee is hot/g, ''))
+        ) {
+          hits.push({ slug, route, kind: 'coffee-copy-on-non-cafe', detail: 'hospitality hero says "the coffee is hot" on a non-coffee business (AL-654 cafe-ism misfit)' });
+        }
       } catch {
         /* route unreachable → skip (don't false-fail) */
       }
@@ -128,5 +146,5 @@ if (STRICT) {
 }
 // flips-GREEN-on-rebuild tracker: a stale pre-fix build still renders the leak; the retail-pack
 // de-"Gear" fix lands next build (NO redeploy of existing sites), so these clear on rebuild.
-console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant / AL-641 brutalist-on-gallery; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
+console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant / AL-641 brutalist-on-gallery / AL-654 coffee-on-non-cafe; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
 process.exit(0);

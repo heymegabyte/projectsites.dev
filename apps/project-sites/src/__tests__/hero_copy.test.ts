@@ -533,6 +533,21 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
     'brutalist',
   ];
 
+  it('AL-654: the warm persona subhead is vertical-NEUTRAL — no hardcoded "coffee" cafe-ism', () => {
+    // franklin-barbecue (BBQ) + pizzeria-bianco both shipped "…where the coffee is hot" — a cafe-ism
+    // hardcoded in the warm subhead. Root fix → "where the welcome is warm" (fits every hospitality
+    // vertical). A non-cafe hospitality business must never read "coffee" in its hero subhead.
+    for (const cat of ['barbecue restaurant', 'pizzeria', 'steakhouse', 'diner']) {
+      const p = personaHeroCopy('warm', cat, 'Austin');
+      expect(p).not.toBeNull();
+      for (const sub of p!.subheadlines) {
+        expect(sub.toLowerCase()).not.toContain('coffee');
+      }
+      // still warm + welcoming (the vertical-neutral replacement lands)
+      expect(p!.subheadlines.join(' ').toLowerCase()).toMatch(/welcome is warm|feel at home/);
+    }
+  });
+
   it('noir gets an after-dark voice, NOT the plumber-voice live defect', () => {
     const p = personaHeroCopy('noir', 'cocktail bar', 'Portland');
     expect(p).not.toBeNull();
