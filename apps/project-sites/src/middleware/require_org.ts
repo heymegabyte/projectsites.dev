@@ -20,16 +20,20 @@
  */
 import type { Context } from 'hono';
 
-import type { Env, Variables } from '../types/env.js';
+import { unauthorized } from '@project-sites/shared';
 
-import { UnauthorizedError } from '../platform/errors.js';
+import type { Env, Variables } from '../types/env.js';
 
 export function requireOrgId(c: Context<{ Bindings: Env; Variables: Variables }>): string {
   const orgId = c.get('orgId');
   if (!orgId) {
-    throw new UnauthorizedError(
-      'Authentication required — no organization in the request context.',
-    );
+    // MUST be the SHARED `@project-sites/shared` AppError (via `unauthorized()`) — the global
+    // error_handler maps ONLY `instanceof AppError` from the shared barrel to its status (via
+    // `.statusCode` + `.toJSON()`). The platform `errors.ts` AppError is a SEPARATE class (uses
+    // `.status`, not `.statusCode`), so throwing ITS `UnauthorizedError` fell through to a 500
+    // (prod-verified: /api/system/status, /api/activity, /api/onboarding all 500'd unauthed — the
+    // Fire-10/11 orgId!→requireOrgId conversion silently produced 500s, not the intended 401).
+    throw unauthorized('Authentication required — no organization in the request context.');
   }
   return orgId;
 }
