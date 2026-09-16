@@ -47,14 +47,58 @@ const GATE_PATTERNS = [
   /requireFlag\(\s*'([a-z_0-9]+)'/g, // requireFlag('x')  (flag-first)
   /requireFlag\(\s*[a-zA-Z_.]+,\s*'([a-z_0-9]+)'/g, // requireFlag(c,'x') (ctx-first)
 ];
+/**
+ * Blank out `//` line comments and block comments (incl. JSDoc) so a gate-shaped
+ * call inside an `@example` / `// Before:` comment is never mistaken for a LIVE gate
+ * — validator-precision-discipline §1 (regex too greedy: don't scan comments). A JSDoc
+ * example in `middleware/require_org.ts` (`isFlagOn(c.env, 'k', …)`) tripped this as a
+ * phantom orphan flag `k`, failing this gate for 5 commits. Newlines + tabs are PRESERVED
+ * so reported line numbers stay exact. Strings are not comment-aware, but a stray `//`
+ * inside a string only risks a false NEGATIVE (a missed gate), never a false positive —
+ * the discipline's preferred failure direction.
+ */
+function stripComments(src) {
+  let out = '';
+  let state = 'code'; // 'code' | 'line' | 'block'
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    const d = src[i + 1];
+    const blank = c === '\n' ? '\n' : c === '\t' ? '\t' : ' ';
+    if (state === 'code') {
+      if (c === '/' && d === '/') {
+        out += '  ';
+        i++;
+        state = 'line';
+      } else if (c === '/' && d === '*') {
+        out += '  ';
+        i++;
+        state = 'block';
+      } else out += c;
+    } else if (state === 'line') {
+      if (c === '\n') {
+        out += '\n';
+        state = 'code';
+      } else out += blank;
+    } else {
+      if (c === '*' && d === '/') {
+        out += '  ';
+        i++;
+        state = 'code';
+      } else out += blank;
+    }
+  }
+  return out;
+}
+
 const gated = new Map(); // key -> [callsites]
 for (const file of walk(SRC)) {
   const text = readFileSync(file, 'utf8');
   const lines = text.split('\n');
+  const scan = stripComments(text); // gate-shaped calls in comments are NOT live gates
   for (const re of GATE_PATTERNS) {
-    for (const m of text.matchAll(re)) {
+    for (const m of scan.matchAll(re)) {
       const key = m[1];
-      const lineNo = text.slice(0, m.index).split('\n').length;
+      const lineNo = scan.slice(0, m.index).split('\n').length;
       if (!gated.has(key)) gated.set(key, []);
       gated.get(key).push(`${file}:${lineNo}  ${lines[lineNo - 1]?.trim().slice(0, 90)}`);
     }
