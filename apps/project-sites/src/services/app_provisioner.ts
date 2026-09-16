@@ -67,9 +67,7 @@ export async function provisionInfra(
       const name = `app-${ctx.slug}-${ctx.instanceId.slice(0, 8)}`;
       const createdPg = await neon.createProject(env, name);
       result.postgres = createdPg;
-      rollback.push(() =>
-        neon.deleteProject(env, createdPg.projectId).catch(() => undefined),
-      );
+      rollback.push(() => neon.deleteProject(env, createdPg.projectId).catch(() => undefined));
     }
 
     if (infra.includes('redis')) {
