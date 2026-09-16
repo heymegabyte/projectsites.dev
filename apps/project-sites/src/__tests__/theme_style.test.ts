@@ -423,7 +423,14 @@ describe('theme_style — commerceModeFor (AL-408 conversion axis)', () => {
     // RETAIL shop copy ("Browse our collection", "the people behind the counter", "Free shipping").
     // AL-641 mapped galler*→luxe THEME but left the COMMERCE axis unset; a gallery is VIEWED +
     // VISITED + INQUIRED-about, a curatorial mode, never a checkout counter.
-    for (const v of ['art gallery', 'Fine Art Gallery', 'art dealer', 'Contemporary Art Gallery', 'Art Museum', 'museum']) {
+    for (const v of [
+      'art gallery',
+      'Fine Art Gallery',
+      'art dealer',
+      'Contemporary Art Gallery',
+      'Art Museum',
+      'museum',
+    ]) {
       expect(commerceModeFor(v)).toBe('gallery');
     }
     // The gallery rule must NOT swallow working creative STUDIOS (they stay service/general — a

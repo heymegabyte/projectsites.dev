@@ -143,10 +143,18 @@ describe('hero_copy — trustBadgesFor (AL-518: commerce-mode trust badges, neve
     const badges = trustBadgesFor('gallery').join(' ').toLowerCase();
     expect(badges).not.toMatch(/shipping|returns?|cart|counter/);
     const faq = homepageFaq('gallery', 'Wally Workman Gallery', 'art gallery', 'Austin');
-    const faqText = faq.items.map((i) => i.q + ' ' + i.a).join(' ').toLowerCase();
+    const faqText = faq.items
+      .map((i) => i.q + ' ' + i.a)
+      .join(' ')
+      .toLowerCase();
     expect(faqText).toMatch(/exhibition|collection|viewing|acquir|artist/); // curatorial vocabulary
     expect(faqText).not.toMatch(/the counter|free shipping|add to cart|30-day return/); // never retail
-    const desc = seoDescriptionFor('gallery', 'Wally Workman Gallery', 'art gallery', 'Austin').toLowerCase();
+    const desc = seoDescriptionFor(
+      'gallery',
+      'Wally Workman Gallery',
+      'art gallery',
+      'Austin',
+    ).toLowerCase();
     expect(desc).toMatch(/collection|exhibition|artist|visit/);
     expect(desc).not.toMatch(/the counter|free shipping/);
   });
