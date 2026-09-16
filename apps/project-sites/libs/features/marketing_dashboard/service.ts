@@ -2,7 +2,11 @@
  * Unified Marketing Dashboard (#57, ROI 2.00) — pure metric aggregation
  * schema + widget layout engine. Zero I/O, deterministic.
  */
-export type MetricSource = 'website' | 'email' | 'social' | 'ads' | 'crm' | 'booking';
+/** The canonical metric-source vocabulary — SSOT. The `MetricSource` union is DERIVED from this
+ *  const so the runtime list (used to validate untrusted `?sources=` input) can never drift from
+ *  the type. */
+export const METRIC_SOURCES = ['website', 'email', 'social', 'ads', 'crm', 'booking'] as const;
+export type MetricSource = (typeof METRIC_SOURCES)[number];
 export type WidgetType = 'number' | 'line_chart' | 'bar_chart' | 'pie_chart' | 'table' | 'funnel';
 
 export interface MetricWidget {
@@ -68,6 +72,26 @@ export function filterBySource(config: DashboardConfig, sources: MetricSource[])
 }
 
 /**
+ * Parse an untrusted `?sources=` CSV query param into a validated {@link MetricSource}[] —
+ * the boundary guard for {@link filterBySource}. Splits on comma, trims, and DROPS any token
+ * not in {@link METRIC_SOURCES} (a bad `?sources=foo` narrows to nothing rather than smuggling
+ * an unknown string through an `as any` cast). Pure; never throws; empty/garbage → `[]`.
+ *
+ * @param csv - The raw `sources` query value (e.g. `"website,email"`), possibly empty/invalid.
+ * @returns The subset of valid `MetricSource` values, in input order, de-duplicated.
+ * @example parseMetricSources('website, email, bogus') // → ['website','email']
+ */
+export function parseMetricSources(csv: string): MetricSource[] {
+  const valid = new Set<string>(METRIC_SOURCES);
+  const seen = new Set<MetricSource>();
+  for (const raw of csv.split(',')) {
+    const t = raw.trim();
+    if (valid.has(t)) seen.add(t as MetricSource);
+  }
+  return [...seen];
+}
+
+/**
  * Builds a metric value with computed change from current + previous values.
  */
 export function buildMetric(label: string, current: number, previous: number, source: MetricSource): MetricValue {
@@ -76,8 +100,9 @@ export function buildMetric(label: string, current: number, previous: number, so
 }
 
 /**
- * Returns the available metric source categories.
+ * Returns the available metric source categories (a fresh mutable copy of the
+ * {@link METRIC_SOURCES} SSOT — no longer a hand-maintained duplicate that could drift).
  */
 export function metricSources(): MetricSource[] {
-  return ['website', 'email', 'social', 'ads', 'crm', 'booking'];
+  return [...METRIC_SOURCES];
 }

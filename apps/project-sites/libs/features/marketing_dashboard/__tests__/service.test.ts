@@ -1,4 +1,4 @@
-import { computeChange, defaultDashboard, filterBySource, buildMetric, metricSources } from '../service.js';
+import { computeChange, defaultDashboard, filterBySource, buildMetric, metricSources, parseMetricSources, METRIC_SOURCES } from '../service.js';
 
 describe('computeChange', () => {
   test('increase → up trend', () => {
@@ -56,5 +56,24 @@ describe('metricSources', () => {
     expect(metricSources()).toHaveLength(6);
     expect(metricSources()).toContain('website');
     expect(metricSources()).toContain('crm');
+  });
+  test('derives from the METRIC_SOURCES SSOT (no hand-maintained duplicate to drift)', () => {
+    expect(metricSources()).toEqual([...METRIC_SOURCES]);
+  });
+});
+
+describe('parseMetricSources (untrusted ?sources= boundary guard)', () => {
+  test('keeps valid sources in input order, DROPS unknown tokens (no `as any` smuggling)', () => {
+    expect(parseMetricSources('website, email, bogus')).toEqual(['website', 'email']);
+  });
+  test('empty / all-garbage → [] (a bad ?sources=foo narrows to nothing)', () => {
+    expect(parseMetricSources('')).toEqual([]);
+    expect(parseMetricSources('foo,bar,,')).toEqual([]);
+  });
+  test('trims whitespace and de-duplicates', () => {
+    expect(parseMetricSources(' crm , crm , social ')).toEqual(['crm', 'social']);
+  });
+  test('every valid source round-trips', () => {
+    expect(parseMetricSources(METRIC_SOURCES.join(','))).toEqual([...METRIC_SOURCES]);
   });
 });

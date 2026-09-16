@@ -41,6 +41,7 @@ import { errorHandler } from './middleware/error_handler.js';
 import { payloadLimitMiddleware } from './middleware/payload_limit.js';
 import { securityHeadersMiddleware } from './middleware/security_headers.js';
 import { authMiddleware } from './middleware/auth.js';
+import { requireOrgId } from './middleware/require_org.js';
 import { idempotencyMiddleware } from './middleware/idempotency.js';
 import { health } from './routes/health.js';
 import { platformServiceLanding, resolvePlatformService } from './routes/platform_services.js';
@@ -74,6 +75,7 @@ import { siteRollbackRoutes } from './routes/site_rollback.js';
 import {
   defaultDashboard,
   filterBySource,
+  parseMetricSources,
   buildMetric,
 } from '../libs/features/marketing_dashboard/service.js';
 import { generateProposals, scoreEngagement } from '../libs/features/social_agent/service.js';
@@ -612,7 +614,7 @@ app.get('/api/sites/:siteId/dashboard', async (c) => {
   if (!(await assertSiteOwned(c.env, orgId, siteId))) return c.notFound();
   const d = defaultDashboard(siteId);
   const filter = c.req.query('sources');
-  return c.json({ data: filter ? filterBySource(d, filter.split(',') as any) : d });
+  return c.json({ data: filter ? filterBySource(d, parseMetricSources(filter)) : d });
 });
 app.post('/api/sites/:siteId/dashboard/metric', async (c) => {
   const siteId = c.req.param('siteId');
@@ -782,14 +784,14 @@ app.post('/api/apps/launch', async (c) => {
 // System Status — aggregated integration health (flag: system_status)
 app.get('/api/system/status', async (c) => {
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
-  if (!(await isFlagOn(c.env, 'system_status', { orgId: c.get('orgId')! }))) return c.notFound();
+  if (!(await isFlagOn(c.env, 'system_status', { orgId: requireOrgId(c) }))) return c.notFound();
   const { handleSystemStatus } = await import('../libs/features/system_status/handlers.js');
   return handleSystemStatus(c);
 });
 
 app.get('/api/sites/:siteId/annotations', async (c) => {
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
-  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: c.get('orgId')! }))) return c.notFound();
+  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: requireOrgId(c) }))) return c.notFound();
   // IDOR guard: a foreign org id 404s (never leak another org's annotations). AL-176.
   const { assertSiteOwned } = await import('./services/site_ownership.js');
   if (!(await assertSiteOwned(c.env, c.get('orgId'), c.req.param('siteId')))) return c.notFound();
@@ -799,7 +801,7 @@ app.get('/api/sites/:siteId/annotations', async (c) => {
 });
 app.post('/api/sites/:siteId/annotations', async (c) => {
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
-  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: c.get('orgId')! }))) return c.notFound();
+  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: requireOrgId(c) }))) return c.notFound();
   // IDOR guard: a foreign org id 404s (never write to another org's site). AL-176.
   const { assertSiteOwned } = await import('./services/site_ownership.js');
   if (!(await assertSiteOwned(c.env, c.get('orgId'), c.req.param('siteId')))) return c.notFound();
@@ -809,7 +811,7 @@ app.post('/api/sites/:siteId/annotations', async (c) => {
 });
 app.delete('/api/annotations/:id', async (c) => {
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
-  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: c.get('orgId')! }))) return c.notFound();
+  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: requireOrgId(c) }))) return c.notFound();
   const { handleDeleteAnnotation } =
     await import('../libs/features/analytics_annotations/handlers.js');
   return handleDeleteAnnotation(c);
@@ -819,14 +821,14 @@ app.post('/api/cmdk', async (c) => {
   // Cmd+K action suggestions — folded under cmdk_ai_actions (was the retired
   // duplicate cmd_k_actions flag). Sibling of /api/cmdk/resolve; one flag now.
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
-  if (!(await isFlagOn(c.env, 'cmdk_ai_actions', { orgId: c.get('orgId')! }))) return c.notFound();
+  if (!(await isFlagOn(c.env, 'cmdk_ai_actions', { orgId: requireOrgId(c) }))) return c.notFound();
   const { handleCmdK } = await import('../libs/features/cmdk_ai_actions/cmdk_suggest.js');
   return handleCmdK(c);
 });
 
 app.get('/api/sites/:siteId/sparkline', async (c) => {
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
-  if (!(await isFlagOn(c.env, 'site_doctor', { orgId: c.get('orgId')! }))) return c.notFound();
+  if (!(await isFlagOn(c.env, 'site_doctor', { orgId: requireOrgId(c) }))) return c.notFound();
   // IDOR guard: a foreign org id 404s (never leak another org's traffic sparkline). AL-176.
   const { assertSiteOwned } = await import('./services/site_ownership.js');
   if (!(await assertSiteOwned(c.env, c.get('orgId'), c.req.param('siteId')))) return c.notFound();
@@ -836,14 +838,14 @@ app.get('/api/sites/:siteId/sparkline', async (c) => {
 
 app.get('/api/notifications/badge', async (c) => {
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
-  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: c.get('orgId')! }))) return c.notFound();
+  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: requireOrgId(c) }))) return c.notFound();
   const { handleBadge } = await import('../libs/features/notification_badge/handlers.js');
   return handleBadge(c);
 });
 
 app.post('/api/batch', async (c) => {
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
-  if (!(await isFlagOn(c.env, 'batch_operations', { orgId: c.get('orgId')! }))) return c.notFound();
+  if (!(await isFlagOn(c.env, 'batch_operations', { orgId: requireOrgId(c) }))) return c.notFound();
   const { handleBatchOps } = await import('../libs/features/batch_operations/handlers.js');
   return handleBatchOps(c);
 });
@@ -851,7 +853,7 @@ app.post('/api/batch', async (c) => {
 // Site Comparison — side-by-side diff (flag: site_comparison)
 app.post('/api/sites/compare', async (c) => {
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
-  if (!(await isFlagOn(c.env, 'batch_operations', { orgId: c.get('orgId')! }))) return c.notFound();
+  if (!(await isFlagOn(c.env, 'batch_operations', { orgId: requireOrgId(c) }))) return c.notFound();
   const { handleSiteCompare } = await import('../libs/features/site_comparison/handlers.js');
   return handleSiteCompare(c);
 });
@@ -859,7 +861,7 @@ app.post('/api/sites/compare', async (c) => {
 // Site Clone — one-click copy (flag: site_clone)
 app.post('/api/sites/clone', async (c) => {
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
-  if (!(await isFlagOn(c.env, 'batch_operations', { orgId: c.get('orgId')! }))) return c.notFound();
+  if (!(await isFlagOn(c.env, 'batch_operations', { orgId: requireOrgId(c) }))) return c.notFound();
   const { handleSiteClone } = await import('../libs/features/site_clone/handlers.js');
   return handleSiteClone(c);
 });
@@ -867,7 +869,7 @@ app.post('/api/sites/clone', async (c) => {
 // Onboarding Progress — org setup completion (flag: onboarding_progress)
 app.get('/api/onboarding', async (c) => {
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
-  if (!(await isFlagOn(c.env, 'onboarding_copilot', { orgId: c.get('orgId')! })))
+  if (!(await isFlagOn(c.env, 'onboarding_copilot', { orgId: requireOrgId(c) })))
     return c.notFound();
   const { handleOnboardingProgress } =
     await import('../libs/features/onboarding_progress/handlers.js');
@@ -877,7 +879,7 @@ app.get('/api/onboarding', async (c) => {
 // Usage Gauges — per-org usage metrics (flag: usage_gauges)
 app.get('/api/usage', async (c) => {
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
-  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: c.get('orgId')! }))) return c.notFound();
+  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: requireOrgId(c) }))) return c.notFound();
   const { handleUsageGauges } = await import('../libs/features/usage_gauges/handlers.js');
   return handleUsageGauges(c);
 });
@@ -885,7 +887,7 @@ app.get('/api/usage', async (c) => {
 // MRU Cards — recently-active sites for dashboard (flag: mru_cards)
 app.get('/api/mru', async (c) => {
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
-  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: c.get('orgId')! }))) return c.notFound();
+  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: requireOrgId(c) }))) return c.notFound();
   const { handleMruCards } = await import('../libs/features/mru_cards/handlers.js');
   return handleMruCards(c);
 });
@@ -893,7 +895,7 @@ app.get('/api/mru', async (c) => {
 // Activity Feed — org-scoped event timeline (flag: activity_feed)
 app.get('/api/activity', async (c) => {
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
-  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: c.get('orgId')! }))) return c.notFound();
+  if (!(await isFlagOn(c.env, 'activity_feed', { orgId: requireOrgId(c) }))) return c.notFound();
   const { handleActivityFeed } = await import('../libs/features/activity_feed/handlers.js');
   return handleActivityFeed(c);
 });
