@@ -64,6 +64,7 @@ ai_features:
   bolt_chat_ready:  { status: covered, specs: [bolt-chat-ready.spec.ts] }
   streaming_md:     { status: covered, specs: [streaming-markdown-render.spec.ts] }
   prompt_schedule:  { status: covered, specs: [prompt_schedule/schedule.spec.ts] }  # time-windowed prompt-variant scheduler dark-launch contract (flag experimental/off → all 4 /api/prompt-schedules* routes guarded for unauth callers)
+  scheduled_publish: { status: covered, specs: [site_publish_schedule/schedule.spec.ts] }  # scheduled site go-live dark-launch contract (flag experimental/off → /api/sites/:id/publish-schedule GET/POST/DELETE guarded for unauth callers)
 
 editor:
   inline_editing:   { status: covered, specs: [inline-editing.spec.ts] }

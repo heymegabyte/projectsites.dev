@@ -533,6 +533,21 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Disable the flag → the routes 404 and default prompt resolution is unchanged',
     ],
   },
+  scheduled_publish: {
+    checklist: [
+      'Schedule a BUILT site to go live at a future datetime (campaign launch / grand opening)',
+      'One pending schedule per site — a reschedule supersedes the prior one',
+      'Org- + site-scoped CRUD, Zod-validated, future-only, structured JSON logs',
+      'Every-minute cron (scheduled() Stage 6.2) flips DUE sites live; unbuilt → skipped, never blank',
+    ],
+    explanation:
+      'Lets an owner schedule a BUILT site to publish (go live) at a future datetime instead of immediately — a campaign launch or grand opening with zero babysitting. POST /api/sites/:id/publish-schedule stores a pending row (future-only; an unbuilt site is rejected 409); the every-minute cron reads DUE rows (publish_at <= now), flips each eligible site to status=published, and marks the row fired (a site that lost its build is skipped so a blank page is never served). When off, the routes 404 and the cron sweep finds no rows — normal build→publish is unchanged.',
+    smoke_test: [
+      'POST /api/sites/:id/publish-schedule (authed, future publish_at) on a BUILT site → 201; GET lists it pending',
+      'Wait past publish_at (or check the cron log) → the site status flips to published; DELETE cancels a pending one',
+      'Disable the flag → the routes 404 and the cron sweep is a no-op',
+    ],
+  },
   referral_loop: {
     checklist: [
       'In-product refer-a-friend with tracked codes/links',

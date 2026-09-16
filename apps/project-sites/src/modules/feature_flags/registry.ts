@@ -347,6 +347,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  scheduled_publish: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Scheduled Site Publishing: schedule a BUILT site to go live at a future datetime — a campaign launch / grand opening with zero babysitting.\n\n• isFlagOn-gated — off 404, unauth 401. Org- + site-scoped, Zod-validated.\n• POST /api/sites/:id/publish-schedule stores a pending schedule ({publish_at, label?}, future-only, one per site — reschedule supersedes); GET lists; DELETE cancels (IDOR-safe). An unbuilt site → 409 (build first).\n• The every-minute cron (scheduled() Stage 6.2) flips DUE sites live (status published) and marks the row fired; a site that lost its build is skipped, never published blank. Off → the routes 404 and the sweep finds no rows — publishing is unchanged.',
+    key: 'scheduled_publish',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   // Multi-tenant + agency (items 9-13)
   // CWV (items 14-19, 15 already shipped)
   // GEO (items 20-24, 20-22 already stable)
