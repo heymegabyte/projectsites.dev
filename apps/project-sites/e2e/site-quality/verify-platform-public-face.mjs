@@ -57,13 +57,17 @@ const contact = await get('/contact', 'follow');
 check('/contact bridges (follow-redirect) to a live 200 + JSON-LD surface', contact.status === 200 && jsonldCount(contact.html) >= 1,
   `final=${contact.status} jsonld=${jsonldCount(contact.html)}`);
 
-// /status — utility route: hard-gate render (200 + title); track thin SEO as a notice (not a fail).
+// /status — utility route, now SEO-ENRICHED (was a tracked ::notice; the enrichment shipped):
+// a public system-status page is a legit-indexable target (cf. status.stripe.com), so hard-gate
+// 200 + title + a self-referential canonical + a real meta-description. A regression that strips
+// the status page's server meta now goes RED instead of a soft notice.
 const status = await get('/status', 'follow');
 const sTitle = title(status.html);
+const sCanon = canonical(status.html);
+const sDesc = metaDesc(status.html);
 check('/status — 200 + renders a title (utility page)', status.status === 200 && sTitle.length > 0, `status=${status.status} title="${sTitle}"`);
-if (status.status === 200 && !canonical(status.html)) {
-  notices.push('/status has no <link rel=canonical> / meta-description — a public utility page shipping SEO-thin (enrich with canonical+desc, or noindex).');
-}
+check('/status — self-referential <link rel=canonical> (SEO-enriched)', /\/status$/.test(sCanon), `canonical="${sCanon}"`);
+check('/status — <meta name=description> present, 120-156c', sDesc.length >= 120 && sDesc.length <= 156, `desc=${sDesc.length}c`);
 
 // D.3 — real 404 status (not a soft-404 200), and a real route stays 200.
 const bogus = await get(`/this-does-not-exist-xyz-${Date.now()}`, 'manual');
