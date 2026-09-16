@@ -155,7 +155,9 @@ export async function notifySiteOwner(
       .bind(input.orgId)
       .first<{ email: string }>();
     if (!row?.email) {
-      console.warn(notifyLogLine('notify.owner_missing', { orgId: input.orgId, reason: 'no_owner' }));
+      console.warn(
+        notifyLogLine('notify.owner_missing', { orgId: input.orgId, reason: 'no_owner' }),
+      );
       return { ok: false, detail: 'no_owner' };
     }
     const result = await notifyUser(env, {
