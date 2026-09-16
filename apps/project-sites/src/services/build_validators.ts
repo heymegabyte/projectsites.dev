@@ -1065,7 +1065,8 @@ export const validateConversionFraming = (files: BuildFile[]): Violation[] => {
   // cart-framing guard below → a "tattoo shop" (or "barber shop") with AI-generated "Free shipping /
   // Shop now" sections would ship UNFLAGGED (the three-kings-tattoo class — it dodged this only
   // because its title said "studio", but "tattoo shop" is the far more common phrasing).
-  const SERVICE_SHOP = /\b(tattoo|barber|body|auto|repair|machine|brake|muffler|welding|fix[- ]?it)\s?shop\b/i;
+  const SERVICE_SHOP =
+    /\b(tattoo|barber|body|auto|repair|machine|brake|muffler|welding|fix[- ]?it)\s?shop\b/i;
   const isRetail = RETAIL.test(head) && !SERVICE_SHOP.test(head);
 
   const RESERVATION =
