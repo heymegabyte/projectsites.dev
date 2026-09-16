@@ -174,10 +174,7 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
   // DELI before CHEESE: a delicatessen gets a deli-counter hero, NOT the cheese-shop one. `deli` is a
   // whole word (never matches "delivery"/"delish"); `delicatessen` is its own token.
   [/\b(delicatessen|deli)\b/, DELI],
-  [
-    /\b(cheese\s?(shop|monger\w*)?|cheesemong\w*|fromager\w*|creamer(?:y|ies))\b/,
-    CHEESE,
-  ],
+  [/\b(cheese\s?(shop|monger\w*)?|cheesemong\w*|fromager\w*|creamer(?:y|ies))\b/, CHEESE],
   [/\b(bicycle\w*|\bbike\w*|cycling|cyclery|cyclist\w*)\b/, BIKE],
   // AL-614 outdoor/ski/mountaineering outfitter — precise: bare `outdoor` needs a gear/shop suffix
   // (so "outdoor dining" never matches) + `\bskis\b`/`ski shop` not bare "ski" (so "skincare" never
@@ -192,10 +189,7 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
   ],
   // GALLERY — BEFORE creative so an art gallery/dealer gets the curated gallery INTERIOR, not the
   // creative-workspace desk (`art studio` stays creative below). Mirrors the luxe theme remap (AL-641).
-  [
-    /\b(art\s?galler\w*|fine\s?art\s?galler\w*|\bgaller(?:y|ies)\b|art\s?dealer\w*)\b/,
-    GALLERY,
-  ],
+  [/\b(art\s?galler\w*|fine\s?art\s?galler\w*|\bgaller(?:y|ies)\b|art\s?dealer\w*)\b/, GALLERY],
   // CREATIVE cluster — AFTER finance so "insurance agency"/"real estate agency" hit their own rules
   // first (this row never uses a bare `agency`). Precise creative-services nouns only, so a yoga/
   // dance/pilates "studio" (fitness) never matches (no bare `\bstudio\b`), and tattoo is caught above.
