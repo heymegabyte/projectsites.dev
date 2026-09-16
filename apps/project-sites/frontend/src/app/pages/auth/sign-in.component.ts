@@ -1,4 +1,4 @@
-import { Component, signal, computed, inject, type OnInit } from '@angular/core';
+import { Component, signal, computed, inject, afterNextRender, type OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthApiService } from './auth-api.service';
@@ -203,6 +203,18 @@ export class SignInComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+
+  constructor() {
+    // Autofocus the email field on arrival so a returning owner starts typing immediately —
+    // one fewer click on the busiest pre-auth surface (embarrassingly-easy-to-use). Browser-only
+    // via afterNextRender (never SSR), and only when signed-out with an empty field so the
+    // heal-on-arrival redirect (already-logged-in → /admin) never fights the focus.
+    afterNextRender(() => {
+      if (!this.auth.isLoggedIn() && !this.email().trim()) {
+        document.getElementById('signin-email')?.focus();
+      }
+    });
+  }
 
   /**
    * Better Auth → ps_session bridge (heal-on-arrival).

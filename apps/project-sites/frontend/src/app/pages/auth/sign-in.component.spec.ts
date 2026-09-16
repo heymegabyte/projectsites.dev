@@ -62,6 +62,19 @@ describe('SignInComponent', () => {
     expect(el.querySelector('[data-testid="sign-in-magic-link"]')).toBeTruthy();
   });
 
+  it('keeps the email field as the autofocus + autofill target (id + autocomplete contract)', () => {
+    // The constructor autofocuses `#signin-email` via afterNextRender so a returning owner
+    // types immediately (one fewer click). Assert the focus-target id + browser-autofill
+    // contract deterministically here; the real-browser focus act is proven on prod by
+    // e2e/admin-verify/verify-signin-ux.mjs (activeElement) — render-hook focus timing is
+    // not reliably assertable against a detached TestBed fixture.
+    const f = make();
+    const email = f.nativeElement.querySelector('[data-testid="sign-in-email"]') as HTMLInputElement;
+    expect(email.id).withContext('afterNextRender focuses getElementById("signin-email")').toBe('signin-email');
+    expect(email.getAttribute('autocomplete')).toBe('email');
+    expect(email.getAttribute('type')).toBe('email');
+  });
+
   it('shows a "continue to {label}" subtitle when the guard bounced the user here (returnUrl context)', () => {
     // The route-guard sends signed-out visitors to /signin?returnUrl=/admin/billing — the page
     // should acknowledge WHERE they were headed instead of the generic "manage your sites".

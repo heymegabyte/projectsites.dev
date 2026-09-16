@@ -56,6 +56,7 @@ const PROBES = [
   { label: 'billing-tabs-live', file: 'verify-billing-tabs-live.mjs', env: {} },
   { label: 'billing-widgets-resolve', file: 'verify-billing-widgets-resolve.mjs', env: {} },
   { label: 'auth-flow', file: 'verify-auth-flow.mjs', env: {} },
+  { label: 'signin-ux', file: 'verify-signin-ux.mjs', env: {} },
   { label: 'completeness', file: 'completeness-stub-scan.mjs', env: {} },
   { label: 'wordmark-spelling', file: 'verify-wordmark-spelling.mjs', env: {} },
   { label: 'error-edge-states', file: 'verify-error-edge-states.mjs', env: {} },
