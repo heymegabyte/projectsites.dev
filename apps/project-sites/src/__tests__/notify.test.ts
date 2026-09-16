@@ -3,7 +3,12 @@
  * Unit tests for the psnotify trigger ({@link notifyUser}). Tests the stub
  * path — never calls an external API. Covers happy path and error surfaces.
  */
-import { notifyUser, notifySiteOwner } from '../services/notify.js';
+import {
+  notifyUser,
+  notifySiteOwner,
+  redactEmailForLog,
+  notifyLogLine,
+} from '../services/notify.js';
 import { tryEmitEvent } from '../services/emit_event.js';
 import type { Env } from '../types/env.js';
 
@@ -121,5 +126,50 @@ describe('notifySiteOwner', () => {
     expect(res.ok).toBe(true);
     expect(calls[0]).toContain('m.deleted_at IS NULL');
     expect(calls[0]).toContain('u.deleted_at IS NULL');
+  });
+});
+
+describe('notify observability — redactEmailForLog + notifyLogLine', () => {
+  it('masks an email to first-char + domain (never a raw address in logs)', () => {
+    expect(redactEmailForLog('brian@megabyte.space')).toBe('b***@megabyte.space');
+    expect(redactEmailForLog('a@b.co')).toBe('a***@b.co');
+    expect(redactEmailForLog('')).toBe('');
+    // a non-email string can't leak a full address (no @ → returned unchanged is acceptable)
+    expect(redactEmailForLog('not-an-email')).toBe('not-an-email');
+  });
+
+  it('notify.sent is level:info, carries a REDACTED subscriber + workflowId + txId', () => {
+    const line = JSON.parse(
+      notifyLogLine('notify.sent', {
+        subscriberId: 'owner@shop.com',
+        workflowId: 'site-published',
+        txId: 'tx_123',
+      }),
+    );
+    expect(line).toEqual({
+      level: 'info',
+      event: 'notify.sent',
+      subscriber: 'o***@shop.com', // redacted — never the raw address
+      workflowId: 'site-published',
+      txId: 'tx_123',
+    });
+  });
+
+  it('a failed owner-notify is ATTRIBUTABLE — orgId present, level:warn, no raw email (the fixed gap)', () => {
+    const line = JSON.parse(
+      notifyLogLine('notify.owner_lookup_failed', { orgId: 'org-brian-001', reason: 'd1 down' }),
+    );
+    expect(line.level).toBe('warn');
+    expect(line.event).toBe('notify.owner_lookup_failed');
+    expect(line.orgId).toBe('org-brian-001'); // ← the correlation the old bare-message log lacked
+    expect(line.reason).toBe('d1 down');
+    expect(line).not.toHaveProperty('subscriber');
+  });
+
+  it('omits unset fields (stable, compact shape) and is always valid JSON', () => {
+    expect(notifyLogLine('notify.skipped', { reason: 'no_subscriber' })).toBe(
+      '{"level":"info","event":"notify.skipped","reason":"no_subscriber"}',
+    );
+    expect(() => JSON.parse(notifyLogLine('notify.error'))).not.toThrow();
   });
 });

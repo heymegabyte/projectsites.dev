@@ -21,6 +21,62 @@ import type { Env } from '../types/env.js';
 import { PsnotifyEventSchema, renderPsnotifyEvent, triggerPsnotify } from './psnotify.js';
 import { tryEmitEvent } from './emit_event.js';
 
+/**
+ * Redact an email for logs: `brian@megabyte.space` → `b***@megabyte.space`. Mirrors the
+ * site-generation workflow's `workflow.owner_notified` redaction so the whole notification
+ * path logs the same masked shape — never a raw address.
+ *
+ * @param email - The address to mask; a non-email string is returned unchanged.
+ * @returns The masked address.
+ * @example redactEmailForLog('brian@megabyte.space'); // 'b***@megabyte.space'
+ */
+export function redactEmailForLog(email: string): string {
+  return typeof email === 'string' ? email.replace(/^(.).*(@.*)$/, '$1***$2') : '';
+}
+
+/** The structured events the notification send-path emits (for OTLP/Sentry correlation). */
+export type NotifyLogEvent =
+  | 'notify.sent'
+  | 'notify.skipped'
+  | 'notify.error'
+  | 'notify.owner_missing'
+  | 'notify.owner_lookup_failed';
+
+/**
+ * Build ONE structured, correlated notification log line (pure → unit-testable). Every send-path
+ * outcome logs the SAME shape carrying `orgId` + a redacted `subscriber` + `workflowId` + the
+ * psnotify `txId`, so a failed owner-notify is attributable to a specific org (the prior gap: the
+ * error path logged only a bare message). Secrets are never included; the email is redacted.
+ *
+ * @param event - Which send-path outcome this line records.
+ * @param fields - Correlation fields; `subscriberId` is redacted, unset fields are omitted.
+ * @returns A JSON string ready for `console.warn(...)` (the repo's structured-log transport).
+ * @example
+ * notifyLogLine('notify.owner_lookup_failed', { orgId: 'org-1', reason: 'lookup_failed' });
+ * // '{"level":"warn","event":"notify.owner_lookup_failed","orgId":"org-1","reason":"lookup_failed"}'
+ */
+export function notifyLogLine(
+  event: NotifyLogEvent,
+  fields: {
+    subscriberId?: string;
+    orgId?: string;
+    workflowId?: string;
+    txId?: string;
+    reason?: string;
+  } = {},
+): string {
+  const line: Record<string, unknown> = {
+    level: event === 'notify.sent' || event === 'notify.skipped' ? 'info' : 'warn',
+    event,
+  };
+  if (fields.orgId) line.orgId = fields.orgId;
+  if (fields.subscriberId) line.subscriber = redactEmailForLog(fields.subscriberId);
+  if (fields.workflowId) line.workflowId = fields.workflowId;
+  if (fields.txId) line.txId = fields.txId;
+  if (fields.reason) line.reason = fields.reason;
+  return JSON.stringify(line);
+}
+
 export interface NotifyInput {
   /** psnotify subscriber id — must equal the bell's subscriberId (the user's email). */
   subscriberId: string;
@@ -42,7 +98,10 @@ export interface NotifyResult {
  * @throws Never — all failures are caught and returned as `{ ok: false }`.
  */
 export async function notifyUser(env: Env, input: NotifyInput): Promise<NotifyResult> {
-  if (!input.subscriberId) return { ok: false, detail: 'no_subscriber' };
+  if (!input.subscriberId) {
+    console.warn(notifyLogLine('notify.skipped', { reason: 'no_subscriber' }));
+    return { ok: false, detail: 'no_subscriber' };
+  }
 
   try {
     const result = await triggerPsnotify(env, {
@@ -50,9 +109,23 @@ export async function notifyUser(env: Env, input: NotifyInput): Promise<NotifyRe
       subscriberId: input.subscriberId,
       payload: { subject: input.subject, body: input.body },
     });
+    console.warn(
+      notifyLogLine(result.success ? 'notify.sent' : 'notify.error', {
+        subscriberId: input.subscriberId,
+        workflowId: input.workflowId,
+        txId: result.result,
+        reason: result.success ? undefined : 'psnotify_unsuccessful',
+      }),
+    );
     return { ok: result.success, detail: result.result };
   } catch (err) {
-    console.warn(JSON.stringify({ event: 'notify.error', message: (err as Error)?.message }));
+    console.warn(
+      notifyLogLine('notify.error', {
+        subscriberId: input.subscriberId,
+        workflowId: input.workflowId,
+        reason: (err as Error)?.message || 'exception',
+      }),
+    );
     return { ok: false, detail: 'exception' };
   }
 }
@@ -81,7 +154,10 @@ export async function notifySiteOwner(
       )
       .bind(input.orgId)
       .first<{ email: string }>();
-    if (!row?.email) return { ok: false, detail: 'no_owner' };
+    if (!row?.email) {
+      console.warn(notifyLogLine('notify.owner_missing', { orgId: input.orgId, reason: 'no_owner' }));
+      return { ok: false, detail: 'no_owner' };
+    }
     const result = await notifyUser(env, {
       subscriberId: row.email,
       subject: input.subject,
@@ -109,7 +185,10 @@ export async function notifySiteOwner(
     return result;
   } catch (err) {
     console.warn(
-      JSON.stringify({ event: 'notify.owner_lookup_failed', message: (err as Error)?.message }),
+      notifyLogLine('notify.owner_lookup_failed', {
+        orgId: input.orgId,
+        reason: (err as Error)?.message || 'lookup_failed',
+      }),
     );
     return { ok: false, detail: 'lookup_failed' };
   }
