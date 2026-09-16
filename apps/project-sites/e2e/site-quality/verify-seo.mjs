@@ -28,7 +28,8 @@ const HEADERS = {
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
   'Accept-Language': 'en-US,en;q=0.9',
 };
-const SITES = (process.env.SITES || 'vanta-strength-austin,ironhaus-houston').split(',').map((s) => s.trim()).filter(Boolean);
+import { resolveSites } from './_default-sites.mjs';
+const SITES = resolveSites(process.env.SITES);
 
 const get = async (url) => {
   try {

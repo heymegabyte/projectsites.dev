@@ -24,7 +24,8 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'vanta-strength-austin,ironhaus-houston').split(',').map((s) => s.trim()).filter(Boolean);
+import { resolveSites } from './_default-sites.mjs';
+const SITES = resolveSites(process.env.SITES);
 // Measure at a mobile-representative width (CWV is scored mobile-first) — matches the a11y probe's
 // smallest breakpoint so the two audits share a viewport.
 const VIEWPORT = { width: Number(process.env.VIEWPORT) || 390, height: 844 };

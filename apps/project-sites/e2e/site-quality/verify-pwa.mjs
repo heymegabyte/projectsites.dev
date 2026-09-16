@@ -17,7 +17,8 @@
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
 const H = { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9' };
-const SITES = (process.env.SITES || 'vanta-strength-austin,ironhaus-houston').split(',').map((s) => s.trim()).filter(Boolean);
+import { resolveSites } from './_default-sites.mjs';
+const SITES = resolveSites(process.env.SITES);
 
 const getText = async (url) => {
   try { const r = await fetch(url, { headers: H }); return { status: r.status, text: await r.text().catch(() => '') }; }

@@ -15,6 +15,7 @@
 //   node e2e/site-quality/verify-a11y.mjs            # default SITES, all 6 breakpoints
 import { chromium } from 'playwright';
 import AxeBuilderNS from '@axe-core/playwright';
+import { resolveSites } from './_default-sites.mjs';
 
 // @axe-core/playwright ships CJS — the AxeBuilder class is the default export under both
 // ESM-interop shapes, so normalize defensively.
@@ -22,7 +23,7 @@ const AxeBuilder = AxeBuilderNS?.default ?? AxeBuilderNS;
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'vanta-strength-austin,ironhaus-houston').split(',');
+const SITES = resolveSites(process.env.SITES);
 const BREAKPOINTS = [375, 390, 768, 1024, 1280, 1920];
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 

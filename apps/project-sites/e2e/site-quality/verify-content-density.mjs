@@ -26,7 +26,8 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'vanta-strength-austin,ironhaus-houston,parnassus-books').split(',').map((s) => s.trim()).filter(Boolean);
+import { resolveSites } from './_default-sites.mjs';
+const SITES = resolveSites(process.env.SITES);
 const VIEWPORT = { width: Number(process.env.VIEWPORT) || 1280, height: 900 };
 const WORD_FLOOR = 700; // the honest "good" density bar; 800 is the aspirational beat-source target.
 const WORD_AIM = 800;
