@@ -43,17 +43,34 @@ declare global {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Stripe SDK types not bundled
-type StripeElements = any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type StripeElement = any;
+// Narrow local typings for the SLICE of Stripe.js we actually call — full type safety at every
+// call site WITHOUT pulling the heavy @stripe/stripe-js types into the bundle (structural: the
+// runtime objects carry more; we declare only what we use). No `any`, no eslint-disables —
+// CODE-QUALITY sweep replaced the loose SDK shims with honest shapes matching real usage.
+
+/** A mounted Stripe Element / controller: mount + teardown + event subscription. */
+interface StripeElement {
+  mount(el: HTMLElement): void;
+  unmount(): void;
+  destroy(): void;
+  on(event: string, handler: (event?: unknown) => void): void;
+}
+
+/** The Elements group factory returned by `stripe.elements(...)`. */
+interface StripeElements {
+  create(type: string, options?: Record<string, unknown>): StripeElement;
+}
+
+/** The embedded-checkout controller returned by `initEmbeddedCheckout(...)`. */
+interface StripeEmbeddedCheckout {
+  mount(el: HTMLElement): void;
+  unmount(): void;
+  destroy(): void;
+}
 
 interface StripeInstance {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  initEmbeddedCheckout(options: { clientSecret: string }): Promise<any>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  initEmbeddedCheckout(options: { clientSecret: string }): Promise<StripeEmbeddedCheckout>;
   elements(options: Record<string, unknown>): StripeElements;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   confirmPayment(options: Record<string, unknown>): Promise<{ error?: { message: string } }>;
 }
 
@@ -137,8 +154,10 @@ export class StripeService {
    * upgrade dialog. Link is enabled by virtue of the server creating the
    * session with `payment_method_types: ['card', 'link']`.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async mountEmbeddedCheckout(clientSecret: string, container: HTMLElement): Promise<any> {
+  async mountEmbeddedCheckout(
+    clientSecret: string,
+    container: HTMLElement,
+  ): Promise<StripeEmbeddedCheckout | null> {
     this.loading.set(true);
     try {
       const stripe = await this.loadStripe();
@@ -200,7 +219,8 @@ export class StripeService {
       });
       ec.on('cancel', () => callbacks.onCancel?.());
       ec.mount(container);
-      return ec as unknown as MountedElement;
+      // `StripeElement` is a structural superset of `MountedElement` (unmount + destroy) — no cast.
+      return ec;
     } catch (err) {
       console.warn('[StripeService] Express checkout failed:', err);
       return null;
