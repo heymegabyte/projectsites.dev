@@ -78,9 +78,34 @@ try {
     // results — also the live reality when Places 403s), so the forward-path floor is tested every run.
     await search.fill('Zzqx').catch(() => {});
     await search.pressSequentially(' Nonexistent Test Biz 90210', { delay: 40 }).catch(() => {});
-    await page.waitForTimeout(3500); // debounced live search + Places/OSM round-trip
+    // CONDITION-BASED wait (NOT a blind timeout — a fixed `waitForTimeout` raced the Places/OSM
+    // round-trip, so on a slow lookup the probe read BEFORE the dropdown opened → a flaky FALSE
+    // funnel RED; per AL-624 + validator-precision, a flaky funnel signal is worse than none). The
+    // search ALWAYS resolves to a forward path — the dropdown's always-present "Build a custom
+    // website" row (homepage.component pushes it on every completed search) OR the degraded
+    // "unavailable" nudge. Wait for WHICHEVER lands (≤12s); a genuine no-forward-path still falls
+    // through to the assertion below and RED's correctly.
+    await page
+      .waitForFunction(
+        () => {
+          const hasBuildCta = [...document.querySelectorAll('a,button')].some(
+            (e) =>
+              e.offsetParent &&
+              /build a custom website|enter your (business )?details manually/i.test(e.textContent || ''),
+          );
+          const unavail =
+            /lookup .{0,24}unavailable|temporarily unavailable|enter your (business )?details manually/i.test(
+              document.body.innerText || '',
+            );
+          return hasBuildCta || unavail;
+        },
+        { timeout: 12000 },
+      )
+      .catch(() => {});
     const res = await page.evaluate(() => {
-      const items = document.querySelectorAll('[role="listbox"] [role="option"], [data-testid*="result"], [data-testid*="business"], .search-result, li[role="option"]');
+      const items = document.querySelectorAll(
+        '[role="listbox"] [role="option"], [data-testid*="result"], [data-testid*="business"], .search-result, li[role="option"], div[class*="top-full"] button',
+      );
       const bodyTxt = document.body.innerText || '';
       // Match the ACTUAL live degraded copy ("Business lookup is temporarily unavailable — choose
       // 'Build a custom website' below to enter your details manually"), not a stale guess.
