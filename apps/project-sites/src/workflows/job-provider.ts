@@ -107,8 +107,9 @@ export class CloudflareWorkflowProvider implements ProjectSitesJobProvider {
   /** Look the instance up across the registered bindings; first hit wins. */
   async getJobStatus(jobId: string): Promise<JobStatus | null> {
     for (const binding of Object.values(this.bindings)) {
+      if (!binding) continue; // an unconfigured optional binding → skip, don't rely on the catch
       try {
-        const inst = await binding!.get(jobId);
+        const inst = await binding.get(jobId);
         const { status } = await inst.status();
         return mapCfStatus(status);
       } catch {
@@ -121,8 +122,9 @@ export class CloudflareWorkflowProvider implements ProjectSitesJobProvider {
   /** Terminate the instance in whichever binding holds it. */
   async cancelJob(jobId: string): Promise<void> {
     for (const binding of Object.values(this.bindings)) {
+      if (!binding) continue; // an unconfigured optional binding → skip, don't rely on the catch
       try {
-        const inst = await binding!.get(jobId);
+        const inst = await binding.get(jobId);
         await inst.terminate?.();
         return;
       } catch {

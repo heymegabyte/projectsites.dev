@@ -110,4 +110,13 @@ describe('CloudflareWorkflowProvider', () => {
     expect(await provider.getJobStatus(ref.jobId)).toBe('cancelled');
     expect(await provider.getJobStatus('unknown-id')).toBeNull();
   });
+
+  it('skips an UNCONFIGURED (undefined) binding without crashing (code-sweep: guard, not catch)', async () => {
+    // An optional binding not wired in this env is `undefined` in the map. getJobStatus/cancelJob
+    // must SKIP it via the explicit `if (!binding) continue` guard — not rely on the try/catch to
+    // swallow a `undefined.get(...)` TypeError (the appeasement `!` that Fire 8 removed).
+    const provider = new CloudflareWorkflowProvider({ 'claim-flow': undefined });
+    expect(await provider.getJobStatus('any-id')).toBeNull();
+    await expect(provider.cancelJob('any-id')).resolves.toBeUndefined();
+  });
 });

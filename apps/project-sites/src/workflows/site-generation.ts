@@ -502,14 +502,17 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       await updateSiteStatus(env.DB, params.siteId, 'error');
       throw new Error('SITE_BUILDER container not configured');
     }
+    // Capture the narrowed (non-optional) binding once — the getContainer closure below loses the
+    // `if (!env.SITE_BUILDER)` narrowing across its arrow boundary, which the old `!` appeased.
+    const siteBuilder = env.SITE_BUILDER;
 
     // Per-run container ID — each workflow run gets a fresh DO + container.
     // Eliminates stale-image problems and means containers are disposable.
     // State persistence comes from KV-backed callbacks, not container disk.
     const runNonce = Date.now().toString(36);
     const containerName = `${params.slug}-build-${params.siteId.slice(0, 8)}-${runNonce}`;
-    const containerId = env.SITE_BUILDER.idFromName(containerName);
-    const getContainer = () => env.SITE_BUILDER!.get(containerId);
+    const containerId = siteBuilder.idFromName(containerName);
+    const getContainer = () => siteBuilder.get(containerId);
     /*
      * Restart must target a FRESH DO. The eviction-recovery paths previously
      * re-posted /build to the SAME container that just lost the job — a dead
@@ -1828,7 +1831,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
         timeout: '2 minutes',
       },
       async () => {
-        const fileCount = finalStatus!.fileCount || 0;
+        const fileCount = finalStatus?.fileCount || 0;
         // Prefer in-memory record from heartbeat poll. If missing or empty, re-read
         // KV — the container's HMAC-protected callback always writes the canonical
         // uploadResult to `build:${jobId}` regardless of which path saw terminal status first.
@@ -2129,7 +2132,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
             () => false,
           );
           if (meterOn) {
-            const elapsedSec = finalStatus!.elapsed || 0;
+            const elapsedSec = finalStatus?.elapsed || 0;
             // Rough container-build estimate: ~$0.01 per build-minute, $1 floor.
             const estUsd = Math.max(1, (elapsedSec / 60) * 0.01);
             await recordSpend(env, params.orgId, {
