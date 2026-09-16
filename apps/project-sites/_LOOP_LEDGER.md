@@ -4002,3 +4002,6 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 - **★ DURABLE PROBE** `e2e/site-quality/verify-grain-flicker.mjs` (auto-joins run-all): loads a site in TWO contexts — normal → asserts `.grain::after` `animation-name === 'grain-flicker'` + decorative-safe (z<0, pointer-events:none); `reducedMotion:'reduce'` → asserts `animation-name === 'none'`. Proves the effect renders AND the reduced-motion gate holds. tsc/build green (validate-site 19 routes). Live rebuild-proof backgrounded (rebuild zingermans → probe).
 - **Files mine:** template `src/index.css`; worker `e2e/site-quality/verify-grain-flicker.mjs`, `_LOOP_LEDGER.md`. Protected files untouched.
 - **Next CINEMATIC increment:** roadmap #2 Lenis smooth-scroll (dedicated fire — lazy-load, reduced-motion gate, skip-link/keyboard a11y, INP≤200ms).
+
+### AL-637 CLOSURE (live rebuild-proof ✅)
+- Rebuilt `zingermans-ann-arbor-2` (HTTP 200) → picked up template `7cfede8` → `verify-grain-flicker` on the live site: **✓ grain flickers (motion) / static (reduced-motion) · LCP/INP-safe** — § C.7 grain filmic-flicker PASS. The animated filmic grain landed live on a REAL prod rebuild with the reduced-motion gate holding (not a compile).
