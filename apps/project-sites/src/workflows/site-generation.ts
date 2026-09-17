@@ -1294,7 +1294,12 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
             message: `build-LLM ${credit.provider} balance is dead, but BUILD_LLM_ALLOW_SEED_ONLY is set — proceeding SEED-ONLY (template + vertical pack, no LLM bespoke). This site is a graceful-degradation delivery; regenerate once credit is topped up for bespoke copy/research.`,
           });
         }
-        return JSON.stringify({ ok: true, provider: credit.provider, checked: credit.checked, degraded: !!credit.degraded });
+        return JSON.stringify({
+          ok: true,
+          provider: credit.provider,
+          checked: credit.checked,
+          degraded: !!credit.degraded,
+        });
       },
     );
 
