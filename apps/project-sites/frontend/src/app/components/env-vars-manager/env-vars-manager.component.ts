@@ -11,6 +11,7 @@ import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
 import { ToastService } from '../../services/toast.service';
 import { ConfirmService } from '../../services/confirm.service';
+import { AuthService } from '../../services/auth.service';
 import { Dialog, DialogRef } from '@angular/cdk/dialog';
 import { DialogShellComponent } from '../dialog-shell/dialog-shell.component';
 
@@ -408,6 +409,7 @@ export class EnvVarsManagerComponent implements OnInit {
   private api = inject(ApiService);
   private toast = inject(ToastService);
   private confirmSvc = inject(ConfirmService);
+  private auth = inject(AuthService);
   private dialog = inject(Dialog);
 
   /** Required. One of `org | site | mcp | endpoint | agent`. */
@@ -706,7 +708,10 @@ export class EnvVarsManagerComponent implements OnInit {
     const s = this.buildScope();
     const qs = new URLSearchParams({ ...this.buildQueryParams(), include_values: '1' }).toString();
     // Use fetch directly so we get text + can trigger a browser download.
-    const token = localStorage.getItem('session_token');
+    // Token SSOT — AuthService.getToken() (ps_session). The old `session_token`
+    // localStorage key was never written (refactor drift), so this export sent
+    // `Bearer null` → the Bearer-only worker rejected every plaintext export.
+    const token = this.auth.getToken();
     fetch(`/api/env-vars/export?${qs}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     })

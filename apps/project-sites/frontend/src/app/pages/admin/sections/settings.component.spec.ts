@@ -6,6 +6,7 @@ import { AdminSettingsComponent } from './settings.component';
 import { ApiService } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
 import { ConfirmService } from '../../../services/confirm.service';
+import { AuthService } from '../../../services/auth.service';
 import { AdminStateService } from '../admin-state.service';
 import { AdminWebhooksComponent } from './webhooks.component';
 import { AdminDeliverabilityComponent } from './deliverability.component';
@@ -788,5 +789,102 @@ describe('AdminSettingsComponent — MCP connectOauth (bearer fetch, MailChimp a
     c.connectOauth('mailchimp');
     expect(win).not.toHaveBeenCalled();
     expect(c.pasteMode()).toBe('mailchimp');
+  });
+});
+
+/**
+ * AL-710 regression — knowledge-file upload auth + timeout hardening.
+ *
+ * The raw-XHR knowledge upload read a DEAD `localStorage.getItem('session_token')` key
+ * (never written since the token moved to `ps_session`), so it sent `Bearer null` → the
+ * Bearer-only worker 401'd EVERY upload (a shipped-broken, doomed control). It also had NO
+ * timeout, so a hung upload spun "uploading" forever. This locks: (1) the Bearer comes from
+ * AuthService.getToken(), (2) a 60s timeout is set, (3) ontimeout fails the row + toasts an
+ * actionable message (owner never stranded), (4) no `Bearer null` when signed out.
+ */
+describe('AdminSettingsComponent — knowledge upload auth + timeout (AL-710)', () => {
+  const toast = {
+    error: jasmine.createSpy('kerr'),
+    success: jasmine.createSpy('ksucc'),
+    info: () => 0,
+    warning: () => 0,
+  };
+  class FakeXHR {
+    static instances: FakeXHR[] = [];
+    headers: Record<string, string> = {};
+    timeout = 0;
+    status = 200;
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    ontimeout: (() => void) | null = null;
+    aborted = false;
+    open(): void {}
+    setRequestHeader(k: string, v: string): void {
+      this.headers[k] = v;
+    }
+    send(): void {
+      FakeXHR.instances.push(this);
+    }
+    abort(): void {
+      this.aborted = true;
+    }
+  }
+  let OrigXHR: typeof XMLHttpRequest;
+
+  function make(token: string | null): AdminSettingsComponent {
+    toast.error.calls.reset();
+    toast.success.calls.reset();
+    FakeXHR.instances = [];
+    const selectedSite = signal<{ id: string; slug: string } | null>({ id: 'site-1', slug: 's' });
+    TestBed.configureTestingModule({
+      imports: [AdminSettingsComponent],
+      providers: [
+        { provide: ApiService, useValue: { get: () => of({ data: null }), put: () => of({}), post: () => of({}), delete: () => of({}), updateSite: () => of({}) } },
+        { provide: ToastService, useValue: toast },
+        { provide: ConfirmService, useValue: { confirm: () => Promise.resolve(false) } },
+        { provide: Router, useValue: { navigate: jasmine.createSpy('navigate') } },
+        { provide: ActivatedRoute, useValue: { firstChild: null, fragment: of(null), snapshot: { fragment: null, url: [] } } },
+        { provide: AdminStateService, useValue: { selectedSite, loadData: () => undefined } },
+        { provide: AuthService, useValue: { getToken: () => token } },
+      ],
+    });
+    return TestBed.createComponent(AdminSettingsComponent).componentInstance;
+  }
+  const pdf = (name: string): File => new File([new Blob(['%PDF-1.4'])], name, { type: 'application/pdf' });
+
+  beforeEach(() => {
+    OrigXHR = window.XMLHttpRequest;
+    (window as unknown as { XMLHttpRequest: unknown }).XMLHttpRequest = FakeXHR;
+  });
+  afterEach(() => {
+    (window as unknown as { XMLHttpRequest: unknown }).XMLHttpRequest = OrigXHR;
+    TestBed.resetTestingModule();
+  });
+
+  it('attaches Bearer from AuthService.getToken() (NOT the dead session_token key)', () => {
+    const c = make('tok-abc');
+    (c as unknown as { uploadKnowledgeFiles: (f: FileList) => void }).uploadKnowledgeFiles([pdf('doc.pdf')] as unknown as FileList);
+    expect(FakeXHR.instances[0]?.headers['Authorization']).toBe('Bearer tok-abc');
+  });
+
+  it('sets a 60s timeout so a hung upload cannot spin forever', () => {
+    const c = make('tok-abc');
+    (c as unknown as { uploadKnowledgeFiles: (f: FileList) => void }).uploadKnowledgeFiles([pdf('doc.pdf')] as unknown as FileList);
+    expect(FakeXHR.instances[0]?.timeout).toBe(60000);
+  });
+
+  it('ontimeout fails the row + toasts an actionable message (owner never stranded)', () => {
+    const c = make('tok-abc');
+    (c as unknown as { uploadKnowledgeFiles: (f: FileList) => void }).uploadKnowledgeFiles([pdf('slow.pdf')] as unknown as FileList);
+    expect(c.kbUploads().find((u) => u.filename === 'slow.pdf')?.status).toBe('uploading');
+    FakeXHR.instances[0].ontimeout?.();
+    expect(c.kbUploads().find((u) => u.filename === 'slow.pdf')?.status).toBe('error');
+    expect(toast.error).toHaveBeenCalled();
+  });
+
+  it('omits Authorization entirely when signed out (getToken null) — never sends `Bearer null`', () => {
+    const c = make(null);
+    (c as unknown as { uploadKnowledgeFiles: (f: FileList) => void }).uploadKnowledgeFiles([pdf('doc.pdf')] as unknown as FileList);
+    expect(FakeXHR.instances[0]?.headers['Authorization']).toBeUndefined();
   });
 });

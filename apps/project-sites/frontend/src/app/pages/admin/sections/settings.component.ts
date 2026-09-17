@@ -8,6 +8,7 @@ import { AdminStateService } from '../admin-state.service';
 import { ApiService } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
 import { ConfirmService } from '../../../services/confirm.service';
+import { AuthService } from '../../../services/auth.service';
 import { MCP_PROVIDERS, mcpAvailable } from './mcp-providers';
 import { EnvVarsManagerComponent } from '../../../components/env-vars-manager/env-vars-manager.component';
 import { AdminWebhooksComponent } from './webhooks.component';
@@ -866,9 +867,25 @@ export class AdminSettingsComponent implements OnInit {
   private api = inject(ApiService);
   private toast = inject(ToastService);
   private confirmSvc = inject(ConfirmService);
+  private auth = inject(AuthService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+
+  /**
+   * In-flight raw-XHR uploads (knowledge PDFs + brand assets). Tracked so they can
+   * be aborted when the component is destroyed — otherwise a navigate-away mid-upload
+   * leaves the request running and its onload/ontimeout toast fires on a dead view.
+   * Registered once in the constructor via destroyRef.
+   */
+  private readonly inFlightUploads = new Set<XMLHttpRequest>();
+
+  constructor() {
+    this.destroyRef.onDestroy(() => {
+      for (const xhr of this.inFlightUploads) xhr.abort();
+      this.inFlightUploads.clear();
+    });
+  }
 
   tab = signal<Tab>('general');
   /** Static tab list exposed to the template (Cmd-K palette handles search now). */
@@ -951,18 +968,36 @@ export class AdminSettingsComponent implements OnInit {
       const form = new FormData(); form.append('file', file);
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `/api/sites/${s.id}/ai/context/upload`, true);
-      const token = localStorage.getItem('session_token');
+      // Token SSOT — AuthService.getToken() reads the `ps_session` blob. The old
+      // `localStorage.getItem('session_token')` key was NEVER written (refactor drift),
+      // so this upload sent `Bearer null` → the Bearer-only worker 401'd every upload.
+      const token = this.auth.getToken();
       if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      // A raw XHR bypasses ApiService's 30s timeout — without one, a hung upload leaves
+      // the row stuck on "uploading" forever (owner stranded, no feedback). 60s (> the API
+      // 30s: a PDF upload is heavier) then fail the row WITH an actionable message.
+      xhr.timeout = 60000;
+      const markError = () =>
+        this.kbUploads.update((u) => u.map((x) => (x.filename === file.name ? { ...x, status: 'error' } : x)));
+      const settle = () => this.inFlightUploads.delete(xhr);
       xhr.onload = () => {
+        settle();
         const ok = xhr.status >= 200 && xhr.status < 300;
         this.kbUploads.update((u) => u.map((x) => x.filename === file.name ? { ...x, status: ok ? 'done' : 'error' } : x));
         if (ok) this.toast.success(`Saved — ${file.name} added to knowledge`);
         else this.toast.error(`Upload failed: ${file.name}`);
       };
       xhr.onerror = () => {
-        this.kbUploads.update((u) => u.map((x) => x.filename === file.name ? { ...x, status: 'error' } : x));
+        settle();
+        markError();
         this.toast.error(`Upload failed: ${file.name}`);
       };
+      xhr.ontimeout = () => {
+        settle();
+        markError();
+        this.toast.error(`${file.name} timed out — check your connection and try again.`);
+      };
+      this.inFlightUploads.add(xhr);
       xhr.send(form);
     });
   }
@@ -1086,10 +1121,19 @@ export class AdminSettingsComponent implements OnInit {
       const form = new FormData(); form.append('file', file); form.append('kind', kind);
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `/api/sites/${siteId}/ai/context/upload`, true);
-      const token = localStorage.getItem('session_token');
+      // Token SSOT (same drift as uploadKnowledgeFiles) — `session_token` was never written.
+      const token = this.auth.getToken();
       if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      xhr.onload = () => { resolve(); };
-      xhr.onerror = () => { resolve(); };
+      // Bound the wait so a hung upload can't leave the caller's `await` pending forever.
+      xhr.timeout = 60000;
+      const settle = () => {
+        this.inFlightUploads.delete(xhr);
+        resolve();
+      };
+      xhr.onload = settle;
+      xhr.onerror = settle;
+      xhr.ontimeout = settle;
+      this.inFlightUploads.add(xhr);
       xhr.send(form);
     });
   }
