@@ -2076,7 +2076,13 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
                 escapesRepaired: seoReport.escapesRepaired,
                 descExpanded: seoReport.descExpanded,
                 titleClamped: seoReport.titleClamped,
-                message: `SEO finalizer before brand gate: +${seoReport.jsonLdInjected} JSON-LD block(s), ${seoReport.escapesRepaired} escape fix(es), ${seoReport.descExpanded} desc expanded, ${seoReport.titleClamped} title clamped`,
+                // AL-719: log the LAST TWO finalizer outcomes too — the hand-picked 4 hid
+                // `titleExpanded` (title <50 → padded to 50-60) and `wordmarkPreloadInjected`
+                // (AL-718 C.2 LCP preload), so those fixes were INVISIBLE in the build audit
+                // trail. Now every finalizer outcome is observable per build.
+                titleExpanded: seoReport.titleExpanded,
+                wordmarkPreloadInjected: seoReport.wordmarkPreloadInjected,
+                message: `SEO finalizer before brand gate: +${seoReport.jsonLdInjected} JSON-LD block(s), ${seoReport.escapesRepaired} escape fix(es), ${seoReport.descExpanded} desc expanded, ${seoReport.titleClamped} title clamped, ${seoReport.titleExpanded} title expanded, ${seoReport.wordmarkPreloadInjected} wordmark preload(s)`,
               });
             }
             const gatedFiles = seoFiles;
