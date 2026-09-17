@@ -20,7 +20,11 @@ const makeEnv = (aiRun: (model: string, input: unknown) => unknown): Env =>
     DB: {},
   }) as unknown as Env;
 
-const ARGS = { slug: 'demo-site', route: '/', text: 'A lovely neighborhood spot serving great food.' };
+const ARGS = {
+  slug: 'demo-site',
+  route: '/',
+  text: 'A lovely neighborhood spot serving great food.',
+};
 
 describe('getOrCreatePageAudio — fail-soft + observable', () => {
   let warn: jest.SpyInstance;
@@ -46,12 +50,16 @@ describe('getOrCreatePageAudio — fail-soft + observable', () => {
     const env = makeEnv((model) => (model.includes('llama') ? { response: '' } : { audio: 'x' }));
     const r = await getOrCreatePageAudio(env, ARGS);
     expect(r.audioUrl).toBeNull();
-    expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).toContain('page_audio.summary_empty');
+    expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).toContain(
+      'page_audio.summary_empty',
+    );
   });
 
   it('happy path (summary + WAV) → returns an audioUrl, no warn', async () => {
     const env = makeEnv((model) =>
-      model.includes('llama') ? { response: 'A warm spoken summary.' } : { audio: Buffer.from('RIFFwav').toString('base64') },
+      model.includes('llama')
+        ? { response: 'A warm spoken summary.' }
+        : { audio: Buffer.from('RIFFwav').toString('base64') },
     );
     const r = await getOrCreatePageAudio(env, ARGS);
     expect(r.audioUrl).toContain('/api/page-audio/demo-site/a/');

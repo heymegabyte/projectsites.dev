@@ -160,7 +160,12 @@ export async function getOrCreatePageAudio(
       // Fail-soft, but OBSERVABLE: an empty summary (Workers AI summary model faulted / returned a
       // non-string) previously returned null silently. Log it so a dead "Listen" feature has signal.
       console.warn(
-        JSON.stringify({ level: 'warn', message: 'page_audio.summary_empty', slug: args.slug, route }),
+        JSON.stringify({
+          level: 'warn',
+          message: 'page_audio.summary_empty',
+          slug: args.slug,
+          route,
+        }),
       );
       return { audioUrl: null, summary: null, cached: false };
     }
