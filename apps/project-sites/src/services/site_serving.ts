@@ -1380,7 +1380,7 @@ export function applyServedRouteJsonLd(html: string, requestPath: string): strin
  * applyServedRouteTitle('<title>Acme — Best widgets</title>', '/services');
  * // → '<title>Services — Acme</title>'
  */
-export function applyServedRouteTitle(html: string, requestPath: string): string {
+export function applyServedRouteTitle(html: string, requestPath: string, isNotFound = false): string {
   const route = normalizeRoute(requestPath);
   if (route === '/') return html; // homepage — its baked title is already correct
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
@@ -1392,17 +1392,24 @@ export function applyServedRouteTitle(html: string, requestPath: string): string
   const sepMatch = current.match(/\s+[—–|·]\s+/) ?? current.match(/\s+-\s+/);
   const sep = sepMatch ? sepMatch[0] : ' — ';
   const brand = (sepMatch ? current.slice(0, sepMatch.index) : current).trim();
-  const seg = route.split('/').filter(Boolean).pop() ?? '';
-  if (!seg) return html;
-  const label = seg
-    .replace(/[-_]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  // A 404 (unknown route) must NOT reflect the arbitrary URL slug as the page title —
+  // `/buy-cheap-widgets-spam` → "Buy Cheap Widgets Spam — Brand" is a reflected-content
+  // smell + a broken-looking 404. Emit a fixed, honest not-found title instead. Known
+  // routes keep their title-cased segment.
+  const label = isNotFound
+    ? 'Page not found'
+    : route
+        .split('/')
+        .filter(Boolean)
+        .pop()
+        ?.replace(/[-_]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
   if (!label) return html;
   const next = `${label}${sep}${brand}`;
   let out = html;
@@ -1798,7 +1805,9 @@ async function buildSiteResponse(
     // structured data (no-op once the build emits its own). BEFORE the title rewrite
     // so the brand is read from the pristine homepage title.
     html = applyServedRouteJsonLd(html, requestPath);
-    html = applyServedRouteTitle(html, requestPath);
+    // On a soft-404 (unknown route → 404 status), the title injector emits a fixed
+    // "Page not found — {brand}" rather than reflecting the arbitrary URL slug.
+    html = applyServedRouteTitle(html, requestPath, htmlStatus === 404);
 
     // Inject analytics + error tracking before </head> (for all sites, paid and free)
     if (env) {

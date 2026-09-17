@@ -278,6 +278,29 @@ describe('applyServedRouteTitle (SPA per-route <title> for the non-JS crawl)', (
     expect(out).toContain('<title>About | Acme Co</title>');
   });
 
+  // A 404 (unknown route) must NOT reflect the arbitrary URL slug as the page title —
+  // `/buy-cheap-widgets-spam` → "Buy Cheap Widgets Spam — Brand" is a reflected-content
+  // smell + a broken 404. With isNotFound, the title is a fixed "Page not found — {brand}".
+  it('on a 404 route, emits "Page not found — {brand}" — NEVER the reflected URL slug', () => {
+    const out = applyServedRouteTitle(T(HOME), '/buy-cheap-widgets-spam', true);
+    expect(out).toContain('<title>Page not found — Ironside Strength &amp; Conditioning</title>');
+    expect(out).not.toContain('Buy Cheap Widgets Spam');
+  });
+
+  it('the 404 not-found title also flows to og:title / twitter:title (no reflected slug in social meta)', () => {
+    const html =
+      `<head><title>${HOME}</title>` +
+      `<meta property="og:title" content="${HOME}">` +
+      `<meta name="twitter:title" content="${HOME}"></head>`;
+    const out = applyServedRouteTitle(html, '/spam-slug-xyz', true);
+    expect(out).toContain('content="Page not found — Ironside Strength &amp; Conditioning"');
+    expect(out).not.toContain('Spam Slug Xyz');
+  });
+
+  it('a KNOWN route (isNotFound=false, default) still title-cases its segment — no regression', () => {
+    expect(applyServedRouteTitle(T(HOME), '/services')).toContain('<title>Services — Ironside Strength &amp; Conditioning</title>');
+  });
+
   it('falls back to the whole title as brand when there is no separator', () => {
     const out = applyServedRouteTitle(T('Acme Co'), '/pricing');
     expect(out).toContain('<title>Pricing — Acme Co</title>');
