@@ -5,6 +5,8 @@ import { of, throwError } from 'rxjs';
 import { AdminAuditComponent } from './audit.component';
 import { ApiService } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
+import { AuthService } from '../../../services/auth.service';
+import { FeatureFlagService } from '../../../services/feature-flag.service';
 import { AdminStateService } from '../admin-state.service';
 
 /**
@@ -45,11 +47,15 @@ const ROW = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   ...over,
 });
 
-function make(get: jasmine.Spy): AdminAuditComponent {
+function make(get: jasmine.Spy, flagOn = false): AdminAuditComponent {
   TestBed.configureTestingModule({
     imports: [AdminAuditComponent],
     providers: [
       { provide: ApiService, useValue: { get, post: () => of({}) } },
+      // FeatureFlagService.isOn() feeds the `fullTrailEnabled` toSignal at field-init — it MUST
+      // return an Observable (else construction throws + the whole suite fails). Default off.
+      { provide: FeatureFlagService, useValue: { isOn: () => of(flagOn) } },
+      { provide: AuthService, useValue: { getToken: () => 'tok-audit' } },
       {
         provide: ToastService,
         useValue: { error: jasmine.createSpy('error'), success: jasmine.createSpy('success') },
@@ -517,5 +523,68 @@ describe('AdminAuditComponent — bounded auto-poll retry (error-recovery max 3)
     c.load();
     expect(c.consecutiveErrors()).toBe(0);
     expect(c.autoRefreshPaused()).withContext('a success resumes auto-poll').toBeFalse();
+  });
+});
+
+/**
+ * AL-713 — full-trail server export wiring. The built-in "Export CSV" dumps only the VISIBLE
+ * (loaded) page; the server `GET /api/audit/export` (full org trail, flag-gated) was mounted but
+ * had ZERO UI caller (fully-built-feature-can-be-completely-unwired). This locks: the control is
+ * gated on the `audit_trail_export` flag (hidden when off — never a doomed control that 404s), and
+ * exportFullTrail() fetches the endpoint with the Bearer from AuthService.getToken() (NOT a dead
+ * key, per AL-710) + fails soft on a non-2xx.
+ */
+describe('AdminAuditComponent — full-trail export wiring (AL-713)', () => {
+  const getEmpty = () => jasmine.createSpy('get').and.returnValue(of({ data: [] }));
+
+  it('fullTrailEnabled is FALSE when the audit_trail_export flag is off (control hidden — no doomed control)', () => {
+    const c = make(getEmpty(), false);
+    expect(c.fullTrailEnabled()).toBeFalse();
+  });
+
+  it('fullTrailEnabled is TRUE when the flag is on (control renders)', () => {
+    const c = make(getEmpty(), true);
+    expect(c.fullTrailEnabled()).toBeTrue();
+  });
+
+  it('exportFullTrail() fetches /api/audit/export?format=csv with the Bearer from auth.getToken()', async () => {
+    const c = make(getEmpty(), true);
+    const captured: { url?: string; auth?: string } = {};
+    const origFetch = window.fetch;
+    (window as unknown as { fetch: unknown }).fetch = (url: string, init?: RequestInit) => {
+      captured.url = String(url);
+      captured.auth = (init?.headers as Record<string, string> | undefined)?.['Authorization'];
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        blob: async () => new Blob(['id,action\n'], { type: 'text/csv' }),
+      } as unknown as Response);
+    };
+    // jsdom has no real anchor-download; stub the click so the Blob path doesn't touch layout.
+    const clickSpy = spyOn(HTMLAnchorElement.prototype, 'click').and.stub();
+    try {
+      await c.exportFullTrail();
+    } finally {
+      (window as unknown as { fetch: unknown }).fetch = origFetch;
+    }
+    expect(captured.url).toContain('/api/audit/export?format=csv');
+    expect(captured.auth).toBe('Bearer tok-audit');
+    expect(clickSpy).toHaveBeenCalled();
+    expect(c.exportingFull()).toBeFalse(); // resets after success
+  });
+
+  it('exportFullTrail() fails soft on a non-2xx (toasts, never leaves the button spinning)', async () => {
+    const c = make(getEmpty(), true);
+    const origFetch = window.fetch;
+    (window as unknown as { fetch: unknown }).fetch = () =>
+      Promise.resolve({ ok: false, status: 404 } as unknown as Response);
+    try {
+      await c.exportFullTrail();
+    } finally {
+      (window as unknown as { fetch: unknown }).fetch = origFetch;
+    }
+    const toast = TestBed.inject(ToastService) as unknown as { error: jasmine.Spy };
+    expect(toast.error).toHaveBeenCalled();
+    expect(c.exportingFull()).toBeFalse();
   });
 });

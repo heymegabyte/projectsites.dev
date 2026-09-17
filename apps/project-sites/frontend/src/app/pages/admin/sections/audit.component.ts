@@ -10,8 +10,11 @@ import {
   type PaginationState,
   type SortingState,
 } from '@tanstack/angular-table';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { ApiService } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
+import { AuthService } from '../../../services/auth.service';
+import { FeatureFlagService } from '../../../services/feature-flag.service';
 import { AdminStateService } from '../admin-state.service';
 import { RollingCounterComponent } from '../../../components/rolling-counter/rolling-counter.component';
 import { ErrorCardComponent } from '../../../components/states';
@@ -165,6 +168,9 @@ function actionToFallbackMessage(action: string): string {
             </button>
           }
           <button class="btn-ghost" (click)="exportCsv()" [disabled]="!canExport()" [attr.aria-disabled]="!canExport()" [attr.title]="canExport() ? 'Download visible audit events as CSV' : 'No audit events to export yet'">Export CSV</button>
+          @if (fullTrailEnabled()) {
+            <button class="btn-ghost" data-testid="audit-export-full-trail" (click)="exportFullTrail()" [disabled]="exportingFull()" [attr.aria-busy]="exportingFull()" title="Download the org's COMPLETE audit trail (all events, server-side) as CSV">{{ exportingFull() ? 'Exporting…' : 'Export full trail' }}</button>
+          }
         </div>
       </header>
 
@@ -573,7 +579,62 @@ function actionToFallbackMessage(action: string): string {
 export class AdminAuditComponent implements OnInit, OnDestroy {
   private api = inject(ApiService);
   private toast = inject(ToastService);
+  private auth = inject(AuthService);
+  private flagSvc = inject(FeatureFlagService);
   state = inject(AdminStateService);
+
+  /**
+   * Full-trail export (server-side, ALL events) — gated on the `audit_trail_export` flag. The
+   * built-in "Export CSV" only dumps the VISIBLE (loaded) page; an org with thousands of events
+   * could never export its complete trail. The `GET /api/audit/export` handler (flag-gated,
+   * org-scoped, Zod-validated, CSV/JSON) was built but had ZERO UI caller (the
+   * fully-built-feature-can-be-completely-unwired class). This control wires it. Hidden until the
+   * flag is promoted (never a doomed control — the endpoint 404s when off, so we gate the UI too).
+   */
+  readonly fullTrailEnabled = toSignal(this.flagSvc.isOn('audit_trail_export'), {
+    initialValue: false,
+  });
+  readonly exportingFull = signal(false);
+
+  /**
+   * Download the ORG's COMPLETE audit trail (every event, not just the loaded page) as CSV from
+   * the server. A raw `fetch` with the Bearer + a Blob download — a plain `<a href>`/navigation
+   * can't carry the Authorization header, and the token SSOT is `auth.getToken()` (the `ps_session`
+   * blob), NEVER the dead `session_token` key (the AL-710 broken-auth class). Fail-soft: a non-2xx
+   * or a network error toasts an actionable message and never leaves the button spinning.
+   */
+  async exportFullTrail(): Promise<void> {
+    if (this.exportingFull()) return;
+    this.exportingFull.set(true);
+    try {
+      const token = this.auth.getToken();
+      const res = await fetch('/api/audit/export?format=csv', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        this.toast.error(
+          res.status === 404
+            ? 'Full-trail export is not enabled for your account yet.'
+            : `Couldn't export the full trail (${res.status}). Please try again.`,
+        );
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `audit-full-trail-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      this.toast.success('Full audit trail exported');
+    } catch {
+      this.toast.error("Couldn't export the full trail — check your connection and try again.");
+    } finally {
+      this.exportingFull.set(false);
+    }
+  }
 
   /**
    * When true, this component is embedded as the "Audit Trail" tab inside the Logs
