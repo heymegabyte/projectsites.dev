@@ -200,6 +200,42 @@ export const validateImageFormat = (files: BuildFile[]): Violation[] => {
     }));
 };
 
+/**
+ * Image alt text — every `<img>` in shipped HTML MUST carry an `alt` attribute (WCAG 1.1.1
+ * Non-text Content, Level A). PRECISE by design: a MISSING `alt` is a violation, but `alt=""`
+ * (explicit empty = decorative, the correct marking for a background/spacer image) PASSES —
+ * so this never false-flags the template's correctly-decorative images (BentoGrid tiles use
+ * `alt={t.imageAlt ?? ''}`; the Header logo is `alt=""` with an `aria-label` on its link).
+ * Scans the prerendered HTML shell (hero/LCP + prerendered-section images — the SEO- + a11y-
+ * critical surface); a component that forgets `alt` ENTIRELY ships an unnamed image to every
+ * screen-reader user, which this fails the build on.
+ *
+ * Validator-precision: flags ONLY a CONTENT image (has `src`/`srcset`) that lacks `alt`. A bare
+ * `<img>` with no source is a framework hydration placeholder (React SSG emits these; they
+ * hydrate into a real, alt-bearing image client-side) — NOT authored content, so ignoring it
+ * avoids a cry-wolf false-positive on every generated site (proven: zahav's shell ships 2 bare
+ * `<img>` placeholders that are fine post-hydration).
+ */
+export const validateImageAlt = (files: BuildFile[]): Violation[] => {
+  const out: Violation[] = [];
+  for (const file of files) {
+    if (!isHtml(file.path) || !file.text) continue;
+    for (const tag of file.text.match(/<img\b[^>]*>/gi) || []) {
+      const hasSource = /\b(?:src|srcset)\s*=/i.test(tag);
+      if (hasSource && !/\balt\s*=/i.test(tag)) {
+        out.push({
+          code: 'image.alt_missing',
+          severity: 'error',
+          message: `<img src> without an alt attribute (WCAG 1.1.1) — add alt="…" for meaningful images or alt="" for decorative`,
+          file: file.path,
+          detail: tag.slice(0, 120),
+        });
+      }
+    }
+  }
+  return out;
+};
+
 /** OG image — must exist, ≤100KB (fast social unfurl), branded 1200×630 card (not a raw photo). */
 export const validateOgImage = (files: BuildFile[]): Violation[] => {
   const out: Violation[] = [];
@@ -1116,6 +1152,7 @@ export const validateBuild = (
     ...validateRequiredFiles(files),
     ...validateAssetExistence(files),
     ...validateImageFormat(files),
+    ...validateImageAlt(files),
     ...validateOgImage(files),
     ...validateAppleTouchIcon(files),
     ...validateMetaLengths(files),

@@ -1,6 +1,7 @@
 import {
   validateAssetExistence,
   validateImageFormat,
+  validateImageAlt,
   validateOgImage,
   validateAppleTouchIcon,
   validateMetaLengths,
@@ -219,6 +220,36 @@ describe('validateAssetExistence', () => {
       file('index.html', html('<img src="https://images.unsplash.com/p.jpg" alt="x">')),
     ];
     expect(validateAssetExistence(files)).toEqual([]);
+  });
+});
+
+describe('validateImageAlt (WCAG 1.1.1 — every <img> needs alt, decorative alt="" passes)', () => {
+  it('flags an <img> with NO alt attribute', () => {
+    const v = validateImageAlt([file('index.html', '<img src="/hero.jpg" width="800">')]);
+    expect(v).toHaveLength(1);
+    expect(v[0].code).toBe('image.alt_missing');
+    expect(v[0].severity).toBe('error');
+  });
+
+  it('PASSES alt="" (explicit decorative) and alt="text" (meaningful) — validator-precision', () => {
+    expect(validateImageAlt([file('index.html', '<img src="/bg.jpg" alt="">')])).toEqual([]);
+    expect(validateImageAlt([file('index.html', '<img src="/team.jpg" alt="Our team at work">')])).toEqual([]);
+    // real template shapes: BentoGrid decorative + Header logo (link carries the name)
+    expect(validateImageAlt([file('a.html', '<img class="bento-tile__img" src="/x.jpg" alt=""/>')])).toEqual([]);
+  });
+
+  it('flags each src-bearing alt-less <img>; ignores non-HTML files', () => {
+    const html = '<img src="/a.jpg" alt="a"><img src="/b.jpg"><img src="/c.jpg">';
+    expect(validateImageAlt([file('index.html', html)])).toHaveLength(2);
+    // a JS chunk that contains an <img string is not shipped HTML → not scanned
+    expect(validateImageAlt([file('assets/app.js', 'const s = "<img src=x>";')])).toEqual([]);
+  });
+
+  it('IGNORES a bare <img> with no source (React hydration placeholder — validator-precision)', () => {
+    // zahav's prerendered shell ships 2 bare `<img>` that hydrate into real images; flagging them
+    // would cry-wolf on every generated site. Only a src/srcset-bearing content image is a defect.
+    expect(validateImageAlt([file('index.html', '<img><img> <img src="/hero.jpg" alt="Hero">')])).toEqual([]);
+    expect(validateImageAlt([file('index.html', '<img srcset="/a.jpg 1x">')])).toHaveLength(1);
   });
 });
 
