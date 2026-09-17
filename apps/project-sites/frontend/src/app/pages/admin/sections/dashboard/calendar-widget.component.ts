@@ -133,7 +133,11 @@ interface BookingDraft {
               <span class="mc-n">{{ cell.dayNum }}</span>
               <span class="mc-evts">
                 @for (e of cell.events.slice(0, 3); track e.id) {
-                  <span class="evt" [style.background]="e.color" (click)="openEvent($event, e)">
+                  <!-- Display-only preview: an interactive control CANNOT nest inside the day
+                       <button> (invalid HTML + keyboard-stranded span, WCAG 2.1.1). The day cell
+                       is the keyboard-operable control; events are opened as real <button>s in the
+                       week/day views. -->
+                  <span class="evt" [style.background]="e.color">
                     {{ e.title }}
                   </span>
                 }
@@ -161,7 +165,12 @@ interface BookingDraft {
             @for (d of weekDays(); track d.ms) {
               <div
                 class="wc"
+                role="button"
+                tabindex="0"
+                [attr.aria-label]="'Add event ' + d.dow + ' ' + d.dayNum + ' at ' + fmtHour(hr)"
                 (click)="newAt(d.ms, hr)"
+                (keydown.enter)="newAt(d.ms, hr)"
+                (keydown.space)="$event.preventDefault(); newAt(d.ms, hr)"
                 (contextmenu)="$event.preventDefault(); selectDay(d.ms)"
               >
                 @for (e of eventsAt(d.ms, hr); track e.id) {
@@ -190,7 +199,15 @@ interface BookingDraft {
             {{ longDate(selectedDayMs()) }}
           </div>
           @for (hr of hours; track hr) {
-            <div class="d-row" (click)="newAt(selectedDayMs(), hr)">
+            <div
+              class="d-row"
+              role="button"
+              tabindex="0"
+              [attr.aria-label]="'Add event at ' + fmtHour(hr)"
+              (click)="newAt(selectedDayMs(), hr)"
+              (keydown.enter)="newAt(selectedDayMs(), hr)"
+              (keydown.space)="$event.preventDefault(); newAt(selectedDayMs(), hr)"
+            >
               <div class="d-l">{{ fmtHour(hr) }}</div>
               <div class="d-c">
                 @for (e of eventsAt(selectedDayMs(), hr); track e.id) {

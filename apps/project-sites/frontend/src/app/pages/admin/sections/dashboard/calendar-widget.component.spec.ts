@@ -172,3 +172,61 @@ describe('CalendarWidgetComponent (event-editor label association)', () => {
     expect(checked).toBeGreaterThanOrEqual(3); // Title, Public slug, Time zone
   });
 });
+
+/**
+ * CODE-QUALITY SWEEP (a11y, WCAG 2.1.1 Keyboard, Level A): the week/day "add event at this time"
+ * cells were bare `<div (click)>` — mouse-only, keyboard-stranded. They're now role=button +
+ * tabindex=0 + Enter/Space + aria-label. And the month-view event pills must stay DISPLAY-ONLY
+ * (a control can't nest inside the day <button> — invalid + keyboard-stranded), so they carry no
+ * (click)/role.
+ */
+describe('CalendarWidgetComponent (calendar cells are keyboard-operable — WCAG 2.1.1)', () => {
+  function renderView(view: 'month' | 'week' | 'day'): HTMLElement {
+    TestBed.configureTestingModule({
+      imports: [CalendarWidgetComponent],
+      providers: [
+        { provide: HttpClient, useValue: { get: () => of({ data: [] }), post: () => of({}), patch: () => of({}), delete: () => of({}) } },
+        { provide: AuthService, useValue: { getToken: () => 'tok' } },
+        { provide: ToastService, useValue: { error: () => 0, success: () => 0, warning: () => 0 } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({}) } } },
+        { provide: Router, useValue: { navigate: () => undefined } },
+      ],
+    });
+    const fx = TestBed.createComponent(CalendarWidgetComponent);
+    fx.detectChanges();
+    fx.componentInstance.view.set(view);
+    fx.detectChanges();
+    return fx.nativeElement as HTMLElement;
+  }
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('week-view time cells are keyboard-operable (role=button + tabindex=0 + aria-label)', () => {
+    const el = renderView('week');
+    const cells = Array.from(el.querySelectorAll('.wc')) as HTMLElement[];
+    expect(cells.length).withContext('week grid renders time cells').toBeGreaterThan(0);
+    for (const c of cells.slice(0, 5)) {
+      expect(c.getAttribute('role')).toBe('button');
+      expect(c.getAttribute('tabindex')).toBe('0');
+      expect(c.getAttribute('aria-label')).toContain('Add event');
+    }
+  });
+
+  it('day-view time rows are keyboard-operable (role=button + tabindex=0 + aria-label)', () => {
+    const el = renderView('day');
+    const rows = Array.from(el.querySelectorAll('.d-row')) as HTMLElement[];
+    expect(rows.length).withContext('day grid renders hour rows').toBeGreaterThan(0);
+    for (const r of rows.slice(0, 5)) {
+      expect(r.getAttribute('role')).toBe('button');
+      expect(r.getAttribute('tabindex')).toBe('0');
+      expect(r.getAttribute('aria-label')).toContain('Add event');
+    }
+  });
+
+  it('month-view event pills are DISPLAY-ONLY (no nested interactive control inside the day button)', () => {
+    const el = renderView('month');
+    for (const pill of Array.from(el.querySelectorAll('.evt')) as HTMLElement[]) {
+      expect(pill.getAttribute('role')).withContext('month event pill is not a control').toBeNull();
+      expect(pill.getAttribute('tabindex')).toBeNull();
+    }
+  });
+});
