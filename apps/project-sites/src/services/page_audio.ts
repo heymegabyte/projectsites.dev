@@ -156,7 +156,14 @@ export async function getOrCreatePageAudio(
   const hash = await contentHash(args.slug, route, text);
   try {
     const summary = await summarizeForAudio(env, text);
-    if (!summary) return { audioUrl: null, summary: null, cached: false };
+    if (!summary) {
+      // Fail-soft, but OBSERVABLE: an empty summary (Workers AI summary model faulted / returned a
+      // non-string) previously returned null silently. Log it so a dead "Listen" feature has signal.
+      console.warn(
+        JSON.stringify({ level: 'warn', message: 'page_audio.summary_empty', slug: args.slug, route }),
+      );
+      return { audioUrl: null, summary: null, cached: false };
+    }
     const wav = await synthesizeWav(env, summary);
     await env.SITES_BUCKET.put(wavKey(args.slug, hash), wav, {
       httpMetadata: {
@@ -168,7 +175,20 @@ export async function getOrCreatePageAudio(
       httpMetadata: { contentType: 'text/plain; charset=utf-8' },
     });
     return { audioUrl: publicUrl(args.slug, hash), summary, cached: false };
-  } catch {
+  } catch (err) {
+    // Fail-soft (the widget degrades to on-device speechSynthesis) BUT now OBSERVABLE. The empty
+    // catch here silently swallowed a FLEET-WIDE outage — Workers AI MeloTTS (`@cf/myshell-ai/melotts`)
+    // returning `AiError: Internal server error (3043)` killed every site's "Listen to this page" with
+    // ZERO signal (found 2026-09-16). Structured-log so a TTS/summary outage surfaces in Workers logs.
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        message: 'page_audio.generate_failed',
+        slug: args.slug,
+        route,
+        error: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+      }),
+    );
     return { audioUrl: null, summary: null, cached: false };
   }
 }

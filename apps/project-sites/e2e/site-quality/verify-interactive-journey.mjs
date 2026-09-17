@@ -64,16 +64,26 @@ try {
   page.on('pageerror', (e) => errs.push('[pageerror] ' + String(e.message || e).slice(0, 100)));
   page.on('response', async (r) => {
     const u = r.url();
-    const m = u.match(/\/api\/(contact-form|page-audio|chat)\//);
-    if (!m) return;
     const ct = r.headers()['content-type'] || '';
-    let bytes = 0;
-    try {
-      if (m[1] === 'page-audio' && !ct.includes('json')) bytes = (await r.body()).length;
-    } catch {
-      /* body may be consumed by the browser */
+    // The page-audio POST returns JSON `{audioUrl}`; the R2 WAV is a SEPARATE GET at
+    // /api/page-audio/:slug/a/<hash>.wav. Capture them apart so a CF MeloTTS outage (POST 200 +
+    // audioUrl:null → app degrades to speechSynthesis) is distinguishable from a real break.
+    const wav = u.match(/\/api\/page-audio\/[^/]+\/a\//);
+    const post = !wav && u.match(/\/api\/page-audio\/[^/]+$/);
+    if (wav) {
+      let bytes = 0;
+      try { bytes = (await r.body()).length; } catch { /* consumed by the browser */ }
+      api['page-audio-wav'] = { status: r.status(), ct, bytes };
+      return;
     }
-    api[m[1]] = { status: r.status(), ct, bytes };
+    if (post) {
+      let audioUrl = null;
+      try { audioUrl = (await r.json())?.audioUrl ?? null; } catch { /* non-json */ }
+      api['page-audio-post'] = { status: r.status(), ct, audioUrl };
+      return;
+    }
+    const m = u.match(/\/api\/(contact-form|chat)\//);
+    if (m) api[m[1]] = { status: r.status(), ct };
   });
 
   // Hook the Audio ctor + play() BEFORE any page script — page-audio uses a DETACHED `new Audio()`.
@@ -89,6 +99,13 @@ try {
       window.__audio.push({ via: 'play', src: this.currentSrc || this.src || '' });
       return op.apply(this, arguments);
     };
+    // The fail-soft degraded path: when the server returns no R2 WAV (MeloTTS CF outage), the widget
+    // narrates with on-device speechSynthesis. Hook it so the probe can confirm graceful degradation.
+    window.__spoke = false;
+    try {
+      const os = window.speechSynthesis && window.speechSynthesis.speak;
+      if (os) window.speechSynthesis.speak = function (...a) { window.__spoke = true; return os.apply(window.speechSynthesis, a); };
+    } catch { /* speechSynthesis may be unavailable */ }
   });
 
   // ── 1. CONTACT FORM (on /contact; fall back to homepage) ──
@@ -129,21 +146,32 @@ try {
     await page.waitForTimeout(3000);
     // Flaky-click guard: if the first click fired NO page-audio request, re-click once (the control
     // occasionally no-ops mid-hydration) before waiting out MeloTTS generation.
-    if (!api['page-audio']) {
+    if (!api['page-audio-post']) {
       await listen.click({ timeout: 5000 }).catch(() => {});
     }
     await page.waitForTimeout(9000); // MeloTTS gen (first) or R2-cache fetch (repeat)
-    const played = await page.evaluate(() => window.__audio || []);
-    const playCall = played.find((a) => a.via === 'play' && /\/api\/page-audio\//.test(a.src));
+    const state = await page.evaluate(() => ({ played: window.__audio || [], spoke: !!window.__spoke }));
+    const playCall = state.played.find((a) => a.via === 'play' && /\/api\/page-audio\//.test(a.src));
     const btnPaused = await page.evaluate(() =>
       [...document.querySelectorAll('button')].some((b) =>
         /pause|stop/i.test((b.getAttribute('aria-label') || '') + (b.textContent || '')),
       ),
     );
-    const a = api['page-audio'];
-    check('PAGE-AUDIO: POST /api/page-audio/:slug → 200 audio/wav (non-empty)', a?.status === 200 && /audio\/wav/.test(a?.ct || '') && a.bytes > 10000, `${a?.status} ${a?.ct} ${a?.bytes}b`);
-    check('PAGE-AUDIO: the app plays a real R2 WAV (Audio.play with a page-audio src)', !!playCall, playCall ? playCall.src.split('/').pop() : 'no play() with a page-audio src');
-    check('PAGE-AUDIO: the Listen button flips to a Pause/Stop state', btnPaused);
+    const post = api['page-audio-post'];
+    const wav = api['page-audio-wav'];
+    // GATE 1 — the endpoint responds fail-soft (200 + a valid {audioUrl:null|string}); a 5xx here is a
+    // real break. audioUrl:null is a VALID degraded response (upstream TTS outage), not a failure.
+    check('PAGE-AUDIO: POST /api/page-audio/:slug → 200 (fail-soft envelope)', post?.status === 200, `status=${post?.status ?? 'none'} audioUrl=${post?.audioUrl ? 'present' : 'null'}`);
+    if (post?.audioUrl) {
+      // MeloTTS up → the FULL success path: a real R2 WAV streams + plays.
+      check('PAGE-AUDIO: R2 WAV streams (audio/wav non-empty) + the app plays it', !!wav && /audio\/wav/.test(wav.ct) && wav.bytes > 10000 && !!playCall, `wav=${wav?.bytes ?? 0}b play=${!!playCall}`);
+      check('PAGE-AUDIO: the Listen button flips to Pause/Stop', btnPaused);
+    } else {
+      // MeloTTS CF outage (AiError 3043) → the app degrades to on-device speechSynthesis. That's the
+      // INTENDED fail-soft; do NOT cry wolf (validator-precision). Assert the widget stays operable.
+      console.log('  ::notice:: page-audio R2 WAV unavailable (upstream Workers AI MeloTTS outage — audioUrl:null); asserting the fail-soft speechSynthesis degradation instead.');
+      check('PAGE-AUDIO: degrades gracefully (speechSynthesis narrates OR the control stays operable)', state.spoke || btnPaused, `spoke=${state.spoke} btnPaused=${btnPaused}`);
+    }
   } else {
     check('PAGE-AUDIO: a "Listen to this page" control is present', false, 'no Listen button found');
   }
