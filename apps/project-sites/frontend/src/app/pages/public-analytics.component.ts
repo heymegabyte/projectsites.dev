@@ -1,4 +1,5 @@
-import { Component, signal, inject, type OnInit } from '@angular/core';
+import { Component, signal, inject, DestroyRef, type OnInit } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { ApiService } from '../services/api.service';
 
@@ -62,6 +63,7 @@ interface PublicResponse {
 export class PublicAnalyticsComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly api = inject(ApiService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly loading = signal(true);
   readonly error = signal(false);
@@ -74,7 +76,7 @@ export class PublicAnalyticsComponent implements OnInit {
       this.loading.set(false);
       return;
     }
-    this.api.get<PublicResponse>(`/public/analytics/${token}`).subscribe({
+    this.api.get<PublicResponse>(`/public/analytics/${token}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.stats.set(this.toStats(r.summary));
         this.loading.set(false);

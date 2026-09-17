@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, type OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, type OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpClient } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 import { MetaService } from '../../services/meta.service';
@@ -166,6 +167,7 @@ const COLUMN_DEFS: readonly { status: RoadmapItem['status']; label: string }[] =
 export class RoadmapComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly meta = inject(MetaService);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly loading = signal<boolean>(true);
   protected readonly error = signal<string | null>(null);
@@ -187,7 +189,7 @@ export class RoadmapComponent implements OnInit {
 
   ngOnInit(): void {
     this.meta.init();
-    this.http.get<RoadmapResponse>('/api/public/roadmap').subscribe({
+    this.http.get<RoadmapResponse>('/api/public/roadmap').pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (data) => {
         this.response.set(data);
         this.loading.set(false);
