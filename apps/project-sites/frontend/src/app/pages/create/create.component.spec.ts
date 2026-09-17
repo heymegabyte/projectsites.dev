@@ -70,6 +70,68 @@ describe('CreateComponent — address input constraints', () => {
   });
 });
 
+describe('CreateComponent — invalid claim-link notice (AL-700)', () => {
+  afterEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    TestBed.resetTestingModule();
+  });
+
+  function render(queryParams: Record<string, string>): ComponentFixture<CreateComponent> {
+    const api = {
+      searchBusinesses: jasmine.createSpy('searchBusinesses').and.returnValue(of({ data: [] })),
+      searchAddress: jasmine.createSpy('searchAddress').and.returnValue(of({ data: [] })),
+    };
+    const auth = {
+      isLoggedIn: jasmine.createSpy().and.returnValue(false),
+      getAutoCreate: jasmine.createSpy().and.returnValue(false),
+      setAutoCreate: jasmine.createSpy(),
+      getPendingBuild: jasmine.createSpy().and.returnValue(false),
+      setPendingBuild: jasmine.createSpy(),
+      getSelectedBusiness: jasmine.createSpy().and.returnValue(null),
+      getMode: jasmine.createSpy().and.returnValue('build'),
+    };
+    TestBed.configureTestingModule({
+      imports: [CreateComponent],
+      providers: [
+        provideRouter([]),
+        { provide: ApiService, useValue: api },
+        { provide: AuthService, useValue: auth },
+        { provide: GeolocationService, useValue: { lat: () => null, lng: () => null } },
+        {
+          provide: ToastService,
+          useValue: { error: () => undefined, success: () => undefined, info: () => undefined },
+        },
+        { provide: TelemetryService, useValue: { track: () => undefined } },
+        {
+          provide: ActivatedRoute,
+          useValue: { snapshot: { queryParams, queryParamMap: { get: () => null } } },
+        },
+      ],
+    });
+    const fx = TestBed.createComponent(CreateComponent);
+    fx.detectChanges();
+    return fx;
+  }
+
+  it('shows a FRIENDLY notice (not a dead-end) when redirected from an invalid claim link', () => {
+    // The worker 302s an expired/invalid claim link → /create?claim_invalid=1 instead of raw JSON.
+    const fx = render({ claim_invalid: '1' });
+    const notice = (fx.nativeElement as HTMLElement).querySelector('[data-testid="claim-invalid-notice"]');
+    expect(notice).withContext('the friendly invalid-claim notice must render').not.toBeNull();
+    expect(notice?.getAttribute('role')).toBe('status'); // announced to AT, not an alarming error
+    expect((notice?.textContent || '').toLowerCase()).toContain('expired');
+    expect((notice?.textContent || '').toLowerCase()).toContain('build your site'); // first-action, owner's words
+  });
+
+  it('does NOT show the notice on a normal /create visit (no false alarm)', () => {
+    const fx = render({});
+    expect(
+      (fx.nativeElement as HTMLElement).querySelector('[data-testid="claim-invalid-notice"]'),
+    ).toBeNull();
+  });
+});
+
 /**
  * Search-honesty nudge. When the worker's `/api/search/businesses` proxy returns a
  * provider `_error` (billing off → `SEARCH_PROVIDER_UNAVAILABLE`, key unset →

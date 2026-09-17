@@ -94,10 +94,13 @@ async function getWithCtx(path: string, db: D1Database = makeDb()) {
 }
 
 describe('GET /api/claim/:shortlink', () => {
-  it('404s an unknown shortlink (no session, no redirect)', async () => {
+  it('redirects an unknown shortlink to the friendly create funnel (NOT a raw-JSON dead-end) — AL-700', async () => {
+    // An owner clicks this in their browser; an invalid/expired token must land them on the create
+    // funnel (a first-action launchpad), never a raw `{error:…}` JSON blob. No session is touched.
     mockResolve.mockResolvedValue(null);
     const res = await get('/api/claim/nope');
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/create?claim_invalid=1');
     expect(mockLoad).not.toHaveBeenCalled();
   });
 

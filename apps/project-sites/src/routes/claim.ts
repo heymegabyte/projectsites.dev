@@ -61,7 +61,12 @@ claimRoutes.get('/api/claim/:shortlink', async (c) => {
 
   const link = await resolveLeadByShortlink(c.env.DB, shortlink);
   if (!link) {
-    return c.json({ error: { code: 'NOT_FOUND', message: 'This claim link is not valid.' } }, 404);
+    // An OWNER clicks this claim link IN THEIR BROWSER (it's the `https://projectsites.dev/api/claim/
+    // <token>` URL sent in the claim email) — a raw-JSON `{error:…}` 404 is an embarrassingly-hard
+    // dead-end. Redirect to the create funnel with a friendly flag so an expired/invalid link becomes
+    // a first-action launchpad (search your business → build), never a scary error blob. The XHR
+    // sub-route `/api/claim/:shortlink/profile` keeps its JSON 404 (it's consumed by the SPA).
+    return c.redirect('/create?claim_invalid=1', 302);
   }
 
   // Record the click (attribution) — best-effort, never blocks the funnel.

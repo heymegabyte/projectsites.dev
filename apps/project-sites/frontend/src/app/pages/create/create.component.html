@@ -38,6 +38,25 @@
       </p>
     </div>
 
+    <!-- AL-700: arrived via an INVALID/expired claim link — a friendly notice + the normal funnel,
+         never a raw-JSON dead-end (the worker redirects the dead link here). Owner's words, one line. -->
+    @if (claimInvalid()) {
+      <div
+        class="mb-8 flex items-start gap-3 rounded-2xl border border-amber-400/30 bg-amber-400/[0.07] px-4 py-3.5 text-sm animate-fade-in-up"
+        role="status"
+        data-testid="claim-invalid-notice"
+      >
+        <svg class="mt-0.5 shrink-0 text-amber-400" width="18" height="18" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" />
+        </svg>
+        <span class="text-text-secondary">
+          That claim link has expired or isn't valid anymore — no problem. Just tell us about your
+          business below and we'll build your site.
+        </span>
+      </div>
+    }
+
     <!-- claimyour.site funnel: live background-build status banner. -->
     @if (claimBuildStatus(); as cbs) {
       @if (cbs === 'building' || cbs === 'pending') {

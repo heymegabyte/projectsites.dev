@@ -348,6 +348,10 @@ export class CreateComponent implements OnInit, OnDestroy {
   claimPreviewUrl = signal<string | null>(null);
   /** The shortlink the visitor arrived on (drives the claim/adopt CTA). */
   private claimShortlink: string | null = null;
+  /** True when the owner arrived via an INVALID/expired claim link (`?claim_invalid=1`, AL-700):
+   * the worker redirects the dead link here instead of showing a raw-JSON 404, and we greet them
+   * with a friendly one-line notice + the normal build funnel — never a dead-end. */
+  claimInvalid = signal(false);
   /** True once the visitor has claimed (adopted) the built site. */
   claimed = signal(false);
   /** Busy guard for the claim/adopt request (double-submit safe). */
@@ -423,6 +427,9 @@ export class CreateComponent implements OnInit, OnDestroy {
     // claimyour.site funnel: ?claim=<shortlink> → fetch the researched profile +
     // prefill the form (the background build is already running server-side).
     if (params['claim']) this.loadClaimPrefill(params['claim']);
+    // ?claim_invalid=1 (AL-700) → the owner clicked an expired/invalid claim link; the worker
+    // redirected them here (not a raw-JSON dead-end). Greet with a friendly notice, funnel unchanged.
+    if (params['claim_invalid']) this.claimInvalid.set(true);
 
     const shouldAutoCreate = this.auth.getAutoCreate();
     const hasPendingBuild = this.auth.getPendingBuild();
