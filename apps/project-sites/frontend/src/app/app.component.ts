@@ -89,18 +89,27 @@ import { TelemetryService } from './services/telemetry.service';
     .app.no-pad {
       padding-top: 0;
     }
-    /* Route-loading skeleton (AL-697) — centered in the content region while a lazy chunk
-       downloads. Additive + transient (removed on NavigationEnd) so it never affects the
-       loaded route's layout / CLS. Brand-token colors; reduced-motion disables the animations. */
+    /* Route-loading skeleton (AL-697) — a loading veil while a lazy chunk downloads.
+       It MUST be an ABSOLUTE OVERLAY (inset:0 inside the position:relative .app), NOT an
+       in-flow block: the skeleton arms on EVERY lazy RouteConfigLoadStart — including admin
+       section↔section swaps and the admin→default-section redirect, which fire AFTER the page
+       has already painted. As an in-flow element its 520px min-height inserted ABOVE the live
+       router-outlet and shoved the mounted page down 520px → a catastrophic ~0.44 CLS on every
+       admin route (AL-722). As an overlay it occupies zero layout space, so it can never push
+       content on cold OR warm navigations. Brand veil; reduced-motion disables the animations. */
     .route-skeleton {
+      position: absolute;
+      inset: 0;
+      z-index: 5; /* above the outlet it veils; below header(10000)/toast(9999)/takeover(100000) */
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       gap: 1rem;
-      min-height: min(60vh, 520px);
       padding: 2rem;
       color: #00e5ff;
+      background: color-mix(in srgb, var(--ps-bg, #060610) 88%, transparent);
+      backdrop-filter: blur(2px);
     }
     .route-skeleton__spinner {
       width: 34px;
@@ -256,12 +265,23 @@ export class AppComponent implements OnInit, OnDestroy {
    * `<app-root>` (a deliberate FCP/LCP optimization) — a skeleton over it would flash + break the
    * no-CLS hydration swap. We capture the in-flight URL on `NavigationStart` and only arm the
    * skeleton when it is NOT the homepage. Root component (never destroyed) → no unsubscribe needed.
+   *
+   * CRITICAL (AL-722): arm ONLY during an ACTIVE navigation. `app.config` enables
+   * `withPreloading(PreloadAllModules)`, so after the first navigation the router downloads EVERY
+   * remaining lazy chunk in the background — each emitting `RouteConfigLoadStart` with NO active
+   * navigation and NO following `NavigationEnd`. Arming on those latched `routeLoading` ON forever:
+   * the skeleton stuck on every admin route → a ~0.44 CLS (in-flow block shoving the page down
+   * 520px) AND `[aria-busy=true]` never clearing (a lying-loading veil). `router.getCurrentNavigation()`
+   * is non-null during any real nav (including the initial cold load — robust against the subscription
+   * racing the initial `NavigationStart`) and null during background preloads, so it's the correct gate.
    */
   private wireRouteLoading(): void {
     this.router.events.subscribe((e) => {
       if (e instanceof NavigationStart) {
         this.pendingNavUrl = e.url;
       } else if (e instanceof RouteConfigLoadStart) {
+        // Ignore preload-triggered chunk loads — only a real in-flight navigation arms the skeleton.
+        if (!this.router.getCurrentNavigation()) return;
         // A lazy chunk is loading. Arm the skeleton unless this navigation targets the homepage.
         // On a COLD DIRECT load the NavigationStart may precede our subscription, so fall back to
         // the real browser path (`/create` immediately) — NOT router.url (still `/` until nav settles).

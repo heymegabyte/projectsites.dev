@@ -1,5 +1,13 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter, Router } from '@angular/router';
+import {
+  provideRouter,
+  Router,
+  NavigationStart,
+  NavigationEnd,
+  RouteConfigLoadStart,
+  type Event as RouterEvent,
+  type Route,
+} from '@angular/router';
 import { Subject, of } from 'rxjs';
 import { AppComponent } from './app.component';
 import { AuthService } from './services/auth.service';
@@ -99,6 +107,56 @@ describe('AppComponent (shell a11y + chrome contract)', () => {
     c.routeLoading.set(false);
     fixture.detectChanges();
     expect(host.querySelector('[data-testid="route-loading"]')).toBeNull();
+  });
+});
+
+/**
+ * Preload-guard regression (AL-722). `app.config` enables `withPreloading(PreloadAllModules)`,
+ * so AFTER the first navigation the router background-downloads every remaining lazy chunk —
+ * each firing `RouteConfigLoadStart` with NO active navigation + NO following `NavigationEnd`.
+ * The old `wireRouteLoading` armed the skeleton on those, latching `routeLoading` ON forever:
+ * the `.route-skeleton` stuck on every admin route → a ~0.44 CLS (in-flow 520px block shoving
+ * the page down) AND `[aria-busy=true]` never clearing (a lying-loading veil). The fix gates
+ * arming on `router.getCurrentNavigation()` (non-null only during a real nav). These lock it.
+ */
+describe('AppComponent — route-loading skeleton ignores background preloads (AL-722)', () => {
+  let fixture: ComponentFixture<AppComponent>;
+  let router: Router;
+  let events: Subject<RouterEvent>;
+  let c: { routeLoading(): boolean };
+
+  beforeEach(() => {
+    fixture = build();
+    router = TestBed.inject(Router);
+    events = router.events as unknown as Subject<RouterEvent>;
+    c = fixture.componentInstance as unknown as { routeLoading(): boolean };
+  });
+  afterEach(() => {
+    fixture.destroy();
+    TestBed.resetTestingModule();
+  });
+
+  it('does NOT arm the skeleton for a preload RouteConfigLoadStart (no active navigation)', () => {
+    // Simulate the real bug: a prior nav to /admin completed (pendingNavUrl='/admin'), then
+    // PreloadAllModules fires RouteConfigLoadStart for a background chunk with no nav in flight.
+    events.next(new NavigationStart(1, '/admin'));
+    events.next(new NavigationEnd(1, '/admin', '/admin'));
+    expect(c.routeLoading()).toBe(false);
+
+    spyOn(router, 'getCurrentNavigation').and.returnValue(null); // no navigation in flight = preload
+    events.next(new RouteConfigLoadStart({ path: 'editor' } as Route));
+    // Must STAY off — a preload must never latch the skeleton on (was the stuck-forever bug).
+    expect(c.routeLoading()).toBe(false);
+  });
+
+  it('DOES arm the skeleton for a RouteConfigLoadStart during an active navigation', () => {
+    events.next(new NavigationStart(2, '/admin'));
+    spyOn(router, 'getCurrentNavigation').and.returnValue({} as ReturnType<Router['getCurrentNavigation']>);
+    events.next(new RouteConfigLoadStart({ path: 'admin' } as Route));
+    expect(c.routeLoading()).toBe(true);
+    // …and clears the instant the navigation settles.
+    events.next(new NavigationEnd(2, '/admin', '/admin'));
+    expect(c.routeLoading()).toBe(false);
   });
 });
 
