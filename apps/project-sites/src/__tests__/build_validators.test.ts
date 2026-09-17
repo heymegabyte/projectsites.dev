@@ -233,9 +233,13 @@ describe('validateImageAlt (WCAG 1.1.1 — every <img> needs alt, decorative alt
 
   it('PASSES alt="" (explicit decorative) and alt="text" (meaningful) — validator-precision', () => {
     expect(validateImageAlt([file('index.html', '<img src="/bg.jpg" alt="">')])).toEqual([]);
-    expect(validateImageAlt([file('index.html', '<img src="/team.jpg" alt="Our team at work">')])).toEqual([]);
+    expect(
+      validateImageAlt([file('index.html', '<img src="/team.jpg" alt="Our team at work">')]),
+    ).toEqual([]);
     // real template shapes: BentoGrid decorative + Header logo (link carries the name)
-    expect(validateImageAlt([file('a.html', '<img class="bento-tile__img" src="/x.jpg" alt=""/>')])).toEqual([]);
+    expect(
+      validateImageAlt([file('a.html', '<img class="bento-tile__img" src="/x.jpg" alt=""/>')]),
+    ).toEqual([]);
   });
 
   it('flags each src-bearing alt-less <img>; ignores non-HTML files', () => {
@@ -248,7 +252,9 @@ describe('validateImageAlt (WCAG 1.1.1 — every <img> needs alt, decorative alt
   it('IGNORES a bare <img> with no source (React hydration placeholder — validator-precision)', () => {
     // zahav's prerendered shell ships 2 bare `<img>` that hydrate into real images; flagging them
     // would cry-wolf on every generated site. Only a src/srcset-bearing content image is a defect.
-    expect(validateImageAlt([file('index.html', '<img><img> <img src="/hero.jpg" alt="Hero">')])).toEqual([]);
+    expect(
+      validateImageAlt([file('index.html', '<img><img> <img src="/hero.jpg" alt="Hero">')]),
+    ).toEqual([]);
     expect(validateImageAlt([file('index.html', '<img srcset="/a.jpg 1x">')])).toHaveLength(1);
   });
 });
