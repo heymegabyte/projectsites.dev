@@ -600,9 +600,9 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
     // it reads like an ink/craft studio instead
     expect(allText).toMatch(/ink|custom|wear your story/);
     // still SEO-woven: category keyword + city present
-    expect(p!.subheadlines.every((s) => s.includes('tattoo studio') && s.includes('Brooklyn'))).toBe(
-      true,
-    );
+    expect(
+      p!.subheadlines.every((s) => s.includes('tattoo studio') && s.includes('Brooklyn')),
+    ).toBe(true);
     // REGRESSION GUARD: an actual cocktail bar KEEPS the nightlife copy (the two never cross-fire).
     const bar = personaHeroCopy('noir', 'cocktail bar', 'Portland');
     expect(bar!.headlines.join(' ').toLowerCase()).toMatch(/after dark|nights begin/);
