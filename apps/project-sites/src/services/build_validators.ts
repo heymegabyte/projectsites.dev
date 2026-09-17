@@ -1307,6 +1307,14 @@ export interface SeoFinalizeReport {
   titleClamped: number;
   /** Titles LENGTHENED from <50 chars into the 50-60 range by appending ` | {city}`. */
   titleExpanded: number;
+  /**
+   * HTML docs that got a high-priority `<link rel=preload>` for `/logo-wordmark.png`
+   * injected into their head (C.2 LCP). The navbar wordmark is the LCP element on
+   * text-hero sites, and it renders late (behind hydration + the AL-591 HEAD probe);
+   * preloading its bytes eagerly collapses the cold-cache LCP. Only injected when the
+   * build actually produced the wordmark asset (an absent-asset preload would 404+warn).
+   */
+  wordmarkPreloadInjected: number;
 }
 
 const truncateAtWord = (s: string, max: number): string => {
@@ -1409,9 +1417,17 @@ export const finalizeSeoInvariants = (
     descExpanded: 0,
     titleClamped: 0,
     titleExpanded: 0,
+    wordmarkPreloadInjected: 0,
   };
   const rootUrl = `${ctx.hostname.replace(/\/+$/, '')}/`;
   const brandName = (ctx.businessName || 'Business').trim();
+
+  // C.2 LCP signal: did THIS build produce a navbar wordmark? Only then is a preload
+  // safe (a `<link rel=preload>` for an absent asset 404s + logs a console warning,
+  // breaking the 0-console-errors gate). Computed once over the whole file set.
+  const hasWordmark = files.some(
+    (f) => f.path === 'logo-wordmark.png' || f.path.endsWith('/logo-wordmark.png'),
+  );
 
   const fixed = files.map((f) => {
     if (!isHtml(f.path) || !f.text || NON_ROUTE_HTML.test(f.path)) return f;
@@ -1582,6 +1598,22 @@ export const finalizeSeoInvariants = (
         text = text.replace(/<\/head>/i, `${toAdd.join('\n')}\n</head>`);
         report.jsonLdInjected += toAdd.length;
       }
+    }
+
+    // 5. C.2 LCP — preload the navbar wordmark eagerly (the LCP element on text-hero
+    //    sites; it otherwise paints late behind hydration + the AL-591 HEAD probe,
+    //    measured 2292ms cold on flour-bakery vs 924ms warm). Only when the build made
+    //    the asset (guarded above) + not already present + a head exists. Idempotent.
+    if (
+      hasWordmark &&
+      /<\/head>/i.test(text) &&
+      !/rel=["']preload["'][^>]*logo-wordmark\.png/i.test(text)
+    ) {
+      text = text.replace(
+        /<\/head>/i,
+        '<link rel="preload" as="image" href="/logo-wordmark.png" fetchpriority="high">\n</head>',
+      );
+      report.wordmarkPreloadInjected++;
     }
 
     return text === f.text ? f : { ...f, text };

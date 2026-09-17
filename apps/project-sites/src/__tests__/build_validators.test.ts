@@ -1484,6 +1484,7 @@ describe('finalizeSeoInvariants (C.1 structured-data + meta backstop)', () => {
       descExpanded: 0,
       titleClamped: 0,
       titleExpanded: 0,
+      wordmarkPreloadInjected: 0,
     });
     expect(files[0]).toBe(good);
   });
@@ -1509,5 +1510,65 @@ describe('finalizeSeoInvariants (C.1 structured-data + meta backstop)', () => {
     );
     expect(report.jsonLdInjected).toBe(0);
     expect(files[0].text).toBe(prodLikeShell);
+  });
+});
+
+describe('finalizeSeoInvariants — C.2 LCP wordmark preload (AL-718)', () => {
+  const ctx = {
+    businessName: 'Flour Bakery + Cafe',
+    hostname: 'https://flour-bakery-cafe-boston.projectsites.dev',
+  };
+  // A shell WITH 4 JSON-LD blocks (so JSON-LD injection is a no-op and we isolate the preload).
+  const shell = `<!DOCTYPE html><html lang="en"><head><title>Flour Bakery + Cafe — Trusted local bakery | Boston</title><meta name="description" content="A perfectly sized meta description that already sits comfortably within the required one-hundred-twenty to one-fifty-six character window for search."><link rel="canonical" href="https://flour-bakery-cafe-boston.projectsites.dev/"><script type="application/ld+json">{"@type":"WebSite"}</script><script type="application/ld+json">{"@type":"Organization"}</script><script type="application/ld+json">{"@type":"WebPage"}</script><script type="application/ld+json">{"@type":"BreadcrumbList"}</script></head><body><h1>Pull up a chair, Boston</h1></body></html>`;
+  const wordmarkFile = { path: 'logo-wordmark.png', size: 18678, text: '' };
+  const htmlFile = () => ({ path: 'index.html', size: shell.length, text: shell });
+
+  it('injects a high-priority wordmark preload when the build produced /logo-wordmark.png', () => {
+    const [files, report] = finalizeSeoInvariants([htmlFile(), wordmarkFile], ctx);
+    const out = files.find((f) => f.path === 'index.html')!.text as string;
+    expect(report.wordmarkPreloadInjected).toBe(1);
+    expect(out).toMatch(
+      /<link\s+rel="preload"\s+as="image"\s+href="\/logo-wordmark\.png"\s+fetchpriority="high">/,
+    );
+    // it lands INSIDE the head (before </head>), not the body
+    expect(out.indexOf('logo-wordmark.png')).toBeLessThan(out.indexOf('</head>'));
+  });
+
+  it('does NOT preload when the build produced no wordmark (an absent-asset preload would 404+warn)', () => {
+    const [files, report] = finalizeSeoInvariants([htmlFile()], ctx);
+    const out = files.find((f) => f.path === 'index.html')!.text as string;
+    expect(report.wordmarkPreloadInjected).toBe(0);
+    expect(out).not.toContain('rel="preload"');
+  });
+
+  it('is idempotent — a shell already carrying the preload is not double-injected', () => {
+    const withPreload = shell.replace(
+      '</head>',
+      '<link rel="preload" as="image" href="/logo-wordmark.png" fetchpriority="high"></head>',
+    );
+    const [files, report] = finalizeSeoInvariants(
+      [{ path: 'index.html', size: withPreload.length, text: withPreload }, wordmarkFile],
+      ctx,
+    );
+    const out = files.find((f) => f.path === 'index.html')!.text as string;
+    expect(report.wordmarkPreloadInjected).toBe(0);
+    expect((out.match(/rel="preload"/g) || []).length).toBe(1);
+  });
+
+  it('resolves the wordmark under a nested path (public/ prefix) too', () => {
+    const [, report] = finalizeSeoInvariants(
+      [htmlFile(), { path: 'public/logo-wordmark.png', size: 18678, text: '' }],
+      ctx,
+    );
+    expect(report.wordmarkPreloadInjected).toBe(1);
+  });
+
+  it('never preloads on a 404/offline shell even when a wordmark exists', () => {
+    const [files, report] = finalizeSeoInvariants(
+      [{ path: '404.html', size: shell.length, text: shell }, wordmarkFile],
+      ctx,
+    );
+    expect(report.wordmarkPreloadInjected).toBe(0);
+    expect(files.find((f) => f.path === '404.html')!.text).toBe(shell);
   });
 });
