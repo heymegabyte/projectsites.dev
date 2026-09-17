@@ -19,9 +19,9 @@ describe('build_llm_credit — resolveBuildLlmProvider (mirror the workflow sele
     expect(resolveBuildLlmProvider({ DEEPSEEK_API_KEY: 'k' })).toBe('deepseek');
   });
   it('picks anthropic when BUILD_LLM_PROVIDER forces it', () => {
-    expect(resolveBuildLlmProvider({ DEEPSEEK_API_KEY: 'k', BUILD_LLM_PROVIDER: 'anthropic' })).toBe(
-      'anthropic',
-    );
+    expect(
+      resolveBuildLlmProvider({ DEEPSEEK_API_KEY: 'k', BUILD_LLM_PROVIDER: 'anthropic' }),
+    ).toBe('anthropic');
   });
   it('picks anthropic when no deepseek key', () => {
     expect(resolveBuildLlmProvider({ ANTHROPIC_API_KEY: 'a' })).toBe('anthropic');
@@ -80,7 +80,8 @@ describe('build_llm_credit — checkBuildLlmCredit (PRE-FLIGHT dead-balance gate
   });
 
   it('ALLOWS a healthy Anthropic key (200 echo)', async () => {
-    const fetchImpl = (async () => res(200, { id: 'msg_x', content: [] })) as unknown as typeof fetch;
+    const fetchImpl = (async () =>
+      res(200, { id: 'msg_x', content: [] })) as unknown as typeof fetch;
     const c = await checkBuildLlmCredit({ ANTHROPIC_API_KEY: 'a' }, { fetchImpl });
     expect(c.ok).toBe(true);
     expect(c.checked).toBe(true);
