@@ -298,7 +298,9 @@ describe('applyServedRouteTitle (SPA per-route <title> for the non-JS crawl)', (
   });
 
   it('a KNOWN route (isNotFound=false, default) still title-cases its segment — no regression', () => {
-    expect(applyServedRouteTitle(T(HOME), '/services')).toContain('<title>Services — Ironside Strength &amp; Conditioning</title>');
+    expect(applyServedRouteTitle(T(HOME), '/services')).toContain(
+      '<title>Services — Ironside Strength &amp; Conditioning</title>',
+    );
   });
 
   it('falls back to the whole title as brand when there is no separator', () => {

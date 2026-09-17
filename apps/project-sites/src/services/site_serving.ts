@@ -1380,7 +1380,11 @@ export function applyServedRouteJsonLd(html: string, requestPath: string): strin
  * applyServedRouteTitle('<title>Acme — Best widgets</title>', '/services');
  * // → '<title>Services — Acme</title>'
  */
-export function applyServedRouteTitle(html: string, requestPath: string, isNotFound = false): string {
+export function applyServedRouteTitle(
+  html: string,
+  requestPath: string,
+  isNotFound = false,
+): string {
   const route = normalizeRoute(requestPath);
   if (route === '/') return html; // homepage — its baked title is already correct
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
