@@ -1,17 +1,19 @@
-// Regression guard for the site-gen vertical classifier (`pickVerticalPreset` in
-// scripts/container-server.mjs). Parses the LIVE `['_brand.X.json', /regex/]` rules
-// out of the source (drift-free — never hardcodes a second copy) and asserts that
-// common real business-category strings first-match to the correct vertical, mirroring
-// the `_category.txt` authoritative short-circuit (first-match-by-rule-ORDER). fire-85.
+// Regression guard for the site-gen vertical classifier (the `VERTICAL_RULES` table).
+// Parses the LIVE `['_brand.X.json', /regex/]` rules out of the source (drift-free — never
+// hardcodes a second copy) and asserts that common real business-category strings first-match
+// to the correct vertical, mirroring the `_category.txt` authoritative short-circuit
+// (first-match-by-rule-ORDER). fire-85.
 //
-// Why parse instead of import: container-server.mjs is a side-effect-heavy HTTP server
-// entrypoint — importing it boots a server. Reading + regex-extracting the rule table
-// gives the exact runtime behaviour with zero side effects and stays honest to the
-// source (edit a regex → this test re-parses it, no manual sync).
+// AL-701 EXTRACTED the rule table out of the side-effect-heavy container-server.mjs HTTP-server
+// entrypoint into the PURE `scripts/vertical-rules.mjs` (container-server imports it). Parse it
+// from that new home — identical `['_brand.X.json', /regex/]` format — so the test tracks the LIVE
+// rules with zero side effects (edit a regex there → this re-parses it, no manual sync). Before
+// AL-715 this still read container-server.mjs → parsed 0 rules → 82 false misclassifications that
+// red-gated the worker deploy; repointing the source is the drift fix. (AL-715.)
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const SRC = readFileSync(join(__dirname, '../../scripts/container-server.mjs'), 'utf-8');
+const SRC = readFileSync(join(__dirname, '../../scripts/vertical-rules.mjs'), 'utf-8');
 
 interface Rule {
   vertical: string;
@@ -128,8 +130,8 @@ const EXPECT: Record<string, string> = {
 };
 
 describe('vertical classifier coverage (pickVerticalPreset)', () => {
-  it('parses all 13 brand rules from container-server.mjs', () => {
-    expect(rules.length).toBe(13);
+  it('parses all 15 brand rules from vertical-rules.mjs', () => {
+    expect(rules.length).toBe(15);
   });
 
   it.each(Object.entries(EXPECT))('classifies "%s" → %s', (category, want) => {
