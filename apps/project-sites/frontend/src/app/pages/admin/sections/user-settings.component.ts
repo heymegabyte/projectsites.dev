@@ -1026,11 +1026,16 @@ export class AdminUserSettingsComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Save the display name. Raw HttpClient (NOT ApiService) — mirrors
-   * loadSessions(): a not-yet-wired PATCH /api/admin/profile falls SILENTLY
-   * into the local-first persist below instead of ApiService toasting a
-   * spurious "Can't reach the server". A real 400/422 rejection is surfaced
-   * inline and does NOT persist.
+   * Save the display name via the live `PATCH /api/admin/profile` (Bearer). Raw
+   * HttpClient (NOT ApiService) so we own the per-status UX instead of the
+   * generic "Can't reach the server" interceptor toast:
+   *   - success        → persist locally (drives the header pill) + success toast
+   *   - 400/422        → inline validation error, does NOT persist
+   *   - 401            → session expired, prompt re-sign-in inline
+   *   - 404/409/5xx/net → HONEST error toast + a Retry action; does NOT persist
+   *     and NEVER claims "saved" (the endpoint is live — a failure here is real,
+   *     not a "not-yet-wired" no-op, so a lying "saved on this device — sync
+   *     pending" would strand the owner believing a rejected name was saved).
    */
   saveDisplayName(): void {
     if (!this.canSaveDisplayName()) return;
@@ -1053,10 +1058,15 @@ export class AdminUserSettingsComponent implements OnInit, OnDestroy {
           this.displayNameServerError.set(msg);
           return;
         }
-        // Endpoint not wired yet — local-first persist, same doctrine as the
-        // notification prefs below.
-        this.persistDisplayName(name);
-        this.toast.info('Display name saved on this device — server sync pending.');
+        if (err?.status === 401) {
+          this.displayNameServerError.set('Your session expired — please sign in again to save.');
+          return;
+        }
+        // The endpoint is LIVE — a real failure. Be honest: do NOT persist and do
+        // NOT claim success. Surface an error with a one-tap Retry.
+        this.toast.error("Couldn't save your display name — check your connection and try again.", {
+          action: { label: 'Retry', run: () => this.saveDisplayName() },
+        });
       },
     });
   }
@@ -1430,11 +1440,12 @@ export class AdminUserSettingsComponent implements OnInit, OnDestroy {
   // ─────────────────── Sessions ───────────────────
   loadSessions(): void {
     this.loadingSessions.set(true);
-    // Raw HttpClient (NOT ApiService) so a not-yet-wired /api/admin/sessions
-    // endpoint fails SILENTLY → graceful current-device fallback below, instead
-    // of ApiService.handleError firing a spurious "Can't reach the server"
-    // toast on every /admin/user load. Auto-upgrades to the real list the
-    // moment the worker route ships (no further frontend change needed).
+    // Raw HttpClient (NOT ApiService) so a TRANSIENT failure of the live
+    // GET /api/admin/sessions endpoint degrades to the graceful current-device
+    // fallback below, instead of ApiService.handleError firing a spurious
+    // "Can't reach the server" toast on every /admin/user load. This is a READ:
+    // a fallback row on error never lies about a mutation — the panel just never
+    // renders blank for a signed-in operator.
     const token = this.auth.getToken();
     const headers = token ? new HttpHeaders({ Authorization: `Bearer ${token}` }) : new HttpHeaders();
     this.http.get<{ data: SessionRow[] }>('/api/admin/sessions', { headers }).subscribe({

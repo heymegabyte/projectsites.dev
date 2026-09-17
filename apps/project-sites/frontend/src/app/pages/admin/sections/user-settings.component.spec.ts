@@ -16,17 +16,23 @@ import { HttpClient } from '@angular/common/http';
  */
 function make(del = jasmine.createSpy('delete').and.returnValue(throwError(() => ({ status: 404 })))): {
   c: AdminUserSettingsComponent;
-  http: { get: jasmine.Spy; delete: jasmine.Spy; post: jasmine.Spy };
-  toast: { error: jasmine.Spy; success: jasmine.Spy };
+  http: { get: jasmine.Spy; delete: jasmine.Spy; post: jasmine.Spy; patch: jasmine.Spy };
+  toast: { error: jasmine.Spy; success: jasmine.Spy; info: jasmine.Spy };
 } {
-  const http = { get: jasmine.createSpy('get').and.returnValue(of({})), post: jasmine.createSpy('post').and.returnValue(of({})), put: () => of({}), delete: del };
-  const toast = { error: jasmine.createSpy('error'), success: jasmine.createSpy('success') };
+  const http = {
+    get: jasmine.createSpy('get').and.returnValue(of({})),
+    post: jasmine.createSpy('post').and.returnValue(of({})),
+    put: () => of({}),
+    patch: jasmine.createSpy('patch').and.returnValue(of({})),
+    delete: del,
+  };
+  const toast = { error: jasmine.createSpy('error'), success: jasmine.createSpy('success'), info: jasmine.createSpy('info') };
   TestBed.configureTestingModule({
     imports: [AdminUserSettingsComponent],
     providers: [
       { provide: ApiService, useValue: http },
       { provide: ToastService, useValue: toast },
-      { provide: AuthService, useValue: { email: () => 'test@megabyte.space', user: () => ({}), signOut: () => undefined } },
+      { provide: AuthService, useValue: { email: () => 'test@megabyte.space', user: () => ({}), signOut: () => undefined, getToken: () => 'tok', session: () => null } },
       { provide: ConfirmService, useValue: { confirm: () => Promise.resolve(true) } },
       { provide: HttpClient, useValue: http },
     ],
@@ -552,5 +558,54 @@ describe('AdminUserSettingsComponent (delete-account confirm: a11y name + visibl
         .withContext(`heading #${i} (h${levels[i]}) must not skip a level after h${levels[i - 1]}`)
         .toBeLessThanOrEqual(1);
     }
+  });
+});
+
+/**
+ * Regression (ADMIN COMPLETENESS dim-7 — honest controls): saveDisplayName's
+ * PATCH /api/admin/profile endpoint is LIVE, so a server failure is REAL — it must
+ * NOT lie "saved on this device — server sync pending" (a lying success that strands
+ * the owner) nor persist a rejected name. It surfaces an error + a Retry, and only
+ * SUCCESS persists locally + toasts success.
+ */
+describe('AdminUserSettingsComponent (saveDisplayName — honest server feedback)', () => {
+  const KEY = 'ps_display_name';
+  afterEach(() => { try { localStorage.clear(); } catch { /* */ } TestBed.resetTestingModule(); });
+
+  it('on a live-endpoint 500, does NOT persist + does NOT claim success + surfaces an error with Retry', () => {
+    const { c, http, toast } = make();
+    http.patch.and.returnValue(throwError(() => ({ status: 500 })));
+    c.profileNameDraft = 'Ada Lovelace';
+    c.saveDisplayName();
+    expect(http.patch).toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.info).not.toHaveBeenCalled();            // the old lying "sync pending" info-toast is gone
+    expect(toast.error).toHaveBeenCalledTimes(1);
+    const [, opts] = toast.error.calls.mostRecent().args as [string, { action?: { label: string; run: () => void } }];
+    expect(opts?.action?.label).toBe('Retry');            // one-tap recovery
+    expect(localStorage.getItem(KEY)).toBeNull();         // a rejected name is NOT persisted
+    expect(c.savingDisplayName()).toBe(false);
+  });
+
+  it('on success, persists locally + toasts success (the header pill reflects it)', () => {
+    const { c, http, toast } = make();
+    http.patch.and.returnValue(of({ data: { display_name: 'Ada Lovelace' } }));
+    c.profileNameDraft = 'Ada Lovelace';
+    c.saveDisplayName();
+    expect(toast.success).toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(localStorage.getItem(KEY)).toBe('Ada Lovelace');
+    expect(c.savingDisplayName()).toBe(false);
+  });
+
+  it('on a 422 validation rejection, shows an inline error + does NOT persist', () => {
+    const { c, http, toast } = make();
+    http.patch.and.returnValue(throwError(() => ({ status: 422, error: { error: { message: 'Name too long' } } })));
+    c.profileNameDraft = 'Ada Lovelace';
+    c.saveDisplayName();
+    const serverError = (c as unknown as { displayNameServerError: () => string | null }).displayNameServerError();
+    expect(serverError).toBe('Name too long');
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(localStorage.getItem(KEY)).toBeNull();
   });
 });
