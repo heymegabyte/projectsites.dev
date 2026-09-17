@@ -29,6 +29,7 @@ import {
   filterRows,
   detailEntries,
   isRowActivationKey,
+  isDismissKey,
 } from './data-panel-logic';
 import { classNames } from '~/utils/classNames';
 
@@ -470,11 +471,17 @@ export const DataPanel = memo(() => {
                       <tr
                         onClick={() => setDetailIdx(detailIdx === i ? null : i)}
                         onKeyDown={(e) => {
-                          // Keyboard parity with the click toggle (WCAG 2.1.1). Space would
-                          // otherwise scroll the table body — prevent that before toggling.
+                          /*
+                           * Keyboard parity with the click toggle (WCAG 2.1.1). Space would
+                           * otherwise scroll the table body — prevent that before toggling.
+                           */
                           if (isRowActivationKey(e.key)) {
                             e.preventDefault();
                             setDetailIdx(detailIdx === i ? null : i);
+                          } else if (isDismissKey(e.key) && detailIdx === i) {
+                            /* Escape collapses the open detail — the natural "close this" gesture. */
+                            e.preventDefault();
+                            setDetailIdx(null);
                           }
                         }}
                         tabIndex={0}

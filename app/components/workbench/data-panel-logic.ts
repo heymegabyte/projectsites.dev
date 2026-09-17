@@ -196,3 +196,20 @@ export function detailEntries(row: Record<string, unknown>, columns: readonly st
 export function isRowActivationKey(key: string): boolean {
   return key === 'Enter' || key === ' ' || key === 'Spacebar';
 }
+
+/**
+ * Whether a KeyboardEvent key should DISMISS (collapse) an open row detail.
+ * Escape is the ARIA "close/cancel" gesture for a disclosure — a keyboard user
+ * who opened a row with Enter/Space collapses it with Escape, matching the native
+ * dialog/disclosure convention (WCAG 2.2 keyboard operability). The legacy `'Esc'`
+ * alias (older browsers) is normalized alongside the modern `'Escape'`.
+ *
+ * @param key - the `KeyboardEvent.key` value
+ * @returns true when the key should collapse the open row detail
+ * @example isDismissKey('Escape') // true
+ * @example isDismissKey('Esc') // true
+ * @example isDismissKey('Enter') // false
+ */
+export function isDismissKey(key: string): boolean {
+  return key === 'Escape' || key === 'Esc';
+}

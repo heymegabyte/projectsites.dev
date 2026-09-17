@@ -13,6 +13,7 @@ import {
   filterRows,
   detailEntries,
   isRowActivationKey,
+  isDismissKey,
 } from './data-panel-logic';
 
 describe('iconForTable', () => {
@@ -140,5 +141,19 @@ describe('isRowActivationKey', () => {
     expect(isRowActivationKey('Escape')).toBe(false);
     expect(isRowActivationKey('a')).toBe(false);
     expect(isRowActivationKey('')).toBe(false);
+  });
+});
+
+describe('isDismissKey', () => {
+  it('dismisses on Escape and the legacy Esc alias (collapse the open detail — disclosure convention)', () => {
+    expect(isDismissKey('Escape')).toBe(true);
+    expect(isDismissKey('Esc')).toBe(true);
+  });
+  it('is disjoint from the activation keys — Enter/Space open, never dismiss', () => {
+    expect(isDismissKey('Enter')).toBe(false);
+    expect(isDismissKey(' ')).toBe(false);
+    expect(isDismissKey('Spacebar')).toBe(false);
+    expect(isDismissKey('Tab')).toBe(false);
+    expect(isDismissKey('')).toBe(false);
   });
 });
