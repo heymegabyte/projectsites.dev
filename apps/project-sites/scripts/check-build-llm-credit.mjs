@@ -35,8 +35,16 @@ function verdict(ok, checked, reason, balance) {
   const tag = ok ? '✓ CREDIT OK' : '❌ NO CREDIT';
   console.log(`${tag} — provider=${provider} checked=${checked} reason=${reason}${balance ? ` balance=${balance}` : ''}`);
   if (!ok) {
+    // Graceful-degradation opt-in (mirrors src/services/build_llm_credit.ts): a dead balance
+    // DOWNGRADES to a seed-only proceed (exit 0) when BUILD_LLM_ALLOW_SEED_ONLY is set, so the
+    // golden-journey delivery ships a template+pack site during an LLM outage instead of bailing.
+    const seedOnly = ['1', 'true', 'yes'].includes((process.env.BUILD_LLM_ALLOW_SEED_ONLY || '').trim().toLowerCase());
+    if (seedOnly) {
+      console.log(`::warning:: build-LLM ${provider} is out of credit, but BUILD_LLM_ALLOW_SEED_ONLY is set → proceeding SEED-ONLY (template + vertical pack, no LLM bespoke). Top up for bespoke: ${TOPUP[provider]}`);
+      process.exit(0);
+    }
     console.log(`::error:: build-LLM ${provider} is out of credit. Top up: ${TOPUP[provider]}`);
-    console.log(`  (or set BUILD_LLM_PROVIDER to a provider that HAS credit, if one exists)`);
+    console.log(`  (or set BUILD_LLM_ALLOW_SEED_ONLY=1 to deliver a seed-only site, or BUILD_LLM_PROVIDER to a funded provider)`);
     process.exit(7);
   }
   process.exit(0);

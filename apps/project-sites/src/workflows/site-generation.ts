@@ -1278,11 +1278,23 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
             reason: credit.reason,
             balance: credit.balance,
             topup_url: BUILD_LLM_TOPUP_URLS[credit.provider],
-            message: `Build blocked pre-flight — ${credit.provider} build-LLM has no credit (${credit.reason}). Top up at ${BUILD_LLM_TOPUP_URLS[credit.provider]}. Site flipped to error; no seed-only publish, no completion email.`,
+            message: `Build blocked pre-flight — ${credit.provider} build-LLM has no credit (${credit.reason}). Top up at ${BUILD_LLM_TOPUP_URLS[credit.provider]}, OR set BUILD_LLM_ALLOW_SEED_ONLY=1 to deliver seed-only. Site flipped to error; no seed-only publish, no completion email.`,
           });
           throw new Error(`build-llm-no-credit:${credit.provider}:${credit.reason}`);
         }
-        return JSON.stringify({ ok: true, provider: credit.provider, checked: credit.checked });
+        // GRACEFUL DEGRADATION (BUILD_LLM_ALLOW_SEED_ONLY): the balance is dead but Brian opted into
+        // a seed-only delivery. PROCEED (don't throw) — the build runs the deterministic seed-token
+        // fast-path (template + vertical content pack + brand seed, proven high-quality). Emit a loud
+        // structured warn so the seed-only (non-bespoke) delivery is OBSERVABLE, never silent.
+        if (credit.degraded) {
+          await wfLog('workflow.build_llm_degraded_seed_only', {
+            provider: credit.provider,
+            reason: credit.reason,
+            balance: credit.balance,
+            message: `build-LLM ${credit.provider} balance is dead, but BUILD_LLM_ALLOW_SEED_ONLY is set — proceeding SEED-ONLY (template + vertical pack, no LLM bespoke). This site is a graceful-degradation delivery; regenerate once credit is topped up for bespoke copy/research.`,
+          });
+        }
+        return JSON.stringify({ ok: true, provider: credit.provider, checked: credit.checked, degraded: !!credit.degraded });
       },
     );
 

@@ -122,3 +122,52 @@ describe('build_llm_credit — checkBuildLlmCredit (PRE-FLIGHT dead-balance gate
     expect(BUILD_LLM_TOPUP_URLS.anthropic).toMatch(/anthropic\.com/);
   });
 });
+
+describe('build_llm_credit — BUILD_LLM_ALLOW_SEED_ONLY graceful-degradation escape hatch (AL-715)', () => {
+  const deadDeepseek = (async () =>
+    ({ ok: true, status: 200, json: async () => ({ is_available: false, balance_infos: [{ total_balance: '-0.56' }] }), text: async () => '' }) as unknown as Response) as unknown as typeof fetch;
+  const deadAnthropic = (async () =>
+    ({ ok: false, status: 400, json: async () => ({ error: { message: 'Your credit balance is too low' } }), text: async () => '' }) as unknown as Response) as unknown as typeof fetch;
+
+  it('dead DeepSeek + flag OFF → BLOCKS (ok:false, no degraded) — the safe default is unchanged', async () => {
+    const c = await checkBuildLlmCredit({ DEEPSEEK_API_KEY: 'k' }, { fetchImpl: deadDeepseek });
+    expect(c.ok).toBe(false);
+    expect(c.degraded).toBeUndefined();
+    expect(c.reason).toBe('deepseek_dead_balance');
+  });
+
+  it('dead DeepSeek + BUILD_LLM_ALLOW_SEED_ONLY=1 → DOWNGRADES to seed-only proceed (ok:true, degraded:true)', async () => {
+    const c = await checkBuildLlmCredit({ DEEPSEEK_API_KEY: 'k', BUILD_LLM_ALLOW_SEED_ONLY: '1' }, { fetchImpl: deadDeepseek });
+    expect(c.ok).toBe(true);
+    expect(c.degraded).toBe(true);
+    expect(c.reason).toBe('deepseek_dead_balance_seed_only_allowed');
+    expect(c.balance).toBe('-0.56');
+  });
+
+  it('dead Anthropic + BUILD_LLM_ALLOW_SEED_ONLY=true → seed-only proceed (ok:true, degraded:true)', async () => {
+    const c = await checkBuildLlmCredit(
+      { ANTHROPIC_API_KEY: 'a', BUILD_LLM_PROVIDER: 'anthropic', BUILD_LLM_ALLOW_SEED_ONLY: 'true' },
+      { fetchImpl: deadAnthropic },
+    );
+    expect(c.ok).toBe(true);
+    expect(c.degraded).toBe(true);
+    expect(c.reason).toBe('anthropic_dead_balance_seed_only_allowed');
+  });
+
+  it('flag garbage/0/false does NOT open the hatch (only 1/true/yes) — never an accidental degrade', async () => {
+    for (const v of ['0', 'false', 'no', '', 'xyz']) {
+      const c = await checkBuildLlmCredit({ DEEPSEEK_API_KEY: 'k', BUILD_LLM_ALLOW_SEED_ONLY: v }, { fetchImpl: deadDeepseek });
+      expect({ flag: v, ok: c.ok }).toEqual({ flag: v, ok: false }); // garbage flag must stay blocked
+      expect(c.degraded).toBeUndefined();
+    }
+  });
+
+  it('a HEALTHY balance is never marked degraded regardless of the flag', async () => {
+    const healthy = (async () =>
+      ({ ok: true, status: 200, json: async () => ({ is_available: true, balance_infos: [{ total_balance: '12.34' }] }), text: async () => '' }) as unknown as Response) as unknown as typeof fetch;
+    const c = await checkBuildLlmCredit({ DEEPSEEK_API_KEY: 'k', BUILD_LLM_ALLOW_SEED_ONLY: '1' }, { fetchImpl: healthy });
+    expect(c.ok).toBe(true);
+    expect(c.degraded).toBeUndefined();
+    expect(c.reason).toBe('deepseek_balance_ok');
+  });
+});

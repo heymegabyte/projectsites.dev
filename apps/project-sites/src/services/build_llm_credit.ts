@@ -23,6 +23,16 @@ export interface BuildLlmCreditEnv {
   readonly DEEPSEEK_API_KEY?: string;
   readonly ANTHROPIC_API_KEY?: string;
   readonly BUILD_LLM_PROVIDER?: string;
+  /**
+   * Graceful-degradation opt-in (Brian's one-command delivery unblock during an LLM outage).
+   * OFF by default → a dead balance BLOCKS (the safe AL-707 default: no fake bespoke delivery).
+   * Set to `'1'`/`'true'` → a dead balance is DOWNGRADED to `{ok:true, degraded:true}` so the build
+   * PROCEEDS on the deterministic seed-token fast-path (template + vertical content pack + brand
+   * seed — proven high-quality: pike-place-fish-market was a post-LLM-death seed-only build, LCP
+   * 712ms / density 1010w / beat-source +78%). Fail-soft-prod: a real template site beats a hard
+   * build failure during an outage. The caller MUST log the degradation (seed-only, not bespoke).
+   */
+  readonly BUILD_LLM_ALLOW_SEED_ONLY?: string;
 }
 
 /** Injectable deps so the gate is unit-testable without real network I/O. */
@@ -37,8 +47,41 @@ export const BuildLlmCreditResultSchema = z.object({
   checked: z.boolean(),
   reason: z.string(),
   balance: z.string().optional(),
+  /**
+   * True ONLY when a dead balance was DOWNGRADED (not blocked) because BUILD_LLM_ALLOW_SEED_ONLY is
+   * set — `ok:true` but the build will run seed-only (no LLM bespoke). The caller emits a
+   * `build_llm_degraded` warn so the seed-only delivery is observable, never silent.
+   */
+  degraded: z.boolean().optional(),
 });
 export type BuildLlmCreditResult = z.infer<typeof BuildLlmCreditResultSchema>;
+
+/** Is Brian's seed-only graceful-degradation opt-in set? (`'1'`/`'true'`, not `'0'`/`'false'`/empty.) */
+function seedOnlyAllowed(env: BuildLlmCreditEnv): boolean {
+  const v = (env.BUILD_LLM_ALLOW_SEED_ONLY ?? '').toString().trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+/**
+ * Route a DEFINITIVE dead-balance signal through the escape hatch: block by default (`ok:false`),
+ * or — when {@link seedOnlyAllowed} — downgrade to `{ok:true, degraded:true}` so the build proceeds
+ * seed-only. The reason is stable for the caller's structured log.
+ */
+function deadBalanceResult(
+  provider: BuildLlmProvider,
+  reason: string,
+  allowSeedOnly: boolean,
+  balance?: string,
+): BuildLlmCreditResult {
+  return BuildLlmCreditResultSchema.parse({
+    ok: allowSeedOnly,
+    provider,
+    checked: true,
+    reason: allowSeedOnly ? `${reason}_seed_only_allowed` : reason,
+    ...(allowSeedOnly && { degraded: true }),
+    ...(balance !== undefined && { balance }),
+  });
+}
 
 /** Deep-linked top-up URLs surfaced to the operator when a provider is out of credit. */
 export const BUILD_LLM_TOPUP_URLS: Readonly<Record<BuildLlmProvider, string>> = Object.freeze({
@@ -128,14 +171,16 @@ export async function checkBuildLlmCredit(
       // Definitive dead-balance: provider reports unavailable OR a non-positive total balance.
       const available = parsed.data.is_available === true;
       const positive = bal !== undefined ? Number(bal) > 0 : true;
-      const ok = available && positive;
-      return BuildLlmCreditResultSchema.parse({
-        ok,
-        provider,
-        checked: true,
-        reason: ok ? 'deepseek_balance_ok' : 'deepseek_dead_balance',
-        ...(bal !== undefined && { balance: bal }),
-      });
+      if (available && positive) {
+        return BuildLlmCreditResultSchema.parse({
+          ok: true,
+          provider,
+          checked: true,
+          reason: 'deepseek_balance_ok',
+          ...(bal !== undefined && { balance: bal }),
+        });
+      }
+      return deadBalanceResult('deepseek', 'deepseek_dead_balance', seedOnlyAllowed(env), bal);
     }
 
     // Anthropic: a 1-token echo call is the cheapest liveness probe. A too-low-credit balance
@@ -167,12 +212,7 @@ export async function checkBuildLlmCredit(
     const msg = body.error?.message ?? '';
     const deadBalance = /credit balance is too low|insufficient|billing/i.test(msg);
     if (deadBalance) {
-      return BuildLlmCreditResultSchema.parse({
-        ok: false,
-        provider,
-        checked: true,
-        reason: 'anthropic_dead_balance',
-      });
+      return deadBalanceResult('anthropic', 'anthropic_dead_balance', seedOnlyAllowed(env));
     }
     // Any other non-2xx (rate-limit, transient 5xx, unrelated 400) → fail-soft, don't block.
     return BuildLlmCreditResultSchema.parse({
