@@ -48,6 +48,24 @@ async function measure(slug) {
     if (desc.length < 120 || desc.length > 156) fails.add('desc');
     if (jsonld < 4) fails.add('jsonld');
     if (h1 !== 1) fails.add('h1');
+    // VERTICAL-MISFIT staleness (AL-712) — the 4 meta-invariants can ALL pass on a build that is
+    // still STALE on its VERTICAL: a food/market business (fish market / seafood / grocery / butcher
+    // / deli) built BEFORE the AL-698 classifier fix wears the boutique-FASHION persona (hero + copy
+    // like "a chic fish market … chosen with a tastemaker's eye" / "pieces worth the trip") instead of
+    // the warm walk-in-food voice. Meta-fresh but vertical-stale → previously classified CURRENT →
+    // MISSED from the rebuild worklist (vision-caught on pike-place-fish-market-seattle). The fix is
+    // landed + unit-tested (theme_style/hero_image, ba3015cb4) so this is ALWAYS stale-build debt →
+    // rebuild clears it. Precise: fires ONLY when a FOOD/MARKET vertical noun co-occurs with an
+    // unambiguous boutique-FASHION persona marker (a correct quickserve food build never carries these).
+    const titleH1 = (title + ' ' + (html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? '')).toLowerCase();
+    const bodyLc = html.toLowerCase();
+    const isFoodMarket =
+      /\b(fish\s?market|seafood|fishmonger|grocer\w*|supermarket|greengrocer|bodega|\bbutcher\w*|delicatessen|farm\s?stand|produce\s?market|food\s?market)\b/.test(
+        titleH1,
+      );
+    const boutiqueMisfit =
+      /tastemaker|pieces worth the trip|a chic\b|chosen with a tastemaker'?s eye/.test(bodyLc);
+    if (isFoodMarket && boutiqueMisfit) fails.add('vertical');
     return { slug, ok: true, title: title.length, desc: desc.length, jsonld, h1, fails };
   } catch (e) {
     return { slug, ok: false, reason: String(e).slice(0, 60) };
