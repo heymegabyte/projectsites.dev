@@ -270,6 +270,10 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
       'Corner Store',
       'Food Market',
       'Fishmonger',
+      'Pike Place Fish Market', // AL-698: a fish market is a walk-in food purveyor, not a gift-shop/gallery
+      'fish market',
+      'Seafood Market',
+      'seafood shop',
     ]) {
       expect(heroImageForVertical(v)).toBe(grocery); // one hero for the whole grocery/market cluster
     }

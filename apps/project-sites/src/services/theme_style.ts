@@ -239,7 +239,7 @@ const CATEGORY_RULES: ReadonlyArray<readonly [ThemeStyleName, RegExp]> = [
   // than the generic `\bshop\b` in boutique.
   [
     'warm',
-    /\b(restaurant\w*|caf[eé]\w*|bakery|bakeries|\bcoffee\b|\bbar\b|brewery|breweries|brewpub|\bpub\b|bistro|diner|eatery|eateries|salon\w*|barber\w*|\bhair\b|\bnail\w*|\bgrill\w*|pizzeria|\bpizza\b|taqueria|\bdeli\b|\bfood\b(?!\s?(?:bank|pantr|shelf|drive))|catering|caterer\w*|ice\s?cream|\bmeal\w*|takeaway|takeout|nightlife|night\s?club|\blounge\b|\bkitchen\b|grocer\w*|supermarket|smoothie|juice\s?bar|\bbbq\b|steak\s?house|sandwich\w*|\bdonut\w*|doughnut\w*|creamery|patisserie|teahouse|\btea\s?room|food\s?truck)\b/,
+    /\b(restaurant\w*|caf[eé]\w*|bakery|bakeries|\bcoffee\b|\bbar\b|brewery|breweries|brewpub|\bpub\b|bistro|diner|eatery|eateries|salon\w*|barber\w*|\bhair\b|\bnail\w*|\bgrill\w*|pizzeria|\bpizza\b|taqueria|\bdeli\b|\bfood\b(?!\s?(?:bank|pantr|shelf|drive))|catering|caterer\w*|ice\s?cream|\bmeal\w*|takeaway|takeout|nightlife|night\s?club|\blounge\b|\bkitchen\b|grocer\w*|supermarket|fish\s?market\w*|fishmonger\w*|seafood\s?(?:market|shop|store|counter)|smoothie|juice\s?bar|\bbbq\b|steak\s?house|sandwich\w*|\bdonut\w*|doughnut\w*|creamery|patisserie|teahouse|\btea\s?room|food\s?truck)\b/,
   ],
   // AL-610: plant / garden / florist / greenhouse RETAIL is BOTANICAL (falling-petals scene +
   // a fresh, green voice), NOT the generic boutique `\bshop\w*`/`\bstore\w*` catch-all. Live
@@ -521,7 +521,7 @@ const COMMERCE_MODE_RULES: ReadonlyArray<readonly [CommerceMode, RegExp]> = [
     // regex → shopping-cart badges on a corner grocery). Precise food-grocery nouns only (NOT bare
     // `\bmarket\b` — that stays retail so "flea/art/night market" never false-match here).
     'quickserve',
-    /\b(ice\s?cream|gelato\w*|frozen\s?(?:yogurt|custard)|\bfroyo\b|creamer(?:y|ies)|shaved\s?ice|snow\s?cone|caf[eé]\w*|coffee\s?(?:shop|house|bar|roaster\w*)|\broaster(?:y|ies)\b|espresso(?:\s?bar)?|bakery|bakeries|patisserie|\bbagel\w*|\bdonut\w*|doughnut\w*|juice\s?bar|\bsmoothie\w*|a[çc]a[íi]|\bdeli\b|delicatessen|sandwich\s?(?:shop|bar)|\bsub\s?shop|\bhoagie\w*|food\s?(?:truck|cart|stand)|takeaway|take\s?out|takeout|teahouse|tea\s?room|bubble\s?tea|\bboba\b|cr[eê]per\w*|cupcake\w*|cookie\s?(?:shop|bar)|pretzel\w*|\bpopcorn\b|poke\s?(?:shop|bar)|grocer\w*|supermarket|greengrocer\w*|green\s?grocer\w*|food\s?(?:market|hall)|farm\s?stand|farmstand|farmers?\s?market|produce\s?(?:market|stand)|\bbodega\b|corner\s?(?:store|grocer\w*)|mini\s?mart|convenience\s?store|fishmonger\w*|fish\s?monger\w*)\b/,
+    /\b(ice\s?cream|gelato\w*|frozen\s?(?:yogurt|custard)|\bfroyo\b|creamer(?:y|ies)|shaved\s?ice|snow\s?cone|caf[eé]\w*|coffee\s?(?:shop|house|bar|roaster\w*)|\broaster(?:y|ies)\b|espresso(?:\s?bar)?|bakery|bakeries|patisserie|\bbagel\w*|\bdonut\w*|doughnut\w*|juice\s?bar|\bsmoothie\w*|a[çc]a[íi]|\bdeli\b|delicatessen|sandwich\s?(?:shop|bar)|\bsub\s?shop|\bhoagie\w*|food\s?(?:truck|cart|stand)|takeaway|take\s?out|takeout|teahouse|tea\s?room|bubble\s?tea|\bboba\b|cr[eê]per\w*|cupcake\w*|cookie\s?(?:shop|bar)|pretzel\w*|\bpopcorn\b|poke\s?(?:shop|bar)|grocer\w*|supermarket|greengrocer\w*|green\s?grocer\w*|food\s?(?:market|hall)|farm\s?stand|farmstand|farmers?\s?market|produce\s?(?:market|stand)|\bbodega\b|corner\s?(?:store|grocer\w*)|mini\s?mart|convenience\s?store|fishmonger\w*|fish\s?monger\w*|fish\s?market\w*|seafood\s?(?:market|shop|store|counter))\b/,
   ],
   [
     'hospitality',

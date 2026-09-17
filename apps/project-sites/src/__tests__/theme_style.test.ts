@@ -208,6 +208,24 @@ describe('theme_style — themeStyleFromInputs', () => {
       expect(commerceModeFor('plant nursery & garden shop')).toBe('retail');
       expect(commerceModeFor('Garden Center')).toBe('retail');
     });
+
+    it('a FISH MARKET / seafood market is a walk-in FOOD purveyor — warm theme + quickserve commerce, NOT a fashion boutique (AL-698)', () => {
+      // Vision-caught on the pike-place-fish-market-seattle delivery: "fish market" matched boutique's
+      // `\bmarket\b` → fashion copy ("a chic fish market … chosen with a tastemaker's eye") + retail
+      // "Free shipping over $50 / 30-day returns" badges. A fresh fish market is a walk-in food seller
+      // (like a grocery / fishmonger), NOT mail-order fashion — same class as the bi-rite grocery +
+      // AL-641 gallery remaps. Fix routes it to warm (neighborhood-food voice) + quickserve (food badges).
+      for (const c of ['Pike Place Fish Market', 'fish market', 'Seafood Market', 'seafood shop']) {
+        expect(themeStyleFromInputs(c)).toBe('warm');
+        expect(commerceModeFor(c)).toBe('quickserve');
+      }
+      // A seafood RESTAURANT stays warm/hospitality (a sit-down eatery, not a market) — precision guard
+      // (my market-only tokens must NOT swallow restaurants).
+      expect(themeStyleFromInputs('Seafood Restaurant')).toBe('warm');
+      // A genuine clothing/gift boutique is untouched (no over-broadening of the food remap).
+      expect(themeStyleFromInputs('Gift Shop')).toBe('boutique');
+      expect(commerceModeFor('Gift Shop')).toBe('retail');
+    });
   });
 
   describe('real prod business_category values resolve distinctively (AL-256 reconciliation)', () => {

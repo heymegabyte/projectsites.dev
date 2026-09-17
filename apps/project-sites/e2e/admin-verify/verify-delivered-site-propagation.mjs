@@ -116,6 +116,32 @@ try {
     /build|generat|publish|workflow|research|container/i.test(`${l.action ?? l.event ?? l.type ?? ''}`));
   out.audit = { httpStatus: logRes.status, total: Array.isArray(logs) ? logs.length : 0, buildEvents: buildEvents.length };
 
+  // --- COMPLETION EMAIL (AL-698) — the delivery is only "delivered" if the OWNER was notified.
+  // "Your site is live" fires via SES and logs a `workflow.owner_notified` audit event carrying
+  // `{ to, ok, trace_id }` — the D1 ground truth (the notifications TABLE does NOT fire, per
+  // [[completion-email-fires-notifications-table-does-not]]). A publish can succeed while the email
+  // is silently dropped (SES ACCOUNT suppression, [[ses-account-suppression-silently-drops-mail]]) —
+  // a real delivery-loop failure the probe was blind to. Parse the event; HARD-RED on ok:false,
+  // ::notice:: if not-yet-fired (validator-precision — the email can lag the publish by seconds).
+  const notifiedEvent = (Array.isArray(logs) ? logs : []).find((l) =>
+    /owner_notified|owner.notif|completion.email|site.*live.*email/i.test(`${l.action ?? l.event ?? l.type ?? ''}`));
+  let emailDetail = {};
+  if (notifiedEvent) {
+    // The logs API is `SELECT *` over audit_logs → the raw column is `metadata_json` (a JSON STRING),
+    // NOT `detail`/`metadata`. The owner_notified row carries `{ to, ok, trace_id }` (verified AL-698).
+    const raw =
+      notifiedEvent.metadata_json ?? notifiedEvent.detail ?? notifiedEvent.meta ??
+      notifiedEvent.metadata ?? notifiedEvent.data ?? notifiedEvent.payload ?? {};
+    try { emailDetail = typeof raw === 'string' ? JSON.parse(raw) : (raw || {}); } catch { emailDetail = {}; }
+  }
+  const emailOk = notifiedEvent ? emailDetail.ok === true || emailDetail.ok === 1 || emailDetail.ok === 'true' : null;
+  out.email = {
+    found: !!notifiedEvent,
+    ok: emailOk,
+    to: emailDetail.to ?? emailDetail.recipient ?? null,
+    traceId: emailDetail.trace_id ?? emailDetail.traceId ?? null,
+  };
+
   // --- 3. FORMS causal (facet 4: a public contact submit → the owner's /admin/forms shows it) ---
   // Submit from the CF-clean Browserbase page (origin=projectsites.dev is allow-listed; Bot Fight
   // passes with a real fingerprint — a bare Node POST 403s). Same ingestion path as
@@ -141,8 +167,12 @@ try {
 
   const moved = out.analytics.delta >= N;
   const formsOk = out.forms.submitStatus === 200 && out.forms.causalShows;
+  // The completion email is a HARD gate ONLY when it FIRED with a non-ok result (a real SES drop);
+  // a not-yet-fired event is inconclusive (the email can lag the publish by seconds) → tracked, not RED.
+  const emailFailed = out.email.found && out.email.ok !== true;
   const propagated = out.sitesList.found && out.snapshots.count >= 1 && out.audit.total >= 1 && formsOk;
-  const ok = statuses.every((s) => s === 200) && moved && after.hasPageview && out.sitesList.found && formsOk;
+  const ok = statuses.every((s) => s === 200) && moved && after.hasPageview && out.sitesList.found && formsOk && !emailFailed;
+  if (!out.email.found) console.log(`::notice:: completion email (workflow.owner_notified) not yet in the audit log for ${SLUG} — inconclusive, not a fail (it can lag publish; re-run to confirm ok:true).`);
 
   console.log('\n=== DELIVERED-SITE PROPAGATION (' + SLUG + ') ===\n' + JSON.stringify(out, null, 2));
   console.log(
@@ -150,6 +180,7 @@ try {
       `analytics(before=${out.analytics.before}→after=${out.analytics.after} Δ${out.analytics.delta}≥${N}=${moved}) ` +
       `sites(found=${out.sitesList.found} status=${out.sitesList.status}) ` +
       `snapshots=${out.snapshots.count} auditEvents=${out.audit.total}(build=${out.audit.buildEvents}) ` +
+      `email(found=${out.email.found} ok=${out.email.ok} to=${out.email.to ?? '—'}) ` +
       `forms(submit=${out.forms.submitStatus} owner=${out.forms.ownerHttpStatus} shows=${out.forms.causalShows})`,
   );
   process.exit(ok && propagated ? 0 : 1);

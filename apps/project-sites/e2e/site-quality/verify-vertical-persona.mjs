@@ -21,7 +21,7 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'heath-ceramics-sausalito,jackson-fine-art-atlanta,three-kings-tattoo-brooklyn').split(',').map((s) => s.trim()).filter(Boolean);
+const SITES = (process.env.SITES || 'heath-ceramics-sausalito,jackson-fine-art-atlanta,three-kings-tattoo-brooklyn,pike-place-fish-market-seattle').split(',').map((s) => s.trim()).filter(Boolean);
 const ROUTES = (process.env.ROUTES || '/,/about,/services').split(',');
 const STRICT = process.env.STRICT === '1';
 
@@ -79,6 +79,16 @@ const COFFEE_MISFIT = /\bthe coffee is hot\b/i;
 const BODY_ART_SIGNAL =
   /\b(tattoo\w*|piercing\w*|body\s?(?:art|piercing)|ink\s?(?:shop|studio|parlor|parlour)|tattoo(?:ist|er)\w*)\b/i;
 const NIGHTLIFE_MISFIT = /\b(room after dark|careful pours|candlelit|nights begin|after dark)\b/i;
+// AL-698: a FISH / SEAFOOD MARKET is a walk-in food purveyor (like a grocery) but "fish market"
+// matched boutique's `\bmarket\b` → a FASHION-BOUTIQUE voice ("a chic fish market … pieces worth the
+// trip, chosen with a tastemaker's eye" + "Browse our collection") on pike-place-fish-market-seattle.
+// Root-fixed in theme_style.ts (fish/seafood market → warm) + commerceModeFor (→ quickserve, food
+// badges not retail shipping) + hero_image.ts (→ the food-market hero). Flag ONLY when the business
+// IS a fish/seafood market (page content) AND the boutique-fashion phrase is in the HERO region.
+const FOOD_MARKET_SIGNAL =
+  /\b(fish\s?market\w*|fishmonger\w*|seafood\s?(?:market|shop|store|counter)|\bseafood\b)\b/i;
+const BOUTIQUE_FASHION_MISFIT =
+  /\b(chic|tastemaker'?s? eye|pieces worth the trip|quietly covetable|browse our collection|styled)\b/i;
 const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 const hits = [];
@@ -143,6 +153,16 @@ try {
           const m = NIGHTLIFE_MISFIT.exec(nH1) || NIGHTLIFE_MISFIT.exec(nBody.slice(0, 450));
           hits.push({ slug, route, kind: 'nightlife-copy-on-tattoo', detail: `tattoo/body-art hero wears nightlife copy "${m?.[0]}" (AL-696 misfit — should be noir INK copy)` });
         }
+        // AL-698: a fish/seafood market must not wear the boutique-FASHION voice ("chic"/"tastemaker's
+        // eye"/"pieces worth the trip"/"collection"). Gate on the business being a fish/seafood market
+        // (page content) + the fashion phrase in the HERO region.
+        if (
+          FOOD_MARKET_SIGNAL.test(nBody) &&
+          (BOUTIQUE_FASHION_MISFIT.test(nH1) || BOUTIQUE_FASHION_MISFIT.test(nBody.slice(0, 450)))
+        ) {
+          const m = BOUTIQUE_FASHION_MISFIT.exec(nH1) || BOUTIQUE_FASHION_MISFIT.exec(nBody.slice(0, 450));
+          hits.push({ slug, route, kind: 'fashion-copy-on-food-market', detail: `fish/seafood market hero wears boutique-fashion copy "${m?.[0]}" (AL-698 misfit — should be warm food voice)` });
+        }
       } catch {
         /* route unreachable → skip (don't false-fail) */
       }
@@ -165,5 +185,5 @@ if (STRICT) {
 }
 // flips-GREEN-on-rebuild tracker: a stale pre-fix build still renders the leak; the retail-pack
 // de-"Gear" fix lands next build (NO redeploy of existing sites), so these clear on rebuild.
-console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant / AL-641 brutalist-on-gallery / AL-654 coffee-on-non-cafe / AL-696 nightlife-copy-on-tattoo; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
+console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant / AL-641 brutalist-on-gallery / AL-654 coffee-on-non-cafe / AL-696 nightlife-copy-on-tattoo / AL-698 fashion-copy-on-food-market; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
 process.exit(0);

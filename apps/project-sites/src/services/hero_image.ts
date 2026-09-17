@@ -234,7 +234,7 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
   // market` is already caught by BUTCHER above, "food market" is a grocer. Pairs with the
   // commerceModeFor grocery→quickserve fix (a walk-in food seller, not mail-order retail).
   [
-    /\b(grocer\w*|supermarket|greengrocer\w*|green\s?grocer\w*|food\s?market|farm\s?stand|produce\s?market|\bbodega\b|corner\s?(store|grocer\w*)|mini\s?mart|convenience\s?store|fishmonger\w*)\b/,
+    /\b(grocer\w*|supermarket|greengrocer\w*|green\s?grocer\w*|food\s?market|farm\s?stand|produce\s?market|\bbodega\b|corner\s?(store|grocer\w*)|mini\s?mart|convenience\s?store|fishmonger\w*|fish\s?market\w*|seafood\s?(?:market|shop|store|counter))\b/,
     GROCERY,
   ],
   [/\b(bicycle\w*|\bbike\w*|cycling|cyclery|cyclist\w*)\b/, BIKE],
