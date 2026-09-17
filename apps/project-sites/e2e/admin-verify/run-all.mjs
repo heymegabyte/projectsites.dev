@@ -66,6 +66,7 @@ const PROBES = [
   { label: 'funnel-reconcile', file: 'verify-funnel-reconcile.mjs', env: {} },
   ...causal,
   { label: 'guest-funnel', file: 'verify-guest-funnel.mjs', env: {} },
+  { label: 'guest-funnel-results', file: 'verify-guest-funnel-results.mjs', env: {} },
   { label: 'guest-funnel-keyboard', file: 'verify-guest-funnel-keyboard.mjs', env: {} },
   { label: 'guest-funnel-a11y', file: 'verify-guest-funnel-a11y.mjs', env: {} },
   { label: 'pivot-speed', file: 'verify-conversion-pivot-speed.mjs', env: {} },

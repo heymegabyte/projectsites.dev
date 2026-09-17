@@ -190,6 +190,8 @@
           @for (item of results(); track item.name + item.address) {
             <button
               class="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left"
+              data-testid="search-result"
+              [attr.data-result-type]="item.type"
               [class.border-t]="item.type === 'custom'"
               [class.border-t-subtle]="item.type === 'custom'"
               (mousedown)="selectItem(item)"
@@ -628,6 +630,8 @@
           @for (item of results(); track item.name + item.address) {
             <button
               class="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left"
+              data-testid="search-result"
+              [attr.data-result-type]="item.type"
               [class.border-t]="item.type === 'custom'"
               [class.border-t-subtle]="item.type === 'custom'"
               (mousedown)="selectItem(item)"
