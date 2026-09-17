@@ -87,6 +87,7 @@ forms_misc:
   voice:            { status: covered, specs: [voice.spec.ts] }
   task_tray:        { status: covered, specs: [task-tray.spec.ts] }
   contact_rendered_journey: { status: covered, specs: [admin-verify/verify-rendered-contact-journey.mjs] }  # REAL visitor journey (local Chromium, subdomains CF-clean): generated-site home → click Contact → fill RENDERED form → submit → app.js hijack → POST /api/contact-form/:slug → 200 + "Thanks!" UI + 0 console errors, reconciled vs D1 form_submissions ground truth. Distinct from verify-forms-causal.mjs (which scripts the OTHER endpoint /api/v1/forms/submit and never touches the rendered form).
+  env_var_export_causal: { status: covered, specs: [admin-verify/verify-envvars-export-causal.mjs] }  # AL-711 prod CAUSAL journey (auto-joins admin-verify run-all): create org env var → GET /api/env-vars/export?include_values=1 → the var ROUND-TRIPS into the dotenv body (display==store on the downloaded TEXT) → bogus Bearer → 401 (the AL-710 auth gate; the old dead session_token key sent Bearer null → 401 for real owners) → delete → gone from re-export. Distinct from the DEV env-vars-import-export.spec.ts (waitForEvent('download') only, local) + verify-envvars-causal.mjs (CRUD list, never the export path).
 
 modals_interactions:
   modals:           { status: covered, specs: [modals-interactive.spec.ts] }

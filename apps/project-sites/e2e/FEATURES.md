@@ -58,6 +58,7 @@
 | Feature | Spec | Owner | Status | Notes |
 |---------|------|-------|--------|-------|
 | Super-admin privilege boundary (regular user 403 / unauth 401 on every `/api/super-admin/*`) | `verify-super-admin-guard.mjs` | admin-verify | GREEN | 14/14 prod ✅ (P0 escalation guard) |
+| AI env-var `.env` export (auth + dotenv content + bogus-token gate + delete-gone) | `verify-envvars-export-causal.mjs` | admin-verify | GREEN | 6/6 prod ✅ — created var round-trips into the dotenv (display==store), bogus Bearer 401 (closes the AL-710 export coverage gap; dev `env-vars-import-export.spec.ts` only checks a download fires) |
 | Auth OAuth — Google button visible | `auth-oauth-buttons.spec.ts` | convergence | GREEN | 4/4 pass ✅ |
 | Auth OAuth — GitHub button visible | `auth-oauth-buttons.spec.ts` | convergence | GREEN | 4/4 pass ✅ |
 | Auth sign-up OAuth — Google button | `auth-signup-oauth.spec.ts` | convergence | GREEN | 4/4 pass ✅ |
