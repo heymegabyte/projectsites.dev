@@ -71,8 +71,10 @@ try {
 
   // 3. Real-browser: navigating the invalid claim link LANDS on /create with the FRIENDLY notice.
   await page.goto(`${ORIGIN}/api/claim/${bogus}`, { waitUntil: 'load', timeout: 60000 }).catch(() => {});
+  // CONDITION-BASED wait for the notice — /create is a heavy lazy chunk (~3.5s to hydrate the @if,
+  // per AL-697); reading right after the h1 races it. Wait for the notice OR a 10s cap.
   await page
-    .waitForFunction(() => (document.querySelector('h1')?.textContent || '').trim().length > 0, { timeout: 15000 })
+    .waitForSelector('[data-testid="claim-invalid-notice"]', { timeout: 10000 })
     .catch(() => {});
   const landed = await page.evaluate(() => ({
     path: location.pathname,
