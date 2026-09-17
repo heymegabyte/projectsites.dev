@@ -28,7 +28,10 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'harborline-coffee-roasters-boston')
+// harborline = artisan (weave); union-garage-nyc = PRECISION (motorcycle gear) → renders the AL-699
+// `gyro` precision-instrument scene on its next build (mesh until then — the probe proves the shared
+// canvas MOUNT + LCP-safety either way; the gyro fragment rides this identical pipeline).
+const SITES = (process.env.SITES || 'harborline-coffee-roasters-boston,union-garage-nyc')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
