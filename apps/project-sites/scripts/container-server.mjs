@@ -18,6 +18,11 @@ import fs from 'fs';
 import path from 'path';
 import http from 'http';
 import crypto from 'crypto';
+// Vertical classifier table + LIGHT set — extracted PURE so it's unit-testable
+// (scripts/vertical-rules.test.mjs) without booting this HTTP server. COPY'd to
+// /home/cuser/vertical-rules.mjs (same dir as this file in the container image), so
+// this relative import resolves identically in the container and the local checkout.
+import { VERTICAL_RULES, LIGHT_VERTICAL_PRESETS } from './vertical-rules.mjs';
 
 const JOBS_DIR = '/var/jobs';
 const SKILLS_DIR = '/home/cuser/.agentskills';
@@ -408,47 +413,13 @@ function pickVerticalPreset(dir, promptText = '') {
   // "dentistry", plumb→"plumbing", landscap→"landscaping", photograph→
   // "photography", charit→"charitable". Short/ambiguous tokens carry an explicit
   // trailing \b (spa\b not "space", law\b not "lawn", app\b not "apparel").
-  const rules = [
-    // Dental = its OWN vertical (light, dentistry copy). Placed BEFORE medical so a
-    // tie favors it; dental terms were REMOVED from the medical regex below so a
-    // general family-medicine practice no longer renders dentistry copy — the medical
-    // pack WAS 100% dental ("Cleanings & Exams/Invisalign", fire-29). Pairs with the
-    // template's examples/_brand.dental.json + _content.dental.json. Both stay LIGHT.
-    ['_brand.dental.json', /\b(dentist|dental|orthodont|endodont|periodont|prosthodont|oral surgeon|oral surgery|dds\b|dmd\b|teeth|tooth|hygienist|smile makeover)/],
-    ['_brand.medical.json', /\b(doctor|physician|clinic|medical|health|hospital|chiropract|dermatolog|pediatric|veterinar|optometr|ophthalmolog|physical therapy|physiotherap|physio|urgent care|family medicine|primary care|internal medicine|surgeon|cardiolog|pharmac)/],
-    // Fitness = its OWN vertical (dark, strength-gym copy), NOT wellness. Placed
-    // before wellness so a tie favors it; gym/fitness/strength terms were REMOVED
-    // from the wellness regex below so a strength gym no longer scores wellness
-    // (it rendered yoga copy + LIGHT theme — fire-20). Kept out of
-    // LIGHT_VERTICAL_PRESETS so fitness stays DARK. Pairs with the template's
-    // examples/_brand.fitness.json + _content.fitness.json pack.
-    ['_brand.fitness.json', /\b(gym\b|crossfit|cross-fit|fitness|strength training|strength and conditioning|barbell|powerlifting|power lifting|weightlifting|weight lifting|olympic lifting|personal trainer|personal training|bootcamp|boot camp|kettlebell|calisthenics|athletic club|hiit\b|martial arts|karate|taekwondo|jiu-jitsu|jiu jitsu|judo|muay thai|kickboxing|\bdojo\b)/],
-    ['_brand.wellness.json', /\b(yoga|pilates|spa\b|massage|wellness|meditation|salon|beaut|nail|barber|acupunctur|reiki|nutrition|wellbeing|well-being)/],
-    // Legal = the professional-services vertical (light, trust/credential copy). Per the
-    // orchestrator CLAUDE.md it covers lawyer/attorney AND accountant/CPA/tax/bookkeeping/
-    // financial-advisor/insurance — all professional-services that render the same LIGHT
-    // credential-forward pack (fire-85: those 6 were falling through / hitting agency).
-    ['_brand.legal.json', /\b(law\b|lawyer|attorney|legal|counsel|litigation|paralegal|notary|estate planning|llp\b|accountant|accounting|\bcpa\b|\btax\b|tax prep|bookkeep|financial advis|financial plan|wealth management|insurance)/],
-    // "kitchen" is a strong restaurant signal (Hell's Kitchen, The Kitchen) BUT "soup
-    // kitchen" is a NONPROFIT — the negative lookbehind lets restaurant keep "kitchen"
-    // while letting "soup kitchen" fall through to the nonprofit rule below (fire-85: a
-    // declared "soup kitchen" category was shipping as a restaurant since restaurant is
-    // checked before nonprofit and grabbed the bareword "kitchen").
-    ['_brand.restaurant.json', /\b(restaurant|restaurateur|farm-to-table|farm to table|cafe|café|coffee|bakery|bar\b|bistro|dining|gastropub|osteria|trattoria|ramen|sushi|diner|eatery|catering|pizzeria|brewery|food truck|(?<!soup )kitchen|chophouse|smokehouse|noodle|burger|barbecue|bbq\b|tavern|pub\b|creamery|gelato|ice cream|grill|steakhouse|winery|vineyard|taqueria|deli\b)/],
-    ['_brand.local-service.json', /\b(local service|local-service|home services?|plumb|hvac|electric|roofing|roofer|landscap|lawn|cleaning|janitor|contractor|handyman|pest control|locksmith|moving|movers|garage door|paint|construction|remodel|flooring|fencing|paving|towing|auto repair|mechanic|tree service|arborist|appliance repair|pool service|pressure washing|gutter|septic|chimney sweep)/],
-    ['_brand.nonprofit.json', /\b(nonprofit|non-profit|charit|foundation|ministry|church|synagogue|mosque|temple|community center|volunteer|shelter|soup kitchen|food bank|pantry|relief center|mutual aid|501c3|outreach|humanitarian|advocacy|ngo\b|animal rescue|humane society|rescue mission)/],
-    ['_brand.retail.json', /\b(shop|store|retail|boutique|apparel|clothing|jewelr|goods|merchandise|marketplace|e-commerce|ecommerce|outfitter|bookstore|bookshop|book store)/],
-    ['_brand.saas.json', /\b(saas|software|platform|api\b|startup|analytics|dashboard|developer tool|automation|machine learning|fintech|cybersecurity|app\b|web app)/],
-    // Real-estate BEFORE agency (fire-50): the authoritative short-circuit is
-    // first-match-by-ORDER over the declared category, and "real estate agency"
-    // matches BOTH — checked first, real-estate wins so a realtor no longer ships as
-    // a magenta AGENCY site (Ridgeline Realty Group → agency copy/theme, fire-50). Own
-    // vertical (dark, listings/buyers/sellers copy); OUT of LIGHT_VERTICAL_PRESETS →
-    // DARK. Pairs with examples/_brand.real-estate.json + _content.real-estate.json.
-    ['_brand.real-estate.json', /\b(real estate|real-estate|realtor|realty|home buyer|homebuyer|home seller|house hunting|open house|home valuation|buyer's agent|buyers agent|seller's agent|sellers agent|property listing|homes for sale|for sale by owner|mls\b|property management|property manager|mortgage|home loan|refinanc)/],
-    ['_brand.agency.json', /\b(agency|marketing|advertis|branding|design studio|creative studio|consult|pr firm|media agency|growth marketing|seo agency)/],
-    ['_brand.portfolio.json', /\b(portfolio|photograph|artist|freelance|illustrat|filmmaker|musician|architect|videograph)/],
-  ];
+  // Vertical → preset table lives in ./vertical-rules.mjs (pure + unit-tested in
+  // scripts/vertical-rules.test.mjs, which mirrors the scored + declared-category loops
+  // below via scoreVertical()/matchDeclaredCategory()). Edit rules THERE, not here —
+  // adding a vertical is a table entry + a template examples/_{brand,content}.<v>.json
+  // pack. AL-701: added hospitality + gallery; narrowed retail (boutique hotel, tattoo
+  // shop); routed seafood/fish-market → restaurant. Keep the loops here in sync.
+  const rules = VERTICAL_RULES;
   // AUTHORITATIVE SHORT-CIRCUIT (fire-55): the user-declared category (Google Places
   // type / explicit business_type) is threaded to the container as _category.txt — a
   // file the orchestrator NEVER writes, so (unlike _brand.json, which it rewrites) it
@@ -478,12 +449,9 @@ function pickVerticalPreset(dir, promptText = '') {
   return bestScore > 0 ? best : '';
 }
 
-// Presets whose colorScheme is light — Brian directive: healthcare/wellness/legal/
-// restaurant/local-service/nonprofit render LIGHT (white/cyan), never dark.
-const LIGHT_VERTICAL_PRESETS = new Set([
-  '_brand.medical.json', '_brand.dental.json', '_brand.wellness.json', '_brand.legal.json',
-  '_brand.restaurant.json', '_brand.local-service.json', '_brand.nonprofit.json',
-]);
+// LIGHT_VERTICAL_PRESETS is imported from ./vertical-rules.mjs (top of file) — the set of
+// presets whose colorScheme is light (healthcare/wellness/legal/restaurant/local-service/
+// nonprofit). Hospitality + gallery are DARK, so they are intentionally NOT in that set.
 
 /**
  * Force the vertical brand preset into _brand.json when the orchestrator left the

@@ -19,7 +19,13 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'jenis-splendid-ice-creams-columbus,gentle-dental-seattle,wally-workman-gallery-austin,hotel-emma-san-antonio').split(',');
+// Default cohort covers each vertical class + the AL-701 defect sites (hotel/gallery/tattoo/
+// fish-market) that mis-routed to the RETAIL content pack. AL-701 fix: container-server.mjs
+// classifier gained hospitality + gallery verticals + narrowed retail (boutique-hotel/tattoo-shop)
+// + routed seafood→restaurant, and the template gained _content.{hospitality,gallery}.json packs.
+// These sites read RIGHT once rebuilt (tracking until then, per the audit-arc ladder below).
+const SITES = (process.env.SITES ||
+  'jenis-splendid-ice-creams-columbus,gentle-dental-seattle,sean-kelly-gallery,hotel-emma-san-antonio,three-kings-tattoo-brooklyn,pike-place-fish-market-seattle').split(',');
 
 // A quickserve WALK-UP counter vertical, detected from the H1 + <title> (the authoritative
 // vertical signal). These businesses take orders at a counter — never table reservations.
@@ -51,6 +57,11 @@ const GALLERY_CURATORIAL = /\b(exhibition|collection|viewing|acquir\w*|artist|on
 // mis-routes to the RETAIL pack). Like GALLERY, lodging overrides isRetail=false so the misfit fires.
 const LODGING_SIGNAL =
   /\b(hotel\w*|resort\w*|\binn\b|motel\w*|lodge\b|lodging|bed\s?and\s?breakfast|\bb&b\b|guesthouse|hostel\w*)\b/i;
+// Hospitality vocabulary a real lodging site SHOULD carry (positive signal — its absence on a
+// hotel is a soft miss, mirroring GALLERY_CURATORIAL). Confirms the AL-701 hospitality content
+// pack landed: a rebuilt hotel reads stay/room/book, not just "not retail".
+const LODGING_HOSPITALITY =
+  /\b(stays?|rooms?|suites?|book\w*|night\w*|check[- ]?in|concierge|accommodat\w*|guests?|amenit\w*|hospitality)\b/i;
 // Retail-shop framing that mis-fits ANY pack-less non-retail vertical (gallery / lodging): the RETAIL
 // content pack's "the counter" / "Find your new favorite" / "Free shipping" / cart copy. Shared by the
 // gallery + lodging checks; both are curatorial/hospitality verticals a retail pack should never own.
@@ -87,6 +98,8 @@ function scan(text, h1, title) {
     // A hotel/lodging must read hospitality — flag the RETAIL content pack's cart/counter/shipping copy.
     const m = body.match(RETAIL_MISFIT);
     if (m) findings.push({ kind: 'retail_framing_on_lodging', hit: m[0] });
+    if (!LODGING_HOSPITALITY.test(body))
+      findings.push({ kind: 'lodging_missing_hospitality_voice', hit: 'no stay/room/book/night/concierge vocabulary' });
   } else if (!isRetail) {
     const m = body.match(CART_FRAMING);
     if (m) findings.push({ kind: 'cart_on_non_retail', hit: m[0] });
