@@ -33,20 +33,26 @@ test.describe('Full-flow · billing', () => {
     expectClean(errors);
   });
 
-  test('02 subscription-card reconciles with /api/billing/subscription (free → no active sub)', async ({
+  test('02 subscription-status badge reconciles with /api/billing/subscription status', async ({
     page,
   }) => {
     await seedSession(page);
     await gotoAdmin(page, '/admin/billing');
     const card = page.locator('[data-testid="subscription-card"]');
     await expect(card).toBeVisible({ timeout: 15_000 });
-    const sub = await apiFetch<{ data: unknown | null }>(page, '/api/billing/subscription');
+    const sub = await apiFetch<{ data: { status?: string } | null }>(page, '/api/billing/subscription');
     expect(sub.status).toBe(200);
-    // Ground truth: this org has NO active subscription → the card shows a free/none state.
-    const status = page.locator('[data-testid="subscription-status"]');
-    if (await status.count()) {
-      await expect(status).toContainText(/free|none|no active|inactive|trial/i);
-    }
+    // Ground-truth reconciliation (verify-against-source-of-truth): the STATUS badge's
+    // canonical machine value MUST equal the store's subscription status. A free plan is
+    // legitimately status:"active" (free plans are active — they just have no Stripe sub);
+    // the PLAN (free vs pro) is a SEPARATE field surfaced by subscription-plan (test 03).
+    // Derive the expectation from the store, never hardcode a plan-based regex on status.
+    const storeStatus = sub.body?.data?.status ?? 'none';
+    const badge = page.locator('[data-testid="subscription-status"]');
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveAttribute('data-status', storeStatus);
+    // …and it renders a non-empty, owner-friendly label (never a bare empty chip).
+    await expect(badge).not.toBeEmpty();
   });
 
   test('03 subscription-plan text matches the entitlements plan (free)', async ({ page }) => {

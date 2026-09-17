@@ -139,7 +139,7 @@ interface ForecastBar {
                 <span class="subscription-status-badge"
                       data-testid="subscription-status"
                       [attr.data-status]="subStatus()?.status ?? 'none'">
-                  {{ subStatus()?.status ?? 'none' }}
+                  {{ statusLabel() }}
                 </span>
               </div>
             </div>
@@ -2059,6 +2059,28 @@ export class AdminBillingComponent implements OnInit {
   loadingCosts = signal(false);
   capDraft: Record<string, number | ''> = {};
   planLabel = computed(() => (this.plan() === 'paid' ? 'Pro · $50/mo' : 'Free'));
+
+  /**
+   * Owner-friendly label for the subscription-status badge. The raw status from
+   * `/api/billing/subscription` (`active`, `past_due`, `trialing`, …) is developer-ish —
+   * a busy non-technical owner should read "Past due", never `past_due`. The `[data-status]`
+   * attribute keeps the RAW value for CSS theming + E2E reconciliation; only the VISIBLE
+   * text is humanized here. Unknown statuses degrade gracefully via title-casing.
+   * (embarrassingly-easy-to-use: speak the user's words, never our jargon.)
+   */
+  statusLabel = computed(() => {
+    const raw = this.subStatus()?.status ?? 'none';
+    const friendly: Record<string, string> = {
+      active: 'Active',
+      trialing: 'Trial',
+      past_due: 'Past due',
+      canceled: 'Canceled',
+      incomplete: 'Incomplete',
+      unpaid: 'Unpaid',
+      none: 'None',
+    };
+    return friendly[raw] ?? raw.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+  });
 
   /**
    * Honest renew-vs-end label for the period-end date. An active/trialing sub

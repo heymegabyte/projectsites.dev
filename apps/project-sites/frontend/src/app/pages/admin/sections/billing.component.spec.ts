@@ -191,6 +191,30 @@ describe('AdminBillingComponent (cyan/black cohesion + a11y)', () => {
     expect(badge!.getAttribute('data-status')).toBe('unpaid');
   });
 
+  it('humanizes the status badge TEXT (past_due → "Past due") while data-status stays the raw enum', () => {
+    build();
+    const cmp = fixture.componentInstance;
+    const badge = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="subscription-status"]')!;
+    // A busy non-technical owner should read "Past due", never the dev enum `past_due`.
+    cmp.subStatus.set({ status: 'past_due' } as never);
+    fixture.detectChanges();
+    expect(badge.textContent?.trim()).withContext('visible label humanized').toBe('Past due');
+    expect(badge.getAttribute('data-status')).withContext('CSS/E2E hook stays raw').toBe('past_due');
+    // A free plan is legitimately status:active — the badge reads a reassuring "Active".
+    cmp.subStatus.set({ status: 'active', plan: 'free' } as never);
+    fixture.detectChanges();
+    expect(badge.textContent?.trim()).toBe('Active');
+    // No subscription → honest "None", never a bare empty chip.
+    cmp.subStatus.set(null);
+    fixture.detectChanges();
+    expect(badge.textContent?.trim()).toBe('None');
+    expect(badge.getAttribute('data-status')).toBe('none');
+    // An unknown status degrades gracefully via title-casing (never blank, never crashes).
+    cmp.subStatus.set({ status: 'incomplete_expired' } as never);
+    fixture.detectChanges();
+    expect(badge.textContent?.trim()).toBe('Incomplete expired');
+  });
+
   it('period label is honest: active RENEWS, cancel_at CANCELS, else ends', () => {
     build();
     const cmp = fixture.componentInstance;
