@@ -1,5 +1,14 @@
 import { Component, type OnInit, type OnDestroy, HostListener, inject, signal } from '@angular/core';
-import { RouterOutlet, Router, ActivatedRoute, NavigationEnd } from '@angular/router';
+import {
+  RouterOutlet,
+  Router,
+  ActivatedRoute,
+  NavigationEnd,
+  NavigationStart,
+  NavigationCancel,
+  NavigationError,
+  RouteConfigLoadStart,
+} from '@angular/router';
 import { filter } from 'rxjs';
 import { HeaderComponent } from './components/header/header.component';
 import { ToastComponent } from './components/toast/toast.component';
@@ -55,6 +64,19 @@ import { TelemetryService } from './services/telemetry.service';
          focusable) so the next Tab resumes inside the content, not from the top
          — completes WCAG 2.4.1 Bypass Blocks. -->
     <main id="main-content" role="main" tabindex="-1" class="app" [class.no-pad]="!showHeader()">
+      @if (routeLoading()) {
+        <!-- Instant loading affordance while a lazy route chunk downloads (AL-697) — a cold
+             deep-link to /create (funnel destination) / editor / admin no longer shows a
+             ~3.3s dead-blank. Removed the instant the route hydrates (no CLS on the real page). -->
+        <div class="route-skeleton" role="status" aria-live="polite" aria-busy="true"
+             data-testid="route-loading">
+          <span class="route-skeleton__spinner" aria-hidden="true"></span>
+          <span class="route-skeleton__label">Loading…</span>
+          <div class="route-skeleton__bars" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+      }
       <router-outlet />
     </main>
   `,
@@ -66,6 +88,57 @@ import { TelemetryService } from './services/telemetry.service';
     }
     .app.no-pad {
       padding-top: 0;
+    }
+    /* Route-loading skeleton (AL-697) — centered in the content region while a lazy chunk
+       downloads. Additive + transient (removed on NavigationEnd) so it never affects the
+       loaded route's layout / CLS. Brand-token colors; reduced-motion disables the animations. */
+    .route-skeleton {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      min-height: min(60vh, 520px);
+      padding: 2rem;
+      color: #00e5ff;
+    }
+    .route-skeleton__spinner {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 3px solid rgba(0, 229, 255, 0.18);
+      border-top-color: #00e5ff;
+      animation: route-skeleton-spin 0.8s linear infinite;
+    }
+    .route-skeleton__label {
+      font-size: 0.85rem;
+      letter-spacing: 0.02em;
+      color: rgba(244, 244, 255, 0.7);
+    }
+    .route-skeleton__bars {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      width: min(440px, 82vw);
+      margin-top: 0.5rem;
+    }
+    .route-skeleton__bars span {
+      height: 14px;
+      border-radius: 7px;
+      background: linear-gradient(90deg, rgba(255,255,255,0.04), rgba(0,229,255,0.10), rgba(255,255,255,0.04));
+      background-size: 200% 100%;
+      animation: route-skeleton-shimmer 1.4s ease-in-out infinite;
+    }
+    .route-skeleton__bars span:nth-child(2) { width: 88%; }
+    .route-skeleton__bars span:nth-child(3) { width: 64%; }
+    @keyframes route-skeleton-spin { to { transform: rotate(360deg); } }
+    @keyframes route-skeleton-shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .route-skeleton__spinner { animation-duration: 1.6s; }
+      .route-skeleton__bars span { animation: none; }
     }
     /* The skip-link target receives focus programmatically (never via Tab — it's
        tabindex=-1), so the region outline would just be visual noise. */
@@ -86,6 +159,14 @@ export class AppComponent implements OnInit, OnDestroy {
   showCommandPalette = signal(false);
   showShortcuts = signal(false);
   inAdmin = signal(false);
+  /** True while a LAZY route chunk is downloading (a cold deep-link to a heavy route like
+   * `/create` takes ~3s to hydrate) — drives an instant loading skeleton so the funnel
+   * destination never shows a dead-blank. NEVER set for the homepage (`/`) so its delicate
+   * static-hero LCP optimization is untouched (AL-697). */
+  routeLoading = signal(false);
+  /** The URL of the in-flight navigation, captured on NavigationStart — lets `routeLoading`
+   * exclude the homepage before the (homepage-lazy) RouteConfigLoadStart would otherwise fire. */
+  private pendingNavUrl = '';
 
   private cursorFollowerEl?: HTMLElement;
   private cursorAnimationId?: number;
@@ -143,6 +224,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.restoreSession();
     this.trackRoute();
     this.wireTelemetryPageViews();
+    this.wireRouteLoading();
     this.initCursorFollower();
     this.wireLanguage();
   }
@@ -161,6 +243,40 @@ export class AppComponent implements OnInit, OnDestroy {
       .subscribe((e) => {
         this.telemetry.pageView(e.urlAfterRedirects, document.title);
       });
+  }
+
+  /**
+   * Show an instant loading skeleton while a LAZY route chunk downloads (AL-697). A cold
+   * deep-link to a heavy route — `/create` (the acquisition funnel's destination), `/admin`,
+   * an editor route — takes ~3s to download+hydrate its chunk, during which the router-outlet
+   * is EMPTY: a prospect faced a ~3.3s dead-blank. `RouteConfigLoadStart` fires exactly when a
+   * lazy chunk begins loading; we surface a branded skeleton until the navigation settles.
+   *
+   * The homepage (`/`) is EXCLUDED: it renders its own static-hero markup from `index.html`'s
+   * `<app-root>` (a deliberate FCP/LCP optimization) — a skeleton over it would flash + break the
+   * no-CLS hydration swap. We capture the in-flight URL on `NavigationStart` and only arm the
+   * skeleton when it is NOT the homepage. Root component (never destroyed) → no unsubscribe needed.
+   */
+  private wireRouteLoading(): void {
+    this.router.events.subscribe((e) => {
+      if (e instanceof NavigationStart) {
+        this.pendingNavUrl = e.url;
+      } else if (e instanceof RouteConfigLoadStart) {
+        // A lazy chunk is loading. Arm the skeleton unless this navigation targets the homepage.
+        // On a COLD DIRECT load the NavigationStart may precede our subscription, so fall back to
+        // the real browser path (`/create` immediately) — NOT router.url (still `/` until nav settles).
+        const url = this.pendingNavUrl || (typeof location !== 'undefined' ? location.pathname : '');
+        if (url && url !== '/' && !url.startsWith('/?') && !url.startsWith('/#')) {
+          this.routeLoading.set(true);
+        }
+      } else if (
+        e instanceof NavigationEnd ||
+        e instanceof NavigationCancel ||
+        e instanceof NavigationError
+      ) {
+        this.routeLoading.set(false);
+      }
+    });
   }
 
   /**

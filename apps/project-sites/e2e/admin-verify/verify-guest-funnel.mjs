@@ -161,14 +161,35 @@ try {
     `sites=${stats.sites} uptime=${stats.uptime} edge=${stats.edge}`);
 
   // 3. The /create ENTRY renders (the funnel's destination; sign-in bridges here for signed-out users).
+  // CONDITION-BASED wait (NOT a blind timeout): /create is a heavy LAZY chunk — on a COLD deep-link
+  // (bookmark / shared "Claim Your Site" link, not the warm in-funnel click) it downloads+hydrates its
+  // H1 in ~3s, which raced the old fixed 2500ms → a false "empty H1" FAIL on a funnel that WORKS
+  // (AL-624 validator-precision class). Wait for the REAL heading + MEASURE the cold-render time; a
+  // genuine dead-blank (H1 never renders within 15s) is still a real break.
+  const createNavStart = Date.now();
   await page.goto(`${ORIGIN}/create`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(2500);
+  // The COLD-window affordance (the AL-697 route-loading skeleton) must appear BEFORE the h1 — assert
+  // whichever lands first: the skeleton (cold) or the h1 (warm chunk = no skeleton needed).
+  const earlyAffordance = await page
+    .waitForSelector('[data-testid="route-loading"], h1', { timeout: 8000 })
+    .then((el) => el.evaluate((n) => n.getAttribute('data-testid') === 'route-loading'))
+    .catch(() => false);
+  const h1Rendered = await page
+    .waitForFunction(() => (document.querySelector('h1')?.textContent || '').trim().length > 0, { timeout: 15000 })
+    .then(() => true)
+    .catch(() => false);
+  const createRenderMs = Date.now() - createNavStart;
   const create = await page.evaluate(() => {
     const root = document.getElementById('root') || document.body;
     const h1 = document.querySelector('h1')?.textContent?.trim() || '';
     return { len: (root.innerHTML || '').length, h1: h1.slice(0, 60) };
   });
-  check('/create wizard renders', create.len > 500 && create.h1.length > 0, `h1="${create.h1}" len=${create.len}`);
+  check('/create wizard renders', h1Rendered && create.len > 500 && create.h1.length > 0, `h1="${create.h1}" len=${create.len} render=${createRenderMs}ms`);
+  // The funnel destination must give INSTANT feedback during the cold lazy-chunk load (AL-697) — a
+  // prospect deep-linking here must never face a dead-blank. Pass if the skeleton showed OR the route
+  // hydrated fast enough (<1200ms, a warm chunk) that no affordance was needed.
+  check('/create gives instant feedback (loading skeleton) during cold hydration',
+    earlyAffordance || createRenderMs < 1200, `skeleton=${earlyAffordance} render=${createRenderMs}ms`);
 
   check('0 console errors across the funnel', errs.length === 0, errs.length ? errs.slice(0, 3).join(' | ') : 'clean');
 } catch (e) {

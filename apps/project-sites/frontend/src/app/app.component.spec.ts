@@ -81,6 +81,25 @@ describe('AppComponent (shell a11y + chrome contract)', () => {
     expect(c.isHeaderlessRoute('/editor/abc')).toBe(true);
     expect(c.isHeaderlessRoute('/blog')).toBe(false); // marketing route keeps the shared header
   });
+
+  it('route-loading skeleton is OFF by default (homepage-safe) + renders only while a lazy chunk loads (AL-697)', () => {
+    const c = fixture.componentInstance as unknown as { routeLoading: { (): boolean; set(v: boolean): void } };
+    // DEFAULT: no skeleton — a settled route / the homepage static-hero must NEVER show it (no flash/CLS).
+    expect(c.routeLoading()).toBe(false);
+    expect(host.querySelector('[data-testid="route-loading"]')).toBeNull();
+    // While a lazy chunk downloads → the skeleton renders with the correct a11y contract.
+    c.routeLoading.set(true);
+    fixture.detectChanges();
+    const skel = host.querySelector('[data-testid="route-loading"]');
+    expect(skel).not.toBeNull();
+    expect(skel?.getAttribute('role')).toBe('status');
+    expect(skel?.getAttribute('aria-busy')).toBe('true');
+    expect(skel?.getAttribute('aria-live')).toBe('polite');
+    // Removed the instant the route settles → the loaded page's layout is untouched (no CLS).
+    c.routeLoading.set(false);
+    fixture.detectChanges();
+    expect(host.querySelector('[data-testid="route-loading"]')).toBeNull();
+  });
 });
 
 /**
