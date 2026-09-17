@@ -215,6 +215,26 @@ describe('SignInComponent', () => {
     expect(f.componentInstance.magicSent()).toBe(true);
   });
 
+  // Honesty: the "we sent a link to X" banner must state the address we ACTUALLY sent to,
+  // frozen — NOT track later edits of the live email field (else it claims we mailed an
+  // address we never did). Regression for the AL-702-class lying-confirmation.
+  it('freezes the confirmation address; editing the email after send does NOT change it', async () => {
+    const f = make();
+    const c = f.componentInstance;
+    c.email.set('sent-to@example.com');
+    await c.emailMagicLink();
+    expect(c.magicSent()).toBe(true);
+    expect(c.magicSentTo()).toBe('sent-to@example.com');
+    // The owner now edits the field (typo fix / different account) WITHOUT resending…
+    c.email.set('different@example.com');
+    f.detectChanges();
+    // …the banner still truthfully names the address the link actually went to.
+    expect(c.magicSentTo()).toBe('sent-to@example.com');
+    const banner = f.nativeElement.querySelector('[data-testid="sign-in-magic-sent"]') as HTMLElement;
+    expect(banner.textContent).toContain('sent-to@example.com');
+    expect(banner.textContent).not.toContain('different@example.com');
+  });
+
   // AL-186: after a github_unavailable redirect the worker 302s the GitHub start right back
   // here, so a live "Continue with GitHub" CTA would let the user re-click into the same
   // failure loop. Default = live; unavailable state = a non-clickable, labeled dead control.

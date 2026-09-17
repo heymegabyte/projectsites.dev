@@ -69,7 +69,7 @@ export function sanitizeReturnUrl(raw: string | null | undefined): string {
             role="status"
             data-testid="sign-in-magic-sent"
           >
-            Check your inbox — we sent a magic link to {{ email().trim() }}.
+            Check your inbox — we sent a magic link to {{ magicSentTo() }}.
           </div>
         }
 
@@ -299,6 +299,9 @@ export class SignInComponent implements OnInit {
   readonly busy = signal(false);
   readonly magicBusy = signal(false);
   readonly magicSent = signal(false);
+  /** The address the magic link was ACTUALLY sent to — frozen at send-success so the
+   *  "check your inbox" banner never re-renders to track later edits of the live field. */
+  readonly magicSentTo = signal('');
   readonly error = signal<string | null>(null);
   /**
    * True after a `?auth_error=github_unavailable` redirect — disables the GitHub CTA so the
@@ -372,13 +375,18 @@ export class SignInComponent implements OnInit {
     if (this.magicBusy() || !this.emailValid()) return;
 
     this.magicBusy.set(true);
+    const sentTo = this.email().trim();
     const res = await this.authApi.sendMagicLink({
-      email: this.email().trim(),
+      email: sentTo,
       callbackURL: this.safeReturnUrl(),
     });
     this.magicBusy.set(false);
 
     if (res.ok) {
+      // Freeze the address we ACTUALLY sent to — the confirmation must not track later
+      // edits to the live email field (else typing a new address makes the banner claim
+      // "we sent a link to <the-new-unsent-address>", a lying confirmation).
+      this.magicSentTo.set(sentTo);
       this.magicSent.set(true);
     } else {
       this.error.set(res.error);
