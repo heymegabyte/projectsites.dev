@@ -83,6 +83,46 @@ export function isBuildLogNoise(line: string): boolean {
 }
 
 /**
+ * Provider billing / model-catalog failure signals. When a whole ingest batch is
+ * dropped as {@link isBuildLogNoise} AND carries one of these, the BUILD LLM itself
+ * is degraded (DeepSeek dead balance / wrong model) — the build fast-paths with no
+ * Claude narration, so the /waiting terminal sits EMPTY. Each tuple maps a pattern
+ * to a stable machine signal for structured logging.
+ * @internal
+ */
+const BUILD_LLM_DEGRADED_SIGNALS: readonly (readonly [RegExp, string])[] = [
+  [/\binsufficient balance\b/i, 'insufficient_balance'],
+  [/^\s*API Error:\s*402\b/i, 'api_402'],
+  [/^\s*API Error:\s*429\b/i, 'api_429_rate_limited'],
+  [/\bunrecognized_model\b/i, 'unrecognized_model'],
+  [/model catalog/i, 'model_catalog'],
+];
+
+/**
+ * Detect whether a raw (pre-filter) build-log batch carries a build-LLM degradation
+ * signal (billing/quota exhaustion or an unusable model). Pure — used by the ingest to
+ * make a dead build-LLM balance OBSERVABLE (a structured warn) instead of silently
+ * returning `written:0` when every streamed line is control-plane noise. Returns the
+ * FIRST matching signal so the operator log names the concrete cause.
+ *
+ * @param rawLines - The untrusted `lines` field from the ingest payload.
+ * @returns `{ degraded: true, signal }` on the first billing/model failure, else `{ degraded: false }`.
+ * @example
+ * detectBuildLlmDegraded(['API Error: 402 Insufficient Balance']) // → { degraded: true, signal: 'api_402' }
+ * detectBuildLlmDegraded(['writing src/App.tsx'])                 // → { degraded: false }
+ */
+export function detectBuildLlmDegraded(rawLines: unknown): { degraded: boolean; signal?: string } {
+  const arr = Array.isArray(rawLines) ? rawLines : [];
+  for (const l of arr) {
+    if (typeof l !== 'string') continue;
+    for (const [re, signal] of BUILD_LLM_DEGRADED_SIGNALS) {
+      if (re.test(l)) return { degraded: true, signal };
+    }
+  }
+  return { degraded: false };
+}
+
+/**
  * Normalize a raw `lines` payload into the bounded, redacted set that will be
  * written to `audit_logs`. Drops non-strings + blank lines, trims trailing
  * whitespace, drops Claude Code control-plane + provider-transport {@link isBuildLogNoise},

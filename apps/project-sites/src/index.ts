@@ -189,7 +189,7 @@ import { getContentType, resolveSite, serveSiteFromR2 } from './services/site_se
 import { maybeDispatchFunctions } from './services/functions_dispatch.js'; // Stage 3.1: child-host /api/* → site's WfP functions worker (ADR-0035 §30)
 import { dbQueryOne, dbUpdate } from './services/db.js';
 import { writeAuditLog } from './services/audit.js';
-import { prepareBuildLogLines } from './services/build_log.js';
+import { prepareBuildLogLines, detectBuildLlmDegraded } from './services/build_log.js';
 import { deploySiteFunctions, type FunctionsBuildResult } from './services/functions_deploy.js';
 import {
   handleFunctionAiRun,
@@ -1341,8 +1341,10 @@ app.post('/api/internal/build-log', async (c) => {
     .join('');
   if (sig !== expected) return c.json({ error: 'invalid signature' }, 401);
 
-  // Dark by default: the flag is unseeded until the STREAMING BUILD THEATER loop
-  // wires the container + promotes it. Fail-closed (404) on any flag error.
+  // Gated on `live_build_stream` (registry default: enabled, stage=beta — the STREAMING
+  // BUILD THEATER pipe is promoted + live; a global/org `flag_overrides` row can still
+  // dial it back). Fail-closed (404) on any flag error so a flag-store outage can never
+  // let a half-wired container flood audit_logs.
   const streamOn = await isFlagOnBetterAuth(c.env, 'live_build_stream').catch(() => false);
   if (!streamOn) return c.json({ error: 'not found' }, 404);
 
@@ -1359,7 +1361,31 @@ app.post('/api/internal/build-log', async (c) => {
   // never write unbounded audit rows; the container throttles to meaningful lines
   // (Loop C's job). prepareBuildLogLines is the pure, unit-tested core.
   const lines = prepareBuildLogLines(payload.lines);
-  if (lines.length === 0) return c.json({ ok: true, written: 0 });
+  if (lines.length === 0) {
+    // Every line was dropped as control-plane noise. If the batch carried a build-LLM
+    // billing/model failure (DeepSeek dead balance → 402 / unrecognized_model), the build
+    // LLM is DEGRADED: the build fast-paths with no narration and the owner's /waiting
+    // terminal sits empty. Emit ONE structured warn so that outage is OBSERVABLE in Workers
+    // logs instead of a silent `written:0` we only discover by hand-querying audit_logs
+    // (per graceful-degradation-hides-outages). Fail-soft: never throws, never blocks a build.
+    const degraded = detectBuildLlmDegraded(payload.lines);
+    if (degraded.degraded) {
+      const siteId = (await c.env.CACHE_KV.get(`job2site:${jobId}`).catch(() => null)) || jobId;
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          scope: 'build-log',
+          msg: 'build_llm_degraded',
+          jobId,
+          siteId,
+          signal: degraded.signal,
+          requestId: c.req.header('x-request-id') ?? null,
+        }),
+      );
+      return c.json({ ok: true, written: 0, degraded: true, signal: degraded.signal });
+    }
+    return c.json({ ok: true, written: 0 });
+  }
 
   // jobId is the CONTAINER job id — map it back to the siteId via the same
   // `job2site:{jobId}` KV mapping the build-status callback uses; fall back to jobId
