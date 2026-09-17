@@ -64,4 +64,45 @@ describe('redact() — provider secret formats', () => {
     expect(meta['note']).not.toContain('sk-ant-');
     expect(meta['count']).toBe(3);
   });
+
+  // Regression (sweep — redactObject array leak): arrays were passed through
+  // UNREDACTED, leaking PII/secrets nested in arrays into logs/Sentry/PostHog.
+  it('redactObject redacts PII in an array of strings (not passed through raw)', () => {
+    const out = redactObject({ recipients: ['alice@example.com', 'bob@example.com', 'ok text'] });
+    const recipients = out['recipients'] as string[];
+    expect(recipients[0]).toBe('[REDACTED_EMAIL]');
+    expect(recipients[1]).toBe('[REDACTED_EMAIL]');
+    expect(recipients[2]).toBe('ok text');
+    expect(JSON.stringify(out)).not.toContain('@example.com');
+  });
+
+  it('redactObject redacts secrets/PII inside an array of objects', () => {
+    const out = redactObject({
+      users: [
+        { name: 'carol', email: 'carol@example.com', token: 'Bearer abc123456789' },
+        { name: 'dave', email: 'dave@example.com' },
+      ],
+    });
+    const users = out['users'] as Array<Record<string, unknown>>;
+    expect(users[0]?.['name']).toBe('carol');
+    expect(users[0]?.['email']).toBe('[REDACTED_EMAIL]');
+    expect(users[0]?.['token']).toBe('[REDACTED]'); // sensitive KEY masked even inside an array element
+    expect(users[1]?.['email']).toBe('[REDACTED_EMAIL]');
+    expect(JSON.stringify(out)).not.toContain('@example.com');
+    expect(JSON.stringify(out)).not.toContain('abc123456789');
+  });
+
+  it('redactObject masks a sensitive KEY whose value is an array (never walked/leaked)', () => {
+    const out = redactObject({ tokens: ['sk_live_abc123456789', 'sk_live_def987654321'] });
+    expect(out['tokens']).toBe('[REDACTED]');
+    expect(JSON.stringify(out)).not.toContain('sk_live_');
+  });
+
+  it('redactObject redacts PII in a deeply-nested array (array → object → array)', () => {
+    const out = redactObject({ batch: [{ contacts: ['eve@example.com'] }] });
+    const batch = out['batch'] as Array<Record<string, unknown>>;
+    const contacts = batch[0]?.['contacts'] as string[];
+    expect(contacts[0]).toBe('[REDACTED_EMAIL]');
+    expect(JSON.stringify(out)).not.toContain('@example.com');
+  });
 });

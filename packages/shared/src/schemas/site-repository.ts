@@ -22,7 +22,7 @@
  * | `editorTabStateSchema`        | `EditorTabState`       | Active tab + panel state                   |
  */
 import { z } from 'zod';
-import { slugSchema, httpsUrlSchema } from './base.js';
+import { httpsUrlSchema } from './base.js';
 
 // ---------------------------------------------------------------------------
 // Primitives

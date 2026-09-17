@@ -91,14 +91,57 @@ export function redact(input: string): string {
 }
 
 /**
+ * Keys whose VALUE is a secret regardless of shape (case-insensitive). Matched
+ * before any type dispatch so `{ token: [...] }` / `{ password: {...} }` are fully
+ * masked, never walked. Frozen so the set can't be mutated by a caller.
+ * @internal
+ */
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
+  'password',
+  'secret',
+  'secrets',
+  'token',
+  'tokens',
+  'otp',
+  'code',
+  'api_key',
+  'apikey',
+  'api_keys',
+  'authorization',
+  'cookie',
+  'cookies',
+  'session_token',
+  'refresh_token',
+  'access_token',
+  'stripe_secret_key',
+]);
+
+/**
+ * Recursively redact ANY value — string, array, nested object, or primitive.
+ * This is the shape-agnostic core so an array of PII (`['a@b.com', 'c@d.com']`)
+ * or an array of records (`[{ email, token }]`) is redacted at EVERY depth, not
+ * skipped. Arrays were previously passed through untouched (a PII/secret leak
+ * into logs); this closes it.
+ * @internal
+ */
+function redactValue(value: unknown): unknown {
+  if (typeof value === 'string') return redact(value);
+  if (Array.isArray(value)) return value.map((item) => redactValue(item));
+  if (typeof value === 'object' && value !== null) return redactObject(value as Record<string, unknown>);
+  return value;
+}
+
+/**
  * Deep-redact sensitive fields from a structured object for safe logging.
  *
  * Processing logic for each key-value pair:
  * - If the **key** is in the built-in sensitive-keys set (case-insensitive),
- *   the value is replaced with `'[REDACTED]'`.
- * - If the value is a **string**, it is run through {@link redact}.
- * - If the value is a **nested object** (non-array), `redactObject` recurses.
- * - All other values (numbers, booleans, arrays) pass through unchanged.
+ *   the value is replaced with `'[REDACTED]'` (whatever its shape — string,
+ *   array, or object — so a `token: [...]` array is never walked and leaked).
+ * - Otherwise the value is redacted by shape via {@link redactValue}: **strings**
+ *   run through {@link redact}; **arrays** map element-by-element (redacting
+ *   string elements + recursing into object/array elements); **nested objects**
+ *   recurse through `redactObject`; primitives (number/boolean/null) pass through.
  *
  * The sensitive-keys set includes: `password`, `secret`, `token`, `otp`,
  * `code`, `api_key`, `apiKey`, `authorization`, `cookie`, `session_token`,
@@ -110,39 +153,15 @@ export function redact(input: string): string {
  *
  * @example
  * ```ts
- * redactObject({ user: 'bob', authorization: 'Bearer xyz', meta: { email: 'bob@co.com' } });
- * // => { user: 'bob', authorization: '[REDACTED]', meta: { email: '[REDACTED_EMAIL]' } }
+ * redactObject({ user: 'bob', authorization: 'Bearer xyz', recipients: ['a@co.com', 'b@co.com'] });
+ * // => { user: 'bob', authorization: '[REDACTED]', recipients: ['[REDACTED_EMAIL]', '[REDACTED_EMAIL]'] }
  * ```
  */
 export function redactObject<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
-  const sensitiveKeys = new Set([
-    'password',
-    'secret',
-    'token',
-    'otp',
-    'code',
-    'api_key',
-    'apiKey',
-    'authorization',
-    'cookie',
-    'session_token',
-    'refresh_token',
-    'access_token',
-    'stripe_secret_key',
-  ]);
-
   const result: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(obj)) {
-    if (sensitiveKeys.has(key.toLowerCase())) {
-      result[key] = '[REDACTED]';
-    } else if (typeof value === 'string') {
-      result[key] = redact(value);
-    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      result[key] = redactObject(value as Record<string, unknown>);
-    } else {
-      result[key] = value;
-    }
+    result[key] = SENSITIVE_KEYS.has(key.toLowerCase()) ? '[REDACTED]' : redactValue(value);
   }
 
   return result;

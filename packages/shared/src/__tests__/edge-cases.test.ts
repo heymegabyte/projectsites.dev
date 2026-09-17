@@ -57,10 +57,18 @@ describe('redactObject() edge cases', () => {
     expect(result.key).toBeNull();
   });
 
-  it('passes through array values unchanged (arrays are not recursed into)', () => {
-    const arr = [1, 'secret_value', { password: 'abc' }];
+  it('recurses into array values, redacting PII/secrets at every element (no leak)', () => {
+    // Previously arrays were passed through raw — a PII/secret-into-logs leak.
+    // Now every element is redacted: primitives pass, strings run through redact(),
+    // object elements recurse (sensitive KEYS masked). A new array is returned.
+    const arr = [1, 'ping alice@example.com', { password: 'abc12345' }];
     const result = redactObject({ items: arr } as Record<string, unknown>);
-    expect(result.items).toBe(arr);
+    const items = result.items as unknown[];
+    expect(items).not.toBe(arr); // new array, original not mutated
+    expect(items[0]).toBe(1);
+    expect(items[1]).toBe('ping [REDACTED_EMAIL]');
+    expect((items[2] as Record<string, unknown>).password).toBe('[REDACTED]');
+    expect(JSON.stringify(result)).not.toContain('@example.com');
   });
 
   it('redacts deeply nested objects (3 levels)', () => {
