@@ -126,12 +126,14 @@ describe('build_log — detectBuildLlmDegraded (make a dead build-LLM balance OB
       degraded: true,
       signal: 'insufficient_balance',
     });
-    expect(detectBuildLlmDegraded(['[claude-code:unrecognized_model] {"model":"deepseek-chat"}'])).toEqual({
+    expect(
+      detectBuildLlmDegraded(['[claude-code:unrecognized_model] {"model":"deepseek-chat"}']),
+    ).toEqual({
       degraded: true,
       signal: 'unrecognized_model',
     });
     expect(
-      detectBuildLlmDegraded(["\"deepseek-chat\" isn't described by this version's model catalog"]),
+      detectBuildLlmDegraded(['"deepseek-chat" isn\'t described by this version\'s model catalog']),
     ).toEqual({ degraded: true, signal: 'model_catalog' });
     expect(detectBuildLlmDegraded(['API Error: 429 Too Many Requests'])).toEqual({
       degraded: true,
@@ -149,7 +151,9 @@ describe('build_log — detectBuildLlmDegraded (make a dead build-LLM balance OB
       degraded: false,
     });
     // A genuine build error is NOT a build-LLM degradation — it must not mask as one.
-    expect(detectBuildLlmDegraded(["Error: Cannot find module './Hero'"])).toEqual({ degraded: false });
+    expect(detectBuildLlmDegraded(["Error: Cannot find module './Hero'"])).toEqual({
+      degraded: false,
+    });
     expect(detectBuildLlmDegraded(undefined)).toEqual({ degraded: false });
     expect(detectBuildLlmDegraded('not an array')).toEqual({ degraded: false });
     expect(detectBuildLlmDegraded([42, null, {}])).toEqual({ degraded: false });
@@ -159,11 +163,15 @@ describe('build_log — detectBuildLlmDegraded (make a dead build-LLM balance OB
     for (const l of [
       'API Error: 402 Insufficient Balance',
       '[claude-code:unrecognized_model] {"model":"deepseek-chat"}',
-      "\"deepseek-chat\" isn't described by this version's model catalog",
+      '"deepseek-chat" isn\'t described by this version\'s model catalog',
     ]) {
       // Both must hold: the owner never sees the scary line (isBuildLogNoise) AND we log
       // the outage (detectBuildLlmDegraded). Jest reports the array index on failure.
-      expect({ line: l, noise: isBuildLogNoise(l), degraded: detectBuildLlmDegraded([l]).degraded }).toEqual({
+      expect({
+        line: l,
+        noise: isBuildLogNoise(l),
+        degraded: detectBuildLlmDegraded([l]).degraded,
+      }).toEqual({
         line: l,
         noise: true,
         degraded: true,
