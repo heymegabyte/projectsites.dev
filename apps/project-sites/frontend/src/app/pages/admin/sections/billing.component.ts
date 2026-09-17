@@ -1,4 +1,5 @@
-import { Component, inject, signal, computed, effect, viewChild, ElementRef, type OnInit } from '@angular/core';
+import { Component, inject, signal, computed, effect, viewChild, ElementRef, DestroyRef, type OnInit } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { isValidEmail } from '../../../utils/validators/email';
 import { DatePipe, CurrencyPipe, DecimalPipe } from '@angular/common';
@@ -1484,6 +1485,7 @@ interface ForecastBar {
 })
 export class AdminBillingComponent implements OnInit {
   state = inject(AdminStateService);
+  private destroyRef = inject(DestroyRef);
   private api = inject(ApiService);
   private toast = inject(ToastService);
   private confirmSvc = inject(ConfirmService);
@@ -2307,9 +2309,15 @@ export class AdminBillingComponent implements OnInit {
         // behavior is identical. Degrades to empty drafts on error, same as before.
         this.api
           .get<{ data: { site_id: string; monthly_credit_cap: number | null }[] }>('/credit-caps')
+          .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({
             next: (caps) => {
-              for (const cap of caps.data ?? []) {
+              // Defensive: iterate ONLY a real array. `?? []` guards null/undefined but NOT a
+              // non-array `.data` (a wrong-shape / error-envelope response) — `for…of` a non-array
+              // object throws "object is not iterable". This crashed the Karma suite when a leaked
+              // subscription from a destroyed prior-test component received another test's mock;
+              // now it degrades to empty drafts, same as the error path (fail-soft boundary).
+              for (const cap of Array.isArray(caps?.data) ? caps.data : []) {
                 this.capDraft[cap.site_id] = cap.monthly_credit_cap ?? '';
               }
             },
