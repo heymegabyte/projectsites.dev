@@ -161,3 +161,23 @@ describe('FunctionsPanel — scaffoldFunction (the "create a function" control)'
     expect('error' in collision && collision.error).toContain('already exists');
   });
 });
+
+describe('FunctionsPanel — delete route drops it from the live-derived table (AL-721)', () => {
+  /*
+   * The panel's delete control calls workbenchStore.deleteFile(handlerFile) then clears the
+   * selection; the route table is deriveRoutes(files) so it re-renders WITHOUT the deleted route.
+   * This locks that contract purely (the editor test env is pure-logic-only — no component render).
+   */
+  it('deriveRoutes no longer yields a route once its functions/ file is removed', () => {
+    const before = deriveRoutes(FILES, new Set(['DB', 'BUCKET']));
+    expect(before.some((r) => r.path === '/api/contact')).toBe(true);
+
+    // Simulate the delete: workbenchStore.deleteFile removes the handler from the file map.
+    const afterDelete: FileMap = { ...FILES };
+    delete afterDelete[`${WORK_DIR}/functions/api/contact.ts`];
+
+    const after = deriveRoutes(afterDelete, new Set(['DB', 'BUCKET']));
+    expect(after.some((r) => r.path === '/api/contact')).toBe(false);
+    expect(after.length).toBe(before.length - 1); // exactly that one route dropped
+  });
+});

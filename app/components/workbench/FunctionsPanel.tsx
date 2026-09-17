@@ -17,7 +17,7 @@
  * it uses; the bindings list shows a per-binding route-usage count. Thin view: all
  * derivation + template logic lives in `functions-panel-logic.ts`.
  */
-import React, { memo, useMemo, useState } from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { WORK_DIR } from '~/utils/constants';
@@ -125,6 +125,36 @@ export const FunctionsPanel = memo(() => {
     setNewName('');
     setTemplate('blank');
     setCreateError('');
+  };
+
+  /*
+   * Delete a route (AL-721) — symmetric with Create so the Functions CRUD is complete: an owner
+   * removes a route from the panel instead of hunting the file tree (embarrassingly-easy). Deletes
+   * the real functions/ file via workbenchStore.deleteFile → the derived route table drops it live +
+   * it stops deploying. Destructive → a two-step in-panel confirm (never a one-click delete).
+   */
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  // Never carry a stale delete-confirm onto a different route.
+  useEffect(() => {
+    setConfirmingDelete(false);
+    setDeleteError('');
+  }, [selectedRoute]);
+
+  const deleteActiveRoute = async () => {
+    if (!active) {
+      return;
+    }
+
+    const ok = await workbenchStore.deleteFile(`${WORK_DIR}/${active.handlerFile}`);
+
+    if (!ok) {
+      setDeleteError('Could not delete — open a project first.');
+      return;
+    }
+
+    setSelectedRoute(null); // the derived route table drops it live
   };
 
   const activeTemplate = FUNCTION_TEMPLATES.find((t) => t.kind === template) ?? FUNCTION_TEMPLATES[0];
@@ -361,6 +391,44 @@ export const FunctionsPanel = memo(() => {
               <div className="text-bolt-elements-textSecondary">
                 <span className="text-bolt-elements-textTertiary">Methods: </span>
                 <span className="font-mono">{active.methods.join(', ')}</span>
+              </div>
+              {/* Delete route (AL-721) — symmetric with Create; two-step confirm (destructive). */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {confirmingDelete ? (
+                  <>
+                    <span className="text-[10px] text-red-400">Delete this route + its file?</span>
+                    <button
+                      type="button"
+                      onClick={deleteActiveRoute}
+                      data-testid="functions-delete-confirm"
+                      className="text-[10px] font-medium px-2 py-0.5 rounded border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 cursor-pointer"
+                    >
+                      Delete
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingDelete(false)}
+                      data-testid="functions-delete-cancel"
+                      className="text-[10px] text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingDelete(true)}
+                    data-testid="functions-delete-route"
+                    className="text-[10px] text-bolt-elements-textTertiary hover:text-red-400 flex items-center gap-1 cursor-pointer"
+                  >
+                    <div className="i-ph:trash" /> Delete route
+                  </button>
+                )}
+                {deleteError && (
+                  <span className="text-[10px] text-red-400" data-testid="functions-delete-error">
+                    {deleteError}
+                  </span>
+                )}
               </div>
               {active.usesResources.length > 0 && (
                 <div data-testid="functions-detail-uses">
