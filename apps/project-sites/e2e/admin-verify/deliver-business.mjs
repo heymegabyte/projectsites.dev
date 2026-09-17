@@ -2,7 +2,22 @@
 // Browserbase (CF-clean) → test-login as brian → real business search → create-from-search.
 // Prints DELIVER_RESULT JSON (siteId, slug, status) for the poller. Creds via get-secret.
 import { chromium } from 'playwright';
+import { spawnSync } from 'node:child_process';
 import { resolveBrowserbaseCreds } from './_browserbase-creds.mjs';
+
+// PRE-FLIGHT: never spend a Browserbase session + a ~$5-15 container build when the active
+// build-LLM has no credit — a dead balance silently fast-paths a degraded, fake "delivered"
+// site (build-llm-402-dead-balance). Mirrors the authoritative in-workflow gate
+// (src/services/build_llm_credit.ts). Exit 7 = definitively no credit → bail with the top-up
+// URL. Skip with SKIP_LLM_PREFLIGHT=1 only for tests that never reach a build.
+if (process.env.SKIP_LLM_PREFLIGHT !== '1') {
+  const cli = new URL('../../scripts/check-build-llm-credit.mjs', import.meta.url);
+  const pf = spawnSync(process.execPath, [cli.pathname], { stdio: 'inherit' });
+  if (pf.status === 7) {
+    console.log('::error:: build-LLM has no credit — NOT spending a build this fire. Top up, then re-run.');
+    process.exit(7);
+  }
+}
 
 const { BB, PROJ, PW } = resolveBrowserbaseCreds();
 if (!BB || !PROJ || !PW) { console.log('::error:: missing Browserbase/E2E creds'); process.exit(2); }

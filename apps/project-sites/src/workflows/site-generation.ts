@@ -24,6 +24,11 @@ import { DOMAINS, AppError } from '@project-sites/shared';
 import { gatewayFetch } from '../services/ai_gateway.js';
 import { loadBuildFromR2, validateBuild } from '../services/build_validators.js';
 import { scoreReadiness } from '../services/production_readiness.js';
+import {
+  checkBuildLlmCredit,
+  BUILD_LLM_TOPUP_URLS,
+  type BuildLlmCreditEnv,
+} from '../services/build_llm_credit.js';
 import { postAskUser } from '../services/task_inbox.js';
 import { appendBuildEvent, type BuildEvent } from '../services/build_events.js';
 import { checkBudget, recordSpend } from '../services/build_budget.js';
@@ -1252,6 +1257,34 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
     const callbackSecret = env.INTERNAL_BUILD_SECRET || '';
     const callbackUrl =
       env.INTERNAL_CALLBACK_URL || `https://${DOMAINS.SITES_BASE}/api/internal/build-status`;
+
+    // ── Step 1a: PRE-FLIGHT build-LLM credit gate ──
+    // A dead provider balance does NOT fail the container — the build FAST-PATHS (Claude Code
+    // emits `API Error: 402`, generates nothing) and the pipeline can still flip the site to
+    // `published` with seed-token-only content AND email the owner "your site is ready" for a
+    // broken build (the build-llm-402-dead-balance incident class). Refuse the spend here:
+    // check the ACTIVE provider's balance and, on a DEFINITIVE dead balance, flip to `error` +
+    // emit a structured event + throw BEFORE the container boots (no fake delivery, no email).
+    // Fail-soft — a transient/parse/network error returns ok:true and the build proceeds.
+    await step.do(
+      'preflight-build-llm-credit',
+      { retries: { limit: 1, delay: '5 seconds', backoff: 'constant' }, timeout: '30 seconds' },
+      async () => {
+        const credit = await checkBuildLlmCredit(env as unknown as BuildLlmCreditEnv);
+        if (!credit.ok) {
+          await updateSiteStatus(env.DB, params.siteId, 'error');
+          await wfLog('workflow.build_llm_no_credit', {
+            provider: credit.provider,
+            reason: credit.reason,
+            balance: credit.balance,
+            topup_url: BUILD_LLM_TOPUP_URLS[credit.provider],
+            message: `Build blocked pre-flight — ${credit.provider} build-LLM has no credit (${credit.reason}). Top up at ${BUILD_LLM_TOPUP_URLS[credit.provider]}. Site flipped to error; no seed-only publish, no completion email.`,
+          });
+          throw new Error(`build-llm-no-credit:${credit.provider}:${credit.reason}`);
+        }
+        return JSON.stringify({ ok: true, provider: credit.provider, checked: credit.checked });
+      },
+    );
 
     // A start-build throw (pool exhaustion — 'no container instance can be
     // provided', container 500s, etc.) previously propagated straight out of
