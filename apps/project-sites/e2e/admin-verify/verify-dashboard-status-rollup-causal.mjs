@@ -84,7 +84,26 @@ const store = await page.evaluate(async (origin) => {
 
 // DISPLAY — read rendered tile counts from the stable aria-label ("104 Live — …").
 await page.goto(`${ORIGIN}/admin`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-await page.waitForTimeout(3000);
+// The Angular SPA must BOOT (load the bundle) + fetch /api/sites + RENDER the tiles before
+// their counts exist. A fixed 3s wait read them BEFORE they rendered → $$eval found no
+// `.status-tile` → readTile returned 0 for both = a PHANTOM lying-count (false FAIL, exactly
+// the rolling-counter-fullpage-capture-shows-phantom-zero + validator-precision class; the
+// footer only read right because its own scroll+3.5s wait happened to outlast the boot).
+// WAIT for the tile to actually render, then a short settle. The tile COUNT is the STATIC
+// aria-label lead (`b.count`), not the animated rolling-counter, so we need the element to
+// EXIST, not the counter roll to finish. A genuine non-render (auth/boot failure) is a real
+// FAIL, distinct from a count bug. (AL-709 probe-precision fix — app verified correct: the
+// tiles render 108 Live / 1 Needs attention in a real browser with proper waits.)
+try {
+  await page.waitForSelector('.status-tile', { timeout: 25000 });
+} catch {
+  await browser.close();
+  console.log(
+    '❌ FAIL — .status-tile never rendered on /admin within 25s (SPA boot/auth failure, not a count bug)',
+  );
+  process.exit(1);
+}
+await page.waitForTimeout(1500);
 const tiles = await page.$$eval('.status-tile', (els) =>
   els.map((el) => el.getAttribute('aria-label') || ''),
 );
