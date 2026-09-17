@@ -589,6 +589,26 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
     );
   });
 
+  it('noir on a TATTOO studio gets INK copy, NOT the nightlife "room after dark"/"careful pours" misfit (AL-696)', () => {
+    // A tattoo shop is routed to noir (dark aesthetic fits) but must NOT inherit the bar copy.
+    // Live defect: three-kings-tattoo-brooklyn shipped H1 "Brooklyn's room after dark".
+    const p = personaHeroCopy('noir', 'tattoo studio', 'Brooklyn');
+    expect(p).not.toBeNull();
+    const allText = [...p!.headlines, ...p!.subheadlines].join(' ').toLowerCase();
+    // the exact nightlife-misfit strings must NOT appear on a tattoo studio
+    expect(allText).not.toMatch(/room after dark|careful pours|candlelit|nights begin|after dark/);
+    // it reads like an ink/craft studio instead
+    expect(allText).toMatch(/ink|custom|wear your story/);
+    // still SEO-woven: category keyword + city present
+    expect(p!.subheadlines.every((s) => s.includes('tattoo studio') && s.includes('Brooklyn'))).toBe(
+      true,
+    );
+    // REGRESSION GUARD: an actual cocktail bar KEEPS the nightlife copy (the two never cross-fire).
+    const bar = personaHeroCopy('noir', 'cocktail bar', 'Portland');
+    expect(bar!.headlines.join(' ').toLowerCase()).toMatch(/after dark|nights begin/);
+    expect(bar!.headlines.join(' ').toLowerCase()).not.toMatch(/ink|wear your story/);
+  });
+
   it('every distinctive personality returns non-empty, city+category-woven, slop-free copy', () => {
     for (const key of DISTINCTIVE) {
       const p = personaHeroCopy(key, 'cocktail bar', 'Portland');

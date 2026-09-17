@@ -313,18 +313,48 @@ export function personaHeroCopy(
       cat,
     );
 
+  // AL-696: `noir` is a SHARED dark/edgy personality worn by TWO vertical families — actual NIGHTLIFE
+  // venues (speakeasy/cocktail-bar/lounge/nightclub/jazz-bar/cigar-bar/burlesque) AND tattoo/body-art
+  // STUDIOS (both routed to noir by theme_style.ts — the dark aesthetic genuinely fits a tattoo shop).
+  // But the noir hero copy below is nightlife-SPECIFIC ("careful pours", "candlelit", "room after dark",
+  // "nights begin") — a MISFIT on a tattoo studio (live: three-kings-tattoo-brooklyn shipped H1
+  // "Brooklyn's room after dark" + a "careful pours" subhead). Sub-classify by category — a tattoo/
+  // piercing/body-art studio gets INK/CRAFT copy; actual nightlife keeps the after-dark/pours copy.
+  // Same pattern as `isPlantRetail` (AL-612) + `heroCtasFor`'s APPOINTMENT_CATEGORY branch. Gated by
+  // themeStyle===noir, so a cocktail bar never matches these ink nouns → the two never cross-fire.
+  const isBodyArt =
+    /\b(tattoo\w*|piercing\w*|body\s?(?:art|piercing)|ink\s?(?:shop|studio|parlor|parlour)|tattoo(?:ist|er)\w*)\b/i.test(
+      cat,
+    );
+
   const map: Readonly<Record<string, PersonaHeroCopy>> = {
-    noir: {
-      headlines: [
-        `After dark, ${city} comes alive`,
-        `${city}'s room after dark`,
-        `Where ${city} nights begin`,
-      ],
-      subheadlines: [
-        `An intimate ${cat} in the heart of ${city} — low light, careful pours, and a night worth lingering over.`,
-        `${city}'s after-dark ${cat}: candlelit, unhurried, and made for the kind of evening you remember.`,
-      ],
-    },
+    noir: isBodyArt
+      ? {
+          // INK copy for a tattoo/body-art studio (AL-696) — the shared noir dark/edgy aesthetic, but a
+          // studio voice about custom work + clean lines + artists, never the nightlife "careful pours"/
+          // "candlelit"/"room after dark" misfit. `cat` here is tattoo/piercing/body-art (gated above).
+          headlines: [
+            `Custom ink in ${city}`,
+            `${city}, wear your story`,
+            `Where ${city} gets inked`,
+          ],
+          subheadlines: [
+            `A ${cat} in ${city} for original, custom work — clean lines, careful artists, and ink built to last.`,
+            `${city}'s ${cat} for work that lasts — bold, personal, and done right the first time.`,
+          ],
+        }
+      : {
+          // NIGHTLIFE copy — actual bars/lounges/speakeasies/clubs (the original noir reading).
+          headlines: [
+            `After dark, ${city} comes alive`,
+            `${city}'s room after dark`,
+            `Where ${city} nights begin`,
+          ],
+          subheadlines: [
+            `An intimate ${cat} in the heart of ${city} — low light, careful pours, and a night worth lingering over.`,
+            `${city}'s after-dark ${cat}: candlelit, unhurried, and made for the kind of evening you remember.`,
+          ],
+        },
     luxe: {
       headlines: [
         `The finest ${cat} in ${city}`,

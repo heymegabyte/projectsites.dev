@@ -21,7 +21,7 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'heath-ceramics-sausalito,jackson-fine-art-atlanta').split(',').map((s) => s.trim()).filter(Boolean);
+const SITES = (process.env.SITES || 'heath-ceramics-sausalito,jackson-fine-art-atlanta,three-kings-tattoo-brooklyn').split(',').map((s) => s.trim()).filter(Boolean);
 const ROUTES = (process.env.ROUTES || '/,/about,/services').split(',');
 const STRICT = process.env.STRICT === '1';
 
@@ -69,6 +69,16 @@ const BRUTALIST_MISFIT = /\b(no compromise|uncompromising|impossible to ignore|m
 const COFFEE_SIGNAL =
   /\b(coffee|caf[eé]|espresso|roaster|roastery|tea\s?(?:shop|house|room)|bakery|patisserie|brunch|diner|breakfast)\b/i;
 const COFFEE_MISFIT = /\bthe coffee is hot\b/i;
+// AL-696: the `noir` themeStyle is shared by NIGHTLIFE venues (speakeasy/cocktail-bar/lounge/club)
+// AND tattoo/body-art STUDIOS (the dark aesthetic fits both). Its hero copy is nightlife-SPECIFIC
+// ("room after dark" / "careful pours" / "candlelit" / "nights begin") — a MISFIT on a tattoo studio
+// (three-kings-tattoo-brooklyn shipped H1 "Brooklyn's room after dark"). Root-fixed in hero_copy.ts
+// (personaHeroCopy noir INK branch → custom-ink copy) + THEME token. Flag ONLY when the business IS a
+// tattoo/body-art studio (page content) AND the nightlife phrase is in the HERO region — so an actual
+// bar keeps its correct after-dark voice. Detect the misfit with the phrase STRIPPED (like COFFEE).
+const BODY_ART_SIGNAL =
+  /\b(tattoo\w*|piercing\w*|body\s?(?:art|piercing)|ink\s?(?:shop|studio|parlor|parlour)|tattoo(?:ist|er)\w*)\b/i;
+const NIGHTLIFE_MISFIT = /\b(room after dark|careful pours|candlelit|nights begin|after dark)\b/i;
 const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 const hits = [];
@@ -124,6 +134,15 @@ try {
         ) {
           hits.push({ slug, route, kind: 'coffee-copy-on-non-cafe', detail: 'hospitality hero says "the coffee is hot" on a non-coffee business (AL-654 cafe-ism misfit)' });
         }
+        // AL-696: a tattoo/body-art studio must not wear the noir NIGHTLIFE copy. Gate on the business
+        // being body-art (page content) + the nightlife phrase in the HERO region (H1 or top ~450c).
+        if (
+          BODY_ART_SIGNAL.test(nBody) &&
+          (NIGHTLIFE_MISFIT.test(nH1) || NIGHTLIFE_MISFIT.test(nBody.slice(0, 450)))
+        ) {
+          const m = NIGHTLIFE_MISFIT.exec(nH1) || NIGHTLIFE_MISFIT.exec(nBody.slice(0, 450));
+          hits.push({ slug, route, kind: 'nightlife-copy-on-tattoo', detail: `tattoo/body-art hero wears nightlife copy "${m?.[0]}" (AL-696 misfit — should be noir INK copy)` });
+        }
       } catch {
         /* route unreachable → skip (don't false-fail) */
       }
@@ -146,5 +165,5 @@ if (STRICT) {
 }
 // flips-GREEN-on-rebuild tracker: a stale pre-fix build still renders the leak; the retail-pack
 // de-"Gear" fix lands next build (NO redeploy of existing sites), so these clear on rebuild.
-console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant / AL-641 brutalist-on-gallery / AL-654 coffee-on-non-cafe; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
+console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant / AL-641 brutalist-on-gallery / AL-654 coffee-on-non-cafe / AL-696 nightlife-copy-on-tattoo; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
 process.exit(0);
