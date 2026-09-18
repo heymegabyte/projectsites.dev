@@ -118,12 +118,31 @@ export async function sendEmail(
   if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY && env.SES_FROM_EMAIL) {
     try {
       const email = deps.email ?? getEmailProvider(env);
-      await email.sendTransactional({
+      const result = await email.sendTransactional({
         kind: categoryToEmailKind(category),
         to: opts.to,
         subject: opts.subject,
         html: opts.html,
       });
+      // The router resolves { accepted:false } for a SUPPRESSED recipient (hard-bounced/complained
+      // — reached here only if the top-of-fn suppression check fail-opened on a D1 error). That is
+      // NOT a rail failure: do NOT fall through to SendGrid (a fallback send would BYPASS the
+      // suppression + re-hit a bounced address, harming the shared domain's reputation). But it is
+      // NOT a delivered send either — log it as an explicit SKIP so it is OBSERVABLE and never
+      // silently masquerades as a successful SES send (the lying-success class). The functional
+      // path (return without fallback) is unchanged; this adds the missing observability signal.
+      if (result && result.accepted === false) {
+        console.warn(
+          JSON.stringify({
+            level: 'info',
+            service: 'notifications',
+            provider: 'ses',
+            category,
+            message: 'send_skipped_suppressed_at_router',
+            to: opts.to,
+          }),
+        );
+      }
       return;
     } catch (err) {
       const excerpt = (err instanceof Error ? err.message : String(err)).slice(0, 400);

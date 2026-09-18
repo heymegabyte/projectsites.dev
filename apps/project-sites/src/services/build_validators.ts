@@ -823,9 +823,20 @@ export const validateBrandNameMatch = (
     const tNorm = norm(t);
     const eNorm = norm(expected);
     // The FULL name is required on the homepage. Sub-pages must stay inside the 50-60 char SEO
-    // title cap, so they legitimately use the brand SHORT name (first word of the expected name):
-    // "Cedar Ridge FAQ | …" is CORRECT for a sub-page of "Cedar Ridge Bakeshop".
-    const firstWord = eNorm.split(' ')[0] ?? '';
+    // title cap, so they legitimately use the brand SHORT name (first DISTINCTIVE word of the
+    // expected name): "Cedar Ridge FAQ | …" is CORRECT for a sub-page of "Cedar Ridge Bakeshop".
+    //   ⚠ The sub-page token must be DISTINCTIVE — NOT a leading stopword. A business named
+    //   "The Coffee House" / "A1 Diner" / "New Leaf Yoga" reduces to firstWord "the"/"a1"/"new",
+    //   and `tNorm.includes("the")` matches ANY sub-page title carrying an incidental "the" (e.g.
+    //   an LLM-invented "Hearth & Crumb — About the Team") → the HARD brand gate wrongly PASSES an
+    //   invented name, defeating its whole purpose for the very common "The/A/An X" naming pattern.
+    //   Pick the first ≥3-char non-stopword; fall back to the raw first token only if the whole
+    //   name is stopwords (so the check never degenerates to '' and never over-matches).
+    const BRAND_STOPWORDS = new Set([
+      'the', 'a', 'an', 'of', 'and', 'to', 'for', 'in', 'on', 'at', 'by', 'new', 'old', 'my', 'our',
+    ]);
+    const words = eNorm.split(' ').filter(Boolean);
+    const firstWord = words.find((w) => w.length >= 3 && !BRAND_STOPWORDS.has(w)) ?? words[0] ?? '';
     const pageKind = file.path.toLowerCase();
     const isHome = pageKind === 'index.html' || pageKind.endsWith('/index.html');
     const expectedForPage = isHome ? eNorm : firstWord;

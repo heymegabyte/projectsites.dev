@@ -1221,6 +1221,28 @@ describe('validateBrandNameMatch (invented-name class, 2026-08-19)', () => {
     expect(validateBrandNameMatch(files)).toEqual([]);
   });
 
+  // AL-758 — the sub-page brand check uses the SHORT name (a distinctive word of the expected name)
+  // to fit the 50-60 char SEO cap. It must pick a DISTINCTIVE word, NOT a leading stopword: for
+  // "The Coffee House" the first word is "the", so `title.includes("the")` matched ANY sub-page title
+  // carrying an incidental "the" (an LLM-invented "Hearth & Crumb — About the Team") → the HARD
+  // publish gate wrongly PASSED an invented name for every common "The/A/An X" business. RED before
+  // the stopword guard (firstWord = first ≥3-char non-stopword).
+  it('flags an invented sub-page name for a "The X" business (stopword false-negative)', () => {
+    const v = validateBrandNameMatch(
+      [{ path: 'about.html', size: 100, text: '<title>Hearth & Crumb — About the Team</title>' }],
+      'The Coffee House',
+    );
+    expect(v.some((x) => x.code === 'brand.name_mismatch')).toBe(true);
+  });
+
+  it('accepts a legit sub-page of a "The X" business (contains the distinctive word)', () => {
+    const ok = validateBrandNameMatch(
+      [{ path: 'menu.html', size: 100, text: '<title>The Coffee House — Menu</title>' }],
+      'The Coffee House',
+    );
+    expect(ok).toEqual([]);
+  });
+
   // AL-749 — a POSSESSIVE business name (the OSM/Places name carries a curly apostrophe
   // "Randy’s Donuts") renders in the title with the apostrophe dropped ("Randys Donuts").
   // The old normalizer turned "randy's" → "randy s" (split on the '), which no longer matched

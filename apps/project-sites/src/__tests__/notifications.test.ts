@@ -305,4 +305,32 @@ describe('sendEmail — suppression enforcement across ALL rails (§42/ADR-0019)
     await sendEmail(sendgridEnv(), opts);
     expect(global.fetch).toHaveBeenCalled();
   });
+
+  // AL-758 — the SES router resolves { accepted:false } for a SUPPRESSED recipient (reached only if
+  // the top-of-fn check fail-opened on a D1 error). The old code discarded the result + `return`ed as
+  // if delivered (a silent lying-success). The fix logs an explicit SKIP (observable) AND does NOT
+  // fall through to SendGrid (which would BYPASS the suppression + re-hit a bounced address). RED
+  // before: no skip log; a SendGrid fallback would (wrongly) not fire either, but the log was absent.
+  it('logs an observable SKIP when the SES router suppresses the send, never a silent success (AL-758)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const sesEnv = {
+      AWS_ACCESS_KEY_ID: 'ak',
+      AWS_SECRET_ACCESS_KEY: 'sk',
+      SES_FROM_EMAIL: 'noreply@x.com',
+      DB: {
+        prepare: jest.fn().mockReturnValue({
+          bind: jest.fn().mockReturnValue({ all: jest.fn(async () => ({ results: [] })) }),
+        }),
+      },
+    } as unknown as Env;
+    const email = {
+      sendTransactional: jest.fn(async () => ({ id: 'suppressed:bounced@example.com', accepted: false })),
+    };
+    mockFetchOnce({ ok: true, headers: { 'x-message-id': 'r' } }); // catches a wrong SendGrid fallback
+    await sendEmail(sesEnv, opts, { email: email as never });
+    expect(email.sendTransactional).toHaveBeenCalledTimes(1);
+    expect(global.fetch).not.toHaveBeenCalled(); // did NOT bypass suppression via a fallback rail
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('send_skipped_suppressed_at_router'));
+    warn.mockRestore();
+  });
 });
