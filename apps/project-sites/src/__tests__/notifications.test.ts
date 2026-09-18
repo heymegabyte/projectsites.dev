@@ -221,6 +221,28 @@ describe('notifySiteBuilt — payload embedding', () => {
   });
 });
 
+describe('notifySiteBuilt — seed-only degraded build is flagged honestly (AL-768)', () => {
+  it('degraded:true frames it as a "starter build" + Regenerate CTA and drops the "ready for the world" over-claim', async () => {
+    mockFetchOnce({ headers: { 'x-message-id': 's-degraded' } });
+    await notifySiteBuilt(sendgridEnv(), { ...SITE_OPTS, degraded: true });
+    const body = lastFetchBody();
+    const html = (body.content as Array<{ type: string; value: string }>)[0].value;
+    expect(html).toContain('starter build'); // honest reduced-quality framing
+    expect(html).toContain('Regenerate'); // the free fix action
+    expect(html).not.toContain('ready for the world'); // the confident over-claim is gone
+  });
+
+  it('degraded absent keeps the normal full-quality email (no starter/Regenerate notice)', async () => {
+    mockFetchOnce({ headers: { 'x-message-id': 's-fullq' } });
+    await notifySiteBuilt(sendgridEnv(), SITE_OPTS);
+    const body = lastFetchBody();
+    const html = (body.content as Array<{ type: string; value: string }>)[0].value;
+    expect(html).toContain('ready for the world');
+    expect(html).not.toContain('starter build');
+    expect(html).not.toContain('Regenerate');
+  });
+});
+
 describe('notifySiteBuilt — send outcome is returned (AL-360, delivery observability)', () => {
   it('returns { ok: true } when the send resolves — the workflow logs this to the site audit log', async () => {
     mockFetchOnce({ headers: { 'x-message-id': 's-ok' } });

@@ -2499,6 +2499,22 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
               .bind(siteRow.org_id)
               .first()) as { email: string } | null;
             if (userRow?.email) {
+              // Was this a SEED-ONLY graceful-degradation delivery (build-LLM credit dead +
+              // BUILD_LLM_ALLOW_SEED_ONLY)? The pre-flight gate wrote a `workflow.build_llm_degraded*`
+              // audit row keyed to this site. Read it best-effort so the completion email is HONEST:
+              // a seed-only build must NOT claim "ready for the world" — it invites a free regenerate
+              // instead (AL-768). Read-only probe in its own try/catch; any failure → normal email.
+              let degradedBuild = false;
+              try {
+                const degradedRow = await env.DB.prepare(
+                  `SELECT 1 FROM audit_logs WHERE target_id = ? AND action LIKE 'workflow.build_llm_degraded%' LIMIT 1`,
+                )
+                  .bind(params.siteId)
+                  .first();
+                degradedBuild = !!degradedRow;
+              } catch {
+                degradedBuild = false;
+              }
               const { notifySiteBuilt } = await import('../services/notifications.js');
               const notifyRes = await notifySiteBuilt(env, {
                 email: userRow.email,
@@ -2506,6 +2522,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
                 slug: params.slug,
                 siteUrl: `https://${params.slug}${DOMAINS.SITES_SUFFIX}`,
                 version: (JSON.parse(filesJson) as { version: string }).version,
+                degraded: degradedBuild,
               });
               // AL-360 — make the "your site is live" delivery email OBSERVABLE from
               // platform records. Until now the send outcome was swallowed + unlogged, so

@@ -468,14 +468,35 @@ export async function notifySiteBuilt(
     siteUrl: string;
     version: string;
     pagesGenerated?: number;
+    /**
+     * True when the build ran in SEED-ONLY graceful-degradation mode — the AI build-credit was
+     * unavailable and `BUILD_LLM_ALLOW_SEED_ONLY` let it publish template + vertical-pack seed
+     * content instead of bespoke AI generation. The site is live + real, so the email honestly
+     * frames it as a "starter build" and invites a free regenerate once credit is restored, rather
+     * than claiming "ready for the world". Absent → the normal full-quality email (unchanged).
+     */
+    degraded?: boolean;
   },
 ): Promise<{ ok: boolean; error?: string }> {
+  // Honest framing for a seed-only degraded delivery — never the confident "ready for the world"
+  // claim. Both defaults preserve the existing full-quality email for every normal build (AL-768).
+  const intro = opts.degraded
+    ? `<strong style="color:${BRAND.ink};">${opts.siteName}</strong> is built and live &mdash; a polished <strong style="color:${BRAND.ink};">starter build</strong> we published while the AI writer was briefly at capacity.`
+    : `<strong style="color:${BRAND.ink};">${opts.siteName}</strong> has been built and published. Take it for a spin &mdash; it's ready for the world.`;
+  const degradedNotice = opts.degraded
+    ? emailCard(`
+      ${emailLabel('One quick note')}
+      <div style="font-size:14px;color:${BRAND.muted};line-height:1.6;">
+        Your AI writer was briefly out of capacity, so we shipped a polished <strong style="color:${BRAND.ink};">starter build</strong> to get you live right away. Hit <strong style="color:${BRAND.ink};">Regenerate</strong> in your dashboard once it's back for fully custom copy &mdash; it's free and takes a few minutes.
+      </div>
+    `)
+    : '';
   const html = emailWrap(
     `
     ${emailBadge('&#9889;')}
     <h1 style="color:${BRAND.ink};font-family:${FONT_HEAD};font-size:27px;font-weight:700;text-align:center;margin:0 0 10px;letter-spacing:-0.02em;">Your site is live! &#127881;</h1>
     <p style="color:${BRAND.muted};font-size:15px;text-align:center;line-height:1.65;margin:0 0 24px;">
-      <strong style="color:${BRAND.ink};">${opts.siteName}</strong> has been built and published. Take it for a spin &mdash; it's ready for the world.
+      ${intro}
     </p>
     ${emailCard(`
       ${emailLabel('Build details')}
@@ -489,9 +510,12 @@ export async function notifySiteBuilt(
       </div>
       ${opts.pagesGenerated ? `<div style="font-size:14px;color:${BRAND.muted};"><span style="color:${BRAND.faint};">Pages</span> <span style="color:${BRAND.ink};font-weight:600;">${opts.pagesGenerated} generated</span></div>` : ''}
     `)}
+    ${degradedNotice}
     ${emailButton(opts.siteUrl, 'Visit your site &#8594;')}
   `,
-    `${opts.siteName} is live at ${opts.siteUrl}`,
+    opts.degraded
+      ? `${opts.siteName} is live (starter build) at ${opts.siteUrl}`
+      : `${opts.siteName} is live at ${opts.siteUrl}`,
   );
 
   try {
