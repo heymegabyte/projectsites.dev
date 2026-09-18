@@ -271,7 +271,11 @@ async function createInitialCommit(base: string, token: string): Promise<string>
       body: JSON.stringify({ content: '# Site\n', encoding: 'utf-8' }),
     });
     if (!blobRes.ok) {
-      throw new GithubRepoError(`Initial-commit blob create failed: ${blobRes.status}`, 'CREATE_FAILED', blobRes.status);
+      throw new GithubRepoError(
+        `Initial-commit blob create failed: ${blobRes.status}`,
+        'CREATE_FAILED',
+        blobRes.status,
+      );
     }
     const blobBody = (await blobRes.json()) as { sha: string };
 
@@ -283,7 +287,11 @@ async function createInitialCommit(base: string, token: string): Promise<string>
       }),
     });
     if (!treeRes.ok) {
-      throw new GithubRepoError(`Initial-commit tree create failed: ${treeRes.status}`, 'CREATE_FAILED', treeRes.status);
+      throw new GithubRepoError(
+        `Initial-commit tree create failed: ${treeRes.status}`,
+        'CREATE_FAILED',
+        treeRes.status,
+      );
     }
     const treeBody = (await treeRes.json()) as { sha: string };
 
@@ -293,7 +301,11 @@ async function createInitialCommit(base: string, token: string): Promise<string>
       body: JSON.stringify({ message: 'chore: initial commit', tree: treeBody.sha, parents: [] }),
     });
     if (!commitRes.ok) {
-      throw new GithubRepoError(`Initial-commit create failed: ${commitRes.status}`, 'CREATE_FAILED', commitRes.status);
+      throw new GithubRepoError(
+        `Initial-commit create failed: ${commitRes.status}`,
+        'CREATE_FAILED',
+        commitRes.status,
+      );
     }
     const commitBody = (await commitRes.json()) as { sha: string };
 
@@ -303,7 +315,11 @@ async function createInitialCommit(base: string, token: string): Promise<string>
       body: JSON.stringify({ ref: 'refs/heads/main', sha: commitBody.sha }),
     });
     if (!refCreateRes.ok) {
-      throw new GithubRepoError(`Initial-commit ref create failed: ${refCreateRes.status}`, 'REF_FAILED', refCreateRes.status);
+      throw new GithubRepoError(
+        `Initial-commit ref create failed: ${refCreateRes.status}`,
+        'REF_FAILED',
+        refCreateRes.status,
+      );
     }
 
     return commitBody.sha;
@@ -392,7 +408,11 @@ export async function rollback(
     headers: apiHeaders(token),
   });
   if (!refRes.ok) {
-    throw new GithubRepoError(`Failed to get current HEAD (main ref): ${refRes.status}`, 'REF_FAILED', refRes.status);
+    throw new GithubRepoError(
+      `Failed to get current HEAD (main ref): ${refRes.status}`,
+      'REF_FAILED',
+      refRes.status,
+    );
   }
   const refBody = (await refRes.json()) as { object: { sha: string } };
   const parentSha = refBody.object.sha;

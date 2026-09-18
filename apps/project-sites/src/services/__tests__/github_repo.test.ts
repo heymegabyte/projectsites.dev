@@ -239,9 +239,13 @@ describe('github_repo', () => {
       jest
         .spyOn(globalThis, 'fetch')
         .mockResolvedValueOnce(
-          new Response(JSON.stringify({ sha: 'target', tree: { sha: 't' }, message: 'x' }), { status: 200 }),
+          new Response(JSON.stringify({ sha: 'target', tree: { sha: 't' }, message: 'x' }), {
+            status: 200,
+          }),
         )
-        .mockResolvedValueOnce(new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 }));
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 }),
+        );
       const err = await rollback(env, SITE_ID, 'target').catch((e: unknown) => e);
       expect(err).toBeInstanceOf(GithubRepoError);
       expect((err as GithubRepoError).code).toBe('REF_FAILED');
