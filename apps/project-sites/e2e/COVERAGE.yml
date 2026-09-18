@@ -79,6 +79,7 @@ media:
   # (kept, not deleted, per e2e-accumulation) and still referenced here so the
   # inventory validator stays green.
   api:              { status: covered, specs: [media/media-coverage.spec.ts] }
+  global_drop_zone: { status: covered, specs: [admin-global-drop-zone.e2e.ts] }  # shell-wide drag-drop upload → POST /api/media/upload — the LIVE upload path since the media UI was removed. Full journey: text-drag ignored / files-drag reveals a11y dialog / axe-clean / dragleave hides / drop uploads + toast / 0 console (verified live on prod)
   library:          { status: skipped, specs: [media-library.spec.ts] }        # removed UI
   stock_search:     { status: skipped, specs: [media-stock-search.spec.ts] }   # removed UI
   image_studio:     { status: skipped, specs: [media-image-studio.spec.ts] }   # removed UI
