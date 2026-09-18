@@ -231,7 +231,9 @@ describe('scrubNonRetailCommerceCopy (AL-723: repair wrong-vertical cart copy on
     expect(report.filesTouched).toBe(1);
     const js = out.find((f) => f.path.endsWith('.js'))!.text!;
     // NONE of the e-commerce cart phrases survive on a hotel.
-    expect(js).not.toMatch(/free shipping|shop now|secure checkout|add to cart|30[- ]day returns?/i);
+    expect(js).not.toMatch(
+      /free shipping|shop now|secure checkout|add to cart|30[- ]day returns?/i,
+    );
     // …replaced by hospitality copy (heroCtasFor/trustBadgesFor for 'hospitality').
     expect(js).toContain('Reservations welcome'); // ← "Free shipping over $50"
     expect(js).toContain('Visit us'); // ← "Shop now" / "Add to cart"
@@ -244,7 +246,10 @@ describe('scrubNonRetailCommerceCopy (AL-723: repair wrong-vertical cart copy on
       'index.html',
       '<html><head><title>McNally Jackson — Bookstore</title></head><body><h1>Independent bookstore in SoHo</h1></body></html>',
     );
-    const bundle = file('assets/index-xyz.js', 'const a="Free shipping over $50";const b="Shop now";');
+    const bundle = file(
+      'assets/index-xyz.js',
+      'const a="Free shipping over $50";const b="Shop now";',
+    );
     const [out, report] = scrubNonRetailCommerceCopy([shell, bundle], { category: 'bookstore' });
     expect(report.isRetail).toBe(true);
     expect(report.phrasesScrubbed).toBe(0);
@@ -257,18 +262,28 @@ describe('scrubNonRetailCommerceCopy (AL-723: repair wrong-vertical cart copy on
       'index.html',
       '<html><head><title>Three Kings — Tattoo Shop</title></head><body><h1>Brooklyn tattoo shop</h1></body></html>',
     );
-    const bundle = file('assets/index-t.js', 'const a="Free shipping over $50";const b="Add to cart";');
-    const [out, report] = scrubNonRetailCommerceCopy([shell, bundle], { category: 'tattoo studio' });
+    const bundle = file(
+      'assets/index-t.js',
+      'const a="Free shipping over $50";const b="Add to cart";',
+    );
+    const [out, report] = scrubNonRetailCommerceCopy([shell, bundle], {
+      category: 'tattoo studio',
+    });
     expect(report.isRetail).toBe(false); // SERVICE_SHOP overrides the bare "shop" retail token
     expect(report.phrasesScrubbed).toBe(2);
     expect(out.find((f) => f.path.endsWith('.js'))!.text).not.toMatch(/free shipping|add to cart/i);
   });
 
   it('touches only html/js text files, never binaries, and reports 0 when nothing matches', () => {
-    const shell = file('index.html', '<html><head><title>Zahav — Restaurant</title></head><body><h1>Zahav</h1></body></html>');
+    const shell = file(
+      'index.html',
+      '<html><head><title>Zahav — Restaurant</title></head><body><h1>Zahav</h1></body></html>',
+    );
     const clean = file('assets/index-c.js', 'const a="Reserve a table";const b="View the menu";');
     const bin = file('logo.png', undefined, 2048); // binary, no text
-    const [out, report] = scrubNonRetailCommerceCopy([shell, clean, bin], { category: 'restaurant' });
+    const [out, report] = scrubNonRetailCommerceCopy([shell, clean, bin], {
+      category: 'restaurant',
+    });
     expect(report.phrasesScrubbed).toBe(0);
     expect(report.filesTouched).toBe(0);
     expect(out).toEqual([shell, clean, bin]); // no-op returns the same files
