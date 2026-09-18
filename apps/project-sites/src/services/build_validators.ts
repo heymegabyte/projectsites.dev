@@ -8,6 +8,9 @@
  * `report` collects violations to the D1 audit and never throws.
  */
 
+import { commerceModeFor } from './theme_style.js';
+import { heroCtasFor, trustBadgesFor } from './hero_copy.js';
+
 export type Severity = 'error' | 'warn' | 'info';
 
 export interface Violation {
@@ -1103,7 +1106,13 @@ export const validateConversionFraming = (files: BuildFile[]): Violation[] => {
   // because its title said "studio", but "tattoo shop" is the far more common phrasing).
   const SERVICE_SHOP =
     /\b(tattoo|barber|body|auto|repair|machine|brake|muffler|welding|fix[- ]?it)\s?shop\b/i;
-  const isRetail = RETAIL.test(head) && !SERVICE_SHOP.test(head);
+  // "boutique" is a retail keyword, but "boutique HOTEL / inn / resort / gym / studio / agency"
+  // uses it as an adjective for a NON-retail vertical — the false-retail classification that let
+  // hotel-emma's "Free shipping / Shop now" ship UNWARNED (AL-723; the scrubber fixes the copy,
+  // this keeps the warning honest so the two agree).
+  const NON_RETAIL_BOUTIQUE =
+    /\bboutique\s+(hotel\w*|inn\b|resort\w*|lodg\w*|\bspa\b|gym\w*|fitness|studio\w*|agenc\w*|firm\w*|practice|salon\w*|hospitality|winer\w*|cellar\w*)\b/i;
+  const isRetail = RETAIL.test(head) && !SERVICE_SHOP.test(head) && !NON_RETAIL_BOUTIQUE.test(head);
 
   const RESERVATION =
     /\b(reserve a table|reservations?\s+welcome|book (?:a|your) table|easy reservations?|make a reservation|table reservations?)\b/i;
@@ -1143,6 +1152,108 @@ export const validateConversionFraming = (files: BuildFile[]): Violation[] => {
   }
   return out;
 };
+
+export interface CommerceScrubReport {
+  /** True when the shell classifies as a genuine retail storefront → the scrub is a NO-OP. */
+  isRetail: boolean;
+  /** The resolved commerce mode driving the replacement copy (from `commerceModeFor`). */
+  mode: string;
+  /** Total cart phrases rewritten across all files. */
+  phrasesScrubbed: number;
+  /** Number of HTML/JS files whose text changed. */
+  filesTouched: number;
+  /** Up to 5 `from → to` rewrite samples for the build audit trail. */
+  samples: string[];
+}
+
+/**
+ * Deterministic NON-RETAIL commerce-copy scrubber (C.7 beat-the-source). Upgrades the
+ * `conversion.cart_on_non_retail` gate from DETECT-only (report-mode `warn`, never blocks) to
+ * REPAIR: on a non-retail vertical it rewrites every e-commerce cart phrase the AI leaked into
+ * SECTION copy — "Free shipping over $50" / "Shop now" / "Add to cart" / "Secure checkout" /
+ * "30-day returns" — to vertical-correct copy from the SAME canonical helpers the seed uses
+ * ({@link heroCtasFor} / {@link trustBadgesFor}), keyed on {@link commerceModeFor}. A hotel gets
+ * "Reservations welcome" / "Visit us"; a gallery gets "Original works" / "View the collection".
+ *
+ * WHY (AL-723): the detector only WARNED, so AI-generated section copy shipped LIVE — ground
+ * truth 2026-09-17: `hotel-emma-san-antonio.projectsites.dev` rendered "Free shipping" ×3 +
+ * "Shop now" on a boutique HOTEL (a wrong-vertical defect that makes the delivered site LOSE to
+ * the real one, exactly like a wrong-vertical H1). The seed-time fixes (HERO_CTA / trust badges /
+ * FAQ, AL-420/518) can't reach free-form AI section copy; a post-build deterministic scrub can,
+ * and is LLM-independent + un-dodgeable + lands next build for every site.
+ *
+ * A genuine RETAIL storefront (florist / bookshop) OR an unknown `general` vertical is a NO-OP —
+ * classification uses `commerceModeFor(category)`, which (unlike the detector's H1 keyword regex)
+ * correctly reads "boutique hotel" → hospitality, not retail. Pure; never throws.
+ *
+ * @param files - The built dist files (post-SEO-finalizer in the finalize-build chain).
+ * @param ctx - `{ category, designHint }` — the business category + design hint driving the mode.
+ * @returns `[scrubbedFiles, report]`. `files` is returned unchanged when retail or nothing matched.
+ *
+ * @example
+ * const [out, r] = scrubNonRetailCommerceCopy(files, { category: 'boutique hotel' });
+ * // r.mode === 'hospitality'; "Free shipping over $50" → "Reservations welcome"; "Shop now" → "Visit us"
+ */
+export function scrubNonRetailCommerceCopy(
+  files: BuildFile[],
+  ctx: { category?: string | null; designHint?: string | null },
+): [BuildFile[], CommerceScrubReport] {
+  // Classify by the CANONICAL vertical classifier on the authoritative category signal — NOT an
+  // H1 keyword regex. This is what actually fixes the hotel-emma class: "boutique" is a RETAIL
+  // keyword, so validateConversionFraming's H1-regex mis-saw "boutique hotel" as retail and
+  // SUPPRESSED its own cart warning → the copy shipped UNFLAGGED (AL-723). commerceModeFor
+  // correctly resolves "boutique hotel" → hospitality.
+  const mode = commerceModeFor(ctx.category, ctx.designHint);
+  const isRetail = mode === 'retail';
+  // Only scrub a DEFINITIVELY non-retail vertical. 'retail' AND an unknown 'general' are left
+  // alone (conservative — never de-retail an ambiguous vertical we failed to classify).
+  const NON_RETAIL_MODES = new Set([
+    'hospitality',
+    'quickserve',
+    'service',
+    'professional',
+    'nonprofit',
+    'gallery',
+  ]);
+  if (!NON_RETAIL_MODES.has(mode)) {
+    return [files, { isRetail, mode, phrasesScrubbed: 0, filesTouched: 0, samples: [] }];
+  }
+
+  const cta = heroCtasFor(mode, ctx.category);
+  const badges = trustBadgesFor(mode, ctx.category);
+  // Rewrite the EXACT cart set the detector flags (kept identical). Order matters: the
+  // "Easy 30-day returns" rule fires before the bare "30-day returns" one so no "Easy " orphans.
+  const rules: { re: RegExp; to: string }[] = [
+    { re: /\bfree shipping(?:\s+over\s+\$\d+)?\b/gi, to: badges[0] },
+    { re: /\beasy\s+30[- ]day returns?\b/gi, to: badges[1] },
+    { re: /\b30[- ]day returns?\b/gi, to: badges[1] },
+    { re: /\bshop now\b/gi, to: cta.primary },
+    { re: /\badd to (?:cart|bag|basket)\b/gi, to: cta.primary },
+    { re: /\bsecure checkout\b/gi, to: cta.secondary },
+  ];
+
+  let phrasesScrubbed = 0;
+  let filesTouched = 0;
+  const samples: string[] = [];
+  const out = files.map((f) => {
+    if (!f.text || !/\.(html|js)$/i.test(f.path)) return f;
+    let text = f.text;
+    let touched = 0;
+    for (const { re, to } of rules) {
+      text = text.replace(re, (m) => {
+        touched++;
+        if (samples.length < 5) samples.push(`${m} → ${to}`);
+        return to;
+      });
+    }
+    if (touched === 0) return f;
+    phrasesScrubbed += touched;
+    filesTouched++;
+    return { ...f, text };
+  });
+
+  return [out, { isRetail, mode, phrasesScrubbed, filesTouched, samples }];
+}
 
 export const validateBuild = (
   files: BuildFile[],

@@ -29,6 +29,7 @@ import {
   repairDanglingEmDash,
   finalizeSeoInvariants,
   validateConversionFraming,
+  scrubNonRetailCommerceCopy,
   validateBuild,
   type BuildFile,
 } from '../services/build_validators';
@@ -122,6 +123,20 @@ describe('validateConversionFraming (AL-421: no full-service reservation framing
     expect(v[0].severity).toBe('warn');
   });
 
+  // AL-723: "boutique" is a RETAIL keyword, but "boutique HOTEL" uses it as an adjective for a
+  // hospitality vertical. Before the NON_RETAIL_BOUTIQUE guard, "boutique hotel" → isRetail=true →
+  // the cart-framing warning was SUPPRESSED, so hotel-emma-san-antonio shipped "Free shipping" ×3 +
+  // "Shop now" on a boutique hotel with NO warning. The guard restores the warning (and the
+  // finalize-build scrubber deterministically REPAIRS the copy — see scrubNonRetailCommerceCopy).
+  it('FLAGS cart framing on a "boutique hotel" (adjective use of boutique, not a retail shop)', () => {
+    const v = validateConversionFraming([
+      shell('The finest boutique hotel in San Antonio', 'Hotel Emma — boutique hotel'),
+      file('assets/index-abc.js', 'const a="Free shipping over $50";const b="Shop now";'),
+    ]);
+    expect(v).toHaveLength(1);
+    expect(v[0].code).toBe('conversion.cart_on_non_retail');
+  });
+
   it('FLAGS cart framing on "barber shop" + "auto body shop" (service shops)', () => {
     for (const title of ['Fade Kings — barber shop', 'Ace Collision — auto body shop']) {
       const v = validateConversionFraming([
@@ -192,6 +207,73 @@ const completeBuild = (
       'const x = "data-zoomable"; const y = "data-gallery"; l.id = "ps-theme-fonts";',
   ),
 ];
+
+describe('scrubNonRetailCommerceCopy (AL-723: repair wrong-vertical cart copy on non-retail sites)', () => {
+  // Ground truth: hotel-emma-san-antonio shipped "Free shipping" ×3 + "Shop now" on a HOTEL.
+  const hotelShell = file(
+    'index.html',
+    '<html><head><title>Hotel Emma — Boutique Hotel in San Antonio</title></head><body><h1>The finest boutique hotel in San Antonio</h1></body></html>',
+  );
+  // A minified JS bundle carrying the AI-generated section cart copy (the real leak surface).
+  const hotelBundle = (extra = '') =>
+    file(
+      'assets/index-abc.js',
+      `const a="Free shipping over $50";const b="Shop now";const c="Secure checkout";const d="Add to cart";const e="Easy 30-day returns";${extra}`,
+    );
+
+  it('rewrites every cart phrase on a hospitality (hotel) site to vertical-correct copy', () => {
+    const [out, report] = scrubNonRetailCommerceCopy([hotelShell, hotelBundle()], {
+      category: 'boutique hotel',
+    });
+    expect(report.isRetail).toBe(false);
+    expect(report.mode).toBe('hospitality');
+    expect(report.phrasesScrubbed).toBe(5);
+    expect(report.filesTouched).toBe(1);
+    const js = out.find((f) => f.path.endsWith('.js'))!.text!;
+    // NONE of the e-commerce cart phrases survive on a hotel.
+    expect(js).not.toMatch(/free shipping|shop now|secure checkout|add to cart|30[- ]day returns?/i);
+    // …replaced by hospitality copy (heroCtasFor/trustBadgesFor for 'hospitality').
+    expect(js).toContain('Reservations welcome'); // ← "Free shipping over $50"
+    expect(js).toContain('Visit us'); // ← "Shop now" / "Add to cart"
+    expect(js).toContain('View the menu'); // ← "Secure checkout" (secondary CTA)
+    expect(js).toContain('Walk-ins welcome'); // ← "Easy 30-day returns" (badge[1])
+  });
+
+  it('is a NO-OP on a genuine retail storefront (a bookshop DOES ship + return)', () => {
+    const shell = file(
+      'index.html',
+      '<html><head><title>McNally Jackson — Bookstore</title></head><body><h1>Independent bookstore in SoHo</h1></body></html>',
+    );
+    const bundle = file('assets/index-xyz.js', 'const a="Free shipping over $50";const b="Shop now";');
+    const [out, report] = scrubNonRetailCommerceCopy([shell, bundle], { category: 'bookstore' });
+    expect(report.isRetail).toBe(true);
+    expect(report.phrasesScrubbed).toBe(0);
+    expect(out).toBe(out); // unchanged reference set
+    expect(out.find((f) => f.path.endsWith('.js'))!.text).toContain('Free shipping over $50');
+  });
+
+  it('scrubs a SERVICE_SHOP (tattoo shop) — colloquial "…shop" is booked, never checked out', () => {
+    const shell = file(
+      'index.html',
+      '<html><head><title>Three Kings — Tattoo Shop</title></head><body><h1>Brooklyn tattoo shop</h1></body></html>',
+    );
+    const bundle = file('assets/index-t.js', 'const a="Free shipping over $50";const b="Add to cart";');
+    const [out, report] = scrubNonRetailCommerceCopy([shell, bundle], { category: 'tattoo studio' });
+    expect(report.isRetail).toBe(false); // SERVICE_SHOP overrides the bare "shop" retail token
+    expect(report.phrasesScrubbed).toBe(2);
+    expect(out.find((f) => f.path.endsWith('.js'))!.text).not.toMatch(/free shipping|add to cart/i);
+  });
+
+  it('touches only html/js text files, never binaries, and reports 0 when nothing matches', () => {
+    const shell = file('index.html', '<html><head><title>Zahav — Restaurant</title></head><body><h1>Zahav</h1></body></html>');
+    const clean = file('assets/index-c.js', 'const a="Reserve a table";const b="View the menu";');
+    const bin = file('logo.png', undefined, 2048); // binary, no text
+    const [out, report] = scrubNonRetailCommerceCopy([shell, clean, bin], { category: 'restaurant' });
+    expect(report.phrasesScrubbed).toBe(0);
+    expect(report.filesTouched).toBe(0);
+    expect(out).toEqual([shell, clean, bin]); // no-op returns the same files
+  });
+});
 
 describe('validateAssetExistence', () => {
   it('flags missing internal references', () => {

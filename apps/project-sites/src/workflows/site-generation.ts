@@ -1985,6 +1985,7 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
               repairDoubleDotCanonical,
               repairDanglingEmDash,
               finalizeSeoInvariants,
+              scrubNonRetailCommerceCopy,
             } = await import('../services/build_validators.js');
 
             // DOUBLE-DOT REPAIR + PERSIST — the container's pre-build token pass
@@ -2085,7 +2086,34 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
                 message: `SEO finalizer before brand gate: +${seoReport.jsonLdInjected} JSON-LD block(s), ${seoReport.escapesRepaired} escape fix(es), ${seoReport.descExpanded} desc expanded, ${seoReport.titleClamped} title clamped, ${seoReport.titleExpanded} title expanded, ${seoReport.wordmarkPreloadInjected} wordmark preload(s)`,
               });
             }
-            const gatedFiles = seoFiles;
+            // NON-RETAIL COMMERCE SCRUB (C.7 beat-the-source) — deterministic REPAIR of the
+            // wrong-vertical cart copy the `conversion.cart_on_non_retail` gate only WARNED about.
+            // Ground truth 2026-09-17: hotel-emma-san-antonio shipped "Free shipping" ×3 + "Shop
+            // now" live on a boutique hotel. On a non-retail vertical this rewrites every cart
+            // phrase (Free shipping / Shop now / Add to cart / Secure checkout / 30-day returns)
+            // to vertical-correct copy from the SAME helpers the seed uses (heroCtasFor /
+            // trustBadgesFor keyed on commerceModeFor) — retail sites are a no-op. LLM-independent,
+            // reaches free-form AI section copy the seed-time fixes can't, lands next build.
+            const [scrubbedFiles, scrubReport] = scrubNonRetailCommerceCopy(seoFiles, {
+              category: params.businessCategory,
+              designHint: params.additionalContext,
+            });
+            if (scrubReport.phrasesScrubbed > 0) {
+              for (let i = 0; i < scrubbedFiles.length; i++) {
+                const f = scrubbedFiles[i];
+                if (typeof f.text === 'string' && f.text !== seoFiles[i]?.text) {
+                  await env.SITES_BUCKET.put(`sites/${params.slug}/${version}/${f.path}`, f.text);
+                }
+              }
+              await wfLog('workflow.commerce_copy_scrubbed', {
+                mode: scrubReport.mode,
+                phrasesScrubbed: scrubReport.phrasesScrubbed,
+                filesTouched: scrubReport.filesTouched,
+                samples: scrubReport.samples,
+                message: `Non-retail commerce scrub (${scrubReport.mode}): rewrote ${scrubReport.phrasesScrubbed} cart phrase(s) in ${scrubReport.filesTouched} file(s) → vertical-correct copy (${scrubReport.samples.join('; ') || 'n/a'})`,
+              });
+            }
+            const gatedFiles = scrubbedFiles;
 
             // BOTH brand gates: placeholders AND the invented-name mismatch.
             // (The name-match check was only wired into the report-only
