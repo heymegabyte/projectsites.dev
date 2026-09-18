@@ -125,7 +125,10 @@ describe('pre-flight no-credit refusal — owner notification (AL-781)', () => {
     // notifying), GREEN after. notifyBuildFailed → notifyOwnerEvent(env, db, {orgId, event}).
     expect(mockNotify).toHaveBeenCalledTimes(1);
     const call = mockNotify.mock.calls[0] as unknown[];
-    const arg = call[2] as { orgId: string; event: { event: string; siteId: string; tenantId: string } };
+    const arg = call[2] as {
+      orgId: string;
+      event: { event: string; siteId: string; tenantId: string };
+    };
     expect(arg.orgId).toBe('o1');
     expect(arg.event.event).toBe('build.failed');
     expect(arg.event.siteId).toBe('s1');
