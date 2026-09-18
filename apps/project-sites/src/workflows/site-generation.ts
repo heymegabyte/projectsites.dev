@@ -47,6 +47,7 @@ import {
   heroCtasFor,
   heroHeadlineOptions,
   homepageFaq,
+  leadWithBusinessName,
   personaHeroCopy,
   seoDescriptionFor,
   seoTaglineOptions,
@@ -958,9 +959,16 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // AL-361: frames now read naturally for BOTH service and product/retail/food
       // verticals (the old "Expert ${x} in ${city}" mangled retail — "Expert record
       // store in Portland"). heroHeadlineOptions is unit-tested + slop-free.
-      const heroHeadline = persona
+      const rawHeroHeadline = persona
         ? pick([...persona.headlines])
         : pick([...heroHeadlineOptions(catService, cityPhrase)]);
+      // AL-732: lead the H1 with the BUSINESS NAME so it reads as THIS business, not a shared
+      // city/category/persona phrase. The picked headline above is distinctive across cities/
+      // categories but NOT across businesses — every warm diner in Minneapolis otherwise ships the
+      // identical H1 "Minneapolis's cozy corner" (a within-city collision + the #1 recolored-template
+      // tell). The persona phrase keeps its SEO + voice after the em-dash. Guarded (no double-name /
+      // no bare "Business —" / length-bounded) + unit-tested; same existing-wins _content.json seam.
+      const heroHeadline = leadWithBusinessName(params.businessName, rawHeroHeadline);
       // AL-369: seed the SEO_TAGLINE (the <title> "{name} — {tagline}" suffix, city-free —
       // Home.tsx appends "| {city}") business/vertical-specifically. The LAST generic pack-
       // default still shipping on real deliveries: every restaurant got the IDENTICAL colliding

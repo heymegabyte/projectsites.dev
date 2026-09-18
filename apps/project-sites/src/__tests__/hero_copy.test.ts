@@ -5,6 +5,7 @@ import {
   heroHeadlineOptions,
   homepageFaq,
   indefiniteArticle,
+  leadWithBusinessName,
   personaHeroCopy,
   seoDescriptionFor,
   seoTaglineOptions,
@@ -888,5 +889,53 @@ describe('hero_copy — seoDescriptionFor (AL-491: per-commerce-mode homepage me
       // a finance firm must NOT read as legal (the AL-504 wealth→legal defect)
       expect(d).not.toMatch(/legal counsel|attorney|law office/i);
     }
+  });
+});
+
+describe('hero_copy — leadWithBusinessName (AL-732: business-name-led H1, no within-city collision)', () => {
+  it('prepends the business name so the H1 reads as THIS business, keeping the SEO phrase', () => {
+    expect(leadWithBusinessName("Al's Breakfast", "Minneapolis's cozy corner")).toBe(
+      "Al's Breakfast — Minneapolis's cozy corner",
+    );
+    expect(leadWithBusinessName('Perennials', 'The finest florist in Portland')).toBe(
+      'Perennials — The finest florist in Portland',
+    );
+  });
+
+  it('strips a trailing legal suffix from the name (LLC / Inc / Co / Ltd)', () => {
+    expect(leadWithBusinessName('Perennials LLC', 'The finest florist in Portland')).toBe(
+      'Perennials — The finest florist in Portland',
+    );
+    expect(leadWithBusinessName('Vanta Strength, Inc.', "Austin, let's get to work")).toBe(
+      "Vanta Strength — Austin, let's get to work",
+    );
+  });
+
+  it('keeps the plain headline for the generic "Business" fallback or an empty/1-char name', () => {
+    expect(leadWithBusinessName('Business', "Denver's trusted plumber")).toBe(
+      "Denver's trusted plumber",
+    );
+    expect(leadWithBusinessName('', 'Portlands room after dark')).toBe('Portlands room after dark');
+    expect(leadWithBusinessName(null, "Denver's cozy corner")).toBe("Denver's cozy corner");
+    expect(leadWithBusinessName('A', "Denver's cozy corner")).toBe("Denver's cozy corner");
+  });
+
+  it('never double-names when the name already leads the headline', () => {
+    expect(leadWithBusinessName("Al's Breakfast", "Al's Breakfast, always welcoming")).toBe(
+      "Al's Breakfast, always welcoming",
+    );
+  });
+
+  it('keeps the plain headline when leading with the name would blow past a sane H1 length', () => {
+    const longName = 'The Very Long Registered Business Name Of Some Place';
+    const headline = 'The finest artisanal coffee roaster in the Pacific Northwest';
+    expect(leadWithBusinessName(longName, headline)).toBe(headline);
+  });
+
+  it('is stable + pure (no throw) on odd inputs', () => {
+    expect(() => leadWithBusinessName(undefined, '')).not.toThrow();
+    expect(leadWithBusinessName('Ben & Jerry’s', "Vermont's sweet spot")).toBe(
+      "Ben & Jerry’s — Vermont's sweet spot",
+    );
   });
 });

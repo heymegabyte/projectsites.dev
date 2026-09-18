@@ -244,6 +244,57 @@ export function heroHeadlineOptions(catPhrase: string, cityPhrase: string): read
   ];
 }
 
+/**
+ * Lead the hero H1 with the BUSINESS NAME so a seeded headline reads as THIS business, not a shared
+ * city/category/persona phrase. The persona/generic headline is city+category-woven for SEO +
+ * anti-collision, but it is NOT business-specific — so every "warm" diner in Minneapolis otherwise
+ * ships the identical H1 `Minneapolis's cozy corner` (the #1 "recolored template" tell, and a
+ * within-city collision). The `<title>` + `<meta description>` are already business-specific; the
+ * seeded H1 was the last generic surface (`generated-site-hero-h1-is-industry-pack-default`).
+ *
+ * Prepends the cleaned business name + em-dash to the picked headline, keeping the city+category SEO
+ * + persona voice after the dash: `Al's Breakfast — Minneapolis's cozy corner`. Returns the headline
+ * UNCHANGED when the name is absent / the generic `Business` fallback / already leads the headline /
+ * the combined string would exceed a sane hero bound — so it never double-names nor ships `Business —`.
+ *
+ * Pure + deterministic — lands on the same existing-wins `_content.json` seam as HERO_HEADLINE
+ * (`authoritative-signal-immutable-against-unreliable-generator`), so it holds regardless of build
+ * budget (an AI-authored hero, when the build-LLM is funded, still overrides via existing-wins).
+ *
+ * @param businessName - The real business name (`params.businessName`), or the `Business` fallback.
+ * @param headline - The picked persona/generic headline (city+category-woven).
+ * @returns The business-name-led H1, or `headline` unchanged when a guard trips.
+ *
+ * @example
+ * leadWithBusinessName("Al's Breakfast", "Minneapolis's cozy corner")
+ * // → "Al's Breakfast — Minneapolis's cozy corner"
+ * leadWithBusinessName("Business", "Denver's trusted plumber") // → "Denver's trusted plumber"
+ * leadWithBusinessName("Perennials LLC", "The finest florist in Portland")
+ * // → "Perennials — The finest florist in Portland"  (legal suffix stripped)
+ */
+export function leadWithBusinessName(
+  businessName: string | null | undefined,
+  headline: string,
+): string {
+  const h = (headline || '').trim();
+  if (!h) return h;
+  // Strip trailing legal suffixes (LLC / Inc / Co / Ltd / …) + surrounding punctuation, collapse
+  // whitespace, and clamp to a hero-sane length so a verbose registered name never bloats the H1.
+  const name = (businessName || '')
+    .replace(/[,\s]+(?:llc|l\.l\.c\.|inc\.?|incorporated|co\.?|corp\.?|ltd\.?|company|pllc|lp|llp)\.?$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 42)
+    .trim();
+  // Guards: no real name / the generic `Business` fallback → keep the headline; the name already
+  // leads the headline (case-insensitive) → keep (never double-name).
+  if (name.length < 2 || /^business$/i.test(name)) return h;
+  if (h.toLowerCase().startsWith(name.toLowerCase())) return h;
+  const combined = `${name} — ${h}`;
+  // Keep the plain headline if leading with the name would blow past a sane H1 length.
+  return combined.length > 72 ? h : combined;
+}
+
 /** Voice-matched hero copy for one visual personality: headline + subheadline candidates. */
 export interface PersonaHeroCopy {
   readonly headlines: readonly string[];
