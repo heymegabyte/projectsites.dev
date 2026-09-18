@@ -54,8 +54,7 @@ const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
  * this only ADDS the separated-phone forms — no new over-matching.
  * @internal
  */
-const PHONE_REGEX =
-  /(?:\+\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b|\+?[1-9]\d{6,14}/g;
+const PHONE_REGEX = /(?:\+\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b|\+?[1-9]\d{6,14}/g;
 
 /**
  * Pattern matching well-known API token / secret formats across the providers
