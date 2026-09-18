@@ -811,6 +811,13 @@ export const validateBrandNameMatch = (
     const norm = (x: string) =>
       x
         .toLowerCase()
+        // COLLAPSE apostrophes/quotes (don't split on them): a possessive business name like
+        // "Randy's Donuts" renders in the title as "Randys Donuts" (the title-gen drops the
+        // punctuation), so the ' must vanish — NOT become a space. The old `[^a-z0-9]+ → ' '`
+        // turned "randy's" into "randy s" (two tokens) which no longer matched "randys",
+        // failing the brand gate for EVERY possessive name (Randy's/Mike's/Denny's/…) whose
+        // OSM/Places name carries a curly ' — it refused to publish an otherwise-correct site.
+        .replace(/['’‘ʼ`]/g, '')
         .replace(/[^a-z0-9]+/g, ' ')
         .trim();
     const tNorm = norm(t);

@@ -44,6 +44,14 @@ const NUMERIC_CITY_IN_SERVING = /serving\s+\d{3,6}\b/i; // "Proudly serving 9410
 // pipe ("… | 70130", the homepage Home.tsx `{name} | {city}` local-SEO append). Both are the
 // street-number/ZIP-as-city leak; the homepage-title pipe variant slipped past a middot-only match.
 const NUMERIC_CITY_IN_TITLE = /[·|]\s*\d{3,6}\b/;
+// The numeric checks catch a street-number/ZIP leak — but a VERBOSE OSM display_name can also leak
+// an ALPHABETIC-but-wrong field as the "city": the COUNTY/administrative level that sits between the
+// city and the state ("…, Inglewood, Los Angeles County, California, 90301, …" — the randys-donuts
+// delivery). If a consumer's parser dropped one level too few, it would show "Serving Los Angeles
+// County & nearby" — grammatically fine, numerically clean, but the WRONG place. cityFromAddress's
+// ADMIN loop drops these; this asserts none slipped through into a live SEO surface. A real city is
+// a place name, never an administrative container. (AL-749 — motivated by the OSM county wrinkle.)
+const CITY_IS_ADMIN = /\b(county|parish|borough|census|township|prefecture|community board)\b/i;
 
 const browser = await chromium.launch();
 const rows = [];
@@ -68,11 +76,19 @@ try {
     });
     check(`${slug} · homepage service-area city is alphabetic`, !NUMERIC_CITY_IN_SERVING.test(`serving ${home.serving} `),
       home.serving ? `serving "${home.serving}"` : '(no service-area line)');
+    // …AND is a real place, not the county/administrative level (the OSM verbose-address wrinkle).
+    if (home.serving)
+      check(`${slug} · homepage service-area city is a place, not a county/admin`, !CITY_IS_ADMIN.test(home.serving),
+        CITY_IS_ADMIN.test(home.serving) ? `LEAKED admin name: "${home.serving}"` : `serving "${home.serving}"`);
     // The homepage <title> gets a `| {city}` local-SEO append (Home.tsx) — must not be a ZIP.
     check(`${slug} · homepage <title> city is alphabetic`, !NUMERIC_CITY_IN_TITLE.test(home.title),
       NUMERIC_CITY_IN_TITLE.test(home.title) ? `title="${home.title}"` : 'ok');
-    // TrustBar "Serving {city} & nearby" strip — must not be a ZIP.
-    if (home.trust) check(`${slug} · trust-strip city is alphabetic`, !/^\d{3,6}$/.test(home.trust), `trust="${home.trust}"`);
+    // TrustBar "Serving {city} & nearby" strip — must not be a ZIP nor a county/admin name.
+    if (home.trust) {
+      check(`${slug} · trust-strip city is alphabetic`, !/^\d{3,6}$/.test(home.trust), `trust="${home.trust}"`);
+      check(`${slug} · trust-strip city is a place, not a county/admin`, !CITY_IS_ADMIN.test(home.trust),
+        CITY_IS_ADMIN.test(home.trust) ? `LEAKED admin name: "${home.trust}"` : `trust="${home.trust}"`);
+    }
 
     // Each sub-page: <title> + <meta description> must not carry a numeric "city".
     for (const path of SUBROUTES) {
@@ -98,7 +114,7 @@ await browser.close();
 for (const r of rows) console.log(`  ${r.ok ? '✓' : '✗'} ${r.label.padEnd(60)} ${r.detail}`);
 console.log(
   fails
-    ? `\nVERDICT: ❌ FAIL — ${fails} numeric-city (street-number/ZIP) leak(s) in SEO title/meta/service-area. Root fix (AL-736 cityFromAddress) lands on the site's next build.`
-    : `\nVERDICT: ✅ PASS — every audited site derives a real ALPHABETIC city (no street-number/ZIP leak) in its title, meta, and service-area line.`,
+    ? `\nVERDICT: ❌ FAIL — ${fails} wrong-city leak(s) — a street-number/ZIP OR a county/admin name — in SEO title/meta/service-area. Root fix (AL-736 cityFromAddress ADMIN-drop) lands on the site's next build.`
+    : `\nVERDICT: ✅ PASS — every audited site derives a real city (alphabetic, not a ZIP, not a county/admin container) in its title, meta, and service-area line.`,
 );
 process.exit(fails ? 1 : 0);

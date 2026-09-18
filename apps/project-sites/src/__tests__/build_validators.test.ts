@@ -1220,6 +1220,35 @@ describe('validateBrandNameMatch (invented-name class, 2026-08-19)', () => {
   it('is a no-op without an expected name (backward compatible)', () => {
     expect(validateBrandNameMatch(files)).toEqual([]);
   });
+
+  // AL-749 — a POSSESSIVE business name (the OSM/Places name carries a curly apostrophe
+  // "Randy’s Donuts") renders in the title with the apostrophe dropped ("Randys Donuts").
+  // The old normalizer turned "randy's" → "randy s" (split on the '), which no longer matched
+  // "randys" → brand gate refused to publish an otherwise-correct site. This asserts the
+  // apostrophe COLLAPSES so the possessive form matches the stripped title. RED before the fix.
+  it("accepts a possessive name whose title drops the apostrophe (Randy's ≡ Randys)", () => {
+    const ok = validateBrandNameMatch(
+      [{ path: 'index.html', size: 100, text: '<title>Randys Donuts — Your neighborhood bakery | Inglewood</title>' }],
+      'Randy’s Donuts', // curly apostrophe, exactly as OSM/Places returns it
+    );
+    expect(ok).toEqual([]);
+  });
+
+  it("accepts a straight-apostrophe possessive too (Mike's ≡ Mikes)", () => {
+    const ok = validateBrandNameMatch(
+      [{ path: 'index.html', size: 100, text: "<title>Mikes Pizza — Wood-Fired | Trenton</title>" }],
+      "Mike's Pizza",
+    );
+    expect(ok).toEqual([]);
+  });
+
+  it('still flags a genuinely different invented name (the gate is not weakened)', () => {
+    const v = validateBrandNameMatch(
+      [{ path: 'index.html', size: 100, text: '<title>Hearth & Crumb — Artisan Bakery</title>' }],
+      "Randy's Donuts",
+    );
+    expect(v.some((x) => x.code === 'brand.name_mismatch')).toBe(true);
+  });
 });
 
 describe('repairDoubleDotCanonical', () => {
