@@ -330,10 +330,24 @@ export function cityFromAddress(address: string | null | undefined): string {
   const POSTCODE = /^(?:[A-Za-z]{2}\s+)?\d{4,6}(?:-\d{4})?$|^[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d$/;
   const ADMIN =
     /\b(county|community board|borough|district|province|parish|census|metropolitan|greater|region|township|prefecture)\b/i;
+  // Full US state / DC / common CA-province names — OSM display_names spell the state out
+  // ("…, San Francisco, California, 94110, …"), so the ZIP-only drop left "California" as the city.
+  const STATE =
+    /^(alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|wisconsin|wyoming|district of columbia|ontario|quebec|british columbia|alberta|manitoba|saskatchewan|nova scotia|new brunswick)$/i;
+  // A street line (house number / road suffix) — the field BEFORE a candidate state in a COMPACT
+  // "179 E Houston St, New York, NY 10002" address, where "New York" is the CITY not the state.
+  const STREETISH =
+    /\d|\b(st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|ln|lane|way|ct|court|pl|place|hwy|highway|pkwy|suite|ste|fl|floor|unit)\b/i;
   let i = parts.length - 1;
+  // Drop trailing country + postcode.
   while (i >= 0 && (COUNTRY.test(parts[i]!) || POSTCODE.test(parts[i]!))) i--;
-  while (i >= 0 && ADMIN.test(parts[i]!)) i--; // skip administrative-area names ("New York County")
-  if (i >= 0 && /^[A-Za-z]{2}$/.test(parts[i]!)) i--; // skip a bare 2-letter state code
+  // Drop a trailing full-state / bare-2-letter-state — but ONLY when the field before it is another
+  // locality (not the street line): a verbose "…, San Francisco, California, …" drops the STATE to
+  // reveal "San Francisco", while a compact "…St, New York, NY 10002" KEEPS the CITY "New York"
+  // (its predecessor is the street, so "New York" here is the city, not the state).
+  if (i >= 1 && (STATE.test(parts[i]!) || /^[A-Za-z]{2}$/.test(parts[i]!)) && !STREETISH.test(parts[i - 1]!)) i--;
+  // Drop administrative-area names between the state and the city ("Travis County", "New York County").
+  while (i >= 1 && ADMIN.test(parts[i]!)) i--;
   const city = i >= 0 ? parts[i]! : '';
   if (city && /[A-Za-z]{2,}/.test(city) && !/^\d+$/.test(city)) return city;
   return parts[parts.length - 2] || 'your community';

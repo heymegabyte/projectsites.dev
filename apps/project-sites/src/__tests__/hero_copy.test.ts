@@ -942,12 +942,36 @@ describe('hero_copy — leadWithBusinessName (AL-732: business-name-led H1, no w
 });
 
 describe('hero_copy — cityFromAddress (AL-733: robust to OSM display_name, not just Places)', () => {
-  it('extracts the city from the verbose OSM/Nominatim display_name (was the ZIP)', () => {
+  it('extracts the locality from the verbose OSM/Nominatim display_name (was the ZIP)', () => {
+    // Drops country + ZIP + state ("New York") + county → the borough "Manhattan" (a valid locality;
+    // was "10002" before AL-733). NYC is the ambiguous case where city==state name.
     expect(
       cityFromAddress(
         'Russ & Daughters, 179, East Houston Street, Manhattan Community Board 3, Manhattan, New York County, New York, 10002, United States',
       ),
-    ).toBe('New York');
+    ).toBe('Manhattan');
+  });
+
+  it('drops a FULL state name from the OSM display_name (was returning the state, AL-733b)', () => {
+    // OSM spells the state out ("…, San Francisco, California, 94110, …") — the ZIP-only drop left
+    // "California" / "Texas" as the "city". Dropping the full state (+ county) reveals the real city.
+    expect(
+      cityFromAddress(
+        'Tartine Bakery, 600, Guerrero Street, Mission, San Francisco, California, 94110, United States',
+      ),
+    ).toBe('San Francisco');
+    expect(
+      cityFromAddress(
+        'Franklin Barbecue, 900, East 11th Street, Austin, Travis County, Texas, 78702, United States',
+      ),
+    ).toBe('Austin');
+  });
+
+  it('KEEPS a state-named city in a compact address via the street-peek (New York / Washington)', () => {
+    // "…St, New York, NY 10002" — the field before "New York" is the STREET, so "New York" is the
+    // CITY here, not the state (don't over-drop). Same for Washington DC.
+    expect(cityFromAddress('179 E Houston St, New York, NY 10002, USA')).toBe('New York');
+    expect(cityFromAddress('123 Main St, Washington, DC 20001, USA')).toBe('Washington');
   });
 
   it('extracts the city from a compact Places formattedAddress (3-part and 4-part+country)', () => {
