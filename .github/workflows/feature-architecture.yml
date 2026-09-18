@@ -157,6 +157,42 @@ jobs:
         working-directory: apps/project-sites
         run: node scripts/check-orphan-flag-gates.mjs
 
+      # Admin-contract drift gate — cross-checks the admin section SSOT
+      # (e2e/admin-verify/admin-contract.mjs) against the live Angular route tree
+      # (frontend/src/app/app.routes.ts) + the label map. Fails on UNCOVERED (a live
+      # /admin/* component route with no contract row → ships with zero convergence
+      # coverage: the exact "routed+mounted ≠ reachable" / "advertised-orphan" drift the
+      # contract exists to kill), STALE (row points at a dead route), or ALIAS_DRIFT (an
+      # alias row's redirect vanished). The script's own docstring mandated "wire into CI
+      # + lefthook" but it had never been wired anywhere — the SSOT could silently drift.
+      # 0-finding-stable (46 routes ⇄ 44 rows, verified red-on-injected-drift) → blocking
+      # gate. Pure Node, no deps. Mirrors npm run check:admin-contract.
+      - name: Admin-contract drift gate
+        working-directory: apps/project-sites
+        run: node scripts/validate-admin-contract.mjs
+
+      # Three sibling drift gates that shipped with unit tests (test:scripts) + npm
+      # scripts but were never wired into any gate chain — the exact same orphaned-gate
+      # class as the admin-contract gate above (found by the same-class sweep the turn
+      # admin-contract was wired). Each is 0-finding-stable, caps a real incident arc,
+      # and now blocks CI. Pure Node, no deps. Mirror npm run check:{status-sweep,
+      # system-org-seed,trialing-drift}.
+      #   • status-sweep    — every status sweep with a terminal write has a grace/retry
+      #     guard (caps premature-terminal-status-strands-rows).
+      #   • system-org-seed — every 'system' sentinel FK call-site has a seeded system org.
+      #   • trialing-drift  — no active-only plan gate excludes trialing subs (entitlement).
+      - name: Status-sweep no-retry gate
+        working-directory: apps/project-sites
+        run: node scripts/check-status-sweep-no-retry.mjs
+
+      - name: System-org sentinel-seed gate
+        working-directory: apps/project-sites
+        run: node scripts/check-system-org-seed.mjs
+
+      - name: Trialing-entitlement drift gate
+        working-directory: apps/project-sites
+        run: node scripts/check-trialing-drift.mjs
+
       # Unchecked-dbInsert ingestion gate — every dbInsert() into a user-generated
       # INGESTION table (contacts / form_submissions / donations / orders / voice_* /
       # pulse_posts / leads …) MUST capture the returned `{ error }` and surface it,
