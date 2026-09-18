@@ -281,7 +281,10 @@ export function leadWithBusinessName(
   // Strip trailing legal suffixes (LLC / Inc / Co / Ltd / …) + surrounding punctuation, collapse
   // whitespace, and clamp to a hero-sane length so a verbose registered name never bloats the H1.
   const name = (businessName || '')
-    .replace(/[,\s]+(?:llc|l\.l\.c\.|inc\.?|incorporated|co\.?|corp\.?|ltd\.?|company|pllc|lp|llp)\.?$/i, '')
+    .replace(
+      /[,\s]+(?:llc|l\.l\.c\.|inc\.?|incorporated|co\.?|corp\.?|ltd\.?|company|pllc|lp|llp)\.?$/i,
+      '',
+    )
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 42)
