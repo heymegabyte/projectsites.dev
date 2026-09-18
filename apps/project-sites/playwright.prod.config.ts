@@ -77,7 +77,7 @@ export default defineConfig({
     'admin/deliverability.spec.ts', // email_deliverability_wizard evidence
     'site-mcp/site-mcp.spec.ts', // site_mcp_server evidence
     'pseo/pseo-matrix.spec.ts', // pseo_matrix_v2 evidence
-    'media-video-studio.spec.ts', // site_video_gen evidence (editor-overlay path)
+    'media/media-coverage.spec.ts', // media API surface (MEDIA-07/08/09) — the Media Library admin UI was removed (/admin/media → admin-404); media survives as the API + media:write token scope. Replaces phantom media-video-studio.spec.ts (never authored).
     // ── Residual-admin triage (2026-07-31) — the remaining 19 unexecuting
     //    e2e/admin twins were audited against frontend routes: 14 DELETED
     //    (covered by admin-*-journey / admin-dashboard / webhook + site-mcp

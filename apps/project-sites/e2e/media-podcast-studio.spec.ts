@@ -119,7 +119,10 @@ async function navigateToPodcastStudio(page: Page): Promise<void> {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-test.describe('Media — Podcast Studio tab', () => {
+// SKIPPED — the Media Library admin UI was REMOVED (/admin/media renders admin-404,
+// zero components/testids). This spec is mock-based against that dead route. The
+// surviving media surface is the API, covered live in e2e/media/media-coverage.spec.ts.
+test.describe.skip('Media — Podcast Studio tab', () => {
   test('Generate button enables only after a segment has text content', async ({ page }) => {
     await stubAuth(page);
     await stubPodcastGenerate(page);

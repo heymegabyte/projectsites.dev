@@ -117,7 +117,10 @@ async function navigateToMediaLibrary(page: Page): Promise<void> {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-test.describe('Media Library — Send to Editor', () => {
+// SKIPPED — the Media Library admin UI was REMOVED (/admin/media renders admin-404,
+// zero components/testids). This spec is mock-based against that dead route. The
+// surviving media surface is the API, covered live in e2e/media/media-coverage.spec.ts.
+test.describe.skip('Media Library — Send to Editor', () => {
   test('hovering an asset reveals "Send to Editor" button', async ({ page }) => {
     await stubAuth(page);
 

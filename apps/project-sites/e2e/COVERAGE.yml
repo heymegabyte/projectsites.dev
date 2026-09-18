@@ -70,12 +70,19 @@ editor:
   inline_editing:   { status: covered, specs: [inline-editing.spec.ts] }
 
 media:
-  library:          { status: covered, specs: [media-library.spec.ts] }
-  stock_search:     { status: covered, specs: [media-stock-search.spec.ts] }
-  image_studio:     { status: covered, specs: [media-image-studio.spec.ts] }
-  podcast_studio:   { status: covered, specs: [media-podcast-studio.spec.ts] }
-  drop_zone:        { status: covered, specs: [media-drop-zone.spec.ts] }
-  send_to_bolt:     { status: covered, specs: [media-send-to-bolt.spec.ts] }
+  # The Media Library ADMIN UI was removed (/admin/media → admin-404: no
+  # component/route/testid, see admin-verify/admin-surf-audit.mjs). Media survives
+  # as the API — covered live by media/media-coverage.spec.ts (MEDIA-07/08/09). The
+  # 6 UI specs below target the dead route via mocks; they are test.describe.skip-ed
+  # (kept, not deleted, per e2e-accumulation) and still referenced here so the
+  # inventory validator stays green.
+  api:              { status: covered, specs: [media/media-coverage.spec.ts] }
+  library:          { status: skipped, specs: [media-library.spec.ts] }        # removed UI
+  stock_search:     { status: skipped, specs: [media-stock-search.spec.ts] }   # removed UI
+  image_studio:     { status: skipped, specs: [media-image-studio.spec.ts] }   # removed UI
+  podcast_studio:   { status: skipped, specs: [media-podcast-studio.spec.ts] } # removed UI
+  drop_zone:        { status: skipped, specs: [media-drop-zone.spec.ts] }      # removed UI
+  send_to_bolt:     { status: skipped, specs: [media-send-to-bolt.spec.ts] }   # removed UI
 
 env_vars:
   manager:          { status: covered, specs: [env-vars-manager.spec.ts] }

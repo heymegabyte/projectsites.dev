@@ -118,7 +118,10 @@ async function navigateToStockSearch(page: Page): Promise<void> {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-test.describe('Media — Stock Search tab', () => {
+// SKIPPED — the Media Library admin UI was REMOVED (/admin/media renders admin-404,
+// zero components/testids). This spec is mock-based against that dead route. The
+// surviving media surface is the API, covered live in e2e/media/media-coverage.spec.ts.
+test.describe.skip('Media — Stock Search tab', () => {
   test('shows ≥1 result card after searching when API keys are configured', async ({ page }) => {
     await stubAuth(page);
     await stubStockResults(page);

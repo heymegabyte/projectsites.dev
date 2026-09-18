@@ -152,7 +152,10 @@ async function fireDrop(page: Page): Promise<void> {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-test.describe('Media — Global drop zone overlay', () => {
+// SKIPPED — the Media Library admin UI was REMOVED (/admin/media renders admin-404,
+// zero components/testids). This spec is mock-based against that dead route. The
+// surviving media surface is the API, covered live in e2e/media/media-coverage.spec.ts.
+test.describe.skip('Media — Global drop zone overlay', () => {
   test('dragenter over window shows fullscreen overlay', async ({ page }) => {
     await stubAuth(page);
 

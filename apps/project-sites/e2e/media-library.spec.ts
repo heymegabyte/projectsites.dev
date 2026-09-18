@@ -118,7 +118,10 @@ async function stubLibraryWithUpload(page: Page): Promise<{ uploads: Request[] }
 
 // ─── Main test suite ──────────────────────────────────────────────────────────
 
-test.describe('Media Library', () => {
+// SKIPPED — the Media Library admin UI was REMOVED (/admin/media renders admin-404,
+// zero components/testids). This spec is mock-based against that dead route. The
+// surviving media surface is the API, covered live in e2e/media/media-coverage.spec.ts.
+test.describe.skip('Media Library', () => {
   test.beforeEach(async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on('console', (msg) => {

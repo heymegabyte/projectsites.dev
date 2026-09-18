@@ -12,26 +12,10 @@
 
 | Feature | Spec | Owner | Status | Notes |
 |---------|------|-------|--------|-------|
-| Media Library — empty/populated grid | `media-library.spec.ts` | test-writer | TDD-RED | Upload via header button, toast, asset appears |
-| Media Library — 6-breakpoint layout | `media-library.spec.ts` | test-writer | TDD-RED | No horizontal overflow at 375–1920 |
-| Media Stock Search — results | `media-stock-search.spec.ts` | test-writer | TDD-RED | ≥1 card when API keys configured |
-| Media Stock Search — missing key state | `media-stock-search.spec.ts` | test-writer | TDD-RED | Deeplink empty state when 401 |
-| Media Stock Search — Save to Library | `media-stock-search.spec.ts` | test-writer | TDD-RED | Card transitions to saved state |
-| Media Image Studio — Generate happy path | `media-image-studio.spec.ts` | test-writer | TDD-RED | Spinner + result image |
-| Media Image Studio — graceful 502 error | `media-image-studio.spec.ts` | test-writer | TDD-RED | Toast surfaced, no crash |
-| Media Image Studio — button disabled in-flight | `media-image-studio.spec.ts` | test-writer | TDD-RED | Button disabled while generating |
-| Media Video Studio — model toggle + queue notice | `media-video-studio.spec.ts` | test-writer | TDD-RED | Sora/Veo toggle visible |
-| Media Video Studio — queued row with model chip | `media-video-studio.spec.ts` | test-writer | TDD-RED | Asset row + chip after Generate |
-| Media Video Studio — Veo model chip | `media-video-studio.spec.ts` | test-writer | TDD-RED | Chip reflects selected model |
-| Media Podcast Studio — Generate button enables | `media-podcast-studio.spec.ts` | test-writer | TDD-RED | Disabled until segment has text |
-| Media Podcast Studio — audio player or error toast | `media-podcast-studio.spec.ts` | test-writer | TDD-RED | Either audio or friendly error |
-| Media Podcast Studio — missing ELEVENLABS_API_KEY | `media-podcast-studio.spec.ts` | test-writer | TDD-RED | 503 → friendly toast |
-| Media Drop Zone — dragenter shows overlay | `media-drop-zone.spec.ts` | test-writer | TDD-RED | Fullscreen overlay on drag |
-| Media Drop Zone — drop navigates + new asset | `media-drop-zone.spec.ts` | test-writer | TDD-RED | Nav to /admin/media + asset |
-| Media Drop Zone — dragleave dismisses overlay | `media-drop-zone.spec.ts` | test-writer | TDD-RED | Overlay hides, no nav |
-| Media Send to Editor — hover reveals button | `media-send-to-bolt.spec.ts` | test-writer | TDD-RED | Button visible on hover |
-| Media Send to Editor — toast + postMessage | `media-send-to-bolt.spec.ts` | test-writer | TDD-RED | Toast + PS_MEDIA_ATTACH dispatched |
-| Media Send to Editor — keyboard accessible | `media-send-to-bolt.spec.ts` | test-writer | TDD-RED | Tab + Enter fires action |
+| Media API — soft-delete gate | `media/media-coverage.spec.ts` | test-writer | GREEN | MEDIA-07 — unauth reject, authed nonexistent→404, fake-delete never drops real assets (verified live on prod) |
+| Media API — list auth gate | `media/media-coverage.spec.ts` | test-writer | GREEN | MEDIA-08 — unauth reject, authed→200 + `assets[]` envelope (verified live on prod) |
+| Media API — write endpoints reject unauth | `media/media-coverage.spec.ts` | test-writer | GREEN | MEDIA-09 — stock-search / generate-image / upload all reject unauthenticated callers |
+| Media Library **admin UI** (grid · stock · image · podcast · drop-zone · send-to-editor) | `media-*.spec.ts` _(skipped)_ | — | SKIP | **REMOVED** — `/admin/media` renders admin-404 (no component/route/testid; see `admin-verify/admin-surf-audit.mjs`). The 6 mock-based UI specs are `test.describe.skip`-ed → pointer to `media/media-coverage.spec.ts`. Media survives as the API (above) + the `media:write` token scope (`api-tokens.component.spec.ts`). Phantom `media-video-studio.spec.ts` was never authored — ref removed from FEATURES + prod testMatch. |
 | Env Vars Manager — add row with masked value | `env-vars-manager.spec.ts` | test-writer | TDD-RED | Last 4 chars visible, full secret hidden |
 | Env Vars Manager — delete row disappears | `env-vars-manager.spec.ts` | test-writer | TDD-RED | Optimistic removal |
 | Env Vars Manager — masking invariant | `env-vars-manager.spec.ts` | test-writer | TDD-RED | Full value never in DOM |
