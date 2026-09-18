@@ -106,3 +106,41 @@ describe('redact() — provider secret formats', () => {
     expect(JSON.stringify(out)).not.toContain('@example.com');
   });
 });
+
+/**
+ * redact() — phone formats (AL-783). The old `PHONE_REGEX` matched only CONTIGUOUS
+ * digit runs, so every FORMATTED phone an owner/contact actually writes leaked
+ * verbatim into logs/Sentry/PostHog. Positive cases must redact; the benign block
+ * guards validator-precision — separated NON-phone numbers must NOT over-redact.
+ */
+describe('redact() — phone formats', () => {
+  const phones: Array<[string, string]> = [
+    ['NANP parens + space + hyphen', '(415) 555-1234'],
+    ['+CC with parens', '+1 (415) 555-0123'],
+    ['dot-separated', '415.555.0123'],
+    ['hyphen-separated', '415-555-1234'],
+    ['+CC space-separated', '+1 415 555 1234'],
+    ['contiguous E.164', '+14155550123'],
+  ];
+  for (const [name, phone] of phones) {
+    it(`redacts a ${name} phone (was leaking pre-AL-783)`, () => {
+      const out = redact(`reach us at ${phone} anytime`);
+      expect(out).toContain('[REDACTED_PHONE]');
+      expect(out).not.toContain('555'); // no partial-digit leak
+    });
+  }
+
+  const benign: Array<[string, string]> = [
+    ['ISO date', 'shipped on 2026-09-18'],
+    ['price with comma', 'total is 1,234.56 USD'],
+    ['IPv4 address', 'host 192.168.1.1 responded'],
+    ['ZIP+4', 'zip 12345-6789 verified'],
+    ['short order id', 'order 4271 confirmed'],
+    ['duration', 'built in 4 minutes'],
+  ];
+  for (const [name, text] of benign) {
+    it(`does NOT over-redact a ${name}`, () => {
+      expect(redact(text)).toBe(text);
+    });
+  }
+});

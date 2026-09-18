@@ -36,10 +36,26 @@
  */
 const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 /**
- * Pattern matching international phone numbers (E.164-ish, 7-15 digits).
+ * Pattern matching phone numbers in BOTH the raw E.164/contiguous form AND the
+ * common FORMATTED forms the old `/\+?[1-9]\d{6,14}/` missed entirely — a real
+ * PII-leak gap, since owners/contacts write phones as `(415) 555-1234`,
+ * `+1 (415) 555-0123`, `415.555.0123`, or `415-555-1234`, never as 10 bare digits.
+ *
+ * Two alternatives (formatted FIRST so a separated phone matches as one unit):
+ *   1. NANP-style 3-3-4 core with an optional `+CC` prefix and `(area)` parens,
+ *      separated by space / dot / hyphen: `(?:\+\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}`.
+ *   2. Contiguous E.164-ish 7-15 digit run (unchanged): `\+?[1-9]\d{6,14}`.
+ *
+ * Validator-precision (prefer NOT over-redacting benign numbers): the 3-3-4 core
+ * requires a trailing 4-digit group, so it does NOT match dates (`2026-09-18`),
+ * prices (`1,234.56` — comma isn't a separator), IP octets (`192.168.1.1` — no
+ * 4-digit final group), version strings, or ZIP+4 (`12345-6789`). Any benign
+ * 10-digit CONTIGUOUS run was already redacted by the old contiguous branch, so
+ * this only ADDS the separated-phone forms — no new over-matching.
  * @internal
  */
-const PHONE_REGEX = /\+?[1-9]\d{6,14}/g;
+const PHONE_REGEX =
+  /(?:\+\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b|\+?[1-9]\d{6,14}/g;
 
 /**
  * Pattern matching well-known API token / secret formats across the providers
