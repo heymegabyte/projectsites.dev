@@ -776,7 +776,8 @@ export async function callExternalLLM(
   // kimi/claude model name to a standard vendor.
   const usablePrimary = toRoutableProvider(env, primary);
   // Fallback is always the OTHER standard vendor (openai↔anthropic; deepseek→openai).
-  const fallback: 'openai' | 'anthropic' | 'deepseek' = usablePrimary === 'openai' ? 'anthropic' : 'openai';
+  const fallback: 'openai' | 'anthropic' | 'deepseek' =
+    usablePrimary === 'openai' ? 'anthropic' : 'openai';
 
   const providers: Array<'openai' | 'anthropic' | 'deepseek'> = [usablePrimary, fallback];
 

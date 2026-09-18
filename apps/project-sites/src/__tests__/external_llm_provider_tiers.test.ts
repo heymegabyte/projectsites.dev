@@ -117,7 +117,11 @@ describe('toRoutableProvider — kimi/fable never strand a usable standard key (
   });
 
   it('prefers openai for a collapsed kimi/fable when an OpenAI key is present', () => {
-    const env = makeEnv({ FABLE_API_KEY: 'sk-fable', OPENAI_API_KEY: 'sk-oa', DEEPSEEK_API_KEY: 'sk-ds' });
+    const env = makeEnv({
+      FABLE_API_KEY: 'sk-fable',
+      OPENAI_API_KEY: 'sk-oa',
+      DEEPSEEK_API_KEY: 'sk-ds',
+    });
     expect(toRoutableProvider(env as never, 'fable')).toBe('openai');
   });
 
