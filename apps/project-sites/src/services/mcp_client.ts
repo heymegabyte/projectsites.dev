@@ -439,7 +439,10 @@ function pasteKeyAdapter(opts: {
       try {
         ep = opts.endpoint({ ...args, _token: accessToken });
       } catch (e) {
-        return { ok: false, error: e instanceof Error ? e.message : `${opts.provider} bad request` };
+        return {
+          ok: false,
+          error: e instanceof Error ? e.message : `${opts.provider} bad request`,
+        };
       }
       const { url, init } = ep;
       const headers = (init.headers as Record<string, string>) ?? {};
