@@ -1092,7 +1092,20 @@ async function callAnthropicWithVision(
   let mediaType = 'image/png';
 
   if (!base64Data && options.imageUrl) {
-    const imgRes = await fetch(options.imageUrl);
+    // Bound the image fetch with the same AbortController pattern every LLM call in this file
+    // uses (callOpenAI/callAnthropic) — a bare fetch() has no timeout on Workers, so a slow or
+    // unresponsive image host (dead CDN, stalled signed-URL proxy) would hang the whole vision
+    // call INDEFINITELY. withRetry only bounds retry COUNT, not per-attempt duration, so the hang
+    // is never caught — it stalls until the platform wall-clock kills the isolate, breaking the
+    // fail-soft contract the rest of this file upholds. 30s is generous for an image download.
+    const imgController = new AbortController();
+    const imgTimeout = setTimeout(() => imgController.abort(), 30_000);
+    let imgRes: Response;
+    try {
+      imgRes = await fetch(options.imageUrl, { signal: imgController.signal });
+    } finally {
+      clearTimeout(imgTimeout);
+    }
     if (!imgRes.ok) {
       throw new Error(`Failed to fetch image for Anthropic vision: ${imgRes.status}`);
     }

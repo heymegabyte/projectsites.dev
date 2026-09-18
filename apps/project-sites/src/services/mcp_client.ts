@@ -432,7 +432,16 @@ function pasteKeyAdapter(opts: {
     },
     async execute(_env, { tool, args, accessToken }) {
       if (tool !== opts.tool.name) return { ok: false, error: 'unknown tool' };
-      const { url, init } = opts.endpoint({ ...args, _token: accessToken });
+      // A paste-key adapter's endpoint() may THROW a clear validation error (e.g. a malformed
+      // ACCOUNT_SID:AUTH_TOKEN). Surface it as a typed tool failure instead of an uncaught crash
+      // or an opaque downstream 401 — guides the owner to fix the paste-key at connect time.
+      let ep: { url: string; init: RequestInit };
+      try {
+        ep = opts.endpoint({ ...args, _token: accessToken });
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : `${opts.provider} bad request` };
+      }
+      const { url, init } = ep;
       const headers = (init.headers as Record<string, string>) ?? {};
       headers['Authorization'] = headers['Authorization'] ?? `Bearer ${accessToken}`;
       const res = await fetch(url, { ...init, headers });
@@ -640,6 +649,12 @@ const twilio: ProviderAdapter = pasteKeyAdapter({
   endpoint: (args) => {
     const token = String(args['_token']);
     const [sid, key] = token.split(':');
+    // The paste-key is ACCOUNT_SID:AUTH_TOKEN. A common mistake is pasting only the auth token
+    // (no colon) → key===undefined → btoa('sid:undefined') → an opaque Twilio 401 with no hint.
+    // Fail LOUD + clear here (the generic executor catches this → typed tool error).
+    if (!sid || !key) {
+      throw new Error('Twilio paste-key must be ACCOUNT_SID:AUTH_TOKEN (colon-separated).');
+    }
     return {
       url: `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
       init: {

@@ -588,6 +588,38 @@ describe('callExternalLLMWithVision', () => {
     expect(imgBlock.source).toEqual({ type: 'base64', media_type: 'image/png', data: 'QkFTRTY0' });
   });
 
+  it('bounds the Anthropic imageUrl download with an AbortSignal (timeout — never a bare hang) [AL-748]', async () => {
+    // The Anthropic-vision path fetches imageUrl via global.fetch to base64 it. A bare fetch()
+    // has no timeout on Workers → a slow/dead image host would hang the whole vision call
+    // indefinitely (withRetry bounds retry COUNT, not per-attempt duration). This asserts the
+    // download carries the same AbortController signal every LLM call in the file uses. RED
+    // before the fix (bare fetch, no signal).
+    mockGatewayFetch.mockResolvedValueOnce(gwOk(anthropicBody('claude-saw-url-image')));
+    const imgFetch = jest.fn(async () => ({
+      ok: true,
+      headers: { get: () => 'image/png' },
+      arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer,
+    }));
+    const origFetch = globalThis.fetch;
+    (globalThis as unknown as { fetch: unknown }).fetch = imgFetch;
+    try {
+      const res = await callExternalLLMWithVision(makeEnv(), {
+        system: 's',
+        user: 'describe',
+        provider: 'anthropic',
+        imageUrl: 'https://example.com/shot.png',
+      });
+      expect(res.provider).toBe('anthropic');
+      expect(res.output).toBe('claude-saw-url-image');
+      expect(imgFetch).toHaveBeenCalledTimes(1);
+      const [url, init] = imgFetch.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe('https://example.com/shot.png');
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      (globalThis as unknown as { fetch: unknown }).fetch = origFetch;
+    }
+  });
+
   it('throws when no vision provider key is configured', async () => {
     const env = makeEnv({ OPENAI_API_KEY: undefined, ANTHROPIC_API_KEY: undefined });
     await expect(

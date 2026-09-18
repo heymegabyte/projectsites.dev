@@ -246,3 +246,48 @@ describe('executeTool — dispatch', () => {
     expect(res.error).toContain('no connected provider');
   });
 });
+
+describe('twilio paste-key validation (AL-748)', () => {
+  it('rejects a paste-key without a colon with a clear error — never btoa("sid:undefined")→opaque 401', async () => {
+    const twilio = getAdapter('twilio');
+    expect(twilio).toBeDefined();
+    // A common owner mistake: pasting only the AUTH_TOKEN (no ACCOUNT_SID:). Before AL-748 this
+    // became btoa('token:undefined') → an opaque Twilio 401. Now the endpoint throws a clear
+    // error the generic executor surfaces as a typed failure BEFORE any network call.
+    const fetchSpy = jest.fn();
+    const origFetch = globalThis.fetch;
+    (globalThis as unknown as { fetch: unknown }).fetch = fetchSpy;
+    try {
+      const res = await twilio!.execute({} as never, {
+        tool: 'send_sms',
+        args: { to: '+15551234567', from: '+15557654321', body: 'hi' },
+        accessToken: 'justtheauthtoken', // no colon → malformed
+      });
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/ACCOUNT_SID:AUTH_TOKEN/);
+      expect(fetchSpy).not.toHaveBeenCalled(); // short-circuited before the network call
+    } finally {
+      (globalThis as unknown as { fetch: unknown }).fetch = origFetch;
+    }
+  });
+
+  it('accepts a well-formed ACCOUNT_SID:AUTH_TOKEN paste-key (builds the Twilio request)', async () => {
+    const twilio = getAdapter('twilio');
+    const fetchSpy = jest.fn(async () => ({ ok: true, json: async () => ({ sid: 'SM123' }) }));
+    const origFetch = globalThis.fetch;
+    (globalThis as unknown as { fetch: unknown }).fetch = fetchSpy;
+    try {
+      const res = await twilio!.execute({} as never, {
+        tool: 'send_sms',
+        args: { to: '+15551234567', from: '+15557654321', body: 'hi' },
+        accessToken: 'AC_sid_abc:auth_token_xyz',
+      });
+      expect(res.ok).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url] = fetchSpy.mock.calls[0] as unknown as [string];
+      expect(url).toBe('https://api.twilio.com/2010-04-01/Accounts/AC_sid_abc/Messages.json');
+    } finally {
+      (globalThis as unknown as { fetch: unknown }).fetch = origFetch;
+    }
+  });
+});
