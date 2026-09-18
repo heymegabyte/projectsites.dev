@@ -231,6 +231,21 @@ describe('github_repo', () => {
 
       await expect(rollback(env, SITE_ID, 'nonexistent')).rejects.toThrow(GithubRepoError);
     });
+
+    test('throws a typed REF_FAILED (not an opaque crash) when the current-HEAD ref fetch fails (AL-778)', async () => {
+      // Target commit resolves (200), but GET refs/heads/main → 404 (repo deleted mid-flight /
+      // missing main ref / 403 rate-limit). Before the res.ok gate this crashed on
+      // refBody.object.sha with a raw TypeError → an opaque 502; now it's a clear typed error.
+      jest
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ sha: 'target', tree: { sha: 't' }, message: 'x' }), { status: 200 }),
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 }));
+      const err = await rollback(env, SITE_ID, 'target').catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(GithubRepoError);
+      expect((err as GithubRepoError).code).toBe('REF_FAILED');
+    });
   });
 
   // ── deleteRepo ────────────────────────────────────────────────────────────

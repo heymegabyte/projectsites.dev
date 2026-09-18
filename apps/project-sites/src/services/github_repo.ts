@@ -261,12 +261,18 @@ async function createInitialCommit(base: string, token: string): Promise<string>
   });
 
   if (!initRes.ok) {
-    // Fallback: create an empty blob + tree + commit manually
+    // Fallback: create an empty blob + tree + commit manually. Each step is res.ok-gated so a
+    // narrow-scope token (repo-create but NOT contents:write) fails LOUD with a typed error at the
+    // first failing call, instead of cascading an `undefined` `.sha` into confusing downstream
+    // 422s that mask the real cause (AL-778).
     const blobRes = await fetch(`${base}/git/blobs`, {
       method: 'POST',
       headers: { ...apiHeaders(token), 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: '# Site\n', encoding: 'utf-8' }),
     });
+    if (!blobRes.ok) {
+      throw new GithubRepoError(`Initial-commit blob create failed: ${blobRes.status}`, 'CREATE_FAILED', blobRes.status);
+    }
     const blobBody = (await blobRes.json()) as { sha: string };
 
     const treeRes = await fetch(`${base}/git/trees`, {
@@ -276,6 +282,9 @@ async function createInitialCommit(base: string, token: string): Promise<string>
         tree: [{ path: 'README.md', mode: '100644', type: 'blob', sha: blobBody.sha }],
       }),
     });
+    if (!treeRes.ok) {
+      throw new GithubRepoError(`Initial-commit tree create failed: ${treeRes.status}`, 'CREATE_FAILED', treeRes.status);
+    }
     const treeBody = (await treeRes.json()) as { sha: string };
 
     const commitRes = await fetch(`${base}/git/commits`, {
@@ -283,13 +292,19 @@ async function createInitialCommit(base: string, token: string): Promise<string>
       headers: { ...apiHeaders(token), 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: 'chore: initial commit', tree: treeBody.sha, parents: [] }),
     });
+    if (!commitRes.ok) {
+      throw new GithubRepoError(`Initial-commit create failed: ${commitRes.status}`, 'CREATE_FAILED', commitRes.status);
+    }
     const commitBody = (await commitRes.json()) as { sha: string };
 
-    await fetch(`${base}/git/refs`, {
+    const refCreateRes = await fetch(`${base}/git/refs`, {
       method: 'POST',
       headers: { ...apiHeaders(token), 'Content-Type': 'application/json' },
       body: JSON.stringify({ ref: 'refs/heads/main', sha: commitBody.sha }),
     });
+    if (!refCreateRes.ok) {
+      throw new GithubRepoError(`Initial-commit ref create failed: ${refCreateRes.status}`, 'REF_FAILED', refCreateRes.status);
+    }
 
     return commitBody.sha;
   }
@@ -369,10 +384,16 @@ export async function rollback(
   };
   const treeSha = commitBody.tree.sha;
 
-  // Get current HEAD
+  // Get current HEAD — gate on res.ok (the sole ungated fetch in this file). A GitHub 403
+  // rate-limit or 404 (repo deleted between the ownership check and here, or a missing main ref)
+  // would otherwise crash on `refBody.object.sha` with an opaque 502 instead of a clear typed
+  // error the caller can surface + retry (AL-778).
   const refRes = await fetch(`https://api.github.com/repos/${org}/${siteId}/git/ref/heads/main`, {
     headers: apiHeaders(token),
   });
+  if (!refRes.ok) {
+    throw new GithubRepoError(`Failed to get current HEAD (main ref): ${refRes.status}`, 'REF_FAILED', refRes.status);
+  }
   const refBody = (await refRes.json()) as { object: { sha: string } };
   const parentSha = refBody.object.sha;
 
