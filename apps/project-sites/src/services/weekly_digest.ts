@@ -22,6 +22,7 @@ import { escapeHtml } from '@project-sites/shared';
 import { dbQuery, dbQueryOne, dbInsert } from './db.js';
 import { getEmailProvider } from '../platform/email-router.js';
 import { sendEmail } from './notifications.js';
+import { getMemory } from './anthropic_memory.js';
 import type { Env } from '../types/env.js';
 
 /**
@@ -62,7 +63,32 @@ interface DigestOrgRow {
 
 /** User row for digest recipient lookup. */
 interface OwnerRow {
+  id: string;
   email: string | null;
+}
+
+/**
+ * True when the owner has EXPLICITLY disabled the "Weekly summary" (`product.weekly`) notification
+ * preference. Reads the per-user pref map from the user-scoped memory store — the same
+ * `notification_prefs` key the `/api/admin/notifications` endpoints read/write (a
+ * `Record<string, boolean>` keyed by pref id). Opt-out semantics: an ABSENT/unset pref is the
+ * default-on state, so ONLY an explicit `false` suppresses. Fail-open: a missing key, corrupt JSON,
+ * or a store error returns `false` (the digest sends) — a transient read error must never silently
+ * suppress a wanted email.
+ *
+ * @param env - Worker env (memory store binding)
+ * @param userId - the digest recipient's user id
+ * @returns whether `product.weekly` is explicitly disabled for this user
+ */
+async function weeklyDigestOptedOutByPref(env: Env, userId: string): Promise<boolean> {
+  try {
+    const raw = await getMemory(env, { kind: 'user', id: userId }, 'notification_prefs');
+    if (!raw) return false;
+    const prefs = JSON.parse(raw) as Record<string, unknown>;
+    return prefs['product.weekly'] === false;
+  } catch {
+    return false; // fail-open — never suppress a wanted email on a read/parse error
+  }
 }
 
 /**
@@ -336,7 +362,7 @@ export async function sendWeeklyDigestForOrg(
   // Resolve owner email — first user joined to the org as owner.
   const owner = await dbQueryOne<OwnerRow>(
     db,
-    `SELECT u.email AS email FROM memberships m
+    `SELECT u.id AS id, u.email AS email FROM memberships m
      JOIN users u ON u.id = m.user_id
      WHERE m.org_id = ? AND m.role = 'owner' AND m.deleted_at IS NULL
        AND u.deleted_at IS NULL AND u.email IS NOT NULL
@@ -345,6 +371,15 @@ export async function sendWeeklyDigestForOrg(
   );
   if (!owner?.email) {
     return { sent: false, reason: 'no_owner_email' };
+  }
+
+  // Honor the owner's "Weekly summary" (`product.weekly`) notification preference — the toggle in
+  // user-settings → Notification preferences. Before AL-741 this send gated ONLY on
+  // `org.digest_opt_out` (the email's one-click unsubscribe), so unchecking "Weekly summary" in
+  // settings did NOTHING — a decorative control. Now an explicit opt-out here suppresses the digest
+  // too (fail-open + default-on: a first-time user who never touched settings still receives it).
+  if (owner.id && (await weeklyDigestOptedOutByPref(env, owner.id))) {
+    return { sent: false, reason: 'pref_opted_out' };
   }
 
   const metrics = await computeWeeklyMetrics(db, org.id);

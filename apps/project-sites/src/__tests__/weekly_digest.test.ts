@@ -40,6 +40,13 @@ jest.mock('../services/email_suppressions.js', () => ({
   recordSuppressions: jest.fn(async () => ({ suppressed: 0 })),
 }));
 
+// getMemory backs the owner's notification-preference read (AL-741 product.weekly gate). Default
+// null = no stored prefs = default-on, so every existing send-path test proceeds unchanged.
+jest.mock('../services/anthropic_memory.js', () => ({
+  getMemory: jest.fn(async () => null),
+  setMemory: jest.fn(async () => undefined),
+}));
+
 import { dbQuery, dbQueryOne, dbInsert } from '../services/db.js';
 import {
   isoWeekString,
@@ -50,11 +57,13 @@ import {
   sendWeeklyDigestForOrg,
   sendWeeklyDigestsForAllOrgs,
 } from '../services/weekly_digest.js';
+import { getMemory } from '../services/anthropic_memory.js';
 import type { Env } from '../types/env.js';
 
 const mockQuery = dbQuery as unknown as jest.Mock;
 const mockQueryOne = dbQueryOne as unknown as jest.Mock;
 const mockInsert = dbInsert as unknown as jest.Mock;
+const mockGetMemory = getMemory as unknown as jest.Mock;
 
 const mockFetch = jest.fn();
 global.fetch = mockFetch as unknown as typeof fetch;
@@ -328,6 +337,40 @@ describe('sendWeeklyDigestForOrg (skip reasons)', () => {
     });
     expect(out).toEqual({ sent: false, reason: 'no_owner_email' });
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('skips when the owner disabled the "Weekly summary" pref (product.weekly=false) — AL-741', async () => {
+    mockQueryOne
+      .mockResolvedValueOnce(null) // idempotency miss
+      .mockResolvedValueOnce({ id: 'u1', email: 'owner@x.com' }); // owner (with id → pref check runs)
+    mockGetMemory.mockResolvedValueOnce(JSON.stringify({ 'product.weekly': false }));
+    const out = await sendWeeklyDigestForOrg(makeEnv(), mockDb, {
+      id: 'o',
+      name: 'O',
+      digest_opt_out: 0,
+    });
+    expect(out).toEqual({ sent: false, reason: 'pref_opted_out' });
+    expect(mockFetch).not.toHaveBeenCalled();
+    // Short-circuits BEFORE computeWeeklyMetrics — only the idempotency + owner reads happened.
+    expect(mockQueryOne).toHaveBeenCalledTimes(2);
+  });
+
+  it('SENDS when product.weekly is absent (default-on) even if an unrelated pref is off', async () => {
+    mockQueryOne
+      .mockResolvedValueOnce(null) // idempotency miss
+      .mockResolvedValueOnce({ id: 'u1', email: 'owner@x.com' }) // owner
+      .mockResolvedValueOnce({ n: 0 }) // sites
+      .mockResolvedValueOnce({ n: 0 }) // forms
+      .mockResolvedValueOnce({ n: 0 }) // ai
+      .mockResolvedValueOnce({ n: 0 }); // errors
+    mockQuery.mockResolvedValueOnce({ data: [] }); // referrers
+    mockGetMemory.mockResolvedValueOnce(JSON.stringify({ 'product.changelog': false })); // weekly absent → on
+    const out = await sendWeeklyDigestForOrg(makeEnv({ SENDGRID_API_KEY: undefined }), mockDb, {
+      id: 'o',
+      name: 'O',
+      digest_opt_out: 0,
+    });
+    expect(out).toEqual({ sent: true });
   });
 
   it('succeeds as a no-op through the central seam when no email rail is configured', async () => {
