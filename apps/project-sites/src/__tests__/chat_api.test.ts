@@ -149,7 +149,11 @@ describe('GET /api/sites/by-slug/:slug/chat', () => {
     const r2Get = jest.fn().mockImplementation((key: string) => {
       if (key === 'sites/donut-shop/_manifest.json') {
         return Promise.resolve(
-          createMockR2Object({ current_version: 'v1', files: ['index.html'], is_vite_project: true }),
+          createMockR2Object({
+            current_version: 'v1',
+            files: ['index.html'],
+            is_vite_project: true,
+          }),
         );
       }
       if (key === 'sites/donut-shop/v1/index.html') {

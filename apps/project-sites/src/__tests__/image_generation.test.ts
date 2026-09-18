@@ -23,7 +23,10 @@ function makeEnv(overrides: Partial<Record<string, unknown>> = {}): Env {
 }
 
 /** An env whose Workers-AI binding returns a Flux image. */
-function withFlux(image: string | null = B64_HELLO, overrides: Partial<Record<string, unknown>> = {}) {
+function withFlux(
+  image: string | null = B64_HELLO,
+  overrides: Partial<Record<string, unknown>> = {},
+) {
   const run = jest.fn(async () => (image === null ? {} : { image }));
   return { env: makeEnv({ AI: { run } as unknown, ...overrides }), run };
 }
@@ -33,7 +36,12 @@ function stubOpenAiB64(b64 = B64_HELLO) {
   return jest.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString();
     if (url.includes('/v1/images/generations')) {
-      return { ok: true, status: 200, json: async () => ({ data: [{ b64_json: b64 }] }), text: async () => '' } as unknown as Response;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [{ b64_json: b64 }] }),
+        text: async () => '',
+      } as unknown as Response;
     }
     return { ok: false, status: 404 } as unknown as Response;
   }) as unknown as typeof fetch;
@@ -56,7 +64,10 @@ describe('image_generation service', () => {
       const result = await callFluxSchnell(env, 'a storefront');
       expect(result).not.toBeNull();
       expect((result as ArrayBuffer).byteLength).toBe(5); // 'hello'
-      expect(run).toHaveBeenCalledWith('@cf/black-forest-labs/flux-1-schnell', expect.objectContaining({ steps: 8 }));
+      expect(run).toHaveBeenCalledWith(
+        '@cf/black-forest-labs/flux-1-schnell',
+        expect.objectContaining({ steps: 8 }),
+      );
     });
 
     it('returns null when there is no AI binding (caller falls back)', async () => {
@@ -64,9 +75,18 @@ describe('image_generation service', () => {
     });
 
     it('returns null + warns when the Flux run throws', async () => {
-      const env = makeEnv({ AI: { run: jest.fn(async () => { throw new Error('AI down'); }) } as unknown });
+      const env = makeEnv({
+        AI: {
+          run: jest.fn(async () => {
+            throw new Error('AI down');
+          }),
+        } as unknown,
+      });
       expect(await callFluxSchnell(env, 'p')).toBeNull();
-      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Flux-1-schnell failed'), expect.any(Error));
+      expect(console.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Flux-1-schnell failed'),
+        expect.any(Error),
+      );
     });
   });
 
@@ -105,7 +125,11 @@ describe('image_generation service', () => {
 
   describe('callOpenAiImage (premium escalation)', () => {
     it('returns null + warns when OPENAI_API_KEY is unset', async () => {
-      const result = await callOpenAiImage(makeEnv({ OPENAI_API_KEY: undefined }), 'p', '1024x1024');
+      const result = await callOpenAiImage(
+        makeEnv({ OPENAI_API_KEY: undefined }),
+        'p',
+        '1024x1024',
+      );
       expect(result).toBeNull();
       expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('OPENAI_API_KEY not set'));
     });
@@ -120,14 +144,22 @@ describe('image_generation service', () => {
     });
 
     it('returns null + warns on a non-200 generations response', async () => {
-      global.fetch = jest.fn(async () => ({ ok: false, status: 429, text: async () => 'rate limited' })) as unknown as typeof fetch;
+      global.fetch = jest.fn(async () => ({
+        ok: false,
+        status: 429,
+        text: async () => 'rate limited',
+      })) as unknown as typeof fetch;
       const result = await callOpenAiImage(makeEnv(), 'p', '1024x1024');
       expect(result).toBeNull();
       expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('429'));
     });
 
     it('returns null when the payload has neither b64_json nor url', async () => {
-      global.fetch = jest.fn(async () => ({ ok: true, status: 200, json: async () => ({ data: [{}] }) })) as unknown as typeof fetch;
+      global.fetch = jest.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [{}] }),
+      })) as unknown as typeof fetch;
       expect(await callOpenAiImage(makeEnv(), 'p', '1024x1024')).toBeNull();
     });
   });
