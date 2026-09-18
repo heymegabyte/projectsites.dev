@@ -73,6 +73,60 @@ interface WorkerStatsResponse {
   daily?: Array<{ day?: string; topup_credits_cents?: number }>;
 }
 
+/** `GET /api/super-admin/credits` — provider balance/quota rollup (DeepSeek etc.). */
+interface CreditProvider {
+  id: string;
+  label: string;
+  category: string;
+  kind: 'balance' | 'quota' | 'availability' | 'console';
+  configured: boolean;
+  status: 'healthy' | 'low' | 'depleted' | 'unknown' | 'unconfigured';
+  balanceUsd: number | null;
+  currency: string | null;
+  quota: { used: number; limit: number; unit: string } | null;
+  detail: string;
+  topUpUrl: string;
+}
+interface CreditsResponse {
+  providers: CreditProvider[];
+  checkedAt: number;
+  summary: { healthy: number; low: number; depleted: number; unknown: number; unconfigured: number };
+  cached: boolean;
+}
+
+/** `GET /api/super-admin/fleet-health` — site status rollup + recent build errors. */
+interface FleetErrorRow {
+  slug: string;
+  business_name: string;
+  updated_at: string;
+}
+interface FleetHealthResponse {
+  byStatus: Array<{ status: string; n: number }>;
+  total: number;
+  recentErrors: FleetErrorRow[];
+  successRate7d: number | null;
+}
+
+/** `GET /api/super-admin/growth` — 24h/7d/30d deltas. -1 = that query failed. */
+interface GrowthBucket {
+  d1: number;
+  d7: number;
+  d30: number;
+}
+interface GrowthResponse {
+  orgs: GrowthBucket;
+  users: GrowthBucket;
+  sitesPublished: GrowthBucket;
+  sitesCreated: GrowthBucket;
+}
+
+/** `GET /api/super-admin/deliverability` — SES suppression backlog. */
+interface DeliverabilityResponse {
+  suppressionCount: number | null;
+  recent: Array<Record<string, unknown>>;
+  error?: string;
+}
+
 /**
  * `/super-admin` — single-page surface for tuning the cost × markup_factor
  * model that drives every wallet debit. Gated server-side on
@@ -256,6 +310,153 @@ interface WorkerStatsResponse {
             </tbody>
           </table>
         </section>
+
+        <!-- Ops console: 4 read-only monitoring widgets -->
+        <section class="sa-ops-grid">
+          <!-- 1. API Credits -->
+          <div class="sa-card sa-ops-card" data-testid="sa-credits" appReveal>
+            <header class="sa-card-head">
+              <h2>API Credits</h2>
+              @if (credits(); as c) {
+                <p class="sa-ops-summary" data-testid="sa-credits-summary">{{ creditsSummary(c) }}</p>
+              }
+            </header>
+            @if (creditsLoading()) {
+              <p class="muted small sa-ops-msg">Loading…</p>
+            } @else if (creditsError()) {
+              <p class="sa-ops-err small" role="alert">Couldn't load: {{ creditsError() }}</p>
+            } @else if (credits(); as c) {
+              @if (c.providers.length === 0) {
+                <p class="muted small sa-ops-msg">No providers configured.</p>
+              } @else {
+                <ul class="sa-ops-list">
+                  @for (p of sortedProviders(c.providers); track p.id) {
+                    <li class="sa-cred-row" [attr.data-testid]="'sa-credits-' + p.id">
+                      <span class="sa-dot" [attr.data-status]="p.status"
+                            [attr.aria-label]="'Status: ' + p.status"></span>
+                      <div class="sa-cred-body">
+                        <div class="sa-cred-top">
+                          <span class="sa-cred-label">{{ p.label }}</span>
+                          <a class="sa-cred-topup" [href]="p.topUpUrl" target="_blank"
+                             rel="noopener" [attr.aria-label]="'Top up ' + p.label">Top up ↗</a>
+                        </div>
+                        <div class="sa-cred-detail muted small">{{ p.detail }}</div>
+                      </div>
+                    </li>
+                  }
+                </ul>
+              }
+            }
+          </div>
+
+          <!-- 2. Fleet Health -->
+          <div class="sa-card sa-ops-card" data-testid="sa-fleet" appReveal>
+            <header class="sa-card-head">
+              <h2>Fleet Health</h2>
+              @if (fleet(); as f) {
+                <p class="sa-ops-summary">
+                  @if (f.successRate7d !== null) {
+                    <span class="cyan">{{ f.successRate7d }}%</span> build success · 7d
+                  } @else {
+                    <span class="muted">Success rate n/a</span>
+                  }
+                </p>
+              }
+            </header>
+            @if (fleetLoading()) {
+              <p class="muted small sa-ops-msg">Loading…</p>
+            } @else if (fleetError()) {
+              <p class="sa-ops-err small" role="alert">Couldn't load: {{ fleetError() }}</p>
+            } @else if (fleet(); as f) {
+              <div class="sa-chips" data-testid="sa-fleet-chips">
+                @for (s of f.byStatus; track s.status) {
+                  <span class="sa-chip" [attr.data-status]="s.status">
+                    {{ s.status }} <b>{{ s.n }}</b>
+                  </span>
+                }
+                @if (f.byStatus.length === 0) {
+                  <span class="muted small">No sites yet.</span>
+                }
+              </div>
+              @if (f.recentErrors.length > 0) {
+                <div class="sa-fleet-errs" data-testid="sa-fleet-errors">
+                  <div class="sa-ops-subhead">Recent build errors</div>
+                  <ul class="sa-ops-list">
+                    @for (e of f.recentErrors; track e.slug) {
+                      <li class="sa-err-row">
+                        <a class="sa-err-link" [href]="'https://' + e.slug + '.projectsites.dev'"
+                           target="_blank" rel="noopener">{{ e.business_name || e.slug }}</a>
+                        <span class="sa-err-slug muted small">{{ e.slug }}</span>
+                      </li>
+                    }
+                  </ul>
+                </div>
+              } @else {
+                <p class="sa-ops-ok small" data-testid="sa-fleet-noerrors">✓ No build errors</p>
+              }
+            }
+          </div>
+
+          <!-- 3. Growth Pulse -->
+          <div class="sa-card sa-ops-card" data-testid="sa-growth" appReveal>
+            <header class="sa-card-head">
+              <h2>Growth Pulse</h2>
+              <p>New orgs, users &amp; sites over time.</p>
+            </header>
+            @if (growthLoading()) {
+              <p class="muted small sa-ops-msg">Loading…</p>
+            } @else if (growthError()) {
+              <p class="sa-ops-err small" role="alert">Couldn't load: {{ growthError() }}</p>
+            } @else if (growth(); as g) {
+              <table class="sa-growth-tbl">
+                <thead>
+                  <tr><th></th><th class="num">24h</th><th class="num">7d</th><th class="num">30d</th></tr>
+                </thead>
+                <tbody>
+                  @for (row of growthRows(g); track row.label) {
+                    <tr [attr.data-testid]="'sa-growth-' + row.key">
+                      <td class="sa-growth-lbl">{{ row.label }}</td>
+                      <td class="num cyan">{{ growthCell(row.d1) }}</td>
+                      <td class="num">{{ growthCell(row.d7) }}</td>
+                      <td class="num">{{ growthCell(row.d30) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            }
+          </div>
+
+          <!-- 4. Email Deliverability -->
+          <div class="sa-card sa-ops-card" data-testid="sa-deliverability" appReveal>
+            <header class="sa-card-head">
+              <h2>Email Deliverability</h2>
+              <p>SES suppression backlog.</p>
+            </header>
+            @if (deliverLoading()) {
+              <p class="muted small sa-ops-msg">Loading…</p>
+            } @else if (deliverError()) {
+              <p class="sa-ops-err small" role="alert">Couldn't load: {{ deliverError() }}</p>
+            } @else if (deliver(); as d) {
+              @if (d.error) {
+                <p class="sa-ops-err small" role="alert">{{ d.error }}</p>
+              } @else if (d.suppressionCount === 0) {
+                <p class="sa-ops-ok" data-testid="sa-deliverability-clean">✓ Clean — no suppressions</p>
+              } @else {
+                <div class="sa-big-num" data-testid="sa-deliverability-count">
+                  {{ d.suppressionCount ?? '—' }}
+                  <span class="sa-big-num-unit">suppressed</span>
+                </div>
+                @if (d.recent.length > 0) {
+                  <ul class="sa-ops-list">
+                    @for (r of d.recent; track $index) {
+                      <li class="sa-suppress-row muted small">{{ suppressedAddr(r) }}</li>
+                    }
+                  </ul>
+                }
+              }
+            }
+          </div>
+        </section>
       }
 
       @if (adjustOpen(); as w) {
@@ -341,6 +542,46 @@ interface WorkerStatsResponse {
     .sa-forbidden-glyph { font-size: 3rem; margin-bottom: 10px; }
     .sa-forbidden h2 { font-family: 'Sora', sans-serif; font-weight: 700; }
     .sa-forbidden code { background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; }
+    /* Ops console — 4 read-only monitoring widgets */
+    .sa-ops-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 20px; }
+    .sa-ops-card { margin-bottom: 0; }
+    .sa-ops-summary { font-size: 0.78rem; margin: 4px 0 0; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 70%, transparent); font-variant-numeric: tabular-nums; }
+    .sa-ops-msg { padding: 8px 0; }
+    .sa-ops-err { color: #fca5a5; padding: 6px 0; }
+    .sa-ops-ok { color: #6ee7b7; font-weight: 600; font-size: 0.82rem; padding: 6px 0; }
+    .sa-ops-subhead, .sa-ops-list + .sa-ops-subhead { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.09em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); margin: 12px 0 6px; }
+    .sa-ops-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .sa-dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 10px; margin-top: 5px; background: #64748b; box-shadow: 0 0 0 3px rgba(100,116,139,0.14); }
+    .sa-dot[data-status="healthy"] { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,0.18); }
+    .sa-dot[data-status="low"] { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,0.18); }
+    .sa-dot[data-status="depleted"] { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.22); }
+    .sa-dot[data-status="unknown"] { background: #64748b; box-shadow: 0 0 0 3px rgba(100,116,139,0.14); }
+    .sa-dot[data-status="unconfigured"] { background: rgba(148,163,184,0.4); box-shadow: none; }
+    .sa-cred-row { display: flex; gap: 10px; align-items: flex-start; }
+    .sa-cred-body { flex: 1 1 auto; min-width: 0; }
+    .sa-cred-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .sa-cred-label { font-weight: 600; font-size: 0.86rem; }
+    .sa-cred-topup { font-size: 0.7rem; color: var(--ps-accent, #00E5FF); text-decoration: none; white-space: nowrap; opacity: 0.85; }
+    .sa-cred-topup:hover { opacity: 1; text-decoration: underline; }
+    .sa-cred-detail { margin-top: 2px; overflow-wrap: anywhere; }
+    .sa-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+    .sa-chip { padding: 4px 10px; border-radius: 999px; font-size: 0.7rem; text-transform: capitalize; letter-spacing: 0.02em; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09); color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 70%, transparent); }
+    .sa-chip b { color: var(--ps-ink, #f4f4ff); font-variant-numeric: tabular-nums; margin-left: 2px; }
+    .sa-chip[data-status="published"] { background: rgba(34,197,94,0.10); border-color: rgba(34,197,94,0.30); color: #6ee7b7; }
+    .sa-chip[data-status="generating"], .sa-chip[data-status="imaging"], .sa-chip[data-status="collecting"] { background: rgba(0,229,255,0.10); border-color: rgba(0,229,255,0.30); color: var(--ps-accent, #00E5FF); }
+    .sa-chip[data-status="error"] { background: rgba(239,68,68,0.10); border-color: rgba(239,68,68,0.30); color: #fca5a5; }
+    .sa-err-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .sa-err-link { color: var(--ps-ink, #f4f4ff); text-decoration: none; font-size: 0.82rem; }
+    .sa-err-link:hover { color: var(--ps-accent, #00E5FF); text-decoration: underline; }
+    .sa-err-slug { font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
+    .sa-growth-tbl { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .sa-growth-tbl th { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); padding: 4px 8px; text-align: left; }
+    .sa-growth-tbl th.num, .sa-growth-tbl td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: 'JetBrains Mono', monospace; }
+    .sa-growth-tbl td { padding: 7px 8px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .sa-growth-lbl { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 75%, transparent); }
+    .sa-big-num { font-family: 'Sora', sans-serif; font-weight: 700; font-size: 2.4rem; line-height: 1.1; font-variant-numeric: tabular-nums; color: #fca5a5; }
+    .sa-big-num-unit { display: block; font-size: 0.68rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); font-family: inherit; margin-top: 2px; }
+    .sa-suppress-row { font-family: 'JetBrains Mono', monospace; overflow-wrap: anywhere; }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { transition: none !important; animation: none !important; }
     }
@@ -360,6 +601,24 @@ export class SuperAdminComponent implements OnInit {
   wallets = signal<OrgWalletRow[]>([]);
   stats = signal<SuperAdminStats | null>(null);
   dirty = signal<Set<string>>(new Set());
+
+  // Ops console widgets — each fetched independently on init so one failing
+  // widget never blanks the others (fail-soft per widget).
+  credits = signal<CreditsResponse | null>(null);
+  creditsLoading = signal(true);
+  creditsError = signal<string | null>(null);
+
+  fleet = signal<FleetHealthResponse | null>(null);
+  fleetLoading = signal(true);
+  fleetError = signal<string | null>(null);
+
+  growth = signal<GrowthResponse | null>(null);
+  growthLoading = signal(true);
+  growthError = signal<string | null>(null);
+
+  deliver = signal<DeliverabilityResponse | null>(null);
+  deliverLoading = signal(true);
+  deliverError = signal<string | null>(null);
 
   walletsQuery = '';
   adjustOpen = signal<OrgWalletRow | null>(null);
@@ -390,6 +649,76 @@ export class SuperAdminComponent implements OnInit {
     Promise.all([this.loadStats(), this.loadCategories(), this.loadWallets('')]).catch((e) => {
       if (this.is403(e)) this.forbidden.set(true);
     });
+    // Ops widgets fire in parallel + isolated — each captures its own error so a
+    // single failure never blanks the page or the sibling widgets.
+    void this.loadCredits();
+    void this.loadFleet();
+    void this.loadGrowth();
+    void this.loadDeliverability();
+  }
+
+  private async loadCredits(): Promise<void> {
+    try {
+      this.creditsLoading.set(true);
+      this.creditsError.set(null);
+      const res = await this.api
+        .get<CreditsResponse>('/super-admin/credits', undefined, { silent: true })
+        .toPromise();
+      this.credits.set(res ?? null);
+    } catch (e) {
+      if (this.is403(e)) this.forbidden.set(true);
+      this.creditsError.set(this.errMsg(e));
+    } finally {
+      this.creditsLoading.set(false);
+    }
+  }
+
+  private async loadFleet(): Promise<void> {
+    try {
+      this.fleetLoading.set(true);
+      this.fleetError.set(null);
+      const res = await this.api
+        .get<FleetHealthResponse>('/super-admin/fleet-health', undefined, { silent: true })
+        .toPromise();
+      this.fleet.set(res ?? null);
+    } catch (e) {
+      if (this.is403(e)) this.forbidden.set(true);
+      this.fleetError.set(this.errMsg(e));
+    } finally {
+      this.fleetLoading.set(false);
+    }
+  }
+
+  private async loadGrowth(): Promise<void> {
+    try {
+      this.growthLoading.set(true);
+      this.growthError.set(null);
+      const res = await this.api
+        .get<GrowthResponse>('/super-admin/growth', undefined, { silent: true })
+        .toPromise();
+      this.growth.set(res ?? null);
+    } catch (e) {
+      if (this.is403(e)) this.forbidden.set(true);
+      this.growthError.set(this.errMsg(e));
+    } finally {
+      this.growthLoading.set(false);
+    }
+  }
+
+  private async loadDeliverability(): Promise<void> {
+    try {
+      this.deliverLoading.set(true);
+      this.deliverError.set(null);
+      const res = await this.api
+        .get<DeliverabilityResponse>('/super-admin/deliverability', undefined, { silent: true })
+        .toPromise();
+      this.deliver.set(res ?? null);
+    } catch (e) {
+      if (this.is403(e)) this.forbidden.set(true);
+      this.deliverError.set(this.errMsg(e));
+    } finally {
+      this.deliverLoading.set(false);
+    }
   }
 
   private async loadStats(): Promise<void> {
@@ -560,6 +889,66 @@ export class SuperAdminComponent implements OnInit {
     const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
     const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
     return `${Math.floor(h / 24)}d ago`;
+  }
+
+  /** Extract a short human message from a thrown ApiService/HTTP error. */
+  private errMsg(e: unknown): string {
+    if (typeof e === 'object' && e !== null) {
+      const rec = e as Record<string, unknown>;
+      if (typeof rec['message'] === 'string' && rec['message']) return rec['message'];
+      if (typeof rec['status'] === 'number') return `HTTP ${rec['status']}`;
+    }
+    return 'Request failed';
+  }
+
+  // ---- API Credits helpers ----
+
+  /** Depleted first, then low, then everything else — surface problems at the top. */
+  sortedProviders(providers: CreditProvider[]): CreditProvider[] {
+    const rank: Record<CreditProvider['status'], number> = {
+      depleted: 0,
+      low: 1,
+      unknown: 2,
+      healthy: 3,
+      unconfigured: 4,
+    };
+    return [...providers].sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9));
+  }
+
+  /** One-line rollup like "1 depleted · 3 healthy" — only non-zero buckets, worst-first. */
+  creditsSummary(c: CreditsResponse): string {
+    const s = c.summary;
+    const parts: string[] = [];
+    if (s.depleted) parts.push(`${s.depleted} depleted`);
+    if (s.low) parts.push(`${s.low} low`);
+    if (s.healthy) parts.push(`${s.healthy} healthy`);
+    if (s.unknown) parts.push(`${s.unknown} unknown`);
+    if (s.unconfigured) parts.push(`${s.unconfigured} unconfigured`);
+    return parts.length ? parts.join(' · ') : 'No providers';
+  }
+
+  // ---- Growth helpers ----
+
+  growthRows(g: GrowthResponse): Array<{ key: string; label: string; d1: number; d7: number; d30: number }> {
+    return [
+      { key: 'orgs', label: 'Orgs', d1: g.orgs.d1, d7: g.orgs.d7, d30: g.orgs.d30 },
+      { key: 'users', label: 'Users', d1: g.users.d1, d7: g.users.d7, d30: g.users.d30 },
+      { key: 'sites-created', label: 'Sites created', d1: g.sitesCreated.d1, d7: g.sitesCreated.d7, d30: g.sitesCreated.d30 },
+      { key: 'sites-published', label: 'Sites published', d1: g.sitesPublished.d1, d7: g.sitesPublished.d7, d30: g.sitesPublished.d30 },
+    ];
+  }
+
+  /** -1 sentinel (query failed) renders as an em dash; real counts pass through. */
+  growthCell(n: number): string {
+    return n < 0 ? '—' : String(n);
+  }
+
+  // ---- Deliverability helpers ----
+
+  /** Pick whichever address-like field the suppression row carries. */
+  suppressedAddr(r: Record<string, unknown>): string {
+    const v = r['email'] ?? r['address'] ?? r['recipient'];
+    return typeof v === 'string' && v ? v : '(unknown address)';
   }
 
   private is403(e: unknown): boolean {
