@@ -2044,15 +2044,14 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
             const [seoFiles, seoReport] = finalizeSeoInvariants(dashFiles, {
               businessName: params.businessName,
               hostname: `https://${params.slug}${DOMAINS.SITES_SUFFIX}`,
-              // City = second-to-last comma field of the address ("…, Brooklyn, NY 11249"
-              // → "Brooklyn") — same parse as the About-narrative weave above; lets the
-              // finalizer lengthen a <50 title to 50-60 by appending ` | {city}`.
+              // City parsed ROBUSTLY via the same cityFromAddress the H1 uses (AL-733b), so
+              // the title-pad + hero + LocationMap all agree. The old `parts[length-2]`
+              // heuristic shipped the ZIP ("…, San Francisco, California, 94109, United States"
+              // → "94109") as the city on every OSM-sourced site — the sub-page STREET-NUMBER
+              // twin ("1517") lived in the template's placeholders.ts. AL-736 fixes both.
               city: ((): string | undefined => {
-                const parts = (params.businessAddress || '')
-                  .split(',')
-                  .map((p) => p.trim())
-                  .filter(Boolean);
-                return parts.length >= 2 ? parts[parts.length - 2] : undefined;
+                const c = cityFromAddress(params.businessAddress);
+                return c && c !== 'your community' ? c : undefined;
               })(),
               // Region = the 2-letter state from the address's LAST field ("…, CA 94110" → "CA").
               // A short geo fallback for the title-length belt when a long city overshoots 60.
