@@ -18,6 +18,7 @@ type Testable = {
   attachMessageListener(): void;
   messageHandler: (e: MessageEvent) => void;
   loadingStage(): string;
+  loadingPhase(): number;
 };
 
 function setup(): { svc: Testable; fire: (origin: string, data: unknown) => void; error: jasmine.Spy } {
@@ -49,13 +50,13 @@ describe('BoltEmbedService (postMessage origin security)', () => {
   it('PROCESSES a PS_BOLT_READY from the trusted editor origin', () => {
     const { svc, fire } = setup();
     fire('https://editor.projectsites.dev', { type: 'PS_BOLT_READY' });
-    expect(svc.loadingStage()).toBe('Running Start Application');
+    expect(svc.loadingStage()).toBe('Starting the workspace');
   });
 
   it('also trusts the localhost:5173 dev origin', () => {
     const { svc, fire } = setup();
     fire('http://localhost:5173', { type: 'PS_BOLT_READY' });
-    expect(svc.loadingStage()).toBe('Running Start Application');
+    expect(svc.loadingStage()).toBe('Starting the workspace');
   });
 
   it('ignores a non-PS_ message even from a trusted origin', () => {
@@ -210,9 +211,17 @@ describe('BoltEmbedService (veil dismiss → editorReady)', () => {
     expect(ready(svc)).toBeTrue();
   });
 
-  it('PS_BOLT_CHAT_READY (chat placeholder painted) dismisses the veil', () => {
+  it('PS_BOLT_CHAT_READY advances the phase but does NOT dismiss early (no flicker — waits for true preview-ready)', () => {
     const { svc, fire } = setup();
     fire(TRUSTED, { type: 'PS_BOLT_CHAT_READY' });
+    // The chat placeholder painting is NOT the ready signal. Dismissing here reveals bolt's
+    // still-booting WebContainer underneath — the exact show→hide→show flicker we killed.
+    // The veil stays up; the phase advances so the single progress bar fills.
+    expect(ready(svc)).withContext('veil stays up until preview-ready').toBeFalse();
+    expect(svc.loadingStage()).toBe('Preparing your site');
+    expect(svc.loadingPhase()).toBe(2);
+    // The TRUE ready signal still dismisses it cleanly.
+    fire(TRUSTED, { type: 'PS_APP_RUNNING' });
     expect(ready(svc)).toBeTrue();
   });
 

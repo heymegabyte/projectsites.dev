@@ -21,15 +21,17 @@ describe('AdminEditorComponent (route shell state machine)', () => {
   let host: HTMLElement;
   let selectedSite: WritableSignal<{ id: string } | null>;
   let editorReady: WritableSignal<boolean>;
+  let loadingPhase: WritableSignal<number>;
 
-  function build(site: { id: string } | null, ready: boolean): void {
+  function build(site: { id: string } | null, ready: boolean, phase = 0): void {
     selectedSite = signal<{ id: string } | null>(site);
     editorReady = signal<boolean>(ready);
+    loadingPhase = signal<number>(phase);
     TestBed.configureTestingModule({
       imports: [AdminEditorComponent],
       providers: [
         { provide: AdminStateService, useValue: { selectedSite, newSite: jasmine.createSpy('newSite') } },
-        { provide: BoltEmbedService, useValue: { editorReady, loadingStage: signal('Booting bolt.diy') } },
+        { provide: BoltEmbedService, useValue: { editorReady, loadingStage: signal('Booting the AI editor'), loadingPhase } },
         { provide: Router, useValue: { navigateByUrl: jasmine.createSpy('navigateByUrl') } },
         { provide: ApiService, useValue: {} },
       ],
@@ -70,6 +72,18 @@ describe('AdminEditorComponent (route shell state machine)', () => {
     build({ id: 's1' }, true);
     expect(host.querySelector('.ed-veil')).toBeNull();
     expect(host.querySelector('.empty-state-pretty')).toBeNull();
+  });
+
+  it('the segmented progress bar fills monotonically through loadingPhase (ONE indicator, never flickers)', () => {
+    // The veil is a single continuous indicator: its 3 segments fill as the boot advances
+    // (phase 2 → workspace + preparing done, preview still going). It never hides + re-shows.
+    build({ id: 's1' }, false, 2);
+    const steps = host.querySelectorAll('.ed-steps .ed-step');
+    expect(steps.length).withContext('three boot-phase segments').toBe(3);
+    expect(host.querySelectorAll('.ed-step.done').length).withContext('phase 2 → two filled').toBe(2);
+    expect(steps[2].classList.contains('done')).withContext('preview segment not yet filled').toBeFalse();
+    // The evolving stage label rides the same single veil.
+    expect(host.querySelector('.ed-sub')?.textContent ?? '').toContain('Booting the AI editor');
   });
 
   it('openPalette() dispatches a Meta+K keydown so quick-find opens the command palette', () => {

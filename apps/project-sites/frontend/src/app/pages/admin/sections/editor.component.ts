@@ -9,9 +9,10 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
  * admin sub-route change. This component renders:
  *
  *  - empty-site state (no site selected)
- *  - thin cinematic loading veil while the iframe boots, dismissed the
- *    instant bolt.diy postMessages PS_BOLT_CHAT_READY (i.e. the chat
- *    placeholder "Build a professional website for…" has painted)
+ *  - ONE cinematic loading veil that stays up across the WHOLE boot and fades
+ *    the instant the workspace is truly ready (BoltEmbedService.editorReady).
+ *    Its segmented progress bar fills through `bolt.loadingPhase()` (0→4) so the
+ *    indicator shows ONCE and fills — never the old show/hide/show flicker.
  */
 @Component({
   selector: 'app-admin-editor',
@@ -39,15 +40,27 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
         </div>
       </div>
     } @else if (!bolt.editorReady()) {
-      <div class="ed-veil">
-        <div class="ed-veil-card" role="status" aria-live="polite" aria-busy="true">
-          <div class="ed-spinner" aria-hidden="true">
-            <div class="ed-orb ed-orb-1"></div>
-            <div class="ed-orb ed-orb-2"></div>
-            <div class="ed-orb ed-orb-3"></div>
+      <div class="ed-veil" role="status" aria-live="polite" aria-busy="true">
+        <div class="ed-aurora" aria-hidden="true"></div>
+        <div class="ed-veil-card">
+          <div class="ed-mark" aria-hidden="true">
+            <span class="ed-ring"></span>
+            <span class="ed-core"></span>
+            <svg class="ed-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2 4.5 13.2a.6.6 0 0 0 .48.96H11l-1 7.84 8.5-11.2a.6.6 0 0 0-.48-.96H12l1-7.84Z"/>
+            </svg>
           </div>
           <div class="ed-headline">Booting your AI editor</div>
-          <div class="ed-sub">{{ bolt.loadingStage() }}</div>
+          <div class="ed-sub">{{ bolt.loadingStage() }}<span class="ed-dots"><i></i><i></i><i></i></span></div>
+          <div class="ed-steps" aria-hidden="true">
+            @for (s of steps; track s.n) {
+              <span
+                class="ed-step"
+                [class.done]="bolt.loadingPhase() >= s.n"
+                [class.active]="bolt.loadingPhase() === s.n - 1"
+              ></span>
+            }
+          </div>
           <div class="ed-footnote">First visit only — subsequent opens are instant.</div>
         </div>
       </div>
@@ -70,88 +83,121 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
     }
 
     @keyframes pulseGlow {
-      0%, 100% {
-        box-shadow:
-          0 16px 48px -24px rgba(0, 229, 255, 0.3),
-          0 0 0 1px rgba(0, 229, 255, 0.05) inset;
-      }
-      50% {
-        box-shadow:
-          0 20px 64px -24px rgba(0, 229, 255, 0.45),
-          0 0 0 1px rgba(0, 229, 255, 0.12) inset;
-      }
+      0%, 100% { box-shadow: 0 16px 48px -24px rgba(0, 229, 255, 0.3), 0 0 0 1px rgba(0, 229, 255, 0.05) inset; }
+      50% { box-shadow: 0 20px 64px -24px rgba(0, 229, 255, 0.45), 0 0 0 1px rgba(0, 229, 255, 0.12) inset; }
     }
 
-    /* Loading veil — sits over the iframe in its visible position so the
-       user never sees bolt.diy's own boot flicker. Cinematic + brief —
-       dismissed the instant PS_BOLT_CHAT_READY fires from the iframe. */
+    /* Loading veil — ONE indicator over the iframe's visible slot, below the admin
+       topbar, so the user never sees bolt.diy's own boot flicker underneath. */
     .ed-veil {
       position: absolute;
       inset: 62px 0 0 0;
       display: flex; align-items: center; justify-content: center;
       z-index: 2;
+      overflow: hidden;
+      background: #060610;
+      animation: edFade 260ms var(--ease-cinematic);
+    }
+    /* Slowly drifting aurora mesh — cinematic depth behind the card. */
+    .ed-aurora {
+      position: absolute; inset: -25%;
       background:
-        radial-gradient(ellipse 70% 50% at center top, rgba(0, 229, 255, 0.06), transparent 60%),
-        radial-gradient(ellipse 50% 40% at center bottom, rgba(124, 58, 237, 0.05), transparent 65%),
-        #060610;
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      animation: edFade 240ms var(--ease-cinematic);
+        radial-gradient(38% 34% at 22% 28%, rgba(0, 229, 255, 0.18), transparent 60%),
+        radial-gradient(34% 30% at 78% 30%, rgba(124, 58, 237, 0.20), transparent 62%),
+        radial-gradient(46% 40% at 50% 88%, rgba(0, 229, 255, 0.10), transparent 66%);
+      filter: blur(26px) saturate(1.15);
+      animation: edDrift 14s var(--ease-cinematic) infinite;
     }
     .ed-veil-card {
-      display: flex; flex-direction: column; align-items: center; gap: 0.85rem;
-      padding: 2rem 2.4rem;
-      border-radius: 22px;
-      background: rgba(8, 8, 32, 0.6);
-      border: 1px solid rgba(0, 229, 255, 0.10);
-      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-      max-width: 460px;
+      position: relative;
+      display: flex; flex-direction: column; align-items: center; gap: 0.7rem;
+      padding: 2.1rem 2.6rem 1.8rem;
+      border-radius: 24px;
+      background: linear-gradient(180deg, rgba(14, 14, 40, 0.62), rgba(6, 6, 16, 0.62));
+      border: 1px solid rgba(0, 229, 255, 0.12);
+      box-shadow: 0 30px 80px -32px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(14px) saturate(1.1);
+      -webkit-backdrop-filter: blur(14px) saturate(1.1);
       text-align: center;
     }
-    .ed-spinner { position: relative; width: 64px; height: 64px; }
-    .ed-orb {
+
+    /* Animated brand mark: a rotating conic ring + a breathing core + a bolt glyph. */
+    .ed-mark { position: relative; width: 76px; height: 76px; margin-bottom: 0.2rem; }
+    .ed-ring {
       position: absolute; inset: 0; border-radius: 50%;
-      border: 2px solid transparent;
-      border-top-color: rgba(0, 229, 255, 0.9);
-      animation: edSpin 1.2s var(--ease-cinematic) infinite;
+      background: conic-gradient(from 0deg, transparent 0deg, rgba(0, 229, 255, 0.95) 130deg, rgba(124, 58, 237, 0.95) 250deg, transparent 360deg);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
+      mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
+      animation: edSpin 2.4s linear infinite;
     }
-    .ed-orb-2 {
-      inset: 8px; border-top-color: transparent;
-      border-right-color: rgba(124, 58, 237, 0.8);
-      animation-duration: 1.6s; animation-direction: reverse;
+    .ed-core {
+      position: absolute; inset: 13px; border-radius: 50%;
+      background: radial-gradient(circle at 34% 28%, rgba(0, 229, 255, 0.34), rgba(124, 58, 237, 0.16) 68%, transparent 82%);
+      animation: edBreathe 3s var(--ease-cinematic) infinite;
     }
-    .ed-orb-3 {
-      inset: 16px; border-top-color: transparent;
-      border-bottom-color: rgba(0, 229, 255, 0.5);
-      animation-duration: 2.0s;
+    .ed-glyph {
+      position: absolute; inset: 0; margin: auto; width: 30px; height: 30px;
+      color: #00E5FF;
+      filter: drop-shadow(0 0 9px rgba(0, 229, 255, 0.55));
+      animation: edBreathe 3s var(--ease-cinematic) infinite;
     }
+
     .ed-headline {
       font-family: 'Sora', system-ui, sans-serif;
-      font-weight: 600; font-size: 1.05rem; color: #f4f4ff;
-      letter-spacing: -0.02em;
+      font-weight: 600; font-size: 1.08rem; color: #f4f4ff; letter-spacing: -0.02em;
     }
     .ed-sub {
-      font-size: 0.78rem;
-      color: rgba(244, 244, 255, 0.65);
+      display: inline-flex; align-items: baseline;
+      font-size: 0.78rem; color: rgba(244, 244, 255, 0.66);
       font-family: 'JetBrains Mono', ui-monospace, monospace;
     }
-    .ed-footnote {
-      font-size: 0.7rem;
-      color: rgba(244, 244, 255, 0.4);
-      margin-top: 0.4rem;
+    .ed-dots { display: inline-flex; margin-left: 1px; }
+    .ed-dots i {
+      width: 3px; height: 3px; margin-left: 2px; border-radius: 50%;
+      background: rgba(0, 229, 255, 0.85); align-self: center;
+      animation: edDot 1.2s var(--ease-cinematic) infinite;
     }
+    .ed-dots i:nth-child(2) { animation-delay: 0.16s; }
+    .ed-dots i:nth-child(3) { animation-delay: 0.32s; }
+
+    /* Segmented progress bar — fills through loadingPhase; ONE continuous indicator. */
+    .ed-steps { display: flex; gap: 6px; width: 240px; margin-top: 0.45rem; }
+    .ed-step {
+      flex: 1; height: 4px; border-radius: 99px; position: relative; overflow: hidden;
+      background: rgba(255, 255, 255, 0.08);
+      transition: background 0.5s var(--ease-cinematic);
+    }
+    .ed-step.done { background: linear-gradient(90deg, #00E5FF, #7C3AED); }
+    .ed-step.active::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(0, 229, 255, 0.85), transparent);
+      animation: edShimmer 1.3s linear infinite;
+    }
+    .ed-footnote { font-size: 0.7rem; color: rgba(244, 244, 255, 0.4); margin-top: 0.5rem; }
+
     @keyframes edSpin { to { transform: rotate(360deg); } }
     @keyframes edFade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes edBreathe { 0%, 100% { transform: scale(0.94); opacity: 0.85; } 50% { transform: scale(1.06); opacity: 1; } }
+    @keyframes edDrift {
+      0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+      33% { transform: translate3d(3%, -2%, 0) scale(1.06); }
+      66% { transform: translate3d(-3%, 2%, 0) scale(1.03); }
+    }
+    @keyframes edDot { 0%, 100% { opacity: 0.3; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-2px); } }
+    @keyframes edShimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 
     @media (prefers-reduced-motion: reduce) {
-      .empty-glyph, .ed-veil { animation: none; }
-      .ed-orb { animation-duration: 3s; }
+      .empty-glyph, .ed-veil, .ed-aurora, .ed-core, .ed-glyph, .ed-dots i, .ed-step.active::after { animation: none; }
+      .ed-ring { animation-duration: 4s; }
     }
   `],
 })
 export class AdminEditorComponent {
   state = inject(AdminStateService);
   bolt = inject(BoltEmbedService);
+
+  /** Three progress segments mapped to boot phases 1-3 (workspace → preparing → preview). */
+  readonly steps = [{ n: 1 }, { n: 2 }, { n: 3 }] as const;
 
   openPalette(): void {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));

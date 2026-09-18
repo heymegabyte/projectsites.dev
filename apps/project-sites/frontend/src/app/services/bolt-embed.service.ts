@@ -27,8 +27,8 @@ import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from './api.service';
 import { ToastService } from './toast.service';
 
-const HARD_TIMEOUT_MS = 60_000;
-const SOFT_TIMEOUT_MS = 30_000;
+const HARD_TIMEOUT_MS = 90_000; // absolute cap — a cold WebContainer boot + npm install can run ~60s
+const CHAT_GRACE_MS = 10_000; // after the chat paints, wait this long for the true preview-ready signal before dismissing
 const SAVE_TIMEOUT_MS = 30_000;
 const EDITOR_BASE = 'https://editor.projectsites.dev';
 const ALLOWED_ORIGINS = ['https://editor.projectsites.dev', 'http://localhost:5173'];
@@ -83,7 +83,13 @@ export class BoltEmbedService {
   /** True once the iframe has fired PS_APP_RUNNING (or a timeout fallback). */
   readonly editorReady = signal(false);
   /** Human label for the loading veil. */
-  readonly loadingStage = signal('Booting bolt.diy');
+  readonly loadingStage = signal('Booting the AI editor');
+  /**
+   * Boot phase 0-4 for the loading veil's progress stepper. Advances monotonically through
+   * a SINGLE continuous veil (0 boot → 1 workspace → 2 preparing → 3/4 ready) — it never
+   * flips backward, so the indicator shows ONCE and fills, never flickers.
+   */
+  readonly loadingPhase = signal(0);
   /** True while a save-and-deploy round-trip is in flight. */
   readonly saving = signal(false);
 
@@ -233,8 +239,9 @@ export class BoltEmbedService {
     this.currentSlug = site.slug;
     this.editorReady.set(false);
     this.boltReady = false;
-    this.loadingStage.set('Booting bolt.diy');
-    
+    this.loadingPhase.set(0);
+    this.loadingStage.set('Booting the AI editor');
+
     const params = new URLSearchParams({
       embedded: 'true',
       hideHeader: 'true',
@@ -391,8 +398,9 @@ export class BoltEmbedService {
 
   // ── internals ──────────────────────────────────────────────────
 
-  private dismissVeil(_reason: 'app_running' | 'timeout' | 'soft_timeout'): void {
+  private dismissVeil(_reason: 'app_running' | 'timeout' | 'chat_grace'): void {
     if (this.editorReady()) return;
+    this.loadingPhase.set(4);
     this.editorReady.set(true);
     this.clearTimers();
   }
@@ -411,20 +419,28 @@ export class BoltEmbedService {
 
       switch (msg.type) {
         case 'PS_BOLT_READY':
+          // bolt.diy's shell is up, but the WebContainer is still cold-booting behind it.
+          // Do NOT dismiss here — keeping ONE veil over the WHOLE boot is the whole point.
+          // A premature dismiss reveals bolt's own boot UI underneath → the exact
+          // show→hide→show→hide flicker we're killing. Just advance the phase.
           this.boltReady = true;
-          this.loadingStage.set('Running Start Application');
-          if (!this.softTimeout) {
-            this.softTimeout = setTimeout(() => this.dismissVeil('soft_timeout'), SOFT_TIMEOUT_MS);
-          }
+          this.loadingPhase.set(1);
+          this.loadingStage.set('Starting the workspace');
           break;
         case 'PS_APP_RUNNING':
+          // The preview app is actually running — the TRUE ready signal. Dismiss now.
           this.dismissVeil('app_running');
           break;
         case 'PS_BOLT_CHAT_READY':
-          // Fired by bolt.diy the moment the chat placeholder
-          // "Build a professional website for…" has painted. This is
-          // the "user can actually interact" signal — dismiss the veil.
-          this.dismissVeil('app_running');
+          // The chat placeholder has painted (interactive) but the preview is usually still
+          // installing/booting. Advance the phase and arm a short GRACE fallback so we never
+          // hang if no preview-ready arrives — in the common case PS_APP_RUNNING /
+          // preview_ready fires first and dismisses cleanly before the grace elapses.
+          this.loadingPhase.set(2);
+          this.loadingStage.set('Preparing your site');
+          if (!this.softTimeout) {
+            this.softTimeout = setTimeout(() => this.dismissVeil('chat_grace'), CHAT_GRACE_MS);
+          }
           break;
         case 'PS_FILES_READY': {
           // Dedupe: the editor replies once per registered responder — the
