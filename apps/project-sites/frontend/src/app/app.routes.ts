@@ -519,6 +519,13 @@ export const routes: Routes = [
     redirectTo: 'admin/editor',
   },
   {
+    // Public Trust Center (backlog #30). The component + spec + a shipped changelog entry
+    // ("New /trust page") existed, and /blog + /changelog footers link to it — but the route
+    // was never wired, so /trust 404'd (built-but-unrouted; caught by marketing-links.e2e.ts).
+    path: 'trust',
+    loadComponent: () => import('./pages/trust/trust.component').then((m) => m.TrustComponent),
+  },
+  {
     path: 'privacy',
     loadComponent: () => import('./pages/legal/legal.component').then((m) => m.LegalComponent),
     data: { type: 'privacy' },

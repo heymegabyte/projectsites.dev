@@ -41,6 +41,7 @@ export const KNOWN_MARKETING_PREFIXES: ReadonlySet<string> = new Set([
   'integrations',
   'roadmap',
   'press',
+  'trust', // public Trust Center (backlog #30) — component + spec existed, route was never wired → /trust hard-404'd (AL-727)
   'checkout',
   'error',
   'offline',
@@ -154,6 +155,11 @@ export const MARKETING_META: Readonly<Record<string, MarketingMeta>> = {
     title: 'Press Kit — Brand Assets & Media Contacts | ProjectSites',
     description:
       'Brand assets, founder bio, fact sheet, 8-slide cinematic picture walkthrough, press releases, and media contacts for ProjectSites by Megabyte Labs.',
+  },
+  '/trust': {
+    title: 'Trust & Security — How We Protect Your Data | ProjectSites',
+    description:
+      'How Project Sites protects your sites and data — no secrets in the browser, A–F production-readiness grades, encrypted credentials, and Turnstile-guarded forms.',
   },
   '/developers': {
     title: 'Developer Platform — MCP Server, API & CLI | ProjectSites',
