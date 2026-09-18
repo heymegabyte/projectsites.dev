@@ -23,7 +23,11 @@ function mockFetch(routes: Record<string, MockResp>) {
   });
 }
 
-const configuredEnv = { DEEPSEEK_API_KEY: 'ds', ANTHROPIC_API_KEY: 'an', OPENAI_API_KEY: 'oa' } as unknown as Env;
+const configuredEnv = {
+  DEEPSEEK_API_KEY: 'ds',
+  ANTHROPIC_API_KEY: 'an',
+  OPENAI_API_KEY: 'oa',
+} as unknown as Env;
 
 afterEach(() => {
   // restore between cases

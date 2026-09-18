@@ -350,7 +350,9 @@ superAdmin.get('/api/super-admin/credits', async (c) => {
     if (cached) return c.json({ ...(cached as object), cached: true });
   }
   const report = await getCreditReport(c.env);
-  await c.env.CACHE_KV?.put(CACHE_KEY, JSON.stringify(report), { expirationTtl: 300 }).catch(() => {});
+  await c.env.CACHE_KV?.put(CACHE_KEY, JSON.stringify(report), { expirationTtl: 300 }).catch(
+    () => {},
+  );
   return c.json({ ...report, cached: false });
 });
 
@@ -446,7 +448,10 @@ superAdmin.get('/api/super-admin/deliverability', async (c) => {
       c.env.DB,
       `SELECT COUNT(*) AS n FROM email_suppressions WHERE deleted_at IS NULL`,
     ).catch(() => ({ n: suppressions.length }));
-    return c.json({ suppressionCount: Number(total?.n ?? suppressions.length), recent: suppressions });
+    return c.json({
+      suppressionCount: Number(total?.n ?? suppressions.length),
+      recent: suppressions,
+    });
   } catch (e) {
     return c.json({ suppressionCount: null, recent: [], error: String(e).slice(0, 80) });
   }

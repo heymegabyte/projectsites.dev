@@ -114,7 +114,11 @@ const ADAPTERS: Adapter[] = [
       };
       const info = body.balance_infos?.[0];
       const usd = Number(info?.total_balance ?? 'NaN');
-      const status = Number.isFinite(usd) ? balanceStatus(usd) : body.is_available ? 'healthy' : 'depleted';
+      const status = Number.isFinite(usd)
+        ? balanceStatus(usd)
+        : body.is_available
+          ? 'healthy'
+          : 'depleted';
       return {
         balanceUsd: Number.isFinite(usd) ? usd : null,
         currency: info?.currency ?? 'USD',
@@ -167,7 +171,9 @@ const ADAPTERS: Adapter[] = [
         headers: { Authorization: `Token ${env.DEEPGRAM_API_KEY}`, Accept: 'application/json' },
       });
       if (!balRes.ok) throw new Error(`HTTP ${balRes.status}`);
-      const bal = (await balRes.json()) as { balances?: Array<{ amount?: number; units?: string }> };
+      const bal = (await balRes.json()) as {
+        balances?: Array<{ amount?: number; units?: string }>;
+      };
       const amount = Number(bal.balances?.[0]?.amount ?? 'NaN');
       const units = bal.balances?.[0]?.units ?? 'usd';
       return {
@@ -190,7 +196,11 @@ const ADAPTERS: Adapter[] = [
         headers: { 'xi-api-key': env.ELEVENLABS_API_KEY as string, Accept: 'application/json' },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = (await res.json()) as { tier?: string; character_count?: number; character_limit?: number };
+      const body = (await res.json()) as {
+        tier?: string;
+        character_count?: number;
+        character_limit?: number;
+      };
       const used = Number(body.character_count ?? 0);
       const limit = Number(body.character_limit ?? 0);
       return {
@@ -211,10 +221,14 @@ const ADAPTERS: Adapter[] = [
       const res = await timedFetch('https://api.replicate.com/v1/account', {
         headers: { Authorization: `Bearer ${env.REPLICATE_API_TOKEN}`, Accept: 'application/json' },
       });
-      if (res.status === 401 || res.status === 403) return { status: 'depleted', detail: `Key rejected (HTTP ${res.status})` };
+      if (res.status === 401 || res.status === 403)
+        return { status: 'depleted', detail: `Key rejected (HTTP ${res.status})` };
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const body = (await res.json()) as { username?: string };
-      return { status: 'healthy', detail: `Key valid${body.username ? ` · @${body.username}` : ''} · usage-billed (no balance API)` };
+      return {
+        status: 'healthy',
+        detail: `Key valid${body.username ? ` · @${body.username}` : ''} · usage-billed (no balance API)`,
+      };
     },
   },
   {
@@ -268,7 +282,8 @@ const ADAPTERS: Adapter[] = [
     category: 'media',
     kind: 'availability',
     topUpUrl: 'https://www.pexels.com/api/',
-    configured: (env) => Boolean(env.PEXELS_API_KEY || env.PIXABAY_API_KEY || env.UNSPLASH_ACCESS_KEY),
+    configured: (env) =>
+      Boolean(env.PEXELS_API_KEY || env.PIXABAY_API_KEY || env.UNSPLASH_ACCESS_KEY),
     consoleDetail: 'Free tier (rate-limited, no $ balance) — monitor request quotas per provider',
   },
 ];
