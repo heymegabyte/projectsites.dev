@@ -37,7 +37,9 @@ describe('nominatim_search — mapNominatimResult', () => {
   });
 
   it('derives place_id char from osm_type (way → w, relation → r)', () => {
-    expect(mapNominatimResult({ ...BLUE_BOTTLE, osm_type: 'way', osm_id: 5 })?.place_id).toBe('osm:w5');
+    expect(mapNominatimResult({ ...BLUE_BOTTLE, osm_type: 'way', osm_id: 5 })?.place_id).toBe(
+      'osm:w5',
+    );
     expect(mapNominatimResult({ ...BLUE_BOTTLE, osm_type: 'relation', osm_id: 9 })?.place_id).toBe(
       'osm:r9',
     );
@@ -72,14 +74,16 @@ describe('nominatim_search — mapNominatimResult', () => {
 describe('nominatim_search — searchBusinessesByName', () => {
   it('returns [] on an empty/whitespace query without fetching', async () => {
     const stub = jest.fn();
-    expect(await searchBusinessesByName('   ', { fetchImpl: stub as unknown as typeof fetch })).toEqual(
-      [],
-    );
+    expect(
+      await searchBusinessesByName('   ', { fetchImpl: stub as unknown as typeof fetch }),
+    ).toEqual([]);
     expect(stub).not.toHaveBeenCalled();
   });
 
   it('returns [] on HTTP error (never throws)', async () => {
-    const stub = jest.fn().mockResolvedValue({ ok: false, status: 429, json: () => Promise.resolve([]) });
+    const stub = jest
+      .fn()
+      .mockResolvedValue({ ok: false, status: 429, json: () => Promise.resolve([]) });
     expect(
       await searchBusinessesByName('Blue Bottle', { fetchImpl: stub as unknown as typeof fetch }),
     ).toEqual([]);
