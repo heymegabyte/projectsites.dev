@@ -20,6 +20,11 @@
  *   4. after = D1 COUNT — assert (after - before) >= N  (I visited → the STORE counted it).
  *   5. Assert the newest pageview rows are ENRICHED (path='/' + a metadata.ua) — proving the
  *      server-side recorder ran, not a bare/empty insert.
+ *   6. DISPLAY == STORE (the last mile): fetch the owner's /admin analytics endpoint
+ *      (`/api/sites/:id/analytics`, authed as brian) and assert its shown pageview count reflects
+ *      the store (≥ the N visits just made, never exceeding the all-time store) — catching a
+ *      lying-empty / wrong-source admin analytics the store-only leg is blind to. Skipped (leg
+ *      passes) when E2E_TEST_PASSWORD is absent, so the store-proven run never regresses.
  *
  * Requires CF auth in env (CLOUDFLARE_API_KEY + CLOUDFLARE_EMAIL) for the D1 read. Fail-open
  * (::notice + exit 0) when absent so forks + secret-less CI stay green. Adds N benign pageviews to
@@ -115,21 +120,72 @@ try {
   summary.newestPath = newest?.path ?? null;
   summary.newestHasUa = !!newest?.ua;
 
+  // ── 6. DISPLAY == STORE (the last mile) — the owner's /admin analytics endpoint must SHOW the
+  //   pageviews, not just the D1 store hold them. The store-delta above proves the WRITE path; this
+  //   proves the READ path the owner actually sees, catching a lying-empty / wrong-source admin
+  //   analytics (per [[verify-against-source-of-truth]]: render-vs-endpoint is blind to store-vs-
+  //   display). Owner-authed via test-login as brian (org-brian-001 owns the resolved site). Skipped
+  //   (leg passes) when E2E_TEST_PASSWORD is absent, so the store-proven run never regresses in CI.
+  const PW = process.env.E2E_TEST_PASSWORD || '';
+  const WORKERS = 'https://project-sites.manhattan.workers.dev'; // workers.dev bypasses Bot-Fight on authed calls
+  let displayPv = null;
+  let displayStatus = null;
+  if (PW) {
+    try {
+      const lr = await fetch(`${WORKERS}/api/auth/test-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': UA },
+        body: JSON.stringify({ email: 'brian@megabyte.space', password: PW }),
+      });
+      const token = (await lr.json().catch(() => ({})))?.data?.token || '';
+      if (token) {
+        const ar = await fetch(`${WORKERS}/api/sites/${SITE_ID}/analytics`, {
+          headers: { Authorization: `Bearer ${token}`, 'User-Agent': UA },
+        });
+        displayStatus = ar.status;
+        const aj = await ar.json().catch(() => ({}));
+        const d = aj?.data ?? aj;
+        const pv = d?.traffic?.pageviews ?? d?.traffic?.total ?? d?.pageviews;
+        displayPv = Number.isFinite(Number(pv)) ? Number(pv) : NaN;
+      }
+    } catch {
+      /* leg skipped on any auth/network error — store leg stands */
+    }
+  }
+  summary.displayPageviews = displayPv;
+  summary.displayStatus = displayStatus;
+
   const allVisited = statuses.every((s) => s === 200);
   const moved = summary.delta >= N;
   const enriched = summary.newestPath === '/' && summary.newestHasUa;
-  const ok = allVisited && moved && enriched;
+  // Display reconciles when readable: it must show ≥ the N visits I just made (window-scoped, all
+  // recent) and never EXCEED the all-time store (a display > store is fabrication). null = skipped.
+  const displayOk =
+    displayPv === null ? true : Number.isFinite(displayPv) && displayPv >= N && displayPv <= after;
+  const ok = allVisited && moved && enriched && displayOk;
 
   console.log('\n=== delivered-site analytics visit→STORE CAUSAL (D1 ground truth) ===\n' + JSON.stringify(summary, null, 2));
+  const displayLeg =
+    displayPv === null ? 'display=skip(no-pw)' : `display=${displayPv}${displayOk ? '' : ' ✗'} (store=${after})`;
   console.log(
     `\nVERDICT: ${ok ? '✅ PASS' : '🔴 CHECK'} visits=${statuses.join(',')} ` +
       `before=${summary.before} after=${summary.after} delta=${summary.delta} (want ≥${N}) ` +
-      `path=${summary.newestPath} enriched=${enriched}`,
+      `path=${summary.newestPath} enriched=${enriched} ${displayLeg}`,
   );
   if (!moved) {
     console.log(
       '   ↳ delta < N — the visit→visitor_events server-side record is broken (bot-filter over-matching a real UA, ' +
         'edge-cache bypassing the caller-level record, or a dropped D1 write). Investigate before trusting /admin analytics.',
+    );
+  }
+  if (displayPv !== null && Number.isFinite(displayPv) && after > 0 && displayPv === 0) {
+    console.log(
+      `   ↳ LYING-EMPTY: the STORE holds ${after} pageviews but the owner's /admin analytics DISPLAY shows 0 — ` +
+        'wrong-source / dead-table read (the render-vs-endpoint gates are blind to this). Fix the analytics read at root.',
+    );
+  } else if (displayPv !== null && Number.isFinite(displayPv) && displayPv > after) {
+    console.log(
+      `   ↳ FABRICATED: the DISPLAY shows ${displayPv} pageviews but the STORE only holds ${after} — the analytics read over-counts.`,
     );
   }
   process.exit(ok ? 0 : 1);
