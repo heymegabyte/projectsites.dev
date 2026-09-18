@@ -217,6 +217,26 @@ describe('crawlSiteForImport — robots.txt fallback', () => {
     expect(row!.source).toBe('robots');
     expect(report.by_source.robots).toBeGreaterThanOrEqual(1);
   });
+
+  it('caps robots-sourced leaves at 2000 — an attacker robots.txt with a huge sitemap can not blow up the crawl (AL-779)', async () => {
+    // robots.txt → one Sitemap: → a crafted 2500-<loc> XML. Before the cap the uncapped fromRobots
+    // pushed all 2500 into robotsUrls (concatenated raw into the report + persisted to R2); now it
+    // stops at 2000 like its fromSitemap sibling. crawlSiteForImport has no downstream total cap, so
+    // this asserts the fromRobots cap itself (old code → 2500).
+    const robots = `User-agent: *\nSitemap: https://example.com/huge-sitemap.xml\n`;
+    const hugeSm =
+      '<urlset>' +
+      Array.from({ length: 2500 }, (_, i) => `<url><loc>https://example.com/p${i}</loc></url>`).join('') +
+      '</urlset>';
+    routeFetch([
+      ['/robots.txt', okText(robots)],
+      ['/huge-sitemap.xml', okText(hugeSm)],
+      ['example.com/', okText('<html></html>')],
+      // /sitemap.xml 404s via fall-through → fromSitemap empty → robots is the only leaf source
+    ]);
+    const report = await crawlSiteForImport('https://example.com', 'imp-huge', makeEnv(makeBucket()));
+    expect(report.by_source.robots).toBe(2000); // was 2500 (uncapped) before AL-779
+  });
 });
 
 // ─── crawlSiteForImport: wayback fallback ────────────────────────

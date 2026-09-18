@@ -260,7 +260,13 @@ async function fromRobots(origin: string, alreadySeen: Set<string>): Promise<Inv
     .map((l) => l.replace(/^sitemap:\s*/i, '').trim());
 
   const out: InventoryUrl[] = [];
+  // Cap accumulated leaves exactly like fromSitemap (2_000). Without it an attacker-controlled
+  // source site's robots.txt (up to 10 `Sitemap:` lines, each a crafted XML with 100k+ <loc>
+  // entries) grows `out` unbounded → the full set is JSON.stringify'd into R2 + returned in the
+  // import response, inflating Worker CPU/memory + R2 cost per single authed /import call (AL-779).
+  const MAX_ROBOTS_URLS = 2_000;
   for (const sm of sitemapLines.slice(0, 10)) {
+    if (out.length >= MAX_ROBOTS_URLS) break;
     const inner = await safeFetch(sm);
     if (!inner || !inner.ok) continue;
     const { leaves } = parseSitemapLeaves(await inner.text());
@@ -275,6 +281,7 @@ async function fromRobots(origin: string, alreadySeen: Set<string>): Promise<Inv
         classification: 'keep',
         path: new URL(norm).pathname,
       });
+      if (out.length >= MAX_ROBOTS_URLS) break;
     }
   }
   return out;
