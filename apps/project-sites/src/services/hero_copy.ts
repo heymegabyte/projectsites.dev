@@ -345,7 +345,12 @@ export function cityFromAddress(address: string | null | undefined): string {
   // locality (not the street line): a verbose "…, San Francisco, California, …" drops the STATE to
   // reveal "San Francisco", while a compact "…St, New York, NY 10002" KEEPS the CITY "New York"
   // (its predecessor is the street, so "New York" here is the city, not the state).
-  if (i >= 1 && (STATE.test(parts[i]!) || /^[A-Za-z]{2}$/.test(parts[i]!)) && !STREETISH.test(parts[i - 1]!)) i--;
+  if (
+    i >= 1 &&
+    (STATE.test(parts[i]!) || /^[A-Za-z]{2}$/.test(parts[i]!)) &&
+    !STREETISH.test(parts[i - 1]!)
+  )
+    i--;
   // Drop administrative-area names between the state and the city ("Travis County", "New York County").
   while (i >= 1 && ADMIN.test(parts[i]!)) i--;
   const city = i >= 0 ? parts[i]! : '';
