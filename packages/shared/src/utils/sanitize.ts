@@ -146,11 +146,16 @@ export function sanitizeHtml(input: string): string {
       .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
       .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '')
       .replace(/<embed\b[^>]*>/gi, '')
-      // Event-handler attributes — quoted ("…" / '…') OR UNQUOTED (onload=alert(1)).
-      // The previous regex required quotes, so `<svg onload=alert(1)>` and
-      // `<img src=x onerror=alert(1)>` slipped through. The leading `\s` anchors
-      // to an attribute boundary so we never match inside text/other attrs.
-      .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+      // Strip any UNTERMINATED script/iframe/object opener too. The balanced pairs above require a
+      // literal closing tag, so `<script>alert(1)` (no `</script>`) would otherwise pass through —
+      // and browsers execute an unterminated <script> (auto-closed at EOF). `>?` also catches a tag
+      // truncated at end-of-input (`…<script`). (AL-780)
+      .replace(/<(?:script|iframe|object)\b[^>]*>?/gi, '')
+      // Event-handler attributes — quoted ("…" / '…') OR UNQUOTED (onload=alert(1)). The boundary is
+      // `[\s/]`, not just `\s`: HTML5 treats `/` as an attribute separator, so the slash-separated
+      // form `<svg/onload=alert(1)>` must strip too (the `\s`-only version let it slip through). The
+      // boundary still anchors to a real attribute edge so we never match `on…=` inside prose. (AL-780)
+      .replace(/[\s/]on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
       .replace(/javascript\s*:/gi, '')
       .replace(/data\s*:/gi, '')
       .replace(/vbscript\s*:/gi, '');

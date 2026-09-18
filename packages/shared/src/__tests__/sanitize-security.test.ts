@@ -96,6 +96,12 @@ describe('sanitizeHtml — XSS vectors', () => {
     ['javascript uri', '<a href="javascript:alert(1)">x</a>'],
     ['vbscript uri', '<a href="vbscript:msgbox(1)">x</a>'],
     ['data uri', '<a href="data:text/html,<script>alert(1)</script>">x</a>'],
+    // Unterminated openers — browsers auto-close a <script>/<iframe> at EOF, so the
+    // balanced-pair regexes (which require a literal closing tag) must NOT be the only
+    // defence. These pass through the shell UNLESS the unterminated-opener strip fires. (AL-780)
+    ['unterminated script (no closing tag)', '<script>alert(document.cookie)'],
+    ['unterminated script (truncated at EOF)', 'prefix<script'],
+    ['unterminated iframe (no closing tag)', '<iframe src="evil"'],
   ];
 
   for (const [name, payload] of dangerous) {
@@ -115,9 +121,22 @@ describe('sanitizeHtml — XSS vectors', () => {
     });
   }
 
+  it('strips SLASH-separated event handlers (HTML5 treats / as an attr separator)', () => {
+    // The shared loop above asserts /\son\w+=/ (space boundary) — it CANNOT see the
+    // slash-separated form, so this vector needs its own assertion. (AL-780)
+    expect(sanitizeHtml('<svg/onload=alert(1)>').toLowerCase()).not.toContain('onload');
+    expect(sanitizeHtml('<img src=x/onerror=alert(1)>').toLowerCase()).not.toContain('onerror');
+    expect(sanitizeHtml('<div/onclick=steal()>hi</div>').toLowerCase()).not.toContain('onclick');
+  });
+
   it('preserves benign markup', () => {
     expect(sanitizeHtml('<p>Hello <strong>world</strong></p>')).toBe('<p>Hello <strong>world</strong></p>');
     expect(sanitizeHtml('<a href="https://example.com">link</a>')).toBe('<a href="https://example.com">link</a>');
+    // Over-strip guard for the broadened [\s/] boundary: a benign closing tag and
+    // self-closing slash must survive — only `on\w+=` after the boundary strips. (AL-780)
+    expect(sanitizeHtml('<p>line one</p>')).toBe('<p>line one</p>');
+    expect(sanitizeHtml('<br/>')).toBe('<br/>');
+    expect(sanitizeHtml('<img src="a.jpg"/>')).toBe('<img src="a.jpg"/>');
   });
 
   it('does not corrupt text that merely contains "on" or attribute-like words', () => {
