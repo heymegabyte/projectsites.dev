@@ -331,7 +331,9 @@ api.get('/api/auth/magic-link/verify', async (c) => {
     });
 
     if (result.redirect_url) {
-      const redirectTarget = new URL(result.redirect_url);
+      // Resolve relative returnUrls against our base (see the google callback) so a bare
+      // `new URL('/admin/billing')` can't throw; the allowlist below still gates the hostname.
+      const redirectTarget = new URL(result.redirect_url, `https://${DOMAINS.SITES_BASE}`);
       // Strict redirect validation — only allow exact known domains and single-level subdomains
       const allowedDomains = ['projectsites.dev', 'megabyte.space'];
       const hostname = redirectTarget.hostname;
@@ -429,7 +431,9 @@ api.post('/api/auth/magic-link/verify', async (c) => {
   });
 
   if (result.redirect_url) {
-    const redirectTarget = new URL(result.redirect_url);
+    // Resolve relative returnUrls against our base (see the google callback) — prevents a
+    // `TypeError: Invalid URL` 500 when the stored redirect_url is a relative path.
+    const redirectTarget = new URL(result.redirect_url, `https://${DOMAINS.SITES_BASE}`);
     redirectTarget.searchParams.set('token', session.token);
     redirectTarget.searchParams.set('email', result.email);
     redirectTarget.searchParams.set('auth_callback', 'magic_link');
@@ -694,7 +698,12 @@ api.get('/api/auth/google/callback', async (c) => {
   const baseUrl = `https://${DOMAINS.SITES_BASE}`;
 
   const rawRedirect = result.redirect_url ?? baseUrl;
-  const redirectTarget = new URL(rawRedirect);
+  // Resolve against baseUrl so a RELATIVE returnUrl (e.g. '/admin/billing', which the sign-in
+  // page sends via `?returnUrl=…`) resolves to our domain instead of throwing `TypeError: Invalid
+  // URL` — the live 500 (AL-678 started sending relative returnUrls; the callback never adapted).
+  // The allowlist below still runs on the RESOLVED hostname, so an absolute off-domain URL is
+  // still bounced (open-redirect defense preserved).
+  const redirectTarget = new URL(rawRedirect, baseUrl);
   // Strict redirect validation — only allow exact known domains and single-level subdomains
   const oauthAllowedDomains = ['projectsites.dev', 'megabyte.space'];
   const oauthHostname = redirectTarget.hostname;
@@ -826,7 +835,9 @@ api.get('/api/auth/github/callback', async (c) => {
 
   const baseUrl = `https://${DOMAINS.SITES_BASE}`;
   const rawRedirect = result.redirect_url ?? baseUrl;
-  const redirectTarget = new URL(rawRedirect);
+  // Resolve relative returnUrls against our base (see the google callback) — a bare
+  // `new URL('/admin')` throws; the allowlist below still runs on the resolved hostname.
+  const redirectTarget = new URL(rawRedirect, baseUrl);
   const ghAllowedDomains = ['projectsites.dev', 'megabyte.space'];
   const ghHostname = redirectTarget.hostname;
   const ghAllowed = ghAllowedDomains.some(
