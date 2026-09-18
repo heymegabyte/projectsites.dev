@@ -22,7 +22,9 @@ jest.mock('../services/db.js', () => ({
   dbExecute: jest.fn().mockResolvedValue({ error: null, changes: 1 }),
 }));
 
-jest.mock('../services/audit.js', () => ({ writeAuditLog: jest.fn().mockResolvedValue(undefined) }));
+jest.mock('../services/audit.js', () => ({
+  writeAuditLog: jest.fn().mockResolvedValue(undefined),
+}));
 
 jest.mock('../lib/posthog.js', () => ({
   capture: jest.fn(),
@@ -66,7 +68,10 @@ const env = {
 
 // The callback calls posthog.trackAuth(c.env, c.executionCtx, …); Hono's c.executionCtx getter
 // throws when the test request supplies none. Workers always provide one in prod — mock it here.
-const execCtx = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext;
+const execCtx = {
+  waitUntil: () => {},
+  passThroughOnException: () => {},
+} as unknown as ExecutionContext;
 
 beforeEach(() => {
   mockFind.mockResolvedValue({ user_id: 'u1', org_id: 'o1' });
@@ -81,7 +86,12 @@ describe('GET /api/auth/google/callback — relative returnUrl resolution (incid
       avatar_url: null,
       redirect_url: '/admin/billing',
     });
-    const res = await buildApp().request('/api/auth/google/callback?code=c&state=s', undefined, env, execCtx);
+    const res = await buildApp().request(
+      '/api/auth/google/callback?code=c&state=s',
+      undefined,
+      env,
+      execCtx,
+    );
     expect(res.status).toBe(302); // was 500 before the fix
     const loc = res.headers.get('location') || '';
     expect(loc.startsWith('https://')).toBe(true);
@@ -97,7 +107,12 @@ describe('GET /api/auth/google/callback — relative returnUrl resolution (incid
       avatar_url: null,
       redirect_url: 'https://evil.example.com/steal',
     });
-    const res = await buildApp().request('/api/auth/google/callback?code=c&state=s', undefined, env, execCtx);
+    const res = await buildApp().request(
+      '/api/auth/google/callback?code=c&state=s',
+      undefined,
+      env,
+      execCtx,
+    );
     expect(res.status).toBe(302);
     expect(res.headers.get('location') || '').toContain('/?error=invalid_redirect');
   });
@@ -109,7 +124,12 @@ describe('GET /api/auth/google/callback — relative returnUrl resolution (incid
       avatar_url: null,
       redirect_url: null,
     });
-    const res = await buildApp().request('/api/auth/google/callback?code=c&state=s', undefined, env, execCtx);
+    const res = await buildApp().request(
+      '/api/auth/google/callback?code=c&state=s',
+      undefined,
+      env,
+      execCtx,
+    );
     expect(res.status).toBe(302);
     expect(res.headers.get('location') || '').toContain('token=sess-tok');
   });
