@@ -1,185 +1,134 @@
 /**
- * Unit coverage for services/image_generation.ts.
+ * Unit coverage for services/image_generation.ts — the best-value image path.
  *
- * Covers the sole SERVICE export `callDallE3` — provider-key gating, OpenAI HTTP
- * success/error/throw, missing-url handling, size/default params, and the
- * time-boxed follow-up image download. Distinct from workflows-image-generation.test.ts
- * (the async workflow that superseded the removed synchronous logo/section/favicon helpers).
+ * `callDallE3` (name kept for callers) now generates cheapest-capable-model first:
+ * square requests use Flux-1-schnell on Workers AI (`env.AI.run`); wide/tall requests
+ * + any Flux miss escalate to OpenAI `gpt-image-1` via the gateway (returns b64_json).
+ * Covers: AI-binding Flux success, Flux→OpenAI fallback, wide-hero size mapping,
+ * gpt-image-1 request shape, and null/error handling.
  */
 
-import { callDallE3 } from '../services/image_generation';
+import { callDallE3, callFluxSchnell, callOpenAiImage } from '../services/image_generation';
 import type { Env } from '../types/env.js';
 
-/** A minimal R2-put recorder usable as env.SITES_BUCKET. */
-function makeBucket() {
-  const puts: { key: string; body: unknown; opts: Record<string, unknown> }[] = [];
-  const put = jest.fn(async (key: string, body: unknown, opts: Record<string, unknown> = {}) => {
-    puts.push({ key, body, opts });
-  });
-  return { put, puts };
-}
+/** base64('hello') → 5 bytes; used to assert decode-to-ArrayBuffer. */
+const B64_HELLO = 'aGVsbG8=';
 
 function makeEnv(overrides: Partial<Record<string, unknown>> = {}): Env {
-  const bucket = makeBucket();
   return {
     OPENAI_API_KEY: 'sk-test-key',
-    SITES_BUCKET: bucket as unknown,
+    SITES_BUCKET: {} as unknown,
     ...overrides,
   } as unknown as Env;
 }
 
-/** Build a successful DALL-E generations JSON response + the follow-up image bytes. */
-function stubDallE3Success(imageBytes = new ArrayBuffer(64)) {
-  const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+/** An env whose Workers-AI binding returns a Flux image. */
+function withFlux(image: string | null = B64_HELLO, overrides: Partial<Record<string, unknown>> = {}) {
+  const run = jest.fn(async () => (image === null ? {} : { image }));
+  return { env: makeEnv({ AI: { run } as unknown, ...overrides }), run };
+}
+
+/** A gpt-image-1 generations response returning inline b64. */
+function stubOpenAiB64(b64 = B64_HELLO) {
+  return jest.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString();
-    if (url.includes('api.openai.com')) {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ data: [{ url: 'https://img.example.com/generated.png' }] }),
-        text: async () => '',
-      } as unknown as Response;
+    if (url.includes('/v1/images/generations')) {
+      return { ok: true, status: 200, json: async () => ({ data: [{ b64_json: b64 }] }), text: async () => '' } as unknown as Response;
     }
-    // Image fetch
-    return {
-      ok: true,
-      status: 200,
-      arrayBuffer: async () => imageBytes,
-    } as unknown as Response;
-  });
-  return fetchMock;
+    return { ok: false, status: 404 } as unknown as Response;
+  }) as unknown as typeof fetch;
 }
 
 describe('image_generation service', () => {
   const originalFetch = global.fetch;
-
   beforeEach(() => {
     jest.clearAllMocks();
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
-
   afterEach(() => {
     global.fetch = originalFetch;
     jest.restoreAllMocks();
   });
 
-  describe('callDallE3', () => {
-    it('returns null and warns when OPENAI_API_KEY is unset', async () => {
-      const env = makeEnv({ OPENAI_API_KEY: undefined });
-      const result = await callDallE3(env, 'a prompt');
+  describe('callFluxSchnell (cheap default)', () => {
+    it('returns decoded bytes from Workers AI Flux-1-schnell', async () => {
+      const { env, run } = withFlux();
+      const result = await callFluxSchnell(env, 'a storefront');
+      expect(result).not.toBeNull();
+      expect((result as ArrayBuffer).byteLength).toBe(5); // 'hello'
+      expect(run).toHaveBeenCalledWith('@cf/black-forest-labs/flux-1-schnell', expect.objectContaining({ steps: 8 }));
+    });
+
+    it('returns null when there is no AI binding (caller falls back)', async () => {
+      expect(await callFluxSchnell(makeEnv(), 'p')).toBeNull();
+    });
+
+    it('returns null + warns when the Flux run throws', async () => {
+      const env = makeEnv({ AI: { run: jest.fn(async () => { throw new Error('AI down'); }) } as unknown });
+      expect(await callFluxSchnell(env, 'p')).toBeNull();
+      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Flux-1-schnell failed'), expect.any(Error));
+    });
+  });
+
+  describe('callDallE3 (orchestrator)', () => {
+    it('uses Flux for a square request and never calls OpenAI', async () => {
+      const fetchMock = stubOpenAiB64();
+      global.fetch = fetchMock;
+      const { env, run } = withFlux();
+      const result = await callDallE3(env, 'p', '1024x1024');
+      expect((result as ArrayBuffer).byteLength).toBe(5);
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(fetchMock).not.toHaveBeenCalled(); // premium path untouched when Flux succeeds
+    });
+
+    it('falls back to gpt-image-1 when Flux misses on a square request', async () => {
+      global.fetch = stubOpenAiB64();
+      const { env } = withFlux(null); // Flux returns {} → null → fallback
+      const result = await callDallE3(env, 'p', '1024x1024');
+      expect((result as ArrayBuffer).byteLength).toBe(5);
+    });
+
+    it('routes wide heroes straight to gpt-image-1 with the mapped size (never Flux)', async () => {
+      const fetchMock = stubOpenAiB64();
+      global.fetch = fetchMock;
+      const { env, run } = withFlux();
+      const result = await callDallE3(env, 'hero prompt', '1792x1024');
+      expect((result as ArrayBuffer).byteLength).toBe(5);
+      expect(run).not.toHaveBeenCalled(); // Flux-schnell can't frame wide → skipped
+      const body = JSON.parse((fetchMock as jest.Mock).mock.calls[0][1].body as string);
+      expect(body.model).toBe('gpt-image-1');
+      expect(body.size).toBe('1536x1024'); // 1792x1024 → gpt-image-1's widest
+      expect(body.response_format).toBeUndefined(); // gpt-image-1 rejects response_format
+      expect(body.prompt).toContain('hero prompt');
+    });
+  });
+
+  describe('callOpenAiImage (premium escalation)', () => {
+    it('returns null + warns when OPENAI_API_KEY is unset', async () => {
+      const result = await callOpenAiImage(makeEnv({ OPENAI_API_KEY: undefined }), 'p', '1024x1024');
       expect(result).toBeNull();
       expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('OPENAI_API_KEY not set'));
     });
 
-    it('returns null when OPENAI_API_KEY is an empty string', async () => {
-      const env = makeEnv({ OPENAI_API_KEY: '' });
-      expect(await callDallE3(env, 'p')).toBeNull();
-    });
-
-    it('posts to OpenAI with the requested size and returns the fetched image bytes', async () => {
-      const bytes = new ArrayBuffer(128);
-      const fetchMock = stubDallE3Success(bytes);
-      global.fetch = fetchMock as unknown as typeof fetch;
-
-      const result = await callDallE3(makeEnv(), 'hero prompt', '1792x1024');
-      expect(result).toBe(bytes);
-
-      const [genUrl, init] = fetchMock.mock.calls[0];
-      expect(genUrl).toBe('https://api.openai.com/v1/images/generations');
-      const body = JSON.parse((init as RequestInit).body as string);
-      expect(body.model).toBe('dall-e-3');
-      expect(body.size).toBe('1792x1024');
-      // The prompt is art-directed into a supreme, ultra-realistic prompt: it
-      // keeps the caller's cue AND inherits the photographic preamble + hero
-      // framing (1792x1024 → hero slot) + the negative-prompt tail.
-      expect(body.prompt).toContain('hero prompt');
-      expect(body.prompt).toContain('35mm');
-      expect(body.prompt).toContain('16:9 landscape');
-      expect(body.prompt).toContain('no watermark');
-      // Routed through gatewayFetch → headers arrive as a Headers instance.
-      const sentHeaders = new Headers((init as RequestInit).headers);
-      expect(sentHeaders.get('Authorization')).toBe('Bearer sk-test-key');
-    });
-
-    it('defaults size to 1024x1024 when omitted', async () => {
-      const fetchMock = stubDallE3Success();
-      global.fetch = fetchMock as unknown as typeof fetch;
-      await callDallE3(makeEnv(), 'p');
-      const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-      expect(body.size).toBe('1024x1024');
-    });
-
-    it('time-boxes the follow-up image download with an AbortSignal (fail-fast on a CDN hang)', async () => {
-      const fetchMock = stubDallE3Success();
-      global.fetch = fetchMock as unknown as typeof fetch;
-      await callDallE3(makeEnv(), 'p');
-      // The 2nd fetch is the image download (URL is NOT the OpenAI generations endpoint);
-      // it must carry an abort signal so a stalled blob CDN can't hang the Worker.
-      const imageCall = fetchMock.mock.calls.find(([u]) => !String(u).includes('api.openai.com'));
-      expect(imageCall).toBeTruthy();
-      const init = imageCall?.[1] as RequestInit | undefined;
-      expect(init?.signal).toBeInstanceOf(AbortSignal);
-    });
-
-    it('returns null and warns on a non-200 generations response', async () => {
-      const fetchMock = jest.fn(async () => ({
-        ok: false,
-        status: 429,
-        text: async () => 'rate limited',
-      })) as unknown as typeof fetch;
+    it('sends Authorization through the gateway + decodes b64_json', async () => {
+      const fetchMock = stubOpenAiB64();
       global.fetch = fetchMock;
-      const result = await callDallE3(makeEnv(), 'p');
+      const result = await callOpenAiImage(makeEnv(), 'p', '1024x1024');
+      expect((result as ArrayBuffer).byteLength).toBe(5);
+      const headers = new Headers((fetchMock as jest.Mock).mock.calls[0][1].headers);
+      expect(headers.get('Authorization')).toBe('Bearer sk-test-key');
+    });
+
+    it('returns null + warns on a non-200 generations response', async () => {
+      global.fetch = jest.fn(async () => ({ ok: false, status: 429, text: async () => 'rate limited' })) as unknown as typeof fetch;
+      const result = await callOpenAiImage(makeEnv(), 'p', '1024x1024');
       expect(result).toBeNull();
       expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('429'));
     });
 
-    it('returns null when the generations payload has no image url', async () => {
-      const fetchMock = jest.fn(async () => ({
-        ok: true,
-        status: 200,
-        json: async () => ({ data: [] }),
-      })) as unknown as typeof fetch;
-      global.fetch = fetchMock;
-      expect(await callDallE3(makeEnv(), 'p')).toBeNull();
-    });
-
-    it('returns null when the data array is missing entirely', async () => {
-      const fetchMock = jest.fn(async () => ({
-        ok: true,
-        status: 200,
-        json: async () => ({}),
-      })) as unknown as typeof fetch;
-      global.fetch = fetchMock;
-      expect(await callDallE3(makeEnv(), 'p')).toBeNull();
-    });
-
-    it('returns null when the follow-up image fetch is non-ok', async () => {
-      const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
-        const url = typeof input === 'string' ? input : input.toString();
-        if (url.includes('api.openai.com')) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({ data: [{ url: 'https://img.example.com/x.png' }] }),
-          } as unknown as Response;
-        }
-        return { ok: false, status: 404 } as unknown as Response;
-      }) as unknown as typeof fetch;
-      global.fetch = fetchMock;
-      expect(await callDallE3(makeEnv(), 'p')).toBeNull();
-    });
-
-    it('returns null and warns when fetch throws (network resilience / timeout)', async () => {
-      const fetchMock = jest.fn(async () => {
-        throw new Error('ECONNRESET');
-      }) as unknown as typeof fetch;
-      global.fetch = fetchMock;
-      const result = await callDallE3(makeEnv(), 'p');
-      expect(result).toBeNull();
-      expect(console.warn).toHaveBeenCalledWith(
-        expect.stringContaining('DALL-E 3 call failed'),
-        expect.any(Error),
-      );
+    it('returns null when the payload has neither b64_json nor url', async () => {
+      global.fetch = jest.fn(async () => ({ ok: true, status: 200, json: async () => ({ data: [{}] }) })) as unknown as typeof fetch;
+      expect(await callOpenAiImage(makeEnv(), 'p', '1024x1024')).toBeNull();
     });
   });
 });

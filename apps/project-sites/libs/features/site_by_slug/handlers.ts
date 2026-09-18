@@ -325,6 +325,48 @@ siteBySlug.get('/api/sites/by-slug/:slug/chat', async (c) => {
     return emptyBoltChatResponse(slug);
   }
 
+  // Guarantee a package.json so bolt.diy's WebContainer can boot the project. Container
+  // builds ship compiled output (index.html + assets/*, NO package.json), so without this
+  // the editor imports the files but "cannot open package.json" and never loads (Randy's
+  // Donuts, 2026-09). A minimal Vite + React + Tailwind manifest matches the template stack.
+  if (!files.some((f) => f.path === 'package.json')) {
+    const pkgName = slug.replace(/[^a-z0-9-]/g, '') || 'site';
+    files.push({
+      path: 'package.json',
+      content: JSON.stringify(
+        {
+          name: pkgName,
+          private: true,
+          version: '1.0.0',
+          type: 'module',
+          scripts: { dev: 'vite', build: 'tsc -b && vite build', preview: 'vite preview' },
+          dependencies: {
+            react: '^19.0.0',
+            'react-dom': '^19.0.0',
+            'react-router-dom': '^6.26.0',
+            clsx: '^2.1.1',
+            'tailwind-merge': '^2.4.0',
+            'class-variance-authority': '^0.7.0',
+            'lucide-react': '^0.400.0',
+            zod: '^3.23.8',
+          },
+          devDependencies: {
+            '@types/react': '^19.0.0',
+            '@types/react-dom': '^19.0.0',
+            '@vitejs/plugin-react': '^4.3.1',
+            autoprefixer: '^10.4.19',
+            postcss: '^8.4.39',
+            tailwindcss: '^3.4.6',
+            typescript: '^5.5.3',
+            vite: '^5.3.4',
+          },
+        },
+        null,
+        2,
+      ),
+    });
+  }
+
   let businessName = slug.replace(/-/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
   try {
     const site = await c.env.DB.prepare(

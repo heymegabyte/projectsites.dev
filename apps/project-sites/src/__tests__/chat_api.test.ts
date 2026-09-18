@@ -142,6 +142,37 @@ describe('GET /api/sites/by-slug/:slug/chat', () => {
     expect(body.exportDate).toBeTruthy();
   });
 
+  it('injects a fallback package.json (+ install/dev) when the build lacks one so the editor can boot it', async () => {
+    // A container-built site ships compiled output (index.html + assets, NO package.json).
+    // Without a guaranteed package.json bolt.diy "cannot open package.json" and never loads
+    // (Randy's Donuts, 2026-09). The reconstructed chat MUST now carry one.
+    const r2Get = jest.fn().mockImplementation((key: string) => {
+      if (key === 'sites/donut-shop/_manifest.json') {
+        return Promise.resolve(
+          createMockR2Object({ current_version: 'v1', files: ['index.html'], is_vite_project: true }),
+        );
+      }
+      if (key === 'sites/donut-shop/v1/index.html') {
+        return Promise.resolve(
+          createMockR2Object('<!DOCTYPE html><html><body><h1>Donuts</h1></body></html>'),
+        );
+      }
+      return Promise.resolve(null);
+    });
+
+    const { app, env } = createApp(r2Get);
+    const res = await app.request('/api/sites/by-slug/donut-shop/chat', {}, env);
+    expect(res.status).toBe(200);
+    const content = (await res.json()).messages[1].content;
+
+    // A package.json is guaranteed — the fix for "cannot open package.json".
+    expect(content).toContain('<boltAction type="file" filePath="package.json">');
+    expect(content).toContain('"name": "donut-shop"'); // slug → npm-safe name (hyphens are valid)
+    // ...and because a package.json now exists, the Vite install + dev-server actions fire.
+    expect(content).toContain('npm install');
+    expect(content).toContain('npm run dev');
+  });
+
   it('returns CORS header Access-Control-Allow-Origin: *', async () => {
     const r2Get = jest.fn().mockImplementation((key: string) => {
       if (key === 'sites/test-site/_manifest.json') {
