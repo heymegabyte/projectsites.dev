@@ -34,55 +34,11 @@ import { dbInsert, dbQueryOne } from '../../../src/services/db.js';
 import { writeAuditLog } from '../../../src/services/audit.js';
 import { runObservedWorkersAI } from '../../../src/lib/workers_ai.js';
 import { isThemeStyleName } from '../../../src/services/theme_style.js';
+import { createFromSearchSchema } from './schemas.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 
 export const siteCreation = new Hono<AppContext>();
-
-/** Nested business object sent by the homepage SPA (v2 payload format). */
-interface BusinessPayload {
-  name: string;
-  address?: string;
-  place_id?: string;
-  phone?: string;
-  email?: string;
-  hours?: string;
-  website?: string;
-  types?: string[];
-}
-
-/**
- * Request body for POST /api/sites/create-from-search. Supports two payload
- * formats for backward compatibility:
- * - v1 (flat):   `{ business_name, business_address, google_place_id, additional_context }`
- * - v2 (nested): `{ mode, business: {...}, additional_context }`
- */
-interface CreateFromSearchBody {
-  /** @deprecated Use `business.name` instead */
-  business_name?: string;
-  /** @deprecated Use `business.address` instead */
-  business_address?: string;
-  /** Freeform opening hours, e.g. "Mon–Fri 9am–5pm · Closed Sun" → OpeningHoursSpecification. */
-  business_hours?: string;
-  /** Phone (flat form). Nested `business.phone` also accepted. → telephone JSON-LD + click-to-call. */
-  business_phone?: string;
-  /** Email (flat form). Nested `business.email` also accepted. → org email JSON-LD + mailto:. */
-  business_email?: string;
-  /** @deprecated Use `business.place_id` instead */
-  google_place_id?: string;
-  additional_context?: string;
-  business?: BusinessPayload;
-  /** Creation mode: 'business' or 'custom' */
-  mode?: string;
-  /**
-   * Explicit visual personality the /create form chose for this category (one of
-   * the 16 theme-style preset names). AUTHORITATIVE when valid — the workflow
-   * prefers it over re-deriving the personality from `additional_context` prose,
-   * so the deliberate elaborate theme reliably lands (AL-467). Ignored when it is
-   * not a known preset name (the workflow falls back to derivation).
-   */
-  theme_style?: string;
-}
 
 siteCreation.post('/api/sites/create-from-search', async (c) => {
   const orgId = c.get('orgId');
@@ -123,7 +79,20 @@ siteCreation.post('/api/sites/create-from-search', async (c) => {
     );
   }
 
-  const body = (await c.req.json().catch(() => ({}))) as CreateFromSearchBody;
+  // Zod-validate the boundary (AL-724): this is the core funnel entry — a wrong-typed field
+  // (e.g. `business_type: 12345`) must fail-soft as a 400, never crash 500 via `(12345).trim()`
+  // nor lying-success persist a number into a TEXT column that throws downstream. safeParse →
+  // 400 (matches the contact_newsletter sibling idiom), never throws.
+  const parsed = createFromSearchSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) {
+    throw badRequest(
+      `Invalid request body: ${parsed.error.issues
+        .map((i) => `${i.path.join('.') || 'body'} — ${i.message}`)
+        .slice(0, 5)
+        .join('; ')}`,
+    );
+  }
+  const body = parsed.data;
 
   // Normalize both v1 (flat) and v2 (nested business object) payload formats.
   const mode = body.mode ?? null;
@@ -134,14 +103,15 @@ siteCreation.post('/api/sites/create-from-search', async (c) => {
   const googlePlaceId = body.business?.place_id || body.google_place_id;
   const businessPhone = body.business?.phone || body.business_phone || null;
   const businessEmail = body.business?.email || body.business_email || null;
-  // Declared vertical (fire-55/76) — extracted so it's PERSISTED on the sites row
-  // (migration 0632, for /reset re-threading) AND passed to the workflow. Mirrors the
-  // NAP flat-key chain: Places type → flat business_type → flat business_category → nested.
+  // Declared vertical (fire-55/76) — PERSISTED on the sites row (migration 0632, for /reset
+  // re-threading) AND passed to the workflow. Mirrors the NAP flat-key chain: Places type →
+  // flat business_type → flat business_category → nested. Now type-safe (schema-validated),
+  // so the former `as string | undefined` casts are gone (AL-724).
   const businessCategory =
     body.business?.types?.[0] ??
-    ((body as Record<string, unknown>).business_type as string | undefined) ??
-    ((body as Record<string, unknown>).business_category as string | undefined) ??
-    ((body.business as Record<string, unknown> | undefined)?.category as string | undefined) ??
+    body.business_type ??
+    body.business_category ??
+    body.business?.category ??
     null;
 
   if (!businessName || businessName.trim().length === 0) {
