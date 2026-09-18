@@ -131,11 +131,22 @@ export async function checkBuildLimit(
 
   const limit = plan === 'paid' ? PAID_LIMIT : FREE_LIMIT;
 
-  const result = await dbQuery<{ count: number }>(
-    db,
-    'SELECT COUNT(*) as count FROM sites WHERE org_id = ? AND deleted_at IS NULL',
-    [orgId],
-  );
+  // FAIL-CLOSED on a transient D1 error (mirrors isUnlimitedOrgOwner above). `dbQuery` SWALLOWS a
+  // D1 throw → `{ data: [], error }` (see db.ts — its own comment warns callers that ignore `error`
+  // see a silent `[]`). Reading `data[0]?.count ?? 0` on that would make `used = 0` → `allowed =
+  // true` → the per-org site cap is silently BYPASSED on a read-replica blip — the exact
+  // entitlement-fail-closed-on-transient / swallowed-SQL-error class, and a cost-runaway hole
+  // (builds are expensive). Retry ONCE (catches the common transient); if the error persists we
+  // cannot confirm the count → DENY (deny-on-uncertainty beats a silent bypass; a genuine platform
+  // DB outage blocks nothing that could have succeeded anyway).
+  const COUNT_SQL = 'SELECT COUNT(*) as count FROM sites WHERE org_id = ? AND deleted_at IS NULL';
+  let result = await dbQuery<{ count: number }>(db, COUNT_SQL, [orgId]);
+  if (result.error !== null) {
+    result = await dbQuery<{ count: number }>(db, COUNT_SQL, [orgId]);
+  }
+  if (result.error !== null) {
+    return { allowed: false, used: limit, limit, remaining: 0 };
+  }
 
   const used = result.data[0]?.count ?? 0;
   const remaining = Math.max(0, limit - used);

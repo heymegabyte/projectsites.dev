@@ -36,7 +36,25 @@ app.route('/', mediaAi);
 app.route('/', siteCreation);
 app.route('/', search);
 
-const env = { ENVIRONMENT: 'test' } as unknown as Env;
+// A minimal DB stub returning a clean 0-site count. create-from-search runs
+// checkBuildLimit BEFORE parsing the body; as of AL-784 that check FAILS CLOSED on a
+// D1 error (a real fix — the old code silently bypassed the cap), so a NULL DB would now
+// (correctly) deny → the handler's `!allowed` branch fires `c.executionCtx.waitUntil` and
+// the test harness has no executionCtx → 500. Prod always has a working DB (count → allowed),
+// so this stub mirrors prod's happy path and lets the request reach the malformed-body →
+// 400 path this test actually exercises. `first()` → null keeps plan=free + owner=not-unlimited.
+const env = {
+  ENVIRONMENT: 'test',
+  DB: {
+    prepare: () => ({
+      bind: () => ({
+        all: async () => ({ results: [{ count: 0 }] }),
+        first: async () => null,
+        run: async () => ({ meta: { changes: 0 } }),
+      }),
+    }),
+  },
+} as unknown as Env;
 
 function postMalformed(path: string) {
   return app.request(

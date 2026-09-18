@@ -177,3 +177,28 @@ describe('checkBuildLimit — edge cases', () => {
     expect(q.remaining).toBe(1);
   });
 });
+
+describe('checkBuildLimit — fails CLOSED on a D1 error (AL-784, never bypass the cost cap)', () => {
+  it('DENIES on a SUSTAINED D1 error instead of reading the swallowed empty result as used=0', async () => {
+    ordinaryOwner();
+    // dbQuery SWALLOWS a D1 throw → { data: [], error }. Both attempts fail (sustained outage).
+    mockDbQuery.mockResolvedValue({ data: [], error: 'D1_ERROR: connection reset' } as never);
+    const q = await checkBuildLimit(db, 'org-d1-error', 'paid');
+    // RED before AL-784: `used = []?.count ?? 0 = 0` → allowed=true → the 50-site cap was silently
+    // BYPASSED on a read-replica blip. GREEN: deny-on-uncertainty (never fail OPEN on a cost gate).
+    expect(q.allowed).toBe(false);
+    expect(q.remaining).toBe(0);
+    expect(mockDbQuery).toHaveBeenCalledTimes(2); // retried once before giving up
+  });
+
+  it('RETRIES once and SUCCEEDS on a single transient blip (no false denial)', async () => {
+    ordinaryOwner();
+    mockDbQuery
+      .mockResolvedValueOnce({ data: [], error: 'D1_ERROR: transient' } as never)
+      .mockResolvedValueOnce({ data: [{ count: 3 }], error: null } as never);
+    const q = await checkBuildLimit(db, 'org-d1-retry', 'paid');
+    expect(q.allowed).toBe(true); // the retry recovered the real count
+    expect(q.used).toBe(3);
+    expect(mockDbQuery).toHaveBeenCalledTimes(2);
+  });
+});
