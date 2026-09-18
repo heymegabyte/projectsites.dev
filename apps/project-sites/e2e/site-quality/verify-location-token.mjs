@@ -40,7 +40,10 @@ if (SITES.length === 0) {
 const SUBROUTES = ['/blog', '/privacy', '/faq'];
 // A bare 3-6 digit run = a street number / ZIP masquerading as a city. A real city is alphabetic.
 const NUMERIC_CITY_IN_SERVING = /serving\s+\d{3,6}\b/i; // "Proudly serving 94109 …"
-const NUMERIC_CITY_IN_TITLE = /·\s*\d{3,6}\b/; // "… · 1517 · get in touch"
+// A bare number after a title SEPARATOR — middot ("… · 1517 · …", sub-page fitMetaTitle) OR
+// pipe ("… | 70130", the homepage Home.tsx `{name} | {city}` local-SEO append). Both are the
+// street-number/ZIP-as-city leak; the homepage-title pipe variant slipped past a middot-only match.
+const NUMERIC_CITY_IN_TITLE = /[·|]\s*\d{3,6}\b/;
 
 const browser = await chromium.launch();
 const rows = [];
@@ -58,12 +61,18 @@ try {
     // Homepage service-area line (LocationMap "Proudly serving {city} …").
     await page.goto(`https://${slug}.projectsites.dev/`, { waitUntil: 'networkidle', timeout: 45000 }).catch(() => {});
     await page.waitForTimeout(600);
-    const homeServing = await page.evaluate(() => {
+    const home = await page.evaluate(() => {
       const m = (document.body.innerText || '').match(/serving\s+([^,\n.]{1,40}?)\s+and the surrounding/i);
-      return m ? m[1].trim() : '';
+      const trust = (document.body.innerText || '').match(/serving\s+(\S{1,30}?)\s+&\s+nearby/i); // TrustBar "Serving {city} & nearby"
+      return { serving: m ? m[1].trim() : '', trust: trust ? trust[1].trim() : '', title: document.title };
     });
-    check(`${slug} · homepage service-area city is alphabetic`, !NUMERIC_CITY_IN_SERVING.test(`serving ${homeServing} `),
-      homeServing ? `serving "${homeServing}"` : '(no service-area line)');
+    check(`${slug} · homepage service-area city is alphabetic`, !NUMERIC_CITY_IN_SERVING.test(`serving ${home.serving} `),
+      home.serving ? `serving "${home.serving}"` : '(no service-area line)');
+    // The homepage <title> gets a `| {city}` local-SEO append (Home.tsx) — must not be a ZIP.
+    check(`${slug} · homepage <title> city is alphabetic`, !NUMERIC_CITY_IN_TITLE.test(home.title),
+      NUMERIC_CITY_IN_TITLE.test(home.title) ? `title="${home.title}"` : 'ok');
+    // TrustBar "Serving {city} & nearby" strip — must not be a ZIP.
+    if (home.trust) check(`${slug} · trust-strip city is alphabetic`, !/^\d{3,6}$/.test(home.trust), `trust="${home.trust}"`);
 
     // Each sub-page: <title> + <meta description> must not carry a numeric "city".
     for (const path of SUBROUTES) {
