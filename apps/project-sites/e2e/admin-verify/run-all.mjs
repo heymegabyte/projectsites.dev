@@ -68,6 +68,7 @@ const PROBES = [
   ...causal,
   { label: 'guest-funnel', file: 'verify-guest-funnel.mjs', env: {} },
   { label: 'guest-funnel-results', file: 'verify-guest-funnel-results.mjs', env: {} },
+  { label: 'prebuilt-preview', file: 'verify-prebuilt-preview.mjs', env: {} },
   { label: 'guest-search-osm-fallback', file: 'verify-guest-search-osm-fallback.mjs', env: {} },
   { label: 'guest-funnel-keyboard', file: 'verify-guest-funnel-keyboard.mjs', env: {} },
   { label: 'guest-funnel-a11y', file: 'verify-guest-funnel-a11y.mjs', env: {} },

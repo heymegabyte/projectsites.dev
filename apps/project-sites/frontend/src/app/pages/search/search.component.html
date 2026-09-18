@@ -64,40 +64,58 @@
     @if (dropdownOpen() && results().length > 0) {
       <div class="absolute top-full -mt-3.5 left-0 right-0 bg-dark-card border border-primary/25 border-t-0 rounded-b-xl max-h-[400px] overflow-y-auto z-[1000] shadow-[0_8px_40px_rgba(0,0,0,0.6)] animate-fade-in-up">
         @for (item of results(); track item.name + item.address) {
-          <div
-            class="py-3.5 px-5 cursor-pointer transition-all duration-200 border-b border-white/[0.03] text-left flex items-start gap-3.5 first:pt-7 last:border-b-0 hover:bg-[#12123a] active:bg-primary/[0.06]"
-            [style.background]="item.type === 'custom' ? 'rgba(0,229,255,0.04)' : ''"
-            role="button"
-            tabindex="0"
-            (mousedown)="selectItem(item)"
-            (keydown.enter)="selectItem(item)"
-            (keydown.space)="$event.preventDefault(); selectItem(item)"
-          >
-            <div class="flex-shrink-0 w-[38px] h-[38px] rounded-[10px] bg-primary/[0.1] flex items-center justify-center mt-0.5 transition-all duration-200">
-              @if (item.type === 'custom') {
-                <svg class="w-[18px] h-[18px] text-secondary" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-              } @else {
-                <svg class="w-[18px] h-[18px] text-primary" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" />
-                </svg>
-              }
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="font-semibold text-[0.95rem] text-light truncate">
-                {{ item.name }}
-                @if (item.type === 'prebuilt') {
-                  <span class="inline-block py-px px-1.5 text-[0.6rem] font-bold bg-green-500/[0.15] text-green-500 rounded ml-2 align-middle">PRE-BUILT</span>
+          <div class="flex items-stretch border-b border-white/[0.03] last:border-b-0"
+               [style.background]="item.type === 'custom' ? 'rgba(0,229,255,0.04)' : ''">
+            <div
+              class="py-3.5 px-5 cursor-pointer transition-all duration-200 text-left flex items-start gap-3.5 first:pt-7 hover:bg-[#12123a] active:bg-primary/[0.06] flex-1 min-w-0"
+              role="button"
+              tabindex="0"
+              (mousedown)="selectItem(item)"
+              (keydown.enter)="selectItem(item)"
+              (keydown.space)="$event.preventDefault(); selectItem(item)"
+            >
+              <div class="flex-shrink-0 w-[38px] h-[38px] rounded-[10px] bg-primary/[0.1] flex items-center justify-center mt-0.5 transition-all duration-200">
+                @if (item.type === 'custom') {
+                  <svg class="w-[18px] h-[18px] text-secondary" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                } @else {
+                  <svg class="w-[18px] h-[18px] text-primary" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" />
+                  </svg>
                 }
               </div>
-              <div class="text-[0.82rem] text-gray-400 italic mt-0.5 truncate">
-                {{ item.address }}
-                @if (item.distance) {
-                  <span class="ml-2 text-[0.75rem] text-text-secondary not-italic">{{ item.distance }}</span>
-                }
+              <div class="flex-1 min-w-0">
+                <div class="font-semibold text-[0.95rem] text-light truncate">
+                  {{ item.name }}
+                  @if (item.type === 'prebuilt') {
+                    <span class="inline-block py-px px-1.5 text-[0.6rem] font-bold bg-green-500/[0.15] text-green-500 rounded ml-2 align-middle">PRE-BUILT</span>
+                  }
+                </div>
+                <div class="text-[0.82rem] text-gray-400 italic mt-0.5 truncate">
+                  {{ item.address }}
+                  @if (item.distance) {
+                    <span class="ml-2 text-[0.75rem] text-text-secondary not-italic">{{ item.distance }}</span>
+                  }
+                </div>
               </div>
             </div>
+            <!-- Already-built proof: preview the LIVE site in a new tab before the sign-in wall. -->
+            @if (canPreview(item)) {
+              <a
+                [href]="previewUrl(item)"
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="search-result-preview"
+                [attr.data-preview-slug]="item.slug"
+                [attr.aria-label]="'Preview the live ' + item.name + ' website (opens in a new tab)'"
+                class="flex items-center gap-1.5 px-4 shrink-0 text-[0.8rem] font-semibold text-primary border-l border-white/[0.06] hover:bg-primary/[0.08] transition-colors"
+                (click)="$event.stopPropagation()"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
+                <span class="hidden sm:inline">Preview</span>
+              </a>
+            }
           </div>
         }
       </div>

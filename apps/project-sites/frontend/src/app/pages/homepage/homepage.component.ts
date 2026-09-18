@@ -26,6 +26,7 @@ import {
 import { ApiService, type BusinessResult } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
 import { createFunnelNav } from './create-funnel-nav';
+import { canPreviewPrebuilt, prebuiltPreviewUrl } from './prebuilt-preview';
 import { GeolocationService } from '../../services/geolocation.service';
 import { TelemetryService } from '../../services/telemetry.service';
 import { MetaService } from '../../services/meta.service';
@@ -326,6 +327,16 @@ export class HomepageComponent implements OnInit, OnDestroy, AfterViewInit {
 
   onCtaSearch(): void {
     this.searchSubject.next({ query: this.ctaQuery, source: 'cta' });
+  }
+
+  /** Whether a search result exposes a live, already-built site the guest can preview. */
+  canPreview(item: SearchItem): boolean {
+    return canPreviewPrebuilt(item);
+  }
+
+  /** Public URL of the delivered site for the Preview affordance (`''` when not previewable). */
+  previewUrl(item: SearchItem): string {
+    return prebuiltPreviewUrl(item.slug);
   }
 
   selectItem(item: SearchItem): void {

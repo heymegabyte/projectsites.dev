@@ -6,6 +6,7 @@ import { ApiService, type BusinessResult } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
 import { GeolocationService } from '../../services/geolocation.service';
 import { ToastService } from '../../services/toast.service';
+import { canPreviewPrebuilt, prebuiltPreviewUrl } from '../homepage/prebuilt-preview';
 
 interface SearchItem {
   type: 'business' | 'prebuilt' | 'custom';
@@ -198,6 +199,16 @@ export class SearchComponent implements OnInit, OnDestroy {
 
   onSearchInput(): void {
     this.searchSubject.next(this.query);
+  }
+
+  /** Whether a search result exposes a live, already-built site the guest can preview. */
+  canPreview(item: SearchItem): boolean {
+    return canPreviewPrebuilt(item);
+  }
+
+  /** Public URL of the delivered site for the Preview affordance (`''` when not previewable). */
+  previewUrl(item: SearchItem): string {
+    return prebuiltPreviewUrl(item.slug);
   }
 
   selectItem(item: SearchItem): void {
