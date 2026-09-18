@@ -64,6 +64,15 @@ export interface MultiUrlAnalytics {
 const RANGE_TO_DAYS = { '7d': 7, '24h': 1, '30d': 30, '90d': 90 } as const;
 export type AnalyticsRange = keyof typeof RANGE_TO_DAYS;
 
+/**
+ * CF's per-host `httpRequestsAdaptiveGroups` dataset retains ~30 days, so the CF-analytics path can
+ * only cover this many daily windows regardless of the requested range. The envelope's `range_days`
+ * on the CF path reports the ACTUAL covered window (not the requested `days`) so a 90d request never
+ * mislabels a ≤30-day sum as 90 days (AL-775). SSOT for the cap — used by BOTH the per-host window
+ * builder and the envelope's honest window report so the two can't drift.
+ */
+const CF_MAX_WINDOW_DAYS = 30;
+
 /** Coerce a query-string `range` value to a known range key (defaults to `7d`). */
 export function parseRange(input: string | null | undefined): AnalyticsRange {
   if (input === '24h' || input === '1d') return '24h';
@@ -249,7 +258,7 @@ async function loadHostAggregate(
   // with a `$host: string!` type + `requests`/`pageViews`/`uniq` fields it lacks
   // over a >1d range → errored on every call → "analytics not available yet" for
   // every site (root-caused + fixed 2026-08-02).
-  const windowCount = Math.min(Math.max(days, 1), 30);
+  const windowCount = Math.min(Math.max(days, 1), CF_MAX_WINDOW_DAYS);
   const nowMs = Date.now();
   const windows = Array.from({ length: windowCount }, (_, i) => ({
     alias: `d${i}`,
@@ -692,7 +701,12 @@ export async function loadMultiUrlAnalytics(
     envelope = {
       any_real_data: aggregates.some((a) => a.resolved && a.total_requests > 0),
       pageviews: aggregates.reduce((sum, a) => sum + a.page_views, 0),
-      range_days: days,
+      // HONEST window: the CF path covers ≤CF_MAX_WINDOW_DAYS daily windows regardless of the
+      // requested `days`. Reporting `days` (e.g. 90) here silently under-reported — a 90d request
+      // returned a ≤30-day sum + series LABELED as 90 days (paginated-endpoint-silent-cap-needs-total
+      // / lying-UI-cap, AL-775). The visitor_events fallback below (full `days`) resets this to
+      // `days` when it fills in.
+      range_days: Math.min(Math.max(days, 1), CF_MAX_WINDOW_DAYS),
       series,
       top_countries: topCountries,
       top_pages: topPages,
@@ -714,7 +728,10 @@ export async function loadMultiUrlAnalytics(
   // the zeroed envelope + any_real_data:false.
   if (!envelope.any_real_data) {
     const fb = await visitorEventsFallback(env, siteId, days);
-    if (fb) envelope = { ...envelope, ...fb, any_real_data: true };
+    // The fallback queried the FULL `days` (first-party visitor_events has no 30-day CF cap +
+    // uses `emptySeries(days)`), so the merged envelope covers the full requested window —
+    // override the CF path's capped `range_days` so the covered window is reported honestly (AL-775).
+    if (fb) envelope = { ...envelope, ...fb, any_real_data: true, range_days: days };
   }
 
   try {

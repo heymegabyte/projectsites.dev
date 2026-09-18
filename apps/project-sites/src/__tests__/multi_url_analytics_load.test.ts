@@ -307,3 +307,81 @@ describe('loadMultiUrlAnalytics — CF empty but visitor_events has rows (D1 lyi
     expect(out.pageviews).toBe(0);
   });
 });
+
+describe('loadMultiUrlAnalytics — range_days reports the ACTUAL covered window (AL-775 lying-UI-cap)', () => {
+  const originalFetch = global.fetch;
+  let dateSpy: { mockRestore(): void } | undefined;
+  afterEach(() => {
+    global.fetch = originalFetch;
+    dateSpy?.mockRestore();
+  });
+
+  it('CF path: a 90d request reports range_days=30 (the CF ~30d adaptive-dataset cap), NOT 90', async () => {
+    // RED before the fix: the CF branch summed windowCount(30) daily windows but labeled the
+    // envelope range_days:days(90) — a silent 3× under-report on the 90d admin tab. The honest
+    // value is the window actually covered by CF.
+    dateSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 5, 1, 12));
+    mockResolve.mockResolvedValue({ kind: 'token', token: 't' });
+    const zone = { zone_id: 'z1', account_id: 'acc1' };
+    const env = {
+      DB: {
+        prepare: jest.fn(() => ({
+          bind: jest.fn(() => ({ all: jest.fn().mockResolvedValue({ results: [urlRow('a.example.com', 1)] }) })),
+        })),
+      },
+      CACHE_KV: {
+        get: jest.fn(async (key: string) => (key.startsWith('zone:') ? zone : null)),
+        put: jest.fn().mockResolvedValue(undefined),
+      },
+    } as unknown as Env;
+    // Only d0 carries data; any_real_data:true → the visitor_events fallback never runs, so
+    // range_days stays the CF-path value.
+    const gql = { data: { viewer: { zones: [{ d0: [{ count: 120, sum: { visits: 100 } }] }] } } };
+    global.fetch = jest
+      .fn()
+      .mockImplementation(() => new Response(JSON.stringify(gql), { status: 200 })) as unknown as typeof fetch;
+
+    const out = await loadMultiUrlAnalytics(env, 's1', 'o1', '90d');
+    expect(out.any_real_data).toBe(true);
+    expect(out.range_days).toBe(30); // honest CF cap — NOT the pre-AL-775 lie of 90
+  });
+
+  it('fallback path: a 90d request reports range_days=90 (first-party visitor_events has no CF cap)', async () => {
+    // When CF is empty and the D1 first-party fallback fills the envelope, it queried the FULL
+    // 90 days (emptySeries(90) + a -90 days window) — so the merged envelope must report 90, even
+    // though the CF branch that ran first capped its own range_days at 30.
+    mockResolve.mockResolvedValue({ kind: 'token', token: 't' });
+    const zone = { zone_id: 'z1', account_id: 'acc1' };
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ data: { viewer: { zones: [{}] } } }), { status: 200 })) as unknown as typeof fetch;
+    const env = {
+      DB: {
+        prepare: jest.fn((sql: string) => ({
+          bind: jest.fn(() => ({
+            all: jest.fn().mockResolvedValue({
+              results: sql.includes('FROM site_urls')
+                ? [urlRow('megabytespace.projectsites.dev', 1)]
+                : sql.includes('SELECT slug FROM sites')
+                  ? [{ slug: 'megabytespace' }]
+                  : sql.includes('GROUP BY DATE(created_at)')
+                    ? [{ date: '2026-06-01', page_views: 131, uniques: 40 }]
+                    : sql.includes("event_type = 'pageview'")
+                      ? [{ n: 131 }]
+                      : [],
+            }),
+          })),
+        })),
+      },
+      CACHE_KV: {
+        get: jest.fn(async (key: string) => (key.startsWith('zone:') ? zone : null)),
+        put: jest.fn().mockResolvedValue(undefined),
+      },
+    } as unknown as Env;
+
+    const out = await loadMultiUrlAnalytics(env, 'site-megabytespace-001', 'o1', '90d');
+    expect(out.any_real_data).toBe(true);
+    expect(out.range_days).toBe(90); // fallback covered the full requested window
+    expect(out.series).toHaveLength(90); // one point per day across the full window
+  });
+});
