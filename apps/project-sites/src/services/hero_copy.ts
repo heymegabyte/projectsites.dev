@@ -324,10 +324,12 @@ export function cityFromAddress(address: string | null | undefined): string {
     .map((p) => p.trim())
     .filter(Boolean);
   if (parts.length < 2) return 'your community';
-  const COUNTRY = /^(united states(?: of america)?|usa|u\.?s\.?a?\.?|canada|united kingdom|uk|australia|england|scotland|wales)$/i;
+  const COUNTRY =
+    /^(united states(?: of america)?|usa|u\.?s\.?a?\.?|canada|united kingdom|uk|australia|england|scotland|wales)$/i;
   // ZIP / ZIP+4 / "NY 10002" (state+ZIP) / Canadian "A1A 1A1" / UK-ish alnum postcodes.
   const POSTCODE = /^(?:[A-Za-z]{2}\s+)?\d{4,6}(?:-\d{4})?$|^[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d$/;
-  const ADMIN = /\b(county|community board|borough|district|province|parish|census|metropolitan|greater|region|township|prefecture)\b/i;
+  const ADMIN =
+    /\b(county|community board|borough|district|province|parish|census|metropolitan|greater|region|township|prefecture)\b/i;
   let i = parts.length - 1;
   while (i >= 0 && (COUNTRY.test(parts[i]!) || POSTCODE.test(parts[i]!))) i--;
   while (i >= 0 && ADMIN.test(parts[i]!)) i--; // skip administrative-area names ("New York County")

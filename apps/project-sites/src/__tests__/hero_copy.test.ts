@@ -967,9 +967,9 @@ describe('hero_copy — cityFromAddress (AL-733: robust to OSM display_name, not
       expect(c).not.toMatch(/^\d+$/);
       expect(c.toLowerCase()).not.toMatch(/^(usa|united states)$/);
     }
-    expect(cityFromAddress('Foo, 179, Bar Street, Baz County, Springfield, 62704, United States')).toBe(
-      'Springfield',
-    );
+    expect(
+      cityFromAddress('Foo, 179, Bar Street, Baz County, Springfield, 62704, United States'),
+    ).toBe('Springfield');
   });
 
   it('falls back gracefully on thin / empty input (no throw)', () => {
