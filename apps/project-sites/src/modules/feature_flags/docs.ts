@@ -67,6 +67,29 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Off → /api/sites/:id/review-links 404s and the dialog stays gated',
     ],
   },
+  cinematic_scroll_reveals: {
+    checklist: [
+      'Native CSS scroll-driven homepage section reveals (animation-timeline: view())',
+      'Off the main thread — never costs INP; smoother than JS IntersectionObserver',
+      'Triple-gated: flag-on + @supports + prefers-reduced-motion:no-preference',
+      'Falls back to the always-present JS appReveal (flag-off / Firefox / reduced-motion)',
+      'Client-only flag (homepage.component reads it) — no worker route surface',
+    ],
+    explanation:
+      'Cinematic scroll-driven section reveals on the marketing homepage — the 2026 Framer/Awwwards technique. When on, homepage.component adds a `.cinematic-scroll` host class and homepage.component.scss ties each `.reveal` section to its own scroll position via native `animation-timeline: view()`, animating opacity + lift as it enters the viewport entirely off the main thread (zero INP cost, smoother than a JS toggle). A progressive enhancement gated three ways — flag-off, an unsupported browser (Firefox), or a reduced-motion preference each fall through to the existing JS `appReveal` baseline, so it can only ADD polish, never break a reveal or hide content. Off (default) → the homepage renders exactly as today.',
+    smoke_test: [
+      'Enable → load https://projectsites.dev in Chrome 115+/Safari 26+ → scroll → sections fade+lift in as they enter view (getComputedStyle(section).animationTimeline is set)',
+      'System reduced-motion ON → sections show final state immediately, no animation',
+      'Off → the homepage still reveals via JS appReveal (no visual regression)',
+    ],
+    // Coverage: prod headless probe e2e/admin-verify/verify-cinematic-scroll-reveals.mjs
+    // (wired into run-all) + Karma unit homepage.component.spec.ts. (The e2e_tests field
+    // tracks dev/PR .spec.ts only; this flag's live proof is the .mjs prod probe.)
+    references: [
+      'https://dev.to/kenimo49/framer-motion-view-transitions-api-4-ui-motion-patterns-that-stop-looking-ai-generated-25gg',
+      'https://www.madebyoversight.com/post/how-to-build-scroll-based-interactive-website-sections-with-ai',
+    ],
+  },
   github_repo_sync: {
     checklist: [
       'Mirror a generated site to a GitHub repo',

@@ -85,6 +85,7 @@ const PROBES = [
   { label: 'editor-roundtrip', file: 'verify-editor-roundtrip.mjs', env: {} },
   { label: 'editor-webcontainer-roundtrip', file: 'verify-editor-webcontainer-roundtrip.mjs', env: {} },
   { label: 'site-delete-envelope', file: 'verify-site-delete-envelope.mjs', env: {} },
+  { label: 'cinematic-scroll-reveals', file: 'verify-cinematic-scroll-reveals.mjs', env: {} },
 ].filter((p) => !filter || p.label.toLowerCase().includes(filter) || p.file.toLowerCase().includes(filter));
 
 if (PROBES.length === 0) {

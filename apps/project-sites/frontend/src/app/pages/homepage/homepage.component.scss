@@ -97,6 +97,44 @@
   transform: translateY(0);
 }
 
+/* ── Bleeding-edge cinematic layer (flag: cinematic_scroll_reveals) ──────────
+   Native CSS scroll-driven reveals via `animation-timeline: view()`. Each section
+   ties its reveal to its OWN position in the scroll viewport, entirely off the main
+   thread (never touches INP), so it feels smoother + more premium than a JS
+   IntersectionObserver toggle — the technique Framer / Awwwards sites use in 2026.
+   Progressive enhancement, triple-gated so it can only ever ADD polish, never break:
+     • `:host(.cinematic-scroll)` — the flag is ON (dark by default)
+     • `@supports (animation-timeline: view())` — the browser supports it (Chrome 115+,
+       Safari 26+; Firefox falls through to the JS `appReveal` baseline, unchanged)
+     • `prefers-reduced-motion: no-preference` — the user hasn't opted out
+   Any gate unmet → the always-present JS reveal handles it. Elements already in the
+   first viewport are PAST the `entry` range → rendered at 100% immediately (no blank). */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    :host(.cinematic-scroll) .reveal {
+      /* The timeline drives opacity+lift as the element scrolls into view. `both`
+         fill holds 100% once past the range, so revealed content never snaps back. */
+      animation: ps-cinematic-reveal linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 40%;
+      /* JS `appReveal` also flips `.revealed`; both converge on the visible state, so
+         the two paths never fight — the timeline simply owns the in-between frames. */
+      will-change: opacity, transform;
+    }
+  }
+}
+
+@keyframes ps-cinematic-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Accessibility: show content immediately for reduced-motion users.
    Also disables float / glow-pulse / fade-in-up / scroll-smooth across the page. */
 @media (prefers-reduced-motion: reduce) {

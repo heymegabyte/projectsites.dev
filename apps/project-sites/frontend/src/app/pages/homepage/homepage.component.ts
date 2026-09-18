@@ -30,6 +30,8 @@ import { canPreviewPrebuilt, prebuiltPreviewUrl } from './prebuilt-preview';
 import { GeolocationService } from '../../services/geolocation.service';
 import { TelemetryService } from '../../services/telemetry.service';
 import { MetaService } from '../../services/meta.service';
+import { FeatureFlagService } from '../../services/feature-flag.service';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { graph, faqPage } from '../../lib/json-ld';
 import { RippleDirective } from '../../animations/ripple.directive';
 import { RevealDirective } from '../../directives/reveal.directive';
@@ -84,6 +86,12 @@ interface SearchItem {
   ],
   templateUrl: './homepage.component.html',
   styleUrl: './homepage.component.scss',
+  // Bleeding-edge cinematic layer: when the flag is on (+ the browser supports it
+  // + the user hasn't asked for reduced motion), sections reveal via NATIVE CSS
+  // scroll-driven animation (`animation-timeline: view()`) — off the main thread, so
+  // it never costs INP. Flag-off / unsupported / reduced-motion → the existing JS
+  // IntersectionObserver `appReveal` path (unchanged). The class only ENABLES the CSS.
+  host: { '[class.cinematic-scroll]': 'cinematicScroll()' },
 })
 export class HomepageComponent implements OnInit, OnDestroy, AfterViewInit {
   private api = inject(ApiService);
@@ -94,6 +102,17 @@ export class HomepageComponent implements OnInit, OnDestroy, AfterViewInit {
   private platformId = inject(PLATFORM_ID);
   private telemetry = inject(TelemetryService);
   private meta = inject(MetaService);
+  private readonly flags = inject(FeatureFlagService);
+
+  /**
+   * Bleeding-edge cinematic-reveal flag (`cinematic_scroll_reveals`, dark by default).
+   * When on, the host gains `.cinematic-scroll`, enabling native scroll-driven section
+   * reveals (see homepage.component.scss). Fail-safe false (network error → off), so a
+   * flag/transport hiccup can never strip the always-safe JS-reveal baseline.
+   */
+  readonly cinematicScroll = toSignal(this.flags.isOn('cinematic_scroll_reveals'), {
+    initialValue: false,
+  });
 
   /** Logged-in state for the nav — switches the homepage menu from
    *  "Sign In / Get Started" (guest) to the account indicator + Dashboard CTA. */

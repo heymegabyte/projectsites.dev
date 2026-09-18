@@ -55,6 +55,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  cinematic_scroll_reveals: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Cinematic scroll-driven section reveals on the marketing homepage — native CSS `animation-timeline: view()` reveals (off the main thread, so they never cost INP) that layer over the JS IntersectionObserver reveal with a smoother, more premium scroll cinematic (the Framer / Awwwards 2026 technique for AI + cinematic web brands).\n\n• CLIENT-ONLY flag (no worker route gate): homepage.component reads it via FeatureFlagService.isOn() and toggles a `.cinematic-scroll` host class; homepage.component.scss enables the native reveal under `@supports (animation-timeline: view())` + `prefers-reduced-motion: no-preference`.\n• Triple-gated progressive enhancement — flag-off / unsupported browser (Firefox) / reduced-motion each fall back to the always-present JS `appReveal` baseline, so it can only ADD polish, never break a reveal or hide content.\n• Off (default) → the homepage renders exactly as today (JS reveal). Fail-safe: a flag/transport error resolves false. No backend surface; marketing-visual only. Acceptance: with the flag on in a scroll-timeline browser, homepage `.reveal` sections carry a computed `animation-timeline: view()` and animate on scroll; reduced-motion shows final state immediately.',
+    key: 'cinematic_scroll_reveals',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   github_repo_sync: {
     default_enabled: false,
     default_rollout_percent: 0,
