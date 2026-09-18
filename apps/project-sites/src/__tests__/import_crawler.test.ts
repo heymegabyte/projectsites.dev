@@ -226,7 +226,10 @@ describe('crawlSiteForImport — robots.txt fallback', () => {
     const robots = `User-agent: *\nSitemap: https://example.com/huge-sitemap.xml\n`;
     const hugeSm =
       '<urlset>' +
-      Array.from({ length: 2500 }, (_, i) => `<url><loc>https://example.com/p${i}</loc></url>`).join('') +
+      Array.from(
+        { length: 2500 },
+        (_, i) => `<url><loc>https://example.com/p${i}</loc></url>`,
+      ).join('') +
       '</urlset>';
     routeFetch([
       ['/robots.txt', okText(robots)],
@@ -234,7 +237,11 @@ describe('crawlSiteForImport — robots.txt fallback', () => {
       ['example.com/', okText('<html></html>')],
       // /sitemap.xml 404s via fall-through → fromSitemap empty → robots is the only leaf source
     ]);
-    const report = await crawlSiteForImport('https://example.com', 'imp-huge', makeEnv(makeBucket()));
+    const report = await crawlSiteForImport(
+      'https://example.com',
+      'imp-huge',
+      makeEnv(makeBucket()),
+    );
     expect(report.by_source.robots).toBe(2000); // was 2500 (uncapped) before AL-779
   });
 });
