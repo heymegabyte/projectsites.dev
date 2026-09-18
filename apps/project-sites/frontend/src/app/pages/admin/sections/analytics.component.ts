@@ -553,7 +553,10 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
       box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ps-ink, #f4f4ff) 4%, transparent), 0 8px 24px -16px color-mix(in oklch, var(--ps-accent, #00E5FF) 28%, transparent);
     }
 
-    .kpi { padding: 1.1rem; position: relative; overflow: hidden; }
+    /* Reserve the loaded card height (measured 109px @1280) so the skeleton→data
+       transition never grows the tile — kills the dominant /admin/analytics CLS
+       (0.0361 growth-shift of the KPI grid + the section below it). */
+    .kpi { padding: 1.1rem; position: relative; overflow: hidden; min-height: 110px; }
     .kpi-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; }
     .kpi-spark { width: 72px; height: 22px; flex-shrink: 0; color: var(--ps-accent, #00E5FF); opacity: 0.85; }
     .kpi-spark--secondary { color: var(--ps-accent-secondary, #7C3AED); }
