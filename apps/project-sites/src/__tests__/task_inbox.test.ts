@@ -229,39 +229,44 @@ describe('resolveTask (success + fan-out)', () => {
     expect(payload.autoDefaulted).toBe(true);
   });
 
-  it('sends a task-resolved event into the workflow when the binding exposes sendEvent', async () => {
+  it('sends a task-resolved event into the workflow via SITE_WORKFLOW.get(id).sendEvent({type,payload})', async () => {
     const sendEvent = jest.fn().mockResolvedValue(undefined);
+    const get = jest.fn().mockResolvedValue({ sendEvent });
     mockQueryOne.mockResolvedValueOnce(makeRow({ workflow_instance_id: 'wf-42' }));
-    const env = makeEnv({ SITE_GENERATION: { sendEvent } });
+    const env = makeEnv({ SITE_WORKFLOW: { get } });
 
     const ok = await resolveTask(env, 'task-1', { choice: 'navy' });
 
     expect(ok).toBe(true);
+    // Workflows-v2 GA shape (AL-773): get the instance by id, then sendEvent({type, payload}).
+    expect(get).toHaveBeenCalledWith('wf-42');
     expect(sendEvent).toHaveBeenCalledTimes(1);
-    const [instanceId, eventType, payload] = sendEvent.mock.calls[0];
-    expect(instanceId).toBe('wf-42');
-    expect(eventType).toBe('task-resolved-task-1');
-    expect(payload).toMatchObject({ choice: 'navy', at: NOW });
+    const [event] = sendEvent.mock.calls[0];
+    expect(event.type).toBe('task-resolved-task-1'); // dot-free, matches step.waitForEvent
+    expect(event.payload).toMatchObject({ choice: 'navy', at: NOW });
   });
 
   it('does not send an event when the task has no workflow_instance_id', async () => {
     const sendEvent = jest.fn();
+    const get = jest.fn().mockResolvedValue({ sendEvent });
     mockQueryOne.mockResolvedValueOnce(makeRow({ workflow_instance_id: null }));
-    await resolveTask(makeEnv({ SITE_GENERATION: { sendEvent } }), 'task-1', { choice: 'x' });
+    await resolveTask(makeEnv({ SITE_WORKFLOW: { get } }), 'task-1', { choice: 'x' });
+    expect(get).not.toHaveBeenCalled();
     expect(sendEvent).not.toHaveBeenCalled();
   });
 
-  it('resolves true even when the binding lacks sendEvent (older runtime)', async () => {
+  it('resolves true even when the binding lacks the get/sendEvent API (older runtime)', async () => {
     mockQueryOne.mockResolvedValueOnce(makeRow({ workflow_instance_id: 'wf-1' }));
-    const env = makeEnv({ SITE_GENERATION: {} });
+    const env = makeEnv({ SITE_WORKFLOW: {} }); // no .get → notify path no-ops, row stays resolved
     await expect(resolveTask(env, 'task-1', { choice: 'x' })).resolves.toBe(true);
   });
 
   it('swallows a sendEvent throw — the row stays resolved (best-effort)', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const sendEvent = jest.fn().mockRejectedValue(new Error('instance dead'));
+    const get = jest.fn().mockResolvedValue({ sendEvent });
     mockQueryOne.mockResolvedValueOnce(makeRow({ workflow_instance_id: 'wf-77' }));
-    const env = makeEnv({ SITE_GENERATION: { sendEvent } });
+    const env = makeEnv({ SITE_WORKFLOW: { get } });
 
     const ok = await resolveTask(env, 'task-1', { choice: 'x' });
 

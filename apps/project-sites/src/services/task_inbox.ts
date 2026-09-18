@@ -23,7 +23,7 @@
  * The admin task tray polls {@link listOpenTasks}, the user clicks an option,
  * the UI calls `POST /api/inbox/tasks/:id/resolve`, the route calls
  * {@link resolveTask}, which fans the resolution back into the workflow via
- * `env.SITE_GENERATION.sendEvent` (when the binding is present).
+ * `env.SITE_WORKFLOW.get(instanceId).sendEvent({ type, payload })` (when the binding is present).
  *
  * Tasks that expire without a resolution can be auto-defaulted via
  * {@link applyExpiredDefaults} (scheduled cron candidate).
@@ -98,12 +98,16 @@ export interface PostAskUserArgs {
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**
- * Workflow binding subset that exposes `sendEvent`. Workflows v2 surfaces
- * this on the binding; the type is wide so we don't break against older
- * runtimes where the method is absent (in which case we no-op).
+ * Minimal shapes of the Workflows-v2 GA event API (confirmed against the Cloudflare docs):
+ * `env.SITE_WORKFLOW.get(instanceId)` → `instance.sendEvent({ type, payload })`. Kept narrow
+ * and optional so this compiles regardless of the installed `@cloudflare/workers-types` version
+ * and NO-OPS fail-soft on an older runtime that doesn't expose the method.
  */
-interface WorkflowEventSender {
-  sendEvent?: (instanceId: string, eventType: string, payload: unknown) => Promise<unknown>;
+interface WorkflowInstanceEventSender {
+  sendEvent?: (event: { type: string; payload: unknown }) => Promise<unknown>;
+}
+interface WorkflowBindingWithGet {
+  get?: (instanceId: string) => Promise<WorkflowInstanceEventSender>;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -206,9 +210,9 @@ export async function postAskUser(
 
 /**
  * Mark a task resolved + fan the resolution back into the originating
- * workflow when a `SITE_GENERATION` binding is wired with `sendEvent`
- * (Workflows v2). Silently no-ops the workflow notify path when the
- * binding is absent or doesn't expose `sendEvent`.
+ * workflow via the `SITE_WORKFLOW` binding (`get(instanceId).sendEvent`,
+ * Workflows v2). Silently no-ops the workflow notify path when the
+ * binding is absent or doesn't expose the API (older runtime).
  *
  * @returns `true` when the row was updated, `false` when the id is
  *   unknown or already resolved.
@@ -244,18 +248,25 @@ export async function resolveTask(
 
   if (changes === 0) return false;
 
-  // Fan back into the workflow. Wrapped so a sendEvent failure (binding
-  // missing, instance no longer alive, transient transport error) never
-  // rolls back the user-facing resolution — the row stays resolved.
+  // Fan the resolution back into the paused workflow via the Workflows-v2 GA API:
+  // `env.SITE_WORKFLOW.get(instanceId)` → `instance.sendEvent({ type, payload })`. The prior code
+  // read a PHANTOM `env.SITE_GENERATION` binding (the real one is `SITE_WORKFLOW`, per env.ts) AND
+  // used a binding-level `sendEvent(instanceId, type, payload)` shape Cloudflare does not expose —
+  // so the fan-out was a silent no-op and the paused workflow ALWAYS timed out, ignoring the
+  // owner's choice (AL-773). The `type` matches the workflow's `step.waitForEvent(\`task-resolved-
+  // ${id}\`)` and stays dot-free (CF requires the event type match ^[a-zA-Z0-9_][a-zA-Z0-9-_]*$; a
+  // UUID `id` satisfies it). Wrapped best-effort so a sendEvent failure (instance already timed-out
+  // / errored / transport) never rolls back the user-facing resolution — the row stays resolved.
   if (row.workflow_instance_id) {
-    const workflow = (env as unknown as { SITE_GENERATION?: WorkflowEventSender }).SITE_GENERATION;
-    const send = workflow?.sendEvent;
-    if (workflow && typeof send === 'function') {
+    const binding = (env as unknown as { SITE_WORKFLOW?: WorkflowBindingWithGet }).SITE_WORKFLOW;
+    if (binding && typeof binding.get === 'function') {
       try {
-        await send.call(workflow, row.workflow_instance_id, `task-resolved-${id}`, payload);
+        const instance = await binding.get(row.workflow_instance_id);
+        if (instance && typeof instance.sendEvent === 'function') {
+          await instance.sendEvent({ type: `task-resolved-${id}`, payload });
+        }
       } catch (err) {
-        // Best-effort — log via console.warn (console.log is ESLint-blocked
-        // per project convention). Workflow may have timed out already.
+        // console.warn (console.log is ESLint-blocked per project convention).
         console.warn(
           JSON.stringify({
             event: 'task_inbox.send_event_failed',
