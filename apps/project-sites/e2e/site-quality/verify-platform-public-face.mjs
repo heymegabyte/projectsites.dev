@@ -5,14 +5,17 @@
 // soft-404, a duplicate-title drift) would ship unnoticed while the generated-site (§ C) probes stay
 // green. This closes that: it re-asserts the platform public face every run-all pass.
 //
-//   D.1/D.2 CONTENT routes (/, /blog, /changelog, /privacy, /terms) — HTTP 200 + server-injected
-//           <title> + <meta name=description> + <link rel=canonical> + ≥1 JSON-LD; titles DISTINCT.
+//   D.1/D.2 CONTENT routes (/, /blog, /changelog, /privacy, /terms, /pricing, /integrations,
+//           /developers, /press) — HTTP 200 + server-injected <title> + <meta name=description> +
+//           <link rel=canonical> + ≥1 JSON-LD; titles DISTINCT. (AL-776 added the 4 conversion/
+//           developer/press marketing routes — real indexable pages with full SEO that were
+//           previously UNGUARDED, so a meta-clobber / canonical drift there would ship unnoticed.)
 //   /contact — an INTENTIONAL 301 → /search#contact-section (the funnel's contact surface); follow it
 //           and assert the landing is 200 + full SEO (NOT a dead redirect).
-//   /status — a UTILITY page (system status), served the SPA shell; assert 200 + a non-empty title.
-//           Its thin SEO (no canonical/desc) is a tracked ::notice, NOT a hard fail — a status page is
-//           not a marketing/indexable target, so forcing full SEO+JSON-LD on it would be a false red
-//           (validator-precision). Enriching it (canonical+desc, or noindex) is a minor follow-on.
+//   /status — a system-status page, now SEO-ENRICHED (title + self-canonical + 120-156c description
+//           shipped since AL-197). Public status pages ARE legit-indexable (cf. status.stripe.com),
+//           so it's HARD-GATED on that full meta (below) — a regression stripping it goes RED, no
+//           longer a soft ::notice.
 //   D.3     — a bogus path returns a REAL 404 (not a soft-404 200); a real route returns 200.
 //
 // Fetch-based (the Worker injects SEO into the shell HTML, so curl sees it) → cheap + fast + durable.
@@ -20,7 +23,7 @@
 // landing + 404 (the platform is OURS — those regressions are real bugs to fix now).
 const BASE = process.env.PROD_URL || 'https://projectsites.dev';
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const CONTENT = ['/', '/blog', '/changelog', '/privacy', '/terms'];
+const CONTENT = ['/', '/blog', '/changelog', '/privacy', '/terms', '/pricing', '/integrations', '/developers', '/press'];
 
 async function get(path, redirect = 'follow') {
   const res = await fetch(`${BASE}${path}`, { headers: { 'User-Agent': UA, Accept: 'text/html' }, redirect });
