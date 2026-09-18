@@ -112,20 +112,36 @@ import { isValidEmail } from '../../utils/validators/email';
             <label for="signup-password" class="text-[0.8rem] font-semibold text-text-secondary">
               Password
             </label>
-            <input
-              id="signup-password"
-              name="password"
-              type="password"
-              autocomplete="new-password"
-              [ngModel]="password()"
-              (ngModelChange)="password.set($event)"
-              (blur)="touched.set(true)"
-              [attr.aria-invalid]="showPasswordError()"
-              aria-describedby="signup-password-error"
-              placeholder="At least 8 characters"
-              data-testid="sign-up-password"
-              class="min-h-[44px] rounded-lg border border-white/[0.1] bg-dark-surface px-3.5 text-[0.9rem] text-white placeholder:text-white/30 outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/40"
-            />
+            <div class="relative">
+              <input
+                id="signup-password"
+                name="password"
+                [type]="showPassword() ? 'text' : 'password'"
+                autocomplete="new-password"
+                [ngModel]="password()"
+                (ngModelChange)="password.set($event)"
+                (blur)="touched.set(true)"
+                [attr.aria-invalid]="showPasswordError()"
+                aria-describedby="signup-password-error"
+                placeholder="At least 8 characters"
+                data-testid="sign-up-password"
+                class="min-h-[44px] w-full rounded-lg border border-white/[0.1] bg-dark-surface px-3.5 pr-11 text-[0.9rem] text-white placeholder:text-white/30 outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+              />
+              <button
+                type="button"
+                (click)="showPassword.set(!showPassword())"
+                [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
+                [attr.aria-pressed]="showPassword()"
+                data-testid="sign-up-password-toggle"
+                class="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-white/45 transition-colors hover:text-white/80 focus-visible:ring-2 focus-visible:ring-primary/50 outline-none"
+              >
+                @if (showPassword()) {
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18" /><path d="M10.58 10.58a3 3 0 0 0 4.24 4.24" /><path d="M9.88 4.24A10.9 10.9 0 0 1 12 4c6.5 0 10 8 10 8a13.6 13.6 0 0 1-2.29 2.88" /><path d="M6.61 6.61C3.9 8.3 2 12 2 12s3.5 8 10 8a10.9 10.9 0 0 0 2.12-.22" /></svg>
+                } @else {
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-8 10-8 10 8 10 8-3.5 8-10 8-10-8-10-8Z" /><circle cx="12" cy="12" r="3" /></svg>
+                }
+              </button>
+            </div>
             @if (showPasswordError()) {
               <span id="signup-password-error" class="text-[0.75rem] text-red-300" data-testid="sign-up-password-error">
                 Use at least 8 characters.
@@ -143,7 +159,7 @@ import { isValidEmail } from '../../utils/validators/email';
           </button>
         </form>
 
-        <div class="my-5 flex items-center gap-3 text-[0.72rem] text-white/30" aria-hidden="true">
+        <div class="my-5 flex items-center gap-3 text-[0.72rem] text-white/50" aria-hidden="true">
           <span class="h-px flex-1 bg-white/[0.08]"></span>
           OR
           <span class="h-px flex-1 bg-white/[0.08]"></span>
@@ -190,6 +206,7 @@ export class SignUpComponent {
   readonly name = signal('');
   readonly email = signal('');
   readonly password = signal('');
+  readonly showPassword = signal(false);
   readonly touched = signal(false);
   readonly busy = signal(false);
   readonly done = signal(false);

@@ -92,4 +92,31 @@ describe('SignUpComponent', () => {
     expect(f.componentInstance.error()).toBe('Email already in use.');
     expect(navigateByUrl).not.toHaveBeenCalled();
   });
+
+  it('toggles password visibility (type + aria) via the show/hide button', () => {
+    const f = make();
+    const el = f.nativeElement as HTMLElement;
+    const input = el.querySelector('[data-testid="sign-up-password"]') as HTMLInputElement;
+    const toggle = el.querySelector('[data-testid="sign-up-password-toggle"]') as HTMLButtonElement;
+    expect(input).toBeTruthy();
+    expect(toggle).toBeTruthy();
+
+    // Hidden by default.
+    expect(input.getAttribute('type')).toBe('password');
+    expect(toggle.getAttribute('aria-label')).toBe('Show password');
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+    // Reveal.
+    toggle.click();
+    f.detectChanges();
+    expect(input.getAttribute('type')).toBe('text');
+    expect(toggle.getAttribute('aria-label')).toBe('Hide password');
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+
+    // Hide again.
+    toggle.click();
+    f.detectChanges();
+    expect(input.getAttribute('type')).toBe('password');
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  });
 });

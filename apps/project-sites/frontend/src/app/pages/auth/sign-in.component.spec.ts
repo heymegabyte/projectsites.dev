@@ -62,6 +62,33 @@ describe('SignInComponent', () => {
     expect(el.querySelector('[data-testid="sign-in-magic-link"]')).toBeTruthy();
   });
 
+  it('toggles password visibility (type + aria) via the show/hide button', () => {
+    const f = make();
+    const el = f.nativeElement as HTMLElement;
+    const input = el.querySelector('[data-testid="sign-in-password"]') as HTMLInputElement;
+    const toggle = el.querySelector('[data-testid="sign-in-password-toggle"]') as HTMLButtonElement;
+    expect(input).toBeTruthy();
+    expect(toggle).toBeTruthy();
+
+    // Hidden by default.
+    expect(input.getAttribute('type')).toBe('password');
+    expect(toggle.getAttribute('aria-label')).toBe('Show password');
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+    // Reveal.
+    toggle.click();
+    f.detectChanges();
+    expect(input.getAttribute('type')).toBe('text');
+    expect(toggle.getAttribute('aria-label')).toBe('Hide password');
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+
+    // Hide again.
+    toggle.click();
+    f.detectChanges();
+    expect(input.getAttribute('type')).toBe('password');
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  });
+
   it('keeps the email field as the autofocus + autofill target (id + autocomplete contract)', () => {
     // The constructor autofocuses `#signin-email` via afterNextRender so a returning owner
     // types immediately (one fewer click). Assert the focus-target id + browser-autofill
