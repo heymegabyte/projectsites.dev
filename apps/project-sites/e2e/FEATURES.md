@@ -64,7 +64,8 @@
 | Site lifecycle — extended | `site-lifecycle-extended.spec.ts` | convergence | GREEN | 6 tests ✅ |
 | Deliverability — idle preview rail | `admin/deliverability.spec.ts` | loop | GREEN | AL-062 — pre-check SPF/DKIM/DMARC "not checked yet" dashboard (aria-hidden), replaced by the real result after a check; unit-locked in `deliverability.component.spec.ts` |
 | Contact form — RENDERED visitor journey → form_submissions (causal) | `admin-verify/verify-rendered-contact-journey.mjs` | loop | GREEN | AL-639 — REAL browser, home→click Contact→fill rendered form→submit→app.js hijack→POST `/api/contact-form/:slug`→200+"Thanks!"→0 console errors; reconciled vs D1 `form_submissions` (2/2 rows, status `received`). Closes the gap `verify-forms-causal.mjs` left (it scripts the OTHER endpoint `/api/v1/forms/submit`, never the rendered form). form_submissions mirror is best-effort so 200≠proof → D1 ground-truth is the gate. |
-| **TOTAL** | **19 specs** | convergence | **135+ tests GREEN** | Passes 1-28 |
+| Generated-site VISITOR journey — live product output (SPA nav + click-to-call + directions + contact + FAQ/blog/gallery + axe-6bp) | `generated-site-visitor-journey.spec.ts` | loop | GREEN | AL-769 — homepage-first on a LIVE cohort site (franklin-barbecue), CLICK-driven only, 4 tests: SPA no-reload sentinel · conversion sub-actions (`tel:`/maps-dir/contact-form fillable, non-mutating) · content sub-actions (FAQ toggle/blog list/gallery zoomable) · axe 0-critical ×6bp home+contact, 0 console errors. Caught a real mobile-menu `aria-expanded` selector-stranding bug; surfaced 2 SERIOUS accent-eyebrow/trust-pill contrast advisories → recorded for the GENERATED-SITE QUALITY loop. Complements the MARKETING golden-path (which covers projectsites.dev, not the delivered site). |
+| **TOTAL** | **20 specs** | convergence | **139+ tests GREEN** | Passes 1-29 |
 
 ## Blockers / Next-prompt work
 

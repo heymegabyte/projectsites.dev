@@ -32,6 +32,7 @@ auth:
 
 site_lifecycle:
   golden_path:      { status: covered, specs: [golden-path.spec.ts, vitos-full-flow.spec.ts] }
+  generated_site_visitor: { status: covered, specs: [generated-site-visitor-journey.spec.ts] }  # AL-769 — THE delivered-site VISITOR journey (guest on {slug}.projectsites.dev, real Chromium): homepage-first SPA nav + click-to-call + directions + contact form (non-mutating) + FAQ toggle/blog/gallery + axe 0-critical ×6bp, 0 console errors. golden_path covers the MARKETING site; this covers the actual product OUTPUT a delivered site's real customers use.
   feature_journey:  { status: covered, specs: [feature-journey.spec.ts] }
   search_places:    { status: covered, specs: [search-and-places.spec.ts] }
   enrichment:       { status: covered, specs: [business-enrichment.spec.ts] }
