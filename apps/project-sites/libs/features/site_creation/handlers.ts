@@ -99,10 +99,37 @@ siteCreation.post('/api/sites/create-from-search', async (c) => {
   const businessName =
     body.business?.name || body.business_name || (mode === 'custom' ? 'Custom Website' : null);
   const businessAddress = body.business?.address || body.business_address;
-  const businessHours = body.business?.hours || body.business_hours;
+  let businessHours = body.business?.hours || body.business_hours;
   const googlePlaceId = body.business?.place_id || body.google_place_id;
-  const businessPhone = body.business?.phone || body.business_phone || null;
+  let businessPhone = body.business?.phone || body.business_phone || null;
   const businessEmail = body.business?.email || body.business_email || null;
+
+  // Enrich NAP from Google Places when the caller selected a real business but the
+  // homepage SPA didn't forward hours/phone (the common case — the search result
+  // only carries name+address+place_id). Without this, hours seed to '' and the
+  // Contact page's hours slot ships BLANK (russ-and-daughters live defect). Places
+  // ALREADY parses `hours` + `phone`; we just fetch + format them here so the
+  // workflow's `_brand.json.hours` gets a real OpeningHoursSpecification. Best-effort
+  // + fail-soft: any lookup miss/throw leaves the body-supplied values untouched, so
+  // a category-less or key-less create degrades to today's behavior (never a 500).
+  const placesKey = c.env.GOOGLE_PLACES_API_KEY || c.env.GOOGLE_MAPS_API_KEY;
+  if (placesKey && businessName && (businessAddress || googlePlaceId) && (!businessHours || !businessPhone)) {
+    try {
+      const { lookupBusiness, formatBusinessHours } = await import(
+        '../../../src/services/google_places.js'
+      );
+      const details = await lookupBusiness(placesKey, businessName, businessAddress ?? '');
+      if (details) {
+        if (!businessHours) {
+          const formatted = formatBusinessHours(details.hours);
+          if (formatted) businessHours = formatted;
+        }
+        if (!businessPhone && details.phone) businessPhone = details.phone;
+      }
+    } catch {
+      /* Places enrichment is best-effort — never block or crash site creation. */
+    }
+  }
   // Declared vertical (fire-55/76) — PERSISTED on the sites row (migration 0632, for /reset
   // re-threading) AND passed to the workflow. Mirrors the NAP flat-key chain: Places type →
   // flat business_type → flat business_category → nested. Now type-safe (schema-validated),

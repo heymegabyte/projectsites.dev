@@ -10,7 +10,8 @@
  * Convergence r16 — additive only.
  */
 
-import { lookupBusiness } from '../services/google_places';
+import { lookupBusiness, formatBusinessHours } from '../services/google_places';
+import type { PlacesResult } from '../services/google_places';
 
 const originalFetch = global.fetch;
 const mockFetch = jest.fn();
@@ -359,5 +360,60 @@ describe('lookupBusiness — network resilience', () => {
       },
     } as unknown as Response);
     await expect(lookupBusiness('KEY', 'Vitos', 'NJ')).resolves.toBeNull();
+  });
+});
+
+// ── formatBusinessHours — Places hours → seedable multi-line string ──
+// Guards the create-from-search enrichment that fixes empty Contact hours
+// (russ-and-daughters shipped blank because Places hours were never formatted +
+// passed to the workflow). null → '' (fallback stays byte-identical); a full
+// week contains named days + times; closed days render "Closed".
+describe('formatBusinessHours', () => {
+  const fullWeek: PlacesResult['hours'] = [
+    { day: 'Sunday', open: null, close: null, closed: true },
+    { day: 'Monday', open: '8:00 AM', close: '4:00 PM', closed: false },
+    { day: 'Tuesday', open: '8:00 AM', close: '4:00 PM', closed: false },
+    { day: 'Wednesday', open: '8:00 AM', close: '4:00 PM', closed: false },
+    { day: 'Thursday', open: '8:00 AM', close: '4:00 PM', closed: false },
+    { day: 'Friday', open: '8:00 AM', close: '5:00 PM', closed: false },
+    { day: 'Saturday', open: '9:00 AM', close: '2:00 PM', closed: false },
+  ];
+
+  it('returns empty string for null (no Places hours)', () => {
+    expect(formatBusinessHours(null)).toBe('');
+  });
+
+  it('returns empty string for an empty array', () => {
+    expect(formatBusinessHours([])).toBe('');
+  });
+
+  it('formats a full week with named days and times', () => {
+    const out = formatBusinessHours(fullWeek);
+    expect(out).toContain('Monday');
+    expect(out).toContain('8:00');
+    expect(out).toContain('Friday: 8:00 AM – 5:00 PM');
+  });
+
+  it('renders closed days as "Closed"', () => {
+    const out = formatBusinessHours(fullWeek);
+    expect(out).toContain('Sunday: Closed');
+    // One line per day, newline-separated (workflow seeds this into _brand.json.hours).
+    expect(out.split('\n')).toHaveLength(7);
+  });
+
+  it('surfaces an open time with no close (24h / open-ended)', () => {
+    const out = formatBusinessHours([
+      { day: 'Monday', open: '12:00 AM', close: null, closed: false },
+    ]);
+    expect(out).toBe('Monday: 12:00 AM');
+  });
+
+  it('skips a day missing both open and close rather than emitting undefined', () => {
+    const out = formatBusinessHours([
+      { day: 'Monday', open: null, close: null, closed: false },
+      { day: 'Tuesday', open: '9:00 AM', close: '5:00 PM', closed: false },
+    ]);
+    expect(out).toBe('Tuesday: 9:00 AM – 5:00 PM');
+    expect(out).not.toContain('undefined');
   });
 });

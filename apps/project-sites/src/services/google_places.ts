@@ -192,3 +192,43 @@ function formatTime(time: string): string {
   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return `${h12}:${m} ${period}`;
 }
+
+/**
+ * Format a parsed Places `hours` array into a human-readable multi-line string —
+ * the exact shape the site-generation workflow seeds into `_brand.json.hours`
+ * (`OpeningHoursSpecification` JSON-LD + the Contact/LocationMap hours grid).
+ *
+ * One `Day: open – close` line per day; closed days render `Day: Closed`. Days
+ * missing an `open` or `close` time (partial Places data) are skipped rather than
+ * rendering a broken `Day: undefined – undefined`. Returns `''` when `hours` is
+ * `null` (Places had no opening-hours data) so the caller can `|| ''`-coalesce and
+ * the workflow's empty-hours fallback stays byte-identical to prior behavior.
+ *
+ * @param hours - Parsed opening hours from {@link PlacesResult.hours}, or `null`.
+ * @returns Multi-line hours string, or `''` when no hours are available.
+ *
+ * @example
+ * formatBusinessHours([
+ *   { day: 'Monday', open: '8:00 AM', close: '4:00 PM', closed: false },
+ *   { day: 'Sunday', open: null, close: null, closed: true },
+ * ]);
+ * // => "Monday: 8:00 AM – 4:00 PM\nSunday: Closed"
+ *
+ * @example
+ * formatBusinessHours(null); // => ""
+ */
+export function formatBusinessHours(hours: PlacesResult['hours']): string {
+  if (!hours || hours.length === 0) return '';
+  const lines: string[] = [];
+  for (const h of hours) {
+    if (h.closed) {
+      lines.push(`${h.day}: Closed`);
+    } else if (h.open && h.close) {
+      lines.push(`${h.day}: ${h.open} – ${h.close}`);
+    } else if (h.open) {
+      // Open with no explicit close (24h / open-ended in Places) — surface it honestly.
+      lines.push(`${h.day}: ${h.open}`);
+    }
+  }
+  return lines.join('\n');
+}
