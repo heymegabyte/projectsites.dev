@@ -1228,7 +1228,13 @@ describe('validateBrandNameMatch (invented-name class, 2026-08-19)', () => {
   // apostrophe COLLAPSES so the possessive form matches the stripped title. RED before the fix.
   it("accepts a possessive name whose title drops the apostrophe (Randy's ≡ Randys)", () => {
     const ok = validateBrandNameMatch(
-      [{ path: 'index.html', size: 100, text: '<title>Randys Donuts — Your neighborhood bakery | Inglewood</title>' }],
+      [
+        {
+          path: 'index.html',
+          size: 100,
+          text: '<title>Randys Donuts — Your neighborhood bakery | Inglewood</title>',
+        },
+      ],
       'Randy’s Donuts', // curly apostrophe, exactly as OSM/Places returns it
     );
     expect(ok).toEqual([]);
@@ -1236,7 +1242,13 @@ describe('validateBrandNameMatch (invented-name class, 2026-08-19)', () => {
 
   it("accepts a straight-apostrophe possessive too (Mike's ≡ Mikes)", () => {
     const ok = validateBrandNameMatch(
-      [{ path: 'index.html', size: 100, text: "<title>Mikes Pizza — Wood-Fired | Trenton</title>" }],
+      [
+        {
+          path: 'index.html',
+          size: 100,
+          text: '<title>Mikes Pizza — Wood-Fired | Trenton</title>',
+        },
+      ],
       "Mike's Pizza",
     );
     expect(ok).toEqual([]);
