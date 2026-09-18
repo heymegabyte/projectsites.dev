@@ -18,6 +18,7 @@ import { dbQuery, dbQueryOne, dbInsert, dbUpdate } from '../services/db.js';
 import { sanitizeLikeTerm } from '../services/like_pattern.js';
 import { manualAdjustment } from '../services/wallet.js';
 import { isSuperAdmin } from '../services/sysadmin.js';
+import { getCreditReport } from '../services/credit_monitor.js';
 import { listSuppressions, removeSuppression } from '../services/email_suppressions.js';
 import { invalidateFlagCache, FLAG_REGISTRY } from '../modules/feature_flags/services.js';
 import { SERVICE_REGISTRY } from '../platform/service-registry.js';
@@ -333,6 +334,122 @@ superAdmin.post(
  */
 superAdmin.get('/api/super-admin/whoami', async (c) => {
   return c.json({ is_super_admin: true, user_id: c.get('userId') });
+});
+
+/**
+ * API CREDIT MONITOR (§ ops-console) — the normalized balance/quota of every credit-based
+ * third-party provider (DeepSeek, Anthropic, Stability, Deepgram, ElevenLabs, …). The recurring
+ * build-LLM blocker (DeepSeek at a negative balance silently failing every site build) is now
+ * visible at a glance. KV-cached 5 min so the widget never hammers provider APIs; `?refresh=1`
+ * forces a fresh read.
+ */
+superAdmin.get('/api/super-admin/credits', async (c) => {
+  const CACHE_KEY = 'superadmin:credits';
+  if (c.req.query('refresh') !== '1') {
+    const cached = await c.env.CACHE_KV?.get(CACHE_KEY, 'json').catch(() => null);
+    if (cached) return c.json({ ...(cached as object), cached: true });
+  }
+  const report = await getCreditReport(c.env);
+  await c.env.CACHE_KV?.put(CACHE_KEY, JSON.stringify(report), { expirationTtl: 300 }).catch(() => {});
+  return c.json({ ...report, cached: false });
+});
+
+/**
+ * FLEET HEALTH (§ ops-console) — the core product's operational pulse: every generated site
+ * grouped by lifecycle status, the current build-error backlog, and the recent build success
+ * rate. A sysadmin sees stuck/errored builds immediately. Fail-soft: a query error degrades to a
+ * partial payload, never a 500.
+ */
+superAdmin.get('/api/super-admin/fleet-health', async (c) => {
+  const out: Record<string, unknown> = { byStatus: [], recentErrors: [], successRate7d: null };
+  try {
+    const { data } = await dbQuery<{ status: string; n: number }>(
+      c.env.DB,
+      `SELECT status, COUNT(*) AS n FROM sites WHERE deleted_at IS NULL GROUP BY status ORDER BY n DESC`,
+    );
+    out.byStatus = data;
+    out.total = data.reduce((s, r) => s + Number(r.n), 0);
+  } catch (e) {
+    out.byStatusError = String(e).slice(0, 80);
+  }
+  try {
+    const { data } = await dbQuery<{ slug: string; business_name: string; updated_at: string }>(
+      c.env.DB,
+      `SELECT slug, business_name, updated_at FROM sites
+        WHERE status = 'error' AND deleted_at IS NULL
+        ORDER BY updated_at DESC LIMIT 12`,
+    );
+    out.recentErrors = data;
+  } catch (e) {
+    out.recentErrorsError = String(e).slice(0, 80);
+  }
+  try {
+    const row = await dbQueryOne<{ published: number; errored: number }>(
+      c.env.DB,
+      `SELECT SUM(CASE WHEN status='published' THEN 1 ELSE 0 END) AS published,
+              SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) AS errored
+         FROM sites
+        WHERE deleted_at IS NULL AND created_at >= datetime('now', '-7 days')`,
+    );
+    const pub = Number(row?.published ?? 0);
+    const err = Number(row?.errored ?? 0);
+    out.successRate7d = pub + err > 0 ? Math.round((pub / (pub + err)) * 100) : null;
+  } catch (e) {
+    out.successRateError = String(e).slice(0, 80);
+  }
+  return c.json(out);
+});
+
+/**
+ * GROWTH PULSE (§ ops-console) — new orgs / users / delivered sites across rolling 24h · 7d · 30d
+ * windows, so a sysadmin reads acquisition + delivery velocity at a glance. Fail-soft per metric.
+ */
+superAdmin.get('/api/super-admin/growth', async (c) => {
+  const windows: Array<[string, string]> = [
+    ['d1', '-1 day'],
+    ['d7', '-7 days'],
+    ['d30', '-30 days'],
+  ];
+  const metric = async (table: string, statusClause = '') => {
+    const row: Record<string, number> = {};
+    for (const [key, offset] of windows) {
+      try {
+        const r = await dbQueryOne<{ n: number }>(
+          c.env.DB,
+          `SELECT COUNT(*) AS n FROM ${table} WHERE deleted_at IS NULL ${statusClause} AND created_at >= datetime('now', ?)`,
+          [offset],
+        );
+        row[key] = Number(r?.n ?? 0);
+      } catch {
+        row[key] = -1; // sentinel: query failed for this window/table
+      }
+    }
+    return row;
+  };
+  return c.json({
+    orgs: await metric('orgs'),
+    users: await metric('users'),
+    sitesPublished: await metric('sites', `AND status = 'published'`),
+    sitesCreated: await metric('sites'),
+  });
+});
+
+/**
+ * DELIVERABILITY (§ ops-console) — the transactional-email health surface: the current SES
+ * suppression backlog (bounced/complained recipients that will silently drop mail) + the most
+ * recent suppressions. Reuses {@link listSuppressions}. Fail-soft.
+ */
+superAdmin.get('/api/super-admin/deliverability', async (c) => {
+  try {
+    const suppressions = await listSuppressions(c.env.DB, 12);
+    const total = await dbQueryOne<{ n: number }>(
+      c.env.DB,
+      `SELECT COUNT(*) AS n FROM email_suppressions WHERE deleted_at IS NULL`,
+    ).catch(() => ({ n: suppressions.length }));
+    return c.json({ suppressionCount: Number(total?.n ?? suppressions.length), recent: suppressions });
+  } catch (e) {
+    return c.json({ suppressionCount: null, recent: [], error: String(e).slice(0, 80) });
+  }
 });
 
 /**
