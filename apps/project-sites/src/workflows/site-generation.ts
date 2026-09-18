@@ -1287,6 +1287,19 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
             topup_url: BUILD_LLM_TOPUP_URLS[credit.provider],
             message: `Build blocked pre-flight — ${credit.provider} build-LLM has no credit (${credit.reason}). Top up at ${BUILD_LLM_TOPUP_URLS[credit.provider]}, OR set BUILD_LLM_ALLOW_SEED_ONLY=1 to deliver seed-only. Site flipped to error; no seed-only publish, no completion email.`,
           });
+          // Notify the org owner this build was refused — so a no-credit refusal is never a
+          // SILENT dead-end (embarrassingly-easy: never dead-end the user). The other three
+          // terminal-failure paths (timeout / container-error / zero-upload) already call
+          // notifyBuildFailed; this pre-flight refusal was the ONE terminal path that left the
+          // owner with a site silently flipped to `error` and zero signal — the exact path EVERY
+          // build hits while build-LLM credit is dead. Owner-appropriate copy (no billing jargon —
+          // the operator top-up URL is in the wfLog above). Best-effort; never blocks the throw. (AL-781)
+          await notifyBuildFailed(
+            env,
+            params.orgId,
+            params.siteId,
+            'Your site build was paused — the AI writer is briefly at capacity. No action needed; please try again shortly.',
+          );
           throw new Error(`build-llm-no-credit:${credit.provider}:${credit.reason}`);
         }
         // GRACEFUL DEGRADATION (BUILD_LLM_ALLOW_SEED_ONLY): the balance is dead but Brian opted into
