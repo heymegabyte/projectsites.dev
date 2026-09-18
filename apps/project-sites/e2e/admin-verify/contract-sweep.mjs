@@ -68,25 +68,123 @@ async function connect() {
 }
 
 const results = [];
+// Walk the 44 sections CONCURRENTLY across a pool of pages (each section is an independent
+// route + its own network map). The old serial walk on ONE page needed >150s and risked the
+// loop's timeout (a slow-but-passing gate is a reliability hole); a K-way pool cuts wall-time
+// ~Kx. Same per-section contract + report. Override with SWEEP_CONCURRENCY (default 5).
+const POOL = Math.max(1, Math.min(8, Number(process.env.SWEEP_CONCURRENCY || 5)));
 const browser = await connect();
-try {
-  const ctx = browser.contexts()[0] ?? await browser.newContext();
-  const page = ctx.pages()[0] ?? await ctx.newPage();
-  await page.setViewportSize({ width: 1440, height: 900 });
 
-  // Per-navigation network map: url → worst status seen (for the NOT-SWALLOWED check).
-  let netByPath = {};
+/** A pool page in the shared (auth-seeded) context, each with its OWN network map. */
+async function makePoolPage(ctx) {
+  const page = await ctx.newPage();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const net = { byPath: {} };
   page.on('response', (res) => {
     try {
       const u = new URL(res.url());
-      if (u.pathname.startsWith('/api/')) netByPath[u.pathname] = Math.max(netByPath[u.pathname] ?? 0, res.status());
+      if (u.pathname.startsWith('/api/')) net.byPath[u.pathname] = Math.max(net.byPath[u.pathname] ?? 0, res.status());
     } catch { /* non-URL */ }
   });
+  return { page, net };
+}
+
+/** Drive ONE render section on a pool page → result object (identical contract to the old serial body). */
+async function processRender(pp, s, siteId) {
+  const { page, net } = pp;
+  let url = s.route;
+  if (s.kind === 'dynamic') {
+    if (!siteId) return { slug: s.slug, severity: s.severity, pass: s.severity !== 'hard', skipped: 'no site id', route: s.route };
+    url = url.replace(':id', siteId).replace(':siteId', siteId);
+  }
+  net.byPath = {};
+  const fails = [];
+  try {
+    await page.goto(BASE + url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    // Wait for the SPA shell to mount, then a base settle for the section to paint.
+    await page.locator('app-admin, main').first().waitFor({ timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+    const capture = () =>
+      page.evaluate((shell) => {
+        const body = document.body.innerText || '';
+        const main = document.querySelector('main')?.innerText || body;
+        return {
+          path: location.pathname,
+          mainLen: main.trim().length,
+          text: main.slice(0, 4000),
+          h1: (document.querySelector('h1')?.innerText || '').slice(0, 80),
+          rows: document.querySelectorAll('table tbody tr, [role="row"]').length,
+          // Advisory: is the contract's shell testid present? Reported, never fails
+          // the gate yet (testids start soft, promote to hard once wired everywhere).
+          shellPresent: shell ? !!document.querySelector(`[data-testid="${shell}"]`) : null,
+        };
+      }, s.shell);
+    let info = await capture();
+    // Async-heavy sections (e.g. /admin/docs fetches + renders 51 OpenAPI endpoints) can
+    // still be mid-render after the base settle. Poll (max ~8s more) until the section
+    // clears its OWN bar — mainLen >= minLen AND, if a real-data signal is required, it's
+    // present — so a slow async render never reads as a false thin/no-signal failure. A
+    // genuinely-broken section never clears → still fails, just ~8s later. (Fix: /admin/docs
+    // false-red at mainLen=510 while a real browser showed 6569 + full signal — AL-178.)
+    const signalRe = s.signal ? new RegExp(s.signal, 'i') : null;
+    const cleared = (i) => i.mainLen >= s.minLen && (!signalRe || signalRe.test(i.text));
+    for (let n = 0; n < 5 && !cleared(info); n++) {
+      await page.waitForTimeout(1600);
+      info = await capture();
+    }
+    const flagDark = !!s.flag && (GATE_COPY.test(info.text) || info.mainLen < s.minLen);
+
+    // 3. NOT-CRASHED
+    if (CRASH_COPY.test(info.text)) fails.push('crashed (error boundary)');
+    // 6/1. RENDER — flag-dark sections are allowed a calm gate-notice
+    if (!flagDark && info.mainLen < s.minLen) fails.push(`thin render (${info.mainLen}<${s.minLen})`);
+    // 2. REAL DATA — skip signal for a legitimately flag-dark section
+    if (!flagDark && s.signal && !new RegExp(s.signal, 'i').test(info.text)) fails.push(`no real-data signal /${s.signal}/`);
+    // 4. NOT-LYING — dead/false-success copy that isn't a legit flag gate
+    if (!flagDark && DEAD_COPY.test(info.text)) fails.push('dead/false-success copy');
+    // 5. NOT-SWALLOWED — declared endpoints must not 4xx/5xx on load
+    for (const ep of s.api) {
+      const worst = Object.entries(net.byPath).find(([p]) => p === ep || p.startsWith(ep))?.[1];
+      if (worst && worst >= 400) fails.push(`api ${ep} → ${worst}`);
+    }
+    const badApi = Object.entries(net.byPath).filter(([, st]) => st >= 500).map(([p, st]) => `${p}:${st}`);
+    if (badApi.length) fails.push(`5xx: ${badApi.slice(0, 3).join(',')}`);
+
+    return { slug: s.slug, severity: s.severity, route: url, flagDark, mainLen: info.mainLen, rows: info.rows, shellPresent: info.shellPresent, pass: fails.length === 0, fails };
+  } catch (e) {
+    fails.push(`nav error: ${String(e).slice(0, 80)}`);
+    return { slug: s.slug, severity: s.severity, route: url, pass: false, fails };
+  }
+}
+
+/** Drive ONE alias section on a pool page → the redirect must resolve to its target. */
+async function processAlias(pp, s) {
+  const { page } = pp;
+  const fails = [];
+  try {
+    await page.goto(BASE + s.route, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(2500);
+    const info = await page.evaluate(() => ({ path: location.pathname + location.search + location.hash, body: (document.body.innerText || '').slice(0, 1500) }));
+    const target = s.redirectTo.split(/[?#]/)[0];
+    if (!info.path.startsWith(target)) fails.push(`redirect landed ${info.path}, expected ${s.redirectTo}`);
+    if (NOTFOUND_COPY.test(info.body)) fails.push('resolved to admin not-found shell');
+    return { slug: s.slug, severity: s.severity, alias: true, route: s.route, redirectTo: s.redirectTo, landed: info.path, pass: fails.length === 0, fails };
+  } catch (e) {
+    return { slug: s.slug, severity: s.severity, alias: true, route: s.route, pass: false, fails: [`nav error: ${String(e).slice(0, 80)}`] };
+  }
+}
+
+try {
+  const ctx = browser.contexts()[0] ?? await browser.newContext();
+  const authPage = ctx.pages()[0] ?? await ctx.newPage();
+  await authPage.setViewportSize({ width: 1440, height: 900 });
 
   // ── Auth as brian (seed identifier, NOT email) ──────────────────────────
-  await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(7000); // CF managed-challenge solve
-  const login = await page.evaluate(async ({ pw, base }) => {
+  // Seeds localStorage.ps_session on the CONTEXT (shared by every pool page on this origin)
+  // + solves the CF managed-challenge once (the clearance cookie is context-scoped too).
+  await authPage.goto(`${BASE}/`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await authPage.waitForTimeout(7000); // CF managed-challenge solve
+  const login = await authPage.evaluate(async ({ pw }) => {
     const res = await fetch('/api/auth/test-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'brian@megabyte.space', password: pw }) });
     const j = await res.json().catch(() => ({}));
     const d = j?.data;
@@ -94,22 +192,22 @@ try {
       try { localStorage.setItem('ps_session', JSON.stringify({ token: d.token, identifier: d.email ?? 'brian@megabyte.space', issuedAt: Date.now() })); } catch { /* private mode */ }
     }
     return { status: res.status, ok: !!d?.token };
-  }, { pw: PW, base: BASE });
+  }, { pw: PW });
   if (!login.ok) {
     writeFileSync(REPORT_FILE, JSON.stringify({ done: false, reason: 'test-login failed', login }, null, 2));
     console.log(JSON.stringify({ done: false, reason: 'test-login failed', login }, null, 2));
     process.exit(2);
   }
   // Kill SW/caches so we render the freshly-deployed bundle, not a stale SW cache.
-  await page.evaluate(async () => {
+  await authPage.evaluate(async () => {
     try {
       if (navigator.serviceWorker) (await navigator.serviceWorker.getRegistrations()).forEach((r) => r.unregister());
       if (window.caches) (await caches.keys()).forEach((k) => caches.delete(k));
     } catch { /* SW/cache API unavailable */ }
   });
 
-  // Resolve brian's first published site id for the dynamic sections (:id / :siteId).
-  const siteId = await page.evaluate(async () => {
+  // Resolve brian's first site id for the dynamic sections (:id / :siteId).
+  const siteId = await authPage.evaluate(async () => {
     try {
       const t = JSON.parse(localStorage.getItem('ps_session') || '{}').token;
       const r = await fetch('/api/sites', { headers: { Authorization: `Bearer ${t}` } });
@@ -118,89 +216,22 @@ try {
       return rows[0]?.id ?? rows[0]?.slug ?? null;
     } catch { return null; }
   });
+  await authPage.close().catch(() => {}); // auth done; the pool does the section work
 
-  // ── Render sections ─────────────────────────────────────────────────────
-  for (const s of renderTargets) {
-    let url = s.route;
-    if (s.kind === 'dynamic') {
-      if (!siteId) { results.push({ slug: s.slug, severity: s.severity, pass: s.severity !== 'hard', skipped: 'no site id', route: s.route }); continue; }
-      url = url.replace(':id', siteId).replace(':siteId', siteId);
-    }
-    netByPath = {};
-    const fails = [];
+  // ── Concurrent section walk: K workers each own a page, pulling from a shared queue. ──
+  const renderQueue = [...renderTargets];
+  const aliasQueue = [...aliasTargets];
+  const worker = async () => {
+    const pp = await makePoolPage(ctx);
     try {
-      await page.goto(BASE + url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-      // Wait for the SPA shell to mount, then a base settle for the section to paint.
-      await page.locator('app-admin, main').first().waitFor({ timeout: 30000 }).catch(() => {});
-      await page.waitForTimeout(3000);
-      const capture = () =>
-        page.evaluate((shell) => {
-          const body = document.body.innerText || '';
-          const main = document.querySelector('main')?.innerText || body;
-          return {
-            path: location.pathname,
-            mainLen: main.trim().length,
-            text: main.slice(0, 4000),
-            h1: (document.querySelector('h1')?.innerText || '').slice(0, 80),
-            rows: document.querySelectorAll('table tbody tr, [role="row"]').length,
-            // Advisory: is the contract's shell testid present? Reported, never fails
-            // the gate yet (testids start soft, promote to hard once wired everywhere).
-            shellPresent: shell ? !!document.querySelector(`[data-testid="${shell}"]`) : null,
-          };
-        }, s.shell);
-      let info = await capture();
-      // Async-heavy sections (e.g. /admin/docs fetches + renders 51 OpenAPI endpoints) can
-      // still be mid-render after the base settle. Poll (max ~8s more) until the section
-      // clears its OWN bar — mainLen >= minLen AND, if a real-data signal is required, it's
-      // present — so a slow async render never reads as a false thin/no-signal failure. A
-      // genuinely-broken section never clears → still fails, just ~8s later. (Fix: /admin/docs
-      // false-red at mainLen=510 while a real browser showed 6569 + full signal — AL-178.)
-      const signalRe = s.signal ? new RegExp(s.signal, 'i') : null;
-      const cleared = (i) => i.mainLen >= s.minLen && (!signalRe || signalRe.test(i.text));
-      for (let n = 0; n < 5 && !cleared(info); n++) {
-        await page.waitForTimeout(1600);
-        info = await capture();
-      }
-      const flagDark = !!s.flag && (GATE_COPY.test(info.text) || info.mainLen < s.minLen);
-
-      // 3. NOT-CRASHED
-      if (CRASH_COPY.test(info.text)) fails.push('crashed (error boundary)');
-      // 6/1. RENDER — flag-dark sections are allowed a calm gate-notice
-      if (!flagDark && info.mainLen < s.minLen) fails.push(`thin render (${info.mainLen}<${s.minLen})`);
-      // 2. REAL DATA — skip signal for a legitimately flag-dark section
-      if (!flagDark && s.signal && !new RegExp(s.signal, 'i').test(info.text)) fails.push(`no real-data signal /${s.signal}/`);
-      // 4. NOT-LYING — dead/false-success copy that isn't a legit flag gate
-      if (!flagDark && DEAD_COPY.test(info.text)) fails.push('dead/false-success copy');
-      // 5. NOT-SWALLOWED — declared endpoints must not 4xx/5xx on load
-      for (const ep of s.api) {
-        const worst = Object.entries(netByPath).find(([p]) => p === ep || p.startsWith(ep))?.[1];
-        if (worst && worst >= 400) fails.push(`api ${ep} → ${worst}`);
-      }
-      const badApi = Object.entries(netByPath).filter(([, st]) => st >= 500).map(([p, st]) => `${p}:${st}`);
-      if (badApi.length) fails.push(`5xx: ${badApi.slice(0, 3).join(',')}`);
-
-      results.push({ slug: s.slug, severity: s.severity, route: url, flagDark, mainLen: info.mainLen, rows: info.rows, shellPresent: info.shellPresent, pass: fails.length === 0, fails });
-    } catch (e) {
-      fails.push(`nav error: ${String(e).slice(0, 80)}`);
-      results.push({ slug: s.slug, severity: s.severity, route: url, pass: false, fails });
+      let s;
+      while ((s = renderQueue.shift())) results.push(await processRender(pp, s, siteId));
+      while ((s = aliasQueue.shift())) results.push(await processAlias(pp, s));
+    } finally {
+      await pp.page.close().catch(() => {});
     }
-  }
-
-  // ── Aliases — the redirect must resolve to its target, never the not-found shell ──
-  for (const s of aliasTargets) {
-    const fails = [];
-    try {
-      await page.goto(BASE + s.route, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await page.waitForTimeout(2500);
-      const info = await page.evaluate(() => ({ path: location.pathname + location.search + location.hash, body: (document.body.innerText || '').slice(0, 1500) }));
-      const target = s.redirectTo.split(/[?#]/)[0];
-      if (!info.path.startsWith(target)) fails.push(`redirect landed ${info.path}, expected ${s.redirectTo}`);
-      if (NOTFOUND_COPY.test(info.body)) fails.push('resolved to admin not-found shell');
-      results.push({ slug: s.slug, severity: s.severity, alias: true, route: s.route, redirectTo: s.redirectTo, landed: info.path, pass: fails.length === 0, fails });
-    } catch (e) {
-      results.push({ slug: s.slug, severity: s.severity, alias: true, route: s.route, pass: false, fails: [`nav error: ${String(e).slice(0, 80)}`] });
-    }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(POOL, renderTargets.length + aliasTargets.length) || 1 }, () => worker()));
 } finally {
   await browser.close();
 }
