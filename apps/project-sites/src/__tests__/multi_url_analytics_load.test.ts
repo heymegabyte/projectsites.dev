@@ -326,7 +326,9 @@ describe('loadMultiUrlAnalytics — range_days reports the ACTUAL covered window
     const env = {
       DB: {
         prepare: jest.fn(() => ({
-          bind: jest.fn(() => ({ all: jest.fn().mockResolvedValue({ results: [urlRow('a.example.com', 1)] }) })),
+          bind: jest.fn(() => ({
+            all: jest.fn().mockResolvedValue({ results: [urlRow('a.example.com', 1)] }),
+          })),
         })),
       },
       CACHE_KV: {
@@ -339,7 +341,9 @@ describe('loadMultiUrlAnalytics — range_days reports the ACTUAL covered window
     const gql = { data: { viewer: { zones: [{ d0: [{ count: 120, sum: { visits: 100 } }] }] } } };
     global.fetch = jest
       .fn()
-      .mockImplementation(() => new Response(JSON.stringify(gql), { status: 200 })) as unknown as typeof fetch;
+      .mockImplementation(
+        () => new Response(JSON.stringify(gql), { status: 200 }),
+      ) as unknown as typeof fetch;
 
     const out = await loadMultiUrlAnalytics(env, 's1', 'o1', '90d');
     expect(out.any_real_data).toBe(true);
@@ -354,7 +358,9 @@ describe('loadMultiUrlAnalytics — range_days reports the ACTUAL covered window
     const zone = { zone_id: 'z1', account_id: 'acc1' };
     global.fetch = jest
       .fn()
-      .mockResolvedValue(new Response(JSON.stringify({ data: { viewer: { zones: [{}] } } }), { status: 200 })) as unknown as typeof fetch;
+      .mockResolvedValue(
+        new Response(JSON.stringify({ data: { viewer: { zones: [{}] } } }), { status: 200 }),
+      ) as unknown as typeof fetch;
     const env = {
       DB: {
         prepare: jest.fn((sql: string) => ({
