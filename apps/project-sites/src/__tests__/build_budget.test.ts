@@ -102,7 +102,8 @@ describe('checkBudget — fails CLOSED on a D1 error (AL-785, never OPEN the AI-
           all: jest.fn().mockImplementation(() => {
             if (/SUM\(value\)/i.test(sql)) {
               sumCalls++;
-              if (sumCalls <= rejectTimes) return Promise.reject(new Error('D1_ERROR: read replica down'));
+              if (sumCalls <= rejectTimes)
+                return Promise.reject(new Error('D1_ERROR: read replica down'));
               return Promise.resolve({ results: [{ total: 2 * 1_000_000 }] }); // $2 once recovered
             }
             return Promise.resolve({ results: [] }); // owner lookup / other → not unlimited
