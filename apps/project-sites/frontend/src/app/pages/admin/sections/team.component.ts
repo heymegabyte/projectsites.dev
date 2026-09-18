@@ -89,11 +89,12 @@ import {
               [ngModel]="inviteEmail()"
               (ngModelChange)="inviteEmail.set($event)"
               (blur)="emailTouched.set(true)"
+              [disabled]="seatsFull()"
               [attr.aria-invalid]="showEmailError()"
               aria-describedby="team-invite-email-error"
               placeholder="teammate@example.com"
               data-testid="team-invite-email"
-              class="min-h-[44px] rounded-lg border border-white/[0.1] bg-dark-surface px-3.5 text-[0.9rem] text-white placeholder:text-white/30 outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+              class="min-h-[44px] rounded-lg border border-white/[0.1] bg-dark-surface px-3.5 text-[0.9rem] text-white placeholder:text-white/30 outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
             />
             @if (showEmailError()) {
               <span
@@ -115,8 +116,9 @@ import {
               name="role"
               [ngModel]="inviteRole()"
               (ngModelChange)="inviteRole.set($event)"
+              [disabled]="seatsFull()"
               data-testid="team-invite-role"
-              class="min-h-[44px] rounded-lg border border-white/[0.1] bg-dark-surface px-3 text-[0.9rem] text-white outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+              class="min-h-[44px] rounded-lg border border-white/[0.1] bg-dark-surface px-3 text-[0.9rem] text-white outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="member">Member</option>
               <option value="admin">Admin</option>

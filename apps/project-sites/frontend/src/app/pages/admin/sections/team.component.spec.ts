@@ -101,6 +101,14 @@ describe('TeamComponent (org members + invites — idea #24)', () => {
     const submit = el.querySelector('[data-testid="team-invite-submit"]') as HTMLButtonElement;
     expect(submit.disabled).toBeTrue();
 
+    // Full → the WHOLE invite form is gated (embarrassingly-easy: never a doomed
+    // form-fill), not just the submit button — the owner can't type into inputs that
+    // can't submit ("why can I type but not send?"). email + role disable with the button.
+    const email = el.querySelector('[data-testid="team-invite-email"]') as HTMLInputElement;
+    const role = el.querySelector('[data-testid="team-invite-role"]') as HTMLSelectElement;
+    expect(email.disabled).withContext('email input disabled when seats full').toBeTrue();
+    expect(role.disabled).withContext('role select disabled when seats full').toBeTrue();
+
     // The "upgrade your plan" link is a routerLink (SPA nav) — NOT a raw href that
     // full-reloads the admin (destroying the bolt iframe + polling state).
     const upgradeLink = fixture.debugElement
