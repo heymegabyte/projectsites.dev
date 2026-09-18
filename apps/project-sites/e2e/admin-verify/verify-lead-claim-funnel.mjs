@@ -98,13 +98,33 @@ try {
     detail: `status=${gated}`,
   });
 
-  // CLAIM RESOLUTION — bogus shortlink rejects gracefully (read-only).
+  // CLAIM RESOLUTION — a bogus/expired bare claim LINK (the URL emailed to an owner, clicked in a
+  // real browser) must 302 to the FRIENDLY create funnel `/create?claim_invalid=1`, NOT dead-end on
+  // a raw-JSON 404 (embarrassingly-hard). Intentional per AL-700 + claim.ts:69 (`c.redirect('/create
+  // ?claim_invalid=1', 302)`) + verify-claim-flow. Assert the TARGET, not just any 302, so a
+  // regression to a wrong redirect OR a resurrected dead 404 still fails. (This probe's old
+  // `→ 404` assertion was STALE — it predated the friendly-redirect change; verify-claim-flow
+  // already covers the correct contract.)
   const bogus = 'zzzzzzzzzz';
-  const claimBogus = await status(`${API}/api/claim/${bogus}`, { headers: { 'user-agent': UA }, redirect: 'manual' });
-  rows.push({ k: 'claim bogus token → 404 (graceful)', ok: claimBogus === 404, detail: `status=${claimBogus}` });
+  let claimBogus = 0;
+  let claimLoc = '';
+  try {
+    const r = await fetch(`${API}/api/claim/${bogus}`, { headers: { 'user-agent': UA }, redirect: 'manual' });
+    claimBogus = r.status;
+    claimLoc = r.headers.get('location') || '';
+  } catch {
+    /* network → 0 */
+  }
+  rows.push({
+    k: 'claim bogus token → 302 to friendly /create funnel (never a dead 404)',
+    ok: claimBogus === 302 && /\/create\?claim_invalid=1/.test(claimLoc),
+    detail: `status=${claimBogus} location="${claimLoc}"`,
+  });
 
+  // The SPA XHR sub-route KEEPS its JSON 404 (consumed by the Angular /create page for prefill —
+  // a redirect there would break it). This asymmetry (link 302s, XHR 404s) is the correct design.
   const profBogus = await status(`${API}/api/claim/${bogus}/profile`, { headers: { 'user-agent': UA } });
-  rows.push({ k: 'claim bogus /profile → 404 (graceful)', ok: profBogus === 404, detail: `status=${profBogus}` });
+  rows.push({ k: 'claim bogus /profile → 404 (JSON, SPA-consumed)', ok: profBogus === 404, detail: `status=${profBogus}` });
 
   // HAPPY-PATH RESOLUTION (read-only) — resolve a REAL claim token via /profile (never the
   // bare /:token, which 302s + starts a session). Skip if no token / no CF creds.
