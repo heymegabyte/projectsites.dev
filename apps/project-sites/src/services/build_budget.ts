@@ -24,7 +24,7 @@
  * @packageDocumentation
  */
 import { z } from 'zod';
-import { dbExecute, dbQueryOne } from './db.js';
+import { dbExecute, dbQuery } from './db.js';
 import { isUnlimitedOrgOwner } from './build_limits.js';
 
 /** Metric name used to accumulate AI spend rows in `usage_events`. */
@@ -126,13 +126,26 @@ async function monthSpendMicroUsd(
   now: Date = new Date(),
 ): Promise<number> {
   const { start, end } = currentMonthPeriod(now);
-  const row = await dbQueryOne<{ total: number | null }>(
-    db,
-    `SELECT COALESCE(SUM(value), 0) AS total FROM usage_events
-     WHERE org_id = ? AND metric = ? AND ts >= ? AND ts < ?`,
-    [orgId, AI_SPEND_METRIC, start, end],
-  ).catch(() => ({ total: 0 }));
-  return row?.total ?? 0;
+  const SQL = `SELECT COALESCE(SUM(value), 0) AS total FROM usage_events
+     WHERE org_id = ? AND metric = ? AND ts >= ? AND ts < ?`;
+  const params = [orgId, AI_SPEND_METRIC, start, end];
+  // FAIL-CLOSED on a sustained D1 error. `dbQuery`/`dbQueryOne` SWALLOW a D1 throw (dbQuery →
+  // `{ data: [], error }`; dbQueryOne discards that `error` and returns null), so the OLD
+  // `dbQueryOne(...).catch(() => ({ total: 0 }))` was DOUBLY wrong: the `.catch` was DEAD (dbQueryOne
+  // never rejects) AND a D1 error read spend as $0 → checkBudget `allowed: true` → the AI-spend
+  // KILLSWITCH (its whole job: stop a runaway org draining the platform AI budget) SILENTLY OPENED —
+  // the same fail-open cost-cap-bypass class as build_limits AL-784. Use `dbQuery` and inspect
+  // `.error` (the ONLY reliable D1-error signal here, since a null/empty result is ambiguous between
+  // "no rows" and "error"); retry once (catches the common transient), then on a SUSTAINED error
+  // return Infinity so checkBudget denies. (AL-785)
+  let result = await dbQuery<{ total: number | null }>(db, SQL, params);
+  if (result.error !== null) {
+    result = await dbQuery<{ total: number | null }>(db, SQL, params); // one retry
+  }
+  if (result.error !== null) {
+    return Number.POSITIVE_INFINITY; // sustained error → fail closed (deny)
+  }
+  return result.data[0]?.total ?? 0;
 }
 
 /**
@@ -174,7 +187,12 @@ export async function checkBudget(
   }
 
   const capUsd = PLAN_BUDGET_USD[tier];
-  const spentUsd = (await monthSpendMicroUsd(db, orgId, now)) / MICRO_PER_USD;
+  const rawSpentUsd = (await monthSpendMicroUsd(db, orgId, now)) / MICRO_PER_USD;
+  // monthSpendMicroUsd returns Infinity on a sustained D1 error (retry exhausted) → we cannot
+  // confirm the org is under budget, so treat spend as AT the cap: DENY, and show a clean
+  // "$cap/$cap exhausted" meter rather than "$Infinity". capUsd is always finite here (the
+  // unlimited tier returned early above). (AL-785, fail-closed)
+  const spentUsd = Number.isFinite(rawSpentUsd) ? rawSpentUsd : capUsd;
   const remainingUsd = Math.max(0, capUsd - spentUsd);
   const pct = capUsd > 0 ? Math.min(100, (spentUsd / capUsd) * 100) : 100;
 

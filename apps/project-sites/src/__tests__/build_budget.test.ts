@@ -89,6 +89,48 @@ describe('checkBudget', () => {
   });
 });
 
+describe('checkBudget — fails CLOSED on a D1 error (AL-785, never OPEN the AI-spend killswitch)', () => {
+  // A db whose SUM(value) spend query rejects `rejectTimes` times (owner-lookup + anything else
+  // resolves empty, so the org is never treated as unlimited). dbQuery catches the throw →
+  // { data: [], error } — the ONLY reliable D1-error signal monthSpendMicroUsd can inspect.
+  function throwingSpendDb(rejectTimes: number) {
+    let sumCalls = 0;
+    return {
+      prepare: jest.fn((sql: string) => ({
+        bind: jest.fn(() => ({
+          first: jest.fn().mockResolvedValue(null),
+          all: jest.fn().mockImplementation(() => {
+            if (/SUM\(value\)/i.test(sql)) {
+              sumCalls++;
+              if (sumCalls <= rejectTimes) return Promise.reject(new Error('D1_ERROR: read replica down'));
+              return Promise.resolve({ results: [{ total: 2 * 1_000_000 }] }); // $2 once recovered
+            }
+            return Promise.resolve({ results: [] }); // owner lookup / other → not unlimited
+          }),
+          run: jest.fn().mockResolvedValue({}),
+        })),
+      })),
+    } as unknown as D1Database;
+  }
+
+  it('DENIES on a SUSTAINED spend-query D1 error instead of reading spend as $0 (killswitch stays CLOSED)', async () => {
+    const m = await checkBudget(throwingSpendDb(Infinity), 'org-budget-err', 'free');
+    // RED before AL-785: dbQueryOne SWALLOWED the error → spend $0 → allowed:true (killswitch OPEN,
+    // the runaway-cost hole). GREEN: fail-closed — spend treated as at-cap → denied, clean $cap/$cap.
+    expect(m.allowed).toBe(false);
+    expect(m.capUsd).toBe(PLAN_BUDGET_USD.free); // 5
+    expect(m.spentUsd).toBe(PLAN_BUDGET_USD.free); // clamped to the cap, NOT Infinity
+    expect(m.remainingUsd).toBe(0);
+    expect(Number.isFinite(m.spentUsd)).toBe(true); // meter never shows "$Infinity"
+  });
+
+  it('RETRIES once and RECOVERS the real spend on a single transient blip (no false denial)', async () => {
+    const m = await checkBudget(throwingSpendDb(1), 'org-budget-retry', 'free'); // fail once, then $2
+    expect(m.allowed).toBe(true); // the retry recovered the real $2 spend under the $5 cap
+    expect(m.spentUsd).toBe(2);
+  });
+});
+
 describe('recordSpend', () => {
   it('records a valid spend as integer micro-USD into usage_events', async () => {
     await recordSpend({ DB: mockDb }, 'org-1', {
