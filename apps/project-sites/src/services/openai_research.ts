@@ -70,7 +70,11 @@ const OPENAI_RESEARCH_COSTS: Record<string, { input: number; output: number }> =
  * Falls back to `0` when the model is unknown; callers should treat the value
  * as advisory, not billing-grade.
  */
-export function estimateOpenAiCost(model: string, inputTokens: number, outputTokens: number): number {
+export function estimateOpenAiCost(
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+): number {
   // Most-specific match wins: sort keys longest-first so `gpt-4o-mini` resolves to its OWN price,
   // not `gpt-4o` — a plain `model.includes('gpt-4o')` matched `gpt-4o-mini` and mis-priced it 16.7×
   // (AL-777). Exact model OR a versioned suffix (`gpt-4o-2024-…` → `gpt-4o`) both resolve correctly.

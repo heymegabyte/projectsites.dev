@@ -370,8 +370,12 @@ describe('researchAndFormulatePrompt — analytics', () => {
     // gateway routes the call, so the success capture must report the REAL routing. RED before the
     // fix: the success capture hardcoded gatewayUsed:false, poisoning gateway-vs-direct analytics.
     queueFullPipeline();
-    await researchAndFormulatePrompt(keyEnv({ CF_ACCOUNT_ID: 'acct-123' }), { businessName: 'Acme' });
-    const ok = mockCaptureLLMCall.mock.calls.filter((c) => (c[1] as { status?: string }).status === 'ok');
+    await researchAndFormulatePrompt(keyEnv({ CF_ACCOUNT_ID: 'acct-123' }), {
+      businessName: 'Acme',
+    });
+    const ok = mockCaptureLLMCall.mock.calls.filter(
+      (c) => (c[1] as { status?: string }).status === 'ok',
+    );
     expect(ok.length).toBe(5);
     expect(ok.every((c) => (c[1] as { gatewayUsed?: boolean }).gatewayUsed === true)).toBe(true);
   });
