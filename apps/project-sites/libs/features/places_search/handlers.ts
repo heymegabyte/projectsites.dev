@@ -29,6 +29,7 @@
 import { Hono } from 'hono';
 import { badRequest } from '@project-sites/shared';
 import type { Env, Variables } from '../../../src/types/env.js';
+import { searchBusinessesByName } from '../../../src/services/nominatim_search.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 
@@ -60,46 +61,50 @@ placesSearch.get('/api/search/businesses', async (c) => {
   // Bound query length to prevent abuse.
   const boundedQ = q.trim().slice(0, 200);
 
-  // Honest-empty: if the Places provider isn't configured, say so with a stable
-  // code instead of silently calling Google with an empty key (which 403s and
-  // reads to the UI as "no businesses found"). The create flow still works via
-  // manual entry — the caller can surface "search unavailable, enter manually".
+  // Optional location bias from browser geolocation — parsed ONCE and reused by both the
+  // Places request AND the OSM/Nominatim fallback viewbox.
+  const latStr = c.req.query('lat');
+  const lngStr = c.req.query('lng');
+  const geoLat = latStr ? parseFloat(latStr) : Number.NaN;
+  const geoLng = lngStr ? parseFloat(lngStr) : Number.NaN;
+  const hasGeo = !Number.isNaN(geoLat) && !Number.isNaN(geoLng);
+  const osmOpts = hasGeo ? { lat: geoLat, lng: geoLng } : undefined;
+
+  // Cache successful business-search results in KV to spare the daily quota (and, now, the
+  // Nominatim ≤1 req/sec policy). Popular/repeat queries re-hit the same text search on every
+  // 300ms keystroke-debounce otherwise. Only successful non-empty results are cached (errors/
+  // empties stay live so recovery + new listings surface immediately). 6h TTL — listings stable.
+  const cacheKey = `bizsearch:${boundedQ.toLowerCase()}:${latStr ?? ''}:${lngStr ?? ''}`;
+
+  // OSM/Nominatim fallback (AL-729): when Google Places is unconfigured or down, try OSM's
+  // free-text NAME search BEFORE surfacing the honest `_error`. Places is persistently 429/403
+  // (GCP billing not enabled), so without this the guest-acquisition funnel's PRIMARY action
+  // dead-ends for every visitor ("Business lookup is temporarily unavailable"). Real OSM hits
+  // are KV-cached (6h) like Places so keystroke-debounced repeats never re-hit Nominatim.
+  const osmFallbackOr = async (code: string, status: number, message: string) => {
+    const osm = await searchBusinessesByName(boundedQ, osmOpts);
+    if (osm.length > 0) {
+      await c.env.CACHE_KV?.put(cacheKey, JSON.stringify({ data: osm }), {
+        expirationTtl: 21600,
+      }).catch(() => {});
+      return c.json({ data: osm, _source: 'osm' });
+    }
+    return c.json({ data: [], _error: { code, status, message } });
+  };
+
+  // If the Places provider isn't configured, try OSM, else surface the stable code (calling
+  // Google with an empty key 403s and reads to the UI as a misleading "no businesses found").
   if (!c.env.GOOGLE_PLACES_API_KEY) {
-    return c.json({
-      data: [],
-      _error: {
-        code: 'SEARCH_PROVIDER_NOT_CONFIGURED',
-        status: 0,
-        message: 'Business search is not configured',
-      },
-    });
+    return osmFallbackOr('SEARCH_PROVIDER_NOT_CONFIGURED', 0, 'Business search is not configured');
   }
 
   const requestBody: Record<string, unknown> = { textQuery: boundedQ };
-
-  // Optional location bias from browser geolocation.
-  const lat = c.req.query('lat');
-  const lng = c.req.query('lng');
-  if (lat && lng) {
-    const latitude = parseFloat(lat);
-    const longitude = parseFloat(lng);
-    if (!isNaN(latitude) && !isNaN(longitude)) {
-      requestBody.locationBias = {
-        circle: {
-          center: { latitude, longitude },
-          radius: 50000.0, // 50 km radius
-        },
-      };
-    }
+  if (hasGeo) {
+    requestBody.locationBias = {
+      circle: { center: { latitude: geoLat, longitude: geoLng }, radius: 50000.0 }, // 50 km
+    };
   }
 
-  // Cache successful business-search results in KV to spare the Google Places daily
-  // SearchTextRequest quota. Popular/repeat queries ("pizza chicago") re-hit the same
-  // text search on every 300ms keystroke-debounce otherwise, and exhausting the daily
-  // cap degrades the whole business-lookup funnel (it falls back to manual entry, but
-  // live search is gone). Only successful non-empty results are cached (errors/empties
-  // stay live so recovery + new listings surface immediately). 6h TTL — listings are stable.
-  const cacheKey = `bizsearch:${boundedQ.toLowerCase()}:${lat ?? ''}:${lng ?? ''}`;
   const cachedRaw = await c.env.CACHE_KV?.get(cacheKey).catch(() => null);
   if (cachedRaw) {
     return c.json(JSON.parse(cachedRaw) as { data: unknown[] });
@@ -128,21 +133,17 @@ placesSearch.get('/api/search/businesses', async (c) => {
         query: q,
       }),
     );
-    // Honest-empty: keep 200 (the create flow degrades to manual entry + a 5xx
-    // would fire the frontend's rethrowing error handler → console noise), but
-    // carry a STABLE code so the failure is diagnosable and the caller can show
-    // "search temporarily unavailable" instead of a misleading "no businesses found".
-    return c.json({
-      data: [],
-      _error: {
-        code: 'SEARCH_PROVIDER_UNAVAILABLE',
-        status: response.status,
-        // Generic, stable, user-safe. The RAW upstream body (GCP billing state,
-        // console URLs, PERMISSION_DENIED payloads) is logged SERVER-SIDE above —
-        // never leaked to the client (info-disclosure hardening).
-        message: 'Business search is temporarily unavailable',
-      },
-    });
+    // Places is down (429/403/5xx) — try OSM/Nominatim before surfacing the honest
+    // `_error`. Keep 200 either way (a 5xx would fire the frontend's rethrowing error
+    // handler → console noise); the fallback returns real OSM results when it can, else a
+    // STABLE code the caller shows as "search temporarily unavailable" (never a misleading
+    // "no businesses found"). The RAW upstream body (GCP billing state, console URLs,
+    // PERMISSION_DENIED payloads) is logged SERVER-SIDE above — never leaked to the client.
+    return osmFallbackOr(
+      'SEARCH_PROVIDER_UNAVAILABLE',
+      response.status,
+      'Business search is temporarily unavailable',
+    );
   }
 
   const json = (await response.json()) as GooglePlacesResponse;
