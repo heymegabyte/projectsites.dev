@@ -70,8 +70,13 @@ const OPENAI_RESEARCH_COSTS: Record<string, { input: number; output: number }> =
  * Falls back to `0` when the model is unknown; callers should treat the value
  * as advisory, not billing-grade.
  */
-function estimateOpenAiCost(model: string, inputTokens: number, outputTokens: number): number {
-  const key = Object.keys(OPENAI_RESEARCH_COSTS).find((k) => model.includes(k));
+export function estimateOpenAiCost(model: string, inputTokens: number, outputTokens: number): number {
+  // Most-specific match wins: sort keys longest-first so `gpt-4o-mini` resolves to its OWN price,
+  // not `gpt-4o` — a plain `model.includes('gpt-4o')` matched `gpt-4o-mini` and mis-priced it 16.7×
+  // (AL-777). Exact model OR a versioned suffix (`gpt-4o-2024-…` → `gpt-4o`) both resolve correctly.
+  const key = Object.keys(OPENAI_RESEARCH_COSTS)
+    .sort((a, b) => b.length - a.length)
+    .find((k) => model === k || model.startsWith(`${k}-`));
   if (!key) return 0;
   const costs = OPENAI_RESEARCH_COSTS[key];
   return (inputTokens * costs.input + outputTokens * costs.output) / 1_000_000;
@@ -147,6 +152,11 @@ async function callOpenAI(
   const start = Date.now();
 
   let res: Response;
+  // Capture whether the AI Gateway actually routed this call (vs the direct-vendor fallback) so the
+  // success telemetry below reports the REAL routing. The prior hardcoded `false` made every research
+  // $ai_generation event read "direct", masking gateway cache-hit/margin analytics whenever the
+  // gateway was active (AL-777).
+  let gatewayUsed = false;
   try {
     // Route through AI Gateway (caching + observability + margin); gatewayFetch
     // falls back to the direct vendor URL automatically on a gateway 5xx.
@@ -159,6 +169,7 @@ async function callOpenAI(
       body: JSON.stringify(body),
     });
     res = gw.response;
+    gatewayUsed = gw.gatewayUsed ?? false;
   } catch (err) {
     const latency = Date.now() - start;
     void safeCaptureLLM(env, {
@@ -211,7 +222,7 @@ async function callOpenAI(
     costUsd,
     status: 'ok',
     traceId,
-    gatewayUsed: false,
+    gatewayUsed,
   });
 
   return data.choices[0]?.message?.content ?? '';

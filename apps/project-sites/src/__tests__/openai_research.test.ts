@@ -42,7 +42,7 @@ jest.mock('../modules/feature_flags/services.js', () => ({
 }));
 
 // Import AFTER the mocks are registered.
-import { researchAndFormulatePrompt } from '../services/openai_research.js';
+import { researchAndFormulatePrompt, estimateOpenAiCost } from '../services/openai_research.js';
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const originalFetch = global.fetch;
@@ -362,7 +362,31 @@ describe('researchAndFormulatePrompt — analytics', () => {
     expect(first.inputTokens).toBe(100);
     expect(first.outputTokens).toBe(50);
     expect(first.promptId).toBe('openai_research:profile');
-    expect(first.gatewayUsed).toBe(false);
+    expect(first.gatewayUsed).toBe(false); // no CF_ACCOUNT_ID in keyEnv() → gateway inactive → direct
+  });
+
+  it('reports gatewayUsed:true when the AI Gateway is active (was hardcoded false — AL-777)', async () => {
+    // isGatewayActive = !!CF_ACCOUNT_ID && AI_GATEWAY_ENABLED !== 'false'. With CF_ACCOUNT_ID set the
+    // gateway routes the call, so the success capture must report the REAL routing. RED before the
+    // fix: the success capture hardcoded gatewayUsed:false, poisoning gateway-vs-direct analytics.
+    queueFullPipeline();
+    await researchAndFormulatePrompt(keyEnv({ CF_ACCOUNT_ID: 'acct-123' }), { businessName: 'Acme' });
+    const ok = mockCaptureLLMCall.mock.calls.filter((c) => (c[1] as { status?: string }).status === 'ok');
+    expect(ok.length).toBe(5);
+    expect(ok.every((c) => (c[1] as { gatewayUsed?: boolean }).gatewayUsed === true)).toBe(true);
+  });
+
+  it('estimateOpenAiCost prices gpt-4o-mini at the MINI rate, not gpt-4o (AL-777 substring mis-price)', () => {
+    // model.includes('gpt-4o') matched gpt-4o-mini → the 16.7×-pricier gpt-4o rate. Most-specific
+    // (longest-key) match now resolves each model to its own price.
+    const mini = estimateOpenAiCost('gpt-4o-mini', 1_000_000, 1_000_000); // 0.15 + 0.6
+    const full = estimateOpenAiCost('gpt-4o', 1_000_000, 1_000_000); // 2.5 + 10
+    expect(mini).toBeCloseTo(0.75, 6);
+    expect(full).toBeCloseTo(12.5, 6);
+    expect(mini).toBeLessThan(full); // mini must NOT be mis-priced up to the gpt-4o rate
+    // versioned suffixes still resolve to their base rate
+    expect(estimateOpenAiCost('gpt-4o-mini-2024-07-18', 1_000_000, 0)).toBeCloseTo(0.15, 6);
+    expect(estimateOpenAiCost('gpt-4o-2024-05-13', 1_000_000, 0)).toBeCloseTo(2.5, 6);
   });
 
   it('swallows analytics failures — pipeline still resolves', async () => {
