@@ -324,7 +324,10 @@ describe('sendEmail — suppression enforcement across ALL rails (§42/ADR-0019)
       },
     } as unknown as Env;
     const email = {
-      sendTransactional: jest.fn(async () => ({ id: 'suppressed:bounced@example.com', accepted: false })),
+      sendTransactional: jest.fn(async () => ({
+        id: 'suppressed:bounced@example.com',
+        accepted: false,
+      })),
     };
     mockFetchOnce({ ok: true, headers: { 'x-message-id': 'r' } }); // catches a wrong SendGrid fallback
     await sendEmail(sesEnv, opts, { email: email as never });

@@ -833,7 +833,21 @@ export const validateBrandNameMatch = (
     //   Pick the first ≥3-char non-stopword; fall back to the raw first token only if the whole
     //   name is stopwords (so the check never degenerates to '' and never over-matches).
     const BRAND_STOPWORDS = new Set([
-      'the', 'a', 'an', 'of', 'and', 'to', 'for', 'in', 'on', 'at', 'by', 'new', 'old', 'my', 'our',
+      'the',
+      'a',
+      'an',
+      'of',
+      'and',
+      'to',
+      'for',
+      'in',
+      'on',
+      'at',
+      'by',
+      'new',
+      'old',
+      'my',
+      'our',
     ]);
     const words = eNorm.split(' ').filter(Boolean);
     const firstWord = words.find((w) => w.length >= 3 && !BRAND_STOPWORDS.has(w)) ?? words[0] ?? '';
