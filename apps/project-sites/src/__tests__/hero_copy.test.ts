@@ -1,6 +1,7 @@
 import {
   categoryFromName,
   categoryPhrase,
+  cityFromAddress,
   heroCtasFor,
   heroHeadlineOptions,
   homepageFaq,
@@ -937,5 +938,49 @@ describe('hero_copy — leadWithBusinessName (AL-732: business-name-led H1, no w
     expect(leadWithBusinessName('Ben & Jerry’s', "Vermont's sweet spot")).toBe(
       "Ben & Jerry’s — Vermont's sweet spot",
     );
+  });
+});
+
+describe('hero_copy — cityFromAddress (AL-733: robust to OSM display_name, not just Places)', () => {
+  it('extracts the city from the verbose OSM/Nominatim display_name (was the ZIP)', () => {
+    expect(
+      cityFromAddress(
+        'Russ & Daughters, 179, East Houston Street, Manhattan Community Board 3, Manhattan, New York County, New York, 10002, United States',
+      ),
+    ).toBe('New York');
+  });
+
+  it('extracts the city from a compact Places formattedAddress (3-part and 4-part+country)', () => {
+    expect(cityFromAddress('413 14th Ave SE, Minneapolis, MN 55414')).toBe('Minneapolis');
+    expect(cityFromAddress('179 E Houston St, New York, NY 10002, USA')).toBe('New York');
+    expect(cityFromAddress('1200 Getty Center Dr, Los Angeles, CA 90049, United States')).toBe(
+      'Los Angeles',
+    );
+  });
+
+  it('never returns a bare ZIP / postcode / country as the city', () => {
+    for (const addr of [
+      'Foo, 179, Bar Street, Baz County, Springfield, 62704, United States',
+      '1 Main St, Austin, TX 78701, USA',
+    ]) {
+      const c = cityFromAddress(addr);
+      expect(c).not.toMatch(/^\d+$/);
+      expect(c.toLowerCase()).not.toMatch(/^(usa|united states)$/);
+    }
+    expect(cityFromAddress('Foo, 179, Bar Street, Baz County, Springfield, 62704, United States')).toBe(
+      'Springfield',
+    );
+  });
+
+  it('falls back gracefully on thin / empty input (no throw)', () => {
+    expect(cityFromAddress('')).toBe('your community');
+    expect(cityFromAddress(null)).toBe('your community');
+    expect(cityFromAddress('Denver')).toBe('your community'); // single field → fallback
+    expect(() => cityFromAddress(undefined)).not.toThrow();
+  });
+
+  it('handles a bare "City, State" (2-letter code) and "City, State ZIP"', () => {
+    expect(cityFromAddress('Portland, OR')).toBe('Portland');
+    expect(cityFromAddress('Portland, OR 97201')).toBe('Portland');
   });
 });

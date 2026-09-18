@@ -298,6 +298,45 @@ export function leadWithBusinessName(
   return combined.length > 72 ? h : combined;
 }
 
+/**
+ * Derive the CITY from a business address, robust to BOTH shapes the create flow feeds it: a compact
+ * Google Places `formattedAddress` (`"179 E Houston St, New York, NY 10002, USA"`) AND the verbose
+ * OSM/Nominatim `display_name` the AL-729 search fallback returns (`"Russ & Daughters, 179, East
+ * Houston Street, …, New York, 10002, United States"`).
+ *
+ * The old "second-to-last comma field" heuristic works for a 3-part Places address (`…, Minneapolis,
+ * MN 55414` → `Minneapolis`) but grabs the **ZIP** from the 9-part OSM string (`…, New York, 10002,
+ * United States` → `10002`), so an OSM-sourced delivery shipped a hero/title/desc reading "10002's
+ * deli" / "10002-made" (live on russ-and-daughters). This works from the END: drop trailing country
+ * + postcode + a bare state code + administrative-area names ("… County" / "Community Board …"), then
+ * take the last CITY-like field. Falls back to the old second-to-last field, then `your community`.
+ *
+ * Pure; never throws.
+ *
+ * @example cityFromAddress("Russ & Daughters, 179, …, New York County, New York, 10002, United States")
+ *   // → "New York"   (was "10002")
+ * @example cityFromAddress("413 14th Ave SE, Minneapolis, MN 55414") // → "Minneapolis"
+ * @example cityFromAddress("179 E Houston St, New York, NY 10002, USA") // → "New York"
+ */
+export function cityFromAddress(address: string | null | undefined): string {
+  const parts = (address || '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return 'your community';
+  const COUNTRY = /^(united states(?: of america)?|usa|u\.?s\.?a?\.?|canada|united kingdom|uk|australia|england|scotland|wales)$/i;
+  // ZIP / ZIP+4 / "NY 10002" (state+ZIP) / Canadian "A1A 1A1" / UK-ish alnum postcodes.
+  const POSTCODE = /^(?:[A-Za-z]{2}\s+)?\d{4,6}(?:-\d{4})?$|^[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d$/;
+  const ADMIN = /\b(county|community board|borough|district|province|parish|census|metropolitan|greater|region|township|prefecture)\b/i;
+  let i = parts.length - 1;
+  while (i >= 0 && (COUNTRY.test(parts[i]!) || POSTCODE.test(parts[i]!))) i--;
+  while (i >= 0 && ADMIN.test(parts[i]!)) i--; // skip administrative-area names ("New York County")
+  if (i >= 0 && /^[A-Za-z]{2}$/.test(parts[i]!)) i--; // skip a bare 2-letter state code
+  const city = i >= 0 ? parts[i]! : '';
+  if (city && /[A-Za-z]{2,}/.test(city) && !/^\d+$/.test(city)) return city;
+  return parts[parts.length - 2] || 'your community';
+}
+
 /** Voice-matched hero copy for one visual personality: headline + subheadline candidates. */
 export interface PersonaHeroCopy {
   readonly headlines: readonly string[];

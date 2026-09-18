@@ -44,6 +44,7 @@ import {
 import {
   categoryFromName,
   categoryPhrase,
+  cityFromAddress,
   heroCtasFor,
   heroHeadlineOptions,
   homepageFaq,
@@ -881,13 +882,11 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
       // Falls through to categoryPhrase('') → 'local business' when the name has no
       // recognizable vertical noun (no regression).
       const catService = categoryPhrase(params.businessCategory || categoryFromName(safeName));
-      // City = the second-to-last comma field of the address ("…, Spokane, WA 99202" → "Spokane").
-      const addrParts = (params.businessAddress || '')
-        .split(',')
-        .map((p) => p.trim())
-        .filter(Boolean);
-      const cityPhrase =
-        addrParts.length >= 2 ? addrParts[addrParts.length - 2]! : 'your community';
+      // City from the address — robust to BOTH a compact Places `formattedAddress` AND the verbose
+      // OSM/Nominatim `display_name` the AL-729 search fallback returns (the old "second-to-last
+      // field" heuristic grabbed the ZIP off the OSM string → "10002's deli", live on
+      // russ-and-daughters). `cityFromAddress` is unit-tested across both shapes. AL-733.
+      const cityPhrase = cityFromAddress(params.businessAddress);
       const seed = [...safeName].reduce((a, c) => a + c.charCodeAt(0), 0);
       const pick = (arr: string[]): string => arr[seed % arr.length] || arr[0] || '';
       const description = pick([
