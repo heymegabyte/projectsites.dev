@@ -181,9 +181,15 @@ describe('runPrompt', () => {
   it('fires a PostHog $ai_generation event with real token estimates (AL-746 — was NEVER called)', async () => {
     (captureLLMCall as jest.Mock).mockClear();
     const env = createMockEnv();
-    const result = await runPrompt(env, 'research_business', 2, { business_name: 'Test Biz' }, {
-      traceContext: { orgId: 'org_1', traceId: 'trace_abc', promptId: 'research_business' },
-    });
+    const result = await runPrompt(
+      env,
+      'research_business',
+      2,
+      { business_name: 'Test Biz' },
+      {
+        traceContext: { orgId: 'org_1', traceId: 'trace_abc', promptId: 'research_business' },
+      },
+    );
 
     // The observability call the JSDoc promised — before AL-746 safeCaptureWorkersAi had ZERO
     // call sites, so this asserted-0 → asserted-1 is the RED→GREEN proof of the wiring.
