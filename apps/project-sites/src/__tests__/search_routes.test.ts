@@ -252,18 +252,51 @@ describe('GET /api/search/businesses', () => {
     expect(body._error.message).toBe('Business search is temporarily unavailable');
   });
 
-  it('short-circuits with SEARCH_PROVIDER_NOT_CONFIGURED when the Places key is unset (no fetch)', async () => {
+  it('falls back to OSM when the Places key is unset — NOT_CONFIGURED only when OSM is also empty (AL-729)', async () => {
     const noKeyApp = new Hono<{ Bindings: Env; Variables: Variables }>();
     noKeyApp.route('/', placesSearch);
     noKeyApp.route('/', siteCreation);
     noKeyApp.route('/', search);
     const noKeyEnv = { ...mockEnv, GOOGLE_PLACES_API_KEY: undefined } as unknown as Env;
+    // OSM (Nominatim) needs no Places key, so the fallback IS attempted (one fetch, to Nominatim);
+    // when it also finds nothing, we surface the honest NOT_CONFIGURED code.
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }));
     const res = await noKeyApp.request('/api/search/businesses?q=pizza', undefined, noKeyEnv);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data).toEqual([]);
     expect(body._error.code).toBe('SEARCH_PROVIDER_NOT_CONFIGURED');
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(1); // the OSM fallback attempt
+    expect((mockFetch.mock.calls[0] as [string])[0]).toMatch(/nominatim/);
+  });
+
+  it('serves real OSM results (_source:"osm") when Places is unconfigured but OSM has hits (AL-729)', async () => {
+    const noKeyApp = new Hono<{ Bindings: Env; Variables: Variables }>();
+    noKeyApp.route('/', placesSearch);
+    noKeyApp.route('/', siteCreation);
+    noKeyApp.route('/', search);
+    const noKeyEnv = { ...mockEnv, GOOGLE_PLACES_API_KEY: undefined } as unknown as Env;
+    const nominatim = [
+      {
+        osm_type: 'node',
+        osm_id: 1,
+        lat: '37.7',
+        lon: '-122.4',
+        name: 'Blue Bottle Coffee',
+        display_name: 'Blue Bottle Coffee, SF',
+        class: 'amenity',
+        type: 'cafe',
+        extratags: { website: 'https://bluebottlecoffee.com' },
+      },
+    ];
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(nominatim), { status: 200 }));
+    const res = await noKeyApp.request('/api/search/businesses?q=blue+bottle', undefined, noKeyEnv);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body._source).toBe('osm');
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0].name).toBe('Blue Bottle Coffee');
+    expect(body.data[0].place_id).toBe('osm:n1');
   });
 
   // KV cache spares the Google Places daily SearchTextRequest quota — popular/repeat
@@ -299,18 +332,21 @@ describe('GET /api/search/businesses', () => {
     mockCacheKv.put = jest.fn(async (k: string, v: string) => {
       store.set(k, v);
     }) as never;
-    // First call: quota-exceeded 429 → honest _error, must NOT be cached.
+    // First call: quota-exceeded 429, THEN the OSM/Nominatim fallback also finds nothing (AL-729)
+    // → honest _error. Neither the 429 nor an empty OSM result is ever cached.
     mockFetch.mockResolvedValueOnce(new Response('quota exceeded', { status: 429 }));
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 })); // OSM empty
     const r1 = await makeRequest('/api/search/businesses?q=flaky+query');
     expect((await r1.json())._error.code).toBe('SEARCH_PROVIDER_UNAVAILABLE');
 
-    // Retry after recovery → Places is hit AGAIN (error was not cached) and now succeeds.
+    // Retry after recovery → Places is hit AGAIN (nothing was cached) and now succeeds.
     const payload = makePlacesResponse([{ id: 'ok1', name: 'Now Works', address: '2 Ok Ave' }]);
     mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(payload), { status: 200 }));
     const r2 = await makeRequest('/api/search/businesses?q=flaky+query');
     expect((await r2.json()).data).toHaveLength(1);
 
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    // Places-429 + OSM-empty (r1) + Places-200 (r2) = 3 calls; the failure was never cached.
+    expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 });
 
