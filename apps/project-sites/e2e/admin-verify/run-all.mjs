@@ -75,6 +75,7 @@ const PROBES = [
   { label: 'pivot-speed', file: 'verify-conversion-pivot-speed.mjs', env: {} },
   { label: 'create-wizard', file: 'verify-create-wizard.mjs', env: {} },
   { label: 'owner-site-journey', file: 'verify-owner-site-journey.mjs', env: {} },
+  { label: 'delivery-email', file: 'verify-delivery-email.mjs', env: {} },
   { label: 'waiting-page', file: 'verify-waiting-page.mjs', env: {} },
   { label: 'platform-footer-pages', file: 'verify-platform-footer-pages.mjs', env: {} },
   { label: 'lead-claim-funnel', file: 'verify-lead-claim-funnel.mjs', env: {} },
