@@ -83,6 +83,11 @@ describe('getOrCreateStripeCustomer', () => {
       'https://api.stripe.com/v1/customers',
       expect.objectContaining({ method: 'POST' }),
     );
+    // AL-746 — the POST MUST carry a stable per-org Idempotency-Key so a double-click /
+    // retry returns the SAME customer instead of minting a duplicate (the check-then-act
+    // above is non-atomic). RED before the fix (no header sent).
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(init.headers['Idempotency-Key']).toBe('create-customer:org_1');
     // Should insert subscription record
     expect(mockInsert).toHaveBeenCalledTimes(1);
     expect(mockInsert).toHaveBeenCalledWith(
@@ -98,8 +103,9 @@ describe('getOrCreateStripeCustomer', () => {
   });
 
   it('WARNS but still returns the customer when the subscription-row insert fails', async () => {
-    // The Stripe customer was already created (no idempotency key) — a throw would
-    // make a retry create a DUPLICATE customer, so log for reconciliation instead.
+    // The Stripe customer was already created — a throw would fail checkout. Log for
+    // reconciliation + return the customer; the stable Idempotency-Key (AL-746) makes the
+    // next call self-heal (SELECT misses → re-POST same key → same customer → row retries).
     mockQueryOne.mockResolvedValueOnce(null);
     mockInsert.mockResolvedValueOnce({ error: 'D1_ERROR: disk full' });
     (global.fetch as jest.Mock).mockResolvedValueOnce({

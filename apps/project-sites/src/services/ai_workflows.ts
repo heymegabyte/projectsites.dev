@@ -116,9 +116,32 @@ export async function runPrompt(
           ? response
           : ((response as { response?: string }).response ?? JSON.stringify(response));
 
-      return { output: text, tokenCount: 0 };
+      // Best-effort output-token estimate — Workers AI returns no usage block, so ~4 chars/token
+      // (the convention this file's docstring already documents). Was hardcoded 0 → every
+      // `tokensUsed` + `$ai_output_tokens` reported 0.
+      return { output: text, tokenCount: Math.ceil(text.length / 4) };
     },
   );
+
+  // Fire the PostHog `$ai_generation` event the JSDoc promises. This call was MISSING —
+  // `safeCaptureWorkersAi` had ZERO call sites, so the entire Workers-AI research pipeline
+  // (research_profile/social/brand/…/generate_website) emitted 0 generation events despite the
+  // "@remarks Every successful env.AI.run() fires…" claim. Best-effort token counts (~chars/4);
+  // costUsd 0 (Workers AI is included on Workers paid); fail-soft; trace-rolled-up via
+  // traceContext so a multi-prompt build is one PostHog trace. (AL-746 built-but-unwired.)
+  const tc = options.traceContext;
+  await safeCaptureWorkersAi(env, {
+    distinctId: tc?.orgId ?? tc?.userId ?? 'workers-ai-pipeline',
+    provider: 'workers_ai',
+    model,
+    promptId: spec.id,
+    inputTokens: Math.ceil((rendered.system.length + rendered.user.length) / 4),
+    outputTokens: log.tokenCount,
+    latencyMs: log.latencyMs,
+    costUsd: 0,
+    status: 'ok',
+    traceId: tc?.traceId,
+  });
 
   return {
     success: true,

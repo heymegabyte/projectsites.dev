@@ -17,8 +17,15 @@ if (!globalThis.crypto?.subtle) {
   (globalThis as any).crypto = webcrypto;
 }
 
+// Mock the analytics boundary so the AL-746 observability wiring is assertable without a real
+// PostHog fetch (ai_workflows imports ONLY captureLLMCall from here). Uses the GLOBAL `jest`
+// (NOT an @jest/globals import) so @swc/jest hoists this above the runPrompt import — otherwise
+// the real module loads first + the mock silently no-ops (swc-jest-module-mock-pitfall).
+jest.mock('../services/analytics.js', () => ({ captureLLMCall: jest.fn(async () => undefined) }));
+
 import type { Env } from '../types/env.js';
 import { runPrompt, registerAllPrompts } from '../services/ai_workflows.js';
+import { captureLLMCall } from '../services/analytics.js';
 import { clearRegistry, getStats } from '../prompts/registry.js';
 
 // ─── Mock AI Responses ───────────────────────────────────────────
@@ -169,6 +176,32 @@ describe('runPrompt', () => {
     expect(result.model).toBe('@cf/meta/llama-3.3-70b-instruct-fp8-fast');
     expect(typeof result.latencyMs).toBe('number');
     expect(env.AI.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires a PostHog $ai_generation event with real token estimates (AL-746 — was NEVER called)', async () => {
+    (captureLLMCall as jest.Mock).mockClear();
+    const env = createMockEnv();
+    const result = await runPrompt(env, 'research_business', 2, { business_name: 'Test Biz' }, {
+      traceContext: { orgId: 'org_1', traceId: 'trace_abc', promptId: 'research_business' },
+    });
+
+    // The observability call the JSDoc promised — before AL-746 safeCaptureWorkersAi had ZERO
+    // call sites, so this asserted-0 → asserted-1 is the RED→GREEN proof of the wiring.
+    expect(captureLLMCall as jest.Mock).toHaveBeenCalledTimes(1);
+    const [, params] = (captureLLMCall as jest.Mock).mock.calls[0];
+    expect(params).toMatchObject({
+      distinctId: 'org_1',
+      provider: 'workers_ai',
+      model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+      promptId: 'research_business',
+      status: 'ok',
+      costUsd: 0,
+      traceId: 'trace_abc',
+    });
+    // Token counts are real estimates now (~chars/4), never the old hardcoded 0.
+    expect(params.inputTokens).toBeGreaterThan(0);
+    expect(params.outputTokens).toBeGreaterThan(0);
+    expect(result.tokensUsed).toBeGreaterThan(0);
   });
 
   it('throws for an unknown prompt ID', async () => {

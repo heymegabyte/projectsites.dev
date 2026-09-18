@@ -101,11 +101,18 @@ export async function getOrCreateStripeCustomer(
     return { stripe_customer_id: existing.stripe_customer_id };
   }
 
+  // Stable per-org Idempotency-Key: the check-then-act above is NON-atomic, so two
+  // concurrent checkouts (double-click / client retry) both miss the SELECT and race to
+  // POST /v1/customers → two DUPLICATE Stripe customers for one org. A stable key makes
+  // Stripe return the SAME customer on any retry within its 24h idempotency window, so the
+  // race collapses to one customer. (Beyond 24h the check-then-act has already persisted the
+  // row, so the SELECT short-circuits.) Reference: [[uuid-version-discipline]] idempotency-key.
   const response = await fetch('https://api.stripe.com/v1/customers', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
       'Content-Type': 'application/x-www-form-urlencoded',
+      'Idempotency-Key': `create-customer:${orgId}`,
     },
     body: new URLSearchParams({
       email,
@@ -150,9 +157,11 @@ export async function getOrCreateStripeCustomer(
     dunning_stage: 0,
     deleted_at: null,
   });
-  // The Stripe customer was already created above (no idempotency key), so a
-  // throw here would make a retry create a DUPLICATE customer. Log the lost
-  // subscription-row write for reconciliation instead of throwing.
+  // Don't throw on a lost subscription-row write — return the (already-created) customer so
+  // checkout still proceeds. The stable Idempotency-Key above makes this self-healing: the
+  // next getOrCreateStripeCustomer call's SELECT misses (no row persisted), re-POSTs with the
+  // SAME key → Stripe returns the SAME customer (no duplicate) → the sub-row insert retries.
+  // Log for reconciliation meanwhile.
   if (subRowErr) {
     console.warn(
       JSON.stringify({
