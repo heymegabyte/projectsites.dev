@@ -330,6 +330,31 @@ export function chooseProviderForTier(
 }
 
 /**
+ * Collapse a resolved provider to a standard vendor THIS path can actually route.
+ *
+ * `callExternalLLM` speaks openai/anthropic/deepseek only — kimi + fable are served
+ * by `edge_ai_router` (their own key-lookup + gateway slugs). When the premium ladder
+ * resolves to kimi/fable here, pick the best AVAILABLE standard vendor by key so a usable
+ * `DEEPSEEK_API_KEY`/`ANTHROPIC_API_KEY` is never stranded — the old hardcoded `'openai'`
+ * built `providers = ['openai','openai']` and threw "no provider" even with a live DeepSeek key
+ * (e.g. `FABLE_API_KEY` present → premium resolves `'fable'` → dead-ended).
+ *
+ * @returns the standard vendor to route through (identity for openai/anthropic/deepseek).
+ * @example
+ * toRoutableProvider({ DEEPSEEK_API_KEY: 'k' } as Env, 'kimi'); // 'deepseek' (not stranded)
+ * toRoutableProvider({ OPENAI_API_KEY: 'k' } as Env, 'openai'); // 'openai' (identity)
+ */
+export function toRoutableProvider(
+  env: Env,
+  provider: 'fable' | 'openai' | 'kimi' | 'anthropic' | 'deepseek',
+): 'openai' | 'anthropic' | 'deepseek' {
+  if (provider === 'openai' || provider === 'anthropic' || provider === 'deepseek') return provider;
+  if (env.OPENAI_API_KEY) return 'openai';
+  if (env.DEEPSEEK_API_KEY) return 'deepseek';
+  return 'anthropic';
+}
+
+/**
  * Choose provider. GPT-4o is ALWAYS primary for research/vision; Anthropic is
  * the fallback. Explicit preference overrides this. When `tier` is supplied and
  * no explicit provider is given, delegates to {@link chooseProviderForTier}.
@@ -744,20 +769,16 @@ export async function callExternalLLM(
   options: ExternalLLMOptions,
 ): Promise<ExternalLLMResult> {
   const primary = chooseProvider(env, options.provider, options.tier);
-  // Fallback is always a non-ladder standard vendor (openai/anthropic/deepseek).
-  const fallback: 'openai' | 'anthropic' | 'deepseek' =
-    primary === 'openai'
-      ? 'anthropic'
-      : primary === 'anthropic'
-        ? 'openai'
-        : primary === 'deepseek'
-          ? 'openai'
-          : 'openai';
+  // kimi/fable are edge_ai_router-only here — collapse to the best AVAILABLE standard vendor by
+  // key (never a hardcoded 'openai' that stranded a usable DeepSeek/Anthropic key). See
+  // toRoutableProvider. `options.model` is applied ONLY when the loop provider is the ORIGINALLY
+  // requested primary (`provider === primary`), so a collapsed kimi/fable never mis-sends a
+  // kimi/claude model name to a standard vendor.
+  const usablePrimary = toRoutableProvider(env, primary);
+  // Fallback is always the OTHER standard vendor (openai↔anthropic; deepseek→openai).
+  const fallback: 'openai' | 'anthropic' | 'deepseek' = usablePrimary === 'openai' ? 'anthropic' : 'openai';
 
-  const providers: Array<'openai' | 'anthropic' | 'deepseek'> = [
-    primary === 'fable' || primary === 'kimi' ? 'openai' : primary,
-    fallback,
-  ];
+  const providers: Array<'openai' | 'anthropic' | 'deepseek'> = [usablePrimary, fallback];
 
   const distinctId = resolveDistinctId(options.traceContext);
   const traceId = options.traceContext?.traceId;
@@ -890,7 +911,9 @@ export async function callExternalLLM(
     }
   }
 
-  throw new Error('No LLM provider available — set OPENAI_API_KEY or ANTHROPIC_API_KEY');
+  throw new Error(
+    'No usable LLM provider — set OPENAI_API_KEY, DEEPSEEK_API_KEY, or ANTHROPIC_API_KEY (kimi/fable are served by edge_ai_router, not this path)',
+  );
 }
 
 // ─── Vision Call ────────────────────────────────────────────────────────────

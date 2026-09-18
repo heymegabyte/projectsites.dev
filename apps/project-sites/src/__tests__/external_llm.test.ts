@@ -424,7 +424,7 @@ describe('unconfigured keys', () => {
   it('throws when neither provider key is set', async () => {
     const env = makeEnv({ OPENAI_API_KEY: undefined, ANTHROPIC_API_KEY: undefined });
     await expect(callExternalLLM(env, { system: 's', user: 'u' })).rejects.toThrow(
-      /No LLM provider available/,
+      /No usable LLM provider/,
     );
     expect(mockGatewayFetch).not.toHaveBeenCalled();
   });
@@ -444,14 +444,14 @@ describe('error + fallback', () => {
     expect(mockGatewayFetch).toHaveBeenCalledTimes(2);
   });
 
-  it('exhausts both providers to "No LLM provider available" when primary fails and fallback has no key', async () => {
+  it('exhausts both providers to "No usable LLM provider" when primary fails and fallback has no key', async () => {
     // provider=openai → primary=openai (fails), fallback=anthropic (no key → skip),
     // loop ends without a rethrow because openai !== fallback.
     mockGatewayFetch.mockResolvedValueOnce(gwErr(500, 'openai down'));
     const env = makeEnv({ ANTHROPIC_API_KEY: undefined });
     await expect(
       callExternalLLM(env, { system: 's', user: 'u', provider: 'openai' }),
-    ).rejects.toThrow(/No LLM provider available/);
+    ).rejects.toThrow(/No usable LLM provider/);
   });
 
   it('falls back from a failing OpenAI to Anthropic and returns the Anthropic result', async () => {
@@ -482,7 +482,7 @@ describe('error + fallback', () => {
     const env = makeEnv({ ANTHROPIC_API_KEY: undefined });
     await expect(
       callExternalLLM(env, { system: 's', user: 'u', provider: 'openai' }),
-    ).rejects.toThrow(/No LLM provider available/);
+    ).rejects.toThrow(/No usable LLM provider/);
     const statuses = mockCaptureLLM.mock.calls.map((c) => c[1].status);
     expect(statuses).toContain('error');
   });

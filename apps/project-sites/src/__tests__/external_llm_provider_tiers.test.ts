@@ -9,6 +9,7 @@
 
 import {
   chooseProviderForTier,
+  toRoutableProvider,
   DEFAULT_MODELS_EXPORT,
   DIRECT_BASE_URLS_EXPORT,
 } from '../services/external_llm.js';
@@ -92,6 +93,37 @@ describe('chooseProviderForTier — instant tier', () => {
   it('falls back to openai when no keys are set', () => {
     const env = makeEnv();
     expect(chooseProviderForTier(env as never, 'instant')).toBe('openai');
+  });
+});
+
+describe('toRoutableProvider — kimi/fable never strand a usable standard key (callExternalLLM path)', () => {
+  it('passes openai/anthropic/deepseek through unchanged (identity)', () => {
+    const env = makeEnv({ OPENAI_API_KEY: 'k', DEEPSEEK_API_KEY: 'k', ANTHROPIC_API_KEY: 'k' });
+    expect(toRoutableProvider(env as never, 'openai')).toBe('openai');
+    expect(toRoutableProvider(env as never, 'anthropic')).toBe('anthropic');
+    expect(toRoutableProvider(env as never, 'deepseek')).toBe('deepseek');
+  });
+
+  it('collapses kimi to DeepSeek when only DEEPSEEK_API_KEY is set (was stranding → openai → threw)', () => {
+    // The bug: premium resolved 'kimi', callExternalLLM hardcoded ['openai','openai'] → no openai
+    // key → threw "no provider" even though a live DeepSeek key could serve the request.
+    const env = makeEnv({ KIMI_API_KEY: 'sk-kimi', DEEPSEEK_API_KEY: 'sk-ds' });
+    expect(toRoutableProvider(env as never, 'kimi')).toBe('deepseek');
+  });
+
+  it('collapses fable to DeepSeek when FABLE + DEEPSEEK are set but OPENAI is not (realistic premium case)', () => {
+    const env = makeEnv({ FABLE_API_KEY: 'sk-fable', DEEPSEEK_API_KEY: 'sk-ds' });
+    expect(toRoutableProvider(env as never, 'fable')).toBe('deepseek');
+  });
+
+  it('prefers openai for a collapsed kimi/fable when an OpenAI key is present', () => {
+    const env = makeEnv({ FABLE_API_KEY: 'sk-fable', OPENAI_API_KEY: 'sk-oa', DEEPSEEK_API_KEY: 'sk-ds' });
+    expect(toRoutableProvider(env as never, 'fable')).toBe('openai');
+  });
+
+  it('falls through to anthropic as the last resort for a collapsed kimi/fable', () => {
+    const env = makeEnv({ KIMI_API_KEY: 'sk-kimi' }); // no openai/deepseek key
+    expect(toRoutableProvider(env as never, 'kimi')).toBe('anthropic');
   });
 });
 
