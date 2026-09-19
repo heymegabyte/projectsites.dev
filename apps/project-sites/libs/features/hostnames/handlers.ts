@@ -139,6 +139,14 @@ hostnames.post('/api/sites/:siteId/hostnames', async (c) => {
 
   const validated = createHostnameSchema.parse({ ...body, site_id: siteId });
 
+  // Canonical org-ownership guard (mirrors the GET + DELETE handlers): 404 (never 403 — never leak
+  // existence) so a caller can NOT provision a hostname under a site it does not own. Runs AFTER Zod
+  // (a malformed body still 400s) but BEFORE any provisioning (the CF-for-SaaS create in
+  // provisionFreeDomain/provisionCustomDomain AND the paid-plan entitlement check below) — its
+  // absence was a write-authorization IDOR: a valid free_subdomain POST to a foreign/ghost siteId
+  // reached the CF create instead of a pre-provision 404. Dropped in the api.ts→feature extraction.
+  await requireOwnedSite(c.env, orgId, siteId, 'id');
+
   let result;
   if (validated.type === 'free_subdomain') {
     const slug = validated.hostname.split('.')[0]!;

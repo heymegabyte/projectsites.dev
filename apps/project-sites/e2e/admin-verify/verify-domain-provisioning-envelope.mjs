@@ -107,16 +107,39 @@ if (!KEY) {
       badBody.status === 400 && badBody.json?.error?.code === 'VALIDATION_ERROR',
       `status=${badBody.status} code=${badBody.json?.error?.code}`);
 
-    // ── 5. ENTITLEMENT GATE — valid custom_cname (ghost) → 403 paid-plan (free) | 404 (paid) ─
-    const entitled = await req('POST', `/api/sites/${GHOST}/hostnames`, {
+    // ── 5. WRITE-IDOR GATE (free_subdomain) — valid free_subdomain to a NON-OWNED ghost → 404 ──
+    // AL-772 fix: the POST handler now `requireOwnedSite`s (after Zod, before provisioning) — so a
+    // free_subdomain POST to a site the caller doesn't own is rejected 404 BEFORE the CF-for-SaaS
+    // create (previously it reached the CF create — a cross-site write-authorization IDOR).
+    const freeIdor = await req('POST', `/api/sites/${GHOST}/hostnames`, {
+      body: { type: 'free_subdomain', hostname: 'probe-never.projectsites.dev' },
+    });
+    check('valid free_subdomain to a NON-OWNED site → 404 (write-IDOR gate, pre-provision — AL-772)',
+      freeIdor.status === 404, `status=${freeIdor.status}`);
+
+    // ── 6. WRITE-IDOR GATE (custom_cname) — valid custom_cname to a NON-OWNED ghost → 404 ──────
+    // Ownership now fires BEFORE the entitlement check → a non-owned custom_cname is 404 (not 403).
+    const customIdor = await req('POST', `/api/sites/${GHOST}/hostnames`, {
       body: { type: 'custom_cname', hostname: 'probe-never-provisioned.example.com' },
     });
-    const paidMsg = /paid plan/i.test(entitled.json?.error?.message || '');
-    check('valid custom_cname (non-owned) → 403 "requires a paid plan" (free) OR 404 (paid) — rejected pre-provision',
-      (entitled.status === 403 && paidMsg) || entitled.status === 404,
-      `status=${entitled.status} msg="${(entitled.json?.error?.message || '').slice(0, 48)}"`);
+    check('valid custom_cname to a NON-OWNED site → 404 (write-IDOR gate, before the paid-plan check)',
+      customIdor.status === 404, `status=${customIdor.status}`);
 
-    // ── 6. NON-MUTATION — owner's hostname set byte-identical before/after ────────────────
+    // ── 7. ENTITLEMENT GATE — valid custom_cname to the OWNER'S OWN site (free org) → 403 paid ─
+    // On an OWNED site the ownership gate passes, so the paid-plan entitlement gate is what rejects a
+    // free org's custom domain. Safe: 403 fires before provisioning; a paid org would instead 400 at
+    // the DNS-CNAME check (the bogus hostname has no CNAME) — also pre-provision. Never provisions.
+    if (ownId) {
+      const entitled = await req('POST', `/api/sites/${ownId}/hostnames`, {
+        body: { type: 'custom_cname', hostname: 'probe-never-provisioned.example.com' },
+      });
+      const paidMsg = /paid plan/i.test(entitled.json?.error?.message || '');
+      check('valid custom_cname on the OWN site → 403 "requires a paid plan" (free org entitlement gate)',
+        (entitled.status === 403 && paidMsg) || entitled.status === 400,
+        `status=${entitled.status} msg="${(entitled.json?.error?.message || '').slice(0, 48)}"`);
+    }
+
+    // ── 8. NON-MUTATION — owner's hostname set byte-identical before/after every rejected call ──
     if (ownId && baseline !== null) {
       const after = await req('GET', `/api/sites/${ownId}/hostnames`);
       check('owner hostname set byte-identical before/after (0 provisioning side-effects)',
