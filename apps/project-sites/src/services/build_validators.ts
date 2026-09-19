@@ -1662,7 +1662,8 @@ const ohsDays = (seg: string): string[] | null => {
   const lower = seg.toLowerCase();
   if (/\b(daily|everyday|every\s?day|all\s?week|7\s?days(?:\s?a\s?week)?)\b/.test(lower))
     return [...OHS_DAY_ORDER];
-  if (/\bweek\s?days?\b/.test(lower)) return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  if (/\bweek\s?days?\b/.test(lower))
+    return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   if (/\bweek\s?ends?\b/.test(lower)) return ['Saturday', 'Sunday'];
   const set = new Set<string>();
   const range = seg.match(
@@ -1693,7 +1694,9 @@ const ohsDays = (seg: string): string[] | null => {
  *   → [{dayOfWeek:[Mon..Fri],opens:'09:00',closes:'17:00'}, {dayOfWeek:['Saturday'],opens:'10:00',closes:'14:00'}]
  * @example openingHoursSpecificationFor('Mon-Fri 9-5') → null // bare hours are ambiguous, fail closed
  */
-export function openingHoursSpecificationFor(hours?: string): Array<Record<string, unknown>> | null {
+export function openingHoursSpecificationFor(
+  hours?: string,
+): Array<Record<string, unknown>> | null {
   const h = (hours || '').trim();
   if (!h || h.startsWith('{')) return null;
   const lower = h.toLowerCase();
@@ -1702,11 +1705,19 @@ export function openingHoursSpecificationFor(hours?: string): Array<Record<strin
     !/\b(except|closed)\b/.test(lower)
   ) {
     return [
-      { '@type': 'OpeningHoursSpecification', dayOfWeek: [...OHS_DAY_ORDER], opens: '00:00', closes: '23:59' },
+      {
+        '@type': 'OpeningHoursSpecification',
+        dayOfWeek: [...OHS_DAY_ORDER],
+        opens: '00:00',
+        closes: '23:59',
+      },
     ];
   }
   const specs: Array<Record<string, unknown>> = [];
-  for (const seg of h.split(/[;\n]+/).map((s) => s.trim()).filter(Boolean)) {
+  for (const seg of h
+    .split(/[;\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)) {
     const rangeCount = (seg.match(OHS_RANGE_RE_G) || []).length;
     if (rangeCount !== 1) continue; // 0 (e.g. "Sun: closed") or ≥2 (ambiguous) → skip
     const range = ohsTimeRange(seg);

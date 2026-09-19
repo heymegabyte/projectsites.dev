@@ -81,7 +81,11 @@ export function stripControlChars(text: string): string {
       continue; // the for-loop's i++ steps past the final byte
     }
     // Keep tab (9) + newline (10) + printables ≥32, dropping DEL (127) and C1 (128-159).
-    if (code === 9 || code === 10 || (code >= 32 && code !== 127 && !(code >= 128 && code <= 159))) {
+    if (
+      code === 9 ||
+      code === 10 ||
+      (code >= 32 && code !== 127 && !(code >= 128 && code <= 159))
+    ) {
       out += s[i];
     }
   }

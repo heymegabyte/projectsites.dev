@@ -924,7 +924,10 @@ describe('parseCfCustomHostname', () => {
   it('parses a minimal response (status only) — id/ssl/errors optional pre-SSL', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const out = parseCfCustomHostname({ result: { status: 'pending' } }, { fn: 'checkHostnameStatus' });
+    const out = parseCfCustomHostname(
+      { result: { status: 'pending' } },
+      { fn: 'checkHostnameStatus' },
+    );
 
     expect(out.result.status).toBe('pending');
     expect(out.result.id).toBeUndefined();
@@ -938,7 +941,10 @@ describe('parseCfCustomHostname', () => {
     // result.status renamed/removed = genuine drift of the one required field.
     const drifted = { result: { id: 'cf-1', state: 'active' } };
 
-    const out = parseCfCustomHostname(drifted, { fn: 'createCustomHostname', hostname: 'drift.com' });
+    const out = parseCfCustomHostname(drifted, {
+      fn: 'createCustomHostname',
+      hostname: 'drift.com',
+    });
 
     expect(out.result.status).toBe('unknown');
     expect(warnSpy).toHaveBeenCalledTimes(1);
@@ -964,8 +970,12 @@ describe('parseCfCustomHostname', () => {
   it('fails SOFT on null / non-object JSON', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-    expect(parseCfCustomHostname(null, { fn: 'checkHostnameStatus' }).result.status).toBe('unknown');
-    expect(parseCfCustomHostname('nope', { fn: 'checkHostnameStatus' }).result.status).toBe('unknown');
+    expect(parseCfCustomHostname(null, { fn: 'checkHostnameStatus' }).result.status).toBe(
+      'unknown',
+    );
+    expect(parseCfCustomHostname('nope', { fn: 'checkHostnameStatus' }).result.status).toBe(
+      'unknown',
+    );
     expect(warnSpy).toHaveBeenCalledTimes(2);
     warnSpy.mockRestore();
   });

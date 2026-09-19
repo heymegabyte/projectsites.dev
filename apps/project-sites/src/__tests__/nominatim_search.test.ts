@@ -79,12 +79,15 @@ describe('nominatim_search — mapNominatimResult', () => {
 describe('nominatim_search — cleanNominatimAddress (no duplicate leading name)', () => {
   it('drops the leading business name Nominatim prepends + joins the house number to its street', () => {
     expect(
-      cleanNominatimAddress('Blue Bottle Coffee, 66, Mint Street, SoMa, San Francisco, CA, 94103, USA', 'Blue Bottle Coffee'),
+      cleanNominatimAddress(
+        'Blue Bottle Coffee, 66, Mint Street, SoMa, San Francisco, CA, 94103, USA',
+        'Blue Bottle Coffee',
+      ),
     ).toBe('66 Mint Street, SoMa, San Francisco, CA, 94103, USA');
   });
 
   it('is case-insensitive on the name prefix', () => {
-    expect(cleanNominatimAddress('MOE’S TAVERN, 12, Main St, Springfield', "MOE’s Tavern")).toBe(
+    expect(cleanNominatimAddress('MOE’S TAVERN, 12, Main St, Springfield', 'MOE’s Tavern')).toBe(
       '12 Main St, Springfield',
     );
   });
@@ -96,7 +99,9 @@ describe('nominatim_search — cleanNominatimAddress (no duplicate leading name)
   });
 
   it('keeps the full string if stripping the name would empty it', () => {
-    expect(cleanNominatimAddress('Blue Bottle Coffee', 'Blue Bottle Coffee')).toBe('Blue Bottle Coffee');
+    expect(cleanNominatimAddress('Blue Bottle Coffee', 'Blue Bottle Coffee')).toBe(
+      'Blue Bottle Coffee',
+    );
   });
 
   it('handles empty inputs safely', () => {

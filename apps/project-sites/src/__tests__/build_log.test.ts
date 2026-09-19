@@ -186,8 +186,12 @@ describe('build_log — detectBuildLlmDegraded (make a dead build-LLM balance OB
 
 describe('build_log — stripControlChars (ANSI / control-byte scrub for the /waiting terminal)', () => {
   it('strips ANSI colour + cursor escape sequences', () => {
-    expect(stripControlChars(ESC + '[32m' + 'created Hero.tsx' + ESC + '[0m')).toBe('created Hero.tsx');
-    expect(stripControlChars(ESC + '[2K' + ESC + '[1G' + 'installing deps')).toBe('installing deps');
+    expect(stripControlChars(ESC + '[32m' + 'created Hero.tsx' + ESC + '[0m')).toBe(
+      'created Hero.tsx',
+    );
+    expect(stripControlChars(ESC + '[2K' + ESC + '[1G' + 'installing deps')).toBe(
+      'installing deps',
+    );
   });
 
   it('collapses a carriage-return progress spinner to its final frame', () => {

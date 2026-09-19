@@ -69,7 +69,10 @@ export function cleanNominatimAddress(displayName: string, name: string): string
   let s = (displayName ?? '').trim();
   const n = (name ?? '').trim();
   if (n && s.toLowerCase().startsWith(n.toLowerCase())) {
-    const rest = s.slice(n.length).replace(/^\s*,\s*/, '').trim();
+    const rest = s
+      .slice(n.length)
+      .replace(/^\s*,\s*/, '')
+      .trim();
     if (rest) s = rest; // keep the full string if stripping would empty it (display_name === name)
   }
   return s.replace(/^(\d+[a-z]?),\s+/i, '$1 '); // "66, Mint Street" → "66 Mint Street"

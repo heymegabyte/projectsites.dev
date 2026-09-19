@@ -533,7 +533,9 @@ describe('GET /api/sites/lookup', () => {
   });
 
   it('short-circuits a malformed (out-of-charset) slug to exists:false with NO DB hit', async () => {
-    const res = await makeRequest('/api/sites/lookup?slug=' + encodeURIComponent('../../etc passwd'));
+    const res = await makeRequest(
+      '/api/sites/lookup?slug=' + encodeURIComponent('../../etc passwd'),
+    );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ data: { exists: false } });
     expect(mockDbQueryOne).not.toHaveBeenCalled(); // never touched D1 for a slug that can't exist

@@ -65,7 +65,9 @@ export function parseCfCustomHostname(
       message: 'CF custom-hostname response shape drift — validate the CF API contract',
       fn: ctx.fn,
       hostname: ctx.hostname,
-      issues: parsed.error.issues.slice(0, 4).map((i) => `${i.path.join('.') || '(root)'}:${i.code}`),
+      issues: parsed.error.issues
+        .slice(0, 4)
+        .map((i) => `${i.path.join('.') || '(root)'}:${i.code}`),
     }),
   );
   return { result: { status: 'unknown' } };
