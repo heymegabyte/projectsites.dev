@@ -73,6 +73,13 @@ export const RATE_LIMIT_RULES: readonly RateLimitRule[] = [
   // Public / cost-incurring (paid APIs, Stripe sessions, email sends).
   { path: '/api/search/businesses', maxRequests: 30, windowSeconds: 60, prefix: 'rl:search' },
   { path: '/api/search/address', maxRequests: 30, windowSeconds: 60, prefix: 'rl:search-addr' },
+  // Public unauthenticated D1 reads (homepage search + existence lookup). Cheaper than the paid
+  // Places proxy above, but still an unauth DoS surface — every other public route is capped, these
+  // two were the outliers. 60/60s is generous for the debounced homepage search (it fires these in
+  // parallel with /api/search/businesses, already the tighter 30/60s limit on the same keystrokes)
+  // while shielding D1 + the Worker from a flood.
+  { path: '/api/sites/search', maxRequests: 60, windowSeconds: 60, prefix: 'rl:sites-search' },
+  { path: '/api/sites/lookup', maxRequests: 60, windowSeconds: 60, prefix: 'rl:sites-lookup' },
   { path: '/api/contact-form/*', maxRequests: 5, windowSeconds: 60, prefix: 'rl:contact' },
   // Platform contact form — public, unauthenticated, sends email + writes an audit
   // row. Same abuse/cost budget as the per-site form above (distinct path: this

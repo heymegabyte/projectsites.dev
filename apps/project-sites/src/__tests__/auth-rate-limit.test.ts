@@ -197,6 +197,19 @@ describe('auth rate-limit (item #6)', () => {
     }
   });
 
+  it('the PUBLIC unauthenticated D1 reads are rate-limited (the sites/search + lookup DoS gap)', () => {
+    // These two public reads were the ONLY unauth public routes without a cap while every sibling
+    // (search/businesses, contact-form, newsletter, feedback) had one — an open flood surface on
+    // D1 + the Worker. Lock a positive budget so the gap can't silently reopen.
+    const paths = RATE_LIMIT_RULES.map((r) => r.path);
+    for (const path of ['/api/sites/search', '/api/sites/lookup']) {
+      expect(paths).toContain(path);
+      const rule = RATE_LIMIT_RULES.find((r) => r.path === path)!;
+      expect(rule.maxRequests).toBeGreaterThan(0);
+      expect(rule.windowSeconds).toBeGreaterThan(0);
+    }
+  });
+
   it('partitions counters per IP (one abuser does not starve another)', async () => {
     for (let i = 0; i < 5; i++) {
       await hit('/api/auth/magic-link', 'POST', '198.51.100.1');
