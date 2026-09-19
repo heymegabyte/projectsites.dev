@@ -21,7 +21,7 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'heath-ceramics-sausalito,jackson-fine-art-atlanta,three-kings-tattoo-brooklyn,pike-place-fish-market-seattle,stumptown-coffee-portland,strand-book-store-broadway').split(',').map((s) => s.trim()).filter(Boolean);
+const SITES = (process.env.SITES || 'heath-ceramics-sausalito,jackson-fine-art-atlanta,three-kings-tattoo-brooklyn,pike-place-fish-market-seattle,stumptown-coffee-portland,strand-book-store-broadway,rainbow-grocery-san-francisco').split(',').map((s) => s.trim()).filter(Boolean);
 const ROUTES = (process.env.ROUTES || '/,/about,/services').split(',');
 const STRICT = process.env.STRICT === '1';
 
@@ -116,6 +116,23 @@ const BOOKSTORE_SIGNAL =
   /\b(book\s?stor\w*|bookshop\w*|booksell\w*|\bbooks\b|\blibrar\w*|comic\s?(?:shop|store))\b/i;
 const EDUCATION_LEARNING_MISFIT =
   /\b(bright futures start|patient teaching|every learner belongs|makes learning click|let'?s grow together|where [\w'’]+(?: [\w'’]+)? learns)\b/i;
+// AL-819: the `warm` themeStyle + `quickserve` commerce mode are shared by SIT-DOWN hospitality
+// (restaurant/cafe/bakery/deli) AND walk-in GROCERY/MARKET (grocery/supermarket/greengrocer/bodega/
+// butcher/fishmonger — routed to warm+quickserve by AL-656 for the warm food aesthetic + no-reservations
+// framing). The `warm` hero copy ("Pull up a chair" / "everyone has a seat" / "cozy corner" / "slow
+// down, feel at home") + the quickserve CTA/badge ("See our flavors" / "Made to order") are SEATING/
+// made-to-order-DINING copy — a MISFIT on a grocery: you SHOP at a grocery, you don't pull up a chair
+// or order flavors. Live, vision-caught: rainbow-grocery-san-francisco shipped H1 "Pull up a chair, San
+// Francisco". Root-fixed in hero_copy.ts (a shared GROCERY_MARKET_CATEGORY sub-splits personaHeroCopy +
+// heroCtasFor + trustBadgesFor → grocery gets "Stock up in {city}" / "See what's in store" / "Fresh
+// daily"). This guards the RENDERED surface. Gate on the business BEING a grocery/market (page content,
+// not slug) + the dining phrase in the HERO region → near-zero false positives (a real restaurant
+// matches the seating copy but NOT the grocery signal; a corrected grocery never says these verbatim).
+// Mirrors the hero_copy GROCERY_MARKET_CATEGORY (precise walk-in-food nouns, never bare "market").
+const GROCERY_MARKET_SIGNAL =
+  /\b(grocer\w*|supermarket\w*|greengrocer\w*|\bbodega\b|food\s?(?:market\w*|hall)|farmers?\s?market\w*|neighbou?rhood\s?market\w*|corner\s?(?:store|market\w*)|convenience\s?store|butcher\w*|fishmonger\w*|produce\s?(?:market\w*|stand))\b/i;
+const GROCERY_DINING_MISFIT =
+  /\b(pull up a chair|everyone has a seat|cozy corner|slow down,? and feel at home|feel at home|see our flavors|made to order)\b/i;
 const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 const hits = [];
@@ -215,6 +232,18 @@ try {
           const m = EDUCATION_LEARNING_MISFIT.exec(nH1) || EDUCATION_LEARNING_MISFIT.exec(nBody.slice(0, 450));
           hits.push({ slug, route, kind: 'education-copy-on-bookstore', detail: `bookstore/library hero wears education-learning copy "${m?.[0]}" (AL-810 misfit — a store sells books, it doesn't teach; should be BROWSE/READ copy "Find your next read")` });
         }
+        // AL-819: a walk-in grocery/market must not wear the sit-down warm DINING copy ("Pull up a
+        // chair" / "everyone has a seat") or the made-to-order quickserve copy ("See our flavors" /
+        // "Made to order"). Gate on the business being a grocery/market (page content) + the dining
+        // phrase in the HERO region (H1 or top ~450c) — a real restaurant matches the seating copy but
+        // not the grocery signal, so it never false-fires; a corrected grocery says "Stock up".
+        if (
+          GROCERY_MARKET_SIGNAL.test(nBody) &&
+          (GROCERY_DINING_MISFIT.test(nH1) || GROCERY_DINING_MISFIT.test(nBody.slice(0, 450)))
+        ) {
+          const m = GROCERY_DINING_MISFIT.exec(nH1) || GROCERY_DINING_MISFIT.exec(nBody.slice(0, 450));
+          hits.push({ slug, route, kind: 'dining-copy-on-grocery', detail: `grocery/market hero wears sit-down dining / made-to-order copy "${m?.[0]}" (AL-819 misfit — you shop at a grocery, you don't pull up a chair or order flavors; should be "Stock up in {city}" / "See what's in store" / "Fresh daily")` });
+        }
       } catch {
         /* route unreachable → skip (don't false-fail) */
       }
@@ -237,5 +266,5 @@ if (STRICT) {
 }
 // flips-GREEN-on-rebuild tracker: a stale pre-fix build still renders the leak; the retail-pack
 // de-"Gear" fix lands next build (NO redeploy of existing sites), so these clear on rebuild.
-console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant / AL-641 brutalist-on-gallery / AL-654 coffee-on-non-cafe / AL-696 nightlife-copy-on-tattoo / AL-698 fashion-copy-on-food-market / AL-549 dining-copy-on-quickserve / AL-810 education-copy-on-bookstore; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
+console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant / AL-641 brutalist-on-gallery / AL-654 coffee-on-non-cafe / AL-696 nightlife-copy-on-tattoo / AL-698 fashion-copy-on-food-market / AL-549 dining-copy-on-quickserve / AL-810 education-copy-on-bookstore / AL-819 dining-copy-on-grocery; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
 process.exit(0);
