@@ -574,6 +574,50 @@ describe('creditWallet', () => {
     expect(mockDbInsert).not.toHaveBeenCalled();
   });
 
+  it('DB-level dedupe (0635): a UNIQUE stripe_event_id violation reverses the add + is a no-op (NOT a throw)', async () => {
+    // The race: the idempotency SELECT missed a concurrent delivery (null), the balance is
+    // credited, then the UNIQUE(stripe_event_id) index (migration 0635) rejects the duplicate
+    // ledger insert. creditWallet must REVERSE its own balance add and return cleanly —
+    // exactly-once, no spurious webhook failure. (Without the reverse this would double-credit.)
+    mockDbQueryOne
+      .mockResolvedValueOnce(null) // idempotency SELECT: no dup seen (the race window)
+      .mockResolvedValueOnce(walletRow({ balance_cents: 1000 })); // ensureWalletRow
+    mockDbInsert.mockResolvedValueOnce({
+      error: 'D1_ERROR: UNIQUE constraint failed: wallet_transactions.stripe_event_id',
+    });
+    const { db, prepare } = fakeDb(okRun);
+    await expect(
+      creditWallet(makeEnv(db), ORG, {
+        amount_cents: 5000,
+        reason: 'monthly_subscription_credit',
+        reference_type: 'subscription',
+        reference_id: 'sub_1',
+        stripe_event_id: 'evt_race',
+      }),
+    ).resolves.toBeUndefined(); // idempotent no-op, never throws
+    expect(mockDbInsert).toHaveBeenCalledTimes(1); // the insert WAS attempted...
+    // ...and the credit UPDATE + the reversal UPDATE both ran (2 prepare calls) → net-zero
+    // balance change, so exactly one credit survives (the winning delivery's).
+    expect(prepare).toHaveBeenCalledTimes(2);
+  });
+
+  it('a NON-unique insert error still fails loud (reversed + thrown) so the webhook retries', async () => {
+    mockDbQueryOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(walletRow({ balance_cents: 1000 }));
+    mockDbInsert.mockResolvedValueOnce({ error: 'D1_ERROR: disk I/O error' });
+    const { db } = fakeDb(okRun);
+    await expect(
+      creditWallet(makeEnv(db), ORG, {
+        amount_cents: 5000,
+        reason: 'monthly_subscription_credit',
+        reference_type: 'subscription',
+        reference_id: 'sub_1',
+        stripe_event_id: 'evt_ioerr',
+      }),
+    ).rejects.toThrow(/Failed to record wallet credit/);
+  });
+
   it('credits without an idempotency key (manual credit path)', async () => {
     mockDbQueryOne.mockResolvedValueOnce(walletRow({ balance_cents: 0 }));
     const { db } = fakeDb(okRun);

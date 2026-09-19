@@ -560,10 +560,16 @@ export async function creditWallet(
     created_by: null,
   });
   if (ledgerErr) {
-    // Reverse the credit so the balance never diverges from the ledger. The
-    // Stripe webhook retry then re-runs the idempotent path cleanly (the
-    // stripe_event_id dup row is absent, so it credits exactly once).
+    // Reverse THIS delivery's balance add so the balance never diverges from the ledger.
     await reverseBalance(env, wallet.id, -params.amount_cents, 'credit');
+    // A UNIQUE(stripe_event_id) violation (migration 0635) means a concurrent delivery
+    // already recorded this exact credit — the reverse above leaves exactly ONE credit, so
+    // this is a successful DB-level dedupe, NOT a failure. Return cleanly (idempotent no-op)
+    // rather than throw a spurious webhook failure. Any OTHER insert error still fails loud
+    // (reversed + thrown) so the Stripe webhook retries.
+    if (params.stripe_event_id && /unique constraint|constraint failed/i.test(ledgerErr)) {
+      return;
+    }
     throw internalError(`Failed to record wallet credit: ${ledgerErr}`);
   }
 }
