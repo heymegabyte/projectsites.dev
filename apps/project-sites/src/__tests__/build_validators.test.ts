@@ -1673,6 +1673,83 @@ describe('finalizeSeoInvariants (C.1 structured-data + meta backstop)', () => {
   });
 });
 
+describe('finalizeSeoInvariants — per-route description distinctness (cochon dup-meta, 2026-09-19)', () => {
+  const shell = (desc: string, title: string) =>
+    `<!doctype html><html><head><title>${title}</title>` +
+    `<meta name="description" content="${desc}" />` +
+    `<meta property="og:description" content="${desc}" />` +
+    `<meta name="twitter:description" content="${desc}" />` +
+    `<meta property="og:title" content="${title}" />` +
+    `</head><body><h1>${title}</h1></body></html>`;
+  const ctx = {
+    businessName: 'Cochon',
+    hostname: 'https://cochon-new-orleans.projectsites.dev',
+    city: 'New Orleans',
+  };
+  const descOf = (t: string) =>
+    (t.match(/<meta\s+name="description"\s+content="([^"]*)"/i) || [])[1] || '';
+  const ogOf = (t: string) =>
+    (t.match(/<meta\s+property="og:description"\s+content="([^"]*)"/i) || [])[1] || '';
+
+  // A valid 120-156 homepage description, so the homepage itself is never length-modified.
+  const HOME =
+    'Cochon is a local restaurant in New Orleans, a welcoming place to gather, taste, and linger. Come see why New Orleans keeps coming back.';
+
+  it('gives a SUB-PAGE a route-distinct description when it DUPLICATES the homepage', () => {
+    const [files] = finalizeSeoInvariants(
+      [
+        { path: 'index.html', size: HOME.length, text: shell(HOME, 'Cochon | New Orleans') },
+        { path: 'about/index.html', size: HOME.length, text: shell(HOME, 'About — Cochon') },
+        { path: 'contact/index.html', size: HOME.length, text: shell(HOME, 'Contact — Cochon') },
+      ],
+      ctx,
+    );
+    const home = descOf(files.find((f) => f.path === 'index.html')!.text);
+    const about = descOf(files.find((f) => f.path === 'about/index.html')!.text);
+    const contact = descOf(files.find((f) => f.path === 'contact/index.html')!.text);
+    expect(home).toBe(HOME); // homepage keeps its valid description
+    expect(about).not.toBe(HOME); // sub-page no longer duplicates it
+    expect(contact).not.toBe(HOME);
+    expect(about).not.toBe(contact); // and the two sub-pages differ from each other
+    expect(about.toLowerCase()).toContain('about cochon');
+    expect(contact.toLowerCase()).toContain('contact cochon');
+    expect(about).toContain('New Orleans');
+    // og:description moves in lockstep (no server-vs-social drift)
+    expect(ogOf(files.find((f) => f.path === 'about/index.html')!.text)).toBe(about);
+    // SEO length invariant preserved
+    expect(about.length).toBeGreaterThanOrEqual(120);
+    expect(about.length).toBeLessThanOrEqual(156);
+  });
+
+  it('replaces an EMPTY / {TOKEN} sub-page description with a route-distinct one', () => {
+    const [files] = finalizeSeoInvariants(
+      [
+        { path: 'index.html', size: HOME.length, text: shell(HOME, 'Cochon | New Orleans') },
+        { path: 'services/index.html', size: 0, text: shell('{SERVICES_META_DESCRIPTION}', 'Services — Cochon') },
+      ],
+      ctx,
+    );
+    const services = descOf(files.find((f) => f.path === 'services/index.html')!.text);
+    expect(services).not.toContain('{');
+    expect(services.toLowerCase()).toContain('services from cochon');
+    expect(services.length).toBeGreaterThanOrEqual(120);
+  });
+
+  it('leaves a genuinely route-SPECIFIC sub-page description untouched', () => {
+    const aboutDesc =
+      'The story of Cochon: a New Orleans kitchen built on Cajun tradition, live-fire cooking, and hospitality that has drawn regulars for years.';
+    const [files] = finalizeSeoInvariants(
+      [
+        { path: 'index.html', size: HOME.length, text: shell(HOME, 'Cochon | New Orleans') },
+        { path: 'about/index.html', size: aboutDesc.length, text: shell(aboutDesc, 'About — Cochon') },
+      ],
+      ctx,
+    );
+    // already distinct + valid length → NOT clobbered
+    expect(descOf(files.find((f) => f.path === 'about/index.html')!.text)).toBe(aboutDesc);
+  });
+});
+
 describe('finalizeSeoInvariants — C.2 LCP wordmark preload (AL-718)', () => {
   const ctx = {
     businessName: 'Flour Bakery + Cafe',

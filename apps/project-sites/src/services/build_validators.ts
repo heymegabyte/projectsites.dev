@@ -1526,6 +1526,49 @@ const collectJsonLdTypes = (html: string): { count: number; types: Set<string> }
   return { count, types };
 };
 
+/** Route segment from a build file path: `about/index.html` → `about`, `index.html` → `` (home). */
+const routeSegOf = (path: string): string =>
+  path
+    .replace(/(^|\/)index\.html$/i, '')
+    .replace(/^\/+|\/+$/g, '')
+    .split('/')[0] || '';
+
+/** A meta value that is empty or still an unfilled `{TOKEN}` — never a real served description. */
+const isUnfilledMeta = (s: string): boolean => !s || !s.trim() || /\{[A-Z0-9_]{2,}\}/.test(s);
+
+/**
+ * Route-DISTINCT served meta description — the serve-layer twin of the template's
+ * `routeMetaDescription` (routeSeo.ts). Composed ONLY from real signals (business name + city),
+ * never a fabricated claim/number/testimonial. Guarantees `/about`, `/contact`, `/services`, … never
+ * ship the HOMEPAGE's description — the "Duplicate meta descriptions" defect Search Console flags,
+ * caught live on the fresh cochon-new-orleans delivery (2026-09-19): all routes served the identical
+ * "{Name} — Local {vertical} you can trust. Proudly serving {city}…". The template useSEO fix only
+ * reaches the client render; THIS is the crawler-visible served HTML, so distinctness is enforced here.
+ */
+const routeSeoDescription = (seg: string, name: string, city: string): string => {
+  const at = city ? ` in ${city}` : '';
+  switch (seg) {
+    case 'about':
+      return `About ${name}${at} — our story, our people, and the care behind everything we do. Learn what makes ${name} a place customers return to.`;
+    case 'contact':
+      return `Contact ${name}${at} — reach us by phone, email, or the contact form. We read every message and reply within one business day.`;
+    case 'services':
+      return `Services from ${name}${at} — see what we offer, how we work, and how to get started. Real help from people who care about the result.`;
+    case 'menu':
+      return `The menu at ${name}${at} — explore what we serve, from everyday favorites to seasonal specials, all made with care and worth the trip.`;
+    case 'pricing':
+      return `Pricing from ${name}${at} — clear, honest options with no surprises. Find what fits your needs and get started whenever you are ready.`;
+    case 'gallery':
+      return `Gallery from ${name}${at} — recent photos of our work, the spaces we create, and the results behind why customers choose us.`;
+    case 'faq':
+      return `Frequently asked questions about ${name}${at} — straight answers about our services, hours, and how to get started, all in one place.`;
+    case 'blog':
+      return `News, guides, and stories from ${name}${at} — practical tips and honest updates from the team to help you make a confident choice.`;
+    default:
+      return `${name}${at} — explore this page to learn more about what we offer and how ${name} can help you today.`;
+  }
+};
+
 /**
  * Deterministic SEO-invariant finalizer — the structured-data + meta backstop for C.1.
  *
@@ -1572,6 +1615,17 @@ export const finalizeSeoInvariants = (
     (f) => f.path === 'logo-wordmark.png' || f.path.endsWith('/logo-wordmark.png'),
   );
 
+  // The homepage's served description — sub-pages that DUPLICATE it (or ship empty/token meta) get a
+  // route-distinct description below, so no two routes serve the same <meta description>.
+  const homeDesc = (() => {
+    const home = files.find(
+      (f) => isHtml(f.path) && !NON_ROUTE_HTML.test(f.path) && routeSegOf(f.path) === '',
+    );
+    return home?.text
+      ? readAttrContent(home.text, /<meta\s+[^>]*\bname=["']description["'][^>]*>/i).trim()
+      : '';
+  })();
+
   const fixed = files.map((f) => {
     if (!isHtml(f.path) || !f.text || NON_ROUTE_HTML.test(f.path)) return f;
     let text = f.text;
@@ -1597,12 +1651,27 @@ export const finalizeSeoInvariants = (
     const pageUrl = canonical || rootUrl;
     const image = readAttrContent(text, /<meta\s+[^>]*\bproperty=["']og:image["'][^>]*>/i);
 
-    // 2. Description length 120-156.
+    // 2. Description: route-DISTINCT, then length 120-156.
+    const seg = routeSegOf(f.path);
     const desc = readAttrContent(text, /<meta\s+[^>]*\bname=["']description["'][^>]*>/i);
-    let finalDesc = desc;
-    if (desc && (desc.length < 120 || desc.length > 156)) {
-      if (desc.length > 156) {
-        finalDesc = truncateAtWord(desc, 156);
+    // Cross-route distinctness (caught live on cochon-new-orleans, 2026-09-19): a SUB-PAGE whose
+    // served description is empty, an unfilled {TOKEN}, or a DUPLICATE of the homepage's gets a
+    // route-specific base — so `/about`, `/contact`, `/services` never serve the homepage meta
+    // ("Duplicate meta descriptions"). A genuinely route-specific description (content-pack meta) is
+    // left untouched. The homepage (seg === '') is never rewritten from another route.
+    const dupOfHome =
+      seg !== '' && homeDesc !== '' && desc.trim().toLowerCase() === homeDesc.toLowerCase();
+    const baseDesc =
+      seg !== '' && (isUnfilledMeta(desc) || dupOfHome)
+        ? // Use the BUSINESS name (ctx), not `rawName` — a sub-page's own title ("Services — Cochon")
+          // splits to "Services", which would compose "Services from Services …".
+          routeSeoDescription(seg, brandName, (ctx.city || '').trim())
+        : desc;
+
+    let finalDesc = baseDesc;
+    if (baseDesc && (baseDesc.length < 120 || baseDesc.length > 156)) {
+      if (baseDesc.length > 156) {
+        finalDesc = truncateAtWord(baseDesc, 156);
       } else {
         // Pad a too-short description toward [120,156] with COMPLETE sentences only:
         // append a pad ONLY when the whole thing still fits under 156, so the snippet
@@ -1614,14 +1683,14 @@ export const finalizeSeoInvariants = (
         // present. Mirrors the template fitMetaDescription discipline (placeholders.ts).
         const city = (ctx.city || '').trim();
         const pads = [
-          city && !desc.toLowerCase().includes(city.toLowerCase())
+          city && !baseDesc.toLowerCase().includes(city.toLowerCase())
             ? `Proudly serving ${city} and the surrounding area.`
             : '',
           `Get in touch with ${rawName} today to see how we can help.`,
           'Explore what we offer and reach out with any questions.',
           'We would be glad to hear from you.',
         ].filter((p): p is string => p.length > 0);
-        let out = (desc.length >= 30 ? desc : titleTag || desc).trim();
+        let out = (baseDesc.length >= 30 ? baseDesc : titleTag || baseDesc).trim();
         for (const pad of pads) {
           if (out.length >= 120) break;
           if (out.toLowerCase().includes(pad.toLowerCase())) continue;
@@ -1630,20 +1699,22 @@ export const finalizeSeoInvariants = (
         }
         finalDesc = out.length > 156 ? truncateAtWord(out, 156) : out;
       }
-      if (finalDesc !== desc && finalDesc.length >= 120 && finalDesc.length <= 156) {
-        text = setAttrContent(text, /<meta\s+[^>]*\bname=["']description["'][^>]*>/i, finalDesc);
-        text = setAttrContent(
-          text,
-          /<meta\s+[^>]*\bproperty=["']og:description["'][^>]*>/i,
-          finalDesc,
-        );
-        text = setAttrContent(
-          text,
-          /<meta\s+[^>]*\bname=["']twitter:description["'][^>]*>/i,
-          finalDesc,
-        );
-        report.descExpanded++;
-      }
+    }
+    // Stamp when the finalized description differs from what shipped (route-dedup OR length fix) and
+    // is a valid SEO-length snippet. name + og + twitter move in lockstep so the social preview matches.
+    if (finalDesc && finalDesc !== desc && finalDesc.length >= 120 && finalDesc.length <= 156) {
+      text = setAttrContent(text, /<meta\s+[^>]*\bname=["']description["'][^>]*>/i, finalDesc);
+      text = setAttrContent(
+        text,
+        /<meta\s+[^>]*\bproperty=["']og:description["'][^>]*>/i,
+        finalDesc,
+      );
+      text = setAttrContent(
+        text,
+        /<meta\s+[^>]*\bname=["']twitter:description["'][^>]*>/i,
+        finalDesc,
+      );
+      report.descExpanded++;
     }
 
     // 3. Title into the 50-60 SEO window: EXPAND <50 by appending ` | {city}` (the
