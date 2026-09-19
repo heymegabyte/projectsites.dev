@@ -241,7 +241,12 @@ tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
   // administrators (a site owner must never be able to `SELECT * FROM users`). AL-792.
   if (!(await isSuperAdmin(c.env, userId))) {
     return c.json(
-      { error: { code: 'FORBIDDEN', message: 'The SQL console is restricted to platform administrators.' } },
+      {
+        error: {
+          code: 'FORBIDDEN',
+          message: 'The SQL console is restricted to platform administrators.',
+        },
+      },
       403,
     );
   }
