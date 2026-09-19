@@ -220,11 +220,18 @@ forms.post('/api/v1/forms/submit', async (c) => {
     (async () => {
       try {
         const { isFlagOn } = await import('../modules/feature_flags/services.js');
-        if (!(await isFlagOn(c.env, 'lead_notifications', { siteId: String(site.id), orgId: String(site.org_id) })))
+        if (
+          !(await isFlagOn(c.env, 'lead_notifications', {
+            siteId: String(site.id),
+            orgId: String(site.org_id),
+          }))
+        )
           return;
         const { notifyNewLead } = await import('../services/notifications.js');
         // Recipient: per-site reply_email, else the org owner (users⋈memberships role='owner').
-        const settingsRow = await c.env.DB.prepare(`SELECT reply_email FROM ai_site_settings WHERE site_id = ?`)
+        const settingsRow = await c.env.DB.prepare(
+          `SELECT reply_email FROM ai_site_settings WHERE site_id = ?`,
+        )
           .bind(site.id)
           .first<{ reply_email: string | null }>();
         let to = settingsRow?.reply_email ?? null;
