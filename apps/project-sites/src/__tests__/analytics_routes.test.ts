@@ -9,6 +9,8 @@
  * these tests. No mocking of executionCtx is needed.
  */
 
+import { Hono } from 'hono';
+
 import { analyticsRoutes, persistAnalyticsEvent } from '../routes/analytics.js';
 import type { IncomingEvent } from '../services/analytics_events.js';
 
@@ -28,6 +30,24 @@ function mockDb(opts: { rows?: unknown[]; runImpl?: jest.Mock } = {}) {
   const prepare = jest.fn(() => ({ bind: () => ({ run, all }) }));
   const exec = jest.fn().mockResolvedValue({});
   return { db: { prepare, exec } as unknown as D1Database, prepare, run, all, exec };
+}
+
+/**
+ * Mount analyticsRoutes behind a middleware injecting the authed org. The site-scoped
+ * analytics endpoints (analytics-data / analytics-debug / test-event) now require the
+ * caller to OWN the site (org-scoped IDOR guard, AL-789) — an unwrapped
+ * `analyticsRoutes.request` carries no org, so those endpoints 404 (the correct secure
+ * default; the cross-tenant deny paths are locked in analytics_idor.test.ts).
+ */
+function makeApp(auth: { orgId?: string } = {}) {
+  const app = new Hono();
+  app.use('*', async (c, next) => {
+    c.set('requestId', 'req-test');
+    if (auth.orgId) c.set('orgId', auth.orgId);
+    await next();
+  });
+  app.route('/', analyticsRoutes);
+  return app;
 }
 
 describe('POST /api/events', () => {
@@ -87,17 +107,26 @@ describe('GET /api/analytics-debug', () => {
     expect(body.error).toBe('missing_param');
   });
 
-  it('returns 200 + note:"dispatcher_unavailable" when EVENT_DISPATCHER binding absent', async () => {
-    const res = await analyticsRoutes.request(
+  it('returns 200 + note:"dispatcher_unavailable" for an OWNER when EVENT_DISPATCHER binding absent', async () => {
+    const m = mockDb({ rows: [{ id: 's1' }] }); // ownership resolve → owned
+    const env = { DB: m.db } as unknown as import('../types/env.js').Env;
+    const res = await makeApp({ orgId: 'o1' }).request(
       '/api/analytics-debug?siteId=s1',
       { method: 'GET' },
-      mockEnv,
+      env,
     );
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as { events: unknown[]; note: string };
     expect(body.note).toBe('dispatcher_unavailable');
     expect(Array.isArray(body.events)).toBe(true);
+  });
+
+  it('404s a caller who is not authenticated (no org) — cross-tenant IDOR guard', async () => {
+    const m = mockDb({ rows: [{ id: 's1' }] });
+    const env = { DB: m.db } as unknown as import('../types/env.js').Env;
+    const res = await analyticsRoutes.request('/api/analytics-debug?siteId=s1', { method: 'GET' }, env);
+    expect(res.status).toBe(404);
   });
 });
 
@@ -131,14 +160,15 @@ describe('GET /api/analytics-data', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 200 + db_unavailable note when DB binding absent', async () => {
-    const res = await analyticsRoutes.request(
+  it('404s (fail-closed) when DB is absent — ownership cannot be verified, so no feed is served', async () => {
+    // The org-ownership gate (AL-789) runs before the feed read; with no DB the resolve
+    // fails closed (dbQuery swallows the error → null) → 404, never the old graceful feed.
+    const res = await makeApp({ orgId: 'o1' }).request(
       '/api/analytics-data?siteId=s1',
       { method: 'GET' },
       mockEnv,
     );
-    expect(res.status).toBe(200);
-    expect(((await res.json()) as { note: string }).note).toBe('db_unavailable');
+    expect(res.status).toBe(404);
   });
 
   it('returns stored events with parsed payloads', async () => {
@@ -163,7 +193,9 @@ describe('GET /api/analytics-data', () => {
       ],
     });
     const env = { DB: m.db } as unknown as import('../types/env.js').Env;
-    const res = await analyticsRoutes.request(
+    // makeApp injects the owning org; the mockDb resolves ownership (row[0].id) then
+    // returns the same rows as the feed.
+    const res = await makeApp({ orgId: 'o1' }).request(
       '/api/analytics-data?siteId=s1&limit=50',
       { method: 'GET' },
       env,
@@ -196,10 +228,10 @@ describe('POST /api/test-event', () => {
     expect(((await res.json()) as { error: string }).error).toBe('bad_provider');
   });
 
-  it('returns 200 + ok with a fresh eventId and dispatched:false (no DO)', async () => {
-    const m = mockDb();
+  it('returns 200 + ok with a fresh eventId and dispatched:false (no DO) for an OWNER', async () => {
+    const m = mockDb({ rows: [{ id: 's1' }] }); // ownership resolve → owned
     const env = { DB: m.db } as unknown as import('../types/env.js').Env;
-    const res = await analyticsRoutes.request(
+    const res = await makeApp({ orgId: 'o1' }).request(
       '/api/test-event?siteId=s1&provider=sentry',
       { method: 'POST' },
       env,

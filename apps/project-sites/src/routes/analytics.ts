@@ -16,10 +16,10 @@
  * app.route('/', analyticsRoutes);
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { IncomingEventSchema, type IncomingEvent } from '../services/analytics_events.js';
 import { ensureAnalyticsSchema } from '../services/analytics_schema.js';
-import type { Env } from '../types/env.js';
+import type { Env, Variables } from '../types/env.js';
 import { dbQueryOne } from '../services/db.js';
 import { recordVisitorEvent } from '../../libs/features/visitor_events_core/service.js';
 
@@ -34,7 +34,58 @@ type VisitorMirrorType = (typeof VISITOR_MIRROR_TYPES)[number];
 const isVisitorMirrorType = (t: string): t is VisitorMirrorType =>
   (VISITOR_MIRROR_TYPES as readonly string[]).includes(t);
 
-export const analyticsRoutes = new Hono<{ Bindings: Env }>();
+export const analyticsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+type AnalyticsCtx = Context<{ Bindings: Env; Variables: Variables }>;
+
+/**
+ * Resolve a site slug-or-id to its canonical record id ONLY when it belongs to
+ * the caller's org. Returns null for unauthenticated callers (no `orgId`), unknown
+ * sites, and foreign-org sites alike — so callers 404 uniformly and a prober can
+ * never distinguish "not yours" from "doesn't exist" (the existence-leak protocol).
+ *
+ * These analytics endpoints accept a slug OR a record id, so this is the slug-aware
+ * companion to the id-only `assertSiteOwned`/`requireOwnedSite` guards in
+ * services/site_ownership.ts (which match on `id` only).
+ *
+ * @param env - Worker env (uses `env.DB`).
+ * @param orgId - Caller's org from `c.get('orgId')`; falsy → null (unauthorized).
+ * @param siteOrSlug - The client-supplied `siteId` query param (slug or record id).
+ * @returns The owned site's canonical record id, or null when not owned/unauthorized.
+ * @example const id = await resolveOwnedSiteId(c.env, c.get('orgId'), siteId);
+ */
+async function resolveOwnedSiteId(
+  env: Env,
+  orgId: string | undefined,
+  siteOrSlug: string,
+): Promise<string | null> {
+  if (!orgId) return null;
+  const row = await dbQueryOne<{ id: string }>(
+    env.DB,
+    'SELECT id FROM sites WHERE (id = ? OR slug = ?) AND org_id = ? AND deleted_at IS NULL LIMIT 1',
+    [siteOrSlug, siteOrSlug, orgId],
+  );
+  return row?.id ?? null;
+}
+
+/**
+ * Deny a site-scoped analytics request that failed the org-ownership check: emit a
+ * structured warn (probing visibility, correlated by requestId) then return a 404
+ * that never distinguishes unauthorized from non-existent (never 403 — no leak).
+ */
+function denyNotOwned(c: AnalyticsCtx, route: string, siteId: string): Response {
+  console.warn(
+    JSON.stringify({
+      level: 'warn',
+      msg: 'analytics.ownership_denied',
+      route,
+      siteId,
+      hasOrg: !!c.get('orgId'),
+      requestId: c.get('requestId') ?? null,
+    }),
+  );
+  return c.json({ error: { code: 'NOT_FOUND', message: 'Not found' } }, 404);
+}
 
 /**
  * Persist a validated event to the `analytics_events` table (the durable local
@@ -262,6 +313,10 @@ analyticsRoutes.get('/api/analytics-debug', async (c) => {
     return c.json({ error: 'missing_param', details: 'siteId query param is required.' }, 400);
   }
 
+  // IDOR guard: resolve to a site OWNED by the caller's org (slug or id), else 404.
+  const ownedId = await resolveOwnedSiteId(c.env, c.get('orgId'), siteId);
+  if (!ownedId) return denyNotOwned(c, 'analytics-debug', siteId);
+
   const env = c.env;
 
   if (!env.EVENT_DISPATCHER) {
@@ -269,7 +324,7 @@ analyticsRoutes.get('/api/analytics-debug', async (c) => {
   }
 
   try {
-    const stub = env.EVENT_DISPATCHER.get(env.EVENT_DISPATCHER.idFromName(siteId));
+    const stub = env.EVENT_DISPATCHER.get(env.EVENT_DISPATCHER.idFromName(ownedId));
     const res = await stub.fetch(new Request('https://do/debug'));
     const data = await res.json();
     return c.json(data, 200);
@@ -307,6 +362,10 @@ analyticsRoutes.get('/api/analytics-data', async (c) => {
   if (!siteId) {
     return c.json({ error: 'missing_param', details: 'siteId query param is required.' }, 400);
   }
+  // IDOR guard: resolve to a site OWNED by the caller's org (slug or id), else 404.
+  const ownedId = await resolveOwnedSiteId(c.env, c.get('orgId'), siteId);
+  if (!ownedId) return denyNotOwned(c, 'analytics-data', siteId);
+
   const limit = Math.min(500, Math.max(1, Number(c.req.query('limit')) || 100));
   const db = c.env.DB;
   if (!db) return c.json({ events: [], count: 0, has_more: false, note: 'db_unavailable' }, 200);
@@ -314,8 +373,9 @@ analyticsRoutes.get('/api/analytics-data', async (c) => {
   try {
     // Read the durable visitor_events feed (the canonical store). The old beacon
     // table `analytics_events` does not exist in prod — reading it returned a
-    // lying-empty feed. Resolve slug-or-id (the tab passes the slug; visitor_events
-    // .site_id is always the record id) and map rows to the LiveEvent shape.
+    // lying-empty feed. `ownedId` is the canonical record id from the org-ownership
+    // resolve above (visitor_events.site_id is always the record id) — the query is
+    // now scoped to a site the caller provably owns, closing the cross-tenant IDOR.
     const { results } = await db
       .prepare(
         `SELECT id, id AS eventId, event_type AS eventType, NULL AS userId,
@@ -324,10 +384,9 @@ analyticsRoutes.get('/api/analytics-data', async (c) => {
                 metadata AS payload, 'ingested' AS status
            FROM visitor_events
           WHERE site_id = ?
-             OR site_id = (SELECT id FROM sites WHERE slug = ? AND deleted_at IS NULL LIMIT 1)
           ORDER BY created_at DESC LIMIT ?`,
       )
-      .bind(siteId, siteId, limit + 1)
+      .bind(ownedId, limit + 1)
       .all();
     const rows = (results ?? []) as Array<Record<string, unknown>>;
     const hasMore = rows.length > limit;
@@ -390,9 +449,14 @@ analyticsRoutes.post('/api/test-event', async (c) => {
     );
   }
 
+  // IDOR guard: this WRITE injects a synthetic event — resolve to a site OWNED by the
+  // caller's org (slug or id) so no one can seed another tenant's feed; else 404.
+  const ownedId = await resolveOwnedSiteId(c.env, c.get('orgId'), siteId);
+  if (!ownedId) return denyNotOwned(c, 'test-event', siteId);
+
   const event: IncomingEvent = {
     eventId: crypto.randomUUID(),
-    siteId,
+    siteId: ownedId,
     eventType: 'custom',
     timestamp: Date.now(),
     payload: { test: true, provider, source: 'test-event' },
@@ -415,7 +479,7 @@ analyticsRoutes.post('/api/test-event', async (c) => {
     const dispatcher = env.EVENT_DISPATCHER;
     const p = (async () => {
       try {
-        const stub = dispatcher.get(dispatcher.idFromName(siteId));
+        const stub = dispatcher.get(dispatcher.idFromName(ownedId));
         await stub.fetch(
           new Request('https://do/enqueue', { method: 'POST', body: JSON.stringify(event) }),
         );
@@ -437,5 +501,5 @@ analyticsRoutes.post('/api/test-event', async (c) => {
     }
   }
 
-  return c.json({ ok: true, eventId: event.eventId, siteId, provider, dispatched }, 200);
+  return c.json({ ok: true, eventId: event.eventId, siteId: ownedId, provider, dispatched }, 200);
 });

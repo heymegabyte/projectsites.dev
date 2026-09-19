@@ -93,6 +93,31 @@ test.describe('inbox (support conversations + tasks) — unauth safety gate (P10
   });
 });
 
+test.describe('analytics ingestion plane — cross-tenant IDOR gate (AL-789)', () => {
+  // `/api/analytics-data`, `/api/analytics-debug`, `/api/test-event` each accept a CLIENT
+  // `siteId` (slug OR id) and touch that site's data; authMiddleware is populate-only. Before
+  // the fix an unauth caller could read ANY tenant's visitor_events (session ids, visitor geo,
+  // UA) by naming a public subdomain slug, and inject synthetic events into a foreign feed —
+  // PROVEN LIVE. An unauth caller naming a REAL site MUST now be gated. (A CF bot-challenge 403
+  // also satisfies the gate — either way no cross-tenant analytics is served.)
+  const REAL = 'franklin-barbecue'; // a real public slug — the exact exploit vector
+  const cases: Array<[string, string, Record<string, unknown> | undefined]> = [
+    ['get', `/api/analytics-data?siteId=${REAL}&limit=3`, undefined],
+    ['get', `/api/analytics-debug?siteId=${REAL}`, undefined],
+    ['post', `/api/test-event?siteId=${REAL}&provider=sentry`, undefined],
+  ];
+  for (const [method, path] of cases) {
+    test(`${method.toUpperCase()} ${path} — unauth never reads/writes a foreign site's analytics`, async ({
+      request,
+    }) => {
+      const res = await request[method as 'get'](`${PROD}${path}`);
+      expect(GATE, `unauth must be gated (no cross-tenant analytics) — got ${res.status()}`).toContain(
+        res.status(),
+      );
+    });
+  }
+});
+
 test.describe('internal build-status callback — forgery gate (P10 coverage)', () => {
   test('POST /api/internal/build-status — unsigned callback is rejected, never processed', async ({
     request,
