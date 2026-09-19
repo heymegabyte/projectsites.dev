@@ -289,7 +289,9 @@ describe('hero_copy — categoryPhrase (AL-361: keep the retail/venue noun phras
     expect(categoryPhrase('Bookshop')).toBe('bookstore');
     // still bookstore-classified downstream (indefinite article + persona both stay correct)
     expect(indefiniteArticle(categoryPhrase('books'))).toBe('a'); // "a bookstore", never "a books"
-    expect(personaHeroCopy('scholarly', categoryPhrase('books'), 'San Francisco')!.headlines.join(' ')).toMatch(/next read|browse|shelves/);
+    expect(
+      personaHeroCopy('scholarly', categoryPhrase('books'), 'San Francisco')!.headlines.join(' '),
+    ).toMatch(/next read|browse|shelves/);
   });
 
   it('AL-820: transit/infrastructure POI types degrade to "local business", never an absurd H1', () => {
