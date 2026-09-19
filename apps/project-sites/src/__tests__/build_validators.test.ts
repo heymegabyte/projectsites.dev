@@ -1725,7 +1725,11 @@ describe('finalizeSeoInvariants — per-route description distinctness (cochon d
     const [files] = finalizeSeoInvariants(
       [
         { path: 'index.html', size: HOME.length, text: shell(HOME, 'Cochon | New Orleans') },
-        { path: 'services/index.html', size: 0, text: shell('{SERVICES_META_DESCRIPTION}', 'Services — Cochon') },
+        {
+          path: 'services/index.html',
+          size: 0,
+          text: shell('{SERVICES_META_DESCRIPTION}', 'Services — Cochon'),
+        },
       ],
       ctx,
     );
@@ -1741,7 +1745,11 @@ describe('finalizeSeoInvariants — per-route description distinctness (cochon d
     const [files] = finalizeSeoInvariants(
       [
         { path: 'index.html', size: HOME.length, text: shell(HOME, 'Cochon | New Orleans') },
-        { path: 'about/index.html', size: aboutDesc.length, text: shell(aboutDesc, 'About — Cochon') },
+        {
+          path: 'about/index.html',
+          size: aboutDesc.length,
+          text: shell(aboutDesc, 'About — Cochon'),
+        },
       ],
       ctx,
     );
