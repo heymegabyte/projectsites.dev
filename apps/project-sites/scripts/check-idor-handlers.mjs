@@ -21,7 +21,7 @@
  * Usage: node scripts/check-idor-handlers.mjs [--ci] [--json]
  */
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, relative } from 'node:path';
 
 const APP_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -71,6 +71,36 @@ const SUB_ID =
 const WRITE =
   /\b(dbUpdate|dbInsert|dbExecute|dbUpd|dbIns|dbUpdateFn|snpInsert)\s*\(|DELETE\s+FROM\s+|UPDATE\s+[a-z_]+\s+SET/i;
 
+/**
+ * A service-DELEGATED write: a mutating handler that hands the tenant-resource write to a service
+ * method with a write-verb name (e.g. `domainService.provisionFreeDomain(...)`,
+ * `billingService.createSubscription(...)`) OR a bare unambiguous provision/deprovision/upsert call.
+ * Without this, a handler that DELEGATES its write has no in-body {@link WRITE} and slips the guard —
+ * exactly how the `POST /api/sites/:siteId/hostnames` write-authorization IDOR (AL-772) evaded this
+ * detector: it called `domainService.provisionFreeDomain` with NO in-body `dbInsert`. Read-verb
+ * service methods (get/list/fetch/resolve/check/find/load) do NOT match, so a mutating handler that
+ * only READS via a service stays cleared (false-negative-preferring, per validator-precision).
+ */
+const SERVICE_WRITE =
+  /\b\w+(?:Service|Svc)\.\w*(?:provision|deprovision|create|update|delete|remove|upsert|insert|save|revoke|connect|disconnect|attach|detach|register|deregister|cancel|activate|deactivate|rotate|purge|archive|restore)\w*\s*\(|\b(?:provision|deprovision|upsert)[A-Z]\w*\s*\(/;
+
+/**
+ * Classify a single MUTATION-handler body. Pure — no I/O — so it's unit-testable (mirrors
+ * check-get-read-idor's `scanGetHandler`). A handler is FLAGGED when it (a) has an attacker-suppliable
+ * sub-resource / site id path param, (b) is not on the public allowlist, (c) performs a DB write —
+ * IN-BODY or service-DELEGATED — and (d) has NO org-ownership idiom in its body.
+ * @param {string} routePath - the registered route path.
+ * @param {string} body - the handler's source text.
+ * @returns {{ flagged: boolean }}
+ */
+export function scanMutationHandler(routePath, body) {
+  if (!SUB_ID.test(routePath)) return { flagged: false }; // (a) no attacker-suppliable id
+  if (PUBLIC_PATHS.some((rx) => rx.test(routePath))) return { flagged: false }; // (b) public by design
+  if (!WRITE.test(body) && !SERVICE_WRITE.test(body)) return { flagged: false }; // (c) no write (in-body or delegated)
+  if (OWNERSHIP.some((rx) => rx.test(body))) return { flagged: false }; // (d) org-scoped
+  return { flagged: true };
+}
+
 function walk(dir) {
   const out = [];
   if (!existsSync(dir)) return out;
@@ -90,46 +120,49 @@ function walk(dir) {
   return out;
 }
 
-const findings = [];
-for (const dir of SCAN_DIRS) {
-  for (const file of walk(dir)) {
-    const text = readFileSync(file, 'utf8');
-    const rel = relative(APP_DIR, file);
-    // Handler boundaries: `<router>.<method>('path', ...)` for mutating methods.
-    const re = /\b[a-zA-Z][\w$]*\.(post|put|patch|delete)\(\s*['"`]([^'"`]+)['"`]/g;
-    const starts = [];
-    let m;
-    while ((m = re.exec(text)) !== null) starts.push({ idx: m.index, method: m[1], path: m[2] });
-    for (let i = 0; i < starts.length; i++) {
-      const s = starts[i];
-      const end = i + 1 < starts.length ? starts[i + 1].idx : text.length;
-      const body = text.slice(s.idx, Math.min(end, s.idx + 4000));
-      if (!SUB_ID.test(s.path)) continue; // no attacker-supplied resource id → not this class
-      if (PUBLIC_PATHS.some((rx) => rx.test(s.path))) continue; // public by design
-      if (!WRITE.test(body)) continue; // no DB write → nothing to tamper
-      if (OWNERSHIP.some((rx) => rx.test(body))) continue; // guarded
-      const line = text.slice(0, s.idx).split('\n').length;
-      findings.push({ file: rel, line, method: s.method.toUpperCase(), path: s.path });
+function run() {
+  const findings = [];
+  for (const dir of SCAN_DIRS) {
+    for (const file of walk(dir)) {
+      const text = readFileSync(file, 'utf8');
+      const rel = relative(APP_DIR, file);
+      // Handler boundaries: `<router>.<method>('path', ...)` for mutating methods.
+      const re = /\b[a-zA-Z][\w$]*\.(post|put|patch|delete)\(\s*['"`]([^'"`]+)['"`]/g;
+      const starts = [];
+      let m;
+      while ((m = re.exec(text)) !== null) starts.push({ idx: m.index, method: m[1], path: m[2] });
+      for (let i = 0; i < starts.length; i++) {
+        const s = starts[i];
+        const end = i + 1 < starts.length ? starts[i + 1].idx : text.length;
+        const body = text.slice(s.idx, Math.min(end, s.idx + 4000));
+        if (scanMutationHandler(s.path, body).flagged) {
+          const line = text.slice(0, s.idx).split('\n').length;
+          findings.push({ file: rel, line, method: s.method.toUpperCase(), path: s.path });
+        }
+      }
     }
   }
-}
 
-if (process.argv.includes('--json')) {
-  process.stdout.write(JSON.stringify({ total: findings.length, findings }, null, 2) + '\n');
-} else if (findings.length === 0) {
-  console.log(
-    '✅ check-idor-handlers: clean — every sub-resource mutation handler carries a per-handler ownership gate.',
-  );
-} else {
-  console.log(
-    `⚠️  check-idor-handlers: ${findings.length} mutation handler(s) with a sub-resource id but NO in-handler ownership gate:`,
-  );
-  for (const f of findings) {
-    console.log(`   ${f.method.padEnd(6)} ${f.path}  (${f.file}:${f.line})`);
+  if (process.argv.includes('--json')) {
+    process.stdout.write(JSON.stringify({ total: findings.length, findings }, null, 2) + '\n');
+  } else if (findings.length === 0) {
+    console.log(
+      '✅ check-idor-handlers: clean — every sub-resource mutation handler carries a per-handler ownership gate.',
+    );
+  } else {
+    console.log(
+      `⚠️  check-idor-handlers: ${findings.length} mutation handler(s) with a sub-resource id but NO in-handler ownership gate:`,
+    );
+    for (const f of findings) {
+      console.log(`   ${f.method.padEnd(6)} ${f.path}  (${f.file}:${f.line})`);
+    }
+    console.log(
+      '   Fix: add requireOwnedSite / loadSiteAndAuth / an `AND org_id = ?` scope inside the handler.',
+    );
   }
-  console.log(
-    '   Fix: add requireOwnedSite / loadSiteAndAuth / an `AND org_id = ?` scope inside the handler.',
-  );
+
+  process.exit(process.argv.includes('--ci') && findings.length > 0 ? 1 : 0);
 }
 
-process.exit(process.argv.includes('--ci') && findings.length > 0 ? 1 : 0);
+// Only run the tree scan when invoked as a CLI (not when imported for unit tests).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) run();
