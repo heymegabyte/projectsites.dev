@@ -701,20 +701,24 @@ describe('topUpWallet', () => {
     mockDbQuery.mockResolvedValueOnce({ data: [], error: null });
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'pi_ok' }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ card: { brand: 'visa', last4: '1' } }) });
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ card: { brand: 'visa', last4: '1' } }),
+      });
     await topUpWallet(makeEnv(fakeDb(okRun).db), ORG, 5000, 'wallet-autotopup:wallet-1:999');
     const headers = (global.fetch as jest.Mock).mock.calls[0][1].headers as Record<string, string>;
     expect(headers['Idempotency-Key']).toBe('wallet-autotopup:wallet-1:999');
   });
 
   it('omits Idempotency-Key when none is provided (manual routes use the HTTP idempotency middleware)', async () => {
-    mockDbQueryOne
-      .mockResolvedValueOnce(walletRow())
-      .mockResolvedValueOnce(walletRow());
+    mockDbQueryOne.mockResolvedValueOnce(walletRow()).mockResolvedValueOnce(walletRow());
     mockDbQuery.mockResolvedValueOnce({ data: [], error: null });
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'pi_ok' }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ card: { brand: 'visa', last4: '1' } }) });
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ card: { brand: 'visa', last4: '1' } }),
+      });
     await topUpWallet(makeEnv(fakeDb(okRun).db), ORG, 5000);
     const headers = (global.fetch as jest.Mock).mock.calls[0][1].headers as Record<string, string>;
     expect(headers['Idempotency-Key']).toBeUndefined();
