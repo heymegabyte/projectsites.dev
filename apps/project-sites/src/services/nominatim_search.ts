@@ -50,6 +50,32 @@ export interface NominatimResult {
 const NOMINATIM_UA = 'ProjectSites.dev/1.0 (business search fallback; ops@projectsites.dev)';
 
 /**
+ * Clean a Nominatim `display_name` into a human address for the result subtitle. Nominatim prepends
+ * the POI name ("Blue Bottle Coffee, 66, Mint Street, …") when the node is named — so a naive subtitle
+ * REPEATS the bold result title (a visible glitch on the #1 acquisition surface) AND, downstream,
+ * makes the first comma-field the business NAME instead of a street (so `postalAddressFor` would set
+ * a LocalBusiness `streetAddress` to the business name for OSM-sourced sites). This drops the leading
+ * "{name}, " and joins the comma-split house number to its street ("66, Mint Street" → "66 Mint
+ * Street") so the address reads naturally everywhere it is consumed. Pure — unit-tested.
+ *
+ * @param displayName - The raw Nominatim `display_name`.
+ * @param name - The already-resolved business name.
+ * @returns A clean address with no duplicate leading name and a natural "{number} {street}" head.
+ * @example
+ * cleanNominatimAddress('Blue Bottle Coffee, 66, Mint Street, SF, CA, 94103, USA', 'Blue Bottle Coffee')
+ * // → '66 Mint Street, SF, CA, 94103, USA'
+ */
+export function cleanNominatimAddress(displayName: string, name: string): string {
+  let s = (displayName ?? '').trim();
+  const n = (name ?? '').trim();
+  if (n && s.toLowerCase().startsWith(n.toLowerCase())) {
+    const rest = s.slice(n.length).replace(/^\s*,\s*/, '').trim();
+    if (rest) s = rest; // keep the full string if stripping would empty it (display_name === name)
+  }
+  return s.replace(/^(\d+[a-z]?),\s+/i, '$1 '); // "66, Mint Street" → "66 Mint Street"
+}
+
+/**
  * Map one Nominatim result to the public business-search shape. Skips results with no usable
  * name (pure address/region hits — not a business a visitor would claim).
  *
@@ -69,7 +95,7 @@ export function mapNominatimResult(r: NominatimResult): BusinessSearchResult | n
   const lngN = r.lon ? Number.parseFloat(r.lon) : Number.NaN;
   const idChar = (r.osm_type ?? 'n').charAt(0); // n(ode) | w(ay) | r(elation)
   return {
-    address: (r.display_name ?? '').trim(),
+    address: cleanNominatimAddress(r.display_name ?? '', name),
     lat: Number.isNaN(latN) ? null : latN,
     lng: Number.isNaN(lngN) ? null : lngN,
     name,

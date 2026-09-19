@@ -6,6 +6,7 @@
 import { describe, it, expect, jest } from '@jest/globals';
 import {
   mapNominatimResult,
+  cleanNominatimAddress,
   searchBusinessesByName,
   type NominatimResult,
 } from '../services/nominatim_search.js';
@@ -34,6 +35,10 @@ describe('nominatim_search — mapNominatimResult', () => {
     expect(b?.website).toBe('https://bluebottlecoffee.com');
     expect(b?.phone).toBe('+1-510-653-3394');
     expect(b?.address).toContain('San Francisco');
+    // The subtitle must NOT repeat the bold title (the #1-acquisition-surface glitch) — and the
+    // house number joins its street so the address reads naturally + downstream streetAddress is right.
+    expect(b?.address.toLowerCase().startsWith('blue bottle')).toBe(false);
+    expect(b?.address).toBe('66 Mint Street, SoMa, San Francisco, CA, 94103, USA');
   });
 
   it('derives place_id char from osm_type (way → w, relation → r)', () => {
@@ -68,6 +73,35 @@ describe('nominatim_search — mapNominatimResult', () => {
     const b = mapNominatimResult({ ...BLUE_BOTTLE, lat: undefined, lon: 'x' });
     expect(b?.lat).toBeNull();
     expect(b?.lng).toBeNull();
+  });
+});
+
+describe('nominatim_search — cleanNominatimAddress (no duplicate leading name)', () => {
+  it('drops the leading business name Nominatim prepends + joins the house number to its street', () => {
+    expect(
+      cleanNominatimAddress('Blue Bottle Coffee, 66, Mint Street, SoMa, San Francisco, CA, 94103, USA', 'Blue Bottle Coffee'),
+    ).toBe('66 Mint Street, SoMa, San Francisco, CA, 94103, USA');
+  });
+
+  it('is case-insensitive on the name prefix', () => {
+    expect(cleanNominatimAddress('MOE’S TAVERN, 12, Main St, Springfield', "MOE’s Tavern")).toBe(
+      '12 Main St, Springfield',
+    );
+  });
+
+  it('leaves the address untouched when it does not start with the name', () => {
+    expect(cleanNominatimAddress('742 Evergreen Terrace, Springfield', 'Krusty Burger')).toBe(
+      '742 Evergreen Terrace, Springfield',
+    );
+  });
+
+  it('keeps the full string if stripping the name would empty it', () => {
+    expect(cleanNominatimAddress('Blue Bottle Coffee', 'Blue Bottle Coffee')).toBe('Blue Bottle Coffee');
+  });
+
+  it('handles empty inputs safely', () => {
+    expect(cleanNominatimAddress('', 'X')).toBe('');
+    expect(cleanNominatimAddress('123, Elm St', '')).toBe('123 Elm St');
   });
 });
 

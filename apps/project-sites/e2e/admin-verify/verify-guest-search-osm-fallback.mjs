@@ -74,6 +74,7 @@ try {
           source: j._source || 'places',
           errorCode: j._error?.code || null,
           firstName: data[0]?.name || null,
+          firstAddr: data[0]?.address || null,
         });
         if (data.length > 0) break; // first hit wins
       } catch (e) {
@@ -97,6 +98,18 @@ try {
       'the funnel is served by a live provider (OSM fallback active, or Places recovered)',
       winner.source === 'osm' || winner.source === 'places',
       `_source=${winner.source}`,
+    );
+    // The result SUBTITLE (address) must NOT repeat the bold result TITLE (name). Nominatim's
+    // display_name is "{name}, {street}, …" for a named POI, so a naive subtitle renders
+    // "Blue Bottle Coffee / Blue Bottle Coffee, 396 Broadway" — a visible glitch on the #1
+    // acquisition surface (fixed at root: nominatim_search.cleanNominatimAddress).
+    const name = (winner.firstName || '').trim().toLowerCase();
+    const addr = (winner.firstAddr || '').trim().toLowerCase();
+    const dup = !!name && !!addr && addr.startsWith(name);
+    check(
+      'B.1 result subtitle does NOT repeat the business name (clean address, no "Name / Name, …")',
+      !dup,
+      `name="${winner.firstName}" addr="${(winner.firstAddr || '').slice(0, 52)}"`,
     );
   }
 

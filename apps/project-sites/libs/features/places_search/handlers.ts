@@ -74,7 +74,11 @@ placesSearch.get('/api/search/businesses', async (c) => {
   // Nominatim ≤1 req/sec policy). Popular/repeat queries re-hit the same text search on every
   // 300ms keystroke-debounce otherwise. Only successful non-empty results are cached (errors/
   // empties stay live so recovery + new listings surface immediately). 6h TTL — listings stable.
-  const cacheKey = `bizsearch:${boundedQ.toLowerCase()}:${latStr ?? ''}:${lngStr ?? ''}`;
+  // `v2` namespace bump (2026-09-19): the OSM mapper now strips the duplicate leading business name +
+  // joins the house number (nominatim_search.cleanNominatimAddress). Bump so cached PRE-FIX entries
+  // (6h TTL, carrying the "Name, Name, 123 St" duplicate) are ignored and the clean address takes
+  // effect immediately on deploy instead of persisting for up to 6h.
+  const cacheKey = `bizsearch:v2:${boundedQ.toLowerCase()}:${latStr ?? ''}:${lngStr ?? ''}`;
 
   // OSM/Nominatim fallback (AL-729): when Google Places is unconfigured or down, try OSM's
   // free-text NAME search BEFORE surfacing the honest `_error`. Places is persistently 429/403
@@ -84,7 +88,9 @@ placesSearch.get('/api/search/businesses', async (c) => {
   const osmFallbackOr = async (code: string, status: number, message: string) => {
     const osm = await searchBusinessesByName(boundedQ, osmOpts);
     if (osm.length > 0) {
-      await c.env.CACHE_KV?.put(cacheKey, JSON.stringify({ data: osm }), {
+      // Cache WITH `_source` so a cache HIT reports the provider too (a bare `{data}` cache made
+      // the funnel's provider unobservable — the probe defaulted to 'places' even for OSM hits).
+      await c.env.CACHE_KV?.put(cacheKey, JSON.stringify({ data: osm, _source: 'osm' }), {
         expirationTtl: 21600,
       }).catch(() => {});
       return c.json({ data: osm, _source: 'osm' });
@@ -161,13 +167,14 @@ placesSearch.get('/api/search/businesses', async (c) => {
   }));
 
   // Only cache real hits — never an empty/error so recovery + new listings surface live.
+  // Stamp `_source: 'places'` (cache + response) so the funnel's provider is always observable.
   if (data.length > 0) {
-    await c.env.CACHE_KV?.put(cacheKey, JSON.stringify({ data }), { expirationTtl: 21600 }).catch(
-      () => {},
-    );
+    await c.env.CACHE_KV?.put(cacheKey, JSON.stringify({ data, _source: 'places' }), {
+      expirationTtl: 21600,
+    }).catch(() => {});
   }
 
-  return c.json({ data });
+  return c.json({ data, _source: 'places' });
 });
 
 // ─── Google Places Address Autocomplete ──────────────────────
