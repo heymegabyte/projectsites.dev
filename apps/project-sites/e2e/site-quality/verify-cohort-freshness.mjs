@@ -21,9 +21,16 @@
 //
 // Usage: CONTROL=bario-neal-philadelphia SITES=vanta-strength-austin,ironhaus-houston [STRICT=1] \
 //        node e2e/site-quality/cohort-freshness.mjs
+import { DEFAULT_SITES } from './_default-sites.mjs';
+
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const CONTROL = (process.env.CONTROL || 'bario-neal-philadelphia').trim();
+// CONTROL = the KNOWN-FRESH reference for the stale-vs-current differential. Derive it from the § C
+// cohort SSOT (`_default-sites.mjs`, AL-657 — "the SINGLE SOURCE OF TRUTH … every probe follows") so
+// it is ALWAYS a currently-curated-fresh site. A hardcoded control (was `bario-neal-philadelphia`)
+// silently ages into staleness and quietly breaks the classifier — a stale control passes fewer
+// invariants, so genuinely-STALE cohort sites get mis-labeled CURRENT. Override with CONTROL=… .
+const CONTROL = (process.env.CONTROL || DEFAULT_SITES.split(',')[0]).trim();
 const SITES = (process.env.SITES || 'vanta-strength-austin,ironhaus-houston,vantage-digital-studio-portland')
   .split(',')
   .map((s) => s.trim())
