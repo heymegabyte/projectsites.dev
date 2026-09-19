@@ -34,6 +34,30 @@ const PACK_DEFAULT_HERO_PATTERNS = [
   /\bmade with heart\b/i,
 ];
 
+// The FIXED (non-templated) pack defaults — MUST mirror build_validators.ts PACK_DEFAULT_HEROES.
+// Without these the probe LIED-GREEN: it marked "Fresh flavors, made from scratch",
+// "Get stronger, one session at a time" (colliding across vanta + ironhaus!), "Ideas that move the
+// needle", "Trusted counsel when it matters most" etc. as "distinctive" because they don't match the
+// city-templated patterns — massively under-reporting the fleet-wide generic-hero problem.
+const norm = (s) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+const PACK_DEFAULT_HEROES = new Set(
+  [
+    'Trusted primary care for every age',
+    'Gentle dental care for your whole family',
+    'Move, breathe, and feel restored',
+    'Get stronger, one session at a time',
+    'Trusted counsel when it matters most',
+    'Fresh flavors, made from scratch',
+    'Reliable service, done right the first time',
+    'Together, we can do more',
+    'Built for how you live',
+    'Ship faster with less busywork',
+    'Find the home that fits your life',
+    'Ideas that move the needle',
+    'Work I am proud to share',
+  ].map(norm),
+);
+
 const heroOf = (html) => {
   const m = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   return m ? m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() : '';
@@ -44,6 +68,7 @@ let hardFails = 0;
 let generic = 0;
 let distinctive = 0;
 let noHero = 0;
+let notAuditable = 0;
 const summary = [];
 
 for (const slug of SITES) {
@@ -51,8 +76,10 @@ for (const slug of SITES) {
   try {
     const res = await fetch(base + '/', { headers: { 'User-Agent': UA, Accept: 'text/html' } });
     if (!res.ok) {
-      hardFails++;
-      summary.push(`  🔴 ${slug}: served ${res.status} (not auditable)`);
+      // A 404/non-200 site (never delivered / deleted) isn't a distinctiveness failure — skip it,
+      // don't hard-fail the whole probe (matches the sibling site-quality probes' NOT-AUDITABLE handling).
+      notAuditable++;
+      summary.push(`  ⚠️  ${slug}: served ${res.status} — not auditable (skipped)`);
       continue;
     }
     const h1 = heroOf(await res.text());
@@ -61,8 +88,9 @@ for (const slug of SITES) {
       summary.push(`  ➖ ${slug}: no <h1> in served shell (n/a — client-rendered?)`);
       continue;
     }
-    const tell = PACK_DEFAULT_HERO_PATTERNS.find((re) => re.test(h1));
-    if (tell) {
+    // Generic when the H1 is a FIXED pack default (exact) OR a city/persona-templated tell.
+    const isPackDefault = PACK_DEFAULT_HEROES.has(norm(h1)) || PACK_DEFAULT_HERO_PATTERNS.some((re) => re.test(h1));
+    if (isPackDefault) {
       generic++;
       summary.push(`  ⚠️  ${slug}: GENERIC pack-default hero "${h1}" — apply the AI hero_headline / lead with the business name [tracked]`);
     } else {
@@ -78,7 +106,7 @@ for (const slug of SITES) {
 console.log(`\n━━ § C.7 hero distinctiveness on the SERVED homepage (${SITES.length} site(s)) ━━`);
 for (const l of summary) console.log(l);
 console.log(
-  `::json:: ${JSON.stringify({ probe: 'hero-distinctiveness', sites: SITES.length, distinctive, generic, noHero, hardFails })}`,
+  `::json:: ${JSON.stringify({ probe: 'hero-distinctiveness', sites: SITES.length, distinctive, generic, noHero, notAuditable, hardFails })}`,
 );
 if (hardFails) {
   console.log(`\nVERDICT: 🔴 FAIL — ${hardFails} fetch/parse error(s) (a real break, not the tracked gap).`);
@@ -86,7 +114,7 @@ if (hardFails) {
 }
 if (generic) {
   console.log(
-    `\nVERDICT: ⏭️  TRACKED (fail-open) — ${generic} site(s) serve a recolored-template hero (${distinctive} distinctive). The build gate (validateHeroNotPackDefault + PACK_DEFAULT_HERO_PATTERNS) now flags this class; each flips ✅ as its site rebuilds with a business-specific hero.`,
+    `\nVERDICT: ⏭️  TRACKED (fail-open) — ${generic} site(s) serve a recolored-template hero (${distinctive} distinctive${notAuditable ? `, ${notAuditable} not-auditable` : ''}). The build gate (validateHeroNotPackDefault + PACK_DEFAULT_HEROES + PACK_DEFAULT_HERO_PATTERNS) now flags this class; each flips ✅ as its site rebuilds with a business-specific hero.`,
   );
   process.exit(0);
 }
