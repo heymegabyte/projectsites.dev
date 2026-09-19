@@ -10,6 +10,7 @@ import {
   validateH1InShell,
   validateNoDevSourceModules,
   validateColorScheme,
+  validateIndexable,
   validateCanonical,
   validateSitemapLastmod,
   validateSitemapRoutesExist,
@@ -672,6 +673,39 @@ describe('validateNoDevSourceModules', () => {
     ]);
     expect(report.ok).toBe(false);
     expect(report.errors.some((e) => e.code === 'html.dev_source_module')).toBe(true);
+  });
+});
+
+describe('validateIndexable (seo.noindex_leak — a published site MUST be findable by search)', () => {
+  const head = (meta: string): BuildFile =>
+    file('index.html', `<!DOCTYPE html><html><head>${meta}<title>x</title></head><body><h1>Hi</h1></body></html>`);
+
+  it('flags a robots noindex meta', () => {
+    expect(validateIndexable([head('<meta name="robots" content="noindex,nofollow">')])[0].code).toBe('seo.noindex_leak');
+  });
+
+  it('flags a googlebot noindex meta', () => {
+    expect(validateIndexable([head('<meta name="googlebot" content="noindex">')])[0].code).toBe('seo.noindex_leak');
+  });
+
+  it('flags noindex when content precedes name (attribute order)', () => {
+    expect(validateIndexable([head('<meta content="noindex" name="robots">')])[0].code).toBe('seo.noindex_leak');
+  });
+
+  it('passes a clean shell with no robots meta', () => {
+    expect(validateIndexable([head('')])).toEqual([]);
+  });
+
+  it('passes an index,follow robots meta (present but indexable)', () => {
+    expect(validateIndexable([head('<meta name="robots" content="index,follow,max-image-preview:large">')])).toEqual([]);
+  });
+
+  it('does NOT flag the word "noindex" in body copy — only the robots meta', () => {
+    const f = file(
+      'index.html',
+      '<!DOCTYPE html><html><head><title>x</title></head><body><p>we never noindex your site</p></body></html>',
+    );
+    expect(validateIndexable([f])).toEqual([]);
   });
 });
 

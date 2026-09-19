@@ -529,6 +529,39 @@ export const validateColorScheme = (files: BuildFile[]): Violation[] => {
 };
 
 /**
+ * A published generated site MUST be indexable. A `<meta name="robots|googlebot" content="…noindex…">`
+ * in the shell makes the page invisible to search engines — the owner gets ZERO organic traffic and
+ * the product's core promise ("a live, FINDABLE website") fails SILENTLY (no console error, no visual
+ * defect — the single most catastrophic SEO regression). A draft/preview/unpaid variant that injects
+ * noindex, or a botched meta, is caught here at build. (The serve-time vectors — `X-Robots-Tag` header
+ * + `robots.txt Disallow: /` — are guarded by the prod probe `e2e/site-quality/verify-indexability.mjs`,
+ * since they're worker/serve-time, not in the build files.)
+ */
+export const validateIndexable = (files: BuildFile[]): Violation[] => {
+  const out: Violation[] = [];
+  // <meta name="robots|googlebot" content="… noindex …"> — attribute-order-robust; scan the content value.
+  const ROBOTS_META = /<meta\s+[^>]*\bname=["'](?:robots|googlebot)["'][^>]*>/gi;
+  for (const file of files) {
+    if (!isHtml(file.path) || !file.text) continue;
+    ROBOTS_META.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = ROBOTS_META.exec(file.text)) !== null) {
+      const content = m[0].match(/\bcontent=["']([^"']*)["']/i)?.[1] ?? '';
+      if (/\bnoindex\b/i.test(content)) {
+        out.push({
+          code: 'seo.noindex_leak',
+          severity: 'error',
+          message: `Published route ships a robots "noindex" (${m[0].trim()}) — the page is invisible to search engines. A delivered site MUST be indexable; remove the noindex meta.`,
+          file: file.path,
+          detail: content,
+        });
+      }
+    }
+  }
+  return out;
+};
+
+/**
  * Canonical integrity. Every indexable route HTML file must carry a `<link rel="canonical">`
  * (warn when absent), AND distinct routes must NOT share one canonical href — a site-wide
  * `canonical=/` collapse de-dupes every page to a single indexable URL, so sub-pages drop out
@@ -1323,6 +1356,7 @@ export const validateBuild = (
     ...validateH1InShell(files),
     ...validateNoDevSourceModules(files),
     ...validateColorScheme(files),
+    ...validateIndexable(files),
     ...validateCanonical(files),
     ...validateSitemapLastmod(files),
     ...validateSitemapRoutesExist(files),
