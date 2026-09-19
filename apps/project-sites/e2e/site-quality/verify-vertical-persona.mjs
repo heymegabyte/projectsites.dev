@@ -21,7 +21,7 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'heath-ceramics-sausalito,jackson-fine-art-atlanta,three-kings-tattoo-brooklyn,pike-place-fish-market-seattle').split(',').map((s) => s.trim()).filter(Boolean);
+const SITES = (process.env.SITES || 'heath-ceramics-sausalito,jackson-fine-art-atlanta,three-kings-tattoo-brooklyn,pike-place-fish-market-seattle,stumptown-coffee-portland').split(',').map((s) => s.trim()).filter(Boolean);
 const ROUTES = (process.env.ROUTES || '/,/about,/services').split(',');
 const STRICT = process.env.STRICT === '1';
 
@@ -89,6 +89,18 @@ const FOOD_MARKET_SIGNAL =
   /\b(fish\s?market\w*|fishmonger\w*|seafood\s?(?:market|shop|store|counter)|\bseafood\b)\b/i;
 const BOUTIQUE_FASHION_MISFIT =
   /\b(chic|tastemaker'?s? eye|pieces worth the trip|quietly covetable|browse our collection|styled)\b/i;
+// AL-549 (this fire): a WALK-UP counter food business (coffee/roaster/cafe/ice-cream/bakery/juice/deli)
+// is quickserve — patrons ORDER and GO, never book a table. A pre-AL-549 build framed the coffee ROASTER
+// stumptown-coffee-portland as a full-service RESTAURANT ("reserve a table / reservations welcome / come
+// hungry, leave happy"). Root-fixed in theme_style.ts commerceModeFor (coffee/roaster → quickserve, AL-549)
+// + tested (theme_style.test.ts:476). This guards the RENDERED surface so an LLM-DRIFT dining phrase on a
+// quickserve vertical is caught (the deterministic mode-map can't see the container LLM's prose). TABLE-
+// RESERVATION language is the unambiguous signal — a walk-up counter takes no table reservations; gate on
+// the quickserve-food vertical (page content) + the phrase in the HERO region → near-zero false positives.
+const QUICKSERVE_FOOD_SIGNAL =
+  /\b(coffee\s?(?:shop|house|bar|roaster\w*)|\broaster(?:y|ies)\b|espresso|caf[eé]\w*|ice\s?cream|gelato|creamer\w*|frozen\s?yogurt|froyo|juice\s?bar|smoothie\s?bar|bakery|patisserie|donut\w*|doughnut\w*|bagel\w*|delicatessen|bubble\s?tea|\bboba\b|teahouse|food\s?truck)\b/i;
+const DINING_RESERVATION_MISFIT =
+  /\b(reserve a table|book a table|reserve your table|table reservation|reservations welcome|make a reservation|come hungry,? leave happy|a warm seat and a plate)\b/i;
 const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 const hits = [];
@@ -163,6 +175,19 @@ try {
           const m = BOUTIQUE_FASHION_MISFIT.exec(nH1) || BOUTIQUE_FASHION_MISFIT.exec(nBody.slice(0, 450));
           hits.push({ slug, route, kind: 'fashion-copy-on-food-market', detail: `fish/seafood market hero wears boutique-fashion copy "${m?.[0]}" (AL-698 misfit — should be warm food voice)` });
         }
+        // AL-549: a walk-up food vertical (coffee/roaster/cafe/bakery/ice-cream) must not wear
+        // full-service DINING copy (table reservations / "come hungry, leave happy"). Gate on the
+        // quickserve-food vertical (page content) + the dining phrase in the HERO region (H1 or top
+        // ~600c) — a real sit-down restaurant matches the reservation phrase but NOT the quickserve
+        // signal, so it never false-fires; a counter-serve site that correctly says "order ahead / no
+        // reservation needed" carries no misfit phrase.
+        if (
+          QUICKSERVE_FOOD_SIGNAL.test(nBody) &&
+          (DINING_RESERVATION_MISFIT.test(nH1) || DINING_RESERVATION_MISFIT.test(nBody.slice(0, 600)))
+        ) {
+          const m = DINING_RESERVATION_MISFIT.exec(nH1) || DINING_RESERVATION_MISFIT.exec(nBody.slice(0, 600));
+          hits.push({ slug, route, kind: 'dining-copy-on-quickserve', detail: `walk-up food vertical wears full-service dining copy "${m?.[0]}" (AL-549 misfit — a counter-serve coffee/cafe/bakery takes no table reservations; should be quickserve "Order ahead / no reservation needed")` });
+        }
       } catch {
         /* route unreachable → skip (don't false-fail) */
       }
@@ -185,5 +210,5 @@ if (STRICT) {
 }
 // flips-GREEN-on-rebuild tracker: a stale pre-fix build still renders the leak; the retail-pack
 // de-"Gear" fix lands next build (NO redeploy of existing sites), so these clear on rebuild.
-console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant / AL-641 brutalist-on-gallery / AL-654 coffee-on-non-cafe / AL-696 nightlife-copy-on-tattoo / AL-698 fashion-copy-on-food-market; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
+console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant / AL-641 brutalist-on-gallery / AL-654 coffee-on-non-cafe / AL-696 nightlife-copy-on-tattoo / AL-698 fashion-copy-on-food-market / AL-549 dining-copy-on-quickserve; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
 process.exit(0);
