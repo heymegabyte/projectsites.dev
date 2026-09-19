@@ -97,3 +97,7 @@ apps/project-sites/frontend/test-results*/
 apps/project-sites/e2e/admin-verify/*.png
 apps/project-sites/e2e/site-quality/*.png
 apps/project-sites/*.png
+# Probe JSON reports — regenerated every run (contract-sweep writes _ADMIN_CONTRACT_REPORT.json;
+# the loop reads its `.done` field). Disposable per-fire artifacts, never source → keep untracked
+# so they can't be accidentally committed + don't clutter `git status`.
+apps/project-sites/_ADMIN_CONTRACT_REPORT.json
