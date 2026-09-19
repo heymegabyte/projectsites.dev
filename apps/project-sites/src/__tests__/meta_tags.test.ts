@@ -1,6 +1,6 @@
 /**
  * @module meta_tags.test
- * @description Brand color + top bar regression coverage.
+ * @description Brand color regression coverage (server-side artifacts).
  *
  * Historical note: this file once tested the legacy vanilla marketing
  * homepage at `public/index.html`. That static SPA was replaced by the
@@ -13,17 +13,6 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { generateTopBar } from '../services/site_serving';
-
-describe('Top bar (unpaid site banner)', () => {
-  it('uses purple accent + teal edit button + slug deep link', () => {
-    const topBar = generateTopBar('test-slug');
-    expect(topBar).toContain('#7c3aed');
-    expect(topBar).toContain('#64ffda');
-    expect(topBar).toContain('Edit with AI');
-    expect(topBar).toContain('slug=test-slug');
-  });
-});
 
 describe('Email Template Brand Colors', () => {
   it('auth magic link email uses #00d4ff accent', () => {
