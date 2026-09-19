@@ -1009,7 +1009,11 @@ export function heroCtasFor(
     return { primary: 'Book now', secondary: 'Our services' };
   }
   // A GROCERY/MARKET inside `quickserve` SHOPS, it has no "flavors" (AL-819).
-  if (key === 'quickserve' && typeof category === 'string' && GROCERY_MARKET_CATEGORY.test(category)) {
+  if (
+    key === 'quickserve' &&
+    typeof category === 'string' &&
+    GROCERY_MARKET_CATEGORY.test(category)
+  ) {
     return { primary: 'Visit us', secondary: "See what's in store" };
   }
   return sets[key]!;
@@ -1064,7 +1068,11 @@ export function trustBadgesFor(
   // AL-819: a GROCERY/MARKET inside `quickserve` sells fresh + packaged goods you SHOP for — it makes
   // nothing "to order". Swap the made-to-order badge for a fresh-grocery one; keep the honest walk-in
   // "Order ahead" (grocery pickup/curbside is real) + "Grab & go".
-  if (key === 'quickserve' && typeof category === 'string' && GROCERY_MARKET_CATEGORY.test(category)) {
+  if (
+    key === 'quickserve' &&
+    typeof category === 'string' &&
+    GROCERY_MARKET_CATEGORY.test(category)
+  ) {
     return ['Fresh daily', 'Order ahead', 'Grab & go'];
   }
   return sets[key]!;
