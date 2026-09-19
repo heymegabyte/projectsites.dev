@@ -48,6 +48,7 @@ site_management:
   status_domains:   { status: covered, specs: [site-status-and-domains.spec.ts] }
   preview_logs:     { status: covered, specs: [site-preview-and-logs.spec.ts] }
   domains:          { status: covered, specs: [domain-management.spec.ts, domain-management-v2.spec.ts, domain-and-files.spec.ts, domain-modal-interactive.spec.ts] }
+  domain_provisioning_envelope: { status: covered, specs: [admin-verify/verify-domain-provisioning-envelope.mjs] }  # § B.10 FULL-FLOW: the custom-domain provisioning owner flow's headless-prod security+entitlement+non-mutation envelope. Owner reads their hostname list (200+data[]); cross-org read 404s (IDOR — never leak another org's domains); POST /api/sites/:id/hostnames is auth-gated (401), Zod-validated (400, type∈{free_subdomain,custom_cname}), entitlement-gated (valid custom_cname on a free org → 403 "Custom domains require a paid plan"); owner hostname set byte-identical before/after (0 provisioning side-effects). Every authed POST targets a GHOST/foreign id — never provisions. Rides workers.dev (Bot-Fight 403s headless POSTs on the custom domain). Wired into admin-verify run-all; fail-open without E2E_API_KEY.
   files:            { status: covered, specs: [files-modal-v2.spec.ts] }
   logs_delete:      { status: covered, specs: [logs-and-delete.spec.ts, logs-modal-interactive.spec.ts] }
 
