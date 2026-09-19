@@ -8,18 +8,36 @@ const IGNORE = /google-analytics|googletagmanager|posthog|\/ingest|doubleclick|s
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ userAgent: UA, viewport: { width: 1280, height: 900 } });
 const page = await ctx.newPage();
-const errors = [];
-page.on('console', (m) => { if (m.type() === 'error' && !IGNORE.test(m.text())) errors.push(m.text().slice(0, 140)); });
+const errors = []; // REAL JS/page console errors (not the URL-less browser echo of an asset 4xx)
+const assetFails = []; // {name,status,url} for non-OK asset responses — has the URL, so classifiable
+const RESOURCE_ECHO = /Failed to load resource/i;
+page.on('console', (m) => {
+  if (m.type() !== 'error') return;
+  const t = m.text();
+  if (IGNORE.test(t)) return;
+  // The browser logs a URL-LESS "Failed to load resource: … 404" for every asset 4xx. We capture
+  // that same failure WITH its URL via the 'response' listener below, where it can be CLASSIFIED
+  // (a legacy pre-AL-591 /logo-wordmark.png <img> 404 is stale-build-debt, not a live regression).
+  // Dropping the opaque echo here stops one real cause being counted as an unexplained console error.
+  if (RESOURCE_ECHO.test(t)) return;
+  errors.push(t.slice(0, 140));
+});
 page.on('pageerror', (e) => { if (!IGNORE.test(String(e))) errors.push('pageerror: ' + String(e).slice(0, 140)); });
+page.on('response', (r) => {
+  if (r.status() < 400) return;
+  const u = r.url();
+  if (IGNORE.test(u)) return;
+  if (!/\.(png|webp|jpe?g|svg|css|js|woff2?|ico)(\?|$)/i.test(u)) return; // asset requests only
+  assetFails.push({ name: u.split('/').pop().split('?')[0], status: r.status(), url: u });
+});
 page.on('requestfailed', (req) => {
   const u = req.url();
-  // net::ERR_ABORTED is a CANCELED request, not a broken asset — the template's Header
-  // probes /logo-wordmark.png with a fetch() then aborts it, falling back to the HTML text
-  // wordmark (the asset itself 200s, validated separately by pngInfo). Counting the abort as
-  // a console error was a FALSE POSITIVE that dragged real deliveries to 🟡 (validator-precision).
+  // net::ERR_ABORTED is a CANCELED request, not a broken asset — the CURRENT template Header
+  // HEAD-probes /logo-wordmark.png with a fetch() then aborts it, falling back to the HTML text
+  // wordmark (AL-591). Counting the abort was a FALSE POSITIVE that dragged real deliveries to 🟡.
   if (req.failure()?.errorText === 'net::ERR_ABORTED') return;
   if (/logo-icon|logo-wordmark|\.png|\.webp|\.jpg/i.test(u) && !IGNORE.test(u))
-    errors.push('reqfail: ' + u.split('/').pop());
+    assetFails.push({ name: u.split('/').pop().split('?')[0], status: 'FAIL', url: u });
 });
 
 const resp = await page.goto(base, { waitUntil: 'load', timeout: 45000 });
@@ -108,8 +126,22 @@ console.log(
   }`,
 );
 console.log(`shop/cart CTAs (on-brand for RETAIL, wrong-vertical otherwise): ${data.shopCTAs.join(', ') || '(none)'}`);
-console.log(`console errors: ${errors.length}`);
+// Classify asset failures. A pre-AL-591 shell renders <img src="/logo-wordmark.png"> with NO
+// HEAD-guard, which 404s on the large fraction of sites that never generated a wordmark. That 404
+// is STALE BUILD DEBT — the template's Header was fixed (AL-591 HEAD-probes first, so new shells
+// never request it) → it clears on REBUILD and is NOT a live template regression. Every OTHER
+// asset 4xx (logo-icon, hero image, css/js) IS a real defect. Distinguishing the two stops the
+// probe crying "regression" on legacy shells while still catching genuine breakage.
+const staleWordmark404 = assetFails.filter((a) => /logo-wordmark\.png/.test(a.url) && a.status === 404);
+const realAssetFails = assetFails.filter((a) => !(/logo-wordmark\.png/.test(a.url) && a.status === 404));
+const isStaleShell = staleWordmark404.length > 0 && wmAsset.status === 404;
+const hardErrors = errors.length + realAssetFails.length;
+console.log(`console errors (real JS): ${errors.length}`);
 errors.forEach((e) => console.log('  ✗ ' + e));
+console.log(`asset failures: ${assetFails.length}${assetFails.length ? ' → ' + assetFails.map((a) => `${a.name}:${a.status}`).join(', ') : ''}`);
+if (isStaleShell)
+  console.log(`  ⓘ /logo-wordmark.png 404 = STALE SHELL (pre-AL-591 wordmark <img>) — REBUILD to clear; template already fixed, NOT a regression`);
+if (realAssetFails.length) realAssetFails.forEach((a) => console.log(`  ✗ REAL asset fail: ${a.name} (${a.status})`));
 
 // Business-specific check: derive expected tokens from the SLUG (e.g.
 // "gruhn-guitars-nashville" → gruhn/guitars/nashville) and require the H1 OR <title> to
@@ -124,16 +156,21 @@ const realBuild = status === 200 && data.bodyWords > 300 && data.imgs >= 4 && da
 // null (no asset) or true both acceptable; gate icon AND wordmark — a boxed opaque EITHER is AL-224.
 const logoOk = iconTransparent !== false && wmTransparent !== false;
 const opaqueParts = [iconTransparent === false ? 'ICON' : '', wmTransparent === false ? 'WORDMARK' : ''].filter(Boolean).join(' + ');
-const pass = realBuild && bizSpecific && errors.length === 0 && logoOk;
+// A stale shell still emits a real /logo-wordmark.png 404 to visitors — so it's a 🟡 WARN (with the
+// precise "rebuild to clear" reason), never ✅ PASS. It is NOT a regression (template is fixed), so
+// it must not read as a hard failure either. Excluding it from `pass` keeps that middle ground.
+const pass = realBuild && bizSpecific && hardErrors === 0 && logoOk && !isStaleShell;
 console.log(
   `\nverdict: ${
     pass
-      ? '✅ REAL DELIVERY (biz-specific H1, content, 0 console errors, transparent logo + wordmark)'
+      ? '✅ REAL DELIVERY (biz-specific H1, content, 0 hard errors, transparent logo + wordmark)'
       : realBuild && !logoOk
         ? `🟡 real build but OPAQUE ${opaqueParts} (AL-224) — fix logo transparency`
-        : realBuild
-          ? '🟡 real build but check H1/errors'
-          : '❌ shell/thin — investigate premature-terminal'
+        : realBuild && hardErrors === 0 && isStaleShell
+          ? '🟡 STALE SHELL — real build, 0 hard errors, only a pre-AL-591 /logo-wordmark.png 404 (REBUILD to clear; template already fixed, do NOT treat as a regression)'
+          : realBuild
+            ? '🟡 real build but check H1 / real errors'
+            : '❌ shell/thin — investigate premature-terminal'
   }`,
 );
 // Structured, machine-readable verdict so the delivery loop can parse PASS/WARN/FAIL programmatically
@@ -149,6 +186,10 @@ console.log(
     iconTransparent,
     wmTransparent,
     consoleErrors: errors.length,
+    assetFails: assetFails.length,
+    realAssetFails: realAssetFails.length,
+    hardErrors,
+    staleShell: isStaleShell,
     bizSpecific,
     realBuild,
     verdict: pass ? 'PASS' : realBuild ? 'WARN' : 'FAIL',
