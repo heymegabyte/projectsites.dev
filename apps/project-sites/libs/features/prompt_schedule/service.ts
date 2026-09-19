@@ -1,5 +1,6 @@
 import type { Env } from '../../../src/types/env.js';
 import { dbQuery, dbInsert, dbExecute } from '../../../src/services/db.js';
+import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
 import type { CreatePromptSchedule, PromptSchedule } from './schemas.js';
 
 export const FLAG_KEY = 'prompt_schedule';
@@ -95,11 +96,11 @@ export async function deleteSchedule(env: Env, orgId: string, id: string): Promi
     [id, orgId],
   );
   if (!data || data.length === 0) return false;
-  await dbExecute(env.DB, `UPDATE prompt_schedules SET deleted_at = ? WHERE id = ? AND org_id = ?`, [
-    new Date().toISOString(),
-    id,
-    orgId,
-  ]);
+  await dbExecute(
+    env.DB,
+    `UPDATE prompt_schedules SET deleted_at = ? WHERE id = ? AND org_id = ?`,
+    [new Date().toISOString(), id, orgId],
+  );
   return true;
 }
 
@@ -121,4 +122,34 @@ export async function getActiveVariant(
     [key, orgId],
   );
   return resolveActiveSchedule((data ?? []).map(toSchedule), key, nowMs);
+}
+
+/**
+ * The ONE call the generation pipeline (`runPrompt`) makes to consume this feature: the variant
+ * that is scheduled for `key` right now, or `null` → the caller uses its default rotation. This
+ * is what wires prompt_schedule into the build path (previously built-but-unwired).
+ *
+ * - **Flag-gated**: returns `null` unless the `prompt_schedule` flag is ON, so a scheduled variant
+ *   can never affect a build until the feature is promoted (dark-by-default, zero hot-path effect
+ *   when off beyond one KV-cached flag read).
+ * - **Fail-soft**: NEVER throws — any flag/D1 error resolves to `null` so the build always proceeds
+ *   on the default variant (a scheduling outage must never break site generation).
+ * - Pass `orgId=''` for GLOBAL (platform-wide) campaign/seasonal schedules (the documented primary
+ *   use case); pass a real `orgId` for per-org scheduling.
+ *
+ * @returns the scheduled variant id, or `null` to use the default.
+ */
+export async function scheduledVariantForRun(
+  env: Env,
+  orgId: string,
+  key: string,
+  nowMs: number,
+): Promise<string | null> {
+  try {
+    if (!(await isFlagOn(env, FLAG_KEY))) return null;
+    const active = await getActiveVariant(env, orgId, key, nowMs);
+    return active?.variant ?? null;
+  } catch {
+    return null; // fail-soft: scheduling never breaks a build
+  }
 }

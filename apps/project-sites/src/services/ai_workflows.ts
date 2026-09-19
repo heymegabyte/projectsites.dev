@@ -15,6 +15,7 @@ import { validatePromptInput, validatePromptOutput } from '../prompts/schemas.js
 import { withObservability } from '../prompts/observability.js';
 import { captureLLMCall } from './analytics.js';
 import type { TraceContext } from './external_llm.js';
+import { scheduledVariantForRun } from '../../libs/features/prompt_schedule/service.js';
 import { log } from '../lib/log.js';
 
 const wfLog = log.child('ai_workflows');
@@ -66,11 +67,31 @@ export async function runPrompt(
     retryCount?: number;
     modelOverride?: string;
     traceContext?: TraceContext;
+    orgId?: string;
+    nowMs?: number;
   } = {},
 ): Promise<LlmCallResult> {
-  // 1. Resolve the prompt spec (with optional A/B variant)
+  // 1. Resolve the prompt spec.
+  //    Prompt Scheduler (prompt_schedule, dark by default): a scheduled variant active for this
+  //    key NOW overrides the default rotation — seasonal / campaign prompts with zero owner config.
+  //    Flag-gated + fail-soft (scheduledVariantForRun returns null when off / on-error), so this is
+  //    byte-identical to the prior behavior until the flag is promoted. An EXPLICIT options.variant
+  //    still wins (caller's choice beats a schedule); a global schedule (orgId='') applies fleet-wide.
+  const scheduledVariant = options.variant
+    ? null
+    : await scheduledVariantForRun(
+        env,
+        options.orgId ?? options.traceContext?.orgId ?? '',
+        promptId,
+        options.nowMs ?? Date.now(),
+      );
+
   let spec: PromptSpec | undefined;
-  if (options.seed) {
+  if (scheduledVariant) {
+    spec =
+      registry.resolveExact(promptId, version, scheduledVariant) ??
+      registry.resolve(promptId, version);
+  } else if (options.seed) {
     spec = registry.resolveVariant(promptId, version, options.seed);
   } else if (options.variant) {
     spec = registry.resolveExact(promptId, version, options.variant);

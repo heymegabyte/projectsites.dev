@@ -566,7 +566,7 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Time-windowed activation of a prompt-registry variant for a key',
       'Read-time evaluation — no cron; most-recently-activated window wins on overlap',
       'Org-scoped CRUD, Zod-validated, structured JSON logs',
-      'getActiveVariant(key, now) is the pipeline consumption API (wired on promotion)',
+      'WIRED: runPrompt consults scheduledVariantForRun (→ getActiveVariant) at prompt-resolve, flag-gated + fail-soft',
     ],
     explanation:
       'Schedules a prompt-registry variant to be active for a time window [activate_at, deactivate_at). The generation pipeline consults getActiveVariant(key, now) at prompt-resolve time and uses the scheduled variant when a window is live; read-time evaluation means no cron. Enables seasonal/campaign prompts (e.g. a holiday hero prompt Dec 1-26) with zero owner config. When off, the routes 404 and prompt resolution falls back to the default variant unchanged.',
