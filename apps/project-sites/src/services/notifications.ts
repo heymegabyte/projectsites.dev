@@ -80,6 +80,17 @@ export async function sendEmail(
 ): Promise<void> {
   const category = opts.category ?? 'transactional';
 
+  // Defense-in-depth at the shared seam: strip CR/LF from the user-influenced `subject` +
+  // recipient so NO rail can forge an email header via an embedded newline. Both CURRENT rails
+  // are already safe (SES = structured SESv2 `SendEmail` Content.Simple; SendGrid = structured
+  // JSON — neither concatenates raw MIME; the provider's assertSend() also validates the
+  // recipient), so this is NOT a live bug — but sanitizing HERE makes the seam structurally
+  // injection-proof against ANY future rail (e.g. a SendRawEmail path), per the error-recovery
+  // defense-in-depth doctrine. A legitimate subject/address never contains a newline, so this only
+  // ever neutralizes an injection attempt (e.g. a business name carrying `\r\nBcc: attacker@…`).
+  opts.subject = opts.subject.replace(/[\r\n]+/g, ' ').trim();
+  opts.to = opts.to.replace(/[\r\n]+/g, ' ').trim();
+
   // §42/ADR-0019 suppression enforcement — for ALL rails. The SES rail's EmailRouter
   // already checks this, but the raw Resend/SendGrid fallback `fetch`es below BYPASSED
   // it, so a fallback send (SES throttled/failed) could re-send to a hard-bounced or

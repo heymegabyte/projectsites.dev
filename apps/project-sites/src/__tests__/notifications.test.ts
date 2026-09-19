@@ -359,3 +359,23 @@ describe('sendEmail — suppression enforcement across ALL rails (§42/ADR-0019)
     warn.mockRestore();
   });
 });
+
+describe('notifications — header-injection defense-in-depth (shared seam)', () => {
+  it('strips CR/LF from the subject + recipient before any rail sends (no forged headers)', async () => {
+    mockFetchOnce({ headers: { 'x-message-id': 'sg-crlf' } });
+    await sendEmail(sendgridEnv(), {
+      to: 'owner@example.com\r\nBcc: attacker@evil.com',
+      subject: "Bob's Diner is live\r\nBcc: attacker@evil.com",
+      html: '<p>hi</p>',
+    });
+    const body = lastFetchBody();
+    // The subject reaching the rail carries NO newline — a `\r\nBcc:` injection is collapsed to a
+    // space, so it can never forge a header even if a future rail built raw MIME.
+    expect(String(body.subject)).not.toMatch(/[\r\n]/);
+    expect(String(body.subject)).toBe("Bob's Diner is live Bcc: attacker@evil.com");
+    // Recipient likewise — no second address smuggled via a newline (stays ONE malformed string,
+    // which the provider's assertSend then rejects — never two recipients).
+    const to = (body.personalizations as Array<{ to: Array<{ email: string }> }>)[0].to[0].email;
+    expect(to).not.toMatch(/[\r\n]/);
+  });
+});
