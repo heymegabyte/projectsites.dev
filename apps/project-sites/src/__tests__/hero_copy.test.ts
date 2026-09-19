@@ -618,11 +618,15 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
     expect(p).not.toBeNull();
     const allText = [...p!.headlines, ...p!.subheadlines].join(' ').toLowerCase();
     // the exact education-misfit strings must NOT appear on a bookstore
-    expect(allText).not.toMatch(/bright futures|new york learns|patient teaching|every learner|families choose|learning click/);
+    expect(allText).not.toMatch(
+      /bright futures|new york learns|patient teaching|every learner|families choose|learning click/,
+    );
     // it reads like a bookseller instead
     expect(allText).toMatch(/read|browse|shelves|staff picks/);
     // still SEO-woven: category keyword + city present in every subhead
-    expect(p!.subheadlines.every((s) => s.includes('bookstore') && s.includes('New York'))).toBe(true);
+    expect(p!.subheadlines.every((s) => s.includes('bookstore') && s.includes('New York'))).toBe(
+      true,
+    );
     // REGRESSION GUARD: an actual tutoring center KEEPS the learning copy (the two never cross-fire).
     const school = personaHeroCopy('scholarly', 'tutoring center', 'Denver');
     expect(school!.headlines.join(' ').toLowerCase()).toMatch(/learns|bright futures/);

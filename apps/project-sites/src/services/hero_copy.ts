@@ -452,7 +452,9 @@ export function personaHeroCopy(
   // (AL-696). Gated by themeStyle===scholarly (the ternary lives inside the map's `scholarly` entry),
   // so a tutoring center never matches these book nouns → the two never cross-fire.
   const isBookstore =
-    /\b(book\s?stor\w*|bookshop\w*|booksell\w*|\bbooks\b|\blibrar\w*|comic\s?(?:shop|store))\b/i.test(cat);
+    /\b(book\s?stor\w*|bookshop\w*|booksell\w*|\bbooks\b|\blibrar\w*|comic\s?(?:shop|store))\b/i.test(
+      cat,
+    );
 
   const map: Readonly<Record<string, PersonaHeroCopy>> = {
     noir: isBodyArt
