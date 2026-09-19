@@ -1436,6 +1436,76 @@ export function applyServedRouteTitle(
   return out;
 }
 
+/** Route segment from a normalized path: `/about` → `about`, `/` → `` (home). */
+const servedRouteSeg = (route: string): string => route.split('/').filter(Boolean)[0] || '';
+
+/**
+ * Route-DISTINCT served description — the serve-layer twin of the template's `routeMetaDescription`
+ * (routeSeo.ts) and the worker `finalizeSeoInvariants` copy. Composed only from real signals (business
+ * name + city), never a fabricated claim/number/testimonial. Used by {@link applyServedRouteDescription}.
+ */
+function servedRouteDescription(seg: string, name: string, city: string): string {
+  const at = city ? ` in ${city}` : '';
+  switch (seg) {
+    case 'about':
+      return `About ${name}${at} — our story, our people, and the care behind everything we do. Learn what makes ${name} a place customers return to.`;
+    case 'contact':
+      return `Contact ${name}${at} — reach us by phone, email, or the contact form. We read every message and reply within one business day.`;
+    case 'services':
+      return `Services from ${name}${at} — see what we offer, how we work, and how to get started. Real help from people who care about the result.`;
+    case 'menu':
+      return `The menu at ${name}${at} — explore what we serve, from everyday favorites to seasonal specials, all made with care and worth the trip.`;
+    case 'pricing':
+      return `Pricing from ${name}${at} — clear, honest options with no surprises. Find what fits your needs and get started whenever you are ready.`;
+    case 'gallery':
+      return `Gallery from ${name}${at} — recent photos of our work, the spaces we create, and the results behind why customers choose us.`;
+    case 'faq':
+      return `Frequently asked questions about ${name}${at} — straight answers about our services, hours, and how to get started, all in one place.`;
+    case 'blog':
+      return `News, guides, and stories from ${name}${at} — practical tips and honest updates from the team to help you make a confident choice.`;
+    default:
+      return `${name}${at} — explore this page to learn more about what we offer and how ${name} can help you today.`;
+  }
+}
+
+/**
+ * Serve-time per-route DESCRIPTION rewrite — the missing twin of {@link applyServedRouteTitle} /
+ * {@link applyServedRouteCanonical} / {@link applyServedRouteJsonLd}. A pure client-rendered generated
+ * site serves ONE index.html per route (SPA fallback), so every sub-page carries the HOMEPAGE
+ * `<meta description>` + og/twitter description → Search Console "Duplicate meta descriptions" (flattens
+ * per-route SERP relevance + undercuts beating the source). Caught LIVE on cochon-new-orleans
+ * (2026-09-19): `/about`, `/contact`, `/services` all served the homepage meta while titles + canonicals
+ * were correctly per-route (only the DESCRIPTION had no serve-time twin). Fixes ALL deployed sites at
+ * serve-time — NO rebuild (mirrors the C.5 JSON-LD serve-time injector).
+ *
+ * Composes a route-distinct description from the pristine homepage title (business name) + the homepage
+ * description's "Proudly serving {city}" (city), and rewrites name/og/twitter description — ONLY when
+ * they still hold the baked homepage value (a genuinely per-page description is respected). Must run
+ * BEFORE {@link applyServedRouteTitle} so the name is read from the homepage title, not the rewritten one.
+ */
+export function applyServedRouteDescription(html: string, requestPath: string): string {
+  const route = normalizeRoute(requestPath);
+  if (route === '/') return html; // homepage description is already correct
+  const seg = servedRouteSeg(route);
+  if (!seg) return html;
+  const current = (headContent(html, 'description', 'name') ?? '').trim();
+  if (!current) return html;
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() ?? '';
+  const sepMatch = title.match(/\s+[—–|·]\s+/) ?? title.match(/\s+-\s+/);
+  const name =
+    (sepMatch ? title.slice(0, sepMatch.index) : title).trim().replace(/"/g, '') || 'our team';
+  // City from the shared homepage description's "Proudly serving {city} and the surrounding area".
+  const cityMatch = current.match(/Proudly serving\s+(.+?)\s+and the surrounding area/i);
+  const city = (cityMatch?.[1] ?? '').trim();
+  let next = servedRouteDescription(seg, name, city);
+  if (next.length > 156) next = next.slice(0, 156).replace(/\s+\S*$/, '').trim();
+  if (next.toLowerCase() === current.toLowerCase()) return html;
+  let out = rewriteServedMetaTitle(html, 'description', current, next);
+  out = rewriteServedMetaTitle(out, 'og:description', current, next);
+  out = rewriteServedMetaTitle(out, 'twitter:description', current, next);
+  return out;
+}
+
 /**
  * Rewrite a single social-title `<meta>` tag's `content` to `toValue`, but ONLY
  * when it currently equals `fromValue` (the baked homepage title) — a deliberate
@@ -1816,6 +1886,10 @@ async function buildSiteResponse(
     // structured data (no-op once the build emits its own). BEFORE the title rewrite
     // so the brand is read from the pristine homepage title.
     html = applyServedRouteJsonLd(html, requestPath);
+    // Per-route DESCRIPTION (the missing twin): the single-shell SPA serves the HOMEPAGE
+    // <meta description> on every sub-page → "Duplicate meta descriptions". Rewrite BEFORE the
+    // title injector so the business name is read from the pristine homepage title.
+    html = applyServedRouteDescription(html, requestPath);
     // On a soft-404 (unknown route → 404 status), the title injector emits a fixed
     // "Page not found — {brand}" rather than reflecting the arbitrary URL slug.
     html = applyServedRouteTitle(html, requestPath, htmlStatus === 404);

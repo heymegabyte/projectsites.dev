@@ -5,6 +5,7 @@ import {
   absolutizeSocialImages,
   applyServedRouteCanonical,
   applyServedRouteTitle,
+  applyServedRouteDescription,
   parseSitemapRoutes,
   injectAppShellHero,
   isServedSiteCookieless,
@@ -342,6 +343,60 @@ describe('applyServedRouteTitle (SPA per-route <title> for the non-JS crawl)', (
     const html = `<head><title>${HOME}</title><meta content="${HOME}" property="og:title"></head>`;
     const out = applyServedRouteTitle(html, '/team');
     expect(out).toContain('Team — Ironside Strength &amp; Conditioning');
+  });
+});
+
+describe('applyServedRouteDescription (SPA per-route <meta description> — the missing twin)', () => {
+  const HOME_TITLE = 'Cochon — Local restaurant you can trust | New Orleans';
+  // The description the single-shell SPA bakes into EVERY route (carries "Proudly serving {city}").
+  const HOME_DESC =
+    'Cochon — Local restaurant you can trust. Proudly serving New Orleans and the surrounding area. Get in touch with Cochon today.';
+  const shell = (title: string, desc: string) =>
+    `<head><title>${title}</title>` +
+    `<meta name="description" content="${desc}">` +
+    `<meta property="og:description" content="${desc}">` +
+    `<meta name="twitter:description" content="${desc}"></head>`;
+  const descOf = (h: string) =>
+    (h.match(/<meta\s+name="description"\s+content="([^"]*)"/i) || [])[1] || '';
+  const ogOf = (h: string) =>
+    (h.match(/<meta\s+property="og:description"\s+content="([^"]*)"/i) || [])[1] || '';
+  const twOf = (h: string) =>
+    (h.match(/<meta\s+name="twitter:description"\s+content="([^"]*)"/i) || [])[1] || '';
+
+  it('rewrites a sub-page that carries the HOMEPAGE description to a route-distinct one', () => {
+    const about = applyServedRouteDescription(shell(HOME_TITLE, HOME_DESC), '/about');
+    expect(descOf(about)).not.toBe(HOME_DESC);
+    expect(descOf(about).toLowerCase()).toContain('about cochon');
+    expect(descOf(about)).toContain('New Orleans'); // city extracted from "Proudly serving …"
+  });
+
+  it('gives DISTINCT descriptions to distinct sub-pages (about ≠ contact ≠ services ≠ home)', () => {
+    const d = (p: string) => descOf(applyServedRouteDescription(shell(HOME_TITLE, HOME_DESC), p));
+    const a = d('/about');
+    const c = d('/contact');
+    const s = d('/services');
+    expect(new Set([a, c, s, HOME_DESC]).size).toBe(4); // all four unique
+    expect(c.toLowerCase()).toContain('contact cochon');
+    expect(s.toLowerCase()).toContain('services from cochon');
+  });
+
+  it('mirrors the route-distinct description into og: + twitter: description (lockstep)', () => {
+    const about = applyServedRouteDescription(shell(HOME_TITLE, HOME_DESC), '/about');
+    expect(ogOf(about)).toBe(descOf(about));
+    expect(twOf(about)).toBe(descOf(about));
+  });
+
+  it('leaves the HOMEPAGE description untouched', () => {
+    const html = shell(HOME_TITLE, HOME_DESC);
+    expect(applyServedRouteDescription(html, '/')).toBe(html);
+  });
+
+  it('degrades to a name-only description when the homepage desc carries no city', () => {
+    const noCity =
+      'Cochon is a great place to eat and gather with friends and family any night of the week here.';
+    const about = applyServedRouteDescription(shell('Cochon — Great food', noCity), '/about');
+    expect(descOf(about).toLowerCase()).toContain('about cochon');
+    expect(descOf(about)).not.toContain(' in  '); // no dangling " in " with an empty city
   });
 });
 
