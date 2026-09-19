@@ -64,6 +64,7 @@ const PROBES = [
   { label: 'signin-flow', file: 'verify-signin-flow.mjs', env: {} },
   { label: 'idor-cross-org', file: 'verify-idor-cross-org.mjs', env: {} },
   { label: 'mcp-connect-flow', file: 'verify-mcp-connect-flow.mjs', env: {} },
+  { label: 'voice-persite-journey', file: 'verify-voice-persite-journey.mjs', env: {} },
   { label: 'completeness', file: 'completeness-stub-scan.mjs', env: {} },
   { label: 'wordmark-spelling', file: 'verify-wordmark-spelling.mjs', env: {} },
   { label: 'error-edge-states', file: 'verify-error-edge-states.mjs', env: {} },

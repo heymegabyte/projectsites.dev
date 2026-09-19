@@ -204,6 +204,7 @@ subdir_inventory:
   social_publishing_native: { status: covered, specs: [social_publishing_native/account-connect.spec.ts, social_publishing_native/post-create.spec.ts, social_publishing_native/post-schedule.spec.ts] }
   tabs: { status: covered, specs: [tabs/per-project-tabs.spec.ts] }
   voice: { status: covered, specs: [voice/voice-sms.spec.ts] }
+  voice_persite_journey: { status: covered, specs: [admin-verify/verify-voice-persite-journey.mjs] }  # FULL-JOURNEY: the per-site AI Voice owner read journey (prod). meta-prompt → 200 + immutable concierge guardrail text; numbers/agent-settings/conversations REQUIRE ?siteId= (400 without → no accidental cross-org listing) and return typed shapes (numbers[]/settings/items[]) for the OWNER; a FOREIGN siteId 404s (IDOR fail-CLOSED — never leaks another org's phone lines/call logs). Deliberately never touches the paid legs (purchase/test-sms/call-token). Fail-open without E2E_API_KEY.
   webhook: { status: covered, specs: [webhook/webhooks.spec.ts] }
   work: { status: covered, specs: [work/workflow-steps.spec.ts] }
 
