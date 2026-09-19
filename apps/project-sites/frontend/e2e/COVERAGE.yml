@@ -46,6 +46,7 @@ admin_sections:
   files:           { status: covered, specs: [files-deep.spec.ts] }
   snapshots:       { status: covered, specs: [admin-snapshots.spec.ts, build-edit-snapshot-cycle.spec.ts] }
   site_detail:     { status: covered, specs: [admin-site-detail-tabs.e2e.ts] }
+  global_drop_zone: { status: covered, specs: [admin-global-drop-zone.e2e.ts], note: "drag-anywhere upload on every /admin/* route — text-drag ignored → file-drag reveals a11y dialog → leave hides → drop uploads (live-bundle journey)" }
   analytics:       { status: covered, specs: [analytics-cf-traffic.spec.ts] }
   billing:         { status: covered, specs: [stripe-link-inline-checkout.spec.ts, production-admin.spec.ts] }
   feature_flags:   { status: covered, specs: [admin-feature-flags.e2e.ts, admin-flag-gated.e2e.ts] }

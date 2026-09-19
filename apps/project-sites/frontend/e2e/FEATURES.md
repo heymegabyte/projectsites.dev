@@ -38,6 +38,7 @@ Status legend: ✅ covered + green · ⚠️ covered, known-blocked dependency �
 |---|---|---|
 | Create-from-search wizard | `create-site.spec.ts`, `create-page-fixes.spec.ts`, `create-final-fixes.spec.ts`, `auto-create.spec.ts` | ✅ |
 | Create z-index / repopulate edge cases | `create-zindex-repopulate.spec.ts`, `dropdown-zindex.spec.ts` | ✅ |
+| Global drag-anywhere upload (drop zone) | `admin-global-drop-zone.e2e.ts` | ✅ |
 | Category + special-char inputs | `heyo-category.spec.ts`, `heyo-special-chars.spec.ts`, `when-doody-calls.spec.ts` | ✅ |
 | Create journey (end-to-end) | `journey-create.spec.ts` | ✅ |
 | Waiting / build progress | `waiting.spec.ts`, `build-pipeline.spec.ts` | ✅ |
