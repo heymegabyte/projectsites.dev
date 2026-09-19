@@ -281,6 +281,37 @@ describe('hero_copy — categoryPhrase (AL-361: keep the retail/venue noun phras
     expect(categoryPhrase('Services')).toBe('local business'); // strips to empty → fallback
   });
 
+  it('AL-820: transit/infrastructure POI types degrade to "local business", never an absurd H1', () => {
+    // Live defect: "Berkeley Bowl" the grocery collided with the AC-Transit "Berkeley Bowl" bus_stop →
+    // business_category "bus_stop" → H1 "The bus stop Berkeley counts on". A non-business POI type must
+    // never render as a vertical.
+    for (const t of [
+      'bus_stop',
+      'bus stop',
+      'bus_station',
+      'transit_station',
+      'train_station',
+      'subway_station',
+      'light_rail_station',
+      'tram_stop',
+      'taxi_stand',
+      'parking',
+      'parking_lot',
+      'park_and_ride',
+      'street_address',
+      'route',
+    ]) {
+      expect(categoryPhrase(t)).toBe('local business');
+    }
+    // REGRESSION GUARD: real businesses that merely resemble a transit word are NOT swallowed.
+    expect(categoryPhrase('gas station')).toBe('gas station');
+    expect(categoryPhrase('fire station')).toBe('fire station');
+    // NON_BUSINESS_POI is anchored (^…$) → a real business that merely contains a transit word is NOT
+    // swallowed to 'local business' (it keeps its own noun, here suffix-stripped to "bus tour").
+    expect(categoryPhrase('bus tour company')).not.toBe('local business');
+    expect(categoryPhrase('grocery store')).toBe('grocery store');
+  });
+
   it('normalizes snake_case Google-Places types — no raw type-token in copy (AL-410)', () => {
     // Live defect: Blue Sky Vet shipped H1 "Your Bend veterinary_care" — create-from-search
     // seeds business_category from Places types[0] (snake_case), and categoryPhrase passed the

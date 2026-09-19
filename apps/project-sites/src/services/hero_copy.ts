@@ -117,8 +117,23 @@ export function categoryPhrase(category?: unknown): string {
     .replace(/[&/]+\s*$/, '') // a trailing "&"/"/" left by a stripped suffix ("smith &")
     .replace(/\s{2,}/g, ' ')
     .trim();
+  // AL-820: transit / infrastructure POI types (OSM `bus_stop`, Places `transit_station`/`bus_station`/
+  // `parking`/`route`, …) are NOT businesses. When the business search matches one that SHARES A NAME
+  // with the real business, the junk type leaks in as business_category and renders an absurd H1 —
+  // live: "Berkeley Bowl" the grocery collided with the AC-Transit "Berkeley Bowl" `bus_stop` →
+  // business_category "bus_stop" → H1 "The bus stop Berkeley counts on". Normalize the whole class to
+  // the neutral 'local business' (like 'point of interest' / 'establishment') so a name-collision
+  // degrades gracefully instead of producing a wrong-vertical H1. Bare "station" is EXCLUDED (gas /
+  // fire / police / service station are real businesses/places).
+  if (NON_BUSINESS_POI.test(phrase)) return 'local business';
   return CATEGORY_NORMALIZE[phrase] || phrase || 'local business';
 }
+
+// A transit/infrastructure POI type that must never render as a business vertical (AL-820). Anchored
+// (^…$) so it only fires on a category that IS the whole junk type, never a business that merely
+// mentions one ("bus tour company", "parking app startup"). Bare "station" deliberately excluded.
+const NON_BUSINESS_POI =
+  /^(?:bus\s?stop|bus\s?station|bus\s?stand|transit\s?(?:station|stop|cent(?:er|re))|train\s?station|railway\s?station|subway\s?station|metro\s?station|light\s?rail(?:\s?station)?|tram\s?stop|taxi\s?stand|ferry\s?(?:terminal|dock)|parking(?:\s?(?:lot|garage|space))?|park\s?and\s?ride|street\s?address|intersection|route|premise|geocode|postal\s?code|plus\s?code)$/i;
 
 /**
  * Ordered [pattern → natural category phrase] map for deriving a vertical from a
