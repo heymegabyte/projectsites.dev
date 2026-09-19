@@ -441,6 +441,19 @@ export function personaHeroCopy(
       cat,
     );
 
+  // AL-810: `scholarly` is a SHARED books/learning personality worn by TWO vertical families — actual
+  // EDUCATION (school/tutor/academy/coaching/daycare) AND book RETAIL/libraries (bookstore/bookshop/
+  // bookseller/library/comic-shop — routed to scholarly by theme_style.ts for the books/reading
+  // aesthetic). The scholarly hero copy below is EDUCATION-specific ("Where {city} learns", "Bright
+  // futures start in {city}", "patient teaching", "every learner belongs") — a MISFIT on a bookstore
+  // (live: strand-book-store-broadway shipped H1 "Bright futures start in New York"; The Strand sells
+  // books, it does not teach). Sub-classify by category — a bookstore/library gets BROWSE/READ copy;
+  // actual education keeps the learning copy. Same pattern as `isPlantRetail` (AL-612) + `isBodyArt`
+  // (AL-696). Gated by themeStyle===scholarly (the ternary lives inside the map's `scholarly` entry),
+  // so a tutoring center never matches these book nouns → the two never cross-fire.
+  const isBookstore =
+    /\b(book\s?stor\w*|bookshop\w*|booksell\w*|\bbooks\b|\blibrar\w*|comic\s?(?:shop|store))\b/i.test(cat);
+
   const map: Readonly<Record<string, PersonaHeroCopy>> = {
     noir: isBodyArt
       ? {
@@ -579,17 +592,32 @@ export function personaHeroCopy(
             `${city} rests easy with ${art} ${cat} that is calm, clear, and always in your corner.`,
           ],
         },
-    scholarly: {
-      headlines: [
-        `Where ${city} learns`,
-        `${city}, let's grow together`,
-        `Bright futures start in ${city}`,
-      ],
-      subheadlines: [
-        `Encouraging ${cat} for ${city} — patient teaching, real progress, and a place every learner belongs.`,
-        `${city} families choose us for ${art} ${cat} that makes learning click and confidence grow.`,
-      ],
-    },
+    scholarly: isBookstore
+      ? {
+          // BROWSE/READ copy for bookstores/libraries (AL-810) — the shared scholarly books aesthetic,
+          // in a bookseller's voice, never the education "Where {city} learns"/"Bright futures" misfit.
+          headlines: [
+            `Find your next read in ${city}`,
+            `Where ${city} comes to browse`,
+            `${city}'s shelves, well-curated`,
+          ],
+          subheadlines: [
+            `Shelves worth getting lost in — ${art} ${cat} in ${city} with staff picks, deep stacks, and the book you didn't know you were looking for.`,
+            `${city} browses with us: ${art} ${cat} where every visit turns up something worth taking home.`,
+          ],
+        }
+      : {
+          // LEARNING copy for actual education (school / tutor / academy / coaching / daycare).
+          headlines: [
+            `Where ${city} learns`,
+            `${city}, let's grow together`,
+            `Bright futures start in ${city}`,
+          ],
+          subheadlines: [
+            `Encouraging ${cat} for ${city} — patient teaching, real progress, and a place every learner belongs.`,
+            `${city} families choose us for ${art} ${cat} that makes learning click and confidence grow.`,
+          ],
+        },
     precision: {
       headlines: [
         `Precision ${cat} in ${city}`,
