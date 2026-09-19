@@ -125,7 +125,11 @@ describe('GET /api/analytics-debug', () => {
   it('404s a caller who is not authenticated (no org) — cross-tenant IDOR guard', async () => {
     const m = mockDb({ rows: [{ id: 's1' }] });
     const env = { DB: m.db } as unknown as import('../types/env.js').Env;
-    const res = await analyticsRoutes.request('/api/analytics-debug?siteId=s1', { method: 'GET' }, env);
+    const res = await analyticsRoutes.request(
+      '/api/analytics-debug?siteId=s1',
+      { method: 'GET' },
+      env,
+    );
     expect(res.status).toBe(404);
   });
 });
