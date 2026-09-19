@@ -17,6 +17,7 @@ import type { Env, Variables } from '../types/env.js';
 import { internalError } from '@project-sites/shared';
 import { dbQuery, dbQueryOne, dbExecute } from '../services/db.js';
 import { writeAuditLog } from '../services/audit.js';
+import { isSuperAdmin } from '../services/sysadmin.js';
 
 const tabs = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -234,6 +235,15 @@ tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
   const userId = c.get('userId');
   if (!orgId || !userId) {
     return c.json({ error: { code: 'UNAUTHORIZED', message: 'Sign in required' } }, 401);
+  }
+
+  // The raw D1 console reads the SHARED multi-tenant database — restrict it to platform
+  // administrators (a site owner must never be able to `SELECT * FROM users`). AL-792.
+  if (!(await isSuperAdmin(c.env, userId))) {
+    return c.json(
+      { error: { code: 'FORBIDDEN', message: 'The SQL console is restricted to platform administrators.' } },
+      403,
+    );
   }
 
   let body: { query: string };

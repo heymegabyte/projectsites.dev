@@ -5,7 +5,9 @@
  *
  * 1. **Logs** — live tail of the per-site WS log stream + level filter + search.
  * 2. **Snapshots** — merged snapshots + deploy history with rollback button.
- * 3. **SQL** — read-only D1 console for the per-site database.
+ * 3. **SQL** — read-only D1 console for the per-site database. PLATFORM SUPER-ADMIN
+ *    ONLY — the `/sites/:id/sql/exec` endpoint 403s non-super-admins, so the tab is
+ *    hidden for everyone else (never show a control that will fail).
  * 4. **Integrations** — per-site MCP provider connect / paste-key fallback /
  *    disconnect surface.
  *
@@ -30,6 +32,7 @@ import { HlmInputDirective, HlmSelectDirective, HlmTablistDirective } from '../.
 import { ApiService } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
 import { ConfirmService } from '../../../services/confirm.service';
+import { AdminStateService } from '../admin-state.service';
 import { MiniEmptyComponent } from '../../../components/mini-empty/mini-empty.component';
 import { ErrorCardComponent } from '../../../components/states';
 import { RevealDirective } from '../../../directives/reveal.directive';
@@ -116,16 +119,18 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'sql', 'integrations'];
           [class.active]="tab() === 'snapshots'"
           (click)="setTab('snapshots')"
         >Snapshots</button>
-        <button
-          type="button"
-          role="tab"
-          id="sd-tab-sql"
-          data-testid="sd-tab-sql"
-          [attr.aria-controls]="'sd-panel-sql'"
-          [attr.aria-selected]="tab() === 'sql'"
-          [class.active]="tab() === 'sql'"
-          (click)="setTab('sql')"
-        >SQL</button>
+        @if (canUseSqlConsole()) {
+          <button
+            type="button"
+            role="tab"
+            id="sd-tab-sql"
+            data-testid="sd-tab-sql"
+            [attr.aria-controls]="'sd-panel-sql'"
+            [attr.aria-selected]="tab() === 'sql'"
+            [class.active]="tab() === 'sql'"
+            (click)="setTab('sql')"
+          >SQL</button>
+        }
         <button
           type="button"
           role="tab"
@@ -225,7 +230,7 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'sql', 'integrations'];
       }
 
       <!-- ──────────────────────────────────────── SQL TAB ──────────────────────────────────────── -->
-      @if (tab() === 'sql') {
+      @if (tab() === 'sql' && canUseSqlConsole()) {
         <div class="site-detail__panel" role="tabpanel" appReveal id="sd-panel-sql" aria-labelledby="sd-tab-sql" data-testid="site-sql-panel">
           <textarea
             data-testid="sql-editor"
@@ -473,10 +478,20 @@ export class AdminSiteDetailComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
+  private readonly adminState = inject(AdminStateService);
 
   readonly siteId = signal<string>('');
   readonly site = signal<{ id: string; slug: string; name: string } | null>(null);
   readonly tab = signal<Tab>('logs');
+
+  /**
+   * The SQL tab is a platform super-admin power tool — `/sites/:id/sql/exec` 403s
+   * every non-super-admin. Gate the tab + panel + `runSql()` on the super-admin flag
+   * (hydrated once from `/api/auth/me` into AdminStateService — no extra HTTP call) so a
+   * regular site owner never sees a control that will only ever fail (embarrassingly-easy:
+   * never show a doomed control).
+   */
+  readonly canUseSqlConsole = computed(() => this.adminState.isSuperAdmin() === true);
 
   // ── Logs ─────────────────────────────────────────────────────────────
   readonly logs = signal<LogRow[]>([]);
@@ -597,6 +612,17 @@ export class AdminSiteDetailComponent {
           this.tab.set(t as Tab);
         }
       });
+
+    // Never strand a non-super-admin on the (now-hidden) SQL tab. A `?tab=sql`
+    // deep-link, or the super-admin flag arriving late (getMe resolves after first
+    // paint) while `sql` is active, would otherwise leave the active tab pointing at
+    // a panel that no longer renders (a blank body). Fall back to the first visible
+    // tab (logs) whenever SQL is selected but the console isn't available.
+    effect(() => {
+      if (this.tab() === 'sql' && !this.canUseSqlConsole()) {
+        this.tab.set('logs');
+      }
+    });
 
     // Restore SQL history from localStorage (per-site).
     effect(() => {
@@ -801,6 +827,9 @@ export class AdminSiteDetailComponent {
     /^\s*(?:--[^\n]*\r?\n\s*)*(DROP|DELETE|UPDATE|INSERT|ALTER|CREATE|TRUNCATE|REPLACE|ATTACH|DETACH|VACUUM|REINDEX)\b/i;
 
   runSql(): void {
+    // Super-admin-only power tool — the server 403s non-super-admins, so never fire
+    // the POST for them (the tab is hidden anyway; this is defense-in-depth).
+    if (!this.canUseSqlConsole()) return;
     if (this.sqlRunning()) return; // guard: no concurrent /sql/exec pile-up while one is in flight
     const query = this.sqlQuery().trim();
     if (!query) return;

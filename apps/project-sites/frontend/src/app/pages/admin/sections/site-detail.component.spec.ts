@@ -1,12 +1,23 @@
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { of, throwError, Subject } from 'rxjs';
+import { signal } from '@angular/core';
 import { ActivatedRoute, Router, provideRouter } from '@angular/router';
 import { AdminSiteDetailComponent } from './site-detail.component';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { ApiService } from '../../../services/api.service';
 import { ConfirmService } from '../../../services/confirm.service';
 import { ToastService } from '../../../services/toast.service';
+import { AdminStateService } from '../admin-state.service';
+
+/**
+ * Stub AdminStateService exposing only the `isSuperAdmin` signal the component reads.
+ * The SQL console (tab + panel + runSql) is gated on it — pass `true` for the specs
+ * that exercise the SQL surface, `false` to assert the tab is hidden for a site owner.
+ */
+function superAdminState(isSuperAdmin: boolean): Partial<AdminStateService> {
+  return { isSuperAdmin: signal(isSuperAdmin) } as Partial<AdminStateService>;
+}
 
 /**
  * First coverage for the Site Detail tabs surface (untested):
@@ -17,7 +28,10 @@ import { ToastService } from '../../../services/toast.service';
  * overrideComponent strips the template so the log-tail/snapshot effects don't auto-fire;
  * the route paramMap stub drives the initial site id.
  */
-function make(post = jasmine.createSpy('post').and.returnValue(of({ ok: true, columns: ['id'], rows: [{ id: 1 }], duration_ms: 5 }))): {
+function make(
+  post = jasmine.createSpy('post').and.returnValue(of({ ok: true, columns: ['id'], rows: [{ id: 1 }], duration_ms: 5 })),
+  isSuperAdmin = true, // SQL console is super-admin-gated; default true so the SQL specs run it
+): {
   c: AdminSiteDetailComponent;
   post: jasmine.Spy;
 } {
@@ -27,6 +41,7 @@ function make(post = jasmine.createSpy('post').and.returnValue(of({ ok: true, co
     providers: [
       provideRouter([]),
       { provide: ApiService, useValue: api },
+      { provide: AdminStateService, useValue: superAdminState(isSuperAdmin) },
       { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 'site-1' }), queryParamMap: of({ get: () => null }) } },
     ],
   });
@@ -210,6 +225,7 @@ describe('AdminSiteDetailComponent (cinematic entrance — matches sibling secti
       providers: [
         provideRouter([]),
         { provide: ApiService, useValue: api },
+        { provide: AdminStateService, useValue: superAdminState(true) },
         { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 'site-1' }), queryParamMap: of({ get: () => null }) } },
       ],
     });
@@ -227,6 +243,7 @@ describe('AdminSiteDetailComponent (cinematic entrance — matches sibling secti
       providers: [
         provideRouter([]),
         { provide: ApiService, useValue: api },
+        { provide: AdminStateService, useValue: superAdminState(true) },
         { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 'site-1' }), queryParamMap: of({ get: () => null }) } },
       ],
     });
@@ -246,6 +263,7 @@ describe('AdminSiteDetailComponent (cinematic entrance — matches sibling secti
       providers: [
         provideRouter([]),
         { provide: ApiService, useValue: api },
+        { provide: AdminStateService, useValue: superAdminState(true) },
         { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 'site-1' }), queryParamMap: of({ get: () => null }) } },
       ],
     });
@@ -270,6 +288,7 @@ describe('AdminSiteDetailComponent (cinematic entrance — matches sibling secti
       providers: [
         provideRouter([]),
         { provide: ApiService, useValue: api },
+        { provide: AdminStateService, useValue: superAdminState(true) },
         { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 'site-1' }), queryParamMap: of({ get: () => null }) } },
       ],
     });
@@ -302,6 +321,7 @@ describe('AdminSiteDetailComponent (cinematic entrance — matches sibling secti
       providers: [
         provideRouter([]),
         { provide: ApiService, useValue: api },
+        { provide: AdminStateService, useValue: superAdminState(true) },
         { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 'site-1' }), queryParamMap: of({ get: () => null }) } },
       ],
     });
@@ -329,6 +349,7 @@ describe('AdminSiteDetailComponent (cinematic entrance — matches sibling secti
       providers: [
         provideRouter([]),
         { provide: ApiService, useValue: api },
+        { provide: AdminStateService, useValue: superAdminState(true) },
         { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 'e2e-site-1' }), queryParamMap: of({ get: () => null }) } },
       ],
     });
@@ -370,6 +391,7 @@ describe('AdminSiteDetailComponent (integration disconnect — confirm-gated via
       providers: [
         provideRouter([]),
         { provide: ApiService, useValue: { get: () => of({ data: { id: 's1', slug: 's', business_name: 'S' } }), post: () => of({}), delete: del } },
+        { provide: AdminStateService, useValue: superAdminState(true) },
         { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 's1' }), queryParamMap: of({ get: () => null }) } },
         { provide: ConfirmService, useValue: { confirm } },
         { provide: ToastService, useValue: { error: toastErr, success: () => 0, info: () => 0, warning: () => 0 } },
@@ -421,6 +443,7 @@ describe('AdminSiteDetailComponent (snapshot rollback — confirm-gated, most de
       providers: [
         provideRouter([]),
         { provide: ApiService, useValue: { get: () => of({ data: { id: 's1', slug: 's', business_name: 'S' } }), post, delete: () => of({}) } },
+        { provide: AdminStateService, useValue: superAdminState(true) },
         { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 's1' }), queryParamMap: of({ get: () => null }) } },
         { provide: ConfirmService, useValue: { confirm } },
         { provide: ToastService, useValue: { error: () => 0, success: () => 0, info: () => 0, warning: () => 0 } },
@@ -514,6 +537,7 @@ describe('AdminSiteDetailComponent (paste-key save — no silent failure)', () =
       providers: [
         provideRouter([]),
         { provide: ApiService, useValue: { get: () => of({ data: { id: 's1', slug: 's', business_name: 'S' }, providers: [] }), post, delete: () => of({}) } },
+        { provide: AdminStateService, useValue: superAdminState(true) },
         { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 's1' }), queryParamMap: of({ get: () => null }) } },
         { provide: ConfirmService, useValue: { confirm: () => Promise.resolve(true) } },
         { provide: ToastService, useValue: { error: toastErr, success: toastOk, info: () => 0, warning: () => 0 } },
@@ -582,6 +606,7 @@ describe('AdminSiteDetailComponent (stale-route shapeless 200 — no fake-empty 
       providers: [
         provideRouter([]),
         { provide: ApiService, useValue: api },
+        { provide: AdminStateService, useValue: superAdminState(true) },
         { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 'site-1' }), queryParamMap: of({ get: () => null }) } },
       ],
     });
@@ -641,6 +666,7 @@ describe('AdminSiteDetailComponent (rollback double-submit guard)', () => {
       providers: [
         provideRouter([]),
         { provide: ApiService, useValue: { get: () => of({ data: { id: 's1', slug: 's', business_name: 'S' } }), post, delete: () => of({}) } },
+        { provide: AdminStateService, useValue: superAdminState(true) },
         { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 's1' }), queryParamMap: of({ get: () => null }) } },
         { provide: ConfirmService, useValue: { confirm } },
         { provide: ToastService, useValue: { error: () => 0, success: () => 0, info: () => 0, warning: () => 0 } },
@@ -676,6 +702,7 @@ describe('AdminSiteDetailComponent (deep-linkable tabs)', () => {
       providers: [
         provideRouter([]),
         { provide: ApiService, useValue: api },
+        { provide: AdminStateService, useValue: superAdminState(true) },
         { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 'site-1' }), queryParamMap: of({ get: (k: string) => (k === 'tab' ? tabParam : null) }) } },
       ],
     });
@@ -720,6 +747,7 @@ describe('AdminSiteDetailComponent (formatTs defensive timestamp formatting)', (
       providers: [
         provideRouter([]),
         { provide: ApiService, useValue: { get: () => of({ site: null }), post: () => of({}) } },
+        { provide: AdminStateService, useValue: superAdminState(true) },
         { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 'site-1' }), queryParamMap: of({ get: () => null }) } },
       ],
     });
@@ -740,5 +768,66 @@ describe('AdminSiteDetailComponent (formatTs defensive timestamp formatting)', (
     expect(c.formatTs('')).toBe('');
     expect(c.formatTs(null)).toBe('');
     expect(c.formatTs(undefined)).toBe('');
+  });
+});
+
+/**
+ * SQL console is a PLATFORM SUPER-ADMIN power tool — `/sites/:id/sql/exec` 403s
+ * every non-super-admin (AL-792). A regular site owner must never see the SQL tab
+ * (a doomed control that will only ever fail) — it's hidden unless `is_super_admin`
+ * (hydrated from `/api/auth/me` into AdminStateService.isSuperAdmin) is true, and a
+ * non-super-admin can never land on it (fallback to the first visible tab).
+ */
+describe('AdminSiteDetailComponent (SQL tab gated on super-admin)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  function render(isSuperAdmin: boolean, tabParam: string | null = null): import('@angular/core/testing').ComponentFixture<AdminSiteDetailComponent> {
+    const api = { get: jasmine.createSpy('get').and.returnValue(of({ data: { id: 'site-1', slug: 's', business_name: 'S' }, columns: [], rows: [], logs: [], snapshots: [] })), post: jasmine.createSpy('post').and.returnValue(of({ ok: true })) };
+    TestBed.configureTestingModule({
+      imports: [AdminSiteDetailComponent],
+      providers: [
+        provideRouter([]),
+        { provide: ApiService, useValue: api },
+        { provide: AdminStateService, useValue: superAdminState(isSuperAdmin) },
+        { provide: ActivatedRoute, useValue: { paramMap: of({ get: () => 'site-1' }), queryParamMap: of({ get: (k: string) => (k === 'tab' ? tabParam : null) }) } },
+      ],
+    });
+    const f = TestBed.createComponent(AdminSiteDetailComponent);
+    f.detectChanges();
+    return f;
+  }
+
+  it('HIDES the SQL tab button + panel for a non-super-admin (site owner)', () => {
+    const f = render(false);
+    const host = f.nativeElement as HTMLElement;
+    expect(f.componentInstance.canUseSqlConsole()).withContext('computed reflects a falsy is_super_admin').toBeFalse();
+    expect(host.querySelector('[data-testid="sd-tab-sql"]')).withContext('no SQL tab button for a site owner').toBeNull();
+    // Even forcing the active tab to sql must not render the panel (doomed control never shown).
+    f.componentInstance.tab.set('sql');
+    f.detectChanges();
+    expect(host.querySelector('[data-testid="site-sql-panel"]')).withContext('SQL panel never renders for a non-super-admin').toBeNull();
+  });
+
+  it('SHOWS the SQL tab for a platform super-admin', () => {
+    const f = render(true);
+    const host = f.nativeElement as HTMLElement;
+    expect(f.componentInstance.canUseSqlConsole()).toBeTrue();
+    expect(host.querySelector('[data-testid="sd-tab-sql"]')).withContext('super-admin sees the SQL tab').not.toBeNull();
+    f.componentInstance.setTab('sql');
+    f.detectChanges();
+    expect(host.querySelector('[data-testid="site-sql-panel"]')).withContext('super-admin can open the SQL panel').not.toBeNull();
+  });
+
+  it('a non-super-admin deep-linking ?tab=sql falls back to the first visible tab (logs), never a blank SQL panel', () => {
+    const f = render(false, 'sql');
+    expect(f.componentInstance.tab()).withContext('SQL is not a valid landing tab for a site owner').toBe('logs');
+    expect((f.nativeElement as HTMLElement).querySelector('[data-testid="site-sql-panel"]')).toBeNull();
+  });
+
+  it('runSql is a no-op for a non-super-admin (server 403s them — never fire the POST)', () => {
+    const { c, post } = make(jasmine.createSpy('post'), /* isSuperAdmin */ false);
+    c.sqlQuery.set('SELECT * FROM sites');
+    c.runSql();
+    expect(post).withContext('a site owner must not reach /sql/exec').not.toHaveBeenCalled();
   });
 });

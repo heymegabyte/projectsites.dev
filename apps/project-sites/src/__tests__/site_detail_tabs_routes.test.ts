@@ -23,6 +23,7 @@ jest.mock('../services/db.js', () => ({
 jest.mock('../services/audit.js', () => ({
   writeAuditLog: jest.fn().mockResolvedValue(undefined),
 }));
+jest.mock('../services/sysadmin.js', () => ({ isSuperAdmin: jest.fn() }));
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types/env.js';
@@ -30,11 +31,13 @@ import { errorHandler } from '../middleware/error_handler.js';
 import { siteDetailTabs } from '../routes/site_detail_tabs.js';
 import { dbQuery, dbQueryOne, dbExecute } from '../services/db.js';
 import { writeAuditLog } from '../services/audit.js';
+import { isSuperAdmin } from '../services/sysadmin.js';
 
 const mockDbQuery = dbQuery as unknown as jest.Mock;
 const mockDbQueryOne = dbQueryOne as unknown as jest.Mock;
 const mockDbExecute = dbExecute as unknown as jest.Mock;
 const mockWriteAuditLog = writeAuditLog as unknown as jest.Mock;
+const mockIsSuperAdmin = isSuperAdmin as unknown as jest.Mock;
 
 // ─── Boundary harness ──────────────────────────────────────────────────────────
 
@@ -95,6 +98,9 @@ const SITE = 'site-1';
 beforeEach(() => {
   jest.clearAllMocks();
   mockWriteAuditLog.mockResolvedValue(undefined);
+  // Default: caller is a platform super-admin so the existing /sql/exec
+  // success-path tests still reach the query. The 403 test overrides this.
+  mockIsSuperAdmin.mockResolvedValue(true);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -240,6 +246,22 @@ describe('POST /api/sites/:siteId/sql/exec', () => {
     const res = await exec(makeApp(), { query: 'SELECT 1' }, env);
     expect(res.status).toBe(401);
     expect(mockDbQueryOne).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for an authed org owner who is NOT a super-admin (query never runs) — AL-792', async () => {
+    mockIsSuperAdmin.mockResolvedValue(false);
+    const db = makeDb([{ id: 'u-1', email: 'victim@example.com' }]);
+    const env = makeEnv(db);
+    const res = await exec(makeApp(AUTH), { query: 'SELECT * FROM users' }, env);
+    expect(res.status).toBe(403);
+    const json = (await res.json()) as { error?: { code?: string } };
+    expect(json.error?.code).toBe('FORBIDDEN');
+    // The raw D1 console must never execute for a non-admin — assert prepare().all() never ran.
+    expect((db as unknown as { _all: jest.Mock })._all).not.toHaveBeenCalled();
+    expect((db as unknown as { prepare: jest.Mock }).prepare).not.toHaveBeenCalled();
+    // No ownership lookup, no audit — gated before any DB touch.
+    expect(mockDbQueryOne).not.toHaveBeenCalled();
+    expect(mockWriteAuditLog).not.toHaveBeenCalled();
   });
 
   it('returns 400 when the body fails Zod validation (empty query)', async () => {
