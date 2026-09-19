@@ -43,6 +43,51 @@ export function redactStreamSecrets(text: string): string {
     .replace(/\bBearer\s+[A-Za-z0-9._-]{10,}\b/gi, 'Bearer ***REDACTED***');
 }
 
+/** Carriage return (0x0d) built via charCode so no raw control byte lives in this source file. */
+const CARRIAGE_RETURN = String.fromCharCode(13);
+
+/**
+ * Strip ANSI escape sequences + C0/C1 control characters from a build-log line so raw terminal
+ * control bytes (colour codes, cursor moves, spinner carriage-returns) never reach the owner's
+ * /waiting terminal as garbage. The build container streams BOTH `claude -p` stdout AND stderr;
+ * stderr from npm/vite/tools carries ANSI colour + carriage-return progress spinners. Runs BEFORE
+ * the noise filter so a colour-wrapped `API Error: 402` still matches {@link isBuildLogNoise}. A
+ * carriage-return progress line collapses to its final frame. Implemented with `charCodeAt` (no
+ * regex over raw control bytes) so this source stays 100% ASCII. Pure — unit-tested; mirrored on
+ * the frontend (waiting.component `stripControlChars`).
+ *
+ * @param text - One raw stdout/stderr line from the build container.
+ * @returns The line with ANSI sequences + control chars removed and CR-overwrites collapsed.
+ * @example
+ * const esc = String.fromCharCode(27);
+ * stripControlChars(esc + '[32m' + 'built' + esc + '[0m'); // → 'built'
+ */
+export function stripControlChars(text: string): string {
+  // Carriage-return progress overwrites → keep only the final frame (the last CR wins).
+  const cr = text.lastIndexOf(CARRIAGE_RETURN);
+  const s = cr >= 0 ? text.slice(cr + 1) : text;
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code === 27) {
+      // ESC — skip an ANSI CSI/OSC sequence up to its final byte (0x40-0x7e).
+      i++;
+      if (i < s.length && (s.charCodeAt(i) === 91 || s.charCodeAt(i) === 93)) i++; // '[' or ']'
+      while (i < s.length) {
+        const c = s.charCodeAt(i);
+        if (c >= 0x40 && c <= 0x7e) break; // final byte terminates the sequence
+        i++;
+      }
+      continue; // the for-loop's i++ steps past the final byte
+    }
+    // Keep tab (9) + newline (10) + printables ≥32, dropping DEL (127) and C1 (128-159).
+    if (code === 9 || code === 10 || (code >= 32 && code !== 127 && !(code >= 128 && code <= 159))) {
+      out += s[i];
+    }
+  }
+  return out;
+}
+
 /**
  * Claude Code control-plane + provider-transport lines that must NEVER reach the
  * owner-facing /waiting terminal. These are internal telemetry / model-catalog
@@ -138,7 +183,7 @@ export function detectBuildLlmDegraded(rawLines: unknown): { degraded: boolean; 
 export function prepareBuildLogLines(rawLines: unknown): string[] {
   return (Array.isArray(rawLines) ? rawLines : [])
     .filter((l): l is string => typeof l === 'string')
-    .map((l) => l.replace(/\s+$/, '').trim())
+    .map((l) => stripControlChars(l).replace(/\s+$/, '').trim())
     .filter(Boolean)
     .filter((l) => !isBuildLogNoise(l))
     .slice(0, MAX_LINES_PER_CALL)

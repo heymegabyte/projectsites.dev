@@ -1,11 +1,15 @@
 import {
   redactStreamSecrets,
+  stripControlChars,
   prepareBuildLogLines,
   isBuildLogNoise,
   detectBuildLlmDegraded,
   MAX_LINES_PER_CALL,
   MAX_LINE_CHARS,
 } from '../services/build_log';
+
+const ESC = String.fromCharCode(27);
+const CR = String.fromCharCode(13);
 
 describe('build_log — redactStreamSecrets', () => {
   it('masks KEY=value / KEY: value secret assignments', () => {
@@ -177,5 +181,38 @@ describe('build_log — detectBuildLlmDegraded (make a dead build-LLM balance OB
         degraded: true,
       });
     }
+  });
+});
+
+describe('build_log — stripControlChars (ANSI / control-byte scrub for the /waiting terminal)', () => {
+  it('strips ANSI colour + cursor escape sequences', () => {
+    expect(stripControlChars(ESC + '[32m' + 'created Hero.tsx' + ESC + '[0m')).toBe('created Hero.tsx');
+    expect(stripControlChars(ESC + '[2K' + ESC + '[1G' + 'installing deps')).toBe('installing deps');
+  });
+
+  it('collapses a carriage-return progress spinner to its final frame', () => {
+    expect(stripControlChars('building' + CR + 'building.' + CR + 'built ok')).toBe('built ok');
+  });
+
+  it('keeps tabs + unicode, drops DEL and stray control bytes', () => {
+    const TAB = String.fromCharCode(9);
+    expect(stripControlChars('a' + TAB + 'b')).toBe('a' + TAB + 'b');
+    expect(stripControlChars('rocket ' + String.fromCharCode(127) + 'go')).toBe('rocket go');
+    expect(stripControlChars('plain clean line')).toBe('plain clean line');
+  });
+});
+
+describe('build_log — prepareBuildLogLines strips ANSI BEFORE the noise filter', () => {
+  it('renders a colour-wrapped build line as clean text', () => {
+    expect(prepareBuildLogLines([ESC + '[36m' + 'writing src/App.tsx' + ESC + '[0m'])).toEqual([
+      'writing src/App.tsx',
+    ]);
+  });
+
+  it('still drops a colour-wrapped provider-transport error as noise (strip runs first)', () => {
+    // ANSI-wrapped "API Error: 402" would EVADE the ^API Error noise regex if not stripped first.
+    expect(
+      prepareBuildLogLines([ESC + '[31m' + 'API Error: 402 Insufficient Balance' + ESC + '[0m']),
+    ).toEqual([]);
   });
 });

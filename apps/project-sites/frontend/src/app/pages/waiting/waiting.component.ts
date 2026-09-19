@@ -113,6 +113,39 @@ export function redactBuildLogSecrets(text: string): string {
 }
 
 /**
+ * Strip ANSI escape sequences + C0/C1 control characters from a build-log line so raw terminal
+ * control bytes (colour codes, cursor moves, spinner carriage-returns) never render as garbage in
+ * the /waiting terminal. Server mirror of `build_log.ts` stripControlChars (defense-in-depth: the
+ * stored row is already scrubbed, but old rows + any drift are cleaned here on render too). A
+ * carriage-return progress line collapses to its final frame. Implemented with `charCodeAt` (no
+ * regex over raw control bytes) so this source stays 100% ASCII. Pure + exported for unit coverage.
+ */
+export function stripControlChars(text: string): string {
+  const cr = text.lastIndexOf(String.fromCharCode(13)); // carriage return
+  const s = cr >= 0 ? text.slice(cr + 1) : text;
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code === 27) {
+      // ESC — skip an ANSI CSI/OSC sequence up to its final byte (0x40-0x7e).
+      i++;
+      if (i < s.length && (s.charCodeAt(i) === 91 || s.charCodeAt(i) === 93)) i++; // '[' or ']'
+      while (i < s.length) {
+        const c = s.charCodeAt(i);
+        if (c >= 0x40 && c <= 0x7e) break; // final byte terminates the sequence
+        i++;
+      }
+      continue; // the for-loop's i++ steps past the final byte
+    }
+    // Keep tab (9) + newline (10) + printables ≥32, dropping DEL (127) and C1 (128-159).
+    if (code === 9 || code === 10 || (code >= 32 && code !== 127 && !(code >= 128 && code <= 159))) {
+      out += s[i];
+    }
+  }
+  return out;
+}
+
+/**
  * Claude Code control-plane + provider-transport lines that must NEVER render in the
  * owner-facing terminal — internal telemetry / model-catalog warnings and raw upstream
  * API errors (e.g. `402 Insufficient Balance` when the build LLM balance is exhausted).
@@ -201,7 +234,25 @@ export function toBuildLogLine(entry: LogEntry): BuildLogLine {
   } catch {
     /* keep empty on bad date */
   }
-  return { time, text: redactBuildLogSecrets(message || label), kind };
+  return { time, text: redactBuildLogSecrets(stripControlChars(message || label)), kind };
+}
+
+/**
+ * Map the newest-first /logs slice into CHRONOLOGICAL terminal lines (oldest→newest, newest LAST),
+ * dropping Claude Code control-plane + provider-transport noise. Pure + exported so the ordering
+ * contract is unit-tested.
+ *
+ * WHY the reverse: the /logs API returns rows `created_at DESC` (newest first — correct for the
+ * admin audit LIST). A live TERMINAL reads top→bottom and auto-scrolls to the BOTTOM, so it must
+ * render oldest→newest — otherwise new lines prepend off-screen at the top while the viewport stays
+ * pinned to the oldest line and the whole stream looks FROZEN (defeating STREAMING BUILD THEATER).
+ */
+export function buildTerminalLines(logs: LogEntry[]): BuildLogLine[] {
+  return logs
+    .slice()
+    .reverse()
+    .map(toBuildLogLine)
+    .filter((l) => !isBuildLogNoise(l.text));
 }
 
 /**
@@ -228,6 +279,51 @@ export function formatHeartbeat(
   return idle > 10
     ? `still building — ${fmt(elapsed)} elapsed · working (${fmt(idle)} since last update)`
     : `building — ${fmt(elapsed)} elapsed`;
+}
+
+/**
+ * Derive the current build step + label from the fetched audit logs and the site status. Pure +
+ * exported for unit coverage. Prefers the furthest-reached `workflow.*` PIPELINE_STEP action in the
+ * log window; falls back to the coarse site-status map when no pipeline action is present.
+ *
+ * IMPORTANT: the /logs window is capped (200 rows). During STREAMING BUILD THEATER a heavy build
+ * floods the window with `claude.output` lines, pushing the early `workflow.*` events OUT of it —
+ * so a fresh derivation can drop back to step 1. The caller applies a MONOTONIC guard on top of
+ * this so the visible progress never regresses. Kept pure/windowed here; the never-go-backward
+ * policy lives in the component.
+ *
+ * @param logs - The fetched audit-log slice (newest-first, capped).
+ * @param siteStatus - The site's lifecycle status (authoritative forward signal, never windowed).
+ * @returns The derived `{ step, label }` for this poll (pre-monotonic).
+ */
+export function deriveBuildStep(
+  logs: LogEntry[],
+  siteStatus: string,
+): { step: number; label: string } {
+  const logActions = new Set(logs.map((l) => l.action));
+  let step = 1;
+  let label = 'Preparing your project...';
+  for (const pipelineStep of PIPELINE_STEPS) {
+    if (logActions.has(pipelineStep.action) && pipelineStep.step >= step) {
+      step = pipelineStep.step;
+      label = pipelineStep.label;
+    }
+  }
+  if (step === 1 && siteStatus !== 'building') {
+    const statusMap: Record<string, { step: number; label: string }> = {
+      collecting: { step: 2, label: 'Researching your business...' },
+      imaging: { step: 3, label: 'Generating images and assets...' },
+      generating: { step: 5, label: 'Generating pages...' },
+      uploading: { step: 7, label: 'Uploading files...' },
+      published: { step: 8, label: 'Your site is live!' },
+    };
+    const mapped = statusMap[siteStatus];
+    if (mapped) {
+      step = mapped.step;
+      label = mapped.label;
+    }
+  }
+  return { step, label };
 }
 
 @Component({
@@ -263,11 +359,7 @@ export class WaitingComponent implements OnInit, OnDestroy {
    * owner sees a clean build story, never `402 Insufficient Balance` or model-catalog
    * warnings — a real build error still renders (red) because the filter is specific.
    */
-  logLines = computed<BuildLogLine[]>(() =>
-    this.logs()
-      .map(toBuildLogLine)
-      .filter((l) => !isBuildLogNoise(l.text)),
-  );
+  logLines = computed<BuildLogLine[]>(() => buildTerminalLines(this.logs()));
 
   /** Per-phase chips with live state derived from the current step + status. */
   phases = computed<BuildPhaseChip[]>(() => {
@@ -380,35 +472,16 @@ export class WaitingComponent implements OnInit, OnDestroy {
   }
 
   private updateStatusFromLogs(logs: LogEntry[], siteStatus: string): void {
-    const logActions = new Set(logs.map((l) => l.action));
-
-    let latestStep = 1;
-    let latestLabel = 'Preparing your project...';
-
-    for (const pipelineStep of PIPELINE_STEPS) {
-      if (logActions.has(pipelineStep.action) && pipelineStep.step >= latestStep) {
-        latestStep = pipelineStep.step;
-        latestLabel = pipelineStep.label;
-      }
+    const derived = deriveBuildStep(logs, siteStatus);
+    // MONOTONIC — a build only moves forward. When a heavy live build floods the DESC-ordered
+    // 200-log window with claude.output lines, the early workflow.* events scroll OUT of it, so a
+    // fresh derivation would REGRESS (e.g. back to "Starting…") and the progress bar would appear
+    // to restart mid-build. Never let the visible step go backward; hold the last real label when
+    // the window momentarily loses the phase events.
+    if (derived.step >= this.currentStep()) {
+      this.currentStep.set(derived.step);
+      this.statusMessage.set(derived.label);
     }
-
-    if (latestStep === 1 && siteStatus !== 'building') {
-      const statusMap: Record<string, { step: number; label: string }> = {
-        collecting: { step: 2, label: 'Researching your business...' },
-        imaging: { step: 3, label: 'Generating images and assets...' },
-        generating: { step: 5, label: 'Generating pages...' },
-        uploading: { step: 7, label: 'Uploading files...' },
-        published: { step: 8, label: 'Your site is live!' },
-      };
-      const mapped = statusMap[siteStatus];
-      if (mapped) {
-        latestStep = mapped.step;
-        latestLabel = mapped.label;
-      }
-    }
-
-    this.currentStep.set(latestStep);
-    this.statusMessage.set(latestLabel);
   }
 
   goHome(): void {

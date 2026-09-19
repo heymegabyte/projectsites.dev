@@ -1,12 +1,20 @@
 import {
   redactBuildLogSecrets,
+  stripControlChars,
   toBuildLogLine,
+  buildTerminalLines,
   classifyLogLine,
   isBuildLogNoise,
   resolveBuildOutcome,
+  deriveBuildStep,
   formatHeartbeat,
 } from './waiting.component';
 import type { LogEntry } from '../../services/api.service';
+
+const ESC = String.fromCharCode(27);
+const CR = String.fromCharCode(13);
+const mkLog = (action: string, message: string, created_at: string): LogEntry =>
+  ({ action, created_at, metadata_json: JSON.stringify({ message }) }) as LogEntry;
 
 describe('formatHeartbeat (terminal keeps breathing during long build gaps)', () => {
   const START = Date.parse('2026-09-15T12:00:00Z');
@@ -172,5 +180,66 @@ describe('isBuildLogNoise (drops control-plane + transport noise from the termin
     for (const m of ['writing src/App.tsx', '✓ created 12 sections', "Error: Cannot find module './Hero'"]) {
       expect(isBuildLogNoise(m)).toBe(false);
     }
+  });
+});
+
+describe('stripControlChars (ANSI / control-byte scrub, mirror of build_log.ts)', () => {
+  it('strips ANSI colour + cursor sequences', () => {
+    expect(stripControlChars(ESC + '[32m' + 'created Hero.tsx' + ESC + '[0m')).toBe('created Hero.tsx');
+    expect(stripControlChars(ESC + '[2K' + ESC + '[1G' + 'installing deps')).toBe('installing deps');
+  });
+
+  it('collapses a carriage-return progress spinner to its final frame', () => {
+    expect(stripControlChars('building' + CR + 'building.' + CR + 'built ok')).toBe('built ok');
+  });
+
+  it('keeps tabs + unicode, drops DEL', () => {
+    const TAB = String.fromCharCode(9);
+    expect(stripControlChars('a' + TAB + 'b')).toBe('a' + TAB + 'b');
+    expect(stripControlChars('rocket ' + String.fromCharCode(127) + 'go')).toBe('rocket go');
+  });
+
+  it('toBuildLogLine renders a colour-wrapped stdout line as clean text', () => {
+    const line = toBuildLogLine(mkLog('claude.output', ESC + '[36m' + 'writing src/App.tsx' + ESC + '[0m', '2026-09-19T12:00:00Z'));
+    expect(line.text).toBe('writing src/App.tsx');
+  });
+});
+
+describe('buildTerminalLines (DESC audit rows → chronological terminal, newest LAST)', () => {
+  it('reverses newest-first logs so the newest line is at the BOTTOM (auto-scroll follows it)', () => {
+    // The /logs API returns created_at DESC — index 0 is the NEWEST row.
+    const descLogs: LogEntry[] = [
+      mkLog('claude.output', 'third (newest)', '2026-09-19T12:00:03Z'),
+      mkLog('claude.output', 'second', '2026-09-19T12:00:02Z'),
+      mkLog('claude.output', 'first (oldest)', '2026-09-19T12:00:01Z'),
+    ];
+    const lines = buildTerminalLines(descLogs);
+    expect(lines[0].text).toBe('first (oldest)');
+    expect(lines[lines.length - 1].text).toBe('third (newest)'); // newest LAST → visible after auto-scroll
+  });
+
+  it('still drops control-plane noise from the terminal', () => {
+    const lines = buildTerminalLines([
+      mkLog('claude.output', 'API Error: 402 Insufficient Balance', '2026-09-19T12:00:02Z'),
+      mkLog('claude.output', 'writing src/App.tsx', '2026-09-19T12:00:01Z'),
+    ]);
+    expect(lines.map((l) => l.text)).toEqual(['writing src/App.tsx']);
+  });
+});
+
+describe('deriveBuildStep + monotonic progress (windowed logs must not regress the bar)', () => {
+  it('derives the furthest-reached pipeline step from the log window', () => {
+    const logs = [
+      mkLog('workflow.started', '', '2026-09-19T12:00:01Z'),
+      mkLog('workflow.step.structure_plan_complete', '', '2026-09-19T12:00:02Z'),
+    ];
+    expect(deriveBuildStep(logs, 'generating').step).toBe(4);
+  });
+
+  it('falls back to the site-status map when no pipeline action is in the window', () => {
+    // The claude.output flood pushed all workflow.* events out of the 200-row window.
+    const floodOnly = [mkLog('claude.output', 'writing Hero.tsx', '2026-09-19T12:05:00Z')];
+    expect(deriveBuildStep(floodOnly, 'generating').step).toBe(5); // status map, not step 1
+    expect(deriveBuildStep(floodOnly, 'building').step).toBe(1); // still building, no map → step 1
   });
 });
