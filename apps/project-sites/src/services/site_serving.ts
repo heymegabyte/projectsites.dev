@@ -1498,7 +1498,11 @@ export function applyServedRouteDescription(html: string, requestPath: string): 
   const cityMatch = current.match(/Proudly serving\s+(.+?)\s+and the surrounding area/i);
   const city = (cityMatch?.[1] ?? '').trim();
   let next = servedRouteDescription(seg, name, city);
-  if (next.length > 156) next = next.slice(0, 156).replace(/\s+\S*$/, '').trim();
+  if (next.length > 156)
+    next = next
+      .slice(0, 156)
+      .replace(/\s+\S*$/, '')
+      .trim();
   if (next.toLowerCase() === current.toLowerCase()) return html;
   let out = rewriteServedMetaTitle(html, 'description', current, next);
   out = rewriteServedMetaTitle(out, 'og:description', current, next);
