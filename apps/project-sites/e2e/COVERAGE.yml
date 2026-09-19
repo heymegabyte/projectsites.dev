@@ -54,6 +54,7 @@ site_management:
 
 admin_sections:
   billing:          { status: covered, specs: [admin-and-billing.spec.ts] }
+  billing_nav_clickpath: { status: covered, specs: [admin-verify/verify-billing-nav-clickpath.mjs] }  # FULL-JOURNEY: dashboard → account-menu → "Billing & credits" CLICK-PATH is a live SPA nav (window sentinel survives = no full reload) to a real billing surface, 0 console errors. Closes the goto-teleport gap in verify-billing-checkout.mjs (which proves the iframe MOUNT but page.goto's past the nav).
   docs:             { status: covered, specs: [admin-docs.spec.ts] }
   modals:           { status: covered, specs: [admin-modals.spec.ts] }
   upgrades:         { status: covered, specs: [admin-upgrades-30.spec.ts] }

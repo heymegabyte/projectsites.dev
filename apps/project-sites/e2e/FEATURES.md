@@ -56,6 +56,7 @@
 | Admin sysadmin — 5 checks | `admin-sysadmin.spec.ts` | convergence | GREEN | 5 tests ✅ |
 | Admin editor — 3 checks | `admin-editor.spec.ts` | convergence | GREEN | 3 tests ✅ |
 | Admin voice/billing — 5 checks | `admin-voice-billing.spec.ts` | convergence | GREEN | 5 tests ✅ |
+| Billing conversion — dashboard → **Billing nav CLICK-PATH** (SPA, no reload) | `admin-verify/verify-billing-nav-clickpath.mjs` | loop | GREEN | FULL-JOURNEY: the click-path the checkout-mount probe teleported past. Home→seed session→/admin→click account menu (aria-expanded)→click "Billing & credits"→SPA route to /admin/billing (window sentinel survives = no full reload)→real billing surface (bodyLen 1765, no crash)→0 console errors. Verified live on prod. Complements `verify-billing-checkout.mjs` (iframe mount). |
 | Admin site detail — 12 checks | `admin-site-detail.spec.ts` | convergence | GREEN | 12 tests ✅ |
 | Marketing SEO — 9 route metadata | `marketing-seo.spec.ts` | convergence | GREEN | 14 tests ✅ |
 | Security headers — extended | `security-headers-extended.spec.ts` | convergence | GREEN | 6 tests ✅ |
