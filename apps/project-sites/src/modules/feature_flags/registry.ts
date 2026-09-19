@@ -365,6 +365,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  content_import: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Content Import: parse a platform export (WordPress/Squarespace/Wix/Webflow/CSV/RSS) into normalized ContentItem[].\n\n• isFlagOn-gated — off 404, unauth 401. Zod-validated, pure (no writes/state).\n• POST /api/content-import/parse {source, raw} → {source, count, items}. A malformed export → typed 400; raw capped at 200 KB (< the 256 KB body limit).\n• Wraps the already-unit-tested parsers in src/services/content_import.ts (previously reachable by NO route). Off → the route 404s. Seeding parsed items into a build is a follow-on.',
+    key: 'content_import',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   scheduled_publish: {
     default_enabled: false,
     default_rollout_percent: 0,

@@ -179,6 +179,7 @@ import { siteDoctor } from '../libs/features/site_doctor/handlers.js'; // owner-
 import { previewShareCard } from '../libs/features/preview_share_card/handlers.js'; // GET /api/sites/:siteId/share-card — owner share messages+links+OG (flag: preview_share_card)
 import { promptStudio } from '../libs/features/prompt_studio/handlers.js'; // prompt versioning surface (flag: prompt_studio)
 import { promptSchedule } from '../libs/features/prompt_schedule/handlers.js'; // time-windowed prompt-variant activation (flag: prompt_schedule)
+import { contentImport } from '../libs/features/content_import/handlers.js'; // parse platform exports → normalized items (flag: content_import)
 import { sitePublishSchedule } from '../libs/features/site_publish_schedule/handlers.js'; // scheduled site go-live (flag: scheduled_publish)
 import { aiGatewayGuardrails } from '../libs/features/ai_gateway_guardrails/handlers.js'; // Llama Guard middleware (flag: ai_gateway_guardrails)
 import { wireframePlanning } from '../libs/features/wireframe_planning/handlers.js'; // pre-gen wireframe plan (flag: wireframe_planning)
@@ -1057,6 +1058,7 @@ app.route('/', siteDoctor); // /api/sites/:siteId/doctor (flag: site_doctor)
 app.route('/', previewShareCard); // /api/sites/:siteId/share-card (flag: preview_share_card)
 app.route('/', promptStudio); // /api/prompt-studio/* (flag: prompt_studio)
 app.route('/', promptSchedule); // /api/prompt-schedules/* (flag: prompt_schedule) — time-windowed prompt-variant activation
+app.route('/', contentImport); // /api/content-import/parse (flag: content_import) — parse platform exports → normalized items
 app.route('/', sitePublishSchedule); // /api/sites/:id/publish-schedule (flag: scheduled_publish) — scheduled site go-live
 app.route('/', aiGatewayGuardrails); // /api/guardrails/* (flag: ai_gateway_guardrails)
 app.route('/', wireframePlanning); // /api/wireframe/* (flag: wireframe_planning)
