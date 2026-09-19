@@ -1468,6 +1468,13 @@ export interface SiteTrafficSummary {
   pageviews: number;
   uniqueSessions: number;
   conversions: number;
+  /**
+   * TRUE single-page-session bounce, computed by the Worker from D1
+   * `visitor_events` session depth: integer 0–100 = % of sessions that saw
+   * exactly one page; `null`/absent when there is no per-session data yet.
+   * When present it is preferred over the edge `2 − pagesPerVisit` proxy.
+   */
+  bounceRatePercent?: number | null;
   topPaths: { path: string; count: number; uniques: number }[];
   byType: { type: string; count: number }[];
   byDevice: { label: string; count: number }[];

@@ -196,6 +196,7 @@ export async function getTrafficSummary(
     prevSessions,
     prevConversions,
     byCountryRows,
+    bounceRows,
   ] = await Promise.all([
     scalar(env, `SELECT COUNT(*) AS n FROM visitor_events WHERE ${w} AND event_type = 'pageview'`, [
       siteId,
@@ -251,6 +252,16 @@ export async function getTrafficSummary(
        WHERE ${w} AND event_type = 'pageview' GROUP BY label ORDER BY n DESC`,
       [siteId, since],
     ).then((r) => (r.error ? [] : r.data)),
+    // True single-page-session bounce: count sessions and how many had exactly 1
+    // pageview, via a per-session depth subquery. Fails soft to zeros on any error.
+    dbQuery<{ sessions: number; single: number }>(
+      env.DB,
+      `SELECT COUNT(*) AS sessions, SUM(CASE WHEN pv = 1 THEN 1 ELSE 0 END) AS single FROM (
+         SELECT session_id, COUNT(*) AS pv FROM visitor_events
+          WHERE ${w} AND event_type = 'pageview' AND session_id IS NOT NULL
+          GROUP BY session_id)`,
+      [siteId, since],
+    ).then((r) => (r.error || !r.data[0] ? { sessions: 0, single: 0 } : r.data[0])),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -267,11 +278,16 @@ export async function getTrafficSummary(
   const byDevice = toLabelCounts(byDeviceRows);
   const byChannel = toLabelCounts(byChannelRows);
   const byCountry = toLabelCounts(byCountryRows);
+  const bounceRatePercent =
+    bounceRows.sessions > 0
+      ? Math.round((Number(bounceRows.single) / Number(bounceRows.sessions)) * 100)
+      : null;
 
   return TrafficSummarySchema.parse({
     pageviews,
     uniqueSessions,
     conversions,
+    bounceRatePercent,
     topPaths,
     byType,
     byDevice,
@@ -365,6 +381,9 @@ export async function getTrafficSummaryFromRollup(
     pageviews: cur.pageviews,
     uniqueSessions: cur.uniqueSessions,
     conversions: cur.conversions,
+    // The analytics_daily rollup has no per-session depth, so true single-page-session
+    // bounce can't be computed here — null is honest (never fabricate from day sums).
+    bounceRatePercent: null,
     topPaths: pathRows.map((r) => ({ path: String(r.k ?? '/'), count: Number(r.c), uniques: Number(r.u) })),
     byType: typeRows.map((r) => ({ type: String(r.k ?? 'unknown'), count: Number(r.c) })),
     byDevice: deviceRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),

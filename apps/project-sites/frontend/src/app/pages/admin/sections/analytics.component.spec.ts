@@ -774,3 +774,94 @@ describe('AdminAnalyticsComponent (Top referrers — accurate channel labels)', 
       .toEqual(['/', '/contact', '/blog/launch']);
   });
 });
+
+/**
+ * Bounce rate must PREFER the true D1 session-depth bounce
+ * (`traffic.bounceRatePercent`) over the edge `2 − pagesPerVisit` proxy.
+ * `bounceRatePercent` is populated onto the `siteTraffic` signal from the
+ * `GET /api/sites/:id/analytics` response; the proxy is the fallback only.
+ */
+describe('AdminAnalyticsComponent (bounce rate — true D1 value wins over edge proxy)', () => {
+  let fixture: ComponentFixture<AdminAnalyticsComponent>;
+  let selectedSite: WritableSignal<{ id: string } | null>;
+
+  function build(initial: { id: string } | null): void {
+    selectedSite = signal<{ id: string } | null>(initial);
+    TestBed.configureTestingModule({
+      imports: [AdminAnalyticsComponent],
+      providers: [
+        {
+          provide: ApiService,
+          useValue: {
+            getMultiUrlAnalytics: jasmine.createSpy('getMultiUrlAnalytics').and.returnValue(of({ data: null })),
+            listSiteUrls: jasmine.createSpy('listSiteUrls').and.returnValue(of({ data: [] })),
+            getCloudflareCredentialStatus: jasmine.createSpy('getCloudflareCredentialStatus').and.returnValue(of({ data: null })),
+            getSiteAnalytics: () => of(null),
+            getSiteAnalyticsDaily: () => of(null),
+            addSiteUrl: jasmine.createSpy('addSiteUrl').and.returnValue(of({})),
+            getNetworkAnalytics: jasmine.createSpy('getNetworkAnalytics').and.returnValue(of({ data: null })),
+          },
+        },
+        { provide: ToastService, useValue: { error: jasmine.createSpy('error'), success: jasmine.createSpy('success') } },
+        { provide: PromptService, useValue: { prompt: jasmine.createSpy('prompt').and.resolveTo(null) } },
+        { provide: Router, useValue: { navigateByUrl: jasmine.createSpy('navigateByUrl'), navigate: jasmine.createSpy('navigate').and.resolveTo(true) } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } } } },
+        { provide: AdminStateService, useValue: { selectedSite } },
+      ],
+    });
+    fixture = TestBed.createComponent(AdminAnalyticsComponent);
+    fixture.detectChanges();
+  }
+
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('returns the TRUE bounceRatePercent (42) even when the pages/visit proxy would say otherwise', () => {
+    build({ id: 's1' });
+    const c = fixture.componentInstance;
+    // Proxy inputs (ppv 1.2 → proxy 80%) — must be OVERRIDDEN by the true value.
+    c.envelope.set({ series: [], pageviews: 12, uniques: 10, total_requests: 12 } as never);
+    c.siteTraffic.set({
+      pageviews: 12,
+      uniqueSessions: 10,
+      conversions: 0,
+      bounceRatePercent: 42,
+      topPaths: [],
+      byType: [],
+      byDevice: [],
+      byChannel: [],
+      byCountry: [],
+      previous: { pageviews: 0, uniqueSessions: 0, conversions: 0 },
+      windowDays: 7,
+    } as never);
+    expect(c.bounceRate()).withContext('true D1 value wins over the proxy').toBe(42);
+    expect(c.bounceIsMeasured()).withContext('measured flag reflects the true value').toBe(true);
+  });
+
+  it('accepts a true 0% bounce (present-but-zero is measured, not "no data")', () => {
+    build({ id: 's1' });
+    const c = fixture.componentInstance;
+    c.envelope.set({ series: [], pageviews: 30, uniques: 10, total_requests: 30 } as never);
+    c.siteTraffic.set({ pageviews: 30, uniqueSessions: 10, conversions: 0, bounceRatePercent: 0 } as never);
+    expect(c.bounceRate()).withContext('0 is a real measured value, not null').toBe(0);
+    expect(c.bounceIsMeasured()).toBe(true);
+  });
+
+  it('falls back to the edge proxy when bounceRatePercent is null (ppv 1.2 → 80%)', () => {
+    build({ id: 's1' });
+    const c = fixture.componentInstance;
+    c.envelope.set({ series: [], pageviews: 12, uniques: 10, total_requests: 12 } as never);
+    c.siteTraffic.set({ pageviews: 12, uniqueSessions: 10, conversions: 0, bounceRatePercent: null } as never);
+    expect(c.bounceRate()).withContext('proxy = round((2 − 1.2) * 100)').toBe(80);
+    expect(c.bounceIsMeasured()).withContext('proxy value is NOT measured').toBe(false);
+  });
+
+  it('returns null when neither the true value nor a proxy-eligible pages/visit exists (ppv ≥ 2)', () => {
+    build({ id: 's1' });
+    const c = fixture.componentInstance;
+    // ppv = 2.0 → proxy clamps → null; no true value present.
+    c.envelope.set({ series: [], pageviews: 20, uniques: 10, total_requests: 20 } as never);
+    c.siteTraffic.set(null);
+    expect(c.bounceRate()).withContext('honest — no session data, proxy clamped').toBeNull();
+    expect(c.bounceIsMeasured()).toBe(false);
+  });
+});

@@ -61,6 +61,9 @@ export const TrafficSummarySchema = z
     pageviews: z.number().int().min(0),
     uniqueSessions: z.number().int().min(0),
     conversions: z.number().int().min(0),
+    // True single-page-session bounce (% of sessions with exactly 1 pageview),
+    // computed from visitor_events session depth. null when there's no session data.
+    bounceRatePercent: z.number().int().min(0).max(100).nullable().default(null),
     topPaths: z.array(PathCountSchema),
     byType: z.array(TypeCountSchema),
     // AN13 device split + AN10 channel breakdown — from the AN1 metadata

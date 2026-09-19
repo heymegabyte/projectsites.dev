@@ -334,12 +334,14 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
             <div class="skel skel-line w-28 h-3"></div>
           } @else {
             <div class="muted-h">Bounce rate</div>
-            <div class="text-3xl font-bold text-white mt-1 leading-none tabular" [title]="bounceRate() == null ? 'No session data at this source' : 'Estimated ~' + bounceRate() + '% single-page sessions — approximated from pages/visit (no per-session data at this source)'">
+            <div class="text-3xl font-bold text-white mt-1 leading-none tabular" [title]="bounceRate() == null ? 'No session data at this source' : (bounceIsMeasured() ? 'True single-page-session share from your visitor sessions' : 'Estimated ~' + bounceRate() + '% single-page sessions — approximated from pages/visit (no per-session data at this source)')">
               {{ bounceRate() == null ? '—' : bounceRate() + '%' }}
             </div>
             <div class="text-[0.68rem] text-text-secondary mt-1">
               @if (bounceRate() == null) {
                 Needs per-session data
+              } @else if (bounceIsMeasured()) {
+                session-based · single-page sessions
               } @else {
                 Est. single-page visits · {{ pagesPerVisit() }} pages/visit
               }
@@ -412,7 +414,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
             <!-- Bounce rate also surfaced here — the page list is where "how sticky
                  is traffic?" is the natural question. Site-wide estimate; "—" when
                  per-session data is unavailable (never a fabricated number). -->
-            <span class="stat-pill" [title]="bounceRate() == null ? 'No per-session data at this source' : 'Estimated single-page-session share across the site'">
+            <span class="stat-pill" [title]="bounceRate() == null ? 'No per-session data at this source' : (bounceIsMeasured() ? 'True single-page-session share from your visitor sessions' : 'Estimated single-page-session share across the site')">
               Bounce {{ bounceRate() == null ? '—' : bounceRate() + '%' }}
             </span>
           </div>
@@ -856,6 +858,13 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
 
   /** Aggregated CF GraphQL envelope from `GET /api/sites/:id/analytics`. */
   envelope = signal<MultiUrlAnalyticsEnvelope | null>(null);
+  /**
+   * The `.traffic` block from `GET /api/sites/:id/analytics` (D1 `visitor_events`).
+   * Held so the bounce KPI can PREFER its true `bounceRatePercent` (session-depth
+   * bounce) over the edge `2 − pagesPerVisit` proxy. `null` until a site resolves
+   * or when the analytics route is 404/off.
+   */
+  siteTraffic = signal<SiteTrafficSummary | null>(null);
   /**
    * Where the KPI numbers came from: `edge` = CF-zone HTTP-request dataset (custom
    * domains), `beacon` = D1 `visitor_events` overlay (every `*.projectsites.dev`
@@ -1390,10 +1399,21 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
    * signal, stop asserting an unsupportable 0% where it clamps.)
    */
   bounceRate = computed<number | null>(() => {
+    // TRUE single-page-session bounce from the D1 beacon (visitor_events session depth) — preferred.
+    const real = this.siteTraffic()?.bounceRatePercent;
+    if (real != null) return real;
+    // Fallback: the labelled edge proxy (only carries signal below 2 pages/visit).
     const ppv = this.pagesPerVisit();
     if (ppv == null || ppv >= 2) return null;
     return Math.round((2 - ppv) * 100);
   });
+
+  /**
+   * `true` when the bounce figure is the TRUE session-depth bounce from
+   * `visitor_events` (not the edge proxy) — drives the "session-based" subtitle
+   * + honest title copy on the KPI tile.
+   */
+  bounceIsMeasured = computed(() => this.siteTraffic()?.bounceRatePercent != null);
 
   kpiBounceLabel = computed(() => {
     if (this.loading() && !this.envelope()) return 'Bounce rate, loading';
@@ -1577,6 +1597,9 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
       next: (r) => {
         let env = r.analytics.data;
         const traffic = r.site?.traffic;
+        // Keep the raw traffic block so the bounce KPI can prefer the true
+        // session-depth bounce (`bounceRatePercent`) over the edge proxy.
+        this.siteTraffic.set(traffic ?? null);
         // Fall back to visitor_events whenever the CF-zone envelope is missing or
         // reports no real data but the site actually HAS recorded pageviews — this
         // is the fix for the "never had any traffic" lying-empty (CF-zone is blind
