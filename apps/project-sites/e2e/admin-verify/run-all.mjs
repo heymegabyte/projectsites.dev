@@ -38,6 +38,7 @@ const PROBES = [
   { label: 'admin-cwv', file: 'verify-admin-cwv.mjs', env: {} },
   { label: 'reconcile', file: 'reconcile-surfaces.mjs', env: {} },
   { label: 'reconcile-counts', file: 'reconcile-counts.mjs', env: {} },
+  { label: 'returning-owner-journey', file: 'verify-returning-owner-journey.mjs', env: {} },
   { label: 'dashboard-rollup', file: 'verify-dashboard-status-rollup-causal.mjs', env: {} },
   { label: 'billing-entitlements', file: 'verify-billing-entitlements-display.mjs', env: {} },
   { label: 'notif-badge', file: 'verify-notification-badge-honest.mjs', env: {} },
