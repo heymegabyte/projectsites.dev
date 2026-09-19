@@ -319,3 +319,17 @@ correctness/bugs · Zod at every boundary · TS strictness (no `any`/`@ts-ignore
 - **★ SHIPPED (defense-in-depth — the one reviewer note) — `site_serving.ts` slug charset guard:** `slug` is derived from the Host subdomain label + interpolated UNESCAPED into the served unpaid top-bar HTML. Non-exploitable (DNS constrains the label to `[a-z0-9-]` before routing), but the file relied on that IMPLICIT network guarantee. Added an explicit `if (slug && !/^[a-z0-9-]{1,63}$/.test(slug)) slug = null;` at the single derivation point — the interpolation is now provably injection-safe regardless of source; no-op for every valid slug, a malformed label → null → 404. Escape-the-sink / don't-rely-on-upstream doctrine.
 - **★ VERIFY:** typecheck clean; `site_serving` suites **137/137 green**. Worker → CI on push.
 - **Files mine:** `src/services/site_serving.ts` · `_CODE_SWEEP_LEDGER.md`. Protected files untouched. **Still tracked (dedicated non-saturated fires):** `content_import.ts` wire-or-remove · `domains.ts` registrar · full kimi/fable routing.
+
+### Fire 34 — 2026-09-18 — money-path security review: billing.ts VERIFIED CLEAN (comprehensive); wallet.ts is dead code
+- **Verify-before-implement:** git clean · prod 200 · build-LLM dead (DeepSeek −0.56, fresh). Focused review of the LIVE Stripe money path (highest-value un-swept target).
+- **`billing.ts` + live handlers (`libs/features/billing/handlers.ts`) + `webhooks.ts` + entitlements: VERIFIED CLEAN** across every billing bug-class that has bitten this file before:
+  - Entitlement fail-OPEN → NONE: `getOrgEntitlements` → `resolveActiveOrgPlan`; a D1 error → `null` → `'free'` (fails CLOSED, no revenue leak).
+  - `dbQueryOne` fail-closed gate → correct: `checkBuildLimit` deliberately uses `dbQuery` + `.error` retry-then-deny (my AL-784 fix, **confirmed holding**).
+  - plan≠status → correct: every gate routes through the shared `resolveActiveOrgPlan` SSOT (`status IN ('active','trialing')`) — no `active`-only gate wrongly excluding trialing.
+  - Checkout/portal IDOR → gated: `orgId` from `c.get('orgId')`, `forbidden()` on a body-org mismatch; portal scoped to a session-org customer lookup.
+  - Webhook idempotency+signature → sound: Stripe sig verified (timing-safe, replay-window) BEFORE parsing; idempotency keyed on TERMINAL status + `UNIQUE(provider,event_id)` race guard (no double-credit); non-terminal rows reprocess.
+  - Response-key drift → locked: checkout `{data:{checkout_url,session_id}}` / portal `{data:{portal_url}}` match the FE reads exactly, with regression specs.
+  - No Stripe-key/customer-email logged; no `any`/`!`/`@ts-ignore` on the money path.
+- **★ FINDING (dead code) — `wallet.ts` has ZERO callers** (`git grep` in src, excl self+tests): another built-but-unwired feature (like `content_import.ts`) — a wire-or-remove candidate, NOT a live money path. Tracked (dedicated fire).
+- **Note (cosmetic drift — per drift-detection, cosmetic warns not blocks):** the `api.ts` JSDoc route table still lists billing routes that MOVED to `libs/features/billing/handlers.ts` — doc drift, zero functional impact. Tracked.
+- **No code change** — a comprehensively-verified-clean money path is the deliverable (validator-precision: don't churn a well-hardened surface). **Codebase now at code-quality convergence:** sanitize/redact/build_budget/build_limits/external_llm/notifications/site_serving/auth/billing all verified/hardened this session.
