@@ -20,8 +20,56 @@ import {
   conflict,
   type HostnameState,
 } from '@project-sites/shared';
+import { z } from 'zod';
 import { dbQuery, dbQueryOne, dbInsert, dbUpdate } from './db.js';
 import type { Env } from '../types/env.js';
+
+/**
+ * Cloudflare custom-hostname API response — only the fields provisioning + verification read.
+ * `result.status` is the core required field; `id`/`ssl`/`verification_errors` are optional (absent
+ * pre-SSL / when there are no errors). Unknown extra CF fields are ignored, so this fails ONLY on
+ * genuine shape-drift of a critical field — the point of validating a LOAD-BEARING vendor's boundary
+ * (vendor-risk-tiering + zod-everywhere) instead of a bare `as` cast that silently yields `undefined`.
+ */
+const CfCustomHostnameResponseSchema = z.object({
+  result: z.object({
+    id: z.string().optional(),
+    status: z.string(),
+    ssl: z.object({ status: z.string() }).partial().optional(),
+    verification_errors: z.array(z.string()).optional(),
+  }),
+});
+type CfCustomHostnameResponse = z.infer<typeof CfCustomHostnameResponseSchema>;
+
+/**
+ * Parse a CF custom-hostname API response, failing SOFT. On shape-drift (a renamed/missing
+ * `result.status` etc.) it logs a structured warn — making CF API drift OBSERVABLE instead of the
+ * silent `undefined` an `as` cast propagates — and returns a safe `{status:'unknown'}` fallback so
+ * provisioning/verification never throws. Exported for unit coverage.
+ *
+ * @param json - The raw parsed JSON body from a CF custom-hostname endpoint.
+ * @param ctx  - `{ fn, hostname? }` for the drift warn's correlation fields.
+ * @returns The validated response, or a `{result:{status:'unknown'}}` fallback on drift.
+ * @example parseCfCustomHostname({ result: { id: 'abc', status: 'active' } }, { fn: 'x' }).result.status // 'active'
+ */
+export function parseCfCustomHostname(
+  json: unknown,
+  ctx: { fn: string; hostname?: string },
+): CfCustomHostnameResponse {
+  const parsed = CfCustomHostnameResponseSchema.safeParse(json);
+  if (parsed.success) return parsed.data;
+  console.warn(
+    JSON.stringify({
+      level: 'warn',
+      service: 'domains',
+      message: 'CF custom-hostname response shape drift — validate the CF API contract',
+      fn: ctx.fn,
+      hostname: ctx.hostname,
+      issues: parsed.error.issues.slice(0, 4).map((i) => `${i.path.join('.') || '(root)'}:${i.code}`),
+    }),
+  );
+  return { result: { status: 'unknown' } };
+}
 
 /**
  * Domain provisioner interface for dependency injection / testing.
@@ -92,9 +140,10 @@ export async function createCustomHostname(
     throw badRequest(`Failed to create custom hostname: ${err}`);
   }
 
-  const data = (await response.json()) as {
-    result: { id: string; status: string; ssl: { status: string } };
-  };
+  const data = parseCfCustomHostname(await response.json(), {
+    fn: 'createCustomHostname',
+    hostname,
+  });
 
   console.warn(
     JSON.stringify({
@@ -107,7 +156,7 @@ export async function createCustomHostname(
     }),
   );
   return {
-    cf_id: data.result.id,
+    cf_id: data.result.id ?? '',
     status: data.result.status,
     ssl_status: data.result.ssl?.status ?? 'unknown',
   };
@@ -138,9 +187,10 @@ export async function checkHostnameStatus(
     throw notFound('Custom hostname not found');
   }
 
-  const data = (await response.json()) as {
-    result: { status: string; ssl: { status: string }; verification_errors?: string[] };
-  };
+  const data = parseCfCustomHostname(await response.json(), {
+    fn: 'checkHostnameStatus',
+    hostname: cfCustomHostnameId,
+  });
 
   return {
     status: data.result.status,

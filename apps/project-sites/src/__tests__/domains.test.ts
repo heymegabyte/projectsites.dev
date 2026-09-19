@@ -18,6 +18,7 @@ import {
   setPrimaryHostname,
   checkCnameTarget,
   getPrimaryHostname,
+  parseCfCustomHostname,
 } from '../services/domains.js';
 import { AppError } from '@project-sites/shared';
 
@@ -891,5 +892,81 @@ describe('getPrimaryHostname', () => {
     const result = await getPrimaryHostname(mockDb, 'site-empty');
 
     expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseCfCustomHostname — Zod-validated CF-API boundary (vendor-risk-tiering)
+// ---------------------------------------------------------------------------
+describe('parseCfCustomHostname', () => {
+  it('passes a well-formed CF response through unchanged', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const json = {
+      result: {
+        id: 'cf-host-abc',
+        status: 'active',
+        ssl: { status: 'active' },
+        verification_errors: ['dns pending'],
+      },
+    };
+
+    const out = parseCfCustomHostname(json, { fn: 'createCustomHostname', hostname: 'x.com' });
+
+    expect(out.result.id).toBe('cf-host-abc');
+    expect(out.result.status).toBe('active');
+    expect(out.result.ssl?.status).toBe('active');
+    expect(out.result.verification_errors).toEqual(['dns pending']);
+    // A valid response must NOT emit a drift warn.
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('parses a minimal response (status only) — id/ssl/errors optional pre-SSL', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const out = parseCfCustomHostname({ result: { status: 'pending' } }, { fn: 'checkHostnameStatus' });
+
+    expect(out.result.status).toBe('pending');
+    expect(out.result.id).toBeUndefined();
+    expect(out.result.ssl).toBeUndefined();
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('fails SOFT on shape-drift — returns {status:"unknown"} fallback and logs a structured warn', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // result.status renamed/removed = genuine drift of the one required field.
+    const drifted = { result: { id: 'cf-1', state: 'active' } };
+
+    const out = parseCfCustomHostname(drifted, { fn: 'createCustomHostname', hostname: 'drift.com' });
+
+    expect(out.result.status).toBe('unknown');
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const logged = JSON.parse((warnSpy.mock.calls[0] as unknown[])[0] as string);
+    expect(logged.level).toBe('warn');
+    expect(logged.service).toBe('domains');
+    expect(logged.fn).toBe('createCustomHostname');
+    expect(logged.hostname).toBe('drift.com');
+    expect(Array.isArray(logged.issues)).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  it('fails SOFT on a totally malformed body (no result key)', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const out = parseCfCustomHostname({ errors: ['boom'] }, { fn: 'checkHostnameStatus' });
+
+    expect(out.result.status).toBe('unknown');
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it('fails SOFT on null / non-object JSON', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(parseCfCustomHostname(null, { fn: 'checkHostnameStatus' }).result.status).toBe('unknown');
+    expect(parseCfCustomHostname('nope', { fn: 'checkHostnameStatus' }).result.status).toBe('unknown');
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+    warnSpy.mockRestore();
   });
 });
