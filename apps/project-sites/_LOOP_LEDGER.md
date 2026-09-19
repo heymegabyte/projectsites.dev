@@ -5294,3 +5294,10 @@ Verify-before-implement: git HEAD b948c957f (clean of my files). Dim-2 build-sta
 **★ SHIPPED (deliver-path hardening) — `deliver-business.mjs` exit-7 message now surfaces BOTH levers at the failure point:** (1) top up (~$5, real bespoke delivery) OR (2) `BUILD_LLM_ALLOW_SEED_ONLY=1` + `SKIP_LLM_PREFLIGHT=1` (seed-only degraded delivery, regenerate later) — the escape hatch is now discoverable exactly where a delivery fails, with commands. `node --check` clean.
 **The decision is Brian's:** top up for a real delivery, OR enable the seed-only opt-in for a degraded-now delivery. Every GOLDEN-JOURNEY fire fails at this gate until one is chosen.
 **Files mine:** `e2e/admin-verify/deliver-business.mjs` · `_LOOP_LEDGER.md`. Protected files untouched.
+
+## 2026-09-18 — ADMIN INTEGRITY: admin verified honest + regression-free post-deploy (render+a11y @1280/@390 + reconcile 0-divergence)
+**Verify-before-implement:** git clean · prod 200. Ran the admin-verify probes on PROD (real Chromium, seeded `ps_session` from `get-secret E2E_API_KEY` in ENV) — the highest-signal regression check since this session's veil (editor route) + app-shell cold-load skeleton deploys.
+**★ RENDER+A11Y — CLEAN both breakpoints:** `admin-surf-audit.mjs` @1280 AND @390 → all **23 /admin sections render OK** (0 console errors, 0 error-boundary crashes, 0 blank, axe-clean). The veil/app-shell deploys did NOT regress any admin section.
+**★ TRUTHFUL DATA — CLEAN:** `reconcile-surfaces.mjs` (as brian, display vs D1 ground truth) → **0 divergences** — every admin data surface matches the authoritative store (no lying-empty / wrong-source).
+**No code change** — the admin is verified honest + regression-free; validator-precision (don't churn a clean surface). A real post-deploy prod integrity proof across tracks (1) render+a11y and (2) truthful data.
+**Files mine:** `_LOOP_LEDGER.md`.
