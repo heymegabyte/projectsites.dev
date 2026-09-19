@@ -738,6 +738,22 @@ const PACK_DEFAULT_HEROES = [
 ];
 
 /**
+ * City/persona-templated hero "tells" from `hero_copy.ts` `personaHeroCopy()`. These interpolate a
+ * REAL city/category at gen time ("Austin's cozy corner", "Minneapolis's cozy corner"), so the
+ * exact-match {@link PACK_DEFAULT_HEROES} set NEVER catches them — the generic hero ships un-flagged
+ * (franklin-barbecue shipped "Austin's cozy corner" on a world-famous BBQ institution). Each pattern
+ * is a DISTINCTIVE recolored-template signature (validator-precision — unlikely in a genuine
+ * business-specific value proposition); `warn`-only so a rare false-positive is a cheap advisory,
+ * never a build break. Ref: memory `generated-site-hero-h1-is-industry-pack-default`.
+ */
+const PACK_DEFAULT_HERO_PATTERNS: readonly RegExp[] = [
+  /\bcozy corner\b/i, // "{City}'s cozy corner" — the #1 recolored-template tell (hero_copy.ts L556)
+  /\bpull up a chair\b/i, // diner-persona seed
+  /\beveryone has a seat\b/i, // diner-persona seed
+  /\bmade with heart\b/i, // "Good food, made with heart" — the pack about-hero
+];
+
+/**
  * Generic-hero detector — the rendered <h1> must be the REAL business's value proposition, not
  * the per-industry content-pack DEFAULT shipped un-customized. `warn` (advisory) so it TRACKS
  * the class to the D1 audit without breaking builds; the real fix lives in site-gen (apply the AI
@@ -754,7 +770,9 @@ export const validateHeroNotPackDefault = (files: BuildFile[]): Violation[] => {
     const m = stripScripts(file.text).match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
     if (!m) continue;
     const raw = m[1].replace(/<[^>]+>/g, '').trim();
-    if (defaults.has(norm(raw))) {
+    // Exact match against the fixed pack defaults, OR a city/persona-templated tell (which
+    // interpolates a real city so it never exact-matches — the gap that let "Austin's cozy corner" ship).
+    if (defaults.has(norm(raw)) || PACK_DEFAULT_HERO_PATTERNS.some((re) => re.test(raw))) {
       out.push({
         code: 'copy.generic_pack_hero',
         severity: 'warn',

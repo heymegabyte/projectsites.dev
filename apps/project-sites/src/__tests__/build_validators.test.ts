@@ -598,6 +598,29 @@ describe('validateHeroNotPackDefault', () => {
     );
     expect(validateHeroNotPackDefault([f])).toEqual([]);
   });
+
+  // City/persona-templated tells that interpolate a real city → the exact-match set MISSES them
+  // (the gap that let franklin-barbecue ship "Austin's cozy corner" on a world-famous BBQ joint).
+  it('flags a city-templated "{City}\'s cozy corner" persona hero (was un-caught)', () => {
+    for (const h1 of ["Austin's cozy corner", "Minneapolis's cozy corner", "Denver’s cozy corner"]) {
+      const v = validateHeroNotPackDefault([file('index.html', shell(h1))]);
+      expect(v[0]?.code).toBe('copy.generic_pack_hero');
+    }
+  });
+
+  it('flags the "made with heart" + diner-persona pack heroes', () => {
+    for (const h1 of ['Good food, made with heart', 'Pull up a chair', 'Everyone has a seat']) {
+      expect(validateHeroNotPackDefault([file('index.html', shell(h1))])[0]?.code).toBe(
+        'copy.generic_pack_hero',
+      );
+    }
+  });
+
+  it('does NOT false-positive on a genuine business hero lacking the tells', () => {
+    expect(
+      validateHeroNotPackDefault([file('index.html', shell("Franklin Barbecue — Austin's finest brisket, smoked 18 hours"))]),
+    ).toEqual([]);
+  });
 });
 
 describe('validateNoDevSourceModules', () => {
