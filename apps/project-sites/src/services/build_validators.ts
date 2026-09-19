@@ -1479,18 +1479,33 @@ export interface SeoFinalizeReport {
  * category, '' is never returned. Pure → unit-tested.
  */
 const LOCAL_SUBTYPE_RULES: ReadonlyArray<readonly [RegExp, string]> = [
-  [/\b(restaurant|diner|eatery|bistro|steakhouse|taqueria|pizzeria|barbecue|bbq|grill)\b/i, 'Restaurant'],
+  [
+    /\b(restaurant|diner|eatery|bistro|steakhouse|taqueria|pizzeria|barbecue|bbq|grill)\b/i,
+    'Restaurant',
+  ],
   [/\b(cafe|café|coffee|roaster|roastery|espresso|tea\s*house)\b/i, 'CafeOrCoffeeShop'],
   [/\b(bakery|patisserie|pâtisserie|bake\s*shop)\b/i, 'Bakery'],
-  [/\b(bar|pub|brewery|brewpub|taproom|tavern|cocktail|speakeasy|lounge|winery|distillery|meadery)\b/i, 'BarOrPub'],
-  [/\b(salon|barber|barbershop|\bhair\b|nail|\bspa\b|beauty|waxing|lashes)\b/i, 'HealthAndBeautyBusiness'],
+  [
+    /\b(bar|pub|brewery|brewpub|taproom|tavern|cocktail|speakeasy|lounge|winery|distillery|meadery)\b/i,
+    'BarOrPub',
+  ],
+  [
+    /\b(salon|barber|barbershop|\bhair\b|nail|\bspa\b|beauty|waxing|lashes)\b/i,
+    'HealthAndBeautyBusiness',
+  ],
   [/\b(dentist|dental|orthodont)\b/i, 'Dentist'],
-  [/\b(doctor|medical|clinic|physician|chiropract|dermatolog|pediatric|urgent\s*care|wellness)\b/i, 'MedicalBusiness'],
+  [
+    /\b(doctor|medical|clinic|physician|chiropract|dermatolog|pediatric|urgent\s*care|wellness)\b/i,
+    'MedicalBusiness',
+  ],
   [/\b(law|legal|attorney|lawyer|counsel)\b/i, 'LegalService'],
   [/\b(hotel|\binn\b|motel|lodging|bed\s*and\s*breakfast|b&b|hostel|resort)\b/i, 'LodgingBusiness'],
   [/\b(gym|fitness|yoga|pilates|crossfit|martial\s*arts)\b/i, 'ExerciseGym'],
   [/\b(auto|mechanic|garage|car\s*repair|\btire\b|body\s*shop|detailing)\b/i, 'AutomotiveBusiness'],
-  [/\b(plumb|electric|hvac|contractor|construction|roofing|landscap|remodel|handyman)\b/i, 'HomeAndConstructionBusiness'],
+  [
+    /\b(plumb|electric|hvac|contractor|construction|roofing|landscap|remodel|handyman)\b/i,
+    'HomeAndConstructionBusiness',
+  ],
   [/\b(store|shop|boutique|market|grocer|retail|apparel|jewelr|florist|pharmac)\b/i, 'Store'],
 ];
 export function localBusinessSubtypeFor(category?: string | null): string {
@@ -1516,13 +1531,18 @@ export const ORG_FAMILY_TYPES: ReadonlySet<string> = new Set([
  * upgrade — in prod the pipeline always passes `params.businessAddress` for a physical business.
  * Pure → unit-tested.
  */
-export function postalAddressFor(address?: string, city?: string, region?: string): Record<string, unknown> | null {
+export function postalAddressFor(
+  address?: string,
+  city?: string,
+  region?: string,
+): Record<string, unknown> | null {
   const a = (address || '').trim();
   if (!a || a.startsWith('{') || a.length < 6) return null; // require a REAL full address for the upgrade
   const hasCity = Boolean(city && city.trim().length > 1 && !city.startsWith('{'));
   const pa: Record<string, unknown> = { '@type': 'PostalAddress' };
   const street = a.split(',')[0]?.trim();
-  if (street && !street.startsWith('{') && street.length >= 3 && !/^\d{5}/.test(street)) pa.streetAddress = street;
+  if (street && !street.startsWith('{') && street.length >= 3 && !/^\d{5}/.test(street))
+    pa.streetAddress = street;
   if (hasCity) pa.addressLocality = city!.trim();
   if (region && /^[A-Za-z]{2,}$/.test(region.trim())) pa.addressRegion = region.trim();
   const zip = a.match(/\b(\d{5}(?:-\d{4})?)\b/);
@@ -1901,7 +1921,9 @@ export const finalizeSeoInvariants = (
         // The org slot dedups against the WHOLE LocalBusiness family (a shell that already carries a
         // Restaurant/Store/… already has its org block); other slots dedup by exact @type.
         const already =
-          c.type === 'Organization' ? [...ORG_FAMILY_TYPES].some((t) => types.has(t)) : types.has(c.type);
+          c.type === 'Organization'
+            ? [...ORG_FAMILY_TYPES].some((t) => types.has(t))
+            : types.has(c.type);
         if (already) continue;
         toAdd.push(`<script type="application/ld+json">${JSON.stringify(c.node)}</script>`);
         total++;

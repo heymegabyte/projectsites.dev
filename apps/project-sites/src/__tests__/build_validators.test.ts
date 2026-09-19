@@ -1817,14 +1817,21 @@ ${extraLd}</head><body><h1>Cochon</h1></body></html>`;
   };
 
   const blocksOf = (out: string) =>
-    [...out.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => JSON.parse(m[1]));
+    [...out.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)].map(
+      (m) => JSON.parse(m[1]),
+    );
   const orgBlockOf = (out: string) =>
     blocksOf(out).find((n) =>
-      /Restaurant|LocalBusiness|Store|Organization|CafeOrCoffeeShop|Bakery|BarOrPub|LodgingBusiness/.test(String(n['@type'])),
+      /Restaurant|LocalBusiness|Store|Organization|CafeOrCoffeeShop|Bakery|BarOrPub|LodgingBusiness/.test(
+        String(n['@type']),
+      ),
     );
 
   it('injects a LocalBusiness (subtype) with PostalAddress + telephone for a local business — NOT generic Organization', () => {
-    const [files, report] = finalizeSeoInvariants([{ path: 'index.html', size: shell().length, text: shell() }], localCtx);
+    const [files, report] = finalizeSeoInvariants(
+      [{ path: 'index.html', size: shell().length, text: shell() }],
+      localCtx,
+    );
     expect(report.jsonLdInjected).toBe(4);
     const org = orgBlockOf(files[0].text as string);
     expect(org['@type']).toBe('Restaurant'); // category → schema.org subtype (the local rich-results type)
@@ -1837,10 +1844,13 @@ ${extraLd}</head><body><h1>Cochon</h1></body></html>`;
   });
 
   it('keeps the generic Organization when the business has NO real address (saas / portfolio)', () => {
-    const [files] = finalizeSeoInvariants([{ path: 'index.html', size: shell().length, text: shell() }], {
-      businessName: 'Cochon',
-      hostname: 'https://cochon-new-orleans.projectsites.dev',
-    });
+    const [files] = finalizeSeoInvariants(
+      [{ path: 'index.html', size: shell().length, text: shell() }],
+      {
+        businessName: 'Cochon',
+        hostname: 'https://cochon-new-orleans.projectsites.dev',
+      },
+    );
     const org = orgBlockOf(files[0].text as string);
     expect(org['@type']).toBe('Organization');
     expect(org.address).toBeUndefined();
