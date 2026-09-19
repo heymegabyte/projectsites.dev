@@ -522,6 +522,13 @@ export async function resolveSite(
 
   if (hostname.endsWith(DOMAINS.SITES_SUFFIX)) {
     slug = hostname.slice(0, -DOMAINS.SITES_SUFFIX.length);
+    // Defense-in-depth: the subdomain label is DNS-charset-constrained to [a-z0-9-] before a
+    // request can even route here, but `slug` is later interpolated into the served unpaid top-bar
+    // HTML. Don't rely on that implicit network guarantee — reject anything outside the slug charset
+    // so the interpolation is provably injection-safe regardless of how the value arrives. A malformed
+    // label is not a real site (falls through to the custom-hostname lookup → 404); no-op for every
+    // valid slug.
+    if (slug && !/^[a-z0-9-]{1,63}$/.test(slug)) slug = null;
   }
 
   // Don't resolve reserved subdomains as sites
