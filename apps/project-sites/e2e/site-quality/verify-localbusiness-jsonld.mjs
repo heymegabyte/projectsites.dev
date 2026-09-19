@@ -98,8 +98,10 @@ try {
     const page = await ctx.newPage();
     let client = { types: [], localFields: null, error: null };
     try {
-      await page.goto(base + '/', { waitUntil: 'networkidle', timeout: 45000 });
-      await page.waitForTimeout(1200);
+      // domcontentloaded + a fixed settle (NOT networkidle — a generated site's analytics beacons /
+      // page-audio polling keep the network busy, so networkidle can time out → a transient false-RED).
+      await page.goto(base + '/', { waitUntil: 'domcontentloaded', timeout: 45000 });
+      await page.waitForTimeout(1800);
       client = await page.evaluate((LOCAL_SRC) => {
         const LR = new RegExp(LOCAL_SRC);
         const blocks = [...document.querySelectorAll('script[type="application/ld+json"]')]
@@ -149,16 +151,22 @@ try {
       const lb = parseServerBlocks(serverHtml)
         .flatMap((j) => (Array.isArray(j) ? j : j['@graph'] || [j]))
         .find((o) => o && LOCAL_RE.test(JSON.stringify(o['@type'] || '')));
-      return lb ? { geo: !!lb.geo, hoursSpec: !!lb.openingHoursSpecification } : null;
+      return lb ? { addr: !!lb.address, geo: !!lb.geo, hoursSpec: !!lb.openingHoursSpecification } : null;
     })();
 
-    if (serverComplete && serverComplete.geo && serverComplete.hoursSpec) {
+    // ✅ = the served block is a LocalBusiness WITH a PostalAddress (the local rich-results core the
+    // build_validators finalizeSeoInvariants fix emits — @type subtype + address + telephone). geo +
+    // openingHoursSpecification are optional enrichments (a follow-on: geo-threading + an hours parser).
+    if (serverComplete && serverComplete.addr) {
       served++;
-      summary.push(`  ✅ ${slug}: SERVED HTML carries a complete LocalBusiness (geo + openingHoursSpecification)`);
+      const bonus = `${serverComplete.geo ? ' +geo' : ''}${serverComplete.hoursSpec ? ' +hoursSpec' : ''}`;
+      summary.push(
+        `  ✅ ${slug}: SERVED HTML carries a LocalBusiness with a PostalAddress (local rich-results schema)${bonus || ' (geo/hoursSpec optional)'}`,
+      );
     } else if (serverHasLocal) {
       incomplete++;
       summary.push(
-        `  ⚠️  ${slug}: SERVER LocalBusiness INCOMPLETE (geo=${serverComplete?.geo} hoursSpec=${serverComplete?.hoursSpec}) — add geo + openingHoursSpecification [tracked]`,
+        `  ⚠️  ${slug}: SERVER LocalBusiness present but NO PostalAddress (thin) — the finalizeSeoInvariants fix adds address on rebuild [tracked]`,
       );
     } else {
       clientOnly++;
@@ -186,11 +194,11 @@ if (hardFails) {
 }
 if (clientOnly || incomplete) {
   console.log(
-    `\nVERDICT: ⏭️  TRACKED (fail-open) — ${clientOnly} client-only + ${incomplete} incomplete LocalBusiness in SERVED HTML (${served} complete). Root fix: server-emit generateLocalBusinessSchema (geo + openingHoursSpecification) into the prerendered/served HTML so crawlers + AI-search see it; flips ✅ on the fixed/rebuilt site.`,
+    `\nVERDICT: ⏭️  TRACKED (fail-open) — ${clientOnly} client-only + ${incomplete} thin LocalBusiness in SERVED HTML (${served} with a PostalAddress). Root fix SHIPPED in build_validators finalizeSeoInvariants (emits a LocalBusiness subtype + PostalAddress + telephone instead of generic Organization); flips ✅ as each site REBUILDS. geo + openingHoursSpecification are the next enrichment (geo-threading + an hours parser).`,
   );
   process.exit(0);
 }
 console.log(
-  `\nVERDICT: ✅ PASS — every local site serves a complete LocalBusiness (geo + openingHoursSpecification) in its crawler-visible HTML${na ? ` (${na} non-local n/a)` : ''}.`,
+  `\nVERDICT: ✅ PASS — every local site serves a LocalBusiness with a PostalAddress (the local rich-results schema) in its crawler-visible HTML${na ? ` (${na} non-local n/a)` : ''}.`,
 );
 process.exit(0);

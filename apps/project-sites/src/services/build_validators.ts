@@ -1441,6 +1441,19 @@ export interface SeoFinalizeContext {
    * unknown. Reference incident: bi-rite-market-sf shipped a 48-char `<title>` (AL-657).
    */
   region?: string;
+  /**
+   * Full street address (`params.businessAddress`). When present the injected org-family JSON-LD block
+   * becomes a `LocalBusiness` (subtype from {@link category}) carrying a `PostalAddress` (streetAddress +
+   * addressLocality={@link city} + addressRegion={@link region} + postalCode) — the schema that unlocks
+   * Google's local rich results (map pin, click-to-call, local pack), NOT the generic `Organization`
+   * (which triggers none). The rich `buildSiteJsonLd` block Home renders is CLIENT-ONLY (the container
+   * build runs `npm run build`, never `prerender-spa`), so crawlers/AI-search only see this served block.
+   */
+  address?: string;
+  /** Business phone (`params.businessPhone`) → the LocalBusiness `telephone` (only when it carries ≥7 digits, not a `{token}`). */
+  phone?: string;
+  /** Business category (`params.businessCategory`) → the most-specific schema.org LocalBusiness subtype (Restaurant / CafeOrCoffeeShop / Bakery / …). */
+  category?: string;
 }
 
 export interface SeoFinalizeReport {
@@ -1458,6 +1471,69 @@ export interface SeoFinalizeReport {
    * build actually produced the wordmark asset (an absent-asset preload would 404+warn).
    */
   wordmarkPreloadInjected: number;
+}
+
+/**
+ * Map a business category to its most-specific schema.org LocalBusiness subtype — richer local
+ * rich-results than the generic 'LocalBusiness'. Returns 'LocalBusiness' for an unrecognized local
+ * category, '' is never returned. Pure → unit-tested.
+ */
+const LOCAL_SUBTYPE_RULES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\b(restaurant|diner|eatery|bistro|steakhouse|taqueria|pizzeria|barbecue|bbq|grill)\b/i, 'Restaurant'],
+  [/\b(cafe|café|coffee|roaster|roastery|espresso|tea\s*house)\b/i, 'CafeOrCoffeeShop'],
+  [/\b(bakery|patisserie|pâtisserie|bake\s*shop)\b/i, 'Bakery'],
+  [/\b(bar|pub|brewery|brewpub|taproom|tavern|cocktail|speakeasy|lounge|winery|distillery|meadery)\b/i, 'BarOrPub'],
+  [/\b(salon|barber|barbershop|\bhair\b|nail|\bspa\b|beauty|waxing|lashes)\b/i, 'HealthAndBeautyBusiness'],
+  [/\b(dentist|dental|orthodont)\b/i, 'Dentist'],
+  [/\b(doctor|medical|clinic|physician|chiropract|dermatolog|pediatric|urgent\s*care|wellness)\b/i, 'MedicalBusiness'],
+  [/\b(law|legal|attorney|lawyer|counsel)\b/i, 'LegalService'],
+  [/\b(hotel|\binn\b|motel|lodging|bed\s*and\s*breakfast|b&b|hostel|resort)\b/i, 'LodgingBusiness'],
+  [/\b(gym|fitness|yoga|pilates|crossfit|martial\s*arts)\b/i, 'ExerciseGym'],
+  [/\b(auto|mechanic|garage|car\s*repair|\btire\b|body\s*shop|detailing)\b/i, 'AutomotiveBusiness'],
+  [/\b(plumb|electric|hvac|contractor|construction|roofing|landscap|remodel|handyman)\b/i, 'HomeAndConstructionBusiness'],
+  [/\b(store|shop|boutique|market|grocer|retail|apparel|jewelr|florist|pharmac)\b/i, 'Store'],
+];
+export function localBusinessSubtypeFor(category?: string | null): string {
+  const c = (category || '').trim();
+  if (!c) return 'LocalBusiness';
+  for (const [re, type] of LOCAL_SUBTYPE_RULES) if (re.test(c)) return type;
+  return 'LocalBusiness';
+}
+
+/** Every schema.org LocalBusiness-family @type (+ Organization) — the org-family dedup set: a shell
+ * that already carries any of these must never get a second org block injected. */
+export const ORG_FAMILY_TYPES: ReadonlySet<string> = new Set([
+  'Organization',
+  'LocalBusiness',
+  ...LOCAL_SUBTYPE_RULES.map(([, t]) => t),
+]);
+
+/**
+ * Build a schema.org PostalAddress from the flat business address + the already-parsed city/region.
+ * Reuses the robust `ctx.city` (cityFromAddress, AL-736) for locality; derives streetAddress
+ * (pre-first-comma) + postalCode (first ZIP) from the raw address. REQUIRES a real full `address`
+ * (empty / `{token}` / <6 chars → null) so a city-only signal never triggers a thin LocalBusiness
+ * upgrade — in prod the pipeline always passes `params.businessAddress` for a physical business.
+ * Pure → unit-tested.
+ */
+export function postalAddressFor(address?: string, city?: string, region?: string): Record<string, unknown> | null {
+  const a = (address || '').trim();
+  if (!a || a.startsWith('{') || a.length < 6) return null; // require a REAL full address for the upgrade
+  const hasCity = Boolean(city && city.trim().length > 1 && !city.startsWith('{'));
+  const pa: Record<string, unknown> = { '@type': 'PostalAddress' };
+  const street = a.split(',')[0]?.trim();
+  if (street && !street.startsWith('{') && street.length >= 3 && !/^\d{5}/.test(street)) pa.streetAddress = street;
+  if (hasCity) pa.addressLocality = city!.trim();
+  if (region && /^[A-Za-z]{2,}$/.test(region.trim())) pa.addressRegion = region.trim();
+  const zip = a.match(/\b(\d{5}(?:-\d{4})?)\b/);
+  if (zip) pa.postalCode = zip[1];
+  return Object.keys(pa).length > 1 ? pa : null; // more than just @type
+}
+
+/** A dialable `telephone` (≥7 digits, not a `{token}`) for the LocalBusiness JSON-LD, else undefined. Pure. */
+export function schemaTelephone(phone?: string): string | undefined {
+  if (!phone || phone.startsWith('{')) return undefined;
+  return phone.replace(/\D/g, '').length >= 7 ? phone.trim() : undefined;
 }
 
 const truncateAtWord = (s: string, max: number): string => {
@@ -1760,6 +1836,30 @@ export const finalizeSeoInvariants = (
     const { count, types } = collectJsonLdTypes(text);
     if (count < 4 && /<\/head>/i.test(text)) {
       const wantDesc = finalDesc || desc || rawName;
+      // Org-family block: a LocalBusiness (subtype from category) carrying a PostalAddress + telephone
+      // when the business has a real address — the local rich-results schema (map pin / hours / local
+      // pack / click-to-call); else the generic Organization (saas / portfolio / no-address). The
+      // container build runs `npm run build` (never prerender-spa), so Home's rich buildSiteJsonLd
+      // LocalBusiness is CLIENT-ONLY — this served block is all a non-JS crawler / AI-search sees.
+      const postalAddr = postalAddressFor(ctx.address, ctx.city, ctx.region);
+      const tel = schemaTelephone(ctx.phone);
+      const orgNode: Record<string, unknown> = postalAddr
+        ? {
+            '@context': 'https://schema.org',
+            '@type': localBusinessSubtypeFor(ctx.category),
+            name: rawName,
+            url: rootUrl,
+            address: postalAddr,
+            ...(tel ? { telephone: tel } : {}),
+            ...(image ? { logo: image, image } : {}),
+          }
+        : {
+            '@context': 'https://schema.org',
+            '@type': 'Organization',
+            name: rawName,
+            url: rootUrl,
+            ...(image ? { logo: image } : {}),
+          };
       const candidates: Array<{ type: string; node: Record<string, unknown> }> = [
         {
           type: 'WebSite',
@@ -1772,13 +1872,7 @@ export const finalizeSeoInvariants = (
         },
         {
           type: 'Organization',
-          node: {
-            '@context': 'https://schema.org',
-            '@type': 'Organization',
-            name: rawName,
-            url: rootUrl,
-            ...(image ? { logo: image } : {}),
-          },
+          node: orgNode,
         },
         {
           type: 'WebPage',
@@ -1804,7 +1898,11 @@ export const finalizeSeoInvariants = (
       let total = count;
       for (const c of candidates) {
         if (total >= 4) break;
-        if (types.has(c.type)) continue;
+        // The org slot dedups against the WHOLE LocalBusiness family (a shell that already carries a
+        // Restaurant/Store/… already has its org block); other slots dedup by exact @type.
+        const already =
+          c.type === 'Organization' ? [...ORG_FAMILY_TYPES].some((t) => types.has(t)) : types.has(c.type);
+        if (already) continue;
         toAdd.push(`<script type="application/ld+json">${JSON.stringify(c.node)}</script>`);
         total++;
       }

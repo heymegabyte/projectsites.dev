@@ -28,6 +28,9 @@ import {
   repairDoubleDotCanonical,
   repairDanglingEmDash,
   finalizeSeoInvariants,
+  localBusinessSubtypeFor,
+  postalAddressFor,
+  schemaTelephone,
   validateConversionFraming,
   scrubNonRetailCommerceCopy,
   validateBuild,
@@ -1755,6 +1758,105 @@ describe('finalizeSeoInvariants — per-route description distinctness (cochon d
     );
     // already distinct + valid length → NOT clobbered
     expect(descOf(files.find((f) => f.path === 'about/index.html')!.text)).toBe(aboutDesc);
+  });
+});
+
+describe('finalizeSeoInvariants — LocalBusiness JSON-LD in served HTML (C.4/C.5 local rich results)', () => {
+  it('localBusinessSubtypeFor maps a category to its schema.org subtype (default LocalBusiness)', () => {
+    expect(localBusinessSubtypeFor('New Orleans restaurant')).toBe('Restaurant');
+    expect(localBusinessSubtypeFor('coffee roaster')).toBe('CafeOrCoffeeShop');
+    expect(localBusinessSubtypeFor('artisan bakery')).toBe('Bakery');
+    expect(localBusinessSubtypeFor('cocktail lounge')).toBe('BarOrPub');
+    expect(localBusinessSubtypeFor('hair salon')).toBe('HealthAndBeautyBusiness');
+    expect(localBusinessSubtypeFor('boutique hotel')).toBe('LodgingBusiness');
+    expect(localBusinessSubtypeFor('law firm')).toBe('LegalService');
+    expect(localBusinessSubtypeFor('some niche trade')).toBe('LocalBusiness'); // unrecognized → fallback
+    expect(localBusinessSubtypeFor('')).toBe('LocalBusiness');
+    expect(localBusinessSubtypeFor(undefined)).toBe('LocalBusiness');
+  });
+
+  it('postalAddressFor builds a PostalAddress (street + locality + region + zip) from a real address', () => {
+    const pa = postalAddressFor('930 Tchoupitoulas St, New Orleans, LA 70130', 'New Orleans', 'LA');
+    expect(pa).not.toBeNull();
+    expect(pa!['@type']).toBe('PostalAddress');
+    expect(pa!.streetAddress).toBe('930 Tchoupitoulas St');
+    expect(pa!.addressLocality).toBe('New Orleans');
+    expect(pa!.addressRegion).toBe('LA');
+    expect(pa!.postalCode).toBe('70130');
+  });
+
+  it('postalAddressFor returns null for empty / {token} / too-short / city-only (no thin upgrade)', () => {
+    expect(postalAddressFor('{ADDRESS}', 'X', 'CA')).toBeNull();
+    expect(postalAddressFor('', 'Brooklyn', 'NY')).toBeNull(); // a city alone never upgrades to LocalBusiness
+    expect(postalAddressFor(undefined)).toBeNull();
+    expect(postalAddressFor('NY')).toBeNull(); // <6 chars
+  });
+
+  it('schemaTelephone returns a dialable phone, else undefined', () => {
+    expect(schemaTelephone('(504) 588-2123')).toBe('(504) 588-2123');
+    expect(schemaTelephone('{BUSINESS_PHONE}')).toBeUndefined();
+    expect(schemaTelephone('call us')).toBeUndefined();
+    expect(schemaTelephone(undefined)).toBeUndefined();
+  });
+
+  const shell = (extraLd = '') => `<!DOCTYPE html><html lang="en"><head>
+<title>Cochon — New Orleans's cozy corner restaurant spot</title>
+<meta name="description" content="Cochon is New Orleans's warm neighborhood restaurant — Cajun cooking, honest prices, and a seat for everyone at the table always.">
+<link rel="canonical" href="https://cochon-new-orleans.projectsites.dev/">
+<meta property="og:image" content="https://cochon-new-orleans.projectsites.dev/og-image.png">
+${extraLd}</head><body><h1>Cochon</h1></body></html>`;
+
+  const localCtx = {
+    businessName: 'Cochon',
+    hostname: 'https://cochon-new-orleans.projectsites.dev',
+    city: 'New Orleans',
+    region: 'LA',
+    address: '930 Tchoupitoulas St, New Orleans, LA 70130',
+    phone: '(504) 588-2123',
+    category: 'New Orleans restaurant',
+  };
+
+  const blocksOf = (out: string) =>
+    [...out.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => JSON.parse(m[1]));
+  const orgBlockOf = (out: string) =>
+    blocksOf(out).find((n) =>
+      /Restaurant|LocalBusiness|Store|Organization|CafeOrCoffeeShop|Bakery|BarOrPub|LodgingBusiness/.test(String(n['@type'])),
+    );
+
+  it('injects a LocalBusiness (subtype) with PostalAddress + telephone for a local business — NOT generic Organization', () => {
+    const [files, report] = finalizeSeoInvariants([{ path: 'index.html', size: shell().length, text: shell() }], localCtx);
+    expect(report.jsonLdInjected).toBe(4);
+    const org = orgBlockOf(files[0].text as string);
+    expect(org['@type']).toBe('Restaurant'); // category → schema.org subtype (the local rich-results type)
+    expect(org.telephone).toBe('(504) 588-2123');
+    expect(org.address['@type']).toBe('PostalAddress');
+    expect(org.address.streetAddress).toBe('930 Tchoupitoulas St');
+    expect(org.address.addressLocality).toBe('New Orleans');
+    expect(org.address.addressRegion).toBe('LA');
+    expect(org.address.postalCode).toBe('70130');
+  });
+
+  it('keeps the generic Organization when the business has NO real address (saas / portfolio)', () => {
+    const [files] = finalizeSeoInvariants([{ path: 'index.html', size: shell().length, text: shell() }], {
+      businessName: 'Cochon',
+      hostname: 'https://cochon-new-orleans.projectsites.dev',
+    });
+    const org = orgBlockOf(files[0].text as string);
+    expect(org['@type']).toBe('Organization');
+    expect(org.address).toBeUndefined();
+  });
+
+  it('does NOT inject a SECOND org block when the shell already carries a LocalBusiness-family type (dual-emission dedup)', () => {
+    const existing =
+      '<script type="application/ld+json">{"@context":"https://schema.org","@type":"Restaurant","name":"Cochon"}</script>';
+    const [files] = finalizeSeoInvariants(
+      [{ path: 'index.html', size: shell(existing).length, text: shell(existing) }],
+      localCtx,
+    );
+    const orgFamily = blocksOf(files[0].text as string).filter((n) =>
+      /Restaurant|LocalBusiness|Organization|Store/.test(String(n['@type'])),
+    );
+    expect(orgFamily).toHaveLength(1); // only the pre-existing Restaurant — no duplicate org block
   });
 });
 

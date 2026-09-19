@@ -2077,6 +2077,14 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
                 const st = last.split(/\s+/)[0] || '';
                 return /^[A-Z]{2}$/.test(st) ? st : undefined;
               })(),
+              // LocalBusiness JSON-LD (C.4/C.5): full address → PostalAddress (streetAddress + postalCode),
+              // phone → telephone, category → the schema.org subtype. Upgrades the served org-family block
+              // from generic Organization to a LocalBusiness (the local rich-results schema) — Home's rich
+              // buildSiteJsonLd LocalBusiness is CLIENT-ONLY (the container build runs `npm run build`,
+              // never prerender-spa), so this served block is all a non-JS crawler / AI-search sees.
+              address: params.businessAddress,
+              phone: params.businessPhone,
+              category: params.businessCategory,
             });
             const seoChanged =
               seoReport.jsonLdInjected +
