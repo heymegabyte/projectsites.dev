@@ -31,6 +31,7 @@ import {
   localBusinessSubtypeFor,
   postalAddressFor,
   schemaTelephone,
+  openingHoursSpecificationFor,
   validateConversionFraming,
   scrubNonRetailCommerceCopy,
   validateBuild,
@@ -1867,6 +1868,102 @@ ${extraLd}</head><body><h1>Cochon</h1></body></html>`;
       /Restaurant|LocalBusiness|Organization|Store/.test(String(n['@type'])),
     );
     expect(orgFamily).toHaveLength(1); // only the pre-existing Restaurant — no duplicate org block
+  });
+
+  it('adds openingHoursSpecification to the served LocalBusiness when hours parse (Open-now rich result)', () => {
+    const [files] = finalizeSeoInvariants(
+      [{ path: 'index.html', size: shell().length, text: shell() }],
+      { ...localCtx, hours: 'Mon-Fri 11:00 AM - 10:00 PM\nSat 10am-11pm\nSun: Closed' },
+    );
+    const org = orgBlockOf(files[0].text as string);
+    expect(Array.isArray(org.openingHoursSpecification)).toBe(true);
+    const spec = org.openingHoursSpecification as Array<Record<string, unknown>>;
+    expect(spec).toHaveLength(2); // Mon-Fri + Sat (Sun closed dropped)
+    expect(spec[0].dayOfWeek).toEqual(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
+    expect(spec[0].opens).toBe('11:00');
+    expect(spec[0].closes).toBe('22:00');
+    expect(spec[1].dayOfWeek).toEqual(['Saturday']);
+    expect(spec[1].closes).toBe('23:00');
+  });
+
+  it('omits openingHoursSpecification when hours are ambiguous (never guesses wrong hours)', () => {
+    const [files] = finalizeSeoInvariants(
+      [{ path: 'index.html', size: shell().length, text: shell() }],
+      { ...localCtx, hours: 'Mon-Fri 9-5' }, // bare hours → unresolvable → dropped
+    );
+    const org = orgBlockOf(files[0].text as string);
+    expect(org['@type']).toBe('Restaurant'); // still a LocalBusiness (address present)
+    expect(org.openingHoursSpecification).toBeUndefined(); // but no fabricated hours
+  });
+});
+
+describe('openingHoursSpecificationFor (freeform hours → schema.org OHS[], fail-closed)', () => {
+  it('parses a day-range + 12h am/pm range', () => {
+    const out = openingHoursSpecificationFor('Monday-Friday: 9:00 AM - 5:00 PM');
+    expect(out).toEqual([
+      {
+        '@type': 'OpeningHoursSpecification',
+        dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+        opens: '09:00',
+        closes: '17:00',
+      },
+    ]);
+  });
+
+  it('parses multi-line hours (one spec per line), dropping Closed days', () => {
+    const out = openingHoursSpecificationFor('Mon-Sat 8am-8pm\nSun: Closed') || [];
+    expect(out).toHaveLength(1);
+    expect(out[0].dayOfWeek).toEqual([
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+    ]);
+    expect(out[0].opens).toBe('08:00');
+    expect(out[0].closes).toBe('20:00');
+  });
+
+  it('parses daily / weekday / weekend keywords + 24-hour colon form', () => {
+    expect(openingHoursSpecificationFor('Daily 07:00-23:00')?.[0].dayOfWeek).toHaveLength(7);
+    expect(openingHoursSpecificationFor('Weekdays 9am-6pm')?.[0].dayOfWeek).toEqual([
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+    ]);
+    expect(openingHoursSpecificationFor('Weekends 10am-4pm')?.[0].dayOfWeek).toEqual([
+      'Saturday',
+      'Sunday',
+    ]);
+  });
+
+  it('maps 24/7 to all-week 00:00-23:59', () => {
+    const out = openingHoursSpecificationFor('Open 24/7') || [];
+    expect(out).toHaveLength(1);
+    expect(out[0].dayOfWeek).toHaveLength(7);
+    expect(out[0].opens).toBe('00:00');
+    expect(out[0].closes).toBe('23:59');
+  });
+
+  it('fails CLOSED on ambiguity — bare hours, empty, {token}, past-midnight, backwards 24h', () => {
+    expect(openingHoursSpecificationFor('Mon-Fri 9-5')).toBeNull(); // bare → ambiguous
+    expect(openingHoursSpecificationFor('')).toBeNull();
+    expect(openingHoursSpecificationFor(undefined)).toBeNull();
+    expect(openingHoursSpecificationFor('{businessHours}')).toBeNull();
+    expect(openingHoursSpecificationFor('Fri-Sat 8pm-2am')).toBeNull(); // opens>=closes (past-midnight)
+    expect(openingHoursSpecificationFor('Mon 9:00-5:00')).toBeNull(); // 24h read is backwards → skip
+    expect(openingHoursSpecificationFor('Mon-Fri 9am-5pm, Sat 10am-2pm')).toBeNull(); // comma multi-range in one segment → too ambiguous
+  });
+
+  it('parses a comma-separated day LIST sharing one range', () => {
+    const out = openingHoursSpecificationFor('Mon, Wed, Fri 9am-1pm') || [];
+    expect(out).toHaveLength(1);
+    expect(out[0].dayOfWeek).toEqual(['Monday', 'Wednesday', 'Friday']);
+    expect(out[0].opens).toBe('09:00');
+    expect(out[0].closes).toBe('13:00');
   });
 });
 

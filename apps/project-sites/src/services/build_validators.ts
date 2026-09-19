@@ -1454,6 +1454,12 @@ export interface SeoFinalizeContext {
   phone?: string;
   /** Business category (`params.businessCategory`) → the most-specific schema.org LocalBusiness subtype (Restaurant / CafeOrCoffeeShop / Bakery / …). */
   category?: string;
+  /**
+   * Freeform business hours (`params.businessHours`) → an `openingHoursSpecification[]` on the served
+   * LocalBusiness — the signal that unlocks Google's "Open now" + hours rich result. Parsed
+   * conservatively ({@link openingHoursSpecificationFor}); ambiguous hours are dropped, never guessed.
+   */
+  hours?: string;
 }
 
 export interface SeoFinalizeReport {
@@ -1554,6 +1560,150 @@ export function postalAddressFor(
 export function schemaTelephone(phone?: string): string | undefined {
   if (!phone || phone.startsWith('{')) return undefined;
   return phone.replace(/\D/g, '').length >= 7 ? phone.trim() : undefined;
+}
+
+// ── openingHoursSpecification parser (freeform hours → schema.org OHS[]) ─────────────────────────
+// The freeform `businessHours` string (Google Places / OSM / owner-entered) → a schema.org
+// `OpeningHoursSpecification[]` for the served LocalBusiness JSON-LD — the signal that unlocks
+// Google's "Open now" + hours rich result. CONSERVATIVE BY DESIGN: a WRONG hours block (users shown
+// as open when closed) is worse than none, so every ambiguity fails CLOSED (clause skipped, never
+// guessed). A clause is emitted only when BOTH endpoints resolve to an unambiguous 24h time (explicit
+// am/pm OR HH:MM colon form) AND opens < closes (rejects 12h/24h misreads + past-midnight bars).
+const OHS_DAY_ORDER: readonly string[] = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+const OHS_DAY_NAMES: Record<string, string> = {
+  sun: 'Sunday',
+  mon: 'Monday',
+  tue: 'Tuesday',
+  wed: 'Wednesday',
+  thu: 'Thursday',
+  fri: 'Friday',
+  sat: 'Saturday',
+};
+const ohsDayName = (raw: string): string | null =>
+  OHS_DAY_NAMES[raw.slice(0, 3).toLowerCase()] ?? null;
+
+const ohsExpandDayRange = (a: string, b: string): string[] => {
+  const ai = OHS_DAY_ORDER.indexOf(a);
+  const bi = OHS_DAY_ORDER.indexOf(b);
+  if (ai < 0 || bi < 0) return [];
+  const out: string[] = [];
+  for (let n = 0, i = ai; n < 7; n++, i = (i + 1) % 7) {
+    out.push(OHS_DAY_ORDER[i]);
+    if (i === bi) break;
+  }
+  return out;
+};
+
+/** Parse ONE time token to zero-padded 24h `HH:MM`, else null (bare/ambiguous number → null). */
+const ohsParseTime = (raw: string): string | null => {
+  const t = raw.trim();
+  const mer = t.match(/^(\d{1,2})(?::(\d{2}))?\s*([ap])\.?\s*m\.?$/i); // 12h with am/pm
+  if (mer) {
+    let h = parseInt(mer[1], 10);
+    const min = mer[2] ? parseInt(mer[2], 10) : 0;
+    if (h < 1 || h > 12 || min > 59) return null;
+    const pm = mer[3].toLowerCase() === 'p';
+    if (pm && h !== 12) h += 12;
+    if (!pm && h === 12) h = 0;
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+  }
+  const c = t.match(/^(\d{1,2}):(\d{2})$/); // 24h colon form
+  if (c) {
+    const h = parseInt(c[1], 10);
+    const min = parseInt(c[2], 10);
+    if (h > 23 || min > 59) return null;
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+  }
+  return null; // bare number ("9") or garbage → ambiguous, fail closed
+};
+
+const OHS_TIME = String.raw`\d{1,2}(?::\d{2})?\s*(?:[ap]\.?\s*m\.?)?`;
+const OHS_RANGE_RE = new RegExp(`(${OHS_TIME})\\s*(?:-|–|—|to)\\s*(${OHS_TIME})`, 'i');
+const OHS_RANGE_RE_G = new RegExp(`${OHS_TIME}\\s*(?:-|–|—|to)\\s*${OHS_TIME}`, 'gi');
+
+/** First open→close range in a segment, only when both ends are unambiguous AND opens < closes. */
+const ohsTimeRange = (seg: string): { opens: string; closes: string } | null => {
+  const m = seg.match(OHS_RANGE_RE);
+  if (!m) return null;
+  const opens = ohsParseTime(m[1]);
+  const closes = ohsParseTime(m[2]);
+  if (!opens || !closes || opens >= closes) return null;
+  return { opens, closes };
+};
+
+/** Day names covered by a segment ("Mon-Fri" / "daily" / "weekdays" / "Mon, Wed, Fri"), week-ordered. */
+const ohsDays = (seg: string): string[] | null => {
+  const lower = seg.toLowerCase();
+  if (/\b(daily|everyday|every\s?day|all\s?week|7\s?days(?:\s?a\s?week)?)\b/.test(lower))
+    return [...OHS_DAY_ORDER];
+  if (/\bweek\s?days?\b/.test(lower)) return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  if (/\bweek\s?ends?\b/.test(lower)) return ['Saturday', 'Sunday'];
+  const set = new Set<string>();
+  const range = seg.match(
+    /\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\.?\s*(?:-|–|—|to|through|thru)\s*(sun|mon|tue|wed|thu|fri|sat)[a-z]*\.?/i,
+  );
+  if (range) {
+    const a = ohsDayName(range[1]);
+    const b = ohsDayName(range[2]);
+    if (a && b) for (const d of ohsExpandDayRange(a, b)) set.add(d);
+  } else {
+    const g = /\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\.?/gi;
+    let m: RegExpExecArray | null;
+    while ((m = g.exec(seg))) {
+      const d = ohsDayName(m[1]);
+      if (d) set.add(d);
+    }
+  }
+  return set.size ? OHS_DAY_ORDER.filter((d) => set.has(d)) : null;
+};
+
+/**
+ * Freeform business-hours string → schema.org `OpeningHoursSpecification[]` (or null when nothing
+ * parses unambiguously). Splits on `;`/newlines (the separators Places + OSM actually use); a
+ * comma-joined segment with MULTIPLE time-ranges is too ambiguous to attribute safely, so it's
+ * skipped whole. `24/7` → all week 00:00-23:59. Pure — unit-tested.
+ *
+ * @example openingHoursSpecificationFor('Mon-Fri 9:00 AM - 5:00 PM\nSat 10am-2pm')
+ *   → [{dayOfWeek:[Mon..Fri],opens:'09:00',closes:'17:00'}, {dayOfWeek:['Saturday'],opens:'10:00',closes:'14:00'}]
+ * @example openingHoursSpecificationFor('Mon-Fri 9-5') → null // bare hours are ambiguous, fail closed
+ */
+export function openingHoursSpecificationFor(hours?: string): Array<Record<string, unknown>> | null {
+  const h = (hours || '').trim();
+  if (!h || h.startsWith('{')) return null;
+  const lower = h.toLowerCase();
+  if (
+    /\b24\s*\/\s*7\b|\b24\s*hours?\b|\bopen\s*24\b|\b24\s*hrs?\b/.test(lower) &&
+    !/\b(except|closed)\b/.test(lower)
+  ) {
+    return [
+      { '@type': 'OpeningHoursSpecification', dayOfWeek: [...OHS_DAY_ORDER], opens: '00:00', closes: '23:59' },
+    ];
+  }
+  const specs: Array<Record<string, unknown>> = [];
+  for (const seg of h.split(/[;\n]+/).map((s) => s.trim()).filter(Boolean)) {
+    const rangeCount = (seg.match(OHS_RANGE_RE_G) || []).length;
+    if (rangeCount !== 1) continue; // 0 (e.g. "Sun: closed") or ≥2 (ambiguous) → skip
+    const range = ohsTimeRange(seg);
+    if (!range) continue;
+    const days = ohsDays(seg);
+    if (!days || !days.length) continue;
+    specs.push({
+      '@type': 'OpeningHoursSpecification',
+      dayOfWeek: days,
+      opens: range.opens,
+      closes: range.closes,
+    });
+    if (specs.length >= 7) break;
+  }
+  return specs.length ? specs : null;
 }
 
 const truncateAtWord = (s: string, max: number): string => {
@@ -1863,6 +2013,7 @@ export const finalizeSeoInvariants = (
       // LocalBusiness is CLIENT-ONLY — this served block is all a non-JS crawler / AI-search sees.
       const postalAddr = postalAddressFor(ctx.address, ctx.city, ctx.region);
       const tel = schemaTelephone(ctx.phone);
+      const hoursSpec = openingHoursSpecificationFor(ctx.hours);
       const orgNode: Record<string, unknown> = postalAddr
         ? {
             '@context': 'https://schema.org',
@@ -1871,6 +2022,7 @@ export const finalizeSeoInvariants = (
             url: rootUrl,
             address: postalAddr,
             ...(tel ? { telephone: tel } : {}),
+            ...(hoursSpec ? { openingHoursSpecification: hoursSpec } : {}),
             ...(image ? { logo: image, image } : {}),
           }
         : {

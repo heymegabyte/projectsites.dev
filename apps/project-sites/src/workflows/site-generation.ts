@@ -2085,6 +2085,10 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
               address: params.businessAddress,
               phone: params.businessPhone,
               category: params.businessCategory,
+              // Freeform hours → openingHoursSpecification on the served LocalBusiness (Google "Open
+              // now" + hours rich result). Parsed conservatively — ambiguous hours are dropped, never
+              // guessed (a wrong hours block is worse than none).
+              hours: params.businessHours,
             });
             const seoChanged =
               seoReport.jsonLdInjected +
