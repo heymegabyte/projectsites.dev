@@ -9,7 +9,11 @@ const config = {
   // via ../index). Passes locally, failed CI Unit Tests repeatedly. Recycling
   // keeps per-worker heap bounded so the heavy import always has headroom.
   workerIdleMemoryLimit: '512MB',
-  transform: { '^.+\\.(t|j)sx?$': ['@swc/jest'] },
+  // `.mjs` added so a `.test.ts` can import a pure sibling `scripts/*.mjs` module (e.g.
+  // sanitize-manifest.mjs, imported by container-server.mjs) and exercise its LOGIC under
+  // the primary `test:unit` gate — @swc/jest transcompiles the ESM `export` to CJS. No
+  // existing test imports a `.mjs` (they readFileSync-source-read), so this is additive.
+  transform: { '^.+\\.(t|j)sx?$': ['@swc/jest'], '^.+\\.mjs$': ['@swc/jest'] },
   // Transform @cloudflare/containers (shipped as ESM in dist/index.js). Jest
   // ignores node_modules for transforms by default, so any suite importing
   // ../index (which imports @cloudflare/containers) hit "Jest encountered an

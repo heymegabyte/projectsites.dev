@@ -55,13 +55,17 @@ COPY scripts/upload-to-r2.mjs /home/cuser/upload-to-r2.mjs
 # the COPY, so bumping its string forces CF's build pipeline to re-run everything
 # from here down, re-copying the LATEST container-server.mjs into the image. Bump
 # the token on any change that must reach the running build container reliably.
-RUN echo "container-server-cache-bust: al701-vertical-rules-hospitality-gallery-2026-09-16"
+RUN echo "container-server-cache-bust: al791-llms-manifest-sanitizer-2026-09-19"
 COPY scripts/container-server.mjs /home/cuser/container-server.mjs
 # AL-701: the vertical classifier table + scoring, extracted PURE from container-server.mjs
 # so it's unit-testable (scripts/vertical-rules.test.mjs). container-server.mjs imports it via
 # ./vertical-rules.mjs, so it MUST land in the SAME dir (/home/cuser/). Sits after the
 # cache-bust RUN above so a marker bump re-copies BOTH files on the same rebuilt layer.
 COPY scripts/vertical-rules.mjs /home/cuser/vertical-rules.mjs
+# AL-791: pure llms.txt/llms-full.txt manifest sanitizer (drops blank/dangling AI-crawler
+# metadata lines an absent field would leave). container-server.mjs imports it via
+# ./sanitize-manifest.mjs, so it MUST land in the SAME dir (/home/cuser/). After the cache-bust.
+COPY scripts/sanitize-manifest.mjs /home/cuser/sanitize-manifest.mjs
 
 # Validator runner + the validator module it imports. Lets the validator-fixer
 # subagent invoke build_validators.ts without compiling TypeScript inside the

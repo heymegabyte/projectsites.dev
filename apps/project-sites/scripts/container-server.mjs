@@ -23,6 +23,7 @@ import crypto from 'crypto';
 // /home/cuser/vertical-rules.mjs (same dir as this file in the container image), so
 // this relative import resolves identically in the container and the local checkout.
 import { VERTICAL_RULES, LIGHT_VERTICAL_PRESETS } from './vertical-rules.mjs';
+import { sanitizeManifestText } from './sanitize-manifest.mjs';
 
 const JOBS_DIR = '/var/jobs';
 const SKILLS_DIR = '/home/cuser/.agentskills';
@@ -975,7 +976,7 @@ function fillTemplateTokens(dir, contentMap, params = {}) {
   for (const f of templateFillSurfaces(dir)) {
     let before;
     try { before = fs.readFileSync(f, 'utf-8'); } catch { continue; }
-    const after = before.replace(TEMPLATE_TOKEN_RE, (_m, pre, key, offset) => {
+    let after = before.replace(TEMPLATE_TOKEN_RE, (_m, pre, key, offset) => {
       // Tokens live inside quoted string literals ('…'/"…"/`…`) or JSX attributes
       // (attr="…"). Escape the value for its enclosing context so real content
       // (apostrophes, quotes, &, <, >, newlines) can NEVER break TS/JSX compilation.
@@ -996,6 +997,10 @@ function fillTemplateTokens(dir, contentMap, params = {}) {
       fromFallback++;
       return pre + enc(fallback(key));
     });
+    // GEO/AI-search hygiene: on the flat key-value AI-crawler manifests, an absent field
+    // filled with '' leaves a blank `Tagline:` or a dangling `Contact:   |`. Sanitize those
+    // OUT so an LLM crawler never reads a broken line (AL-791). Pure + fail-soft.
+    if (/(^|\/)llms(-full)?\.txt$/.test(f)) after = sanitizeManifestText(after);
     if (after !== before) { try { fs.writeFileSync(f, after); filesTouched++; } catch {} }
   }
   return { filled: fromMap + fromFallback, fromMap, fromFallback, filesTouched };
