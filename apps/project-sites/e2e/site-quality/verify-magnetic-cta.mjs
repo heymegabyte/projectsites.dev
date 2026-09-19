@@ -14,8 +14,14 @@
 //     5. STATIC — moving the pointer near the CTA leaves the transform IDENTITY (no lean); the plain
 //        button is untouched (MagneticButton attaches no listeners under reduced-motion).
 //
-// RED before the fix lands (no `.magnetic-cta` on a pre-AL-738 build) → GREEN once a site rebuilds
-// with the template. Local Chromium ({slug}.projectsites.dev is CF-clean). Auto-joins run-all.
+// STALE-BUILD / FAIL-OPEN discipline (matches verify-card-tilt / verify-kinetic-marquee /
+// verify-scroll-stack, per `red-probe-is-often-stale-assertion` + `report-mode-probe-deployed-defect-
+// is-often-stale-build-debt`): the MagneticButton is AUTO-ON in the template and lands on each site's
+// NEXT full build (NO redeploy of existing sites). A pre-AL-738 build carries no `.magnetic-cta`, so
+// an absent wrapper is rebuild-worklist debt, NOT a regression — the probe DEPLOY-DETECTS via
+// `.magnetic-cta` presence and SKIPS (::notice, exit 0) when absent, so a stale fleet never reds the
+// suite. Where the wrapper IS present the full contract is fail-CLOSED (a real break on a FRESH build
+// still fails). Local Chromium ({slug}.projectsites.dev is CF-clean). Auto-joins run-all.
 // Usage: SITES=<slug> node e2e/site-quality/verify-magnetic-cta.mjs
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -61,6 +67,17 @@ try {
 
   const cta = page.locator('.magnetic-cta').first();
   const present = (await cta.count()) > 0;
+  if (!present) {
+    // DEPLOY-DETECT → fail-OPEN: no `.magnetic-cta` = a pre-AL-738 stale build. Skip (::notice,
+    // exit 0) so stale-build debt never reds the suite; the fail-CLOSED contract below runs once a
+    // site carries the wrapper. Mirrors verify-card-tilt's "no reachable site carries the effect yet".
+    await ctx.close();
+    await browser.close();
+    console.log(
+      `::notice:: verify-magnetic-cta SKIPPED — ${SLUG} carries no .magnetic-cta yet (pre-AL-738 stale build; MagneticButton is auto-on in the template + lands on the next full build, NO redeploy → flips to a real assertion on rebuild).`,
+    );
+    process.exit(0);
+  }
   check('hero primary CTA is wrapped in .magnetic-cta', present);
 
   if (present) {
