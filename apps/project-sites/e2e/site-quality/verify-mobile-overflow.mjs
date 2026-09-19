@@ -115,7 +115,9 @@ async function auditSite(browser, slug) {
         const title = await page.title().catch(() => '');
         // A CF challenge / non-200 shell isn't the real site — skip that (path,bp) combo.
         if (!resp || status !== 200 || /just a moment|checking your browser/i.test(title)) {
-          await ctx.close();
+          // Skip this (path,bp) — the `finally` below closes ctx exactly once. An early close HERE
+          // plus the finally = a DOUBLE-close → "Failed to find context" protocol error that is
+          // uncaught → crashes the probe → stalls the whole run-all suite at mobile-overflow.
           continue;
         }
         auditable = true;
@@ -127,7 +129,9 @@ async function auditSite(browser, slug) {
       } catch {
         /* nav error on one (path,bp) — a missing sub-page is nav-integrity's job, not ours */
       } finally {
-        await ctx.close();
+        // Teardown protocol errors (a context already disposed by a crash/timeout) are benign —
+        // swallow them so a flaky close never crashes the probe or stalls run-all.
+        await ctx.close().catch(() => {});
       }
     }
   }

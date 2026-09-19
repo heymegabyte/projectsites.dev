@@ -89,7 +89,7 @@ async function inspect(slug, reduced) {
   } catch (e) {
     return { err: String(e.message || e).slice(0, 70), errs };
   } finally {
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 }
 

@@ -280,7 +280,7 @@ try {
     rows.push({ ok: true, label: 'axe skipped (axe-core not resolvable)', detail: '' });
   }
   check('0 console errors across the cinematic reel journey', errs.length === 0, errs.slice(0, 3).join(' | '));
-  await ctx.close();
+  await ctx.close().catch(() => {});
 
   // ── 5. REDUCED-MOTION FALLBACK — every act fully visible + static (no scrub) ──────────
   const rctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });

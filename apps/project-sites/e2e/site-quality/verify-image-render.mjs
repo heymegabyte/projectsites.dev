@@ -93,7 +93,7 @@ try {
     } catch (e) {
       results.push({ slug, http: 0, total: 0, broken: [{ src: `load failed: ${String(e).slice(0, 60)}`, alt: '', w: 0, h: 0 }] });
     }
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } finally {
   await browser.close();

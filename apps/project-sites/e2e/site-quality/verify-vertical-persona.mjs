@@ -248,7 +248,7 @@ try {
         /* route unreachable → skip (don't false-fail) */
       }
     }
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } finally {
   await browser.close();

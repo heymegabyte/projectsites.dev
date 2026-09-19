@@ -130,7 +130,7 @@ try {
     } catch (e) {
       client.error = String(e).slice(0, 80);
     }
-    await ctx.close();
+    await ctx.close().catch(() => {});
 
     if (client.error) {
       hardFails++;

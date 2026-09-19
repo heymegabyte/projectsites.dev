@@ -69,7 +69,7 @@ try {
       row.reason = 'load failed: ' + String(e).slice(0, 90);
     }
     results.push(row);
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } finally {
   await browser.close();

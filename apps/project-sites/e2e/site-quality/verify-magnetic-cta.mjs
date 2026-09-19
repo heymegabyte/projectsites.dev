@@ -71,7 +71,7 @@ try {
     // DEPLOY-DETECT → fail-OPEN: no `.magnetic-cta` = a pre-AL-738 stale build. Skip (::notice,
     // exit 0) so stale-build debt never reds the suite; the fail-CLOSED contract below runs once a
     // site carries the wrapper. Mirrors verify-card-tilt's "no reachable site carries the effect yet".
-    await ctx.close();
+    await ctx.close().catch(() => {});
     await browser.close();
     console.log(
       `::notice:: verify-magnetic-cta SKIPPED — ${SLUG} carries no .magnetic-cta yet (pre-AL-738 stale build; MagneticButton is auto-on in the template + lands on the next full build, NO redeploy → flips to a real assertion on rebuild).`,
@@ -114,7 +114,7 @@ try {
     }
   }
   check('0 console errors across the interaction', consoleErrors.length === 0, consoleErrors.slice(0, 2).join(' | '));
-  await ctx.close();
+  await ctx.close().catch(() => {});
 
   // ── REDUCED MOTION — must stay STATIC ────────────────────────────────────────────────
   if (present) {

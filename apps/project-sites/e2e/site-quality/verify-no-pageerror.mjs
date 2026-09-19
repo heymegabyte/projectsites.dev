@@ -68,7 +68,7 @@ async function auditSite(browser, slug) {
     // Guard: a CF challenge / non-200 shell isn't the real site — don't report a phantom pass OR fail.
     const title = await page.title().catch(() => '');
     if (!resp || resp.status() !== 200 || /just a moment|checking your browser/i.test(title)) {
-      await ctx.close();
+      await ctx.close().catch(() => {});
       return { slug, auditable: false, status: resp?.status() ?? 0 };
     }
     await page.waitForTimeout(3500); // let deferred hydration/applyBrand run (that's where the crash lives)
@@ -79,7 +79,7 @@ async function auditSite(browser, slug) {
   } catch (e) {
     return { slug, auditable: false, status: 0, gotoError: String(e).slice(0, 80) };
   } finally {
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 }
 

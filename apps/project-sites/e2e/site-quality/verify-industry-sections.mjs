@@ -55,7 +55,7 @@ try {
       const r = await page.goto(base, { waitUntil: 'load', timeout: 45000 });
       if (!r || r.status() !== 200) {
         rows.push(`  ⏭️  ${slug} — status ${r?.status()} (skip)`);
-        await ctx.close();
+        await ctx.close().catch(() => {});
         continue;
       }
       await page.waitForTimeout(3000);
@@ -70,7 +70,7 @@ try {
       if (leak) {
         hits.push({ slug, kind: 'token-leak', detail: leak[0] });
         rows.push(`  ❌ ${slug} — LEAKED industry token in the DOM: ${leak[0]} (scrubText firewall breached)`);
-        await ctx.close();
+        await ctx.close().catch(() => {});
         continue;
       }
 
@@ -108,7 +108,7 @@ try {
     } catch (e) {
       rows.push(`  ⏭️  ${slug} — ${e.message.slice(0, 50)}`);
     }
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } finally {
   await browser.close();

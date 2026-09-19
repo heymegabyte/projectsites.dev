@@ -50,7 +50,7 @@ try {
       const title = await page.title().catch(() => '');
       if (!resp || resp.status() !== 200 || /just a moment|checking your browser|attention required/i.test(title)) {
         rows.push({ slug, note: `NOT AUDITABLE (status=${resp?.status() ?? 0})` });
-        await ctx.close();
+        await ctx.close().catch(() => {});
         continue;
       }
       await page.waitForTimeout(1200);
@@ -72,7 +72,7 @@ try {
       if (!atTop.present) {
         stale++;
         rows.push({ slug, note: 'no .scroll-progress bar (stale build predating idea #161) — rebuild to gain it' });
-        await ctx.close();
+        await ctx.close().catch(() => {});
         continue;
       }
 
@@ -107,7 +107,7 @@ try {
     } catch (e) {
       rows.push({ slug, note: `measure error: ${String(e).slice(0, 70)}` });
     } finally {
-      await ctx.close();
+      await ctx.close().catch(() => {});
     }
   }
 } finally {

@@ -94,7 +94,7 @@ async function probe(url) {
   } catch (e) {
     out.errs.push('[probe] ' + String(e.message || e).slice(0, 80));
   } finally {
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
   return out;
 }

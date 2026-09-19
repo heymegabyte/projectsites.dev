@@ -131,7 +131,7 @@ try {
   if (span !== aria) {
     notices.push(`visible counter span=${span} ≠ aria=${aria} — headless rolling-counter phantom (IntersectionObserver/rAF not firing offscreen); aria-label is authoritative. A real scrolled viewport animates the span to ${aria}.`);
   }
-  await ctx.close();
+  await ctx.close().catch(() => {});
 } catch (e) {
   check('homepage renders for stat reconcile', false, String(e).slice(0, 90));
 } finally {

@@ -47,11 +47,11 @@ try {
       await page.waitForTimeout(4500); // let lazy assets + logo onError/probe settle
     } catch (e) {
       results.push({ slug, http: 0, bad: [`load failed: ${String(e).slice(0, 70)}`] });
-      await ctx.close();
+      await ctx.close().catch(() => {});
       continue;
     }
     results.push({ slug, http, bad: [...bad] });
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } finally {
   await browser.close();

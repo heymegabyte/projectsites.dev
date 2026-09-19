@@ -98,7 +98,7 @@ try {
     if (safe && lcp.time > 2500)
       console.log(`  ⏱ advisory: ${slug} LCP ${lcp.time}ms > 2500ms (cinematic target 2000ms) — watch for a trend`);
     check(`${slug} · 0 cold-load console errors`, errs.length === 0, errs.slice(0, 2).join(' | ') || 'clean');
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } catch (e) {
   check('cinematic-lcp-safety audit completed', false, 'error: ' + String(e).slice(0, 120));

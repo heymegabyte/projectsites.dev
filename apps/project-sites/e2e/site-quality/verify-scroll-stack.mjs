@@ -122,7 +122,7 @@ async function probe(slug, { width = 1280, reduced = false } = {}) {
           }),
       )
     : { ms: -1, inStack: false, tag: 'none' };
-  await ctx.close();
+  await ctx.close().catch(() => {});
   return { contract, lcp, errs };
 }
 

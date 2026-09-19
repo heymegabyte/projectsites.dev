@@ -142,7 +142,7 @@ async function renderedDensity(browser, url) {
   } catch {
     return null;
   } finally {
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 }
 

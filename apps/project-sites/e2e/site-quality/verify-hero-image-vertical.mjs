@@ -97,7 +97,7 @@ try {
       const html = await page.content();
       if (!resp || resp.status() !== 200) {
         rows.push(`  ⏭️  ${slug} — status ${resp?.status()}`);
-        await ctx.close();
+        await ctx.close().catch(() => {});
         continue;
       }
       const h1 = (await page.evaluate(() => document.querySelector('h1')?.textContent || '')).toLowerCase();
@@ -150,7 +150,7 @@ try {
     } catch (e) {
       rows.push(`  ⏭️  ${slug} — ${e.message.slice(0, 50)}`);
     }
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } finally {
   await browser.close();

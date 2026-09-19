@@ -89,7 +89,7 @@ async function probe(slug, { reduced } = {}) {
       return null;
     }
   })();
-  await ctx.close();
+  await ctx.close().catch(() => {});
   return { contract, errs };
 }
 

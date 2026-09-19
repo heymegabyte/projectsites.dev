@@ -104,7 +104,7 @@ try {
       check(`${slug}${path} · title has no numeric-city leak`, !titleBad, titleBad ? `title="${seo.title}"` : 'ok');
       check(`${slug}${path} · meta desc has no numeric-city leak`, !descBad, descBad ? `desc="…${(seo.desc.match(/serving\s+\d{3,6}[^.]*/i) || [''])[0]}…"` : 'ok');
     }
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } catch (e) {
   check('location-token audit completed', false, 'error: ' + String(e).slice(0, 120));

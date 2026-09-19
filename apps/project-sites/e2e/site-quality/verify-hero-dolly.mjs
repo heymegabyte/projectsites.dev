@@ -120,7 +120,7 @@ async function auditSite(browser, slug) {
   } catch (e) {
     return { slug, auditable: false, status: 0, gotoError: String(e).slice(0, 60) };
   } finally {
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 }
 

@@ -92,7 +92,7 @@ async function probe(slug, { reduced } = {}) {
   } catch (e) {
     return { slug, error: String(e).slice(0, 140), errors };
   } finally {
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 }
 

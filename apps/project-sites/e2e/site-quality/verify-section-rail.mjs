@@ -78,7 +78,7 @@ try {
   }
 
   if (errs.length === 0) ok('0 console errors'); else fail(`${errs.length} console error(s): ${errs.slice(0, 2).join(' | ')}`);
-  await ctx.close();
+  await ctx.close().catch(() => {});
 } finally {
   await browser.close();
 }

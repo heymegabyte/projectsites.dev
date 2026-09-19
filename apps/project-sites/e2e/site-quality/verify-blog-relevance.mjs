@@ -45,7 +45,7 @@ try {
     const ctx = await browser.newContext({ userAgent: UA, viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
     const page = await ctx.newPage();
     const resp = await page.goto(`https://${slug}.projectsites.dev/blog`, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => null);
-    if (!resp || resp.status() >= 400) { check(`${slug} · /blog reachable`, false, `status=${resp ? resp.status() : 'ERR'}`); await ctx.close(); continue; }
+    if (!resp || resp.status() >= 400) { check(`${slug} · /blog reachable`, false, `status=${resp ? resp.status() : 'ERR'}`); await ctx.close().catch(() => {}); continue; }
     // /blog is an SPA route — the post links hydrate client-side. Wait for a real post link to
     // render (a bare waitForTimeout raced hydration → 0 posts → a false PASS). A blog with genuinely
     // 0 posts still fails this wait, which is itself a signal worth catching.
@@ -82,7 +82,7 @@ try {
       check(`${slug} · blog is on-brand (no web-dev/SEO jargon)`, true, `${blog.slugs.length} posts, clean`);
     }
 
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } catch (e) {
   check('blog-relevance audit completed', false, 'error: ' + String(e).slice(0, 120));

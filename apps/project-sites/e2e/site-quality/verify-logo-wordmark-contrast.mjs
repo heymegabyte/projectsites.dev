@@ -67,7 +67,7 @@ try {
       const r = await page.goto(base, { waitUntil: 'load', timeout: 45000 });
       if (!r || r.status() !== 200) {
         rows.push(`  ⏭️  ${slug} — status ${r?.status()} (skip)`);
-        await ctx.close();
+        await ctx.close().catch(() => {});
         continue;
       }
       await page.waitForTimeout(3000); // let the wordmark HEAD-probe + onLoad ink-gate settle
@@ -105,7 +105,7 @@ try {
     } catch (e) {
       rows.push(`  ⏭️  ${slug} — ${e.message.slice(0, 50)}`);
     }
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } finally {
   await browser.close();

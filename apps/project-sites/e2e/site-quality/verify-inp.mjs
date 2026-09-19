@@ -50,7 +50,7 @@ try {
       const resp = await page.goto(base, { waitUntil: 'load', timeout: 60000 });
       if (!resp || resp.status() !== 200) {
         rows.push({ slug, note: `NOT MEASURABLE (status=${resp ? resp.status() : 'none'})` });
-        await ctx.close();
+        await ctx.close().catch(() => {});
         continue;
       }
       // Install the Event Timing observer BEFORE interacting. `interactionId > 0` marks a discrete
@@ -90,7 +90,7 @@ try {
 
       if (m.count < MIN_INTERACTIONS) {
         rows.push({ slug, note: `NOT MEASURABLE (only ${m.count} interaction(s) registered; drove [${driven.join(',')}])` });
-        await ctx.close();
+        await ctx.close().catch(() => {});
         continue;
       }
       const ok = m.inp <= INP_BUDGET_MS;
@@ -99,7 +99,7 @@ try {
     } catch (e) {
       rows.push({ slug, note: `ERROR ${String(e).slice(0, 80)}` });
     }
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } finally {
   await browser.close();

@@ -32,7 +32,7 @@ for (const slug of SITES) {
     const resp = await page.goto(`${base}/`, { waitUntil: 'load', timeout: 45000 });
     if (!resp || resp.status() >= 400) {
       rows.push(`  ⏭️  ${slug} — home unreachable (${resp?.status()}) — skip`);
-      await ctx.close();
+      await ctx.close().catch(() => {});
       continue;
     }
     await page.waitForTimeout(1200); // hydrate the client-rendered nav
@@ -55,7 +55,7 @@ for (const slug of SITES) {
     });
     if (routes.length === 0) {
       rows.push(`  ⏭️  ${slug} — no internal nav links found (pre-nav build?) — skip`);
-      await ctx.close();
+      await ctx.close().catch(() => {});
       continue;
     }
     const targets = routes.slice(0, MAX_ROUTES);
@@ -98,7 +98,7 @@ for (const slug of SITES) {
   } catch (e) {
     rows.push(`  ⏭️  ${slug} — ${String(e.message || e).slice(0, 60)} — skip`);
   } finally {
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 }
 

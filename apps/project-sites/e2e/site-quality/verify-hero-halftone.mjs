@@ -158,7 +158,7 @@ try {
     // E. 0 cold-load console errors.
     check('0 cold-load console errors', errs.length === 0, errs.slice(0, 2).join(' | ') || 'clean');
   }
-  await ctx.close();
+  await ctx.close().catch(() => {});
 } catch (e) {
   check('halftone hero audit completed', false, 'error: ' + String(e).slice(0, 120));
 } finally {

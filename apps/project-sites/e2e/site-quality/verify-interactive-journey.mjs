@@ -201,7 +201,7 @@ try {
   check('0 console errors across the interactive journey', errs.length === 0, errs.slice(0, 3).join(' | '));
 
   await page.screenshot({ path: `${__dirname}/_interactive-journey-${SLUG}.png` }).catch(() => {});
-  await ctx.close();
+  await ctx.close().catch(() => {});
 } catch (e) {
   check('interactive-journey completes without throwing', false, String(e.message || e).slice(0, 100));
 } finally {

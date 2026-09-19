@@ -41,7 +41,7 @@ try {
     const page = await ctx.newPage();
     try {
       const resp = await page.goto(`https://${slug}.projectsites.dev`, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      if (!resp || resp.status() !== 200) { rows.push(`  ⏭️  ${slug} — status ${resp?.status()}`); await ctx.close(); continue; }
+      if (!resp || resp.status() !== 200) { rows.push(`  ⏭️  ${slug} — status ${resp?.status()}`); await ctx.close().catch(() => {}); continue; }
       await page.waitForTimeout(3000); // let useSEO overwrite the shell desc on hydration
       const { desc, h1, title } = await page.evaluate(() => ({
         desc: (document.querySelector('meta[name="description"]')?.getAttribute('content') || '').toLowerCase(),
@@ -57,7 +57,7 @@ try {
         else { flags++; rows.push(`  ❌ ${slug} — meta desc "${desc.slice(0, 70)}…" names NONE of {${verticalNouns.join(',')}} (wrong-vertical SERP snippet)`); }
       }
     } catch (e) { rows.push(`  ⏭️  ${slug} — ${e.message.slice(0, 50)}`); }
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } finally { await browser.close(); }
 

@@ -93,7 +93,7 @@ async function servedStyle(browser, slug) {
   } catch (e) {
     return { ok: false, style: null, theme: null, err: e instanceof Error ? e.message : String(e) };
   } finally {
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 }
 

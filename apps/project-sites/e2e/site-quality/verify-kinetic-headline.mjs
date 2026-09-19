@@ -104,7 +104,7 @@ async function probe(slug, { reduced } = {}) {
           }),
       )
     : { ms: -1, isKineticH1: false, tag: 'none' };
-  await ctx.close();
+  await ctx.close().catch(() => {});
   return { contract, lcp, errs };
 }
 

@@ -45,7 +45,7 @@ try {
       const resp = await page.goto(base, { waitUntil: 'load', timeout: 60000 });
       if (!resp || resp.status() !== 200) {
         rows.push({ slug, note: `NOT MEASURABLE (status=${resp ? resp.status() : 'none'})` });
-        await ctx.close();
+        await ctx.close().catch(() => {});
         continue;
       }
       await page.waitForTimeout(2500); // let the SPA hydrate + lazy sections settle
@@ -75,7 +75,7 @@ try {
     } catch (e) {
       rows.push({ slug, note: `ERROR ${String(e).slice(0, 70)}` });
     }
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } finally {
   await browser.close();

@@ -41,7 +41,7 @@ try {
       const title = await page.title().catch(() => '');
       if (!resp || resp.status() !== 200 || /just a moment|checking your browser/i.test(title)) {
         summary.push(`  ⚠️  ${slug}: not auditable (status ${resp?.status() ?? '?'} / challenge) — skipped`);
-        await ctx.close();
+        await ctx.close().catch(() => {});
         continue;
       }
       auditedSites++;
@@ -81,7 +81,7 @@ try {
     } catch (err) {
       summary.push(`  ⚠️  ${slug}: load error (${String(err).slice(0, 60)}) — skipped`);
     } finally {
-      await ctx.close();
+      await ctx.close().catch(() => {});
     }
   }
 } finally {

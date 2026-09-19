@@ -49,7 +49,7 @@ try {
         const title = await page.title().catch(() => '');
         if (!resp || resp.status() !== 200 || /just a moment|checking your browser/i.test(title)) {
           auditable = false;
-          await ctx.close();
+          await ctx.close().catch(() => {});
           break;
         }
         const results = await new AxeBuilder({ page }).withTags(TAGS).analyze();
@@ -74,7 +74,7 @@ try {
       } catch (e) {
         console.error(`  ${slug} @${width}px — audit error: ${String(e).slice(0, 80)}`);
       } finally {
-        await ctx.close();
+        await ctx.close().catch(() => {});
       }
     }
 

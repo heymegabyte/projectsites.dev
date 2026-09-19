@@ -110,7 +110,7 @@ async function probe(slug, { reduced } = {}) {
           }),
       )
     : { ms: -1, inCascade: false, tag: 'none' };
-  await ctx.close();
+  await ctx.close().catch(() => {});
   return { contract, lcp, errs };
 }
 

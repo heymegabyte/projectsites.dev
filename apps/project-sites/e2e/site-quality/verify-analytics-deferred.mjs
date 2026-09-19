@@ -94,7 +94,7 @@ try {
     }, { timeout: 3000 }).then((h) => h.jsonValue()).catch(() => null);
     check(`${slug} · first paint stays fast despite deferred analytics (cold FCP ≤ 3000ms, advisory)`,
       fcp === null || fcp <= 3000, fcp === null ? 'FCP unavailable' : `FCP=${fcp}ms`);
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } catch (e) {
   check('analytics-deferred audit completed', false, 'error: ' + String(e).slice(0, 120));

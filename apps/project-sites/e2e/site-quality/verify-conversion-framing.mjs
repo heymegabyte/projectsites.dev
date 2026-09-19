@@ -120,7 +120,7 @@ try {
       await page.waitForTimeout(1500); // let client-rendered sections hydrate
       if (!resp || resp.status() !== 200) {
         rows.push(`  ⏭️  ${slug} — not auditable (status ${resp?.status()})`);
-        await ctx.close();
+        await ctx.close().catch(() => {});
         continue;
       }
       const d = await page.evaluate(() => ({
@@ -139,7 +139,7 @@ try {
     } catch (e) {
       rows.push(`  ⏭️  ${slug} — ${e.message.slice(0, 60)}`);
     }
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } finally {
   await browser.close();

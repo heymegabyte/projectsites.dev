@@ -62,7 +62,7 @@ try {
     try {
       const r = await page.goto(`https://${slug}.projectsites.dev/`, { waitUntil: 'load', timeout: 45000 });
       if (!r || r.status() !== 200) {
-        await ctx.close();
+        await ctx.close().catch(() => {});
         continue;
       }
       await page.waitForTimeout(1500); // let the SPA settle its client <title>
@@ -85,7 +85,7 @@ try {
     } catch {
       /* route unreachable → skip (don't false-fail) */
     }
-    await ctx.close();
+    await ctx.close().catch(() => {});
   }
 } finally {
   await browser.close();

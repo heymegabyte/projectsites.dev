@@ -44,7 +44,7 @@ try {
       const title = await page.title().catch(() => '');
       if (!resp || resp.status() !== 200 || /just a moment|checking your browser|attention required/i.test(title)) {
         rows.push({ slug, note: `NOT MEASURABLE (status=${resp ? resp.status() : 'none'} / challenge shell)` });
-        await ctx.close();
+        await ctx.close().catch(() => {});
         continue;
       }
       await page.waitForTimeout(1200);
@@ -111,7 +111,7 @@ try {
       fails++;
       rows.push({ slug, note: `measure error: ${String(e).slice(0, 80)}` });
     } finally {
-      await ctx.close();
+      await ctx.close().catch(() => {});
     }
   }
 } finally {

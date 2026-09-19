@@ -135,7 +135,7 @@ try {
   if (lcp.home === 'other')
     console.log(`  ⚠ advisory: LCP element home resolved to "${lcp.tag}" (not hero) — verify the hero is the LCP`);
   check('0 cold-load console errors', errs.length === 0, errs.slice(0, 2).join(' | ') || 'clean');
-  await ctx.close();
+  await ctx.close().catch(() => {});
 } catch (e) {
   check('hero-lcp-paint audit completed', false, 'error: ' + String(e).slice(0, 120));
 } finally {

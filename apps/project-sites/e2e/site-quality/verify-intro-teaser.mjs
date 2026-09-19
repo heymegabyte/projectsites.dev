@@ -76,7 +76,7 @@ try {
     page.on('pageerror', (e) => errs.push('PAGEERR: ' + e.message.slice(0, 100)));
     try {
       const resp = await page.goto(base + '/', { waitUntil: 'domcontentloaded', timeout: 40000 });
-      if (!resp || resp.status() !== 200) { fail(slug, `home not 200 (${resp?.status()})`); await ctx.close(); continue; }
+      if (!resp || resp.status() !== 200) { fail(slug, `home not 200 (${resp?.status()})`); await ctx.close().catch(() => {}); continue; }
 
       // Catch the transient overlay (it auto-dismisses in ~1.8s). If we miss the window, the session
       // key proves it DID show (the component sets it only on the show path).
@@ -116,7 +116,7 @@ try {
     } catch (err) {
       fail(slug, `A/B error: ${String(err).slice(0, 80)}`);
     } finally {
-      await ctx.close();
+      await ctx.close().catch(() => {});
     }
 
     // ── B: LCP-SAFE — the intro curtain must NEVER be the LCP. Separate no-interaction context
