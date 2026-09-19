@@ -281,6 +281,17 @@ describe('hero_copy — categoryPhrase (AL-361: keep the retail/venue noun phras
     expect(categoryPhrase('Services')).toBe('local business'); // strips to empty → fallback
   });
 
+  it('AL-821: the bare "books" category normalizes to the singular "bookstore" (no "a books" grammar)', () => {
+    // Live defect: green-apple-books-sf shipped subhead "…browses with us: a books where every visit…"
+    // + desc "San Francisco's books". The OSM/Places category is the bare plural "books".
+    expect(categoryPhrase('books')).toBe('bookstore');
+    expect(categoryPhrase('book')).toBe('bookstore');
+    expect(categoryPhrase('Bookshop')).toBe('bookstore');
+    // still bookstore-classified downstream (indefinite article + persona both stay correct)
+    expect(indefiniteArticle(categoryPhrase('books'))).toBe('a'); // "a bookstore", never "a books"
+    expect(personaHeroCopy('scholarly', categoryPhrase('books'), 'San Francisco')!.headlines.join(' ')).toMatch(/next read|browse|shelves/);
+  });
+
   it('AL-820: transit/infrastructure POI types degrade to "local business", never an absurd H1', () => {
     // Live defect: "Berkeley Bowl" the grocery collided with the AC-Transit "Berkeley Bowl" bus_stop →
     // business_category "bus_stop" → H1 "The bus stop Berkeley counts on". A non-business POI type must

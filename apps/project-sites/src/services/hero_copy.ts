@@ -63,6 +63,13 @@ const CATEGORY_NORMALIZE: Readonly<Record<string, string>> = {
   'veterinary care': 'veterinary clinic',
   'point of interest': 'local business',
   establishment: 'local business',
+  // AL-821: the OSM/Places category for a bookstore is the bare plural "books" → the copy read the
+  // ungrammatical "a books where every visit…" / "San Francisco's books" (live on green-apple-books-sf).
+  // Normalize to the singular business noun so the indefinite-article + possessive frames stay
+  // grammatical ("a bookstore" / "San Francisco's bookstore"); still matches isBookstore (book+store).
+  books: 'bookstore',
+  book: 'bookstore',
+  bookshop: 'bookstore',
   'car repair': 'auto shop',
   'car dealer': 'car dealership',
   'beauty salon': 'salon',
