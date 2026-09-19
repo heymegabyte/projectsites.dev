@@ -9,6 +9,7 @@
 import type { Env } from '../types/env.js';
 import {
   listAssets,
+  saveStockToLibrary,
   searchStock,
   softDeleteAsset,
   uploadAsset,
@@ -331,6 +332,93 @@ describe('services/media', () => {
       const list = await listAssets(env, 'org-2');
       expect(list[0]?.attribution).toContain('Pexels');
       expect(list[0]?.source_provider).toBe('pexels');
+    });
+  });
+
+  // saveStockToLibrary pulls a client-supplied URL server-side and stores the body as a
+  // readable asset — so it must not be SSRF-able. These lock the manual-redirect guard.
+  describe('saveStockToLibrary SSRF guard', () => {
+    const mkEnv = () => {
+      const r2 = createR2Stub();
+      const env = {
+        DB: createDbStub(),
+        SITES_BUCKET: r2 as unknown as R2Bucket,
+        AI: {} as Ai,
+      } as unknown as Env;
+      return { env, r2 };
+    };
+    let origFetch: typeof global.fetch;
+    beforeEach(() => {
+      origFetch = global.fetch;
+    });
+    afterEach(() => {
+      global.fetch = origFetch;
+    });
+
+    it('rejects a direct internal/metadata URL and never fetches it', async () => {
+      const { env, r2 } = mkEnv();
+      global.fetch = jest.fn() as never;
+      await expect(
+        saveStockToLibrary(env, {
+          orgId: 'org-1',
+          candidate: {
+            provider: 'x',
+            kind: 'image',
+            fullUrl: 'http://169.254.169.254/latest/meta-data/',
+            title: 'meta',
+          } as never,
+        }),
+      ).rejects.toThrow(/MEDIA_STOCK_UNSAFE_URL/);
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(r2.put).not.toHaveBeenCalled();
+    });
+
+    it('rejects a redirect that hops from a safe host to an internal target (TOCTOU) — stores nothing', async () => {
+      const { env, r2 } = mkEnv();
+      global.fetch = jest.fn(async () => ({
+        status: 302,
+        headers: {
+          get: (k: string) =>
+            k.toLowerCase() === 'location' ? 'http://169.254.169.254/latest/meta-data/' : null,
+        },
+      })) as never;
+      await expect(
+        saveStockToLibrary(env, {
+          orgId: 'org-1',
+          candidate: {
+            provider: 'x',
+            kind: 'image',
+            fullUrl: 'https://cdn.example.com/a.jpg',
+            title: 'a',
+          } as never,
+        }),
+      ).rejects.toThrow(/MEDIA_STOCK_UNSAFE_URL/);
+      expect(global.fetch).toHaveBeenCalledTimes(1); // only the first (safe) hop attempted
+      expect(r2.put).not.toHaveBeenCalled(); // the SSRF body is never persisted
+    });
+
+    it('downloads a safe stock URL and persists it (happy path preserved)', async () => {
+      const { env, r2 } = mkEnv();
+      const body = new TextEncoder().encode('img-bytes').buffer;
+      global.fetch = jest.fn(async () => ({
+        ok: true,
+        status: 200,
+        headers: {
+          get: (k: string) => (k.toLowerCase() === 'content-type' ? 'image/jpeg' : null),
+        },
+        arrayBuffer: async () => body,
+      })) as never;
+      const asset = await saveStockToLibrary(env, {
+        orgId: 'org-1',
+        candidate: {
+          provider: 'unsplash',
+          kind: 'image',
+          fullUrl: 'https://images.unsplash.com/photo-1.jpg',
+          title: 'sunset',
+        } as never,
+      });
+      expect(asset.source).toBe('stock');
+      expect(r2.put).toHaveBeenCalledTimes(1);
     });
   });
 });

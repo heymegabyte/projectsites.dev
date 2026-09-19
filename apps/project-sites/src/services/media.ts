@@ -28,6 +28,7 @@ import { gatewayFetch } from './ai_gateway.js';
 import { dbExecute, dbInsert, dbQuery, dbQueryOne, dbUpdate } from './db.js';
 import { sanitizeLikeTerm } from './like_pattern.js';
 import { callDallE3 } from './image_generation.js';
+import { isSafeCrawlUrl } from './outbound_webhooks.js';
 
 /** Realistic UA used for stock-downloads — most CDNs block default UAs. */
 const STOCK_UA =
@@ -348,13 +349,50 @@ export async function searchStock(
   return out;
 }
 
+/**
+ * SSRF-safe fetch for stock downloads. `saveStockToLibrary` pulls a client-supplied
+ * `fullUrl` server-side and stores the body as a readable asset, so a plain `fetch(url)`
+ * (default `redirect:'follow'`) is a TOCTOU SSRF: a host-allowlisted FIRST url can 302 to
+ * an internal target (169.254.169.254 cloud-metadata, RFC1918) — exactly the redirect gap
+ * documented in {@link isSafeCrawlUrl}. This follows redirects MANUALLY, re-validating
+ * EVERY hop's host with {@link isSafeCrawlUrl} before connecting, capped at `maxRedirects`.
+ *
+ * @param url - the initial (already client-supplied) URL to download.
+ * @param init - fetch init; `redirect` is forced to `'manual'` per hop.
+ * @param maxRedirects - hop cap (default 4).
+ * @returns the first non-3xx {@link Response} reached through only-safe hosts.
+ * @throws {Error} `MEDIA_STOCK_UNSAFE_URL` when any hop resolves to a non-public host.
+ * @throws {Error} `MEDIA_STOCK_TOO_MANY_REDIRECTS` past `maxRedirects` hops.
+ */
+async function fetchStockUrlNoSsrf(
+  url: string,
+  init: RequestInit,
+  maxRedirects = 4,
+): Promise<Response> {
+  let target = url;
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    if (!isSafeCrawlUrl(target)) {
+      throw new Error(`MEDIA_STOCK_UNSAFE_URL: ${target}`);
+    }
+    const res = await fetch(target, { ...init, redirect: 'manual' });
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get('location');
+      if (!location) return res;
+      target = new URL(location, target).toString(); // resolve relative Location
+      continue;
+    }
+    return res;
+  }
+  throw new Error(`MEDIA_STOCK_TOO_MANY_REDIRECTS: ${url}`);
+}
+
 /** Download a stock candidate's `fullUrl` and persist via {@link uploadAsset}. */
 export async function saveStockToLibrary(
   env: Env,
   args: { orgId: string; createdBy?: string | null; candidate: StockCandidate },
 ): Promise<MediaAsset> {
   const { candidate } = args;
-  const res = await fetch(candidate.fullUrl, {
+  const res = await fetchStockUrlNoSsrf(candidate.fullUrl, {
     headers: { 'User-Agent': STOCK_UA, Accept: '*/*' },
   });
   if (!res.ok) {
