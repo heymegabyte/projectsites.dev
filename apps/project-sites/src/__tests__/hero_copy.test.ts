@@ -75,6 +75,22 @@ describe('hero_copy — heroCtasFor (AL-420: seeded hero CTA labels, never "Rese
     // Non-service modes ignore the category (quote sub-split is service-only).
     expect(heroCtasFor('retail', 'Yoga Studio').primary).toBe('Visit the shop');
   });
+
+  it('quickserve mode: a GROCERY/MARKET shops (no "flavors"), a made-to-order counter keeps them (AL-819)', () => {
+    // A grocery is routed to quickserve (AL-656, no reservations) but has no "flavors" — vision-caught
+    // live on rainbow-grocery-san-francisco (secondary CTA "See our flavors" on a grocery).
+    for (const cat of ['Grocery Store', 'Supermarket', 'Greengrocer', 'Neighborhood Market', 'Fish Market', 'Butcher Shop']) {
+      const c = heroCtasFor('quickserve', cat);
+      expect(c.secondary).toBe("See what's in store");
+      expect(c.secondary.toLowerCase()).not.toMatch(/flavor/);
+    }
+    // A real made-to-order counter (ice cream / coffee / juice) KEEPS "See our flavors" (no cross-fire).
+    for (const cat of ['Ice Cream Shop', 'Coffee Shop', 'Juice Bar']) {
+      expect(heroCtasFor('quickserve', cat).secondary).toBe('See our flavors');
+    }
+    // No category → the safe default is unchanged (back-compat).
+    expect(heroCtasFor('quickserve').secondary).toBe('See our flavors');
+  });
 });
 
 describe('hero_copy — trustBadgesFor (AL-518: commerce-mode trust badges, never "Free shipping" on a tattoo studio)', () => {
@@ -92,6 +108,19 @@ describe('hero_copy — trustBadgesFor (AL-518: commerce-mode trust badges, neve
       'Easy 30-day returns',
       'Quality guaranteed',
     ]);
+  });
+
+  it('quickserve GROCERY gets fresh-grocery badges, NOT "Made to order"; a real counter keeps it (AL-819)', () => {
+    // A grocery makes nothing "to order" — it sells fresh + packaged goods you shop for.
+    for (const cat of ['Grocery Store', 'Supermarket', 'Greengrocer', 'Fish Market']) {
+      const b = trustBadgesFor('quickserve', cat);
+      expect(b).toEqual(['Fresh daily', 'Order ahead', 'Grab & go']);
+      expect(b.join(' ').toLowerCase()).not.toMatch(/made to order|flavor/);
+    }
+    // A real made-to-order counter (ice cream / coffee) KEEPS the made-to-order badge (no cross-fire).
+    expect(trustBadgesFor('quickserve', 'Ice Cream Shop')).toEqual(['Made to order', 'Order ahead', 'Grab & go']);
+    // No category → the safe default is unchanged (back-compat).
+    expect(trustBadgesFor('quickserve')).toEqual(['Made to order', 'Order ahead', 'Grab & go']);
   });
 
   it('every mode returns exactly 3 non-empty, slop-free badges; unknown → general', () => {
@@ -631,6 +660,27 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
     const school = personaHeroCopy('scholarly', 'tutoring center', 'Denver');
     expect(school!.headlines.join(' ').toLowerCase()).toMatch(/learns|bright futures/);
     expect(school!.headlines.join(' ').toLowerCase()).not.toMatch(/read|browse|shelves/);
+  });
+
+  it('warm on a GROCERY/MARKET gets STOCK-UP/SHOP copy, NOT the sit-down "Pull up a chair"/"seat" dining misfit (AL-819)', () => {
+    // A grocery is routed to warm (warm food aesthetic fits) but must NOT inherit the sit-down dining
+    // copy. Live defect: rainbow-grocery-san-francisco shipped H1 "Pull up a chair, San Francisco" — you
+    // SHOP at a grocery, you don't pull up a chair. Covers the walk-in-food family.
+    for (const cat of ['grocery store', 'supermarket', 'greengrocer', 'neighborhood market', 'fish market']) {
+      const p = personaHeroCopy('warm', cat, 'San Francisco');
+      expect(p).not.toBeNull();
+      const allText = [...p!.headlines, ...p!.subheadlines].join(' ').toLowerCase();
+      // the exact sit-down dining-misfit strings must NOT appear on a grocery
+      expect(allText).not.toMatch(/pull up a chair|everyone has a seat|slow down|cozy corner|feel at home/);
+      // it reads like a grocer instead (stock up / market / aisles / shelves / produce / on your list)
+      expect(allText).toMatch(/stock up|market|aisles|shelves|produce|on your list|shops with us/);
+      // still SEO-woven: category keyword + city present in every subhead
+      expect(p!.subheadlines.every((s) => s.includes(cat) && s.includes('San Francisco'))).toBe(true);
+    }
+    // REGRESSION GUARD: an actual restaurant KEEPS the sit-down dining copy (the two never cross-fire).
+    const diner = personaHeroCopy('warm', 'barbecue restaurant', 'Austin');
+    expect(diner!.headlines.join(' ').toLowerCase()).toMatch(/pull up a chair|cozy corner/);
+    expect(diner!.headlines.join(' ').toLowerCase()).not.toMatch(/stock up|on your list/);
   });
 
   it('every distinctive personality returns non-empty, city+category-woven, slop-free copy', () => {

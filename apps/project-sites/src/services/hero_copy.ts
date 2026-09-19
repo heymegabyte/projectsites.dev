@@ -456,6 +456,21 @@ export function personaHeroCopy(
       cat,
     );
 
+  // AL-819: `warm` is the SHARED food/hospitality personality worn by TWO families — sit-down
+  // HOSPITALITY (restaurant/cafe/bakery/deli/bar) AND walk-in GROCERY/MARKET (grocery/supermarket/
+  // greengrocer/bodega/food-market/butcher/fishmonger — routed to `warm` by theme_style.ts for the
+  // warm food aesthetic). The `warm` hero copy below is SEATING/dining-specific ("Pull up a chair",
+  // "everyone has a seat", "slow down, feel at home") — a MISFIT on a grocery (live, vision-caught:
+  // rainbow-grocery-san-francisco shipped H1 "Pull up a chair, San Francisco"; you SHOP at a grocery,
+  // you don't pull up a chair). Sub-classify by category — a grocery/market gets STOCK-UP/SHOP copy;
+  // an actual restaurant/cafe keeps the dining copy. Same pattern as `isBookstore` (AL-810) +
+  // `isPlantRetail` (AL-612) + `isBodyArt` (AL-696). Gated by themeStyle===warm (the ternary lives in
+  // the map's `warm` entry) so a cafe never matches these grocery nouns → the two never cross-fire.
+  // Precise walk-in-food nouns only (NOT bare `market` → flea/art/stock/farmers'-craft markets).
+  // Shared with heroCtasFor + trustBadgesFor via the module-level GROCERY_MARKET_CATEGORY (defined
+  // near APPOINTMENT_CATEGORY) so the three grocery sub-splits never drift.
+  const isGroceryMarket = GROCERY_MARKET_CATEGORY.test(cat);
+
   const map: Readonly<Record<string, PersonaHeroCopy>> = {
     noir: isBodyArt
       ? {
@@ -495,17 +510,34 @@ export function personaHeroCopy(
         `${city} comes to us for ${art} ${cat} done with restraint, taste, and quiet confidence.`,
       ],
     },
-    warm: {
-      headlines: [
-        `Pull up a chair, ${city}`,
-        `Your ${city} ${cat}, always welcoming`,
-        `${city}'s cozy corner`,
-      ],
-      subheadlines: [
-        `A neighborhood ${cat} in ${city} where the welcome is warm, the faces are friendly, and everyone has a seat.`,
-        `Come in, slow down, and feel at home — ${art} ${cat} made with heart for ${city}.`,
-      ],
-    },
+    warm: isGroceryMarket
+      ? {
+          // STOCK-UP / SHOP copy for a walk-in grocery/market (AL-819) — the shared warm neighborhood
+          // aesthetic, in a grocer's voice (aisles / shelves / produce / on your list), never the
+          // sit-down "Pull up a chair" / "everyone has a seat" dining misfit. `cat` here is a
+          // grocery/market noun (gated above).
+          headlines: [
+            `Stock up in ${city}`,
+            `${city}'s neighborhood market`,
+            `Everything on your list, ${city}`,
+          ],
+          subheadlines: [
+            `A neighborhood ${cat} in ${city} — fresh aisles, friendly faces, and everything you came for, stocked and ready.`,
+            `${city} shops with us: ${art} ${cat} where the shelves stay full, the produce is fresh, and the welcome is warm.`,
+          ],
+        }
+      : {
+          // DINING copy — actual sit-down hospitality (restaurant / cafe / bakery / deli / bar).
+          headlines: [
+            `Pull up a chair, ${city}`,
+            `Your ${city} ${cat}, always welcoming`,
+            `${city}'s cozy corner`,
+          ],
+          subheadlines: [
+            `A neighborhood ${cat} in ${city} where the welcome is warm, the faces are friendly, and everyone has a seat.`,
+            `Come in, slow down, and feel at home — ${art} ${cat} made with heart for ${city}.`,
+          ],
+        },
     bold: {
       headlines: [
         `${city}, let's get to work`,
@@ -940,6 +972,17 @@ export function homepageFaq(
 const APPOINTMENT_CATEGORY =
   /\b(yoga|pilates|gym\w*|fitness|crossfit|dance\s?studio|personal\s?train\w*|barre|spin\s?studio|salon\w*|barber\w*|\bhair\b|\bnail\w*|\bspa\b|beauty|med\s?spa|massage|wax\w*|lash\w*|brow\w*|esthetic\w*|\bclinic\w*|dental|dentist\w*|orthodont\w*|\bdoctor\w*|physician\w*|chiropract\w*|veterinar\w*|\bvet\b|optometr\w*|dermatolog\w*|physio\w*|physical\s?therap\w*|acupunctur\w*|therap\w*|counsel\w*|wellness|wellbeing|meditation|rehab\w*|nutrition\w*|dietician|dietitian|midwif\w*|tattoo|piercing)\b/i;
 
+// AL-819: a walk-in GROCERY / MARKET is routed to `quickserve` (AL-656, correct — no reservations),
+// but quickserve's CTA + trust-badge copy is tuned for MADE-TO-ORDER food counters (coffee / ice-cream
+// / juice): "See our flavors" + "Made to order" are wrong for a grocery (it sells packaged + fresh
+// goods you SHOP for, it doesn't make food to order or have "flavors"). Vision-caught live on
+// rainbow-grocery-san-francisco. Sub-classify quickserve by category — a grocery gets SHOP/STOCK-UP
+// CTAs + fresh-grocery badges; a real coffee/ice-cream counter keeps the made-to-order copy. Mirrors
+// the APPOINTMENT_CATEGORY sub-split above + the `warm`/personaHeroCopy grocery branch. The module-
+// level regex is shared by heroCtasFor + trustBadgesFor + personaHeroCopy so the three never drift.
+const GROCERY_MARKET_CATEGORY =
+  /\b(grocer\w*|supermarket\w*|greengrocer\w*|\bbodega\b|food\s?(?:market\w*|hall)|farmers?\s?market\w*|neighbou?rhood\s?market\w*|corner\s?(?:store|market\w*)|convenience\s?store|butcher\w*|fishmonger\w*|seafood\s?(?:market\w*|counter)|produce\s?(?:market\w*|stand)|fish\s?market\w*)\b/i;
+
 export function heroCtasFor(
   mode: string | null | undefined,
   category?: string | null,
@@ -964,6 +1007,10 @@ export function heroCtasFor(
   // An APPOINTMENT/class business inside `service` books, never quotes.
   if (key === 'service' && typeof category === 'string' && APPOINTMENT_CATEGORY.test(category)) {
     return { primary: 'Book now', secondary: 'Our services' };
+  }
+  // A GROCERY/MARKET inside `quickserve` SHOPS, it has no "flavors" (AL-819).
+  if (key === 'quickserve' && typeof category === 'string' && GROCERY_MARKET_CATEGORY.test(category)) {
+    return { primary: 'Visit us', secondary: "See what's in store" };
   }
   return sets[key]!;
 }
@@ -1013,6 +1060,12 @@ export function trustBadgesFor(
   // "Licensed & insured" is the trades framing (plumber/electrician), which reads off on a barber.
   if (key === 'service' && typeof category === 'string' && APPOINTMENT_CATEGORY.test(category)) {
     return ['Easy online booking', 'Experienced professionals', 'Satisfaction guaranteed'];
+  }
+  // AL-819: a GROCERY/MARKET inside `quickserve` sells fresh + packaged goods you SHOP for — it makes
+  // nothing "to order". Swap the made-to-order badge for a fresh-grocery one; keep the honest walk-in
+  // "Order ahead" (grocery pickup/curbside is real) + "Grab & go".
+  if (key === 'quickserve' && typeof category === 'string' && GROCERY_MARKET_CATEGORY.test(category)) {
+    return ['Fresh daily', 'Order ahead', 'Grab & go'];
   }
   return sets[key]!;
 }
