@@ -95,6 +95,27 @@ function osmCategory(tags: Record<string, string>): string | undefined {
   return undefined;
 }
 
+// AL-820 (lead-scanner hardening): OSM transit / infrastructure / civic POIs carry a `name` + an
+// `amenity`/`highway`/`public_transport`/`railway` tag, so `osmCategory` would surface a bus stop,
+// parking lot, or park bench as a "business lead" (noise) — and a name-collision one (an AC-Transit
+// stop named "Berkeley Bowl") mis-categorizes the real business. These are NEVER local-business leads.
+// Skip an element when its ONLY category signal is a non-business POI (no `shop`/`craft`/`office`, and
+// no business `amenity`). Business amenities (restaurant/cafe/bar/pharmacy/bank/fuel/…) are NOT here.
+const NON_BUSINESS_AMENITY = new Set([
+  'bus_station', 'ferry_terminal', 'taxi', 'parking', 'parking_space', 'parking_entrance',
+  'motorcycle_parking', 'bicycle_parking', 'bicycle_rental', 'car_sharing', 'charging_station',
+  'bench', 'shelter', 'waste_basket', 'waste_disposal', 'recycling', 'drinking_water', 'fountain',
+  'toilets', 'shower', 'telephone', 'clock', 'post_box', 'grit_bin', 'hunting_stand', 'bbq',
+]);
+function isNonBusinessPoi(tags: Record<string, string>): boolean {
+  // A real business signal always wins — never skip a shop/craft/office.
+  if (tags['shop'] || tags['craft'] || tags['office']) return false;
+  if (tags['highway'] === 'bus_stop' || tags['highway'] === 'platform') return true;
+  if (tags['public_transport'] || tags['railway']) return true;
+  const amenity = tags['amenity'];
+  return !!amenity && NON_BUSINESS_AMENITY.has(amenity);
+}
+
 /**
  * Map an Overpass element to a {@link DiscoveredBusiness}, or null when it has a
  * website (not a lead) or no name (not usable).
@@ -106,6 +127,7 @@ export function osmElementToBusiness(el: OverpassElement): DiscoveredBusiness | 
   const tags = el.tags;
   if (!tags || !tags['name'] || tags['name'].trim() === '') return null;
   if (tagsHaveWebsite(tags)) return null;
+  if (isNonBusinessPoi(tags)) return null; // AL-820: a named bus stop / parking / bench is not a lead
 
   const biz: DiscoveredBusiness = { businessName: tags['name'] };
   const addr = osmAddress(tags);

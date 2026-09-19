@@ -71,6 +71,24 @@ describe('osm_overpass — osmElementToBusiness', () => {
   it('skips elements with no name', () => {
     expect(osmElementToBusiness({ type: 'node', id: 1, tags: { shop: 'bakery' } })).toBeNull();
   });
+  it('AL-820: skips a named transit / infrastructure POI (bus stop, parking, bench) — not a business lead', () => {
+    // A named bus stop ("Berkeley Bowl") is not a lead — surfacing it mis-categorized the real grocery.
+    for (const tags of [
+      { name: 'Berkeley Bowl', highway: 'bus_stop' },
+      { name: 'Downtown Transit Center', amenity: 'bus_station' },
+      { name: 'Main St Lot', amenity: 'parking' },
+      { name: 'Bench', amenity: 'bench' },
+      { name: 'Platform 2', public_transport: 'platform' },
+      { name: 'Union Station', railway: 'station' },
+      { name: 'Bike Racks', amenity: 'bicycle_parking' },
+    ]) {
+      expect(osmElementToBusiness({ type: 'node', id: 9, tags })).toBeNull();
+    }
+    // REGRESSION GUARD: a real business with a shop/craft/office signal is NEVER skipped, even if it
+    // ALSO carries an amenity/transit-adjacent tag; and business amenities (cafe/restaurant) stay leads.
+    expect(osmElementToBusiness({ type: 'node', id: 10, tags: { name: 'Corner Store', shop: 'convenience', amenity: 'parking' } })?.businessName).toBe('Corner Store');
+    expect(osmElementToBusiness({ type: 'node', id: 11, tags: { name: 'The Grind', amenity: 'cafe' } })?.category).toBe('cafe');
+  });
 });
 
 describe('osm_overpass — fetch + discover', () => {
