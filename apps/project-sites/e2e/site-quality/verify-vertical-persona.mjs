@@ -21,7 +21,7 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'heath-ceramics-sausalito,jackson-fine-art-atlanta,three-kings-tattoo-brooklyn,pike-place-fish-market-seattle,stumptown-coffee-portland').split(',').map((s) => s.trim()).filter(Boolean);
+const SITES = (process.env.SITES || 'heath-ceramics-sausalito,jackson-fine-art-atlanta,three-kings-tattoo-brooklyn,pike-place-fish-market-seattle,stumptown-coffee-portland,strand-book-store-broadway').split(',').map((s) => s.trim()).filter(Boolean);
 const ROUTES = (process.env.ROUTES || '/,/about,/services').split(',');
 const STRICT = process.env.STRICT === '1';
 
@@ -101,6 +101,21 @@ const QUICKSERVE_FOOD_SIGNAL =
   /\b(coffee\s?(?:shop|house|bar|roaster\w*)|\broaster(?:y|ies)\b|espresso|caf[eé]\w*|ice\s?cream|gelato|creamer\w*|frozen\s?yogurt|froyo|juice\s?bar|smoothie\s?bar|bakery|patisserie|donut\w*|doughnut\w*|bagel\w*|delicatessen|bubble\s?tea|\bboba\b|teahouse|food\s?truck)\b/i;
 const DINING_RESERVATION_MISFIT =
   /\b(reserve a table|book a table|reserve your table|table reservation|reservations welcome|make a reservation|come hungry,? leave happy|a warm seat and a plate)\b/i;
+// AL-810: the `scholarly` themeStyle is shared by EDUCATION (school/tutor/academy/coaching/daycare)
+// AND book RETAIL/libraries (bookstore/bookshop/booksellers/library/comic shop) — the shared books
+// aesthetic. Its education LEARNING copy ("Where {city} learns" / "Bright futures start" / "patient
+// teaching" / "every learner belongs" / "makes learning click") is a MISFIT on a bookstore: a store
+// SELLS books, it does not teach. Root-fixed in hero_copy.ts (personaHeroCopy scholarly branch
+// sub-classifies by category → a bookstore/library gets BROWSE/READ copy "Find your next read" /
+// "comes to browse" / "shelves, well-curated"). This guards the RENDERED surface so a stale pre-AL-810
+// build (or an LLM-drift learning phrase) is caught. Gate on the business BEING a bookstore/library
+// (page content, not slug) + the education phrase in the HERO region → near-zero false positives (a
+// real school matches the learning copy but NOT the bookstore signal; a bookseller never says these
+// verbatim). "Where {city} learns" allows a 1-2-word city.
+const BOOKSTORE_SIGNAL =
+  /\b(book\s?stor\w*|bookshop\w*|booksell\w*|\bbooks\b|\blibrar\w*|comic\s?(?:shop|store))\b/i;
+const EDUCATION_LEARNING_MISFIT =
+  /\b(bright futures start|patient teaching|every learner belongs|makes learning click|let'?s grow together|where [\w'’]+(?: [\w'’]+)? learns)\b/i;
 const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 const hits = [];
@@ -188,6 +203,18 @@ try {
           const m = DINING_RESERVATION_MISFIT.exec(nH1) || DINING_RESERVATION_MISFIT.exec(nBody.slice(0, 600));
           hits.push({ slug, route, kind: 'dining-copy-on-quickserve', detail: `walk-up food vertical wears full-service dining copy "${m?.[0]}" (AL-549 misfit — a counter-serve coffee/cafe/bakery takes no table reservations; should be quickserve "Order ahead / no reservation needed")` });
         }
+        // AL-810: a bookstore/library must not wear the education LEARNING persona ("Where {city}
+        // learns" / "Bright futures start" / "patient teaching"). Gate on the business being a
+        // bookstore/library (page content) + the learning phrase in the HERO region (H1 or top ~450c)
+        // — a real school matches the learning copy but not the bookstore signal, so it never
+        // false-fires; a bookseller build that correctly says "Find your next read" carries no misfit.
+        if (
+          BOOKSTORE_SIGNAL.test(nBody) &&
+          (EDUCATION_LEARNING_MISFIT.test(nH1) || EDUCATION_LEARNING_MISFIT.test(nBody.slice(0, 450)))
+        ) {
+          const m = EDUCATION_LEARNING_MISFIT.exec(nH1) || EDUCATION_LEARNING_MISFIT.exec(nBody.slice(0, 450));
+          hits.push({ slug, route, kind: 'education-copy-on-bookstore', detail: `bookstore/library hero wears education-learning copy "${m?.[0]}" (AL-810 misfit — a store sells books, it doesn't teach; should be BROWSE/READ copy "Find your next read")` });
+        }
       } catch {
         /* route unreachable → skip (don't false-fail) */
       }
@@ -210,5 +237,5 @@ if (STRICT) {
 }
 // flips-GREEN-on-rebuild tracker: a stale pre-fix build still renders the leak; the retail-pack
 // de-"Gear" fix lands next build (NO redeploy of existing sites), so these clear on rebuild.
-console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant / AL-641 brutalist-on-gallery / AL-654 coffee-on-non-cafe / AL-696 nightlife-copy-on-tattoo / AL-698 fashion-copy-on-food-market / AL-549 dining-copy-on-quickserve; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
+console.log(`::notice:: verify-vertical-persona — ${msg} (stale pre-fix build — AL-554 gear / AL-559 credential / AL-611 wellness-copy-on-plant / AL-641 brutalist-on-gallery / AL-654 coffee-on-non-cafe / AL-696 nightlife-copy-on-tattoo / AL-698 fashion-copy-on-food-market / AL-549 dining-copy-on-quickserve / AL-810 education-copy-on-bookstore; each root fix lands next build, NO redeploy → clears on rebuild; set STRICT=1 to enforce)`);
 process.exit(0);
