@@ -444,7 +444,12 @@ export async function chargeWallet(
   if (!res.success || (res.meta?.changes ?? 0) === 0) {
     // Fire auto-topup if we have a stored PM. Caller still gets insufficient.
     if (wallet.stripe_default_payment_method) {
-      topUpWallet(env, orgId, wallet.auto_topup_amount_cents).catch((e) => {
+      topUpWallet(
+        env,
+        orgId,
+        wallet.auto_topup_amount_cents,
+        autoTopupIdempotencyKey(wallet.id),
+      ).catch((e) => {
         console.warn(
           JSON.stringify({
             level: 'error',
@@ -492,7 +497,12 @@ export async function chargeWallet(
   }
 
   if (newBalance < wallet.auto_topup_threshold_cents && wallet.stripe_default_payment_method) {
-    topUpWallet(env, orgId, wallet.auto_topup_amount_cents).catch((e) => {
+    topUpWallet(
+      env,
+      orgId,
+      wallet.auto_topup_amount_cents,
+      autoTopupIdempotencyKey(wallet.id),
+    ).catch((e) => {
       console.warn(
         JSON.stringify({
           level: 'error',
@@ -575,14 +585,33 @@ export async function creditWallet(
 }
 
 /**
+ * Stable idempotency key for an AUTO-topup charge: the same wallet within the same
+ * ~5-minute bucket ⇒ the same key ⇒ Stripe collapses duplicate create requests to ONE
+ * real card charge (24h idempotency window). This is what stops a double-click or two
+ * racing `chargeWallet` calls from each firing a separate off-session charge.
+ *
+ * @param walletId - The wallet row id (stable per org).
+ * @returns A key like `wallet-autotopup:<walletId>:<5min-bucket>`.
+ * @example autoTopupIdempotencyKey('wallet-1') // 'wallet-autotopup:wallet-1:5966147'
+ */
+function autoTopupIdempotencyKey(walletId: string): string {
+  return `wallet-autotopup:${walletId}:${Math.floor(Date.now() / 300_000)}`;
+}
+
+/**
  * Fire a one-off PaymentIntent against the stored default PM. The actual
  * credit happens via webhook on `payment_intent.succeeded` to avoid
  * double-credit if the SDK response races the webhook.
+ *
+ * @param idempotencyKey - Optional stable `Idempotency-Key` for the Stripe create call.
+ *   Auto-topup callers MUST pass {@link autoTopupIdempotencyKey} so concurrent/retried
+ *   charges dedupe to one; manual routes rely on the HTTP idempotency middleware.
  */
 export async function topUpWallet(
   env: Env,
   orgId: string,
   amountCents: number,
+  idempotencyKey?: string,
 ): Promise<TopUpResult> {
   const wallet = await ensureWalletRow(env, orgId);
   if (!wallet.stripe_customer_id || !wallet.stripe_default_payment_method) {
@@ -604,6 +633,10 @@ export async function topUpWallet(
     headers: {
       Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
       'Content-Type': 'application/x-www-form-urlencoded',
+      // A stable Idempotency-Key collapses concurrent/retried off-session charges to ONE
+      // in Stripe's 24h window — prevents the customer's card being charged twice when two
+      // racing chargeWallet calls both trip auto-topup. Mirrors billing.ts create-customer (AL-746).
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
     },
     body: params,
   });

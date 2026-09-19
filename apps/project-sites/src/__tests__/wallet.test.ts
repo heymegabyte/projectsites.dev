@@ -505,9 +505,15 @@ describe('chargeWallet', () => {
     if (!res.ok) expect(res.reason).toBe('insufficient');
     // give the un-awaited topup microtask a tick
     await new Promise((r) => setTimeout(r, 0));
-    expect(
-      (global.fetch as jest.Mock).mock.calls.some((c) => String(c[0]).includes('/payment_intents')),
-    ).toBe(true);
+    const piCall = (global.fetch as jest.Mock).mock.calls.find((c) =>
+      String(c[0]).includes('/payment_intents'),
+    );
+    expect(piCall).toBeDefined();
+    // Double-charge guard: the auto-topup charge MUST carry a stable wallet+bucket
+    // Idempotency-Key so two racing chargeWallet calls collapse to ONE real card charge.
+    expect((piCall![1].headers as Record<string, string>)['Idempotency-Key']).toMatch(
+      /^wallet-autotopup:wallet-1:/,
+    );
   });
 
   it('fires auto-topup after a successful debit drops below threshold', async () => {
@@ -526,9 +532,13 @@ describe('chargeWallet', () => {
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.balance_after_cents).toBe(50); // 60 - 10, below 500 threshold
     await new Promise((r) => setTimeout(r, 0));
-    expect(
-      (global.fetch as jest.Mock).mock.calls.some((c) => String(c[0]).includes('/payment_intents')),
-    ).toBe(true);
+    const piCall = (global.fetch as jest.Mock).mock.calls.find((c) =>
+      String(c[0]).includes('/payment_intents'),
+    );
+    expect(piCall).toBeDefined();
+    expect((piCall![1].headers as Record<string, string>)['Idempotency-Key']).toMatch(
+      /^wallet-autotopup:wallet-1:/,
+    );
   });
 });
 
@@ -682,6 +692,32 @@ describe('topUpWallet', () => {
     const res = await topUpWallet(makeEnv(fakeDb(okRun).db), ORG, 5000);
     expect(res.ok).toBe(false);
     expect(res.message).toContain('stripe_402');
+  });
+
+  it('forwards a provided Idempotency-Key to the Stripe PaymentIntent create', async () => {
+    mockDbQueryOne
+      .mockResolvedValueOnce(walletRow()) // topUpWallet ensureWalletRow
+      .mockResolvedValueOnce(walletRow()); // getWalletState ensureWalletRow
+    mockDbQuery.mockResolvedValueOnce({ data: [], error: null });
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'pi_ok' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ card: { brand: 'visa', last4: '1' } }) });
+    await topUpWallet(makeEnv(fakeDb(okRun).db), ORG, 5000, 'wallet-autotopup:wallet-1:999');
+    const headers = (global.fetch as jest.Mock).mock.calls[0][1].headers as Record<string, string>;
+    expect(headers['Idempotency-Key']).toBe('wallet-autotopup:wallet-1:999');
+  });
+
+  it('omits Idempotency-Key when none is provided (manual routes use the HTTP idempotency middleware)', async () => {
+    mockDbQueryOne
+      .mockResolvedValueOnce(walletRow())
+      .mockResolvedValueOnce(walletRow());
+    mockDbQuery.mockResolvedValueOnce({ data: [], error: null });
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'pi_ok' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ card: { brand: 'visa', last4: '1' } }) });
+    await topUpWallet(makeEnv(fakeDb(okRun).db), ORG, 5000);
+    const headers = (global.fetch as jest.Mock).mock.calls[0][1].headers as Record<string, string>;
+    expect(headers['Idempotency-Key']).toBeUndefined();
   });
 });
 
