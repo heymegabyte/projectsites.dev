@@ -25,6 +25,7 @@
 //   node e2e/site-quality/verify-hero-backdrop.mjs
 //   SITES=harborline-coffee-roasters-boston node e2e/site-quality/verify-hero-backdrop.mjs
 import { chromium } from 'playwright';
+import sharp from 'sharp';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
@@ -72,9 +73,54 @@ try {
         const inHero = canvases.some((c) => sections.some((s) => s.contains(c)));
         return { canvasCount: canvases.length, inHero };
       });
-      const pass = hasCanvas && detail.canvasCount > 0 && detail.inHero;
+      const mounted = hasCanvas && detail.canvasCount > 0 && detail.inHero;
+      // RENDER PROOF (closes canvas-mount-probe-blind-to-black-broken-shader): a broken/black shader
+      // still MOUNTS a canvas (passing the mount check above) yet ships a DEAD BLACK hero. Screenshot
+      // the hero canvas + assert a meaningful non-black fraction — a dead black rectangle samples ~0%,
+      // while a real animated scene (even a dark noir/smoke one) covers well over 10% with visible content.
+      let render = null;
+      if (mounted) {
+        try {
+          // A CLIPPED page screenshot (not locator.screenshot): Playwright's element-screenshot
+          // stability wait can time out on an infinitely-animating WebGL canvas; clipping grabs the
+          // current viewport frame immediately.
+          const box = await page.locator('section canvas').first().boundingBox();
+          if (!box) throw new Error('no canvas bounding box');
+          const shot = await page.screenshot({
+            clip: {
+              x: Math.max(0, box.x),
+              y: Math.max(0, box.y),
+              width: Math.max(1, Math.min(box.width, VIEWPORT.width - Math.max(0, box.x))),
+              height: Math.max(1, Math.min(box.height, VIEWPORT.height - Math.max(0, box.y))),
+            },
+          });
+          const { data, info } = await sharp(shot).raw().toBuffer({ resolveWithObject: true });
+          const ch = info.channels;
+          const totalPx = info.width * info.height;
+          const step = Math.max(1, Math.floor(totalPx / 6000)); // ~6k luminance samples
+          let nonBlack = 0;
+          let n = 0;
+          for (let i = 0; i < totalPx; i += step) {
+            const o = i * ch;
+            const lum = 0.299 * data[o] + 0.587 * data[o + 1] + 0.114 * data[o + 2];
+            if (lum > 12) nonBlack++;
+            n++;
+          }
+          render = { nonBlackPct: Math.round((nonBlack / n) * 100) };
+        } catch (e) {
+          render = { err: String(e).slice(0, 60) };
+        }
+      }
+      // Only a CONFIRMED near-black frame fails; a screenshot error is advisory (never a false-fail on a
+      // capture hiccup — validator-precision). Not mounted → already failing.
+      const renderOk = !mounted
+        ? false
+        : render && typeof render.nonBlackPct === 'number'
+          ? render.nonBlackPct >= 10
+          : true;
+      const pass = mounted && renderOk;
       if (!pass) fails++;
-      rows.push({ slug, ...detail, pass });
+      rows.push({ slug, ...detail, ...(render || {}), pass });
     } catch (e) {
       fails++;
       rows.push({ slug, note: `probe error: ${String(e).slice(0, 80)}` });
@@ -93,7 +139,13 @@ for (const r of rows) {
     continue;
   }
   const mark = r.pass ? '✅' : '❌';
-  console.log(`  ${mark} ${r.slug} — canvas=${r.canvasCount} inHero=${r.inHero ? '✓' : '✗'}`);
+  const rp =
+    typeof r.nonBlackPct === 'number'
+      ? ` render=${r.nonBlackPct}% non-black`
+      : r.err
+        ? ` render-err=${r.err}`
+        : '';
+  console.log(`  ${mark} ${r.slug} — canvas=${r.canvasCount} inHero=${r.inHero ? '✓' : '✗'}${rp}`);
 }
 
 const measurable = rows.filter((r) => !r.note);
@@ -103,7 +155,7 @@ if (measurable.length === 0) {
 }
 if (fails > 0) {
   console.error(
-    `\n✗ § C.7 FAIL — ${fails} site(s) render NO hero WebGL backdrop (unwired template, or built before template 2430636 → rebuild).`,
+    `\n✗ § C.7 FAIL — ${fails} site(s): the hero WebGL backdrop is either UNWIRED (no canvas — unwired template / built before template 2430636 → rebuild) OR mounts a canvas that renders a DEAD BLACK frame (<10% non-black — a broken/black shader that a mount-only check is blind to).`,
   );
   process.exit(1);
 }
