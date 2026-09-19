@@ -41,6 +41,7 @@ site_lifecycle:
   lifecycle_ext:    { status: covered, specs: [site-lifecycle-extended.spec.ts] }
   create_edit_publish: { status: covered, specs: [create-edit-publish-flow.spec.ts] }
   live_build_logs:  { status: covered, specs: [flows/flow-011-live-build-logs-widget.spec.ts] }
+  live_build_stream_causal: { status: covered, specs: [admin-verify/verify-build-stream-causal.mjs] }  # STREAMING BUILD THEATER: the credit-INDEPENDENT live causal round-trip through the real HMAC ingest. HMAC-signs a 4-line batch [marker/secret/402-noise/success] → POST /api/internal/build-log (on the workers.dev host the container really uses — Bot-Fight 403s the custom domain) → asserts 200+written:3 (flag ON + FK-safe write + noise-drop all fire), forged-sig→401, no-jobId→400, then getSiteLogs surfaces the marker (render-data leg), the secret is ***REDACTED*** at rest (raw sk- absent), and the 402 noise never lands. Proves the pipe without a live build (build-LLM balance is Brian-gated dead → real builds fast-path empty). Auto-joins admin-verify run-all via the verify-*-causal.mjs glob; fail-open without E2E_API_KEY/INTERNAL_BUILD_SECRET.
 
 site_management:
   site_cards:       { status: covered, specs: [site-card-features.spec.ts] }
