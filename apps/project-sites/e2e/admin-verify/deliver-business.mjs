@@ -14,7 +14,13 @@ if (process.env.SKIP_LLM_PREFLIGHT !== '1') {
   const cli = new URL('../../scripts/check-build-llm-credit.mjs', import.meta.url);
   const pf = spawnSync(process.execPath, [cli.pathname], { stdio: 'inherit' });
   if (pf.status === 7) {
-    console.log('::error:: build-LLM has no credit — NOT spending a build this fire. Top up, then re-run.');
+    console.log(
+      '::error:: build-LLM has no credit — refusing to fake-deliver a degraded seed-only site. Two ways forward:\n' +
+        '  (1) TOP UP (recommended — a REAL bespoke delivery): https://platform.deepseek.com/top_up  (~$5, cheapest rail), then re-run.\n' +
+        '  (2) SEED-ONLY delivery NOW (template + vertical content pack + brand seed, NO LLM bespoke copy/research — a graceful-degradation\n' +
+        '      delivery you regenerate for bespoke once topped up): set BUILD_LLM_ALLOW_SEED_ONLY=1 on the worker AND re-run this with\n' +
+        '      SKIP_LLM_PREFLIGHT=1. This is Brian\'s explicit degraded-delivery opt-in — the pipeline blocks it by default on purpose.',
+    );
     process.exit(7);
   }
 }
