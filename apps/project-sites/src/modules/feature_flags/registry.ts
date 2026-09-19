@@ -356,6 +356,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  lead_notifications: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Lead Notifications: email the site owner the moment a public contact form is submitted, so a new lead is never missed without configuring an integration.\n\n• isFlagOn-gated (dark by default) — off = no owner email fires (current behavior, unchanged). Org-scoped.\n• Fires fire-and-forget in the /api/contact-form/:slug handler AFTER the form_submissions row is persisted (fail-soft: a send failure never affects the visitor 200 or the /admin/forms row). Recipient = ai_site_settings.reply_email ?? the org owner (users⋈memberships role=owner). SES rail (ADR-0019) via notifyNewLead → sendEmail(category:lead_notification); user-supplied lead fields are HTML-escaped in the email body.\n• Embarrassingly-easy: zero owner config — the owner gets the lead in their inbox instead of polling /admin/forms.',
+    key: 'lead_notifications',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   prompt_schedule: {
     default_enabled: false,
     default_rollout_percent: 0,

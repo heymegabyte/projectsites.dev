@@ -212,6 +212,55 @@ forms.post('/api/v1/forms/submit', async (c) => {
     }),
   );
 
+  // ── New-lead owner notification (flag: lead_notifications) ──
+  // Email the owner the moment a lead arrives so they never miss it without configuring an
+  // integration. Fire-and-forget + fail-soft: dark by default (flag off = the current behavior);
+  // a send failure never affects the visitor 200 or the persisted /admin/forms row.
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        const { isFlagOn } = await import('../modules/feature_flags/services.js');
+        if (!(await isFlagOn(c.env, 'lead_notifications', { siteId: String(site.id), orgId: String(site.org_id) })))
+          return;
+        const { notifyNewLead } = await import('../services/notifications.js');
+        // Recipient: per-site reply_email, else the org owner (users⋈memberships role='owner').
+        const settingsRow = await c.env.DB.prepare(`SELECT reply_email FROM ai_site_settings WHERE site_id = ?`)
+          .bind(site.id)
+          .first<{ reply_email: string | null }>();
+        let to = settingsRow?.reply_email ?? null;
+        if (!to) {
+          const ownerRow = await c.env.DB.prepare(
+            `SELECT u.email FROM users u JOIN memberships m ON u.id = m.user_id WHERE m.org_id = ? AND m.role = 'owner' AND m.deleted_at IS NULL AND u.deleted_at IS NULL LIMIT 1`,
+          )
+            .bind(site.org_id)
+            .first<{ email: string }>();
+          to = ownerRow?.email ?? null;
+        }
+        if (!to) return; // no resolvable recipient — nothing to send
+        const siteName = (site as { business_name?: string }).business_name ?? String(site.slug);
+        await notifyNewLead(c.env, {
+          email: to,
+          siteName: String(siteName),
+          slug: String(site.slug),
+          formName: validated.form_name,
+          leadEmail: validated.email ?? undefined,
+          fields: validated.fields as Record<string, unknown>,
+          adminUrl: 'https://projectsites.dev/admin/forms',
+        });
+      } catch (err) {
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            service: 'forms-submit',
+            message: 'lead notification failed (non-fatal)',
+            error: err instanceof Error ? err.message : String(err),
+            site_id: site.id,
+          }),
+        );
+      }
+    })(),
+  );
+
   // ── AI Form Router ──
   // Run the customer's single router prompt over this submission. The LLM
   // picks one MCP tool (Mailchimp/Stripe/Resend/HubSpot) or "noop"; the

@@ -561,6 +561,21 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Disable the flag → the studio routes 404',
     ],
   },
+  lead_notifications: {
+    checklist: [
+      'Email the site owner on every public contact-form submission — zero owner config',
+      'Fires fire-and-forget AFTER the form_submissions row is persisted; fail-soft (never blocks the visitor 200 or the /admin/forms row)',
+      'Recipient = ai_site_settings.reply_email ?? org owner (users⋈memberships role=owner); SES rail via notifyNewLead',
+      'User-supplied lead fields are HTML-escaped in the email body; isFlagOn-gated (off = no owner email, unchanged)',
+    ],
+    explanation:
+      'When a visitor submits a public contact form, the site owner is emailed immediately ("You have a new lead") so they never miss a lead without configuring an email integration. The notification fires fire-and-forget in the /api/contact-form/:slug handler AFTER the form_submissions row is written, so a send failure never affects the visitor response or the recorded lead. Recipient resolution prefers the per-site ai_site_settings.reply_email and falls back to the organisation owner. Lead field values are HTML-escaped before rendering into the email. When off, no owner email is sent (the pre-existing behavior) and leads are still recorded + visible in /admin/forms.',
+    smoke_test: [
+      'Submit /api/contact-form/:slug on a published site with the flag ON → the owner receives a "New lead" email',
+      'Confirm the lead still appears in /admin/forms regardless of email outcome',
+      'Disable the flag → no owner email fires; the submission is still recorded',
+    ],
+  },
   prompt_schedule: {
     checklist: [
       'Time-windowed activation of a prompt-registry variant for a key',

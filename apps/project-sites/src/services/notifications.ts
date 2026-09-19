@@ -554,6 +554,124 @@ export async function notifySiteBuilt(
 }
 
 /**
+ * Escape the five HTML-significant characters so user-supplied lead field values
+ * render as inert text in the owner's email client (defense-in-depth — the lead
+ * form is a public, unauthenticated surface). Pure.
+ *
+ * @param raw - untrusted text (a lead field value or key)
+ * @returns the HTML-escaped string
+ * @example escapeLeadHtml('<b>&"\'') // → '&lt;b&gt;&amp;&quot;&#39;'
+ */
+export function escapeLeadHtml(raw: string): string {
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Build the branded HTML body for a new-lead notification email. Pure — every
+ * user-supplied field key/value is HTML-escaped + capped, so the owner's email
+ * client can never execute injected markup. Extracted so the escaping + rendering
+ * (the security-critical part) is unit-testable without the SES rail.
+ *
+ * @param opts - render inputs: site + form names, optional lead email, submitted fields, admin URL
+ * @returns the full email HTML string
+ * @example buildLeadEmailHtml({ siteName: "Vito's", formName: 'contact', fields: { message: 'Hi' }, adminUrl: 'https://projectsites.dev/admin/forms' })
+ */
+export function buildLeadEmailHtml(opts: {
+  siteName: string;
+  formName: string;
+  leadEmail?: string;
+  fields: Record<string, unknown>;
+  adminUrl: string;
+}): string {
+  // Render up to 6 non-empty lead fields as escaped label/value rows (values capped at 300 chars).
+  const rows = Object.entries(opts.fields)
+    .filter(([, v]) => typeof v === 'string' && v.trim() !== '')
+    .slice(0, 6)
+    .map(
+      ([k, v]) =>
+        `<div style="font-size:14px;color:${BRAND.muted};margin-bottom:8px;"><span style="color:${BRAND.faint};text-transform:capitalize;">${escapeLeadHtml(k)}</span><br/><span style="color:${BRAND.ink};">${escapeLeadHtml(String(v)).slice(0, 300)}</span></div>`,
+    )
+    .join('');
+  return emailWrap(
+    `
+    ${emailBadge('&#128231;')}
+    <h1 style="color:${BRAND.ink};font-family:${FONT_HEAD};font-size:27px;font-weight:700;text-align:center;margin:0 0 10px;letter-spacing:-0.02em;">You have a new lead! &#127881;</h1>
+    <p style="color:${BRAND.muted};font-size:15px;text-align:center;line-height:1.65;margin:0 0 24px;">
+      Someone just reached out through the <strong style="color:${BRAND.ink};">${escapeLeadHtml(opts.formName)}</strong> form on <strong style="color:${BRAND.ink};">${escapeLeadHtml(opts.siteName)}</strong>.
+    </p>
+    ${emailCard(`
+      ${emailLabel('Lead details')}
+      ${opts.leadEmail ? `<div style="font-size:14px;color:${BRAND.muted};margin-bottom:8px;"><span style="color:${BRAND.faint};">Email</span><br/><a href="mailto:${escapeLeadHtml(opts.leadEmail)}" style="color:${BRAND.cyan};text-decoration:none;font-weight:600;">${escapeLeadHtml(opts.leadEmail)}</a></div>` : ''}
+      ${rows || `<div style="font-size:14px;color:${BRAND.muted};">A new submission was recorded on your site.</div>`}
+    `)}
+    ${emailButton(opts.adminUrl, 'View in your dashboard &#8594;')}
+  `,
+    `New lead on ${opts.siteName} via the ${opts.formName} form`,
+  );
+}
+
+/**
+ * Email the site owner that a new lead just arrived via a public contact form
+ * (flag: `lead_notifications`). Fire-and-forget from the `/api/contact-form/:slug`
+ * handler AFTER the submission is persisted — best-effort delivery via the SES rail
+ * ({@link sendEmail}, ADR-0019). A failure returns `{ ok:false }` and is logged; it
+ * NEVER affects the visitor 200 or the recorded `/admin/forms` row. User-supplied
+ * field values + keys are HTML-escaped before rendering.
+ *
+ * @param env  - Worker bindings.
+ * @param opts - Owner recipient email + lead metadata for the email body.
+ * @returns `{ ok }` — false + error on send failure (caller ignores; the lead is already saved).
+ * @example
+ * await notifyNewLead(env, {
+ *   email: 'owner@vitos.com', siteName: "Vito's", slug: 'vitos', formName: 'contact',
+ *   leadEmail: 'jo@example.com', fields: { message: 'Do you take walk-ins?' },
+ *   adminUrl: 'https://projectsites.dev/admin/forms',
+ * });
+ */
+export async function notifyNewLead(
+  env: Env,
+  opts: {
+    email: string;
+    siteName: string;
+    slug: string;
+    formName: string;
+    leadEmail?: string;
+    fields: Record<string, unknown>;
+    adminUrl: string;
+  },
+): Promise<{ ok: boolean; error?: string }> {
+  const html = buildLeadEmailHtml(opts);
+
+  try {
+    await sendEmail(env, {
+      to: opts.email,
+      subject: `New lead: ${opts.siteName}`,
+      html,
+      category: 'lead_notification',
+    });
+    return { ok: true };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        service: 'notifications',
+        category: 'lead_notification',
+        message: 'Failed to send new-lead email',
+        to: opts.email,
+        error,
+      }),
+    );
+    return { ok: false, error };
+  }
+}
+
+/**
  * Send an organisation invite email to the prospective collaborator.
  *
  * Delegates to {@link sendEmail} under `category: 'invite'`, so the full
