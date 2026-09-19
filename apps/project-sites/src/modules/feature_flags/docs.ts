@@ -576,6 +576,21 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Disable the flag → the routes 404 and default prompt resolution is unchanged',
     ],
   },
+  content_import: {
+    checklist: [
+      'Parse a platform export (WordPress/Squarespace/Wix/Webflow/CSV/RSS) → normalized ContentItem[]',
+      'Wraps the unit-tested pure parsers in src/services/content_import.ts (previously reachable by NO route)',
+      'Zod-validated (.strict, raw ≤200 KB), pure — no D1 write, no state; structured JSON logs',
+      'Gate order: auth 401 → flag 404 (dark) → Zod 400 → parse 200 / typed 400 on a malformed export',
+    ],
+    explanation:
+      'Exposes the export-based content-ingestion path (complementing the live-site crawler) via POST /api/content-import/parse {source, raw} → {data:{source, count, items}}. An owner with a WordPress/Squarespace/Wix/Webflow/CSV/RSS export (or whose old site is down) can normalize their content for seeding into a generated site. Pure parse — a malformed export returns a typed 400 (never a 500 or partial write). When off, the route 404s. Seeding parsed items INTO a build, and an R2-upload path for multi-MB exports, are follow-ons.',
+    smoke_test: [
+      'POST /api/content-import/parse (authed) with {source, raw} → 200 {data:{source, count, items}}',
+      'A malformed export → 400 CONTENT_IMPORT_PARSE_ERROR (never a 500)',
+      'Disable the flag → the route 404s (mounted-but-dark)',
+    ],
+  },
   scheduled_publish: {
     checklist: [
       'Schedule a BUILT site to go live at a future datetime (campaign launch / grand opening)',
