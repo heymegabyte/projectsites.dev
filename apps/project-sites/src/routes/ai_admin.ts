@@ -355,6 +355,21 @@ aiAdmin.post('/api/team/invites/accept', async (c) => {
     .bind(userId)
     .first<{ email: string }>();
   if (me?.email?.toLowerCase() !== invite.email.toLowerCase()) {
+    // Security observability: a VALID token presented by a NON-matching account is a
+    // token-theft / mis-forward signal (a spike = an attack). Structured warn, IDs only
+    // (no email PII per pii-handling-discipline). verify-team-invite-accept asserts the gate.
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        service: 'team-invite-accept',
+        event: 'wrong_user_rejected',
+        message: 'Team invite accept rejected — caller email does not match the invite',
+        org_id: invite.org_id,
+        actor_id: userId,
+        invite_id: invite.id,
+        request_id: c.get('requestId'),
+      }),
+    );
     return c.json(
       {
         error: {

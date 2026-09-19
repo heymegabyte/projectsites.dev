@@ -51,6 +51,7 @@ const PROBES = [
   { label: 'dragging-alt', file: 'dragging-alternative-scan.mjs', env: {} },
   { label: 'auth-a11y', file: 'verify-auth-a11y.mjs', env: {} },
   { label: 'team-seat-client-gate', file: 'verify-team-seat-client-gate.mjs', env: {} },
+  { label: 'team-invite-accept', file: 'verify-team-invite-accept.mjs', env: {} },
   { label: 'auth-guard', file: 'verify-auth-guard.mjs', env: {} },
   { label: 'super-admin-guard', file: 'verify-super-admin-guard.mjs', env: {} },
   { label: 'admin-security-invariants', file: 'verify-admin-security-invariants.mjs', env: {} },
