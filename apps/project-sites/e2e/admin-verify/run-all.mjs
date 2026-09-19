@@ -61,6 +61,7 @@ const PROBES = [
   { label: 'signin-ux', file: 'verify-signin-ux.mjs', env: {} },
   { label: 'signin-magic-link-ui', file: 'verify-signin-magic-link-ui.mjs', env: {} },
   { label: 'signup-flow', file: 'verify-signup-flow.mjs', env: {} },
+  { label: 'signin-flow', file: 'verify-signin-flow.mjs', env: {} },
   { label: 'completeness', file: 'completeness-stub-scan.mjs', env: {} },
   { label: 'wordmark-spelling', file: 'verify-wordmark-spelling.mjs', env: {} },
   { label: 'error-edge-states', file: 'verify-error-edge-states.mjs', env: {} },
