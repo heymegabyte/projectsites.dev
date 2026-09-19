@@ -102,10 +102,32 @@ function osmCategory(tags: Record<string, string>): string | undefined {
 // Skip an element when its ONLY category signal is a non-business POI (no `shop`/`craft`/`office`, and
 // no business `amenity`). Business amenities (restaurant/cafe/bar/pharmacy/bank/fuel/…) are NOT here.
 const NON_BUSINESS_AMENITY = new Set([
-  'bus_station', 'ferry_terminal', 'taxi', 'parking', 'parking_space', 'parking_entrance',
-  'motorcycle_parking', 'bicycle_parking', 'bicycle_rental', 'car_sharing', 'charging_station',
-  'bench', 'shelter', 'waste_basket', 'waste_disposal', 'recycling', 'drinking_water', 'fountain',
-  'toilets', 'shower', 'telephone', 'clock', 'post_box', 'grit_bin', 'hunting_stand', 'bbq',
+  'bus_station',
+  'ferry_terminal',
+  'taxi',
+  'parking',
+  'parking_space',
+  'parking_entrance',
+  'motorcycle_parking',
+  'bicycle_parking',
+  'bicycle_rental',
+  'car_sharing',
+  'charging_station',
+  'bench',
+  'shelter',
+  'waste_basket',
+  'waste_disposal',
+  'recycling',
+  'drinking_water',
+  'fountain',
+  'toilets',
+  'shower',
+  'telephone',
+  'clock',
+  'post_box',
+  'grit_bin',
+  'hunting_stand',
+  'bbq',
 ]);
 function isNonBusinessPoi(tags: Record<string, string>): boolean {
   // A real business signal always wins — never skip a shop/craft/office.

@@ -86,8 +86,17 @@ describe('osm_overpass — osmElementToBusiness', () => {
     }
     // REGRESSION GUARD: a real business with a shop/craft/office signal is NEVER skipped, even if it
     // ALSO carries an amenity/transit-adjacent tag; and business amenities (cafe/restaurant) stay leads.
-    expect(osmElementToBusiness({ type: 'node', id: 10, tags: { name: 'Corner Store', shop: 'convenience', amenity: 'parking' } })?.businessName).toBe('Corner Store');
-    expect(osmElementToBusiness({ type: 'node', id: 11, tags: { name: 'The Grind', amenity: 'cafe' } })?.category).toBe('cafe');
+    expect(
+      osmElementToBusiness({
+        type: 'node',
+        id: 10,
+        tags: { name: 'Corner Store', shop: 'convenience', amenity: 'parking' },
+      })?.businessName,
+    ).toBe('Corner Store');
+    expect(
+      osmElementToBusiness({ type: 'node', id: 11, tags: { name: 'The Grind', amenity: 'cafe' } })
+        ?.category,
+    ).toBe('cafe');
   });
 });
 
