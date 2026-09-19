@@ -3,7 +3,7 @@
 // path: land on /signin → click "Create an account" → /auth/sign-up renders → password-based
 // registration form validates live → password show/hide toggle works → back-link returns to sign-in.
 //
-// Nine gates, one real Chromium session (SPA shell — no CF challenge locally, so this runs
+// Ten gates, one real Chromium session (SPA shell — no CF challenge locally, so this runs
 // fail-open with NO creds; /signin + /auth/sign-up are public):
 //   1. /signin exposes the "Create an account" cross-link (sign-in-to-sign-up)
 //   2. clicking it client-navigates to /auth/sign-up (no full reload) and mounts sign-up-page
@@ -15,6 +15,8 @@
 //   7. the password toggle flips the input type password↔text (+ aria-label/aria-pressed)
 //   8. the sign-up surface is axe-clean (WCAG 2.2 critical/serious == 0)
 //   9. the back-link (sign-up-to-sign-in) returns the user to /signin (auth/sign-in → /signin)
+//  10. WIRED SUBMIT — "Create account" actually POSTs to POST /api/auth/sign-up/email (intercepted +
+//      fulfilled 409 so no real user is created); catches a dead/wrong-endpoint button
 // Plus a standing console-error gate across the whole journey (0 genuine JS/CSP errors).
 //
 // Usage: node e2e/admin-verify/verify-signup-flow.mjs   (ORIGIN overrides the default prod host)
@@ -37,7 +39,14 @@ const browser = await chromium.launch();
 const ctx = await browser.newContext({ userAgent: UA, viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
 const page = await ctx.newPage();
 const consoleErrors = [];
-page.on('console', (m) => { if (m.type() === 'error' && !BENIGN.test(m.text())) consoleErrors.push(m.text()); });
+page.on('console', (m) => {
+  if (m.type() !== 'error') return;
+  // The wired-submit gate (step 10) intercepts POST /api/auth/sign-up/email and fulfills it 409 by
+  // design (so no real user is created) — the browser logs that as a resource error; it's the
+  // probe's own test noise on that ONE endpoint, never a site defect, so scope it out by URL.
+  if (BENIGN.test(m.text()) || /\/api\/auth\/sign-up\/email/.test(m.location()?.url || '')) return;
+  consoleErrors.push(m.text());
+});
 page.on('pageerror', (e) => { const t = String(e); if (!BENIGN.test(t)) consoleErrors.push(t); });
 
 const rows = [];
@@ -143,6 +152,36 @@ try {
   await page.waitForURL('**/signin', { timeout: 20000 }).catch(() => {});
   await page.waitForSelector(sel('sign-in-page'), { timeout: 20000 }).catch(() => {});
   check('back-link returns to /signin', new URL(page.url()).pathname === '/signin', `url=${new URL(page.url()).pathname}`);
+
+  // ── 10. WIRED SUBMIT — "Create account" actually POSTs to the Better Auth registration endpoint.
+  //        Steps 4-6 proved the button ENABLES; nothing proved clicking it SUBMITS — a dead or
+  //        wrong-wired button (the ContactForm-wrong-endpoint class: enabled but posts nowhere / to a
+  //        404) would pass every gate above while registration is silently broken. Re-reach the form
+  //        by CLICK, intercept POST /api/auth/sign-up/email and FULFILL it locally (409) so NO real
+  //        user is created, and assert the button fired to the RIGHT endpoint with the typed email.
+  let submitPost = null;
+  await page.locator(sel('sign-in-to-sign-up')).click();
+  await page.waitForSelector(sel('sign-up-page'), { timeout: 20000 });
+  await page.route('**/api/auth/sign-up/email', async (route) => {
+    const rq = route.request();
+    submitPost = { url: rq.url(), method: rq.method(), body: rq.postData() || '' };
+    await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'probe: intercepted — no user created' }) });
+  });
+  await page.fill(sel('sign-up-name'), 'Journey Probe');
+  await page.fill(sel('sign-up-email'), 'signup-wired-probe@example.com');
+  await page.fill(sel('sign-up-password'), 'longenough1');
+  await page.waitForTimeout(150);
+  await page.locator(sel('sign-up-submit')).click();
+  await page.waitForTimeout(900);
+  check(
+    'Create account SUBMITS to POST /api/auth/sign-up/email (wired, not a dead/wrong-endpoint button)',
+    !!submitPost &&
+      submitPost.method === 'POST' &&
+      /\/api\/auth\/sign-up\/email$/.test(new URL(submitPost.url).pathname) &&
+      /signup-wired-probe@example\.com/.test(submitPost.body),
+    submitPost ? `${submitPost.method} ${new URL(submitPost.url).pathname}` : 'no POST fired',
+  );
+  await page.unroute('**/api/auth/sign-up/email').catch(() => {});
 } catch (e) {
   check('sign-up journey completed', false, 'error: ' + String(e).slice(0, 160));
 }
