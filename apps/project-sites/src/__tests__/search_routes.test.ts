@@ -531,6 +531,31 @@ describe('GET /api/sites/lookup', () => {
     expect(body.data.exists).toBe(true);
     expect(body.data.status).toBe('queued');
   });
+
+  it('short-circuits a malformed (out-of-charset) slug to exists:false with NO DB hit', async () => {
+    const res = await makeRequest('/api/sites/lookup?slug=' + encodeURIComponent('../../etc passwd'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { exists: false } });
+    expect(mockDbQueryOne).not.toHaveBeenCalled(); // never touched D1 for a slug that can't exist
+  });
+
+  it('bounds an unbounded place_id to 256 chars before the DB query (public-endpoint abuse guard)', async () => {
+    mockDbQueryOne.mockResolvedValueOnce(null);
+    const res = await makeRequest('/api/sites/lookup?place_id=' + 'a'.repeat(5000));
+    expect(res.status).toBe(200);
+    expect(mockDbQueryOne).toHaveBeenCalledTimes(1);
+    const boundParam = String((mockDbQueryOne.mock.calls[0][2] as unknown[])[0]);
+    expect(boundParam.length).toBeLessThanOrEqual(256);
+  });
+
+  it('bounds an unbounded (valid-charset) slug to 63 chars before the DB query', async () => {
+    mockDbQueryOne.mockResolvedValueOnce(null);
+    const res = await makeRequest('/api/sites/lookup?slug=' + 'a'.repeat(200));
+    expect(res.status).toBe(200);
+    expect(mockDbQueryOne).toHaveBeenCalledTimes(1);
+    const boundParam = String((mockDbQueryOne.mock.calls[0][2] as unknown[])[0]);
+    expect(boundParam.length).toBe(63);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -215,14 +215,18 @@ interface SiteRow {
 }
 
 search.get('/api/sites/lookup', async (c) => {
-  const placeId = c.req.query('place_id');
-  const slug = c.req.query('slug');
+  // Bound BOTH public inputs — this is an unauthenticated endpoint that hits D1 per request, so an
+  // unbounded place_id/slug is a cheap DB-hammering vector (the sibling /api/sites/search already
+  // caps `q` at 100; this handler had NO cap). Trim + length-cap: slug ≤63 (its canonical
+  // `^[a-z0-9-]{1,63}$` charset ceiling), place_id ≤256 (Google IDs vary but are never longer).
+  const placeId = c.req.query('place_id')?.trim().slice(0, 256);
+  const slug = c.req.query('slug')?.trim().slice(0, 63);
 
   if (!placeId && !slug) {
     throw badRequest('Missing required query parameter: place_id or slug');
   }
 
-  let site: SiteRow | null;
+  let site: SiteRow | null = null;
 
   if (placeId) {
     site = await dbQueryOne<SiteRow>(
@@ -230,11 +234,17 @@ search.get('/api/sites/lookup', async (c) => {
       'SELECT id, slug, status, current_build_version FROM sites WHERE google_place_id = ? AND deleted_at IS NULL',
       [placeId],
     );
-  } else {
+  } else if (slug) {
+    // A slug outside the canonical charset can never match a real row — short-circuit to
+    // exists:false with NO DB hit (bounds abuse AND saves a query). `else if (slug)` also
+    // narrows `slug` to string, dropping the prior non-null `slug!` assertion.
+    if (!/^[a-z0-9-]{1,63}$/.test(slug)) {
+      return c.json({ data: { exists: false } });
+    }
     site = await dbQueryOne<SiteRow>(
       c.env.DB,
       'SELECT id, slug, status, current_build_version FROM sites WHERE slug = ? AND deleted_at IS NULL',
-      [slug!],
+      [slug],
     );
   }
 
