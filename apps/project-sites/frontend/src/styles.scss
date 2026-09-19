@@ -239,6 +239,27 @@ textarea.outline-none:focus-visible {
   animation-fill-mode: both;
 }
 
+// LCP-safe hero entrance (hero-entrance-opacity-fade-delays-lcp). `.animate-fade-in-up` is the
+// shared ON-LOAD hero rise (homepage H1 + subhead + CTA + search, staggered 0.1–0.6s; also
+// search/signin/create). The stock `fadeInUp` keyframe fades opacity 0→1, and with `both` fill each
+// element is held at opacity:0 through its stagger delay — so the hero (the LCP element) is INVISIBLE
+// for ~1–1.5s: a blank-hero flash on the #1 acquisition surface AND a delayed LCP (measured live:
+// homepage H1 opacity 0.30 at 2000ms cold). Make the on-load rise TRANSFORM-ONLY: content paints at
+// full opacity immediately (LCP fires at first paint) while still rising into place — no opacity fade,
+// no blank flash. (Scroll-reveal of below-fold sections stays opacity-based via `.reveal`, unchanged.)
+@keyframes psRiseInUp {
+  from {
+    transform: translateY(20px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.animate-fade-in-up {
+  animation-name: psRiseInUp;
+  opacity: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
