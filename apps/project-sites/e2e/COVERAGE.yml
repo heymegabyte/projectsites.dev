@@ -192,6 +192,7 @@ subdir_inventory:
   logs: { status: covered, specs: [logs/logs-explorer.spec.ts] }
   marketplace: { status: covered, specs: [marketplace/marketplace.spec.ts] }
   mcp: { status: covered, specs: [mcp/mcp-providers.spec.ts] }
+  mcp_connect_flow: { status: covered, specs: [admin-verify/verify-mcp-connect-flow.mjs] }  # FULL-JOURNEY: the "MCP connect → active" acquisition path (prod, per-site). Every provider yields a COHERENT next step — OAuth-configured (mailchimp/stripe/hubspot) → a state-bound https authorize_url; OAuth-absent (github/slack/notion/resend) → the paste-key fallback (provider + /api/mcp/<p>/paste?state= post_to + one-time state + human instructions). Guards missing site_id (400) + the connections surface renders (200). Proves the mcp-oauth-first graceful-degradation invariant: never a broken popup / dead-end mid-integration.
   media: { status: covered, specs: [media/media-coverage.spec.ts] }
   perf: { status: covered, specs: [perf/ttfr.spec.ts] }
   platform-mcp: { status: covered, specs: [platform-mcp/mcp-http.spec.ts] }
