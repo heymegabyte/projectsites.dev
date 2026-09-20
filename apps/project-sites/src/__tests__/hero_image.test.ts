@@ -344,7 +344,14 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
     expect(heroImageForVertical('clothing store')?.alt).toMatch(/clothing|garment|boutique/i);
     // Apparel synonyms all resolve to the SAME curated CLOTHING hero.
     const clothing = heroImageForVertical('clothing store');
-    for (const syn of ['menswear', 'womenswear', 'western wear', 'ranch wear', 'clothier', 'fashion boutique']) {
+    for (const syn of [
+      'menswear',
+      'womenswear',
+      'western wear',
+      'ranch wear',
+      'clothier',
+      'fashion boutique',
+    ]) {
       expect(heroImageForVertical(syn)).toBe(clothing);
     }
     // Probe-compatibility invariant: the ixid decodes to a "clothing" query → verify-hero-image-vertical green.
@@ -355,7 +362,9 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
     // "outdoor clothing" / "outfitter" must NOT collapse to the general CLOTHING boutique hero.
     const clothing = heroImageForVertical('clothing store');
     expect(heroImageForVertical('outdoor clothing')).not.toBe(clothing);
-    expect(heroImageForVertical('outdoor clothing')?.alt).toMatch(/outdoor|climb|mountaineer|gear/i);
+    expect(heroImageForVertical('outdoor clothing')?.alt).toMatch(
+      /outdoor|climb|mountaineer|gear/i,
+    );
     expect(heroImageForVertical('ski outfitter')).not.toBe(clothing);
     // A broad vertical with no curated hero still returns null (pack default stands — no regression).
     expect(heroImageForVertical('plumbing')).toBeNull();
