@@ -30,8 +30,12 @@ import { Hono } from 'hono';
 import { badRequest } from '@project-sites/shared';
 import type { Env, Variables } from '../../../src/types/env.js';
 import { searchBusinessesByName } from '../../../src/services/nominatim_search.js';
+import { log } from '../../../src/lib/log.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
+
+/** Structured logger for the guest-acquisition business-search funnel (AL-845). */
+const searchLog = log.child('places_search');
 
 export const placesSearch = new Hono<AppContext>();
 
@@ -87,6 +91,16 @@ placesSearch.get('/api/search/businesses', async (c) => {
   // are KV-cached (6h) like Places so keystroke-debounced repeats never re-hit Nominatim.
   const osmFallbackOr = async (code: string, status: number, message: string) => {
     const osm = await searchBusinessesByName(boundedQ, osmOpts);
+    // Observability (AL-845): the #1 top-of-funnel action (guest business search) is running
+    // DEGRADED on the OSM fallback — Google Places was unconfigured or errored. Emit ONE
+    // structured event per degraded request so an operator can SEE how often + why the
+    // acquisition funnel degrades (and whether OSM recovered it), which was previously invisible
+    // (raw console.warn on errors only, nothing on the fallback path). Privacy-safe: `qlen` is the
+    // query LENGTH, never the raw query (a person/business name = PII). `ok` = OSM recovered.
+    searchLog[osm.length > 0 ? 'warn' : 'error'](
+      osm.length > 0 ? 'search_degraded_osm_fallback' : 'search_hard_degraded',
+      { reason: code, status, provider: osm.length > 0 ? 'osm' : 'none', degraded: true, ok: osm.length > 0, count: osm.length, qlen: boundedQ.length },
+    );
     if (osm.length > 0) {
       // Cache WITH `_source` so a cache HIT reports the provider too (a bare `{data}` cache made
       // the funnel's provider unobservable — the probe defaulted to 'places' even for OSM hits).
@@ -129,16 +143,15 @@ placesSearch.get('/api/search/businesses', async (c) => {
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
-    console.warn(
-      JSON.stringify({
-        level: 'error',
-        service: 'search',
-        message: 'Google Places API error',
-        status: response.status,
-        body: errorText.slice(0, 500),
-        query: q,
-      }),
-    );
+    // Structured (AL-845): was a freeform console.warn(JSON.stringify) that logged the RAW query
+    // (PII) — migrated to the scoped logger, logging `qlen` (length, non-PII) + a truncated
+    // upstream-error string (the GCP billing/permission signal ops needs) via the allowlisted
+    // `error` field. Client never sees this (200 + honest _error code below).
+    searchLog.error('places_upstream_error', {
+      status: response.status,
+      error: errorText.slice(0, 200),
+      qlen: q.length,
+    });
     // Places is down (429/403/5xx) — try OSM/Nominatim before surfacing the honest
     // `_error`. Keep 200 either way (a 5xx would fire the frontend's rethrowing error
     // handler → console noise); the fallback returns real OSM results when it can, else a
@@ -255,27 +268,18 @@ placesSearch.get('/api/search/address', async (c) => {
       }
     } else {
       const errorText = await response.text().catch(() => '');
-      console.warn(
-        JSON.stringify({
-          level: 'warn',
-          service: 'search',
-          message: 'Places Autocomplete API failed, falling back to Text Search',
-          status: response.status,
-          body: errorText.slice(0, 500),
-          query: q,
-        }),
-      );
+      // Structured (AL-845): qlen not raw query (PII); upstream signal via allowlisted `error`.
+      searchLog.warn('address_autocomplete_failed', {
+        status: response.status,
+        error: errorText.slice(0, 200),
+        qlen: q.length,
+      });
     }
   } catch (err) {
-    console.warn(
-      JSON.stringify({
-        level: 'warn',
-        service: 'search',
-        message: 'Places Autocomplete API exception, falling back to Text Search',
-        error: String(err),
-        query: q,
-      }),
-    );
+    searchLog.warn('address_autocomplete_exception', {
+      error: String(err).slice(0, 200),
+      qlen: q.length,
+    });
   }
 
   // Fallback: Text Search API (same API that powers business search).
@@ -297,16 +301,11 @@ placesSearch.get('/api/search/address', async (c) => {
 
     if (!fallbackResponse.ok) {
       const errorText = await fallbackResponse.text().catch(() => '');
-      console.warn(
-        JSON.stringify({
-          level: 'error',
-          service: 'search',
-          message: 'Address search — Autocomplete AND Text Search fallback both failed',
-          status: fallbackResponse.status,
-          body: errorText.slice(0, 500),
-          query: q,
-        }),
-      );
+      searchLog.error('address_search_both_failed', {
+        status: fallbackResponse.status,
+        error: errorText.slice(0, 200),
+        qlen: q.length,
+      });
       // Provider is down on BOTH paths → carry the honest `_error` (parity with
       // business search) so the caller shows "address lookup unavailable" instead of
       // a silent empty dropdown that reads as "no such address". NOTE: a genuine
@@ -334,15 +333,10 @@ placesSearch.get('/api/search/address', async (c) => {
 
     return c.json({ data });
   } catch (err) {
-    console.warn(
-      JSON.stringify({
-        level: 'error',
-        service: 'search',
-        message: 'Address search — Text Search fallback threw',
-        error: String(err),
-        query: q,
-      }),
-    );
+    searchLog.error('address_textsearch_threw', {
+      error: String(err).slice(0, 200),
+      qlen: q.length,
+    });
     // Fetch threw (network/DNS/timeout) on the last path → honest `_error`, not a
     // silent empty (parity with the `!fallbackResponse.ok` branch above).
     return c.json({

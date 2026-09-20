@@ -178,6 +178,9 @@ const SAFE_FIELD_ALLOWLIST: ReadonlySet<string> = new Set([
   'degraded',
   'channel',
   'source',
+  // Guest-acquisition search degradation observability (AL-845) — privacy-safe: qlen is the
+  // QUERY LENGTH, never the raw query text (which can carry a person/business name = PII).
+  'qlen',
 ]);
 
 // ── Redaction: sensitive-key patterns ────────────────────────────────────────
