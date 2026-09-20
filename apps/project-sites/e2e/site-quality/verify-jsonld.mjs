@@ -33,6 +33,9 @@ const ORG_FAMILY = new Set([
   'Organization', 'LocalBusiness', 'Restaurant', 'CafeOrCoffeeShop', 'Bakery', 'BarOrPub',
   'HealthAndBeautyBusiness', 'Dentist', 'MedicalBusiness', 'LegalService', 'LodgingBusiness',
   'ExerciseGym', 'AutomotiveBusiness', 'HomeAndConstructionBusiness', 'Store', 'FoodEstablishment',
+  // Precise retail Store subtypes (AL-835 — localBusinessSubtypeFor now emits these; keep in sync).
+  'BookStore', 'MusicStore', 'Florist', 'JewelryStore', 'GroceryStore', 'HardwareStore', 'ShoeStore',
+  'ClothingStore', 'FurnitureStore', 'PetStore', 'ToyStore', 'ElectronicsStore', 'SportingGoodsStore',
 ]);
 /** All @type strings on a block (@type may be a string OR an array of strings). */
 const typeStrings = (b) => (Array.isArray(b['@type']) ? b['@type'] : [b['@type']]).filter(Boolean);

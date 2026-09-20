@@ -1890,6 +1890,32 @@ describe('finalizeSeoInvariants — LocalBusiness JSON-LD in served HTML (C.4/C.
     expect(localBusinessSubtypeFor(undefined)).toBe('LocalBusiness');
   });
 
+  it('localBusinessSubtypeFor maps RETAIL categories to PRECISE schema.org Store subtypes (AL-835 — richer local rich-results than generic Store)', () => {
+    // OSM's bare "books" category (the Strand Bookstore delivery) + the retail family → precise subtypes.
+    expect(localBusinessSubtypeFor('books')).toBe('BookStore');
+    expect(localBusinessSubtypeFor('independent bookstore')).toBe('BookStore');
+    expect(localBusinessSubtypeFor('record store')).toBe('MusicStore');
+    expect(localBusinessSubtypeFor('vinyl shop')).toBe('MusicStore');
+    expect(localBusinessSubtypeFor('neighborhood florist')).toBe('Florist');
+    expect(localBusinessSubtypeFor('fine jewelry')).toBe('JewelryStore');
+    expect(localBusinessSubtypeFor('grocery market')).toBe('GroceryStore');
+    expect(localBusinessSubtypeFor('supermarket')).toBe('GroceryStore');
+    expect(localBusinessSubtypeFor('hardware store')).toBe('HardwareStore');
+    expect(localBusinessSubtypeFor('shoe store')).toBe('ShoeStore');
+    expect(localBusinessSubtypeFor('clothing boutique')).toBe('ClothingStore');
+    expect(localBusinessSubtypeFor('furniture showroom')).toBe('FurnitureStore');
+    expect(localBusinessSubtypeFor('pet supplies')).toBe('PetStore');
+    expect(localBusinessSubtypeFor('toy shop')).toBe('ToyStore');
+    expect(localBusinessSubtypeFor('electronics store')).toBe('ElectronicsStore');
+    expect(localBusinessSubtypeFor('sporting goods')).toBe('SportingGoodsStore');
+    // Ordering guards: a boutique HOTEL is still LodgingBusiness (not ClothingStore); a bare "fashion
+    // photographer" does NOT falsely become a ClothingStore; unknown retail → the generic Store catch-all.
+    expect(localBusinessSubtypeFor('boutique hotel')).toBe('LodgingBusiness');
+    expect(localBusinessSubtypeFor('fashion photographer')).toBe('LocalBusiness');
+    expect(localBusinessSubtypeFor('general store')).toBe('Store');
+    expect(localBusinessSubtypeFor('corner pharmacy')).toBe('Store');
+  });
+
   it('postalAddressFor builds a PostalAddress (street + locality + region + zip) from a real address', () => {
     const pa = postalAddressFor('930 Tchoupitoulas St, New Orleans, LA 70130', 'New Orleans', 'LA');
     expect(pa).not.toBeNull();

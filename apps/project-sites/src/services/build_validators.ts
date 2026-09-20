@@ -1600,7 +1600,24 @@ const LOCAL_SUBTYPE_RULES: ReadonlyArray<readonly [RegExp, string]> = [
     /\b(plumb|electric|hvac|contractor|construction|roofing|landscap|remodel|handyman)\b/i,
     'HomeAndConstructionBusiness',
   ],
-  [/\b(store|shop|boutique|market|grocer|retail|apparel|jewelr|florist|pharmac)\b/i, 'Store'],
+  // Specific schema.org Store/LocalBusiness subtypes — ordered BEFORE the generic `Store` catch-all
+  // so the precise type wins (a bookstore is a `BookStore`, richer local rich-results than `Store`).
+  // Each is a Google-recognized schema.org LocalBusiness subtype. (AL-835 — the Strand delivery
+  // exposed that OSM's `books` category collapsed to generic `Store`.)
+  [/\b(bookstore\w*|bookshop\w*|booksell\w*|\bbooks\b)\b/i, 'BookStore'],
+  [/\b(record\s?stor\w*|record\s?shop|\bvinyl\b|music\s?(?:store|shop))\b/i, 'MusicStore'],
+  [/\b(florist\w*|flower\s?(?:shop|market|store))\b/i, 'Florist'],
+  [/\b(jewel\w*|jeweller\w*|goldsmith|diamond\s?(?:store|dealer))\b/i, 'JewelryStore'],
+  [/\b(grocer\w*|supermarket|greengrocer|bodega)\b/i, 'GroceryStore'],
+  [/\b(hardware|home\s?improvement|lumber\s?yard)\b/i, 'HardwareStore'],
+  [/\b(shoe\w*|footwear|sneaker\w*)\b/i, 'ShoeStore'],
+  [/\b(apparel|clothing|clothier|menswear|womenswear|fashion\s?(?:store|shop|boutique|house|label))\b/i, 'ClothingStore'],
+  [/\b(furniture|home\s?goods|home\s?furnish\w*|mattress)\b/i, 'FurnitureStore'],
+  [/\b(pet\s?(?:store|shop|suppl\w*)|aquarium\s?shop)\b/i, 'PetStore'],
+  [/\b(toy\s?(?:store|shop)|\btoys\b|hobby\s?shop)\b/i, 'ToyStore'],
+  [/\b(electronics|computer\s?(?:store|shop)|phone\s?(?:store|shop))\b/i, 'ElectronicsStore'],
+  [/\b(sporting\s?goods|outdoor\s?gear|ski\s?shop|bike\s?(?:shop|store)|cycler\w*)\b/i, 'SportingGoodsStore'],
+  [/\b(store|shop|boutique|market|retail|pharmac\w*|outlet|emporium)\b/i, 'Store'],
 ];
 export function localBusinessSubtypeFor(category?: string | null): string {
   const c = (category || '').trim();
