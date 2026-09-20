@@ -42,7 +42,8 @@ jest.mock('../modules/feature_flags/services.js', () => ({
 }));
 
 // Import AFTER the mocks are registered.
-import { researchAndFormulatePrompt, estimateOpenAiCost } from '../services/openai_research.js';
+import { researchAndFormulatePrompt, estimateOpenAiCost, observeResearchContract } from '../services/openai_research.js';
+import { ResearchProfileOutput } from '../prompts/schemas.js';
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const originalFetch = global.fetch;
@@ -428,5 +429,36 @@ describe('researchAndFormulatePrompt — traceContext passthrough', () => {
 
     const cap = mockCaptureLLMCall.mock.calls[0][1] as { distinctId: string };
     expect(cap.distinctId).toBe('system');
+  });
+});
+
+describe('observeResearchContract (contract-first-ai — degraded LLM research is observable, non-breaking)', () => {
+  let warnSpy: jest.SpyInstance;
+  beforeEach(() => {
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => warnSpy.mockRestore());
+
+  it('returns a well-formed profile UNCHANGED and logs NO warn (contract passes silently)', () => {
+    const good = { business_name: 'Vito Salon', business_type: 'salon', services: [{ name: 'Cut' }] };
+    const out = observeResearchContract(ResearchProfileOutput, good, 'profile');
+    expect(out).toBe(good); // exact raw object by reference — never re-shaped (non-breaking)
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('returns a DEGRADED profile UNCHANGED (non-breaking) but logs a structured contract-mismatch warn', () => {
+    const bad = { tagline: 'no name here' }; // missing the required business_name
+    const out = observeResearchContract(ResearchProfileOutput, bad, 'profile');
+    expect(out).toBe(bad); // still returns raw — the pipeline is NEVER hard-failed mid-research
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const logged = JSON.parse(warnSpy.mock.calls[0][0] as string);
+    expect(logged.event).toBe('research_contract_mismatch');
+    expect(logged.label).toBe('profile');
+    expect(logged.issues.some((i: string) => i.includes('business_name'))).toBe(true);
+  });
+
+  it('flags a wrong-typed field (categories as a string, not an array)', () => {
+    observeResearchContract(ResearchProfileOutput, { business_name: 'X', categories: 'salon' }, 'profile');
+    expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 });

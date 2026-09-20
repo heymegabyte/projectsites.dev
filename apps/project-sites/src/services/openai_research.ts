@@ -26,6 +26,13 @@ import type { TraceContext } from './external_llm.js';
 import { gatewayFetch } from './ai_gateway.js';
 import { isFlagOn } from '../modules/feature_flags/services.js';
 import { researchCacheKey, getCachedResearch, putCachedResearch } from './research_cache.js';
+import { z } from 'zod';
+import {
+  ResearchProfileOutput,
+  ResearchBrandOutput,
+  ResearchSellingPointsOutput,
+  ResearchSocialOutput,
+} from '../prompts/schemas.js';
 
 const DEFAULT_MODEL = 'o3-mini';
 
@@ -273,6 +280,31 @@ function extractJson(text: string): unknown {
 /**
  * Research a business comprehensively using OpenAI.
  */
+/**
+ * Validate a parsed research JSON blob against its registered Zod contract, for OBSERVABILITY —
+ * NON-BREAKING (contract-first-ai + fail-soft): logs a structured warn when the LLM response fails
+ * its contract (a degraded/partial research result silently ships a blank-field build — the
+ * AL-753/791 class) but ALWAYS returns the raw parsed object, never rejects (a partial result is
+ * still better than a hard failure mid-pipeline). The schemas are lenient (nearly every field
+ * optional), so a well-formed response passes silently; only a genuinely-malformed one warns.
+ */
+export function observeResearchContract<T>(schema: z.ZodTypeAny, parsed: T, label: string): T {
+  const check = schema.safeParse(parsed);
+  if (!check.success) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        service: 'openai-research',
+        event: 'research_contract_mismatch',
+        label,
+        message: `LLM research "${label}" failed its Zod contract — the build may ship degraded/blank fields`,
+        issues: check.error.issues.slice(0, 6).map((i) => `${i.path.join('.') || '(root)'}: ${i.code}`),
+      }),
+    );
+  }
+  return parsed;
+}
+
 async function researchProfile(env: Env, info: BusinessInfo): Promise<Record<string, unknown>> {
   const systemPrompt = `You are an expert business researcher. Given a business name and optional details,
 research and output a comprehensive JSON profile including:
@@ -302,7 +334,7 @@ ${info.additionalContext ? `Additional context: ${info.additionalContext}` : ''}
     promptId: 'openai_research:profile',
   });
 
-  return extractJson(result) as Record<string, unknown>;
+  return observeResearchContract(ResearchProfileOutput, extractJson(result) as Record<string, unknown>, 'profile');
 }
 
 /**
@@ -334,7 +366,7 @@ Profile: ${JSON.stringify(profile, null, 2)}`;
     promptId: 'openai_research:brand',
   });
 
-  return extractJson(result) as Record<string, unknown>;
+  return observeResearchContract(ResearchBrandOutput, extractJson(result) as Record<string, unknown>, 'brand');
 }
 
 /**
@@ -367,7 +399,7 @@ Profile: ${JSON.stringify(profile, null, 2)}`;
     promptId: 'openai_research:selling_points',
   });
 
-  return extractJson(result) as Record<string, unknown>;
+  return observeResearchContract(ResearchSellingPointsOutput, extractJson(result) as Record<string, unknown>, 'selling_points');
 }
 
 /**
@@ -399,7 +431,7 @@ Profile: ${JSON.stringify(profile, null, 2)}`;
     promptId: 'openai_research:social',
   });
 
-  return extractJson(result) as Record<string, unknown>;
+  return observeResearchContract(ResearchSocialOutput, extractJson(result) as Record<string, unknown>, 'social');
 }
 
 /**
