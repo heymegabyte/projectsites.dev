@@ -1611,12 +1611,18 @@ const LOCAL_SUBTYPE_RULES: ReadonlyArray<readonly [RegExp, string]> = [
   [/\b(grocer\w*|supermarket|greengrocer|bodega)\b/i, 'GroceryStore'],
   [/\b(hardware|home\s?improvement|lumber\s?yard)\b/i, 'HardwareStore'],
   [/\b(shoe\w*|footwear|sneaker\w*)\b/i, 'ShoeStore'],
-  [/\b(apparel|clothing|clothier|menswear|womenswear|fashion\s?(?:store|shop|boutique|house|label))\b/i, 'ClothingStore'],
+  [
+    /\b(apparel|clothing|clothier|menswear|womenswear|fashion\s?(?:store|shop|boutique|house|label))\b/i,
+    'ClothingStore',
+  ],
   [/\b(furniture|home\s?goods|home\s?furnish\w*|mattress)\b/i, 'FurnitureStore'],
   [/\b(pet\s?(?:store|shop|suppl\w*)|aquarium\s?shop)\b/i, 'PetStore'],
   [/\b(toy\s?(?:store|shop)|\btoys\b|hobby\s?shop)\b/i, 'ToyStore'],
   [/\b(electronics|computer\s?(?:store|shop)|phone\s?(?:store|shop))\b/i, 'ElectronicsStore'],
-  [/\b(sporting\s?goods|outdoor\s?gear|ski\s?shop|bike\s?(?:shop|store)|cycler\w*)\b/i, 'SportingGoodsStore'],
+  [
+    /\b(sporting\s?goods|outdoor\s?gear|ski\s?shop|bike\s?(?:shop|store)|cycler\w*)\b/i,
+    'SportingGoodsStore',
+  ],
   [/\b(store|shop|boutique|market|retail|pharmac\w*|outlet|emporium)\b/i, 'Store'],
 ];
 export function localBusinessSubtypeFor(category?: string | null): string {
