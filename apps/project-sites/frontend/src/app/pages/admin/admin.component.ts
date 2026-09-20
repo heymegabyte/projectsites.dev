@@ -390,6 +390,9 @@ export class AdminComponent implements OnInit, OnDestroy {
    */
   private bootEffect = effect(() => {
     const site = this.state.selectedSite();
+    // Keep the editor's D1-manager SQL console gate in sync — bolt-embed can't inject the
+    // AdminComponent-scoped state, so we push isSuperAdmin (hydrated from /api/auth/me) here.
+    this.bolt.superAdmin.set(this.state.isSuperAdmin());
     if (this.isEditorRoute()) {
       this.bolt.bootForSite(site ?? null);
     }

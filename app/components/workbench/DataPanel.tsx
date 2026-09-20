@@ -38,6 +38,25 @@ type Status = 'loading' | 'ready' | 'error' | 'standalone';
 const REQUEST_TIMEOUT_MS = 12_000;
 const AUTO_REFRESH_MS = 30_000;
 
+/** `sqlite_master` table/view listing — the D1 manager's "show me every table" query. */
+const LIST_TABLES_SQL =
+  "SELECT name, type FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY type, name;";
+
+/** Outerbase-Studio-inspired one-click starters for the read-only console. */
+const SQL_STARTERS: ReadonlyArray<{ label: string; query: string }> = [
+  { label: 'All tables', query: LIST_TABLES_SQL },
+  {
+    label: 'Indexes',
+    query:
+      "SELECT name, tbl_name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY tbl_name, name;",
+  },
+  { label: 'Schema DDL', query: "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name;" },
+];
+
+/** True when a result row looks like a `sqlite_master` listing → offer a one-click browse. */
+const isTableListRow = (r: Record<string, unknown>): boolean =>
+  typeof r.name === 'string' && (r.type === 'table' || r.type === 'view' || !('type' in r));
+
 export const DataPanel = memo(() => {
   const [status, setStatus] = useState<Status>(isEmbedded ? 'loading' : 'standalone');
   const [tables, setTables] = useState<DataOverviewTable[]>([]);
@@ -51,10 +70,23 @@ export const DataPanel = memo(() => {
   const [detailIdx, setDetailIdx] = useState<number | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
+  // D1 manager — read-only SQL console (super-admin only; the sql/exec endpoint reads the shared
+  // multi-tenant DB). `canRunSql` arrives on the overview reply; `mode` toggles the console view.
+  const [canRunSql, setCanRunSql] = useState(false);
+  const [mode, setMode] = useState<'tables' | 'sql'>('tables');
+  const [sql, setSql] = useState(LIST_TABLES_SQL);
+  const [sqlRows, setSqlRows] = useState<Record<string, unknown>[]>([]);
+  const [sqlColumns, setSqlColumns] = useState<string[]>([]);
+  const [sqlError, setSqlError] = useState('');
+  const [sqlRunning, setSqlRunning] = useState(false);
+  const [sqlMeta, setSqlMeta] = useState<{ rows: number; ms?: number } | null>(null);
+
   const overviewCid = useRef<string | null>(null);
   const browseCid = useRef<string | null>(null);
+  const sqlCid = useRef<string | null>(null);
   const overviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const browseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sqlTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const requestOverview = useCallback(() => {
     if (!isEmbedded) {
@@ -104,6 +136,35 @@ export const DataPanel = memo(() => {
     postToParent({ type: 'PS_DATA_REQUEST', table: key, correlationId: cid });
   }, []);
 
+  // Run ONE read-only query through the admin bridge (super-admin only). The admin forwards to
+  // POST /api/sites/:id/sql/exec and replies PS_SQL_RESPONSE; a 403/400 comes back as `sqlError`.
+  const runSql = useCallback((query: string) => {
+    const q = query.trim();
+
+    if (!q || !isEmbedded) {
+      return;
+    }
+
+    setSqlError('');
+    setSqlRunning(true);
+    setSqlMeta(null);
+
+    const cid = newCorrelationId('sql');
+    sqlCid.current = cid;
+
+    if (sqlTimer.current) {
+      clearTimeout(sqlTimer.current);
+    }
+
+    sqlTimer.current = setTimeout(() => {
+      if (sqlCid.current === cid) {
+        setSqlError('The editor bridge did not respond.');
+        setSqlRunning(false);
+      }
+    }, REQUEST_TIMEOUT_MS);
+    postToParent({ type: 'PS_SQL_REQUEST', query: q, correlationId: cid });
+  }, []);
+
   // Subscribe to PS_DATA_RESPONSE from the admin parent.
   useEffect(() => {
     if (!isEmbedded) {
@@ -111,6 +172,34 @@ export const DataPanel = memo(() => {
     }
 
     const off = onParentMessage((msg: ParentToChildMessage) => {
+      // SQL console reply (D1 manager) — match on the sql correlation id.
+      if (msg.type === 'PS_SQL_RESPONSE') {
+        if (msg.correlationId !== sqlCid.current) {
+          return;
+        }
+
+        if (sqlTimer.current) {
+          clearTimeout(sqlTimer.current);
+        }
+
+        sqlCid.current = null;
+        setSqlRunning(false);
+
+        if (msg.error) {
+          setSqlError(msg.error);
+          setSqlRows([]);
+          setSqlColumns([]);
+
+          return;
+        }
+
+        setSqlColumns(msg.columns ?? []);
+        setSqlRows(msg.rows ?? []);
+        setSqlMeta({ rows: (msg.rows ?? []).length, ms: msg.duration_ms });
+
+        return;
+      }
+
       if (msg.type !== 'PS_DATA_RESPONSE') {
         return;
       }
@@ -131,6 +220,7 @@ export const DataPanel = memo(() => {
         }
 
         setTables(msg.data?.tables ?? []);
+        setCanRunSql(!!msg.data?.canRunSql);
         setStatus('ready');
 
         return;
@@ -170,6 +260,10 @@ export const DataPanel = memo(() => {
 
       if (browseTimer.current) {
         clearTimeout(browseTimer.current);
+      }
+
+      if (sqlTimer.current) {
+        clearTimeout(sqlTimer.current);
       }
     };
   }, [requestOverview]);
@@ -245,29 +339,68 @@ export const DataPanel = memo(() => {
         </div>
         {status === 'ready' && (
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setAutoRefresh((v) => !v)}
-              data-testid="data-autorefresh"
-              aria-pressed={autoRefresh}
-              title={autoRefresh ? 'Auto-refresh on (30s)' : 'Auto-refresh off'}
-              className={classNames(
-                'text-[10px] flex items-center gap-1 rounded-full px-2 py-0.5 border transition-colors cursor-pointer',
-                autoRefresh
-                  ? 'border-green-500/40 bg-green-500/10 text-green-400'
-                  : 'border-bolt-elements-borderColor text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
-              )}
-            >
-              <div className={classNames('i-ph:pulse', autoRefresh && 'animate-pulse')} /> Live
-            </button>
-            <button
-              type="button"
-              onClick={requestOverview}
-              className="text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer flex items-center gap-1"
-              title="Refresh"
-            >
-              <div className="i-ph:arrow-clockwise" /> Refresh
-            </button>
+            {/* Tables ⇆ SQL (D1 manager) — the console is super-admin-only, so the toggle
+                only appears when the admin bridge reported canRunSql. */}
+            {canRunSql && (
+              <div
+                className="flex items-center rounded-md border border-bolt-elements-borderColor overflow-hidden text-[10px] font-medium"
+                role="tablist"
+                aria-label="Data view"
+              >
+                {(['tables', 'sql'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="tab"
+                    aria-selected={mode === m}
+                    data-testid={`data-mode-${m}`}
+                    onClick={() => {
+                      setMode(m);
+
+                      if (m === 'sql' && !sqlMeta && !sqlRunning && !sqlError) {
+                        runSql(sql);
+                      }
+                    }}
+                    className={classNames(
+                      'px-2.5 py-1 cursor-pointer transition-colors flex items-center gap-1',
+                      mode === m
+                        ? 'bg-bolt-elements-item-backgroundActive text-bolt-elements-textPrimary'
+                        : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
+                    )}
+                  >
+                    <div className={m === 'sql' ? 'i-ph:terminal-window' : 'i-ph:table'} />
+                    {m === 'sql' ? 'SQL' : 'Tables'}
+                  </button>
+                ))}
+              </div>
+            )}
+            {mode === 'tables' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setAutoRefresh((v) => !v)}
+                  data-testid="data-autorefresh"
+                  aria-pressed={autoRefresh}
+                  title={autoRefresh ? 'Auto-refresh on (30s)' : 'Auto-refresh off'}
+                  className={classNames(
+                    'text-[10px] flex items-center gap-1 rounded-full px-2 py-0.5 border transition-colors cursor-pointer',
+                    autoRefresh
+                      ? 'border-green-500/40 bg-green-500/10 text-green-400'
+                      : 'border-bolt-elements-borderColor text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
+                  )}
+                >
+                  <div className={classNames('i-ph:pulse', autoRefresh && 'animate-pulse')} /> Live
+                </button>
+                <button
+                  type="button"
+                  onClick={requestOverview}
+                  className="text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer flex items-center gap-1"
+                  title="Refresh"
+                >
+                  <div className="i-ph:arrow-clockwise" /> Refresh
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -312,7 +445,7 @@ export const DataPanel = memo(() => {
       )}
 
       {/* Overview — table cards, row-count sorted */}
-      {status === 'ready' && !active && (
+      {status === 'ready' && mode === 'tables' && !active && (
         <div className="p-3 space-y-2">
           {sortedTables.map((t) => (
             <button
@@ -352,7 +485,7 @@ export const DataPanel = memo(() => {
       )}
 
       {/* Browse — one table's recent rows */}
-      {status === 'ready' && active && activeTable && (
+      {status === 'ready' && mode === 'tables' && active && activeTable && (
         <div className="flex-1 flex flex-col min-h-0">
           <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor/50">
             <button
@@ -528,6 +661,145 @@ export const DataPanel = memo(() => {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SQL console — the D1 manager (super-admin). Outerbase-Studio-style: one-click starters,
+          a query editor (⌘/Ctrl+↵ to run), and a results grid; runs read-only SELECT/PRAGMA. */}
+      {status === 'ready' && mode === 'sql' && (
+        <div className="flex-1 flex flex-col min-h-0" data-testid="data-sql-console">
+          <div className="p-3 border-b border-bolt-elements-borderColor/50 space-y-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary mr-1">Starters</span>
+              {SQL_STARTERS.map((s) => (
+                <button
+                  key={s.label}
+                  type="button"
+                  onClick={() => {
+                    setSql(s.query);
+                    runSql(s.query);
+                  }}
+                  className="text-[10px] rounded-full px-2 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-bolt-elements-item-contentAccent/40 hover:text-bolt-elements-textPrimary cursor-pointer"
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={sql}
+              onChange={(e) => setSql(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                  e.preventDefault();
+                  runSql(sql);
+                }
+              }}
+              spellCheck={false}
+              rows={4}
+              data-testid="data-sql-input"
+              placeholder="SELECT * FROM sqlite_master;  — read-only (SELECT / EXPLAIN / WITH / PRAGMA)"
+              className="w-full resize-y rounded-md bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor px-3 py-2 font-mono text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-bolt-elements-item-contentAccent/50"
+            />
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => runSql(sql)}
+                disabled={sqlRunning || !sql.trim()}
+                data-testid="data-sql-run"
+                className={classNames(
+                  'text-xs rounded-md px-3 py-1.5 flex items-center gap-1.5 transition-colors',
+                  sqlRunning || !sql.trim()
+                    ? 'bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary cursor-not-allowed'
+                    : 'bg-bolt-elements-item-contentAccent/15 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/25 border border-bolt-elements-item-contentAccent/30 cursor-pointer',
+                )}
+              >
+                <div className={sqlRunning ? 'i-ph:circle-notch animate-spin' : 'i-ph:play'} />
+                {sqlRunning ? 'Running…' : 'Run'}
+                <kbd className="text-[9px] opacity-60 ml-0.5">⌘↵</kbd>
+              </button>
+              {sqlMeta && !sqlError && (
+                <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums" data-testid="data-sql-meta">
+                  {sqlMeta.rows.toLocaleString()} {sqlMeta.rows === 1 ? 'row' : 'rows'}
+                  {typeof sqlMeta.ms === 'number' ? ` · ${sqlMeta.ms} ms` : ''}
+                </span>
+              )}
+              <span className="ml-auto text-[10px] text-bolt-elements-textTertiary flex items-center gap-1" title="The console rejects writes server-side">
+                <div className="i-ph:lock-simple" /> read-only
+              </span>
+            </div>
+          </div>
+
+          {sqlError && (
+            <div
+              className="mx-3 mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300 font-mono whitespace-pre-wrap"
+              data-testid="data-sql-error"
+              role="alert"
+            >
+              {sqlError}
+            </div>
+          )}
+
+          {!sqlError && sqlColumns.length > 0 && (
+            <div className="flex-1 overflow-auto modern-scrollbar mt-1">
+              <table className="w-full text-[11px] border-collapse">
+                <thead className="sticky top-0 bg-bolt-elements-background-depth-2 z-10">
+                  <tr>
+                    {sqlColumns.map((c) => (
+                      <th
+                        key={c}
+                        className="text-left font-medium text-bolt-elements-textTertiary px-3 py-1.5 border-b border-bolt-elements-borderColor/50 whitespace-nowrap"
+                      >
+                        {c}
+                      </th>
+                    ))}
+                    <th className="w-8 border-b border-bolt-elements-borderColor/50" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {sqlRows.map((r, i) => (
+                    <tr
+                      key={i}
+                      data-testid="data-sql-row"
+                      className="border-b border-bolt-elements-borderColor/20 hover:bg-bolt-elements-background-depth-2/50"
+                    >
+                      {sqlColumns.map((c) => (
+                        <td
+                          key={c}
+                          className="px-3 py-1.5 text-bolt-elements-textSecondary align-top max-w-[280px] truncate font-mono"
+                          title={formatCellValue(r[c])}
+                        >
+                          {formatCellValue(r[c])}
+                        </td>
+                      ))}
+                      <td className="px-1 py-1.5 text-right">
+                        {/* One-click drill: a sqlite_master listing row → browse that table. */}
+                        {isTableListRow(r) && typeof r.name === 'string' && (
+                          <button
+                            type="button"
+                            title={`SELECT * FROM ${r.name}`}
+                            aria-label={`Browse ${r.name}`}
+                            onClick={() => {
+                              const q = `SELECT * FROM "${r.name}" LIMIT 100;`;
+                              setSql(q);
+                              runSql(q);
+                            }}
+                            className="i-ph:arrow-square-out text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer"
+                          />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!sqlError && !sqlRunning && sqlMeta && sqlColumns.length === 0 && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-2 p-6 text-center">
+              <div className="i-ph:check-circle-duotone text-2xl text-green-400" />
+              <p className="text-xs text-bolt-elements-textSecondary">Query ran — no rows returned.</p>
             </div>
           )}
         </div>

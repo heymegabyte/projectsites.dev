@@ -59,6 +59,8 @@ interface PsMessage {
   readonly level?: 'info' | 'success' | 'warning' | 'error';
   /** PS_DATA_REQUEST (AL-004): omit for the table overview, set to browse one table. */
   readonly table?: string;
+  /** PS_SQL_REQUEST (D1 manager): the read-only SQL to forward to /sql/exec. */
+  readonly query?: string;
 }
 
 export interface BoltFileEntry {
@@ -97,6 +99,13 @@ export class BoltEmbedService {
   private iframeEl: HTMLIFrameElement | null = null;
   private currentSlug: string | null = null;
   private currentSite: BoltEmbedSite | null = null;
+  /**
+   * Whether the signed-in admin is a platform super-admin — pushed by AdminComponent from
+   * `AdminStateService.isSuperAdmin()` (hydrated from /api/auth/me). Gates the editor's D1-manager
+   * SQL console: the `/sql/exec` endpoint reads the shared multi-tenant DB and is super-admin-only
+   * (AL-792), so we tell the editor `canRunSql` up-front rather than let it render a doomed console.
+   */
+  readonly superAdmin = signal(false);
   private boltReady = false;
   private hardTimeout: ReturnType<typeof setTimeout> | null = null;
   private softTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -519,8 +528,64 @@ export class BoltEmbedService {
           this.api
             .get<{ data?: unknown }>(path, table ? { limit: '25' } : undefined, { silent: true })
             .subscribe({
-              next: (res) => reply({ data: res?.data ?? null }),
+              // Tell the editor whether the D1-manager SQL console is available (super-admin only) —
+              // merged into the OVERVIEW reply so it never renders a console that would only 403.
+              next: (res) => {
+                const data = (res?.data ?? null) as Record<string, unknown> | null;
+                reply({
+                  data: data && !table ? { ...data, canRunSql: this.superAdmin() } : data,
+                });
+              },
               error: () => reply({ error: 'Failed to load data' }),
+            });
+          break;
+        }
+        case 'PS_SQL_REQUEST': {
+          // D1-manager SQL console — the embedded editor has no cross-origin session, so it asks US
+          // to run ONE read-only query via POST /api/sites/:id/sql/exec (super-admin-gated + SELECT/
+          // EXPLAIN/WITH/PRAGMA-only server-side). We forward the worker's envelope verbatim; a 403
+          // (non-super-admin) or a rejected write surfaces as `error`. Mirrors the PS_DATA bridge.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const query = typeof msg.query === 'string' ? msg.query : '';
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_SQL_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          this.api
+            .post<{ ok?: boolean; columns?: string[]; rows?: unknown[]; duration_ms?: number; error?: string }>(
+              `/sites/${site.id}/sql/exec`,
+              { query },
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) =>
+                reply({
+                  ok: res?.ok ?? true,
+                  columns: res?.columns ?? [],
+                  rows: res?.rows ?? [],
+                  duration_ms: res?.duration_ms,
+                  ...(res?.error ? { error: res.error } : {}),
+                }),
+              error: (e: unknown) => {
+                const status = (e as { status?: number })?.status;
+                reply({
+                  ok: false,
+                  error:
+                    status === 403
+                      ? 'The SQL console is restricted to platform administrators.'
+                      : status === 400
+                        ? 'Query rejected — read-only (SELECT / EXPLAIN / WITH / PRAGMA) only.'
+                        : 'Query failed.',
+                });
+              },
             });
           break;
         }

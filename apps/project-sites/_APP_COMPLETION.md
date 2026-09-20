@@ -33,6 +33,8 @@ coverage matrix).
 - [x] Truthful mutations — 9 causal write→read-back probes persist (no lying-success / dropped write)
 - [x] Completeness — 23/23 sections, no stub/dead-control/soft-404 (completeness-stub-scan) + contract
 - [x] Editor Functions + Data workbench tabs — real `functions/` + D1 (AL-004/018/038/060), NOT mock
+- [ ] **Editor initial-open is QUIET, not a file-list dump** (Brian directive 2026-09-20) — on the bolt.diy editor's FIRST open, DON'T spam chat with the echoed prompt ("Build a professional website for X"), the "I've built … with N files" list, the raw filename dump, NOR the per-file `Create <file>` artifact list (49×). Show a concise **"Loading your site… → Site loaded"** state and surface ONLY the meaningful command line (e.g. `npm install --legacy-peer-deps`) + a "Click to open Workbench" affordance. ROOT: the applied-manifest / initial-hydrate path in the editor chat (root `app/` — the message that renders the imported files as an assistant turn + the per-file action list); collapse it to a single quiet status message on first hydrate, keep the file artifacts in the Workbench (not the chat transcript).
+- [ ] **Data tab = D1 manager (SQL console)** — SHIPPED this fire (super-admin SQL console + sqlite_master table list + schema + results grid, Outerbase-Studio-inspired, read-only via `/sql/exec`); verify live in a real browser as super-admin for ≥2 fires, then tick.
 - [x] Perf / security / polish — ADMIN QUALITY loop (maintenance)
 
 ## § B — Full user flows · headless PROD E2E · OWNER: FULL JOURNEY + FULL-FLOW

@@ -193,7 +193,39 @@ export interface DataResponseMessage {
     table?: string;
     columns?: string[];
     rows?: Record<string, unknown>[];
+    /**
+     * True when the signed-in admin is a platform super-admin → the D1 manager unlocks the
+     * read-only SQL console (arbitrary SELECT/PRAGMA over the site's D1 via {@link SqlRequestMessage}).
+     * A normal site owner gets `false` → the curated, org-scoped table browser only (the raw
+     * console reads the shared multi-tenant DB, so it MUST stay super-admin-gated — AL-792).
+     */
+    canRunSql?: boolean;
   } | null;
+  error?: string;
+}
+
+/**
+ * Child → Parent (D1 manager SQL console): ask the admin to run ONE READ-ONLY SQL query
+ * against the site's D1 via `POST /api/sites/:id/sql/exec`. That endpoint is super-admin-gated
+ * (it reads the shared multi-tenant database) + allowlists SELECT/EXPLAIN/WITH/PRAGMA only, so a
+ * non-super-admin caller gets a 403 surfaced as {@link SqlResponseMessage.error}; writes are
+ * rejected server-side. The editor is Outerbase-Studio-inspired: table list from `sqlite_master`,
+ * schema via `PRAGMA table_info`, and free-form queries — all through this one bridge message.
+ */
+export interface SqlRequestMessage {
+  type: 'PS_SQL_REQUEST';
+  query: string;
+  correlationId: string;
+}
+
+/** Parent → Child: the admin's reply to {@link SqlRequestMessage} (mirrors the sql/exec envelope). */
+export interface SqlResponseMessage {
+  type: 'PS_SQL_RESPONSE';
+  correlationId?: string;
+  ok?: boolean;
+  columns?: string[];
+  rows?: Record<string, unknown>[];
+  duration_ms?: number;
   error?: string;
 }
 
@@ -206,6 +238,7 @@ export type ParentToChildMessage =
   | OpenFileMessage
   | ListFilesMessage
   | DataResponseMessage
+  | SqlResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -214,6 +247,7 @@ export type ChildToParentMessage =
   | FilesListMessage
   | DeployRequestMessage
   | DataRequestMessage
+  | SqlRequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;
