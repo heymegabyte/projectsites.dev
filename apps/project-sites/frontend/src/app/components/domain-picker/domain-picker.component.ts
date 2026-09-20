@@ -534,6 +534,19 @@ const LOW_BALANCE_CENTS = 500;
         );
         border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 25%, transparent);
       }
+      /* Unavailable (taken / couldn't-check) domains: the price is NOT actionable,
+         so it recedes into the row — light, struck-through, borderless (no gradient
+         chip). The eye skips it and lands on the available options. The chip stays
+         on AVAILABLE rows where the price is a genuine buy signal. (Brian, 2026-09-20.) */
+      .dp-price--muted {
+        background: none;
+        border: none;
+        padding: 2px 0;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 42%, transparent);
+        text-decoration: line-through;
+        text-decoration-color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 28%, transparent);
+        font-weight: 500;
+      }
       /* "Recommended" pill on every AI-suggested URL — short descriptor that the
          name was auto-determined as a recommendable URL for the business. */
       .dp-rec-pill {
@@ -974,7 +987,7 @@ const LOW_BALANCE_CENTS = 500;
               >
             }
             @if (s.price_usd_yr && !purchasedDomains().has(s.domain)) {
-              <span class="dp-price">\${{ s.price_usd_yr }}/yr</span>
+              <span class="dp-price" [class.dp-price--muted]="s.status !== 'available'">\${{ s.price_usd_yr }}/yr</span>
             }
           </div>
           <!-- Reason/pitch + register CTA only for non-taken rows — a taken

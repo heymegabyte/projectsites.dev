@@ -181,5 +181,13 @@ describe('DomainPickerComponent — viewport-relative width caps (reflow guard)'
     expect(css.length).withContext('component styles must be present in the DOM').toBeGreaterThan(0);
     expect(css).withContext('.dp-trigger max-width must be viewport-relative min(340px,62vw), not a fixed px cap').toContain('min(340px,62vw)');
     expect(css).withContext('.dp-host max-width must be viewport-relative min(280px,42vw), not a fixed px cap').toContain('min(280px,42vw)');
+
+    // Msg-2 (Brian, 2026-09-20): an UNAVAILABLE domain's price must recede — the
+    // .dp-price--muted variant is borderless + struck-through so the eye skips it
+    // and lands on the available options. Regression-lock the treatment.
+    expect(css).withContext('.dp-price--muted variant must exist').toContain('.dp-price--muted');
+    const muted = css.slice(css.indexOf('.dp-price--muted'), css.indexOf('.dp-price--muted') + 240);
+    expect(muted).withContext('unavailable price must be struck through').toContain('line-through');
+    expect(muted).withContext('unavailable price must be borderless').toContain('border:none');
   });
 });
