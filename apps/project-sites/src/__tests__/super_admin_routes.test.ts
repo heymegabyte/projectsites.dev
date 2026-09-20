@@ -255,8 +255,26 @@ describe('site operations — ops/sites list (Phase 1)', () => {
     });
     mockDbQuery.mockResolvedValue({
       data: [
-        { id: 's1', slug: 'acme', business_name: 'Acme', status: 'published', org_id: 'o1', org_name: 'Org1', created_at: '2026-09-01', updated_at: '2026-09-02' },
-        { id: 's2', slug: 'beta', business_name: 'Beta', status: 'draft', org_id: 'o2', org_name: 'Org2', created_at: '2026-08-01', updated_at: '2026-08-02' },
+        {
+          id: 's1',
+          slug: 'acme',
+          business_name: 'Acme',
+          status: 'published',
+          org_id: 'o1',
+          org_name: 'Org1',
+          created_at: '2026-09-01',
+          updated_at: '2026-09-02',
+        },
+        {
+          id: 's2',
+          slug: 'beta',
+          business_name: 'Beta',
+          status: 'draft',
+          org_id: 'o2',
+          org_name: 'Org2',
+          created_at: '2026-08-01',
+          updated_at: '2026-08-02',
+        },
       ],
     });
     const res = await req(
@@ -266,7 +284,12 @@ describe('site operations — ops/sites list (Phase 1)', () => {
       makeEnv(),
     );
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { rows: unknown[]; total: number; page: number; pages: number };
+    const json = (await res.json()) as {
+      rows: unknown[];
+      total: number;
+      page: number;
+      pages: number;
+    };
     expect(json.rows).toHaveLength(2);
     expect(json.total).toBe(2);
     expect(json.page).toBe(1);
@@ -284,7 +307,12 @@ describe('site operations — ops/sites list (Phase 1)', () => {
   });
 
   it('400s on an out-of-range limit (clamped <= 100)', async () => {
-    const res = await req(makeApp(SUPER), 'GET', '/api/super-admin/ops/sites?limit=9999', makeEnv());
+    const res = await req(
+      makeApp(SUPER),
+      'GET',
+      '/api/super-admin/ops/sites?limit=9999',
+      makeEnv(),
+    );
     expect(res.status).toBe(400);
   });
 });
