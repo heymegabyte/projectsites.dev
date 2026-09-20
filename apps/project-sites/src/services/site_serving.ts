@@ -31,6 +31,7 @@
 import { DOMAINS } from '@project-sites/shared';
 import type { Env } from '../types/env.js';
 import { dbQueryOne } from './db.js';
+import { localBusinessSubtypeFor } from './build_validators.js';
 import { resolveActiveOrgPlan } from './build_limits.js';
 import { minifyCssCached } from './css_minify.js';
 import { parseBranchHost } from './site_branches.js';
@@ -1078,6 +1079,70 @@ export function applyServedRouteJsonLd(html: string, requestPath: string): strin
 }
 
 /**
+ * Upgrade a served page's GENERIC `"@type":"LocalBusiness"` JSON-LD to the precise schema.org
+ * subtype (BookStore / Restaurant / Florist / …) for the site's `business_category`.
+ *
+ * A build that predates the subtype generator (AL-835) bakes a generic `"@type":"LocalBusiness"`;
+ * this closes the gap at SERVE time so the WHOLE stale cohort gains richer local Rich-Results
+ * (a `BookStore`/`Restaurant` gets its specific Google rich-result) WITHOUT a (build-LLM-gated)
+ * rebuild. Pure + no-op by construction: if no generic LocalBusiness literal is present (a
+ * non-local site, or a build that already emits its subtype), or the category has no more-specific
+ * subtype (`localBusinessSubtypeFor` → `'LocalBusiness'`), the html is returned untouched. Only the
+ * literal `"@type":"LocalBusiness"` is rewritten — sibling entities (`PostalAddress`, `WebSite`, …)
+ * carry different `@type` literals and are never touched.
+ *
+ * @param html - The served page HTML.
+ * @param category - The site's `business_category` (e.g. `'bookstore'`), or null.
+ * @returns HTML with the LocalBusiness `@type` rewritten to its subtype, or unchanged.
+ * @example
+ * upgradeLocalBusinessType('<script>{"@type":"LocalBusiness","name":"x"}</script>', 'bookstore');
+ * // → '<script>{"@type":"BookStore","name":"x"}</script>'
+ */
+export function upgradeLocalBusinessType(html: string, category: string | null): string {
+  if (!/"@type":\s*"LocalBusiness"/.test(html)) return html;
+  const subtype = localBusinessSubtypeFor(category);
+  if (subtype === 'LocalBusiness') return html; // no more-specific type → leave the generic block
+  return html.replace(/("@type":\s*)"LocalBusiness"/g, `$1"${subtype}"`);
+}
+
+/**
+ * Serve-time wrapper for {@link upgradeLocalBusinessType}: resolves the site's `business_category`
+ * (KV-cached per site, 300s TTL — so the added D1 read is ~1/site/5min) then applies the subtype
+ * rewrite. Fully fail-soft: a cheap guard skips the lookup entirely when the page has no generic
+ * LocalBusiness literal, and any lookup error serves the generic block (today's behavior).
+ *
+ * @param html - The served page HTML.
+ * @param siteId - The resolved site id (D1 `sites.id`).
+ * @param env - Worker bindings (needs `CACHE_KV` + `DB`).
+ * @returns HTML with the LocalBusiness `@type` upgraded to its subtype where applicable.
+ */
+async function applyServedLocalBusinessSubtype(
+  html: string,
+  siteId: string,
+  env: Env,
+): Promise<string> {
+  // Cheap guard: only a page carrying a GENERIC LocalBusiness needs the (cached) lookup.
+  if (!/"@type":\s*"LocalBusiness"/.test(html)) return html;
+  try {
+    const cacheKey = `sitecat:${siteId}`;
+    let category = await env.CACHE_KV.get(cacheKey);
+    if (category === null) {
+      const row = await dbQueryOne<{ business_category: string | null }>(
+        env.DB,
+        'SELECT business_category FROM sites WHERE id = ? AND deleted_at IS NULL',
+        [siteId],
+      );
+      category = row?.business_category ?? '';
+      // Fire-and-forget: a cache write must never break serving (per fail-fast-build-fail-soft-prod).
+      await env.CACHE_KV.put(cacheKey, category, { expirationTtl: 300 }).catch(() => {});
+    }
+    return upgradeLocalBusinessType(html, category || null);
+  } catch {
+    return html; // fail-soft: serve the generic LocalBusiness block
+  }
+}
+
+/**
  * Rewrite a served SPA page's `<title>` to a per-route title for the NON-JS crawl.
  *
  * The generated site is a single-shell SPA: every route serves the same
@@ -1552,7 +1617,7 @@ html.ps-fonts-ready body{opacity:1;transition:opacity .2s ease-out}
  */
 async function buildSiteResponse(
   object: R2ObjectBody,
-  site: { slug: string; plan: string },
+  site: { slug: string; plan: string; site_id?: string },
   contentType: string,
   env?: Env,
   htmlStatus = 200,
@@ -1607,6 +1672,13 @@ async function buildSiteResponse(
     // structured data (no-op once the build emits its own). BEFORE the title rewrite
     // so the brand is read from the pristine homepage title.
     html = applyServedRouteJsonLd(html, requestPath);
+    // SEO/GEO (§C.5 subtype): a build predating the subtype generator (AL-835) bakes a GENERIC
+    // "@type":"LocalBusiness"; upgrade it to the site's precise schema.org subtype
+    // (BookStore/Restaurant/…) from business_category — richer local Rich-Results for the whole
+    // STALE COHORT with no (build-LLM-gated) rebuild. Fail-soft no-op when unknown/non-local.
+    if (env && site.site_id) {
+      html = await applyServedLocalBusinessSubtype(html, site.site_id, env);
+    }
     // Per-route DESCRIPTION (the missing twin): the single-shell SPA serves the HOMEPAGE
     // <meta description> on every sub-page → "Duplicate meta descriptions". Rewrite BEFORE the
     // title injector so the business name is read from the pristine homepage title.

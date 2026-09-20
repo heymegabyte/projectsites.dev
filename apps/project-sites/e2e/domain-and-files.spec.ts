@@ -16,11 +16,15 @@ import { test, expect } from './fixtures.js';
 // ─── Domain Search API Tests ─────────────────────────────────
 
 test.describe('Domain Search API', () => {
-  test('returns empty results for short queries', async ({ request }) => {
+  test('returns a well-formed results array for short queries', async ({ request }) => {
+    // AL-841: assert the UNIVERSAL contract (200 + data is an array), not a backend-specific
+    // value. The prior `toEqual([])` encoded the local mock's short-query stub — prod's real
+    // authed handler returns TLD variants for a 2-char query, so the hard-coded empty was a
+    // mock-only claim (this suite runs vs the mock; prod's authed endpoint 401s an anon request).
     const res = await request.get('/api/domains/search?q=ab');
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.data).toEqual([]);
+    expect(Array.isArray(body.data)).toBe(true);
   });
 
   test('returns empty results for missing query', async ({ request }) => {

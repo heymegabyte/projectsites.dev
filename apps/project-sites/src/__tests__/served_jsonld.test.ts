@@ -1,4 +1,8 @@
-import { buildBaselineJsonLd, applyServedRouteJsonLd } from '../services/site_serving.js';
+import {
+  buildBaselineJsonLd,
+  applyServedRouteJsonLd,
+  upgradeLocalBusinessType,
+} from '../services/site_serving.js';
 
 /** Parse the JSON bodies out of the concatenated <script type=ld+json> tags. */
 function parseBlocks(htmlOrFragment: string): Array<Record<string, unknown>> {
@@ -122,5 +126,49 @@ describe('site_serving — applyServedRouteJsonLd', () => {
   it('no-op without a canonical/og:url origin to anchor absolute URLs', () => {
     const noCanon = '<html><head><title>Acme — X</title></head><body>x</body></html>';
     expect(applyServedRouteJsonLd(noCanon, '/about')).toBe(noCanon);
+  });
+});
+
+describe('site_serving — upgradeLocalBusinessType (serve-time subtype, AL-841)', () => {
+  const lb = '<script type="application/ld+json">{"@type":"LocalBusiness","name":"Strand"}</script>';
+
+  it('upgrades a generic LocalBusiness to its schema.org subtype from business_category', () => {
+    expect(upgradeLocalBusinessType(lb, 'bookstore')).toContain('"@type":"BookStore"');
+    expect(upgradeLocalBusinessType(lb, 'bookstore')).not.toContain('"@type":"LocalBusiness"');
+  });
+
+  it('maps several real categories to their subtypes', () => {
+    expect(upgradeLocalBusinessType(lb, 'italian restaurant')).toContain('"@type":"Restaurant"');
+    expect(upgradeLocalBusinessType(lb, 'flower shop')).toContain('"@type":"Florist"');
+    expect(upgradeLocalBusinessType(lb, 'jewelry store')).toContain('"@type":"JewelryStore"');
+  });
+
+  it('no-op when the category has no more-specific subtype (stays generic LocalBusiness)', () => {
+    expect(upgradeLocalBusinessType(lb, 'consulting')).toBe(lb);
+  });
+
+  it('no-op on a null/empty category', () => {
+    expect(upgradeLocalBusinessType(lb, null)).toBe(lb);
+    expect(upgradeLocalBusinessType(lb, '')).toBe(lb);
+  });
+
+  it('no-op when there is no generic LocalBusiness literal (non-local site or already subtyped)', () => {
+    const already = '<script>{"@type":"Restaurant","name":"x"}</script>';
+    expect(upgradeLocalBusinessType(already, 'restaurant')).toBe(already);
+    const saas = '<script>{"@type":"WebSite","name":"x"}</script>';
+    expect(upgradeLocalBusinessType(saas, 'bookstore')).toBe(saas);
+  });
+
+  it('never touches sibling @type literals (PostalAddress/WebSite stay)', () => {
+    const mixed =
+      '<script>{"@type":"LocalBusiness","address":{"@type":"PostalAddress"}}</script>';
+    const out = upgradeLocalBusinessType(mixed, 'bookstore');
+    expect(out).toContain('"@type":"BookStore"');
+    expect(out).toContain('"@type":"PostalAddress"');
+  });
+
+  it('handles a space after the colon ("@type": "LocalBusiness")', () => {
+    const spaced = '<script>{"@type": "LocalBusiness","name":"x"}</script>';
+    expect(upgradeLocalBusinessType(spaced, 'bookstore')).toContain('"BookStore"');
   });
 });
