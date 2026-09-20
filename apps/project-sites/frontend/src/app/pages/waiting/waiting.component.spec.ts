@@ -6,6 +6,7 @@ import {
   classifyLogLine,
   isBuildLogNoise,
   resolveBuildOutcome,
+  shouldDegradeToLoadError,
   deriveBuildStep,
   formatHeartbeat,
 } from './waiting.component';
@@ -36,6 +37,20 @@ describe('formatHeartbeat (terminal keeps breathing during long build gaps)', ()
   });
   it('never emits negative durations under clock skew', () => {
     expect(formatHeartbeat('building', START, START, START - 5000)).toBe('building — 0s elapsed');
+  });
+});
+
+describe('shouldDegradeToLoadError (AL-827: never a perpetual fake overlay on an unloadable build)', () => {
+  it('degrades after 2 consecutive failures with NO prior successful load (401 expired / bad id)', () => {
+    expect(shouldDegradeToLoadError(false, 0)).toBe(false); // first tick — give it a chance
+    expect(shouldDegradeToLoadError(false, 1)).toBe(false); // one blip — retry
+    expect(shouldDegradeToLoadError(false, 2)).toBe(true); // ~6s of never-loaded → graceful card
+    expect(shouldDegradeToLoadError(false, 5)).toBe(true);
+  });
+
+  it('NEVER degrades once the site has loaded (a mid-build transient blip must not disrupt a live build)', () => {
+    expect(shouldDegradeToLoadError(true, 2)).toBe(false);
+    expect(shouldDegradeToLoadError(true, 99)).toBe(false);
   });
 });
 

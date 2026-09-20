@@ -10,7 +10,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
-import { timer, takeWhile, switchMap, forkJoin } from 'rxjs';
+import { timer, takeWhile, switchMap, forkJoin, catchError, of } from 'rxjs';
 import { ApiService, type LogEntry } from '../../services/api.service';
 import { ToastService } from '../../services/toast.service';
 
@@ -92,6 +92,22 @@ export function resolveBuildOutcome(
   if (status === 'published' && hasBuild) return 'live';
   if (status === 'error' || (status === 'published' && !hasBuild)) return 'failed';
   return 'pending';
+}
+
+/**
+ * Decide whether the build-status poll should DEGRADE to the graceful load-error card (AL-827).
+ * The poll fires every 3s; if it has NEVER successfully loaded the site and has failed ≥2
+ * consecutive times (~6s — a 401 expired session / unauth shared /waiting?id= link / bad id), we
+ * stop the fake "Building…" overlay and show a sign-in card. A failure AFTER a successful load
+ * (`everLoaded`) is a transient blip mid-build → keep retrying, never disrupt a live build. Pure +
+ * exported so the decision is unit-tested without instantiating the polling component.
+ *
+ * @param everLoaded - Whether any poll tick has already loaded the site.
+ * @param consecutiveErrors - Count of consecutive poll failures with no prior success.
+ * @returns true when the UI should show the graceful load-error card.
+ */
+export function shouldDegradeToLoadError(everLoaded: boolean, consecutiveErrors: number): boolean {
+  return !everLoaded && consecutiveErrors >= 2;
 }
 
 /**
@@ -346,6 +362,20 @@ export class WaitingComponent implements OnInit, OnDestroy {
   totalSteps = TOTAL_STEPS;
   alive = true;
 
+  /**
+   * The build-status poll could NEVER load the site (AL-827). Before this, a 401 (expired
+   * session, or an unauth visitor on a shared /waiting?id= link) made the poll error handler
+   * silently retry forever — the owner stared at a FAKE "Building your website" overlay + a
+   * progress bar that never moved, with a 401 in the console and no way out. `/waiting` isn't in
+   * ApiService's protected-route 401→/signin list, so nothing rescued them. When we can't even
+   * load the build once, degrade to a graceful "session expired — sign in" card instead.
+   */
+  loadError = signal(false);
+  /** True once ANY poll tick has loaded the site — so a mid-build transient blip never trips loadError. */
+  private everLoaded = false;
+  /** Consecutive poll failures with no successful load yet. */
+  private consecutiveErrors = 0;
+
   /** Raw build events, newest last — rendered live in the terminal widget. */
   logs = signal<LogEntry[]>([]);
 
@@ -429,46 +459,74 @@ export class WaitingComponent implements OnInit, OnDestroy {
           forkJoin({
             site: this.api.getSite(this.siteId),
             logs: this.api.getSiteLogs(this.siteId, 200),
-          }),
+          }).pipe(
+            // A poll error (401 expired session, unauth shared link, transport blip) must NOT kill
+            // the stream — switchMap would propagate it to the outer timer and STOP polling entirely
+            // (the pre-AL-827 bug: the bare error handler "retried" a dead stream → perpetual fake
+            // overlay). Map errors to null so the timer keeps firing; the handler degrades or recovers.
+            catchError(() => of(null)),
+          ),
         ),
       )
-      .subscribe({
-        next: ({ site: siteRes, logs: logsRes }) => {
-          const site = siteRes.data;
-          this.status.set(site.status);
-
-          const logs = logsRes?.data ?? [];
-          this.logs.set(logs);
-          // Heartbeat activity marker — reset the idle timer whenever a new build line arrives.
-          if (logs.length > this.lastLogCount) {
-            this.lastLogCount = logs.length;
-            this.lastActivityAt.set(Date.now());
-          }
-          this.updateStatusFromLogs(logs, site.status);
-
-          // A published row is "live" ONLY once its build landed — a published +
-          // null-build row serves a 503, so it's a FAILED build (lying-published),
-          // never announced as live. Decision extracted to resolveBuildOutcome().
-          const outcome = resolveBuildOutcome(site.status, !!site.current_build_version);
-          if (outcome === 'live') {
+      .subscribe((res) => {
+        if (!res) {
+          this.consecutiveErrors += 1;
+          // NEVER loaded (401 / unauth shared link / bad id) → after 2 failed ticks (~6s) stop the
+          // fake overlay and show the graceful sign-in card. A blip AFTER a successful load keeps
+          // polling (the stream now survives) — never disrupts a live build.
+          if (shouldDegradeToLoadError(this.everLoaded, this.consecutiveErrors)) {
             this.alive = false;
-            this.statusMessage.set('Your site is live!');
-            this.currentStep.set(TOTAL_STEPS);
-            this.status.set('published');
-            this.toast.success('Your site is live!');
-            return;
+            this.loadError.set(true);
+            // Structured observability: how often owners hit an unloadable /waiting (session expiry).
+            console.warn(
+              JSON.stringify({
+                event: 'waiting_poll_load_failed',
+                siteId: this.siteId,
+                consecutiveErrors: this.consecutiveErrors,
+              }),
+            );
           }
+          return;
+        }
 
-          if (outcome === 'failed') {
-            this.alive = false;
-            this.statusMessage.set('Build failed. Please try again.');
-            this.toast.error('Build failed.');
-          }
-        },
-        error: () => {
-          /* retry next interval */
-        },
+        this.everLoaded = true;
+        this.consecutiveErrors = 0;
+        const site = res.site.data;
+        this.status.set(site.status);
+
+        const logs = res.logs?.data ?? [];
+        this.logs.set(logs);
+        // Heartbeat activity marker — reset the idle timer whenever a new build line arrives.
+        if (logs.length > this.lastLogCount) {
+          this.lastLogCount = logs.length;
+          this.lastActivityAt.set(Date.now());
+        }
+        this.updateStatusFromLogs(logs, site.status);
+
+        // A published row is "live" ONLY once its build landed — a published + null-build row serves
+        // a 503, so it's a FAILED build (lying-published), never announced as live.
+        const outcome = resolveBuildOutcome(site.status, !!site.current_build_version);
+        if (outcome === 'live') {
+          this.alive = false;
+          this.statusMessage.set('Your site is live!');
+          this.currentStep.set(TOTAL_STEPS);
+          this.status.set('published');
+          this.toast.success('Your site is live!');
+          return;
+        }
+
+        if (outcome === 'failed') {
+          this.alive = false;
+          this.statusMessage.set('Build failed. Please try again.');
+          this.toast.error('Build failed.');
+        }
       });
+  }
+
+  /** Graceful load-error recovery: re-authenticate, returning to THIS build after sign-in. */
+  signIn(): void {
+    const returnUrl = `/waiting?id=${encodeURIComponent(this.siteId)}${this.slug ? `&slug=${encodeURIComponent(this.slug)}` : ''}`;
+    this.router.navigate(['/signin'], { queryParams: { returnUrl } });
   }
 
   private updateStatusFromLogs(logs: LogEntry[], siteStatus: string): void {

@@ -76,6 +76,39 @@
         </button>
       </div>
     </div>
+  } @else if (loadError()) {
+    <!-- Graceful load-error (AL-827) — the build-status poll could never load (expired session /
+         unauth shared link / bad id). Never leave the owner on a fake perpetual "Building…" bar. -->
+    <div
+      data-testid="waiting-load-error"
+      class="w-full max-w-[520px] text-center animate-[fadeIn_0.4s_ease]"
+      role="alert"
+    >
+      <div class="mx-auto mb-5 w-14 h-14 rounded-full bg-primary/[0.08] flex items-center justify-center">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary" aria-hidden="true">
+          <path d="M12 9v4M12 17h.01" /><circle cx="12" cy="12" r="10" />
+        </svg>
+      </div>
+      <h2 class="text-xl font-bold text-light mb-2">We couldn't load your build</h2>
+      <p class="text-[0.9rem] text-gray-400 mb-6 leading-relaxed">
+        Your session may have expired. Sign in to pick up right where your build left off.
+      </p>
+      <div class="flex flex-wrap gap-3 justify-center">
+        <button
+          data-testid="waiting-signin"
+          class="rounded-xl px-6 py-3 font-semibold bg-primary text-dark transition-all hover:-translate-y-0.5"
+          (click)="signIn()"
+        >
+          Sign in to continue
+        </button>
+        <button
+          class="border border-white/[0.08] bg-transparent text-text-secondary rounded-xl px-6 py-3 font-semibold transition-all hover:border-primary hover:text-primary"
+          (click)="goHome()"
+        >
+          Go home
+        </button>
+      </div>
+    </div>
   } @else {
     <!-- Building state — the live Claude Code build takeover (overlays the not-yet-ready site) -->
     <div

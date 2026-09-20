@@ -1,237 +1,77 @@
 /**
- * E2E tests for the waiting screen, build terminal animation,
- * workflow polling, and step progression.
+ * Build-progress /waiting flow — post-create terminal + graceful load-error (REWRITTEN 2026-09-20, AL-827).
+ *
+ * ── Why rewritten ──────────────────────────────────────────────────────────
+ * The prior spec targeted the DELETED vanilla waiting screen (`#screen-waiting`, `navigateTo`,
+ * `updateWaitingScreen` globals). The vanilla `public/index.html` was removed 2026-07-31; `/waiting`
+ * is now a real Angular route. All 13 tests were prod-RED (dead selectors) — kept false-green only
+ * by the stale `sites-staging.megabyte.space` CI shard (the AL-804/826 mock-only-phantom class).
+ *
+ * ── What this proves + the break it fixed ─────────────────────────────────
+ * The build-status poll (`getSite`+`getSiteLogs` every 3s) is auth-gated. Before AL-827 its error
+ * handler was a bare retry-only no-op — so a 401 (expired session, or an unauth visitor on a shared
+ * `/waiting?id=` link) left the owner staring at a FAKE "Building your website" overlay + a progress
+ * bar that never moved, forever, with a 401 in the console and no way out (`/waiting` isn't in
+ * ApiService's protected-route 401→/signin list). Root-fixed: after 2 never-loaded ticks the flow
+ * degrades to a graceful "We couldn't load your build — sign in" card (`shouldDegradeToLoadError`,
+ * unit-tested). This spec proves that live, homepage-adjacent, headless, on prod.
+ *
+ * Selectors — pages/waiting/waiting.component.html:
+ *   [data-testid="waiting-load-error"] · [data-testid="waiting-signin"] · [data-testid="build-overlay"]
+ *   [data-testid="waiting-live-url"] (published terminal, authed — out of unauth scope)
  */
-import { test, expect } from './fixtures.js';
+import { test, expect, type Page } from '@playwright/test';
 
-test.describe('Waiting Screen', () => {
-  test('waiting screen exists in DOM', async ({ page }) => {
-    await page.goto('/');
-    const screen = page.locator('#screen-waiting');
-    await expect(screen).toBeAttached();
+const PROD_URL = process.env.PROD_URL ?? 'https://projectsites.dev';
+// A real published site id (org-brian-001) — a valid target whose status poll still 401s for an
+// UNAUTH caller, exercising the exact expired-session / shared-link degrade path.
+const REAL_ID = '300e3992-8c5d-46cf-8751-388f5519dee5';
+const REAL_SLUG = 'tree-house-brewing-charlton';
+
+/** The 401 that TRIGGERS the graceful degrade is expected + handled — not an app fault. */
+const BENIGN = [/401/, /Failed to load resource/i, /net::ERR_/i, /posthog|sentry|analytics|gtag/i, /favicon/i];
+const blocking = (e: string): boolean => !BENIGN.some((re) => re.test(e));
+function trackErrors(page: Page): string[] {
+  const errs: string[] = [];
+  page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+  page.on('pageerror', (e) => errs.push('pageerror: ' + String(e))); // uncaught JS = always blocking
+  return errs;
+}
+
+test.describe('Build-progress /waiting flow', () => {
+  test('no site id → gracefully redirects to the homepage (never a blank/stuck screen)', async ({ page }) => {
+    await page.goto(`${PROD_URL}/waiting`, { waitUntil: 'domcontentloaded' });
+    await expect(page).toHaveURL(/projectsites\.dev\/?($|\?)/, { timeout: 10_000 });
+    await expect(page.locator('[data-testid="hero-headline"]').first()).toBeVisible({ timeout: 20_000 });
   });
 
-  test('waiting screen is hidden by default', async ({ page }) => {
-    await page.goto('/');
-    const screen = page.locator('#screen-waiting');
-    const cls = await screen.getAttribute('class');
-    expect(cls).not.toContain('active');
+  test('unauth visitor on a real /waiting?id= link degrades to the graceful sign-in card (NOT a perpetual fake overlay)', async ({ page }) => {
+    const errs = trackErrors(page);
+    await page.goto(`${PROD_URL}/waiting?id=${REAL_ID}&slug=${REAL_SLUG}`, { waitUntil: 'domcontentloaded' });
+
+    // Within ~2 failed poll ticks (~6s) the fake overlay is replaced by the graceful card.
+    await expect(page.locator('[data-testid="waiting-load-error"]')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('[data-testid="build-overlay"]')).toHaveCount(0); // the fake overlay is GONE
+    await expect(page.locator('[data-testid="waiting-load-error"]')).toContainText(/sign in|couldn.t load/i);
+
+    // No UNCAUGHT JS error crept in (the triggering 401 network error is expected + handled).
+    expect(errs.filter(blocking)).toEqual([]);
   });
 
-  test('navigateTo waiting function can be called without error', async ({ page }) => {
-    await page.goto('/');
-    // navigateTo('waiting') may redirect depending on auth state;
-    // just verify it doesn't throw an error
-    const result = await page.evaluate(() => {
-      try {
-        const w = window as unknown as Record<string, unknown>;
-        const fn = w.navigateTo as (s: string) => void;
-        if (typeof fn === 'function') fn('waiting');
-        return 'ok';
-      } catch (e) {
-        return 'error: ' + String(e);
-      }
-    });
-    expect(result).toBe('ok');
+  test('the load-error card offers a working sign-in path that returns to THIS build', async ({ page }) => {
+    await page.goto(`${PROD_URL}/waiting?id=${REAL_ID}&slug=${REAL_SLUG}`, { waitUntil: 'domcontentloaded' });
+    const signIn = page.locator('[data-testid="waiting-signin"]');
+    await expect(signIn).toBeVisible({ timeout: 20_000 });
+    await signIn.click();
+    // SPA-routes to /signin carrying a returnUrl back to this waiting build (no full reload).
+    await page.waitForURL(/\/signin/, { timeout: 10_000 });
+    expect(decodeURIComponent(page.url())).toContain('/waiting?id=' + REAL_ID);
   });
 
-  test('updateWaitingScreen function is defined', async ({ page }) => {
-    await page.goto('/');
-    const hasFn = await page.evaluate(() => {
-      return typeof (window as unknown as Record<string, unknown>).updateWaitingScreen === 'function';
-    });
-    expect(hasFn).toBe(true);
-  });
-});
-
-test.describe('Build Terminal', () => {
-  test('build terminal functions are defined', async ({ page }) => {
-    await page.goto('/');
-    const fns = await page.evaluate(() => {
-      const w = window as unknown as Record<string, unknown>;
-      return {
-        startBuildTerminal: typeof w.startBuildTerminal === 'function',
-        stopBuildTerminal: typeof w.stopBuildTerminal === 'function',
-        updateTerminalLine: typeof w.updateTerminalLine === 'function',
-      };
-    });
-    expect(fns.startBuildTerminal).toBe(true);
-    expect(fns.stopBuildTerminal).toBe(true);
-    expect(fns.updateTerminalLine).toBe(true);
-  });
-
-  test('build terminal container exists', async ({ page }) => {
-    await page.goto('/');
-    const terminal = page.locator('#build-terminal, .build-terminal, [class*="terminal"]');
-    await expect(terminal.first()).toBeAttached();
-  });
-
-  test('build terminal has step lines', async ({ page }) => {
-    await page.goto('/');
-    // Terminal lines are dynamically generated; check the function can produce them
-    const html = await page.content();
-    const hasTerminalContent =
-      html.includes('terminal') ||
-      html.includes('build-terminal') ||
-      html.includes('updateTerminalLine');
-    expect(hasTerminalContent).toBe(true);
-  });
-});
-
-test.describe('Workflow Polling', () => {
-  test('startPolling function is defined', async ({ page }) => {
-    await page.goto('/');
-    const hasFn = await page.evaluate(() => {
-      return typeof (window as unknown as Record<string, unknown>).startPolling === 'function';
-    });
-    expect(hasFn).toBe(true);
-  });
-
-  test('stopPolling function is defined', async ({ page }) => {
-    await page.goto('/');
-    const hasFn = await page.evaluate(() => {
-      return typeof (window as unknown as Record<string, unknown>).stopPolling === 'function';
-    });
-    expect(hasFn).toBe(true);
-  });
-
-  test('workflow polling calls correct API endpoint', async ({ page }) => {
-    let polled = false;
-
-    await page.route('**/api/sites/*/workflow', async (route) => {
-      polled = true;
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
-            site_id: 'site-test',
-            workflow_available: true,
-            instance_id: 'wf-123',
-            workflow_status: 'running',
-            workflow_steps_completed: ['research-profile'],
-            site_status: 'building',
-          },
-        }),
-      });
-    });
-
-    await page.goto('/');
-    await expect(page.locator('#screen-search')).toBeVisible({ timeout: 10_000 });
-
-    // Simulate authenticated state and set site ID
-    await page.evaluate(() => {
-      const w = window as unknown as Record<string, unknown>;
-      (w as any).state = (w as any).state || {};
-      (w as any).state.currentSiteId = 'site-test';
-      (w as any).state.token = 'mock-token';
-      localStorage.setItem('ps_session', JSON.stringify({ token: 'mock-token', email: 'test@test.com' }));
-    });
-
-    // Navigate to waiting screen which should start polling
-    await page.evaluate(() => {
-      const w = window as unknown as Record<string, unknown>;
-      const fn = w.navigateTo as (s: string) => void;
-      if (typeof fn === 'function') fn('waiting');
-    });
-
-    // Wait for polling to trigger
-    await page.waitForTimeout(2000);
-
-    // Polling may or may not have fired depending on state
-    expect(typeof polled).toBe('boolean');
-  });
-});
-
-test.describe('Build Terminal Animation Steps', () => {
-  test('terminal displays workflow step names', async ({ page }) => {
-    await page.goto('/');
-
-    const html = await page.content();
-    // Terminal should reference these workflow step names
-    const hasSteps =
-      html.includes('research') ||
-      html.includes('Researching') ||
-      html.includes('profile') ||
-      html.includes('Generating');
-
-    expect(hasSteps).toBe(true);
-  });
-
-  test('terminal lines have status classes', async ({ page }) => {
-    await page.goto('/');
-
-    // Check that terminal lines can have different status classes
-    const html = await page.content();
-    const hasStatusClasses =
-      html.includes('terminal-line') ||
-      html.includes('step-') ||
-      html.includes('line-pending') ||
-      html.includes('line-active') ||
-      html.includes('line-complete');
-
-    expect(hasStatusClasses).toBe(true);
-  });
-});
-
-test.describe('Screen Navigation', () => {
-  test('navigateTo function is defined', async ({ page }) => {
-    await page.goto('/');
-    const hasFn = await page.evaluate(() => {
-      return typeof (window as unknown as Record<string, unknown>).navigateTo === 'function';
-    });
-    expect(hasFn).toBe(true);
-  });
-
-  test('render function is defined', async ({ page }) => {
-    await page.goto('/');
-    const hasFn = await page.evaluate(() => {
-      return typeof (window as unknown as Record<string, unknown>).render === 'function';
-    });
-    expect(hasFn).toBe(true);
-  });
-
-  test('all 4 screen elements exist', async ({ page }) => {
-    await page.goto('/');
-
-    const screens = {
-      search: page.locator('#screen-search'),
-      signin: page.locator('#screen-signin'),
-      details: page.locator('#screen-details'),
-      waiting: page.locator('#screen-waiting'),
-    };
-
-    for (const [name, locator] of Object.entries(screens)) {
-      await expect(locator).toBeAttached();
-    }
-  });
-
-  test('only search screen is active initially', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('#screen-search')).toHaveClass(/active/, { timeout: 5_000 });
-
-    const signinActive = await page.locator('#screen-signin').getAttribute('class');
-    expect(signinActive).not.toContain('active');
-
-    const waitingActive = await page.locator('#screen-waiting').getAttribute('class');
-    expect(waitingActive).not.toContain('active');
-  });
-
-  test('navigating between screens updates active class', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('#screen-search')).toHaveClass(/active/, { timeout: 5_000 });
-
-    // Navigate to signin
-    await page.evaluate(() => {
-      const w = window as unknown as Record<string, unknown>;
-      const fn = w.navigateTo as (s: string) => void;
-      if (typeof fn === 'function') fn('signin');
-    });
-
-    await expect(page.locator('#screen-signin')).toHaveClass(/active/, { timeout: 3_000 });
-
-    // Search should no longer be active
-    const searchClass = await page.locator('#screen-search').getAttribute('class');
-    expect(searchClass).not.toContain('active');
+  test('the load-error card "Go home" returns to the homepage', async ({ page }) => {
+    await page.goto(`${PROD_URL}/waiting?id=${REAL_ID}&slug=${REAL_SLUG}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-testid="waiting-load-error"]')).toBeVisible({ timeout: 20_000 });
+    await page.getByRole('button', { name: /go home/i }).click();
+    await expect(page.locator('[data-testid="hero-headline"]').first()).toBeVisible({ timeout: 15_000 });
   });
 });

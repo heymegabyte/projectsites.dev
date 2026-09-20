@@ -37,7 +37,7 @@ site_lifecycle:
   search_places:    { status: covered, specs: [search-and-places.spec.ts] }  # AL-804 — TOP-OF-FUNNEL guest acquisition (real Chromium, prod-suite): homepage-first hero business search → debounced dropdown OR graceful Places-403 degraded nudge → Custom-option always present → click routes guest into /signin funnel (SPA no-reload) → open-dropdown axe 0-critical ×6bp, 0 console errors. Rewritten from the DELETED vanilla 4-screen selectors (all 11 old tests were prod-RED); hero input got data-testid="hero-search-input".
   enrichment:       { status: covered, specs: [business-enrichment.spec.ts] }
   rebuild_research: { status: covered, specs: [rebuild-and-research.spec.ts] }
-  waiting_terminal: { status: covered, specs: [waiting-and-terminal.spec.ts] }
+  waiting_terminal: { status: covered, specs: [waiting-and-terminal.spec.ts] }  # AL-827 — post-create /waiting build-progress flow (real Chromium, prod-suite): no-id→home · unauth real-id→GRACEFUL sign-in card (root-fixed: auth-gated poll died on first 401 → perpetual FAKE overlay; catchError keeps stream alive, degrades after 2 never-loaded ticks + structured waiting_poll_load_failed log) · sign-in→/signin?returnUrl · go-home→home. Rewritten from the DELETED vanilla waiting screen (13 old tests prod-RED, false-green vs stale staging).
   lifecycle_ext:    { status: covered, specs: [site-lifecycle-extended.spec.ts] }
   create_edit_publish: { status: covered, specs: [create-edit-publish-flow.spec.ts] }
   live_build_logs:  { status: covered, specs: [flows/flow-011-live-build-logs-widget.spec.ts] }
