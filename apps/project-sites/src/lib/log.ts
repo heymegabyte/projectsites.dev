@@ -172,6 +172,12 @@ const SAFE_FIELD_ALLOWLIST: ReadonlySet<string> = new Set([
   'flatPath',
   'requestPath',
   'msg',
+  // Lead-capture + degraded-outcome observability (AL-836) — non-PII booleans/enums.
+  'persisted',
+  'notified',
+  'degraded',
+  'channel',
+  'source',
 ]);
 
 // ── Redaction: sensitive-key patterns ────────────────────────────────────────

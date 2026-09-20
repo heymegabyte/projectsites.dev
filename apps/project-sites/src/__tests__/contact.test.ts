@@ -450,3 +450,33 @@ describe('handleContactForm – lead persistence (never lose a lead)', () => {
     await expect(handleContactForm(mockEnv, validInput)).rejects.toThrow();
   });
 });
+
+// AL-836 — the capture OUTCOME is now observable (previously only channel FAILURES logged; a
+// one-channel/degraded capture succeeded SILENTLY). The scoped logger writes JSON to console.warn.
+describe('handleContactForm – capture outcome observability (AL-836)', () => {
+  const input = {
+    name: 'Ada Lovelace',
+    email: 'ada@example.com',
+    phone: '+1234567890',
+    message: 'I would love to learn more about what you offer.',
+  };
+
+  it('logs lead_captured (info, degraded:false) on full dual-channel capture', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await handleContactForm(mockEnv, input); // dbInsert ok + email ok (default mocks) → both channels
+    const logged = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    warnSpy.mockRestore();
+    expect(logged).toContain('lead_captured');
+    expect(logged).toMatch(/"degraded":\s*false/);
+  });
+
+  it('logs lead_capture_degraded (warn, email_only) when the CRM write drops but email carries the lead', async () => {
+    mockDbInsert.mockResolvedValueOnce({ error: 'D1_ERROR: write dropped' }); // persisted=false
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await handleContactForm(mockEnv, input); // email still succeeds → notified=true → degraded (no throw)
+    const logged = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    warnSpy.mockRestore();
+    expect(logged).toContain('lead_capture_degraded');
+    expect(logged).toContain('email_only_not_persisted');
+  });
+});

@@ -227,6 +227,31 @@ export async function handleContactForm(env: Env, input: unknown): Promise<void>
     );
   }
 
+  // Observability of the OUTCOME (AL-836): the SUCCESS + DEGRADED capture paths were previously
+  // silent — only the individual channel FAILURES logged — so a lead captured in ONE channel but
+  // not the other (in the CRM but the team un-emailed, or emailed but NOT persisted to the CRM/
+  // /admin inbox) produced no distinct signal ops could alert on (the persisted-success-without-
+  // owner-notify / degraded-success-must-flag class). Emit an explicit outcome event: a clean INFO
+  // on full dual-channel capture, else a WARN naming the single channel that carried the lead so a
+  // "leads landing degraded" alert can fire on the un-delivered class.
+  if (persisted && notified) {
+    contactLog.info('lead_captured', {
+      source: 'platform_contact',
+      persisted,
+      notified,
+      degraded: false,
+    });
+  } else {
+    contactLog.warn('lead_capture_degraded', {
+      source: 'platform_contact',
+      persisted,
+      notified,
+      degraded: true,
+      // which single channel carried the lead — the OTHER dropped it:
+      channel: persisted ? 'crm_only_team_unnotified' : 'email_only_not_persisted',
+    });
+  }
+
   // Confirmation to the user — guarded by a reply-deliverability check
   // (#121). Skip the auto-receipt when the submitter's domain can't receive mail
   // (fake/typo domain, NXDOMAIN, no MX) so a hard bounce never dents our sender
