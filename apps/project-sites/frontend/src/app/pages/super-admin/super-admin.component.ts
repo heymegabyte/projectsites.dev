@@ -140,6 +140,16 @@ interface DeliverabilityResponse {
  *
  * Pairs with worker routes in `apps/project-sites/src/routes/super_admin.ts`.
  */
+/** One row of the platform-wide Site Operations list (GET /api/super-admin/ops/sites). */
+interface OpsSiteRow {
+  id: string;
+  slug: string;
+  business_name: string;
+  status: string;
+  org_name: string | null;
+  created_at: string;
+}
+
 @Component({
   selector: 'app-super-admin',
   standalone: true,
@@ -457,6 +467,80 @@ interface DeliverabilityResponse {
             }
           </div>
         </section>
+
+        <!-- Site Operations — every site across every org, searchable + sortable +
+             paginated server-side (scales to 1M). Backed by GET /api/super-admin/ops/sites. -->
+        <section class="sa-card" appReveal data-testid="sa-ops-sites">
+          <header class="sa-card-head">
+            <div>
+              <h2>Site operations</h2>
+              <p>Every site across the platform — search, sort, open the live site.</p>
+            </div>
+            <input
+              type="search"
+              class="sa-search"
+              placeholder="Search sites, slugs, owners…"
+              [(ngModel)]="opsQuery"
+              (ngModelChange)="onOpsQueryChange()"
+              aria-label="Search all sites"
+              data-testid="sa-ops-search"
+            />
+          </header>
+          <table class="sa-tbl">
+            <thead>
+              <tr>
+                <th>
+                  <button type="button" class="sa-sort" (click)="sortOps('business_name')"
+                          [attr.aria-sort]="opsAriaSort('business_name')">Business</button>
+                </th>
+                <th>Slug</th>
+                <th>Owner org</th>
+                <th>
+                  <button type="button" class="sa-sort" (click)="sortOps('status')"
+                          [attr.aria-sort]="opsAriaSort('status')">Status</button>
+                </th>
+                <th>
+                  <button type="button" class="sa-sort" (click)="sortOps('created_at')"
+                          [attr.aria-sort]="opsAriaSort('created_at')">Created</button>
+                </th>
+                <th class="num">Open</th>
+              </tr>
+            </thead>
+            <tbody>
+              @if (opsLoading()) {
+                <tr><td colspan="6" class="muted center">Loading sites…</td></tr>
+              } @else if (opsSites().length === 0) {
+                <tr><td colspan="6" class="muted center" data-testid="sa-ops-empty">
+                  {{ opsQuery.trim() ? 'No sites match your search.' : 'No sites yet.' }}
+                </td></tr>
+              } @else {
+                @for (s of opsSites(); track s.id) {
+                  <tr class="sa-row">
+                    <td>{{ s.business_name || '—' }}</td>
+                    <td><code class="sa-mono">{{ s.slug }}</code></td>
+                    <td class="muted">{{ s.org_name || '—' }}</td>
+                    <td><span class="sa-pill" [attr.data-status]="s.status">{{ s.status }}</span></td>
+                    <td class="muted small">{{ s.created_at ? s.created_at.slice(0, 10) : '—' }}</td>
+                    <td class="num">
+                      <a class="sa-btn-ghost sa-ops-open" [href]="opsSiteUrl(s.slug)"
+                         target="_blank" rel="noopener noreferrer"
+                         [attr.aria-label]="'Open ' + (s.business_name || s.slug) + ' in a new tab'">Open ↗</a>
+                    </td>
+                  </tr>
+                }
+              }
+            </tbody>
+          </table>
+          <footer class="sa-ops-foot">
+            <span class="muted small" data-testid="sa-ops-total">
+              {{ opsTotal() }} site{{ opsTotal() === 1 ? '' : 's' }} · page {{ opsPage() }} of {{ opsPages() }}
+            </span>
+            <div class="sa-ops-pager">
+              <button type="button" class="sa-btn-ghost" (click)="opsPrev()" [disabled]="opsPage() <= 1">Prev</button>
+              <button type="button" class="sa-btn-ghost" (click)="opsNext()" [disabled]="opsPage() >= opsPages()">Next</button>
+            </div>
+          </footer>
+        </section>
       }
 
       @if (adjustOpen(); as w) {
@@ -511,6 +595,15 @@ interface DeliverabilityResponse {
     .sa-card-head p { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); font-size: 0.78rem; margin: 4px 0 0; }
     .sa-search { background: rgba(0,0,0,0.32); border: 1px solid rgba(255,255,255,0.08); color: var(--ps-ink); padding: 8px 12px; border-radius: 8px; min-width: 280px; font-family: inherit; }
     .sa-search:focus { outline: none; border-color: rgba(0,229,255,0.35); }
+    .sa-sort { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+    .sa-sort:hover { color: var(--ps-accent, #00E5FF); }
+    .sa-sort[aria-sort="ascending"]::after { content: '↑'; color: var(--ps-accent, #00E5FF); }
+    .sa-sort[aria-sort="descending"]::after { content: '↓'; color: var(--ps-accent, #00E5FF); }
+    .sa-sort:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; border-radius: 4px; }
+    .sa-ops-open { padding: 4px 10px; font-size: 0.72rem; white-space: nowrap; text-decoration: none; display: inline-block; }
+    .sa-ops-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.05); }
+    .sa-ops-pager { display: flex; gap: 8px; }
+    .sa-ops-pager .sa-btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
     .sa-tbl { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
     .sa-tbl thead { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
     .sa-tbl th, .sa-tbl td { padding: 10px 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.04); }
@@ -625,6 +718,18 @@ export class SuperAdminComponent implements OnInit {
   adjustCents = 0;
   adjustReason = '';
 
+  // Site Operations — platform-wide sites list (server-side search + sort + paginate,
+  // scales to 1M; GET /api/super-admin/ops/sites). Sibling of the wallets table.
+  opsSites = signal<OpsSiteRow[]>([]);
+  opsTotal = signal(0);
+  opsPage = signal(1);
+  opsPages = signal(1);
+  opsSort = signal<'created_at' | 'updated_at' | 'business_name' | 'status'>('created_at');
+  opsDir = signal<'asc' | 'desc'>('desc');
+  opsLoading = signal(true);
+  opsQuery = '';
+  private opsDebounce: ReturnType<typeof setTimeout> | null = null;
+
   private walletsDebounce: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
@@ -646,7 +751,12 @@ export class SuperAdminComponent implements OnInit {
   }
 
   private loadAll(): void {
-    Promise.all([this.loadStats(), this.loadCategories(), this.loadWallets('')]).catch((e) => {
+    Promise.all([
+      this.loadStats(),
+      this.loadCategories(),
+      this.loadWallets(''),
+      this.loadOpsSites(),
+    ]).catch((e) => {
       if (this.is403(e)) this.forbidden.set(true);
     });
     // Ops widgets fire in parallel + isolated — each captures its own error so a
@@ -826,6 +936,81 @@ export class SuperAdminComponent implements OnInit {
   onWalletsQueryChange(): void {
     if (this.walletsDebounce) clearTimeout(this.walletsDebounce);
     this.walletsDebounce = setTimeout(() => this.loadWallets(this.walletsQuery.trim()), 280);
+  }
+
+  /** Fetch one page of the platform-wide sites list (server does search/sort/paginate). */
+  private async loadOpsSites(): Promise<void> {
+    try {
+      this.opsLoading.set(true);
+      const p = new URLSearchParams({
+        sort: this.opsSort(),
+        dir: this.opsDir(),
+        page: String(this.opsPage()),
+        limit: '25',
+      });
+      const q = this.opsQuery.trim();
+      if (q) p.set('q', q);
+      const res = await this.api
+        .get<{ rows: OpsSiteRow[]; total: number; page: number; pages: number }>(
+          `/super-admin/ops/sites?${p.toString()}`,
+          undefined,
+          { silent: true },
+        )
+        .toPromise();
+      this.opsSites.set(res?.rows ?? []);
+      this.opsTotal.set(res?.total ?? 0);
+      this.opsPages.set(Math.max(1, res?.pages ?? 1));
+    } catch (e) {
+      if (this.is403(e)) this.forbidden.set(true);
+      else this.toast.error('Could not load sites — try again');
+    } finally {
+      this.opsLoading.set(false);
+    }
+  }
+
+  /** Debounced search — resets to page 1 so the first matches are always shown. */
+  onOpsQueryChange(): void {
+    if (this.opsDebounce) clearTimeout(this.opsDebounce);
+    this.opsDebounce = setTimeout(() => {
+      this.opsPage.set(1);
+      void this.loadOpsSites();
+    }, 280);
+  }
+
+  /** Click a column header: toggle direction if already sorting by it, else switch column. */
+  sortOps(col: 'created_at' | 'updated_at' | 'business_name' | 'status'): void {
+    if (this.opsSort() === col) {
+      this.opsDir.set(this.opsDir() === 'asc' ? 'desc' : 'asc');
+    } else {
+      this.opsSort.set(col);
+      // text columns read best A→Z; time columns newest-first
+      this.opsDir.set(col === 'business_name' || col === 'status' ? 'asc' : 'desc');
+    }
+    this.opsPage.set(1);
+    void this.loadOpsSites();
+  }
+
+  opsAriaSort(col: 'created_at' | 'updated_at' | 'business_name' | 'status'): string | null {
+    if (this.opsSort() !== col) return null;
+    return this.opsDir() === 'asc' ? 'ascending' : 'descending';
+  }
+
+  opsPrev(): void {
+    if (this.opsPage() > 1) {
+      this.opsPage.update((p) => p - 1);
+      void this.loadOpsSites();
+    }
+  }
+
+  opsNext(): void {
+    if (this.opsPage() < this.opsPages()) {
+      this.opsPage.update((p) => p + 1);
+      void this.loadOpsSites();
+    }
+  }
+
+  opsSiteUrl(slug: string): string {
+    return `https://${slug}.projectsites.dev/`;
   }
 
   openAdjust(w: OrgWalletRow): void {
