@@ -742,9 +742,7 @@ export class DocsSpecService {
             >Fetching the latest OpenAPI spec from /admin/docs/openapi.json…</span
           >
         </div>
-      }
-
-      @if (specService.error()) {
+      } @else if (specService.error()) {
         <div class="card docs-error" role="alert" data-testid="docs-error">
           <div class="docs-error-head">
             <span class="docs-error-glyph" aria-hidden="true">
@@ -777,9 +775,11 @@ export class DocsSpecService {
             Retry
           </button>
         </div>
-      }
-
-      <div class="docs-explorer" appReveal [revealDelay]="60">
+      } @else {
+        <!-- AL-850: loading / error / explorer are mutually exclusive so the explorer
+             MATERIALIZES in the loading card place (stable top) instead of the card
+             vanishing and yanking the explorer up (the docs-explorer CLS 0.06). -->
+        <div class="docs-explorer" appReveal [revealDelay]="60">
         <!-- ─── Left rail nav: search + grouped endpoint list ─── -->
         <aside class="docs-rail card" aria-label="Endpoint list">
           <div class="docs-search">
@@ -943,7 +943,8 @@ export class DocsSpecService {
 
         <!-- ─── Child route outlet (overview OR endpoint detail) ─── -->
         <router-outlet></router-outlet>
-      </div>
+        </div>
+      }
     </div>
   `,
   styles: [

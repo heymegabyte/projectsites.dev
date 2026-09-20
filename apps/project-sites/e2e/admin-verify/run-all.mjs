@@ -94,6 +94,11 @@ const PROBES = [
   { label: 'site-delete-envelope', file: 'verify-site-delete-envelope.mjs', env: {} },
   { label: 'domain-provisioning-envelope', file: 'verify-domain-provisioning-envelope.mjs', env: {} },
   { label: 'cinematic-scroll-reveals', file: 'verify-cinematic-scroll-reveals.mjs', env: {} },
+  // AL-850: admin CWV now GATES CLS (≤0.10 ceiling) as well as LCP — the prior probe verdict
+  // only checked LCP, silently passing 0.20-0.34 CLS breaches (lying-green). Wiring it here surfaces
+  // any admin-route layout-shift regression in the suite roll-up (currently flags the tracked
+  // snapshots breach — conditional flag+data-gated insight panels; see _LOOP_LEDGER AL-850).
+  { label: 'admin-cwv', file: 'measure-admin-cwv.mjs', env: {} },
 ].filter((p) => !filter || p.label.toLowerCase().includes(filter) || p.file.toLowerCase().includes(filter));
 
 if (PROBES.length === 0) {

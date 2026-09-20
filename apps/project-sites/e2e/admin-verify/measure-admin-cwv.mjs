@@ -40,8 +40,15 @@ const ORIGIN = process.env.ORIGIN || 'https://projectsites.dev';
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
 const LCP_CEIL = parseInt(process.env.LCP_CEIL_MS || '3000', 10); // regression ceiling (not the 2000ms target)
+// CLS is ALSO a hard gate (AL-850): the prior verdict flagged rows + exited on LCP ONLY, so a
+// 0.2036 CLS (snapshots) + 0.0693 (docs) printed a ✓ and passed — lying-green. CLS_CEIL is the
+// generous regression ceiling that fails the run; CLS_TARGET is the cinematic 0.05 (⚠️ over it).
+const CLS_CEIL = parseFloat(process.env.CLS_CEIL || '0.10');
+const CLS_TARGET = parseFloat(process.env.CLS_TARGET || '0.05');
 const slugs = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-const ROUTES = slugs.length ? slugs : ['dashboard', 'analytics', 'billing', 'settings', 'audit', 'logs'];
+// Default set covers the core 6 PLUS the heavy lazy-chunk sections (snapshots/docs/social) whose
+// CLS the prior default set never measured — the exact routes that were silently breaching.
+const ROUTES = slugs.length ? slugs : ['dashboard', 'analytics', 'billing', 'settings', 'audit', 'logs', 'snapshots', 'docs', 'social'];
 
 const browser = await chromium.launch();
 const rows = [];
@@ -108,18 +115,30 @@ for (const slug of ROUTES) {
 await browser.close();
 
 const pad = (s, n) => String(s).padEnd(n);
-console.log(`\n━━ admin cold-load CWV @1280 (${ORIGIN}) — target LCP≤2000ms · CLS≤0.05 ━━`);
+console.log(`\n━━ admin cold-load CWV @1280 (${ORIGIN}) — target LCP≤2000ms · CLS≤${CLS_TARGET} ━━`);
 console.log(`  ${pad('route', 14)} ${pad('LCP', 8)} ${pad('FCP', 8)} ${pad('TTFB', 8)} CLS`);
 for (const r of rows) {
-  const flag = r.lcp > LCP_CEIL ? ' 🔴' : r.lcp > 2000 ? ' ⚠️' : ' ✓';
-  console.log(`  ${pad(r.slug, 14)} ${pad(r.lcp + 'ms', 8)} ${pad((r.fcp ?? '—') + 'ms', 8)} ${pad((r.ttfb ?? '—') + 'ms', 8)} ${r.cls}${flag}`);
+  // BOTH metrics gate the row now (AL-850). 🔴 = over a regression ceiling (fails the run);
+  // ⚠️ = over the cinematic target but under the ceiling; ✓ = both pass. A green ✓ requires
+  // LCP AND CLS to pass — a fast paint no longer masks a janky layout.
+  const bad = r.lcp > LCP_CEIL || r.cls > CLS_CEIL;
+  const warn = r.lcp > 2000 || r.cls > CLS_TARGET;
+  const flag = bad ? ' 🔴' : warn ? ' ⚠️' : ' ✓';
+  const clsMark = r.cls > CLS_CEIL ? `${r.cls}‼` : r.cls > CLS_TARGET ? `${r.cls}⚠` : `${r.cls}`;
+  console.log(`  ${pad(r.slug, 14)} ${pad(r.lcp + 'ms', 8)} ${pad((r.fcp ?? '—') + 'ms', 8)} ${pad((r.ttfb ?? '—') + 'ms', 8)} ${clsMark}${flag}`);
 }
-const worst = rows.reduce((a, b) => (b.lcp > a.lcp ? b : a), rows[0]);
-const over = rows.filter((r) => r.lcp > LCP_CEIL);
-console.log(`\n  worst: /admin/${worst.slug} — LCP ${worst.lcp}ms`);
+const worstLcp = rows.reduce((a, b) => (b.lcp > a.lcp ? b : a), rows[0]);
+const worstCls = rows.reduce((a, b) => (b.cls > a.cls ? b : a), rows[0]);
+const overLcp = rows.filter((r) => r.lcp > LCP_CEIL);
+const overCls = rows.filter((r) => r.cls > CLS_CEIL);
+console.log(`\n  worst LCP: /admin/${worstLcp.slug} — ${worstLcp.lcp}ms · worst CLS: /admin/${worstCls.slug} — ${worstCls.cls}`);
+const fails = [
+  ...overLcp.map((r) => `${r.slug} LCP ${r.lcp}ms>${LCP_CEIL}`),
+  ...overCls.map((r) => `${r.slug} CLS ${r.cls}>${CLS_CEIL}`),
+];
 console.log(
-  over.length
-    ? `\nVERDICT: 🔴 ${over.length} route(s) over the ${LCP_CEIL}ms regression ceiling: ${over.map((r) => r.slug).join(', ')}`
-    : `\nVERDICT: ✅ all ${rows.length} routes under the ${LCP_CEIL}ms ceiling (worst /admin/${worst.slug} ${worst.lcp}ms)`,
+  fails.length
+    ? `\nVERDICT: 🔴 ${fails.length} breach(es): ${fails.join(', ')}`
+    : `\nVERDICT: ✅ all ${rows.length} routes pass BOTH gates (LCP≤${LCP_CEIL}ms · CLS≤${CLS_CEIL}); worst LCP ${worstLcp.lcp}ms, worst CLS ${worstCls.cls}`,
 );
-process.exit(over.length ? 1 : 0);
+process.exit(fails.length ? 1 : 0);
