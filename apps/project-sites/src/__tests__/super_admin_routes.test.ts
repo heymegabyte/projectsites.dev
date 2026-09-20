@@ -329,7 +329,14 @@ describe('site operations — ops/users list (Phase 1b)', () => {
     });
     mockDbQuery.mockResolvedValue({
       data: [
-        { id: 'u1', email: 'a@x.com', display_name: 'Aa', is_super_admin: 0, created_at: '2026-09-01', updated_at: '2026-09-02' },
+        {
+          id: 'u1',
+          email: 'a@x.com',
+          display_name: 'Aa',
+          is_super_admin: 0,
+          created_at: '2026-09-01',
+          updated_at: '2026-09-02',
+        },
       ],
     });
     const res = await req(
@@ -356,7 +363,12 @@ describe('site operations — ops/users list (Phase 1b)', () => {
   });
 
   it('400s on an out-of-range limit (clamped <= 100)', async () => {
-    const res = await req(makeApp(SUPER), 'GET', '/api/super-admin/ops/users?limit=9999', makeEnv());
+    const res = await req(
+      makeApp(SUPER),
+      'GET',
+      '/api/super-admin/ops/users?limit=9999',
+      makeEnv(),
+    );
     expect(res.status).toBe(400);
   });
 });
