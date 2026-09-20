@@ -298,7 +298,9 @@ export function observeResearchContract<T>(schema: z.ZodTypeAny, parsed: T, labe
         event: 'research_contract_mismatch',
         label,
         message: `LLM research "${label}" failed its Zod contract — the build may ship degraded/blank fields`,
-        issues: check.error.issues.slice(0, 6).map((i) => `${i.path.join('.') || '(root)'}: ${i.code}`),
+        issues: check.error.issues
+          .slice(0, 6)
+          .map((i) => `${i.path.join('.') || '(root)'}: ${i.code}`),
       }),
     );
   }
@@ -334,7 +336,11 @@ ${info.additionalContext ? `Additional context: ${info.additionalContext}` : ''}
     promptId: 'openai_research:profile',
   });
 
-  return observeResearchContract(ResearchProfileOutput, extractJson(result) as Record<string, unknown>, 'profile');
+  return observeResearchContract(
+    ResearchProfileOutput,
+    extractJson(result) as Record<string, unknown>,
+    'profile',
+  );
 }
 
 /**
@@ -366,7 +372,11 @@ Profile: ${JSON.stringify(profile, null, 2)}`;
     promptId: 'openai_research:brand',
   });
 
-  return observeResearchContract(ResearchBrandOutput, extractJson(result) as Record<string, unknown>, 'brand');
+  return observeResearchContract(
+    ResearchBrandOutput,
+    extractJson(result) as Record<string, unknown>,
+    'brand',
+  );
 }
 
 /**
@@ -399,7 +409,11 @@ Profile: ${JSON.stringify(profile, null, 2)}`;
     promptId: 'openai_research:selling_points',
   });
 
-  return observeResearchContract(ResearchSellingPointsOutput, extractJson(result) as Record<string, unknown>, 'selling_points');
+  return observeResearchContract(
+    ResearchSellingPointsOutput,
+    extractJson(result) as Record<string, unknown>,
+    'selling_points',
+  );
 }
 
 /**
@@ -431,7 +445,11 @@ Profile: ${JSON.stringify(profile, null, 2)}`;
     promptId: 'openai_research:social',
   });
 
-  return observeResearchContract(ResearchSocialOutput, extractJson(result) as Record<string, unknown>, 'social');
+  return observeResearchContract(
+    ResearchSocialOutput,
+    extractJson(result) as Record<string, unknown>,
+    'social',
+  );
 }
 
 /**

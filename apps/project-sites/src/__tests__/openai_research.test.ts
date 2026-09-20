@@ -42,7 +42,11 @@ jest.mock('../modules/feature_flags/services.js', () => ({
 }));
 
 // Import AFTER the mocks are registered.
-import { researchAndFormulatePrompt, estimateOpenAiCost, observeResearchContract } from '../services/openai_research.js';
+import {
+  researchAndFormulatePrompt,
+  estimateOpenAiCost,
+  observeResearchContract,
+} from '../services/openai_research.js';
 import { ResearchProfileOutput } from '../prompts/schemas.js';
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
@@ -440,7 +444,11 @@ describe('observeResearchContract (contract-first-ai — degraded LLM research i
   afterEach(() => warnSpy.mockRestore());
 
   it('returns a well-formed profile UNCHANGED and logs NO warn (contract passes silently)', () => {
-    const good = { business_name: 'Vito Salon', business_type: 'salon', services: [{ name: 'Cut' }] };
+    const good = {
+      business_name: 'Vito Salon',
+      business_type: 'salon',
+      services: [{ name: 'Cut' }],
+    };
     const out = observeResearchContract(ResearchProfileOutput, good, 'profile');
     expect(out).toBe(good); // exact raw object by reference — never re-shaped (non-breaking)
     expect(warnSpy).not.toHaveBeenCalled();
@@ -458,7 +466,11 @@ describe('observeResearchContract (contract-first-ai — degraded LLM research i
   });
 
   it('flags a wrong-typed field (categories as a string, not an array)', () => {
-    observeResearchContract(ResearchProfileOutput, { business_name: 'X', categories: 'salon' }, 'profile');
+    observeResearchContract(
+      ResearchProfileOutput,
+      { business_name: 'X', categories: 'salon' },
+      'profile',
+    );
     expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 });
