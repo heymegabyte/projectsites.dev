@@ -9,7 +9,7 @@
  * `chooseEmailPath` so callers never pick a vendor — they pick an {@link EmailKind}.
  *
  * App code calls `getEmailProvider(c.env).sendTransactional({ kind, to, subject,
- * html })`; the Resend call sites migrate onto this seam (behind
+ * html })`; every transactional call site sends through this seam (behind
  * `email.ses.enabled`). Deps are injectable for tests.
  *
  * @see docs/adr/0019-amazon-ses-plus-listmonk-email.md

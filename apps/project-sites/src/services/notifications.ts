@@ -2,11 +2,11 @@
  * @module services/notifications
  * @description Transactional email notifications for domain verification and site builds.
  *
- * Rail order (ADR-0019, Resend removed 2026-09-09 per Brian directive — SES is THE
- * provider): Amazon SES is the PRIMARY + canonical rail (AWS creds + verified
- * `SES_FROM_EMAIL`) — routed via `getEmailProvider(env).sendTransactional`. SendGrid
- * remains ONLY as a break-glass fallback if SES is unconfigured. No feature flag —
- * progressive degradation by env presence.
+ * Rail order (ADR-0019 — SES is THE provider): Amazon SES is the PRIMARY + canonical
+ * rail (AWS creds + verified `SES_FROM_EMAIL`) — routed via
+ * `getEmailProvider(env).sendTransactional`. SendGrid remains ONLY as a break-glass
+ * fallback if SES is unconfigured. No feature flag — progressive degradation by env
+ * presence.
  *
  * Every fallback-rail call (success or failure) emits a structured log with
  * `{provider, status, body_excerpt, to, request_id, category}` so the operator
@@ -60,9 +60,7 @@ interface EmailOpts {
 
 /**
  * Send an email via Amazon SES (the canonical provider), with SendGrid as a
- * break-glass fallback only when SES is unconfigured. Resend was removed
- * 2026-09-09 (Brian directive; it could never send the `noreply@projectsites.dev`
- * from-domain — only `megabyte.space` was verified in Resend).
+ * break-glass fallback only when SES is unconfigured.
  *
  * Wiring rules:
  *   - SES send goes through `getEmailProvider(env).sendTransactional`; on failure
@@ -92,9 +90,9 @@ export async function sendEmail(
   opts.to = opts.to.replace(/[\r\n]+/g, ' ').trim();
 
   // §42/ADR-0019 suppression enforcement — for ALL rails. The SES rail's EmailRouter
-  // already checks this, but the raw Resend/SendGrid fallback `fetch`es below BYPASSED
+  // already checks this, but the raw SendGrid fallback `fetch` below BYPASSED
   // it, so a fallback send (SES throttled/failed) could re-send to a hard-bounced or
-  // complained address — damaging the shared sending domain's reputation (SES/Resend
+  // complained address — damaging the shared sending domain's reputation (SES/SendGrid
   // suspend on high bounce/complaint rates). Checking once here at the seam covers every
   // rail. FAIL-OPEN: a lookup error (or no DB binding) proceeds to send — a suppression
   // hiccup must NEVER block a legitimate transactional email (e.g. magic-link login).
@@ -180,7 +178,7 @@ export async function sendEmail(
     }
   }
 
-  // 2. SendGrid fallback (break-glass only — SES is the canonical provider; Resend removed 2026-09-09).
+  // 2. SendGrid fallback (break-glass only — SES is the canonical provider).
   if (env.SENDGRID_API_KEY) {
     try {
       const res = await fetch('https://api.sendgrid.com/v3/mail/send', {

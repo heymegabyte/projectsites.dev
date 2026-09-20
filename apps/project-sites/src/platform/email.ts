@@ -8,10 +8,10 @@
  * is the single policy that decides which rail a given {@link EmailKind} takes —
  * critical/transactional → SES, everything else → Listmonk.
  *
- * Resend is excluded (§4) — this port is the seam the ~109 Resend call sites
- * migrate onto (transactional first, behind `email.ses.enabled`). This slice
- * lands the contract + the §16 fakes; the real `AmazonSesEmailProvider` (SigV4)
- * and the Listmonk adapter (wrapping `services/listmonk_client.ts`) are follow-on.
+ * This port is the seam every transactional call site sends through — SES (SigV4,
+ * `AmazonSesEmailProvider`) for critical mail, the Listmonk adapter (wrapping
+ * `services/listmonk_client.ts`) for the rest — behind `email.ses.enabled`. §16
+ * fakes back the tests.
  *
  * @see docs/adr/0019-amazon-ses-plus-listmonk-email.md
  */

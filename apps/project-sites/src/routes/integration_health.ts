@@ -36,7 +36,6 @@ const KNOWN_INTEGRATIONS = new Set([
   'deepgram', // Managed SaaS — STT
   'langfuse', // CF Container — traces.projectsites.dev
   'payload', // CF Container — cms.projectsites.dev
-  'resend', // Deprecated → SES (ADR-0019); still config-probed until migration completes
 ]);
 
 /**
@@ -160,7 +159,7 @@ async function probeLiveness(provider: string, url: string): Promise<ConnectionS
  * aggregate, so they can never report different statuses for the same service.
  *
  * - `listmonk` / `twenty` / `payload` → LIVE public-liveness probe.
- * - config-only services (stripe, deepgram, langfuse, resend) →
+ * - config-only services (stripe, deepgram, langfuse) →
  *   presence of their {@link CONFIG_ENV_KEY} secret marks them configured.
  * - a decommissioned service in {@link REMOVED_INTEGRATIONS} (currently none) →
  *   the literal `'removed'`, which callers render as 410 Gone / `status: 'removed'`.

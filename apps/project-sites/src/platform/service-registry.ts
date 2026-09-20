@@ -247,7 +247,7 @@ export const SERVICE_REGISTRY: readonly ServiceRegistryEntry[] = [
     status: 'integrated',
     access: 'service-only',
     notes:
-      'AmazonSesEmailProvider wired as the PRIMARY transactional rail across all 10 senders (progressive degradation by env, no flag) + the bounce/complaint suppression pipeline (ses_notifications + email_suppressions + /webhooks/ses). Needs AWS_* + SES_FROM_EMAIL prod secrets to go live — see docs/runbooks/email-deliverability-activation.md. Replaces Resend per ADR-0019.',
+      'AmazonSesEmailProvider wired as the PRIMARY transactional rail across all 10 senders (progressive degradation by env, no flag) + the bounce/complaint suppression pipeline (ses_notifications + email_suppressions + /webhooks/ses). Needs AWS_* + SES_FROM_EMAIL prod secrets to go live — see docs/runbooks/email-deliverability-activation.md. Per ADR-0019.',
   },
   {
     id: 'email-listmonk',
@@ -260,18 +260,7 @@ export const SERVICE_REGISTRY: readonly ServiceRegistryEntry[] = [
     status: 'integrated',
     access: 'internal-access',
     notes:
-      'LIVE + hosted at mail.projectsites.dev (2026-06-25) — CF Workers Container (infra/listmonk, image listmonk/listmonk:v4.1.0) backed by Neon Postgres (projectsites_listmonk DB on the "Listmonk" Neon project); serves the admin/login (200). Reached via an EXPLICIT Workers route mail.projectsites.dev/* → projectsites-listmonk (the custom_domain alone did NOT beat the main worker’s *.projectsites.dev/* wildcard). ListmonkMarketingEmailProvider wraps listmonk_client (upsert/createCampaign/startCampaign/unsubscribe). REMAINING for send: set SES_SMTP_HOST/USER/PASSWORD secrets (the SES relay, ADR-0019) — hosting is live, outbound campaigns dark until those land. Replaces Resend per ADR-0019.',
-  },
-  {
-    id: 'email-resend',
-    name: 'Resend — transactional email (LEGACY, migrating to SES)',
-    category: 'email',
-    runtime: 'managed-saas',
-    adapterPackage: 'apps/project-sites/src/services/notifications.ts',
-    status: 'deprecated',
-    access: 'service-only',
-    notes:
-      'Excluded by convergence §4; 34 source refs to migrate → email-ses/email-listmonk per ADR-0019.',
+      'LIVE + hosted at mail.projectsites.dev (2026-06-25) — CF Workers Container (infra/listmonk, image listmonk/listmonk:v4.1.0) backed by Neon Postgres (projectsites_listmonk DB on the "Listmonk" Neon project); serves the admin/login (200). Reached via an EXPLICIT Workers route mail.projectsites.dev/* → projectsites-listmonk (the custom_domain alone did NOT beat the main worker’s *.projectsites.dev/* wildcard). ListmonkMarketingEmailProvider wraps listmonk_client (upsert/createCampaign/startCampaign/unsubscribe). REMAINING for send: set SES_SMTP_HOST/USER/PASSWORD secrets (the SES relay, ADR-0019) — hosting is live, outbound campaigns dark until those land. Per ADR-0019.',
   },
   {
     id: 'email-suppressions',

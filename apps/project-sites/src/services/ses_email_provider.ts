@@ -4,8 +4,8 @@
  * @description
  * `AmazonSesEmailProvider` — the real transactional {@link EmailProvider} (§42/
  * ADR-0019). SES v2 `SendEmail` over a SigV4-signed POST (Web Crypto, no AWS SDK,
- * Workers-native). This is the transactional rail the Resend call sites migrate
- * onto (behind `email.ses.enabled`).
+ * Workers-native). This is the canonical transactional rail every call site sends
+ * through (behind `email.ses.enabled`).
  *
  * `fetchImpl` + `now` are injectable for deterministic tests; prod uses global
  * `fetch` + the wall clock. Missing creds → a clear configuration error (the

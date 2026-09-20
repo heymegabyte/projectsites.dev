@@ -41,7 +41,6 @@ const LIVE_PROBE_NAME: Readonly<Record<string, string>> = {
   'crm-twenty': 'twenty',
   'billing-stripe': 'stripe',
   'traces-langfuse': 'langfuse',
-  'email-resend': 'resend',
 };
 
 /** Display order: live first, planned last. */
