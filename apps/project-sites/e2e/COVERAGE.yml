@@ -34,7 +34,7 @@ site_lifecycle:
   golden_path:      { status: covered, specs: [golden-path.spec.ts, vitos-full-flow.spec.ts] }
   generated_site_visitor: { status: covered, specs: [generated-site-visitor-journey.spec.ts] }  # AL-769 — THE delivered-site VISITOR journey (guest on {slug}.projectsites.dev, real Chromium): homepage-first SPA nav + click-to-call + directions + contact form (non-mutating) + FAQ toggle/blog/gallery + axe 0-critical ×6bp, 0 console errors. golden_path covers the MARKETING site; this covers the actual product OUTPUT a delivered site's real customers use.
   feature_journey:  { status: covered, specs: [feature-journey.spec.ts] }
-  search_places:    { status: covered, specs: [search-and-places.spec.ts] }
+  search_places:    { status: covered, specs: [search-and-places.spec.ts] }  # AL-804 — TOP-OF-FUNNEL guest acquisition (real Chromium, prod-suite): homepage-first hero business search → debounced dropdown OR graceful Places-403 degraded nudge → Custom-option always present → click routes guest into /signin funnel (SPA no-reload) → open-dropdown axe 0-critical ×6bp, 0 console errors. Rewritten from the DELETED vanilla 4-screen selectors (all 11 old tests were prod-RED); hero input got data-testid="hero-search-input".
   enrichment:       { status: covered, specs: [business-enrichment.spec.ts] }
   rebuild_research: { status: covered, specs: [rebuild-and-research.spec.ts] }
   waiting_terminal: { status: covered, specs: [waiting-and-terminal.spec.ts] }

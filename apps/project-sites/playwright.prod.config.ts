@@ -14,6 +14,7 @@ export default defineConfig({
     'health.spec.ts',
     'golden-path.spec.ts',
     'generated-site-visitor-journey.spec.ts', // AL-769 — THE delivered-site VISITOR journey (guest on {slug}.projectsites.dev): homepage-first SPA nav + click-to-call + directions + contact form + FAQ/blog/gallery + axe-6bp, 0 console errors, non-mutating
+    'search-and-places.spec.ts', // AL-804 — TOP-OF-FUNNEL guest acquisition: homepage-first hero business search (typed→debounced→dropdown/degraded→Custom option→click→/signin funnel), robust to Places-403 graceful-degrade, open-dropdown axe-6bp, 0 console errors, non-mutating. Rewritten from the DELETED vanilla 4-screen selectors (all 11 old tests were prod-RED).
     'create-edit-publish-flow.spec.ts', // THE canonical REAL flow (create→build→view→edit→publish); skipped unless E2E_REAL_BUILD=1 (paid ~40min build)
     'e2e/voice.spec.ts', // ANCHORED: bare 'voice.spec.ts' also pulled in e2e/admin/voice.spec.ts (stale, deleted)
     'observability_gateway.spec.ts',
