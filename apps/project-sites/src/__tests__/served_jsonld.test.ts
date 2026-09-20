@@ -130,7 +130,8 @@ describe('site_serving — applyServedRouteJsonLd', () => {
 });
 
 describe('site_serving — upgradeLocalBusinessType (serve-time subtype, AL-841)', () => {
-  const lb = '<script type="application/ld+json">{"@type":"LocalBusiness","name":"Strand"}</script>';
+  const lb =
+    '<script type="application/ld+json">{"@type":"LocalBusiness","name":"Strand"}</script>';
 
   it('upgrades a generic LocalBusiness to its schema.org subtype from business_category', () => {
     expect(upgradeLocalBusinessType(lb, 'bookstore')).toContain('"@type":"BookStore"');
@@ -160,8 +161,7 @@ describe('site_serving — upgradeLocalBusinessType (serve-time subtype, AL-841)
   });
 
   it('never touches sibling @type literals (PostalAddress/WebSite stay)', () => {
-    const mixed =
-      '<script>{"@type":"LocalBusiness","address":{"@type":"PostalAddress"}}</script>';
+    const mixed = '<script>{"@type":"LocalBusiness","address":{"@type":"PostalAddress"}}</script>';
     const out = upgradeLocalBusinessType(mixed, 'bookstore');
     expect(out).toContain('"@type":"BookStore"');
     expect(out).toContain('"@type":"PostalAddress"');
