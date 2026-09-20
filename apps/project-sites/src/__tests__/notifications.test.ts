@@ -129,7 +129,11 @@ afterEach(() => {
 });
 
 describe('renderSiteBuiltEmail — honest degraded (seed-only) framing (revenue/trust lock)', () => {
-  const base = { siteName: 'Acme Diner', siteUrl: 'https://acme-diner.projectsites.dev', version: 'v-1' };
+  const base = {
+    siteName: 'Acme Diner',
+    siteUrl: 'https://acme-diner.projectsites.dev',
+    version: 'v-1',
+  };
 
   it('FULL build → confident "ready for the world", NO starter-build / regenerate copy', () => {
     const { subject, html } = renderSiteBuiltEmail({ ...base, degraded: false });
