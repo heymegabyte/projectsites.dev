@@ -34,6 +34,15 @@ const GETS = [
   '/api/super-admin/transactions',
   '/api/super-admin/services',
   '/api/super-admin/coupons',
+  // Site/Account Operations (added 2026-09) — the platform-wide ENUMERATION surfaces: EVERY
+  // site + EVERY user account across ALL orgs, plus per-record 360° detail. This is the most
+  // sensitive read on the platform — a dropped guard here is catastrophic cross-tenant data
+  // exposure, strictly worse than the money endpoints above. The `:id` detail routes 403 at the
+  // wildcard guard BEFORE the handler resolves the id, so a throwaway UUID exercises the boundary.
+  '/api/super-admin/ops/sites',
+  '/api/super-admin/ops/users',
+  '/api/super-admin/ops/sites/00000000-0000-4000-8000-000000000000',
+  '/api/super-admin/ops/users/00000000-0000-4000-8000-000000000000',
 ];
 
 async function req(path, { auth = false, method = 'GET', body } = {}) {
