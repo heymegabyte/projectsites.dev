@@ -96,6 +96,30 @@ const CATEGORY_NORMALIZE: Readonly<Record<string, string>> = {
   realty: 'real estate agency',
   realtor: 'real estate agency',
   design: 'design studio',
+  // AL-825: bare PRODUCT/MATERIAL nouns — a maker/producer's declared category is often the raw
+  // product ("chocolate"/"coffee"/"cheese"), not a business. Live: dandelion-chocolate-sf shipped
+  // H1 "San Francisco's chocolate" (a product, not a business — the exact thin-noun class as AL-565's
+  // disciplines + AL-821's "books"). Suffix each to its natural business noun so the possessive
+  // ("San Francisco's chocolate shop") + indefinite-article + neighborhood frames stay grammatical.
+  // Exact-key lookup, so these never substring-collide (e.g. "tea" ≠ "steakhouse", "candy" ≠ "…").
+  chocolate: 'chocolate shop',
+  chocolates: 'chocolate shop',
+  chocolatier: 'chocolate shop',
+  coffee: 'coffee shop',
+  espresso: 'coffee shop',
+  tea: 'tea shop',
+  cheese: 'cheese shop',
+  candy: 'candy shop',
+  confections: 'candy shop',
+  confectionery: 'candy shop',
+  'ice cream': 'ice cream shop',
+  gelato: 'gelato shop',
+  pastry: 'bakery',
+  bread: 'bakery',
+  jewelry: 'jewelry store',
+  jewellery: 'jewelry store',
+  flowers: 'florist',
+  floral: 'florist',
 };
 
 /**

@@ -294,6 +294,47 @@ describe('hero_copy — categoryPhrase (AL-361: keep the retail/venue noun phras
     ).toMatch(/next read|browse|shelves/);
   });
 
+  describe('AL-825: bare PRODUCT/MATERIAL nouns get a business-noun suffix (never "City\'s chocolate")', () => {
+    // Live defect: dandelion-chocolate-sf shipped H1 "San Francisco's chocolate" — a product, not a
+    // business. Same thin-noun class as the disciplines (AL-565) + "books" (AL-821).
+    it.each([
+      ['chocolate', 'chocolate shop'],
+      ['Chocolate', 'chocolate shop'], // case-insensitive normalize
+      ['chocolates', 'chocolate shop'],
+      ['chocolatier', 'chocolate shop'],
+      ['coffee', 'coffee shop'],
+      ['espresso', 'coffee shop'],
+      ['tea', 'tea shop'],
+      ['cheese', 'cheese shop'],
+      ['candy', 'candy shop'],
+      ['confectionery', 'candy shop'],
+      ['ice cream', 'ice cream shop'],
+      ['gelato', 'gelato shop'],
+      ['pastry', 'bakery'],
+      ['bread', 'bakery'],
+      ['jewelry', 'jewelry store'],
+      ['flowers', 'florist'],
+      ['floral', 'florist'],
+    ])('%s → %s', (input, expected) => {
+      expect(categoryPhrase(input)).toBe(expected);
+    });
+
+    it('makes the possessive persona H1 frame grammatical ("San Francisco\'s chocolate shop")', () => {
+      // The exact live frame: `${city}'s ${categoryPhrase(cat)}` must read as a business, not a product.
+      const cat = categoryPhrase('chocolate');
+      expect(`San Francisco's ${cat}`).toBe("San Francisco's chocolate shop");
+      // indefinite article stays correct ("a chocolate shop", never "a chocolate")
+      expect(indefiniteArticle(cat)).toBe('a');
+    });
+
+    it('does NOT over-normalize an already-natural business phrase (idempotent)', () => {
+      expect(categoryPhrase('Chocolate Shop')).toBe('chocolate shop');
+      expect(categoryPhrase('Coffee Shop')).toBe('coffee shop'); // unchanged from AL-361 behavior
+      expect(categoryPhrase('Bakery')).toBe('bakery');
+      expect(categoryPhrase('Jewelry Store')).toBe('jewelry store');
+    });
+  });
+
   it('AL-820: transit/infrastructure POI types degrade to "local business", never an absurd H1', () => {
     // Live defect: "Berkeley Bowl" the grocery collided with the AC-Transit "Berkeley Bowl" bus_stop →
     // business_category "bus_stop" → H1 "The bus stop Berkeley counts on". A non-business POI type must

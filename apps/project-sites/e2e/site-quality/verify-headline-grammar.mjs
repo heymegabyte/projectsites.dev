@@ -21,7 +21,7 @@ import { chromium } from 'playwright';
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
-const SITES = (process.env.SITES || 'olson-kundig-seattle,ben-badgley-cpa,bicycle-habitat-nyc,vanta-strength-austin')
+const SITES = (process.env.SITES || 'olson-kundig-seattle,ben-badgley-cpa,bicycle-habitat-nyc,vanta-strength-austin,dandelion-chocolate-sf')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
@@ -34,6 +34,15 @@ const SUFFIX =
   'firm|agency|studio|practice|group|company|associates|partners|clinic|office|services|collective|co';
 // A discipline noun NOT immediately followed by a business suffix = the bare-terminal defect.
 const bareRe = new RegExp(`\\b(${DISCIPLINE})\\b(?!\\s+(?:${SUFFIX})\\b)`, 'i');
+// AL-825: a bare PRODUCT/MATERIAL noun as the TERMINAL H1 noun after a possessive — "San Francisco's
+// chocolate" (live on dandelion-chocolate-sf). A product ("chocolate"/"coffee"/"cheese") is not a
+// business, so the possessive persona frame `${city}'s ${cat}` reads ungrammatically; it needs the
+// business noun ("San Francisco's chocolate SHOP"). Same thin-noun class as the disciplines above.
+// PRECISE (validator-precision): only fires on `'s <product>` at END of the H1 — never mid-sentence
+// ("chocolate cake"), never a name-ending H1 lacking the possessive. Root fix: hero_copy
+// CATEGORY_NORMALIZE suffixes the product to its business noun ("chocolate shop"/"coffee shop"/…).
+const PRODUCT = 'chocolates?|coffee|espresso|tea|cheese|candy|confections?|confectionery|gelato|pastry|jewel(?:ry|lery)|florals?';
+const bareProductRe = new RegExp(`['’]s\\s+(${PRODUCT})$`, 'i');
 // AL-576: the weak generic "Quality {cat} {city} counts on" H1 frame (the 4th heroHeadlineOptions
 // candidate, `pick()`-selectable for neutral personalities) — a bland "Quality" lead + clunky
 // dropped-relative-pronoun that shipped on 6 live sites. Replaced in hero_copy with a clean
@@ -79,6 +88,8 @@ try {
       const mT = nTitle.match(bareRe);
       if (mH1) hits.push({ slug, where: 'h1', detail: `"${nH1}" → bare "${mH1[1]}"` });
       if (mT) hits.push({ slug, where: 'title', detail: `"${nTitle}" → bare "${mT[1]}"` });
+      const mP = nH1.match(bareProductRe);
+      if (mP) hits.push({ slug, where: 'h1', detail: `"${nH1}" → bare product noun "${mP[1]}" (AL-825; needs a shop/maker suffix)` });
       if (weakLeadRe.test(nH1)) hits.push({ slug, where: 'h1', detail: `"${nH1}" → weak "Quality … counts on" lead (AL-576)` });
       if (fillerRe.test(nH1)) hits.push({ slug, where: 'h1', detail: `"${nH1}" → vertical-agnostic "Find something special" filler (AL-585)` });
       if (subGrammarRe.test(nSub)) hits.push({ slug, where: 'subheadline', detail: `"${nSub}" → bare-noun "dependable choice for {cat}" (AL-586)` });
