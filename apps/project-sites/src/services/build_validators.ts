@@ -562,6 +562,41 @@ export const validateIndexable = (files: BuildFile[]): Violation[] => {
 };
 
 /**
+ * Every prerendered HTML shell must declare a real `<html lang="…">` — WCAG 3.1.1 (Language of
+ * Page, Level A: screen readers pick the right voice + pronunciation) + an SEO/regional-targeting
+ * signal. A MISSING lang, an EMPTY lang, an UNFILLED token (`lang="{LANG}"`), or a placeholder
+ * (`lang="undefined"`) all ship a broken/absent language that the length-based gates never see.
+ * Build-time BCP-47 shape check; complements `verify-indexability.mjs` (serve-time non-empty check).
+ */
+export const validateHtmlLang = (files: BuildFile[]): Violation[] => {
+  const out: Violation[] = [];
+  for (const file of files) {
+    if (!isHtml(file.path) || !file.text) continue;
+    const m = file.text.match(/<html[^>]*\blang=["']([^"']*)["']/i);
+    const lang = (m?.[1] ?? '').trim();
+    // Valid ≈ BCP-47: "en" / "en-US" / "es-419" / "zh-Hant". Invalid: absent, empty, {TOKEN}, placeholder.
+    const valid = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/i.test(lang) && !/undefined|null/i.test(lang);
+    if (!m) {
+      out.push({
+        code: 'html.lang_missing',
+        severity: 'error',
+        message: '<html> is missing a lang attribute (WCAG 3.1.1 Language of Page)',
+        file: file.path,
+      });
+    } else if (!valid) {
+      out.push({
+        code: 'html.lang_invalid',
+        severity: 'error',
+        message: `<html lang="${lang}"> is not a valid language code (empty / unfilled token / placeholder)`,
+        file: file.path,
+        detail: lang,
+      });
+    }
+  }
+  return out;
+};
+
+/**
  * Canonical integrity. Every indexable route HTML file must carry a `<link rel="canonical">`
  * (warn when absent), AND distinct routes must NOT share one canonical href — a site-wide
  * `canonical=/` collapse de-dupes every page to a single indexable URL, so sub-pages drop out
@@ -1357,6 +1392,7 @@ export const validateBuild = (
     ...validateNoDevSourceModules(files),
     ...validateColorScheme(files),
     ...validateIndexable(files),
+    ...validateHtmlLang(files),
     ...validateCanonical(files),
     ...validateSitemapLastmod(files),
     ...validateSitemapRoutesExist(files),

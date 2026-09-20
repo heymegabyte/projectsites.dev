@@ -11,6 +11,7 @@ import {
   validateNoDevSourceModules,
   validateColorScheme,
   validateIndexable,
+  validateHtmlLang,
   validateCanonical,
   validateSitemapLastmod,
   validateSitemapRoutesExist,
@@ -719,6 +720,40 @@ describe('validateIndexable (seo.noindex_leak — a published site MUST be finda
       '<!DOCTYPE html><html><head><title>x</title></head><body><p>we never noindex your site</p></body></html>',
     );
     expect(validateIndexable([f])).toEqual([]);
+  });
+});
+
+describe('validateHtmlLang (html.lang_missing / html.lang_invalid — WCAG 3.1.1 + SEO)', () => {
+  const shell = (htmlTag: string): BuildFile =>
+    file('index.html', `<!DOCTYPE html>${htmlTag}<head><title>x</title></head><body><h1>Hi</h1></body></html>`);
+
+  it('flags a missing lang attribute', () => {
+    expect(validateHtmlLang([shell('<html>')])[0].code).toBe('html.lang_missing');
+  });
+
+  it('flags an empty lang', () => {
+    expect(validateHtmlLang([shell('<html lang="">')])[0].code).toBe('html.lang_invalid');
+  });
+
+  it('flags an unfilled {LANG} token', () => {
+    expect(validateHtmlLang([shell('<html lang="{LANG}">')])[0].code).toBe('html.lang_invalid');
+  });
+
+  it('flags an "undefined" placeholder', () => {
+    expect(validateHtmlLang([shell('<html lang="undefined">')])[0].code).toBe('html.lang_invalid');
+  });
+
+  it('passes a plain "en"', () => {
+    expect(validateHtmlLang([shell('<html lang="en">')])).toEqual([]);
+  });
+
+  it('passes region subtags "en-US" and "es-419"', () => {
+    expect(validateHtmlLang([shell('<html lang="en-US">')])).toEqual([]);
+    expect(validateHtmlLang([shell('<html lang="es-419">')])).toEqual([]);
+  });
+
+  it('passes when lang is not the first attribute (attribute order)', () => {
+    expect(validateHtmlLang([shell('<html data-theme="dark" lang="en">')])).toEqual([]);
   });
 });
 
