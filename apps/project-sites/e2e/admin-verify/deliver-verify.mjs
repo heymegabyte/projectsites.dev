@@ -92,6 +92,27 @@ const iconTransparent = iconAsset.status === 200 ? iconAsset.hasAlpha === true :
 // Gate both. null (HTML text wordmark → /logo-wordmark.png 404s) is acceptable, exactly like the icon.
 const wmTransparent = wmAsset.status === 200 ? wmAsset.hasAlpha === true : null;
 
+// AL-835/AL-841 subtype: a LOCAL business should serve a PRECISE schema.org subtype
+// (ClothingStore/Restaurant/MusicStore/…) in its RAW served HTML — baked by the generator
+// (AL-835 localBusinessSubtypeFor) or upgraded at serve-time (AL-841 applyServedLocalBusinessSubtype).
+// Fetch the served HTML (what crawlers + Google Rich Results read, NOT the client DOM) and extract
+// the LocalBusiness-family @type. Report-only — a soft SEO-enrichment signal, never a hard-fail (a
+// generic LocalBusiness still validates as a local business; non-local verticals have none).
+async function servedLocalBusinessType() {
+  try {
+    const r = await fetch(base + '/', { headers: { 'User-Agent': UA } });
+    const html = await r.text();
+    const LOCAL =
+      /"@type":\s*"(LocalBusiness|Restaurant|Store|BookStore|MusicStore|Florist|JewelryStore|GroceryStore|HardwareStore|ShoeStore|ClothingStore|FurnitureStore|PetStore|ToyStore|ElectronicsStore|SportingGoodsStore|FoodEstablishment|CafeOrCoffeeShop|BarOrPub|Bakery|HealthAndBeautyBusiness|ProfessionalService|HomeAndConstructionBusiness|AutomotiveBusiness|MedicalBusiness|LodgingBusiness|EntertainmentBusiness)"/g;
+    const found = [...html.matchAll(LOCAL)].map((m) => m[1]);
+    const precise = found.find((t) => t !== 'LocalBusiness') || null;
+    return { any: found[0] || null, precise, generic: found.includes('LocalBusiness') && !precise };
+  } catch (e) {
+    return { any: null, precise: null, generic: false, err: String(e) };
+  }
+}
+const lbServed = await servedLocalBusinessType();
+
 // Name the artifact per-SLUG in the repo (was hardcoded /tmp/deliver-jenis.png — a Jeni's
 // leftover that mislabeled + overwrote every later delivery's screenshot).
 await page.screenshot({ path: `e2e/admin-verify/_deliver-verify-${SLUG}.png`, fullPage: false }).catch(() => {});
@@ -123,6 +144,15 @@ console.log(
       : wmTransparent
         ? '✓ transparent (has alpha)'
         : '✗ OPAQUE — boxed wordmark, AL-224 regression'
+  }`,
+);
+console.log(
+  `LocalBusiness @type (served HTML, AL-835/AL-841): ${
+    lbServed.precise
+      ? `${lbServed.precise} ✓ precise subtype`
+      : lbServed.generic
+        ? 'LocalBusiness (generic — AL-841 serve-time upgrade should apply the subtype)'
+        : lbServed.any || '(no LocalBusiness-family type — non-local vertical)'
   }`,
 );
 console.log(`shop/cart CTAs (on-brand for RETAIL, wrong-vertical otherwise): ${data.shopCTAs.join(', ') || '(none)'}`);
@@ -185,6 +215,7 @@ console.log(
     jsonld: data.jsonld,
     iconTransparent,
     wmTransparent,
+    localBusinessType: lbServed.precise || lbServed.any,
     consoleErrors: errors.length,
     assetFails: assetFails.length,
     realAssetFails: realAssetFails.length,
