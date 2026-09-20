@@ -789,6 +789,27 @@ describe('hero_copy — personaHeroCopy (AL-483: personality-aware hero voice)',
     expect(diner!.headlines.join(' ').toLowerCase()).not.toMatch(/stock up|on your list/);
   });
 
+  it('bold on a SPORTING-GOODS SHOP gets GEAR-UP copy, NOT the fitness "Train harder"/"coaching, sweat" misfit (AL-852)', () => {
+    // A surf/ski/bike/outdoor shop is routed to bold (high-energy aesthetic fits) but must NOT inherit
+    // the gym coaching copy. Live defect: mollusk-surf-shop shipped H1 "Train harder in San Francisco"
+    // + a "real coaching, real sweat" subhead — Mollusk SELLS surfboards, it does not coach.
+    for (const cat of ['surf shop', 'ski shop', 'bike shop', 'outdoor outfitter', 'sporting goods store']) {
+      const p = personaHeroCopy('bold', cat, 'San Francisco');
+      expect(p).not.toBeNull();
+      const allText = [...p!.headlines, ...p!.subheadlines].join(' ').toLowerCase();
+      // the exact fitness-coaching-misfit strings must NOT appear on a gear shop
+      expect(allText).not.toMatch(/train harder|strongest self|real coaching|real sweat|let's get to work/);
+      // it reads like a gear shop instead
+      expect(allText).toMatch(/gear up|find your kit|the good stuff|equipment|gears up/);
+      // still SEO-woven: category keyword + city present in every subhead
+      expect(p!.subheadlines.every((s) => s.includes(cat) && s.includes('San Francisco'))).toBe(true);
+    }
+    // REGRESSION GUARD: an actual gym KEEPS the coaching copy (the two never cross-fire).
+    const gym = personaHeroCopy('bold', 'gym', 'Denver');
+    expect(gym!.headlines.join(' ').toLowerCase()).toMatch(/train harder|strongest self/);
+    expect(gym!.headlines.join(' ').toLowerCase()).not.toMatch(/gear up|find your kit/);
+  });
+
   it('every distinctive personality returns non-empty, city+category-woven, slop-free copy', () => {
     for (const key of DISTINCTIVE) {
       const p = personaHeroCopy(key, 'cocktail bar', 'Portland');

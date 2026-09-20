@@ -502,6 +502,21 @@ export function personaHeroCopy(
       cat,
     );
 
+  // AL-852: `bold` is a SHARED high-energy personality worn by TWO families — actual FITNESS/COACHING
+  // (gym/crossfit/fitness/personal-training — the "Train harder", "real coaching, real sweat" voice
+  // genuinely fits) AND sporting-goods RETAIL (surf/ski/snowboard/skate/board/bike/outdoor/dive/climbing
+  // SHOPS — OSM tags these `sports`, which routes to `bold`). The coaching copy is a MISFIT on a retail
+  // SHOP (live, vision-caught: mollusk-surf-shop shipped H1 "Train harder in San Francisco" + a "real
+  // coaching, real sweat" subhead — Mollusk SELLS surfboards, it does not coach). Sub-classify by
+  // category — a sporting-goods shop gets GEAR-UP/OUTFIT copy; actual fitness keeps the coaching copy.
+  // Same pattern as isPlantRetail (AL-611) · isBodyArt (AL-696) · isBookstore (AL-810) · grocery (AL-819).
+  // Requires a RETAIL noun (shop/store/goods/gear/outfitter) or a specific gear vertical, so a bare
+  // "gym"/"fitness"/"crossfit" never matches → the two never cross-fire.
+  const isSportingGoodsRetail =
+    /\b(surf\w*|ski\s?(?:shop|store)|snowboard\w*|skate\s?(?:shop|store|board\w*)|board\s?shop|\b(?:bike|bicycle|cycl\w*)\s?(?:shop|store)|outdoor\s?(?:shop|store|gear|outfitter\w*)|outfitter\w*|sporting\s?goods|sports?\s?(?:shop|store|goods|equipment|gear|outfitter\w*)|gear\s?shop|climbing\s?(?:shop|gym\s?retail)?|dive\s?shop|tackle\s?(?:shop|store)|golf\s?shop|tennis\s?shop|pro\s?shop|kayak\w*|paddle\s?(?:board\w*|shop))\b/i.test(
+      cat,
+    );
+
   // AL-819: `warm` is the SHARED food/hospitality personality worn by TWO families — sit-down
   // HOSPITALITY (restaurant/cafe/bakery/deli/bar) AND walk-in GROCERY/MARKET (grocery/supermarket/
   // greengrocer/bodega/food-market/butcher/fishmonger — routed to `warm` by theme_style.ts for the
@@ -584,17 +599,31 @@ export function personaHeroCopy(
             `Come in, slow down, and feel at home — ${art} ${cat} made with heart for ${city}.`,
           ],
         },
-    bold: {
-      headlines: [
-        `${city}, let's get to work`,
-        `Train harder in ${city}`,
-        `Your strongest self starts in ${city}`,
-      ],
-      subheadlines: [
-        `High-energy ${cat} for ${city} — real coaching, real sweat, and results you can feel.`,
-        `Real ${cat} energy in ${city} — show up, push, and we will get you there.`,
-      ],
-    },
+    bold: isSportingGoodsRetail
+      ? {
+          // GEAR-UP copy for sporting-goods retail (AL-852) — the shared high-energy aesthetic, in a
+          // shop's voice, never the fitness "Train harder"/"real coaching, real sweat" coaching misfit.
+          headlines: [
+            `Gear up in ${city}`,
+            `${city}'s home for the good stuff`,
+            `Find your kit in ${city}`,
+          ],
+          subheadlines: [
+            `A ${city} ${cat} stocked by people who actually use the gear — honest advice and equipment that holds up.`,
+            `${city} gears up with us: ${art} ${cat} full of tried-and-true kit and straight talk from folks who ride, ski, and paddle.`,
+          ],
+        }
+      : {
+          headlines: [
+            `${city}, let's get to work`,
+            `Train harder in ${city}`,
+            `Your strongest self starts in ${city}`,
+          ],
+          subheadlines: [
+            `High-energy ${cat} for ${city} — real coaching, real sweat, and results you can feel.`,
+            `Real ${cat} energy in ${city} — show up, push, and we will get you there.`,
+          ],
+        },
     artisan: {
       headlines: [
         `Made by hand in ${city}`,
