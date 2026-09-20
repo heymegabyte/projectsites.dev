@@ -14,7 +14,7 @@ app_shell:
 
 marketing_public:
   homepage:         { status: covered, specs: [homepage.spec.ts] }
-  marketing:        { status: covered, specs: [marketing-sections.spec.ts] }
+  marketing:        { status: covered, specs: [marketing-sections.spec.ts] }  # AL-826 — § D platform homepage INTERACTIVE journey (real Chromium, prod-suite): sections render + FAQ accordion expand/collapse (click+keyboard) + honest AL-581 counters (never 2480) + hero-CTA scroll (SPA no-reload) + footer links + homepage axe 0-critical ×6bp, 0 console errors. Rewritten from the DELETED vanilla homepage (all 25 old tests were prod-RED; only false-green vs stale sites-staging.megabyte.space — the AL-804 mock-only-phantom class).
   conversion:       { status: covered, specs: [conversion-flow.spec.ts, conversion-ui.spec.ts] }
   contact:          { status: covered, specs: [contact.spec.ts] }
   pwa:              { status: covered, specs: [pwa.spec.ts] }
