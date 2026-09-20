@@ -333,6 +333,22 @@ describe('hero_copy — categoryPhrase (AL-361: keep the retail/venue noun phras
       expect(categoryPhrase('Bakery')).toBe('bakery');
       expect(categoryPhrase('Jewelry Store')).toBe('jewelry store');
     });
+
+    it('AL-857: bare "photo"/"camera" (OSM shop=photo) → "camera shop", not the product word', () => {
+      // Live defect on glazers-camera-seattle: business_category "photo" → H1 "Seattle's photo",
+      // title "Your neighborhood photo" — a product, not a business (same thin-noun class as
+      // AL-821 "books" + AL-825 "chocolate").
+      for (const input of ['photo', 'photos', 'photography', 'camera', 'cameras', 'Camera']) {
+        expect(categoryPhrase(input)).toBe('camera shop');
+      }
+      // possessive + neighborhood + indefinite-article frames all stay grammatical
+      const cat = categoryPhrase('photo');
+      expect(`Seattle's ${cat}`).toBe("Seattle's camera shop");
+      expect(indefiniteArticle(cat)).toBe('a'); // "a camera shop", never "a photo"
+      // suffixed retail forms were already grammatical — must stay preserved (not over-normalized)
+      expect(categoryPhrase('Camera Store')).toBe('camera store');
+      expect(categoryPhrase('Photo Store')).toBe('photo store');
+    });
   });
 
   it('AL-820: transit/infrastructure POI types degrade to "local business", never an absurd H1', () => {

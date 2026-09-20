@@ -120,6 +120,17 @@ const CATEGORY_NORMALIZE: Readonly<Record<string, string>> = {
   jewellery: 'jewelry store',
   flowers: 'florist',
   floral: 'florist',
+  // AL-857: OSM `shop=photo` / Places `photo`/`camera` types seed business_category "photo" (bare) —
+  // it reads as the PRODUCT, not a business ("Seattle's photo" / "Your neighborhood photo", live on
+  // glazers-camera-seattle). Same thin-noun class as AL-821 "books" + AL-825 "chocolate". Suffix to the
+  // natural retail noun so the possessive + neighborhood + indefinite-article frames stay grammatical
+  // ("Seattle's camera shop" / "a camera shop"). Suffixed retail forms ("Camera Store") are already
+  // preserved by categoryPhrase, so only the bare tokens need mapping.
+  photo: 'camera shop',
+  photos: 'camera shop',
+  photography: 'camera shop',
+  camera: 'camera shop',
+  cameras: 'camera shop',
 };
 
 /**
