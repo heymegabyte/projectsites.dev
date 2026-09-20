@@ -4,6 +4,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { AdminAcceptInviteComponent } from './accept-invite.component';
 import { ApiService } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
+import { AuthService } from '../../../services/auth.service';
 
 /**
  * First coverage for the team-invite acceptance flow (security-relevant auth, untested):
@@ -18,9 +19,11 @@ function make(token: string | null, post: jasmine.Spy): {
   nav: jasmine.Spy;
   post: jasmine.Spy;
   toast: { success: jasmine.Spy; error: jasmine.Spy };
+  auth: { logout: jasmine.Spy };
 } {
   const nav = jasmine.createSpy('navigateByUrl');
   const toast = { success: jasmine.createSpy('success'), error: jasmine.createSpy('error') };
+  const auth = { logout: jasmine.createSpy('logout') };
   TestBed.configureTestingModule({
     imports: [AdminAcceptInviteComponent],
     providers: [
@@ -28,10 +31,11 @@ function make(token: string | null, post: jasmine.Spy): {
       { provide: Router, useValue: { navigateByUrl: nav } },
       { provide: ApiService, useValue: { post } },
       { provide: ToastService, useValue: toast },
+      { provide: AuthService, useValue: auth },
     ],
   });
   TestBed.overrideComponent(AdminAcceptInviteComponent, { set: { template: '<div></div>', imports: [] } });
-  return { c: TestBed.createComponent(AdminAcceptInviteComponent).componentInstance, nav, post, toast };
+  return { c: TestBed.createComponent(AdminAcceptInviteComponent).componentInstance, nav, post, toast, auth };
 }
 
 describe('AdminAcceptInviteComponent (invite acceptance flow)', () => {
@@ -87,6 +91,27 @@ describe('AdminAcceptInviteComponent (invite acceptance flow)', () => {
     c.ngOnInit();
     expect(post).toHaveBeenCalledWith('/team/invites/accept', { token: 'tok-123' }, { silent: true });
   });
+
+  it('WRONG_USER → captures errorCode + switchAccount() logs out and returns to /signin with the accept token preserved', () => {
+    // The invitee is signed into the wrong account. The embarrassingly-easy recovery: one click
+    // that signs out + returns to THIS accept URL as returnUrl → auto-accepts after the right sign-in.
+    const post = jasmine.createSpy('post').and.returnValue(
+      throwError(() => ({
+        error: { error: { code: 'WRONG_USER', message: 'This invite was sent to a@b.com; sign in as that account first.' } },
+      })),
+    );
+    const { c, nav, auth } = make('tok-xyz', post);
+    c.ngOnInit();
+    expect(c.state()).toBe('error');
+    expect(c.errorCode()).toBe('WRONG_USER');
+
+    c.switchAccount();
+    expect(auth.logout).toHaveBeenCalled();
+    const target = nav.calls.mostRecent().args[0] as string;
+    expect(target).toContain('/signin?returnUrl=');
+    // the returnUrl round-trips this accept URL WITH its token so the invite reopens automatically
+    expect(decodeURIComponent(target)).toContain('/admin/accept-invite?token=tok-xyz');
+  });
 });
 
 /**
@@ -106,6 +131,7 @@ describe('AdminAcceptInviteComponent (state region is an announced live region)'
         { provide: R2, useValue: { navigateByUrl: () => 0 } },
         { provide: ApiService, useValue: { post } },
         { provide: ToastService, useValue: { success: () => 0, error: () => 0 } },
+        { provide: AuthService, useValue: { logout: () => 0 } },
       ],
     });
     const fx = TestBed.createComponent(AdminAcceptInviteComponent);
@@ -145,6 +171,7 @@ describe('AdminAcceptInviteComponent (cyan/black glyph-halo polish)', () => {
         { provide: R3, useValue: { navigateByUrl: () => 0 } },
         { provide: ApiService, useValue: { post } },
         { provide: ToastService, useValue: { success: () => 0, error: () => 0 } },
+        { provide: AuthService, useValue: { logout: () => 0 } },
       ],
     });
     const fx = TestBed.createComponent(AdminAcceptInviteComponent);
