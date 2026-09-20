@@ -14,6 +14,7 @@ import { Hono } from 'hono';
 import type { BrowserWorker } from '@cloudflare/playwright';
 import type { Env, Variables } from '../types/env.js';
 import { isFlagOn } from '../modules/feature_flags/services.js';
+import { sanitizeUrl } from '../services/url_sanitizer.js';
 
 const VISION_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct';
 
@@ -37,6 +38,30 @@ const AXIS_HINTS: Record<string, string> = {
   whitespace: 'add breathing room — increase section padding',
   distinctiveness: 'push the design further from a generic template',
 };
+
+/**
+ * SSRF guard for the vision-qa target URL. vision-qa drives a real headless browser to
+ * `page.goto()` the caller-supplied URL and returns an AI description of the render, so an
+ * unguarded value lets an authenticated caller screenshot internal / private / cloud-metadata
+ * hosts and read them back (info-leak SSRF — the `ssrf-redirect-follow` class). Route the URL
+ * through the canonical `sanitizeUrl` SSOT (scheme + RFC-1918/loopback/link-local `isPrivateHost`
+ * + metadata-host block) and require public `https` (vision-qa targets public sites). Pure +
+ * deterministic (exported for unit tests).
+ *
+ * @param raw - The caller-supplied URL string.
+ * @returns `{ ok, url }` — `url` is the sanitized public https URL when ok, else `{ ok:false, url:null }`.
+ * @remarks Residual: a PUBLIC hostname that DNS-resolves to a private IP (rebinding) is not caught
+ * here — a string guard has no resolver, and CF Browser Rendering performs the actual DNS + fetch.
+ * @example
+ * assertPublicHttpsUrl('https://example.com');       // { ok: true, url: 'https://example.com/' }
+ * assertPublicHttpsUrl('https://169.254.169.254/');  // { ok: false, url: null }  (metadata)
+ * assertPublicHttpsUrl('http://example.com');        // { ok: false, url: null }  (https-only)
+ */
+export function assertPublicHttpsUrl(raw: string): { ok: boolean; url: string | null } {
+  const clean = sanitizeUrl((raw ?? '').trim());
+  if (!clean.valid || !clean.url || !/^https:/i.test(clean.url)) return { ok: false, url: null };
+  return { ok: true, url: clean.url };
+}
 
 /**
  * Turn a rubric into plain-English findings: any axis scoring below 7 becomes a
@@ -186,9 +211,15 @@ visionQa.post('/api/vision-qa', async (c) => {
   if (!on) return c.notFound();
 
   const body = (await c.req.json().catch(() => ({}))) as { url?: string };
-  const url = (body.url ?? '').trim();
-  if (!/^https:\/\//i.test(url))
-    return c.json({ error: { code: 'BAD_REQUEST', message: 'A https url is required.' } }, 400);
+  // SSRF guard (AL-843): sanitize the caller URL BEFORE the headless-browser goto — block
+  // private/loopback/link-local/metadata hosts + require public https (see assertPublicHttpsUrl).
+  const guard = assertPublicHttpsUrl(body.url ?? '');
+  if (!guard.ok)
+    return c.json(
+      { error: { code: 'BAD_REQUEST', message: 'A valid public https url is required.' } },
+      400,
+    );
+  const url = guard.url as string;
 
   const bytes = await screenshot(c.env, url).catch(() => null);
   if (!bytes)
