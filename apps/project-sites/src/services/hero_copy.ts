@@ -131,6 +131,58 @@ const CATEGORY_NORMALIZE: Readonly<Record<string, string>> = {
   photography: 'camera shop',
   camera: 'camera shop',
   cameras: 'camera shop',
+  // AL-858: BOIL-THE-LAKE — the same bare-product-noun leak (AL-857) affects a whole CLASS of retail
+  // verticals whose OSM/Places category is the raw product/material, not a business. Audited
+  // categoryPhrase across ~55 candidate tokens; these render an ungrammatical "City's X" /
+  // "Your neighborhood X" / "a X" frame. Live-buggy TODAY: cole-hardware-sf + city-hardware-burlington
+  // ship "hardware" (→ "San Francisco's hardware"). Map each to its natural retail noun (exact-key, so
+  // no substring collisions; unmapped keys unchanged — bakery/deli/butcher/pharmacy/supermarket/optician
+  // stay as-is because "City's bakery" is already grammatical). Fixes the live cohort on next rebuild +
+  // every FUTURE build (toy/cookware/etc. are the next uncovered delivery verticals).
+  hardware: 'hardware store',
+  toy: 'toy store',
+  toys: 'toy store',
+  cookware: 'cookware shop',
+  kitchenware: 'kitchenware shop',
+  houseware: 'home goods store',
+  housewares: 'home goods store',
+  electronics: 'electronics store',
+  tailoring: 'tailor shop',
+  stationery: 'stationery shop',
+  antique: 'antique shop',
+  antiques: 'antique shop',
+  furniture: 'furniture store',
+  shoe: 'shoe store',
+  shoes: 'shoe store',
+  clothing: 'clothing store',
+  apparel: 'clothing store',
+  fabric: 'fabric shop',
+  yarn: 'yarn shop',
+  craft: 'craft store',
+  crafts: 'craft store',
+  hobby: 'hobby shop',
+  game: 'game store',
+  games: 'game store',
+  vinyl: 'record store',
+  record: 'record store',
+  records: 'record store',
+  gift: 'gift shop',
+  gifts: 'gift shop',
+  eyewear: 'eyewear store',
+  optical: 'optical shop',
+  liquor: 'liquor store',
+  wine: 'wine shop',
+  music: 'music store',
+  'musical instrument': 'music store',
+  framing: 'frame shop',
+  frame: 'frame shop',
+  convenience: 'convenience store',
+  garden: 'garden center',
+  bicycle: 'bike shop',
+  'sporting goods': 'sporting goods store',
+  grocery: 'grocery store',
+  pet: 'pet store',
+  pets: 'pet store',
 };
 
 /**

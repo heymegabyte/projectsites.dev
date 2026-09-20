@@ -349,6 +349,43 @@ describe('hero_copy — categoryPhrase (AL-361: keep the retail/venue noun phras
       expect(categoryPhrase('Camera Store')).toBe('camera store');
       expect(categoryPhrase('Photo Store')).toBe('photo store');
     });
+
+    it('AL-858: bare product/material category tokens across the retail CLASS → natural business noun', () => {
+      // Boil-the-lake: the AL-857 leak is a class. Live-buggy today: cole-hardware/city-hardware
+      // ship "hardware" → "San Francisco's hardware". Each bare token must map to a business noun.
+      const map = {
+        hardware: 'hardware store',
+        toy: 'toy store',
+        toys: 'toy store',
+        cookware: 'cookware shop',
+        electronics: 'electronics store',
+        furniture: 'furniture store',
+        shoes: 'shoe store',
+        clothing: 'clothing store',
+        vinyl: 'record store',
+        eyewear: 'eyewear store',
+        liquor: 'liquor store',
+        music: 'music store',
+        framing: 'frame shop',
+        bicycle: 'bike shop',
+        grocery: 'grocery store',
+        pet: 'pet store',
+        garden: 'garden center',
+      };
+      for (const [input, expected] of Object.entries(map)) {
+        expect(categoryPhrase(input)).toBe(expected);
+        // the live persona frame must read as a business, never a bare product
+        expect(`San Francisco's ${categoryPhrase(input)}`).toBe(`San Francisco's ${expected}`);
+        expect(indefiniteArticle(categoryPhrase(input))).toMatch(/^an?$/);
+      }
+    });
+
+    it('AL-858: already-grammatical bare nouns stay UNCHANGED (no over-normalization / regression)', () => {
+      // "City's bakery/deli/butcher/pharmacy" already reads fine — these must NOT be remapped.
+      for (const noun of ['bakery', 'deli', 'butcher', 'pharmacy', 'supermarket', 'optician']) {
+        expect(categoryPhrase(noun)).toBe(noun);
+      }
+    });
   });
 
   it('AL-820: transit/infrastructure POI types degrade to "local business", never an absurd H1', () => {
