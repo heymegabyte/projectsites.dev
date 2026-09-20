@@ -119,19 +119,31 @@ webhooks.post('/webhooks/stripe', async (c) => {
   const signature = c.req.header('stripe-signature') ?? '';
   const requestId = c.get('requestId');
 
+  // Structured webhook logger, hoisted so ALL money-path logging flows through ONE logger
+  // (AL-847 — was 3 hand-rolled `console.*(JSON.stringify({level,service:'webhook',…}))` freeform
+  // holdouts + a duplicate of the failure log; `createLogger` emits the same JSON→console.warn sink
+  // PLUS the OTLP export + baked-in `request_id` correlation). `c.executionCtx` is a getter that
+  // THROWS off-runtime (unit tests) — access defensively.
+  let whCtx: ExecutionContext | undefined;
+  try {
+    whCtx = c.executionCtx;
+  } catch {
+    whCtx = undefined;
+  }
+  const whLog = createLogger(c.env, whCtx, {
+    service: 'webhooks',
+    environment: c.env.ENVIRONMENT ?? 'production',
+    request_id: requestId ?? undefined,
+  });
+
   // 1. Verify signature
   const verification = await verifyStripeSignature(rawBody, signature, c.env.STRIPE_WEBHOOK_SECRET);
 
   if (!verification.valid) {
-    console.error(
-      JSON.stringify({
-        level: 'warn',
-        service: 'webhook',
-        provider: 'stripe',
-        message: `Signature verification failed: ${verification.reason}`,
-        request_id: requestId,
-      }),
-    );
+    whLog.warn('stripe webhook signature verification failed', {
+      provider: 'stripe',
+      reason: verification.reason,
+    });
     return c.json(
       { error: { code: 'WEBHOOK_SIGNATURE_INVALID', message: verification.reason } },
       401,
@@ -385,14 +397,10 @@ webhooks.post('/webhooks/stripe', async (c) => {
         break;
 
       default:
-        console.warn(
-          JSON.stringify({
-            level: 'info',
-            service: 'webhook',
-            message: `Unhandled Stripe event type: ${event.type}`,
-            request_id: requestId,
-          }),
-        );
+        whLog.info('unhandled stripe event type', {
+          provider: 'stripe',
+          event_type: event.type,
+        });
     }
 
     // 6. Mark processed
@@ -438,39 +446,17 @@ webhooks.post('/webhooks/stripe', async (c) => {
       await markWebhookProcessed(db, webhookEventId, exhausted ? 'quarantined' : 'failed', errMsg);
     }
     // #24 — this catch handles the error (marks failed + audits) instead of
-    // re-throwing, so the global error-handler's capture is bypassed.
-    // A Stripe webhook failure is payment-critical → log explicitly, never silent.
-    // `c.executionCtx` is a getter that THROWS when no ExecutionContext exists
-    // (unit tests, some runtime paths) — access it defensively.
-    let webhookCtx: ExecutionContext | undefined;
-    try {
-      webhookCtx = c.executionCtx;
-    } catch {
-      webhookCtx = undefined;
-    }
-    createLogger(c.env, webhookCtx, {
-      service: 'webhooks',
-      environment: c.env.ENVIRONMENT ?? 'production',
-      request_id: requestId ?? undefined,
-    }).error(
+    // re-throwing, so the global error-handler's capture is bypassed. A Stripe webhook
+    // failure is payment-critical → log explicitly (never silent) through the hoisted `whLog`
+    // (AL-847 — was a re-created logger + a redundant freeform console.error of the same failure).
+    whLog.error(
       'stripe webhook processing failed',
       {
         provider: 'stripe',
         event_type: event.type,
         webhook_event_id: webhookEventId ?? undefined,
-        request_id: requestId ?? undefined,
       },
       err instanceof Error ? err : new Error(String(err)),
-    );
-    console.error(
-      JSON.stringify({
-        level: 'error',
-        service: 'webhook',
-        provider: 'stripe',
-        event_type: event.type,
-        message: errMsg,
-        request_id: requestId,
-      }),
     );
 
     // Audit log for failed webhook processing

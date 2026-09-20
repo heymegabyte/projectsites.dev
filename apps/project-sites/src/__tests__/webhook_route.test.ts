@@ -177,7 +177,9 @@ describe('POST /webhooks/stripe - signature verification', () => {
   });
 
   it('logs warning when signature fails', async () => {
-    const consoleSpy = jest.spyOn(console, 'error');
+    // AL-847: sig-fail now logs through the structured `whLog` (createLogger → console.warn sink,
+    // service 'webhooks', reason in the `reason` field), not a freeform console.error.
+    const consoleSpy = jest.spyOn(console, 'warn');
     mockVerify.mockResolvedValue({ valid: false, reason: 'Timestamp expired' });
     const app = createApp();
     const event = makeStripeEvent('checkout.session.completed');
@@ -186,14 +188,15 @@ describe('POST /webhooks/stripe - signature verification', () => {
     const logCall = consoleSpy.mock.calls.find((call) => {
       try {
         const parsed = JSON.parse(call[0] as string);
-        return parsed.level === 'warn' && parsed.service === 'webhook';
+        return parsed.level === 'warn' && parsed.service === 'webhooks';
       } catch {
         return false;
       }
     });
     expect(logCall).toBeDefined();
     const parsed = JSON.parse(logCall![0] as string);
-    expect(parsed.message).toContain('Timestamp expired');
+    expect(parsed.msg).toContain('signature verification failed');
+    expect(parsed.reason).toContain('Timestamp expired');
   });
 });
 
@@ -612,16 +615,18 @@ describe('POST /webhooks/stripe - unknown events', () => {
     const event = makeStripeEvent('some.future.event', { id: 'obj_future' });
     await postWebhook(app, event);
 
+    // AL-847: unhandled-type now logs through the structured `whLog` (msg + event_type field),
+    // not a freeform console.warn whose message embedded the type.
     const logCall = consoleSpy.mock.calls.find((call) => {
       try {
         const parsed = JSON.parse(call[0] as string);
-        return parsed.message?.includes('Unhandled Stripe event type');
+        return parsed.msg?.includes('unhandled stripe event type');
       } catch {
         return false;
       }
     });
     expect(logCall).toBeDefined();
     const parsed = JSON.parse(logCall![0] as string);
-    expect(parsed.message).toContain('some.future.event');
+    expect(parsed.event_type).toContain('some.future.event');
   });
 });
