@@ -1,10 +1,15 @@
 /**
- * E2E tests for interactive modal flows: Deploy modal, Files modal,
- * Reset modal, Status modal, Delete modal, and Escape key handling.
+ * RETIRED 2026-09-20 (AL-831) — tested the DELETED vanilla homepage modal paradigm (Deploy/Files/
+ * Reset/Status/Delete modals + Escape), removed with vanilla `public/index.html` on 2026-07-31.
+ * Those behaviors are now Angular /admin surfaces + dialogs, covered by: `admin-site-detail.spec.ts`,
+ * `admin-verify/verify-site-delete-envelope.mjs` (delete), `admin-verify/modal-a11y-scan.mjs`
+ * (Escape/focus-trap). Skipped (not deleted, per e2e-accumulation "removed features: skip + comment")
+ * — the old body was a false-green phantom (dead `#screen-*` selectors, green only vs the stale
+ * `sites-staging.megabyte.space` CI shard). A 1:1 rewrite would duplicate the modern coverage above.
  */
 import { test, expect } from './fixtures.js';
 
-test.describe('Deploy Modal', () => {
+test.describe.skip('Deploy Modal', () => {
   test('openDeployModal function is defined', async ({ page }) => {
     await page.goto('/');
     const hasFn = await page.evaluate(() => {
@@ -57,7 +62,7 @@ test.describe('Deploy Modal', () => {
   });
 });
 
-test.describe('Files Modal', () => {
+test.describe.skip('Files Modal', () => {
   test('openFilesModal function is defined', async ({ page }) => {
     await page.goto('/');
     const hasFn = await page.evaluate(() => {
@@ -112,7 +117,7 @@ test.describe('Files Modal', () => {
   });
 });
 
-test.describe('Reset Modal', () => {
+test.describe.skip('Reset Modal', () => {
   test('openResetModal function is defined', async ({ page }) => {
     await page.goto('/');
     const hasFn = await page.evaluate(() => {
@@ -130,7 +135,7 @@ test.describe('Reset Modal', () => {
   });
 });
 
-test.describe('Status Modal', () => {
+test.describe.skip('Status Modal', () => {
   test('openStatusModal function is defined', async ({ page }) => {
     await page.goto('/');
     const hasFn = await page.evaluate(() => {
@@ -175,7 +180,7 @@ test.describe('Status Modal', () => {
   });
 });
 
-test.describe('Delete Modal', () => {
+test.describe.skip('Delete Modal', () => {
   test('openDeleteModal function is defined', async ({ page }) => {
     await page.goto('/');
     const hasFn = await page.evaluate(() => {
@@ -207,7 +212,7 @@ test.describe('Delete Modal', () => {
   });
 });
 
-test.describe('Escape Key Closes Modals', () => {
+test.describe.skip('Escape Key Closes Modals', () => {
   test('pressing Escape closes details modal', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#screen-search')).toBeVisible({ timeout: 10_000 });
@@ -235,7 +240,7 @@ test.describe('Escape Key Closes Modals', () => {
   });
 });
 
-test.describe('New Website Modal', () => {
+test.describe.skip('New Website Modal', () => {
   test('openNewWebsiteModal function is defined', async ({ page }) => {
     await page.goto('/');
     const hasFn = await page.evaluate(() => {

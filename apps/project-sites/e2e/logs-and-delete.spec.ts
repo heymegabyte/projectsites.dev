@@ -1,11 +1,15 @@
 /**
- * E2E tests for the Logs modal, Delete with subscription option,
- * CTA buttons, and escaping fixes.
+ * RETIRED 2026-09-20 (AL-831) — tested the DELETED vanilla homepage Logs modal + Delete-with-
+ * subscription + Credits pill, removed with vanilla `public/index.html` on 2026-07-31. Those are now
+ * Angular surfaces, covered by: `admin-logs-journey.spec.ts` (logs), `admin-verify/verify-site-delete-
+ * envelope.mjs` (delete), billing specs (credits/subscription). Skipped (not deleted, per
+ * e2e-accumulation) — the old body was a false-green phantom (dead `#screen-*` selectors, green only
+ * vs the stale `sites-staging.megabyte.space` shard). A 1:1 rewrite would duplicate the coverage above.
  */
 
 import { test, expect } from './fixtures.js';
 
-test.describe('Logs Modal UI', () => {
+test.describe.skip('Logs Modal UI', () => {
   test('Logs modal exists in the DOM and is initially hidden', async ({ page }) => {
     await page.goto('/');
 
@@ -24,7 +28,7 @@ test.describe('Logs Modal UI', () => {
   });
 });
 
-test.describe('Delete Modal with Subscription Option', () => {
+test.describe.skip('Delete Modal with Subscription Option', () => {
   test('Delete modal exists and has subscription checkbox', async ({ page }) => {
     await page.goto('/');
 
@@ -42,7 +46,7 @@ test.describe('Delete Modal with Subscription Option', () => {
   });
 });
 
-test.describe('Credits Pill', () => {
+test.describe.skip('Credits Pill', () => {
   test('Credits pill element exists in the admin panel', async ({ page }) => {
     await page.goto('/');
 
@@ -53,7 +57,7 @@ test.describe('Credits Pill', () => {
   });
 });
 
-test.describe('CTA Buttons', () => {
+test.describe.skip('CTA Buttons', () => {
   test('Build Your Free Website button calls startBuildFlow', async ({ page }) => {
     await page.goto('/');
 
@@ -87,7 +91,7 @@ test.describe('CTA Buttons', () => {
   });
 });
 
-test.describe('Relative Time Formatting', () => {
+test.describe.skip('Relative Time Formatting', () => {
   test('formatLogTimestamp returns "just now" for recent timestamps', async ({ page }) => {
     await page.goto('/');
 
@@ -133,7 +137,7 @@ test.describe('Relative Time Formatting', () => {
   });
 });
 
-test.describe('Workflow Step Action Labels', () => {
+test.describe.skip('Workflow Step Action Labels', () => {
   test('formatActionLabel has labels for new workflow step actions', async ({ page }) => {
     await page.goto('/');
 
@@ -180,7 +184,7 @@ test.describe('Workflow Step Action Labels', () => {
   });
 });
 
-test.describe('Title Inline Edit Style Sync', () => {
+test.describe.skip('Title Inline Edit Style Sync', () => {
   test('site-card-title-row .inline-edit-wrap has matching font properties', async ({ page }) => {
     await page.goto('/');
 
@@ -215,7 +219,7 @@ test.describe('Title Inline Edit Style Sync', () => {
   });
 });
 
-test.describe('Footer legal links point to local pages', () => {
+test.describe.skip('Footer legal links point to local pages', () => {
   test('footer links use local paths instead of external URLs', async ({ page }) => {
     await page.goto('/');
 
@@ -244,7 +248,7 @@ test.describe('Footer legal links point to local pages', () => {
   });
 });
 
-test.describe('Google Place ID UI', () => {
+test.describe.skip('Google Place ID UI', () => {
   test('Place ID info element has a link and close button', async ({ page }) => {
     await page.goto('/');
 
@@ -262,7 +266,7 @@ test.describe('Google Place ID UI', () => {
   });
 });
 
-test.describe('escapeAttr function', () => {
+test.describe.skip('escapeAttr function', () => {
   test('page has the escapeAttr function defined', async ({ page }) => {
     await page.goto('/');
 
@@ -277,7 +281,7 @@ test.describe('escapeAttr function', () => {
   });
 });
 
-test.describe('Improve with AI without text', () => {
+test.describe.skip('Improve with AI without text', () => {
   test('Improve AI link exists and does not check for minimum text', async ({ page }) => {
     await page.goto('/');
 

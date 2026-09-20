@@ -1,10 +1,15 @@
 /**
- * E2E tests for the Details Modal: form fields, business info,
- * custom mode, build submission, file upload area, and AI validation.
+ * RETIRED 2026-09-20 (AL-831) — tested the DELETED vanilla homepage "Details Modal" (business/custom
+ * mode, build submission, upload, AI validation), removed with vanilla `public/index.html` on
+ * 2026-07-31. That step is now the Angular `/create` wizard, covered by: `home/create-wizard.spec.ts`,
+ * `admin-verify/verify-create-wizard.mjs`, and `golden-path.spec.ts` (the full create→build flow).
+ * Skipped (not deleted, per e2e-accumulation) — the old body was a false-green phantom (dead
+ * `#screen-*`/`#details-*` selectors, green only vs the stale `sites-staging.megabyte.space` shard).
+ * A 1:1 rewrite would duplicate the modern create-wizard coverage above.
  */
 import { test, expect } from './fixtures.js';
 
-test.describe('Details Modal Opening', () => {
+test.describe.skip('Details Modal Opening', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#screen-search')).toBeVisible({ timeout: 10_000 });
@@ -50,7 +55,7 @@ test.describe('Details Modal Opening', () => {
   });
 });
 
-test.describe('Details Modal Content', () => {
+test.describe.skip('Details Modal Content', () => {
   async function openDetailsModal(page: import('@playwright/test').Page) {
     await page.goto('/');
     await expect(page.locator('#screen-search')).toBeVisible({ timeout: 10_000 });
@@ -106,7 +111,7 @@ test.describe('Details Modal Content', () => {
   });
 });
 
-test.describe('Details Modal Business Mode', () => {
+test.describe.skip('Details Modal Business Mode', () => {
   test('business badge appears for Google Places results', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#screen-search')).toBeVisible({ timeout: 10_000 });
@@ -129,7 +134,7 @@ test.describe('Details Modal Business Mode', () => {
   });
 });
 
-test.describe('Details Modal Custom Mode', () => {
+test.describe.skip('Details Modal Custom Mode', () => {
   async function openCustomDetails(page: import('@playwright/test').Page) {
     await page.goto('/');
     await expect(page.locator('#screen-search')).toBeVisible({ timeout: 10_000 });
@@ -159,7 +164,7 @@ test.describe('Details Modal Custom Mode', () => {
   });
 });
 
-test.describe('Details Modal AI Features', () => {
+test.describe.skip('Details Modal AI Features', () => {
   test('improveWithAI function is defined', async ({ page }) => {
     await page.goto('/');
     const hasFn = await page.evaluate(() => {
@@ -182,7 +187,7 @@ test.describe('Details Modal AI Features', () => {
   });
 });
 
-test.describe('Build Submission', () => {
+test.describe.skip('Build Submission', () => {
   test('submitBuild function is defined', async ({ page }) => {
     await page.goto('/');
     const hasFn = await page.evaluate(() => {

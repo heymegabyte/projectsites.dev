@@ -35,7 +35,7 @@ site_lifecycle:
   generated_site_visitor: { status: covered, specs: [generated-site-visitor-journey.spec.ts] }  # AL-769 — THE delivered-site VISITOR journey (guest on {slug}.projectsites.dev, real Chromium): homepage-first SPA nav + click-to-call + directions + contact form (non-mutating) + FAQ toggle/blog/gallery + axe 0-critical ×6bp, 0 console errors. golden_path covers the MARKETING site; this covers the actual product OUTPUT a delivered site's real customers use.
   feature_journey:  { status: covered, specs: [feature-journey.spec.ts] }
   search_places:    { status: covered, specs: [search-and-places.spec.ts] }  # AL-804 — TOP-OF-FUNNEL guest acquisition (real Chromium, prod-suite): homepage-first hero business search → debounced dropdown OR graceful Places-403 degraded nudge → Custom-option always present → click routes guest into /signin funnel (SPA no-reload) → open-dropdown axe 0-critical ×6bp, 0 console errors. Rewritten from the DELETED vanilla 4-screen selectors (all 11 old tests were prod-RED); hero input got data-testid="hero-search-input".
-  enrichment:       { status: covered, specs: [business-enrichment.spec.ts] }
+  enrichment:       { status: covered, specs: [business-enrichment.spec.ts] }  # AL-831 RETIRED (describe.skip) — vanilla homepage search→select→details→AI-validate paradigm removed 2026-07-31; now the Angular hero search + /create wizard, covered by search-and-places.spec.ts (AL-804) + home/create-wizard.spec.ts + golden-path.spec.ts.
   rebuild_research: { status: covered, specs: [rebuild-and-research.spec.ts] }
   waiting_terminal: { status: covered, specs: [waiting-and-terminal.spec.ts] }  # AL-827 — post-create /waiting build-progress flow (real Chromium, prod-suite): no-id→home · unauth real-id→GRACEFUL sign-in card (root-fixed: auth-gated poll died on first 401 → perpetual FAKE overlay; catchError keeps stream alive, degrades after 2 never-loaded ticks + structured waiting_poll_load_failed log) · sign-in→/signin?returnUrl · go-home→home. Rewritten from the DELETED vanilla waiting screen (13 old tests prod-RED, false-green vs stale staging).
   lifecycle_ext:    { status: covered, specs: [site-lifecycle-extended.spec.ts] }
@@ -50,7 +50,7 @@ site_management:
   domains:          { status: covered, specs: [domain-management.spec.ts, domain-management-v2.spec.ts, domain-and-files.spec.ts, domain-modal-interactive.spec.ts] }
   domain_provisioning_envelope: { status: covered, specs: [admin-verify/verify-domain-provisioning-envelope.mjs] }  # § B.10 FULL-FLOW: the custom-domain provisioning owner flow's headless-prod security+entitlement+non-mutation envelope. Owner reads their hostname list (200+data[]); cross-org read 404s (IDOR — never leak another org's domains); POST /api/sites/:id/hostnames is auth-gated (401), Zod-validated (400, type∈{free_subdomain,custom_cname}), entitlement-gated (valid custom_cname on a free org → 403 "Custom domains require a paid plan"); owner hostname set byte-identical before/after (0 provisioning side-effects). Every authed POST targets a GHOST/foreign id — never provisions. Rides workers.dev (Bot-Fight 403s headless POSTs on the custom domain). Wired into admin-verify run-all; fail-open without E2E_API_KEY.
   files:            { status: covered, specs: [files-modal-v2.spec.ts] }
-  logs_delete:      { status: covered, specs: [logs-and-delete.spec.ts, logs-modal-interactive.spec.ts] }
+  logs_delete:      { status: covered, specs: [logs-and-delete.spec.ts, logs-modal-interactive.spec.ts] }  # AL-831 RETIRED logs-and-delete (describe.skip) — vanilla Logs modal + Delete-with-subscription + Credits pill removed 2026-07-31; now covered by admin-logs-journey.spec.ts + verify-site-delete-envelope.mjs + billing specs.
 
 admin_sections:
   billing:          { status: covered, specs: [admin-and-billing.spec.ts] }
@@ -103,8 +103,8 @@ forms_misc:
   env_var_export_causal: { status: covered, specs: [admin-verify/verify-envvars-export-causal.mjs] }  # AL-711 prod CAUSAL journey (auto-joins admin-verify run-all): create org env var → GET /api/env-vars/export?include_values=1 → the var ROUND-TRIPS into the dotenv body (display==store on the downloaded TEXT) → bogus Bearer → 401 (the AL-710 auth gate; the old dead session_token key sent Bearer null → 401 for real owners) → delete → gone from re-export. Distinct from the DEV env-vars-import-export.spec.ts (waitForEvent('download') only, local) + verify-envvars-causal.mjs (CRUD list, never the export path).
 
 modals_interactions:
-  modals:           { status: covered, specs: [modals-interactive.spec.ts] }
-  details_modal:    { status: covered, specs: [details-modal-flow.spec.ts] }
+  modals:           { status: covered, specs: [modals-interactive.spec.ts] }  # AL-831 RETIRED (describe.skip) — vanilla homepage Deploy/Files/Reset/Status/Delete modals removed 2026-07-31; behavior now covered by admin-site-detail.spec.ts + verify-site-delete-envelope.mjs + modal-a11y-scan.mjs.
+  details_modal:    { status: covered, specs: [details-modal-flow.spec.ts] }  # AL-831 RETIRED (describe.skip) — vanilla Details Modal removed 2026-07-31; the create step is now the /create wizard, covered by home/create-wizard.spec.ts + verify-create-wizard.mjs + golden-path.spec.ts.
 
 observability:
   error_boundary:   { status: covered, specs: [error-boundary.spec.ts] }

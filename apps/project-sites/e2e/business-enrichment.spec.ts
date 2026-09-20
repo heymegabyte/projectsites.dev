@@ -13,11 +13,19 @@
  * - AI validation endpoint structure
  * - Workflow step labels and ordering
  * - Build terminal step rendering
+ *
+ * RETIRED 2026-09-20 (AL-831) — this whole flow was the DELETED vanilla homepage search→select→
+ * details→AI-validate paradigm, removed with vanilla `public/index.html` on 2026-07-31. It is now the
+ * Angular hero search + `/create` wizard, covered by: `search-and-places.spec.ts` (AL-804 — hero
+ * search→results→funnel), `home/create-wizard.spec.ts`, `golden-path.spec.ts`. Skipped (not deleted,
+ * per e2e-accumulation) — the old body was a false-green phantom (dead `#screen-*`/`#search-*`
+ * selectors, green only vs the stale `sites-staging.megabyte.space` shard). A 1:1 rewrite would
+ * duplicate the modern search + create-wizard coverage above.
  */
 
 import { test, expect } from './fixtures.js';
 
-test.describe('Business Search Flow', () => {
+test.describe.skip('Business Search Flow', () => {
   test('search input exists and accepts text', async ({ page }) => {
     await page.goto('/');
 
@@ -51,7 +59,7 @@ test.describe('Business Search Flow', () => {
   });
 });
 
-test.describe('Business Selection and Details', () => {
+test.describe.skip('Business Selection and Details', () => {
   test('details screen has business name input', async ({ page }) => {
     await page.goto('/');
 
@@ -92,7 +100,7 @@ test.describe('Business Selection and Details', () => {
   });
 });
 
-test.describe('AI Validation Before Build', () => {
+test.describe.skip('AI Validation Before Build', () => {
   test('submitBuild function calls validate-business endpoint', async ({ page }) => {
     await page.goto('/');
 
@@ -126,7 +134,7 @@ test.describe('AI Validation Before Build', () => {
   });
 });
 
-test.describe('Workflow Step Labels', () => {
+test.describe.skip('Workflow Step Labels', () => {
   test('WORKFLOW_STEP_LABELS covers all enrichment steps', async ({ page }) => {
     await page.goto('/');
 
@@ -172,7 +180,7 @@ test.describe('Workflow Step Labels', () => {
   });
 });
 
-test.describe('Data Enrichment Pipeline', () => {
+test.describe.skip('Data Enrichment Pipeline', () => {
   test('createSiteFromSearch function is defined', async ({ page }) => {
     await page.goto('/');
 
@@ -223,7 +231,7 @@ test.describe('Data Enrichment Pipeline', () => {
   });
 });
 
-test.describe('Search Deduplication', () => {
+test.describe.skip('Search Deduplication', () => {
   test('search dropdown deduplicates pre-built sites from Google Places results', async ({ page }) => {
     await page.goto('/');
 
@@ -242,7 +250,7 @@ test.describe('Search Deduplication', () => {
   });
 });
 
-test.describe('Smooth DOM Updates', () => {
+test.describe.skip('Smooth DOM Updates', () => {
   test('addTerminalLine uses requestAnimationFrame', async ({ page }) => {
     await page.goto('/');
 
