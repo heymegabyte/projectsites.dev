@@ -468,27 +468,33 @@ export async function notifyDomainVerified(
  *   currently resolves as `ok:true` because {@link sendEmail} returns void on skip —
  *   surfacing that distinctly is a tracked follow-up on sendEmail's contract.
  */
-export async function notifySiteBuilt(
-  env: Env,
-  opts: {
-    email: string;
-    siteName: string;
-    slug: string;
-    siteUrl: string;
-    version: string;
-    pagesGenerated?: number;
-    /**
-     * True when the build ran in SEED-ONLY graceful-degradation mode — the AI build-credit was
-     * unavailable and `BUILD_LLM_ALLOW_SEED_ONLY` let it publish template + vertical-pack seed
-     * content instead of bespoke AI generation. The site is live + real, so the email honestly
-     * frames it as a "starter build" and invites a free regenerate once credit is restored, rather
-     * than claiming "ready for the world". Absent → the normal full-quality email (unchanged).
-     */
-    degraded?: boolean;
-  },
-): Promise<{ ok: boolean; error?: string }> {
-  // Honest framing for a seed-only degraded delivery — never the confident "ready for the world"
-  // claim. Both defaults preserve the existing full-quality email for every normal build (AL-768).
+/** Facts the "your site is live" email renders from. */
+export interface SiteBuiltEmailOpts {
+  siteName: string;
+  siteUrl: string;
+  version: string;
+  pagesGenerated?: number;
+  /**
+   * True when the build ran in SEED-ONLY graceful-degradation mode — the AI build-credit was
+   * unavailable and `BUILD_LLM_ALLOW_SEED_ONLY` let it publish template + vertical-pack seed
+   * content instead of bespoke AI generation. The site is live + real, so the email honestly
+   * frames it as a "starter build" and invites a free regenerate once credit is restored, rather
+   * than claiming "ready for the world". Absent → the normal full-quality email (unchanged).
+   */
+  degraded?: boolean;
+}
+
+/**
+ * PURE renderer for the "your site is live" email — extracted from {@link notifySiteBuilt} so the
+ * honest-degraded-framing invariant is unit-testable WITHOUT sending. A seed-only (`degraded`)
+ * delivery MUST invite a free **Regenerate** and call itself a **starter build**, never the
+ * confident "ready for the world" — otherwise a starter site reads as final and invites a refund
+ * instead of the free rebuild (revenue/trust; degraded-success-must-flag-user + AL-768).
+ *
+ * @returns `{ subject, html }` — ready to hand to {@link sendEmail}. Zero I/O.
+ * @example renderSiteBuiltEmail({ siteName: 'Acme', siteUrl: 'https://acme…', version: 'v1', degraded: true }).subject
+ */
+export function renderSiteBuiltEmail(opts: SiteBuiltEmailOpts): { subject: string; html: string } {
   const intro = opts.degraded
     ? `<strong style="color:${BRAND.ink};">${opts.siteName}</strong> is built and live &mdash; a polished <strong style="color:${BRAND.ink};">starter build</strong> we published while the AI writer was briefly at capacity.`
     : `<strong style="color:${BRAND.ink};">${opts.siteName}</strong> has been built and published. Take it for a spin &mdash; it's ready for the world.`;
@@ -526,11 +532,27 @@ export async function notifySiteBuilt(
       ? `${opts.siteName} is live (starter build) at ${opts.siteUrl}`
       : `${opts.siteName} is live at ${opts.siteUrl}`,
   );
+  return { subject: `Site published: ${opts.siteName}`, html };
+}
+
+export async function notifySiteBuilt(
+  env: Env,
+  opts: {
+    email: string;
+    siteName: string;
+    slug: string;
+    siteUrl: string;
+    version: string;
+    pagesGenerated?: number;
+    degraded?: boolean;
+  },
+): Promise<{ ok: boolean; error?: string }> {
+  const { subject, html } = renderSiteBuiltEmail(opts);
 
   try {
     await sendEmail(env, {
       to: opts.email,
-      subject: `Site published: ${opts.siteName}`,
+      subject,
       html,
       category: 'site_built',
     });

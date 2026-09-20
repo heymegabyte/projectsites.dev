@@ -43,6 +43,7 @@ import {
   sendEmail,
   notifyDomainVerified,
   notifySiteBuilt,
+  renderSiteBuiltEmail,
   sendInviteEmail,
 } from '../services/notifications.js';
 import { log } from '../lib/log.js';
@@ -125,6 +126,33 @@ beforeEach(() => {
 afterEach(() => {
   global.fetch = originalFetch;
   jest.restoreAllMocks();
+});
+
+describe('renderSiteBuiltEmail — honest degraded (seed-only) framing (revenue/trust lock)', () => {
+  const base = { siteName: 'Acme Diner', siteUrl: 'https://acme-diner.projectsites.dev', version: 'v-1' };
+
+  it('FULL build → confident "ready for the world", NO starter-build / regenerate copy', () => {
+    const { subject, html } = renderSiteBuiltEmail({ ...base, degraded: false });
+    expect(html).toContain('ready for the world');
+    expect(html).not.toMatch(/starter build/i);
+    expect(html).not.toMatch(/regenerate/i);
+    expect(subject).toBe('Site published: Acme Diner');
+  });
+
+  it('DEGRADED (seed-only) → honest "starter build" + free Regenerate invite, never "ready for the world"', () => {
+    // A seed-only build is live+real but NOT bespoke. Overclaiming it as final invites a refund
+    // instead of the free rebuild — so the email MUST say starter-build + invite Regenerate.
+    const { html } = renderSiteBuiltEmail({ ...base, degraded: true });
+    expect(html).toMatch(/starter build/i);
+    expect(html).toMatch(/regenerate/i);
+    expect(html).not.toContain('ready for the world');
+  });
+
+  it('degraded undefined defaults to full-quality copy (no accidental starter-build framing)', () => {
+    const { html } = renderSiteBuiltEmail(base);
+    expect(html).toContain('ready for the world');
+    expect(html).not.toMatch(/starter build/i);
+  });
 });
 
 describe('notifications — SendGrid fallback', () => {
