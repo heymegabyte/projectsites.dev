@@ -10,8 +10,10 @@
  *
  * Safe-by-default: a no-op when the header is absent OR the method is not
  * mutating, so existing traffic is unaffected. Only successful (2xx) JSON
- * responses are cached — errors stay retryable. Scoped by `orgId` so one tenant's
- * key can never collide with or replay another's.
+ * responses are cached — errors stay retryable. Scoped by `orgId` for authenticated
+ * callers (one tenant's key can never replay another's) and by the CF edge IP for
+ * anonymous callers on public routes (two different visitors can never collide); a
+ * caller with neither identity skips dedupe entirely.
  *
  * @packageDocumentation
  */
@@ -29,8 +31,9 @@ const MAX_CACHED_BODY = 256 * 1024;
 /**
  * Build the per-tenant KV key for an idempotent request.
  *
- * @remarks Scoped by orgId + method + path so the same client key on a different
- * route or tenant never collides. Exported for unit testing.
+ * @remarks Scoped by caller identity (orgId for authenticated, `anon:<cf-edge-ip>` for
+ * anonymous) + method + path so the same client key on a different route, tenant, or
+ * anonymous visitor never collides. Exported for unit testing.
  */
 export function idempotencyCacheKey(
   scope: string,
@@ -60,7 +63,21 @@ export const idempotencyMiddleware: MiddlewareHandler<{
     return;
   }
 
-  const scope = c.get('orgId') ?? 'anon';
+  // Scope the dedupe key. An AUTHENTICATED caller scopes by tenant (orgId) so one tenant's
+  // key can never replay another's. An UNAUTHENTICATED caller has NO tenant — collapsing every
+  // anon caller into one shared 'anon' bucket let two DIFFERENT visitors with the same
+  // Idempotency-Key on the same PUBLIC mutating path (e.g. POST /api/contact-form/:slug) replay
+  // each other's cached response (cross-caller leak). Scope anon callers by the unspoofable CF
+  // edge IP instead: distinct visitors never collide, while a single visitor's retry still
+  // dedupes. If we can identify NEITHER a tenant NOR an edge IP, skip dedupe (run the handler)
+  // rather than risk a shared-bucket collision.
+  const orgId = c.get('orgId');
+  const anonIp = c.req.header('cf-connecting-ip');
+  const scope = orgId ?? (anonIp ? `anon:${anonIp}` : undefined);
+  if (!scope) {
+    await next();
+    return;
+  }
   const kvKey = idempotencyCacheKey(scope, c.req.method, new URL(c.req.url).pathname, clientKey);
 
   const cached = (await c.env.CACHE_KV.get(kvKey, 'json').catch(() => null)) as {
