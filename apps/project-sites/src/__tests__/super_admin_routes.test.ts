@@ -156,6 +156,8 @@ const ROUTES: Array<[string, string, unknown?]> = [
   ['GET', '/api/super-admin/transactions'],
   ['GET', '/api/super-admin/ops/sites'],
   ['GET', '/api/super-admin/ops/users'],
+  ['GET', '/api/super-admin/ops/sites/s1'],
+  ['GET', '/api/super-admin/ops/users/u1'],
   [
     'POST',
     '/api/super-admin/manual-adjustment',
@@ -370,6 +372,76 @@ describe('site operations — ops/users list (Phase 1b)', () => {
       makeEnv(),
     );
     expect(res.status).toBe(400);
+  });
+});
+
+describe('site operations — Site-360 + Account-360 detail (drawers)', () => {
+  beforeEach(grantSuperAdmin);
+
+  it('GET /ops/sites/:id returns the site + resolved owner', async () => {
+    mockDbQueryOne.mockImplementation(async (_db: unknown, sql: string) => {
+      if (/FROM sites s LEFT JOIN orgs/i.test(sql))
+        return {
+          id: 's1',
+          slug: 'acme',
+          business_name: 'Acme',
+          status: 'published',
+          org_id: 'o1',
+          org_name: 'Org1',
+          current_build_version: 'v1',
+          budget_tier: 'free',
+          created_at: 'x',
+          updated_at: 'y',
+        };
+      if (/role = 'owner'/i.test(sql)) return { email: 'owner@x.com', display_name: 'Owner' };
+      if (/is_super_admin.*FROM\s+users/i.test(sql)) return { is_super_admin: 1 };
+      return null;
+    });
+    const res = await req(makeApp(SUPER), 'GET', '/api/super-admin/ops/sites/s1', makeEnv());
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { site: { slug: string }; owner: { email: string } };
+    expect(json.site.slug).toBe('acme');
+    expect(json.owner.email).toBe('owner@x.com');
+  });
+
+  it('GET /ops/sites/:id 404s when the site does not exist', async () => {
+    // only the gate resolves; the site lookup returns null → notFound
+    const res = await req(makeApp(SUPER), 'GET', '/api/super-admin/ops/sites/nope', makeEnv());
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /ops/users/:id returns the account + orgs + distinct site count', async () => {
+    mockDbQueryOne.mockImplementation(async (_db: unknown, sql: string) => {
+      // detail-user query is unique: it selects `u.email, u.display_name` (the gate does not)
+      if (/u\.email,\s*u\.display_name/i.test(sql))
+        return {
+          id: 'u1',
+          email: 'a@x.com',
+          display_name: 'Aa',
+          is_super_admin: 0,
+          created_at: 'x',
+          updated_at: 'y',
+        };
+      if (/COUNT\(DISTINCT/i.test(sql)) return { n: 2 };
+      if (/is_super_admin.*FROM\s+users/i.test(sql)) return { is_super_admin: 1 };
+      return null;
+    });
+    mockDbQuery.mockResolvedValue({ data: [{ org_id: 'o1', org_name: 'Org1', role: 'owner' }] });
+    const res = await req(makeApp(SUPER), 'GET', '/api/super-admin/ops/users/u1', makeEnv());
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      user: { email: string };
+      orgs: unknown[];
+      sites_count: number;
+    };
+    expect(json.user.email).toBe('a@x.com');
+    expect(json.orgs).toHaveLength(1);
+    expect(json.sites_count).toBe(2);
+  });
+
+  it('GET /ops/users/:id 404s when the account does not exist', async () => {
+    const res = await req(makeApp(SUPER), 'GET', '/api/super-admin/ops/users/nope', makeEnv());
+    expect(res.status).toBe(404);
   });
 });
 

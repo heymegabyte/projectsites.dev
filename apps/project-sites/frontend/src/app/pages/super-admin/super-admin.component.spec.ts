@@ -252,6 +252,26 @@ describe('SuperAdminComponent — load error feedback (silent 403 gate, no lying
     expect(c.forbidden()).toBe(false);
     expect(err).toHaveBeenCalledOnceWith('Could not load accounts — try again');
   });
+
+  it('openSiteDrawer opens the Site-360 drawer + fetches /ops/sites/:id (silent)', () => {
+    const get = jasmine
+      .createSpy('get')
+      .and.returnValue({ toPromise: () => Promise.resolve({ site: { id: 's1', slug: 'acme' }, owner: null }) });
+    const c = makeWithGet(get, jasmine.createSpy('error'));
+    (c as unknown as { openSiteDrawer(s: unknown): void }).openSiteDrawer({ id: 's1', slug: 'acme' });
+    expect(c.drawerKind()).toBe('site');
+    expect(get).toHaveBeenCalledWith('/super-admin/ops/sites/s1', undefined, { silent: true });
+  });
+
+  it('openUserDrawer opens the Account-360 drawer + fetches /ops/users/:id (silent)', () => {
+    const get = jasmine
+      .createSpy('get')
+      .and.returnValue({ toPromise: () => Promise.resolve({ user: { id: 'u1' }, orgs: [], sites_count: 0 }) });
+    const c = makeWithGet(get, jasmine.createSpy('error'));
+    (c as unknown as { openUserDrawer(u: unknown): void }).openUserDrawer({ id: 'u1', email: 'a@x.com' });
+    expect(c.drawerKind()).toBe('user');
+    expect(get).toHaveBeenCalledWith('/super-admin/ops/users/u1', undefined, { silent: true });
+  });
 });
 
 /**

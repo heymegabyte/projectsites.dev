@@ -1,6 +1,7 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  HostListener,
   OnInit,
   computed,
   effect,
@@ -158,6 +159,41 @@ interface OpsUserRow {
   is_super_admin: number;
   created_at: string;
   updated_at: string;
+}
+
+/** Site-360 drawer payload (GET /api/super-admin/ops/sites/:id). */
+interface SiteDetail {
+  site: {
+    id: string;
+    slug: string;
+    business_name: string;
+    business_address: string | null;
+    business_phone: string | null;
+    business_email: string | null;
+    business_category: string | null;
+    status: string;
+    org_id: string;
+    org_name: string | null;
+    current_build_version: string | null;
+    budget_tier: string | null;
+    created_at: string;
+    updated_at: string;
+  };
+  owner: { email: string; display_name: string | null } | null;
+}
+
+/** Account-360 drawer payload (GET /api/super-admin/ops/users/:id). */
+interface UserDetail {
+  user: {
+    id: string;
+    email: string;
+    display_name: string | null;
+    is_super_admin: number;
+    created_at: string;
+    updated_at: string;
+  };
+  orgs: ReadonlyArray<{ org_id: string; org_name: string | null; role: string }>;
+  sites_count: number;
 }
 
 @Component({
@@ -525,7 +561,12 @@ interface OpsUserRow {
                 </td></tr>
               } @else {
                 @for (s of opsSites(); track s.id) {
-                  <tr class="sa-row">
+                  <tr class="sa-row sa-clickable" (click)="openSiteDrawer(s)"
+                      (keydown.enter)="openSiteDrawer(s)"
+                      (keydown.space)="$event.preventDefault(); openSiteDrawer(s)"
+                      tabindex="0" role="button"
+                      [attr.aria-label]="'View details for ' + (s.business_name || s.slug)"
+                      [attr.data-testid]="'sa-ops-row-' + s.id">
                     <td>{{ s.business_name || '—' }}</td>
                     <td><code class="sa-mono">{{ s.slug }}</code></td>
                     <td class="muted">{{ s.org_name || '—' }}</td>
@@ -533,6 +574,7 @@ interface OpsUserRow {
                     <td class="muted small">{{ s.created_at ? s.created_at.slice(0, 10) : '—' }}</td>
                     <td class="num">
                       <a class="sa-btn-ghost sa-ops-open" [href]="opsSiteUrl(s.slug)"
+                         (click)="$event.stopPropagation()"
                          target="_blank" rel="noopener noreferrer"
                          [attr.aria-label]="'Open ' + (s.business_name || s.slug) + ' in a new tab'">Open ↗</a>
                     </td>
@@ -595,7 +637,12 @@ interface OpsUserRow {
                 </td></tr>
               } @else {
                 @for (u of usersRows(); track u.id) {
-                  <tr class="sa-row">
+                  <tr class="sa-row sa-clickable" (click)="openUserDrawer(u)"
+                      (keydown.enter)="openUserDrawer(u)"
+                      (keydown.space)="$event.preventDefault(); openUserDrawer(u)"
+                      tabindex="0" role="button"
+                      [attr.aria-label]="'View account ' + u.email"
+                      [attr.data-testid]="'sa-users-row-' + u.id">
                     <td><code class="sa-mono">{{ u.email }}</code></td>
                     <td>{{ u.display_name || '—' }}</td>
                     <td>
@@ -653,6 +700,80 @@ interface OpsUserRow {
             </div>
           </div>
         </div>
+      }
+
+      <!-- Site-360 / Account-360 slide-out drawer — click any ops row to inspect + act. -->
+      @if (drawerKind(); as kind) {
+        <div class="sa-drawer-scrim" (click)="closeDrawer()" data-testid="sa-drawer-scrim"></div>
+        <aside class="sa-drawer" role="dialog" aria-modal="true" tabindex="-1"
+               [attr.aria-label]="kind === 'site' ? 'Site details' : 'Account details'"
+               data-testid="sa-drawer">
+          <button type="button" class="sa-drawer-x" (click)="closeDrawer()" aria-label="Close details">✕</button>
+
+          @if (drawerLoading()) {
+            <div class="sa-drawer-load" aria-busy="true">
+              <div class="sa-shimmer sa-shimmer-title"></div>
+              <div class="sa-shimmer"></div><div class="sa-shimmer"></div>
+              <div class="sa-shimmer" style="width:60%"></div>
+            </div>
+          } @else if (kind === 'site' && siteDetail(); as d) {
+            <div class="sa-drawer-hero" [attr.data-status]="d.site.status">
+              <span class="sa-drawer-kicker">Site operations · 360°</span>
+              <h2 class="sa-drawer-title" data-testid="sa-drawer-title">{{ d.site.business_name || d.site.slug }}</h2>
+              <div class="sa-drawer-badges">
+                <span class="sa-pill" [attr.data-status]="d.site.status">{{ d.site.status }}</span>
+                @if (d.site.budget_tier) { <span class="sa-chip">{{ d.site.budget_tier }}</span> }
+              </div>
+            </div>
+            <dl class="sa-dl">
+              <div><dt>Slug</dt><dd><code class="sa-mono">{{ d.site.slug }}</code></dd></div>
+              <div><dt>Owner org</dt><dd>{{ d.site.org_name || '—' }}</dd></div>
+              <div><dt>Owner</dt><dd>{{ d.owner?.display_name || '—' }} @if (d.owner?.email) { <span class="muted small">· {{ d.owner!.email }}</span> }</dd></div>
+              @if (d.site.business_category) { <div><dt>Category</dt><dd>{{ d.site.business_category }}</dd></div> }
+              @if (d.site.business_address) { <div><dt>Address</dt><dd>{{ d.site.business_address }}</dd></div> }
+              @if (d.site.business_phone) { <div><dt>Phone</dt><dd>{{ d.site.business_phone }}</dd></div> }
+              @if (d.site.business_email) { <div><dt>Business email</dt><dd>{{ d.site.business_email }}</dd></div> }
+              <div><dt>Build</dt><dd><code class="sa-mono">{{ d.site.current_build_version || '—' }}</code></dd></div>
+              <div><dt>Created</dt><dd>{{ d.site.created_at ? d.site.created_at.slice(0, 10) : '—' }}</dd></div>
+              <div><dt>Updated</dt><dd>{{ d.site.updated_at ? d.site.updated_at.slice(0, 10) : '—' }}</dd></div>
+            </dl>
+            <div class="sa-drawer-actions">
+              <a class="sa-btn-primary" [href]="opsSiteUrl(d.site.slug)" target="_blank" rel="noopener noreferrer">Open live site ↗</a>
+              <button type="button" class="sa-btn-ghost" (click)="copyText(d.site.slug, 'Slug')">Copy slug</button>
+              @if (d.owner?.email) {
+                <button type="button" class="sa-btn-ghost" (click)="copyText(d.owner!.email, 'Owner email')">Copy owner email</button>
+              }
+            </div>
+          } @else if (kind === 'user' && userDetail(); as d) {
+            <div class="sa-drawer-hero">
+              <span class="sa-drawer-kicker">Account operations · 360°</span>
+              <h2 class="sa-drawer-title" data-testid="sa-drawer-title">{{ d.user.display_name || d.user.email }}</h2>
+              <div class="sa-drawer-badges">
+                @if (d.user.is_super_admin) { <span class="sa-pill" data-status="super">super-admin</span> } @else { <span class="sa-chip">member</span> }
+                <span class="sa-chip">{{ d.sites_count }} site{{ d.sites_count === 1 ? '' : 's' }}</span>
+              </div>
+            </div>
+            <dl class="sa-dl">
+              <div><dt>Email</dt><dd><code class="sa-mono">{{ d.user.email }}</code></dd></div>
+              <div><dt>Account ID</dt><dd><code class="sa-mono">{{ d.user.id }}</code></dd></div>
+              <div><dt>Joined</dt><dd>{{ d.user.created_at ? d.user.created_at.slice(0, 10) : '—' }}</dd></div>
+            </dl>
+            <div class="sa-drawer-subhead">Organizations · {{ d.orgs.length }}</div>
+            @if (d.orgs.length) {
+              <ul class="sa-drawer-orgs">
+                @for (o of d.orgs; track o.org_id) {
+                  <li><span class="sa-drawer-org-name">{{ o.org_name || o.org_id }}</span><span class="sa-chip">{{ o.role }}</span></li>
+                }
+              </ul>
+            } @else {
+              <p class="muted small">No organizations.</p>
+            }
+            <div class="sa-drawer-actions">
+              <button type="button" class="sa-btn-primary" (click)="copyText(d.user.email, 'Email')">Copy email</button>
+              <button type="button" class="sa-btn-ghost" (click)="copyText(d.user.id, 'Account ID')">Copy ID</button>
+            </div>
+          }
+        </aside>
       }
     </section>
   `,
@@ -755,6 +876,62 @@ interface OpsUserRow {
     .sa-big-num { font-family: 'Sora', sans-serif; font-weight: 700; font-size: 2.4rem; line-height: 1.1; font-variant-numeric: tabular-nums; color: #fca5a5; }
     .sa-big-num-unit { display: block; font-size: 0.68rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); font-family: inherit; margin-top: 2px; }
     .sa-suppress-row { font-family: 'JetBrains Mono', monospace; overflow-wrap: anywhere; }
+    /* ── Cinematic layer ─────────────────────────────────────────────────── */
+    .sa-root { position: relative; }
+    .sa-root::before {
+      content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+      background:
+        radial-gradient(60% 50% at 12% -5%, rgba(0,229,255,0.10), transparent 60%),
+        radial-gradient(55% 45% at 92% 8%, rgba(124,58,237,0.11), transparent 62%),
+        radial-gradient(45% 40% at 50% 108%, rgba(0,229,255,0.055), transparent 72%);
+      animation: sa-aurora 24s ease-in-out infinite alternate;
+    }
+    @keyframes sa-aurora { 0% { opacity: 0.65; transform: translateY(0); } 100% { opacity: 1; transform: translateY(-14px); } }
+    .sa-h1 { text-shadow: 0 0 40px rgba(0,229,255,0.18); }
+    .sa-card { position: relative; overflow: hidden; backdrop-filter: blur(7px); transition: border-color 0.35s ease, box-shadow 0.35s ease; }
+    .sa-card::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(0,229,255,0.45), transparent); opacity: 0.55; }
+    .sa-card:hover { border-color: rgba(0,229,255,0.16); box-shadow: 0 20px 60px -30px rgba(0,229,255,0.30); }
+    .sa-tile { transition: border-color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease; }
+    .sa-tile:hover { transform: translateY(-2px); border-color: rgba(0,229,255,0.30); box-shadow: 0 14px 40px -26px rgba(0,229,255,0.5); }
+    /* Clickable ops rows → open the 360° drawer */
+    .sa-clickable { cursor: pointer; transition: background 0.18s ease; }
+    .sa-clickable:hover td { background: rgba(0,229,255,0.055); }
+    .sa-clickable:hover td:first-child { box-shadow: inset 3px 0 0 var(--ps-accent, #00E5FF); }
+    .sa-clickable:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: -2px; }
+    .sa-clickable td { transition: background 0.18s ease, box-shadow 0.18s ease; }
+    /* Site-status + super-admin pill palettes */
+    .sa-pill[data-status="published"] { background: rgba(52,211,153,0.12); color: #6ee7b7; border: 1px solid rgba(52,211,153,0.32); }
+    .sa-pill[data-status="generating"], .sa-pill[data-status="imaging"], .sa-pill[data-status="collecting"], .sa-pill[data-status="draft"] { background: rgba(0,229,255,0.10); color: var(--ps-accent, #00E5FF); border: 1px solid rgba(0,229,255,0.28); }
+    .sa-pill[data-status="error"] { background: rgba(248,113,113,0.10); color: #fca5a5; border: 1px solid rgba(248,113,113,0.24); }
+    .sa-pill[data-status="archived"] { background: rgba(148,163,184,0.10); color: #cbd5e1; border: 1px solid rgba(148,163,184,0.24); }
+    .sa-pill[data-status="super"] { background: rgba(124,58,237,0.16); color: #c4b5fd; border: 1px solid rgba(124,58,237,0.42); }
+    /* ── 360° drawer ─────────────────────────────────────────────────────── */
+    .sa-drawer-scrim { position: fixed; inset: 0; background: rgba(3,6,16,0.55); backdrop-filter: blur(6px); z-index: 100000; animation: sa-fade 0.25s ease; }
+    .sa-drawer { position: fixed; top: 0; right: 0; height: 100dvh; width: min(468px, 94vw); z-index: 100001; overflow-y: auto; padding: 26px 26px 44px; background: linear-gradient(180deg, rgba(16,17,34,0.98), rgba(8,9,22,0.99)); border-left: 1px solid rgba(0,229,255,0.22); box-shadow: -44px 0 100px -34px rgba(0,229,255,0.32); animation: sa-slide-in 0.34s cubic-bezier(0.22,1,0.36,1); }
+    .sa-drawer:focus { outline: none; }
+    @keyframes sa-slide-in { from { transform: translateX(44px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes sa-fade { from { opacity: 0; } to { opacity: 1; } }
+    .sa-drawer-x { position: absolute; top: 16px; right: 16px; width: 34px; height: 34px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.10); color: var(--ps-ink); cursor: pointer; font-size: 0.9rem; line-height: 1; }
+    .sa-drawer-x:hover { background: rgba(248,113,113,0.14); border-color: rgba(248,113,113,0.4); color: #fca5a5; }
+    .sa-drawer-x:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
+    .sa-drawer-hero { padding: 6px 40px 18px 0; border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom: 16px; }
+    .sa-drawer-kicker { font-family: 'JetBrains Mono', monospace; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ps-accent, #00E5FF); }
+    .sa-drawer-title { font-family: 'Sora', sans-serif; font-weight: 700; font-size: clamp(1.3rem, 3.5vw, 1.7rem); letter-spacing: -0.02em; margin: 8px 0 12px; line-height: 1.15; text-wrap: balance; }
+    .sa-drawer-badges { display: flex; flex-wrap: wrap; gap: 8px; }
+    .sa-dl { margin: 0 0 18px; }
+    .sa-dl > div { display: grid; grid-template-columns: 118px 1fr; gap: 12px; padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .sa-dl dt { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); margin: 0; padding-top: 2px; }
+    .sa-dl dd { margin: 0; font-size: 0.86rem; overflow-wrap: anywhere; }
+    .sa-drawer-subhead { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.1em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); margin: 4px 0 8px; }
+    .sa-drawer-orgs { list-style: none; margin: 0 0 18px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .sa-drawer-orgs li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); }
+    .sa-drawer-org-name { overflow-wrap: anywhere; font-size: 0.84rem; }
+    .sa-drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+    .sa-drawer-actions .sa-btn-primary { text-decoration: none; display: inline-flex; align-items: center; }
+    .sa-drawer-load { display: flex; flex-direction: column; gap: 12px; padding-top: 30px; }
+    .sa-shimmer { height: 14px; border-radius: 6px; background: linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0.11), rgba(255,255,255,0.04)); background-size: 200% 100%; animation: sa-shimmer 1.3s ease-in-out infinite; }
+    .sa-shimmer-title { height: 26px; width: 70%; }
+    @keyframes sa-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { transition: none !important; animation: none !important; }
     }
@@ -821,6 +998,12 @@ export class SuperAdminComponent implements OnInit {
   usersLoading = signal(true);
   usersQuery = '';
   private usersDebounce: ReturnType<typeof setTimeout> | null = null;
+
+  // Site-360 / Account-360 drawer — click any ops row to inspect + act.
+  drawerKind = signal<'site' | 'user' | null>(null);
+  drawerLoading = signal(false);
+  siteDetail = signal<SiteDetail | null>(null);
+  userDetail = signal<UserDetail | null>(null);
 
   private walletsDebounce: ReturnType<typeof setTimeout> | null = null;
 
@@ -1104,6 +1287,70 @@ export class SuperAdminComponent implements OnInit {
 
   opsSiteUrl(slug: string): string {
     return `https://${slug}.projectsites.dev/`;
+  }
+
+  /** Open the Site-360 drawer for a row and hydrate full detail from the worker. */
+  openSiteDrawer(s: OpsSiteRow): void {
+    this.siteDetail.set(null);
+    this.userDetail.set(null);
+    this.drawerKind.set('site');
+    this.drawerLoading.set(true);
+    this.focusDrawerSoon();
+    this.api
+      .get<SiteDetail>(`/super-admin/ops/sites/${encodeURIComponent(s.id)}`, undefined, { silent: true })
+      .toPromise()
+      .then((d) => this.siteDetail.set(d ?? null))
+      .catch((e) => {
+        if (this.is403(e)) this.forbidden.set(true);
+        else this.toast.error('Could not load site details — try again');
+        this.closeDrawer();
+      })
+      .finally(() => this.drawerLoading.set(false));
+  }
+
+  /** Open the Account-360 drawer for a row and hydrate full detail from the worker. */
+  openUserDrawer(u: OpsUserRow): void {
+    this.siteDetail.set(null);
+    this.userDetail.set(null);
+    this.drawerKind.set('user');
+    this.drawerLoading.set(true);
+    this.focusDrawerSoon();
+    this.api
+      .get<UserDetail>(`/super-admin/ops/users/${encodeURIComponent(u.id)}`, undefined, { silent: true })
+      .toPromise()
+      .then((d) => this.userDetail.set(d ?? null))
+      .catch((e) => {
+        if (this.is403(e)) this.forbidden.set(true);
+        else this.toast.error('Could not load account details — try again');
+        this.closeDrawer();
+      })
+      .finally(() => this.drawerLoading.set(false));
+  }
+
+  closeDrawer(): void {
+    this.drawerKind.set(null);
+  }
+
+  /** Esc closes the drawer (WCAG 2.1.2 — keyboard escape from a modal surface). */
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.drawerKind()) this.closeDrawer();
+  }
+
+  /** Move focus into the drawer once it renders (WCAG 2.4.3 focus order). */
+  private focusDrawerSoon(): void {
+    setTimeout(() => {
+      const el = document.querySelector<HTMLElement>('[data-testid="sa-drawer"]');
+      el?.focus();
+    }, 60);
+  }
+
+  /** Copy a value to the clipboard with a labelled confirmation toast. */
+  copyText(value: string, label: string): void {
+    void navigator.clipboard
+      ?.writeText(value)
+      .then(() => this.toast.success(`${label} copied`))
+      .catch(() => this.toast.error('Copy failed'));
   }
 
   private async loadUsers(): Promise<void> {

@@ -16,6 +16,7 @@ import type { MiddlewareHandler } from 'hono';
 import type { Env, Variables } from '../types/env.js';
 import { dbQuery, dbQueryOne, dbInsert, dbUpdate } from '../services/db.js';
 import { sanitizeLikeTerm } from '../services/like_pattern.js';
+import { notFound } from '@project-sites/shared';
 import { manualAdjustment } from '../services/wallet.js';
 import { isSuperAdmin } from '../services/sysadmin.js';
 import { getCreditReport } from '../services/credit_monitor.js';
@@ -392,6 +393,63 @@ superAdmin.get('/api/super-admin/ops/users', zValidator('query', opsUsersQuery),
     [...params, limit, offset],
   );
   return c.json({ rows: data, total, page, limit, pages: Math.ceil(total / limit) });
+});
+
+// ─── Site-360 + Account-360 detail (powers the ops drawers) ────────────────
+// Cross-org BY DESIGN — requireSuperAdmin (applied to this whole router) is the
+// authz; the IDOR gate exempts every `/api/super-admin/` path. Additive reads,
+// no secrets (users detail never selects password/session columns).
+
+/** Full detail for ONE site across any org — site + owner — for the Site-360 drawer. */
+superAdmin.get('/api/super-admin/ops/sites/:id', async (c) => {
+  const id = c.req.param('id');
+  const site = await dbQueryOne<{ org_id: string }>(
+    c.env.DB,
+    `SELECT s.id, s.slug, s.business_name, s.business_address, s.business_phone, s.business_email,
+            s.business_category, s.status, s.org_id, o.name AS org_name, s.current_build_version,
+            s.budget_tier, s.google_place_id, s.created_at, s.updated_at
+       FROM sites s LEFT JOIN orgs o ON o.id = s.org_id
+       WHERE s.id = ? AND s.deleted_at IS NULL`,
+    [id],
+  );
+  if (!site) throw notFound('Site not found');
+  const owner = await dbQueryOne<{ email: string; display_name: string | null }>(
+    c.env.DB,
+    `SELECT u.email, u.display_name FROM users u
+       JOIN memberships m ON u.id = m.user_id
+      WHERE m.org_id = ? AND m.role = 'owner' AND m.deleted_at IS NULL AND u.deleted_at IS NULL
+      LIMIT 1`,
+    [site.org_id],
+  );
+  return c.json({ site, owner: owner ?? null });
+});
+
+/** Full detail for ONE account — user + their orgs + total sites — for the Account-360 drawer. */
+superAdmin.get('/api/super-admin/ops/users/:id', async (c) => {
+  const id = c.req.param('id');
+  const user = await dbQueryOne(
+    c.env.DB,
+    `SELECT u.id, u.email, u.display_name, u.is_super_admin, u.created_at, u.updated_at
+       FROM users u WHERE u.id = ? AND u.deleted_at IS NULL`,
+    [id],
+  );
+  if (!user) throw notFound('Account not found');
+  const { data: orgs } = await dbQuery(
+    c.env.DB,
+    `SELECT o.id AS org_id, o.name AS org_name, m.role
+       FROM memberships m JOIN orgs o ON o.id = m.org_id
+      WHERE m.user_id = ? AND m.deleted_at IS NULL AND o.deleted_at IS NULL
+      ORDER BY CASE m.role WHEN 'owner' THEN 0 ELSE 1 END, o.name ASC`,
+    [id],
+  );
+  const sitesRow = await dbQueryOne<{ n: number }>(
+    c.env.DB,
+    `SELECT COUNT(DISTINCT s.id) AS n
+       FROM sites s JOIN memberships m ON m.org_id = s.org_id
+      WHERE m.user_id = ? AND s.deleted_at IS NULL AND m.deleted_at IS NULL`,
+    [id],
+  );
+  return c.json({ user, orgs, sites_count: sitesRow?.n ?? 0 });
 });
 
 // ─── Manual wallet adjustment ──────────────────────────────────────────────
