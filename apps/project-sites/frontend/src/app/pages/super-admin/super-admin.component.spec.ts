@@ -229,6 +229,29 @@ describe('SuperAdminComponent — load error feedback (silent 403 gate, no lying
     expect(c.forbidden()).toBe(true);
     expect(err).not.toHaveBeenCalled();
   });
+
+  it('Account Operations (ops/users) load passes { silent: true } + sets the gate on 403', async () => {
+    const err = jasmine.createSpy('error');
+    const get = jasmine.createSpy('get').and.returnValue({ toPromise: () => Promise.reject({ status: 403 }) });
+    const c = makeWithGet(get, err);
+    await (c as unknown as { loadUsers(): Promise<void> }).loadUsers();
+    expect(get).toHaveBeenCalledWith(
+      jasmine.stringMatching(/^\/super-admin\/ops\/users\?/),
+      undefined,
+      { silent: true },
+    );
+    expect(c.forbidden()).toBe(true);
+    expect(err).not.toHaveBeenCalled();
+  });
+
+  it('ops/users non-403 (500) → ONE explicit account-load toast, never a lying generic', async () => {
+    const err = jasmine.createSpy('error');
+    const get = jasmine.createSpy('get').and.returnValue({ toPromise: () => Promise.reject({ status: 500 }) });
+    const c = makeWithGet(get, err);
+    await (c as unknown as { loadUsers(): Promise<void> }).loadUsers();
+    expect(c.forbidden()).toBe(false);
+    expect(err).toHaveBeenCalledOnceWith('Could not load accounts — try again');
+  });
 });
 
 /**

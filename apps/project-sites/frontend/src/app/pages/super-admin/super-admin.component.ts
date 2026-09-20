@@ -150,6 +150,16 @@ interface OpsSiteRow {
   created_at: string;
 }
 
+/** One row of the platform-wide account list (GET /api/super-admin/ops/users). Never carries secrets. */
+interface OpsUserRow {
+  id: string;
+  email: string;
+  display_name: string | null;
+  is_super_admin: number;
+  created_at: string;
+  updated_at: string;
+}
+
 @Component({
   selector: 'app-super-admin',
   standalone: true,
@@ -541,6 +551,76 @@ interface OpsSiteRow {
             </div>
           </footer>
         </section>
+
+        <!-- Account operations — every user account across every org, searchable +
+             sortable + paginated server-side (scales to 1M). Backed by
+             GET /api/super-admin/ops/users (never returns password/session columns). -->
+        <section class="sa-card" appReveal data-testid="sa-ops-users">
+          <header class="sa-card-head">
+            <div>
+              <h2>Account operations</h2>
+              <p>Every user account on the platform — search, sort, review each account's status.</p>
+            </div>
+            <input
+              type="search"
+              class="sa-search"
+              placeholder="Search accounts by email or name…"
+              [(ngModel)]="usersQuery"
+              (ngModelChange)="onUsersQueryChange()"
+              aria-label="Search all user accounts"
+              data-testid="sa-users-search"
+            />
+          </header>
+          <table class="sa-tbl">
+            <thead>
+              <tr>
+                <th>
+                  <button type="button" class="sa-sort" (click)="sortUsers('email')"
+                          [attr.aria-sort]="usersAriaSort('email')">Email</button>
+                </th>
+                <th>Name</th>
+                <th>Role</th>
+                <th>
+                  <button type="button" class="sa-sort" (click)="sortUsers('created_at')"
+                          [attr.aria-sort]="usersAriaSort('created_at')">Joined</button>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              @if (usersLoading()) {
+                <tr><td colspan="4" class="muted center">Loading accounts…</td></tr>
+              } @else if (usersRows().length === 0) {
+                <tr><td colspan="4" class="muted center" data-testid="sa-users-empty">
+                  {{ usersQuery.trim() ? 'No accounts match your search.' : 'No accounts yet.' }}
+                </td></tr>
+              } @else {
+                @for (u of usersRows(); track u.id) {
+                  <tr class="sa-row">
+                    <td><code class="sa-mono">{{ u.email }}</code></td>
+                    <td>{{ u.display_name || '—' }}</td>
+                    <td>
+                      @if (u.is_super_admin) {
+                        <span class="sa-pill" data-status="super" data-testid="sa-users-super">super-admin</span>
+                      } @else {
+                        <span class="muted small">member</span>
+                      }
+                    </td>
+                    <td class="muted small">{{ u.created_at ? u.created_at.slice(0, 10) : '—' }}</td>
+                  </tr>
+                }
+              }
+            </tbody>
+          </table>
+          <footer class="sa-ops-foot">
+            <span class="muted small" data-testid="sa-users-total">
+              {{ usersTotal() }} account{{ usersTotal() === 1 ? '' : 's' }} · page {{ usersPage() }} of {{ usersPages() }}
+            </span>
+            <div class="sa-ops-pager">
+              <button type="button" class="sa-btn-ghost" (click)="usersPrev()" [disabled]="usersPage() <= 1">Prev</button>
+              <button type="button" class="sa-btn-ghost" (click)="usersNext()" [disabled]="usersPage() >= usersPages()">Next</button>
+            </div>
+          </footer>
+        </section>
       }
 
       @if (adjustOpen(); as w) {
@@ -730,6 +810,18 @@ export class SuperAdminComponent implements OnInit {
   opsQuery = '';
   private opsDebounce: ReturnType<typeof setTimeout> | null = null;
 
+  // Account Operations — platform-wide user list (server-side search + sort + paginate,
+  // scales to 1M; GET /api/super-admin/ops/users). Sibling of the sites table.
+  usersRows = signal<OpsUserRow[]>([]);
+  usersTotal = signal(0);
+  usersPage = signal(1);
+  usersPages = signal(1);
+  usersSort = signal<'created_at' | 'email'>('created_at');
+  usersDir = signal<'asc' | 'desc'>('desc');
+  usersLoading = signal(true);
+  usersQuery = '';
+  private usersDebounce: ReturnType<typeof setTimeout> | null = null;
+
   private walletsDebounce: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
@@ -756,6 +848,7 @@ export class SuperAdminComponent implements OnInit {
       this.loadCategories(),
       this.loadWallets(''),
       this.loadOpsSites(),
+      this.loadUsers(),
     ]).catch((e) => {
       if (this.is403(e)) this.forbidden.set(true);
     });
@@ -1011,6 +1104,76 @@ export class SuperAdminComponent implements OnInit {
 
   opsSiteUrl(slug: string): string {
     return `https://${slug}.projectsites.dev/`;
+  }
+
+  private async loadUsers(): Promise<void> {
+    try {
+      this.usersLoading.set(true);
+      const p = new URLSearchParams({
+        sort: this.usersSort(),
+        dir: this.usersDir(),
+        page: String(this.usersPage()),
+        limit: '25',
+      });
+      const q = this.usersQuery.trim();
+      if (q) p.set('q', q);
+      const res = await this.api
+        .get<{ rows: OpsUserRow[]; total: number; page: number; pages: number }>(
+          `/super-admin/ops/users?${p.toString()}`,
+          undefined,
+          { silent: true },
+        )
+        .toPromise();
+      this.usersRows.set(res?.rows ?? []);
+      this.usersTotal.set(res?.total ?? 0);
+      this.usersPages.set(Math.max(1, res?.pages ?? 1));
+    } catch (e) {
+      if (this.is403(e)) this.forbidden.set(true);
+      else this.toast.error('Could not load accounts — try again');
+    } finally {
+      this.usersLoading.set(false);
+    }
+  }
+
+  /** Debounced account search — resets to page 1 so the first matches are always shown. */
+  onUsersQueryChange(): void {
+    if (this.usersDebounce) clearTimeout(this.usersDebounce);
+    this.usersDebounce = setTimeout(() => {
+      this.usersPage.set(1);
+      void this.loadUsers();
+    }, 280);
+  }
+
+  /** Click a column header: toggle direction if already sorting by it, else switch column. */
+  sortUsers(col: 'created_at' | 'email'): void {
+    if (this.usersSort() === col) {
+      this.usersDir.set(this.usersDir() === 'asc' ? 'desc' : 'asc');
+    } else {
+      this.usersSort.set(col);
+      // email reads best A→Z; joined-date newest-first
+      this.usersDir.set(col === 'email' ? 'asc' : 'desc');
+    }
+    this.usersPage.set(1);
+    void this.loadUsers();
+  }
+
+  usersAriaSort(col: 'created_at' | 'email'): string | null {
+    if (this.usersSort() !== col) return null;
+    return this.usersDir() === 'asc' ? 'ascending' : 'descending';
+  }
+
+  usersPrev(): void {
+    if (this.usersPage() > 1) {
+      this.usersPage.update((p) => p - 1);
+      void this.loadUsers();
+    }
+  }
+
+  usersNext(): void {
+    if (this.usersPage() < this.usersPages()) {
+      this.usersPage.update((p) => p + 1);
+      void this.loadUsers();
+    }
   }
 
   openAdjust(w: OrgWalletRow): void {
