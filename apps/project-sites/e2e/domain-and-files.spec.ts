@@ -96,7 +96,12 @@ test.describe('Workflow Status API', () => {
 
 // ─── UI Element Rendering ────────────────────────────────────
 
-test.describe('UI Elements: Toast Container and Build Terminal', () => {
+// RETIRED 2026-09-20 (AL-839) — these assert DELETED vanilla `public/index.html` globals
+// (`window.WORKFLOW_STEP_LABELS`/`WORKFLOW_STEP_ORDER`/`showToast`/`formatFileSize`, `#toast-container`),
+// removed 2026-07-31. False-green phantoms (green only vs the mock/stale shard, never prod). The Angular
+// admin owns toasts + workflow status now (admin-verify probes). The 3 API describes ABOVE stay LIVE
+// (real endpoint contracts: domain-search + files-auth + workflow-auth). Skipped per e2e-accumulation.
+test.describe.skip('UI Elements: Toast Container and Build Terminal', () => {
   test('Toast container exists on page load', async ({ page }) => {
     await page.goto('/');
     const toastContainer = page.locator('#toast-container');
@@ -177,7 +182,11 @@ test.describe('UI Elements: Toast Container and Build Terminal', () => {
 
 // ─── Search → Build Terminal Flow ────────────────────────────
 
-test.describe('Build Terminal Integration', () => {
+// RETIRED 2026-09-20 (AL-839) — the DELETED vanilla search→details→signin→waiting flow
+// (#screen-details · #build-btn · #screen-signin · window.state · `?token=` · #build-terminal-body).
+// False-green phantom (dead selectors, mock/stale-only). The live build terminal is the Angular
+// waiting.component streaming path (waiting-and-terminal.spec.ts + streaming-build-theater). Skipped.
+test.describe.skip('Build Terminal Integration', () => {
   test('Build terminal renders step lines after build starts', async ({ page }) => {
     await page.goto('/');
 

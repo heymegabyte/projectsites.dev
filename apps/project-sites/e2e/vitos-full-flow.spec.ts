@@ -27,7 +27,16 @@ async function stubRedirects(page: Page): Promise<() => Promise<string[]>> {
   return async () => page.evaluate(() => (window as unknown as Record<string, unknown>).__redirects as string[]);
 }
 
-test.describe('Vito\'s Men\'s Salon — Full Flow', () => {
+// RETIRED 2026-09-20 (AL-839) — this whole describe drove the DELETED vanilla `public/index.html`
+// 4-screen flow (#screen-search/details/signin/waiting · window.state · redirectTo · `?token=` magic
+// callback), removed with the vanilla homepage on 2026-07-31. A false-green PHANTOM: green ONLY vs the
+// mock `scripts/e2e_server.cjs` / the stale `sites-staging.megabyte.space` CI shard on dead `#screen-*`
+// selectors — it never ran against real prod (absent from playwright.prod.config.ts testMatch). Modern
+// coverage: `golden-path.spec.ts` + `home/create-wizard.spec.ts` + `verify-interactive-journey.mjs` +
+// the REAL golden-journey delivery (`deliver-business.mjs` → published, this session's Strand/olympia).
+// Skipped (not deleted) per e2e-accumulation. The "API Integration" describe below stays LIVE (it tests
+// real endpoint contracts — search/health/auth-gating — not the dead UI).
+test.describe.skip('Vito\'s Men\'s Salon — Full Flow', () => {
   test('Search → Select → Details → Auth → Build → Logs', async ({ page }) => {
     // ── Step 1: Open the page ──────────────────────────────
     await page.goto('/');

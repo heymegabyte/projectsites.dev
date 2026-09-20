@@ -31,7 +31,7 @@ auth:
   super_admin_ops:  { status: skipped, specs: [admin-super-admin-ops.spec.ts] }  # ops-console widgets (credits/fleet/growth/deliverability) — render is a documented fixme (super-admin session not headless-reproducible); backend unit-proven (credit_monitor 5/5 + super_admin 64/64)
 
 site_lifecycle:
-  golden_path:      { status: covered, specs: [golden-path.spec.ts, vitos-full-flow.spec.ts] }
+  golden_path:      { status: covered, specs: [golden-path.spec.ts, vitos-full-flow.spec.ts] } # AL-839: vitos-full-flow's vanilla Full-Flow describe skip-retired (dead #screen-* selectors); golden-path.spec + home/create-wizard + real delivery cover it; its API-Integration describe stays live.
   generated_site_visitor: { status: covered, specs: [generated-site-visitor-journey.spec.ts] }  # AL-769 — THE delivered-site VISITOR journey (guest on {slug}.projectsites.dev, real Chromium): homepage-first SPA nav + click-to-call + directions + contact form (non-mutating) + FAQ toggle/blog/gallery + axe 0-critical ×6bp, 0 console errors. golden_path covers the MARKETING site; this covers the actual product OUTPUT a delivered site's real customers use.
   feature_journey:  { status: covered, specs: [feature-journey.spec.ts] }
   search_places:    { status: covered, specs: [search-and-places.spec.ts] }  # AL-804 — TOP-OF-FUNNEL guest acquisition (real Chromium, prod-suite): homepage-first hero business search → debounced dropdown OR graceful Places-403 degraded nudge → Custom-option always present → click routes guest into /signin funnel (SPA no-reload) → open-dropdown axe 0-critical ×6bp, 0 console errors. Rewritten from the DELETED vanilla 4-screen selectors (all 11 old tests were prod-RED); hero input got data-testid="hero-search-input".
@@ -47,7 +47,7 @@ site_management:
   site_cards:       { status: covered, specs: [site-card-features.spec.ts] }
   status_domains:   { status: covered, specs: [site-status-and-domains.spec.ts] }
   preview_logs:     { status: covered, specs: [site-preview-and-logs.spec.ts] }
-  domains:          { status: covered, specs: [domain-management.spec.ts, domain-management-v2.spec.ts, domain-and-files.spec.ts, domain-modal-interactive.spec.ts] }
+  domains:          { status: covered, specs: [domain-management.spec.ts, domain-management-v2.spec.ts, domain-and-files.spec.ts, domain-modal-interactive.spec.ts] } # AL-839: domain-and-files' UI-globals + Build-Terminal describes skip-retired (dead vanilla); its Domain-Search + files/workflow-auth API describes stay live.
   domain_provisioning_envelope: { status: covered, specs: [admin-verify/verify-domain-provisioning-envelope.mjs] }  # § B.10 FULL-FLOW: the custom-domain provisioning owner flow's headless-prod security+entitlement+non-mutation envelope. Owner reads their hostname list (200+data[]); cross-org read 404s (IDOR — never leak another org's domains); POST /api/sites/:id/hostnames is auth-gated (401), Zod-validated (400, type∈{free_subdomain,custom_cname}), entitlement-gated (valid custom_cname on a free org → 403 "Custom domains require a paid plan"); owner hostname set byte-identical before/after (0 provisioning side-effects). Every authed POST targets a GHOST/foreign id — never provisions. Rides workers.dev (Bot-Fight 403s headless POSTs on the custom domain). Wired into admin-verify run-all; fail-open without E2E_API_KEY.
   files:            { status: covered, specs: [files-modal-v2.spec.ts] }
   logs_delete:      { status: covered, specs: [logs-and-delete.spec.ts, logs-modal-interactive.spec.ts] }  # AL-831 RETIRED logs-and-delete (describe.skip) — vanilla Logs modal + Delete-with-subscription + Credits pill removed 2026-07-31; now covered by admin-logs-journey.spec.ts + verify-site-delete-envelope.mjs + billing specs.
@@ -65,7 +65,7 @@ ai_features:
   chat_context:     { status: covered, specs: [ai-chat-context.spec.ts] }
   ai_edit:          { status: covered, specs: [ai-edit.spec.ts] }
   traces:           { status: covered, specs: [ai-traces.spec.ts] }
-  workflow:         { status: covered, specs: [ai-workflow.spec.ts] }
+  workflow:         { status: covered, specs: [ai-workflow.spec.ts] } # AL-839: ai-workflow's Golden-Path UI describe skip-retired (dead vanilla); real workflow proven by the golden-journey delivery (deliver-business→published) + verify-delivered-site-propagation; its mock create-from-search contract + auth describes stay live.
   bolt_chat_ready:  { status: covered, specs: [bolt-chat-ready.spec.ts] }
   streaming_md:     { status: covered, specs: [streaming-markdown-render.spec.ts] }
   prompt_schedule:  { status: covered, specs: [prompt_schedule/schedule.spec.ts] }  # time-windowed prompt-variant scheduler dark-launch contract (flag experimental/off → all 4 /api/prompt-schedules* routes guarded for unauth callers)

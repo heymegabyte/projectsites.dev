@@ -367,7 +367,14 @@ test.describe('AI Workflow: Step Verification', () => {
 // ─── Tests: Golden Path with Workflow (UI) ──────────────────
 // Full UI flow: Search → Auth → Build → Workflow → Published
 
-test.describe('AI Workflow: Golden Path with Workflow', () => {
+// RETIRED 2026-09-20 (AL-839) — this UI test drove the DELETED vanilla `public/index.html` flow
+// (#screen-details · #build-btn · window.state · window.redirectTo · #email-input · "building your
+// website"), removed 2026-07-31 — a false-green phantom on dead selectors (page.route-mocked, never
+// real prod). The REAL search→auth→build→workflow→published journey is now proven end-to-end by the
+// golden-journey delivery (`deliver-business.mjs` → poll to published + `verify-delivered-site-
+// propagation.mjs` + `golden-path.spec.ts`). The two API describes ABOVE stay LIVE (mock create-from-
+// search contract shape + auth-gating). Skipped (not deleted) per e2e-accumulation.
+test.describe.skip('AI Workflow: Golden Path with Workflow', () => {
   test('Search → Email Auth → Build → Workflow triggers and creates site', async ({ page }) => {
     const { apiCalls, setWorkflowState } = await setupGoldenPathMocks(page);
 
