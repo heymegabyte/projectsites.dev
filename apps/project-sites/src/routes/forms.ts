@@ -37,6 +37,10 @@ import { dispatchToIntegrations, type IntegrationRow } from '../services/newslet
 import { improveRouterPrompt } from '../services/form_router.js';
 import * as auditService from '../services/audit.js';
 import { getEmailProvider } from '../platform/email-router.js';
+import { log } from '../lib/log.js';
+
+/** Scoped structured logger for the forms surface (JSON + redaction + field allowlist). */
+const formsLog = log.child('forms');
 
 /** Workers AI model used for reply drafting. NEVER use the bare alias. */
 const REPLY_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast' as const;
@@ -168,17 +172,28 @@ forms.post('/api/v1/forms/submit', async (c) => {
   // owner would never see it in /admin/forms). Surface a 500 so the visitor can retry
   // + the operator sees it — instead of silently dropping the row behind a 200.
   if (insertError) {
-    console.warn(
-      JSON.stringify({
-        level: 'error',
-        service: 'forms-submit',
-        message: 'form_submissions insert failed — submission NOT recorded',
-        error: insertError,
-        site_id: site.id,
-        slug: site.slug,
-      }),
-    );
+    formsLog.error('form_submission_insert_failed', {
+      error: insertError,
+      site_id: site.id,
+      slug: site.slug,
+    });
     throw new Error('Failed to record the submission. Please try again.');
+  }
+
+  // Observability of the FORWARDING outcome (AL-837): the lead is now durably persisted (the owner
+  // sees it in /admin/forms), but if the owner's integration dispatch was PARTIAL/FAILED their
+  // CRM/email/webhook never received it — previously only an audit-INFO, so a silently-failing
+  // integration was not ALERTABLE. Emit an explicit WARN so ops / owner monitoring can catch a
+  // degraded forward (the lead is safe; the forwarding is not). Complements the AL-836 platform-
+  // contact outcome events → the whole lead-capture surface is now observable on the degraded path.
+  if (status === 'partial' || status === 'failed') {
+    formsLog.warn('form_forwarding_degraded', {
+      status,
+      site_id: site.id,
+      slug: site.slug,
+      failed: failures.length,
+      total: integrationsResult.data.length,
+    });
   }
 
   // Audit: form submission processed (routes to integrations or just recorded)

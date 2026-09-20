@@ -378,6 +378,35 @@ describe('POST /api/v1/forms/submit', () => {
     expect(json.data.status).toBe('partial');
     expect(json.data.failed).toBe(1);
   });
+
+  it('emits a form_forwarding_degraded WARN when the forward is partial/failed — the lead is still captured (AL-837)', async () => {
+    mockDbQueryOne.mockResolvedValueOnce(SITE_ROW);
+    mockDbQuery
+      .mockResolvedValueOnce({ data: [], error: null }) // hostnames
+      .mockResolvedValueOnce({
+        data: [
+          { id: 'int-1', site_id: 'site-1', provider: 'mailchimp' },
+          { id: 'int-2', site_id: 'site-1', provider: 'webhook' },
+        ],
+        error: null,
+      });
+    mockDispatch.mockResolvedValueOnce([
+      { integration_id: 'int-1', provider: 'mailchimp', ok: true, error: null },
+      { integration_id: 'int-2', provider: 'webhook', ok: false, error: 'timeout' },
+    ]);
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const res = await request(
+      makeApp(),
+      '/api/v1/forms/submit',
+      { method: 'POST', headers: { 'X-Site-Slug': 'acme' }, body: { form_name: 'signup' } },
+      makeEnv(),
+    );
+    const logged = warnSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    warnSpy.mockRestore();
+    expect(res.status).toBe(200); // lead STILL captured (persisted) — a degraded forward is not a submit failure
+    expect(logged).toContain('form_forwarding_degraded');
+    expect(logged).toMatch(/"status":\s*"partial"/);
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════
