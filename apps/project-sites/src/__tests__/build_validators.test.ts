@@ -725,7 +725,10 @@ describe('validateIndexable (seo.noindex_leak — a published site MUST be finda
 
 describe('validateHtmlLang (html.lang_missing / html.lang_invalid — WCAG 3.1.1 + SEO)', () => {
   const shell = (htmlTag: string): BuildFile =>
-    file('index.html', `<!DOCTYPE html>${htmlTag}<head><title>x</title></head><body><h1>Hi</h1></body></html>`);
+    file(
+      'index.html',
+      `<!DOCTYPE html>${htmlTag}<head><title>x</title></head><body><h1>Hi</h1></body></html>`,
+    );
 
   it('flags a missing lang attribute', () => {
     expect(validateHtmlLang([shell('<html>')])[0].code).toBe('html.lang_missing');
