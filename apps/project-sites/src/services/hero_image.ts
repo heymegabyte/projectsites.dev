@@ -194,6 +194,18 @@ const CERAMICS: HeroImage = {
   url: 'https://images.unsplash.com/photo-1595351298020-038700609878?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHwxfHxjZXJhbWljcyUyMHBvdHRlcnklMjBzdHVkaW98ZW58MHwwfHx8MTc4OTU2NjMxMHww&ixlib=rb-4.1.0&q=80&w=1080',
   alt: 'A potter shaping clay on a spinning wheel in a ceramics studio',
 };
+// AL-846 CLOTHING / apparel — a clothing store / apparel / menswear / womenswear / western-wear /
+// clothier / fashion boutique had NO curated hero (OUTDOOR only catches OUTDOOR/ski apparel), so the
+// broad "retail" pack bucket shipped the generic "cozy independent shop interior shelves" hero — a
+// gift-shop/gallery interior on an APPAREL store (vision-caught live on rockmount-denver, a western-
+// wear clothing store — AL-842). Route to a real clothing-boutique interior (racks of garments).
+// Sourced via Unsplash search API 2026-09-20 ("clothing store boutique interior"), alt-verified
+// on-vertical, URL prod-200 (139KB); the ixid base64-decodes to "clothing store boutique interior"
+// so verify-hero-image-vertical reads it green off the H1 "clothing" noun.
+const CLOTHING: HeroImage = {
+  url: 'https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w5MTc1ODN8MHwxfHNlYXJjaHw0fHxjbG90aGluZyUyMHN0b3JlJTIwYm91dGlxdWUlMjBpbnRlcmlvcnxlbnwwfDB8fHwxNzg5ODkxNzMzfDA&ixlib=rb-4.1.0&q=80&w=1080',
+  alt: 'Racks of garments in a bright, curated clothing boutique',
+};
 
 /**
  * Ordered [sub-vertical pattern → curated hero]. FIRST match wins. Scanned against the derived
@@ -244,6 +256,15 @@ const RULES: ReadonlyArray<readonly [RegExp, HeroImage]> = [
   [
     /\b(outdoor\s?(gear|outfitter\w*|equipment|apparel|clothing|shop|store)|outfitter\w*|ski\s?(shop|store|rental|resort|gear|&?\s?snowboard)|\bskis\b|snowboard\s?(shop|store|gear)?|mountaineer\w*|\bclimbing\b|backcountry|camping\s?(gear|store|shop)|\bkayak\w*|paddleboard\w*)\b/,
     OUTDOOR,
+  ],
+  // AL-846 CLOTHING / apparel — AFTER outdoor so "outdoor clothing"/"outfitter" stays OUTDOOR
+  // (tested first). A general apparel store (clothing/menswear/womenswear/western-wear/clothier/
+  // fashion boutique) gets a real garment-rack boutique hero instead of the pack's generic shop
+  // interior. No bare "wear" (would catch "footwear"/"eyewear" — those get their own hero later);
+  // no bare "fashion" without a store/boutique suffix (so "fashion blog" never matches).
+  [
+    /\b(clothing|apparel|clothier|menswear|womenswear|women'?s\s?wear|men'?s\s?wear|western\s?wear|ranch\s?wear|fashion\s?(boutique|store|house|label|brand)|haberdash\w*)\b/,
+    CLOTHING,
   ],
   // AL-647 STEAKHOUSE — a steakhouse/chophouse is a dining restaurant with its own upscale
   // dining-room identity; "restaurant" alone has no curated hero (broad bucket). `steak\s?house`

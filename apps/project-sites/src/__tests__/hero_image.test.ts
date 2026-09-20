@@ -338,4 +338,26 @@ describe('hero_image — heroImageForVertical (AL-485: per-sub-vertical hero see
       expect(q).toMatch(re);
     }
   });
+
+  it('AL-846: apparel verticals get the CLOTHING hero (rockmount-denver was a generic shop interior)', () => {
+    // The exact live-flagged case (rockmount-denver, business_category "clothing store").
+    expect(heroImageForVertical('clothing store')?.alt).toMatch(/clothing|garment|boutique/i);
+    // Apparel synonyms all resolve to the SAME curated CLOTHING hero.
+    const clothing = heroImageForVertical('clothing store');
+    for (const syn of ['menswear', 'womenswear', 'western wear', 'ranch wear', 'clothier', 'fashion boutique']) {
+      expect(heroImageForVertical(syn)).toBe(clothing);
+    }
+    // Probe-compatibility invariant: the ixid decodes to a "clothing" query → verify-hero-image-vertical green.
+    expect(heroQuery(clothing!.url)).toMatch(/clothing/i);
+  });
+
+  it('AL-846: OUTDOOR still wins for outdoor/ski apparel (order preserved), plumbing stays default', () => {
+    // "outdoor clothing" / "outfitter" must NOT collapse to the general CLOTHING boutique hero.
+    const clothing = heroImageForVertical('clothing store');
+    expect(heroImageForVertical('outdoor clothing')).not.toBe(clothing);
+    expect(heroImageForVertical('outdoor clothing')?.alt).toMatch(/outdoor|climb|mountaineer|gear/i);
+    expect(heroImageForVertical('ski outfitter')).not.toBe(clothing);
+    // A broad vertical with no curated hero still returns null (pack default stands — no regression).
+    expect(heroImageForVertical('plumbing')).toBeNull();
+  });
 });
