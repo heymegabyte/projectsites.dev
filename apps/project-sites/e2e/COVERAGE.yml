@@ -7,7 +7,7 @@
 # Validator: npm run validate:e2e-inventory (apps/project-sites).
 
 app_shell:
-  spa_routing:      { status: covered, specs: [spa-routing.spec.ts] }
+  spa_routing:      { status: covered, specs: [spa-routing.spec.ts] }  # AL-830 — platform SPA routing (real Chromium, prod-suite): footer legal links SPA-navigate (no reload, sentinel) + real H1 · direct-URL /privacy·/terms·/content 200 + real H1 · bogus path → REAL 404 (soft-404 gate) · real route → 200. Rewritten from the DELETED vanilla homepage (#screen-search/.footer-bottom/"Astro"; all prod-RED, false-green vs stale staging).
   topbar:           { status: covered, specs: [topbar-redesign.spec.ts] }
   command_palette:  { status: covered, specs: [command-palette.spec.ts] }
   ui_polish:        { status: covered, specs: [ui-polish.spec.ts] }
