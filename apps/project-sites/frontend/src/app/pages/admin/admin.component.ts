@@ -241,6 +241,8 @@ export class AdminComponent implements OnInit, OnDestroy {
   // User menu + notifications + palette.
   userMenuOpen = signal(false);
   notifOpen = signal(false);
+  /** Notification drawer filter — All vs Unread (Novu-style segmented control). */
+  notifFilter = signal<'all' | 'unread'>('all');
   /** Navbar "Site actions" dropdown (Preview · Save & Deploy · Review links). */
   siteActionsOpen = signal(false);
   notifications = signal<Notification[]>([]);
@@ -779,10 +781,72 @@ export class AdminComponent implements OnInit, OnDestroy {
       .filter((k) => groups[k].length)
       .map((label) => ({ items: groups[label], label }));
   }
+  /** Time-grouped notifications honoring the drawer's All/Unread filter (Novu-style). */
+  visibleGroups(): { label: string; items: Notification[] }[] {
+    const unreadOnly = this.notifFilter() === 'unread';
+    const now = Date.now();
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const groups = {
+      Earlier: [] as Notification[],
+      'This week': [] as Notification[],
+      Today: [] as Notification[],
+    };
+    for (const n of this.notifications()) {
+      if (unreadOnly && n.read) continue;
+      const ts = n.ts ?? now;
+      if (ts >= dayStart.getTime()) groups['Today'].push(n);
+      else if (now - ts < 1000 * 60 * 60 * 24 * 7) groups['This week'].push(n);
+      else groups['Earlier'].push(n);
+    }
+    return (['Today', 'This week', 'Earlier'] as const)
+      .filter((k) => groups[k].length)
+      .map((label) => ({ items: groups[label], label }));
+  }
+  /**
+   * Dismiss (archive) a single notification with an Undo affordance (Novu-style).
+   * Removes it from the live feed + persists the id to `ps_notif_dismissed` so the
+   * background audit re-seed never resurrects it; Undo restores both.
+   */
+  dismissNotification(n: Notification, ev?: Event): void {
+    ev?.stopPropagation();
+    const restore = this.notifications();
+    this.notifications.update((ns) => ns.filter((m) => m.id !== n.id));
+    this.persistDismissed(n.id, true);
+    this.toast.info('Notification dismissed', {
+      action: {
+        label: 'Undo',
+        run: () => {
+          this.notifications.set(restore);
+          this.persistDismissed(n.id, false);
+        },
+      },
+    });
+  }
+  /** Add or remove a notification id from the persisted dismissed set. */
+  private persistDismissed(id: string, dismissed: boolean): void {
+    try {
+      const set = new Set(
+        JSON.parse(localStorage.getItem('ps_notif_dismissed') ?? '[]') as string[],
+      );
+      if (dismissed) set.add(id);
+      else set.delete(id);
+      localStorage.setItem('ps_notif_dismissed', JSON.stringify([...set]));
+    } catch {
+      /* */
+    }
+  }
+  /** Jump to notification settings — the drawer's "manage preferences" footer (Novu-style). */
+  goToNotificationPrefs(): void {
+    this.notifOpen.set(false);
+    this.router.navigateByUrl('/admin/settings#notifications');
+  }
   private seedNotifications(): void {
     let readIds: string[] = [];
+    let dismissedIds: string[] = [];
     try {
       readIds = JSON.parse(localStorage.getItem('ps_notif_read') ?? '[]') as string[];
+      dismissedIds = JSON.parse(localStorage.getItem('ps_notif_dismissed') ?? '[]') as string[];
     } catch {
       /* */
     }
@@ -796,7 +860,7 @@ export class AdminComponent implements OnInit, OnDestroy {
         ts: Date.now(),
       },
     ];
-    this.notifications.set(seeded);
+    this.notifications.set(seeded.filter((n) => !dismissedIds.includes(n.id)));
     // Pull recent audit log entries as notifications (last 5). Background,
     // best-effort: pass { silent: true } so an audit fetch failure (404 / no
     // data / transient) degrades to the seeded feed instead of firing
@@ -829,7 +893,8 @@ export class AdminComponent implements OnInit, OnDestroy {
               ts: t,
             };
           });
-          if (items.length) this.notifications.update((cur) => [...items, ...cur]);
+          const fresh = items.filter((n) => !dismissedIds.includes(n.id));
+          if (fresh.length) this.notifications.update((cur) => [...fresh, ...cur]);
         },
       });
   }

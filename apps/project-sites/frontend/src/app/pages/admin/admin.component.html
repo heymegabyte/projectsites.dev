@@ -437,16 +437,16 @@
                top-bar budget. Real <a> (middle-click / open-in-new-tab / keyboard). -->
           @if (state.selectedSite(); as site) {
             <a
-              class="top-btn top-btn-accent view-site-btn flex-shrink-0 max-md:px-2"
+              class="top-btn top-btn-accent view-site-btn icon-only flex-shrink-0"
               [href]="state.getSiteUrl(site)"
               target="_blank"
               rel="noopener noreferrer"
-              [brnTooltip]="'Open the live website in a new tab'"
-              aria-label="Open the live website in a new tab"
+              [brnTooltip]="'View the live website (opens in a new tab)'"
+              aria-label="View the live website (opens in a new tab)"
             >
               <svg
-                width="14"
-                height="14"
+                width="16"
+                height="16"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -455,11 +455,9 @@
                 stroke-linejoin="round"
                 aria-hidden="true"
               >
-                <path d="M15 3h6v6" />
-                <path d="M10 14 21 3" />
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                <polyline points="9 22 9 12 15 12 15 22" />
               </svg>
-              <span class="max-md:hidden">View site</span>
             </a>
           }
           <!-- The section-name breadcrumb is redundant on mobile (every section
@@ -487,12 +485,12 @@
           <button
             class="top-btn cmdk-btn"
             (click)="openPalette()"
-            [brnTooltip]="'Open command palette (⌘K / Ctrl-K)'"
-            aria-label="Open command palette"
+            [brnTooltip]="'Quick find — command palette (⌘K / Ctrl-K)'"
+            aria-label="Open command palette (Quick find)"
           >
             <svg
-              width="14"
-              height="14"
+              width="16"
+              height="16"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -501,20 +499,19 @@
               <circle cx="11" cy="11" r="8" />
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
-            <span class="cmdk-label max-[1000px]:hidden">Quick find</span>
-            <kbd class="cmdk-kbd max-[1000px]:hidden">⌘K</kbd>
+            <kbd class="cmdk-kbd">⌘K</kbd>
           </button>
           <!-- Tier 1 #10: Full-width mode toggle — collapses sidebar to icon rail -->
           <button
-            class="top-btn cmdk-btn fullwidth-toggle"
+            class="top-btn fullwidth-toggle icon-only"
             (click)="toggleFullWidth()"
             [brnTooltip]="fullWidth() ? 'Exit full-width mode (g w)' : 'Full-width mode — hide sidebar (g w)'"
             [attr.aria-label]="fullWidth() ? 'Exit full-width mode' : 'Enter full-width mode'"
             [attr.aria-pressed]="fullWidth()"
           >
             <svg
-              width="14"
-              height="14"
+              width="16"
+              height="16"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -526,7 +523,6 @@
                 <path d="M3 8V3m0 0h5M3 3l7 7m11 6v5m0 0h-5m5 0-7-7" />
               }
             </svg>
-            <span class="cmdk-label">{{ fullWidth() ? 'Show sidebar' : 'Full width' }}</span>
           </button>
           <!-- Site actions — Preview · Save & Deploy · Review links collapsed into one
              dropdown so the navbar stays compact and has room for more commands. -->
@@ -711,59 +707,136 @@
               }
             </button>
             @if (notifOpen()) {
-              <div class="notif-pop" (click)="$event.stopPropagation()">
-                <header class="flex items-center justify-between mb-2 px-1">
-                  <div class="text-[0.7rem] text-text-secondary uppercase tracking-wider font-bold">
-                    Inbox
+              <!-- Scrim behind the drawer — click-away close. -->
+              <div class="notif-scrim" (click)="notifOpen.set(false)" aria-hidden="true"></div>
+              <!-- Novu-style right slide-out notification drawer. Fixed to the viewport
+                   (full-height, right edge) so it's independent of the bell's position;
+                   focus-trapped modal, Esc to close, prefers-reduced-motion → instant. -->
+              <aside
+                class="notif-drawer"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Notifications"
+                focusTrap
+                (keydown.escape)="notifOpen.set(false)"
+                (click)="$event.stopPropagation()"
+              >
+                <header class="notif-drawer__head">
+                  <div class="notif-drawer__title">
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                    </svg>
+                    <span>Notifications</span>
+                    @if (unreadCount() > 0) {
+                      <span
+                        class="notif-drawer__count"
+                        role="status"
+                        [attr.aria-label]="unreadCount() + ' unread'"
+                        >{{ unreadCount() }}</span
+                      >
+                    }
                   </div>
                   <button
-                    class="text-[0.66rem] text-primary hover:underline"
+                    class="notif-drawer__close"
+                    (click)="notifOpen.set(false)"
+                    aria-label="Close notifications"
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </header>
+                <div class="notif-drawer__toolbar">
+                  <div class="notif-seg" role="tablist" aria-label="Filter notifications">
+                    <button
+                      role="tab"
+                      class="notif-seg__btn"
+                      [class.is-active]="notifFilter() === 'all'"
+                      [attr.aria-selected]="notifFilter() === 'all'"
+                      (click)="notifFilter.set('all')"
+                    >
+                      All
+                    </button>
+                    <button
+                      role="tab"
+                      class="notif-seg__btn"
+                      [class.is-active]="notifFilter() === 'unread'"
+                      [attr.aria-selected]="notifFilter() === 'unread'"
+                      (click)="notifFilter.set('unread')"
+                    >
+                      Unread
+                      @if (unreadCount() > 0) {
+                        <span class="notif-seg__badge">{{ unreadCount() }}</span>
+                      }
+                    </button>
+                  </div>
+                  <button
+                    class="notif-drawer__markall"
                     (click)="markAllRead()"
                     [disabled]="unreadCount() === 0"
                   >
                     {{ unreadCount() === 0 ? 'All caught up ✓' : 'Mark all read' }}
                   </button>
-                </header>
-                @if (notifications().length === 0) {
-                  <div
-                    class="text-center text-text-secondary text-[0.78rem] py-6"
-                    role="status"
-                    data-testid="notif-empty"
-                  >
-                    <div class="notif-empty-glyph" aria-hidden="true">
-                      <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                      </svg>
+                </div>
+                <div class="notif-drawer__body">
+                  @if (visibleGroups().length === 0) {
+                    <div class="notif-empty" role="status" data-testid="notif-empty">
+                      <div class="notif-empty-glyph" aria-hidden="true">
+                        <svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                        </svg>
+                      </div>
+                      <div class="notif-empty__title">
+                        {{
+                          notifFilter() === 'unread'
+                            ? 'No unread notifications'
+                            : "You're all caught up."
+                        }}
+                      </div>
+                      <div class="notif-empty__sub">New activity shows up here.</div>
                     </div>
-                    <div class="text-white/80">You're all caught up.</div>
-                    <div class="text-[0.66rem] text-text-secondary/60 mt-0.5">
-                      New activity shows up here.
-                    </div>
-                  </div>
-                } @else {
-                  @for (group of groupedNotifications(); track group.label) {
-                    <div
-                      class="text-[0.6rem] text-text-secondary/70 uppercase tracking-wider font-bold mt-3 mb-1 px-1"
-                    >
-                      {{ group.label }}
-                    </div>
-                    @for (n of group.items; track n.id) {
-                      <button
-                        type="button"
-                        class="notif-item"
-                        [class.is-unread]="!n.read"
-                        (click)="openNotification(n)"
-                      >
+                  } @else {
+                    @for (group of visibleGroups(); track group.label) {
+                      <div class="notif-group-label">{{ group.label }}</div>
+                      @for (n of group.items; track n.id) {
+                        <div class="notif-row" [class.is-unread]="!n.read">
+                          <button
+                            type="button"
+                            class="notif-row__main"
+                            (click)="openNotification(n)"
+                          >
                         <div
                           class="notif-icon"
                           [class.is-warn]="n.kind === 'warn'"
@@ -822,20 +895,64 @@
                               </svg>
                             }
                           }
+                            </div>
+                            <div class="notif-row__text">
+                              <div class="notif-row__title">{{ n.title }}</div>
+                              <div class="notif-row__time">{{ n.time }}</div>
+                            </div>
+                            @if (!n.read) {
+                              <!-- role="img": aria-label is prohibited on a role-less span. -->
+                              <span class="notif-dot-mini" role="img" aria-label="unread"></span>
+                            }
+                          </button>
+                          <button
+                            type="button"
+                            class="notif-row__dismiss"
+                            (click)="dismissNotification(n, $event)"
+                            [attr.aria-label]="'Dismiss: ' + n.title"
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              aria-hidden="true"
+                            >
+                              <line x1="18" y1="6" x2="6" y2="18" />
+                              <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </button>
                         </div>
-                        <div class="flex-1 min-w-0">
-                          <div class="text-[0.78rem] text-white truncate">{{ n.title }}</div>
-                          <div class="text-[0.66rem] text-text-secondary">{{ n.time }}</div>
-                        </div>
-                        @if (!n.read) {
-                          <!-- role="img": aria-label is prohibited on a role-less span. -->
-                          <span class="notif-dot-mini" role="img" aria-label="unread"></span>
-                        }
-                      </button>
+                      }
                     }
                   }
-                }
-              </div>
+                </div>
+                <footer class="notif-drawer__foot">
+                  <button class="notif-drawer__prefs" (click)="goToNotificationPrefs()">
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="3" />
+                      <path
+                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+                      />
+                    </svg>
+                    Notification settings
+                  </button>
+                </footer>
+              </aside>
             }
           </div>
           <!-- /.avatar-wrap (notif) -->
