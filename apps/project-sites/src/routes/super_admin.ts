@@ -295,6 +295,61 @@ superAdmin.get('/api/super-admin/transactions', async (c) => {
   return c.json({ transactions: data });
 });
 
+// ─── Site Operations: platform-wide sites list (search + sort + paginate) ──────
+// Powers the /admin/site-operations console (Site Operations Phase 1, see
+// docs/SITE-OPERATIONS.md). Reuses requireSuperAdmin (mounted on /api/super-admin/*),
+// so this inherits the proven fail-closed guard — no new auth surface. `sort` is an
+// enum (injection-safe to interpolate); search is wildcard-stripped via sanitizeLikeTerm.
+// Offset + COUNT(*) is correct for the searched/sorted case; a keyset deep-page path for
+// >100k unfiltered rows is a tracked Phase-1b perf upgrade (indexes in migration 0636 keep
+// the first thousands of pages fast).
+const opsSitesQuery = z.object({
+  q: z.string().max(120).optional(),
+  sort: z.enum(['created_at', 'updated_at', 'business_name', 'status']).default('created_at'),
+  dir: z.enum(['asc', 'desc']).default('desc'),
+  page: z.coerce.number().int().min(1).max(20000).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+superAdmin.get('/api/super-admin/ops/sites', zValidator('query', opsSitesQuery), async (c) => {
+  const { q, sort, dir, page, limit } = c.req.valid('query');
+  const where: string[] = ['s.deleted_at IS NULL'];
+  const params: unknown[] = [];
+  const term = q?.trim();
+  if (term) {
+    const like = `%${sanitizeLikeTerm(term)}%`;
+    where.push('(s.business_name LIKE ? OR s.slug LIKE ? OR o.name LIKE ?)');
+    params.push(like, like, like);
+  }
+  const whereSql = where.join(' AND ');
+  const totalRow = await dbQueryOne<{ n: number }>(
+    c.env.DB,
+    `SELECT COUNT(*) AS n FROM sites s LEFT JOIN orgs o ON o.id = s.org_id WHERE ${whereSql}`,
+    params,
+  );
+  const total = totalRow?.n ?? 0;
+  // enum-validated sort column → safe to interpolate; id tiebreaker keeps paging stable.
+  const sortCol: Record<typeof sort, string> = {
+    created_at: 's.created_at',
+    updated_at: 's.updated_at',
+    business_name: 's.business_name',
+    status: 's.status',
+  };
+  const d = dir === 'desc' ? 'DESC' : 'ASC';
+  const offset = (page - 1) * limit;
+  const { data } = await dbQuery(
+    c.env.DB,
+    `SELECT s.id, s.slug, s.business_name, s.status, s.org_id, o.name AS org_name,
+            s.created_at, s.updated_at
+       FROM sites s LEFT JOIN orgs o ON o.id = s.org_id
+       WHERE ${whereSql}
+       ORDER BY ${sortCol[sort]} ${d}, s.id ${d}
+       LIMIT ? OFFSET ?`,
+    [...params, limit, offset],
+  );
+  return c.json({ rows: data, total, page, limit, pages: Math.ceil(total / limit) });
+});
+
 // ─── Manual wallet adjustment ──────────────────────────────────────────────
 
 const adjustmentSchema = z.object({

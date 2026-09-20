@@ -154,6 +154,7 @@ const ROUTES: Array<[string, string, unknown?]> = [
   ['GET', '/api/super-admin/wallets/org-7/transactions'],
   ['GET', '/api/super-admin/stats'],
   ['GET', '/api/super-admin/transactions'],
+  ['GET', '/api/super-admin/ops/sites'],
   [
     'POST',
     '/api/super-admin/manual-adjustment',
@@ -242,6 +243,51 @@ describe('super-admin gate (requireSuperAdmin)', () => {
 });
 
 // ─── Cost categories ─────────────────────────────────────────────────────────
+
+describe('site operations — ops/sites list (Phase 1)', () => {
+  beforeEach(grantSuperAdmin);
+
+  it('GET lists platform-wide sites with total + pagination shape (search + sort + paginate)', async () => {
+    mockDbQueryOne.mockImplementation(async (_db: unknown, sql: string) => {
+      if (/is_super_admin/i.test(sql)) return { is_super_admin: 1 };
+      if (/COUNT\(\*\)/i.test(sql)) return { n: 2 };
+      return null;
+    });
+    mockDbQuery.mockResolvedValue({
+      data: [
+        { id: 's1', slug: 'acme', business_name: 'Acme', status: 'published', org_id: 'o1', org_name: 'Org1', created_at: '2026-09-01', updated_at: '2026-09-02' },
+        { id: 's2', slug: 'beta', business_name: 'Beta', status: 'draft', org_id: 'o2', org_name: 'Org2', created_at: '2026-08-01', updated_at: '2026-08-02' },
+      ],
+    });
+    const res = await req(
+      makeApp(SUPER),
+      'GET',
+      '/api/super-admin/ops/sites?q=ac&sort=created_at&dir=desc&page=1&limit=50',
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { rows: unknown[]; total: number; page: number; pages: number };
+    expect(json.rows).toHaveLength(2);
+    expect(json.total).toBe(2);
+    expect(json.page).toBe(1);
+    expect(json.pages).toBe(1);
+  });
+
+  it('400s on an invalid sort column (enum-guarded — no SQL-injection surface)', async () => {
+    const res = await req(
+      makeApp(SUPER),
+      'GET',
+      '/api/super-admin/ops/sites?sort=created_at%3BDROP',
+      makeEnv(),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('400s on an out-of-range limit (clamped <= 100)', async () => {
+    const res = await req(makeApp(SUPER), 'GET', '/api/super-admin/ops/sites?limit=9999', makeEnv());
+    expect(res.status).toBe(400);
+  });
+});
 
 describe('cost categories', () => {
   beforeEach(grantSuperAdmin);
