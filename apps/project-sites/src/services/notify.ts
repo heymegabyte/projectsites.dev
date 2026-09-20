@@ -40,7 +40,8 @@ export type NotifyLogEvent =
   | 'notify.skipped'
   | 'notify.error'
   | 'notify.owner_missing'
-  | 'notify.owner_lookup_failed';
+  | 'notify.owner_lookup_failed'
+  | 'notify.invalid_event';
 
 /**
  * Build ONE structured, correlated notification log line (pure → unit-testable). Every send-path
@@ -75,6 +76,36 @@ export function notifyLogLine(
   if (fields.txId) line.txId = fields.txId;
   if (fields.reason) line.reason = fields.reason;
   return JSON.stringify(line);
+}
+
+/**
+ * Compact, log-safe reason for a REJECTED notification event — names the drifted
+ * event + the first offending field so a silent `invalid_event` skip becomes a
+ * greppable, attributable log line (the prior gap: `safeParse` failures returned
+ * `invalid_event` with NO log, so every caller passing a stale event shape — e.g.
+ * the legacy `{event, tenantId, …}` novu contract against the psnotify
+ * `{name, subscriberId, payload}` schema — silently no-op'd forever).
+ *
+ * @param event - The raw (unvalidated) event object the caller passed.
+ * @param error - The Zod error from the failed `safeParse`.
+ * @returns e.g. `invalid_event:build.finished:name` (event name : first bad path).
+ * @example invalidEventReason({ event: 'build.finished' }, err); // 'invalid_event:build.finished:name'
+ */
+function invalidEventReason(
+  event: unknown,
+  error: { issues?: ReadonlyArray<{ path?: ReadonlyArray<string | number> }> },
+): string {
+  const e = event as Record<string, unknown> | null;
+  const name =
+    e && typeof e === 'object'
+      ? typeof e.name === 'string'
+        ? e.name
+        : typeof e.event === 'string'
+          ? e.event
+          : 'unknown'
+      : 'unknown';
+  const path = error?.issues?.[0]?.path?.join('.') || '?';
+  return `invalid_event:${name}:${path}`;
 }
 
 export interface NotifyInput {
@@ -214,7 +245,16 @@ export async function notifyEvent(
   input: { subscriberId: string; event: unknown; workflowId?: string },
 ): Promise<NotifyResult> {
   const parsed = PsnotifyEventSchema.safeParse(input.event);
-  if (!parsed.success) return { ok: false, detail: 'invalid_event' };
+  if (!parsed.success) {
+    console.warn(
+      notifyLogLine('notify.invalid_event', {
+        reason: invalidEventReason(input.event, parsed.error),
+        subscriberId: input.subscriberId,
+        workflowId: input.workflowId,
+      }),
+    );
+    return { ok: false, detail: 'invalid_event' };
+  }
   const rendered = renderPsnotifyEvent(parsed.data);
   const payload = rendered.payload as Record<string, unknown>;
   const subject = String(payload?.subject ?? '');
@@ -244,7 +284,16 @@ export async function notifyOwnerEvent(
   input: { orgId: string; event: unknown; workflowId?: string },
 ): Promise<NotifyResult> {
   const parsed = PsnotifyEventSchema.safeParse(input.event);
-  if (!parsed.success) return { ok: false, detail: 'invalid_event' };
+  if (!parsed.success) {
+    console.warn(
+      notifyLogLine('notify.invalid_event', {
+        orgId: input.orgId,
+        reason: invalidEventReason(input.event, parsed.error),
+        workflowId: input.workflowId,
+      }),
+    );
+    return { ok: false, detail: 'invalid_event' };
+  }
   const rendered = renderPsnotifyEvent(parsed.data);
   const payload = rendered.payload as Record<string, unknown>;
   const subject = String(payload?.subject ?? '');
