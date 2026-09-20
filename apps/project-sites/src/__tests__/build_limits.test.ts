@@ -110,7 +110,7 @@ describe('checkBuildLimit — unlimited orgs', () => {
   });
 });
 
-describe('resolveActiveOrgPlan — SSOT plan resolver (must include trialing, not active-only)', () => {
+describe('resolveActiveOrgPlan — SSOT plan resolver (trialing-inclusive, leak-safe null→free)', () => {
   it('returns the plan and gates on status IN (active, trialing)', async () => {
     mockDbQueryOne.mockResolvedValue({ plan: 'paid' } as never);
     const plan = await resolveActiveOrgPlan(db, 'org-active');
@@ -123,10 +123,38 @@ describe('resolveActiveOrgPlan — SSOT plan resolver (must include trialing, no
     expect(sql).toContain("status IN ('active', 'trialing')");
   });
 
-  it('returns null when no active/trialing subscription exists (caller → free tier)', async () => {
+  it('returns null → FREE (leak-safe) when no active/trialing sub OR a swallowed D1 error', async () => {
+    // dbQueryOne SWALLOWS a D1 throw into `null` — indistinguishable from "no row". For an
+    // ENTITLEMENT read that is the correct fail-closed DIRECTION: null → caller treats as FREE →
+    // paid features DENIED. This path can NEVER return 'paid' on error, so a free org can't leak
+    // into paid on a transient. Both the honest-no-sub AND the swallowed-error case land here.
     mockDbQueryOne.mockResolvedValue(null as never);
     const plan = await resolveActiveOrgPlan(db, 'org-none');
     expect(plan).toBeNull();
+  });
+});
+
+describe('checkBuildLimit — FAIL-CLOSED on a transient D1 error (deny-on-uncertainty, no free bypass)', () => {
+  it('a PERSISTENT COUNT error → allowed:false, used=limit (the expensive-build cap is never silently bypassed)', async () => {
+    ordinaryOwner();
+    // dbQuery swallows a D1 throw → { data: [], error }. A naive `data[0]?.count ?? 0` read would
+    // make used=0 → allowed=true → the per-org site cap SILENTLY bypassed on a read-replica blip
+    // (a cost-runaway hole). checkBuildLimit retries once, then DENIES on a persistent error.
+    mockDbQuery.mockResolvedValue({ data: [], error: 'D1_TRANSIENT' } as never);
+    const q = await checkBuildLimit(db, 'org-count-down', 'paid');
+    expect(q.allowed).toBe(false);
+    expect(q).toMatchObject({ used: 50, limit: 50, remaining: 0 });
+    expect(mockDbQuery).toHaveBeenCalledTimes(2); // one retry before deny-on-uncertainty
+  });
+
+  it('recovers on a TRANSIENT blip via the retry (real count wins, no false denial)', async () => {
+    ordinaryOwner();
+    mockDbQuery
+      .mockResolvedValueOnce({ data: [], error: 'read_replica_blip' } as never)
+      .mockResolvedValueOnce({ data: [{ count: 3 }], error: null } as never);
+    const q = await checkBuildLimit(db, 'org-count-blip', 'paid');
+    expect(q).toEqual({ allowed: true, used: 3, limit: 50, remaining: 47 });
+    expect(mockDbQuery).toHaveBeenCalledTimes(2);
   });
 });
 

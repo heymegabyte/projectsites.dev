@@ -90,6 +90,16 @@ export async function isUnlimitedOrgOwner(db: D1Database, orgId: string): Promis
  * const quota = await checkBuildLimit(env.DB, orgId, plan);
  */
 export async function resolveActiveOrgPlan(db: D1Database, orgId: string): Promise<string | null> {
+  // LEAK-SAFE fail-closed by construction. `dbQueryOne` SWALLOWS a D1 throw → `null`
+  // (dbqueryone-never-throws-use-dbquery-error-for-failclosed-gates), which is indistinguishable
+  // from "no active/trialing sub". For an ENTITLEMENT read that is the correct fail-closed DIRECTION:
+  // every caller treats `null` as the FREE tier → paid features are DENIED. Crucially, this path can
+  // NEVER return 'paid' on a transient error — so a free org can NOT be silently upgraded into paid by
+  // a read-replica blip (no revenue leak). The one downside (a paying customer momentarily seen as
+  // free during a DB outage) is the SAFE failure mode: deny-on-uncertainty, recovered on the next read.
+  // The STATUS filter lives in SQL: only `active`/`trialing` rows return a plan, so a `past_due` /
+  // `canceled` sub whose `plan` column still reads 'paid' matches NO row → null → free (delinquents
+  // lose premium — no leak). Do NOT "harden" this into a benefit-of-doubt grant; that would be the leak.
   const sub = await dbQueryOne<{ plan: string }>(
     db,
     "SELECT plan FROM subscriptions WHERE org_id = ? AND status IN ('active', 'trialing')",
