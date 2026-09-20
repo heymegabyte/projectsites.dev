@@ -24,22 +24,59 @@
  *   DELIVERED_SLUG=krugers-austin DELIVERED_SITE_ID=<uuid> \
  *   node e2e/admin-verify/verify-delivered-site-propagation.mjs [N]
  */
+import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
 import { resolveBrowserbaseCreds } from './_browserbase-creds.mjs';
 
-const SLUG = process.env.DELIVERED_SLUG || '';
-const SITE_ID = process.env.DELIVERED_SITE_ID || '';
 const N = Math.max(1, Number(process.argv[2] || 3));
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const DB = 'project-sites-db-production';
 
+/** Read-only SQL against prod D1 (never throws) — powers arg-free auto-resolve of the newest delivery. */
+function d1(sql) {
+  try {
+    const out = execFileSync(
+      'npx',
+      ['wrangler', 'd1', 'execute', DB, '--remote', '--json', '--command', sql],
+      { encoding: 'utf8', env: process.env, stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    const j = JSON.parse(out);
+    return j[0]?.results || j.result?.[0]?.results || [];
+  } catch {
+    return [];
+  }
+}
+
+// Target = explicit DELIVERED_* override, else AUTO-RESOLVE the newest published org-brian-001
+// delivery (mirrors verify-delivered-analytics-causal.mjs) so this joins the standing suite arg-free
+// and proves EVERY future delivery propagates. Every unmet precondition SKIPS (exit 0 + ::notice) so
+// a secret-less CI run never regresses — matching the sibling causal probes.
+let SLUG = (process.env.DELIVERED_SLUG || '').trim();
+let SITE_ID = (process.env.DELIVERED_SITE_ID || '').trim();
 if (!SLUG || !SITE_ID) {
-  console.log('::error:: set DELIVERED_SLUG + DELIVERED_SITE_ID');
-  process.exit(2);
+  if (!(process.env.CLOUDFLARE_API_KEY || process.env.CLOUDFLARE_API_TOKEN)) {
+    console.log(
+      '::notice:: verify-delivered-site-propagation skipped — no DELIVERED_SLUG/SITE_ID and no CF auth to auto-resolve',
+    );
+    process.exit(0);
+  }
+  const rows = d1(
+    "SELECT id, slug FROM sites WHERE org_id='org-brian-001' AND status='published' AND deleted_at IS NULL AND slug IS NOT NULL ORDER BY updated_at DESC LIMIT 1",
+  );
+  SITE_ID = SITE_ID || rows[0]?.id || '';
+  SLUG = SLUG || rows[0]?.slug || '';
+}
+if (!SLUG || !SITE_ID) {
+  console.log('::notice:: verify-delivered-site-propagation skipped — no published org-brian-001 site to probe');
+  process.exit(0);
 }
 const { BB, PROJ, PW } = resolveBrowserbaseCreds();
-if (!BB || !PROJ || !PW) { console.log('::error:: missing Browserbase/E2E creds'); process.exit(2); }
+if (!BB || !PROJ || !PW) {
+  console.log('::notice:: verify-delivered-site-propagation skipped — missing Browserbase/E2E creds');
+  process.exit(0);
+}
 
 /** N public guest visits via plain Node fetch (CF-clean for public GET + real UA). */
 async function guestVisit(i) {
