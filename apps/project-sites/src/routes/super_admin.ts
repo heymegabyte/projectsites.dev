@@ -350,6 +350,50 @@ superAdmin.get('/api/super-admin/ops/sites', zValidator('query', opsSitesQuery),
   return c.json({ rows: data, total, page, limit, pages: Math.ceil(total / limit) });
 });
 
+// ─── Site Operations: platform-wide user-accounts list (search + sort + paginate) ──
+// Sibling of /ops/sites — powers the Site Operations "Users" tab. Same proven shape:
+// requireSuperAdmin inherited, enum-guarded sort (injection-safe), sanitized LIKE search,
+// offset + COUNT total. Indexes in migration 0637. Never exposes password/session columns.
+const opsUsersQuery = z.object({
+  q: z.string().max(120).optional(),
+  sort: z.enum(['created_at', 'email']).default('created_at'),
+  dir: z.enum(['asc', 'desc']).default('desc'),
+  page: z.coerce.number().int().min(1).max(20000).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+superAdmin.get('/api/super-admin/ops/users', zValidator('query', opsUsersQuery), async (c) => {
+  const { q, sort, dir, page, limit } = c.req.valid('query');
+  const where: string[] = ['u.deleted_at IS NULL'];
+  const params: unknown[] = [];
+  const term = q?.trim();
+  if (term) {
+    const like = `%${sanitizeLikeTerm(term)}%`;
+    where.push('(u.email LIKE ? OR u.display_name LIKE ?)');
+    params.push(like, like);
+  }
+  const whereSql = where.join(' AND ');
+  const totalRow = await dbQueryOne<{ n: number }>(
+    c.env.DB,
+    `SELECT COUNT(*) AS n FROM users u WHERE ${whereSql}`,
+    params,
+  );
+  const total = totalRow?.n ?? 0;
+  const sortCol: Record<typeof sort, string> = { created_at: 'u.created_at', email: 'u.email' };
+  const d = dir === 'desc' ? 'DESC' : 'ASC';
+  const offset = (page - 1) * limit;
+  const { data } = await dbQuery(
+    c.env.DB,
+    `SELECT u.id, u.email, u.display_name, u.is_super_admin, u.created_at, u.updated_at
+       FROM users u
+       WHERE ${whereSql}
+       ORDER BY ${sortCol[sort]} ${d}, u.id ${d}
+       LIMIT ? OFFSET ?`,
+    [...params, limit, offset],
+  );
+  return c.json({ rows: data, total, page, limit, pages: Math.ceil(total / limit) });
+});
+
 // ─── Manual wallet adjustment ──────────────────────────────────────────────
 
 const adjustmentSchema = z.object({

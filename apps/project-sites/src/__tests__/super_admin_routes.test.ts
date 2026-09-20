@@ -155,6 +155,7 @@ const ROUTES: Array<[string, string, unknown?]> = [
   ['GET', '/api/super-admin/stats'],
   ['GET', '/api/super-admin/transactions'],
   ['GET', '/api/super-admin/ops/sites'],
+  ['GET', '/api/super-admin/ops/users'],
   [
     'POST',
     '/api/super-admin/manual-adjustment',
@@ -313,6 +314,49 @@ describe('site operations — ops/sites list (Phase 1)', () => {
       '/api/super-admin/ops/sites?limit=9999',
       makeEnv(),
     );
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('site operations — ops/users list (Phase 1b)', () => {
+  beforeEach(grantSuperAdmin);
+
+  it('GET lists platform-wide user accounts with total + pagination shape', async () => {
+    mockDbQueryOne.mockImplementation(async (_db: unknown, sql: string) => {
+      if (/is_super_admin/i.test(sql)) return { is_super_admin: 1 };
+      if (/COUNT\(\*\)/i.test(sql)) return { n: 3 };
+      return null;
+    });
+    mockDbQuery.mockResolvedValue({
+      data: [
+        { id: 'u1', email: 'a@x.com', display_name: 'Aa', is_super_admin: 0, created_at: '2026-09-01', updated_at: '2026-09-02' },
+      ],
+    });
+    const res = await req(
+      makeApp(SUPER),
+      'GET',
+      '/api/super-admin/ops/users?q=a&sort=created_at&dir=desc&page=1&limit=50',
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { rows: unknown[]; total: number; pages: number };
+    expect(json.rows).toHaveLength(1);
+    expect(json.total).toBe(3);
+    expect(json.pages).toBe(1);
+  });
+
+  it('400s on an invalid sort column (enum-guarded — no SQL-injection surface)', async () => {
+    const res = await req(
+      makeApp(SUPER),
+      'GET',
+      '/api/super-admin/ops/users?sort=email%3BDROP',
+      makeEnv(),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('400s on an out-of-range limit (clamped <= 100)', async () => {
+    const res = await req(makeApp(SUPER), 'GET', '/api/super-admin/ops/users?limit=9999', makeEnv());
     expect(res.status).toBe(400);
   });
 });
