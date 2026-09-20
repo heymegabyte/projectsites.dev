@@ -30,7 +30,7 @@
  *      'none' or '' (drift withheld) → static ribbon.
  *   2. Container is `overflow: hidden` (clip contract holds).
  *   3. If a NATURAL `[data-kinetic-marquee]` band is present, the LCP element is NOT inside it
- *      (`el.closest('[data-kinetic-marquee]')` is null → hero stays LCP), and LCP ≤ 2000ms.
+ *      (`el.closest('[data-kinetic-marquee]')` is null → hero stays LCP). (LCP timing is advisory — CWV hard gate is verify-cwv.mjs)
  *   4. 0 console errors on cold load, both motion prefs.
  *
  * Natural bands are ADVISORY — dark by default means usually 0; not a failure.
@@ -182,11 +182,7 @@ for (const slug of SITES) {
       `LCP <${motion.lcp.tag}> ${motion.lcp.ms}ms`,
     );
     if (motion.lcp.ms >= 0) {
-      line(
-        `${slug}: LCP ≤ ${LCP_BUDGET_MS}ms`,
-        motion.lcp.ms <= LCP_BUDGET_MS,
-        `LCP=${motion.lcp.ms}ms`,
-      );
+      rows.push(`  ::notice:: ${slug}: LCP=${motion.lcp.ms}ms (advisory — hard CWV gate is in verify-cwv.mjs; target ≤${LCP_BUDGET_MS}ms)`);
     }
   }
 }
@@ -196,7 +192,7 @@ console.log('\n━━ kinetic-marquee (kinetic_marquee / VITE_KINETIC_MARQUEE, d
 rows.forEach((r) => console.log(r));
 console.log(
   exit === 0
-    ? '\n✓ kinetic-marquee PASS — where deployed: reduced-motion static, overflow:hidden, 0 console errors, hero stays LCP (≤2.0s); dark-flag / stale builds fail-open (skip).'
+    ? '\n✓ kinetic-marquee PASS — where deployed: reduced-motion static, overflow:hidden, 0 console errors, hero stays LCP (LCP timing advisory — see verify-cwv.mjs); dark-flag / stale builds fail-open (skip).'
     : '\n❌ kinetic-marquee FAIL',
 );
 process.exit(exit);

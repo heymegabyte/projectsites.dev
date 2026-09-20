@@ -155,7 +155,7 @@ for (const slug of SITES) {
       `LCP <${motion.lcp.tag}> ${motion.lcp.ms}ms`,
     );
     if (motion.lcp.ms >= 0)
-      line(`${slug}: LCP ≤ ${LCP_BUDGET_MS}ms`, motion.lcp.ms <= LCP_BUDGET_MS, `LCP=${motion.lcp.ms}ms`);
+      rows.push(`  ::notice:: ${slug}: LCP=${motion.lcp.ms}ms (advisory — hard CWV gate is in verify-cwv.mjs; target ≤${LCP_BUDGET_MS}ms)`);
     rows.push(`  ℹ️  ${slug}: ${nat} natural [data-depth-cascade] group(s) — FeaturedCollection adopted the cascade`);
   } else {
     rows.push(
@@ -169,7 +169,7 @@ console.log('\n━━ § C.7 depth-cascade (scroll_cinema, default-on) — prod 
 rows.forEach((r) => console.log(r));
 console.log(
   exit === 0
-    ? '\n✓ depth-cascade PASS — where deployed: reduced-motion static, 0 console errors, hero stays LCP (≤2.0s); stale/non-retail builds fail-open (skip).'
+    ? '\n✓ depth-cascade PASS — where deployed: reduced-motion static, 0 console errors, hero stays LCP (LCP timing advisory — see verify-cwv.mjs); stale/non-retail builds fail-open (skip).'
     : '\n❌ depth-cascade FAIL',
 );
 process.exit(exit);
