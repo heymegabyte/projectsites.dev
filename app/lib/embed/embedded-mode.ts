@@ -205,26 +205,39 @@ export interface DataResponseMessage {
 }
 
 /**
- * Child → Parent (D1 manager SQL console): ask the admin to run ONE READ-ONLY SQL query
- * against the site's D1 via `POST /api/sites/:id/sql/exec`. That endpoint is super-admin-gated
- * (it reads the shared multi-tenant database) + allowlists SELECT/EXPLAIN/WITH/PRAGMA only, so a
- * non-super-admin caller gets a 403 surfaced as {@link SqlResponseMessage.error}; writes are
- * rejected server-side. The editor is Outerbase-Studio-inspired: table list from `sqlite_master`,
- * schema via `PRAGMA table_info`, and free-form queries — all through this one bridge message.
+ * Child → Parent (D1 manager): ask the admin to run ONE SQL statement against the site's D1.
+ * READS (default, `write` unset) go to `POST /api/sites/:id/sql/exec` (SELECT/EXPLAIN/WITH/PRAGMA
+ * allowlist); WRITES (`write:true`) go to `POST /api/sites/:id/sql/exec-write`
+ * (CREATE/DROP/ALTER TABLE + INSERT/UPDATE/DELETE/REPLACE). BOTH are super-admin-gated (the shared
+ * multi-tenant DB — AL-792), so a non-super-admin gets a 403 surfaced as {@link SqlResponseMessage.error}.
+ * The write path refuses to touch platform tables (denylist) and rejects destructive statements
+ * (DROP/ALTER, or DELETE/UPDATE without WHERE) unless `confirm:true` — the editor's type-to-confirm.
+ * Outerbase-Studio-inspired: table list from `sqlite_master`, schema via `PRAGMA table_info`,
+ * create/drop table, row CRUD, and free-form queries — all through this one bridge message.
  */
 export interface SqlRequestMessage {
   type: 'PS_SQL_REQUEST';
   query: string;
   correlationId: string;
+  /** When true, route to the WRITE endpoint (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE). Default: read. */
+  write?: boolean;
+  /** Required `true` for destructive writes (DROP/ALTER, unscoped DELETE/UPDATE) — the type-to-confirm. */
+  confirm?: boolean;
 }
 
-/** Parent → Child: the admin's reply to {@link SqlRequestMessage} (mirrors the sql/exec envelope). */
+/** Parent → Child: the admin's reply to {@link SqlRequestMessage} (mirrors the sql/exec[-write] envelope). */
 export interface SqlResponseMessage {
   type: 'PS_SQL_RESPONSE';
   correlationId?: string;
   ok?: boolean;
+  /** Read results. */
   columns?: string[];
   rows?: Record<string, unknown>[];
+  /** Write results. */
+  rows_affected?: number;
+  last_row_id?: number | null;
+  /** Set when the server refused a destructive write pending `confirm:true` — the UI prompts. */
+  needs_confirm?: boolean;
   duration_ms?: number;
   error?: string;
 }

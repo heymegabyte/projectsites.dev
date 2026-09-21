@@ -351,6 +351,104 @@ describe('POST /api/sites/:siteId/sql/exec', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+describe('POST /api/sites/:siteId/sql/exec-write (D1 manager writes — AL-872)', () => {
+  const PATH = `/api/sites/${SITE}/sql/exec-write`;
+
+  /** D1 mock whose `prepare(...).run()` resolves to a write-meta envelope (or throws). */
+  function makeWriteDb(opts: { throws?: boolean } = {}) {
+    const run = jest.fn(async () => {
+      if (opts.throws) throw new Error('SQLITE_ERROR: syntax error');
+      return { success: true, meta: { changes: 3, last_row_id: 42 } };
+    });
+    const prepare = jest.fn(() => ({ run }));
+    return { prepare, _run: run } as unknown as D1Database & { prepare: jest.Mock; _run: jest.Mock };
+  }
+
+  const write = (app: Hono<{ Bindings: Env; Variables: Variables }>, body: unknown, env: Env) =>
+    req(
+      app,
+      PATH,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      env,
+    );
+
+  it('returns 401 when unauthenticated', async () => {
+    const res = await write(makeApp(), { statement: 'CREATE TABLE t (id TEXT)' }, makeEnv(makeWriteDb()));
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 for an authed non-super-admin (statement never runs) — AL-792', async () => {
+    mockIsSuperAdmin.mockResolvedValue(false);
+    const db = makeWriteDb();
+    const res = await write(makeApp(AUTH), { statement: 'CREATE TABLE t (id TEXT)' }, makeEnv(db));
+    expect(res.status).toBe(403);
+    expect((db as unknown as { _run: jest.Mock })._run).not.toHaveBeenCalled();
+    expect(mockDbQueryOne).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-write verb (SELECT belongs on the read console)', async () => {
+    const res = await write(makeApp(AUTH), { statement: 'SELECT 1' }, makeEnv(makeWriteDb()));
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { ok: boolean; error: string };
+    expect(json.ok).toBe(false);
+    expect(json.error).toMatch(/CREATE|write console/i);
+    expect(mockDbQueryOne).not.toHaveBeenCalled();
+  });
+
+  it('refuses to write/drop a PROTECTED platform table (denylist) even WITH confirm', async () => {
+    const db = makeWriteDb();
+    const res = await write(makeApp(AUTH), { statement: 'DROP TABLE users', confirm: true }, makeEnv(db));
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { ok: boolean; error: string };
+    expect(json.error).toMatch(/protected/i);
+    expect((db as unknown as { _run: jest.Mock })._run).not.toHaveBeenCalled();
+    expect(mockWriteAuditLog).not.toHaveBeenCalled();
+  });
+
+  it('requires confirm for a DESTRUCTIVE statement (DROP) — needs_confirm, no run', async () => {
+    const db = makeWriteDb();
+    const res = await write(makeApp(AUTH), { statement: 'DROP TABLE widgets' }, makeEnv(db));
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { ok: boolean; needs_confirm?: boolean };
+    expect(json.needs_confirm).toBe(true);
+    expect((db as unknown as { _run: jest.Mock })._run).not.toHaveBeenCalled();
+  });
+
+  it('requires confirm for an UNSCOPED mutation (DELETE with no WHERE)', async () => {
+    const res = await write(makeApp(AUTH), { statement: 'DELETE FROM widgets' }, makeEnv(makeWriteDb()));
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { needs_confirm?: boolean };
+    expect(json.needs_confirm).toBe(true);
+  });
+
+  it('runs a DESTRUCTIVE statement WITH confirm — executes + audits as destructive', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
+    const db = makeWriteDb();
+    const res = await write(makeApp(AUTH), { statement: 'DROP TABLE widgets', confirm: true }, makeEnv(db));
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { ok: boolean; rows_affected: number };
+    expect(json.ok).toBe(true);
+    expect((db as unknown as { _run: jest.Mock })._run).toHaveBeenCalled();
+    expect(mockWriteAuditLog.mock.calls[0][1]).toMatchObject({
+      action: 'site.sql.write',
+      message: expect.stringMatching(/destructive/i),
+    });
+  });
+
+  it('runs a non-destructive CREATE TABLE without confirm — returns rows_affected/last_row_id', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
+    const db = makeWriteDb();
+    const res = await write(makeApp(AUTH), { statement: 'CREATE TABLE widgets (id TEXT PRIMARY KEY)' }, makeEnv(db));
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { ok: boolean; rows_affected: number; last_row_id: number | null };
+    expect(json.ok).toBe(true);
+    expect(json.rows_affected).toBe(3);
+    expect(json.last_row_id).toBe(42);
+    expect((db as unknown as { _run: jest.Mock })._run).toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 describe('GET /api/sites/:siteId/integration-providers', () => {
   const PATH = `/api/sites/${SITE}/integration-providers`;
 

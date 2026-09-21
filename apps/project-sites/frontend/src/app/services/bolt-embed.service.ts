@@ -59,8 +59,12 @@ interface PsMessage {
   readonly level?: 'info' | 'success' | 'warning' | 'error';
   /** PS_DATA_REQUEST (AL-004): omit for the table overview, set to browse one table. */
   readonly table?: string;
-  /** PS_SQL_REQUEST (D1 manager): the read-only SQL to forward to /sql/exec. */
+  /** PS_SQL_REQUEST (D1 manager): the SQL to forward — /sql/exec (read) or /sql/exec-write (write). */
   readonly query?: string;
+  /** PS_SQL_REQUEST: route to the WRITE endpoint (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE). */
+  readonly write?: boolean;
+  /** PS_SQL_REQUEST: confirm a destructive write (DROP/ALTER, or unscoped DELETE/UPDATE). */
+  readonly confirm?: boolean;
 }
 
 export interface BoltFileEntry {
@@ -541,14 +545,17 @@ export class BoltEmbedService {
           break;
         }
         case 'PS_SQL_REQUEST': {
-          // D1-manager SQL console — the embedded editor has no cross-origin session, so it asks US
-          // to run ONE read-only query via POST /api/sites/:id/sql/exec (super-admin-gated + SELECT/
-          // EXPLAIN/WITH/PRAGMA-only server-side). We forward the worker's envelope verbatim; a 403
-          // (non-super-admin) or a rejected write surfaces as `error`. Mirrors the PS_DATA bridge.
+          // D1-manager console — the embedded editor has no cross-origin session, so it asks US to
+          // run ONE statement. READS (default) → POST /sql/exec (SELECT/EXPLAIN/WITH/PRAGMA); WRITES
+          // (msg.write) → POST /sql/exec-write (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE). BOTH are
+          // super-admin-gated server-side (AL-792); the write path denies platform tables + needs
+          // confirm for destructive statements. We forward the worker's envelope verbatim; a 403 /
+          // rejection surfaces as `error`. Mirrors the PS_DATA bridge.
           const iframe = this.iframeEl;
           const site = this.currentSite;
           const cid = msg.correlationId;
           const query = typeof msg.query === 'string' ? msg.query : '';
+          const isWrite = msg.write === true;
           const reply = (payload: Record<string, unknown>): void => {
             iframe?.contentWindow?.postMessage(
               { type: 'PS_SQL_RESPONSE', correlationId: cid, ...payload },
@@ -559,19 +566,29 @@ export class BoltEmbedService {
             reply({ ok: false, error: 'No site selected' });
             break;
           }
+          const path = isWrite ? `/sites/${site.id}/sql/exec-write` : `/sites/${site.id}/sql/exec`;
+          const reqBody = isWrite ? { statement: query, confirm: msg.confirm === true } : { query };
           this.api
-            .post<{ ok?: boolean; columns?: string[]; rows?: unknown[]; duration_ms?: number; error?: string }>(
-              `/sites/${site.id}/sql/exec`,
-              { query },
-              { silent: true },
-            )
+            .post<{
+              ok?: boolean;
+              columns?: string[];
+              rows?: unknown[];
+              rows_affected?: number;
+              last_row_id?: number | null;
+              needs_confirm?: boolean;
+              duration_ms?: number;
+              error?: string;
+            }>(path, reqBody, { silent: true })
             .subscribe({
               next: (res) =>
                 reply({
                   ok: res?.ok ?? true,
                   columns: res?.columns ?? [],
                   rows: res?.rows ?? [],
+                  rows_affected: res?.rows_affected,
+                  last_row_id: res?.last_row_id,
                   duration_ms: res?.duration_ms,
+                  ...(res?.needs_confirm ? { needs_confirm: true } : {}),
                   ...(res?.error ? { error: res.error } : {}),
                 }),
               error: (e: unknown) => {
@@ -582,8 +599,12 @@ export class BoltEmbedService {
                     status === 403
                       ? 'The SQL console is restricted to platform administrators.'
                       : status === 400
-                        ? 'Query rejected — read-only (SELECT / EXPLAIN / WITH / PRAGMA) only.'
-                        : 'Query failed.',
+                        ? isWrite
+                          ? 'Statement rejected — a protected platform table, or a destructive statement needs confirmation.'
+                          : 'Query rejected — read-only (SELECT / EXPLAIN / WITH / PRAGMA) only.'
+                        : isWrite
+                          ? 'Statement failed.'
+                          : 'Query failed.',
                 });
               },
             });

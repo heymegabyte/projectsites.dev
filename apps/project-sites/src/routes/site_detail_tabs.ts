@@ -305,6 +305,129 @@ tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /api/sites/:siteId/sql/exec-write
+// The WRITE half of the D1 manager — the standard SQLite-editor operations
+// (CREATE / DROP / ALTER TABLE, INSERT / UPDATE / DELETE / REPLACE). Super-admin
+// ONLY (shared multi-tenant DB — AL-792) with two safety guards that make a
+// fat-finger non-catastrophic:
+//   1. PROTECTED_TABLES denylist — the write path REFUSES to mutate or drop the
+//      platform's own tables (auth/billing/tenancy). A super-admin can still SELECT
+//      them via the read console; they can never be written/dropped from the editor.
+//   2. Destructive statements (DROP / ALTER / TRUNCATE, and DELETE/UPDATE with no
+//      WHERE = whole-table mutation) require `confirm: true` — the UI's typed-confirm.
+// Single-statement only (`.prepare().run()` — no multi-statement injection).
+// ─────────────────────────────────────────────────────────────────────────────
+const SqlWriteSchema = z.object({
+  statement: z.string().min(1).max(16_000),
+  confirm: z.boolean().optional(),
+});
+
+/**
+ * Platform tables the write console must NEVER create/mutate/drop — nuking one
+ * would break auth/billing/tenancy for every tenant. Read (SELECT) is unaffected.
+ */
+const PROTECTED_TABLES = new Set<string>([
+  'users', 'orgs', 'memberships', 'sessions', 'magic_links', 'oauth_states',
+  'subscriptions', 'webhook_events', 'audit_logs', 'feature_flags',
+  'feature_flag_overrides', 'feature_flag_audit', 'sites', 'hostnames',
+  'workflow_jobs', 'wallets', 'wallet_ledger', 'cost_categories',
+  'sqlite_master', 'sqlite_sequence', 'sqlite_temp_master', 'd1_migrations',
+]);
+
+const WRITE_PREFIX = /^\s*(CREATE|DROP|ALTER|INSERT|UPDATE|DELETE|REPLACE)\b/i;
+const DESTRUCTIVE_PREFIX = /^\s*(DROP|ALTER|TRUNCATE)\b/i;
+/** DELETE/UPDATE with no WHERE = whole-table mutation → treat as destructive. */
+const UNSCOPED_MUTATION = /^\s*(DELETE\s+FROM|UPDATE)\b(?![\s\S]*\bWHERE\b)/i;
+
+/** Best-effort target-table extraction for the denylist check (IF [NOT] EXISTS stripped first). */
+function sqlTargetTable(stmt: string): string | null {
+  const cleaned = stmt.replace(/\bIF\s+(NOT\s+)?EXISTS\b/gi, ' ');
+  const m = cleaned.match(/\b(?:INTO|FROM|UPDATE|TABLE)\s+["'`[]?([A-Za-z_][A-Za-z0-9_]*)/i);
+  return m ? m[1].toLowerCase() : null;
+}
+
+tabs.post('/api/sites/:siteId/sql/exec-write', async (c) => {
+  const siteId = c.req.param('siteId');
+  const orgId = c.get('orgId');
+  const userId = c.get('userId');
+  if (!orgId || !userId) {
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Sign in required' } }, 401);
+  }
+  if (!(await isSuperAdmin(c.env, userId))) {
+    return c.json(
+      { error: { code: 'FORBIDDEN', message: 'The SQL console is restricted to platform administrators.' } },
+      403,
+    );
+  }
+
+  let body: { statement: string; confirm?: boolean };
+  try {
+    body = SqlWriteSchema.parse(await c.req.json().catch(() => ({})));
+  } catch (e) {
+    return c.json({ ok: false, error: e instanceof Error ? e.message : 'invalid body' }, 400);
+  }
+
+  const q = body.statement.trim();
+  if (!WRITE_PREFIX.test(q)) {
+    return c.json(
+      { ok: false, error: 'write console: use CREATE / DROP / ALTER / INSERT / UPDATE / DELETE / REPLACE (SELECT → read console)' },
+      400,
+    );
+  }
+
+  // Denylist: never let the console write/drop a platform table.
+  const target = sqlTargetTable(q);
+  if (target && PROTECTED_TABLES.has(target)) {
+    return c.json(
+      { ok: false, error: `"${target}" is a protected platform table — it can be read but not modified from the console.` },
+      400,
+    );
+  }
+
+  // Destructive statements need an explicit confirm (the UI's type-to-confirm).
+  const destructive = DESTRUCTIVE_PREFIX.test(q) || UNSCOPED_MUTATION.test(q);
+  if (destructive && body.confirm !== true) {
+    return c.json(
+      { ok: false, error: 'destructive statement — re-run with confirm:true (DROP/ALTER, or DELETE/UPDATE without WHERE)', needs_confirm: true },
+      400,
+    );
+  }
+
+  // Org-scope check: site must belong to the caller's org.
+  const site = await dbQueryOne<{ id: string }>(
+    c.env.DB,
+    `SELECT id FROM sites WHERE id = ?1 AND org_id = ?2 AND deleted_at IS NULL`,
+    [siteId, orgId],
+  );
+  if (!site) {
+    return c.json({ ok: false, error: 'site not found' }, 404);
+  }
+
+  const t0 = Date.now();
+  try {
+    const result = await c.env.DB.prepare(q).run();
+    const meta = (result.meta ?? {}) as { changes?: number; last_row_id?: number };
+    await writeAuditLog(c.env.DB, {
+      org_id: orgId,
+      actor_id: userId,
+      action: 'site.sql.write',
+      target_type: 'site',
+      target_id: siteId,
+      message: destructive ? 'SQL destructive write executed' : 'SQL write executed',
+      metadata_json: { statement: q.slice(0, 200), destructive, rows_affected: meta.changes ?? 0 },
+    });
+    return c.json({
+      ok: true,
+      rows_affected: meta.changes ?? 0,
+      last_row_id: meta.last_row_id ?? null,
+      duration_ms: Date.now() - t0,
+    });
+  } catch (e) {
+    return c.json({ ok: false, error: e instanceof Error ? e.message : 'statement failed' }, 400);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/sites/:siteId/integrations
 // Lists MCP providers + their connection status for this site.
 // ─────────────────────────────────────────────────────────────────────────────

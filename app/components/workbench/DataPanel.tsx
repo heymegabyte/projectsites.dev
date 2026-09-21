@@ -50,12 +50,27 @@ const SQL_STARTERS: ReadonlyArray<{ label: string; query: string }> = [
     query:
       "SELECT name, tbl_name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY tbl_name, name;",
   },
-  { label: 'Schema DDL', query: "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name;" },
+  {
+    label: 'Schema DDL',
+    query: 'SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name;',
+  },
 ];
 
 /** True when a result row looks like a `sqlite_master` listing → offer a one-click browse. */
 const isTableListRow = (r: Record<string, unknown>): boolean =>
   typeof r.name === 'string' && (r.type === 'table' || r.type === 'view' || !('type' in r));
+
+/** Client-side write detection — mirrors the worker's guards so the UI can prompt BEFORE sending. */
+const WRITE_RE = /^\s*(CREATE|DROP|ALTER|INSERT|UPDATE|DELETE|REPLACE)\b/i;
+const DESTRUCTIVE_RE = /^\s*(DROP|ALTER|TRUNCATE)\b/i;
+/** DELETE/UPDATE with no WHERE = whole-table mutation → treated as destructive (type-to-confirm). */
+const UNSCOPED_MUT_RE = /^\s*(DELETE\s+FROM|UPDATE)\b(?![\s\S]*\bWHERE\b)/i;
+const isWriteSql = (q: string): boolean => WRITE_RE.test(q);
+const isDestructiveSql = (q: string): boolean => DESTRUCTIVE_RE.test(q) || UNSCOPED_MUT_RE.test(q);
+
+/** A working CREATE TABLE template the "＋ New table" action drops into the editor (edit, then Run). */
+const NEW_TABLE_TEMPLATE =
+  'CREATE TABLE my_table (\n  id TEXT PRIMARY KEY,\n  name TEXT NOT NULL,\n  created_at INTEGER DEFAULT (unixepoch())\n);';
 
 export const DataPanel = memo(() => {
   const [status, setStatus] = useState<Status>(isEmbedded ? 'loading' : 'standalone');
@@ -80,6 +95,8 @@ export const DataPanel = memo(() => {
   const [sqlError, setSqlError] = useState('');
   const [sqlRunning, setSqlRunning] = useState(false);
   const [sqlMeta, setSqlMeta] = useState<{ rows: number; ms?: number } | null>(null);
+  // Write results (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE) — shown as an executed banner, not a grid.
+  const [writeResult, setWriteResult] = useState<{ rows_affected: number; last_row_id: number | null } | null>(null);
 
   const overviewCid = useRef<string | null>(null);
   const browseCid = useRef<string | null>(null);
@@ -136,8 +153,10 @@ export const DataPanel = memo(() => {
     postToParent({ type: 'PS_DATA_REQUEST', table: key, correlationId: cid });
   }, []);
 
-  // Run ONE read-only query through the admin bridge (super-admin only). The admin forwards to
-  // POST /api/sites/:id/sql/exec and replies PS_SQL_RESPONSE; a 403/400 comes back as `sqlError`.
+  // Run ONE statement through the admin bridge (super-admin only). READS → POST /sql/exec;
+  // WRITES (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE) → POST /sql/exec-write. Destructive writes
+  // (DROP/ALTER, or DELETE/UPDATE without WHERE) get a type-to-confirm BEFORE sending; the worker
+  // re-guards server-side (protected-table denylist + confirm). A 403/400 comes back as `sqlError`.
   const runSql = useCallback((query: string) => {
     const q = query.trim();
 
@@ -145,7 +164,22 @@ export const DataPanel = memo(() => {
       return;
     }
 
+    const write = isWriteSql(q);
+    let confirmDestructive: boolean | undefined;
+    if (write && isDestructiveSql(q)) {
+      const ok =
+        typeof window !== 'undefined' &&
+        window.confirm(
+          `This is a DESTRUCTIVE statement and cannot be undone:\n\n${q.slice(0, 300)}\n\nRun it against the live database?`,
+        );
+      if (!ok) {
+        return;
+      }
+      confirmDestructive = true;
+    }
+
     setSqlError('');
+    setWriteResult(null);
     setSqlRunning(true);
     setSqlMeta(null);
 
@@ -162,7 +196,12 @@ export const DataPanel = memo(() => {
         setSqlRunning(false);
       }
     }, REQUEST_TIMEOUT_MS);
-    postToParent({ type: 'PS_SQL_REQUEST', query: q, correlationId: cid });
+    postToParent({
+      type: 'PS_SQL_REQUEST',
+      query: q,
+      correlationId: cid,
+      ...(write ? { write: true, confirm: confirmDestructive } : {}),
+    });
   }, []);
 
   // Subscribe to PS_DATA_RESPONSE from the admin parent.
@@ -186,15 +225,29 @@ export const DataPanel = memo(() => {
         setSqlRunning(false);
 
         if (msg.error) {
-          setSqlError(msg.error);
+          setSqlError(msg.needs_confirm ? `${msg.error}` : msg.error);
           setSqlRows([]);
           setSqlColumns([]);
+          setWriteResult(null);
+
+          return;
+        }
+
+        // Write result (no columns) → show an "executed" banner instead of an empty grid, and
+        // refresh the Tables tab so a CREATE/DROP is reflected there too.
+        if (typeof msg.rows_affected === 'number') {
+          setSqlColumns([]);
+          setSqlRows([]);
+          setWriteResult({ rows_affected: msg.rows_affected, last_row_id: msg.last_row_id ?? null });
+          setSqlMeta({ rows: msg.rows_affected, ms: msg.duration_ms });
+          requestOverview();
 
           return;
         }
 
         setSqlColumns(msg.columns ?? []);
         setSqlRows(msg.rows ?? []);
+        setWriteResult(null);
         setSqlMeta({ rows: (msg.rows ?? []).length, ms: msg.duration_ms });
 
         return;
@@ -672,7 +725,9 @@ export const DataPanel = memo(() => {
         <div className="flex-1 flex flex-col min-h-0" data-testid="data-sql-console">
           <div className="p-3 border-b border-bolt-elements-borderColor/50 space-y-2">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary mr-1">Starters</span>
+              <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary mr-1">
+                Starters
+              </span>
               {SQL_STARTERS.map((s) => (
                 <button
                   key={s.label}
@@ -686,6 +741,16 @@ export const DataPanel = memo(() => {
                   {s.label}
                 </button>
               ))}
+              <span className="mx-0.5 h-3 w-px bg-bolt-elements-borderColor" aria-hidden />
+              <button
+                type="button"
+                onClick={() => setSql(NEW_TABLE_TEMPLATE)}
+                data-testid="data-sql-new-table"
+                title="Drop a CREATE TABLE template into the editor — edit the name + columns, then Run"
+                className="text-[10px] rounded-full px-2 py-0.5 border border-bolt-elements-item-contentAccent/40 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10 cursor-pointer flex items-center gap-1"
+              >
+                <div className="i-ph:plus" /> New table
+              </button>
             </div>
             <textarea
               value={sql}
@@ -699,7 +764,7 @@ export const DataPanel = memo(() => {
               spellCheck={false}
               rows={4}
               data-testid="data-sql-input"
-              placeholder="SELECT * FROM sqlite_master;  — read-only (SELECT / EXPLAIN / WITH / PRAGMA)"
+              placeholder="SELECT … · CREATE TABLE … · INSERT/UPDATE/DELETE …  (⌘↵ to run · destructive statements confirm first)"
               className="w-full resize-y rounded-md bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor px-3 py-2 font-mono text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-bolt-elements-item-contentAccent/50"
             />
             <div className="flex items-center gap-3">
@@ -725,8 +790,11 @@ export const DataPanel = memo(() => {
                   {typeof sqlMeta.ms === 'number' ? ` · ${sqlMeta.ms} ms` : ''}
                 </span>
               )}
-              <span className="ml-auto text-[10px] text-bolt-elements-textTertiary flex items-center gap-1" title="The console rejects writes server-side">
-                <div className="i-ph:lock-simple" /> read-only
+              <span
+                className="ml-auto text-[10px] text-bolt-elements-textTertiary flex items-center gap-1"
+                title="Reads + writes (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE). Platform tables are protected; destructive statements confirm first."
+              >
+                <div className="i-ph:pencil-simple-line" /> read + write
               </span>
             </div>
           </div>
@@ -738,6 +806,19 @@ export const DataPanel = memo(() => {
               role="alert"
             >
               {sqlError}
+            </div>
+          )}
+
+          {!sqlError && writeResult && (
+            <div
+              className="mx-3 mt-3 rounded-md border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/10 px-3 py-2 text-[11px] text-bolt-elements-item-contentAccent flex items-center gap-2"
+              data-testid="data-sql-write-result"
+              role="status"
+            >
+              <div className="i-ph:check-circle" />
+              Statement executed — {writeResult.rows_affected.toLocaleString()}{' '}
+              {writeResult.rows_affected === 1 ? 'row' : 'rows'} affected
+              {writeResult.last_row_id != null ? ` · last row id ${writeResult.last_row_id}` : ''}. Tables refreshed.
             </div>
           )}
 
@@ -774,19 +855,29 @@ export const DataPanel = memo(() => {
                         </td>
                       ))}
                       <td className="px-1 py-1.5 text-right">
-                        {/* One-click drill: a sqlite_master listing row → browse that table. */}
+                        {/* One-click drill: a sqlite_master listing row → browse that table; + Drop. */}
                         {isTableListRow(r) && typeof r.name === 'string' && (
-                          <button
-                            type="button"
-                            title={`SELECT * FROM ${r.name}`}
-                            aria-label={`Browse ${r.name}`}
-                            onClick={() => {
-                              const q = `SELECT * FROM "${r.name}" LIMIT 100;`;
-                              setSql(q);
-                              runSql(q);
-                            }}
-                            className="i-ph:arrow-square-out text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer"
-                          />
+                          <span className="inline-flex items-center gap-2">
+                            <button
+                              type="button"
+                              title={`SELECT * FROM ${r.name}`}
+                              aria-label={`Browse ${r.name}`}
+                              onClick={() => {
+                                const q = `SELECT * FROM "${r.name}" LIMIT 100;`;
+                                setSql(q);
+                                runSql(q);
+                              }}
+                              className="i-ph:arrow-square-out text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer"
+                            />
+                            <button
+                              type="button"
+                              title={`DROP TABLE ${r.name}`}
+                              aria-label={`Drop ${r.name}`}
+                              data-testid="data-sql-drop-table"
+                              onClick={() => runSql(`DROP TABLE "${r.name}";`)}
+                              className="i-ph:trash text-bolt-elements-textTertiary hover:text-red-400 cursor-pointer"
+                            />
+                          </span>
                         )}
                       </td>
                     </tr>
