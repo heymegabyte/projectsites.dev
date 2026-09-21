@@ -20,7 +20,7 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -60,6 +60,25 @@ function countSyllables(word) {
 }
 
 const STOP = new Set(['the', 'a', 'an', 'of', 'to', 'for', 'with', 'in', 'on', 'at', 'or', 'and', 'your', 'our', 'we', 'us', 'you', 'that', 'this', 'who', 'are', 'is', 'when', 'it', 'every', 'real', 'from', 'here']);
+
+/**
+ * Banned AI-slop phrases (COPY dimension: "ZERO banned-slop"). Conservative, HIGH-SIGNAL only —
+ * phrases that are almost never genuine small-business copy — to keep false-positives near zero
+ * (validator-precision). A hit is a real finding to fix at ROOT in the content pack / hero_copy,
+ * never a per-site patch. Tighten this list (never loosen the gate) if a run surfaces a legit use.
+ */
+const BANNED_SLOP = [
+  'seamless', 'cutting-edge', 'cutting edge', 'game-changer', 'game changer', 'game-changing',
+  'nestled', 'boasts', 'look no further', "in today's", 'one-stop shop', 'one stop shop',
+  'unravel', 'unparalleled', 'world-class', 'top-notch', 'state-of-the-art', 'bespoke',
+  'rich tapestry', 'testament to', 'take it to the next level', "we've got you covered",
+  'when it comes to', 'elevate your', 'unlock the',
+];
+/** Distinctive multi/single-word phrases → simple case-insensitive substring is enough + precise. */
+function slopHits(text) {
+  const t = String(text || '').toLowerCase();
+  return BANNED_SLOP.filter((p) => t.includes(p));
+}
 
 async function scorePage(page, path) {
   const errs = [];
@@ -104,7 +123,7 @@ async function scorePage(page, path) {
     };
   });
   page.removeAllListeners('console');
-  return { path, status, errs, ...d, flesch: flesch(d.text) };
+  return { path, status, errs, ...d, flesch: flesch(d.text), slop: slopHits(d.text) };
 }
 
 const b = await chromium.launch({ channel: 'chrome', headless: true });
@@ -132,6 +151,7 @@ for (const r of results) {
   g(`desc ${r.path}`, r.desc.length >= 120 && r.desc.length <= 156, `${r.desc.length} (120-156)`);
   g(`one-h1 ${r.path}`, r.h1s === 1, `${r.h1s} h1`);
   g(`flesch ${r.path}`, r.flesch >= 45, `${r.flesch} (≥45)`); // ≥50 target, 45 floor for pro copy
+  g(`no-slop ${r.path}`, (r.slop?.length ?? 0) === 0, r.slop?.length ? `slop: ${r.slop.join(', ')}` : 'clean');
 }
 // Home-only structural gates
 g('home ≥9 sections', (home.sections ?? 0) >= 9, `${home.sections} sections`);
@@ -171,16 +191,81 @@ if (vertical) {
   }
 }
 
+// ── Regression tracking (charter: rubric results tracked over builds) ─────────
+// Compare THIS run's key metrics to the most recent prior run for the same slug
+// (history at e2e/loop-eval/_eval-history.json). HARD regressions — overall PASS→FAIL,
+// a page dropping off 200, or NEW {TOKEN} leaks — fail the eval; metric dips
+// (words/flesch/sections/imgs/jsonld) are soft WARN so a legitimate content edit that
+// tightens copy doesn't false-fail the gate.
+const HISTORY_PATH = resolve(__dirname, '_eval-history.json');
+const curMetrics = {
+  overall: gates.some((x) => !x.ok) ? 'FAIL' : 'PASS',
+  ok200: results.filter((r) => r.status === 200).length,
+  totalWords: results.reduce((n, r) => n + (r.words || 0), 0),
+  minFlesch: Math.min(...results.map((r) => (Number.isFinite(r.flesch) ? r.flesch : 999))),
+  tokenLeaks: results.reduce((n, r) => n + (r.tokenLeaks || 0), 0),
+  sections: home.sections ?? 0,
+  imgs: home.imgs ?? 0,
+  jsonld: home.jsonldTypes?.length ?? 0,
+};
+let history = {};
+try { history = JSON.parse(readFileSync(HISTORY_PATH, 'utf-8')); } catch { history = {}; }
+const priorRuns = Array.isArray(history[slug]) ? history[slug] : [];
+const prior = priorRuns.length ? priorRuns[priorRuns.length - 1] : null;
+const regHard = [], regSoft = [];
+if (prior?.metrics) {
+  const p = prior.metrics;
+  if (p.overall === 'PASS' && curMetrics.overall === 'FAIL') regHard.push('overall PASS→FAIL');
+  if (curMetrics.ok200 < (p.ok200 ?? 0)) regHard.push(`200-pages ${p.ok200}→${curMetrics.ok200}`);
+  if (curMetrics.tokenLeaks > (p.tokenLeaks ?? 0)) regHard.push(`token leaks ${p.tokenLeaks}→${curMetrics.tokenLeaks}`);
+  if (curMetrics.totalWords < (p.totalWords ?? 0) * 0.9) regSoft.push(`words ${p.totalWords}→${curMetrics.totalWords} (−${Math.round((1 - curMetrics.totalWords / (p.totalWords || 1)) * 100)}%)`);
+  if (curMetrics.minFlesch < (p.minFlesch ?? 0) - 3) regSoft.push(`minFlesch ${p.minFlesch}→${curMetrics.minFlesch}`);
+  if (curMetrics.sections < (p.sections ?? 0)) regSoft.push(`sections ${p.sections}→${curMetrics.sections}`);
+  if (curMetrics.imgs < (p.imgs ?? 0)) regSoft.push(`imgs ${p.imgs}→${curMetrics.imgs}`);
+  if (curMetrics.jsonld < (p.jsonld ?? 0)) regSoft.push(`jsonld ${p.jsonld}→${curMetrics.jsonld}`);
+}
+g('no-hard-regression', regHard.length === 0, regHard.length ? regHard.join('; ') : (prior ? 'no regression vs prior build' : 'baseline — no prior build'));
+
 const hard = gates.filter((x) => !x.ok);
 const overall = hard.length === 0 ? 'PASS' : 'FAIL';
 const scorecard = {
   slug, url: BASE, overall,
   contentUniqueness: uniqueness,
+  regression: { hasPrior: !!prior, priorAt: prior?.ts ?? null, hard: regHard, soft: regSoft, metrics: curMetrics },
   perPage: results.map((r) => ({ path: r.path, status: r.status, words: r.words ?? 0, flesch: r.flesch ?? 0, title: (r.title || '').length, desc: (r.desc || '').length, sections: r.sections ?? 0, imgs: r.imgs ?? 0, errs: r.errs?.length ?? 0, tokens: r.tokenLeaks ?? 0 })),
   home: { theme: home.theme, sections: home.sections, imgs: home.imgs, jsonld: home.jsonldTypes, orgType: home.orgType, gallery: home.galleryTiles, nap: { hours: home.napHours, addr: home.napAddr, tel: home.napTel, email: home.napEmail } },
   softRepeats: repeats.map(([w, ps]) => `${w}: ${ps.join('+')}`),
   gatesFailed: hard.map((x) => `${x.name} — ${x.detail}`),
 };
+
+// Schema-validate the scorecard (contract-first / zod-everywhere). Fail-soft: if zod isn't
+// resolvable in this script's require context, skip rather than crash the eval instrument.
+let schemaValid = null;
+try {
+  const zmod = req('zod');
+  const z = zmod.z || zmod.default || zmod;
+  const Metric = z.object({ overall: z.string(), ok200: z.number(), totalWords: z.number(), minFlesch: z.number(), tokenLeaks: z.number(), sections: z.number(), imgs: z.number(), jsonld: z.number() });
+  const Card = z.object({
+    slug: z.string(), url: z.string(), overall: z.enum(['PASS', 'FAIL']),
+    regression: z.object({ hasPrior: z.boolean(), hard: z.array(z.string()), soft: z.array(z.string()), metrics: Metric }).passthrough(),
+    perPage: z.array(z.object({ path: z.string(), status: z.number() }).passthrough()),
+  }).passthrough();
+  Card.parse(scorecard);
+  schemaValid = true;
+} catch (e) {
+  schemaValid = `unchecked: ${String((e && e.message) || e).slice(0, 70)}`;
+}
+scorecard.schemaValid = schemaValid;
+
+// Record this run to history (append, cap 30/slug) unless --no-record. Best-effort: a write
+// error never fails the eval. Date is available in a plain node script (not a workflow).
+if (!args.includes('--no-record')) {
+  try {
+    (history[slug] ||= []).push({ ts: new Date().toISOString(), overall, metrics: curMetrics });
+    history[slug] = history[slug].slice(-30);
+    writeFileSync(HISTORY_PATH, JSON.stringify(history, null, 2));
+  } catch { /* history is best-effort */ }
+}
 
 if (asJson) {
   console.log(JSON.stringify(scorecard, null, 2));
@@ -190,6 +275,12 @@ if (asJson) {
   console.log(`  HOME theme=${scorecard.home.theme} · ${scorecard.home.orgType} · JSON-LD ${scorecard.home.jsonld?.length} · gallery ${scorecard.home.gallery} · NAP hours=${scorecard.home.nap.hours} addr=${scorecard.home.nap.addr} tel=${scorecard.home.nap.tel} email=${scorecard.home.nap.email}`);
   if (scorecard.softRepeats.length) console.log(`  ⚠ soft headline repeats: ${scorecard.softRepeats.join(' · ')}`);
   if (uniqueness) console.log(`  content uniqueness: ${uniqueness.error ? uniqueness.error : `${uniqueness.uniquePct}% unique — ${uniqueness.packDefault}/${uniqueness.checked} key blocks are VERBATIM pack default${uniqueness.packDefault ? ' (' + uniqueness.packDefaultTokens.join(', ') + ')' : ''}`}`);
+  const reg = scorecard.regression;
+  if (reg.hard.length) console.log(`  ✗ REGRESSION (hard): ${reg.hard.join('; ')}`);
+  else if (reg.soft.length) console.log(`  ⚠ regression (soft): ${reg.soft.join(' · ')}`);
+  else if (reg.hasPrior) console.log(`  ✓ no regression vs prior build (${reg.priorAt?.slice(0, 10) || '?'})`);
+  else console.log(`  · baseline recorded (no prior build to compare)`);
+  console.log(`  schema: ${scorecard.schemaValid === true ? '✓ valid' : scorecard.schemaValid || 'n/a'}`);
   if (hard.length) console.log(`  ✗ FAILED: ${scorecard.gatesFailed.join(' | ')}`);
   else console.log(`  ✓ all ${gates.length} hard gates pass`);
 }
