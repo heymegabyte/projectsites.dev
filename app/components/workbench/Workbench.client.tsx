@@ -15,6 +15,7 @@ import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
 import { renderLogger } from '~/utils/logger';
 import { DataPanel } from './DataPanel';
+import { CreateMenu } from './CreateMenu';
 import { EditorPanel } from './EditorPanel';
 import { FunctionsPanel } from './FunctionsPanel';
 import { Preview } from './Preview';
@@ -352,6 +353,9 @@ export const Workbench = memo(
                         );
                       })}
                     </div>
+                    {/* Create — scaffold a Function / API endpoint / scheduled job / workflow /
+                        template as file(s) in the project (R2-git). Same control group as the tabs. */}
+                    <CreateMenu className="ml-1 shrink-0" />
                     <div className="ml-auto flex items-center gap-1">
                       {selectedView === 'code' && (
                         <>
