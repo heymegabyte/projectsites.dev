@@ -213,3 +213,354 @@ export function isRowActivationKey(key: string): boolean {
 export function isDismissKey(key: string): boolean {
   return key === 'Escape' || key === 'Esc';
 }
+
+/**
+ * Prepend a query to the SQL-console history (a real-editor staple): trimmed,
+ * de-duplicated (a re-run of an existing query jumps back to the top instead of
+ * piling up), most-recent-first, capped at `max`. A blank query returns the list
+ * unchanged. Pure — never mutates input; the localStorage read/write lives in the
+ * component (this stays testable + DOM-free).
+ *
+ * @param history - existing history, most-recent first
+ * @param query - the query just run
+ * @param max - cap on retained entries (default 25)
+ * @returns the new history list
+ * @example addToSqlHistory(['b'], 'a') // ['a', 'b']
+ * @example addToSqlHistory(['a', 'b'], 'b') // ['b', 'a']  (re-run jumps to top, no dupe)
+ * @example addToSqlHistory(['a'], '   ') // ['a']  (blank is a no-op)
+ */
+export function addToSqlHistory(history: readonly string[], query: string, max = 25): string[] {
+  const q = (query ?? '').trim();
+
+  if (!q) {
+    return history.slice();
+  }
+
+  return [q, ...history.filter((h) => h !== q)].slice(0, Math.max(1, max));
+}
+
+/** Thrown when CSV-import input is malformed (no header + data row, bad identifier, or a row
+ *  whose column count mismatches the header). Lets the panel show a precise, safe message. */
+export class CsvImportError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CsvImportError';
+  }
+}
+
+/** SQLite identifier gate — table + column names must match this before interpolation. */
+const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Parse an RFC-4180-ish CSV string into rows of string cells. Handles quoted fields with
+ * embedded commas + newlines and doubled `""` escapes; normalizes CRLF/CR to LF. A trailing
+ * newline does NOT yield a spurious empty row. Pure — no DOM, no I/O.
+ *
+ * @param text - the raw CSV
+ * @returns rows, each an array of cell strings
+ * @example parseCsv('a,b\n"x,y",2') // [['a','b'], ['x,y','2']]
+ * @example parseCsv('name\n"say ""hi"""') // [['name'], ['say "hi"']]
+ */
+export function parseCsv(text: string): string[][] {
+  const s = String(text ?? '').replace(/\r\n?/g, '\n');
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+
+    if (inQuotes) {
+      if (c === '"' && s[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (c === '"') {
+        inQuotes = false;
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ',') {
+      row.push(field);
+      field = '';
+    } else if (c === '\n') {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+    } else {
+      field += c;
+    }
+  }
+
+  if (field !== '' || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+/**
+ * Build parameter-safe `INSERT` statements from CSV text for `table` — the import counterpart to
+ * {@link toCsv}. Row 1 is the header (column names); each later row → one INSERT. Table + column
+ * names are identifier-gated (rejects injection via identifiers); values are single-quote-escaped
+ * (`'` → `''`); an empty cell becomes `NULL` (not `''`). Non-destructive by nature — only adds rows.
+ * Pure — the panel runs the returned statements through its existing write rail.
+ *
+ * @param csvText - the CSV to import (header + ≥1 data row)
+ * @param table - target table name (SQLite identifier)
+ * @returns `{ inserts, columns, rowCount }`
+ * @throws {CsvImportError} empty/one-row input, bad table/column identifier, or a row whose
+ *   column count differs from the header.
+ * @example csvToInserts('a,b\n1,', 't').inserts // ['INSERT INTO "t" ("a", "b") VALUES (\'1\', NULL);']
+ */
+export function csvToInserts(csvText: string, table: string): { inserts: string[]; columns: string[]; rowCount: number } {
+  const t = String(table ?? '').trim();
+
+  if (!IDENT_RE.test(t)) {
+    throw new CsvImportError('Enter a valid table name (letters, digits, underscore; not starting with a digit).');
+  }
+
+  const rows = parseCsv(csvText);
+
+  if (rows.length < 2) {
+    throw new CsvImportError('CSV needs a header row and at least one data row.');
+  }
+
+  const columns = rows[0].map((c) => c.trim());
+
+  if (columns.some((c) => !IDENT_RE.test(c))) {
+    throw new CsvImportError('Every header column must be a valid identifier.');
+  }
+
+  const colList = columns.map((c) => `"${c}"`).join(', ');
+  const inserts = rows.slice(1).map((r, idx) => {
+    if (r.length !== columns.length) {
+      throw new CsvImportError(`Row ${idx + 1} has ${r.length} value(s); the header has ${columns.length}.`);
+    }
+
+    const vals = r.map((v) => (v === '' ? 'NULL' : `'${v.replace(/'/g, "''")}'`)).join(', ');
+
+    return `INSERT INTO "${t}" (${colList}) VALUES (${vals});`;
+  });
+
+  return { inserts, columns, rowCount: inserts.length };
+}
+
+/**
+ * Extract the primary-key column name(s) from a `pragma_table_info` result — the prerequisite for
+ * a SAFE inline row edit/delete (you need the PK to build a precise `WHERE pk = value`, never a
+ * whole-table mutation). Accepts either the raw `name` column or the `"column"` alias our
+ * Structure starters emit; rows with `pk > 0`, ordered by `pk` (composite-key order). Returns `[]`
+ * when the table has NO declared PK — the caller then refuses inline mutation rather than guess a
+ * key (never generates an unscoped UPDATE/DELETE). Pure.
+ *
+ * @param rows - a pragma_table_info result (each row has `pk` + `name`/`column`)
+ * @returns ordered PK column names, or [] when none is declared
+ * @example pkFromTableInfo([{ name: 'id', pk: 1 }, { name: 'x', pk: 0 }]) // ['id']
+ * @example pkFromTableInfo([{ name: 'a', pk: 2 }, { name: 'b', pk: 1 }]) // ['b', 'a']
+ * @example pkFromTableInfo([{ name: 'x', pk: 0 }]) // []  (no PK → caller refuses inline mutation)
+ */
+export function pkFromTableInfo(rows: readonly Record<string, unknown>[]): string[] {
+  return (rows ?? [])
+    .filter((r) => Number(r?.pk) > 0)
+    .map((r) => ({ pk: Number(r.pk), name: String((r.name ?? r.column) ?? '').trim() }))
+    .filter((r) => r.name.length > 0)
+    .sort((a, b) => a.pk - b.pk)
+    .map((r) => r.name);
+}
+
+/** Statement category for the Data console — drives the run affordance + which result view shows. */
+export type SqlKind = 'read' | 'write' | 'ddl' | 'transaction' | 'other';
+
+/** One parsed statement's safety classification. */
+export interface SqlStatementInfo {
+  /** Leading keyword, uppercased (SELECT, INSERT, DROP, …); '' for an empty/blank statement. */
+  verb: string;
+  /** Category — read (SELECT/PRAGMA/EXPLAIN/VALUES), write (INSERT/UPDATE/DELETE/REPLACE),
+   *  ddl (CREATE/ALTER/DROP/…), transaction (BEGIN/COMMIT/…), or other. */
+  kind: SqlKind;
+  /** True when the statement can irreversibly drop or mass-overwrite data — the panel must confirm first. */
+  destructive: boolean;
+  /** Plain-language reason when destructive; '' otherwise. */
+  reason: string;
+}
+
+/** Aggregate classification of a whole console buffer (which may hold several `;`-separated statements). */
+export interface SqlBatchInfo {
+  /** Per-statement infos, in order. */
+  statements: SqlStatementInfo[];
+  /** True when ANY statement is destructive — the batch needs a confirm before it runs. */
+  destructive: boolean;
+  /** Highest-privilege kind across the batch (ddl > write > transaction > read > other). */
+  kind: SqlKind;
+  /** Deduped destructive reasons, for the confirm dialog. */
+  reasons: string[];
+  /** Count of non-empty statements. */
+  statementCount: number;
+}
+
+const KIND_RANK: Record<SqlKind, number> = { other: 0, read: 1, transaction: 2, write: 3, ddl: 4 };
+const DDL_VERBS = new Set(['CREATE', 'ALTER', 'DROP', 'TRUNCATE', 'REINDEX', 'VACUUM', 'ANALYZE', 'ATTACH', 'DETACH']);
+const WRITE_VERBS = new Set(['INSERT', 'UPDATE', 'DELETE', 'REPLACE']);
+const READ_VERBS = new Set(['SELECT', 'PRAGMA', 'EXPLAIN', 'VALUES']);
+const TXN_VERBS = new Set(['BEGIN', 'COMMIT', 'ROLLBACK', 'SAVEPOINT', 'RELEASE', 'END']);
+
+/**
+ * Blank the CONTENT of every SQL string literal and comment (both line comments and block comments)
+ * so keyword detection can never trip on data or commentary — a row literally containing the text
+ * "DROP TABLE" must NOT read as destructive, and a "-- delete everything" note must not either.
+ * Structure + newlines are preserved; only literal/comment characters become spaces. Pure, never throws.
+ *
+ * @param sql - raw SQL
+ * @returns the SQL with all literal/comment characters replaced by spaces
+ * @example stripSqlCommentsAndStrings("DELETE FROM t WHERE id=1 -- wipe") // 'DELETE FROM t WHERE id=1       '
+ * @example stripSqlCommentsAndStrings("SELECT 'DROP TABLE x'") // 'SELECT              ' (literal blanked)
+ */
+export function stripSqlCommentsAndStrings(sql: string): string {
+  const s = String(sql ?? '');
+  const n = s.length;
+  let out = '';
+  let i = 0;
+
+  while (i < n) {
+    const c = s[i];
+    const c2 = s[i + 1];
+
+    if (c === '-' && c2 === '-') {
+      while (i < n && s[i] !== '\n') {
+        out += ' ';
+        i++;
+      }
+      continue;
+    }
+
+    if (c === '/' && c2 === '*') {
+      out += '  ';
+      i += 2;
+      while (i < n && !(s[i] === '*' && s[i + 1] === '/')) {
+        out += s[i] === '\n' ? '\n' : ' ';
+        i++;
+      }
+      if (i < n) {
+        out += '  ';
+        i += 2;
+      }
+      continue;
+    }
+
+    if (c === "'" || c === '"' || c === '`') {
+      const q = c;
+      out += ' ';
+      i++;
+      while (i < n) {
+        if (s[i] === q && s[i + 1] === q) {
+          out += '  ';
+          i += 2;
+          continue;
+        }
+        if (s[i] === q) {
+          out += ' ';
+          i++;
+          break;
+        }
+        out += s[i] === '\n' ? '\n' : ' ';
+        i++;
+      }
+      continue;
+    }
+
+    out += c;
+    i++;
+  }
+
+  return out;
+}
+
+/**
+ * Classify ONE SQL statement for the console's safety gate. Strips literals/comments first, derives
+ * the leading verb + {@link SqlKind}, then — the important part — decides whether it is DESTRUCTIVE:
+ * a DROP / TRUNCATE / ALTER-DROP, or a DELETE / UPDATE with NO `WHERE` clause (which wipes or rewrites
+ * an entire table). The panel pops a typed confirm before running anything destructive. Errs toward
+ * flagging (a suspected wipe confirms; a false confirm is cheap, a silent wipe is not). Pure, never throws.
+ *
+ * @param raw - a single SQL statement (may include comments/strings)
+ * @returns its {@link SqlStatementInfo}
+ * @example classifySqlStatement('SELECT * FROM users') // { verb:'SELECT', kind:'read', destructive:false, reason:'' }
+ * @example classifySqlStatement('DELETE FROM users') // destructive — no WHERE clause wipes the table
+ * @example classifySqlStatement('DELETE FROM users WHERE id = 1') // { kind:'write', destructive:false }
+ * @example classifySqlStatement('DROP TABLE users') // { kind:'ddl', destructive:true }
+ */
+export function classifySqlStatement(raw: string): SqlStatementInfo {
+  const s = stripSqlCommentsAndStrings(String(raw ?? ''))
+    .trim()
+    .replace(/\s+/g, ' ');
+
+  if (!s) {
+    return { verb: '', kind: 'other', destructive: false, reason: '' };
+  }
+
+  const verb = (s.match(/^[A-Za-z]+/)?.[0] ?? '').toUpperCase();
+  const U = s.toUpperCase();
+
+  // A CTE (WITH …) is classified by the primary DML/read keyword that follows it.
+  let effectiveVerb = verb;
+  if (verb === 'WITH') {
+    effectiveVerb = U.match(/\b(INSERT|UPDATE|DELETE|REPLACE|SELECT)\b/)?.[1] ?? 'SELECT';
+  }
+
+  let kind: SqlKind = 'other';
+  if (DDL_VERBS.has(effectiveVerb)) {
+    kind = 'ddl';
+  } else if (WRITE_VERBS.has(effectiveVerb)) {
+    kind = 'write';
+  } else if (TXN_VERBS.has(effectiveVerb)) {
+    kind = 'transaction';
+  } else if (READ_VERBS.has(effectiveVerb)) {
+    kind = 'read';
+  }
+
+  let reason = '';
+  if (/\bDROP\s+(TABLE|INDEX|VIEW|TRIGGER|DATABASE|SCHEMA)\b/.test(U)) {
+    reason = 'DROP permanently deletes a database object and all data it holds.';
+  } else if (/\bTRUNCATE\b/.test(U)) {
+    reason = 'TRUNCATE removes every row in the table.';
+  } else if (/\bALTER\s+TABLE\b[\s\S]*\bDROP\s+(COLUMN|CONSTRAINT)\b/.test(U)) {
+    reason = 'ALTER … DROP removes a column (and its data) from the table.';
+  } else if (effectiveVerb === 'DELETE' && /\bDELETE\s+FROM\b/.test(U) && !/\bWHERE\b/.test(U)) {
+    reason = 'DELETE with no WHERE clause removes every row in the table.';
+  } else if (effectiveVerb === 'UPDATE' && !/\bWHERE\b/.test(U)) {
+    reason = 'UPDATE with no WHERE clause rewrites every row in the table.';
+  }
+
+  return { verb, kind, destructive: reason !== '', reason };
+}
+
+/**
+ * Classify a whole console buffer (one or more `;`-separated statements) for the safety gate. Splits
+ * on statement boundaries AFTER blanking literals/comments (so a `;` inside a string is never a
+ * boundary), classifies each, and aggregates: the batch is DESTRUCTIVE when ANY statement is, and its
+ * `kind` is the highest-privilege statement present. This is what the run handler calls to decide
+ * whether to confirm before executing. Pure, never throws.
+ *
+ * @param sql - the full editor buffer
+ * @returns the aggregate {@link SqlBatchInfo}
+ * @example classifySql('SELECT 1; DROP TABLE t').destructive // true
+ * @example classifySql('SELECT 1; SELECT 2') // { kind:'read', destructive:false, statementCount:2, … }
+ */
+export function classifySql(sql: string): SqlBatchInfo {
+  const stripped = stripSqlCommentsAndStrings(String(sql ?? ''));
+  const parts = stripped
+    .split(';')
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  const statements = parts.map((p) => classifySqlStatement(p));
+  const destructive = statements.some((s) => s.destructive);
+  const reasons = [...new Set(statements.filter((s) => s.destructive).map((s) => s.reason))];
+  const kind = statements.reduce<SqlKind>((hi, s) => (KIND_RANK[s.kind] > KIND_RANK[hi] ? s.kind : hi), 'other');
+
+  return { statements, destructive, kind, reasons, statementCount: statements.length };
+}

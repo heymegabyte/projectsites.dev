@@ -14,6 +14,14 @@ import {
   detailEntries,
   isRowActivationKey,
   isDismissKey,
+  addToSqlHistory,
+  parseCsv,
+  csvToInserts,
+  CsvImportError,
+  pkFromTableInfo,
+  stripSqlCommentsAndStrings,
+  classifySqlStatement,
+  classifySql,
 } from './data-panel-logic';
 
 describe('iconForTable', () => {
@@ -155,5 +163,219 @@ describe('isDismissKey', () => {
     expect(isDismissKey('Spacebar')).toBe(false);
     expect(isDismissKey('Tab')).toBe(false);
     expect(isDismissKey('')).toBe(false);
+  });
+});
+
+describe('addToSqlHistory', () => {
+  it('prepends a new query, most-recent-first', () => {
+    expect(addToSqlHistory(['b'], 'a')).toEqual(['a', 'b']);
+  });
+  it('de-dupes: a re-run jumps to the top instead of piling up', () => {
+    expect(addToSqlHistory(['a', 'b'], 'b')).toEqual(['b', 'a']);
+    expect(addToSqlHistory(['a', 'b', 'c'], 'a')).toEqual(['a', 'b', 'c']);
+  });
+  it('trims the query + ignores blanks', () => {
+    expect(addToSqlHistory(['a'], '  b  ')).toEqual(['b', 'a']);
+    expect(addToSqlHistory(['a'], '   ')).toEqual(['a']);
+    expect(addToSqlHistory(['a'], '')).toEqual(['a']);
+  });
+  it('caps at max, most-recent-first', () => {
+    expect(addToSqlHistory(['b', 'c'], 'a', 2)).toEqual(['a', 'b']);
+  });
+  it('never mutates the input list', () => {
+    const src = ['a', 'b'];
+    addToSqlHistory(src, 'c');
+    expect(src).toEqual(['a', 'b']);
+  });
+});
+
+describe('parseCsv', () => {
+  it('parses simple rows', () => {
+    expect(parseCsv('a,b\n1,2')).toEqual([
+      ['a', 'b'],
+      ['1', '2'],
+    ]);
+  });
+  it('handles quoted fields with embedded commas + newlines', () => {
+    expect(parseCsv('a,b\n"x,y","z\nw"')).toEqual([
+      ['a', 'b'],
+      ['x,y', 'z\nw'],
+    ]);
+  });
+  it('unescapes doubled quotes', () => {
+    expect(parseCsv('name\n"say ""hi"""')).toEqual([['name'], ['say "hi"']]);
+  });
+  it('ignores a trailing newline (no spurious empty row)', () => {
+    expect(parseCsv('a\n1\n')).toEqual([['a'], ['1']]);
+  });
+  it('keeps a trailing empty field', () => {
+    expect(parseCsv('a,b\n1,')).toEqual([
+      ['a', 'b'],
+      ['1', ''],
+    ]);
+  });
+});
+
+describe('csvToInserts', () => {
+  it('builds a parameter-safe INSERT per data row', () => {
+    const r = csvToInserts('a,b\n1,2', 't');
+    expect(r.columns).toEqual(['a', 'b']);
+    expect(r.rowCount).toBe(1);
+    expect(r.inserts).toEqual(['INSERT INTO "t" ("a", "b") VALUES (\'1\', \'2\');']);
+  });
+  it('maps empty cells to NULL, not empty string', () => {
+    expect(csvToInserts('a,b\n1,', 't').inserts[0]).toBe('INSERT INTO "t" ("a", "b") VALUES (\'1\', NULL);');
+  });
+  it('escapes single quotes in values', () => {
+    expect(csvToInserts("name\nO'Brien", 't').inserts[0]).toBe('INSERT INTO "t" ("name") VALUES (\'O\'\'Brien\');');
+  });
+  it('rejects an invalid table name', () => {
+    expect(() => csvToInserts('a\n1', 'bad name')).toThrow(CsvImportError);
+    expect(() => csvToInserts('a\n1', '1t')).toThrow(CsvImportError);
+  });
+  it('rejects an invalid header identifier', () => {
+    expect(() => csvToInserts('bad col\n1', 't')).toThrow(CsvImportError);
+  });
+  it('rejects fewer than two rows', () => {
+    expect(() => csvToInserts('a,b', 't')).toThrow(CsvImportError);
+    expect(() => csvToInserts('', 't')).toThrow(CsvImportError);
+  });
+  it('rejects a row whose column count mismatches the header', () => {
+    expect(() => csvToInserts('a,b\n1', 't')).toThrow(CsvImportError);
+  });
+});
+
+describe('pkFromTableInfo', () => {
+  it('returns the single PK column', () => {
+    expect(pkFromTableInfo([{ name: 'id', pk: 1 }, { name: 'x', pk: 0 }])).toEqual(['id']);
+  });
+  it('orders a composite key by pk index', () => {
+    expect(pkFromTableInfo([{ name: 'a', pk: 2 }, { name: 'b', pk: 1 }])).toEqual(['b', 'a']);
+  });
+  it('accepts the aliased "column" key from the Structure starters', () => {
+    expect(pkFromTableInfo([{ column: 'id', pk: 1 }])).toEqual(['id']);
+  });
+  it('returns [] when no PK is declared (caller refuses inline mutation)', () => {
+    expect(pkFromTableInfo([{ name: 'x', pk: 0 }])).toEqual([]);
+    expect(pkFromTableInfo([])).toEqual([]);
+  });
+});
+
+describe('stripSqlCommentsAndStrings', () => {
+  it('blanks line comments but keeps the newline + following statement', () => {
+    const out = stripSqlCommentsAndStrings('SELECT 1 -- drop table x\nSELECT 2');
+    expect(out).toContain('SELECT 1');
+    expect(out).toContain('SELECT 2');
+    expect(out.toUpperCase()).not.toContain('DROP TABLE');
+  });
+  it('blanks block comments', () => {
+    const out = stripSqlCommentsAndStrings('SELECT /* DELETE FROM t */ 1');
+    expect(out.toUpperCase()).not.toContain('DELETE FROM');
+    expect(out).toContain('SELECT');
+  });
+  it('blanks single-quoted literals including doubled-quote escapes', () => {
+    const out = stripSqlCommentsAndStrings("SELECT 'DROP TABLE ''x'''");
+    expect(out.toUpperCase()).not.toContain('DROP TABLE');
+    expect(out).toContain('SELECT');
+  });
+  it('blanks double-quoted + backtick identifiers so a table named like a keyword is safe', () => {
+    expect(stripSqlCommentsAndStrings('DROP TABLE "drop table"').toUpperCase().match(/DROP\s+TABLE/g)).toHaveLength(1);
+    expect(stripSqlCommentsAndStrings('SELECT * FROM `delete from`').toUpperCase()).not.toContain('DELETE FROM');
+  });
+  it('handles an unterminated string/comment without throwing', () => {
+    expect(typeof stripSqlCommentsAndStrings("SELECT 'oops")).toBe('string');
+    expect(typeof stripSqlCommentsAndStrings('SELECT /* oops')).toBe('string');
+  });
+});
+
+describe('classifySqlStatement: kind', () => {
+  it('reads: SELECT / PRAGMA / EXPLAIN / VALUES (case-insensitive verb)', () => {
+    expect(classifySqlStatement('select * from users').kind).toBe('read');
+    expect(classifySqlStatement('PRAGMA table_info(users)').kind).toBe('read');
+    expect(classifySqlStatement('EXPLAIN QUERY PLAN SELECT 1').kind).toBe('read');
+    expect(classifySqlStatement('SELECT * FROM users').verb).toBe('SELECT');
+  });
+  it('writes: INSERT / UPDATE / DELETE / REPLACE', () => {
+    expect(classifySqlStatement('INSERT INTO t (a) VALUES (1)').kind).toBe('write');
+    expect(classifySqlStatement('REPLACE INTO t (a) VALUES (1)').kind).toBe('write');
+  });
+  it('ddl: CREATE / ALTER / DROP', () => {
+    expect(classifySqlStatement('CREATE TABLE t (id INTEGER)').kind).toBe('ddl');
+    expect(classifySqlStatement('ALTER TABLE t ADD COLUMN x TEXT').kind).toBe('ddl');
+  });
+  it('transaction + other + empty', () => {
+    expect(classifySqlStatement('BEGIN').kind).toBe('transaction');
+    expect(classifySqlStatement('COMMIT').kind).toBe('transaction');
+    expect(classifySqlStatement('')).toEqual({ verb: '', kind: 'other', destructive: false, reason: '' });
+    expect(classifySqlStatement('   ').kind).toBe('other');
+    expect(classifySqlStatement('-- just a note').kind).toBe('other');
+  });
+});
+
+describe('classifySqlStatement: destructive gate', () => {
+  it('flags DROP TABLE / INDEX / VIEW', () => {
+    expect(classifySqlStatement('DROP TABLE users').destructive).toBe(true);
+    expect(classifySqlStatement('DROP INDEX idx_x').destructive).toBe(true);
+    expect(classifySqlStatement('DROP VIEW v').destructive).toBe(true);
+  });
+  it('flags TRUNCATE and ALTER … DROP COLUMN', () => {
+    expect(classifySqlStatement('TRUNCATE TABLE t').destructive).toBe(true);
+    expect(classifySqlStatement('ALTER TABLE t DROP COLUMN x').destructive).toBe(true);
+  });
+  it('flags DELETE / UPDATE with NO where clause (whole-table wipe/rewrite)', () => {
+    expect(classifySqlStatement('DELETE FROM t').destructive).toBe(true);
+    expect(classifySqlStatement('UPDATE t SET a = 1').destructive).toBe(true);
+  });
+  it('does NOT flag a scoped DELETE / UPDATE, a CREATE, or a SELECT', () => {
+    expect(classifySqlStatement('DELETE FROM t WHERE id = 1').destructive).toBe(false);
+    expect(classifySqlStatement('UPDATE t SET a = 1 WHERE id = 2').destructive).toBe(false);
+    expect(classifySqlStatement('CREATE TABLE t (id INTEGER)').destructive).toBe(false);
+    expect(classifySqlStatement('SELECT * FROM t').destructive).toBe(false);
+  });
+  it('every destructive statement carries a plain-language reason', () => {
+    const d = classifySqlStatement('DELETE FROM t');
+    expect(d.reason).toMatch(/WHERE/i);
+    expect(d.reason.length).toBeGreaterThan(0);
+  });
+  it('is NOT fooled by keywords inside string literals or comments (strip-first)', () => {
+    expect(classifySqlStatement("SELECT 'DROP TABLE x' AS note").destructive).toBe(false);
+    expect(classifySqlStatement('SELECT * FROM t -- DELETE FROM t').destructive).toBe(false);
+  });
+  it('classifies a CTE by its primary keyword — WITH … DELETE (no WHERE) is a destructive write', () => {
+    const read = classifySqlStatement('WITH c AS (SELECT 1) SELECT * FROM c');
+    expect(read.kind).toBe('read');
+    expect(read.destructive).toBe(false);
+    const del = classifySqlStatement('WITH c AS (SELECT id FROM t) DELETE FROM t');
+    expect(del.kind).toBe('write');
+    expect(del.destructive).toBe(true);
+  });
+});
+
+describe('classifySql: batch aggregation', () => {
+  it('is destructive when ANY statement is; kind is the highest-privilege present', () => {
+    const b = classifySql('SELECT 1; DROP TABLE t');
+    expect(b.destructive).toBe(true);
+    expect(b.kind).toBe('ddl');
+    expect(b.statementCount).toBe(2);
+    expect(b.reasons).toHaveLength(1);
+  });
+  it('a pure read batch is not destructive', () => {
+    const b = classifySql('SELECT 1; SELECT 2');
+    expect(b.destructive).toBe(false);
+    expect(b.kind).toBe('read');
+    expect(b.statementCount).toBe(2);
+  });
+  it('does not split on a semicolon inside a string literal', () => {
+    expect(classifySql("INSERT INTO t (a) VALUES ('a;b')").statementCount).toBe(1);
+  });
+  it('dedupes identical destructive reasons across statements', () => {
+    const b = classifySql('DROP TABLE a; DROP TABLE b');
+    expect(b.statementCount).toBe(2);
+    expect(b.destructive).toBe(true);
+    expect(b.reasons).toHaveLength(1);
+  });
+  it('empty / semicolon-only input yields a zeroed, non-destructive result', () => {
+    expect(classifySql('')).toEqual({ statements: [], destructive: false, kind: 'other', reasons: [], statementCount: 0 });
+    expect(classifySql(';;;').statementCount).toBe(0);
   });
 });

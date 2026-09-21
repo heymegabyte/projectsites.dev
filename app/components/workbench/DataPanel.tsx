@@ -30,6 +30,7 @@ import {
   detailEntries,
   isRowActivationKey,
   isDismissKey,
+  addToSqlHistory,
 } from './data-panel-logic';
 import { classNames } from '~/utils/classNames';
 
@@ -37,6 +38,8 @@ type Status = 'loading' | 'ready' | 'error' | 'standalone';
 
 const REQUEST_TIMEOUT_MS = 12_000;
 const AUTO_REFRESH_MS = 30_000;
+/** localStorage key for the SQL-console query history (per-browser, best-effort). */
+const SQL_HISTORY_KEY = 'ps-data-sql-history';
 
 /** `sqlite_master` table/view listing — the D1 manager's "show me every table" query. */
 const LIST_TABLES_SQL =
@@ -53,6 +56,17 @@ const SQL_STARTERS: ReadonlyArray<{ label: string; query: string }> = [
   {
     label: 'Schema DDL',
     query: 'SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name;',
+  },
+  {
+    // Full column structure for every table (a real SQLite-editor "Structure" view) via the
+    // pragma_table_info table-valued function — name · type · PK · not-null · default, in one SELECT.
+    label: 'Columns',
+    query: `SELECT m.name AS "table", p.cid, p.name AS "column", p.type, p.pk, p."notnull" AS not_null, p.dflt_value AS default_value FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%' ORDER BY m.name, p.cid;`,
+  },
+  {
+    // Foreign-key relationships across every table via pragma_foreign_key_list.
+    label: 'Foreign keys',
+    query: `SELECT m.name AS "table", f."from" AS "column", f."table" AS references_table, f."to" AS references_column, f.on_delete, f.on_update FROM sqlite_master m JOIN pragma_foreign_key_list(m.name) f WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%' ORDER BY m.name;`,
   },
 ];
 
@@ -97,6 +111,17 @@ export const DataPanel = memo(() => {
   const [sqlMeta, setSqlMeta] = useState<{ rows: number; ms?: number } | null>(null);
   // Write results (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE) — shown as an executed banner, not a grid.
   const [writeResult, setWriteResult] = useState<{ rows_affected: number; last_row_id: number | null } | null>(null);
+  // Query history (real-editor staple) — most-recent-first, de-duped, localStorage-backed per browser.
+  const [sqlHistory, setSqlHistory] = useState<string[]>(() => {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SQL_HISTORY_KEY) : null;
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter((q): q is string => typeof q === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const overviewCid = useRef<string | null>(null);
   const browseCid = useRef<string | null>(null);
@@ -196,6 +221,20 @@ export const DataPanel = memo(() => {
         setSqlRunning(false);
       }
     }, REQUEST_TIMEOUT_MS);
+
+    // Record the run in history (on send, so a failed query stays re-runnable). Best-effort persist.
+    setSqlHistory((h) => {
+      const next = addToSqlHistory(h, q);
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(next));
+        }
+      } catch {
+        /* quota / SSR / private-mode never breaks a query run */
+      }
+      return next;
+    });
+
     postToParent({
       type: 'PS_SQL_REQUEST',
       query: q,
@@ -372,6 +411,23 @@ export const DataPanel = memo(() => {
     a.remove();
     URL.revokeObjectURL(url);
   }, [activeTable, columns, visibleRows]);
+
+  /** Export the SQL-console result grid to CSV (parity with the table-browse export). */
+  const exportSqlCsv = useCallback(() => {
+    if (typeof document === 'undefined' || sqlColumns.length === 0) {
+      return;
+    }
+
+    const blob = new Blob([toCsv(sqlColumns, sqlRows)], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'query-result.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [sqlColumns, sqlRows]);
 
   return (
     <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 overflow-y-auto modern-scrollbar">
@@ -751,7 +807,50 @@ export const DataPanel = memo(() => {
               >
                 <div className="i-ph:plus" /> New table
               </button>
+              <button
+                type="button"
+                onClick={() => setSql(`INSERT INTO my_table (column_a, column_b)\nVALUES ('value a', 'value b');`)}
+                data-testid="data-sql-new-row"
+                title="Drop an INSERT template into the editor — set the table, columns + values, then Run"
+                className="text-[10px] rounded-full px-2 py-0.5 border border-bolt-elements-item-contentAccent/40 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10 cursor-pointer flex items-center gap-1"
+              >
+                <div className="i-ph:plus" /> New row
+              </button>
+              {sqlHistory.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen((v) => !v)}
+                  data-testid="data-sql-history-toggle"
+                  aria-expanded={historyOpen}
+                  title="Recent queries you have run (this browser)"
+                  className="text-[10px] rounded-full px-2 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-bolt-elements-item-contentAccent/40 hover:text-bolt-elements-textPrimary cursor-pointer flex items-center gap-1"
+                >
+                  <div className="i-ph:clock-counter-clockwise" /> History ({sqlHistory.length})
+                </button>
+              )}
             </div>
+            {historyOpen && sqlHistory.length > 0 && (
+              <div
+                data-testid="data-sql-history"
+                className="rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 max-h-40 overflow-auto modern-scrollbar"
+              >
+                {sqlHistory.map((h, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      setSql(h);
+                      setHistoryOpen(false);
+                      runSql(h);
+                    }}
+                    title={h}
+                    className="w-full text-left px-2.5 py-1.5 text-[11px] font-mono text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-3 hover:text-bolt-elements-textPrimary cursor-pointer truncate border-b border-bolt-elements-borderColor/20 last:border-b-0"
+                  >
+                    {h}
+                  </button>
+                ))}
+              </div>
+            )}
             <textarea
               value={sql}
               onChange={(e) => setSql(e.target.value)}
@@ -789,6 +888,17 @@ export const DataPanel = memo(() => {
                   {sqlMeta.rows.toLocaleString()} {sqlMeta.rows === 1 ? 'row' : 'rows'}
                   {typeof sqlMeta.ms === 'number' ? ` · ${sqlMeta.ms} ms` : ''}
                 </span>
+              )}
+              {!sqlError && sqlColumns.length > 0 && (
+                <button
+                  type="button"
+                  onClick={exportSqlCsv}
+                  data-testid="data-sql-export-csv"
+                  className="text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer flex items-center gap-1"
+                  title="Export the query result to CSV"
+                >
+                  <div className="i-ph:download-simple" /> CSV
+                </button>
               )}
               <span
                 className="ml-auto text-[10px] text-bolt-elements-textTertiary flex items-center gap-1"
@@ -868,6 +978,18 @@ export const DataPanel = memo(() => {
                                 runSql(q);
                               }}
                               className="i-ph:arrow-square-out text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer"
+                            />
+                            <button
+                              type="button"
+                              title={`Structure of ${r.name}`}
+                              aria-label={`Structure of ${r.name}`}
+                              data-testid="data-sql-structure"
+                              onClick={() => {
+                                const q = `SELECT cid, name AS "column", type, "notnull" AS not_null, dflt_value AS default_value, pk FROM pragma_table_info('${r.name}') ORDER BY cid;`;
+                                setSql(q);
+                                runSql(q);
+                              }}
+                              className="i-ph:table text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer"
                             />
                             <button
                               type="button"

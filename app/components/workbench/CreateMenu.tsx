@@ -151,7 +151,7 @@ export const CreateMenu = memo(({ className }: CreateMenuProps) => {
             data-testid="workbench-create-menu-trigger"
             onClick={() => track('create.menu.open')}
             className={classNames(
-              'flex items-center gap-1.5 h-8 px-3 rounded-lg text-sm font-medium',
+              'flex items-center gap-1 h-7 px-2 rounded-md text-xs font-medium',
               'text-bolt-elements-item-contentAccent',
               'bg-bolt-elements-item-backgroundAccent/10 hover:bg-bolt-elements-item-backgroundAccent/20',
               'border border-bolt-elements-item-contentAccent/25',
@@ -159,9 +159,9 @@ export const CreateMenu = memo(({ className }: CreateMenuProps) => {
               className,
             )}
           >
-            <div className="i-ph:sparkle-duotone text-base" aria-hidden />
+            <div className="i-ph:sparkle-duotone text-sm" aria-hidden />
             <span>Create</span>
-            <div className="i-ph:caret-down text-xs opacity-70" aria-hidden />
+            <div className="i-ph:caret-down text-[10px] opacity-70" aria-hidden />
           </button>
         }
       >

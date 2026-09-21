@@ -17,7 +17,6 @@ import { renderLogger } from '~/utils/logger';
 import { DataPanel } from './DataPanel';
 import { CreateMenu } from './CreateMenu';
 import { EditorPanel } from './EditorPanel';
-import { FunctionsPanel } from './FunctionsPanel';
 import { Preview } from './Preview';
 import { StatusBar } from './StatusBar.client';
 import { QuickJumpPalette, ShortcutsOverlay, openInStackBlitz, useEditorHotkeys } from './EditorOverlays.client';
@@ -59,7 +58,6 @@ const CHAT_TAB: TopTab = { value: 'chat', text: 'Chat', icon: 'i-ph:chat-circle-
 const TOP_TABS: TopTab[] = [
   { value: 'code', text: 'Code', icon: 'i-ph:code-duotone' },
   { value: 'preview', text: 'Preview', icon: 'i-ph:eye-duotone' },
-  { value: 'functions', text: 'Functions', icon: 'i-ph:lightning-duotone' },
   { value: 'data', text: 'Data', icon: 'i-ph:chart-bar-duotone' },
 ];
 
@@ -353,9 +351,6 @@ export const Workbench = memo(
                         );
                       })}
                     </div>
-                    {/* Create — scaffold a Function / API endpoint / scheduled job / workflow /
-                        template as file(s) in the project (R2-git). Same control group as the tabs. */}
-                    <CreateMenu className="ml-1 shrink-0" />
                     <div className="ml-auto flex items-center gap-1">
                       {selectedView === 'code' && (
                         <>
@@ -458,14 +453,19 @@ export const Workbench = memo(
                         </div>
                       )}
                     </div>
+                    {/* Create — always pinned to the far RIGHT of the tab strip; scaffolds a
+                        Function / API endpoint / scheduled job / workflow / template as file(s). */}
+                    <CreateMenu className="ml-1 shrink-0" />
                   </div>
                   <div className="relative flex-1 overflow-hidden">
-                    {/* All four panels stay MOUNTED and cross-fade via opacity —
-                        switching tabs never unmounts/remounts, so the Preview
-                        iframe never reloads and the editor never re-inits (no
-                        flash). Active panel is interactive + on top; the rest are
-                        opacity-0 + pointer-events-none but alive. (Brian 2026-08-21) */}
-                    <PanelLayer active={selectedView === 'code'}>
+                    {/* All panels stay MOUNTED and cross-fade via opacity — switching
+                        tabs never unmounts/remounts, so the Preview iframe never reloads
+                        and the editor never re-inits (no flash). Active panel is
+                        interactive + on top; the rest are opacity-0 + pointer-events-none
+                        but alive. (Brian 2026-08-21) The Functions tab was removed (Brian
+                        2026-09-20); a persisted functions view falls back to Code so it
+                        never renders a blank editor body. */}
+                    <PanelLayer active={selectedView === 'code' || selectedView === 'functions'}>
                       <EditorPanel
                         editorDocument={currentDocument}
                         isStreaming={isStreaming}
@@ -482,9 +482,6 @@ export const Workbench = memo(
                     </PanelLayer>
                     <PanelLayer active={selectedView === 'preview'}>
                       <Preview setSelectedElement={setSelectedElement} />
-                    </PanelLayer>
-                    <PanelLayer active={selectedView === 'functions'}>
-                      <FunctionsPanel />
                     </PanelLayer>
                     <PanelLayer active={selectedView === 'data'}>
                       <DataPanel />
