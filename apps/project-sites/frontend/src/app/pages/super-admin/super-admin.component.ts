@@ -369,12 +369,14 @@ interface UserDetail {
 
         <!-- Ops console: 4 read-only monitoring widgets -->
         <section class="sa-ops-grid">
-          <!-- 1. API Credits -->
+          <!-- 1. Cloudflare Unified Billing — the SOLE AI-spend rail (EPIC B). Only the CF UB
+               balance is listed; per-provider balances (DeepSeek/OpenAI/Anthropic/etc.) are
+               filtered out because all AI now routes through Cloudflare AI Gateway Unified Billing. -->
           <div class="sa-card sa-ops-card" data-testid="sa-credits" appReveal>
             <header class="sa-card-head">
-              <h2>API Credits</h2>
+              <h2>Cloudflare Unified Billing</h2>
               @if (credits(); as c) {
-                <p class="sa-ops-summary" data-testid="sa-credits-summary">{{ creditsSummary(c) }}</p>
+                <p class="sa-ops-summary" data-testid="sa-credits-summary">{{ ubSummary(c.providers) }}</p>
               }
             </header>
             @if (creditsLoading()) {
@@ -382,11 +384,11 @@ interface UserDetail {
             } @else if (creditsError()) {
               <p class="sa-ops-err small" role="alert">Couldn't load: {{ creditsError() }}</p>
             } @else if (credits(); as c) {
-              @if (c.providers.length === 0) {
-                <p class="muted small sa-ops-msg">No providers configured.</p>
+              @if (ubProviders(c.providers).length === 0) {
+                <p class="muted small sa-ops-msg" data-testid="sa-credits-ub-missing">Cloudflare Unified Billing not configured yet.</p>
               } @else {
                 <ul class="sa-ops-list">
-                  @for (p of sortedProviders(c.providers); track p.id) {
+                  @for (p of ubProviders(c.providers); track p.id) {
                     <li class="sa-cred-row" [attr.data-testid]="'sa-credits-' + p.id">
                       <span class="sa-dot" [attr.data-status]="p.status"
                             [attr.aria-label]="'Status: ' + p.status"></span>
@@ -588,6 +590,7 @@ interface UserDetail {
               {{ opsTotal() }} site{{ opsTotal() === 1 ? '' : 's' }} · page {{ opsPage() }} of {{ opsPages() }}
             </span>
             <div class="sa-ops-pager">
+              <button type="button" class="sa-btn-ghost" (click)="exportSitesCsv()" [disabled]="opsSites().length === 0" data-testid="sa-ops-export" aria-label="Export the sites on this page to CSV">Export CSV</button>
               <button type="button" class="sa-btn-ghost" (click)="opsPrev()" [disabled]="opsPage() <= 1">Prev</button>
               <button type="button" class="sa-btn-ghost" (click)="opsNext()" [disabled]="opsPage() >= opsPages()">Next</button>
             </div>
@@ -663,6 +666,7 @@ interface UserDetail {
               {{ usersTotal() }} account{{ usersTotal() === 1 ? '' : 's' }} · page {{ usersPage() }} of {{ usersPages() }}
             </span>
             <div class="sa-ops-pager">
+              <button type="button" class="sa-btn-ghost" (click)="exportUsersCsv()" [disabled]="usersRows().length === 0" data-testid="sa-users-export" aria-label="Export the accounts on this page to CSV">Export CSV</button>
               <button type="button" class="sa-btn-ghost" (click)="usersPrev()" [disabled]="usersPage() <= 1">Prev</button>
               <button type="button" class="sa-btn-ghost" (click)="usersNext()" [disabled]="usersPage() >= usersPages()">Next</button>
             </div>
@@ -907,11 +911,12 @@ interface UserDetail {
     .sa-pill[data-status="super"] { background: rgba(124,58,237,0.16); color: #c4b5fd; border: 1px solid rgba(124,58,237,0.42); }
     /* ── 360° drawer ─────────────────────────────────────────────────────── */
     .sa-drawer-scrim { position: fixed; inset: 0; background: rgba(3,6,16,0.55); backdrop-filter: blur(6px); z-index: 100000; animation: sa-fade 0.25s ease; }
-    .sa-drawer { position: fixed; top: 0; right: 0; height: 100dvh; width: min(468px, 94vw); z-index: 100001; overflow-y: auto; padding: 26px 26px 44px; background: linear-gradient(180deg, rgba(16,17,34,0.98), rgba(8,9,22,0.99)); border-left: 1px solid rgba(0,229,255,0.22); box-shadow: -44px 0 100px -34px rgba(0,229,255,0.32); animation: sa-slide-in 0.34s cubic-bezier(0.22,1,0.36,1); }
+    /* top padding 66 = 26 base + 40 so the drawer hero + close button clear the fixed admin top navbar (WCAG 2.4.11 focus-not-obscured); the close button is absolute so its own top offset is bumped +40 too */
+    .sa-drawer { position: fixed; top: 0; right: 0; height: 100dvh; width: min(468px, 94vw); z-index: 100001; overflow-y: auto; padding: 66px 26px 44px; background: linear-gradient(180deg, rgba(16,17,34,0.98), rgba(8,9,22,0.99)); border-left: 1px solid rgba(0,229,255,0.22); box-shadow: -44px 0 100px -34px rgba(0,229,255,0.32); animation: sa-slide-in 0.34s cubic-bezier(0.22,1,0.36,1); }
     .sa-drawer:focus { outline: none; }
     @keyframes sa-slide-in { from { transform: translateX(44px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
     @keyframes sa-fade { from { opacity: 0; } to { opacity: 1; } }
-    .sa-drawer-x { position: absolute; top: 16px; right: 16px; width: 34px; height: 34px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.10); color: var(--ps-ink); cursor: pointer; font-size: 0.9rem; line-height: 1; }
+    .sa-drawer-x { position: absolute; top: 56px; right: 16px; width: 34px; height: 34px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.10); color: var(--ps-ink); cursor: pointer; font-size: 0.9rem; line-height: 1; }
     .sa-drawer-x:hover { background: rgba(248,113,113,0.14); border-color: rgba(248,113,113,0.4); color: #fca5a5; }
     .sa-drawer-x:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
     .sa-drawer-hero { padding: 6px 40px 18px 0; border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom: 16px; }
@@ -1353,6 +1358,71 @@ export class SuperAdminComponent implements OnInit {
       .catch(() => this.toast.error('Copy failed'));
   }
 
+  /**
+   * Serialize rows to a CSV string + trigger a client-side download — no backend,
+   * no new endpoint. RFC-4180 quoting (every field quoted, inner `"` doubled) and a
+   * UTF-8 BOM so Excel opens accented business names cleanly. Runs only on a user
+   * click, so `document` is always available (never SSR).
+   */
+  private downloadCsv(filename: string, headers: string[], rows: string[][]): void {
+    const esc = (v: string): string => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const csv = '﻿' + [headers, ...rows].map((cols) => cols.map(esc).join(',')).join('\r\n');
+    try {
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      this.toast.success(`Exported ${rows.length} row${rows.length === 1 ? '' : 's'} → ${filename}`);
+    } catch {
+      this.toast.error('Export failed');
+    }
+  }
+
+  /** Export the sites currently loaded (this page) to CSV. Server-side paginated, so this is the visible page. */
+  exportSitesCsv(): void {
+    const rows = this.opsSites().map((s) => [
+      s.business_name ?? '',
+      s.slug,
+      s.org_name ?? '',
+      s.status,
+      s.created_at ?? '',
+      this.opsSiteUrl(s.slug),
+    ]);
+    if (rows.length === 0) {
+      this.toast.error('No sites to export');
+      return;
+    }
+    this.downloadCsv(
+      `projectsites-sites-page-${this.opsPage()}.csv`,
+      ['Business', 'Slug', 'Owner org', 'Status', 'Created', 'URL'],
+      rows,
+    );
+  }
+
+  /** Export the accounts currently loaded (this page) to CSV. Never includes passwords/session columns. */
+  exportUsersCsv(): void {
+    const rows = this.usersRows().map((u) => [
+      u.email,
+      u.display_name ?? '',
+      u.is_super_admin ? 'super-admin' : 'member',
+      u.created_at ?? '',
+    ]);
+    if (rows.length === 0) {
+      this.toast.error('No accounts to export');
+      return;
+    }
+    this.downloadCsv(
+      `projectsites-accounts-page-${this.usersPage()}.csv`,
+      ['Email', 'Name', 'Role', 'Joined'],
+      rows,
+    );
+  }
+
   private async loadUsers(): Promise<void> {
     try {
       this.usersLoading.set(true);
@@ -1520,6 +1590,30 @@ export class SuperAdminComponent implements OnInit {
     if (s.unknown) parts.push(`${s.unknown} unknown`);
     if (s.unconfigured) parts.push(`${s.unconfigured} unconfigured`);
     return parts.length ? parts.join(' · ') : 'No providers';
+  }
+
+  /**
+   * Cloudflare Unified Billing is now the SOLE AI-spend rail (EPIC B) — the credits widget
+   * lists ONLY it. Match broadly on id/label/category so whatever the backend names the CF UB
+   * provider (`cloudflare` / `unified` / `ai-gateway` / `workers-ai`) still surfaces while every
+   * other provider (DeepSeek/OpenAI/Anthropic/…) is filtered out.
+   */
+  private isUnifiedBilling(p: CreditProvider): boolean {
+    return /cloudflare|unified|ai.?gateway|workers.?ai/i.test(`${p.id} ${p.label} ${p.category}`);
+  }
+
+  /** Only the Cloudflare Unified Billing provider(s), worst-status first. */
+  ubProviders(providers: CreditProvider[]): CreditProvider[] {
+    return this.sortedProviders(providers.filter((p) => this.isUnifiedBilling(p)));
+  }
+
+  /** One-line CF Unified Billing balance/status — replaces the multi-provider rollup. */
+  ubSummary(providers: CreditProvider[]): string {
+    const ub = this.ubProviders(providers);
+    if (ub.length === 0) return 'Not configured';
+    const p = ub[0];
+    if (p.balanceUsd !== null && p.currency) return `${p.currency} ${p.balanceUsd.toFixed(2)} available`;
+    return p.detail || p.status;
   }
 
   // ---- Growth helpers ----
