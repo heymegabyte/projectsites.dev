@@ -327,11 +327,28 @@ const SqlWriteSchema = z.object({
  * would break auth/billing/tenancy for every tenant. Read (SELECT) is unaffected.
  */
 const PROTECTED_TABLES = new Set<string>([
-  'users', 'orgs', 'memberships', 'sessions', 'magic_links', 'oauth_states',
-  'subscriptions', 'webhook_events', 'audit_logs', 'feature_flags',
-  'feature_flag_overrides', 'feature_flag_audit', 'sites', 'hostnames',
-  'workflow_jobs', 'wallets', 'wallet_ledger', 'cost_categories',
-  'sqlite_master', 'sqlite_sequence', 'sqlite_temp_master', 'd1_migrations',
+  'users',
+  'orgs',
+  'memberships',
+  'sessions',
+  'magic_links',
+  'oauth_states',
+  'subscriptions',
+  'webhook_events',
+  'audit_logs',
+  'feature_flags',
+  'feature_flag_overrides',
+  'feature_flag_audit',
+  'sites',
+  'hostnames',
+  'workflow_jobs',
+  'wallets',
+  'wallet_ledger',
+  'cost_categories',
+  'sqlite_master',
+  'sqlite_sequence',
+  'sqlite_temp_master',
+  'd1_migrations',
 ]);
 
 const WRITE_PREFIX = /^\s*(CREATE|DROP|ALTER|INSERT|UPDATE|DELETE|REPLACE)\b/i;
@@ -355,7 +372,12 @@ tabs.post('/api/sites/:siteId/sql/exec-write', async (c) => {
   }
   if (!(await isSuperAdmin(c.env, userId))) {
     return c.json(
-      { error: { code: 'FORBIDDEN', message: 'The SQL console is restricted to platform administrators.' } },
+      {
+        error: {
+          code: 'FORBIDDEN',
+          message: 'The SQL console is restricted to platform administrators.',
+        },
+      },
       403,
     );
   }
@@ -370,7 +392,11 @@ tabs.post('/api/sites/:siteId/sql/exec-write', async (c) => {
   const q = body.statement.trim();
   if (!WRITE_PREFIX.test(q)) {
     return c.json(
-      { ok: false, error: 'write console: use CREATE / DROP / ALTER / INSERT / UPDATE / DELETE / REPLACE (SELECT → read console)' },
+      {
+        ok: false,
+        error:
+          'write console: use CREATE / DROP / ALTER / INSERT / UPDATE / DELETE / REPLACE (SELECT → read console)',
+      },
       400,
     );
   }
@@ -379,7 +405,10 @@ tabs.post('/api/sites/:siteId/sql/exec-write', async (c) => {
   const target = sqlTargetTable(q);
   if (target && PROTECTED_TABLES.has(target)) {
     return c.json(
-      { ok: false, error: `"${target}" is a protected platform table — it can be read but not modified from the console.` },
+      {
+        ok: false,
+        error: `"${target}" is a protected platform table — it can be read but not modified from the console.`,
+      },
       400,
     );
   }
@@ -388,7 +417,12 @@ tabs.post('/api/sites/:siteId/sql/exec-write', async (c) => {
   const destructive = DESTRUCTIVE_PREFIX.test(q) || UNSCOPED_MUTATION.test(q);
   if (destructive && body.confirm !== true) {
     return c.json(
-      { ok: false, error: 'destructive statement — re-run with confirm:true (DROP/ALTER, or DELETE/UPDATE without WHERE)', needs_confirm: true },
+      {
+        ok: false,
+        error:
+          'destructive statement — re-run with confirm:true (DROP/ALTER, or DELETE/UPDATE without WHERE)',
+        needs_confirm: true,
+      },
       400,
     );
   }

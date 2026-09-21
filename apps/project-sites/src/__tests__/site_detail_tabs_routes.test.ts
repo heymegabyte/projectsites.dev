@@ -361,19 +361,30 @@ describe('POST /api/sites/:siteId/sql/exec-write (D1 manager writes — AL-872)'
       return { success: true, meta: { changes: 3, last_row_id: 42 } };
     });
     const prepare = jest.fn(() => ({ run }));
-    return { prepare, _run: run } as unknown as D1Database & { prepare: jest.Mock; _run: jest.Mock };
+    return { prepare, _run: run } as unknown as D1Database & {
+      prepare: jest.Mock;
+      _run: jest.Mock;
+    };
   }
 
   const write = (app: Hono<{ Bindings: Env; Variables: Variables }>, body: unknown, env: Env) =>
     req(
       app,
       PATH,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
       env,
     );
 
   it('returns 401 when unauthenticated', async () => {
-    const res = await write(makeApp(), { statement: 'CREATE TABLE t (id TEXT)' }, makeEnv(makeWriteDb()));
+    const res = await write(
+      makeApp(),
+      { statement: 'CREATE TABLE t (id TEXT)' },
+      makeEnv(makeWriteDb()),
+    );
     expect(res.status).toBe(401);
   });
 
@@ -397,7 +408,11 @@ describe('POST /api/sites/:siteId/sql/exec-write (D1 manager writes — AL-872)'
 
   it('refuses to write/drop a PROTECTED platform table (denylist) even WITH confirm', async () => {
     const db = makeWriteDb();
-    const res = await write(makeApp(AUTH), { statement: 'DROP TABLE users', confirm: true }, makeEnv(db));
+    const res = await write(
+      makeApp(AUTH),
+      { statement: 'DROP TABLE users', confirm: true },
+      makeEnv(db),
+    );
     expect(res.status).toBe(400);
     const json = (await res.json()) as { ok: boolean; error: string };
     expect(json.error).toMatch(/protected/i);
@@ -415,7 +430,11 @@ describe('POST /api/sites/:siteId/sql/exec-write (D1 manager writes — AL-872)'
   });
 
   it('requires confirm for an UNSCOPED mutation (DELETE with no WHERE)', async () => {
-    const res = await write(makeApp(AUTH), { statement: 'DELETE FROM widgets' }, makeEnv(makeWriteDb()));
+    const res = await write(
+      makeApp(AUTH),
+      { statement: 'DELETE FROM widgets' },
+      makeEnv(makeWriteDb()),
+    );
     expect(res.status).toBe(400);
     const json = (await res.json()) as { needs_confirm?: boolean };
     expect(json.needs_confirm).toBe(true);
@@ -424,7 +443,11 @@ describe('POST /api/sites/:siteId/sql/exec-write (D1 manager writes — AL-872)'
   it('runs a DESTRUCTIVE statement WITH confirm — executes + audits as destructive', async () => {
     mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
     const db = makeWriteDb();
-    const res = await write(makeApp(AUTH), { statement: 'DROP TABLE widgets', confirm: true }, makeEnv(db));
+    const res = await write(
+      makeApp(AUTH),
+      { statement: 'DROP TABLE widgets', confirm: true },
+      makeEnv(db),
+    );
     expect(res.status).toBe(200);
     const json = (await res.json()) as { ok: boolean; rows_affected: number };
     expect(json.ok).toBe(true);
@@ -438,9 +461,17 @@ describe('POST /api/sites/:siteId/sql/exec-write (D1 manager writes — AL-872)'
   it('runs a non-destructive CREATE TABLE without confirm — returns rows_affected/last_row_id', async () => {
     mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
     const db = makeWriteDb();
-    const res = await write(makeApp(AUTH), { statement: 'CREATE TABLE widgets (id TEXT PRIMARY KEY)' }, makeEnv(db));
+    const res = await write(
+      makeApp(AUTH),
+      { statement: 'CREATE TABLE widgets (id TEXT PRIMARY KEY)' },
+      makeEnv(db),
+    );
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { ok: boolean; rows_affected: number; last_row_id: number | null };
+    const json = (await res.json()) as {
+      ok: boolean;
+      rows_affected: number;
+      last_row_id: number | null;
+    };
     expect(json.ok).toBe(true);
     expect(json.rows_affected).toBe(3);
     expect(json.last_row_id).toBe(42);
