@@ -2,6 +2,11 @@ import blitzPlugin from '@blitz/eslint-plugin';
 import { jsFileExtensions } from '@blitz/eslint-plugin/dist/configs/javascript.js';
 import { getNamingConventionRule, tsFileExtensions } from '@blitz/eslint-plugin/dist/configs/typescript.js';
 
+import { readFileSync } from 'node:fs';
+
+// Single source of truth for Prettier options — read, never duplicated (drift-detection: one SSOT per asset set).
+const prettierRc = JSON.parse(readFileSync(new URL('./.prettierrc', import.meta.url), 'utf8'));
+
 export default [
   {
     ignores: ['**/dist', '**/node_modules', '**/.wrangler', '**/bolt/build', '**/.history'],
@@ -14,6 +19,10 @@ export default [
       '@typescript-eslint/no-empty-object-type': 'off',
       '@blitz/comment-syntax': 'off',
       '@blitz/block-scope-case': 'off',
+      // Pin Prettier options explicitly AND disable .prettierrc lookup: a bare 'prettier/prettier'
+      // rule calls prettier.resolveConfig() at lint time, whose result diverges between a
+      // flat-hoisted npm install (local) and CI's strict-symlinked pnpm install.
+      'prettier/prettier': ['error', prettierRc, { usePrettierrc: false }],
       'array-bracket-spacing': ['error', 'never'],
       'object-curly-newline': ['error', { consistent: true }],
       'keyword-spacing': ['error', { before: true, after: true }],

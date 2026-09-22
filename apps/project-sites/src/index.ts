@@ -631,7 +631,7 @@ app.post('/api/sites/:siteId/dashboard/metric', async (c) => {
   });
 });
 
-// Social Agent — content proposals + engagement scoring (flag: social_agent)
+// Social Agent — content proposals + engagement scoring (flag: social_publishing_native)
 app.post('/api/sites/:siteId/social/proposals', async (c) => {
   const siteId = c.req.param('siteId');
   const { isFlagOn } = await import('./modules/feature_flags/services.js');
