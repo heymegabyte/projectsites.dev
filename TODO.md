@@ -43,13 +43,18 @@ follow published conventions per the global rule `style-guide-driven-decisions`.
   never render and the site is never strandable; the default is non-removable/non-deactivatable and
   "Set as default" on it routes to the reset-primary endpoint. `domain-picker.component.ts` +
   `api.service.ts` (`resetPrimaryHostname`). 5 Karma specs; 1854 green; deployed to R2 prod.
-- [ ] **Domain-dropdown overhaul (Msg-1) — remaining parts.** Per-row activate `role=switch` + ⋯
-  menu (set-primary · auto-re-register · **copy ✅ + open ✅ shipped 2026-09-22**, rows now degrade
-  gracefully on mobile ✅ · remove w/ DialogShell confirm); merge $17/mo wallet CTA into the compact
-  header; SWR-cache + pre-warm AI-picks/refine/Load-More; WCAG-2.2 keyboard menu;
-  `hostnames.auto_reregister` D1 column + renewal endpoint (own sub-task — reversible D1 migration).
-  ⚠️ The ⋯-overflow-menu consolidation needs a menu/overlay primitive the app lacks (no Spartan/CDK
-  menu present) → build/vendor one first; it's a dedicated pass, not an inline slice.
+- [~] **Domain-dropdown overhaul (Msg-1) — remaining parts.** ✅ **⋯ overflow menu DONE 2026-09-22**
+  (parallel-agent authored + orchestrator-verified): Copy/Open/Set-default/Deactivate/Reactivate folded
+  into a single accessible `@angular/cdk/menu` ⋯ trigger per row (`cdkMenuItemTriggered` = keyboard+click,
+  arrow/Esc/Home-End + focus; global `.dp-menu` styles in `_polish.scss`) — declutters rows + delivers
+  the WCAG-2.2 keyboard menu. 1860 Karma green; deployed to R2. (`@angular/cdk ^21` was installed all
+  along — the earlier "no overlay primitive" note was wrong.)
+  REMAINING → **auto-re-register**: `hostnames.auto_reregister` reversible D1 column + a
+  `POST …/reregister` worker endpoint (reuse `provisionCustomDomain` in `src/services/domains.ts`) +
+  the ⋯-menu item wiring. Its own pass — the hostname handlers live in a **4,809-line `src/routes/api.ts`**;
+  match the `WHERE org_id=?` auth + Zod pattern. (Parallel-agent A attempted this but produced nothing —
+  truncated mid-investigation.) Plus: merge $17/mo wallet CTA into the compact header; SWR-cache +
+  pre-warm AI-picks/refine/Load-More.
 
 ## Source-TODO sweep (2026-09-22) — repository is effectively TODO-clean
 
