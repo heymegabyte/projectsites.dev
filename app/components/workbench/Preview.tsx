@@ -67,6 +67,26 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [isInspectorMode, setIsInspectorMode] = useState(false);
   const [isDeviceModeOn, setIsDeviceModeOn] = useState(false);
+
+  /*
+   * Msg-3b: while the WebContainer boots the dev server (~30-60s cold), no preview URL exists yet.
+   * Show a branded "preparing" state during that window, then fall back gracefully to "no preview"
+   * so a project with no dev server never shows a perpetual spinner.
+   */
+  const [previewBootTimedOut, setPreviewBootTimedOut] = useState(false);
+
+  useEffect(() => {
+    setPreviewBootTimedOut(false);
+
+    if (activePreview) {
+      return undefined;
+    }
+
+    const timer = setTimeout(() => setPreviewBootTimedOut(true), 60_000);
+
+    return () => clearTimeout(timer);
+  }, [activePreview]);
+
   const [widthPercent, setWidthPercent] = useState<number>(37.5);
   const [currentWidth, setCurrentWidth] = useState<number>(0);
 
@@ -1018,9 +1038,34 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
                 containerRef={iframeRef}
               />
             </>
+          ) : previewBootTimedOut ? (
+            <div
+              className="flex flex-col gap-2 w-full h-full justify-center items-center bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary px-6 text-center"
+              data-testid="preview-none"
+            >
+              <div className="i-ph:browser text-3xl text-bolt-elements-textSecondary" aria-hidden="true" />
+              <p className="text-sm font-medium">No preview available</p>
+              <p className="max-w-sm text-xs text-bolt-elements-textSecondary">
+                Start your dev server and the live preview will appear here automatically.
+              </p>
+            </div>
           ) : (
-            <div className="flex w-full h-full justify-center items-center bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary">
-              No preview available
+            <div
+              className="flex flex-col gap-4 w-full h-full justify-center items-center bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary px-6 text-center"
+              role="status"
+              aria-live="polite"
+              data-testid="preview-preparing"
+            >
+              <div
+                className="i-ph:circle-notch animate-spin text-4xl text-bolt-elements-item-contentAccent"
+                aria-hidden="true"
+              />
+              <div className="flex max-w-sm flex-col gap-1.5">
+                <p className="text-sm font-medium">Preparing your preview…</p>
+                <p className="text-xs text-bolt-elements-textSecondary">
+                  ProjectSites.dev is using AI to ensure your website is loaded and available for preview.
+                </p>
+              </div>
             </div>
           )}
 
