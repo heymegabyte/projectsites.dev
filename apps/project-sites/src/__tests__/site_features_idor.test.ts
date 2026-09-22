@@ -42,7 +42,8 @@ function makeDb(opts: { ownerOrgId?: string | null; overrides?: Override[] } = {
     },
     run: async () => ({}),
     all: async () => {
-      if (/FROM sites/i.test(sql)) return { results: opts.ownerOrgId ? [{ org_id: opts.ownerOrgId }] : [] };
+      if (/FROM sites/i.test(sql))
+        return { results: opts.ownerOrgId ? [{ org_id: opts.ownerOrgId }] : [] };
       if (/FROM flag_overrides/i.test(sql)) return { results: opts.overrides ?? [] };
       return { results: [] };
     },
@@ -87,14 +88,23 @@ describe('GET /api/site-features — tenant isolation (IDOR regression)', () => 
 
   it('404s when the authed org does not own the requested site (foreign site, no leak)', async () => {
     const { env } = makeDb({ ownerOrgId: 'org-other' }); // the site belongs to a different org
-    const res = await mountWithOrg('org-1').request('/api/site-features?site_id=s-foreign', {}, env);
+    const res = await mountWithOrg('org-1').request(
+      '/api/site-features?site_id=s-foreign',
+      {},
+      env,
+    );
     expect(res.status).toBe(404);
   });
 
   it('200 + reads state for a site the authed org owns; ignores a client ?org_id (IDOR)', async () => {
     const { env, binds } = makeDb({
       ownerOrgId: 'org-1',
-      overrides: [{ flag_key: 'online_booking', value_json: JSON.stringify({ enabled: true, preview: false }) }],
+      overrides: [
+        {
+          flag_key: 'online_booking',
+          value_json: JSON.stringify({ enabled: true, preview: false }),
+        },
+      ],
     });
     // attacker appends ?org_id=org-victim — the plan MUST be read for the AUTHED org-1
     const res = await mountWithOrg('org-1').request(
