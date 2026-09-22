@@ -293,4 +293,21 @@ describe('DomainPickerComponent — always-present, non-strandable default subdo
     c.openHostname(row);
     expect(openSpy).toHaveBeenCalledWith('https://acme.com', '_blank', 'noopener,noreferrer');
   });
+
+  it('copies the live URL to the clipboard via copyHostname', () => {
+    const { c } = setup({ hostnames: [{ id: 'h1', hostname: 'acme.com', status: 'active', is_primary: true }] });
+    // Replace the whole clipboard object with a fresh stub (shadow + restore) — spying the
+    // shared global writeText collides with other specs ("already been spied upon").
+    const writeText = jasmine.createSpy('writeText').and.returnValue(Promise.resolve());
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      const row = c.filteredAssigned().find((r) => r.hostname === 'acme.com')!;
+      c.copyHostname(row);
+      expect(writeText).toHaveBeenCalledWith('https://acme.com');
+    } finally {
+      if (original) Object.defineProperty(navigator, 'clipboard', original);
+      else delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  });
 });

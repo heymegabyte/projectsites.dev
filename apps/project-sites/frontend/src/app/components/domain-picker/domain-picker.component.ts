@@ -863,6 +863,9 @@ const LOW_BALANCE_CENTS = 500;
                 </button>
                 <div class="dp-row-actions">
                   @if (h.status !== 'deactivated') {
+                    <button type="button" class="dp-act" (click)="copyHostname(h)" [title]="'Copy https://' + h.hostname">
+                      Copy
+                    </button>
                     <button type="button" class="dp-act" (click)="openHostname(h)" [title]="'Open ' + h.hostname + ' in a new tab'">
                       Open
                     </button>
@@ -1562,6 +1565,20 @@ export class DomainPickerComponent implements OnDestroy {
   openHostname(h: PickerHostname): void {
     if (typeof window === 'undefined') return;
     window.open(`https://${h.hostname}`, '_blank', 'noopener,noreferrer');
+  }
+
+  /** Copy the live URL to the clipboard so the owner can share it. */
+  copyHostname(h: PickerHostname): void {
+    const url = `https://${h.hostname}`;
+    const clip = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
+    if (!clip) {
+      this.toast.error('Could not copy — copy it from the address bar.');
+      return;
+    }
+    clip.writeText(url).then(
+      () => this.toast.success(`Copied ${h.hostname}`),
+      () => this.toast.error('Could not copy — copy it from the address bar.'),
+    );
   }
 
   // ---------- Purchase flow ----------
