@@ -10,7 +10,6 @@ apps/web/src/app/pages/marketing-home/marketing-home.component.ts
 apps/web/src/app/pages/marketing-home/marketing-home.component.html
 apps/web/src/app/pages/marketing-home/marketing-home.component.scss
 apps/web/src/index.html
-apps/mobile/src/index.html
 content/marketing/index.md
 
 # Legacy v1 homepage (delete in Phase 8)

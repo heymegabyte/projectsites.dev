@@ -64,13 +64,41 @@ must not be added.
 
 ## Repository layout
 
+Two workspace roots exist for a historical reason: the repo began as the root-level
+[bolt.diy](https://github.com/stackblitz-labs/bolt.diy) Remix app (`app/` — still the CF Pages
+deploy unit and owner of the root `wrangler.toml` / `vite.config.ts` / `electron/`), and the
+ProjectSites monorepo (`apps/*` + `packages/*`) was layered on top. Standard monorepo layout
+(Nx / Turborepo / pnpm-workspaces) puts **every** deployable app under `apps/`; relocating the
+editor `app/` → `apps/editor/` is tracked in [`TODO.md`](./TODO.md) and § Roadmap below.
+
 | Path | What |
 | ---- | ---- |
 | `apps/project-sites/` | Cloudflare Worker (Hono) → `projectsites.dev` — the delivery engine + admin |
 | `apps/project-sites/frontend/` | Angular admin SPA (Spartan UI) |
-| `app/` | bolt.diy editor (Remix) → `editor.projectsites.dev` |
+| `app/` | bolt.diy editor (Remix) → `editor.projectsites.dev` — **root-level for now** (see note above) |
 | `packages/shared/` | Shared Zod schemas, constants, RBAC, utilities |
 | `docs/` | Canonical docs (MkDocs site under `docs/docs/`) |
+
+## Roadmap — parked initiatives
+
+Non-core, not-yet-integrated efforts were **removed from the tree** (2026-09-22 cleanup) to keep
+the repo focused on the Worker + admin + editor. They remain in git history and can be restored if
+prioritized. Each is a real future direction, parked — not abandoned:
+
+- **Public API SDK + `psctl` CLI + MCP server** (`packages/{sdk,psctl,mcp-server}`) — a
+  customer-facing toolkit to drive the platform programmatically (auth, sites CRUD, deploy,
+  snapshots, logs) and expose it to Claude / Cursor / ChatGPT via MCP. Scaffolded at v0.1.0, never
+  wired into core, never published. Revive when a public API is a committed product.
+- **Chrome extension** (`apps/chrome-extension`) — browser companion. Scaffold only.
+- **Desktop app** (`apps/desktop`, Tauri) — native shell. Scaffold only. Distinct from the editor's
+  inherited Electron packaging at root `electron/`, which still has CI (`electron.yml`).
+- **Mobile app** (`apps/mobile`, Capacitor) + **`apps/project-sites/capacitor`** — native iOS /
+  Android shells. Scaffold / empty.
+- **`analytics-ingest`** (`apps/analytics-ingest`) — standalone ingest-worker stub (2 files),
+  superseded by in-worker OTLP + PostHog.
+- **v2 Angular migration** (`apps/web/*`) — a planned canonical marketing home ("target state after
+  Phase 8" per `.cleanup-allowlist`) that was never scaffolded. Either build it or formally retire
+  the plan (tracked in `TODO.md`).
 
 ## Quick start
 

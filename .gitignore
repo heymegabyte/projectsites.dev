@@ -103,3 +103,7 @@ apps/project-sites/*.png
 # the loop reads its `.done` field). Disposable per-fire artifacts, never source → keep untracked
 # so they can't be accidentally committed + don't clutter `git status`.
 apps/project-sites/_ADMIN_CONTRACT_REPORT.json
+
+# Playwright ad-hoc trace-output dirs (e.g. `playwright test --output=tr-fjNN`) — 2,826
+# trace files were accidentally committed once; never track these.
+apps/project-sites/tr-fj*/
