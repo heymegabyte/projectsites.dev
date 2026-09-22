@@ -198,7 +198,7 @@
     "jsdom": "^26.0.0",
     "node-fetch": "^3.3.2",
     "pnpm": "^9.14.4",
-    "prettier": "^3.8.3",
+    "prettier": "3.8.3",
     "rimraf": "^4.4.1",
     "rollup-plugin-visualizer": "^7.0.1",
     "sass-embedded": "^1.81.0",
