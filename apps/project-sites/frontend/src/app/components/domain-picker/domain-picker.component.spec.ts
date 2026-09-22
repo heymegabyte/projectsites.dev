@@ -285,4 +285,12 @@ describe('DomainPickerComponent — always-present, non-strandable default subdo
     expect(reset).toHaveBeenCalledWith('s1');
     expect(setPrimary).not.toHaveBeenCalled();
   });
+
+  it('opens the live domain in a new tab via openHostname', () => {
+    const { c } = setup({ hostnames: [{ id: 'h1', hostname: 'acme.com', status: 'active', is_primary: true }] });
+    const openSpy = spyOn(window, 'open');
+    const row = c.filteredAssigned().find((r) => r.hostname === 'acme.com')!;
+    c.openHostname(row);
+    expect(openSpy).toHaveBeenCalledWith('https://acme.com', '_blank', 'noopener,noreferrer');
+  });
 });

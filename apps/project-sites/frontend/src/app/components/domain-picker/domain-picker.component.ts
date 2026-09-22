@@ -862,6 +862,11 @@ const LOW_BALANCE_CENTS = 500;
                   }
                 </button>
                 <div class="dp-row-actions">
+                  @if (h.status !== 'deactivated') {
+                    <button type="button" class="dp-act" (click)="openHostname(h)" [title]="'Open ' + h.hostname + ' in a new tab'">
+                      Open
+                    </button>
+                  }
                   @if (h.status === 'deactivated') {
                     <button type="button" class="dp-act dp-act--accent" (click)="reactivate(h)" title="Reactivate hostname">
                       Reactivate
@@ -1551,6 +1556,12 @@ export class DomainPickerComponent implements OnDestroy {
         this.refreshHostnames(site.id);
       },
     });
+  }
+
+  /** Open the live domain in a new tab so the owner can view the served site. */
+  openHostname(h: PickerHostname): void {
+    if (typeof window === 'undefined') return;
+    window.open(`https://${h.hostname}`, '_blank', 'noopener,noreferrer');
   }
 
   // ---------- Purchase flow ----------
