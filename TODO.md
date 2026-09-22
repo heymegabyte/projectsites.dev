@@ -55,7 +55,9 @@ follow published conventions per the global rule `style-guide-driven-decisions`.
   auto-renew, + `PATCH …/auto-renew` toggle; `getSiteHostnames` returns `auto_renew`. Admin ⋯-menu shows
   "Stop/Enable auto-renew" instead of "Deactivate" for paid domains; `deactivate()` guards `custom_cname`.
   Handlers live in the extracted `libs/features/hostnames/handlers.ts` (NOT the 4,809-line api.ts). Worker
-  tc + 12,171 Jest green; frontend tc + 1,862 Karma green; frontend on R2, worker deploying via CI.
+  tc + 12,171 Jest green; frontend tc + 1,862 Karma green. **VERIFIED LIVE 2026-09-22**: worker
+  deployed (`PATCH …/auto-renew` → 401 vs 404 for a nonexistent route), authed hostname list → 200
+  with `auto_renew` (no 500 → column valid in prod), frontend on R2.
   REMAINING (smaller): merge $17/mo wallet CTA into the compact header; SWR-cache + pre-warm
   AI-picks/refine/Load-More.
 
