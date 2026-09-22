@@ -483,11 +483,19 @@ async function readSiteFeatureState(
  * entitlement + enable/preview state for the caller's selected site.
  */
 features.get('/api/site-features', async (c) => {
-  const orgId =
-    (c as unknown as { get(k: string): string | undefined }).get('orgId') ??
-    c.req.query('org_id') ??
-    undefined;
+  // Org comes from the AUTHED session ONLY — never a client `org_id` param. The
+  // old `?? c.req.query('org_id')` fallback let an UNAUTHENTICATED caller read any
+  // org's plan + any site's feature-override state cross-tenant (x-org-id IDOR
+  // class). Mirrors the POST handler below + the burn-meter (AL-061).
+  const orgId = c.get('orgId');
+  if (!orgId) return c.json({ error: 'unauthorized' }, 401);
   const siteId = c.req.query('site_id') ?? undefined;
+  // Tenant isolation — a caller may only read feature state for a site they own.
+  // 404 (never 403) so a foreign site id can't be probed. No site_id → the
+  // plan-only view (catalog + registry defaults, no tenant overrides).
+  if (siteId && !(await assertSiteOwned(c.env, orgId, siteId))) {
+    return c.json({ error: 'not_found' }, 404);
+  }
   const plan = await readOrgPlan(c, orgId);
   const state = await readSiteFeatureState(c, siteId);
   const featureList = SITE_FEATURE_CATALOG.map((f) => {
