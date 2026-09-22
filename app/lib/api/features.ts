@@ -32,7 +32,11 @@ const announcedFeatures = (): Feature[] =>
  * the notifications feed reads. One source of truth, no drift.
  */
 const getViewedIds = (): Set<string> =>
-  new Set(announcedFeatures().filter((feature) => logStore.isRead(feature.id)).map((feature) => feature.id));
+  new Set(
+    announcedFeatures()
+      .filter((feature) => logStore.isRead(feature.id))
+      .map((feature) => feature.id),
+  );
 
 /** Returns every announced feature, with `viewed` resolved from the log store. */
 export const getFeatureFlags = async (): Promise<Feature[]> => {

@@ -1223,5 +1223,7 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
   box-shadow: 0 0 0 1px color-mix(in oklch, var(--ps-accent, #00e5ff) 14%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
-  .ps-tab::after { transition: none; }
+  .ps-tab::after {
+    transition: none;
+  }
 }

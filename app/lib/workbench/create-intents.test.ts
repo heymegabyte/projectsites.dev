@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  CreateIntentSchema,
+  createIntentSchema,
   classifyIntent,
   cronFromText,
   scaffoldForIntent,
@@ -53,18 +53,28 @@ describe('classifyIntent', () => {
   it('classifies a scheduled job from natural language', () => {
     const i = classifyIntent('Run a sitemap refresh every night at 2 AM.');
     expect(i.kind).toBe('cron');
-    if (i.kind === 'cron') expect(i.schedule).toBe('0 2 * * *');
+
+    if (i.kind === 'cron') {
+      expect(i.schedule).toBe('0 2 * * *');
+    }
   });
   it('classifies an API endpoint (POST) and validates', () => {
     const i = classifyIntent('Create a contact-form endpoint that validates input and sends an email.');
     expect(i.kind).toBe('endpoint');
-    if (i.kind === 'endpoint') expect(i.method).toBe('POST');
-    expect(() => CreateIntentSchema.parse(i)).not.toThrow();
+
+    if (i.kind === 'endpoint') {
+      expect(i.method).toBe('POST');
+    }
+
+    expect(() => createIntentSchema.parse(i)).not.toThrow();
   });
   it('classifies a GET endpoint when read/list phrasing', () => {
     const i = classifyIntent('an api route to list recent orders');
     expect(i.kind).toBe('endpoint');
-    if (i.kind === 'endpoint') expect(i.method).toBe('GET');
+
+    if (i.kind === 'endpoint') {
+      expect(i.method).toBe('GET');
+    }
   });
   it('classifies a workflow', () => {
     const i = classifyIntent('Create a workflow that publishes approved pages and purges the cache.');
@@ -76,16 +86,19 @@ describe('classifyIntent', () => {
   });
 });
 
-describe('CreateIntentSchema', () => {
+describe('createIntentSchema', () => {
   it('rejects an unknown kind', () => {
-    expect(() => CreateIntentSchema.parse({ kind: 'nope', name: 'x' })).toThrow();
+    expect(() => createIntentSchema.parse({ kind: 'nope', name: 'x' })).toThrow();
   });
   it('rejects an empty name', () => {
-    expect(() => CreateIntentSchema.parse({ kind: 'function', name: '' })).toThrow();
+    expect(() => createIntentSchema.parse({ kind: 'function', name: '' })).toThrow();
   });
   it('defaults endpoint method to POST', () => {
-    const parsed = CreateIntentSchema.parse({ kind: 'endpoint', name: 'contact' });
-    if (parsed.kind === 'endpoint') expect(parsed.method).toBe('POST');
+    const parsed = createIntentSchema.parse({ kind: 'endpoint', name: 'contact' });
+
+    if (parsed.kind === 'endpoint') {
+      expect(parsed.method).toBe('POST');
+    }
   });
 });
 

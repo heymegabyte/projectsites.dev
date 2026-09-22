@@ -60,14 +60,17 @@ export const CreateMenu = memo(({ className }: CreateMenuProps) => {
     setBusy(true);
     setError(null);
     setStatus(`Creating ${result.intent.kind}…`);
+
     try {
       for (const f of result.files) {
         const full = `${WORK_DIR}/${f.path.replace(/^\/+/, '')}`;
         const ok = await workbenchStore.createFile(full, f.content);
+
         if (!ok) {
           throw new Error(`Could not create ${f.path} (it may already exist — open it from the file tree).`);
         }
       }
+
       // Show the new file in the code editor.
       workbenchStore.currentView.set('code');
       setStatus(`Created ${result.openPath}`);
@@ -76,6 +79,7 @@ export const CreateMenu = memo(({ className }: CreateMenuProps) => {
         files: result.files.map((f) => f.path),
         openPath: result.openPath,
       });
+
       // Close the dialog shortly after success so the status is readable.
       setAiOpen(false);
       setPlan(null);
@@ -94,6 +98,7 @@ export const CreateMenu = memo(({ className }: CreateMenuProps) => {
   const quickCreate = useCallback(
     (intent: CreateIntent) => {
       track('create.menu.action', { kind: intent.kind, source: 'menu' });
+
       try {
         void runScaffold(scaffoldForIntent(intent));
       } catch (err) {
@@ -106,10 +111,13 @@ export const CreateMenu = memo(({ className }: CreateMenuProps) => {
   /** AI field → classify the request into a typed intent + show a plan preview. */
   const previewFromText = useCallback(() => {
     const text = aiText.trim();
+
     if (!text) {
       return;
     }
+
     track('create.ai.submit', { length: text.length });
+
     try {
       const intent = classifyIntent(text);
       const result = scaffoldForIntent(intent);

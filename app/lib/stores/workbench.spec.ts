@@ -20,8 +20,10 @@ import { workbenchStore } from './workbench';
  * is synchronous and side-effect-free with no files present.
  */
 
-// Minimal browser-global stubs for the WebContainer / persistence chain. The
-// real UI (and its full hydration) is covered by the Playwright E2E suite.
+/*
+ * Minimal browser-global stubs for the WebContainer / persistence chain. The
+ * real UI (and its full hydration) is covered by the Playwright E2E suite.
+ */
 const memoryStorage = new Map<string, string>();
 const storageStub = {
   getItem: (key: string) => memoryStorage.get(key) ?? null,
@@ -48,12 +50,15 @@ stubGlobals.sessionStorage ??= storageStub;
 if (!('webcontainerContext' in stubGlobals)) {
   stubGlobals.webcontainerContext = { loaded: false };
 }
+
 if (!('SharedArrayBuffer' in stubGlobals)) {
   stubGlobals.SharedArrayBuffer = ArrayBuffer;
 }
+
 if (!('crossOriginIsolated' in stubGlobals)) {
   stubGlobals.crossOriginIsolated = false;
 }
+
 stubGlobals.crypto ??= globalThis.crypto ?? {};
 stubGlobals.navigator ??= { userAgent: 'vitest', language: 'en-US', languages: ['en-US'] };
 
@@ -69,8 +74,11 @@ describe('workbenchStore execution queue — abort/resume latch', () => {
 
   beforeEach(() => {
     calls = [];
-    // Defensive: the singleton is module-scoped, so a prior test's abort could
-    // leak in. Clearing the latch here is setup hygiene, not the assertion.
+
+    /*
+     * Defensive: the singleton is module-scoped, so a prior test's abort could
+     * leak in. Clearing the latch here is setup hygiene, not the assertion.
+     */
     workbenchStore.resumeActions();
   });
 
@@ -93,8 +101,10 @@ describe('workbenchStore execution queue — abort/resume latch', () => {
 
     await flushQueue();
 
-    // The latch engaged: the callback is dropped, not merely deferred, and no
-    // error is thrown — this silence is exactly what made the bug invisible.
+    /*
+     * The latch engaged: the callback is dropped, not merely deferred, and no
+     * error is thrown — this silence is exactly what made the bug invisible.
+     */
     expect(calls).toEqual([]);
   });
 

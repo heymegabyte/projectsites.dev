@@ -247,10 +247,20 @@ describe('csvToInserts', () => {
 
 describe('pkFromTableInfo', () => {
   it('returns the single PK column', () => {
-    expect(pkFromTableInfo([{ name: 'id', pk: 1 }, { name: 'x', pk: 0 }])).toEqual(['id']);
+    expect(
+      pkFromTableInfo([
+        { name: 'id', pk: 1 },
+        { name: 'x', pk: 0 },
+      ]),
+    ).toEqual(['id']);
   });
   it('orders a composite key by pk index', () => {
-    expect(pkFromTableInfo([{ name: 'a', pk: 2 }, { name: 'b', pk: 1 }])).toEqual(['b', 'a']);
+    expect(
+      pkFromTableInfo([
+        { name: 'a', pk: 2 },
+        { name: 'b', pk: 1 },
+      ]),
+    ).toEqual(['b', 'a']);
   });
   it('accepts the aliased "column" key from the Structure starters', () => {
     expect(pkFromTableInfo([{ column: 'id', pk: 1 }])).toEqual(['id']);
@@ -279,7 +289,11 @@ describe('stripSqlCommentsAndStrings', () => {
     expect(out).toContain('SELECT');
   });
   it('blanks double-quoted + backtick identifiers so a table named like a keyword is safe', () => {
-    expect(stripSqlCommentsAndStrings('DROP TABLE "drop table"').toUpperCase().match(/DROP\s+TABLE/g)).toHaveLength(1);
+    expect(
+      stripSqlCommentsAndStrings('DROP TABLE "drop table"')
+        .toUpperCase()
+        .match(/DROP\s+TABLE/g),
+    ).toHaveLength(1);
     expect(stripSqlCommentsAndStrings('SELECT * FROM `delete from`').toUpperCase()).not.toContain('DELETE FROM');
   });
   it('handles an unterminated string/comment without throwing', () => {
@@ -345,6 +359,7 @@ describe('classifySqlStatement: destructive gate', () => {
     const read = classifySqlStatement('WITH c AS (SELECT 1) SELECT * FROM c');
     expect(read.kind).toBe('read');
     expect(read.destructive).toBe(false);
+
     const del = classifySqlStatement('WITH c AS (SELECT id FROM t) DELETE FROM t');
     expect(del.kind).toBe('write');
     expect(del.destructive).toBe(true);
@@ -375,7 +390,13 @@ describe('classifySql: batch aggregation', () => {
     expect(b.reasons).toHaveLength(1);
   });
   it('empty / semicolon-only input yields a zeroed, non-destructive result', () => {
-    expect(classifySql('')).toEqual({ statements: [], destructive: false, kind: 'other', reasons: [], statementCount: 0 });
+    expect(classifySql('')).toEqual({
+      statements: [],
+      destructive: false,
+      kind: 'other',
+      reasons: [],
+      statementCount: 0,
+    });
     expect(classifySql(';;;').statementCount).toBe(0);
   });
 });

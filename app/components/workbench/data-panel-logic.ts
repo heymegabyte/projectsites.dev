@@ -239,8 +239,10 @@ export function addToSqlHistory(history: readonly string[], query: string, max =
   return [q, ...history.filter((h) => h !== q)].slice(0, Math.max(1, max));
 }
 
-/** Thrown when CSV-import input is malformed (no header + data row, bad identifier, or a row
- *  whose column count mismatches the header). Lets the panel show a precise, safe message. */
+/**
+ * Thrown when CSV-import input is malformed (no header + data row, bad identifier, or a row
+ *  whose column count mismatches the header). Lets the panel show a precise, safe message.
+ */
 export class CsvImportError extends Error {
   constructor(message: string) {
     super(message);
@@ -317,7 +319,10 @@ export function parseCsv(text: string): string[][] {
  *   column count differs from the header.
  * @example csvToInserts('a,b\n1,', 't').inserts // ['INSERT INTO "t" ("a", "b") VALUES (\'1\', NULL);']
  */
-export function csvToInserts(csvText: string, table: string): { inserts: string[]; columns: string[]; rowCount: number } {
+export function csvToInserts(
+  csvText: string,
+  table: string,
+): { inserts: string[]; columns: string[]; rowCount: number } {
   const t = String(table ?? '').trim();
 
   if (!IDENT_RE.test(t)) {
@@ -367,7 +372,7 @@ export function csvToInserts(csvText: string, table: string): { inserts: string[
 export function pkFromTableInfo(rows: readonly Record<string, unknown>[]): string[] {
   return (rows ?? [])
     .filter((r) => Number(r?.pk) > 0)
-    .map((r) => ({ pk: Number(r.pk), name: String((r.name ?? r.column) ?? '').trim() }))
+    .map((r) => ({ pk: Number(r.pk), name: String(r.name ?? r.column ?? '').trim() }))
     .filter((r) => r.name.length > 0)
     .sort((a, b) => a.pk - b.pk)
     .map((r) => r.name);
@@ -380,11 +385,16 @@ export type SqlKind = 'read' | 'write' | 'ddl' | 'transaction' | 'other';
 export interface SqlStatementInfo {
   /** Leading keyword, uppercased (SELECT, INSERT, DROP, …); '' for an empty/blank statement. */
   verb: string;
-  /** Category — read (SELECT/PRAGMA/EXPLAIN/VALUES), write (INSERT/UPDATE/DELETE/REPLACE),
-   *  ddl (CREATE/ALTER/DROP/…), transaction (BEGIN/COMMIT/…), or other. */
+
+  /**
+   * Category — read (SELECT/PRAGMA/EXPLAIN/VALUES), write (INSERT/UPDATE/DELETE/REPLACE),
+   *  ddl (CREATE/ALTER/DROP/…), transaction (BEGIN/COMMIT/…), or other.
+   */
   kind: SqlKind;
+
   /** True when the statement can irreversibly drop or mass-overwrite data — the panel must confirm first. */
   destructive: boolean;
+
   /** Plain-language reason when destructive; '' otherwise. */
   reason: string;
 }
@@ -393,12 +403,16 @@ export interface SqlStatementInfo {
 export interface SqlBatchInfo {
   /** Per-statement infos, in order. */
   statements: SqlStatementInfo[];
+
   /** True when ANY statement is destructive — the batch needs a confirm before it runs. */
   destructive: boolean;
+
   /** Highest-privilege kind across the batch (ddl > write > transaction > read > other). */
   kind: SqlKind;
+
   /** Deduped destructive reasons, for the confirm dialog. */
   reasons: string[];
+
   /** Count of non-empty statements. */
   statementCount: number;
 }
@@ -441,14 +455,17 @@ export function stripSqlCommentsAndStrings(sql: string): string {
     if (c === '/' && c2 === '*') {
       out += '  ';
       i += 2;
+
       while (i < n && !(s[i] === '*' && s[i + 1] === '/')) {
         out += s[i] === '\n' ? '\n' : ' ';
         i++;
       }
+
       if (i < n) {
         out += '  ';
         i += 2;
       }
+
       continue;
     }
 
@@ -456,17 +473,20 @@ export function stripSqlCommentsAndStrings(sql: string): string {
       const q = c;
       out += ' ';
       i++;
+
       while (i < n) {
         if (s[i] === q && s[i + 1] === q) {
           out += '  ';
           i += 2;
           continue;
         }
+
         if (s[i] === q) {
           out += ' ';
           i++;
           break;
         }
+
         out += s[i] === '\n' ? '\n' : ' ';
         i++;
       }
@@ -508,25 +528,31 @@ export function classifySqlStatement(raw: string): SqlStatementInfo {
 
   // A CTE (WITH …) is classified by the primary DML/read keyword that follows it.
   let effectiveVerb = verb;
+
   if (verb === 'WITH') {
-    // FIRST-MATCH-ORDER: `String.match` returns the LEFTMOST hit, never the
-    // highest-priority one, so a keyword inside a CTE body pre-empts the primary verb
-    // (`WITH c AS (SELECT id FROM t) DELETE FROM t` read as a SELECT). Blank every
-    // parenthesized body at any depth, then take the first keyword that survives.
+    /*
+     * FIRST-MATCH-ORDER: `String.match` returns the LEFTMOST hit, never the
+     * highest-priority one, so a keyword inside a CTE body pre-empts the primary verb
+     * (`WITH c AS (SELECT id FROM t) DELETE FROM t` read as a SELECT). Blank every
+     * parenthesized body at any depth, then take the first keyword that survives.
+     */
     const chars: string[] = [];
     let depth = 0;
+
     for (const ch of U) {
       if (ch === '(') {
         depth += 1;
       } else if (ch === ')') {
         depth = Math.max(0, depth - 1);
       }
+
       chars.push(depth === 0 ? ch : ' ');
     }
     effectiveVerb = chars.join('').match(/\b(INSERT|UPDATE|DELETE|REPLACE|SELECT)\b/)?.[1] ?? 'SELECT';
   }
 
   let kind: SqlKind = 'other';
+
   if (DDL_VERBS.has(effectiveVerb)) {
     kind = 'ddl';
   } else if (WRITE_VERBS.has(effectiveVerb)) {
@@ -538,6 +564,7 @@ export function classifySqlStatement(raw: string): SqlStatementInfo {
   }
 
   let reason = '';
+
   if (/\bDROP\s+(TABLE|INDEX|VIEW|TRIGGER|DATABASE|SCHEMA)\b/.test(U)) {
     reason = 'DROP permanently deletes a database object and all data it holds.';
   } else if (/\bTRUNCATE\b/.test(U)) {

@@ -24,7 +24,7 @@ const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
 /** Discriminated union of every creation intent the menu supports. */
-export const CreateIntentSchema = z.discriminatedUnion('kind', [
+export const createIntentSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('function'), name: z.string().min(1).max(64), prompt: z.string().optional() }),
   z.object({
     kind: z.literal('endpoint'),
@@ -41,7 +41,7 @@ export const CreateIntentSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('workflow'), name: z.string().min(1).max(64), prompt: z.string().optional() }),
   z.object({ kind: z.literal('template'), name: z.string().min(1).max(64), templateId: z.string().min(1) }),
 ]);
-export type CreateIntent = z.infer<typeof CreateIntentSchema>;
+export type CreateIntent = z.infer<typeof createIntentSchema>;
 
 /** Files a scaffold writes, which to open after, and a one-line human preview. */
 export interface ScaffoldFile {
@@ -52,6 +52,7 @@ export interface ScaffoldResult {
   intent: CreateIntent;
   files: ScaffoldFile[];
   openPath: string;
+
   /** Whether executing this needs a confirm gate (deploy / secrets / public exposure). */
   sensitive: boolean;
   summary: string;
@@ -75,25 +76,49 @@ export function cronFromText(text: string): string {
   const t = (text || '').toLowerCase();
 
   const everyN = t.match(/every\s+(\d{1,3})\s*(minute|min|hour)/);
+
   if (everyN) {
     const n = Math.max(1, Math.min(parseInt(everyN[1], 10), everyN[2].startsWith('hour') ? 23 : 59));
     return everyN[2].startsWith('hour') ? `0 */${n} * * *` : `*/${n} * * * *`;
   }
-  if (/every\s+hour|hourly/.test(t)) return '0 * * * *';
-  if (/every\s+minute/.test(t)) return '* * * * *';
+
+  if (/every\s+hour|hourly/.test(t)) {
+    return '0 * * * *';
+  }
+
+  if (/every\s+minute/.test(t)) {
+    return '* * * * *';
+  }
 
   // "at 2 am" / "at 2:30 pm" / "2am"
   const at = t.match(/(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/);
+
   if (at && (/\bat\b/.test(t) || /\b(am|pm)\b/.test(t))) {
     let hour = parseInt(at[1], 10);
     const min = at[2] ? parseInt(at[2], 10) : 0;
     const mer = at[3];
-    if (mer === 'pm' && hour < 12) hour += 12;
-    if (mer === 'am' && hour === 12) hour = 0;
-    if (hour >= 0 && hour <= 23 && min >= 0 && min <= 59) return `${min} ${hour} * * *`;
+
+    if (mer === 'pm' && hour < 12) {
+      hour += 12;
+    }
+
+    if (mer === 'am' && hour === 12) {
+      hour = 0;
+    }
+
+    if (hour >= 0 && hour <= 23 && min >= 0 && min <= 59) {
+      return `${min} ${hour} * * *`;
+    }
   }
-  if (/weekly/.test(t)) return '0 2 * * 1'; // Monday 02:00
-  if (/monthly/.test(t)) return '0 2 1 * *'; // 1st 02:00
+
+  if (/weekly/.test(t)) {
+    return '0 2 * * 1';
+  } // Monday 02:00
+
+  if (/monthly/.test(t)) {
+    return '0 2 1 * *';
+  } // 1st 02:00
+
   return '0 2 * * *'; // nightly 02:00 default
 }
 
@@ -101,17 +126,27 @@ export function cronFromText(text: string): string {
 export function nameFromText(text: string, kind: CreateKind): string {
   const t = (text || '').trim();
   const explicit = t.match(/(?:called|named)\s+["']?([a-z0-9 _-]{2,40})["']?/i);
-  if (explicit) return slugify(explicit[1], `${kind}`);
+
+  if (explicit) {
+    return slugify(explicit[1], `${kind}`);
+  }
+
   const quoted = t.match(/["']([a-z0-9 _-]{2,40})["']/i);
-  if (quoted) return slugify(quoted[1], `${kind}`);
+
+  if (quoted) {
+    return slugify(quoted[1], `${kind}`);
+  }
+
   // Domain-y keyword → concise slug.
   const kw = t.match(
     /\b(contact|sitemap|newsletter|webhook|order|booking|invoice|cache|publish|subscribe|lead|payment|review|feedback|search|upload|export|sync)\b/i,
   );
+
   if (kw) {
     const suffix = kind === 'endpoint' ? '' : kind === 'cron' ? '-job' : kind === 'workflow' ? '-flow' : '';
     return slugify(kw[1] + suffix, `${kind}`);
   }
+
   return kind === 'endpoint'
     ? 'my-endpoint'
     : kind === 'cron'
@@ -134,15 +169,18 @@ export function classifyIntent(text: string): CreateIntent {
   if (/\b(every|nightly|daily|weekly|monthly|hourly|cron|schedule|each night|each day|at \d)\b/.test(t)) {
     return { kind: 'cron', name: nameFromText(text, 'cron'), schedule: cronFromText(text), prompt };
   }
+
   // Workflow — multi-step / orchestration phrasing.
   if (/\b(workflow|pipeline|orchestrat|then\b.*\b(purge|publish|deploy|notify)|multi-step|steps?)\b/.test(t)) {
     return { kind: 'workflow', name: nameFromText(text, 'workflow'), prompt };
   }
+
   // Endpoint — API/route/form/webhook phrasing.
   if (/\b(endpoint|api|route|webhook|form|post|get|receive|submit)\b/.test(t)) {
     const method: HttpMethod = /\bget\b|read|fetch|list/.test(t) ? 'GET' : 'POST';
     return { kind: 'endpoint', name: nameFromText(text, 'endpoint'), method, prompt };
   }
+
   // Default — a generic function.
   return { kind: 'function', name: nameFromText(text, 'function'), prompt };
 }
@@ -154,6 +192,7 @@ const HEADER = (title: string) =>
 
 function endpointBody(slug: string, method: HttpMethod, note?: string): string {
   const handler = `onRequest${method.charAt(0) + method.slice(1).toLowerCase()}`;
+
   if (method === 'GET') {
     return (
       HEADER(`functions/api/${slug}.ts — GET /api/${slug}${note ? ` (${note})` : ''}`) +
@@ -163,6 +202,7 @@ function endpointBody(slug: string, method: HttpMethod, note?: string): string {
       `  return Response.json({ ok: true, endpoint: '/api/${slug}', query: Object.fromEntries(url.searchParams) });\n};\n`
     );
   }
+
   return (
     HEADER(`functions/api/${slug}.ts — ${method} /api/${slug}${note ? ` (${note})` : ''}`) +
     `\nexport const ${handler} = async ({ request, env }: { request: Request; env: any }): Promise<Response> => {\n` +
@@ -268,11 +308,15 @@ export const CREATE_TEMPLATES: readonly CreateTemplate[] = [
  * (it writes to the project tree, not prod); deploy/secrets happen elsewhere.
  */
 export function scaffoldForIntent(rawIntent: CreateIntent): ScaffoldResult {
-  const intent = CreateIntentSchema.parse(rawIntent);
+  const intent = createIntentSchema.parse(rawIntent);
 
   if (intent.kind === 'template') {
     const tpl = CREATE_TEMPLATES.find((t) => t.id === intent.templateId);
-    if (!tpl) throw new Error(`Unknown template: ${intent.templateId}`);
+
+    if (!tpl) {
+      throw new Error(`Unknown template: ${intent.templateId}`);
+    }
+
     return scaffoldForIntent(tpl.intent);
   }
 
@@ -282,6 +326,7 @@ export function scaffoldForIntent(rawIntent: CreateIntent): ScaffoldResult {
     case 'function': {
       const slug = slugify(intent.name, 'my-function');
       const path = `functions/api/${slug}.ts`;
+
       return {
         intent,
         files: [{ path, content: functionBody(slug) }],
@@ -293,6 +338,7 @@ export function scaffoldForIntent(rawIntent: CreateIntent): ScaffoldResult {
     case 'endpoint': {
       const slug = slugify(intent.name, 'my-endpoint');
       const path = `functions/api/${slug}.ts`;
+
       return {
         intent,
         files: [{ path, content: endpointBody(slug, intent.method, note) }],
@@ -304,6 +350,7 @@ export function scaffoldForIntent(rawIntent: CreateIntent): ScaffoldResult {
     case 'cron': {
       const slug = slugify(intent.name, 'nightly-job');
       const path = `functions/_scheduled.ts`;
+
       return {
         intent,
         files: [{ path, content: scheduledBody(slug, intent.schedule, note) }],
@@ -315,6 +362,7 @@ export function scaffoldForIntent(rawIntent: CreateIntent): ScaffoldResult {
     case 'workflow': {
       const slug = slugify(intent.name, 'my-workflow');
       const path = `functions/api/${slug}.ts`;
+
       return {
         intent,
         files: [{ path, content: workflowBody(slug, note) }],
@@ -324,4 +372,6 @@ export function scaffoldForIntent(rawIntent: CreateIntent): ScaffoldResult {
       };
     }
   }
+
+  throw new Error(`Unhandled intent kind: ${JSON.stringify(intent)}`);
 }

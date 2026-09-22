@@ -193,6 +193,7 @@ export interface DataResponseMessage {
     table?: string;
     columns?: string[];
     rows?: Record<string, unknown>[];
+
     /**
      * True when the signed-in admin is a platform super-admin → the D1 manager unlocks the
      * read-only SQL console (arbitrary SELECT/PRAGMA over the site's D1 via {@link SqlRequestMessage}).
@@ -219,8 +220,10 @@ export interface SqlRequestMessage {
   type: 'PS_SQL_REQUEST';
   query: string;
   correlationId: string;
+
   /** When true, route to the WRITE endpoint (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE). Default: read. */
   write?: boolean;
+
   /** Required `true` for destructive writes (DROP/ALTER, unscoped DELETE/UPDATE) — the type-to-confirm. */
   confirm?: boolean;
 }
@@ -230,12 +233,15 @@ export interface SqlResponseMessage {
   type: 'PS_SQL_RESPONSE';
   correlationId?: string;
   ok?: boolean;
+
   /** Read results. */
   columns?: string[];
   rows?: Record<string, unknown>[];
+
   /** Write results. */
   rows_affected?: number;
   last_row_id?: number | null;
+
   /** Set when the server refused a destructive write pending `confirm:true` — the UI prompts. */
   needs_confirm?: boolean;
   duration_ms?: number;

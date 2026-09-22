@@ -38,6 +38,7 @@ type Status = 'loading' | 'ready' | 'error' | 'standalone';
 
 const REQUEST_TIMEOUT_MS = 12_000;
 const AUTO_REFRESH_MS = 30_000;
+
 /** localStorage key for the SQL-console query history (per-browser, best-effort). */
 const SQL_HISTORY_KEY = 'ps-data-sql-history';
 
@@ -58,8 +59,10 @@ const SQL_STARTERS: ReadonlyArray<{ label: string; query: string }> = [
     query: 'SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name;',
   },
   {
-    // Full column structure for every table (a real SQLite-editor "Structure" view) via the
-    // pragma_table_info table-valued function — name · type · PK · not-null · default, in one SELECT.
+    /*
+     * Full column structure for every table (a real SQLite-editor "Structure" view) via the
+     * pragma_table_info table-valued function — name · type · PK · not-null · default, in one SELECT.
+     */
     label: 'Columns',
     query: `SELECT m.name AS "table", p.cid, p.name AS "column", p.type, p.pk, p."notnull" AS not_null, p.dflt_value AS default_value FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type='table' AND m.name NOT LIKE 'sqlite_%' ORDER BY m.name, p.cid;`,
   },
@@ -77,6 +80,7 @@ const isTableListRow = (r: Record<string, unknown>): boolean =>
 /** Client-side write detection — mirrors the worker's guards so the UI can prompt BEFORE sending. */
 const WRITE_RE = /^\s*(CREATE|DROP|ALTER|INSERT|UPDATE|DELETE|REPLACE)\b/i;
 const DESTRUCTIVE_RE = /^\s*(DROP|ALTER|TRUNCATE)\b/i;
+
 /** DELETE/UPDATE with no WHERE = whole-table mutation → treated as destructive (type-to-confirm). */
 const UNSCOPED_MUT_RE = /^\s*(DELETE\s+FROM|UPDATE)\b(?![\s\S]*\bWHERE\b)/i;
 const isWriteSql = (q: string): boolean => WRITE_RE.test(q);
@@ -99,8 +103,10 @@ export const DataPanel = memo(() => {
   const [detailIdx, setDetailIdx] = useState<number | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
-  // D1 manager — read-only SQL console (super-admin only; the sql/exec endpoint reads the shared
-  // multi-tenant DB). `canRunSql` arrives on the overview reply; `mode` toggles the console view.
+  /*
+   * D1 manager — read-only SQL console (super-admin only; the sql/exec endpoint reads the shared
+   * multi-tenant DB). `canRunSql` arrives on the overview reply; `mode` toggles the console view.
+   */
   const [canRunSql, setCanRunSql] = useState(false);
   const [mode, setMode] = useState<'tables' | 'sql'>('tables');
   const [sql, setSql] = useState(LIST_TABLES_SQL);
@@ -109,13 +115,16 @@ export const DataPanel = memo(() => {
   const [sqlError, setSqlError] = useState('');
   const [sqlRunning, setSqlRunning] = useState(false);
   const [sqlMeta, setSqlMeta] = useState<{ rows: number; ms?: number } | null>(null);
+
   // Write results (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE) — shown as an executed banner, not a grid.
   const [writeResult, setWriteResult] = useState<{ rows_affected: number; last_row_id: number | null } | null>(null);
+
   // Query history (real-editor staple) — most-recent-first, de-duped, localStorage-backed per browser.
   const [sqlHistory, setSqlHistory] = useState<string[]>(() => {
     try {
       const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SQL_HISTORY_KEY) : null;
       const parsed = raw ? JSON.parse(raw) : [];
+
       return Array.isArray(parsed) ? parsed.filter((q): q is string => typeof q === 'string') : [];
     } catch {
       return [];
@@ -178,10 +187,12 @@ export const DataPanel = memo(() => {
     postToParent({ type: 'PS_DATA_REQUEST', table: key, correlationId: cid });
   }, []);
 
-  // Run ONE statement through the admin bridge (super-admin only). READS → POST /sql/exec;
-  // WRITES (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE) → POST /sql/exec-write. Destructive writes
-  // (DROP/ALTER, or DELETE/UPDATE without WHERE) get a type-to-confirm BEFORE sending; the worker
-  // re-guards server-side (protected-table denylist + confirm). A 403/400 comes back as `sqlError`.
+  /*
+   * Run ONE statement through the admin bridge (super-admin only). READS → POST /sql/exec;
+   * WRITES (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE) → POST /sql/exec-write. Destructive writes
+   * (DROP/ALTER, or DELETE/UPDATE without WHERE) get a type-to-confirm BEFORE sending; the worker
+   * re-guards server-side (protected-table denylist + confirm). A 403/400 comes back as `sqlError`.
+   */
   const runSql = useCallback((query: string) => {
     const q = query.trim();
 
@@ -191,15 +202,18 @@ export const DataPanel = memo(() => {
 
     const write = isWriteSql(q);
     let confirmDestructive: boolean | undefined;
+
     if (write && isDestructiveSql(q)) {
       const ok =
         typeof window !== 'undefined' &&
         window.confirm(
           `This is a DESTRUCTIVE statement and cannot be undone:\n\n${q.slice(0, 300)}\n\nRun it against the live database?`,
         );
+
       if (!ok) {
         return;
       }
+
       confirmDestructive = true;
     }
 
@@ -225,6 +239,7 @@ export const DataPanel = memo(() => {
     // Record the run in history (on send, so a failed query stays re-runnable). Best-effort persist.
     setSqlHistory((h) => {
       const next = addToSqlHistory(h, q);
+
       try {
         if (typeof localStorage !== 'undefined') {
           localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(next));
@@ -232,6 +247,7 @@ export const DataPanel = memo(() => {
       } catch {
         /* quota / SSR / private-mode never breaks a query run */
       }
+
       return next;
     });
 
@@ -272,8 +288,10 @@ export const DataPanel = memo(() => {
           return;
         }
 
-        // Write result (no columns) → show an "executed" banner instead of an empty grid, and
-        // refresh the Tables tab so a CREATE/DROP is reflected there too.
+        /*
+         * Write result (no columns) → show an "executed" banner instead of an empty grid, and
+         * refresh the Tables tab so a CREATE/DROP is reflected there too.
+         */
         if (typeof msg.rows_affected === 'number') {
           setSqlColumns([]);
           setSqlRows([]);
