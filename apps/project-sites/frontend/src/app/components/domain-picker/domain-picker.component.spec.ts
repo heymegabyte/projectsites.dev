@@ -191,3 +191,98 @@ describe('DomainPickerComponent — viewport-relative width caps (reflow guard)'
     expect(muted).withContext('unavailable price must be borderless').toContain('border:none');
   });
 });
+
+/**
+ * Msg-1 (Brian, _APP_COMPLETION §A) — every site permanently resolves on its
+ * `{slug}.projectsites.dev` subdomain, so the picker ALWAYS shows it: "No domains
+ * assigned" must never render and the site is never strandable. The default row is
+ * synthesized when the API returns no real row for it, and it is
+ * non-removable / non-deactivatable (reverting to it uses the reset-primary endpoint).
+ */
+describe('DomainPickerComponent — always-present, non-strandable default subdomain', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  function setup(
+    opts: { hostnames?: Array<{ id: string; hostname: string; status: string; is_primary: boolean }>; site?: Record<string, unknown> } = {},
+  ) {
+    const hostnames = opts.hostnames ?? [];
+    const site = opts.site ?? { id: 's1', slug: 'acme', primary_hostname: null };
+    const api: Record<string, unknown> = {
+      get: () => of({ data: [] }),
+      post: () => of({ data: {} }),
+      getHostnames: () => of({ data: hostnames }),
+      addHostname: () => of({ data: {} }),
+      setPrimaryHostname: () => of(undefined),
+      resetPrimaryHostname: () => of(undefined),
+      unsubscribeHostname: () => of(undefined),
+      searchDomainsEnriched: () => of({ results: [] }),
+    };
+    const toast: Record<string, unknown> = { info: () => 0, error: () => 0, success: () => 0, warning: () => 0, dismiss: () => undefined };
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [DomainPickerComponent],
+      providers: [
+        { provide: AdminStateService, useValue: { selectedSite: signal(site), sites: signal([site]) } },
+        { provide: ApiService, useValue: api },
+        { provide: BillingService, useValue: { walletState: () => ({ has_wallet: false, balance_cents: 0 }), start: () => undefined, stop: () => undefined, refreshWallet: () => undefined } },
+        { provide: TelemetryService, useValue: { track: () => undefined } },
+        { provide: ToastService, useValue: toast },
+        { provide: Router, useValue: { navigate: () => Promise.resolve(true) } },
+      ],
+    });
+    const c = TestBed.createComponent(DomainPickerComponent).componentInstance;
+    c.hostnames.set(hostnames as never);
+    return { c, api, toast };
+  }
+
+  it('synthesizes the default {slug}.projectsites.dev row when the API returns none — list is never empty', () => {
+    const { c } = setup({ hostnames: [] });
+    const rows = c.filteredAssigned();
+    expect(rows.length).toBe(1);
+    expect(rows[0].hostname).toBe('acme.projectsites.dev');
+    expect(rows[0].isDefault).toBeTrue();
+    expect(rows[0].isActive).withContext('default is active when no custom primary is set').toBeTrue();
+  });
+
+  it('does not duplicate the default when the API already returns it — marks that real row isDefault', () => {
+    const { c } = setup({ hostnames: [{ id: 'h1', hostname: 'acme.projectsites.dev', status: 'active', is_primary: true }] });
+    const rows = c.filteredAssigned();
+    expect(rows.filter((r) => r.hostname === 'acme.projectsites.dev').length).toBe(1);
+    expect(rows[0].id).toBe('h1');
+    expect(rows[0].isDefault).toBeTrue();
+  });
+
+  it('prepends the default and keeps it non-active when a custom domain is primary', () => {
+    const { c } = setup({
+      site: { id: 's1', slug: 'acme', primary_hostname: 'acme.com' },
+      hostnames: [{ id: 'h1', hostname: 'acme.com', status: 'active', is_primary: true }],
+    });
+    const rows = c.filteredAssigned();
+    expect(rows[0].hostname).toBe('acme.projectsites.dev');
+    expect(rows[0].isDefault).toBeTrue();
+    expect(rows[0].isActive).toBeFalse();
+    expect(rows.some((r) => r.hostname === 'acme.com' && r.isActive)).toBeTrue();
+  });
+
+  it('refuses to deactivate the default subdomain (non-strandable) — toasts, no API call', () => {
+    const { c, api, toast } = setup({ hostnames: [] });
+    const unsub = spyOn(api as { unsubscribeHostname: () => unknown }, 'unsubscribeHostname');
+    const err = spyOn(toast as { error: () => unknown }, 'error');
+    c.deactivate(c.filteredAssigned()[0]);
+    expect(unsub).not.toHaveBeenCalled();
+    expect(err).toHaveBeenCalled();
+  });
+
+  it('routes "set as default" on the synthetic row to reset-primary, not setPrimaryHostname(id)', () => {
+    const { c, api } = setup({
+      site: { id: 's1', slug: 'acme', primary_hostname: 'acme.com' },
+      hostnames: [{ id: 'h1', hostname: 'acme.com', status: 'active', is_primary: true }],
+    });
+    const reset = spyOn(api as { resetPrimaryHostname: (id: string) => unknown }, 'resetPrimaryHostname').and.returnValue(of(undefined));
+    const setPrimary = spyOn(api as { setPrimaryHostname: () => unknown }, 'setPrimaryHostname').and.returnValue(of(undefined));
+    const def = c.filteredAssigned().find((r) => r.isDefault)!;
+    c.setDefault(def);
+    expect(reset).toHaveBeenCalledWith('s1');
+    expect(setPrimary).not.toHaveBeenCalled();
+  });
+});

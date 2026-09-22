@@ -63,7 +63,16 @@ import { ToastService } from '../../services/toast.service';
 interface PickerHostname extends Hostname {
   /** Convenience flag — `true` for the row that matches `site.primary_hostname`. */
   isActive: boolean;
+  /**
+   * `true` for the site's permanent `{slug}.projectsites.dev` default subdomain —
+   * always present (synthesized when the API returns no real row for it) and never
+   * removable/deactivatable, so a site can never be left with zero domains.
+   */
+  isDefault?: boolean;
 }
+
+/** Stable track id for the synthesized default-subdomain row (no real hostname record). */
+const SYNTHETIC_DEFAULT_ID = '__default_subdomain__';
 
 /**
  * Per-row state for the live-availability search results. Layered on top
@@ -863,9 +872,11 @@ const LOW_BALANCE_CENTS = 500;
                         Set as default
                       </button>
                     }
-                    <button type="button" class="dp-act dp-act--mute" (click)="deactivate(h)" title="Stop serving traffic on this hostname">
-                      Deactivate
-                    </button>
+                    @if (!h.isDefault) {
+                      <button type="button" class="dp-act dp-act--mute" (click)="deactivate(h)" title="Stop serving traffic on this hostname">
+                        Deactivate
+                      </button>
+                    }
                   }
                 </div>
               </div>
@@ -1107,11 +1118,28 @@ export class DomainPickerComponent implements OnDestroy {
 
   filteredAssigned = computed<PickerHostname[]>(() => {
     const site = this.state.selectedSite();
-    const q = this.query().trim().toLowerCase();
-    const rows = this.hostnames().map((h) => ({
+    const primary = site?.primary_hostname || '';
+    const hasSlug = !!site?.slug;
+    const defaultHost = this.cnameTarget(); // {slug}.projectsites.dev (apex only when no slug)
+    const rows: PickerHostname[] = this.hostnames().map((h) => ({
       ...h,
-      isActive: !!site?.primary_hostname && h.hostname === site.primary_hostname,
+      isActive: !!primary && h.hostname === primary,
+      isDefault: hasSlug && h.hostname === defaultHost,
     }));
+    // Every site permanently resolves on its {slug}.projectsites.dev subdomain. If the API
+    // returned no hostname row for it, synthesize one so the list is never empty and the site
+    // is never strandable — the default is non-removable / non-deactivatable.
+    if (hasSlug && !rows.some((r) => r.hostname === defaultHost)) {
+      rows.unshift({
+        id: SYNTHETIC_DEFAULT_ID,
+        hostname: defaultHost,
+        status: 'active',
+        is_primary: !primary || primary === defaultHost,
+        isActive: !primary || primary === defaultHost,
+        isDefault: true,
+      });
+    }
+    const q = this.query().trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((r) => r.hostname.toLowerCase().includes(q));
   });
@@ -1479,7 +1507,13 @@ export class DomainPickerComponent implements OnDestroy {
   setDefault(h: PickerHostname): void {
     const site = this.state.selectedSite();
     if (!site) return;
-    this.api.setPrimaryHostname(site.id, h.id).subscribe({
+    // The synthesized default-subdomain row has no real hostname record — making it
+    // primary means reverting the site to its {slug}.projectsites.dev home.
+    const req =
+      h.id === SYNTHETIC_DEFAULT_ID
+        ? this.api.resetPrimaryHostname(site.id)
+        : this.api.setPrimaryHostname(site.id, h.id);
+    req.subscribe({
       error: () => this.toast.error('Failed to set primary domain.'),
       next: () => {
         this.toast.success(`${h.hostname} is now the primary domain.`);
@@ -1494,6 +1528,10 @@ export class DomainPickerComponent implements OnDestroy {
   deactivate(h: PickerHostname): void {
     const site = this.state.selectedSite();
     if (!site) return;
+    if (h.isDefault) {
+      this.toast.error(`${h.hostname} is your permanent address — it can't be deactivated.`);
+      return;
+    }
     this.api.unsubscribeHostname(site.id, h.id).subscribe({
       error: () => this.toast.error('Failed to deactivate hostname.'),
       next: () => {

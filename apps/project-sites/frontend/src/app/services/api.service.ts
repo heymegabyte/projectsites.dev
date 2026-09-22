@@ -528,6 +528,11 @@ export class ApiService {
     return this.put(`/sites/${siteId}/hostnames/${hostnameId}/primary`);
   }
 
+  /** Revert the site to its permanent `{slug}.projectsites.dev` default subdomain. */
+  resetPrimaryHostname(siteId: string): Observable<void> {
+    return this.post(`/sites/${siteId}/hostnames/reset-primary`, {});
+  }
+
   deleteHostname(siteId: string, hostnameId: string): Observable<void> {
     return this.delete(`/sites/${siteId}/hostnames/${hostnameId}`);
   }
