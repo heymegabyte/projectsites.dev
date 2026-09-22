@@ -316,6 +316,15 @@ export const routes: Routes = [
             (m) => m.AdminUserSettingsComponent,
           ),
       },
+      {
+        // `/admin/user-settings` matches the section's component filename — a
+        // natural guess — but the real route is `/admin/user`. Without this,
+        // that guess (and any stale link) hit the styled admin-404. Redirect it
+        // to the real surface, mirroring the sites/domains/mcp alias redirects.
+        path: 'user-settings',
+        redirectTo: 'user',
+        pathMatch: 'full',
+      },
       // Per-project Domain Management folded into Settings (2026-08-12) — this
       // standalone route redirects to the #domains tab. The component itself
       // (sections/domains.component.ts) is now rendered inside settings.
