@@ -41,10 +41,26 @@ follow published conventions per the global rule `style-guide-driven-decisions`.
   "Set as default" on it routes to the reset-primary endpoint. `domain-picker.component.ts` +
   `api.service.ts` (`resetPrimaryHostname`). 5 Karma specs; 1854 green; deployed to R2 prod.
 - [ ] **Domain-dropdown overhaul (Msg-1) — remaining parts.** Per-row activate `role=switch` + ⋯
-  menu (set-primary · auto-re-register · copy · open · remove w/ DialogShell confirm); merge $17/mo
-  wallet CTA into the compact header; SWR-cache + pre-warm AI-picks/refine/Load-More; WCAG-2.2
-  keyboard menu; `hostnames.auto_reregister` D1 column + renewal endpoint (own sub-task — reversible
-  D1 migration). Each is its own focused pass.
+  menu (set-primary · auto-re-register · copy · **open ✅ shipped 2026-09-22** · remove w/ DialogShell
+  confirm); merge $17/mo wallet CTA into the compact header; SWR-cache + pre-warm
+  AI-picks/refine/Load-More; WCAG-2.2 keyboard menu; `hostnames.auto_reregister` D1 column + renewal
+  endpoint (own sub-task — reversible D1 migration). Each is its own focused pass.
+
+## Source-TODO sweep (2026-09-22) — repository is effectively TODO-clean
+
+Repo-wide comment-marker scan found 5 `TODO/FIXME`, none cleanly completable:
+
+- `app/lib/persistence/useChatHistory.ts:416` (FIXME) — the *intended* navigate fix "breaks the app";
+  a deliberate workaround, unsafe to touch blind.
+- `apps/project-sites/src/middleware/abuse.ts:36` (arcjet) — fail-OPEN by design (`AllowAllAbuseProvider`);
+  blocked on Arcjet shipping a Workers adapter. Not a live gap.
+- `apps/project-sites/src/services/media.ts:498` — blocked on Sora/Veo public APIs (external).
+- `app/components/editor/codemirror/languages.ts:186` (perf-10) — deferred lazy-syntax perf, low value.
+- ⚠️ **`apps/project-sites/src/index.ts:217` — Wave-3 `ConversationHub` DO deletion.** Date guard
+  (safe after 2026-08-01) has PASSED. But the action is a **destructive one-way-door DO migration**
+  (`deleted_classes = ["ConversationHub"]` + remove export + delete file + drop the `v_conversation_hub`
+  wrangler binding) that breaks deploys if done wrong → **needs explicit confirmation** before executing
+  (autonomous-engineering approval tier). The safe procedure is documented in the TODO comment itself.
 
 ## Removed 2026-09-22 (see README § Roadmap for the parked-initiative notes)
 
