@@ -30,11 +30,14 @@ follow published conventions per the global rule `style-guide-driven-decisions`.
   open-in-new-tab button on hover/focus (`group-hover` + `group-focus-within`, identical styling
   both states); no always-visible home glyph remained. `app/components/workbench/Preview.tsx`.
   Shipped to `bolt-diy` Pages (editor.projectsites.dev); deployed artifact verified.
-- [ ] **Editor preview loading UX (Msg-3b)** — while the preview boots, chat shows
-  "ProjectSites.dev is using AI to ensure your website is loaded and available for preview" + a
-  loading indicator; AI-ensures the preview boots regardless of framework; graceful fallback when
-  no preview / undetectable. Cross-component (Chat + Preview boot detection) — its own pass. Not
-  started (message string absent from source).
+- [~] **Editor preview loading UX (Msg-3b) — preview-pane slice DONE 2026-09-22.** The preview
+  pane's dead "No preview available" now shows a branded animated "Preparing your preview…" state
+  (spinner + "ProjectSites.dev is using AI to ensure your website is loaded…", role=status/aria-live)
+  during the ~60s WebContainer boot window, then a graceful honest "No preview — start your dev
+  server" fallback (no perpetual spinner). `app/components/workbench/Preview.tsx`; deployed to bolt-diy.
+  REMAINING: mirror the message in the editor CHAT (spec's placement — cross-component wiring of the
+  preview-boot signal into BaseChat) + the "AI-ensures the preview boots regardless of framework"
+  backend (bigger, unbuilt).
 - [x] **Domain-dropdown overhaul (Msg-1) — headline slice DONE 2026-09-22.** The picker now
   synthesizes an always-present `{slug}.projectsites.dev` default row, so "No domains assigned" can
   never render and the site is never strandable; the default is non-removable/non-deactivatable and
