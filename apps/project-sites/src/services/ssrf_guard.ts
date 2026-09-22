@@ -83,7 +83,12 @@ const BLOCKED_V4: Array<[string, number]> = [
   ['255.255.255.255', 32],
 ];
 
-const BLOCKED_HOSTNAMES = new Set(['localhost', 'metadata.google.internal', 'metadata', 'instance-data']);
+const BLOCKED_HOSTNAMES = new Set([
+  'localhost',
+  'metadata.google.internal',
+  'metadata',
+  'instance-data',
+]);
 const BLOCKED_SUFFIXES = ['.localhost', '.local', '.internal', '.lan', '.intranet', '.home.arpa'];
 
 /**
@@ -99,7 +104,11 @@ const BLOCKED_SUFFIXES = ['.localhost', '.local', '.internal', '.lan', '.intrane
  * @example isPrivateOrReservedHost('::ffff:127.0.0.1') // true (IPv4-mapped loopback)
  */
 export function isPrivateOrReservedHost(hostname: string): boolean {
-  const h = String(hostname ?? '').trim().toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
+  const h = String(hostname ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, '')
+    .replace(/^\[|\]$/g, '');
   if (!h) return true;
 
   if (BLOCKED_HOSTNAMES.has(h)) return true;
@@ -147,7 +156,10 @@ export function assertPublicHttpUrl(raw: string, policy: SsrfPolicy = {}): URL {
 
   const protocols = policy.allowedProtocols ?? DEFAULT_PROTOCOLS;
   if (!protocols.includes(url.protocol)) {
-    throw new SsrfError(`Protocol ${url.protocol} is not allowed (only ${protocols.join(', ')}).`, 'protocol_blocked');
+    throw new SsrfError(
+      `Protocol ${url.protocol} is not allowed (only ${protocols.join(', ')}).`,
+      'protocol_blocked',
+    );
   }
 
   const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
@@ -174,7 +186,10 @@ export function assertPublicHttpUrl(raw: string, policy: SsrfPolicy = {}): URL {
 
 /** Exact host match or subdomain-of match (`cdn.example.com` matches `example.com`). */
 function hostMatches(host: string, pattern: string): boolean {
-  const p = String(pattern ?? '').trim().toLowerCase().replace(/^\.+/, '');
+  const p = String(pattern ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\.+/, '');
   if (!p) return false;
   return host === p || host.endsWith(`.${p}`);
 }

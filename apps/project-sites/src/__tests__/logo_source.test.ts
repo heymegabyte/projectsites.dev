@@ -9,16 +9,34 @@ describe('scoreLogoCandidate: hard rejects', () => {
     expect(scoreLogoCandidate({ url: '', kind: 'clearbit' }).usable).toBe(false);
   });
   it('rejects a raster smaller than 48px on its short edge', () => {
-    expect(scoreLogoCandidate({ url: 'x', kind: 'apple_touch_icon', format: 'png', width: 32, height: 32 }).usable).toBe(false);
+    expect(
+      scoreLogoCandidate({
+        url: 'x',
+        kind: 'apple_touch_icon',
+        format: 'png',
+        width: 32,
+        height: 32,
+      }).usable,
+    ).toBe(false);
   });
   it('rejects a favicon under 64px (too low-res for a large header)', () => {
-    expect(scoreLogoCandidate({ url: 'f', kind: 'favicon', format: 'ico', width: 32, height: 32 }).usable).toBe(false);
+    expect(
+      scoreLogoCandidate({ url: 'f', kind: 'favicon', format: 'ico', width: 32, height: 32 })
+        .usable,
+    ).toBe(false);
   });
 });
 
 describe('scoreLogoCandidate: scoring', () => {
   it('a large transparent PNG brand mark scores high', () => {
-    const s = scoreLogoCandidate({ url: 'x', kind: 'clearbit', format: 'png', width: 512, height: 512, hasAlpha: true });
+    const s = scoreLogoCandidate({
+      url: 'x',
+      kind: 'clearbit',
+      format: 'png',
+      width: 512,
+      height: 512,
+      hasAlpha: true,
+    });
     expect(s.usable).toBe(true);
     expect(s.score).toBeGreaterThanOrEqual(MIN_LOGO_SCORE);
   });
@@ -28,7 +46,13 @@ describe('scoreLogoCandidate: scoring', () => {
     expect(s.score).toBeGreaterThanOrEqual(MIN_LOGO_SCORE);
   });
   it('penalizes a wide banner-shaped JPG (usually a photo, not a mark)', () => {
-    const banner = scoreLogoCandidate({ url: 'o', kind: 'og_image', format: 'jpg', width: 1200, height: 630 });
+    const banner = scoreLogoCandidate({
+      url: 'o',
+      kind: 'og_image',
+      format: 'jpg',
+      width: 1200,
+      height: 630,
+    });
     expect(banner.usable).toBe(true);
     expect(banner.score).toBeLessThan(MIN_LOGO_SCORE);
   });
@@ -36,7 +60,9 @@ describe('scoreLogoCandidate: scoring', () => {
 
 describe('pickLogoSource: extract vs generate', () => {
   it('EXTRACTS when a good real logo exists', () => {
-    const d = pickLogoSource([{ url: 'x', kind: 'clearbit', format: 'png', width: 512, height: 512, hasAlpha: true }]);
+    const d = pickLogoSource([
+      { url: 'x', kind: 'clearbit', format: 'png', width: 512, height: 512, hasAlpha: true },
+    ]);
     expect(d.decision).toBe('extract');
     expect(d.candidate?.kind).toBe('clearbit');
     expect(d.reason).toMatch(/extracted/);
@@ -52,7 +78,9 @@ describe('pickLogoSource: extract vs generate', () => {
     expect(d.decision).toBe('generate');
   });
   it('GENERATES when the best usable candidate is below the score threshold', () => {
-    const d = pickLogoSource([{ url: 'o', kind: 'og_image', format: 'jpg', width: 1200, height: 630 }]);
+    const d = pickLogoSource([
+      { url: 'o', kind: 'og_image', format: 'jpg', width: 1200, height: 630 },
+    ]);
     expect(d.decision).toBe('generate');
     expect(d.reason).toMatch(/< /);
   });

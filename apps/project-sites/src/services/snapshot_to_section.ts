@@ -37,9 +37,21 @@ const MenuGroup = z.object({ name: OptStr, items: z.array(MenuItem) });
 export const SnapshotDataSchemas = {
   menu: z.object({ groups: z.array(MenuGroup) }),
   price_list: z.object({ rows: z.array(z.object({ label: OptStr, price: OptStr, unit: OptStr })) }),
-  services: z.object({ items: z.array(z.object({ name: OptStr, description: OptStr, price: OptStr })) }),
-  hours: z.object({ days: z.array(z.object({ day: OptStr, open: OptStr, close: OptStr, closed: z.boolean().optional() })) }),
-  contact_card: z.object({ name: OptStr, phone: OptStr, email: OptStr, address: OptStr, website: OptStr }),
+  services: z.object({
+    items: z.array(z.object({ name: OptStr, description: OptStr, price: OptStr })),
+  }),
+  hours: z.object({
+    days: z.array(
+      z.object({ day: OptStr, open: OptStr, close: OptStr, closed: z.boolean().optional() }),
+    ),
+  }),
+  contact_card: z.object({
+    name: OptStr,
+    phone: OptStr,
+    email: OptStr,
+    address: OptStr,
+    website: OptStr,
+  }),
 } as const;
 
 /** A normalized, render-ready section. `confidence` < 0.6 → the UI asks the owner to confirm before publish. */
@@ -82,7 +94,11 @@ export function classifySnapshotHint(hint: string): SnapshotKind {
 }
 
 const TITLES: Record<SnapshotKind, string> = {
-  menu: 'Menu', price_list: 'Pricing', services: 'Services', hours: 'Hours', contact_card: 'Contact',
+  menu: 'Menu',
+  price_list: 'Pricing',
+  services: 'Services',
+  hours: 'Hours',
+  contact_card: 'Contact',
 };
 
 /**
@@ -95,7 +111,11 @@ const TITLES: Record<SnapshotKind, string> = {
  * @example normalizeExtraction('price_list', { rows: [{ label: 'Oil change', price: '$49' }, { label: '', price: '' }] }, 0.9)
  *   // → { kind:'price_list', title:'Pricing', confidence:0.9, itemCount:1, data:{ rows:[{label:'Oil change',price:'$49'}] } }
  */
-export function normalizeExtraction(kind: SnapshotKind, raw: unknown, confidence = 0.5): SnapshotSection | null {
+export function normalizeExtraction(
+  kind: SnapshotKind,
+  raw: unknown,
+  confidence = 0.5,
+): SnapshotSection | null {
   const schema = SnapshotDataSchemas[kind] as z.ZodTypeAny | undefined;
   if (!schema) throw new UnknownSnapshotKindError(kind);
   const parsed = schema.safeParse(raw);
@@ -103,7 +123,13 @@ export function normalizeExtraction(kind: SnapshotKind, raw: unknown, confidence
   const pruned = pruneEmpty(kind, parsed.data);
   const count = countItems(kind, pruned);
   if (count === 0) return null;
-  return { kind, title: TITLES[kind], confidence: Math.max(0, Math.min(1, Number(confidence) || 0)), data: pruned, itemCount: count };
+  return {
+    kind,
+    title: TITLES[kind],
+    confidence: Math.max(0, Math.min(1, Number(confidence) || 0)),
+    data: pruned,
+    itemCount: count,
+  };
 }
 
 /** Drop rows/items whose REQUIRED display field is missing/placeholder — never fabricate. */
@@ -116,15 +142,22 @@ function pruneEmpty(kind: SnapshotKind, data: Record<string, unknown>): Record<s
       return { groups };
     }
     case 'price_list':
-      return { rows: (data['rows'] as Array<{ label: string; price: string }>).filter((r) => isMeaningful(r.label) && isMeaningful(r.price)) };
+      return {
+        rows: (data['rows'] as Array<{ label: string; price: string }>).filter(
+          (r) => isMeaningful(r.label) && isMeaningful(r.price),
+        ),
+      };
     case 'services':
-      return { items: (data['items'] as Array<{ name: string }>).filter((it) => isMeaningful(it.name)) };
+      return {
+        items: (data['items'] as Array<{ name: string }>).filter((it) => isMeaningful(it.name)),
+      };
     case 'hours':
       return { days: (data['days'] as Array<{ day: string }>).filter((d) => isMeaningful(d.day)) };
     case 'contact_card': {
       const src = data as Record<string, unknown>;
       const out: Record<string, string> = {};
-      for (const k of ['name', 'phone', 'email', 'address', 'website']) if (isMeaningful(src[k])) out[k] = String(src[k]).trim();
+      for (const k of ['name', 'phone', 'email', 'address', 'website'])
+        if (isMeaningful(src[k])) out[k] = String(src[k]).trim();
       return out;
     }
     default:
@@ -135,18 +168,28 @@ function pruneEmpty(kind: SnapshotKind, data: Record<string, unknown>): Record<s
 /** Count the surviving display rows for a pruned section (drives the "0 → null" rule). */
 function countItems(kind: SnapshotKind, data: Record<string, unknown>): number {
   switch (kind) {
-    case 'menu': return (data['groups'] as Array<{ items: unknown[] }>).reduce((n, g) => n + g.items.length, 0);
-    case 'price_list': return (data['rows'] as unknown[]).length;
-    case 'services': return (data['items'] as unknown[]).length;
-    case 'hours': return (data['days'] as unknown[]).length;
-    case 'contact_card': return Object.keys(data).length;
-    default: return 0;
+    case 'menu':
+      return (data['groups'] as Array<{ items: unknown[] }>).reduce(
+        (n, g) => n + g.items.length,
+        0,
+      );
+    case 'price_list':
+      return (data['rows'] as unknown[]).length;
+    case 'services':
+      return (data['items'] as unknown[]).length;
+    case 'hours':
+      return (data['days'] as unknown[]).length;
+    case 'contact_card':
+      return Object.keys(data).length;
+    default:
+      return 0;
   }
 }
 
 /** Owner-facing prompt for the confirm step — the ONLY thing the owner does. Never technical. */
 export function confirmPrompt(section: SnapshotSection): string {
   const noun = section.kind === 'contact_card' ? 'contact details' : section.title.toLowerCase();
-  const low = section.confidence < 0.6 ? ' A couple entries looked blurry — give them a quick check.' : '';
+  const low =
+    section.confidence < 0.6 ? ' A couple entries looked blurry — give them a quick check.' : '';
   return `We read ${section.itemCount} ${noun === 'hours' ? 'day(s) of hours' : `${noun} entr${section.itemCount === 1 ? 'y' : 'ies'}`} from your photo. Look right?${low}`;
 }

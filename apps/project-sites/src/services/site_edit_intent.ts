@@ -21,7 +21,15 @@
  */
 
 /** The kinds of edit the owner can request via chat. */
-export type EditOp = 'set_text' | 'set_color' | 'set_hours' | 'set_phone' | 'set_email' | 'swap_image' | 'toggle_section' | 'unknown';
+export type EditOp =
+  | 'set_text'
+  | 'set_color'
+  | 'set_hours'
+  | 'set_phone'
+  | 'set_email'
+  | 'swap_image'
+  | 'toggle_section'
+  | 'unknown';
 
 /** One editable surface the site exposes (the allowlist an edit may target). */
 export interface EditableSurface {
@@ -34,7 +42,13 @@ export interface EditableSurface {
 }
 
 /** Machine reason a request resolved the way it did (drives logs + a typed rejection envelope). */
-export type EditReason = 'matched' | 'ambiguous_target' | 'unknown_op' | 'target_not_editable' | 'invalid_value' | 'empty';
+export type EditReason =
+  | 'matched'
+  | 'ambiguous_target'
+  | 'unknown_op'
+  | 'target_not_editable'
+  | 'invalid_value'
+  | 'empty';
 
 /** The typed, reviewable proposal the owner confirms — the contract the applier consumes. */
 export interface EditIntent {
@@ -55,9 +69,35 @@ export interface EditIntent {
 
 /** A conservative allowlist of CSS named colors we accept as a color value (no arbitrary strings). */
 const NAMED_COLORS = new Set([
-  'black', 'white', 'gray', 'grey', 'silver', 'red', 'orange', 'amber', 'yellow', 'lime', 'green',
-  'teal', 'cyan', 'blue', 'navy', 'indigo', 'violet', 'purple', 'magenta', 'pink', 'brown', 'gold',
-  'beige', 'maroon', 'olive', 'coral', 'salmon', 'turquoise', 'lavender',
+  'black',
+  'white',
+  'gray',
+  'grey',
+  'silver',
+  'red',
+  'orange',
+  'amber',
+  'yellow',
+  'lime',
+  'green',
+  'teal',
+  'cyan',
+  'blue',
+  'navy',
+  'indigo',
+  'violet',
+  'purple',
+  'magenta',
+  'pink',
+  'brown',
+  'gold',
+  'beige',
+  'maroon',
+  'olive',
+  'coral',
+  'salmon',
+  'turquoise',
+  'lavender',
 ]);
 
 /**
@@ -72,7 +112,9 @@ const NAMED_COLORS = new Set([
  * @example normalizeColor('javascript:alert(1)') // null
  */
 export function normalizeColor(raw: string): string | null {
-  const v = String(raw ?? '').trim().toLowerCase();
+  const v = String(raw ?? '')
+    .trim()
+    .toLowerCase();
   if (!v) return null;
   if (/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(v)) return v;
   if (/^(rgb|rgba|hsl|hsla)\([0-9\s.,%]+\)$/.test(v)) return v;
@@ -82,9 +124,15 @@ export function normalizeColor(raw: string): string | null {
 
 /** Boundary-safe value for an op/kind, or `{ok:false}` when the value is unusable/unsafe. Image +
  *  section ops carry no textual value. Text-ish values reject embedded HTML (`<`/`>`) and cap length. */
-function sanitizeValue(kind: EditableSurface['kind'], raw: string): { value: string | null; ok: boolean } {
+function sanitizeValue(
+  kind: EditableSurface['kind'],
+  raw: string,
+): { value: string | null; ok: boolean } {
   if (kind === 'image' || kind === 'section') return { value: null, ok: true };
-  const v = String(raw ?? '').trim().replace(/^["'“”]+|["'“”]+$/g, '').trim();
+  const v = String(raw ?? '')
+    .trim()
+    .replace(/^["'“”]+|["'“”]+$/g, '')
+    .trim();
   if (!v) return { value: null, ok: false };
   if (/[<>]/.test(v)) return { value: null, ok: false };
   if (kind === 'color') {
@@ -105,13 +153,65 @@ interface Matcher {
 
 /** Ordered most-specific-first. First hit wins. */
 const MATCHERS: Matcher[] = [
-  { op: 'set_phone', kind: 'phone', test: /\b(phone|number|call)\b/i, value: /(?:to|:)\s*(.+)$/i, keywords: ['phone', 'number', 'call'] },
-  { op: 'set_email', kind: 'email', test: /\be-?mail\b/i, value: /(?:to|:)\s*(.+)$/i, keywords: ['email'] },
-  { op: 'set_hours', kind: 'hours', test: /\b(hours|open(?:ing)?)\b/i, value: /(?:to|:)\s*(.+)$/i, keywords: ['hours', 'open'] },
-  { op: 'set_color', kind: 'color', test: /\b(colou?r|accent|brand|theme)\b/i, value: /(?:to|:)\s*([#\w(),.%\s]+)$/i, keywords: ['color', 'colour', 'accent', 'brand', 'theme'] },
-  { op: 'swap_image', kind: 'image', test: /\b(swap|replace|change|update|new)\b.*\b(photo|image|picture|logo|hero|banner)\b/i, value: null, keywords: ['photo', 'image', 'picture', 'logo', 'hero', 'banner'] },
-  { op: 'toggle_section', kind: 'section', test: /\b(hide|remove|show|add|enable|disable)\b.*\b(section|faq|testimonials|gallery|pricing|about|contact|services|menu)\b/i, value: null, keywords: ['faq', 'testimonials', 'gallery', 'pricing', 'about', 'contact', 'services', 'menu', 'section'] },
-  { op: 'set_text', kind: 'text', test: /\b(headline|title|heading|tagline|text|say|copy|wording)\b/i, value: /(?:say|to|:)\s*(.+)$/i, keywords: ['headline', 'title', 'heading', 'tagline', 'text', 'copy'] },
+  {
+    op: 'set_phone',
+    kind: 'phone',
+    test: /\b(phone|number|call)\b/i,
+    value: /(?:to|:)\s*(.+)$/i,
+    keywords: ['phone', 'number', 'call'],
+  },
+  {
+    op: 'set_email',
+    kind: 'email',
+    test: /\be-?mail\b/i,
+    value: /(?:to|:)\s*(.+)$/i,
+    keywords: ['email'],
+  },
+  {
+    op: 'set_hours',
+    kind: 'hours',
+    test: /\b(hours|open(?:ing)?)\b/i,
+    value: /(?:to|:)\s*(.+)$/i,
+    keywords: ['hours', 'open'],
+  },
+  {
+    op: 'set_color',
+    kind: 'color',
+    test: /\b(colou?r|accent|brand|theme)\b/i,
+    value: /(?:to|:)\s*([#\w(),.%\s]+)$/i,
+    keywords: ['color', 'colour', 'accent', 'brand', 'theme'],
+  },
+  {
+    op: 'swap_image',
+    kind: 'image',
+    test: /\b(swap|replace|change|update|new)\b.*\b(photo|image|picture|logo|hero|banner)\b/i,
+    value: null,
+    keywords: ['photo', 'image', 'picture', 'logo', 'hero', 'banner'],
+  },
+  {
+    op: 'toggle_section',
+    kind: 'section',
+    test: /\b(hide|remove|show|add|enable|disable)\b.*\b(section|faq|testimonials|gallery|pricing|about|contact|services|menu)\b/i,
+    value: null,
+    keywords: [
+      'faq',
+      'testimonials',
+      'gallery',
+      'pricing',
+      'about',
+      'contact',
+      'services',
+      'menu',
+      'section',
+    ],
+  },
+  {
+    op: 'set_text',
+    kind: 'text',
+    test: /\b(headline|title|heading|tagline|text|say|copy|wording)\b/i,
+    value: /(?:say|to|:)\s*(.+)$/i,
+    keywords: ['headline', 'title', 'heading', 'tagline', 'text', 'copy'],
+  },
 ];
 
 /** Resolve which allowlisted surface an op targets: unique-by-kind wins; else disambiguate by keyword
@@ -143,8 +243,14 @@ function resolveTarget(
 }
 
 const OP_VERB: Record<EditOp, string> = {
-  set_text: 'update', set_color: 'change', set_hours: 'update', set_phone: 'update',
-  set_email: 'update', swap_image: 'replace', toggle_section: 'update', unknown: 'change',
+  set_text: 'update',
+  set_color: 'change',
+  set_hours: 'update',
+  set_phone: 'update',
+  set_email: 'update',
+  swap_image: 'replace',
+  toggle_section: 'update',
+  unknown: 'change',
 };
 
 function labelFor(target: string | null, surfaces: readonly EditableSurface[]): string {
@@ -152,7 +258,15 @@ function labelFor(target: string | null, surfaces: readonly EditableSurface[]): 
 }
 
 function reject(op: EditOp, reason: EditReason, confirmPrompt: string): EditIntent {
-  return { op, target: null, value: null, confidence: reason === 'ambiguous_target' ? 0.4 : 0.1, needsClarification: true, confirmPrompt, reason };
+  return {
+    op,
+    target: null,
+    value: null,
+    confidence: reason === 'ambiguous_target' ? 0.4 : 0.1,
+    needsClarification: true,
+    confirmPrompt,
+    reason,
+  };
 }
 
 /**
@@ -168,9 +282,13 @@ function reject(op: EditOp, reason: EditReason, confirmPrompt: string): EditInte
  * @returns the typed proposal to confirm (or a clarification)
  * @example classifyEditRequest('change my phone to (212) 555-1212', [{key:'contact.phone',kind:'phone',label:'Phone'}]).op // 'set_phone'
  */
-export function classifyEditRequest(text: string, surfaces: readonly EditableSurface[]): EditIntent {
+export function classifyEditRequest(
+  text: string,
+  surfaces: readonly EditableSurface[],
+): EditIntent {
   const raw = String(text ?? '').trim();
-  if (!raw) return { ...reject('unknown', 'empty', 'Tell me what you’d like to change.'), confidence: 0 };
+  if (!raw)
+    return { ...reject('unknown', 'empty', 'Tell me what you’d like to change.'), confidence: 0 };
 
   const cat = surfaces ?? [];
 
@@ -179,17 +297,30 @@ export function classifyEditRequest(text: string, surfaces: readonly EditableSur
 
     const { target, ambiguous } = resolveTarget(m.kind, raw, m.keywords, cat);
     if (ambiguous) {
-      return reject(m.op, 'ambiguous_target', `Which one did you mean? I can ${OP_VERB[m.op]} more than one thing here — tap the exact spot and I’ll do it.`);
+      return reject(
+        m.op,
+        'ambiguous_target',
+        `Which one did you mean? I can ${OP_VERB[m.op]} more than one thing here — tap the exact spot and I’ll do it.`,
+      );
     }
     if (!target) {
-      return reject(m.op, 'target_not_editable', `Your site doesn’t have that to ${OP_VERB[m.op]} yet — want me to add it?`);
+      return reject(
+        m.op,
+        'target_not_editable',
+        `Your site doesn’t have that to ${OP_VERB[m.op]} yet — want me to add it?`,
+      );
     }
 
     let value: string | null = null;
     if (m.value) {
       const captured = raw.match(m.value)?.[1] ?? '';
       const s = sanitizeValue(m.kind, captured);
-      if (!s.ok) return reject(m.op, 'invalid_value', `I didn’t catch a valid ${m.kind} there — try, e.g., “${m.kind === 'color' ? '#00E5FF' : 'a clear new value'}”.`);
+      if (!s.ok)
+        return reject(
+          m.op,
+          'invalid_value',
+          `I didn’t catch a valid ${m.kind} there — try, e.g., “${m.kind === 'color' ? '#00E5FF' : 'a clear new value'}”.`,
+        );
       value = s.value;
     }
 
@@ -201,10 +332,22 @@ export function classifyEditRequest(text: string, surfaces: readonly EditableSur
           ? `Update the “${label}”? You’ll see the change before it publishes.`
           : `${OP_VERB[m.op] === 'change' ? 'Change' : 'Update'} your “${label}” to “${value}”? You confirm, I’ll update your site.`;
 
-    return { op: m.op, target, value, confidence: 0.9, needsClarification: m.value === null && m.op === 'swap_image', confirmPrompt, reason: 'matched' };
+    return {
+      op: m.op,
+      target,
+      value,
+      confidence: 0.9,
+      needsClarification: m.value === null && m.op === 'swap_image',
+      confirmPrompt,
+      reason: 'matched',
+    };
   }
 
-  return reject('unknown', 'unknown_op', 'I’m not sure what to change — try “change my phone to …”, “make the headline say …”, or “swap the hero photo”.');
+  return reject(
+    'unknown',
+    'unknown_op',
+    'I’m not sure what to change — try “change my phone to …”, “make the headline say …”, or “swap the hero photo”.',
+  );
 }
 
 /**
@@ -226,12 +369,22 @@ export function validateLlmEditIntent(
 ): EditIntent {
   const p = proposal ?? {};
   const op = String((p as { op?: unknown }).op ?? '') as EditOp;
-  const allowedOps: EditOp[] = ['set_text', 'set_color', 'set_hours', 'set_phone', 'set_email', 'swap_image', 'toggle_section'];
-  if (!allowedOps.includes(op)) return reject('unknown', 'unknown_op', 'That change isn’t something I can make safely.');
+  const allowedOps: EditOp[] = [
+    'set_text',
+    'set_color',
+    'set_hours',
+    'set_phone',
+    'set_email',
+    'swap_image',
+    'toggle_section',
+  ];
+  if (!allowedOps.includes(op))
+    return reject('unknown', 'unknown_op', 'That change isn’t something I can make safely.');
 
   const targetKey = String((p as { target?: unknown }).target ?? '');
   const surface = (surfaces ?? []).find((s) => s.key === targetKey);
-  if (!surface) return reject(op, 'target_not_editable', 'That part of your site can’t be edited that way.');
+  if (!surface)
+    return reject(op, 'target_not_editable', 'That part of your site can’t be edited that way.');
 
   let value: string | null = null;
   if (op !== 'swap_image' && op !== 'toggle_section') {
@@ -247,5 +400,13 @@ export function validateLlmEditIntent(
         ? `Update the “${surface.label}”? You’ll see the change before it publishes.`
         : `Update your “${surface.label}” to “${value}”? You confirm, I’ll update your site.`;
 
-  return { op, target: surface.key, value, confidence: 0.8, needsClarification: op === 'swap_image', confirmPrompt, reason: 'matched' };
+  return {
+    op,
+    target: surface.key,
+    value,
+    confidence: 0.8,
+    needsClarification: op === 'swap_image',
+    confirmPrompt,
+    reason: 'matched',
+  };
 }

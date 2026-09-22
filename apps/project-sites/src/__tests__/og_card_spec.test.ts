@@ -46,18 +46,28 @@ describe('buildOgCardSpec: text safety', () => {
     expect(buildOgCardSpec({}, {}).title).toBe('Welcome');
   });
   it('builds a host+path footer, dropping a bare "/"', () => {
-    expect(buildOgCardSpec({ path: '/services' }, { host: 'acme.projectsites.dev' }).footer).toBe('acme.projectsites.dev/services');
-    expect(buildOgCardSpec({ path: '/' }, { host: 'acme.projectsites.dev' }).footer).toBe('acme.projectsites.dev');
+    expect(buildOgCardSpec({ path: '/services' }, { host: 'acme.projectsites.dev' }).footer).toBe(
+      'acme.projectsites.dev/services',
+    );
+    expect(buildOgCardSpec({ path: '/' }, { host: 'acme.projectsites.dev' }).footer).toBe(
+      'acme.projectsites.dev',
+    );
   });
 });
 
 describe('buildOgCardSpec: logo guard', () => {
   it('accepts an https logo with a real host', () => {
-    expect(buildOgCardSpec({ title: 'X' }, { logoUrl: 'https://cdn.example.com/logo.png' }).logoUrl).toBe('https://cdn.example.com/logo.png');
+    expect(
+      buildOgCardSpec({ title: 'X' }, { logoUrl: 'https://cdn.example.com/logo.png' }).logoUrl,
+    ).toBe('https://cdn.example.com/logo.png');
   });
   it('rejects http / data / hostless URLs', () => {
-    expect(buildOgCardSpec({ title: 'X' }, { logoUrl: 'http://example.com/l.png' }).logoUrl).toBeNull();
-    expect(buildOgCardSpec({ title: 'X' }, { logoUrl: 'data:image/png;base64,AAAA' }).logoUrl).toBeNull();
+    expect(
+      buildOgCardSpec({ title: 'X' }, { logoUrl: 'http://example.com/l.png' }).logoUrl,
+    ).toBeNull();
+    expect(
+      buildOgCardSpec({ title: 'X' }, { logoUrl: 'data:image/png;base64,AAAA' }).logoUrl,
+    ).toBeNull();
     expect(buildOgCardSpec({ title: 'X' }, { logoUrl: 'https://localhost' }).logoUrl).toBeNull();
     expect(buildOgCardSpec({ title: 'X' }, {}).logoUrl).toBeNull();
   });

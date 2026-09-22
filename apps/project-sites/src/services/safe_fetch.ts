@@ -56,9 +56,13 @@ const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
  * @example await safeFetch('https://example.com/logo.png') // Response
  * @example await safeFetch('http://x.test') // if it 302s to http://169.254.169.254 → throws SsrfError('private_host')
  */
-export async function safeFetch(rawUrl: string, options: SafeFetchOptions = {}): Promise<ResponseLike> {
+export async function safeFetch(
+  rawUrl: string,
+  options: SafeFetchOptions = {},
+): Promise<ResponseLike> {
   const max = options.maxRedirects ?? 5;
-  const doFetch = options.fetchImpl ?? (globalThis.fetch as unknown as SafeFetchOptions['fetchImpl']);
+  const doFetch =
+    options.fetchImpl ?? (globalThis.fetch as unknown as SafeFetchOptions['fetchImpl']);
   if (!doFetch) throw new SafeFetchError('no fetch implementation available');
 
   // Hop 0: validate before touching the network.

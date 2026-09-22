@@ -80,7 +80,9 @@ describe('classifyEditRequest: safety + clarification', () => {
     expect(i.value).toBeNull();
   });
   it('rejects a non-color color value', () => {
-    expect(classifyEditRequest('change the accent color to javascript:void', CAT).reason).toBe('invalid_value');
+    expect(classifyEditRequest('change the accent color to javascript:void', CAT).reason).toBe(
+      'invalid_value',
+    );
   });
   it('empty input asks what to change', () => {
     const i = classifyEditRequest('   ', CAT);
@@ -94,32 +96,48 @@ describe('classifyEditRequest: safety + clarification', () => {
   });
   it('target_not_editable when the site exposes no surface of that kind', () => {
     const noColor = CAT.filter((s) => s.kind !== 'color');
-    expect(classifyEditRequest('change the accent color to #fff', noColor).reason).toBe('target_not_editable');
+    expect(classifyEditRequest('change the accent color to #fff', noColor).reason).toBe(
+      'target_not_editable',
+    );
   });
   it('ambiguous_target when two same-kind surfaces and no disambiguating keyword', () => {
     const twoText: EditableSurface[] = [
       { key: 'hero.headline', kind: 'text', label: 'Hero headline' },
       { key: 'about.body', kind: 'text', label: 'About body' },
     ];
-    expect(classifyEditRequest('update the text to Hello there', twoText).reason).toBe('ambiguous_target');
+    expect(classifyEditRequest('update the text to Hello there', twoText).reason).toBe(
+      'ambiguous_target',
+    );
   });
 });
 
 describe('validateLlmEditIntent: contract-first safety net', () => {
   it('accepts a well-formed proposal that targets an allowlisted surface', () => {
-    const i = validateLlmEditIntent({ op: 'set_text', target: 'hero.headline', value: 'Hi there' }, CAT);
+    const i = validateLlmEditIntent(
+      { op: 'set_text', target: 'hero.headline', value: 'Hi there' },
+      CAT,
+    );
     expect(i.reason).toBe('matched');
     expect(i.value).toBe('Hi there');
   });
   it('rejects a target not in the catalog (never trust the model target)', () => {
-    expect(validateLlmEditIntent({ op: 'set_text', target: 'hero.evil', value: 'x' }, CAT).reason).toBe('target_not_editable');
+    expect(
+      validateLlmEditIntent({ op: 'set_text', target: 'hero.evil', value: 'x' }, CAT).reason,
+    ).toBe('target_not_editable');
   });
   it('rejects an unknown/dangerous op', () => {
-    expect(validateLlmEditIntent({ op: 'delete_everything', target: 'faq', value: null }, CAT).reason).toBe('unknown_op');
+    expect(
+      validateLlmEditIntent({ op: 'delete_everything', target: 'faq', value: null }, CAT).reason,
+    ).toBe('unknown_op');
   });
   it('rejects an unsafe value even for a valid target', () => {
-    expect(validateLlmEditIntent({ op: 'set_text', target: 'hero.headline', value: '<b>x</b>' }, CAT).reason).toBe('invalid_value');
-    expect(validateLlmEditIntent({ op: 'set_color', target: 'theme.accent', value: '#zzz' }, CAT).reason).toBe('invalid_value');
+    expect(
+      validateLlmEditIntent({ op: 'set_text', target: 'hero.headline', value: '<b>x</b>' }, CAT)
+        .reason,
+    ).toBe('invalid_value');
+    expect(
+      validateLlmEditIntent({ op: 'set_color', target: 'theme.accent', value: '#zzz' }, CAT).reason,
+    ).toBe('invalid_value');
   });
   it('tolerates malformed input without throwing', () => {
     expect(validateLlmEditIntent(null, CAT).reason).toBe('unknown_op');

@@ -101,10 +101,20 @@ export function scoreLogoCandidate(c: LogoCandidate): ScoredLogo {
   const fmt = c.format ?? 'unknown';
 
   if (minDim !== undefined && minDim < MIN_DIMENSION && fmt !== 'svg') {
-    return { candidate: c, score: 0, usable: false, reason: `too small (${minDim}px < ${MIN_DIMENSION}px)` };
+    return {
+      candidate: c,
+      score: 0,
+      usable: false,
+      reason: `too small (${minDim}px < ${MIN_DIMENSION}px)`,
+    };
   }
   if (c.kind === 'favicon' && fmt !== 'svg' && (minDim === undefined || minDim < 64)) {
-    return { candidate: c, score: 0, usable: false, reason: 'favicon too small/low-res for a large header logo' };
+    return {
+      candidate: c,
+      score: 0,
+      usable: false,
+      reason: 'favicon too small/low-res for a large header logo',
+    };
   }
 
   let score = KIND_BASE[c.kind] ?? KIND_BASE.unknown;
@@ -126,7 +136,8 @@ export function scoreLogoCandidate(c: LogoCandidate): ScoredLogo {
 
   if (w !== undefined && h !== undefined && h > 0) {
     const ratio = w / h;
-    if (ratio >= 0.6 && ratio <= 1.7) score += 6; // square-ish → likely a mark
+    if (ratio >= 0.6 && ratio <= 1.7)
+      score += 6; // square-ish → likely a mark
     else if (ratio > 3 || ratio < 1 / 3) score -= 8; // banner/strip → often a photo, not a logo
   }
 
@@ -146,7 +157,10 @@ export function scoreLogoCandidate(c: LogoCandidate): ScoredLogo {
  * @example pickLogoSource([]).decision // 'generate'
  * @example pickLogoSource([{ url:'f', kind:'favicon', format:'ico', width:32, height:32 }]).decision // 'generate'
  */
-export function pickLogoSource(candidates: readonly LogoCandidate[], opts?: { minScore?: number }): LogoDecision {
+export function pickLogoSource(
+  candidates: readonly LogoCandidate[],
+  opts?: { minScore?: number },
+): LogoDecision {
   const minScore = opts?.minScore ?? MIN_LOGO_SCORE;
   const ranked = (candidates ?? []).map(scoreLogoCandidate).sort((a, b) => b.score - a.score);
   const best = ranked.find((r) => r.usable) ?? null;

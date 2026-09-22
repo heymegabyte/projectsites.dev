@@ -21,22 +21,53 @@ const reason = (raw: string, policy = {}) => {
 
 describe('isPrivateOrReservedHost', () => {
   it('blocks cloud metadata + private/loopback/link-local IPv4', () => {
-    for (const h of ['169.254.169.254', '10.0.0.5', '127.0.0.1', '192.168.1.1', '172.16.0.1', '172.31.255.255', '0.0.0.0', '100.64.0.1']) {
+    for (const h of [
+      '169.254.169.254',
+      '10.0.0.5',
+      '127.0.0.1',
+      '192.168.1.1',
+      '172.16.0.1',
+      '172.31.255.255',
+      '0.0.0.0',
+      '100.64.0.1',
+    ]) {
       expect(isPrivateOrReservedHost(h)).toBe(true);
     }
   });
   it('allows public IPv4 and hosts just outside private ranges', () => {
-    for (const h of ['8.8.8.8', '1.1.1.1', '172.15.0.1', '172.32.0.1', 'example.com', 'cdn.shopify.com']) {
+    for (const h of [
+      '8.8.8.8',
+      '1.1.1.1',
+      '172.15.0.1',
+      '172.32.0.1',
+      'example.com',
+      'cdn.shopify.com',
+    ]) {
       expect(isPrivateOrReservedHost(h)).toBe(false);
     }
   });
   it('blocks IPv6 loopback / link-local / ULA / IPv4-mapped-private', () => {
-    for (const h of ['::1', '::', 'fe80::1', 'fc00::1', 'fd12:3456::1', '::ffff:127.0.0.1', '::ffff:10.0.0.1']) {
+    for (const h of [
+      '::1',
+      '::',
+      'fe80::1',
+      'fc00::1',
+      'fd12:3456::1',
+      '::ffff:127.0.0.1',
+      '::ffff:10.0.0.1',
+    ]) {
       expect(isPrivateOrReservedHost(h)).toBe(true);
     }
   });
   it('blocks internal hostnames', () => {
-    for (const h of ['localhost', 'foo.localhost', 'db.internal', 'printer.local', 'metadata.google.internal', 'host.lan']) {
+    for (const h of [
+      'localhost',
+      'foo.localhost',
+      'db.internal',
+      'printer.local',
+      'metadata.google.internal',
+      'host.lan',
+    ]) {
       expect(isPrivateOrReservedHost(h)).toBe(true);
     }
   });
@@ -50,7 +81,12 @@ describe('assertPublicHttpUrl: blocks the SSRF classes', () => {
     expect(reason('http://[::1]/')).toBe('private_host');
   });
   it('non-http protocols → protocol_blocked', () => {
-    for (const u of ['file:///etc/passwd', 'ftp://example.com', 'gopher://example.com', 'data:text/html,x']) {
+    for (const u of [
+      'file:///etc/passwd',
+      'ftp://example.com',
+      'gopher://example.com',
+      'data:text/html,x',
+    ]) {
       expect(reason(u)).toBe('protocol_blocked');
     }
   });
@@ -84,7 +120,12 @@ describe('assertPublicHttpUrl: allow/deny lists + escape hatch', () => {
     expect(reason('https://tracker.ads.com', { hostDenylist: ['ads.com'] })).toBe('host_denied');
   });
   it('allowPrivateHosts escape hatch permits loopback (tests/dev only)', () => {
-    expect(reason('http://127.0.0.1:8787/health', { allowPrivateHosts: true, allowedPorts: ['', '80', '443', '8787'] })).toBe('ALLOWED');
+    expect(
+      reason('http://127.0.0.1:8787/health', {
+        allowPrivateHosts: true,
+        allowedPorts: ['', '80', '443', '8787'],
+      }),
+    ).toBe('ALLOWED');
   });
 });
 

@@ -59,7 +59,9 @@ describe('adaptive_hero: pickHeroVariant', () => {
   ];
 
   it('picks the highest-priority applicable intent that has a variant', () => {
-    expect(pickHeroVariant({ emergencyIntent: true, returning: true }, V)!.intent).toBe('emergency');
+    expect(pickHeroVariant({ emergencyIntent: true, returning: true }, V)!.intent).toBe(
+      'emergency',
+    );
     expect(pickHeroVariant({ openNow: false, returning: true }, V)!.intent).toBe('after_hours');
     expect(pickHeroVariant({ returning: true }, V)!.intent).toBe('returning');
   });

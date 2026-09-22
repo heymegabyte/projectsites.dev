@@ -12,8 +12,18 @@
 
 /** @types the autopilot can emit, most-broadly-applicable first. */
 export const SCHEMA_TYPES = [
-  'Organization', 'WebSite', 'WebPage', 'LocalBusiness', 'BreadcrumbList',
-  'FAQPage', 'Service', 'Product', 'AggregateRating', 'Review', 'Menu', 'Speakable',
+  'Organization',
+  'WebSite',
+  'WebPage',
+  'LocalBusiness',
+  'BreadcrumbList',
+  'FAQPage',
+  'Service',
+  'Product',
+  'AggregateRating',
+  'Review',
+  'Menu',
+  'Speakable',
 ] as const;
 export type SchemaType = (typeof SCHEMA_TYPES)[number];
 
@@ -58,14 +68,26 @@ export function selectSchemaTypes(facts: PageFacts): SchemaDecision {
     else rejected.push({ type, reason });
   };
 
-  gate('LocalBusiness', !!(f.hasAddress && f.hasPhone), 'no verified NAP (needs address + phone matching the profile)');
+  gate(
+    'LocalBusiness',
+    !!(f.hasAddress && f.hasPhone),
+    'no verified NAP (needs address + phone matching the profile)',
+  );
   gate('BreadcrumbList', (f.routeDepth ?? 0) >= 2, 'route is < 2 levels deep');
-  gate('FAQPage', (f.faqPairs ?? 0) >= 1, 'no real, visible Q&A pairs (never fabricate FAQ to add the schema)');
+  gate(
+    'FAQPage',
+    (f.faqPairs ?? 0) >= 1,
+    'no real, visible Q&A pairs (never fabricate FAQ to add the schema)',
+  );
   gate('Service', (f.services ?? 0) >= 1, 'no services listed on the page');
   gate('Product', (f.products ?? 0) >= 1, 'no products listed on the page');
   gate('AggregateRating', (f.reviewCount ?? 0) >= 1, 'no real reviews');
   gate('Review', (f.reviewCount ?? 0) >= 1, 'no real reviews');
-  gate('Menu', !!(f.isFoodService && (f.menuItems ?? 0) >= 1), 'not a food-service vertical with a real menu');
+  gate(
+    'Menu',
+    !!(f.isFoodService && (f.menuItems ?? 0) >= 1),
+    'not a food-service vertical with a real menu',
+  );
   gate('Speakable', !!f.quotableAnswer, 'no quotable-answer block on the page');
 
   return { emit, rejected };

@@ -47,7 +47,16 @@ describe('snapshot_to_section: isMeaningful (fabrication gate)', () => {
 
 describe('snapshot_to_section: normalizeExtraction', () => {
   it('keeps real rows, prunes empty ones, counts survivors', () => {
-    const s = normalizeExtraction('price_list', { rows: [{ label: 'Oil change', price: '$49' }, { label: '', price: '' }] }, 0.9);
+    const s = normalizeExtraction(
+      'price_list',
+      {
+        rows: [
+          { label: 'Oil change', price: '$49' },
+          { label: '', price: '' },
+        ],
+      },
+      0.9,
+    );
     expect(s).not.toBeNull();
     expect(s!.kind).toBe('price_list');
     expect(s!.title).toBe('Pricing');
@@ -66,27 +75,39 @@ describe('snapshot_to_section: normalizeExtraction', () => {
   });
 
   it('prunes empty menu groups + items', () => {
-    const s = normalizeExtraction('menu', {
-      groups: [
-        { name: 'Tacos', items: [{ name: 'Al Pastor', price: '$4' }, { name: '' }] },
-        { name: '', items: [{ name: 'ghost' }] },
-      ],
-    }, 0.8);
+    const s = normalizeExtraction(
+      'menu',
+      {
+        groups: [
+          { name: 'Tacos', items: [{ name: 'Al Pastor', price: '$4' }, { name: '' }] },
+          { name: '', items: [{ name: 'ghost' }] },
+        ],
+      },
+      0.8,
+    );
     expect(s).not.toBeNull();
     expect(s!.itemCount).toBe(1);
     expect((s!.data as { groups: unknown[] }).groups).toHaveLength(1);
   });
 
   it('keeps only meaningful contact fields', () => {
-    const s = normalizeExtraction('contact_card', { name: 'Joe', phone: '(212) 555-1212', email: 'N/A', address: '' }, 0.7);
+    const s = normalizeExtraction(
+      'contact_card',
+      { name: 'Joe', phone: '(212) 555-1212', email: 'N/A', address: '' },
+      0.7,
+    );
     expect(s).not.toBeNull();
     expect(s!.itemCount).toBe(2);
     expect(s!.data).toEqual({ name: 'Joe', phone: '(212) 555-1212' });
   });
 
   it('clamps confidence to [0,1]', () => {
-    expect(normalizeExtraction('services', { items: [{ name: 'Haircut' }] }, 1.5)!.confidence).toBe(1);
-    expect(normalizeExtraction('services', { items: [{ name: 'Haircut' }] }, -0.5)!.confidence).toBe(0);
+    expect(normalizeExtraction('services', { items: [{ name: 'Haircut' }] }, 1.5)!.confidence).toBe(
+      1,
+    );
+    expect(
+      normalizeExtraction('services', { items: [{ name: 'Haircut' }] }, -0.5)!.confidence,
+    ).toBe(0);
   });
 
   it('throws UnknownSnapshotKindError on an unsupported kind', () => {
@@ -97,7 +118,11 @@ describe('snapshot_to_section: normalizeExtraction', () => {
 
 describe('snapshot_to_section: confirmPrompt', () => {
   it('states the count in owner language + flags low confidence', () => {
-    const s = normalizeExtraction('services', { items: [{ name: 'Haircut' }, { name: 'Shave' }] }, 0.4)!;
+    const s = normalizeExtraction(
+      'services',
+      { items: [{ name: 'Haircut' }, { name: 'Shave' }] },
+      0.4,
+    )!;
     const msg = confirmPrompt(s);
     expect(msg).toContain('2');
     expect(msg.toLowerCase()).toContain('check');

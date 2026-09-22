@@ -10,7 +10,7 @@ import { SsrfError } from '../services/ssrf_guard.js';
 /** Minimal response stub the wrapper inspects. */
 const mkRes = (status: number, location?: string) => ({
   status,
-  headers: { get: (k: string) => (k.toLowerCase() === 'location' ? location ?? null : null) },
+  headers: { get: (k: string) => (k.toLowerCase() === 'location' ? (location ?? null) : null) },
 });
 
 /** Build an injectable fetch that returns queued responses and records the URLs + init it saw. */
@@ -27,7 +27,9 @@ function scriptedFetch(steps: Array<ReturnType<typeof mkRes>>) {
 describe('safeFetch: pre-flight validation', () => {
   it('throws SsrfError BEFORE any fetch when the initial URL is private', async () => {
     const { fetchImpl, calls } = scriptedFetch([mkRes(200)]);
-    await expect(safeFetch('http://169.254.169.254/latest/meta-data/', { fetchImpl })).rejects.toBeInstanceOf(SsrfError);
+    await expect(
+      safeFetch('http://169.254.169.254/latest/meta-data/', { fetchImpl }),
+    ).rejects.toBeInstanceOf(SsrfError);
     expect(calls).toHaveLength(0); // never touched the network
   });
   it('throws SsrfError for a non-http protocol up front', async () => {
@@ -44,14 +46,19 @@ describe('safeFetch: manual redirect handling', () => {
     expect(calls[0].redirect).toBe('manual');
   });
   it('follows a safe redirect to another PUBLIC host', async () => {
-    const { fetchImpl, calls } = scriptedFetch([mkRes(302, 'https://cdn.example.com/final.png'), mkRes(200)]);
+    const { fetchImpl, calls } = scriptedFetch([
+      mkRes(302, 'https://cdn.example.com/final.png'),
+      mkRes(200),
+    ]);
     const res = await safeFetch('https://example.com/logo', { fetchImpl });
     expect(res.status).toBe(200);
     expect(calls[1].url).toBe('https://cdn.example.com/final.png');
   });
   it('BLOCKS a redirect to an internal host at the hop (the SSRF-bypass fix)', async () => {
     const { fetchImpl, calls } = scriptedFetch([mkRes(302, 'http://169.254.169.254/'), mkRes(200)]);
-    await expect(safeFetch('https://example.com/logo', { fetchImpl })).rejects.toBeInstanceOf(SsrfError);
+    await expect(safeFetch('https://example.com/logo', { fetchImpl })).rejects.toBeInstanceOf(
+      SsrfError,
+    );
     expect(calls).toHaveLength(1); // fetched hop-0, refused to fetch the internal redirect
   });
   it('resolves a relative Location against the current URL and re-validates it', async () => {
@@ -62,7 +69,9 @@ describe('safeFetch: manual redirect handling', () => {
   });
   it('throws SafeFetchError when the redirect chain exceeds the cap', async () => {
     const { fetchImpl } = scriptedFetch([mkRes(302, 'https://a.example.com/next')]); // always redirects
-    await expect(safeFetch('https://example.com/loop', { fetchImpl, maxRedirects: 3 })).rejects.toBeInstanceOf(SafeFetchError);
+    await expect(
+      safeFetch('https://example.com/loop', { fetchImpl, maxRedirects: 3 }),
+    ).rejects.toBeInstanceOf(SafeFetchError);
   });
   it('hands back a redirect with no Location rather than guessing', async () => {
     const { fetchImpl } = scriptedFetch([mkRes(302, undefined)]);

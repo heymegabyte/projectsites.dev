@@ -87,7 +87,9 @@ describe('app.js Sentry + PostHog telemetry seams', () => {
       expect(boot).toContain('initSentryStub()');
       expect(boot).toContain('initPosthogStub()');
       // The calls sit inside a try { } catch (e) {} — telemetry never blocks paint.
-      expect(boot).toMatch(/try\s*\{[\s\S]{0,200}initSentryStub\(\)[\s\S]{0,200}\}\s*catch\s*\(e\)\s*\{\}/);
+      expect(boot).toMatch(
+        /try\s*\{[\s\S]{0,200}initSentryStub\(\)[\s\S]{0,200}\}\s*catch\s*\(e\)\s*\{\}/,
+      );
     });
 
     it('never loads a third-party SDK when the key is absent', () => {

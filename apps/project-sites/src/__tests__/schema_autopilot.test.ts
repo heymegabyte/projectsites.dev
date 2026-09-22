@@ -15,12 +15,25 @@ describe('schema_autopilot: baseline', () => {
   });
   it('withholds every contextual type without data (never shallow-schema)', () => {
     const rej = rejectedTypes(selectSchemaTypes({}));
-    for (const t of ['LocalBusiness', 'FAQPage', 'Service', 'Product', 'AggregateRating', 'Review', 'Menu', 'Speakable']) {
+    for (const t of [
+      'LocalBusiness',
+      'FAQPage',
+      'Service',
+      'Product',
+      'AggregateRating',
+      'Review',
+      'Menu',
+      'Speakable',
+    ]) {
       expect(rej).toContain(t);
     }
   });
   it('every withheld type carries a reason', () => {
-    expect(selectSchemaTypes({}).rejected.every((r) => typeof r.reason === 'string' && r.reason.length > 0)).toBe(true);
+    expect(
+      selectSchemaTypes({}).rejected.every(
+        (r) => typeof r.reason === 'string' && r.reason.length > 0,
+      ),
+    ).toBe(true);
   });
 });
 

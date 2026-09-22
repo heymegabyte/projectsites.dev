@@ -31,7 +31,12 @@ export function routeByRating(rating: number, positiveThreshold = POSITIVE_THRES
 
 /** Genuine, COMPLETED interactions that may trigger a request — never a page view / bounce
  *  (Google policy: only ask real customers after a real interaction). */
-export const GENUINE_TRIGGERS = ['booking_completed', 'order_delivered', 'service_completed', 'form_reply_closed'] as const;
+export const GENUINE_TRIGGERS = [
+  'booking_completed',
+  'order_delivered',
+  'service_completed',
+  'form_reply_closed',
+] as const;
 export type ReviewTrigger = (typeof GENUINE_TRIGGERS)[number];
 
 /** True when `t` is a genuine completed-interaction trigger. */
@@ -69,7 +74,8 @@ export function shouldRequestReview(ctx: ReviewRequestContext): { send: boolean;
   const cooldownMs = (ctx.cooldownDays ?? 90) * 86_400_000;
   const minAgeMs = (ctx.minAgeMinutes ?? 60) * 60_000;
 
-  if (!isGenuineTrigger(ctx.trigger)) return { send: false, reason: 'not a genuine completed interaction' };
+  if (!isGenuineTrigger(ctx.trigger))
+    return { send: false, reason: 'not a genuine completed interaction' };
   if (ctx.alreadyReviewed) return { send: false, reason: 'customer already reviewed' };
   if (!Number.isFinite(ctx.completedAt) || ctx.now - ctx.completedAt < minAgeMs) {
     return { send: false, reason: 'too soon after the interaction' };

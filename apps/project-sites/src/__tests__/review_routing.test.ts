@@ -44,20 +44,34 @@ describe('review_routing: isGenuineTrigger', () => {
 
 describe('review_routing: shouldRequestReview', () => {
   it('sends for a genuine, settled, first-time interaction', () => {
-    const r = shouldRequestReview({ trigger: 'order_delivered', completedAt: T - 2 * HOURS, now: T });
+    const r = shouldRequestReview({
+      trigger: 'order_delivered',
+      completedAt: T - 2 * HOURS,
+      now: T,
+    });
     expect(r.send).toBe(true);
     expect(r.reason).toBe('eligible');
   });
   it('refuses a non-genuine trigger', () => {
-    expect(shouldRequestReview({ trigger: 'page_view', completedAt: T - 2 * HOURS, now: T }).send).toBe(false);
+    expect(
+      shouldRequestReview({ trigger: 'page_view', completedAt: T - 2 * HOURS, now: T }).send,
+    ).toBe(false);
   });
   it('refuses when the customer already reviewed', () => {
     expect(
-      shouldRequestReview({ trigger: 'booking_completed', completedAt: T - 2 * HOURS, now: T, alreadyReviewed: true }).send,
+      shouldRequestReview({
+        trigger: 'booking_completed',
+        completedAt: T - 2 * HOURS,
+        now: T,
+        alreadyReviewed: true,
+      }).send,
     ).toBe(false);
   });
   it('refuses too soon after the interaction (default 60 min)', () => {
-    expect(shouldRequestReview({ trigger: 'booking_completed', completedAt: T - 10 * 60_000, now: T }).send).toBe(false);
+    expect(
+      shouldRequestReview({ trigger: 'booking_completed', completedAt: T - 10 * 60_000, now: T })
+        .send,
+    ).toBe(false);
   });
   it('refuses within the cooldown, sends past it', () => {
     const base = { trigger: 'service_completed', completedAt: T - 2 * HOURS, now: T } as const;
@@ -65,7 +79,12 @@ describe('review_routing: shouldRequestReview', () => {
     expect(shouldRequestReview({ ...base, lastRequestedAt: T - 100 * DAYS }).send).toBe(true);
   });
   it('honors a custom cooldown', () => {
-    const base = { trigger: 'service_completed', completedAt: T - 2 * HOURS, now: T, cooldownDays: 30 } as const;
+    const base = {
+      trigger: 'service_completed',
+      completedAt: T - 2 * HOURS,
+      now: T,
+      cooldownDays: 30,
+    } as const;
     expect(shouldRequestReview({ ...base, lastRequestedAt: T - 20 * DAYS }).send).toBe(false);
     expect(shouldRequestReview({ ...base, lastRequestedAt: T - 40 * DAYS }).send).toBe(true);
   });

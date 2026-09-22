@@ -84,9 +84,7 @@ async function resolveMediaPreviews(bucket: unknown, raw: unknown): Promise<Medi
     bucket as { createSignedUrl?: (key: string, opts: { expiresIn: number }) => Promise<string> }
   )?.createSignedUrl;
   const sign =
-    typeof signer === 'function'
-      ? signer.bind(bucket as { createSignedUrl: typeof signer })
-      : null;
+    typeof signer === 'function' ? signer.bind(bucket as { createSignedUrl: typeof signer }) : null;
 
   const out: MediaPreview[] = [];
   for (const entry of parsed) {

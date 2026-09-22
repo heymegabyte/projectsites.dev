@@ -82,7 +82,12 @@ export interface StatusSummary {
 
 /** Severity ordering — higher is worse; `unknown` outranks `operational` so a partial-data fleet
  *  never reports "all operational". */
-const STATE_RANK: Record<ServiceState, number> = { operational: 0, unknown: 1, degraded: 2, down: 3 };
+const STATE_RANK: Record<ServiceState, number> = {
+  operational: 0,
+  unknown: 1,
+  degraded: 2,
+  down: 3,
+};
 
 /**
  * Nearest-rank percentile of a latency set, rounded to whole ms. Non-finite values are dropped.
@@ -94,7 +99,10 @@ const STATE_RANK: Record<ServiceState, number> = { operational: 0, unknown: 1, d
  * @example percentileMs([], 50) // null
  */
 export function percentileMs(values: readonly number[], p: number): number | null {
-  const arr = (values ?? []).filter((v) => Number.isFinite(v)).slice().sort((a, b) => a - b);
+  const arr = (values ?? [])
+    .filter((v) => Number.isFinite(v))
+    .slice()
+    .sort((a, b) => a - b);
   if (arr.length === 0) return null;
   const clamped = Math.min(100, Math.max(0, p));
   const rank = Math.ceil((clamped / 100) * arr.length);
@@ -191,7 +199,10 @@ export function rollUpService(input: ServiceSamples, opts: RollupOptions): Servi
  * @example worstState(['operational','degraded','operational']) // 'degraded'
  */
 export function worstState(states: readonly ServiceState[]): ServiceState {
-  return (states ?? []).reduce<ServiceState>((w, s) => (STATE_RANK[s] > STATE_RANK[w] ? s : w), 'operational');
+  return (states ?? []).reduce<ServiceState>(
+    (w, s) => (STATE_RANK[s] > STATE_RANK[w] ? s : w),
+    'operational',
+  );
 }
 
 /**
@@ -205,8 +216,12 @@ export function worstState(states: readonly ServiceState[]): ServiceState {
 export function summarize(statuses: readonly ServiceStatus[]): StatusSummary {
   const list = statuses ?? [];
   const count = (st: ServiceState): number => list.filter((s) => s.state === st).length;
-  const known = list.map((s) => s.uptimePct).filter((v): v is number => v !== null && Number.isFinite(v));
-  const overallUptimePct = known.length ? Math.round((known.reduce((a, b) => a + b, 0) / known.length) * 100) / 100 : null;
+  const known = list
+    .map((s) => s.uptimePct)
+    .filter((v): v is number => v !== null && Number.isFinite(v));
+  const overallUptimePct = known.length
+    ? Math.round((known.reduce((a, b) => a + b, 0) / known.length) * 100) / 100
+    : null;
 
   return {
     total: list.length,

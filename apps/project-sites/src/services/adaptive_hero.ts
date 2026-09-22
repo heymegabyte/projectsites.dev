@@ -14,7 +14,14 @@
  */
 
 /** Intents a hero variant can target, in fixed selection priority (highest-converting first). */
-export const HERO_INTENTS = ['emergency', 'after_hours', 'returning', 'promo', 'local', 'default'] as const;
+export const HERO_INTENTS = [
+  'emergency',
+  'after_hours',
+  'returning',
+  'promo',
+  'local',
+  'default',
+] as const;
 export type HeroIntent = (typeof HERO_INTENTS)[number];
 
 /** Referrer buckets — includes an `ai` bucket for answer-engine referrals (ChatGPT/Perplexity/…). */
@@ -41,8 +48,10 @@ export interface HeroVariant {
   ctaText?: string;
 }
 
-const SOCIAL = /facebook|fb\.com|instagram|twitter|x\.com|t\.co|tiktok|linkedin|pinterest|reddit|youtube/i;
-const AI_ENGINE = /chatgpt|openai|perplexity|\bclaude\b|anthropic|gemini|bard|copilot|you\.com|phind/i;
+const SOCIAL =
+  /facebook|fb\.com|instagram|twitter|x\.com|t\.co|tiktok|linkedin|pinterest|reddit|youtube/i;
+const AI_ENGINE =
+  /chatgpt|openai|perplexity|\bclaude\b|anthropic|gemini|bard|copilot|you\.com|phind/i;
 
 /**
  * Bucket a `Referer` header value. Empty/absent → `direct`. Never throws.
@@ -54,7 +63,9 @@ const AI_ENGINE = /chatgpt|openai|perplexity|\bclaude\b|anthropic|gemini|bard|co
  * @example classifyReferrer('') // 'direct'
  */
 export function classifyReferrer(referer: string | null | undefined): ReferrerCategory {
-  const r = String(referer ?? '').trim().toLowerCase();
+  const r = String(referer ?? '')
+    .trim()
+    .toLowerCase();
   if (!r) return 'direct';
   if (AI_ENGINE.test(r)) return 'ai';
   if (/google\./.test(r)) return 'google';
@@ -63,7 +74,8 @@ export function classifyReferrer(referer: string | null | undefined): ReferrerCa
   return 'other';
 }
 
-const EMERGENCY_RE = /\b(emergency|urgent|asap|24[\s-]?h(?:ou)?r|same[\s-]?day|broke[nd]?|burst|leak|flood|no heat|no power|lock(?:ed)?\s?out)\b/i;
+const EMERGENCY_RE =
+  /\b(emergency|urgent|asap|24[\s-]?h(?:ou)?r|same[\s-]?day|broke[nd]?|burst|leak|flood|no heat|no power|lock(?:ed)?\s?out)\b/i;
 
 /**
  * Whether a free-text signal (a search term, a UTM value) reads as an urgent need — drives the
@@ -105,7 +117,10 @@ export function deriveApplicableIntents(signals: VisitorSignals): HeroIntent[] {
  * @returns the chosen variant, or null when there are none
  * @example pickHeroVariant({ emergencyIntent: true }, [{intent:'default',headline:'A'},{intent:'emergency',headline:'Call now'}]) // the emergency one
  */
-export function pickHeroVariant(signals: VisitorSignals, variants: readonly HeroVariant[]): HeroVariant | null {
+export function pickHeroVariant(
+  signals: VisitorSignals,
+  variants: readonly HeroVariant[],
+): HeroVariant | null {
   if (!Array.isArray(variants) || variants.length === 0) return null;
   const applicable = new Set(deriveApplicableIntents(signals));
   for (const intent of HERO_INTENTS) {

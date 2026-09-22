@@ -154,7 +154,9 @@ describe('GET /api/social/posts — media preview URLs', () => {
   });
 
   it('returns an empty array when media_keys is an empty string', async () => {
-    seedRows([{ id: 'post-1', status: 'draft', account_ids: '[]', hashtags: '[]', media_keys: '' }]);
+    seedRows([
+      { id: 'post-1', status: 'draft', account_ids: '[]', hashtags: '[]', media_keys: '' },
+    ]);
     const res = await req(
       makeApp(AUTH),
       '/api/social/posts',

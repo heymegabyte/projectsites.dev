@@ -16,7 +16,16 @@
  */
 
 /** Subscription status from the store (Stripe-derived). Open string — new Stripe statuses are DENY by default. */
-export type SubStatus = 'active' | 'trialing' | 'past_due' | 'canceled' | 'incomplete' | 'incomplete_expired' | 'unpaid' | 'paused' | (string & {});
+export type SubStatus =
+  | 'active'
+  | 'trialing'
+  | 'past_due'
+  | 'canceled'
+  | 'incomplete'
+  | 'incomplete_expired'
+  | 'unpaid'
+  | 'paused'
+  | (string & {});
 
 /** The ONLY statuses that entitle paid features. Everything else (past_due/canceled/unpaid/paused/…) does not. */
 export const ENTITLING_STATUSES = ['active', 'trialing'] as const;
@@ -38,7 +47,11 @@ export interface EntitlementInput {
 }
 
 /** A denied decision carries a machine reason for observability + a doomed-control message. */
-export type EntitlementReason = 'transient_error' | 'not_entitling_status' | 'below_plan_floor' | 'entitled';
+export type EntitlementReason =
+  | 'transient_error'
+  | 'not_entitling_status'
+  | 'below_plan_floor'
+  | 'entitled';
 
 /**
  * The canonical entitlement decision. Fail-closed, trialing-aware, plan-floor-aware.
@@ -49,7 +62,10 @@ export type EntitlementReason = 'transient_error' | 'not_entitling_status' | 'be
  * @example decideEntitlement({ status: 'past_due' }) // { entitled:false, reason:'not_entitling_status' }
  * @example decideEntitlement({ status:'active', plan:'starter', featurePlanFloor:'pro', planRank:{starter:1,pro:2} }) // below floor → false
  */
-export function decideEntitlement(input: EntitlementInput): { entitled: boolean; reason: EntitlementReason } {
+export function decideEntitlement(input: EntitlementInput): {
+  entitled: boolean;
+  reason: EntitlementReason;
+} {
   // 1. Transient store error → fail CLOSED (never open on uncertainty). Checked FIRST, before status.
   if (input.storeError) return { entitled: false, reason: 'transient_error' };
 
