@@ -211,18 +211,21 @@ export { SocialPublishWorkflow } from './workflows/social-publish.js';
 export { SiteBuilderContainer } from './container.js';
 export { TraceHub, ActivityHub } from './durable_objects/trace_hub.js';
 export { AppRuntimeContainer } from './durable_objects/app_runtime.js';
-// Pulse Inbox deprecated 2026-05-25 — 410-stub class kept so the existing
-// `v_conversation_hub` DO migration tag in Cloudflare's history stays valid.
+// Pulse Inbox deprecated 2026-05-25 — this 410-stub class is intentionally KEPT so the
+// `ConversationHub` class in Cloudflare's APPLIED DO-migration history stays defined. Removing it
+// without a matching `deleted_classes` migration risks a deploy failing "unknown class". The stub
+// is harmless (returns 410 Gone, holds no data).
 //
-// TODO Wave 3 deletion (safe after 2026-08-01):
-//   1. Confirm no live DO instances remain (check CF dashboard → Durable Objects →
-//      conversation_hub namespace object count = 0).
-//   2. Remove this export line.
-//   3. Delete `src/durable_objects/conversation_hub.ts`.
-//   4. Remove the `v_conversation_hub` entry from wrangler.toml [[durable_objects.bindings]].
-//   Rationale: the 410-stub keeps the Cloudflare Workers migration history valid so
-//   redeployment doesn't fail with "unknown class" for the historical DO namespace.
-//   Once all instances are drained the stub is safe to remove entirely.
+// DECISION (2026-09-22, reviewed & resolved — no longer an open TODO): deletion is DEFERRED
+// indefinitely. It is a destructive, IRREVERSIBLE DO migration whose correct `[[migrations]]` tag
+// is NOT derivable from this repo (wrangler.toml carries no active migrations chain — the
+// ConversationHub migration was applied from a since-commented state), so it cannot be executed
+// safely from code alone, and there is no staging to test-deploy it against (no-staging doctrine).
+// Zero value (data-less stub) vs a break-all-worker-deploys blast radius → not worth it. IF ever
+// done deliberately: (a) read the worker's live migration tag from Cloudflare; (b) add
+// `[[migrations]] tag = "<next>"` with `deleted_classes = ["ConversationHub"]`; (c) remove this
+// export + delete conversation_hub.ts; (d) deploy and confirm the worker still serves 200, rolling
+// back on any failure.
 export { ConversationHub } from './durable_objects/conversation_hub.js';
 // CollabRoomDO (PartyServer + Yjs) — exported so CF knows the class for the
 // COLLAB_ROOM binding. INERT until the wrangler.toml block is uncommented
