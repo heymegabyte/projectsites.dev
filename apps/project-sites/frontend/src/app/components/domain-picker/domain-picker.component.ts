@@ -60,6 +60,7 @@ import { ApiService, type DomainSuggestion, type Hostname } from '../../services
 import { BillingService, type PurchaseResult, type WalletState } from '../../services/billing.service';
 import { TelemetryService } from '../../services/telemetry.service';
 import { ToastService } from '../../services/toast.service';
+import { DomainSuggestionsCache } from './domain-suggestions-cache.service';
 
 interface PickerHostname extends Hostname {
   /** Convenience flag — `true` for the row that matches `site.primary_hostname`. */
@@ -794,6 +795,8 @@ const LOW_BALANCE_CENTS = 500;
         class="dp-trigger"
         [class.dp-trigger--open]="open()"
         (click)="toggle()"
+        (mouseenter)="prewarm()"
+        (focus)="prewarm()"
         [attr.aria-expanded]="open()"
         aria-haspopup="dialog"
         [attr.aria-label]="'Active domain: ' + activeHost() + '. Click to change.'"
@@ -1099,6 +1102,7 @@ export class DomainPickerComponent implements OnDestroy {
   private telemetry = inject(TelemetryService);
   private toast = inject(ToastService);
   private router = inject(Router);
+  private suggestionsCache = inject(DomainSuggestionsCache);
 
   /** Clears the in-flight wallet-checkout popup poll + listener, if any. Set by startWalletViaCheckout. */
   private walletPopupCleanup: (() => void) | null = null;
@@ -1319,27 +1323,73 @@ export class DomainPickerComponent implements OnDestroy {
   // ---------- AI suggestions ----------
 
   /**
-   * Fetch the initial 10 AI-curated domain suggestions for the current site.
-   * Owned by sibling agent #99 — endpoint:
-   * `GET /api/domains/suggest?site_id=X&count=10`
+   * Load the AI-curated domain suggestions for a site — stale-while-revalidate.
+   *
+   * - Warm cache → paint the last-known picks INSTANTLY (no skeleton flash) and
+   *   revalidate silently in the background.
+   * - Cold → show the skeleton, fetch, cache the result.
+   * - `background: true` pre-warms the cache without touching any visible signal
+   *   (fired on trigger hover/focus so the first open is instant too).
+   *
+   * Endpoint: `GET /api/domains/suggest?site_id=X&count=10`.
    */
-  private async loadAiSuggestions(siteId: string): Promise<void> {
-    this.suggestionsLoading.set(true);
+  private async loadAiSuggestions(siteId: string, opts?: { background?: boolean }): Promise<void> {
+    const background = opts?.background === true;
+    const cached = this.suggestionsCache.get(siteId);
+
+    // Background pre-warm with an already-warm cache → nothing to do.
+    if (background && cached) return;
+
+    if (!background) {
+      if (cached) {
+        // SWR: paint the last-known picks INSTANTLY (no skeleton), revalidate below.
+        this.suggestions.set(cached);
+        this.suggestionsLoading.set(false);
+        this.telemetry.track('domain.suggestions_shown', { cached: true, count: cached.length });
+      } else {
+        // Cold open → skeleton until the fetch lands.
+        this.suggestionsLoading.set(true);
+      }
+    }
+
     try {
       const res = await this.fetchSuggestEndpoint(`/domains/suggest?site_id=${encodeURIComponent(siteId)}&count=${AI_SUGGESTION_COUNT}`, 'GET');
       // Worker contract is `{ suggestions }` — a `{ results }` read here
       // silently swallowed every real suggestion and made "Show me different
       // ones" look dead (response-key-mismatch lying-empty, fixed 2026-08-20).
-      const suggestions = (res?.suggestions ?? []) as DomainSuggestion[];
-      // Never show an empty dropdown — fall back to brand-derived idea fillers so
-      // there are always 8-12 starting options before the user types anything.
-      this.suggestions.set(suggestions.length ? suggestions.slice(0, AI_SUGGESTION_COUNT) : this.brandFallbackSuggestions());
-      this.telemetry.track('domain.suggestions_shown', { count: this.suggestions().length, fallback: suggestions.length === 0 });
+      const fresh = ((res?.suggestions ?? []) as DomainSuggestion[]).slice(0, AI_SUGGESTION_COUNT);
+      if (fresh.length) {
+        this.suggestionsCache.set(siteId, fresh);
+        if (!background) {
+          this.suggestions.set(fresh);
+          // Only announce a fresh render when we weren't already showing a cached set.
+          if (!cached) this.telemetry.track('domain.suggestions_shown', { count: fresh.length, fallback: false });
+        }
+      } else if (!background && !cached) {
+        // Cold + empty → brand-derived idea fillers so the dropdown is never empty.
+        this.suggestions.set(this.brandFallbackSuggestions());
+        this.telemetry.track('domain.suggestions_shown', { count: this.suggestions().length, fallback: true });
+      }
+      // Warm cache + empty revalidate → keep the stale list untouched.
     } catch (err) {
       console.warn('domain-picker AI suggestions failed', err);
-      this.suggestions.set(this.brandFallbackSuggestions());
+      // Only fall back when there's nothing to show; never clobber a good stale list.
+      if (!background && !cached) this.suggestions.set(this.brandFallbackSuggestions());
     } finally {
-      this.suggestionsLoading.set(false);
+      if (!background) this.suggestionsLoading.set(false);
+    }
+  }
+
+  /**
+   * Pre-warm the AI suggestions cache on INTENT (trigger hover / focus) so the
+   * first open paints instantly instead of showing a skeleton. No-ops when the
+   * panel is already open or the cache is already warm for this site.
+   */
+  prewarm(): void {
+    if (this.open()) return;
+    const site = this.state.selectedSite();
+    if (site && !this.suggestionsCache.has(site.id)) {
+      void this.loadAiSuggestions(site.id, { background: true });
     }
   }
 
@@ -1377,9 +1427,11 @@ export class DomainPickerComponent implements OnDestroy {
         exclude_domains: exclude,
         site_id: site.id,
       });
-      const suggestions = (res?.suggestions ?? []) as DomainSuggestion[];
-      this.suggestions.set(suggestions.slice(0, AI_SUGGESTION_COUNT));
-      this.telemetry.track('domain.suggestions_shown', { count: suggestions.length, refined: true });
+      const fresh = ((res?.suggestions ?? []) as DomainSuggestion[]).slice(0, AI_SUGGESTION_COUNT);
+      this.suggestions.set(fresh);
+      // Cache the refined set so a re-opened picker shows the latest picks instantly.
+      this.suggestionsCache.set(site.id, fresh);
+      this.telemetry.track('domain.suggestions_shown', { count: fresh.length, refined: true });
     } catch (err) {
       console.warn('domain-picker refine failed', err);
       this.toast.error("Couldn't fetch fresh picks — give it a moment.");

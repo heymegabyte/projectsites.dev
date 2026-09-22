@@ -8,6 +8,7 @@ import { ApiService } from '../../services/api.service';
 import { BillingService } from '../../services/billing.service';
 import { TelemetryService } from '../../services/telemetry.service';
 import { ToastService } from '../../services/toast.service';
+import { DomainSuggestionsCache } from './domain-suggestions-cache.service';
 
 /**
  * Domain-picker labelling contract (2026-06-17):
@@ -464,5 +465,99 @@ describe('DomainPickerComponent — paid domains cannot be removed, only auto-re
     c.deactivate(row);
     expect(unsub).not.toHaveBeenCalled();
     expect(err).toHaveBeenCalled();
+  });
+});
+
+/**
+ * AI-suggestions SWR cache + pre-warm (2026-09-22, frontend "Stale-while-revalidate
+ * for list pages" doctrine). A re-opened picker must paint its last-known picks
+ * INSTANTLY (no skeleton flash) then revalidate silently; trigger hover/focus
+ * pre-warms the cache so even the first open is instant.
+ */
+describe('DomainPickerComponent — AI suggestions SWR cache + pre-warm', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  function setup(suggestions: Array<{ domain: string }>) {
+    const site = { id: 's1', business_name: 'Acme Co', slug: 'acme', primary_hostname: null };
+    const api: Record<string, unknown> = {
+      // The suggest endpoint returns `{ suggestions }`; every other GET is benign.
+      get: (path: string) =>
+        typeof path === 'string' && path.includes('/domains/suggest') ? of({ suggestions }) : of({ data: [] }),
+      post: () => of({ data: {} }),
+      getHostnames: () => of({ data: [] }),
+      addHostname: () => of({ data: {} }),
+      setPrimaryHostname: () => of(undefined),
+      resetPrimaryHostname: () => of(undefined),
+      unsubscribeHostname: () => of(undefined),
+      searchDomainsEnriched: () => of({ results: [] }),
+    };
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [DomainPickerComponent],
+      providers: [
+        { provide: AdminStateService, useValue: { selectedSite: signal(site), sites: signal([site]) } },
+        { provide: ApiService, useValue: api },
+        {
+          provide: BillingService,
+          useValue: { walletState: () => ({ has_wallet: false, balance_cents: 0 }), start: () => undefined, stop: () => undefined, refreshWallet: () => undefined },
+        },
+        { provide: TelemetryService, useValue: { track: () => undefined } },
+        { provide: ToastService, useValue: { info: () => 0, error: () => 0, success: () => 0, warning: () => 0, dismiss: () => undefined } },
+        { provide: Router, useValue: { navigate: () => Promise.resolve(true), navigateByUrl: () => Promise.resolve(true) } },
+      ],
+    });
+    const c = TestBed.createComponent(DomainPickerComponent).componentInstance;
+    return { c, cache: TestBed.inject(DomainSuggestionsCache) };
+  }
+
+  type PrivLoad = { loadAiSuggestions(id: string, opts?: { background?: boolean }): Promise<void> };
+
+  it('a background load caches the picks WITHOUT painting the signal or showing a skeleton', async () => {
+    const { c, cache } = setup([{ domain: 'acme.com' }, { domain: 'acme.io' }]);
+    await (c as unknown as PrivLoad).loadAiSuggestions('s1', { background: true });
+    expect(cache.has('s1')).withContext('background load warms the cache').toBeTrue();
+    expect(c.suggestions().length).withContext('background load never paints the visible signal').toBe(0);
+    expect(c.suggestionsLoading()).withContext('background load never shows a skeleton').toBeFalse();
+  });
+
+  it('prewarm() fires a background load on intent, and no-ops when open or already warm', () => {
+    const { c, cache } = setup([{ domain: 'acme.com' }]);
+    const load = spyOn(c as unknown as PrivLoad, 'loadAiSuggestions').and.returnValue(Promise.resolve());
+    c.prewarm();
+    expect(load).withContext('hover/focus intent → background pre-warm').toHaveBeenCalledWith('s1', { background: true });
+    // already-open panel → no pre-warm (the open path fetches its own)
+    load.calls.reset();
+    c.open.set(true);
+    c.prewarm();
+    expect(load).withContext('open panel does not pre-warm').not.toHaveBeenCalled();
+    // warm cache → no redundant pre-warm
+    c.open.set(false);
+    cache.set('s1', [{ domain: 'x.com' } as never]);
+    load.calls.reset();
+    c.prewarm();
+    expect(load).withContext('warm cache does not re-pre-warm').not.toHaveBeenCalled();
+  });
+
+  it('re-open paints cached picks INSTANTLY (no skeleton), then revalidates to fresh (SWR)', async () => {
+    const { c, cache } = setup([{ domain: 'acme.com' }, { domain: 'acme.io' }]);
+    cache.set('s1', [{ domain: 'cached1.com' } as never, { domain: 'cached2.com' } as never]);
+    const p = (c as unknown as PrivLoad).loadAiSuggestions('s1');
+    // BEFORE the revalidate settles: the stale cached picks are already painted, no skeleton.
+    expect(c.suggestions().map((s) => s.domain)).toEqual(['cached1.com', 'cached2.com']);
+    expect(c.suggestionsLoading()).withContext('warm cache never flips the skeleton on').toBeFalse();
+    await p;
+    // AFTER revalidate: the visible list is replaced with the fresh server picks.
+    expect(c.suggestions().map((s) => s.domain)).withContext('revalidate replaces stale with fresh').toEqual(['acme.com', 'acme.io']);
+  });
+
+  it('cold load shows the skeleton, then paints AND caches the fetched picks', async () => {
+    const { c, cache } = setup([{ domain: 'fresh1.com' }, { domain: 'fresh2.com' }]);
+    expect(cache.has('s1')).withContext('cold — nothing cached yet').toBeFalse();
+    const p = (c as unknown as PrivLoad).loadAiSuggestions('s1');
+    expect(c.suggestionsLoading()).withContext('cold open shows the skeleton while fetching').toBeTrue();
+    await p;
+    expect(c.suggestionsLoading()).toBeFalse();
+    expect(c.suggestions().map((s) => s.domain)).toEqual(['fresh1.com', 'fresh2.com']);
+    expect(cache.get('s1')?.map((s) => s.domain)).withContext('fetched picks are cached for the next open').toEqual(['fresh1.com', 'fresh2.com']);
   });
 });
