@@ -35,13 +35,16 @@ follow published conventions per the global rule `style-guide-driven-decisions`.
   loading indicator; AI-ensures the preview boots regardless of framework; graceful fallback when
   no preview / undetectable. Cross-component (Chat + Preview boot detection) — its own pass. Not
   started (message string absent from source).
-- [ ] **Domain-dropdown overhaul (Msg-1)** — synth an always-present `{slug}.projectsites.dev`
-  default row so "No domains assigned" NEVER shows (`domain-picker.component.ts:826` still shows it);
-  per-row activate `role=switch` + ⋯ menu (set-primary · auto-re-register · copy · open · remove w/
-  DialogShell confirm); merge $17/mo wallet CTA into the compact header; SWR-cache + pre-warm
-  AI-picks/refine/Load-More. Stipulations: synthetic default non-removable/non-deactivatable;
-  `hostnames.auto_reregister` D1 column + renewal endpoint (own sub-task — reversible D1 migration);
-  WCAG-2.2 keyboard menu. LARGE — its own focused pass.
+- [x] **Domain-dropdown overhaul (Msg-1) — headline slice DONE 2026-09-22.** The picker now
+  synthesizes an always-present `{slug}.projectsites.dev` default row, so "No domains assigned" can
+  never render and the site is never strandable; the default is non-removable/non-deactivatable and
+  "Set as default" on it routes to the reset-primary endpoint. `domain-picker.component.ts` +
+  `api.service.ts` (`resetPrimaryHostname`). 5 Karma specs; 1854 green; deployed to R2 prod.
+- [ ] **Domain-dropdown overhaul (Msg-1) — remaining parts.** Per-row activate `role=switch` + ⋯
+  menu (set-primary · auto-re-register · copy · open · remove w/ DialogShell confirm); merge $17/mo
+  wallet CTA into the compact header; SWR-cache + pre-warm AI-picks/refine/Load-More; WCAG-2.2
+  keyboard menu; `hostnames.auto_reregister` D1 column + renewal endpoint (own sub-task — reversible
+  D1 migration). Each is its own focused pass.
 
 ## Removed 2026-09-22 (see README § Roadmap for the parked-initiative notes)
 
