@@ -41,7 +41,7 @@ follow published conventions per the global rule `style-guide-driven-decisions`.
   "Set as default" on it routes to the reset-primary endpoint. `domain-picker.component.ts` +
   `api.service.ts` (`resetPrimaryHostname`). 5 Karma specs; 1854 green; deployed to R2 prod.
 - [ ] **Domain-dropdown overhaul (Msg-1) — remaining parts.** Per-row activate `role=switch` + ⋯
-  menu (set-primary · auto-re-register · copy · **open ✅ shipped 2026-09-22** · remove w/ DialogShell
+  menu (set-primary · auto-re-register · **copy ✅ + open ✅ shipped 2026-09-22** · remove w/ DialogShell
   confirm); merge $17/mo wallet CTA into the compact header; SWR-cache + pre-warm
   AI-picks/refine/Load-More; WCAG-2.2 keyboard menu; `hostnames.auto_reregister` D1 column + renewal
   endpoint (own sub-task — reversible D1 migration). Each is its own focused pass.
