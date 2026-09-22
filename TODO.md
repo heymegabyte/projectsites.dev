@@ -58,8 +58,24 @@ follow published conventions per the global rule `style-guide-driven-decisions`.
   tc + 12,171 Jest green; frontend tc + 1,862 Karma green. **VERIFIED LIVE 2026-09-22**: worker
   deployed (`PATCH …/auto-renew` → 401 vs 404 for a nonexistent route), authed hostname list → 200
   with `auto_renew` (no 500 → column valid in prod), frontend on R2.
-  REMAINING (smaller): merge $17/mo wallet CTA into the compact header; SWR-cache + pre-warm
-  AI-picks/refine/Load-More.
+  ✅ **SWR cache + pre-warm DONE 2026-09-22.** `DomainSuggestionsCache` (providedIn:'root'): a warm
+  cache paints the last-known AI picks INSTANTLY on re-open (no skeleton flash) then revalidates
+  silently; trigger hover/focus pre-warms so the FIRST open is instant too; refined picks are cached.
+  +4 Karma specs (1866 green); frontend deployed to R2 (bundle hash `main-WDWR2FVB.js` verified live).
+  ✅ **Wallet CTA: already satisfied** — the wallet status strip (3 CTA states + one-click buy +
+  auto-topup) already lives in the picker header; no duplicate CTA exists elsewhere to "merge". Msg-1
+  is now COMPLETE.
+
+## Security hardening (2026-09-22)
+
+- [x] **`GET /api/site-features` IDOR — FIXED + VERIFIED LIVE.** The owner-facing feature catalog
+  resolved org from `c.get('orgId') ?? c.req.query('org_id')` and read `flag_overrides` for ANY
+  `site_id` with no ownership check (x-org-id IDOR / session-bypass; a latent cross-tenant leak the
+  moment `SITE_FEATURE_CATALOG` is populated). Now authed-org-only (401) + `assertSiteOwned` (404 for
+  foreign sites), matching the POST toggle + the burn-meter. +4 Jest regression tests. Prod-verified:
+  unauth → `401 {"error":"unauthorized"}` (was 200), spoofed `?org_id=` → 401. `src/routes/features.ts`.
+  Surfaced by the fire's parallel security-reviewer sweep (classified low-severity-today, but a
+  must-fix IDOR CLASS regardless of current data sensitivity).
 
 ## Source-TODO sweep (2026-09-22) — repository is effectively TODO-clean
 
