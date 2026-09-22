@@ -49,12 +49,15 @@ follow published conventions per the global rule `style-guide-driven-decisions`.
   arrow/Esc/Home-End + focus; global `.dp-menu` styles in `_polish.scss`) — declutters rows + delivers
   the WCAG-2.2 keyboard menu. 1860 Karma green; deployed to R2. (`@angular/cdk ^21` was installed all
   along — the earlier "no overlay primitive" note was wrong.)
-  REMAINING → **auto-re-register**: `hostnames.auto_reregister` reversible D1 column + a
-  `POST …/reregister` worker endpoint (reuse `provisionCustomDomain` in `src/services/domains.ts`) +
-  the ⋯-menu item wiring. Its own pass — the hostname handlers live in a **4,809-line `src/routes/api.ts`**;
-  match the `WHERE org_id=?` auth + Zod pattern. (Parallel-agent A attempted this but produced nothing —
-  truncated mid-investigation.) Plus: merge $17/mo wallet CTA into the compact header; SWR-cache +
-  pre-warm AI-picks/refine/Load-More.
+  ✅ **Paid-domain protection + auto-renew DONE 2026-09-22** (Brian directive — "you can't delete a
+  hostname you pay for, only stop auto-renew"): `hostnames.auto_renew` column (migration 0639, applied to
+  prod); worker blocks hard-DELETE + unsubscribe of a `custom_cname` (paid) domain → 400 pointing to
+  auto-renew, + `PATCH …/auto-renew` toggle; `getSiteHostnames` returns `auto_renew`. Admin ⋯-menu shows
+  "Stop/Enable auto-renew" instead of "Deactivate" for paid domains; `deactivate()` guards `custom_cname`.
+  Handlers live in the extracted `libs/features/hostnames/handlers.ts` (NOT the 4,809-line api.ts). Worker
+  tc + 12,171 Jest green; frontend tc + 1,862 Karma green; frontend on R2, worker deploying via CI.
+  REMAINING (smaller): merge $17/mo wallet CTA into the compact header; SWR-cache + pre-warm
+  AI-picks/refine/Load-More.
 
 ## Source-TODO sweep (2026-09-22) — repository is effectively TODO-clean
 
