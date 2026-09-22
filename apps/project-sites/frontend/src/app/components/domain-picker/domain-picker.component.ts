@@ -362,6 +362,7 @@ const LOW_BALANCE_CENTS = 500;
       .dp-row--host {
         flex-direction: row;
         align-items: center;
+        flex-wrap: wrap;
         gap: 10px;
       }
       .dp-row--focused,
@@ -389,6 +390,7 @@ const LOW_BALANCE_CENTS = 500;
       }
       .dp-row-main {
         flex: 1;
+        min-width: 0;
         display: flex;
         align-items: center;
         gap: 10px;
@@ -410,6 +412,14 @@ const LOW_BALANCE_CENTS = 500;
         font-family: var(--ps-font-mono, Consolas, 'JetBrains Mono', ui-monospace, monospace);
         font-size: 0.78rem;
         color: var(--ps-ink, #f4f4ff);
+      }
+      /* Assigned-row hostname ellipsis-truncates so a long {slug}.projectsites.dev plus the
+         Copy / Open / Set-default / Deactivate actions never blow out the row on mobile. */
+      .dp-row-main .dp-mono {
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .dp-mono--accent {
         color: var(--ps-accent, #00e5ff);
@@ -452,6 +462,8 @@ const LOW_BALANCE_CENTS = 500;
       .dp-row-actions {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
+        flex-shrink: 0;
         gap: 4px;
       }
       .dp-act {

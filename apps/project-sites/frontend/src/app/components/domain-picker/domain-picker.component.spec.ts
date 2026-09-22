@@ -189,6 +189,15 @@ describe('DomainPickerComponent — viewport-relative width caps (reflow guard)'
     const muted = css.slice(css.indexOf('.dp-price--muted'), css.indexOf('.dp-price--muted') + 240);
     expect(muted).withContext('unavailable price must be struck through').toContain('line-through');
     expect(muted).withContext('unavailable price must be borderless').toContain('border:none');
+
+    // Multi-action rows (Copy · Open · Set-default · Deactivate) must degrade gracefully on
+    // mobile — the assigned-row hostname ellipsis-truncates instead of wrapping into a cramped
+    // blob. The base sheet has ONE ellipsis rule (.dp-host trigger); this adds a second
+    // (.dp-row-main .dp-mono). Assert the VALUE count (robust to Angular's encapsulation attrs).
+    const ellipsisRules = (css.match(/text-overflow:ellipsis/g) || []).length;
+    expect(ellipsisRules)
+      .withContext('assigned-row hostname must add a 2nd ellipsis rule for mobile density')
+      .toBeGreaterThanOrEqual(2);
   });
 });
 
