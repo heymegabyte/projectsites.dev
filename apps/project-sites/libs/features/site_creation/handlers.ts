@@ -35,10 +35,22 @@ import { writeAuditLog } from '../../../src/services/audit.js';
 import { runObservedWorkersAI } from '../../../src/lib/workers_ai.js';
 import { isThemeStyleName } from '../../../src/services/theme_style.js';
 import { createFromSearchSchema } from './schemas.js';
+import { requireNotAbusive } from '../../../src/middleware/abuse.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 
 export const siteCreation = new Hono<AppContext>();
+
+// §48 app-aware abuse layer. `/api/ai/categorize` is the free-standing AI call that
+// costs a Workers AI round-trip with no build to anchor it → `ai-generate`.
+// `/api/sites/create-from-search` STARTS A BUILD (the most expensive action a
+// visitor can trigger) → `signup` is the closest registered kind for "an account
+// begins its first build". These `.use()` mounts run BEFORE their route handlers,
+// so the abuse verdict is reached on the raw request; the 401 for an anonymous
+// caller still comes from the handler, one step later.
+// Fail-OPEN by design until Arcjet lands; CF-native rate_limit.ts remains the floor.
+siteCreation.use('/api/sites/create-from-search', requireNotAbusive('signup'));
+siteCreation.use('/api/ai/categorize', requireNotAbusive('ai-generate'));
 
 siteCreation.post('/api/sites/create-from-search', async (c) => {
   const orgId = c.get('orgId');

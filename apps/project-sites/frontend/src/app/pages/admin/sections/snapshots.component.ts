@@ -71,13 +71,8 @@ type MetricTier = 'green' | 'yellow' | 'red' | 'neutral';
  * row insertion timestamp (`created_at`). Showing both `created_at` AND
  * `updated_at` confused users — the snapshot moment is fundamentally a
  * version-control event, so the commit timestamp is the authoritative time.
- *
- * TODO(backend): `commit_iso` is not yet exposed on `GET /sites/:id/snapshots`.
- * Extend the worker to JOIN against the `gh_snapshot_commits` mirror table
- * (or read `ghStatus.last_commit_at` per snapshot_id) and surface
- * `commit_iso` on each row. Until that lands, every row falls back to
- * `created_at`, which is correct to within seconds for snapshots created via
- * the UI (the GitHub push fires right after the D1 insert).
+ * The worker JOINs `build_version` against the R2 git history and stamps
+ * `commit_iso` on every row; a row with no git match falls back to `created_at`.
  */
 interface Snapshot {
   id: string;

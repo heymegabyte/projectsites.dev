@@ -32,10 +32,20 @@ import { Hono } from 'hono';
 import { DOMAINS } from '@project-sites/shared';
 import type { Env, Variables } from '../../../src/types/env.js';
 import { gatewayFetch } from '../../../src/services/ai_gateway.js';
+import { requireNotAbusive } from '../../../src/middleware/abuse.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 
 export const mediaAi = new Hono<AppContext>();
+
+// §48 app-aware abuse layer — the AI generation POSTs are the costliest surfaces
+// in the worker (GPT-4o vision + YouTube/Pexels/Pixabay + DALL·E), so each carries
+// the `ai-generate` gate. Attached per-route (NOT `use('/api/ai/*')`) so the
+// GET `/api/image-proxy` passthrough stays outside the AI/abuse path. Fail-OPEN
+// by design until Arcjet lands; CF-native rate_limit.ts remains the floor.
+mediaAi.use('/api/ai/discover-images', requireNotAbusive('ai-generate'));
+mediaAi.use('/api/ai/discover-videos', requireNotAbusive('ai-generate'));
+mediaAi.use('/api/ai/edit-image', requireNotAbusive('ai-generate'));
 
 // 1×1 transparent PNG — returned by the image proxy when a source is
 // unproxyable/blocked/errored so an <img> degrades to a blank pixel instead of a

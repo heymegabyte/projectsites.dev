@@ -23,6 +23,14 @@ import type { ActionAlert, DeployAlert, SupabaseAlert } from '~/types/actions';
 
 const { saveAs } = fileSaver;
 
+/**
+ * Minimum gap (ms) between action runs on the streaming path. The model can emit
+ * file actions faster than the editor applies them; the sampler drops the calls
+ * in between and keeps the trailing edge, so the editor still converges on the
+ * final state without re-rendering the workbench on every token.
+ */
+const ACTION_STREAM_SAMPLE_INTERVAL_MS = 100;
+
 export interface ArtifactState {
   id: string;
   title: string;
@@ -51,22 +59,23 @@ export class WorkbenchStore {
 
   #reloadedMessages = new Set<string>();
 
-  artifacts: Artifacts = import.meta.hot?.data.artifacts ?? map({});
+  artifacts: Artifacts = import.meta.hot?.data?.artifacts ?? map({});
 
-  showWorkbench: WritableAtom<boolean> = import.meta.hot?.data.showWorkbench ?? atom(false);
-  currentView: WritableAtom<WorkbenchViewType> = import.meta.hot?.data.currentView ?? atom('code');
-  unsavedFiles: WritableAtom<Set<string>> = import.meta.hot?.data.unsavedFiles ?? atom(new Set<string>());
+  showWorkbench: WritableAtom<boolean> = import.meta.hot?.data?.showWorkbench ?? atom(false);
+  currentView: WritableAtom<WorkbenchViewType> = import.meta.hot?.data?.currentView ?? atom('code');
+  unsavedFiles: WritableAtom<Set<string>> = import.meta.hot?.data?.unsavedFiles ?? atom(new Set<string>());
   actionAlert: WritableAtom<ActionAlert | undefined> =
-    import.meta.hot?.data.actionAlert ?? atom<ActionAlert | undefined>(undefined);
+    import.meta.hot?.data?.actionAlert ?? atom<ActionAlert | undefined>(undefined);
   supabaseAlert: WritableAtom<SupabaseAlert | undefined> =
-    import.meta.hot?.data.supabaseAlert ?? atom<SupabaseAlert | undefined>(undefined);
+    import.meta.hot?.data?.supabaseAlert ?? atom<SupabaseAlert | undefined>(undefined);
   deployAlert: WritableAtom<DeployAlert | undefined> =
-    import.meta.hot?.data.deployAlert ?? atom<DeployAlert | undefined>(undefined);
+    import.meta.hot?.data?.deployAlert ?? atom<DeployAlert | undefined>(undefined);
   modifiedFiles = new Set<string>();
   artifactIdList: string[] = [];
   #globalExecutionQueue = Promise.resolve();
+  #aborted = false;
   constructor() {
-    if (import.meta.hot) {
+    if (import.meta.hot?.data) {
       import.meta.hot.data.artifacts = this.artifacts;
       import.meta.hot.data.unsavedFiles = this.unsavedFiles;
       import.meta.hot.data.showWorkbench = this.showWorkbench;
@@ -88,7 +97,25 @@ export class WorkbenchStore {
   }
 
   addToExecutionQueue(callback: () => Promise<void>) {
-    this.#globalExecutionQueue = this.#globalExecutionQueue.then(() => callback());
+    this.#globalExecutionQueue = this.#globalExecutionQueue.then(() => (this.#aborted ? undefined : callback()));
+  }
+
+  /*
+   * Aborting drops every action still waiting in the global queue and
+   * re-arms it for the next turn. Queued callbacks cannot be un-queued, so
+   * `#aborted` makes them no-op until `resumeActions()` clears it — the
+   * stream can stop mid-action without a half-applied file edit landing in
+   * the editor once the user reads the reply.
+   */
+  abortAllActions() {
+    this.#aborted = true;
+    this.#globalExecutionQueue = Promise.resolve();
+    this.resetAllFileModifications();
+  }
+
+  /** Re-arm the action queue after an abort — called when a new stream starts. */
+  resumeActions() {
+    this.#aborted = false;
   }
 
   get previews() {
@@ -529,10 +556,6 @@ export class WorkbenchStore {
     }
   }
 
-  abortAllActions() {
-    // TODO: what do we wanna do and how do we wanna recover from this?
-  }
-
   setReloadedMessages(messages: string[]) {
     this.#reloadedMessages = new Set(messages);
   }
@@ -691,9 +714,12 @@ export class WorkbenchStore {
     }
   }
 
-  actionStreamSampler = createSampler(async (data: ActionCallbackData, isStreaming: boolean = false) => {
-    return await this._runAction(data, isStreaming);
-  }, 100); // TODO: remove this magic number to have it configurable
+  actionStreamSampler = createSampler(
+    async (data: ActionCallbackData, isStreaming: boolean = false) => {
+      return await this._runAction(data, isStreaming);
+    },
+    ACTION_STREAM_SAMPLE_INTERVAL_MS,
+  );
 
   #getArtifact(id: string) {
     const artifacts = this.artifacts.get();

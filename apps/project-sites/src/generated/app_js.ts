@@ -25,11 +25,17 @@
  * 3. **Upgrade bar** — for `data-paid="false"` sites, injects the sticky
  *    "Claim / Edit with AI" bar (same copy + bolt-editor URL the server previously
  *    rendered via `generateConversionFlow`). Paid sites render nothing.
- * 4. **Sentry / PostHog stubs** — no-op init that reads future keys from `data-*`
- *    attributes with clear TODO hooks. No real SDKs are loaded.
+ * 4. **Concierge chat** — floating AI chat FAB → `POST /api/chat/<slug>`; self-removes
+ *    when the endpoint 404s (operator killswitch).
+ * 5. **Sentry + PostHog (inert by default)** — loads the real `@sentry/browser` bundle
+ *    from the official CDN and configures PostHog, gated on a host-provided
+ *    `window.__PS_TELEMETRY__` seam. The Worker deliberately does NOT populate it
+ *    (see `@remarks` below). Fail-soft: absent key → no SDK, no throw.
  *
  * The `<slug>` and `<paid>` values arrive via the injected script tag's
  * `data-slug` / `data-paid` attributes; slug falls back to the first hostname label.
+ * Telemetry keys arrive via the optional `window.__PS_TELEMETRY__` seam or, when
+ * absent, the tag's `data-sentry-dsn` / `data-posthog-key` attributes.
  *
  * @example
  * // src/index.ts
@@ -46,9 +52,13 @@
  * The unified vanilla-JS client script, verbatim. Served at `/app.js` and injected
  * into every generated site. Pure ES5-safe JS — no modules, no dependencies.
  *
- * @remarks Static constant — no interpolation, so nothing here can leak Worker
- * state into the client. The per-site `data-slug` / `data-paid` come from the
- * injected `<script>` tag, never from this string.
+ * @remarks A static constant — the per-site `data-slug` / `data-paid` come from the
+ * injected `<script>` tag. There is NO serve-time interpolation: the telemetry keys
+ * are platform-level `Env` fields (see `types/env.ts`), so every visitor of every
+ * site would receive the SAME value. The `__PS_TELEMETRY__` seam therefore stays
+ * empty, which is what makes the `/app.js` body safe to serve + cache publicly.
+ * The DSN must never reach client HTML (`env.ts` `SENTRY_DSN`; `site_serving.ts`
+ * § served-site injection policy).
  */
 export const APP_JS = `/*! ProjectSites unified client — analytics + forms + upgrade bar. No deps. */
 (function () {
@@ -56,11 +66,30 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
   if (window.__PS_APP_JS__) return; // idempotent: never double-init
   window.__PS_APP_JS__ = true;
 
+  // ── telemetry seam ───────────────────────────────────────────────────
+  // An OPTIONAL host-provided override. The Worker deliberately does NOT populate
+  // it (the keys are platform-level, not per-site), so on every served site this
+  // evaluates to {} and every consumer below must fail-soft on an empty value.
+  var PS_CONFIG = window.__PS_TELEMETRY__ || {};
+
   var SCRIPT =
     document.currentScript ||
     (function () {
       var s = document.querySelectorAll('script[src*="/app.js"]');
-      return s.length ? s[s.length - 1] : null;
+      if (s.length) return s[s.length - 1];
+      // 'document.currentScript' is null for a 'defer'-injected tag on some
+      // engines and the querySelector can miss a tag that has not parsed yet.
+      // Rebuild a handle from the CANONICAL LITERALS — never from SLUG / PAID /
+      // SITES_BASE. Those are resolved below via 'attr()', which reads SCRIPT,
+      // so referencing them here would be a circular dependency and 'var'
+      // hoisting would hand back 'https://undefined/app.js'. This last-resort
+      // branch only fires when no tag exists at all, and in that case 'attr()'
+      // finds nothing either and returns the same literals — the two agree.
+      var tag = document.createElement('script');
+      tag.src = 'https://projectsites.dev/app.js';
+      tag.setAttribute('data-slug', location.hostname.split('.')[0] || 'site');
+      tag.setAttribute('data-paid', 'false');
+      return tag;
     })();
 
   function attr(name, fallback) {
@@ -68,6 +97,10 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     return v == null || v === '' ? fallback : v;
   }
 
+  // Declared AFTER 'SCRIPT' on purpose: 'attr()' reads SCRIPT, so these must
+  // evaluate only once SCRIPT is assigned. Hoisting them above the 'var SCRIPT'
+  // initializer would make every 'attr()' call read an undefined SCRIPT and
+  // silently return the fallback — the real data-* attributes would be ignored.
   var API = attr('data-api', 'https://projectsites.dev');
   var SLUG = attr('data-slug', '') || (location.hostname.split('.')[0] || 'site');
   var PAID = attr('data-paid', 'false') === 'true';
@@ -398,25 +431,79 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
       });
   }
 
-  /* ─────────────────── Sentry / PostHog stubs ─────────────────── */
-  // No-op initializers wired to read FUTURE keys from data-* attributes. These
-  // deliberately load NO real SDK — they are hooks for when per-site keys ship.
+  /* ─────────────────── Sentry / PostHog (inert by default) ───────────────────
+   * The Worker intentionally does NOT inject telemetry keys into served sites:
+   * SENTRY_DSN is documented "never injected into child sites" (types/env.ts) and
+   * site_serving.ts states the standing policy that served business sites are not
+   * surveilled. So on live sites both initializers below read an empty seam AND an
+   * absent attribute and early-return. They stay as a seam for a host that DOES
+   * choose to populate 'window.__PS_TELEMETRY__'. Both fail-soft: an absent key
+   * returns early — no SDK download, no throw, no render block.
+   */
   function initSentryStub() {
-    var dsn = attr('data-sentry-dsn', '');
-    if (!dsn) return;
-    // TODO(observability): when per-site Sentry ships, lazy-load @sentry/browser
-    // here (createElement('script') from the CDN) and call Sentry.init({ dsn }).
-    // Until then this is intentionally a no-op so the attribute is a safe seam.
-    window.__PS_SENTRY__ = { dsn: dsn, init: function () {} };
+    // Seam-first, mirroring initPosthogStub: a host that supplies the seam wins;
+    // the 'data-sentry-dsn' attribute is the secondary channel, so reading ONLY it
+    // would fall through to the empty-string fallback and silently early-return.
+    var DSN = PS_CONFIG.SENTRY_DSN || attr('data-sentry-dsn', '');
+    if (!DSN) return; // fail-soft: no key → no download, no init, no throw
+    window.__PS_SENTRY__ = { dsn: DSN, init: function () {} };
+    if (window.__PS_SENTRY_LOADED__) return;
+    // Lazy-load the official @sentry/browser bundle off the explicit DSN version
+    // (version-agnostic: the DSN path is stable across releases).
+    try {
+      var m = /^https:\\/\\/([a-f0-9]+)@([^/]+)\\//i.exec(DSN);
+      if (!m) return;
+      var v = '10.20.0';
+      var s = document.createElement('script');
+      s.src = 'https://browser.sentry-cdn.com/' + v + '/bundle.min.js';
+      s.crossOrigin = 'anonymous';
+      s.async = true;
+      s.onload = function () {
+        try {
+          var S = window.Sentry;
+          if (!S || !S.init) return;
+          window.__PS_SENTRY_LOADED__ = true;
+          S.init({
+            dsn: DSN,
+            release: 'projectsites-' + SLUG,
+            environment: 'production',
+            sendDefaultPii: false,
+            tracesSampleRate: 0
+          });
+          window.__PS_SENTRY__.init = function () {};
+        } catch (e) {}
+      };
+      document.head.appendChild(s);
+    } catch (e) {
+      /* telemetry must never break the page */
+    }
   }
 
   function initPosthogStub() {
-    var key = attr('data-posthog-key', '');
-    if (!key) return;
-    var host = attr('data-posthog-host', 'https://us.i.posthog.com');
-    // TODO(observability): when per-site PostHog ships, inject the posthog-js
-    // snippet here and call posthog.init(key, { api_host: host }). No-op for now.
-    window.__PS_POSTHOG__ = { key: key, host: host, capture: function () {} };
+    var KEY = PS_CONFIG.POSTHOG_KEY || attr('data-posthog-key', '');
+    if (!KEY) return; // fail-soft: no key → no init, no throw
+    var HOST = PS_CONFIG.POSTHOG_HOST || attr('data-posthog-host', 'https://us.i.posthog.com');
+    window.__PS_POSTHOG__ = { key: KEY, host: HOST, capture: function () {} };
+    // posthog-js is injected server-side per site (the Worker already owns the
+    // deprecated-UI-host guard + the CSP allowlist). If it landed, initialize it
+    // against the ingestion host and hand the in-memory client to callers.
+    try {
+      var ph = window.posthog;
+      if (!ph || typeof ph.init !== 'function') return;
+      ph.init(KEY, {
+        api_host: HOST,
+        persistence: 'memory',
+        capture_pageview: false,
+        autocapture: true
+      });
+      window.__PS_POSTHOG__.capture = function (ev, props) {
+        try {
+          ph.capture(ev, props);
+        } catch (e) {}
+      };
+    } catch (e) {
+      /* telemetry must never break the page */
+    }
   }
 
   /* ───────────────────────── Concierge chat ───────────────────────── */

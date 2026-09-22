@@ -58,8 +58,7 @@ flowchart TB
     OpenAI["OpenAI<br/>GPT-4o · DALL·E 3"]
     Anthropic["Anthropic<br/>Opus 4.7 · Sonnet 4.6 · Haiku 4.5"]
     Stripe["Stripe<br/>Connect · Billing"]
-    Resend["Resend / SendGrid"]
-    Twilio["Twilio<br/>Voice + SMS"]
+    SES["Amazon SES<br/>(SendGrid break-glass)"]
     Google["Google Places + OAuth + Drive"]
     PostHog["PostHog<br/>(LLM Obs + product)"]
     Sentry["Sentry<br/>(error tracking)"]
@@ -73,8 +72,7 @@ flowchart TB
   Services -.->|AI Gateway| OpenAI
   Services -.->|AI Gateway| Anthropic
   Services --> Stripe
-  Services --> Resend
-  Services --> Twilio
+  Services --> SES
   Services --> Google
   Services --> Stock
   Services --> ElevenLabs
@@ -110,7 +108,7 @@ flowchart TB
          ┌────────────────────────────┼──────────────────────┐
          │                            │                      │
     ┌────┴────┐  ┌─────────┐  ┌──────┴───┐  ┌───────────┐  │
-    │ Stripe  │  │SendGrid │  │Google    │  │ PostHog   │  │
+    │ Stripe  │  │ SES     │  │Google    │  │ PostHog   │  │
     │Payments │  │ Email   │  │OAuth+API │  │ Analytics │  │
     └─────────┘  └─────────┘  └──────────┘  └───────────┘  │
                                                             │
@@ -566,7 +564,7 @@ Browser
   |               |                 +--[HTTP]--------> Chatwoot (Fly) [CF Access]
   |               |                 +--[HTTP]--------> Postiz (CF Container)
   |               |                 +--[HTTP]--------> ClickHouse (Fly) [internal]
-  |               |                 +--[HTTP]--------> Resend (email)
+  |               |                 +--[HTTP]--------> SES (email)
   |               |                 +--[HTTP]--------> Stripe (billing)
   |               |
   |               +--[Pages]-----> Angular Admin SPA (CF Pages)
@@ -589,6 +587,29 @@ Browser
 | Service-to-service | CF Access service token (`projectsites-infra`) | Worker → internal services |
 | API auth | HMAC-signed JWT (Clerk M2M for admin) | `/api/*` routes |
 | WAF MCP skip rule | CF WAF custom rule | `/api/mcp/*` and `/oauth/*` skip origin challenge |
+
+---
+
+## Vendor Inventory
+
+Every third-party service is tiered per the global `vendor-risk-tiering` rule. **Load-bearing** = replacing it costs multi-week data/auth migration (documented replacement plan + secret rotation required). **Replaceable** = swap in days; no abstraction layer required.
+
+| Vendor | Purpose | Tier | Replacement plan (load-bearing) / swap time (replaceable) |
+|---|---|---|---|
+| Cloudflare (Workers, D1, R2, KV, DO, Queues, Workflows, Access, Turnstile, Pages, AI) | Entire runtime + deploy target | Load-bearing | **No plan by design** — deep CF lock-in is the declared strategy (`cloudflare-lock-in-is-leverage`). Migration would mean porting every binding + D1 schema + R2 objects off-platform: 3-6 months. |
+| Clerk | Admin M2M JWT for `/api/*` | Load-bearing | Replace with Better Auth (already in `package.json`) as the user-facing auth rail; admin M2M moves to HMAC-signed JWTs issued by the Worker. ~2 weeks (JWT format + session migration). |
+| Stripe | Subscriptions, checkout, Connect Express payouts | Load-bearing | Re-route to Square for accept-money + issue manual payouts; requires subscription data migration + webhook re-wiring + stored-price remap. ~3-4 weeks. Never mix rails for the same payment type (`payments-routing`). |
+| Square | POS / in-person accept-money | Load-bearing | Fall back to Stripe Checkout for all accept-money; POS-only surfaces lose tap-to-pay. ~2 weeks. |
+| Amazon SES | Sole transactional email rail | Load-bearing | SendGrid is the **only break-glass fallback** (`SENDGRID_API_KEY`); a full swap means re-verifying domain identity (DKIM/SPF/DMARC) + re-warming the sending IP + re-checking suppression lists. ~1-2 weeks. (`getEmailProvider`/`sendEmail` is the abstraction seam.) |
+| PostHog | Product analytics + LLM observability | Replaceable | Swap to Plausible / Amplitude in **1-2 days** — events fire through `src/services/analytics_*.ts`. |
+| Sentry | Error tracking (HTTP API, `SENTRY_DSN`) | Replaceable | Swap to Axiom / BugSnag in **1 day** — single `onError` seam. |
+| Upstash | Redis provisioning for container services | Replaceable | Swap to CF KV directly in **1-2 days** — only used by Fly.io-hosted services, not the main Worker. |
+
+> **Removed — never reintroduce:** Resend was retired 2026-09-09 (Brian directive); Amazon SES is the sole email rail with SendGrid as break-glass only. Residual `resend` strings in `newsletter_dispatch.ts` / `event_transform.ts` are MCP-integration provider keys (a separate customer feature), not a send rail.
+
+### Secret rotation
+
+All load-bearing vendor secrets rotate on a **≤90-day cadence**. One calendar entry per load-bearing vendor lives in `~/.claude/rules/secret-rotation-calendar.md`; the project-level rotation runbook is `docs/runbooks/` (per `secret-provisioning`).
 
 ---
 

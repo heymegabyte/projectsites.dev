@@ -287,7 +287,11 @@ export interface Env {
   POSTHOG_API_KEY: string;
   /** PostHog public project key (phc_*) injected into served-site HTML. Required for client-side init. */
   POSTHOG_PUBLIC_KEY?: string;
-  /** PostHog API host (defaults to `https://app.posthog.com`). */
+  /**
+   * PostHog ingestion host. MUST be the regional ingestion host
+   * (`https://us.i.posthog.com` US / `https://eu.i.posthog.com` EU) — never
+   * `app.posthog.com`, the deprecated UI host, which captures silently no-op.
+   */
   POSTHOG_HOST?: string;
 
   // ── Sentry (Error Tracking) ────────────────────────────────

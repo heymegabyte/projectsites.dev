@@ -85,6 +85,8 @@ vite.config.*.timestamp-*
 
 # MkDocs build output
 docs/site/
+# Root editor e2e — same disposable-artifact class as the per-app entries below
+e2e/screenshots/
 apps/project-sites/e2e/screenshots/
 apps/project-sites/test-results*/
 apps/project-sites/test-results-*

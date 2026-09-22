@@ -21,9 +21,9 @@ const highlighterOptions = {
 };
 
 const jsonHighlighter: HighlighterGeneric<BundledLanguage, BundledTheme> =
-  import.meta.hot?.data.jsonHighlighter ?? (await createHighlighter(highlighterOptions));
+  import.meta.hot?.data?.jsonHighlighter ?? (await createHighlighter(highlighterOptions));
 
-if (import.meta.hot) {
+if (import.meta.hot?.data) {
   import.meta.hot.data.jsonHighlighter = jsonHighlighter;
 }
 

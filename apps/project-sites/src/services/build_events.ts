@@ -110,6 +110,18 @@ export const BuildEventSchema = z.discriminatedUnion('type', [
     /** Stable taxonomy code (e.g. `stale`, `no-callback`). */
     code: z.string().default('build_failed'),
   }),
+  /**
+   * Deliberate, user-requested PAUSE — explicitly NON-terminal. Nothing broke;
+   * the build stopped itself (e.g. the owner asked for a fresh logo) and will
+   * resume on a later run. Never treat this as a failure.
+   */
+  BuildEventBaseSchema.extend({
+    type: z.literal('build.halted'),
+    /** Human-readable reason for the deliberate halt. */
+    reason: z.string().min(1),
+    /** Stable taxonomy code (e.g. `logo_regenerate_requested`). */
+    code: z.string().default('build_halted'),
+  }),
 ]);
 
 /** Inferred build-event type — never hand-maintained alongside the schema. */

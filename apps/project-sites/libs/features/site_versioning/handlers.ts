@@ -121,10 +121,29 @@ siteVersioning.get('/api/sites/:siteId/snapshots', async (c) => {
   }> = [];
   if (site) {
     const { getHistory } = await import('../../../src/services/git.js');
-    gitHistory = await getHistory(c.env.SITES_BUCKET, site.slug);
+    try {
+      gitHistory = await getHistory(c.env.SITES_BUCKET, site.slug);
+    } catch {
+      // A broken git store must never fail the snapshot list — the D1 rows are
+      // the source of truth for the list itself; `commit_iso` degrades to each
+      // row's own `created_at` (accurate to within seconds for UI snapshots,
+      // since the GitHub push fires right after the D1 insert).
+      gitHistory = [];
+    }
   }
 
-  return c.json({ data: result.data, git_history: gitHistory });
+  // Surface `commit_iso` per row: `build_version` IS the R2 version path, so it
+  // is the join key against `gitHistory[].buildVersion`. A match means the git
+  // entry's `date` is the authoritative commit timestamp; otherwise the row's
+  // own `created_at` is the correct fallback.
+  const data = result.data.map((row) => ({
+    ...row,
+    commit_iso:
+      gitHistory.find((entry) => entry.buildVersion === row.build_version)?.date ??
+      row.created_at,
+  }));
+
+  return c.json({ data, git_history: gitHistory });
 });
 
 /**

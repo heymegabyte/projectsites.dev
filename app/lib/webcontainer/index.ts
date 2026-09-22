@@ -29,11 +29,11 @@ export function recordFileEdit(path: string, content: string): void {
   }
 }
 
-export const webcontainerContext: WebContainerContext = import.meta.hot?.data.webcontainerContext ?? {
+export const webcontainerContext: WebContainerContext = import.meta.hot?.data?.webcontainerContext ?? {
   loaded: false,
 };
 
-if (import.meta.hot) {
+if (import.meta.hot?.data) {
   import.meta.hot.data.webcontainerContext = webcontainerContext;
 }
 
@@ -128,7 +128,7 @@ export function recoverWebContainer(reason: string): Promise<WebContainer> {
 
       webcontainer = Promise.resolve(wired);
 
-      if (import.meta.hot) {
+      if (import.meta.hot?.data) {
         import.meta.hot.data.webcontainer = webcontainer;
       }
 
@@ -166,7 +166,7 @@ if (!import.meta.env.SSR) {
     );
   } else {
     webcontainer =
-      import.meta.hot?.data.webcontainer ??
+      import.meta.hot?.data?.webcontainer ??
       Promise.resolve()
         .then(() => bootContainer())
         .then(wireContainer)
@@ -181,7 +181,7 @@ if (!import.meta.env.SSR) {
           return recoverWebContainer(`boot-failure: ${message}`);
         });
 
-    if (import.meta.hot) {
+    if (import.meta.hot?.data) {
       import.meta.hot.data.webcontainer = webcontainer;
     }
   }

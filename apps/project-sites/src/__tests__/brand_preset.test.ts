@@ -5,6 +5,21 @@
  */
 import { selectBrandKit, validateBrandKit, type PresetName } from '../services/brand_preset.js';
 
+const INFLECTIONS: Array<[string, string]> = [
+  ['plumbing', 'warm-local'],
+  ['electrical contractor', 'warm-local'],
+  ['landscaping', 'warm-local'],
+  ['landscape design', 'warm-local'],
+  ['repair', 'warm-local'],
+  ['repairs', 'warm-local'],
+  ['technology', 'immersive-tech'],
+  ['photography', 'minimal-luxury'],
+  ['jewelry', 'premium-commerce'],
+  ['consulting', 'sophisticated-authority'],
+  ['orthodontics', 'clean-clinical'],
+  ['volunteer relief', 'mission-organic'],
+];
+
 describe('selectBrandKit: category → art-direction preset', () => {
   it('maps common verticals to distinct presets (not all classic)', () => {
     expect(selectBrandKit({ category: 'AI SaaS platform' }).themeStyle).toBe('immersive-tech');
@@ -15,6 +30,13 @@ describe('selectBrandKit: category → art-direction preset', () => {
     expect(selectBrandKit({ category: 'plumbing company' }).themeStyle).toBe('warm-local');
     expect(selectBrandKit({ category: 'food bank nonprofit' }).themeStyle).toBe('mission-organic');
     expect(selectBrandKit({ category: 'independent design studio' }).themeStyle).toBe('cinematic-editorial');
+  });
+  // `\b` needs a NON-word char after the stem, so a truncated stem silently misses its
+  // own inflections — `\bplumb\b` never matched "plumbing" and fell through to
+  // `classic`. Table-driven so EVERY regression reports in one run; a single `it()`
+  // with N assertions stops at the first failure and hides the rest.
+  it.each(INFLECTIONS)('matches the inflected form: %s → %s', (category, preset) => {
+    expect(selectBrandKit({ category }).themeStyle).toBe(preset);
   });
   it('falls back to classic (low confidence) for an unrecognized category', () => {
     const k = selectBrandKit({ category: 'assorted widgets' });

@@ -47,6 +47,74 @@ function jsonStringArray(raw: unknown): string[] {
   }
 }
 
+/** One resolved preview thumbnail as the Pulse Social UI consumes it. */
+export interface MediaPreview {
+  url: string;
+  mime?: string;
+  type?: string;
+  alt?: string;
+}
+
+/** Signed preview URLs live 30 min — same window as the media service. */
+const MEDIA_URL_TTL_SEC = 60 * 30;
+
+/**
+ * Resolve a `pulse_posts.media_keys` value into the UI's `media[]` contract.
+ *
+ * The column is a JSON array of R2 descriptors (`[{ r2_key, mime?, alt? }, …]`),
+ * so `jsonStringArray` cannot be reused — that one filters to `string[]`. Never
+ * throws: a null / empty / malformed / non-array column returns `[]`, an entry
+ * with no usable `r2_key` is dropped rather than surfaced as a broken `<img>`, and
+ * a signing failure falls back to the public passthrough. Mint a signed URL when
+ * the binding offers it — a bare `<img>` cannot attach the Bearer that the authed
+ * media endpoint demands, so an unsigned key would 401 every thumbnail.
+ */
+async function resolveMediaPreviews(bucket: unknown, raw: unknown): Promise<MediaPreview[]> {
+  if (typeof raw !== 'string' || raw.trim() === '') return [];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  const signer = (
+    bucket as { createSignedUrl?: (key: string, opts: { expiresIn: number }) => Promise<string> }
+  )?.createSignedUrl;
+  const sign =
+    typeof signer === 'function'
+      ? signer.bind(bucket as { createSignedUrl: typeof signer })
+      : null;
+
+  const out: MediaPreview[] = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== 'object') continue;
+    const { r2_key: key, mime, alt } = entry as { r2_key?: unknown; mime?: unknown; alt?: unknown };
+    if (typeof key !== 'string' || key.trim() === '') continue;
+
+    let url: string | null = null;
+    if (sign) {
+      try {
+        url = await sign(key, { expiresIn: MEDIA_URL_TTL_SEC });
+      } catch {
+        url = null;
+      }
+    }
+
+    const preview: MediaPreview = { url: url ?? `/assets/r2/${key}` };
+    if (typeof mime === 'string' && mime !== '') {
+      preview.mime = mime;
+      const slash = mime.indexOf('/');
+      if (slash > 0) preview.type = mime.slice(0, slash);
+    }
+    if (typeof alt === 'string' && alt !== '') preview.alt = alt;
+    out.push(preview);
+  }
+  return out;
+}
+
 const platformEnum = z.enum(PLATFORMS as readonly [Platform, ...Platform[]]);
 
 /**
@@ -306,27 +374,29 @@ socialRoutes.get('/api/social/posts', async (c) => {
   );
   const platformOf = new Map(accts.map((a) => [a.id, a.platform]));
 
-  const posts = data.map((row) => ({
-    id: row.id,
-    status: row.status,
-    scheduled_at: row.scheduled_at ?? undefined,
-    published_at: row.published_at ?? undefined,
-    content: row.content ?? '',
-    platforms: Array.from(
-      new Set(
-        jsonStringArray(row.account_ids)
-          .map((id) => platformOf.get(id))
-          .filter((p): p is string => !!p),
+  const posts = await Promise.all(
+    data.map(async (row) => ({
+      id: row.id,
+      status: row.status,
+      scheduled_at: row.scheduled_at ?? undefined,
+      published_at: row.published_at ?? undefined,
+      content: row.content ?? '',
+      platforms: Array.from(
+        new Set(
+          jsonStringArray(row.account_ids)
+            .map((id) => platformOf.get(id))
+            .filter((p): p is string => !!p),
+        ),
       ),
-    ),
-    // A bare <img> can't send the Bearer to the authed R2 media endpoint (per the
-    // media-thumbnail 401 fix), so surface no thumbnails rather than emit a URL that
-    // 401s. TODO(social-media-thumbs): mint signed preview URLs from media_keys.
-    media: [] as unknown[],
-    hashtags: jsonStringArray(row.hashtags),
-    link: row.link ?? undefined,
-    site_id: row.site_id ?? undefined,
-  }));
+      // A bare <img> can't send the Bearer to the authed R2 media endpoint, so each
+      // key is minted as a short-lived signed URL (falling back to the public
+      // `/assets/r2/{key}` passthrough) instead of 401-ing.
+      media: await resolveMediaPreviews(c.env.SITES_BUCKET, row.media_keys),
+      hashtags: jsonStringArray(row.hashtags),
+      link: row.link ?? undefined,
+      site_id: row.site_id ?? undefined,
+    })),
+  );
   return c.json({ data: posts });
 });
 
@@ -339,7 +409,15 @@ socialRoutes.get('/api/social/posts/:id', async (c) => {
     [c.req.param('id'), ctx.orgId],
   );
   if (!row) return c.json({ error: { code: 'NOT_FOUND', message: 'post not found' } }, 404);
-  return c.json({ data: row });
+  return c.json({
+    data: {
+      ...row,
+      media: await resolveMediaPreviews(
+        c.env.SITES_BUCKET,
+        (row as { media_keys?: unknown }).media_keys,
+      ),
+    },
+  });
 });
 
 const PatchPostSchema = CreatePostSchema.partial();

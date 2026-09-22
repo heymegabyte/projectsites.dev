@@ -1110,6 +1110,13 @@ export const ChatImpl = memo(
 
       chatStore.setKey('aborted', false);
 
+      /*
+       * Re-arm the workbench action queue. `abort()` above latches `#aborted` on the
+       * store, which turns every queued callback into a no-op — without this the
+       * model's edits silently stop landing in the editor for the rest of the session.
+       */
+      workbenchStore.resumeActions();
+
       if (modifiedFiles !== undefined) {
         const userUpdateArtifact = filesToArtifacts(modifiedFiles, `${Date.now()}`);
         const messageText = `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${userUpdateArtifact}${finalMessageContent}`;

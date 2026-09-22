@@ -1085,8 +1085,13 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
     // The `waitForEvent` resolves with the resolution payload. We branch on
     // `choice`:
     //  - `Approve` → fall through to `start-build` unchanged.
-    //  - `Regenerate` → loop back to logo regeneration (left as a TODO in
-    //    this example — real impl re-fires the `generate-logo` step).
+    //  - `Regenerate` → there is NO standalone `generate-logo` workflow step
+    //    to re-fire — logo discovery/generation happens INSIDE the container
+    //    build (see § Architecture above). So the only faithful "try a new
+    //    logo" is a fresh build run. We start one and halt this instance,
+    //    because a workflow cannot restart itself; the admin UI / reset route
+    //    owns re-creating it. Before this, `Regenerate` fell through exactly
+    //    like `Approve` — the owner's explicit "new logo" was a silent no-op.
     //  - `Use my own` → halt the workflow; user uploads via the admin UI,
     //    which re-creates the workflow with the new asset already in R2.
     //
@@ -1165,14 +1170,21 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
         message: `Logo approval resolved: ${approvalChoice}`,
       });
 
-      // Branch on resolution. Approve = fall through. Regenerate = re-fire
-      // the logo generation pipeline (left as a follow-up — the orchestrator
-      // prompt already covers regeneration on its next pass). Use-my-own =
-      // halt cleanly; admin UI re-creates the workflow once asset uploaded.
+      // Branch on resolution. Approve = fall through. Use-my-own = halt
+      // cleanly; admin UI re-creates the workflow once the asset is uploaded.
+      // Regenerate = halt AND signal a fresh run, so the owner's "new logo"
+      // is honored instead of silently behaving like Approve. Both halting
+      // branches sit ABOVE the killswitch/container work, so a halt costs
+      // nothing and never burns a build.
       if (approvalChoice === 'Use my own') {
         await updateSiteStatus(env.DB, params.siteId, 'collecting');
         await wfLog('workflow.halted_for_upload', {
           message: 'Build halted — awaiting custom-logo upload from user',
+        });
+        await emitBuildEvent(env, params.siteId, {
+          type: 'build.halted',
+          reason: 'Build halted — awaiting a custom-logo upload from the owner.',
+          code: 'awaiting_user_upload',
         });
         return {
           siteId: params.siteId,
@@ -1181,8 +1193,25 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
           reason: 'awaiting_user_upload',
         };
       }
-      // 'Regenerate' falls through with the orchestrator prompt picking up the
-      // signal via _research.json on the next pass. 'Approve' falls through.
+      if (approvalChoice === 'Regenerate') {
+        await updateSiteStatus(env.DB, params.siteId, 'collecting');
+        await wfLog('workflow.logo_regenerate_requested', {
+          message:
+            'Logo regeneration requested — build halted, status collecting so the next run re-picks the logo',
+        });
+        await emitBuildEvent(env, params.siteId, {
+          type: 'build.halted',
+          reason: 'Logo regeneration requested — re-run the build for a fresh logo.',
+          code: 'logo_regenerate_requested',
+        });
+        return {
+          siteId: params.siteId,
+          slug: params.slug,
+          status: 'halted',
+          reason: 'regenerating_logo',
+        };
+      }
+      // 'Approve' falls through.
     }
 
     // ── Budget killswitch: cap AI spend per org BEFORE the expensive build ──

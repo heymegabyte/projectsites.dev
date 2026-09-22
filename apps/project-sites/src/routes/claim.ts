@@ -39,6 +39,7 @@ import { getLead } from '../services/lead_store.js';
 import { sendEmail } from '../services/notifications.js';
 import { createSite } from '../services/site_create.js';
 import { tryEmitEvent } from '../services/emit_event.js';
+import { requireNotAbusive } from '../middleware/abuse.js';
 
 // Re-export so existing importers (+ tests) keep resolving it from this route.
 export { PLATFORM_CLAIMS_ORG_ID };
@@ -55,6 +56,13 @@ function deriveClaimSlug(businessName: string): string {
 }
 
 export const claimRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// §48 app-aware abuse layer. `/adopt` is the ownership-transfer mutation — the one
+// claim route that writes (it moves the provisioned site off the platform org onto
+// the claiming org). The GET resolve/click route below is deliberately NOT gated: a
+// visitor clicking a claim link in their inbox must never 429 into a dead end.
+// Fail-OPEN by design until Arcjet lands; CF-native rate_limit.ts remains the floor.
+claimRoutes.use('/api/claim/:shortlink/adopt', requireNotAbusive('claim'));
 
 claimRoutes.get('/api/claim/:shortlink', async (c) => {
   const shortlink = c.req.param('shortlink');

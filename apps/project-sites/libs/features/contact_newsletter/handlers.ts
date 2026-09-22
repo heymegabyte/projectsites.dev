@@ -32,11 +32,19 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { contactFormSchema, escapeHtml } from '@project-sites/shared';
 import { getEmailProvider } from '../../../src/platform/email-router.js';
+import { requireNotAbusive } from '../../../src/middleware/abuse.js';
 import type { Env, Variables } from '../../../src/types/env.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 
 export const contactNewsletter = new Hono<AppContext>();
+
+// §48 app-aware abuse layer — the public form-ingest endpoints are
+// unauthenticated + cost-bearing, so they carry the `form` gate. Fail-OPEN by
+// design (unset ARCJET_KEY → AllowAll), so this is a no-op until Arcjet lands
+// AND the CF-native rate_limit.ts remains the floor.
+contactNewsletter.use('/api/contact-form/:slug', requireNotAbusive('form'));
+contactNewsletter.use('/api/newsletter/subscribe', requireNotAbusive('form'));
 
 /**
  * Contact form handler — receives submissions from generated sites and forwards

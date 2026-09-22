@@ -1,5 +1,6 @@
 import { cloudflareDevProxyVitePlugin as remixCloudflareDevProxy, vitePlugin as remixVitePlugin } from '@remix-run/dev';
 import UnoCSS from 'unocss/vite';
+import { fileURLToPath } from 'node:url';
 import { defineConfig, type ViteDevServer } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import { optimizeCssModules } from 'vite-plugin-optimize-css-modules';
@@ -15,6 +16,15 @@ dotenv.config();
 
 export default defineConfig((config) => {
   return {
+    resolve: {
+      // `~/*` -> `./app/*`, mirroring tsconfig `paths`. `vite-tsconfig-paths`
+      // only resolves this during a build/dev transform; Vitest's module
+      // resolver needs a real alias or `vi.mock('~/lib/stores/workbench')`
+      // silently misses and the heavy WebContainer singleton chain loads.
+      alias: {
+        '~': fileURLToPath(new URL('./app', import.meta.url)),
+      },
+    },
     define: {
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV),
       // Item 49: Sentry release tracking — every deploy tags errors with
@@ -108,15 +118,20 @@ export default defineConfig((config) => {
         },
       },
       config.mode !== 'test' && remixCloudflareDevProxy(),
-      remixVitePlugin({
-        future: {
-          v3_fetcherPersist: true,
-          v3_relativeSplatPath: true,
-          v3_throwAbortReason: true,
-          v3_lazyRouteDiscovery: true,
-        },
-        ignoredRouteFiles: ['**/*.spec.ts', '**/*.spec.tsx', '**/*.test.ts', '**/*.test.tsx'],
-      }),
+      // The Remix Vite plugin owns the app's JSX transform through its preamble
+      // and refuses to transform outside one ("can't detect preamble"). Vitest
+      // runs with `mode === 'test'`, so disable the plugin there and let
+      // esbuild's automatic JSX runtime handle `.spec.tsx` collection.
+      config.mode !== 'test' &&
+        remixVitePlugin({
+          future: {
+            v3_fetcherPersist: true,
+            v3_relativeSplatPath: true,
+            v3_throwAbortReason: true,
+            v3_lazyRouteDiscovery: true,
+          },
+          ignoredRouteFiles: ['**/*.spec.ts', '**/*.spec.tsx', '**/*.test.ts', '**/*.test.tsx'],
+        }),
       UnoCSS(),
       tsconfigPaths(),
       chrome129IssuePlugin(),
@@ -149,6 +164,9 @@ export default defineConfig((config) => {
       },
     },
     test: {
+      // Runs BEFORE any test file is imported, so browser globals exist before
+      // the module graph is collected — see vitest.setup.ts for the why.
+      setupFiles: ['./vitest.setup.ts'],
       // Root vitest runs ONLY the bolt.diy Remix app (app/). The sub-packages
       // have their own runners — apps/project-sites/* uses Jest, the Angular
       // frontend uses Karma/Jasmine — and their `describe`/`it` globals are not

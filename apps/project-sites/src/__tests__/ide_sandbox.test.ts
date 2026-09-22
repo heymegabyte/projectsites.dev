@@ -423,6 +423,10 @@ describe('buildSwarmSseStream', () => {
       if (result.done) break;
       if (result.value) chunks.push(dec.decode(result.value));
     }
+    // Cancel before returning: an abandoned `getReader()` never fires the
+    // stream's `cancel()` hook, so the producer's `setInterval` keeps the Jest
+    // worker's event loop alive ("failed to exit gracefully").
+    await reader.cancel();
     return chunks;
   }
 
@@ -579,6 +583,10 @@ describe('buildProgressiveSseStream', () => {
     expect(joined).toContain('"type":"component_ready"');
     expect(joined).toContain('"component":"nav"');
     expect(joined).toContain('"type":"all_components_ready"');
+    // Cancel before returning: an abandoned `getReader()` never fires the stream's
+    // `cancel()` hook, so the producer's `setInterval` keeps the Jest worker's event
+    // loop alive — Jest then prints "a worker process has failed to exit gracefully".
+    await reader.cancel();
   });
 
   it('clears its interval on cancel', async () => {

@@ -509,7 +509,21 @@ export function classifySqlStatement(raw: string): SqlStatementInfo {
   // A CTE (WITH …) is classified by the primary DML/read keyword that follows it.
   let effectiveVerb = verb;
   if (verb === 'WITH') {
-    effectiveVerb = U.match(/\b(INSERT|UPDATE|DELETE|REPLACE|SELECT)\b/)?.[1] ?? 'SELECT';
+    // FIRST-MATCH-ORDER: `String.match` returns the LEFTMOST hit, never the
+    // highest-priority one, so a keyword inside a CTE body pre-empts the primary verb
+    // (`WITH c AS (SELECT id FROM t) DELETE FROM t` read as a SELECT). Blank every
+    // parenthesized body at any depth, then take the first keyword that survives.
+    const chars: string[] = [];
+    let depth = 0;
+    for (const ch of U) {
+      if (ch === '(') {
+        depth += 1;
+      } else if (ch === ')') {
+        depth = Math.max(0, depth - 1);
+      }
+      chars.push(depth === 0 ? ch : ' ');
+    }
+    effectiveVerb = chars.join('').match(/\b(INSERT|UPDATE|DELETE|REPLACE|SELECT)\b/)?.[1] ?? 'SELECT';
   }
 
   let kind: SqlKind = 'other';

@@ -69,15 +69,28 @@ interface VerticalDefault {
 
 /** Canonical vertical → brand defaults. Fonts are real Google Fonts matching the template's `font.*`. */
 const VERTICALS: Array<{ match: RegExp; d: VerticalDefault }> = [
-  { match: /\b(saas|software|tech|ai|app|platform|dev|cloud|data|api|cyber|fintech)\b/i, d: { preset: 'immersive-tech', hue: 200, chroma: 0.18, heading: 'Space Grotesk', body: 'Inter', scheme: 'dark', label: 'Technology' } },
+  { match: /\b(saas|software|tech|technology|technologies|technical|ai|app|platform|dev|cloud|data|api|cyber|fintech)\b/i, d: { preset: 'immersive-tech', hue: 200, chroma: 0.18, heading: 'Space Grotesk', body: 'Inter', scheme: 'dark', label: 'Technology' } },
+  // ORDER IS SEMANTIC — first match wins, so an EARLIER row's generic token
+  // silently hijacks an input a LATER row owns. Two live cases: `\bdesign\b`
+  // (creative studio) beat `\blandscape\b` for "landscape design", and `\bfood\b`
+  // (hospitality) beat `\bnonprofit\b` for "food bank nonprofit" — both resolved
+  // to the wrong art direction, with no error. When adding a row, grep the array
+  // for a token that also appears in your inputs, and move the SPECIFIC row
+  // above the GENERIC one.
+  { match: /\b(plumbing|plumber|hvac|electric|electrical|electrician|trades|contractor|repair|repairs|roofing|landscape|landscaping|landscaper|handyman|construction|cleaning)\b/i, d: { preset: 'warm-local', hue: 24, chroma: 0.16, heading: 'Sora', body: 'Inter', scheme: 'light', label: 'Local trades' } },
   { match: /\b(studio|agency|creative|design|brand|film|media|production)\b/i, d: { preset: 'cinematic-editorial', hue: 280, chroma: 0.14, heading: 'Fraunces', body: 'Inter', scheme: 'dark', label: 'Creative studio' } },
-  { match: /\b(portfolio|photographer|artist|designer|writer|freelanc)\b/i, d: { preset: 'minimal-luxury', hue: 40, chroma: 0.06, heading: 'Cormorant Garamond', body: 'Inter', scheme: 'light', label: 'Portfolio' } },
-  { match: /\b(shop|store|retail|apparel|clothing|boutique|ecommerce|commerce|goods|jewel)\b/i, d: { preset: 'premium-commerce', hue: 340, chroma: 0.16, heading: 'Playfair Display', body: 'Inter', scheme: 'light', label: 'Retail' } },
-  { match: /\b(restaurant|cafe|café|bakery|food|coffee|bar|bistro|kitchen|catering|brewery)\b/i, d: { preset: 'organic-hospitality', hue: 28, chroma: 0.14, heading: 'Fraunces', body: 'Nunito Sans', scheme: 'light', label: 'Hospitality' } },
-  { match: /\b(law|legal|attorney|lawyer|accounting|finance|advisor|consult|insurance|estate)\b/i, d: { preset: 'sophisticated-authority', hue: 220, chroma: 0.10, heading: 'Libre Baskerville', body: 'Inter', scheme: 'light', label: 'Professional services' } },
-  { match: /\b(medical|dental|dentist|clinic|health|wellness|therapy|doctor|care|spa)\b/i, d: { preset: 'clean-clinical', hue: 185, chroma: 0.10, heading: 'Poppins', body: 'Inter', scheme: 'light', label: 'Health' } },
-  { match: /\b(plumb|hvac|electric|trades|contractor|repair|roofing|landscap|handyman|construction|cleaning)\b/i, d: { preset: 'warm-local', hue: 24, chroma: 0.16, heading: 'Sora', body: 'Inter', scheme: 'light', label: 'Local trades' } },
+  { match: /\b(portfolio|photographer|photography|artist|designer|writer|freelance|freelancer|freelancing)\b/i, d: { preset: 'minimal-luxury', hue: 40, chroma: 0.06, heading: 'Cormorant Garamond', body: 'Inter', scheme: 'light', label: 'Portfolio' } },
+  { match: /\b(shop|store|retail|apparel|clothing|boutique|ecommerce|commerce|goods|jewelry|jewellery)\b/i, d: { preset: 'premium-commerce', hue: 340, chroma: 0.16, heading: 'Playfair Display', body: 'Inter', scheme: 'light', label: 'Retail' } },
   { match: /\b(nonprofit|non-profit|charity|foundation|community|volunteer|mission|shelter|relief)\b/i, d: { preset: 'mission-organic', hue: 150, chroma: 0.14, heading: 'Sora', body: 'Nunito Sans', scheme: 'light', label: 'Nonprofit' } },
+  { match: /\b(restaurant|cafe|café|bakery|food|coffee|bar|bistro|kitchen|catering|brewery)\b/i, d: { preset: 'organic-hospitality', hue: 28, chroma: 0.14, heading: 'Fraunces', body: 'Nunito Sans', scheme: 'light', label: 'Hospitality' } },
+  { match: /\b(law|legal|attorney|lawyer|accounting|finance|advisor|consulting|consultancy|consultant|insurance|estate)\b/i, d: { preset: 'sophisticated-authority', hue: 220, chroma: 0.10, heading: 'Libre Baskerville', body: 'Inter', scheme: 'light', label: 'Professional services' } },
+  // Inflected forms are listed explicitly alongside their stem: `\bdental\b`
+  // and `\bdentist\b` cannot match "dentistry" — the trailing word char kills
+  // the `\b` — so "family dentistry" fell through to the `classic` default.
+  // The same class bit every truncated stem in this array (`tech`, `freelanc`,
+  // `jewel`, `consult`, `orthodont`, `plumb`, `electric`, `landscap`): always
+  // list the full form when the stem is shorter than the word people type.
+  { match: /\b(medical|dental|dentist|dentistry|orthodontics|orthodontist|clinic|health|wellness|therapy|doctor|care|spa)\b/i, d: { preset: 'clean-clinical', hue: 185, chroma: 0.10, heading: 'Poppins', body: 'Inter', scheme: 'light', label: 'Health' } },
 ];
 
 const DEFAULT_VERTICAL: VerticalDefault = { preset: 'classic', hue: 210, chroma: 0.12, heading: 'Sora', body: 'Inter', scheme: 'dark', label: 'Business' };
