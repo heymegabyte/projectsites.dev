@@ -24,6 +24,25 @@ follow published conventions per the global rule `style-guide-driven-decisions`.
   workspace members. Run `npm install --legacy-peer-deps` (NOT pnpm — electron-builder) to
   reconcile before the next dependency change.
 
+## Pending feature items (from `_APP_COMPLETION.md § A` — editor + domains)
+
+- [x] **URL bar link-out (Msg-3a)** — DONE 2026-09-22. Editor preview address bar reveals an
+  open-in-new-tab button on hover/focus (`group-hover` + `group-focus-within`, identical styling
+  both states); no always-visible home glyph remained. `app/components/workbench/Preview.tsx`.
+  Shipped to `bolt-diy` Pages (editor.projectsites.dev); deployed artifact verified.
+- [ ] **Editor preview loading UX (Msg-3b)** — while the preview boots, chat shows
+  "ProjectSites.dev is using AI to ensure your website is loaded and available for preview" + a
+  loading indicator; AI-ensures the preview boots regardless of framework; graceful fallback when
+  no preview / undetectable. Cross-component (Chat + Preview boot detection) — its own pass. Not
+  started (message string absent from source).
+- [ ] **Domain-dropdown overhaul (Msg-1)** — synth an always-present `{slug}.projectsites.dev`
+  default row so "No domains assigned" NEVER shows (`domain-picker.component.ts:826` still shows it);
+  per-row activate `role=switch` + ⋯ menu (set-primary · auto-re-register · copy · open · remove w/
+  DialogShell confirm); merge $17/mo wallet CTA into the compact header; SWR-cache + pre-warm
+  AI-picks/refine/Load-More. Stipulations: synthetic default non-removable/non-deactivatable;
+  `hostnames.auto_reregister` D1 column + renewal endpoint (own sub-task — reversible D1 migration);
+  WCAG-2.2 keyboard menu. LARGE — its own focused pass.
+
 ## Removed 2026-09-22 (see README § Roadmap for the parked-initiative notes)
 
 - Deleted non-core side-projects: `apps/chrome-extension`, `apps/desktop` (Tauri),
