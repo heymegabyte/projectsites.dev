@@ -125,6 +125,7 @@ convergence:
   section_journeys_p5:  { status: covered, specs: [admin-editor-journey.spec.ts, admin-snapshots-journey.spec.ts, admin-site-features-journey.spec.ts, admin-site-detail-journey.spec.ts] }
   section_journeys_p6:  { status: covered, specs: [admin-logs-journey.spec.ts, admin-api-tokens-journey.spec.ts] }
   loop_gates:           { status: covered, specs: [post-convergence-verification.spec.ts] }
+  scan_profiles:        { status: covered, specs: [scan_profiles/scan-profiles.spec.ts] }  # SCOPE.md:68 — lead-scanner scan-profile CRUD API contract (flag: scan_profiles). No admin UI exists yet, so this drives the REAL HTTP surface (GET/POST/PATCH/DELETE /api/admin/scan-profiles{,/:id}) and asserts the guard chain: unauth 401 · flag-off 404 NEVER 403 · non-super-admin 403 · malformed body never 5xx (Zod boundary) · no SQL/stack leak. Read-only against prod (GETs + deliberately-invalid POST bodies). REPLACE with a click-through journey when `frontend/` gains a scan-profiles section.
   stagehand_visual:     { status: covered, specs: [stagehand-master-orchestrator.spec.ts] }
   admin_sections:       { status: covered, specs: [admin-sections-smoke.spec.ts, admin-social.spec.ts] }
   auth_oauth:           { status: covered, specs: [auth-oauth-buttons.spec.ts] }

@@ -66,6 +66,7 @@ import { visionQa } from './routes/vision_qa.js';
 import { browserService } from './routes/browser_service.js'; // browser.projectsites.dev /v1/browser/* (CF-first browser abstraction)
 import { createJobsRoutes } from './routes/jobs.js'; // POST /api/jobs dispatch seam (§20 WorkflowRouter)
 import { adminLeads } from './routes/admin_leads.js';
+import { scanProfiles as scanProfilesRoutes } from './routes/scan_profiles.js'; // /api/admin/scan-profiles CRUD (flag: scan_profiles)
 import { adminOutbox } from './routes/admin_outbox.js';
 import { adminFunnel } from './routes/admin_funnel.js';
 import { adminAnalytics } from './routes/admin_analytics.js';
@@ -568,6 +569,7 @@ app.route('/', search); // Must come before api so /api/sites/search wins over /
 app.route('/', featureE2e); // /api/feature-e2e/:key/run + /runs/:id — Browser Rendering E2E check runner
 app.route('/', visionQa); // /api/vision-qa — Browser Rendering screenshot + Workers AI vision critique (flag: editor_vision_qa)
 app.route('/', adminLeads); // /api/admin/leads/scan — Super-Admin lead scanner (flag: lead_scanner)
+app.route('/', scanProfilesRoutes); // /api/admin/scan-profiles{,/:id} — lead-scanner scan-profile CRUD (flag: scan_profiles)
 app.route('/', adminOutbox); // /api/admin/outbox — Super-Admin event-bus DLQ observability (read-only)
 app.route('/', adminFunnel); // /api/admin/activation-funnel — Super-Admin revenue-funnel rollup (Tinybird, read-only)
 app.route('/', adminAnalytics); // /api/admin/analytics/* — Super-Admin events-daily + publishes-by-source + claims-by-source rollups (Tinybird, read-only)

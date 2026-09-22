@@ -365,6 +365,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  scan_profiles: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Scan Profiles: D1-persisted CRUD for the lead scanner\'s editable "what to hunt" config (SCOPE.md:68).\n\n• GET/POST /api/admin/scan-profiles + PATCH/DELETE /api/admin/scan-profiles/:id — auth 401 → this flag (404, never 403) → super-admin 403 → Zod 400.\n• Persists geo bboxes / OSM categories / providers / free-text filters / cadence / per-run lead cap; the cron geo-sweep reads the due profiles and runs each bbox through the lead_scan_orchestrator.\n• Soft-deleted (deleted_at) — never physically removed, so an undo stays possible.\n• Off → every route 404s; the ad-hoc POST /api/admin/leads/scan-osm (lead_scanner flag) still works, so nothing regresses.',
+    key: 'scan_profiles',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   prompt_schedule: {
     default_enabled: false,
     default_rollout_percent: 0,

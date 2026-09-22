@@ -35,6 +35,7 @@ export const KNOWN_MARKETING_PREFIXES: ReadonlySet<string> = new Set([
   'billing',
   'blog', // blog, blog/:slug
   'changelog',
+  'benchmarks', // public fleet-benchmark landing (AN50) — methodology + JSON-LD
   'review', // review/:id
   'developers',
   'oauth', // oauth/consent
@@ -145,6 +146,11 @@ export const MARKETING_META: Readonly<Record<string, MarketingMeta>> = {
     title: 'Product Roadmap — Shipped, In Progress & Next | ProjectSites',
     description:
       'See what we are building next for ProjectSites. Trello-style public roadmap with shipped, in-progress, and planned features.',
+  },
+  '/benchmarks': {
+    title: 'Website Benchmarks — How You Compare | ProjectSites',
+    description:
+      'See how your site conversion and engagement metrics compare to the anonymized ProjectSites fleet median for your industry — your quartile, not just a number',
   },
   '/integrations': {
     title: 'Integrations — Stripe, Square, OpenAI & 30+ | ProjectSites',

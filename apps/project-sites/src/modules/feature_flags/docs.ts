@@ -775,6 +775,23 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Disable the flag → /create skips the planning gate and generates directly',
     ],
   },
+  scan_profiles: {
+    checklist: [
+      'D1-persisted CRUD for the lead scanner "what to hunt" config',
+      'Super-admin only — 401 → 404 (flag off) → 403 guard chain',
+      'Profiles default enabled=false, intervalMinutes=0 (manual-only)',
+      'Separate from the lead_scanner flag — nothing regresses when off',
+    ],
+    explanation:
+      'Editable scan-profile CRUD for the lead scanner: operators tune what the automatic scanner hunts — geo bboxes, OSM categories, providers, free-text filters and cadence — instead of editing code. Four Super-Admin routes (GET/POST /api/admin/scan-profiles, PATCH/DELETE /api/admin/scan-profiles/:id) read and write a new additive scan_profiles table. Dark by default (experimental): with the flag off every route 404s and never 403s. Profiles ship enabled=false and intervalMinutes=0, so a profile cannot auto-run until an operator explicitly turns it on AND sets a cadence; maxLeadsPerRun (default 50) caps per-run OSM/Places quota and CRM rows. The pre-existing ad-hoc routes (POST /api/admin/leads/scan, /scan-osm, gated by the separate lead_scanner flag) keep working, so nothing regresses.',
+    smoke_test: [
+      'GET /api/admin/scan-profiles as super-admin → 200 with the profile list',
+      'Disable the flag → the same call 404s (not 403)',
+      'POST a profile with a valid bbox + name → 201, and GET then lists it',
+      'PATCH intervalMinutes above the 43200 cap → 400',
+    ],
+    e2e_tests: ['e2e/scan_profiles/scan-profiles.spec.ts'],
+  },
 };
 
 export function getDocs(key: string): FlagDocs | undefined {
