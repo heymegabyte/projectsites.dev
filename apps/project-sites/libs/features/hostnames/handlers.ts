@@ -49,6 +49,7 @@
  */
 
 import { Hono } from 'hono';
+import { z } from 'zod';
 import {
   DOMAINS,
   badRequest,
@@ -69,6 +70,9 @@ import * as posthog from '../../../src/lib/posthog.js';
 type AppContext = { Bindings: Env; Variables: Variables };
 
 export const hostnames = new Hono<AppContext>();
+
+/** Body schema for the auto-renew toggle (PATCH …/auto-renew). */
+const hostnameAutoRenewSchema = z.object({ enabled: z.boolean() });
 
 /**
  * List all hostnames (free subdomain + custom domains) attached to a site.
@@ -358,12 +362,19 @@ hostnames.delete('/api/sites/:siteId/hostnames/:hostnameId', async (c) => {
   // Canonical org-ownership guard: 404 (never 403) so cross-org sites don't leak.
   const site = await requireOwnedSite<Record<string, unknown>>(c.env, orgId, siteId);
 
-  const hostname = await dbQueryOne<{ id: string; hostname: string }>(
+  const hostname = await dbQueryOne<{ id: string; hostname: string; type: string }>(
     c.env.DB,
-    'SELECT id, hostname FROM hostnames WHERE id = ? AND site_id = ?',
+    'SELECT id, hostname, type FROM hostnames WHERE id = ? AND site_id = ?',
     [hostnameId, siteId],
   );
   if (!hostname) throw notFound('Hostname not found');
+  // A domain you pay for can't be hard-deleted — turn off auto-renew instead (it stays live
+  // until the paid term ends, then lapses). Only free subdomains are deletable here.
+  if (hostname.type === 'custom_cname') {
+    throw badRequest(
+      "You can't delete a domain you pay for. Turn off auto-renew instead — it stays live until the paid term ends, then lapses.",
+    );
+  }
 
   await c.env.DB.prepare('DELETE FROM hostnames WHERE id = ?').bind(hostnameId).run();
 
@@ -427,6 +438,13 @@ hostnames.post('/api/sites/:siteId/hostnames/:hostnameId/unsubscribe', async (c)
     [hostnameId, siteId],
   );
   if (!hostname) throw notFound('Hostname not found');
+  // A domain you pay for can't be removed — turn off auto-renew instead (it stays live until
+  // the paid term ends, then lapses). Deactivating a paid domain would drop it early.
+  if (hostname.type === 'custom_cname') {
+    throw badRequest(
+      "You can't remove a domain you pay for. Turn off auto-renew instead — it stays live until the paid term ends, then lapses.",
+    );
+  }
 
   await c.env.DB.prepare("UPDATE hostnames SET deleted_at = datetime('now') WHERE id = ?")
     .bind(hostnameId)
@@ -451,6 +469,55 @@ hostnames.post('/api/sites/:siteId/hostnames/:hostnameId/unsubscribe', async (c)
   });
 
   return c.json({ data: { unsubscribed: true, hostname: hostname.hostname } });
+});
+
+/**
+ * Toggle auto-renew for a paid (`custom_cname`) domain. Turning it OFF lets the domain lapse
+ * at the end of the paid term — the sanctioned way to let go of a domain you pay for, since a
+ * paid domain can't be hard-deleted or unsubscribed. Turning it back ON resumes renewal.
+ *
+ * @route PATCH /api/sites/:siteId/hostnames/:hostnameId/auto-renew
+ * @auth Bearer — `orgId` MUST resolve; cross-org write denied via ownership check
+ * @body { enabled: boolean }
+ * @returns 200 OK `{ data: { hostname, auto_renew: 0 | 1 } }`
+ * @throws {AppError} `UNAUTHORIZED` | `NOT_FOUND`; `ZodError` on a malformed body.
+ */
+hostnames.patch('/api/sites/:siteId/hostnames/:hostnameId/auto-renew', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) throw unauthorized('Must be authenticated');
+
+  const siteId = c.req.param('siteId');
+  const hostnameId = c.req.param('hostnameId');
+  const body = await c.req.json().catch(() => ({}));
+  const { enabled } = hostnameAutoRenewSchema.parse(body);
+
+  // Canonical org-ownership guard: 404 (never 403) so cross-org sites don't leak.
+  await requireOwnedSite<Record<string, unknown>>(c.env, orgId, siteId);
+
+  const hostname = await dbQueryOne<{ id: string; hostname: string }>(
+    c.env.DB,
+    'SELECT id, hostname FROM hostnames WHERE id = ? AND site_id = ? AND deleted_at IS NULL',
+    [hostnameId, siteId],
+  );
+  if (!hostname) throw notFound('Hostname not found');
+
+  await c.env.DB.prepare("UPDATE hostnames SET auto_renew = ?, updated_at = datetime('now') WHERE id = ?")
+    .bind(enabled ? 1 : 0, hostnameId)
+    .run();
+
+  const siteLabel = await auditService.auditSiteLabelDb(c.env.DB, siteId);
+  await auditService.writeAuditLog(c.env.DB, {
+    org_id: orgId,
+    actor_id: c.get('userId') ?? null,
+    action: 'hostname.auto_renew_changed',
+    message: `Auto-renew ${enabled ? 'enabled' : 'disabled'} for '${hostname.hostname}' on site '${siteLabel}'`,
+    target_type: 'hostname',
+    target_id: hostnameId,
+    metadata_json: { site_id: siteId, hostname: hostname.hostname, auto_renew: enabled ? 1 : 0 },
+    request_id: c.get('requestId'),
+  });
+
+  return c.json({ data: { hostname: hostname.hostname, auto_renew: enabled ? 1 : 0 } });
 });
 
 // NOTE: `GET /api/admin/domains` (org-wide hostname list) is served by aiAdmin

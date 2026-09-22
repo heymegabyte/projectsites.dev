@@ -906,9 +906,16 @@ const LOW_BALANCE_CENTS = 500;
                           </button>
                         }
                         @if (!h.isDefault) {
-                          <button type="button" cdkMenuItem class="dp-menu-item dp-menu-item--mute" (cdkMenuItemTriggered)="deactivate(h)">
-                            Deactivate
-                          </button>
+                          @if (h.type === 'custom_cname') {
+                            <!-- A domain you pay for can't be removed — only auto-renew is toggled. -->
+                            <button type="button" cdkMenuItem class="dp-menu-item" (cdkMenuItemTriggered)="toggleAutoRenew(h)">
+                              {{ h.auto_renew === 0 ? 'Enable auto-renew' : 'Stop auto-renew' }}
+                            </button>
+                          } @else {
+                            <button type="button" cdkMenuItem class="dp-menu-item dp-menu-item--mute" (cdkMenuItemTriggered)="deactivate(h)">
+                              Deactivate
+                            </button>
+                          }
                         }
                       }
                     </div>
@@ -1567,10 +1574,35 @@ export class DomainPickerComponent implements OnDestroy {
       this.toast.error(`${h.hostname} is your permanent address — it can't be deactivated.`);
       return;
     }
+    if (h.type === 'custom_cname') {
+      this.toast.error(`${h.hostname} is a domain you pay for — turn off auto-renew instead of removing it.`);
+      return;
+    }
     this.api.unsubscribeHostname(site.id, h.id).subscribe({
       error: () => this.toast.error('Failed to deactivate hostname.'),
       next: () => {
         this.toast.success(`${h.hostname} deactivated.`);
+        this.refreshHostnames(site.id);
+      },
+    });
+  }
+
+  /**
+   * Toggle auto-renew for a paid (`custom_cname`) domain. A domain you pay for can't be removed —
+   * turning off auto-renew lets it lapse at the end of the paid term instead.
+   */
+  toggleAutoRenew(h: PickerHostname): void {
+    const site = this.state.selectedSite();
+    if (!site) return;
+    const enabling = h.auto_renew === 0;
+    this.api.setHostnameAutoRenew(site.id, h.id, enabling).subscribe({
+      error: () => this.toast.error('Failed to update auto-renew.'),
+      next: () => {
+        this.toast.success(
+          enabling
+            ? `Auto-renew on — ${h.hostname} will renew automatically.`
+            : `Auto-renew off — ${h.hostname} stays live until the paid term ends, then lapses.`,
+        );
         this.refreshHostnames(site.id);
       },
     });

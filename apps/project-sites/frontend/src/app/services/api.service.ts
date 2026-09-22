@@ -542,6 +542,18 @@ export class ApiService {
     return this.post(`/sites/${siteId}/hostnames/${hostnameId}/unsubscribe`, {});
   }
 
+  /**
+   * Toggle auto-renew for a paid (`custom_cname`) domain. A domain you pay for can't be
+   * removed — turning off auto-renew lets it lapse at the end of the paid term instead.
+   */
+  setHostnameAutoRenew(
+    siteId: string,
+    hostnameId: string,
+    enabled: boolean,
+  ): Observable<{ data: { hostname: string; auto_renew: number } }> {
+    return this.patch(`/sites/${siteId}/hostnames/${hostnameId}/auto-renew`, { enabled });
+  }
+
   /** Workers-AI-enriched domain search (RDAP availability + CF Registrar pricing + Llama 3.3 reasoning). */
   searchDomainsEnriched(
     query: string,
@@ -1063,6 +1075,10 @@ export interface Hostname {
   hostname: string;
   status: string;
   is_primary: boolean;
+  /** `'free_subdomain'` (deletable) | `'custom_cname'` (a domain you pay for — can't be removed, only auto-renew toggled). */
+  type?: string;
+  /** 1 = auto-renew on, 0 = off. Only meaningful for paid (`custom_cname`) domains. */
+  auto_renew?: number;
 }
 
 /** A provisioned voice phone number on a site. */

@@ -449,6 +449,7 @@ export async function getSiteHostnames(
     status: string;
     ssl_status: string;
     is_primary: number;
+    auto_renew: number;
   }>
 > {
   const { data } = await dbQuery<{
@@ -458,9 +459,10 @@ export async function getSiteHostnames(
     status: string;
     ssl_status: string;
     is_primary: number;
+    auto_renew: number;
   }>(
     db,
-    'SELECT id, hostname, type, status, ssl_status, COALESCE(is_primary, 0) as is_primary FROM hostnames WHERE site_id = ? AND deleted_at IS NULL ORDER BY is_primary DESC, created_at ASC',
+    'SELECT id, hostname, type, status, ssl_status, COALESCE(is_primary, 0) as is_primary, COALESCE(auto_renew, 1) as auto_renew FROM hostnames WHERE site_id = ? AND deleted_at IS NULL ORDER BY is_primary DESC, created_at ASC',
     [siteId],
   );
 

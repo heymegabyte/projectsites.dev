@@ -396,3 +396,73 @@ describe('DomainPickerComponent — overflow menu (⋯ trigger) ARIA + handler c
     expect(openSpy).toHaveBeenCalledWith('https://acme.com', '_blank', 'noopener,noreferrer');
   });
 });
+
+/**
+ * Paid-domain protection (Brian, 2026-09-22): a domain you PAY for (`type: 'custom_cname'`)
+ * can NOT be removed — the ⋯ menu offers "Stop / Enable auto-renew" instead of "Deactivate",
+ * and `deactivate()` refuses a paid domain. Free subdomains stay deletable.
+ */
+describe('DomainPickerComponent — paid domains cannot be removed, only auto-renew toggled', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  function setup(hostname: {
+    id: string;
+    hostname: string;
+    status: string;
+    is_primary: boolean;
+    type: string;
+    auto_renew: number;
+  }) {
+    const site = { id: 's1', slug: 'acme', primary_hostname: 'buyme.com' };
+    const api: Record<string, unknown> = {
+      get: () => of({ data: [] }),
+      post: () => of({ data: {} }),
+      getHostnames: () => of({ data: [hostname] }),
+      addHostname: () => of({ data: {} }),
+      setPrimaryHostname: () => of(undefined),
+      resetPrimaryHostname: () => of(undefined),
+      unsubscribeHostname: () => of(undefined),
+      setHostnameAutoRenew: () => of({ data: { hostname: hostname.hostname, auto_renew: 0 } }),
+      searchDomainsEnriched: () => of({ results: [] }),
+    };
+    const toast: Record<string, unknown> = { info: () => 0, error: () => 0, success: () => 0, warning: () => 0, dismiss: () => undefined };
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [DomainPickerComponent],
+      providers: [
+        { provide: AdminStateService, useValue: { selectedSite: signal(site), sites: signal([site]) } },
+        { provide: ApiService, useValue: api },
+        { provide: BillingService, useValue: { walletState: () => ({ has_wallet: false, balance_cents: 0 }), start: () => undefined, stop: () => undefined, refreshWallet: () => undefined } },
+        { provide: TelemetryService, useValue: { track: () => undefined } },
+        { provide: ToastService, useValue: toast },
+        { provide: Router, useValue: { navigate: () => Promise.resolve(true) } },
+      ],
+    });
+    const c = TestBed.createComponent(DomainPickerComponent).componentInstance;
+    c.hostnames.set([hostname] as never);
+    return { c, api, toast };
+  }
+
+  const PAID = { id: 'h1', hostname: 'buyme.com', status: 'active', is_primary: true, type: 'custom_cname', auto_renew: 1 };
+
+  it('toggleAutoRenew on a paid domain calls setHostnameAutoRenew (disable when currently on)', () => {
+    const { c, api } = setup(PAID);
+    const spy = spyOn(
+      api as { setHostnameAutoRenew: (a: string, b: string, e: boolean) => unknown },
+      'setHostnameAutoRenew',
+    ).and.returnValue(of({ data: { hostname: 'buyme.com', auto_renew: 0 } }));
+    const row = c.filteredAssigned().find((r) => r.hostname === 'buyme.com')!;
+    c.toggleAutoRenew(row);
+    expect(spy).toHaveBeenCalledWith('s1', 'h1', false);
+  });
+
+  it('refuses to deactivate a paid domain — toasts, never calls unsubscribeHostname', () => {
+    const { c, api, toast } = setup(PAID);
+    const unsub = spyOn(api as { unsubscribeHostname: () => unknown }, 'unsubscribeHostname');
+    const err = spyOn(toast as { error: () => unknown }, 'error');
+    const row = c.filteredAssigned().find((r) => r.hostname === 'buyme.com')!;
+    c.deactivate(row);
+    expect(unsub).not.toHaveBeenCalled();
+    expect(err).toHaveBeenCalled();
+  });
+});

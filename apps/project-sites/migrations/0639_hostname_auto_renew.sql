@@ -1,0 +1,14 @@
+-- 0639: auto-renew flag for paid (custom_cname) domains.
+--
+-- A domain you PAY for (`type = 'custom_cname'` — purchased via CF Registrar or a connected
+-- custom domain gated behind a paid plan) can NOT be hard-deleted or unsubscribed from the
+-- admin (see the guards in libs/features/hostnames/handlers.ts). Instead the owner turns OFF
+-- auto-renew; the domain stays live until the paid term ends, then lapses naturally. This
+-- prevents a paying customer from accidentally destroying a domain they're still paying for.
+--
+-- Default 1 (on) so existing + newly-provisioned paid domains renew by design; free
+-- subdomains carry the column harmlessly (they never renew and cost nothing).
+--
+-- Additive + reversible.
+-- rollback: ALTER TABLE hostnames DROP COLUMN auto_renew;
+ALTER TABLE hostnames ADD COLUMN auto_renew INTEGER NOT NULL DEFAULT 1;
