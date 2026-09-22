@@ -49,6 +49,7 @@ import {
   ViewChild,
   type OnDestroy,
 } from '@angular/core';
+import { CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { of, Subject } from 'rxjs';
@@ -99,7 +100,7 @@ const LOW_BALANCE_CENTS = 500;
 
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, NgTemplateOutlet, RouterLink],
+  imports: [CdkMenu, CdkMenuItem, CdkMenuTrigger, FormsModule, NgTemplateOutlet, RouterLink],
   selector: 'app-domain-picker',
   standalone: true,
   styles: [
@@ -874,30 +875,44 @@ const LOW_BALANCE_CENTS = 500;
                   }
                 </button>
                 <div class="dp-row-actions">
-                  @if (h.status !== 'deactivated') {
-                    <button type="button" class="dp-act" (click)="copyHostname(h)" [title]="'Copy https://' + h.hostname">
-                      Copy
-                    </button>
-                    <button type="button" class="dp-act" (click)="openHostname(h)" [title]="'Open ' + h.hostname + ' in a new tab'">
-                      Open
-                    </button>
-                  }
-                  @if (h.status === 'deactivated') {
-                    <button type="button" class="dp-act dp-act--accent" (click)="reactivate(h)" title="Reactivate hostname">
-                      Reactivate
-                    </button>
-                  } @else {
-                    @if (!h.isActive) {
-                      <button type="button" class="dp-act" (click)="setDefault(h)" title="Set as primary">
-                        Set as default
-                      </button>
-                    }
-                    @if (!h.isDefault) {
-                      <button type="button" class="dp-act dp-act--mute" (click)="deactivate(h)" title="Stop serving traffic on this hostname">
-                        Deactivate
-                      </button>
-                    }
-                  }
+                  <button
+                    type="button"
+                    class="dp-act"
+                    [cdkMenuTriggerFor]="actionsMenu"
+                    [attr.aria-label]="'Domain actions for ' + h.hostname"
+                    aria-haspopup="menu"
+                    title="More actions"
+                  >
+                    ⋯
+                  </button>
+                  <ng-template #actionsMenu>
+                    <div cdkMenu class="dp-menu">
+                      @if (h.status !== 'deactivated') {
+                        <button type="button" cdkMenuItem class="dp-menu-item" (cdkMenuItemTriggered)="copyHostname(h)">
+                          Copy URL
+                        </button>
+                        <button type="button" cdkMenuItem class="dp-menu-item" (cdkMenuItemTriggered)="openHostname(h)">
+                          Open in tab
+                        </button>
+                      }
+                      @if (h.status === 'deactivated') {
+                        <button type="button" cdkMenuItem class="dp-menu-item dp-menu-item--accent" (cdkMenuItemTriggered)="reactivate(h)">
+                          Reactivate
+                        </button>
+                      } @else {
+                        @if (!h.isActive) {
+                          <button type="button" cdkMenuItem class="dp-menu-item" (cdkMenuItemTriggered)="setDefault(h)">
+                            Set as default
+                          </button>
+                        }
+                        @if (!h.isDefault) {
+                          <button type="button" cdkMenuItem class="dp-menu-item dp-menu-item--mute" (cdkMenuItemTriggered)="deactivate(h)">
+                            Deactivate
+                          </button>
+                        }
+                      }
+                    </div>
+                  </ng-template>
                 </div>
               </div>
             }

@@ -1024,3 +1024,52 @@ textarea {
   }
 }
 
+/* ── Domain-picker CdkMenu overlay ──────────────────────────────────────────
+ * CdkMenu renders at document.body so component-scoped styles do NOT apply.
+ * All .dp-menu / .dp-menu-item rules MUST live here (global stylesheet).    */
+.dp-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 148px;
+  padding: 4px 0;
+  background: color-mix(in oklch, var(--ps-bg, #060610) 80%, #1a1a2e);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
+  z-index: var(--ps-z-overlay-takeover, 100000);
+  overflow: hidden;
+}
+
+.dp-menu-item {
+  all: unset;
+  display: block;
+  width: 100%;
+  padding: 7px 14px;
+  font: 500 0.8rem/1.4 'Space Grotesk', ui-sans-serif, sans-serif;
+  color: var(--ps-ink, #f4f4ff);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+  box-sizing: border-box;
+
+  &:hover,
+  &:focus-visible {
+    background: color-mix(in oklch, var(--ps-accent, #00e5ff) 10%, transparent);
+    color: var(--ps-accent, #00e5ff);
+    outline: none;
+  }
+
+  &.dp-menu-item--accent {
+    color: var(--ps-accent, #00e5ff);
+  }
+
+  &.dp-menu-item--mute {
+    color: rgba(244, 244, 255, 0.5);
+
+    &:hover,
+    &:focus-visible {
+      color: #ff6b6b;
+      background: rgba(255, 107, 107, 0.08);
+    }
+  }
+}
+

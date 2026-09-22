@@ -320,3 +320,79 @@ describe('DomainPickerComponent — always-present, non-strandable default subdo
     }
   });
 });
+
+describe('DomainPickerComponent — overflow menu (⋯ trigger) ARIA + handler contract', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  function setup(hostnames: Array<{ id: string; hostname: string; status: string; is_primary: boolean }> = []) {
+    const site = { id: 's1', slug: 'acme', primary_hostname: null };
+    const api: Record<string, unknown> = {
+      get: () => of({ data: [] }),
+      post: () => of({ data: {} }),
+      getHostnames: () => of({ data: hostnames }),
+      addHostname: () => of({ data: {} }),
+      setPrimaryHostname: () => of(undefined),
+      resetPrimaryHostname: () => of(undefined),
+      unsubscribeHostname: () => of(undefined),
+      searchDomainsEnriched: () => of({ results: [] }),
+    };
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [DomainPickerComponent],
+      providers: [
+        { provide: AdminStateService, useValue: { selectedSite: signal(site), sites: signal([site]) } },
+        { provide: ApiService, useValue: api },
+        {
+          provide: BillingService,
+          useValue: { walletState: () => ({ has_wallet: false, balance_cents: 0 }), start: () => undefined, stop: () => undefined, refreshWallet: () => undefined },
+        },
+        { provide: TelemetryService, useValue: { track: () => undefined } },
+        { provide: ToastService, useValue: { info: () => 0, error: () => 0, success: () => 0, warning: () => 0, dismiss: () => undefined } },
+        { provide: Router, useValue: { navigate: () => Promise.resolve(true) } },
+      ],
+    });
+    const fixture = TestBed.createComponent(DomainPickerComponent);
+    const c = fixture.componentInstance;
+    c.hostnames.set(hostnames as never);
+    c.open.set(true);
+    fixture.detectChanges();
+    return { fixture, c, api };
+  }
+
+  it('renders one ⋯ trigger button per assigned-domain row with aria-haspopup="menu"', () => {
+    const { fixture } = setup([{ id: 'h1', hostname: 'acme.com', status: 'active', is_primary: true }]);
+    const el = fixture.nativeElement as HTMLElement;
+    const triggers = el.querySelectorAll('button[aria-haspopup="menu"]');
+    expect(triggers.length).withContext('one ⋯ trigger per assigned row').toBeGreaterThanOrEqual(1);
+  });
+
+  it('trigger aria-label names the domain it controls', () => {
+    const { fixture } = setup([{ id: 'h1', hostname: 'acme.com', status: 'active', is_primary: true }]);
+    const el = fixture.nativeElement as HTMLElement;
+    const trigger = el.querySelector('button[aria-haspopup="menu"][aria-label*="acme.com"]');
+    expect(trigger).withContext('trigger must carry aria-label mentioning the hostname').not.toBeNull();
+  });
+
+  it('copyHostname handler invokes clipboard.writeText with the https:// URL', () => {
+    const { c } = setup([{ id: 'h1', hostname: 'acme.com', status: 'active', is_primary: true }]);
+    const writeText = jasmine.createSpy('writeText').and.returnValue(Promise.resolve());
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      const row = c.filteredAssigned().find((r) => r.hostname === 'acme.com')!;
+      c.copyHostname(row);
+      expect(writeText).toHaveBeenCalledWith('https://acme.com');
+    } finally {
+      if (original) Object.defineProperty(navigator, 'clipboard', original);
+      else delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  });
+
+  it('openHostname handler calls window.open with the https:// URL', () => {
+    const { c } = setup([{ id: 'h1', hostname: 'acme.com', status: 'active', is_primary: true }]);
+    const openSpy = spyOn(window, 'open');
+    const row = c.filteredAssigned().find((r) => r.hostname === 'acme.com')!;
+    c.openHostname(row);
+    expect(openSpy).toHaveBeenCalledWith('https://acme.com', '_blank', 'noopener,noreferrer');
+  });
+});
