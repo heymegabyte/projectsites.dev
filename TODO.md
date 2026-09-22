@@ -41,10 +41,12 @@ follow published conventions per the global rule `style-guide-driven-decisions`.
   "Set as default" on it routes to the reset-primary endpoint. `domain-picker.component.ts` +
   `api.service.ts` (`resetPrimaryHostname`). 5 Karma specs; 1854 green; deployed to R2 prod.
 - [ ] **Domain-dropdown overhaul (Msg-1) — remaining parts.** Per-row activate `role=switch` + ⋯
-  menu (set-primary · auto-re-register · **copy ✅ + open ✅ shipped 2026-09-22** · remove w/ DialogShell
-  confirm); merge $17/mo wallet CTA into the compact header; SWR-cache + pre-warm
-  AI-picks/refine/Load-More; WCAG-2.2 keyboard menu; `hostnames.auto_reregister` D1 column + renewal
-  endpoint (own sub-task — reversible D1 migration). Each is its own focused pass.
+  menu (set-primary · auto-re-register · **copy ✅ + open ✅ shipped 2026-09-22**, rows now degrade
+  gracefully on mobile ✅ · remove w/ DialogShell confirm); merge $17/mo wallet CTA into the compact
+  header; SWR-cache + pre-warm AI-picks/refine/Load-More; WCAG-2.2 keyboard menu;
+  `hostnames.auto_reregister` D1 column + renewal endpoint (own sub-task — reversible D1 migration).
+  ⚠️ The ⋯-overflow-menu consolidation needs a menu/overlay primitive the app lacks (no Spartan/CDK
+  menu present) → build/vendor one first; it's a dedicated pass, not an inline slice.
 
 ## Source-TODO sweep (2026-09-22) — repository is effectively TODO-clean
 
