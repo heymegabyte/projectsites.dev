@@ -133,7 +133,7 @@ export const SERVICE_REGISTRY: readonly ServiceRegistryEntry[] = [
     status: 'production',
     access: 'service-only',
     notes:
-      'Resumable Google Drive asset ingest. Binding DRIVE_SYNC_WORKFLOW (class DriveSyncWorkflow).',
+      'Resumable Google Drive → AI-context ingest (list→dedupe→fetch→extract→persist ai_context_files). Binding DRIVE_SYNC_WORKFLOW (class DriveSyncWorkflow).',
   },
   {
     id: 'image-generation-workflow',
@@ -170,6 +170,35 @@ export const SERVICE_REGISTRY: readonly ServiceRegistryEntry[] = [
     access: 'service-only',
     notes:
       'Per-account fan-out for pulse_posts social publishing. Binding SOCIAL_PUBLISH_WORKFLOW (class SocialPublishWorkflow).',
+  },
+  {
+    id: 'workers-ai',
+    name: 'Workers AI (LLM inference + embeddings)',
+    category: 'ai',
+    runtime: 'cloudflare-managed',
+    status: 'production',
+    access: 'service-only',
+    notes: 'Binding AI — Llama 3.3 70B FP8 generation + BGE embeddings. Distinct from ai-gateway (the routing/caching layer in front of it).',
+  },
+  {
+    id: 'vectorize-rag',
+    name: 'Vectorize (RAG vector index)',
+    category: 'data',
+    runtime: 'cloudflare-managed',
+    datastore: ['Vectorize'],
+    status: 'production',
+    access: 'service-only',
+    notes: 'Binding RAG_INDEX — 768-dim cosine index (projectsites-rag) powering embed/semanticSearch/AutoRAG; metadata indexes on kind + orgId.',
+  },
+  {
+    id: 'wfp-dispatch',
+    name: 'Workers for Platforms (Functions dispatch)',
+    category: 'edge',
+    runtime: 'cloudflare-worker',
+    ownerPackage: 'apps/project-sites/src/services/wfp_dispatch.ts',
+    status: 'production',
+    access: 'service-only',
+    notes: 'Binding USER_DISPATCH — dispatch namespace project-sites-endpoints for code-defined per-site Functions. Optional: isWfpConfigured()=false → 503 when unbound (ADR-0035).',
   },
   {
     id: 'workflow-router',

@@ -73,6 +73,22 @@
   entries, cross-check `wrangler.toml`. Prevents future invisible services. Also verify `event-dispatcher`
   + `traces-langfuse` (declared containers, no binding — intended-future vs orphan?).
 
+### Cycle 5 — 2026-09-23 — Registry completion: Workers AI + Vectorize + WfP dispatch (+ drive-sync precision)
+- **Slice (continues Cycle 4):** added the 3 remaining production platform SERVICES that lacked a
+  `SERVICE_REGISTRY` entry: `workers-ai` (binding AI — inference + embeddings, distinct from ai-gateway),
+  `vectorize-rag` (binding RAG_INDEX — 768-dim RAG index), `wfp-dispatch` (binding USER_DISPATCH —
+  Workers-for-Platforms Functions; `src/services/wfp_dispatch.ts` verified present). Every service-kind
+  production binding except ratelimit primitives now has a catalog entry.
+- **Precision fix:** tightened the `drive-sync-workflow` note after reading `src/workflows/drive-sync.ts` —
+  it's Google Drive → AI-context ingest (5 steps: list→dedupe→fetch→extract→persist `ai_context_files`),
+  not generic "asset ingest".
+- **Verification:** `check:fitness` 0 violations; tsc no service-registry errors. File: `service-registry.ts`.
+- **Bindings intentionally WITHOUT a dedicated entry:** CACHE_KV + PROMPT_STORE (KV — carried as `datastore`
+  on site-serving, not standalone services); OAUTH_RATELIMIT + FUNCTIONS_RATELIMIT (ratelimit primitives,
+  excluded); SITE_BUILDER (build container — covered by `site-generation-workflow` "Workflow + Container").
+- **Next slice (spec'd):** the coherence GATE (binding→entry; add `binding?` field; cross-check `wrangler.toml`;
+  exclude ratelimit) to prevent future invisible services.
+
 ## Environment constraint (this session)
 Auto-mode Opus safety-classifier is intermittently down → `Agent` spawns, `git pull/push`,
 and `rm` are classifier-gated and failing. So this loop is running **read-only discovery +
