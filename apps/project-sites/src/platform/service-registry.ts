@@ -178,7 +178,8 @@ export const SERVICE_REGISTRY: readonly ServiceRegistryEntry[] = [
     runtime: 'cloudflare-managed',
     status: 'production',
     access: 'service-only',
-    notes: 'Binding AI — Llama 3.3 70B FP8 generation + BGE embeddings. Distinct from ai-gateway (the routing/caching layer in front of it).',
+    notes:
+      'Binding AI — Llama 3.3 70B FP8 generation + BGE embeddings. Distinct from ai-gateway (the routing/caching layer in front of it).',
   },
   {
     id: 'vectorize-rag',
@@ -188,7 +189,8 @@ export const SERVICE_REGISTRY: readonly ServiceRegistryEntry[] = [
     datastore: ['Vectorize'],
     status: 'production',
     access: 'service-only',
-    notes: 'Binding RAG_INDEX — 768-dim cosine index (projectsites-rag) powering embed/semanticSearch/AutoRAG; metadata indexes on kind + orgId.',
+    notes:
+      'Binding RAG_INDEX — 768-dim cosine index (projectsites-rag) powering embed/semanticSearch/AutoRAG; metadata indexes on kind + orgId.',
   },
   {
     id: 'wfp-dispatch',
@@ -198,7 +200,8 @@ export const SERVICE_REGISTRY: readonly ServiceRegistryEntry[] = [
     ownerPackage: 'apps/project-sites/src/services/wfp_dispatch.ts',
     status: 'production',
     access: 'service-only',
-    notes: 'Binding USER_DISPATCH — dispatch namespace project-sites-endpoints for code-defined per-site Functions. Optional: isWfpConfigured()=false → 503 when unbound (ADR-0035).',
+    notes:
+      'Binding USER_DISPATCH — dispatch namespace project-sites-endpoints for code-defined per-site Functions. Optional: isWfpConfigured()=false → 503 when unbound (ADR-0035).',
   },
   {
     id: 'workflow-router',
