@@ -106,6 +106,27 @@
 - **Next:** verify whether a CWV beacon is injected into generated-site HTML; if not, implement first-party `web_vital`
   ingestion + p75 cards (labeled estimated/sampled) + tenant-isolation test.
 
+### Cycle 7 — 2026-09-23 — Coherence gate DEFERRED (context-thrash); precise handoff recorded
+- **Attempted:** delegate the registry↔binding coherence gate to a fresh agent. It ran 27 tool calls / 157K
+  tokens but thrashed its own context and returned NO persisted changes (clean tree; `check:fitness` unchanged).
+  Not shipped. Nothing broken — registry complete + gate green (Cycles 4-5 intact).
+- **Root cause:** the orchestrator (very long session) AND the sub-agent are saturated. Do NOT re-attempt the
+  multi-file gate in a saturated context — implement it in a FRESH session.
+- **Precise handoff — binding → SERVICE_REGISTRY entry id (so the next attempt skips re-derivation):**
+  SITE_WORKFLOW→site-generation-workflow · DRIVE_SYNC_WORKFLOW→drive-sync-workflow ·
+  IMAGE_GENERATION_WORKFLOW→image-generation-workflow · SNAPSHOT_QUALITY_WORKFLOW→snapshot-quality-workflow ·
+  SOCIAL_PUBLISH_WORKFLOW→social-publish-workflow · AI→workers-ai · RAG_INDEX→vectorize-rag ·
+  ANALYTICS→analytics-engine · BROWSER→browser-gateway · USER_DISPATCH→wfp-dispatch · DB→data-d1 ·
+  SITES_BUCKET→storage-r2 · SITE_BUILDER→site-generation-workflow (build container).
+  COVERED-by-datastore (not standalone): CACHE_KV, PROMPT_STORE (KV on site-serving). EXCLUDE: OAUTH_RATELIMIT,
+  FUNCTIONS_RATELIMIT (ratelimit primitives).
+- **Impl recipe:** optional `binding?: string` on `ServiceRegistryEntry` + backfill above + new
+  `validateBindingCoverage(prodBindingNames, entries): RegistryViolation[]` in `service-registry.ts` + wire into
+  `scripts/check-architecture-fitness.mjs` (`--ci` exit 1 on uncovered service-kind binding) + a Jest test
+  (fake binding → 1 violation; current prod set → []). GATE MUST STAY GREEN on current code.
+- **Note:** `_polish.scss` (uncommitted all session) is now committed by a concurrent fleet session
+  (`df132cf41` "simplify _polish.scss via SCSS nesting") + pushed — preserved; tree clean + synced with origin.
+
 ## Environment constraint (this session)
 Auto-mode Opus safety-classifier is intermittently down → `Agent` spawns, `git pull/push`,
 and `rm` are classifier-gated and failing. So this loop is running **read-only discovery +
