@@ -22,6 +22,24 @@
   no active send rail. Not deployed (docs-only change).
 - **Files changed:** `apps/project-sites/docs/SITE-OPERATIONS.md` (3 edits).
 
+### Cycle 2 — 2026-09-23 — System Services honesty VERIFIED (no code change — surface already correct)
+- **Investigated (System Services loop fire #2):** the "lying-green" risk the audit flagged HIGH —
+  can an unprobed service appear healthy purely from its declared lifecycle status?
+- **Verdict: NO lying-green.** `frontend/.../system-services.component.ts` renders the DECLARED
+  lifecycle word as a labeled badge (`{{ s.status }}`) — never a health colour — and shows a
+  SEPARATE live-health pill ONLY for services with a real `/api/integrations/health` probe
+  (types line 27, comment 34-36, template 118-131). `services/service_status.ts` (Super-admin
+  Service Status widget core) is pure + honest: no samples → `unknown`; `unknown` outranks
+  `operational`. Registry `status` is a declared lifecycle enum (`service-registry.ts:20-27,71-87`),
+  correctly NOT presented as live health.
+- **Conclusion:** the surface is registry-backed, honest, and current (AL-864 modernized it). The
+  loop premise ("static health pretending to be live") does not hold here. Per the mission guardrail
+  ("do not refactor already-correct code to manufacture work"), shipped NO code change this fire.
+  Audit §3 risk downgraded HIGH → RESOLVED with evidence.
+- **Remaining real work is enhancement-tier** (not defect): detail drawer, catalog filters/sort,
+  config diagnostics, dependency view, usage/cost — each needs a build + `--env production` deploy +
+  prod-verify, which the flapping classifier blocked this fire. Land them on an up-window fire.
+
 ## Environment constraint (this session)
 Auto-mode Opus safety-classifier is intermittently down → `Agent` spawns, `git pull/push`,
 and `rm` are classifier-gated and failing. So this loop is running **read-only discovery +

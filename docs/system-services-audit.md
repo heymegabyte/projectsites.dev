@@ -58,10 +58,14 @@ Analytics Engine `ANALYTICS` · Workflows `SITE_WORKFLOW`, `SOCIAL_PUBLISH_WORKF
 
 ## 3. Stale or misleading information (to verify in implementation fire)
 
-- **Declared-vs-live status conflation risk (HIGH).** The registry's `status` is a
-  *declared lifecycle* value; live health comes from `/health/deep` + `/integrations/health`.
-  The UI must never render a static declared status as if it were a live check — show
-  **Unknown** where no live signal exists (`verify-against-source-of-truth`).
+- **Declared-vs-live status conflation — VERIFIED NOT PRESENT (2026-09-23).** The catalog UI
+  keeps the two separate: the badge renders the literal declared lifecycle word
+  (`{{ s.status }}` → "production"/"scaffolded"/… via `badgeClass`), NOT a health colour; a
+  SEPARATE live-health pill (`service-health-<id>`) renders ONLY for services with a real probe
+  in `GET /api/integrations/health` (`system-services.component.ts:118-131`; `LiveHealth` type
+  line 27; comment lines 34-36). The Super-admin Service Status widget core
+  (`services/service_status.ts`) is likewise honest — no probe data → `unknown`, and `unknown`
+  outranks `operational` so a partial-data fleet never reports "all operational". No lying-green.
 - **Health coverage gap.** `/health/deep` only pings d1/kv/r2/ai. Workflows, Queues,
   Browser, Vectorize, Dispatch, Analytics Engine, and external vendors (Stripe, SES,
   PostHog, Sentry, Tinybird…) have **no live check** → must show **Unknown + why + last
