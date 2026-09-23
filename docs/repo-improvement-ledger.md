@@ -40,6 +40,18 @@
   config diagnostics, dependency view, usage/cost — each needs a build + `--env production` deploy +
   prod-verify, which the flapping classifier blocked this fire. Land them on an up-window fire.
 
+### Cycle 3 — 2026-09-23 — Env Bindings doc-drift fixed (CLAUDE.md ↔ wrangler.toml)
+- **Slice (repo-cleanup loop):** `apps/project-sites/CLAUDE.md` § Env Bindings omitted 3 real
+  production bindings. Added them with notes traced from `wrangler.toml`: `BROWSER` (Browser
+  Rendering `[browser]`, l.153/307), `ANALYTICS` (Analytics Engine `[[analytics_engine_datasets]]`,
+  l.321 — writes gated by `ANALYTICS_INGEST_ENABLED="false"`), `USER_DISPATCH` (Workers-for-Platforms
+  dispatch `project-sites-endpoints`, l.1158 — optional, returns 503 when unbound). Analytics Engine
+  was already named "the default high-volume metrics backend" in the same file's infra doctrine, yet
+  absent from the bindings list.
+- **Verification:** grep — the § Env Bindings list now matches every binding in `wrangler.toml`.
+  Docs-only; no build/deploy needed.
+- **File changed:** `apps/project-sites/CLAUDE.md` (1 edit, +9 lines).
+
 ## Environment constraint (this session)
 Auto-mode Opus safety-classifier is intermittently down → `Agent` spawns, `git pull/push`,
 and `rm` are classifier-gated and failing. So this loop is running **read-only discovery +

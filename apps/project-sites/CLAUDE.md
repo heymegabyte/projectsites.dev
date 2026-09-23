@@ -748,6 +748,14 @@ dbExecute(db, sql, params)       // Raw execute
 - `RAG_INDEX`: Vectorize binding (768-dim cosine, `projectsites-rag`). Create via
   `npx wrangler vectorize create projectsites-rag --dimensions=768 --metric=cosine`
   plus metadata indexes on `kind` and `orgId`. See `docs/DEPLOYMENT.md`.
+- `BROWSER`: Browser Rendering binding (`[browser]`) — headless Chromium for screenshots,
+  snapshots, and the browser gateway (`services/browser_gateway.ts`).
+- `ANALYTICS`: Analytics Engine dataset binding (`[[analytics_engine_datasets]]`) — the default
+  high-volume metrics backend (per Infrastructure doctrine above). Writes are gated by the
+  `ANALYTICS_INGEST_ENABLED` var (currently `"false"`).
+- `USER_DISPATCH`: Workers-for-Platforms dispatch namespace (`project-sites-endpoints`) for
+  code-defined Functions. Optional — `isWfpConfigured()` returns false and the dispatch handler
+  returns `503` when the binding is absent (ADR-0035, `docs/FUNCTIONS-CONVERGENCE.md`).
 - `AI_GATEWAY_ENABLED` (var): when `"true"` + `CF_ACCOUNT_ID` set, routes
   OpenAI + Anthropic via `gateway.ai.cloudflare.com/v1/{account}/projectsites/{provider}`.
   Falls back to direct vendor URL on 5xx. See `docs/AI_INTEGRATION.md`.
