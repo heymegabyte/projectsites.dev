@@ -89,6 +89,23 @@
 - **Next slice (spec'd):** the coherence GATE (binding→entry; add `binding?` field; cross-check `wrangler.toml`;
   exclude ratelimit) to prevent future invisible services.
 
+### Cycle 6 — 2026-09-23 — Analytics loop iteration 1: coverage matrix + corrected gap (NEW loop 65648642)
+- **Slice (analytics loop, fresh):** Phase-1 inspection (delegated) → landed `docs/analytics-coverage-matrix.md`
+  (the mandated artifact). Admin analytics reads D1 `visitor_events` (first-party); tenant isolation SAFE
+  (`resolveOwnedSiteId`, org-scoped, 404 on mismatch); CF-zone GraphQL is fallback-only (prior "no traffic"
+  source-bug fixed).
+- **Corrected a wrong agent conclusion (verify-against-source-of-truth):** the Explore agent flagged "client beacon
+  not deployed → device/geo/channel empty" as the #1 gap. Reading `recordPageviewFromRequest`
+  (`visitor_events_core/service.ts:116`) disproved it — pageviews are recorded server-side per serve AND enriched
+  in-place (country/city/region from `request.cf`; device/browser/os + channel/utm from `enrichVisitor(ua)`;
+  bot-filtered). Those cards are REAL, no beacon needed. Prevented a phantom Large "beacon backfill" next fire.
+- **Real highest-impact gap:** Core Web Vitals (LCP/INP/CLS) missing entirely (prompt emphasizes real-user-experience)
+  — needs a beacon (CF Web Analytics or first-party `web-vitals` → `/api/events`) with a "measurement enabled?" gate.
+  Size M–L. Runner-up (smaller): source + freshness + "unavailable ≠ zero" labels in the UI.
+- **Verification:** docs-only this fire. No code/deploy.
+- **Next:** verify whether a CWV beacon is injected into generated-site HTML; if not, implement first-party `web_vital`
+  ingestion + p75 cards (labeled estimated/sampled) + tenant-isolation test.
+
 ## Environment constraint (this session)
 Auto-mode Opus safety-classifier is intermittently down → `Agent` spawns, `git pull/push`,
 and `rm` are classifier-gated and failing. So this loop is running **read-only discovery +
