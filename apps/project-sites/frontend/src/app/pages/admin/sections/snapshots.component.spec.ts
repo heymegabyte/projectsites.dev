@@ -301,6 +301,30 @@ describe('AdminSnapshotsComponent — quality-metrics batch keys by snapshot_id'
     expect(c.metricsBySnapshotId().has('0')).withContext('never keyed by array index').toBe(false);
   });
 
+  it('carries the AI vision critique (vision_notes + vision_overall) through to the metrics cache', () => {
+    // The snapshot-quality workflow stores a holistic score + written critique
+    // (vision_overall / vision_notes) alongside the 6-axis radar blob. Both ride
+    // the batch SELECT m.* → this pins that they reach the render layer that now
+    // surfaces the critique beside the radar (were computed+stored but invisible).
+    const c = makeMetrics(
+      of({
+        data: [
+          {
+            snapshot_id: 'snapA',
+            lh_performance: 88,
+            vision_overall: 9,
+            vision_notes: 'Confident hero, strong type hierarchy, cohesive palette.',
+            vision_model: 'llama-4-scout',
+          },
+        ],
+      }),
+    );
+    c.retryLoadSnapshots();
+    const m = c.metricsBySnapshotId().get('snapA');
+    expect(m?.vision_overall).withContext('holistic score reaches the render layer').toBe(9);
+    expect(m?.vision_notes).withContext('written critique reaches the render layer').toContain('hero');
+  });
+
   it('a non-array (legacy Record) response populates nothing — no fake index keys, no crash', () => {
     const c = makeMetrics(of({ data: { snapA: { lh_performance: 90 } } as never }));
     c.retryLoadSnapshots();

@@ -61,6 +61,12 @@ interface SnapshotMetrics {
   error: string | null;
   /** 6-axis Llama-4 Scout visual score blob (already on the wire via SELECT *). */
   vision_scores_json?: string | null;
+  /** Holistic 0–10 visual score from Llama-4 Scout (distinct from the axis average). */
+  vision_overall?: number | null;
+  /** The model's written critique of the capture's visual quality (already stored, never surfaced until now). */
+  vision_notes?: string | null;
+  /** Which vision model produced the score — provenance for the critique. */
+  vision_model?: string | null;
 }
 
 type MetricTier = 'green' | 'yellow' | 'red' | 'neutral';
@@ -554,9 +560,19 @@ interface GhStatus {
                               </div>
                             }
 
-                            <!-- S3 — 6-axis visual score radar (only when AI vision scored this capture). -->
+                            <!-- S3 — 6-axis visual score radar + AI critique (only when AI vision scored this capture). -->
                             @if (visionAxes(m); as axes) {
                               <app-vision-radar [scores]="axes" />
+                              @if (m.vision_notes) {
+                                <p class="text-[0.72rem] text-text-secondary leading-relaxed m-0 mt-1 max-w-[240px]"
+                                   data-testid="vision-notes"
+                                   [attr.title]="m.vision_model ? 'Scored by ' + m.vision_model : null">
+                                  @if (m.vision_overall !== null && m.vision_overall !== undefined) {
+                                    <span class="font-bold" [style.color]="'var(--ps-accent, #00e5ff)'">{{ m.vision_overall }}/10</span> —
+                                  }
+                                  {{ m.vision_notes }}
+                                </p>
+                              }
                             }
 
                             <div class="snap-metrics-pills">

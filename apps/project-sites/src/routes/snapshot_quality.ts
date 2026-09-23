@@ -74,6 +74,11 @@ interface MetricsRow {
   contrast_failures: number | null;
   target_size_failures: number | null;
   screenshot_r2_key: string | null;
+  // Vision (Workers AI Llama 4 Scout) — persisted by the snapshot-quality workflow (migration 0043).
+  vision_overall: number | null;
+  vision_scores_json: string | null;
+  vision_notes: string | null;
+  vision_model: string | null;
   captured_at: string;
   captured_via: string;
   duration_ms: number | null;
