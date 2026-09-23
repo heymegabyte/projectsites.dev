@@ -21,7 +21,6 @@ import { TranslateService } from '@ngx-translate/core';
 import { BrnTooltipImports } from '@spartan-ng/brain/tooltip';
 import { filter, Subscription } from 'rxjs';
 
-import { AiChatWidgetComponent } from '../../components/ai-chat-widget/ai-chat-widget.component';
 import { DomainPickerComponent } from '../../components/domain-picker/domain-picker.component';
 import { GlobalDropZoneComponent } from '../../components/global-drop-zone/global-drop-zone.component';
 import { NavIconComponent } from '../../components/nav-icon/nav-icon.component';
@@ -92,7 +91,6 @@ export const G_CHORD_ROUTES: Readonly<Record<string, string>> = {
     RouterModule,
     CommandPaletteComponent,
     ShortcutsOverlayComponent,
-    AiChatWidgetComponent,
     SectionErrorBoundaryComponent,
     FocusTrapDirective,
     DomainPickerComponent,
