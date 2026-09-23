@@ -3,7 +3,7 @@
 > Brian directive (2026-09-20, via `/loop`): re-imagine "Super admin" into a full **Site
 > Operations** console — scroll/search/sort every site (up to 1M), manage each site + each
 > user account, send emails for common events, manually charge/refund, view account status,
-> bulk management. PLUS: fully remove **Resend** everywhere (incl. System Services).
+> bulk management. (Resend send-rail removal is DONE — SES is the sole rail; the per-site Resend MCP is kept. See § Resend removal.)
 >
 > This is a **multi-fire build**. This doc is the spec; each 30-min fire ships ONE safe,
 > verifiable slice against it, then self-cancels the loop after the system is complete.
@@ -55,19 +55,22 @@ OUT (deferred, lower ROI for v1): custom-role editor, Slack audit mirror, region
   riskiest (hard-delete, bulk-charge). Fail-closed entitlement/role checks. Every new capability behind
   a feature flag (`site_operations`, `enabled=0, stage=experimental`).
 
-## Resend removal (explicitly requested — scoped, its own careful fire)
+## Resend removal — DONE (verified 2026-09-23; send rail complete, per-site MCP kept)
 
-`resend` is referenced in ~17 frontend + ~30 worker files. CAVEAT: `platform/email.ts` +
-`email-router.ts` + `service-registry.ts` are the **SES→Resend→SendGrid fallback chain (ADR-0019)** —
-this is money/comms-critical (golden-journey emails ride it). Removal plan:
-1. Email rail: drop the Resend arm from `email-router.ts`/`email.ts`/`service-registry.ts` → SES
-   primary + **SendGrid** sole break-glass fallback. Keep all send call-sites. Run the email test suite
-   (`notifications_ses_migration`, `email_port`, `contact_form`, `weekly_digest`, …) GREEN.
-2. Per-site **Resend MCP** integration (customer's own key): remove from `mcp-providers.ts` catalog +
-   `env-vars-attachment` + any connect UI (Brian now wants it gone everywhere).
-3. **System Services**: remove the Resend entry from `system-services.component.ts` + the health probe.
-4. Docs/press/legal/onboarding copy mentions → scrub. Grep `-i resend` must be empty (except ADR history).
-5. New ADR `0020-resend-fully-removed.md` superseding the ADR-0019 Resend arm.
+The email SEND rail no longer touches Resend: **Amazon SES is the sole provider, SendGrid the
+only break-glass fallback** (ADR-0019). Verified in `src/types/env.ts:528` ("Resend removed
+2026-09-09 — SES is the canonical provider"), `src/platform/service-registry.ts:458` (`resend`
+sits in `EXCLUDED_VENDORS`), and the email regression suite (`api_routes`, `auth`,
+`contact_form`, `weekly-digest`, `notifications_ses_migration`, `form_router`) which asserts
+`api.resend.com` is never called. System Services no longer lists Resend (ledger AL-864,
+deployed live 2026-09-20).
+
+**Per-site Resend MCP is KEPT** — a customer connecting THEIR OWN Resend key is a separate
+product feature (root `CLAUDE.md` § MCP OAuth + "Removed — never reintroduce"). The earlier
+"remove the MCP everywhere" step was superseded by that decision; do NOT strip the per-site MCP.
+
+Remaining (verify before claiming fully complete): scrub any stale Resend copy in
+press/legal/onboarding docs, and confirm whether ADR `0020-resend-fully-removed.md` was filed.
 
 ## Phased plan (one per fire; self-cancel loop `eeec8269` when Phase 4 verified)
 
@@ -79,5 +82,5 @@ this is money/comms-critical (golden-journey emails ride it). Removal plan:
   1M-safe) + Site-360 + the safe actions (suspend/restore/resend-email/rebuild). E2E + a11y + deploy R2 + real-browser verify.
 - **Phase 3** — Users table + User-360 + billing ops (charge/refund through the Stripe wrapper + ledger +
   reason-enum) + send-email (governed templates) + impersonation (time-boxed/audited). E2E + verify.
-- **Phase 4** — bulk ops (dry-run→confirm→rollback) + **Resend full removal** (the 5 steps above, email
-  suite green) + retire the old "Super admin" nav into Site Operations. Verify → self-cancel the loop.
+- **Phase 4** — bulk ops (dry-run→confirm→rollback) + **Resend send-rail removal DONE** (SES sole rail,
+  per-site MCP kept — see § Resend removal) + retire the old "Super admin" nav into Site Operations. Verify → self-cancel the loop.
