@@ -132,7 +132,8 @@ export const SERVICE_REGISTRY: readonly ServiceRegistryEntry[] = [
     ownerPackage: 'apps/project-sites/src/workflows/drive-sync.ts',
     status: 'production',
     access: 'service-only',
-    notes: 'Resumable Google Drive asset ingest. Binding DRIVE_SYNC_WORKFLOW (class DriveSyncWorkflow).',
+    notes:
+      'Resumable Google Drive asset ingest. Binding DRIVE_SYNC_WORKFLOW (class DriveSyncWorkflow).',
   },
   {
     id: 'image-generation-workflow',
@@ -143,7 +144,8 @@ export const SERVICE_REGISTRY: readonly ServiceRegistryEntry[] = [
     datastore: ['R2'],
     status: 'production',
     access: 'service-only',
-    notes: 'Resumable DALL·E → Stability fallback image generation. Binding IMAGE_GENERATION_WORKFLOW (class ImageGenerationWorkflow).',
+    notes:
+      'Resumable DALL·E → Stability fallback image generation. Binding IMAGE_GENERATION_WORKFLOW (class ImageGenerationWorkflow).',
   },
   {
     id: 'snapshot-quality-workflow',
@@ -154,7 +156,8 @@ export const SERVICE_REGISTRY: readonly ServiceRegistryEntry[] = [
     datastore: ['D1', 'R2'],
     status: 'production',
     access: 'service-only',
-    notes: 'Screenshot + composition + SEO + a11y quality matrix. Binding SNAPSHOT_QUALITY_WORKFLOW (class SnapshotQualityWorkflow).',
+    notes:
+      'Screenshot + composition + SEO + a11y quality matrix. Binding SNAPSHOT_QUALITY_WORKFLOW (class SnapshotQualityWorkflow).',
   },
   {
     id: 'social-publish-workflow',
@@ -165,7 +168,8 @@ export const SERVICE_REGISTRY: readonly ServiceRegistryEntry[] = [
     datastore: ['D1'],
     status: 'production',
     access: 'service-only',
-    notes: 'Per-account fan-out for pulse_posts social publishing. Binding SOCIAL_PUBLISH_WORKFLOW (class SocialPublishWorkflow).',
+    notes:
+      'Per-account fan-out for pulse_posts social publishing. Binding SOCIAL_PUBLISH_WORKFLOW (class SocialPublishWorkflow).',
   },
   {
     id: 'workflow-router',
