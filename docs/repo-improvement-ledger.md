@@ -52,6 +52,27 @@
   Docs-only; no build/deploy needed.
 - **File changed:** `apps/project-sites/CLAUDE.md` (1 edit, +9 lines).
 
+### Cycle 4 — 2026-09-23 — 4 invisible production workflows registered (System Services visibility)
+- **Slice (System Services loop):** an Explore agent's registry↔binding coherence read found 4
+  production Cloudflare Workflow bindings live in `wrangler.toml` but ABSENT from `SERVICE_REGISTRY`,
+  so `/api/super-admin/services` never showed them (invisible services). Added accurate entries:
+  `drive-sync-workflow` (DRIVE_SYNC_WORKFLOW), `image-generation-workflow` (IMAGE_GENERATION_WORKFLOW),
+  `snapshot-quality-workflow` (SNAPSHOT_QUALITY_WORKFLOW), `social-publish-workflow`
+  (SOCIAL_PUBLISH_WORKFLOW) — real `ownerPackage` paths (`src/workflows/*.ts`, all verified present),
+  binding + class name in `notes`.
+- **Why it matters:** serves the Primary Goals "accurately represent the current architecture" +
+  "auto-stay-synchronized" — the UI reads the registry, so the 4 workflows surface in the System
+  Services catalog automatically on next worker deploy (no frontend change).
+- **Verification:** `npm run check:fitness` → 0 hard violations (`validateServiceRegistry` accepts the
+  entries); `service_registry.test.ts` 22/22 (widget-registry, no regression); tsc no service-registry
+  errors. File: `src/platform/service-registry.ts` (+40 lines). Deploy: worker deploy pending (data-only
+  registry change; ships on next `wrangler deploy --env production`).
+- **Next slice (spec'd):** coherence GATE in `check-architecture-fitness.mjs` failing when a production
+  wrangler binding (workflow/DO/KV/R2/D1/AI/browser/vectorize/analytics/dispatch; exclude ratelimit)
+  has no registry entry — add optional `binding?` to `ServiceRegistryEntry`, backfill CF-resource
+  entries, cross-check `wrangler.toml`. Prevents future invisible services. Also verify `event-dispatcher`
+  + `traces-langfuse` (declared containers, no binding — intended-future vs orphan?).
+
 ## Environment constraint (this session)
 Auto-mode Opus safety-classifier is intermittently down → `Agent` spawns, `git pull/push`,
 and `rm` are classifier-gated and failing. So this loop is running **read-only discovery +
