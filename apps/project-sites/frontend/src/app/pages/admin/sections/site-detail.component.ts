@@ -293,7 +293,10 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'schema'
             rows="5"
             aria-label="SQL query"
             [ngModel]="sqlQuery()"
-            (ngModelChange)="sqlQuery.set($event)"
+            (ngModelChange)="onSqlChange($event)"
+            (select)="syncSqlSelection($event)"
+            (keyup)="syncSqlSelection($event)"
+            (mouseup)="syncSqlSelection($event)"
             placeholder="SELECT * FROM ..."
           ></textarea>
           <div class="sql-starters" role="group" aria-label="Starter queries">
@@ -304,7 +307,9 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'schema'
             }
           </div>
           <div class="sql-toolbar">
-            <button type="button" (click)="runSql()" [disabled]="sqlRunning() || !sqlQuery().trim()">{{ sqlRunning() ? 'Running…' : 'Run' }}</button>
+            <button type="button" (click)="runSql()" [disabled]="sqlRunning() || !sqlQuery().trim()"
+                    data-testid="sql-run"
+                    title="Runs the whole editor — or, when you highlight text, just the selected statement.">{{ sqlRunning() ? 'Running…' : (hasSqlSelection() ? 'Run selection' : 'Run') }}</button>
             <button type="button" class="sql-explain-btn" data-testid="sql-explain"
                     (click)="explainSql()" [disabled]="explainRunning() || sqlRunning() || !sqlQuery().trim()"
                     title="Show the SQLite query plan (EXPLAIN QUERY PLAN) + index guidance. Does NOT run the query.">{{ explainRunning() ? 'Explaining…' : 'Explain' }}</button>
@@ -701,6 +706,29 @@ export class AdminSiteDetailComponent {
 
   // ── SQL ──────────────────────────────────────────────────────────────
   readonly sqlQuery = signal('');
+  /** Text currently selected in the editor (blank = nothing selected). Kept in sync by the
+   *  textarea's select/keyup/mouseup events so Run/Explain can target JUST the selected
+   *  statement (the epic's "selection / current-statement execution") — keep several
+   *  queries in the buffer, highlight one, run only it. */
+  readonly sqlSelection = signal('');
+  /** True when a non-blank selection exists → Run/Explain target the selection, not the buffer. */
+  readonly hasSqlSelection = computed(() => this.sqlSelection().trim().length > 0);
+  /** What Run/Explain execute: the SELECTION when one exists, else the whole editor. */
+  private effectiveSql(): string {
+    return this.sqlSelection().trim() || this.sqlQuery().trim();
+  }
+  /** Sync the live textarea selection into {@link sqlSelection} (bound to select/keyup/mouseup). */
+  syncSqlSelection(ev: Event): void {
+    const el = ev.target as HTMLTextAreaElement;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    this.sqlSelection.set(end > start ? el.value.slice(start, end) : '');
+  }
+  /** ngModel handler — update the query + drop a now-stale selection (typing collapses it). */
+  onSqlChange(v: string): void {
+    this.sqlQuery.set(v);
+    this.sqlSelection.set('');
+  }
   /** One-click starter queries — universal, read-only, pass both the client +
    *  server guards. Gives an empty console a guided first action (what tables
    *  exist?) instead of a blank `SELECT * FROM …` placeholder. */
@@ -712,6 +740,7 @@ export class AdminSiteDetailComponent {
   /** Fill the editor with a starter and run it (all starters are read-only). */
   useSqlStarter(query: string): void {
     this.sqlQuery.set(query);
+    this.sqlSelection.set(''); // a recalled query replaces the buffer → any prior selection is stale
     this.runSql();
   }
 
@@ -719,6 +748,7 @@ export class AdminSiteDetailComponent {
    *  then clicks Run). Shared by the saved-query + clickable-history recall. */
   loadQuery(sql: string): void {
     this.sqlQuery.set(sql);
+    this.sqlSelection.set(''); // replaced the buffer → drop a stale selection
   }
 
   /** Save the current editor query under a name for one-click reuse (per-site,
@@ -1132,7 +1162,7 @@ export class AdminSiteDetailComponent {
     // the POST for them (the tab is hidden anyway; this is defense-in-depth).
     if (!this.canUseSqlConsole()) return;
     if (this.sqlRunning()) return; // guard: no concurrent /sql/exec pile-up while one is in flight
-    const query = this.sqlQuery().trim();
+    const query = this.effectiveSql(); // the selection when one exists, else the whole editor
     if (!query) return;
     const write = AdminSiteDetailComponent.WRITE_LEAD.exec(query);
     if (write) {
@@ -1199,7 +1229,7 @@ export class AdminSiteDetailComponent {
   explainSql(): void {
     if (!this.canUseSqlConsole()) return;
     if (this.explainRunning() || this.sqlRunning()) return;
-    const query = this.sqlQuery().trim().replace(/;\s*$/, '');
+    const query = this.effectiveSql().replace(/;\s*$/, '');
     if (!query) return;
     const id = this.siteId();
     this.explainRunning.set(true);

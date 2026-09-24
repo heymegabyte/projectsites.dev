@@ -146,6 +146,56 @@ describe('AdminSiteDetailComponent (tabs + logs + SQL console)', () => {
     expect(c.isExpensiveScan(r)).toBeTrue(); // 12,000 read > 10,000 threshold → flagged
   });
 
+  it('runSql executes the SELECTION when one exists (not the whole buffer)', () => {
+    const { c, post } = make();
+    c.sqlQuery.set('SELECT 1;\nSELECT * FROM sites;');
+    c.sqlSelection.set('SELECT * FROM sites'); // user highlighted the 2nd statement
+    c.runSql();
+    expect(post).toHaveBeenCalled();
+    expect((post.calls.mostRecent().args[1] as { query: string }).query).toBe('SELECT * FROM sites');
+  });
+
+  it('runSql falls back to the whole buffer when the selection is blank', () => {
+    const { c, post } = make();
+    c.sqlQuery.set('SELECT * FROM sites');
+    c.sqlSelection.set('   '); // whitespace-only selection is ignored
+    c.runSql();
+    expect((post.calls.mostRecent().args[1] as { query: string }).query).toBe('SELECT * FROM sites');
+  });
+
+  it('hasSqlSelection is true only for a non-blank selection (drives the "Run selection" label)', () => {
+    const { c } = make();
+    expect(c.hasSqlSelection()).toBeFalse();
+    c.sqlSelection.set('SELECT 1');
+    expect(c.hasSqlSelection()).toBeTrue();
+    c.sqlSelection.set('   ');
+    expect(c.hasSqlSelection()).toBeFalse();
+  });
+
+  it('syncSqlSelection captures the live textarea selection (empty when collapsed)', () => {
+    const { c } = make();
+    const el = document.createElement('textarea');
+    el.value = 'SELECT 1;\nSELECT 2;';
+    el.selectionStart = 10; // start of "SELECT 2;"
+    el.selectionEnd = 19;
+    c.syncSqlSelection({ target: el } as unknown as Event);
+    expect(c.sqlSelection()).toBe('SELECT 2;');
+    el.selectionStart = 5;
+    el.selectionEnd = 5; // collapsed cursor → no selection
+    c.syncSqlSelection({ target: el } as unknown as Event);
+    expect(c.sqlSelection()).toBe('');
+  });
+
+  it('typing or recalling a query drops a now-stale selection', () => {
+    const { c } = make();
+    c.sqlSelection.set('SELECT 1');
+    c.onSqlChange('SELECT 2'); // typing collapses selection
+    expect(c.sqlSelection()).toBe('');
+    c.sqlSelection.set('SELECT 1');
+    c.loadQuery('SELECT 3'); // recall replaces the buffer
+    expect(c.sqlSelection()).toBe('');
+  });
+
   it('isExpensiveScan flags only a large REPORTED rows_read (never a null or small one)', () => {
     const { c } = make();
     const base = { columns: [], rows: [], duration_ms: 0, rows_written: 0, d1_duration_ms: 1 };

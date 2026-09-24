@@ -553,6 +553,24 @@
   IANA timezone (still a fixed-offset caveat — moderate complexity, ~1hr-twice-a-year ROI), or a bot-filtered-count
   insight (needs new instrumentation — bots are currently dropped, not counted). Both are lower-value than shipped work;
   the analytics section is mature + honest (first-party exact, CF-edge now visibly sampled, plan-blocked items absent).
+- **Cycle 45 — 2026-09-24 (Data: SQL console runs the SELECTED statement, not always the whole buffer):** The epic's
+  D1-console mandate wants a real SQLite manager; a real console runs *what you highlight*, not the entire editor every
+  time. `runSql()`/`explainSql()` in `site-detail.component.ts` previously always executed the full `sqlQuery()` buffer,
+  so an operator with three statements in the editor couldn't run just one — a footgun (accidental EXPLAIN of the wrong
+  statement) and a papercut. Added selection/current-statement execution, pure frontend (super-admin read-only console —
+  no backend/endpoint/tenant change; still SELECT/EXPLAIN/WITH/PRAGMA-only, 8 000-char cap, `assertSuperAdmin`): a
+  `sqlSelection` signal tracks the textarea's highlighted range (`syncSqlSelection` bound to select/keyup/mouseup),
+  `effectiveSql()` returns the trimmed selection when present else the whole buffer, `runSql`/`explainSql` both call it,
+  and the Run button label flips to **"Run selection"** with a matching title while text is highlighted; typing
+  (`onSqlChange`) or recalling a saved/starter query clears the stale selection so you never run a phantom highlight.
+  Verified: fe tsc (app + spec) 0 · **Karma 2070/2070** (+5: selection executes / blank-selection falls back to buffer /
+  `hasSqlSelection` non-blank / `syncSqlSelection` reads live textarea range / typing+recall drop stale selection) ·
+  build 0 · deployed R2 + chunk-hash prod-verified (`chunk-NZ73IA52.js` 200 with the "Run selection" marker + referenced
+  by live `main-ERJDAVC4.js`). Super-admin surface, so the E2E key 403s it — behavior locked by Karma. **Next:** the SQL
+  console's remaining epic items (syntax highlighting / schema-aware completion / multi-tab concurrent buffers) all need a
+  code-editor lib (CodeMirror 6) — a Brian-gated dependency decision, not a no-dep increment; selection execution is the
+  last high-value no-dep SQL-console lever. Data section is otherwise plateaued (credential-blocked D1-REST/KV/R2/DO/
+  Vectorize items, or product-N/A).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
