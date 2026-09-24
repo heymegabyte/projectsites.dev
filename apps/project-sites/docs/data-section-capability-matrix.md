@@ -42,6 +42,7 @@
 | **Owner Data-tab UI** (table picker · server-paginated sortable grid · row-detail JSON · **whole-table CSV/JSON export (paged, ≤5k)** · **read-only pill** · loading/empty/error states) | `SiteDataBrowserComponent` + `utils/csv-export` → `/data-overview[/:table]` | owner | ✅ DONE — `/admin/sites/:id?tab=data`, focused standalone component, 19 Karma specs + 10 csv-export specs | read-only (PKs deliberately not in the projection → not editable; explained via the pill); REAL endpoints only (no mock); export pages the whole table to a **5,000-row cap** (honest capped note); true streaming/async export for >5k = future slice |
 | **Schema introspection** (columns/pk/indexes/FKs/DDL) | `PRAGMA table_info/index_list/index_info/foreign_key_list` | superadmin | ✅ DONE — endpoint `GET /api/sites/:siteId/sql/schema` **+ Schema-tab UI** (`SiteSchemaBrowserComponent`, `/admin/sites/:id?tab=schema`, 7 Karma specs): searchable table list → columns (type/nullable/default/**PK badge**) · indexes · FKs · copyable CREATE SQL | PRAGMA args can't bind → enumerate from `sqlite_master`, format-check each identifier; the endpoint was **built-but-unwired** until this UI landed |
 | Read SQL console | `.prepare().all()` | superadmin | DONE | 8 000-char cap; SELECT/EXPLAIN/WITH/PRAGMA only |
+| **Saved queries + reusable snippets + history recall** | client-side (localStorage `ps_sql_saved_<siteId>`) | superadmin | ✅ DONE — name + Save the current query for one-click reuse (per-site, dedup-by-name, delete); built-in `sqlStarters` chips; query history is clickable-to-recall (loads into editor, no auto-run) | per-site + private-mode-safe; recall loads (never auto-runs) so the user reviews before running; multi-tab (concurrent buffers) still pending |
 | Write SQL console | `.prepare().run()` | superadmin | DONE | PROTECTED_TABLES + destructive-confirm; single-statement |
 | Row edit / delete (typed, PK-stable) | parameterized UPDATE/DELETE | owner | PLANNED | needs schema PK (this arc's schema endpoint) |
 | CSV export (bounded) | client-side | owner/superadmin | DONE | filtered rows only |
@@ -88,7 +89,10 @@
    guidance ✅ DONE; plain-language SQLite/D1 error explanations ✅ DONE** (`explainSqlError` maps no-such-
    table/column/function · syntax · unrecognized-token · UNIQUE/FK-constraint · too-complex → a friendly
    line, with the RAW error always retained below for debugging; unknown error → raw only, never hidden).
-   Multi-tab + saved queries remain (history already present).
+   **Saved queries + reusable reuse ✅ DONE (this fire)** — user-named, per-site-persisted saved queries
+   (`ps_sql_saved_<siteId>`, dedup-by-name, load-to-review + delete), the built-in `sqlStarters` chips, and
+   **query history is now clickable-to-recall** (loads into the editor without auto-running). Multi-tab
+   (multiple concurrent editor buffers) is the only remaining SQL-workspace item.
 4. Import (CSV/JSON, chunked) + bounded exports. **Whole-table CSV/JSON export ✅ DONE**
    (owner grid, paged to a 5k cap via `utils/csv-export`, honest capped note); chunked import +
    true streaming/async export for >5k rows remain.

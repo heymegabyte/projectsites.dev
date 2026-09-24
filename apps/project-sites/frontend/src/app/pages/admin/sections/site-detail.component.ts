@@ -73,6 +73,13 @@ interface SqlResult {
   d1_duration_ms?: number | null;
 }
 
+/** A user-named, persisted SQL query for one-click reuse (per-site, localStorage).
+ *  Distinct from `sqlHistory` (auto-captured + evicted) and `sqlStarters` (built-in). */
+interface SavedQuery {
+  name: string;
+  sql: string;
+}
+
 interface IntegrationProvider {
   key: string;
   name: string;
@@ -391,11 +398,40 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'schema'
             </div>
           }
 
+          <details class="sql-saved" open>
+            <summary>Saved queries</summary>
+            <div class="sql-save-row">
+              <input type="text" class="sql-save-name" data-testid="sql-save-name"
+                     [ngModel]="saveName()" (ngModelChange)="saveName.set($event)"
+                     placeholder="Name this query" aria-label="Name for the saved query" />
+              <button type="button" class="sql-save-btn" data-testid="sql-save-btn"
+                      (click)="saveCurrentQuery()"
+                      [disabled]="!sqlQuery().trim() || !saveName().trim()"
+                      title="Save the current query under this name for one-click reuse">Save</button>
+            </div>
+            <ul>
+              @for (q of savedQueries(); track q.name) {
+                <li class="sql-saved-item">
+                  <button type="button" class="sql-recall" data-testid="sql-saved-load"
+                          [title]="q.sql" (click)="loadQuery(q.sql)">{{ q.name }}</button>
+                  <button type="button" class="sql-saved-del" data-testid="sql-saved-del"
+                          [attr.aria-label]="'Delete saved query ' + q.name"
+                          (click)="deleteSavedQuery(q.name)">×</button>
+                </li>
+              } @empty {
+                <li class="muted">No saved queries yet — run a query, name it, and Save to reuse it later.</li>
+              }
+            </ul>
+          </details>
+
           <details class="sql-history" open>
             <summary>Query history</summary>
             <ul>
               @for (h of sqlHistory(); track h) {
-                <li data-testid="sql-history-item">{{ h }}</li>
+                <li>
+                  <button type="button" class="sql-recall" data-testid="sql-history-item"
+                          [title]="h" (click)="loadQuery(h)">{{ h }}</button>
+                </li>
               } @empty {
                 <li class="muted">No queries yet.</li>
               }
@@ -573,9 +609,17 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'schema'
     .sql-safe-note strong { color: var(--ps-accent, #00e5ff); font-weight: 600; }
     .sql-safe-glyph { flex-shrink: 0; }
     .rollback-error { margin-top: 0.5rem; color: #ff7e8a; font-size: 0.85rem; }
-    .sql-history { margin-top: 1rem; }
-    .sql-history ul { list-style: none; padding: 0; margin: 0.5rem 0 0; display: grid; gap: 0.25rem; }
-    .sql-history li { padding: 0.25rem 0.5rem; background: rgba(255,255,255,0.03); border-radius: 4px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.8rem; }
+    .sql-saved, .sql-history { margin-top: 1rem; }
+    .sql-save-row { display: flex; gap: 0.5rem; margin: 0.5rem 0; }
+    .sql-save-name { flex: 1; min-width: 0; padding: 0.3rem 0.5rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.12); border-radius: 4px; color: var(--ps-ink, #f4f4ff); font-size: 0.8rem; }
+    .sql-saved ul, .sql-history ul { list-style: none; padding: 0; margin: 0.5rem 0 0; display: grid; gap: 0.25rem; }
+    .sql-saved li, .sql-history li { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.8rem; }
+    .sql-saved li.muted, .sql-history li.muted { padding: 0.25rem 0.5rem; }
+    .sql-saved-item { display: flex; gap: 0.25rem; align-items: stretch; }
+    .sql-recall { flex: 1; min-width: 0; text-align: left; padding: 0.25rem 0.5rem; background: rgba(255,255,255,0.03); border: 0; border-radius: 4px; color: inherit; font: inherit; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sql-recall:hover { background: rgba(0,229,255,0.12); }
+    .sql-saved-del { flex: 0 0 auto; width: 1.75rem; border: 0; border-radius: 4px; background: rgba(255,255,255,0.03); color: var(--ps-ink, #f4f4ff); cursor: pointer; font-size: 1rem; line-height: 1; }
+    .sql-saved-del:hover { background: rgba(255,80,80,0.2); }
     .mcp-list { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
     .mcp-card { padding: 1rem; background: rgba(255,255,255,0.04); border-radius: 8px; }
     .mcp-card header { display: flex; justify-content: space-between; margin-bottom: 0.5rem; }
@@ -666,6 +710,43 @@ export class AdminSiteDetailComponent {
     this.runSql();
   }
 
+  /** Load a stored query into the editor — does NOT auto-run (the user reviews,
+   *  then clicks Run). Shared by the saved-query + clickable-history recall. */
+  loadQuery(sql: string): void {
+    this.sqlQuery.set(sql);
+  }
+
+  /** Save the current editor query under a name for one-click reuse (per-site,
+   *  persisted). Dedupes by name (a re-save under the same name updates it);
+   *  no-op when either the query or the name is blank. Clears the name field. */
+  saveCurrentQuery(): void {
+    const sql = this.sqlQuery().trim();
+    const name = this.saveName().trim();
+    if (!sql || !name) return;
+    const next = [{ name, sql }, ...this.savedQueries().filter((q) => q.name !== name)].slice(0, 50);
+    this.savedQueries.set(next);
+    this.saveName.set('');
+    this.persistSavedQueries(next);
+  }
+
+  /** Remove a saved query by name + persist. */
+  deleteSavedQuery(name: string): void {
+    const next = this.savedQueries().filter((q) => q.name !== name);
+    this.savedQueries.set(next);
+    this.persistSavedQueries(next);
+  }
+
+  /** Persist the saved-query list for the current site (private-mode safe). */
+  private persistSavedQueries(list: SavedQuery[]): void {
+    const id = this.siteId();
+    if (!id) return;
+    try {
+      localStorage.setItem(`ps_sql_saved_${id}`, JSON.stringify(list));
+    } catch {
+      /* private mode / quota — non-fatal, in-memory state still works */
+    }
+  }
+
   /** Cap the rendered table rows so a `SELECT *` on a large table can't dump
    *  thousands of <tr> into the DOM (layout shift + jank). The full result stays
    *  in sqlResult() — Copy JSON exports every row regardless of this cap. */
@@ -746,6 +827,11 @@ export class AdminSiteDetailComponent {
   readonly sqlError = signal<string | null>(null);
   readonly sqlRunning = signal(false);
   readonly sqlHistory = signal<string[]>([]);
+  /** User-named saved SQL queries (per-site, persisted) — curated reuse, distinct
+   *  from auto-captured history + built-in starters. Restored on site change. */
+  readonly savedQueries = signal<SavedQuery[]>([]);
+  /** The name field for saving the current query (bound to the Save input). */
+  readonly saveName = signal('');
   /** EXPLAIN QUERY PLAN output — the `detail` line per plan step; null until Explain runs. */
   readonly explainPlan = signal<string[] | null>(null);
   readonly explainRunning = signal(false);
@@ -814,13 +900,19 @@ export class AdminSiteDetailComponent {
       }
     });
 
-    // Restore SQL history from localStorage (per-site).
+    // Restore SQL history + saved queries from localStorage (per-site). Both RESET
+    // to their default when the target site has no stored value, so switching sites
+    // never leaks the previous site's queries into the console.
     effect(() => {
       const id = this.siteId();
       if (!id) return;
       try {
         const raw = localStorage.getItem(`ps_sql_history_${id}`);
-        if (raw) this.sqlHistory.set(JSON.parse(raw) as string[]);
+        this.sqlHistory.set(raw ? (JSON.parse(raw) as string[]) : []);
+      } catch { /* private mode etc. */ }
+      try {
+        const rawSaved = localStorage.getItem(`ps_sql_saved_${id}`);
+        this.savedQueries.set(rawSaved ? (JSON.parse(rawSaved) as SavedQuery[]) : []);
       } catch { /* private mode etc. */ }
     });
 

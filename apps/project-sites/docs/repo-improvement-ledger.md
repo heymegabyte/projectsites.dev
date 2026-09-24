@@ -120,6 +120,18 @@
   real endpoint only. Frontend-only (endpoint already deployed). Verified: tsc 0, **Karma 1934/1934** (+7), AOT
   build exit 0, eslint **0-errors** (new file auto-fixed to 0 warnings), backtick gate PASS. Another exemplar of
   "focused signal-input child wired into `site-detail` with a minimal edit" + a real built-but-unwired closure.
+- **Cycle 14 — 2026-09-24 (Data SQL workspace, one slice):** Added **saved queries + reusable snippets + clickable
+  history recall** to the superadmin SQL console (the matrix's stated next SQL-workspace item; multi-tab is now the
+  only remainder). New `SavedQuery` type + `savedQueries`/`saveName` signals + `saveCurrentQuery`/`loadQuery`/
+  `deleteSavedQuery`/`persistSavedQueries` methods, all mirroring the existing `sqlHistory` pattern: user names +
+  Saves the current query, it persists per-site (`ps_sql_saved_<siteId>`, dedup-by-name, capped 50, private-mode-safe)
+  and restores on site change; a Saved-queries `<details>` renders name-input + Save + a load/delete list. Also made
+  **query history clickable-to-recall** (was display-only `<li>` — now a `.sql-recall` button that loads into the editor
+  **without auto-running**, so the user reviews before Run) and fixed a latent **stale-on-site-switch** bug in the
+  restore effect (history/saved now RESET to default when the target site has no stored value, never leaking the prior
+  site's queries). Kept inline in `site-detail` for within-file consistency with history (not a mechanical extraction).
+  +6 focused logic specs (save/dedup/no-op/load-no-run/delete/persist+delete round-trip). Verified: tsc 0, **Karma
+  1942/1942** (+6), AOT build exit 0, eslint **0-errors**, backtick gate PASS.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

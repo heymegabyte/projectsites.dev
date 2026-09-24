@@ -266,6 +266,73 @@ describe('AdminSiteDetailComponent (tabs + logs + SQL console)', () => {
     expect(c.sqlError()).toBeNull();
   });
 
+  // ── Saved queries + clickable history recall (curated one-click reuse) ──
+  it('saveCurrentQuery stores the current editor query under a name, then clears the name field', () => {
+    const { c } = make();
+    c.sqlQuery.set('SELECT * FROM sites');
+    c.saveName.set('all sites');
+    c.saveCurrentQuery();
+    expect(c.savedQueries()).toEqual([{ name: 'all sites', sql: 'SELECT * FROM sites' }]);
+    expect(c.saveName()).withContext('name field cleared after save').toBe('');
+  });
+
+  it('saveCurrentQuery is a no-op when the query OR the name is blank', () => {
+    const { c } = make();
+    c.sqlQuery.set('SELECT 1');
+    c.saveName.set('   ');
+    c.saveCurrentQuery();
+    expect(c.savedQueries()).withContext('blank name → no save').toEqual([]);
+    c.sqlQuery.set('   ');
+    c.saveName.set('x');
+    c.saveCurrentQuery();
+    expect(c.savedQueries()).withContext('blank query → no save').toEqual([]);
+  });
+
+  it('saveCurrentQuery dedupes by name (a re-save under the same name updates the SQL)', () => {
+    const { c } = make();
+    c.sqlQuery.set('SELECT 1');
+    c.saveName.set('q');
+    c.saveCurrentQuery();
+    c.sqlQuery.set('SELECT 2');
+    c.saveName.set('q');
+    c.saveCurrentQuery();
+    expect(c.savedQueries()).toEqual([{ name: 'q', sql: 'SELECT 2' }]);
+  });
+
+  it('loadQuery fills the editor WITHOUT running (no POST) — recall lets the user review, then Run', () => {
+    const { c, post } = make();
+    c.loadQuery('SELECT * FROM audit_logs');
+    expect(c.sqlQuery()).toBe('SELECT * FROM audit_logs');
+    expect(post).withContext('recall never auto-runs a query').not.toHaveBeenCalled();
+  });
+
+  it('deleteSavedQuery removes a saved query by name', () => {
+    const { c } = make();
+    c.sqlQuery.set('SELECT 1');
+    c.saveName.set('a');
+    c.saveCurrentQuery();
+    c.sqlQuery.set('SELECT 2');
+    c.saveName.set('b');
+    c.saveCurrentQuery();
+    c.deleteSavedQuery('a');
+    expect(c.savedQueries().map((q) => q.name)).toEqual(['b']);
+  });
+
+  it('saved queries persist to (and delete from) the per-site localStorage key', () => {
+    const { c } = make();
+    c.siteId.set('site-persist');
+    c.sqlQuery.set('SELECT * FROM sites');
+    c.saveName.set('all');
+    c.saveCurrentQuery();
+    const raw = localStorage.getItem('ps_sql_saved_site-persist');
+    expect(raw).withContext('persisted under the per-site key').toBeTruthy();
+    expect(JSON.parse(raw!)).toEqual([{ name: 'all', sql: 'SELECT * FROM sites' }]);
+    c.deleteSavedQuery('all');
+    expect(JSON.parse(localStorage.getItem('ps_sql_saved_site-persist')!))
+      .withContext('delete persists too')
+      .toEqual([]);
+  });
+
   // ── Rollback must NOT claim a false success on failure (lying-UI guard) ──
   it('confirmRollback shows the rolled-back version + no error on success', () => {
     const okPost = jasmine.createSpy('post').and.returnValue(of({ ok: true, snapshot_name: 'v3' }));
