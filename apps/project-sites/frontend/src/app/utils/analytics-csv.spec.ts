@@ -37,6 +37,25 @@ describe('buildAnalyticsCsv', () => {
     expect(csv).not.toContain('cloudflare_graphql');
   });
 
+  it('emits busiest-hours rows (local HH:00) when hourlyLocal is provided', () => {
+    const r = rows(
+      buildAnalyticsCsv({
+        ...BASE,
+        hourlyLocal: [
+          { hour: 9, count: 3 },
+          { hour: 18, count: 12 },
+        ],
+      }),
+    );
+    expect(r).toContain('hour_local,09:00,3');
+    expect(r).toContain('hour_local,18:00,12');
+  });
+
+  it('omits busiest-hours rows when hourlyLocal is absent (never a fabricated hour)', () => {
+    const r = rows(buildAnalyticsCsv(BASE));
+    expect(r.some((l) => l.startsWith('hour_local,'))).toBeFalse();
+  });
+
   it('includes the CF-envelope summary + breakdowns', () => {
     const r = rows(buildAnalyticsCsv(BASE));
     expect(r[0]).toBe('section,key,value');

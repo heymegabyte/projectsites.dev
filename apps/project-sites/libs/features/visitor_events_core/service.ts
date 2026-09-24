@@ -18,6 +18,7 @@ import {
   type PathCountSchema,
   type WebVitals,
   type LabelCount,
+  type HourCount,
 } from './schemas.js';
 import type { z } from 'zod';
 
@@ -457,6 +458,34 @@ export async function getDimensionBreakdown(
   return data.map((r) => ({ label: r.label ?? 'unknown', count: Number(r.n) }));
 }
 
+/**
+ * Pageviews by hour-of-day (0–23, UTC) over the window — the "busiest hours" insight.
+ * `created_at` is stored UTC, so `strftime('%H', created_at)` is the UTC hour; the
+ * frontend rotates these buckets to the viewer's LOCAL time for display. Only real
+ * pageviews count (`event_type='pageview'`; bots are already dropped at ingest). Absent
+ * hours are omitted here (the UI renders the missing ones as 0). Fails soft to [].
+ */
+export async function getHourlyBreakdown(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+): Promise<HourCount[]> {
+  const { clause, params } = currentWindow(siteId, windowDays, window);
+  const { data, error } = await dbQuery<{ hour: number | null; n: number }>(
+    env.DB,
+    `SELECT CAST(strftime('%H', created_at) AS INTEGER) AS hour, COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'pageview'
+      GROUP BY hour ORDER BY hour`,
+    params,
+  );
+  if (error) return [];
+  return data
+    .filter((r) => r.hour != null && r.hour >= 0 && r.hour <= 23)
+    .map((r) => ({ hour: Number(r.hour), count: Number(r.n) }));
+}
+
 /** UTM campaign parameters the campaign breakdown may GROUP BY — an allowlist so the
  *  dimension (interpolated into `json_extract($.<dim>)`) is ALWAYS a trusted literal. */
 const CAMPAIGN_DIMENSIONS = ['utmSource', 'utmMedium', 'utmCampaign'] as const;
@@ -545,6 +574,7 @@ export async function getTrafficSummary(
     byOs,
     byUtmSource,
     byUtmCampaign,
+    byHour,
   ] = await Promise.all([
     scalar(env, `SELECT COUNT(*) AS n FROM visitor_events WHERE ${w} AND event_type = 'pageview'`, wParams),
     scalar(env, `SELECT COUNT(DISTINCT session_id) AS n FROM visitor_events WHERE ${w}`, wParams),
@@ -616,6 +646,8 @@ export async function getTrafficSummary(
     // AN-UTM — campaign attribution (source + campaign; tagged visits only, untagged excluded).
     getCampaignBreakdown(env, siteId, 'utmSource', windowDays, window),
     getCampaignBreakdown(env, siteId, 'utmCampaign', windowDays, window),
+    // AN-HOUR — pageviews by hour-of-day (UTC; frontend rotates to local).
+    getHourlyBreakdown(env, siteId, windowDays, window),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -649,6 +681,7 @@ export async function getTrafficSummary(
     byOs,
     byUtmSource,
     byUtmCampaign,
+    byHour,
     byChannel,
     byCountry,
     webVitals,
@@ -728,7 +761,7 @@ export async function getTrafficSummaryFromRollup(
     return error ? [] : data;
   };
 
-  const [cur, prev, pathRows, typeRows, channelRows, deviceRows, countryRows, webVitals, byConversionKind, prevByConversionKind, byBrowser, byOs, byUtmSource, byUtmCampaign] =
+  const [cur, prev, pathRows, typeRows, channelRows, deviceRows, countryRows, webVitals, byConversionKind, prevByConversionKind, byBrowser, byOs, byUtmSource, byUtmCampaign, byHour] =
     await Promise.all([
       sumScalars(curStart, null),
       sumScalars(prevStart, prevEnd),
@@ -745,6 +778,8 @@ export async function getTrafficSummaryFromRollup(
       getDimensionBreakdown(env, siteId, 'os', windowDays),
       getCampaignBreakdown(env, siteId, 'utmSource', windowDays),
       getCampaignBreakdown(env, siteId, 'utmCampaign', windowDays),
+      // AN-HOUR — pageviews by hour-of-day (UTC; not in the rollup → read live).
+      getHourlyBreakdown(env, siteId, windowDays),
     ]);
 
   return TrafficSummarySchema.parse({
@@ -761,6 +796,7 @@ export async function getTrafficSummaryFromRollup(
     byOs,
     byUtmSource,
     byUtmCampaign,
+    byHour,
     byChannel: channelRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     byCountry: countryRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     webVitals,

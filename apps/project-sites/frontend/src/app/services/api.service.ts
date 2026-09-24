@@ -1650,6 +1650,9 @@ export interface SiteTrafficSummary {
   byUtmCampaign?: { label: string; count: number }[];
   byChannel: { label: string; count: number }[];
   byCountry: { label: string; count: number }[];
+  /** Pageviews by hour-of-day (0–23, UTC). The dashboard rotates these to the viewer's
+   *  local time for display; a site with no pageviews has none (honest-empty). */
+  byHour?: { hour: number; count: number }[];
   /** Conversions by kind (call / directions / form / …) — the business outcomes. */
   byConversionKind?: { label: string; count: number }[];
   /**

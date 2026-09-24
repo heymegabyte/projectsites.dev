@@ -56,6 +56,12 @@ export const LabelCountSchema = z
   .object({ label: z.string(), count: z.number().int().min(0) })
   .strict();
 export type LabelCount = z.infer<typeof LabelCountSchema>;
+/** One `{ hour, count }` row of the hour-of-day breakdown. `hour` is the 0–23 UTC
+ *  hour (`created_at` is stored UTC); the frontend rotates to the viewer's local time. */
+export const HourCountSchema = z
+  .object({ hour: z.number().int().min(0).max(23), count: z.number().int().min(0) })
+  .strict();
+export type HourCount = z.infer<typeof HourCountSchema>;
 
 /**
  * Field-measured Core Web Vitals for ONE metric: the p75 (the CrUX/Cloudflare
@@ -149,6 +155,10 @@ export const TrafficSummarySchema = z
     // AN14 — visitors by country (CF `request.cf.country`, captured in metadata
     // since before AN1). Default [] for back-compat.
     byCountry: z.array(LabelCountSchema).default([]),
+    // AN-HOUR — pageviews by hour-of-day (0–23 UTC). The frontend rotates these UTC
+    // buckets to the viewer's local time for display. Default [] for back-compat /
+    // honest-empty (no pageviews → no bars).
+    byHour: z.array(HourCountSchema).default([]),
     // AN-CONV — conversions broken down by kind (call / directions / form / …)
     // from `json_extract(metadata,'$.kind')` on `conversion` events. The actual
     // business outcomes. Default [] for back-compat.

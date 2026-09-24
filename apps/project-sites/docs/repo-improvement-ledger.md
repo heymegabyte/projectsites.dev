@@ -647,6 +647,24 @@
   no CF entitlement) or needs plumbing/deps.** **Next (top genuinely-new feature):** hourly "Busiest hours" breakdown —
   blocked on threading `tzOffsetMinutes` through the analytics route + both summary fns (getTrafficSummary doesn't receive
   it today); medium slice + a worker deploy. Then DST-precision (low ROI).
+- **Cycle 50 — 2026-09-24 (Analytics: ship the "Busiest hours" hourly breakdown):** The prior cycle's #1 next feature.
+  A genuinely-new, actionable insight for a local owner ("your peak is 7–9 PM") from EXISTING `visitor_events` timestamps
+  — no new dep/credential/instrumentation. **Solved the tz-plumbing blocker with a LEANER design:** instead of threading
+  `tzOffsetMinutes` through the route + both summary fns, the server returns 24 **UTC** hour-of-day pageview buckets and
+  the FRONTEND rotates them to the viewer's local time — a pure, tested `rotateToLocalHours`. **Worker:** `getHourlyBreakdown`
+  (`strftime('%H', created_at)` over pageviews, `event_type='pageview'` also excludes bots) + `HourCountSchema` +
+  `byHour` on `TrafficSummarySchema`, wired LIVE into BOTH summary paths (like CWV/browser/OS — works on live + rollup).
+  **Frontend:** new standalone `HourlyBreakdownComponent` (`<app-hourly-breakdown>`, OnPush, `input()`) — 24-bar strip +
+  "Peak: 7–9 PM · N views" + honest empty state ("appears once visitors arrive") + a local-time / half-hour-zone caveat;
+  `byHour` added to `SiteTrafficSummary`; CSV export gains local `hour_local,HH:00,count` rows. Verified: worker tsc 0 ·
+  **worker Jest 67/67 visitor_events_core** (+2: query-shape + row-mapping) · fe tsc (app+spec) 0 · **Karma 2090/2090**
+  (+9: rotation/formatHour/component + CSV) · worker lint 0 errors · `ng build:prod` 0 err + 0 NG8113. Deployed BOTH:
+  worker version **`f1cd19fc` @ 100%** + `/health` 200 (container-app step errored again on the CF `standard-1` migration
+  — SCRIPT deployed + verified by shape), frontend R2 `main-R4ZZN2PS.js` hash-matched + chunk `chunk-6H4RBCJ4.js` 200
+  with the "Busiest hours" marker. **End-to-end data-verified (not just render-clean):** the API returns REAL `byHour`
+  (`[{hour:0,count:1},…,{hour:12,count:4},{hour:19,count:4},…]`) for the owned test site via the authed E2E owner —
+  tenant resolved server-side. **Next:** DST-precision (low ROI) or audit full-trail CSV (cosmetic) — analytics is
+  otherwise at a verified plateau (Security/WAF + latency plan-blocked).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

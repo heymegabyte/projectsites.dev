@@ -23,6 +23,7 @@ import {
   getPreviousConversionKinds,
   getDimensionBreakdown,
   getCampaignBreakdown,
+  getHourlyBreakdown,
   shiftWindowToTz,
 } from '../service.js';
 import type { Env } from '../../../../src/types/env.js';
@@ -157,6 +158,39 @@ describe('getWebVitalsSummary / getConversionKinds — absolute window', () => {
     expect(out).toEqual([]);
     // The hostile dimension string never reaches a query.
     expect(calls.some((c) => c.sql.includes('metadata) --'))).toBe(false);
+  });
+
+  it('getHourlyBreakdown groups pageviews by UTC hour-of-day over the window', async () => {
+    const { env, calls } = captureEnv();
+    await getHourlyBreakdown(env, 'site_1', 30, { since: '2026-08-01', until: '2026-08-16' });
+    const q = calls.find((c) => c.sql.includes("strftime('%H', created_at)"));
+    expect(q).toBeDefined();
+    expect(q!.sql).toContain("event_type = 'pageview'");
+    expect(q!.sql).toContain('GROUP BY hour');
+    expect(q!.params).toEqual(['site_1', '2026-08-01', '2026-08-16']);
+  });
+
+  it('getHourlyBreakdown maps rows to {hour,count} and drops a null/out-of-range hour', async () => {
+    const db = {
+      prepare(_sql: string) {
+        return {
+          bind: (..._p: unknown[]) => ({
+            all: async () => ({
+              results: [
+                { hour: 9, n: 5 },
+                { hour: 14, n: 12 },
+                { hour: null, n: 3 },
+              ],
+            }),
+          }),
+        };
+      },
+    };
+    const out = await getHourlyBreakdown({ DB: db } as unknown as Env, 'site_1', 30);
+    expect(out).toEqual([
+      { hour: 9, count: 5 },
+      { hour: 14, count: 12 },
+    ]);
   });
 
   it('getCampaignBreakdown groups TAGGED pageviews by the UTM param, EXCLUDING untagged (null)', async () => {

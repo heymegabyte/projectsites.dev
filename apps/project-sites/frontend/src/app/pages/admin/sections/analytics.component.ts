@@ -21,6 +21,7 @@ import { EmptyStateComponent } from '../empty-state.component';
 import { ErrorCardComponent } from '../../../components/states';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { WebVitalsCardComponent } from './web-vitals-card.component';
+import { HourlyBreakdownComponent, rotateToLocalHours } from './hourly-breakdown.component';
 import { ConversionsCardComponent } from './conversions-card.component';
 import { TechBreakdownComponent } from './tech-breakdown.component';
 import { CampaignBreakdownComponent } from './campaign-breakdown.component';
@@ -69,7 +70,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -577,6 +578,14 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
         [devices]="siteTraffic()?.byDevice ?? []"
         [browsers]="siteTraffic()?.byBrowser ?? []"
         [os]="siteTraffic()?.byOs ?? []"
+        [windowDays]="rangeDays()"
+      />
+
+      <!-- Busiest hours — first-party pageviews by hour-of-day, rotated from the server's
+           UTC buckets to the viewer's local time. Honest empty state; all-zero → no bars. -->
+      <app-hourly-breakdown
+        appReveal
+        [hours]="siteTraffic()?.byHour ?? []"
         [windowDays]="rangeDays()"
       />
 
@@ -1557,6 +1566,11 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
       envelope: env,
       traffic: this.siteTraffic(),
       delivery: env.delivery,
+      // Busiest hours rotated to the viewer's local time; only hours with views (honest).
+      hourlyLocal: rotateToLocalHours(
+        this.siteTraffic()?.byHour ?? [],
+        Math.round(-new Date().getTimezoneOffset() / 60),
+      ).filter((b) => b.count > 0),
     });
     downloadText(
       `projectsites-analytics-${this.range()}-${new Date().toISOString().slice(0, 10)}.csv`,

@@ -62,6 +62,12 @@ export interface AnalyticsCsvInput {
     cache: { hit: number; miss: number; uncacheable: number; hit_ratio_pct: number | null };
     response_bytes: number;
   } | null;
+  /**
+   * Busiest-hours buckets ALREADY rotated to the viewer's local time (0–23), typically
+   * only hours with views. Emitted as `hour_local,HH:00,count`. This pure builder has no
+   * timezone, so the caller rotates the server's UTC buckets before passing them.
+   */
+  hourlyLocal?: ReadonlyArray<{ hour: number; count: number }>;
 }
 
 /** Serialize the analytics dashboard to a `section,key,value` CSV document. */
@@ -110,6 +116,11 @@ export function buildAnalyticsCsv(input: AnalyticsCsvInput): string {
     lines.push(`delivery,cache_uncacheable,${dl.cache.uncacheable}`);
     if (dl.cache.hit_ratio_pct != null) lines.push(`delivery,cache_hit_ratio_pct,${dl.cache.hit_ratio_pct}`);
     lines.push(`delivery,edge_response_bytes,${dl.response_bytes}`);
+  }
+
+  // Busiest hours — local-time buckets (the caller rotated from UTC), `HH:00` labels.
+  for (const h of input.hourlyLocal ?? []) {
+    lines.push(`hour_local,${String(h.hour).padStart(2, '0')}:00,${h.count}`);
   }
 
   for (const u of e.urls_included ?? []) {

@@ -38,6 +38,7 @@
 | Referrers | D1 visitor_events | none | site_id | D1 | none | ✅ live | referrer table |
 | Geography (country/city/region) | D1 metadata ← `request.cf` | none | site_id | D1 | none | ✅ live | geo breakdown |
 | **Device / browser / OS** | D1 metadata `json_extract($.device\|$.browser\|$.os)` ← `enrichVisitor(ua)` (`getDimensionBreakdown`, allowlisted dimension) | none | site_id | D1 | none (all pageviews) | ✅ **fully live (this fire)** — was device-only surfaced; browser + OS were INGESTED but not aggregated. Now a focused **`TechBreakdownComponent`** ("Devices & platforms") renders all three pageview splits (top-6, bar + count, "unknown" is a real bucket never dropped). Covers EVERY visitor (user-agent, unlike Chromium-only CWV). Both summary paths (live + rollup-reads-live). Prod-verified live REAL data: device `[desktop:19]`, browser `[Chrome:15, unknown:3, Firefox:1]`, os `[macOS:16, unknown:3]`. | `/admin/analytics` "Devices & platforms" card |
+| **Busiest hours (hour-of-day)** | D1 `strftime('%H', created_at)` over pageviews (`getHourlyBreakdown`) | none | site_id | D1 | none (all pageviews) | ✅ **live (2026-09-24)** — 24 UTC hour-of-day pageview buckets (`byHour`) read live in both summary paths; the card rotates to the viewer's LOCAL time (`rotateToLocalHours`) + shows a 24-bar strip + peak-hours insight + honest empty state; local-time basis + half-hour-zone approximation disclosed. Prod-verified REAL data via the API. | `/admin/analytics` "Busiest hours" card |
 | Channel + Campaigns (utm_source / utm_campaign) | D1 metadata ← `enrichVisitor` (channel from referrer+utm; utm_* parsed from the URL) via `getDimensionBreakdown` (channel) + `getCampaignBreakdown` (utm, allowlisted, **excludes untagged**) | none | site_id | D1 | none | ✅ channel live; **campaigns NEW (this fire)** — `CampaignBreakdownComponent` ("Campaigns & sources") renders top utm_source + utm_campaign over TAGGED visits ONLY (untagged direct/organic excluded, never a giant "unknown" bucket); honest empty state that TEACHES how to tag links (utm_source/utm_campaign example). Both summary paths + CSV. Prod-verified live: `byUtmSource`/`byUtmCampaign` in the summary (empty for the untagged test site). | `/admin/analytics` "Campaigns & sources" card + channel breakdown |
 | Daily time series | D1 visitor_events / analytics_daily | flag `analytics_rollup_read` | site_id | D1 | none | ✅ live | line chart |
 | Funnel (landing→engaged→converted) | D1 visitor_events | none | site_id | D1 | none | ✅ live | funnel widget |
@@ -272,17 +273,17 @@ NEXT highest-value gaps — the section is at a verified no-dep plateau (audienc
 shareable-range + arbitrary-window + tz-aware bucketing/bounds + comparison-period Δ + CWV rating/distribution/affected-pages +
 device/browser/OS + bot-filtering disclosure + **tech-breakdown-in-CSV** all complete; `byBrowser`/`byOs` CSV rows shipped, and
 `analytics-dashboard`'s hand-rolled CSV download was **consolidated onto the shared `downloadText`** — cycle 2026-09-24, which was
-also hardened with an SSR/non-DOM guard). What remains, in priority order:
-1. **Hourly "Busiest hours" breakdown** (the top genuinely-NEW no-dep feature) — pageviews by hour-of-day in the owner's local
-   time, an actionable "your peak is 7–9pm" insight for a local owner. Derivable from existing `visitor_events` timestamps, read
-   live in both summary paths (like CWV/browser/OS). BLOCKED ON PLUMBING, not data: `getTrafficSummary` does NOT currently receive
-   `tzOffsetMinutes` (only the separate daily-series path does), so hourly needs the offset threaded through the analytics route +
-   both summary fns before it can bucket to local hours honestly. Medium slice (backend fn + route/summary tz-threading + schema +
-   frontend viz + CSV + tests + a worker deploy).
-2. **DST-precision** — the fixed browser offset is approximate for a range spanning a DST change; a true IANA-zone shift needs a tz
+also hardened with an SSR/non-DOM guard).
+✅ **SHIPPED (cycle 2026-09-24) — Hourly "Busiest hours" breakdown.** `getHourlyBreakdown` returns 24 UTC hour-of-day pageview
+buckets (`byHour`), read LIVE in both summary paths (like CWV/browser/OS); `<app-hourly-breakdown>` rotates them to the viewer's
+LOCAL time via a pure `rotateToLocalHours` — the LEANER design that needed NO tz-plumbing through the route/summary — showing a
+24-bar strip + a "Peak: 7–9 PM · N views" insight + an honest empty state + the local-time / half-hour-zone caveat; the CSV export
+gains `hour_local,HH:00,count` rows. Verified: `byHour` returns real data via the API (`[{hour:12,count:4},{hour:19,count:4},…]`),
+worker version `f1cd19fc` @ 100%. +2 worker Jest, +9 Karma. What remains, in priority order:
+1. **DST-precision** — the fixed browser offset is approximate for a range spanning a DST change; a true IANA-zone shift needs a tz
    library or per-timestamp `Intl` offset (D1's SQLite only does fixed `±HH:MM` modifiers). Documented caveat in the UI today —
    honest but not exact. Low ROI (~twice a year, near midnight).
-3. **audit full-trail CSV download** intentionally stays a hand-rolled blob-`<a>` (fetched `res.blob()` + append-to-DOM anchor) — a
+2. **audit full-trail CSV download** intentionally stays a hand-rolled blob-`<a>` (fetched `res.blob()` + append-to-DOM anchor) — a
    genuinely different case from `downloadText`'s client-built text (blob→text semantic change + Firefox anchor-in-DOM). Cosmetic;
    not worth the behavioral risk.
 - Plan-blocked (need a CF plan upgrade, not code): **Security/WAF** (`firewallEventsAdaptiveGroups` — no entitlement) + **latency
