@@ -137,6 +137,7 @@ import { integrationHealth } from './routes/integration_health.js';
 import { tokenBurnMeter } from '../libs/features/token_burn_meter/handlers.js'; // #13 per-tenant token-burn meter + budget killswitch (flag: token_burn_meter)
 import { siteAnalytics } from '../libs/features/site_analytics/handlers.js'; // owner-facing per-site analytics summary (flag: site_analytics)
 import { kvInspector } from '../libs/features/kv_inspector/handlers.js'; // read-only super-admin KV inspector (flag: kv_inspector)
+import { r2Inspector } from '../libs/features/r2_inspector/handlers.js'; // read-only super-admin R2 object inspector (flag: r2_inspector)
 import { domains } from '../libs/features/domains/handlers.js'; // domain search/purchase/register/suggest — extracted from api.ts (route-decomposition installment 1)
 import { notifications } from '../libs/features/notifications/handlers.js'; // in-app notifications inbox (list/mark-read/read-all) — extracted from api.ts (route-decomposition installment 2)
 import { inbox } from '../libs/features/inbox/handlers.js'; // HITL task tray (list/resolve) — extracted from api.ts (route-decomposition installment 3)
@@ -976,6 +977,7 @@ app.get('/app.js', (c) =>
 app.route('/', tokenBurnMeter); // /api/usage/budget + /api/admin/usage/budget — #13 per-tenant token-burn meter + budget killswitch (flag: token_burn_meter)
 app.route('/', siteAnalytics); // /api/sites/:siteId/analytics — owner analytics summary (flag: site_analytics). Must precede `api` so the :siteId/analytics suffix wins.
 app.route('/', kvInspector); // /api/admin/kv/* — read-only super-admin KV inspector (flag: kv_inspector)
+app.route('/', r2Inspector); // /api/admin/r2/* — read-only super-admin R2 object inspector (flag: r2_inspector)
 app.route('/', visitorEvents); // POST /api/v1/events — public beacon ingest (flag: visitor_events_core)
 app.route('/', emailDeliverabilityRoutes); // /api/sites/:siteId/deliverability — SPF/DKIM/DMARC score + fixes (flag: email_deliverability_wizard)
 app.route('/', reviewPublic); // GET/POST /api/review/:id{,/decision} — public reviewer approve/reject (flag: approval_workflow, scoped to review's org)

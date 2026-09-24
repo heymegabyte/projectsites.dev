@@ -437,6 +437,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  r2_inspector: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Read-only, super-admin platform debugging tool for the shared R2 bucket (SITES_BUCKET = generated site output + media).\n\n• Worker: libs/features/r2_inspector/handlers.ts serves GET /api/admin/r2/buckets, /api/admin/r2/:bucket/objects (prefix + cursor-paginated, ≤1000), /api/admin/r2/:bucket/object (metadata via HEAD — never the body).\n• :bucket validated against a SERVER allowlist (SITES_BUCKET) — client-supplied names never reach R2; unknown → 404.\n• Read-only (no put/delete, no body download). Super-admin only; flag off → 404 (never leak existence).\n• Admin surface: /admin/r2-inspector (System Administrator). SITES_BUCKET is SHARED platform infra, not tenant-owned.',
+    key: 'r2_inspector',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   site_analytics: {
     default_enabled: false,
     default_rollout_percent: 0,
