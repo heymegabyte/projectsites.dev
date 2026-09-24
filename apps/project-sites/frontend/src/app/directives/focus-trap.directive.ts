@@ -21,7 +21,7 @@
  *
  * @see https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/
  */
-import { Directive, ElementRef, Input, inject, type OnDestroy } from '@angular/core';
+import { Directive, ElementRef, effect, inject, input, type OnDestroy } from '@angular/core';
 
 /** Selector for any element that can receive keyboard focus inside the trap. */
 const FOCUSABLE_SELECTOR =
@@ -39,19 +39,28 @@ export class FocusTrapDirective implements OnDestroy {
   private keydownHandler = (ev: KeyboardEvent): void => this.onKeydown(ev);
 
   /**
-   * When set to `true`, the directive begins trapping focus inside the host
-   * element. Setting to `false` releases the trap and restores focus to the
-   * element that held it before activation.
+   * `true` (or a bare `focusTrap` attribute) begins trapping focus inside the host;
+   * `false` releases the trap and restores focus to the previously-focused element.
    */
-  @Input()
-  set focusTrap(value: boolean | '') {
+  readonly focusTrap = input<boolean | ''>(false);
+
+  /**
+   * Activate / deactivate the trap when the input toggles — the signal-era equivalent
+   * of the old `set focusTrap` setter. The `active` guard preserves the exact
+   * activate-once / deactivate-once semantics; `activate()` still defers the initial
+   * focus via `queueMicrotask`, so the (already async-aware) spec's `detectChanges()` +
+   * `await Promise.resolve()` flow is unchanged. Reading `this.active` (a plain field)
+   * is untracked, so the effect re-runs only when `focusTrap()` changes.
+   */
+  private readonly trapEffect = effect(() => {
+    const value = this.focusTrap();
     const enabled = value === true || value === '';
     if (enabled && !this.active) {
       this.activate();
     } else if (!enabled && this.active) {
       this.deactivate();
     }
-  }
+  });
 
   ngOnDestroy(): void {
     if (this.active) {

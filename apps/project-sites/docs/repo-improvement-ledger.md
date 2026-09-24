@@ -753,6 +753,22 @@
   has <5 INP samples), tenant resolved server-side. **Next:** drilldown/filter (click a country/device to filter the
   dashboard — the biggest remaining feature, medium-large cross-stack); else analytics is at a deep coverage+honesty
   plateau (Security/WAF + latency percentiles plan-blocked).
+- **Cycle 56 — 2026-09-24 (Angular: migrate the LAST risky directive `focus-trap` → signal input + effect):** Completes
+  the wired-directive signal-input arc. `focus-trap` used a `set focusTrap(value: boolean|'')` SETTER that imperatively
+  activates/deactivates a document keydown trap (WCAG 2.4.3 focus management for every admin modal/popover/cmd-palette).
+  The risk was async timing (an `effect()` defers vs the setter's sync activation), but the inspection resolved it: the
+  a11y spec sets the input via a `[focusTrap]="open()"` HOST BINDING + `fixture.detectChanges()` (which FLUSHES the
+  effect → activates) + `await Promise.resolve()` (for `activate()`'s existing `queueMicrotask` focus deferral) — so the
+  effect-driven activation lands before every Tab-dispatch/focus assertion. Migrated to `readonly focusTrap =
+  input<boolean|''>()` + a `private effect()` replicating the setter's exact activate-once/deactivate-once logic (the
+  `active` plain-field guard is untracked, so the effect re-runs only on `focusTrap()` change). Behavior-preserving:
+  7 consumers bind `[focusTrap]="expr"` identically. Verified: fe tsc (app+spec) 0 · **Karma 2099/2099** (the 5
+  focus-trap a11y tests — inactive / activate+focus / Tab-wrap fwd / Shift-Tab-wrap / deactivate+restore — all pass with
+  the effect, comprehensively exercising both paths) · `ng build:prod` 0 err + 0 NG8113 · deployed R2 + prod-verified
+  (`main-QYBIB7XQ.js` hash-matched, homepage 200 — focus-trap runs in the nav). Frontend-only. **Milestone: every WIRED
+  directive is now signal-input migrated.** **Next:** lift `DisclosureMode` to a shared type file (decouples feature-flags
+  + site-features from the dead `mode-switcher`), then the remaining decorator files are almost all the unwired
+  `site-kit/*` library (Brian-gated intent call) + a few dashboard `widgets.ts` holdouts.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
@@ -769,7 +785,8 @@
   (`before-after-slider`, `grafana-dashboard`; dropped an unused `effect` import too).
   The 3rd `constructor(private…)` hit is a test-mock class (`readiness-badge.component.spec`),
   not Angular DI.
-- **Signal inputs/outputs: ⏳ in progress** — **38** decorator files remain (was 39). Migrating a coherent unit per
+- **Signal inputs/outputs: ⏳ in progress** — **37** decorator files remain (was 38); **all WIRED directives are now
+  signal-input migrated** — `focus-trap` was the last. Migrating a coherent unit per
   cycle, preferring WIRED, spec-covered targets that IMPROVE the code over churn. ✅ done: `cmd-glyph` (cycle 17);
   `command-palette` (`@Output()`→`output()`, cycle 18); the `states/` family — `empty-state` + `error-card` (cycle 33);
   **`directives/auth-image-src` — `@Input()`+`ngOnChanges`+`ngOnDestroy` → `input()`+`effect(onCleanup)`, which also
@@ -781,7 +798,11 @@
   `animations/reveal-on-scroll` (3 inputs) — plain-field `@Input()` → `input()`; behavior-preserving (event-time +
   ngOnInit reads), + added their previously-MISSING specs (net coverage gain), cycle 51**; **`directives/reveal` (the
   heavily-used `appReveal`, 6 plain-field inputs → `input()`; read in ngOnInit/`play()`, the module-global stagger counter
-  UNTOUCHED; spec uses host bindings so it stayed valid + gained a custom-`revealMaxDelay` test, cycle 54)**. Newer components (`conversions-card`,
+  UNTOUCHED; spec uses host bindings so it stayed valid + gained a custom-`revealMaxDelay` test, cycle 54)**;
+  **`directives/focus-trap` — the LAST risky one: `set focusTrap(value)` setter → `input()` + `effect()` that
+  activates/deactivates the keydown trap on toggle; the `active` guard preserves activate-once/deactivate-once, and
+  `activate()`'s existing `queueMicrotask` deferral means the (already async-aware) 5-test a11y spec — `[focusTrap]` host
+  binding + `detectChanges()` (flushes the effect) + `await` — stayed valid unchanged; cycle 56**. Newer components (`conversions-card`,
   `web-vitals-card`, `tech-breakdown`, `trend-badge`) already ship `input()`/`output()`. ⚠️ **`site-kit/*` (25+
   components, most of the remaining decorator files) is an UNWIRED library** — no importers/selectors/registry/build-
   includes (only 2 specs); migrating it is low-value churn, and it can't be deleted (actively maintained + tests-
