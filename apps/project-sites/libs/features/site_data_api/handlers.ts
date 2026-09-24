@@ -396,17 +396,37 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
     return c.json({ error: { code: 'BAD_REQUEST', message: 'Unknown table' } }, 400);
   }
   const limit = clampBrowseLimit(c.req.query('limit'));
+  const offset = Math.max(0, Number.parseInt(String(c.req.query('offset') ?? '0'), 10) || 0);
+  const orderBy = c.req.query('orderBy');
+  const dir = String(c.req.query('dir') ?? '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+
+  // Server-side pagination — never load a whole table into the browser. A VALID
+  // orderBy (in the column allowlist) rebuilds the ORDER BY with that validated
+  // identifier; anything else keeps the spec's default sort, so an unknown/hostile
+  // column string can never reach the SQL (allowlist is the injection boundary).
+  const browseSql =
+    orderBy && spec.columns.includes(orderBy)
+      ? `${spec.browseSql.replace(/\s+ORDER BY\s+.+\s+LIMIT\s+\?\s*$/i, '')} ORDER BY "${orderBy}" ${dir} LIMIT ? OFFSET ?`
+      : spec.browseSql.replace(/\s+LIMIT\s+\?\s*$/i, ' LIMIT ? OFFSET ?');
 
   let rows: Record<string, unknown>[] = [];
+  let total = 0;
   try {
-    const result = await c.env.DB.prepare(spec.browseSql).bind(siteId, limit).all();
-    rows = (result.results || []) as Record<string, unknown>[];
+    const [browseRes, countRes] = await Promise.all([
+      c.env.DB.prepare(browseSql).bind(siteId, limit, offset).all(),
+      c.env.DB.prepare(spec.countSql).bind(siteId).first<{ n: number }>(),
+    ]);
+    rows = (browseRes.results || []) as Record<string, unknown>[];
+    total = countRes?.n ?? 0;
   } catch {
     rows = []; // fail-soft: a missing/renamed table returns empty, never 500
+    total = 0;
   }
   if (spec.maskEmail) {
     rows = rows.map((r) => ('email' in r ? { ...r, email: maskEmailValue(r['email']) } : r));
   }
 
-  return c.json({ data: { table: spec.key, columns: spec.columns, rows } });
+  // `data.{table,columns,rows}` is preserved for the existing consumer; `total`,
+  // `limit`, `offset` are additive for the paginated grid.
+  return c.json({ data: { table: spec.key, columns: spec.columns, rows }, total, limit, offset });
 });
