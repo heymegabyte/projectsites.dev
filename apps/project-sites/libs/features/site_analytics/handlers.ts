@@ -92,7 +92,15 @@ siteAnalytics.get('/api/sites/:siteId/analytics/daily', async (c) => {
   const cw = parseCustomWindow(c.req.query('start'), c.req.query('end'));
   if (cw.error) return badWindow(c, cw.error);
   const days = parseWindowDays(c, 'days');
-  const series = await getDailySeries(c.env, gate.siteId, days, cw.window);
+  // Optional UTC-offset (minutes) for owner-local day bucketing; service re-validates + bounds it.
+  const tzRaw = Number.parseInt(c.req.query('tz') ?? '', 10);
+  const series = await getDailySeries(
+    c.env,
+    gate.siteId,
+    days,
+    cw.window,
+    Number.isInteger(tzRaw) ? tzRaw : undefined,
+  );
   return c.json(cw.window ? { ...series, windowStart: cw.startDisplay, windowEnd: cw.endDisplay } : series);
 });
 

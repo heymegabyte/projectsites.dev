@@ -60,7 +60,19 @@ export interface DailyPoint {
 }
 
 /**
- * Per-day traffic series over a trailing window, bucketed by UTC calendar day.
+ * Coerce a client-supplied UTC-offset (minutes, e.g. PST = -480) to a bounded
+ * integer for day bucketing, or `null` (→ UTC, no shift). Rejects non-integers,
+ * 0, and anything outside the real-world ±14h tz range — so an out-of-range or
+ * junk value fails SAFE to UTC rather than producing a nonsense bucket.
+ */
+function normalizeTzOffset(v: number | undefined): number | null {
+  if (typeof v !== 'number' || !Number.isInteger(v) || v === 0) return null;
+  return v >= -840 && v <= 840 ? v : null;
+}
+
+/**
+ * Per-day traffic series over a trailing window. Buckets by UTC calendar day by
+ * default, or by the OWNER's local day when a `tzOffsetMinutes` is supplied.
  *
  * ⚠️ Reads LIVE `visitor_events` (GROUP BY `date(created_at)`), NOT the
  * `analytics_daily` rollup. The rollup cron only materializes YESTERDAY's row
@@ -91,11 +103,20 @@ export async function getDailySeries(
   siteId: string,
   days = 30,
   window?: AnalyticsWindow,
+  tzOffsetMinutes?: number,
 ): Promise<{ days: DailyPoint[] }> {
   const n = Number.isInteger(days) && days > 0 && days <= 365 ? days : 30;
   // Absolute window → bound literals (created_at >= ? AND < ?); else trailing relative.
   const timeClause = window ? 'created_at >= ? AND created_at < ?' : "created_at >= datetime('now', ?)";
   const timeParams = window ? [window.since, window.until] : [`-${n} days`];
+  // Timezone-aware day bucketing: SQLite can't do IANA zones, but a FIXED-offset
+  // shift (`date(ts, '-480 minutes')`) buckets to the owner's local day instead of
+  // UTC midnight. The modifier is a BOUND param (never concatenated). No/0/out-of-range
+  // offset → plain `date(created_at)` (UTC, unchanged — backward-compat). DST-approximate
+  // for a range crossing a DST change (the frontend labels the offset honestly).
+  const tz = normalizeTzOffset(tzOffsetMinutes);
+  const dayExpr = tz === null ? 'date(created_at)' : 'date(created_at, ?)';
+  const dayParam = tz === null ? [] : [`${tz} minutes`];
   const { data, error } = await dbQuery<{
     day: string;
     pageviews: number;
@@ -104,15 +125,15 @@ export async function getDailySeries(
   }>(
     env.DB,
     // WHERE on the raw `created_at` (index-usable via idx_visitor_events_site_time);
-    // GROUP BY `date(created_at)` buckets to UTC calendar days incl. today.
-    `SELECT date(created_at) AS day,
+    // GROUP BY the bucketed day (UTC, or the owner's local day when a tz offset is set).
+    `SELECT ${dayExpr} AS day,
             SUM(CASE WHEN event_type = 'pageview' THEN 1 ELSE 0 END) AS pageviews,
             COUNT(DISTINCT session_id) AS unique_sessions,
             SUM(CASE WHEN event_type = 'conversion' THEN 1 ELSE 0 END) AS conversions
        FROM visitor_events
       WHERE site_id = ? AND ${timeClause}
-      GROUP BY date(created_at) ORDER BY day ASC`,
-    [siteId, ...timeParams],
+      GROUP BY ${dayExpr} ORDER BY day ASC`,
+    [...dayParam, siteId, ...timeParams, ...dayParam],
   );
   if (error) return { days: [] };
   return {

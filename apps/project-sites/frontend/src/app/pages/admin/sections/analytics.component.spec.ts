@@ -1071,4 +1071,22 @@ describe('AdminAnalyticsComponent — custom absolute date window', () => {
     fixture.detectChanges();
     expect(host.querySelector('[data-testid="an-range-note"]')).withContext('note appears with window').not.toBeNull();
   });
+
+  it('sends the browser tz offset to the daily endpoint for owner-local day bucketing', () => {
+    build();
+    const c = fixture.componentInstance;
+    spyOn(c, 'browserTzOffset').and.returnValue(-480); // PST
+    c.setRange('7d'); // triggers a reload
+    expect(getSiteAnalyticsDaily.calls.mostRecent().args[3]).toBe(-480);
+  });
+
+  it('renders an honest "dates in <zone>" caption reflecting the daily bucket tz', () => {
+    build();
+    const c = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+    const cap = host.querySelector('[data-testid="an-daily-tz"]');
+    expect(cap).withContext('the tz caption renders').toBeTruthy();
+    expect(cap!.textContent).toContain('dates in ' + c.dailyTz());
+  });
 });

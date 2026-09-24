@@ -835,11 +835,17 @@ export class ApiService {
     siteId: string,
     days = 30,
     window?: { start: string; end: string },
+    tzOffsetMinutes?: number,
   ): Observable<{ days: { day: string; pageviews: number; uniqueSessions: number; conversions: number }[] }> {
     const params: Record<string, string> = { days: days.toString() };
     if (window) {
       params['start'] = window.start;
       params['end'] = window.end;
+    }
+    // Owner-local day bucketing (UTC offset in minutes, e.g. PST = -480); the
+    // worker re-validates + bounds it and falls back to UTC when absent/invalid.
+    if (typeof tzOffsetMinutes === 'number' && Number.isInteger(tzOffsetMinutes) && tzOffsetMinutes !== 0) {
+      params['tz'] = tzOffsetMinutes.toString();
     }
     return this.get(`/sites/${siteId}/analytics/daily`, params, { silent: true });
   }

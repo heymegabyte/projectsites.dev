@@ -88,3 +88,45 @@ describe('getSiteAnalyticsSummary — absolute window', () => {
     expect(contactsNew!.params).toEqual(['org_1', 'site_1', '-30 days']);
   });
 });
+
+describe('getDailySeries — timezone-aware day bucketing', () => {
+  it('shifts the day bucket by a bound minutes-offset modifier for a valid tz', async () => {
+    const { env, calls } = captureEnv();
+    await getDailySeries(env, 'site_1', 30, undefined, -480); // PST (UTC-8)
+    const q = calls.find((c) => c.sql.includes('AS day'));
+    expect(q).toBeDefined();
+    expect(q!.sql).toContain('date(created_at, ?) AS day');
+    expect(q!.sql).toContain('GROUP BY date(created_at, ?)');
+    expect(q!.sql).not.toContain('date(created_at) AS day'); // no bare UTC bucket
+    // params: [SELECT modifier, siteId, timeParam(relative -30 days), GROUP BY modifier]
+    expect(q!.params).toEqual(['-480 minutes', 'site_1', '-30 days', '-480 minutes']);
+  });
+
+  it('keeps the bare UTC bucket (no modifier) when no tz is given', async () => {
+    const { env, calls } = captureEnv();
+    await getDailySeries(env, 'site_1', 30);
+    const q = calls.find((c) => c.sql.includes('AS day'));
+    expect(q!.sql).toContain('date(created_at) AS day');
+    expect(q!.sql).not.toContain('date(created_at, ?)');
+    expect(q!.params).toEqual(['site_1', '-30 days']);
+  });
+
+  it('fails SAFE to UTC for tz=0 and out-of-range offsets', async () => {
+    for (const bad of [0, 9999, -9999]) {
+      const { env, calls } = captureEnv();
+      await getDailySeries(env, 'site_1', 7, undefined, bad);
+      const q = calls.find((c) => c.sql.includes('AS day'));
+      // tz=0 / out-of-range → bare UTC bucket (fail-safe), no modifier param.
+      expect(q!.sql).toContain('date(created_at) AS day');
+      expect(q!.params).toEqual(['site_1', '-7 days']);
+    }
+  });
+
+  it('combines an absolute window with a tz offset (both bound)', async () => {
+    const { env, calls } = captureEnv();
+    await getDailySeries(env, 'site_1', 30, { since: '2026-08-01', until: '2026-08-16' }, 330); // IST (+5:30)
+    const q = calls.find((c) => c.sql.includes('AS day'));
+    expect(q!.sql).toContain('date(created_at, ?) AS day');
+    expect(q!.params).toEqual(['330 minutes', 'site_1', '2026-08-01', '2026-08-16', '330 minutes']);
+  });
+});

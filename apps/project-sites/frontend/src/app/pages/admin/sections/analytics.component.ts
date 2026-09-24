@@ -399,7 +399,12 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
           <span class="chart-meta-sep" aria-hidden="true">·</span>
           <span>{{ refreshedAt() ? ('as of ' + (refreshedAt() | date:'shortTime')) : 'not yet loaded' }}</span>
           <span class="chart-meta-sep" aria-hidden="true">·</span>
-          <span title="Daily buckets are aggregated by UTC calendar day.">dates in UTC</span>
+          <span
+            data-testid="an-daily-tz"
+            [title]="dailyTz() === 'UTC'
+              ? 'Daily buckets are aggregated by UTC calendar day.'
+              : 'Daily buckets use your local calendar day (' + dailyTz() + '), from your current UTC offset — approximate across a daylight-saving change.'"
+          >dates in {{ dailyTz() }}</span>
         </p>
         @if (loading() && !envelope()) {
           <div class="skel skel-chart" aria-hidden="true"></div>
@@ -1110,6 +1115,29 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     return Math.min(90, Math.max(1, Math.round(ms / 86_400_000) + 1));
   }
 
+  /** Browser UTC offset in minutes, east-positive (PST = -480). Sent to the daily
+   *  endpoint so the series buckets by the owner's local calendar day, not UTC. */
+  browserTzOffset(): number {
+    try {
+      return -new Date().getTimezoneOffset();
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Zone label for the daily-bucket caption: the IANA zone when the browser is
+   *  offset from UTC, else 'UTC'. Drives the honest "dates in …" chart caption. */
+  readonly dailyTz = signal<string>(
+    (() => {
+      try {
+        if (-new Date().getTimezoneOffset() === 0) return 'UTC';
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+      } catch {
+        return 'UTC';
+      }
+    })(),
+  );
+
   /** Set an exact-window bound, persist it, sync the URL, and reload if the window is active. */
   setCustomDate(which: 'start' | 'end', value: string): void {
     const v = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
@@ -1780,7 +1808,7 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
         catchError(() => of(null as SiteAnalyticsSummary | null)),
       ),
       // Daily rollup for the chart series — empty when the site has no rollup yet.
-      daily: this.api.getSiteAnalyticsDaily(site.id, this.rangeDays(), win).pipe(
+      daily: this.api.getSiteAnalyticsDaily(site.id, this.rangeDays(), win, this.browserTzOffset()).pipe(
         timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
         catchError(() =>
           of({ days: [] as { day: string; pageviews: number; uniqueSessions: number; conversions: number }[] }),

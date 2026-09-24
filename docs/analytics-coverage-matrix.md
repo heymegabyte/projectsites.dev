@@ -183,9 +183,21 @@ reflect a recent window — Cloudflare can't query an arbitrary past range"** (t
 trailing window). +5 Karma specs (customWindow validity, rangeDays span, window→API args, URL restore, conditional note) + 3
 updated for the new URL contract → 1979 total. Deployed R2 + chunk-hash prod-verified (`chunk-K4QYFOWI.js`, `an-range-dates`).
 
+**Timezone-aware daily bucketing — DONE (2026-09-24).** `getDailySeries` now buckets by the OWNER's local calendar day
+instead of UTC midnight: SQLite can't do IANA zones, but a FIXED-offset shift (`date(created_at, ?)` with a BOUND
+`'-480 minutes'` modifier — never concatenated) buckets to local. The frontend sends `-new Date().getTimezoneOffset()` to
+`GET /api/sites/:siteId/analytics/daily?tz=<min>`; the service `normalizeTzOffset` bounds it to ±14h and **fails SAFE to UTC**
+for 0/junk/out-of-range. The chart caption is now honest + dynamic — **"dates in <IANA zone>"** (e.g. `America/Los_Angeles`)
+with a tooltip noting it's the current offset (DST-approximate across a change), or "dates in UTC" at offset 0. +4 Jest
+(offset modifier bound both in SELECT+GROUP BY / UTC no-modifier / fail-safe 0+range / window+tz combined) + 2 Karma
+(offset sent / caption). Deployed; verified. **Not touched (documented limits):** the calendar-aligned `analytics_daily`
+rollup + `getTrafficSummaryFromRollup` can't be tz-shifted (pre-aggregated by UTC day) — the live path is the tz-aware one;
+the `/api/analytics/:siteId` legacy `byDay` (secondary route, not the UI's source) stays UTC.
+
 NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions/shareable-range +
-**arbitrary-window fully end-to-end** complete): (1) **Full timezone-aware bucketing** — daily series + `date(created_at)`
-buckets are UTC; a site owner in PST sees days split on UTC midnight. Add a tz offset (site setting or browser tz) to the
-bucketing + window bounds. (2) **Comparison-period overlay** — the summary already returns `previous` (equal-length prior
-window) deltas; surface a visual compare (sparkline/Δ badges per KPI) beyond the current numeric delta. (3) **Migrate bespoke
-CSV exports** (events-table / audit / forms / super-admin) onto the shared `csvEscape`/`downloadText`.
+**arbitrary-window fully end-to-end + tz-aware daily bucketing** complete): (1) **Absolute-window tz interpretation** — the
+`?start&end` bounds are still compared as UTC date-only literals, so a PST owner picking "Aug 1" gets `>= 2026-08-01 00:00
+UTC` (= Jul 31 16:00 PST). Shift the window bounds by the same tz offset for full consistency with the now-tz-aware buckets.
+(2) **Comparison-period overlay** — the summary already returns `previous` (equal-length prior window) deltas; surface a
+visual compare (sparkline/Δ badges per KPI) beyond the current numeric delta. (3) **Migrate bespoke CSV exports**
+(events-table / audit / forms / super-admin) onto the shared `csvEscape`/`downloadText`.
