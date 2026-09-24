@@ -154,9 +154,13 @@ export const TrafficSummarySchema = z
         pageviews: z.number().int().min(0),
         uniqueSessions: z.number().int().min(0),
         conversions: z.number().int().min(0),
+        // AN-CONV-Δ — the prior window's conversions BY KIND, so the card can show a
+        // per-kind period-over-period delta (calls up, form-submits down). Defaulted []
+        // for back-compat with pre-delta producers/fixtures.
+        byConversionKind: z.array(LabelCountSchema).default([]),
       })
       .strict()
-      .default({ pageviews: 0, uniqueSessions: 0, conversions: 0 }),
+      .default({ pageviews: 0, uniqueSessions: 0, conversions: 0, byConversionKind: [] }),
     windowDays: z.number().int().positive(),
   })
   .strict();

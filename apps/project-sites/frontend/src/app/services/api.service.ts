@@ -1692,7 +1692,12 @@ export interface SiteTrafficSummary {
     /** Slowest pages by LCP p75 (worst first) — the "which page is slow" drilldown. */
     slowestPages?: Array<{ path: string; lcpP75: number; samples: number }>;
   };
-  previous: { pageviews: number; uniqueSessions: number; conversions: number };
+  previous: {
+    pageviews: number;
+    uniqueSessions: number;
+    conversions: number;
+    byConversionKind?: { label: string; count: number }[];
+  };
   windowDays: number;
 }
 

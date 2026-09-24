@@ -308,6 +308,19 @@
   `rm -rf .wrangler/tmp` + redeploy fixed it. Prod-verified live REAL data: visitor_events 37 rows→'2026-09-24 12:54:02', empty
   tables→null. Next Data: broaden typed editors (NULL/number/bool/JSON) IF a genuinely-editable column appears; else the Data
   section has plateaued for the shared-DB tenant model (form_submissions CRUD + browse/export/overview/freshness all done).
+- **Cycle 30 — 2026-09-24 (Analytics: conversions-by-kind Δ — per-kind period-over-period on the conversions card):** Shipped
+  the Cycle-28 top handoff. Server: refactored `getConversionKinds` onto a shared `conversionKindsForClause` + added
+  `getPreviousConversionKinds` (the `previousWindow` predicate); BOTH summary paths (live + rollup) now populate
+  `previous.byConversionKind` (Zod `previous` schema gains a `byConversionKind` defaulted `[]` for back-compat). Frontend:
+  `conversionKindDeltas` (parent computed, `label → TrendBadge` via the same authoritative `deltaBadge` — source-consistent with
+  the total Δ) feeds a new `kindDeltas` input on `ConversionsCardComponent`; each row shows a small `trend-chip--sm`
+  (`an-conv-kind-trend-<raw>`) keyed by raw label, aria-prefixed with the humanized label. Honest: a kind absent from the prior
+  window → "new"; nothing to compare → no chip. TDD-first. Verified: worker tsc 0 · fe tsc 0 · backtick 0 · **Jest 751 suites /
+  12304** (+3: previous-window predicate ×2 + summary wiring) · **Karma 2033/2033** (+5: 3 card + 2 component) · eslint 0 err ·
+  frontend build 0 · **both deployed** (R2 `chunk-CE7UTQCN.js` + worker `c782d04e`; proactively cleaned `.wrangler/tmp` per the
+  Cycle-29 stale-bundle lesson) · **prod-verified live by SHAPE**: `previous.byConversionKind` present (current `[{call:2}]`, prior
+  `[]` — honest empty for this site → the 'call' badge would be "new"). Next Analytics: DST-precise tz shift, or browsers/OS
+  breakdown (needs UA at ingest), then CSV consolidation (cosmetic).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

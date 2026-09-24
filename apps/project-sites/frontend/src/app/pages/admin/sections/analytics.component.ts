@@ -556,6 +556,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
         [rows]="siteTraffic()?.byConversionKind ?? []"
         [windowDays]="rangeDays()"
         [delta]="conversionDelta()"
+        [kindDeltas]="conversionKindDeltas()"
       />
 
       <!-- Real-user experience — field-measured Core Web Vitals p75 (LCP/INP/CLS)
@@ -1634,6 +1635,27 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
   readonly conversionDelta = computed<TrendBadge | null>(() => {
     const t = this.siteTraffic();
     return t ? this.deltaBadge(t.conversions, t.previous?.conversions, t.windowDays) : null;
+  });
+
+  /**
+   * Per-kind conversions period-over-period delta (`label → TrendBadge`) — the same
+   * authoritative D1 current-vs-prior comparison as {@link conversionDelta}, but for
+   * EACH kind (calls up, form-submits down). Keyed by the raw kind label so the card
+   * matches each row to its badge. A kind absent from the prior window compares against
+   * 0 → "new"; a kind with no current + no prior isn't emitted (nothing to show). Only
+   * kinds present in EITHER window appear; `deltaBadge` returns null (no chip) when
+   * there's nothing meaningful to compare.
+   */
+  readonly conversionKindDeltas = computed<Record<string, TrendBadge>>(() => {
+    const t = this.siteTraffic();
+    if (!t) return {};
+    const prev = new Map((t.previous?.byConversionKind ?? []).map((r) => [r.label, r.count]));
+    const out: Record<string, TrendBadge> = {};
+    for (const row of t.byConversionKind ?? []) {
+      const badge = this.deltaBadge(row.count, prev.get(row.label) ?? 0, t.windowDays);
+      if (badge) out[row.label] = badge;
+    }
+    return out;
   });
 
   /**

@@ -67,7 +67,21 @@ const CONVERSION_LABELS: Record<string, string> = {
             <li class="conv-row" data-testid="an-conv-row">
               <div class="conv-row-head">
                 <span class="conv-label">{{ it.label }}</span>
-                <span class="conv-count">{{ it.count }}</span>
+                <span class="conv-row-meta">
+                  @if (kindDeltas()[it.raw]; as kd) {
+                    <span class="trend-chip trend-chip--sm"
+                          [attr.data-testid]="'an-conv-kind-trend-' + it.raw"
+                          [attr.data-dir]="kd.dir" [attr.aria-label]="it.label + ' ' + kd.aria" [title]="kd.title">
+                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        @if (kd.dir === 'up') { <path d="M6 15l6-6 6 6"/> }
+                        @else if (kd.dir === 'down') { <path d="M6 9l6 6 6-6"/> }
+                        @else { <path d="M5 12h14"/> }
+                      </svg>
+                      {{ kd.label }}
+                    </span>
+                  }
+                  <span class="conv-count">{{ it.count }}</span>
+                </span>
               </div>
               <div class="conv-bar" aria-hidden="true">
                 <div class="conv-bar-fill" [style.width.%]="barWidth(it.count)"></div>
@@ -100,6 +114,8 @@ const CONVERSION_LABELS: Record<string, string> = {
       font-variant-numeric: tabular-nums; border: 1px solid transparent;
     }
     .trend-chip svg { flex-shrink: 0; }
+    .trend-chip--sm { padding: 0px 5px 0px 3px; font-size: 0.58rem; font-weight: 700; }
+    .conv-row-meta { display: inline-flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
     .trend-chip[data-dir="up"] {
       color: var(--ps-accent, #00E5FF);
       background: color-mix(in oklch, var(--ps-accent, #00E5FF) 14%, transparent);
@@ -135,6 +151,12 @@ export class ConversionsCardComponent {
    * there's nothing to compare — the chip simply doesn't render, never a fake "0%".
    */
   readonly delta = input<TrendBadge | null>(null);
+  /**
+   * Per-kind period-over-period deltas, keyed by the RAW kind label (`it.raw`) — a small
+   * trend chip on each row (calls up, form-submits down). A kind absent here (nothing to
+   * compare) simply shows no chip. Computed by the parent from `previous.byConversionKind`.
+   */
+  readonly kindDeltas = input<Record<string, TrendBadge>>({});
 
   /** Non-empty rows, humanized + sorted by count desc. */
   readonly items = computed(() =>

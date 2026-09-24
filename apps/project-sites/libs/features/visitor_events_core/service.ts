@@ -382,24 +382,46 @@ export async function getWebVitalsSummary(
  * @remarks Fail-soft — a missing table / query error yields []. A conversion with
  * no `kind` (a generic goal) buckets as 'other' so it's counted, never dropped.
  */
+async function conversionKindsForClause(
+  env: Env,
+  clause: string,
+  params: unknown[],
+): Promise<LabelCount[]> {
+  const { data, error } = await dbQuery<{ label: string | null; n: number }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.kind') AS label, COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'conversion'
+      GROUP BY label ORDER BY n DESC LIMIT 20`,
+    params,
+  );
+  if (error) return [];
+  return data.map((r) => ({ label: r.label ?? 'other', count: Number(r.n) }));
+}
+
 export async function getConversionKinds(
   env: Env,
   siteId: string,
   windowDays = 30,
   window?: AnalyticsWindow,
 ): Promise<LabelCount[]> {
-  const win = timePredicate(siteId, windowDays, window);
-  const { data, error } = await dbQuery<{ label: string | null; n: number }>(
-    env.DB,
-    `SELECT json_extract(metadata, '$.kind') AS label, COUNT(*) AS n
-       FROM visitor_events
-      WHERE site_id = ? AND event_type = 'conversion'
-        AND ${win.time}
-      GROUP BY label ORDER BY n DESC LIMIT 20`,
-    win.params,
-  );
-  if (error) return [];
-  return data.map((r) => ({ label: r.label ?? 'other', count: Number(r.n) }));
+  const { clause, params } = currentWindow(siteId, windowDays, window);
+  return conversionKindsForClause(env, clause, params);
+}
+
+/**
+ * Conversions by kind over the equal-length window immediately BEFORE the current one —
+ * the prior-period baseline for the per-kind delta badges. Same SQL as
+ * {@link getConversionKinds}, scoped to the {@link previousWindow} predicate.
+ */
+export async function getPreviousConversionKinds(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+): Promise<LabelCount[]> {
+  const { pw, pwParams } = previousWindow(siteId, windowDays, window);
+  return conversionKindsForClause(env, pw, pwParams);
 }
 
 /** Roll up a site's traffic over a trailing window. */
@@ -447,6 +469,7 @@ export async function getTrafficSummary(
     bounceRows,
     webVitals,
     byConversionKind,
+    prevByConversionKind,
   ] = await Promise.all([
     scalar(env, `SELECT COUNT(*) AS n FROM visitor_events WHERE ${w} AND event_type = 'pageview'`, wParams),
     scalar(env, `SELECT COUNT(DISTINCT session_id) AS n FROM visitor_events WHERE ${w}`, wParams),
@@ -510,6 +533,8 @@ export async function getTrafficSummary(
     getWebVitalsSummary(env, siteId, windowDays, window),
     // AN-CONV — conversions by kind (queried directly; not in the rollup).
     getConversionKinds(env, siteId, windowDays, window),
+    // AN-CONV-Δ — prior-window conversions by kind, for the per-kind delta badges.
+    getPreviousConversionKinds(env, siteId, windowDays, window),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -547,6 +572,7 @@ export async function getTrafficSummary(
       pageviews: prevPageviews,
       uniqueSessions: prevSessions,
       conversions: prevConversions,
+      byConversionKind: prevByConversionKind,
     },
     windowDays: effectiveWindowDays,
   });
@@ -617,7 +643,7 @@ export async function getTrafficSummaryFromRollup(
     return error ? [] : data;
   };
 
-  const [cur, prev, pathRows, typeRows, channelRows, deviceRows, countryRows, webVitals, byConversionKind] =
+  const [cur, prev, pathRows, typeRows, channelRows, deviceRows, countryRows, webVitals, byConversionKind, prevByConversionKind] =
     await Promise.all([
       sumScalars(curStart, null),
       sumScalars(prevStart, prevEnd),
@@ -626,9 +652,10 @@ export async function getTrafficSummaryFromRollup(
       merge('by_channel_json', 'label'),
       merge('by_device_json', 'label'),
       merge('by_country_json', 'label'),
-      // CWV + conversions-by-kind aren't rolled into analytics_daily — read live.
+      // CWV + conversions-by-kind aren't rolled into analytics_daily — read live (current + prior window).
       getWebVitalsSummary(env, siteId, windowDays),
       getConversionKinds(env, siteId, windowDays),
+      getPreviousConversionKinds(env, siteId, windowDays),
     ]);
 
   return TrafficSummarySchema.parse({
@@ -649,6 +676,7 @@ export async function getTrafficSummaryFromRollup(
       pageviews: prev.pageviews,
       uniqueSessions: prev.uniqueSessions,
       conversions: prev.conversions,
+      byConversionKind: prevByConversionKind,
     },
     windowDays,
   });

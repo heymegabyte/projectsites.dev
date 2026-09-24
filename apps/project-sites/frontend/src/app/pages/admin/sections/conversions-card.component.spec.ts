@@ -8,12 +8,18 @@ import type { TrendBadge } from './trend-badge.model';
  * form submits …). Every count is a real tracked event; the empty state says "no
  * conversions tracked yet", never a fabricated breakdown.
  */
-function render(rows: ConversionKind[], windowDays = 30, delta: TrendBadge | null = null) {
+function render(
+  rows: ConversionKind[],
+  windowDays = 30,
+  delta: TrendBadge | null = null,
+  kindDeltas: Record<string, TrendBadge> = {},
+) {
   TestBed.configureTestingModule({ imports: [ConversionsCardComponent] });
   const fixture = TestBed.createComponent(ConversionsCardComponent);
   fixture.componentRef.setInput('rows', rows);
   fixture.componentRef.setInput('windowDays', windowDays);
   fixture.componentRef.setInput('delta', delta);
+  fixture.componentRef.setInput('kindDeltas', kindDeltas);
   fixture.detectChanges();
   return fixture;
 }
@@ -86,5 +92,40 @@ describe('ConversionsCardComponent', () => {
   it('renders no delta chip when no delta is provided (null → nothing to compare)', () => {
     const fixture = render([{ label: 'call', count: 30 }], 7, null);
     expect(fixture.debugElement.query(By.css('[data-testid="an-conv-trend"]'))).toBeNull();
+  });
+});
+
+describe('ConversionsCardComponent — per-kind deltas', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const up: TrendBadge = { dir: 'up', label: '25%', aria: 'up 25 percent versus the previous 7 days', title: 'vs the previous 7 days (up 25%)' };
+  const down: TrendBadge = { dir: 'down', label: '40%', aria: 'down 40 percent versus the previous 7 days', title: 'vs the previous 7 days (down 40%)' };
+
+  it('renders a per-kind trend chip ONLY for rows present in kindDeltas (keyed by raw label)', () => {
+    const fixture = render(
+      [{ label: 'call', count: 5 }, { label: 'form_submit', count: 3 }],
+      7,
+      null,
+      { call: up }, // only 'call' has a delta
+    );
+    const callChip = fixture.debugElement.query(By.css('[data-testid="an-conv-kind-trend-call"]'));
+    expect(callChip).withContext('call row shows its delta chip').toBeTruthy();
+    const el = callChip.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('25%');
+    expect(el.getAttribute('data-dir')).toBe('up');
+    expect(el.getAttribute('aria-label')).toContain('Phone calls'); // label prefix for SR context
+    // form_submit has no delta → no chip on that row.
+    expect(fixture.debugElement.query(By.css('[data-testid="an-conv-kind-trend-form_submit"]'))).toBeNull();
+  });
+
+  it('renders a down chip with the correct direction', () => {
+    const fixture = render([{ label: 'form_submit', count: 2 }], 7, null, { form_submit: down });
+    const chip = fixture.debugElement.query(By.css('[data-testid="an-conv-kind-trend-form_submit"]'));
+    expect((chip.nativeElement as HTMLElement).getAttribute('data-dir')).toBe('down');
+  });
+
+  it('renders no per-kind chips when kindDeltas is empty (default)', () => {
+    const fixture = render([{ label: 'call', count: 5 }], 7);
+    expect(fixture.debugElement.queryAll(By.css('[data-testid^="an-conv-kind-trend-"]')).length).toBe(0);
   });
 });

@@ -20,6 +20,7 @@ import {
   getTrafficSummary,
   getWebVitalsSummary,
   getConversionKinds,
+  getPreviousConversionKinds,
   shiftWindowToTz,
 } from '../service.js';
 import type { Env } from '../../../../src/types/env.js';
@@ -111,6 +112,31 @@ describe('getWebVitalsSummary / getConversionKinds — absolute window', () => {
     expect(q).toBeDefined();
     expect(q!.sql).toContain('created_at >= ? AND created_at < ?');
     expect(q!.params).toEqual(['site_1', '2026-08-01', '2026-08-16']);
+  });
+
+  it('PREVIOUS conversion-kinds query binds the PRIOR equal-length window (absolute)', async () => {
+    const { env, calls } = captureEnv();
+    // 15-day window [08-01, 08-16) → prior window is [07-17, 08-01).
+    await getPreviousConversionKinds(env, 'site_1', 30, { since: '2026-08-01', until: '2026-08-16' });
+    const q = calls.find((c) => c.sql.includes("event_type = 'conversion'"));
+    expect(q).toBeDefined();
+    expect(q!.sql).toContain('created_at >= ? AND created_at < ?');
+    expect(q!.params).toEqual(['site_1', '2026-07-17', '2026-08-01']);
+  });
+
+  it('PREVIOUS conversion-kinds keeps the relative [now-2N, now-N) window', async () => {
+    const { env, calls } = captureEnv();
+    await getPreviousConversionKinds(env, 'site_1', 7);
+    const q = calls.find((c) => c.sql.includes("event_type = 'conversion'"));
+    expect(q!.sql).toContain("datetime('now', ?)");
+    expect(q!.params).toEqual(['site_1', '-14 days', '-7 days']);
+  });
+
+  it('getTrafficSummary wires previous.byConversionKind (present + defaulted [] when empty)', async () => {
+    const { env } = captureEnv();
+    const s = await getTrafficSummary(env, 'site_1', 30);
+    expect(Array.isArray(s.previous.byConversionKind)).toBe(true);
+    expect(s.previous.byConversionKind).toEqual([]); // no events → honest empty, never fabricated
   });
 
   it('web-vitals keeps the relative window with no absolute window', async () => {

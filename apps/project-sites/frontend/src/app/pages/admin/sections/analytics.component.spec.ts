@@ -1233,4 +1233,37 @@ describe('AdminAnalyticsComponent — comparison-period deltas', () => {
     expect(chip).withContext('conversions delta chip renders on the card').toBeTruthy();
     expect(chip!.getAttribute('data-dir')).toBe('up');
   });
+
+  it('conversionKindDeltas: per-kind badge from previous.byConversionKind (up / down / new)', () => {
+    const c = build();
+    c.siteTraffic.set({
+      pageviews: 0,
+      uniqueSessions: 0,
+      conversions: 9,
+      byConversionKind: [
+        { label: 'call', count: 6 }, // prior 4 → +50% up
+        { label: 'form_submit', count: 2 }, // prior 5 → down
+        { label: 'directions', count: 1 }, // no prior → "new"
+      ],
+      previous: {
+        pageviews: 0,
+        uniqueSessions: 0,
+        conversions: 9,
+        byConversionKind: [
+          { label: 'call', count: 4 },
+          { label: 'form_submit', count: 5 },
+        ],
+      },
+      windowDays: 7,
+    } as never);
+    const d = c.conversionKindDeltas();
+    expect(d['call']).toEqual(jasmine.objectContaining({ dir: 'up', label: '50%' }));
+    expect(d['form_submit']?.dir).toBe('down');
+    expect(d['directions']).toEqual(jasmine.objectContaining({ dir: 'up', label: 'new' }));
+  });
+
+  it('conversionKindDeltas is empty with no siteTraffic (nothing to compare)', () => {
+    const c = build();
+    expect(c.conversionKindDeltas()).toEqual({});
+  });
 });
