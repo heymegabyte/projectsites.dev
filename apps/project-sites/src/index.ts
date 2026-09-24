@@ -107,6 +107,7 @@ import { socialOauthRoutes } from './routes/social_oauth.js';
 import { socialPostRoutes } from './routes/social_posts.js';
 import { pulseAnalytics, runHourlyPulseAnalyticsCron } from './routes/pulse_analytics.js';
 import { voiceRoutes } from './routes/voice.js';
+import { voiceInsightsRoutes } from './routes/voice_insights.js';
 import { logsRoutes } from './routes/logs.js';
 import { voiceWebhookRoutes } from './routes/voice_webhooks.js';
 import { livekitWebhookRoutes } from './routes/livekit_webhooks.js';
@@ -939,6 +940,7 @@ app.route('/', socialOauthRoutes); // /api/social/:platform/{connect,callback,pa
 app.route('/', socialRoutes); // /api/social/{accounts,posts}/* — Pulse Social CRUD; must precede `api`
 app.route('/', socialPostRoutes); // /api/social/:siteId/posts/{publish,schedule,generate} — Native Social Tier 1
 app.route('/', voiceRoutes); // /api/voice/* — AI Voice + SMS Agent (numbers, vanity, calls, messages, settings)
+app.route('/', voiceInsightsRoutes); // /api/voice/insights — voice call aggregate KPIs (total_calls, by_direction, avg_duration, sentiment, cost)
 app.route('/', logsRoutes); // /api/logs/{search,cost-by-route} — Log Explorer over Workers Observability (flag: log_explorer); must precede `api`
 app.route('/', voiceWebhookRoutes); // /webhooks/voice/* + /webhooks/sms/* + /internal/voice/* — Twilio webhook + media stream bridge
 app.route('/', livekitWebhookRoutes); // /webhooks/livekit — LiveKit Cloud room/egress lifecycle (signed) → D1

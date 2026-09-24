@@ -63,7 +63,7 @@ describe('VoiceComponent (cyan/black cohesion + a11y)', () => {
     expect(tablist).toBeTruthy();
     expect(tablist!.getAttribute('aria-label')).toBe('Voice sections');
     const tabs = el.querySelectorAll('[role="tab"]');
-    expect(tabs.length).toBe(6);
+    expect(tabs.length).toBe(7);
     // Exactly one tab is selected + tabindex=0 (roving tabindex pattern).
     const selected = Array.from(tabs).filter((t) => t.getAttribute('aria-selected') === 'true');
     expect(selected.length).toBe(1);

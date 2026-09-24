@@ -28,13 +28,14 @@ import { RevealOnScrollDirective } from '../../../animations/reveal-on-scroll.di
 import { RollingCounterComponent } from '../../../components/rolling-counter/rolling-counter.component';
 import { VoiceNumbersComponent } from './voice/numbers.component';
 import { VoiceConversationsComponent } from './voice/conversations.component';
+import { VoiceInsightsComponent } from './voice/insights.component';
 import { VoiceTestConsoleComponent } from './voice/test-console.component';
 import { VoiceAgentSettingsComponent } from './voice/agent-settings.component';
 import { VoiceMcpsComponent } from './voice/mcps.component';
 import { VoiceShareComponent } from './voice/share.component';
 import { EmptyStateComponent } from '../empty-state.component';
 
-type VoiceTab = 'numbers' | 'conversations' | 'test' | 'agent' | 'mcps' | 'share';
+type VoiceTab = 'numbers' | 'conversations' | 'insights' | 'test' | 'agent' | 'mcps' | 'share';
 
 interface TabSpec {
   readonly id: VoiceTab;
@@ -45,6 +46,7 @@ interface TabSpec {
 const TABS: readonly TabSpec[] = [
   { id: 'numbers',       label: 'Numbers',       hint: 'Buy + manage' },
   { id: 'conversations', label: 'Conversations', hint: 'Calls + SMS feed' },
+  { id: 'insights',      label: 'Insights',      hint: 'Calls at a glance' },
   { id: 'test',          label: 'Test Console',  hint: 'Call from browser' },
   { id: 'agent',         label: 'Agent',         hint: 'Prompts + voice' },
   { id: 'mcps',          label: 'MCPs',          hint: 'Tool access' },
@@ -60,6 +62,7 @@ const TABS: readonly TabSpec[] = [
     RollingCounterComponent,
     VoiceNumbersComponent,
     VoiceConversationsComponent,
+    VoiceInsightsComponent,
     VoiceTestConsoleComponent,
     VoiceAgentSettingsComponent,
     VoiceMcpsComponent,
@@ -129,6 +132,7 @@ const TABS: readonly TabSpec[] = [
           @switch (activeTab()) {
             @case ('numbers') { <app-voice-numbers /> }
             @case ('conversations') { <app-voice-conversations /> }
+            @case ('insights') { <app-voice-insights /> }
             @case ('test') { <app-voice-test-console /> }
             @case ('agent') { <app-voice-agent-settings /> }
             @case ('mcps') { <app-voice-mcps /> }
