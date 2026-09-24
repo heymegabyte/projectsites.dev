@@ -51,6 +51,7 @@ function formatBytes(n: number): string {
     .dl-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; margin: 0; flex-wrap: wrap; }
     .dl-title { font-size: 1rem; font-weight: 700; color: var(--ps-ink, #f4f4ff); }
     .dl-src { font-size: 0.62rem; color: var(--text-secondary, #9aa0b4); cursor: help; }
+    .dl-est { color: #f5c451; font-style: italic; }
     .dl-statuses { display: grid; gap: 0.3rem; }
     .dl-status-row { display: grid; grid-template-columns: 8.5rem 1fr auto; align-items: center; gap: 0.5rem; font-size: 0.75rem; }
     .dl-status-label { color: var(--ps-ink, #f4f4ff); white-space: nowrap; }
@@ -82,7 +83,7 @@ function formatBytes(n: number): string {
           class="dl-src"
           data-testid="an-dl-source"
           title="Cloudflare edge metrics (httpRequestsAdaptiveGroups) for this site's domains — HTTP requests served at the edge, cache result, and bandwidth. This counts requests, NOT pageviews (see the audience cards for first-party pageviews). ~30-day retention, adaptive-sampled."
-          >Cloudflare edge · last {{ windowDays() }} {{ windowDays() === 1 ? 'day' : 'days' }}</span
+          >Cloudflare edge · last {{ windowDays() }} {{ windowDays() === 1 ? 'day' : 'days' }} · <span class="dl-est" data-testid="an-dl-sampled">sampled estimate</span></span
         >
       </h3>
 
@@ -134,7 +135,7 @@ function formatBytes(n: number): string {
             </div>
           }
 
-          <p class="dl-note">Counts HTTP requests served at Cloudflare's edge (not pageviews). Cache hit ratio is over cacheable requests.</p>
+          <p class="dl-note" data-testid="an-dl-note">Cloudflare edge counts of HTTP requests (not pageviews), <strong>adaptive-sampled — approximate, not exact</strong>. Your audience metrics above (page views, visits, conversions) are exact first-party counts. Cache hit ratio is over cacheable requests.</p>
         } @else if (d.zone_resolved) {
           <p class="dl-empty" data-testid="an-dl-empty">
             No edge requests recorded in this window yet. Status codes, cache hit-rate, and bandwidth appear here once traffic arrives.

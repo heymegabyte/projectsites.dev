@@ -52,6 +52,19 @@ describe('DeliveryCardComponent', () => {
     expect((el.querySelector('[data-testid="an-dl-bytes"]') as HTMLElement).textContent).toContain('GB');
   });
 
+  it('VISIBLY flags the edge metrics as a sampled estimate + contrasts the exact first-party audience', () => {
+    const { el } = setup(REAL);
+    // The sampled nature must be VISIBLE text, not only a hover tooltip (the prompt:
+    // surface sampling in the UI; never imply an estimated metric is exact).
+    const badge = el.querySelector('[data-testid="an-dl-sampled"]') as HTMLElement;
+    expect(badge).withContext('visible sampled-estimate indicator').toBeTruthy();
+    expect(badge.textContent).toContain('sampled estimate');
+    const note = el.querySelector('[data-testid="an-dl-note"]') as HTMLElement;
+    expect(note.textContent).toContain('approximate, not exact');
+    // Explicitly contrasts with the EXACT first-party audience metrics (no conflation).
+    expect(note.textContent).toContain('exact first-party');
+  });
+
   it('flags an actionable error rate when 4xx/5xx ≥ 5% and lists the error codes', () => {
     const { el } = setup(REAL); // 5xx 9% + 4xx 2% = 11%
     const warn = el.querySelector('[data-testid="an-dl-error-warn"]') as HTMLElement;

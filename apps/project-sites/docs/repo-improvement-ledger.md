@@ -538,6 +538,21 @@
   browser's remaining epic items are low-value here (generated columns / WITHOUT ROWID = 0 in the platform D1; 1 virtual
   table could get a "virtual" badge but it's niche). The bigger Data gap is the SQL-console editor UX (syntax highlight /
   completion / multi-tab) — needs a code-editor lib (a dependency decision).
+- **Cycle 44 — 2026-09-24 (Analytics: VISIBLY surface that the Delivery card is a sampled ESTIMATE):** The prompt's
+  central honesty mandate — "surface sampling/estimates in the UI; never imply an estimated metric is exact" — was
+  half-met: the Delivery card's CF `httpRequestsAdaptiveGroups` data IS adaptive-sampled, but the "adaptive-sampled"
+  caveat lived ONLY in a hover `title` tooltip, so the visible requests/cache/bandwidth numbers read as exact (just like
+  the truly-exact first-party audience cards → conflation risk). Made it VISIBLE, pure frontend: the card header now
+  shows an italic-amber **"sampled estimate"** tag (`an-dl-sampled`), and the footer note now reads "adaptive-sampled —
+  **approximate, not exact**" AND explicitly contrasts "Your audience metrics above (page views, visits, conversions)
+  are **exact first-party counts**" — so an owner can't misread the sampled edge counts as exact. No data/tenant change
+  (the delivery data + `resolveDeliveryZone` ownership path are unchanged; this is a labeling-honesty fix). Verified: fe
+  tsc (app + spec) 0 · **Karma 2065/2065** (+1: asserts the sampled indicator is VISIBLE text, not tooltip-only, + the
+  exact-vs-sampled contrast) · build 0 · deployed R2 + chunk-hash prod-verified (`chunk-W7OAXUAS.js` 200 with both
+  "sampled estimate" + "approximate, not exact" markers, referenced by live `main-OSENXWN5.js`). **Next:** DST-precise
+  IANA timezone (still a fixed-offset caveat — moderate complexity, ~1hr-twice-a-year ROI), or a bot-filtered-count
+  insight (needs new instrumentation — bots are currently dropped, not counted). Both are lower-value than shipped work;
+  the analytics section is mature + honest (first-party exact, CF-edge now visibly sampled, plan-blocked items absent).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
