@@ -522,6 +522,22 @@
   returns `byUtmSource`/`byUtmCampaign` (`[]` for the untagged test site) + `/health` 200, so the change is fully live;
   the already-registered workflows keep running their prior version. Frontend `chunk-XO67NIOY.js` live + referenced.
   Next: DST-precise IANA timezone (still a documented fixed-offset caveat), or a bot-filtered-count insight.
+- **Cycle 43 — 2026-09-24 (Data: schema browser surfaces composite-PRIMARY-KEY order):** The epic's schema browser
+  wants "composite keys, WITHOUT ROWID, virtual tables, generated columns". Checked prevalence in the platform D1:
+  generated columns = 0, WITHOUT ROWID = 0 (both would be invisible → skipped), 1 virtual table, but **composite PKs
+  are used by 8 tables** — and the schema browser collapsed every PK to a bare "PK" badge, so a composite key's column
+  ORDER (which the endpoint already returns via `PRAGMA table_info.pk` = the 1-based position) was invisible. Surfaced
+  it, pure frontend (no backend/endpoint change — the position was already in the response, the UI had collapsed it to a
+  boolean): `SiteSchemaBrowserComponent` now derives `primaryKey` (PK cols sorted by position) + `isCompositePk`; a
+  composite PK renders each column's position ("PK 1" / "PK 2") + a "Primary key · (col1, col2) composite, order
+  significant" summary section; a single-column PK stays a plain "PK" with no summary (no churn for the common case).
+  Verified: fe tsc (app + spec) 0 · **Karma 2064/2064** (+2: composite-PK order+summary / single-PK-stays-plain; fixture
+  gained a composite-PK `memberships` table) · build 0 · deployed R2 + chunk-hash prod-verified (`chunk-HPIJAWDB.js` 200
+  with the `sb-pk-summary` marker + referenced by live `main-RHKENK36.js`). Super-admin surface, so the E2E key can't
+  render it (403) — behavior is locked by Karma against realistic composite + single-PK fixtures. Next: the schema
+  browser's remaining epic items are low-value here (generated columns / WITHOUT ROWID = 0 in the platform D1; 1 virtual
+  table could get a "virtual" badge but it's niche). The bigger Data gap is the SQL-console editor UX (syntax highlight /
+  completion / multi-tab) — needs a code-editor lib (a dependency decision).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

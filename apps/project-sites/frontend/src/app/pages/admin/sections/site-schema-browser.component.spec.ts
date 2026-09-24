@@ -27,6 +27,20 @@ const SCHEMA = {
         foreign_keys: [],
       },
       {
+        // Composite PK — pk is the 1-based KEY POSITION (org_id=1, user_id=2), order significant.
+        name: 'memberships',
+        type: 'table',
+        create_sql:
+          'CREATE TABLE memberships (org_id TEXT, user_id TEXT, role TEXT, PRIMARY KEY (org_id, user_id))',
+        columns: [
+          { name: 'org_id', type: 'TEXT', notnull: 1, dflt_value: null, pk: 1 },
+          { name: 'user_id', type: 'TEXT', notnull: 1, dflt_value: null, pk: 2 },
+          { name: 'role', type: 'TEXT', notnull: 0, dflt_value: null, pk: 0 },
+        ],
+        indexes: [],
+        foreign_keys: [],
+      },
+      {
         name: 'trg_sites_touch',
         type: 'trigger',
         create_sql:
@@ -57,7 +71,7 @@ describe('SiteSchemaBrowserComponent', () => {
   it('loads the schema and auto-selects the first table', () => {
     const { fixture, c } = setup();
     fixture.detectChanges();
-    expect(c.tables().length).toBe(3); // 2 tables + 1 trigger
+    expect(c.tables().length).toBe(4); // 3 tables + 1 trigger
     expect(c.selectedName()).toBe('sites');
   });
 
@@ -68,6 +82,35 @@ describe('SiteSchemaBrowserComponent', () => {
     expect(fixture.debugElement.query(By.css('[data-testid="sb-table-orgs"]'))).toBeTruthy();
     expect(fixture.debugElement.queryAll(By.css('[data-testid="sb-col"]')).length).toBe(2); // sites has 2 columns
     expect(fixture.debugElement.query(By.css('[data-testid="sb-pk"]'))).withContext('id column PK badge').toBeTruthy();
+  });
+
+  it('surfaces composite-primary-key ORDER (per-column position + a composite summary)', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    c.select('memberships'); // composite PK: org_id (pos 1), user_id (pos 2)
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    // One PK badge per PK column, each carrying its 1-based key position.
+    const badges = Array.from(host.querySelectorAll('[data-testid="sb-pk"]')).map((b) => b.textContent ?? '');
+    expect(badges.length).toBe(2);
+    expect(badges.some((t) => t.includes('1'))).withContext('PK position 1').toBeTrue();
+    expect(badges.some((t) => t.includes('2'))).withContext('PK position 2').toBeTrue();
+    // A composite summary spells out the key columns IN ORDER.
+    const summary = host.querySelector('[data-testid="sb-pk-summary"]') as HTMLElement;
+    expect(summary).withContext('composite-PK summary present').toBeTruthy();
+    expect(summary.textContent).toContain('composite');
+    expect(summary.textContent).toContain('org_id, user_id');
+  });
+
+  it('a single-column PK stays a plain "PK" (no position) with no composite summary', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    c.select('orgs'); // single PK (id)
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const badge = host.querySelector('[data-testid="sb-pk"]') as HTMLElement;
+    expect(badge.textContent?.trim()).withContext('no trailing position digit').toBe('PK');
+    expect(host.querySelector('[data-testid="sb-pk-summary"]')).withContext('no composite summary').toBeNull();
   });
 
   it('renders indexes, foreign keys, and the copyable CREATE SQL for the selected table', () => {

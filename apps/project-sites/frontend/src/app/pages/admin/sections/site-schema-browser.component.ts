@@ -157,7 +157,7 @@ import { ApiService, type SchemaTable } from '../../../services/api.service';
                           <td class="sb-col-type">{{ col.type || '—' }}</td>
                           <td>{{ col.notnull ? 'NOT NULL' : 'nullable' }}</td>
                           <td class="sb-col-default">{{ col.dflt_value ?? '—' }}</td>
-                          <td>@if (col.pk > 0) { <span class="sb-pk" data-testid="sb-pk" title="Primary key">PK</span> }</td>
+                          <td>@if (col.pk > 0) { <span class="sb-pk" data-testid="sb-pk" [title]="pkTitle(col.pk)">PK@if (isCompositePk()) {&nbsp;{{ col.pk }}}</span> }</td>
                         </tr>
                       }
                     </tbody>
@@ -171,6 +171,19 @@ import { ApiService, type SchemaTable } from '../../../services/api.service';
                     No columns.
                   }
                 </p>
+              }
+
+              @if (isCompositePk()) {
+                <div class="sb-section">
+                  <div class="sb-section-h">Primary key</div>
+                  <ul class="sb-meta-list">
+                    <li data-testid="sb-pk-summary">
+                      <span class="sb-tag">composite</span>
+                      <span class="sb-dim">(</span><span class="sb-mono">{{ pkColumnsJoined() }}</span><span class="sb-dim">)</span>
+                      <span class="sb-dim">— {{ primaryKey().length }} columns, order significant</span>
+                    </li>
+                  </ul>
+                </div>
               }
 
               @if (sel.indexes.length) {
@@ -245,6 +258,29 @@ export class SiteSchemaBrowserComponent implements OnInit {
     const name = this.selectedName();
     return name ? (this.tables().find((t) => t.name === name) ?? null) : null;
   });
+
+  /** PK columns of the selected object, in key order (`pk` = the 1-based position from
+   *  PRAGMA table_info). A single such column is a normal PK; >1 is a COMPOSITE key whose
+   *  column ORDER is significant, so we surface the position rather than a bare "PK". */
+  readonly primaryKey = computed<{ name: string; pos: number }[]>(() =>
+    (this.selected()?.columns ?? [])
+      .filter((c) => c.pk > 0)
+      .map((c) => ({ name: c.name, pos: c.pk }))
+      .sort((a, b) => a.pos - b.pos),
+  );
+
+  /** True when the selected object's PK spans >1 column (an order-significant composite key). */
+  readonly isCompositePk = computed(() => this.primaryKey().length > 1);
+
+  /** The composite PK's columns in key order, e.g. `org_id, key` (for the summary line). */
+  readonly pkColumnsJoined = computed(() => this.primaryKey().map((k) => k.name).join(', '));
+
+  /** Tooltip for a PK badge — plain for a single-column key, position-aware for a composite. */
+  pkTitle(pos: number): string {
+    return this.isCompositePk()
+      ? `Composite primary key — column ${pos} of ${this.primaryKey().length}`
+      : 'Primary key';
+  }
 
   ngOnInit(): void {
     this.load();
