@@ -64,6 +64,24 @@ function resolveKv(env: Env, binding: KvBinding): KVNamespace {
   return env[binding] as KVNamespace;
 }
 
+/**
+ * Structured operational telemetry for the KV inspector — the Data-epic's
+ * "structured operational telemetry for query failures, freshness, cost" +
+ * request-id correlation for Workers Tracing. `console.warn(JSON.stringify(...))`
+ * is this repo's structured-log rail (`console.log` is ESLint-blocked). NEVER logs
+ * key VALUES — only the operation shape, cost (keys/bytes), outcome, and latency.
+ */
+function logKv(c: Context<AppContext>, fields: Record<string, unknown>): void {
+  console.warn(
+    JSON.stringify({
+      level: 'info',
+      service: 'kv_inspector',
+      request_id: c.get('requestId') ?? null,
+      ...fields,
+    }),
+  );
+}
+
 // ─── GET /api/admin/kv/namespaces ────────────────────────────────────────────
 
 kvInspector.get('/api/admin/kv/namespaces', async (c) => {
@@ -113,7 +131,16 @@ kvInspector.get('/api/admin/kv/:binding/keys', async (c) => {
     cursor: cursor,
   };
 
+  const t0 = Date.now();
   const result = await kv.list(listOpts);
+  logKv(c, {
+    route: 'kv/keys',
+    binding,
+    outcome: 'ok',
+    keys_returned: result.keys.length,
+    list_complete: result.list_complete,
+    latency_ms: Date.now() - t0,
+  });
 
   return c.json({
     binding,
@@ -157,6 +184,7 @@ kvInspector.get('/api/admin/kv/:binding/value', async (c) => {
   const { key } = queryParse.data;
 
   const kv = resolveKv(c.env, binding);
+  const t0 = Date.now();
   const { value, metadata } = await kv.getWithMetadata(key, { type: 'text' });
 
   let finalValue: string | null = value;
@@ -166,6 +194,14 @@ kvInspector.get('/api/admin/kv/:binding/value', async (c) => {
     finalValue = finalValue.slice(0, KV_VALUE_MAX_BYTES);
     truncated = true;
   }
+  logKv(c, {
+    route: 'kv/value',
+    binding,
+    outcome: value === null ? 'miss' : 'ok',
+    value_bytes: finalValue ? finalValue.length : 0,
+    truncated,
+    latency_ms: Date.now() - t0,
+  });
 
   // Calculate approximate TTL: KV does not expose TTL directly, we use expiration
   // from a list call would be expensive. Set to null — callers see metadata for TTL hints.
