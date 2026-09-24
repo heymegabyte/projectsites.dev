@@ -224,6 +224,15 @@
   IGNORED (27, no injection). Chose this (safe, in-spec, exercises the parameterized-allowlist discipline) over owner row
   edit/delete — still deferred: it's DATA-LOSS-capable + needs a per-table deletable-allowlist + confirm + audit design call,
   which per risk discipline belongs in a FRESH focused session, not a 11-fire-deep marathon.
+- **Cycle 23 — 2026-09-24 (Data section: filter-aware export):** Made the owner CSV/JSON export respect the ACTIVE
+  search + per-column filter (the loop's "scoped table/result exports") — coherent follow-on to the last two fires' search +
+  filter. `collectAllRows` now threads `search`/`filterCol`/`filterVal` into its paged export fetches, so the file is the WHOLE
+  MATCHING set (previously it dumped the whole table regardless of the on-screen filter — a real UX-correctness gap). `total`
+  is the filtered count → the ≤5k cap + capped note ("N matching rows") stay correct; filtered files are named `-filtered`; the
+  export button title/aria now say "filtered rows" vs "whole table" honestly (new `filterActive()` computed). Frontend-only, no
+  new endpoint (reuses the prod-verified browse filter). Verified: tsc 0 · backtick 0 · **Karma 1999/1999** (+2) · build 0 ·
+  eslint 0 err · deployed R2 + chunk-hash prod-verified (`chunk-EX4OOYLS.js`). Row edit/delete remains the deferred big gap
+  (fresh-session, per risk discipline).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

@@ -258,6 +258,36 @@ describe('SiteDataBrowserComponent', () => {
       expect(text.trimEnd().split('\n').length).toBe(5001); // 1 header + 5,000 rows
     });
 
+    it('exports the FILTERED view — threads the active search + column filter into the export fetches', async () => {
+      const { fixture, c, browseDataTable } = setup();
+      fixture.detectChanges();
+      c.setSearch('gmail');
+      c.applyColumnFilter('event_type', 'pageview');
+      browseDataTable.calls.reset(); // ignore the grid reloads; watch only the export
+      spyOn(URL, 'createObjectURL').and.returnValue('blob:mock');
+      spyOn(URL, 'revokeObjectURL');
+      await c.exportCsv();
+      const args = browseDataTable.calls.mostRecent().args[2] as {
+        search?: string;
+        filterCol?: string;
+        filterVal?: string;
+      };
+      expect(args.search).withContext('export carries the active search').toBe('gmail');
+      expect(args.filterCol).toBe('event_type');
+      expect(args.filterVal).toBe('pageview');
+    });
+
+    it('filterActive() is true with an active search OR column filter (drives the -filtered file name)', () => {
+      const { fixture, c } = setup();
+      fixture.detectChanges();
+      expect(c.filterActive()).withContext('no filter initially').toBe(false);
+      c.setSearch('x');
+      expect(c.filterActive()).withContext('text search active').toBe(true);
+      c.setSearch('');
+      c.applyColumnFilter('event_type', 'pageview');
+      expect(c.filterActive()).withContext('column filter active').toBe(true);
+    });
+
     it('both exports are a no-op when the table is empty (never a blank file)', async () => {
       const { fixture, c } = setup();
       fixture.detectChanges();

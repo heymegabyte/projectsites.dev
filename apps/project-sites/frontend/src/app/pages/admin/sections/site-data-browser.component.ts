@@ -193,8 +193,8 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                 (click)="exportCsv()"
                 [disabled]="total() === 0 || exporting()"
                 data-testid="db-export-csv"
-                title="Download the whole table (up to 5,000 rows, current sort) as CSV"
-                aria-label="Export the whole table as CSV"
+                [title]="(filterActive() ? 'Download the filtered rows' : 'Download the whole table') + ' (up to 5,000 rows, current sort) as CSV'"
+                [attr.aria-label]="(filterActive() ? 'Export the filtered rows' : 'Export the whole table') + ' as CSV'"
               >CSV</button>
               <button
                 type="button"
@@ -202,8 +202,8 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                 (click)="exportJson()"
                 [disabled]="total() === 0 || exporting()"
                 data-testid="db-export-json"
-                title="Download the whole table (up to 5,000 rows, current sort) as JSON"
-                aria-label="Export the whole table as JSON"
+                [title]="(filterActive() ? 'Download the filtered rows' : 'Download the whole table') + ' (up to 5,000 rows, current sort) as JSON'"
+                [attr.aria-label]="(filterActive() ? 'Export the filtered rows' : 'Export the whole table') + ' as JSON'"
               >JSON</button>
               <button
                 type="button"
@@ -723,10 +723,14 @@ export class SiteDataBrowserComponent implements OnInit {
   private static readonly EXPORT_CAP = 5000;
   private static readonly EXPORT_PAGE = 100;
 
+  /** Whether an owner filter (text search OR a per-column filter) is currently active. */
+  readonly filterActive = computed(() => !!this.search() || (!!this.filterCol() && !!this.filterVal()));
+
   /**
-   * Fetch up to {@link EXPORT_CAP} rows of the selected table across pages
-   * (respecting the current sort), so an export is the WHOLE table, not just the
-   * visible page — but still bounded (never loads an unbounded table into the
+   * Fetch up to {@link EXPORT_CAP} rows of the selected table across pages,
+   * respecting the current sort AND the active search + per-column filter — so an
+   * export is the WHOLE MATCHING set (not just the visible page, nor the whole table
+   * when a filter is on), still bounded (never loads an unbounded table into the
    * browser). Sets {@link exportNote} when the cap truncates the result.
    */
   private async collectAllRows(): Promise<Array<Record<string, unknown>>> {
@@ -746,6 +750,11 @@ export class SiteDataBrowserComponent implements OnInit {
             offset,
             orderBy: this.orderBy() ?? undefined,
             dir: this.dir(),
+            // Export the FILTERED view — same search + per-column filter as the grid,
+            // so the file matches what the owner sees (and `total` is the filtered count).
+            search: this.search() || undefined,
+            filterCol: this.filterCol() || undefined,
+            filterVal: this.filterVal() || undefined,
             silent: true,
           })
           .pipe(catchError(() => of(null))),
@@ -760,16 +769,18 @@ export class SiteDataBrowserComponent implements OnInit {
     const capped = out.length >= cap && total > cap;
     this.exportNote.set(
       capped
-        ? `Exported the first ${cap.toLocaleString()} of ${total.toLocaleString()} rows (export is capped).`
+        ? `Exported the first ${cap.toLocaleString()} of ${total.toLocaleString()} ${this.filterActive() ? 'matching ' : ''}rows (export is capped).`
         : null,
     );
     return out.slice(0, cap);
   }
 
-  /** `{site}-{table}-{rowCount}rows` — names the exact row count the file holds. */
+  /** `{site}-{table}[-filtered]-{rowCount}rows` — names the row count + whether the
+   *  file is the filtered view (so a filtered export is never mistaken for the full table). */
   private exportBaseName(count: number): string {
     const table = this.selected()?.key ?? 'data';
-    return `${this.siteId() || 'site'}-${table}-${count}rows`;
+    const suffix = this.filterActive() ? '-filtered' : '';
+    return `${this.siteId() || 'site'}-${table}${suffix}-${count}rows`;
   }
 
   /** Fetch the whole table (bounded) and download it in the chosen format. */
