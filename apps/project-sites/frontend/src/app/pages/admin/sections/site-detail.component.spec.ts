@@ -652,6 +652,23 @@ describe('AdminSiteDetailComponent (SQL result Copy JSON)', () => {
     await Promise.resolve();
     expect(c.sqlCopied()).toBeTrue();
   });
+
+  it('downloadSqlCsv / downloadSqlJson trigger a file download with the correct content type', () => {
+    const blobs: Blob[] = [];
+    spyOn(URL, 'createObjectURL').and.callFake((b: Blob) => {
+      blobs.push(b);
+      return 'blob:x';
+    });
+    spyOn(URL, 'revokeObjectURL');
+    spyOn(HTMLAnchorElement.prototype, 'click'); // never actually navigate in the test
+    const { c } = make();
+    const r = { columns: ['id', 'name'], rows: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }], duration_ms: 3 };
+    c.downloadSqlCsv(r);
+    c.downloadSqlJson(r);
+    expect(blobs.length).withContext('both downloads fired').toBe(2);
+    expect(blobs[0].type).withContext('CSV mime').toContain('csv');
+    expect(blobs[1].type).withContext('JSON mime').toContain('json');
+  });
 });
 
 describe('AdminSiteDetailComponent (SQL result row cap — perf)', () => {

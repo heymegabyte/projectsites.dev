@@ -132,6 +132,15 @@
   site's queries). Kept inline in `site-detail` for within-file consistency with history (not a mechanical extraction).
   +6 focused logic specs (save/dedup/no-op/load-no-run/delete/persist+delete round-trip). Verified: tsc 0, **Karma
   1942/1942** (+6), AOT build exit 0, eslint **0-errors**, backtick gate PASS.
+- **Cycle 15 — 2026-09-24 (Data SQL workspace, one slice):** Added **SQL result export — Download CSV + Download JSON**
+  buttons to the SQL console result grid (the console had only "Copy JSON"; the Data prompt wants "export bounded results
+  as CSV or JSON"). New `downloadSqlCsv`/`downloadSqlJson` + a private `sqlExportName` helper, over the **shared
+  `toCsv`/`downloadText`** from `utils/csv-export` (formula-injection-safe `csvEscape`) — advancing the CSV-primitive
+  consolidation (site-detail now consumes the shared util). Exports the FULL result set (every returned row, not just the
+  200-row render cap); the cap hint updated to "Copy/Download exports all rows". +1 focused spec (spies `URL.createObjectURL`,
+  asserts both downloads fire with the correct CSV/JSON mime). Verified: tsc 0, **Karma 1953/1953** (+1), AOT build exit 0,
+  eslint **0-errors**, backtick gate PASS; prod-verified live (chunk `chunk-CQ72BXPR.js`, buttons + `query-result-` filename
+  served). Multi-tab (concurrent editor buffers) remains the only SQL-workspace item left.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

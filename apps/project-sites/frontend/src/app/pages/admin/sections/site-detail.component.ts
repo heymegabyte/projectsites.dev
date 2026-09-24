@@ -35,6 +35,7 @@ import { ConfirmService } from '../../../services/confirm.service';
 import { AdminStateService } from '../admin-state.service';
 import { MiniEmptyComponent } from '../../../components/mini-empty/mini-empty.component';
 import { ErrorCardComponent } from '../../../components/states';
+import { downloadText, toCsv } from '../../../utils/csv-export';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { ReadinessBadgeComponent } from './readiness-badge.component';
 import { SiteDataBrowserComponent } from './site-data-browser.component';
@@ -361,12 +362,16 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'schema'
                 </span>
               }
               @if (r.rows.length > sqlRenderCap) {
-                <span class="sql-result-cap" data-testid="sql-result-cap">showing first {{ sqlRenderCap }} — Copy JSON for all</span>
+                <span class="sql-result-cap" data-testid="sql-result-cap">showing first {{ sqlRenderCap }} — Copy/Download exports all rows</span>
               }
               @if (r.rows.length > 0) {
                 <button type="button" class="sql-result-copy" data-testid="sql-result-copy" (click)="copySqlResult(r)">
                   {{ sqlCopied() ? '✓ Copied' : 'Copy JSON' }}
                 </button>
+                <button type="button" class="sql-result-copy" data-testid="sql-result-download-csv"
+                        title="Download every returned row as a CSV file" (click)="downloadSqlCsv(r)">Download CSV</button>
+                <button type="button" class="sql-result-copy" data-testid="sql-result-download-json"
+                        title="Download every returned row as a JSON file" (click)="downloadSqlJson(r)">Download JSON</button>
               }
             </div>
             @if (isExpensiveScan(r)) {
@@ -822,6 +827,20 @@ export class AdminSiteDetailComponent {
       () => { this.sqlCopied.set(true); setTimeout(() => this.sqlCopied.set(false), 1500); },
       () => undefined,
     );
+  }
+
+  /** Filename stamp (UTC date) shared by the CSV + JSON result downloads. */
+  private sqlExportName(ext: string): string {
+    return `query-result-${new Date().toISOString().slice(0, 10)}.${ext}`;
+  }
+  /** Download the FULL query result (every row, not just the rendered cap) as CSV —
+   *  formula-injection-safe via the shared `toCsv`/`csvEscape`. */
+  downloadSqlCsv(r: SqlResult): void {
+    downloadText(this.sqlExportName('csv'), toCsv(r.rows, r.columns), 'text/csv;charset=utf-8');
+  }
+  /** Download the FULL query result as pretty-printed JSON. */
+  downloadSqlJson(r: SqlResult): void {
+    downloadText(this.sqlExportName('json'), JSON.stringify(r.rows, null, 2), 'application/json;charset=utf-8');
   }
   readonly sqlResult = signal<SqlResult | null>(null);
   readonly sqlError = signal<string | null>(null);
