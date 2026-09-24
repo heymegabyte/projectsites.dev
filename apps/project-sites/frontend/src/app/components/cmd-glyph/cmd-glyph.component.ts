@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
 /**
  * `app-cmd-glyph` — a monochrome, stroke-based command glyph for the dashboard
@@ -50,7 +50,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
       stroke-linejoin="round"
       data-testid="cmd-glyph-svg"
     >
-      @switch (name) {
+      @switch (name()) {
         @case ('globe') {
           <circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
         }
@@ -141,5 +141,5 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 })
 export class CmdGlyphComponent {
   /** Glyph key (globe / camera / rocket / …). Unknown → sparkle fallback. */
-  @Input() name = '';
+  readonly name = input('');
 }

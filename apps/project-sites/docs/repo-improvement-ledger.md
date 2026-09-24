@@ -152,6 +152,17 @@
   (`buildDataSearch`) + 2 Karma specs (`setSearch` reset/no-op; `selectTable` clears search). Verified: worker tsc 0 +
   23 data tests · frontend tsc 0 · **Karma 1957/1957** (+2) · AOT 0 · eslint 0-errors · worker (`7722b1d3`) + frontend
   deployed · **prod-verified** (unfiltered 1886 → `search='/'` 1686 → no-match 0).
+- **Cycle 17 — 2026-09-24 (Angular style: signal-input migration, one component):** Advanced the tracked "big remaining
+  Angular item" — migrated **`CmdGlyphComponent`** (`components/cmd-glyph`, a heavily-used leaf: 17 external refs across
+  the dashboard + command palette) from `@Input()` to a signal `input()`: `@Input() name = ''` → `readonly name = input('')`,
+  template `@switch (name)` → `@switch (name())`, and dropped `Input` from the `@angular/core` import. The existing
+  27-glyph spec already used `componentRef.setInput('name', …)` (signal-compatible) so it passed unchanged; static
+  (`name="search"`) + bound (`[name]="cmd.glyph"`) parent usages both work with `input()`, so no parent edits. Verified:
+  tsc 0 (AOT validates the `name()` template access) · **Karma 1960/1960** · build 0 · eslint 0 · deployed + prod-verified.
+  **Finding (recorded, not actioned):** `FlagModeSwitcherComponent` (`feature-flags/mode-switcher`) is **dead** — the 2
+  "consumers" import only its `DisclosureMode` **type**, nothing renders `<app-flag-mode-switcher>`. Can't be removed:
+  it has a preserved spec (test-preservation mandate overrides dead-code removal). Left in place; noted for a future
+  decision (relocate the `DisclosureMode` type, then the component + spec could retire together).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
@@ -168,9 +179,11 @@
   (`before-after-slider`, `grafana-dashboard`; dropped an unused `effect` import too).
   The 3rd `constructor(private…)` hit is a test-mock class (`readiness-badge.component.spec`),
   not Angular DI.
-- **Signal inputs: ⏳ the big remaining item** — `@Input()`×46, `@Output()`×9, `@ViewChild`×21
-  files still use decorators. Migrate progressively, ONE component per cycle (coherent
-  feature-level, not mechanical churn); update its template (`{{ foo() }}`) + spec each time.
+- **Signal inputs: ⏳ the big remaining item, in progress** — ~45 `@Input()`, 9 `@Output()`, 21 `@ViewChild`
+  files still use decorators. Migrating ONE component per cycle (coherent, not churn). ✅ done: `cmd-glyph`
+  (`input()`, cycle 17). Next small used leaves: `calendar-widget`, the site-kit primitives (`stats-band`/`logo-cloud`/
+  `trust-badges`, 2 inputs each). A 2-in+1-out component demonstrates `model()` (replaces the `@Input`-mutate + `@Output`
+  two-way pattern) — but pick a USED one (`mode-switcher` is dead, see cycle 17).
 - Standalone components: ✅ (no NgModules). Naming/colocation, a11y, focused-components:
   not yet swept.
 
