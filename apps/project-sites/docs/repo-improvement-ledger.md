@@ -178,6 +178,20 @@
   404'd (a browser network log JS `catchError` can't suppress). Registered `predicted_actions` in the worker `FLAG_REGISTRY`
   + `FLAG_DOCS` (client-only precedent: `cinematic_scroll_reveals`; no manifest/route needed), so the endpoint now resolves
   **200-with-false**. Worker: 82 feature-flag Jest green + tsc 0; deployed `--env production`; homepage console 404 gone.
+- **Cycle 19 — 2026-09-24 (Data section: owner-facing column show/hide):** Shipped **grid column selection** in the
+  customer-facing Data tab (`SiteDataBrowserComponent`, `site-data-browser.component.ts`) — the Data-epic's listed
+  "column selection" requirement + a real usability win (wide tables like form submissions no longer force horizontal
+  scroll). A "Columns" `<details>` disclosure in the toolbar toggles which columns the grid renders; `hiddenColumns`
+  signal + `visibleColumns` computed drive the header + body `@for` (detail-view colspan follows). **Honesty guarantee:**
+  the row-detail JSON + CSV/JSON exports STILL use the full `columns()` set, so hiding is a view-only scan aid that never
+  omits data. Per-(site,table) persisted via localStorage (`ps_datacols_hidden_<siteId>_<table>`, private-mode-safe,
+  restored in `selectTable`); **refuses to hide the last visible column** (no dead-end empty grid). Verified: tsc 0 ·
+  backtick-gate 0 · **Karma 1974/1974** (+7 specs) · build 0 · eslint 0 errors · deployed to R2 + **prod-verified by
+  chunk-hash** (`chunk-XRLNTX2N.js` local == served, `db-cols-menu` marker present). Chose this over the documented
+  "multi-tab SQL console" because (a) the SQL console is superadmin-only → lower PRODUCT value, and (b) multi-tab is a
+  flagged "risky refactor"; column-selection is customer-facing, in-spec, and low-risk. **Recon correction:** the agent
+  wrongly reported EXPLAIN visualization as the gap — verified it's already DONE (`explainSql()` + `planHint()` in
+  `site-detail.component.ts`), as are cost metadata + saved/history/starters.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

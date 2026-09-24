@@ -130,6 +130,37 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                 <option [ngValue]="100">100</option>
               </select>
             </label>
+            @if (columns().length > 1) {
+              <details class="db-cols" data-testid="db-cols">
+                <summary class="db-cols-summary" aria-label="Choose which columns to show">
+                  Columns
+                  @if (hiddenColumns().size > 0) {
+                    <span class="db-cols-badge" data-testid="db-cols-badge">{{ visibleColumns().length }}/{{ columns().length }}</span>
+                  }
+                </summary>
+                <div class="db-cols-menu" role="group" aria-label="Toggle table columns">
+                  <button
+                    type="button"
+                    class="db-cols-all"
+                    (click)="showAllColumns()"
+                    [disabled]="hiddenColumns().size === 0"
+                    data-testid="db-cols-all"
+                  >Show all</button>
+                  @for (col of columns(); track col) {
+                    <label class="db-cols-item">
+                      <input
+                        type="checkbox"
+                        [checked]="isColumnVisible(col)"
+                        (change)="toggleColumn(col)"
+                        [disabled]="isColumnVisible(col) && visibleColumns().length <= 1"
+                        [attr.data-testid]="'db-col-toggle-' + col"
+                      />
+                      <span>{{ col }}</span>
+                    </label>
+                  }
+                </div>
+              </details>
+            }
             <div class="db-actions">
               @if (exporting()) {
                 <span class="db-exporting" aria-live="polite" data-testid="db-exporting">Exporting…</span>
@@ -182,7 +213,7 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
               <table class="db-table" data-testid="db-grid">
                 <thead>
                   <tr>
-                    @for (col of columns(); track col) {
+                    @for (col of visibleColumns(); track col) {
                       <th scope="col" [attr.aria-sort]="ariaSort(col)">
                         <button
                           type="button"
@@ -204,7 +235,7 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                 <tbody>
                   @for (row of rows(); track $index) {
                     <tr [class.is-expanded]="expandedRow() === $index" data-testid="db-row">
-                      @for (col of columns(); track col) {
+                      @for (col of visibleColumns(); track col) {
                         <td data-testid="db-cell">
                           @if (row[col] === null || row[col] === undefined) {
                             <span class="db-null" title="NULL value">NULL</span>
@@ -226,7 +257,7 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                     </tr>
                     @if (expandedRow() === $index) {
                       <tr class="db-detail-row" data-testid="db-detail">
-                        <td [attr.colspan]="columns().length + 1">
+                        <td [attr.colspan]="visibleColumns().length + 1">
                           <pre class="db-json">{{ rowJson(row) }}</pre>
                         </td>
                       </tr>
@@ -291,6 +322,23 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
     .db-pager button:focus-visible, .db-refresh:focus-visible, .db-export:focus-visible, .db-pagesize select:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     .db-pagesize { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.74rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
     .db-pagesize select { font: inherit; font-size: 0.76rem; padding: 0.25rem 0.4rem; border-radius: 6px; color: inherit; background: rgba(0,0,0,0.25); border: 1px solid var(--ps-edge, rgba(255,255,255,0.12)); }
+    .db-cols { position: relative; }
+    .db-cols-summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.76rem; padding: 0.3rem 0.55rem; border-radius: 6px; color: inherit; background: rgba(0,0,0,0.25); border: 1px solid var(--ps-edge, rgba(255,255,255,0.12)); }
+    .db-cols-summary::-webkit-details-marker { display: none; }
+    .db-cols-summary:hover { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent); }
+    .db-cols[open] > .db-cols-summary { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; }
+    .db-cols-summary:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
+    .db-cols-badge { font-size: 0.62rem; font-weight: 700; padding: 0.05rem 0.3rem; border-radius: 999px; background: color-mix(in oklch, var(--ps-accent, #00e5ff) 24%, transparent); color: var(--ps-ink, #f4f4ff); }
+    .db-cols-menu { position: absolute; z-index: 20; top: calc(100% + 0.35rem); left: 0; min-width: 12rem; max-height: 16rem; overflow-y: auto; display: grid; gap: 0.15rem; padding: 0.5rem; border-radius: 10px; background: var(--ps-surface, #12121c); border: 1px solid var(--ps-edge, rgba(255,255,255,0.14)); box-shadow: 0 12px 32px rgba(0,0,0,0.45); }
+    .db-cols-all { font: inherit; font-size: 0.72rem; text-align: left; padding: 0.3rem 0.4rem; margin-bottom: 0.25rem; border-radius: 6px; color: var(--ps-accent, #00e5ff); background: transparent; border: 1px solid var(--ps-edge, rgba(255,255,255,0.12)); cursor: pointer; }
+    .db-cols-all:hover:not(:disabled) { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 16%, transparent); }
+    .db-cols-all:disabled { opacity: 0.4; cursor: not-allowed; }
+    .db-cols-all:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
+    .db-cols-item { display: flex; align-items: center; gap: 0.45rem; font-size: 0.76rem; padding: 0.25rem 0.4rem; border-radius: 6px; cursor: pointer; }
+    .db-cols-item:hover { background: rgba(255,255,255,0.05); }
+    .db-cols-item input { accent-color: var(--ps-accent, #00e5ff); }
+    .db-cols-item input:disabled { cursor: not-allowed; }
+    .db-cols-item input:disabled + span { opacity: 0.55; }
     .db-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 0.35rem; }
     .db-exporting { font-size: 0.72rem; color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; }
     .db-export-note { margin: 0.4rem 0 0; font-size: 0.72rem; color: #ffc800; }
@@ -346,6 +394,12 @@ export class SiteDataBrowserComponent implements OnInit {
 
   // ── Current page ─────────────────────────────────────────────────────
   readonly columns = signal<string[]>([]);
+  /** Columns the owner has hidden from the grid (per-table, persisted). The row
+   *  detail + CSV/JSON exports still include EVERY column, so hiding is a view-only
+   *  scan aid that never loses or omits data. */
+  readonly hiddenColumns = signal<ReadonlySet<string>>(new Set());
+  /** Columns actually rendered in the grid = all columns minus the hidden set. */
+  readonly visibleColumns = computed(() => this.columns().filter((c) => !this.hiddenColumns().has(c)));
   readonly rows = signal<Array<Record<string, unknown>>>([]);
   readonly total = signal(0);
   readonly limit = signal(25);
@@ -415,6 +469,7 @@ export class SiteDataBrowserComponent implements OnInit {
   selectTable(t: DataOverviewTable): void {
     this.selected.set(t);
     this.columns.set(t.columns); // instant headers before the page lands
+    this.loadHiddenColumns(); // restore this table's column-visibility preference
     this.offset.set(0);
     this.orderBy.set(null);
     this.dir.set('desc');
@@ -490,6 +545,59 @@ export class SiteDataBrowserComponent implements OnInit {
   ariaSort(col: string): 'none' | 'ascending' | 'descending' {
     if (this.orderBy() !== col) return 'none';
     return this.dir() === 'asc' ? 'ascending' : 'descending';
+  }
+
+  /** Whether a column is currently shown in the grid. */
+  isColumnVisible(col: string): boolean {
+    return !this.hiddenColumns().has(col);
+  }
+
+  /** Show/hide a column in the grid. Refuses to hide the LAST visible column (an
+   *  all-hidden grid is a dead end); the detail view + exports are unaffected.
+   *  Preference is persisted per (site, table). */
+  toggleColumn(col: string): void {
+    const next = new Set(this.hiddenColumns());
+    if (next.has(col)) {
+      next.delete(col);
+    } else {
+      if (this.visibleColumns().length <= 1) return; // never hide the last one
+      next.add(col);
+    }
+    this.hiddenColumns.set(next);
+    this.persistHiddenColumns(next);
+  }
+
+  /** Reveal every column again (resets the per-table hidden set). */
+  showAllColumns(): void {
+    this.hiddenColumns.set(new Set());
+    this.persistHiddenColumns(new Set());
+  }
+
+  /** localStorage key for the current table's hidden-column set. */
+  private colsStorageKey(): string {
+    return `ps_datacols_hidden_${this.siteId()}_${this.selected()?.key ?? ''}`;
+  }
+
+  /** Restore the persisted hidden-column set for the active table (fail-soft:
+   *  private mode / bad JSON → show all columns). */
+  private loadHiddenColumns(): void {
+    try {
+      const raw = localStorage.getItem(this.colsStorageKey());
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      const cols = Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+      this.hiddenColumns.set(new Set(cols));
+    } catch {
+      this.hiddenColumns.set(new Set());
+    }
+  }
+
+  /** Persist the hidden-column set for the active table (fail-soft on quota/private mode). */
+  private persistHiddenColumns(next: ReadonlySet<string>): void {
+    try {
+      localStorage.setItem(this.colsStorageKey(), JSON.stringify([...next]));
+    } catch {
+      /* private mode / quota — the in-memory signal still drives the view this session */
+    }
   }
 
   nextPage(): void {

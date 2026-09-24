@@ -278,3 +278,92 @@ describe('SiteDataBrowserComponent', () => {
     });
   });
 });
+
+describe('SiteDataBrowserComponent — column show/hide', () => {
+  afterEach(() => {
+    try {
+      localStorage.clear();
+    } catch {
+      /* private mode */
+    }
+    TestBed.resetTestingModule();
+  });
+
+  it('shows every column by default', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    expect(c.visibleColumns()).toEqual(COLS);
+    expect(c.hiddenColumns().size).toBe(0);
+  });
+
+  it('hides a column from the grid but keeps columns() intact (detail + export unaffected)', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    c.toggleColumn('referrer');
+    expect(c.visibleColumns()).toEqual(['event_type', 'path', 'created_at']);
+    expect(c.hiddenColumns().has('referrer')).toBe(true);
+    expect(c.columns()).withContext('full column set stays intact for detail + export').toEqual(COLS);
+  });
+
+  it('renders only the visible columns in the grid header', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    c.toggleColumn('referrer');
+    fixture.detectChanges();
+    const ids = fixture.debugElement
+      .queryAll(By.css('[data-testid^="db-sort-"]'))
+      .map((b) => b.nativeElement.getAttribute('data-testid'));
+    expect(ids).not.toContain('db-sort-referrer');
+    expect(ids).toContain('db-sort-path');
+  });
+
+  it('showAllColumns restores every column', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    c.toggleColumn('referrer');
+    c.toggleColumn('path');
+    expect(c.visibleColumns().length).toBe(2);
+    c.showAllColumns();
+    expect(c.visibleColumns()).toEqual(COLS);
+    expect(c.hiddenColumns().size).toBe(0);
+  });
+
+  it('never hides the LAST visible column (no dead-end empty grid)', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    c.toggleColumn('event_type');
+    c.toggleColumn('path');
+    c.toggleColumn('referrer');
+    expect(c.visibleColumns()).toEqual(['created_at']);
+    c.toggleColumn('created_at'); // refused — would empty the grid
+    expect(c.visibleColumns()).withContext('the last column cannot be hidden').toEqual(['created_at']);
+  });
+
+  it('persists the hidden set per (site, table) and restores it on the next mount', () => {
+    const first = setup();
+    first.fixture.detectChanges();
+    first.c.toggleColumn('referrer');
+    expect(localStorage.getItem('ps_datacols_hidden_site-1_visitor_events')).toContain('referrer');
+    TestBed.resetTestingModule();
+    const second = setup();
+    second.fixture.detectChanges();
+    expect(second.c.hiddenColumns().has('referrer')).toBe(true);
+    expect(second.c.visibleColumns()).not.toContain('referrer');
+  });
+
+  it('isolates the hidden set per table (switching tables loads that table’s own set)', () => {
+    localStorage.setItem('ps_datacols_hidden_site-1_form_submissions', JSON.stringify(['email']));
+    const { fixture, c } = setup();
+    fixture.detectChanges(); // launches on visitor_events (non-empty) → nothing hidden there
+    expect(c.hiddenColumns().size).toBe(0);
+    c.selectTable({
+      key: 'form_submissions',
+      label: 'Form Submissions',
+      description: '',
+      columns: ['form_name', 'status', 'email', 'created_at'],
+      row_count: 0,
+      browsable: true,
+    });
+    expect(c.hiddenColumns().has('email')).withContext('per-table preference restored on switch').toBe(true);
+  });
+});
