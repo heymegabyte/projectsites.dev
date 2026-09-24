@@ -44,6 +44,33 @@ describe('DeliveryCardComponent', () => {
     expect(statuses.textContent).withContext('server-error word present, not colour-only').toContain('5xx · server error');
   });
 
+  it('renders the edge breakdown (protocol / TLS / content-type / method) with request shares', () => {
+    const withEdge: DeliverySummary = {
+      ...REAL,
+      protocols: [{ label: 'HTTP/3', count: 70 }, { label: 'HTTP/2', count: 30 }],
+      tls: [{ label: 'TLSv1.3', count: 99 }, { label: 'TLSv1.2', count: 1 }],
+      content_types: [{ label: 'js', count: 60 }, { label: 'html', count: 40 }],
+      methods: [{ label: 'GET', count: 100 }],
+    };
+    const { el } = setup(withEdge);
+    expect(el.querySelector('[data-testid="an-dl-edge"]')).withContext('edge breakdown renders when dims present').toBeTruthy();
+    const proto = el.querySelector('[data-testid="an-dl-edge-proto"]') as HTMLElement;
+    expect(proto.textContent).toContain('HTTP/3');
+    expect(proto.textContent).withContext('70 of 100 = 70% share').toContain('70%');
+    expect((el.querySelector('[data-testid="an-dl-edge-tls"]') as HTMLElement).textContent).toContain('TLSv1.3');
+    expect((el.querySelector('[data-testid="an-dl-edge-content"]') as HTMLElement).textContent).toContain('js');
+  });
+
+  it('omits edge groups with no data (never a fabricated 0) — only the non-empty dimension surfaces', () => {
+    const partial = setup({ ...REAL, protocols: [{ label: 'HTTP/2', count: 5 }], tls: [], content_types: [], methods: [] });
+    expect(partial.fixture.componentInstance.edgeGroups().map((g) => g.key)).toEqual(['proto']);
+  });
+
+  it('hides the whole edge block when every edge dimension is empty', () => {
+    const { el } = setup({ ...REAL, protocols: [], tls: [], content_types: [], methods: [] });
+    expect(el.querySelector('[data-testid="an-dl-edge"]')).withContext('no edge block when every dim is empty').toBeNull();
+  });
+
   it('shows the cache hit ratio + hit/miss/uncacheable counts + edge bandwidth', () => {
     const { el } = setup(REAL);
     expect((el.querySelector('[data-testid="an-dl-cache"]') as HTMLElement).textContent).toContain('32%');

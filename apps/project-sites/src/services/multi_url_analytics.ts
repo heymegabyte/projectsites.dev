@@ -75,6 +75,17 @@ export interface DeliverySummary {
   };
   readonly response_bytes: number;
   readonly range_days: number;
+  /**
+   * Edge connection + content breakdowns from `httpRequestsAdaptiveGroups` (verified
+   * available on our plan, adaptive-sampled): HTTP protocol version (HTTP/3 vs HTTP/2),
+   * TLS version, response content-type, and HTTP method — each top-6 by request count.
+   * Empty arrays when the zone didn't resolve (subdomain paths still resolve the shared
+   * zone). These are edge REQUEST counts, never conflated with first-party pageviews.
+   */
+  readonly protocols: ReadonlyArray<{ label: string; count: number }>;
+  readonly tls: ReadonlyArray<{ label: string; count: number }>;
+  readonly content_types: ReadonlyArray<{ label: string; count: number }>;
+  readonly methods: ReadonlyArray<{ label: string; count: number }>;
 }
 
 export interface MultiUrlAnalytics {
@@ -248,6 +259,12 @@ interface CfGroup {
     clientRequestReferer?: string;
     edgeResponseStatus?: string;
     cacheStatus?: string;
+    // Edge connection + content dimensions (verified available on our plan via a live
+    // probe 2026-09-24): HTTP version, TLS version, response content-type, HTTP method.
+    clientRequestHTTPProtocol?: string;
+    clientSSLProtocol?: string;
+    edgeResponseContentTypeName?: string;
+    clientRequestHTTPMethodName?: string;
   };
 }
 interface CfGraphQlResponse {
@@ -463,6 +480,11 @@ interface HostDelivery {
   resolved: boolean;
   by_status: Map<number, number>;
   by_cache: Map<string, number>;
+  /** Edge connection + content breakdowns (label → request count), all per-host CF-sampled. */
+  by_protocol: Map<string, number>;
+  by_tls: Map<string, number>;
+  by_content: Map<string, number>;
+  by_method: Map<string, number>;
   response_bytes: number;
 }
 
@@ -498,7 +520,11 @@ async function loadHostDelivery(
 ): Promise<HostDelivery> {
   const empty: HostDelivery = {
     by_cache: new Map(),
+    by_content: new Map(),
+    by_method: new Map(),
+    by_protocol: new Map(),
     by_status: new Map(),
+    by_tls: new Map(),
     resolved: false,
     response_bytes: 0,
   };
@@ -515,6 +541,10 @@ async function loadHostDelivery(
         zones(filter: { zoneTag: $zoneTag }) {
           status: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { edgeResponseStatus } }
           cache: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { edgeResponseBytes } dimensions { cacheStatus } }
+          protocol: httpRequestsAdaptiveGroups(limit: 10, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { clientRequestHTTPProtocol } }
+          tls: httpRequestsAdaptiveGroups(limit: 10, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { clientSSLProtocol } }
+          content: httpRequestsAdaptiveGroups(limit: 15, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { edgeResponseContentTypeName } }
+          method: httpRequestsAdaptiveGroups(limit: 10, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { clientRequestHTTPMethodName } }
         }
       }
     }
@@ -557,7 +587,11 @@ async function loadHostDelivery(
     if (!zoneRow) return { ...empty, resolved: true };
     const agg: HostDelivery = {
       by_cache: new Map(),
+      by_content: new Map(),
+      by_method: new Map(),
+      by_protocol: new Map(),
       by_status: new Map(),
+      by_tls: new Map(),
       resolved: true,
       response_bytes: 0,
     };
@@ -572,6 +606,21 @@ async function loadHostDelivery(
       if (c > 0) agg.by_cache.set(cs, (agg.by_cache.get(cs) ?? 0) + c);
       agg.response_bytes += Number(row.sum?.edgeResponseBytes ?? 0);
     }
+    // Fold the four edge connection/content dimensions. Each value is trusted (it comes
+    // FROM Cloudflare, not the client); skip the "UNK"/"none"/empty sentinels CF emits for
+    // an unclassifiable request so a breakdown never shows a meaningless bucket as a real one.
+    const foldDim = (rows: CfGroup[] | undefined, into: Map<string, number>, key: keyof NonNullable<CfGroup['dimensions']>): void => {
+      for (const row of rows ?? []) {
+        const raw = String(row.dimensions?.[key] ?? '').trim();
+        const c = Number(row.count ?? 0);
+        if (!raw || raw === 'UNK' || raw === 'none' || raw === 'empty' || c <= 0) continue;
+        into.set(raw, (into.get(raw) ?? 0) + c);
+      }
+    };
+    foldDim(zoneRow.protocol, agg.by_protocol, 'clientRequestHTTPProtocol');
+    foldDim(zoneRow.tls, agg.by_tls, 'clientSSLProtocol');
+    foldDim(zoneRow.content, agg.by_content, 'edgeResponseContentTypeName');
+    foldDim(zoneRow.method, agg.by_method, 'clientRequestHTTPMethodName');
     return agg;
   } catch (err) {
     console.warn(
@@ -904,10 +953,21 @@ export async function loadMultiUrlAnalytics(
     );
     const mergedStatus = new Map<number, number>();
     const mergedCache = new Map<string, number>();
+    const mergedProtocol = new Map<string, number>();
+    const mergedTls = new Map<string, number>();
+    const mergedContent = new Map<string, number>();
+    const mergedMethod = new Map<string, number>();
+    const mergeInto = (into: Map<string, number>, from: Map<string, number>): void => {
+      for (const [k, c] of from) into.set(k, (into.get(k) ?? 0) + c);
+    };
     let mergedBytes = 0;
     for (const dv of deliveries) {
       for (const [s, c] of dv.by_status) mergedStatus.set(s, (mergedStatus.get(s) ?? 0) + c);
       for (const [k, c] of dv.by_cache) mergedCache.set(k, (mergedCache.get(k) ?? 0) + c);
+      mergeInto(mergedProtocol, dv.by_protocol);
+      mergeInto(mergedTls, dv.by_tls);
+      mergeInto(mergedContent, dv.by_content);
+      mergeInto(mergedMethod, dv.by_method);
       mergedBytes += dv.response_bytes;
     }
     const deliveryRangeDays = Math.min(Math.max(days, 1), CF_MAX_WINDOW_DAYS);
@@ -921,6 +981,10 @@ export async function loadMultiUrlAnalytics(
         mergedBytes,
         deliveryRangeDays,
         deliveryZoneResolved,
+        mergedProtocol,
+        mergedTls,
+        mergedContent,
+        mergedMethod,
       ),
       pageviews: aggregates.reduce((sum, a) => sum + a.page_views, 0),
       // HONEST window: the CF path covers ≤CF_MAX_WINDOW_DAYS daily windows regardless of the
@@ -1020,7 +1084,18 @@ export function buildDeliverySummary(
   responseBytes: number,
   rangeDays: number,
   zoneResolved = false,
+  byProtocol: ReadonlyMap<string, number> = new Map(),
+  byTls: ReadonlyMap<string, number> = new Map(),
+  byContent: ReadonlyMap<string, number> = new Map(),
+  byMethod: ReadonlyMap<string, number> = new Map(),
 ): DeliverySummary {
+  /** A label→count map → its top-`n` rows, highest first, zero-counts dropped. */
+  const topLabels = (m: ReadonlyMap<string, number>, n = 6): Array<{ label: string; count: number }> =>
+    [...m.entries()]
+      .filter(([, c]) => c > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, n)
+      .map(([label, count]) => ({ count, label }));
   let total = 0;
   const classCounts = new Map<StatusClass, number>();
   const topStatuses: Array<{ status: number; count: number }> = [];
@@ -1054,9 +1129,13 @@ export function buildDeliverySummary(
       miss,
       uncacheable,
     },
+    content_types: topLabels(byContent),
     has_data: total > 0,
+    methods: topLabels(byMethod),
+    protocols: topLabels(byProtocol),
     range_days: rangeDays,
     response_bytes: responseBytes,
+    tls: topLabels(byTls),
     top_statuses: topStatuses.slice(0, 8),
     total_requests: total,
     zone_resolved: zoneResolved,

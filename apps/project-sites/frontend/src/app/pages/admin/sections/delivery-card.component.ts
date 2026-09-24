@@ -2,10 +2,12 @@
  * Delivery & performance card — the edge-delivery block of `/admin/analytics`.
  *
  * Renders Cloudflare edge metrics for the site's owned hostnames from
- * `envelope.delivery` (the `httpRequestsAdaptiveGroups` status/cache/bandwidth
- * aggregation): HTTP status-code classes, cache hit ratio, edge bandwidth, and the
- * top error responses. Focused, standalone, presentational (Angular style guide):
- * signals + `input()` + native control flow, no data fetching of its own.
+ * `envelope.delivery` (the `httpRequestsAdaptiveGroups` aggregation): HTTP status-code
+ * classes, cache hit ratio, edge bandwidth, the top error responses, AND the edge
+ * connection/content breakdowns (HTTP protocol version, TLS version, response
+ * content-type, HTTP method — all from the SAME per-host query, zero extra requests).
+ * Focused, standalone, presentational (Angular style guide): signals + `input()` +
+ * native control flow, no data fetching of its own.
  *
  * HONESTY (load-bearing): this is a DISTINCT source from the first-party audience
  * metrics — it counts HTTP REQUESTS at the edge, not pageviews. `delivery === null`
@@ -69,7 +71,14 @@ function formatBytes(n: number): string {
     .dl-errors { display: grid; gap: 0.25rem; }
     .dl-error-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
     .dl-error-list li { font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.04); border-radius: 4px; font-variant-numeric: tabular-nums; }
+    .dl-edge { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
+    .dl-edge-group { min-width: 0; }
+    .dl-edge-list { list-style: none; margin: 0.3rem 0 0; padding: 0; display: grid; gap: 0.25rem; }
+    .dl-edge-list li { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.72rem; }
+    .dl-edge-lbl { color: var(--ps-ink, #f4f4ff); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .dl-edge-val { color: var(--text-secondary, #9aa0b4); font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0; }
     .dl-note { margin: 0; font-size: 0.62rem; color: var(--text-secondary, #9aa0b4); line-height: 1.4; }
+    @media (max-width: 480px) { .dl-edge { grid-template-columns: 1fr; } }
     .dl-empty { margin: 0; font-size: 0.78rem; color: var(--text-secondary, #9aa0b4); line-height: 1.5; }
     @media (max-width: 480px) { .dl-status-row { grid-template-columns: 7rem 1fr auto; } .dl-stats { grid-template-columns: 1fr; } }
     `,
@@ -135,7 +144,25 @@ function formatBytes(n: number): string {
             </div>
           }
 
-          <p class="dl-note" data-testid="an-dl-note">Cloudflare edge counts of HTTP requests (not pageviews), <strong>adaptive-sampled — approximate, not exact</strong>, and updated on a <strong>short delay</strong> (a few minutes behind live). Your audience metrics above (page views, visits, conversions) are exact, real-time first-party counts. Cache hit ratio is over cacheable requests.</p>
+          @if (edgeGroups().length) {
+            <div class="dl-edge" data-testid="an-dl-edge">
+              @for (g of edgeGroups(); track g.key) {
+                <div class="dl-edge-group" [attr.data-testid]="'an-dl-edge-' + g.key">
+                  <div class="dl-stat-label">{{ g.title }}</div>
+                  <ul class="dl-edge-list">
+                    @for (r of g.rows; track r.label) {
+                      <li>
+                        <span class="dl-edge-lbl" [attr.title]="r.label">{{ r.label }}</span>
+                        <span class="dl-edge-val">{{ r.pct }}% · {{ fmt(r.count) }}</span>
+                      </li>
+                    }
+                  </ul>
+                </div>
+              }
+            </div>
+          }
+
+          <p class="dl-note" data-testid="an-dl-note">Cloudflare edge counts of HTTP requests (not pageviews), <strong>adaptive-sampled — approximate, not exact</strong>, and updated on a <strong>short delay</strong> (a few minutes behind live). Your audience metrics above (page views, visits, conversions) are exact, real-time first-party counts. Cache hit ratio is over cacheable requests; connection, TLS, content-type and method are edge request shares.</p>
         } @else if (d.zone_resolved) {
           <p class="dl-empty" data-testid="an-dl-empty">
             No edge requests recorded in this window yet. Status codes, cache hit-rate, and bandwidth appear here once traffic arrives.
@@ -193,6 +220,36 @@ export class DeliveryCardComponent {
   readonly bytesLabel = computed<string>(() => {
     const d = this.delivery();
     return d ? formatBytes(d.response_bytes) : '—';
+  });
+
+  /**
+   * Edge connection/content breakdowns (protocol / TLS / content-type / method) as
+   * render-ready groups: each carries its top-4 rows with a share % of the dimension
+   * total. Only groups WITH data appear (an unavailable/empty dimension is omitted,
+   * never shown as a fabricated 0). Same adaptive-sampled edge source as the card.
+   */
+  readonly edgeGroups = computed(() => {
+    const d = this.delivery();
+    if (!d || !d.has_data) return [];
+    const mk = (key: string, title: string, rows: { label: string; count: number }[] | undefined) => {
+      const list = (rows ?? []).filter((r) => r.count > 0);
+      const total = list.reduce((a, r) => a + r.count, 0);
+      return {
+        key,
+        title,
+        rows: list.slice(0, 4).map((r) => ({
+          label: r.label,
+          count: r.count,
+          pct: total > 0 ? Math.round((100 * r.count) / total) : 0,
+        })),
+      };
+    };
+    return [
+      mk('proto', 'Connection', d.protocols), // HTTP/3, HTTP/2, HTTP/1.1
+      mk('tls', 'TLS version', d.tls), // TLSv1.3, TLSv1.2
+      mk('content', 'Content served', d.content_types), // js, html, css, img
+      mk('method', 'Methods', d.methods), // GET, POST
+    ].filter((g) => g.rows.length > 0);
   });
 
   /** Thousands-separated integer. */

@@ -1616,6 +1616,17 @@ export interface DeliverySummary {
   cache: { hit: number; miss: number; uncacheable: number; hit_ratio_pct: number | null };
   response_bytes: number;
   range_days: number;
+  /**
+   * Edge connection + content breakdowns from the SAME per-host `httpRequestsAdaptiveGroups`
+   * query (zero extra requests, adaptive-sampled): HTTP protocol version (HTTP/3 vs HTTP/2),
+   * TLS version, response content-type, and HTTP method — each top-6 by edge REQUEST count
+   * (never conflated with first-party pageviews). Optional for back-compat; `[]` when the
+   * zone didn't resolve or the field is unavailable — never fabricated.
+   */
+  protocols?: { label: string; count: number }[];
+  tls?: { label: string; count: number }[];
+  content_types?: { label: string; count: number }[];
+  methods?: { label: string; count: number }[];
 }
 
 export interface MultiUrlAnalyticsEnvelope {

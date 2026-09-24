@@ -130,6 +130,32 @@ describe('buildDeliverySummary', () => {
     expect(resolvedEmpty.zone_resolved).toBe(true);
     expect(resolvedEmpty.has_data).toBe(false);
   });
+
+  it('folds the edge connection/content breakdowns (protocol/tls/content/method) top-N by count', () => {
+    const result = buildDeliverySummary(
+      new Map([[200, 100]]),
+      new Map(),
+      0,
+      7,
+      true,
+      new Map([['HTTP/3', 70], ['HTTP/2', 30]]),
+      new Map([['TLSv1.3', 99], ['TLSv1.2', 1]]),
+      new Map([['js', 60], ['html', 40]]),
+      new Map([['GET', 100]]),
+    );
+    expect(result.protocols).toEqual([{ label: 'HTTP/3', count: 70 }, { label: 'HTTP/2', count: 30 }]);
+    expect(result.tls[0]).toEqual({ label: 'TLSv1.3', count: 99 });
+    expect(result.content_types.map((r) => r.label)).toEqual(['js', 'html']);
+    expect(result.methods).toEqual([{ label: 'GET', count: 100 }]);
+  });
+
+  it('defaults the edge breakdowns to [] when the maps are not provided (back-compat)', () => {
+    const r = buildDeliverySummary(new Map([[200, 5]]), new Map(), 0, 7);
+    expect(r.protocols).toEqual([]);
+    expect(r.tls).toEqual([]);
+    expect(r.content_types).toEqual([]);
+    expect(r.methods).toEqual([]);
+  });
 });
 
 describe('resolveDeliveryZone (delivery/audience decouple)', () => {
