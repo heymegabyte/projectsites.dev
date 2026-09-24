@@ -78,7 +78,7 @@ apps/project-sites/src/__tests__/
 ├── ai_workflows.test.ts              # AI pipeline + prompt orchestration
 ├── analytics.test.ts                 # PostHog event capture
 ├── audit.test.ts                     # Audit log writes
-├── auth.test.ts                      # Magic link, phone OTP, Google OAuth, sessions
+├── auth.test.ts                      # Magic link, Google OAuth, sessions
 ├── billing.test.ts                   # Stripe checkout, subscriptions, webhooks
 ├── db.test.ts                        # D1 query helpers
 ├── domains.test.ts                   # Custom hostname provisioning

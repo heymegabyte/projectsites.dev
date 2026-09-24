@@ -53,7 +53,7 @@ Customer support at **support.projectsites.dev**, on **Fly.io** (needs multi-pro
 
 **Worker integration** (`src/services/chatwoot.ts`): `createSupportConversation` searches/creates a contact (`/api/v1/accounts/{ACCOUNT_ID}/contacts/search?q={email}` then `/contacts`), then creates a conversation (`/conversations` with `inbox_id`, `contact_id`, `additional_attributes:{tenant_id,subject}`, `initial_message`). Auth `api_access_token: {CHATWOOT_API_KEY}`. Returns `null` on failure.
 **Webhook** (`POST /webhooks/chatwoot`): verify `X-Chatwoot-Signature` == `CHATWOOT_WEBHOOK_TOKEN` (else 401). `conversation_status_changed`→`resolved` notifies tenant via psnotify; `message_created` agent reply → notify.
-**Email routing:** `support@projectsites.dev` → Chatwoot email inbox (Settings → Inboxes → Email gives a `@chatwoot.io` forwarding address; Resend rule forwards to it). Alternative: IMAP polling.
+**Email routing:** `support@projectsites.dev` → Chatwoot email inbox (Settings → Inboxes → Email gives a `@chatwoot.io` forwarding address; SES rule forwards to it). Alternative: IMAP polling. (Resend removed 2026-09-09 per ADR-0019; Amazon SES is the sole email provider.)
 
 ## Postiz service (AGPL-isolation via HTTP boundary)
 

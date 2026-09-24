@@ -72,7 +72,7 @@ beautiful AND more effortless, both, always. Full mandate: global rule `embarras
 | Background | Cloudflare Workflows (AI site-generation pipeline) |
 | AI | Cloudflare Workers AI (Llama 3.3 70B + 3.1 8B, FP8) via AI Gateway |
 | Payments | Stripe (checkout, subscriptions, webhooks) |
-| Email | SES → Resend → SendGrid fallback chain (ADR-0019, SES primary once configured) + Listmonk (newsletters); bounce handling |
+| Email | Amazon SES (primary) + SendGrid (break-glass only); ADR-0019, Resend removed 2026-09-09 + Listmonk (newsletters); bounce handling |
 | Analytics | PostHog (server-side) |
 | Errors | Sentry (HTTP API) |
 
@@ -104,7 +104,7 @@ Status machine: `draft → collecting → imaging → generating → published |
   Head before the bundle loads (overrides the default `/headless` iframe); `WebContainer.boot()` in
   `app/lib/webcontainer/index.ts` uses `coep:'credentialless'`. Boot failures → check headers, the
   iframe URL, third-party-storage blocking (stackblitz.com / webcontainer.io exceptions).
-- **Removed — never reintroduce**: Supabase, Twilio-SMS + phone-OTP, Lago/Unkey/Nango/Inngest/Postiz/Novu,
+- **Removed — never reintroduce**: Supabase, phone-OTP (legacy Twilio SMS auth removed), Lago/Unkey/Nango/Inngest (keep Postiz as transition-only + Novu),
   **AI Agents** (the `/admin/ai-endpoints` UI-authored AI-endpoint feature + `ai_endpoints` D1 table + the
   `/api/ai/:slug/:endpoint` dispatcher — replaced by code-defined **Functions** on Cloudflare Workers for
   Platforms; owners define endpoints in a `functions/` folder in their site code, not a dashboard form. See
