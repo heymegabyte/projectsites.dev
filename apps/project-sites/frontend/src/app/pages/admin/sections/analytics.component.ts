@@ -26,7 +26,7 @@ import { DeliveryCardComponent } from './delivery-card.component';
 import { buildAnalyticsCsv } from '../../../utils/analytics-csv';
 import { downloadText } from '../../../utils/csv-export';
 
-type RangeId = AnalyticsRange;
+type RangeId = AnalyticsRange | 'custom';
 
 /** Auto-refresh cadence in seconds — surfaced in the header countdown. */
 const REFRESH_INTERVAL_SEC = 60;
@@ -145,6 +145,15 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
                         (click)="setRange(r.id)">{{ r.label }}</button>
               }
             </div>
+            @if (range() === 'custom') {
+              <label class="range-custom" data-testid="an-range-custom">
+                Last
+                <input #cd type="number" min="1" max="90" step="1" [value]="customDays()"
+                       (change)="setCustomDays(cd.value)"
+                       aria-label="Custom lookback in days, 1 to 90" />
+                days
+              </label>
+            }
             <button class="btn-ghost"
                     type="button"
                     (click)="exportCsv()"
@@ -683,6 +692,17 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
       border: 1px solid rgba(255,255,255,0.08);
       border-radius: 999px; padding: 2px; gap: 2px;
     }
+    .range-custom {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      font-size: 0.75rem; color: var(--text-secondary, #9aa0b4);
+    }
+    .range-custom input {
+      width: 3.5rem; padding: 3px 6px; text-align: right;
+      background: rgba(255,255,255,0.06); color: var(--ps-ink, #f4f4ff);
+      border: 1px solid rgba(255,255,255,0.14); border-radius: 6px;
+      font-variant-numeric: tabular-nums;
+    }
+    .range-custom input:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; }
     .range-chip {
       padding: 4px 12px; border-radius: 999px;
       background: transparent; border: 0;
@@ -993,17 +1013,34 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     { id: '7d', label: '7d' },
     { id: '30d', label: '30d' },
     { id: '90d', label: '90d' },
+    { id: 'custom', label: 'Custom' },
   ];
 
   range = signal<RangeId>(((): RangeId => {
     try {
       const stored = localStorage.getItem('ps_analytics_range');
-      if (stored === '24h' || stored === '7d' || stored === '30d' || stored === '90d') return stored;
+      if (stored === '24h' || stored === '7d' || stored === '30d' || stored === '90d' || stored === 'custom') return stored;
       // Migrate legacy '1d' value from the prior version.
       if (stored === '1d') return '24h';
       return '7d';
     } catch { return '7d'; }
   })());
+
+  /** Custom lookback in days (1–90) — used only when `range() === 'custom'`. Persisted. */
+  customDays = signal<number>(((): number => {
+    try {
+      const n = Number.parseInt(localStorage.getItem('ps_analytics_custom_days') ?? '', 10);
+      return Number.isFinite(n) && n >= 1 && n <= 90 ? n : 14;
+    } catch { return 14; }
+  })());
+
+  /** Clamp + persist the custom lookback, then reload if the custom window is active. */
+  setCustomDays(value: number | string): void {
+    const n = Math.min(Math.max(Math.trunc(Number(value) || 0), 1), 90);
+    this.customDays.set(n);
+    try { localStorage.setItem('ps_analytics_custom_days', String(n)); } catch { /* */ }
+    if (this.range() === 'custom') this.reload();
+  }
 
   setRange(id: RangeId): void {
     this.range.set(id);
@@ -1575,12 +1612,16 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     this.notAvailable.set(false);
     this.secondsUntilRefresh.set(REFRESH_INTERVAL_SEC);
     const excludeArr = Array.from(this.excluded());
+    // Custom lookback sends `days` (the effective N) + a valid enum label for the CF
+    // path; the server prefers `days`. Presets send their own days too (identical).
+    const r = this.range();
+    const cfRange: AnalyticsRange = r === 'custom' ? '30d' : r;
     // Cancel any in-flight reload so a slower earlier response (a bigger range,
     // or the 60s poll) can't resolve last and clobber this reload's data on the
     // shared envelope() signal (last-write-wins).
     this.reloadSub?.unsubscribe();
     this.reloadSub = forkJoin({
-      analytics: this.api.getMultiUrlAnalytics(site.id, this.range(), excludeArr).pipe(
+      analytics: this.api.getMultiUrlAnalytics(site.id, cfRange, excludeArr, this.rangeDays()).pipe(
         timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
         catchError((err: unknown) => {
           // A 404 = the analytics route isn't registered for this site/env —
@@ -1658,6 +1699,8 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
    *  Public so the template can pass it to `<app-web-vitals-card [windowDays]>`. */
   rangeDays(): number {
     switch (this.range()) {
+      case 'custom':
+        return this.customDays();
       case '24h':
         return 1;
       case '30d':

@@ -787,8 +787,11 @@ export class ApiService {
     siteId: string,
     range: AnalyticsRange = '7d',
     excludeHostnames: string[] = [],
+    days?: number,
   ): Observable<{ data: MultiUrlAnalyticsEnvelope }> {
     const params: Record<string, string> = { range };
+    // Custom lookback (1–90) — the server prefers `days` over the enum `range`.
+    if (days && days > 0) params['days'] = String(days);
     if (excludeHostnames.length > 0) params['exclude'] = excludeHostnames.join(',');
     // Silent: the analytics component owns an accurate inline error banner +
     // a cred-aware "Connect Cloudflare" panel + Retry. The generic network-blame

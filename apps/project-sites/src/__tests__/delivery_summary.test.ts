@@ -8,7 +8,7 @@
  *  - Status class bucketing (2xx/3xx/4xx/5xx/other)
  *  - top_statuses sort order and top-8 cap
  */
-import { buildDeliverySummary, resolveDeliveryZone } from '../services/multi_url_analytics';
+import { buildDeliverySummary, clampCustomDays, resolveDeliveryZone } from '../services/multi_url_analytics';
 
 describe('buildDeliverySummary', () => {
   it('correctly buckets status codes and totals from real-world CF data', () => {
@@ -147,5 +147,20 @@ describe('resolveDeliveryZone (delivery/audience decouple)', () => {
       'x.projectsites.dev',
     );
     expect(z?.zone_id).toBe('zone-override');
+  });
+});
+
+describe('clampCustomDays (custom lookback param)', () => {
+  it('accepts 1–90, clamps above 90, and rejects invalid/absent to undefined', () => {
+    expect(clampCustomDays('14')).toBe(14);
+    expect(clampCustomDays('1')).toBe(1);
+    expect(clampCustomDays('90')).toBe(90);
+    expect(clampCustomDays('365')).toBe(90); // clamped to the 90-day cost bound
+    expect(clampCustomDays('0')).toBeUndefined();
+    expect(clampCustomDays('-5')).toBeUndefined();
+    expect(clampCustomDays('abc')).toBeUndefined();
+    expect(clampCustomDays('')).toBeUndefined();
+    expect(clampCustomDays(undefined)).toBeUndefined();
+    expect(clampCustomDays(null)).toBeUndefined();
   });
 });

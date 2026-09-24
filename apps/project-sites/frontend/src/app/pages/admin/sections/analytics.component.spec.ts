@@ -575,6 +575,31 @@ describe('AdminAnalyticsComponent — bounded auto-refresh retry (error-recovery
     expect(c.consecutiveErrors()).toBe(0);
     expect(c.autoRefreshPaused()).toBeFalse();
   });
+
+  it('custom lookback: rangeDays reflects customDays; reload sends days (+ a valid enum) to getMultiUrlAnalytics', () => {
+    const c = build();
+    getAnalytics.and.returnValue(of({ data: null }));
+    c.customDays.set(45);
+    c.range.set('custom');
+    expect(c.rangeDays()).withContext('rangeDays honors the custom window').toBe(45);
+    getAnalytics.calls.reset();
+    c.reload();
+    const args = getAnalytics.calls.mostRecent().args;
+    expect(args[0]).toBe('site-x');
+    expect(args[1]).withContext('valid enum label for the CF path when custom').toBe('30d');
+    expect(args[3]).withContext('effective days sent so the server prefers it over the enum').toBe(45);
+  });
+
+  it('setCustomDays clamps to 1–90 (and accepts a string from the input)', () => {
+    const c = build();
+    c.range.set('7d'); // not custom → no reload side-effect
+    c.setCustomDays(200);
+    expect(c.customDays()).withContext('clamped to 90').toBe(90);
+    c.setCustomDays(0);
+    expect(c.customDays()).withContext('clamped to 1').toBe(1);
+    c.setCustomDays('45');
+    expect(c.customDays()).toBe(45);
+  });
 });
 
 /**

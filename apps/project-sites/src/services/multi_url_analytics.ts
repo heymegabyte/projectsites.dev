@@ -121,6 +121,19 @@ export function parseRange(input: string | null | undefined): AnalyticsRange {
 }
 
 /**
+ * Coerce a client `days` query param (custom lookback) to a bounded integer 1–90,
+ * or `undefined` when absent/invalid — the caller then falls back to the enum range.
+ * The upper bound is a query-cost guard (the CF path further clamps to
+ * {@link CF_MAX_WINDOW_DAYS}); the D1 first-party path honors the full N.
+ */
+export function clampCustomDays(input: string | null | undefined): number | undefined {
+  if (input == null || input === '') return undefined;
+  const n = Number.parseInt(input, 10);
+  if (!Number.isFinite(n) || n < 1) return undefined;
+  return Math.min(n, 90);
+}
+
+/**
  * Apex-domain extractor for zone resolution.
  *
  * Cloudflare zones live at the apex (`example.com`), not the subdomain
@@ -787,8 +800,11 @@ export async function loadMultiUrlAnalytics(
   orgId: string | null,
   range: AnalyticsRange,
   excludeHostnames: Set<string> = new Set(),
+  daysOverride?: number,
 ): Promise<MultiUrlAnalytics> {
-  const days = RANGE_TO_DAYS[range];
+  // A custom lookback (`daysOverride`, 1–90) wins over the enum range; the cache key
+  // carries the effective days so custom windows never collide with a preset.
+  const days = daysOverride && daysOverride > 0 ? Math.min(daysOverride, 90) : RANGE_TO_DAYS[range];
   const urls = await listSiteUrls(env, siteId);
   const filteredUrls = urls.filter((u) => !excludeHostnames.has(u.hostname));
 
@@ -799,7 +815,7 @@ export async function loadMultiUrlAnalytics(
     .map((u) => u.hostname)
     .sort()
     .join('|');
-  const cacheKey = `analytics:${siteId}:${range}:${hashStr(urlSetHash)}:${hashStr(Array.from(excludeHostnames).sort().join(','))}`;
+  const cacheKey = `analytics:${siteId}:${range}:d${days}:${hashStr(urlSetHash)}:${hashStr(Array.from(excludeHostnames).sort().join(','))}`;
 
   try {
     const cached = await env.CACHE_KV.get(cacheKey, 'json');

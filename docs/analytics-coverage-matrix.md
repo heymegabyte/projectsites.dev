@@ -134,9 +134,17 @@ percentiles are PLAN-BLOCKED** (verified this fire): `edgeTimeToFirstByteMs`/`ed
 "zone does not have access", and origin timings return `-1` (Worker-served sites have no origin fetch) — so latency is
 OFF the buildable list (would be a placeholder), same class as Security/WAF.
 
-NEXT highest-value gaps (Security + latency plan-blocked; delivery + CSV now complete): (1) **Custom date range (arbitrary
-start/end)** — the D1 endpoints already accept an arbitrary `windowDays` (`parseWindowDays`), but the CF/`multi-url`
-envelope is enum-only (`RANGE_TO_DAYS`); unify by giving `loadMultiUrlAnalytics` a `days` override + a frontend range
-picker (bound 1–90d for CF retention, honest clamp note). Timezone display is now labeled (UTC); full tz-aware bucketing
-is a later step. (2) **Migrate bespoke CSV exports** (events-table/audit/forms/super-admin) onto the shared
-`csvEscape`/`downloadText`.
+**Custom lookback SHIPPED** (2026-09-24): the range selector gained a **"Custom" pill + a 1–90 day number input**
+(`customDays`, persisted). `loadMultiUrlAnalytics` now takes a `daysOverride` (via `clampCustomDays`, exported+tested)
+that wins over the enum `range` and is folded into the KV cache key (`:d<days>:`); the handler reads `?days=N`. The D1
+audience calls already took `rangeDays()`, so they honor the custom window too. Prod-verified: `?days=7`→692 pv
+(range_days 7) vs `?days=90`→1677 pv (range_days 90) — the override changes the window with an honest `range_days`. 3
+new specs (`clampCustomDays` bounds; `rangeDays`/`getMultiUrlAnalytics` days wiring; `setCustomDays` clamp). Tenant
+isolation unchanged (rides the same `loadSiteAndAuth`/`resolveOwnedSiteId` authed path; `days` is a bounded integer,
+never a resource selector). Worker + frontend deployed.
+
+NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback complete): (1) **Arbitrary
+start/end date range** (a specific past window, e.g. Aug 1–15) — the richer form of custom range: accept `since`/`until`
+on both the D1 summary query and the CF windows (currently now-relative lookback only). (2) **Full timezone-aware
+bucketing** (day buckets in the viewer's tz; today they're UTC + labeled). (3) **Migrate bespoke CSV exports**
+(events-table/audit/forms/super-admin) onto the shared `csvEscape`/`downloadText`.

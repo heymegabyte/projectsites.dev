@@ -39,6 +39,7 @@ import type { Env, Variables } from '../../../src/types/env.js';
 import { dbExecute, dbInsert, dbQueryOne } from '../../../src/services/db.js';
 import * as domainService from '../../../src/services/domains.js';
 import {
+  clampCustomDays,
   listSiteUrls,
   loadMultiUrlAnalytics,
   parseRange,
@@ -283,6 +284,7 @@ siteUrls.get('/api/sites/:id/multi-url-analytics', async (c) => {
   const ctx = await loadSiteAndAuth(c, siteId);
   if ('err' in ctx) return ctx.err;
   const range = parseRange(c.req.query('range'));
+  const daysOverride = clampCustomDays(c.req.query('days')); // custom lookback (1–90) overrides the enum
   const excludeRaw = c.req.query('exclude') ?? '';
   const exclude = new Set(
     excludeRaw
@@ -305,7 +307,7 @@ siteUrls.get('/api/sites/:id/multi-url-analytics', async (c) => {
 
   let envelope: MultiUrlAnalytics;
   try {
-    envelope = await loadMultiUrlAnalytics(c.env, siteId, ctx.site.org_id, range, exclude);
+    envelope = await loadMultiUrlAnalytics(c.env, siteId, ctx.site.org_id, range, exclude, daysOverride);
   } catch (err) {
     console.warn(
       JSON.stringify({
