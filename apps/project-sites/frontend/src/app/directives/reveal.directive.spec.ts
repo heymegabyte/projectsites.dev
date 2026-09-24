@@ -39,6 +39,13 @@ class HugeDelayComponent {}
 })
 class OneHostComponent {}
 
+@Component({
+  standalone: true,
+  imports: [RevealDirective],
+  template: `<div appReveal [revealDelay]="9999" [revealMaxDelay]="100"></div>`,
+})
+class CustomCapComponent {}
+
 describe('RevealDirective (first-paint stagger + SPA batch reset)', () => {
   let delays: number[];
 
@@ -99,6 +106,12 @@ describe('RevealDirective (first-paint stagger + SPA batch reset)', () => {
     render(HugeDelayComponent);
     expect(delays.length).toBe(1);
     expect(delays[0]).withContext('clamped to the 480ms cap, not 9999').toBe(480);
+  });
+
+  it('honors a bound custom revealMaxDelay (signal input flows a non-default value)', () => {
+    render(CustomCapComponent);
+    expect(delays.length).toBe(1);
+    expect(delays[0]).withContext('capped at the bound 100ms, not the 480 default').toBe(100);
   });
 
   it('resets the stagger batch between renders — a new route starts at 0, NOT an accumulated index', async () => {

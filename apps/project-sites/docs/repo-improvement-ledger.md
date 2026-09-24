@@ -722,6 +722,20 @@
   export are the remaining big D1 items; KV/R2/DO/Vectorize adapters + syntax-highlight/completion/multi-tab (CodeMirror)
   are credential-/dependency-blocked. **Next:** guided schema DDL (super-admin, CREATE INDEX/VIEW with preview+confirm) is
   the top remaining no-credential D1 item, or the CodeMirror console-UX dependency decision.
+- **Cycle 54 — 2026-09-24 (Angular: migrate the heavily-used `reveal` directive to signal inputs):** The ledger's named
+  next Angular target, and the most-wired directive (`appReveal` — ~299 usages, on every admin card + marketing section).
+  It was flagged "order-fragile" but an inventory showed the RISK is the module-global stagger counter, NOT the inputs:
+  all 6 are plain-field `@Input()` read in `ngOnInit`/`play()`. Migrated them to `input()` (`revealDelay`/`revealStep`/
+  `revealDuration`/`revealOffset`/`revealThreshold`/`revealMaxDelay`); the stagger counter (`nextRevealIndex()` +
+  `resetRevealOrderForTest`) is UNTOUCHED, so the SPA-batch-reset behavior + the order-de-flaking spec setup stay valid.
+  Behavior-preserving: consumers bind `[revealDelay]`/`[revealThreshold]` identically for signal inputs. The spec sets
+  inputs via HOST-COMPONENT TEMPLATE BINDINGS (not direct field assignment), so its stagger/cap tests stayed valid + I
+  added a custom-`[revealMaxDelay]="100"` test proving a NON-default bound value flows through the signal input. Verified:
+  fe tsc (app+spec) 0 · **Karma 2098/2098** (+1) · `ng build:prod` 0 err + 0 NG8113 · deployed R2 + prod-verified
+  (`main-CYFEVKEP.js` hash-matched, homepage 200 — `appReveal` runs there). Frontend-only. **Next:** `focus-trap` is now
+  the LAST risky directive — a `set focusTrap(value)` setter that imperatively activates/deactivates a keydown trap →
+  `input()` + `effect(onCleanup)` (careful, a11y-critical, 7 consumers). Then lift `DisclosureMode` to a shared type file
+  (decouples feature-flags + site-features from the dead `mode-switcher`), and the Brian-gated `site-kit/*` intent call.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
@@ -738,7 +752,7 @@
   (`before-after-slider`, `grafana-dashboard`; dropped an unused `effect` import too).
   The 3rd `constructor(private…)` hit is a test-mock class (`readiness-badge.component.spec`),
   not Angular DI.
-- **Signal inputs/outputs: ⏳ in progress** — **39** decorator files remain (was 41). Migrating a coherent unit per
+- **Signal inputs/outputs: ⏳ in progress** — **38** decorator files remain (was 39). Migrating a coherent unit per
   cycle, preferring WIRED, spec-covered targets that IMPROVE the code over churn. ✅ done: `cmd-glyph` (cycle 17);
   `command-palette` (`@Output()`→`output()`, cycle 18); the `states/` family — `empty-state` + `error-card` (cycle 33);
   **`directives/auth-image-src` — `@Input()`+`ngOnChanges`+`ngOnDestroy` → `input()`+`effect(onCleanup)`, which also
@@ -748,7 +762,9 @@
   that conditionally seeds `cursor`/`selectedDayMs`/`view`) → `input()` + a faithful conditional-override `effect()`;
   render-neutral for its 1 consumer (`[props]="props()"` unchanged), cycle 48**; **`animations/ripple` (2 inputs) +
   `animations/reveal-on-scroll` (3 inputs) — plain-field `@Input()` → `input()`; behavior-preserving (event-time +
-  ngOnInit reads), + added their previously-MISSING specs (net coverage gain), cycle 51**. Newer components (`conversions-card`,
+  ngOnInit reads), + added their previously-MISSING specs (net coverage gain), cycle 51**; **`directives/reveal` (the
+  heavily-used `appReveal`, 6 plain-field inputs → `input()`; read in ngOnInit/`play()`, the module-global stagger counter
+  UNTOUCHED; spec uses host bindings so it stayed valid + gained a custom-`revealMaxDelay` test, cycle 54)**. Newer components (`conversions-card`,
   `web-vitals-card`, `tech-breakdown`, `trend-badge`) already ship `input()`/`output()`. ⚠️ **`site-kit/*` (25+
   components, most of the remaining decorator files) is an UNWIRED library** — no importers/selectors/registry/build-
   includes (only 2 specs); migrating it is low-value churn, and it can't be deleted (actively maintained + tests-

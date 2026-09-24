@@ -1,11 +1,11 @@
 import {
   Directive,
   ElementRef,
-  Input,
   OnDestroy,
   OnInit,
   PLATFORM_ID,
   inject,
+  input,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 
@@ -83,23 +83,23 @@ export class RevealDirective implements OnInit, OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
 
   /** Additional delay (ms) on top of the auto document-order stagger. */
-  @Input() revealDelay = 0;
+  readonly revealDelay = input(0);
 
   /** Per-host stagger increment (ms). Default 80ms reads as graceful sequence. */
-  @Input() revealStep = 80;
+  readonly revealStep = input(80);
 
   /** Total animation duration (ms). */
-  @Input() revealDuration = 520;
+  readonly revealDuration = input(520);
 
   /** Pixel rise applied to the start frame. */
-  @Input() revealOffset = 16;
+  readonly revealOffset = input(16);
 
   /** IntersectionObserver threshold for below-the-fold hosts. */
-  @Input() revealThreshold = 0.12;
+  readonly revealThreshold = input(0.12);
 
   /** Hard cap (ms) on the computed stagger delay — a safety net so a host can
    *  never sit invisible for "seconds" even in a very large batch. */
-  @Input() revealMaxDelay = 480;
+  readonly revealMaxDelay = input(480);
 
   private observer?: IntersectionObserver;
   private animation?: Animation;
@@ -116,8 +116,8 @@ export class RevealDirective implements OnInit, OnDestroy {
     const el = this.host.nativeElement;
     const myIndex = nextRevealIndex();
     const computedDelay = Math.min(
-      myIndex * this.revealStep + this.revealDelay,
-      this.revealMaxDelay,
+      myIndex * this.revealStep() + this.revealDelay(),
+      this.revealMaxDelay(),
     );
 
     // Decide: animate on first paint (in viewport) OR wait for scroll.
@@ -138,7 +138,7 @@ export class RevealDirective implements OnInit, OnDestroy {
           }
         }
       },
-      { threshold: this.revealThreshold, rootMargin: '0px 0px -6% 0px' },
+      { threshold: this.revealThreshold(), rootMargin: '0px 0px -6% 0px' },
     );
     this.observer.observe(el);
   }
@@ -152,11 +152,11 @@ export class RevealDirective implements OnInit, OnDestroy {
     try {
       this.animation = this.host.nativeElement.animate(
         [
-          { opacity: 0, transform: `translate3d(0, ${this.revealOffset}px, 0)` },
+          { opacity: 0, transform: `translate3d(0, ${this.revealOffset()}px, 0)` },
           { opacity: 1, transform: 'translate3d(0, 0, 0)' },
         ],
         {
-          duration: this.revealDuration,
+          duration: this.revealDuration(),
           delay,
           easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
           fill: 'backwards',
