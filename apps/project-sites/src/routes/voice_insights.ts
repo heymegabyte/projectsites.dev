@@ -20,9 +20,10 @@ import { unauthorized } from '@project-sites/shared';
 
 // ─── auth helper (mirrors voice.ts pattern exactly) ────────────────────────
 
-function requireAuth(c: {
-  get: (k: string) => string | undefined;
-}): { userId: string; orgId: string } {
+function requireAuth(c: { get: (k: string) => string | undefined }): {
+  userId: string;
+  orgId: string;
+} {
   const userId = c.get('userId');
   const orgId = c.get('orgId');
   if (!userId || !orgId) throw unauthorized();
