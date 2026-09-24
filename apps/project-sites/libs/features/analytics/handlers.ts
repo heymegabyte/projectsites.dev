@@ -41,7 +41,7 @@ import {
   isCloudflareAnalyticsConfigured,
   loadSiteTraffic,
 } from '../../../src/services/cloudflare_analytics.js';
-import { getTrafficSummary } from '../visitor_events_core/service.js';
+import { getTrafficSummary, type AnalyticsWindow } from '../visitor_events_core/service.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 
@@ -218,6 +218,45 @@ analytics.get('/api/analytics/overview', async (c) => {
  * @see {@link queryGa4DataApi} - Private helper that signs the JWT +
  *   calls the GA4 Data API.
  */
+
+/** Max span (inclusive days) for an arbitrary start/end window — bounds D1 query cost. */
+const MAX_CUSTOM_SPAN_DAYS = 90;
+const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** `YYYY-MM-DD` (UTC) for an epoch-ms value. */
+function isoDay(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * Parse + validate an arbitrary `?start&end` (YYYY-MM-DD) into an absolute D1
+ * window. Both-absent → no window (caller falls back to the `?period` lookback).
+ * Malformed or reversed → a client error. A span over the cap is CLAMPED (keeping
+ * `end`, moving `start` forward) and the effective clamped dates are returned so
+ * the UI shows the ACTUAL window served — never a wider range than was queried.
+ * `until` is exclusive (end-day-inclusive → next-day 00:00). Pure (no clock read)
+ * so it is fully unit-testable; a future `end` is harmless (no rows exist ahead of now).
+ */
+export function parseCustomWindow(
+  startRaw: string | undefined | null,
+  endRaw: string | undefined | null,
+): { window?: AnalyticsWindow; startDisplay?: string; endDisplay?: string; error?: string } {
+  if (!startRaw && !endRaw) return {};
+  if (!startRaw || !endRaw) return { error: 'start_and_end_required' };
+  if (!ISO_DAY_RE.test(startRaw) || !ISO_DAY_RE.test(endRaw)) return { error: 'invalid_date_format' };
+  let startMs = Date.parse(`${startRaw}T00:00:00Z`);
+  const endMs = Date.parse(`${endRaw}T00:00:00Z`);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return { error: 'invalid_date' };
+  if (startMs > endMs) return { error: 'start_after_end' };
+  const spanDays = Math.round((endMs - startMs) / 86_400_000) + 1; // inclusive of both ends
+  if (spanDays > MAX_CUSTOM_SPAN_DAYS) startMs = endMs - (MAX_CUSTOM_SPAN_DAYS - 1) * 86_400_000;
+  return {
+    window: { since: isoDay(startMs), until: isoDay(endMs + 86_400_000) },
+    startDisplay: isoDay(startMs),
+    endDisplay: isoDay(endMs),
+  };
+}
+
 analytics.get('/api/analytics/:siteId', async (c) => {
   const requestId = c.get('requestId') ?? crypto.randomUUID();
   const userId = c.get('userId');
@@ -255,11 +294,25 @@ analytics.get('/api/analytics/:siteId', async (c) => {
       403,
     );
 
+  // Arbitrary start/end date range (AL — custom window). Validated + bounded
+  // server-side; the tenant authz above is unaffected (it keys purely on
+  // siteId + membership, never on the window params).
+  const cw = parseCustomWindow(c.req.query('start'), c.req.query('end'));
+  if (cw.error)
+    return c.json(
+      { error: { code: 'BAD_REQUEST', message: cw.error, request_id: requestId } },
+      400,
+    );
+  const window = cw.window;
+
   const propertyId = c.env.GA4_PROPERTY_ID;
   const serviceAccountJson = c.env.GA4_SERVICE_ACCOUNT_JSON;
 
-  // If GA4 is fully configured, query the Data API
-  if (propertyId && serviceAccountJson) {
+  // GA4's Data API path uses a RELATIVE `NdaysAgo` window and can't answer an
+  // arbitrary [start, end] here, so a custom window SKIPS GA4 for the D1
+  // first-party path (which supports it) rather than silently serving a
+  // relative range mislabeled as the requested window.
+  if (propertyId && serviceAccountJson && !window) {
     try {
       const analyticsData = await queryGa4DataApi(
         propertyId,
@@ -352,17 +405,25 @@ analytics.get('/api/analytics/:siteId', async (c) => {
   // always returned zeros.
   const dayCount = parseInt(period) || 7;
   try {
-    const summary = await getTrafficSummary(c.env, siteId, dayCount);
+    const summary = await getTrafficSummary(c.env, siteId, dayCount, window);
+    // The daily series honors the SAME window — absolute [since, until) bounds for
+    // a custom range, else the relative lookback.
     const byDay = await dbQuery<{ day: string; views: number }>(
       c.env.DB,
       `SELECT DATE(created_at) AS day, COUNT(*) AS views FROM visitor_events
-       WHERE site_id = ? AND event_type = 'pageview' AND created_at >= datetime('now', ?)
+       WHERE site_id = ? AND event_type = 'pageview' AND ${
+         window ? 'created_at >= ? AND created_at < ?' : "created_at >= datetime('now', ?)"
+       }
        GROUP BY DATE(created_at) ORDER BY day`,
-      [siteId, `-${dayCount} days`],
+      window ? [siteId, window.since, window.until] : [siteId, `-${dayCount} days`],
     );
     return c.json({
       data: {
-        period: dayCount,
+        period: window ? summary.windowDays : dayCount,
+        // Echo the EXACT window served so the UI labels the real range (honest even
+        // when a >90-day request was clamped). Null for a relative lookback.
+        windowStart: cw.startDisplay ?? null,
+        windowEnd: cw.endDisplay ?? null,
         slug: site.slug,
         source: 'first_party_edge',
         ga4_connected: !!(propertyId && serviceAccountJson),
@@ -394,6 +455,8 @@ analytics.get('/api/analytics/:siteId', async (c) => {
     return c.json({
       data: {
         period: dayCount,
+        windowStart: cw.startDisplay ?? null,
+        windowEnd: cw.endDisplay ?? null,
         slug: site.slug,
         source: 'empty',
         ga4_connected: !!(propertyId && serviceAccountJson),

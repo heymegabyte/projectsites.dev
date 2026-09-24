@@ -183,6 +183,84 @@ const CWV_METRICS = ['LCP', 'INP', 'CLS'] as const;
 const MIN_PATH_SAMPLES = 5;
 
 /**
+ * An absolute, SQLite-comparable analytics window (arbitrary start/end date range).
+ * `since`/`until` MUST be plain `YYYY-MM-DD` (or `YYYY-MM-DD HH:MM:SS`) strings —
+ * NEVER ISO-8601 with `T`/`Z`, which sorts WRONG against D1's space-separated
+ * `created_at` (space 0x20 < `T` 0x54, so a `T`-bound would drop the boundary day).
+ * `since` is inclusive (`created_at >= since`); `until` is exclusive (`created_at < until`).
+ */
+export interface AnalyticsWindow {
+  readonly since: string;
+  readonly until: string;
+}
+
+/** Epoch ms for a `YYYY-MM-DD` or `YYYY-MM-DD HH:MM:SS` string, treated as UTC. */
+function windowMs(d: string): number {
+  return Date.parse(d.length <= 10 ? `${d}T00:00:00Z` : `${d.replace(' ', 'T')}Z`);
+}
+
+/** Whole-day span of an absolute window (minimum 1). */
+function windowSpanDays(w: AnalyticsWindow): number {
+  return Math.max(1, Math.round((windowMs(w.until) - windowMs(w.since)) / 86_400_000));
+}
+
+/**
+ * Current-window WHERE clause + bind params for a `visitor_events` query scoped to
+ * `site_id`. An absolute window → bound literals (`created_at >= ? AND created_at < ?`);
+ * otherwise the trailing relative window (`created_at >= datetime('now', ?)`).
+ */
+function currentWindow(
+  siteId: string,
+  windowDays: number,
+  window?: AnalyticsWindow,
+): { readonly clause: string; readonly params: unknown[] } {
+  if (window) {
+    return {
+      clause: 'site_id = ? AND created_at >= ? AND created_at < ?',
+      params: [siteId, window.since, window.until],
+    };
+  }
+  return {
+    clause: "site_id = ? AND created_at >= datetime('now', ?)",
+    params: [siteId, `-${windowDays} days`],
+  };
+}
+
+/**
+ * The equal-length window immediately BEFORE the current one, for period-over-period
+ * deltas. Absolute: `[since - span, since)`; relative: `[now-2N, now-N)`.
+ */
+function previousWindow(
+  siteId: string,
+  windowDays: number,
+  window?: AnalyticsWindow,
+): { readonly pw: string; readonly pwParams: unknown[] } {
+  if (window) {
+    const span = windowMs(window.until) - windowMs(window.since);
+    const prevSince = new Date(windowMs(window.since) - span).toISOString().slice(0, 10);
+    return {
+      pw: 'site_id = ? AND created_at >= ? AND created_at < ?',
+      pwParams: [siteId, prevSince, window.since],
+    };
+  }
+  return {
+    pw: "site_id = ? AND created_at >= datetime('now', ?) AND created_at < datetime('now', ?)",
+    pwParams: [siteId, `-${windowDays * 2} days`, `-${windowDays} days`],
+  };
+}
+
+/** Time-only predicate + params for a single-query summary (web vitals / conversions). */
+function timePredicate(
+  siteId: string,
+  windowDays: number,
+  window?: AnalyticsWindow,
+): { readonly time: string; readonly params: unknown[] } {
+  return window
+    ? { time: 'created_at >= ? AND created_at < ?', params: [siteId, window.since, window.until] }
+    : { time: "created_at >= datetime('now', ?)", params: [siteId, `-${windowDays} days`] };
+}
+
+/**
  * Real-user Core Web Vitals p75 over the window, computed from the `web_vital`
  * beacon rows in `visitor_events`. Queried DIRECTLY (not via the analytics_daily
  * rollup, which doesn't carry CWV), so it works in both the live and rollup
@@ -197,7 +275,9 @@ export async function getWebVitalsSummary(
   env: Env,
   siteId: string,
   windowDays = 30,
+  window?: AnalyticsWindow,
 ): Promise<WebVitals> {
+  const win = timePredicate(siteId, windowDays, window);
   const { data, error } = await dbQuery<{ metric: string | null; value: number; path: string | null }>(
     env.DB,
     `SELECT json_extract(metadata, '$.metric') AS metric,
@@ -205,11 +285,11 @@ export async function getWebVitalsSummary(
             path
        FROM visitor_events
       WHERE site_id = ? AND event_type = 'web_vital'
-        AND created_at >= datetime('now', ?)
+        AND ${win.time}
         AND json_extract(metadata, '$.metric') IN ('LCP', 'INP', 'CLS')
       ORDER BY created_at DESC
       LIMIT 50000`,
-    [siteId, `-${windowDays} days`],
+    win.params,
   );
   const empty: WebVitals = { lcp: null, inp: null, cls: null, slowestPages: [] };
   if (error) return empty;
@@ -258,15 +338,17 @@ export async function getConversionKinds(
   env: Env,
   siteId: string,
   windowDays = 30,
+  window?: AnalyticsWindow,
 ): Promise<LabelCount[]> {
+  const win = timePredicate(siteId, windowDays, window);
   const { data, error } = await dbQuery<{ label: string | null; n: number }>(
     env.DB,
     `SELECT json_extract(metadata, '$.kind') AS label, COUNT(*) AS n
        FROM visitor_events
       WHERE site_id = ? AND event_type = 'conversion'
-        AND created_at >= datetime('now', ?)
+        AND ${win.time}
       GROUP BY label ORDER BY n DESC LIMIT 20`,
-    [siteId, `-${windowDays} days`],
+    win.params,
   );
   if (error) return [];
   return data.map((r) => ({ label: r.label ?? 'other', count: Number(r.n) }));
@@ -277,27 +359,30 @@ export async function getTrafficSummary(
   env: Env,
   siteId: string,
   windowDays = 30,
+  window?: AnalyticsWindow,
 ): Promise<TrafficSummary> {
   // AN3 — when the rollup-read flag is on, serve from analytics_daily (O(days)).
   // Fail-open: any flag-check error falls through to the live scan below.
-  try {
-    const { isFlagOn } = await import('../../../src/modules/feature_flags/services.js');
-    if (await isFlagOn(env, 'analytics_rollup_read', { siteId })) {
-      return getTrafficSummaryFromRollup(env, siteId, windowDays);
+  // An ABSOLUTE window forces the live scan — the calendar-aligned rollup can't
+  // answer an arbitrary [since, until) precisely — so skip the rollup entirely.
+  if (!window) {
+    try {
+      const { isFlagOn } = await import('../../../src/modules/feature_flags/services.js');
+      if (await isFlagOn(env, 'analytics_rollup_read', { siteId })) {
+        return getTrafficSummaryFromRollup(env, siteId, windowDays);
+      }
+    } catch {
+      /* fall through to the live path */
     }
-  } catch {
-    /* fall through to the live path */
   }
 
-  const since = `-${windowDays} days`;
-  const w = ['site_id = ?', "created_at >= datetime('now', ?)"].join(' AND ');
-  // AN15 — the window immediately BEFORE the current one, for period-over-period
-  // deltas: [now-2N, now-N). Same length as the current window.
-  const prevSince = `-${windowDays * 2} days`;
-  const pw = ['site_id = ?', "created_at >= datetime('now', ?)", "created_at < datetime('now', ?)"].join(
-    ' AND ',
-  );
-  const pwParams = [siteId, prevSince, since];
+  const cur = currentWindow(siteId, windowDays, window);
+  const w = cur.clause;
+  const wParams = cur.params;
+  // AN15 — the equal-length window immediately BEFORE the current one, for
+  // period-over-period deltas (relative [now-2N, now-N) or absolute [since-span, since)).
+  const { pw, pwParams } = previousWindow(siteId, windowDays, window);
+  const effectiveWindowDays = window ? windowSpanDays(window) : windowDays;
 
   const [
     pageviews,
@@ -315,44 +400,38 @@ export async function getTrafficSummary(
     webVitals,
     byConversionKind,
   ] = await Promise.all([
-    scalar(env, `SELECT COUNT(*) AS n FROM visitor_events WHERE ${w} AND event_type = 'pageview'`, [
-      siteId,
-      since,
-    ]),
-    scalar(env, `SELECT COUNT(DISTINCT session_id) AS n FROM visitor_events WHERE ${w}`, [
-      siteId,
-      since,
-    ]),
+    scalar(env, `SELECT COUNT(*) AS n FROM visitor_events WHERE ${w} AND event_type = 'pageview'`, wParams),
+    scalar(env, `SELECT COUNT(DISTINCT session_id) AS n FROM visitor_events WHERE ${w}`, wParams),
     scalar(
       env,
       `SELECT COUNT(*) AS n FROM visitor_events WHERE ${w} AND event_type = 'conversion'`,
-      [siteId, since],
+      wParams,
     ),
     dbQuery<{ path: string | null; n: number; u: number }>(
       env.DB,
       `SELECT path, COUNT(*) AS n, COUNT(DISTINCT session_id) AS u FROM visitor_events
        WHERE ${w} AND event_type = 'pageview' AND path IS NOT NULL
        GROUP BY path ORDER BY u DESC, n DESC LIMIT 10`,
-      [siteId, since],
+      wParams,
     ).then((r) => (r.error ? [] : r.data)),
     dbQuery<{ event_type: string; n: number }>(
       env.DB,
       `SELECT event_type, COUNT(*) AS n FROM visitor_events WHERE ${w} GROUP BY event_type ORDER BY n DESC`,
-      [siteId, since],
+      wParams,
     ).then((r) => (r.error ? [] : r.data)),
     // AN13 — device split over pageviews, from the AN1 metadata enrichment.
     dbQuery<{ label: string | null; n: number }>(
       env.DB,
       `SELECT json_extract(metadata, '$.device') AS label, COUNT(*) AS n FROM visitor_events
        WHERE ${w} AND event_type = 'pageview' GROUP BY label ORDER BY n DESC`,
-      [siteId, since],
+      wParams,
     ).then((r) => (r.error ? [] : r.data)),
     // AN10 — channel breakdown over pageviews (direct/organic/social/paid/email/referral).
     dbQuery<{ label: string | null; n: number }>(
       env.DB,
       `SELECT json_extract(metadata, '$.channel') AS label, COUNT(*) AS n FROM visitor_events
        WHERE ${w} AND event_type = 'pageview' GROUP BY label ORDER BY n DESC`,
-      [siteId, since],
+      wParams,
     ).then((r) => (r.error ? [] : r.data)),
     // AN15 — previous-window scalars (same three KPIs) for the delta badges.
     scalar(env, `SELECT COUNT(*) AS n FROM visitor_events WHERE ${pw} AND event_type = 'pageview'`, pwParams),
@@ -367,7 +446,7 @@ export async function getTrafficSummary(
       env.DB,
       `SELECT json_extract(metadata, '$.country') AS label, COUNT(*) AS n FROM visitor_events
        WHERE ${w} AND event_type = 'pageview' GROUP BY label ORDER BY n DESC`,
-      [siteId, since],
+      wParams,
     ).then((r) => (r.error ? [] : r.data)),
     // True single-page-session bounce: count sessions and how many had exactly 1
     // pageview, via a per-session depth subquery. Fails soft to zeros on any error.
@@ -377,12 +456,12 @@ export async function getTrafficSummary(
          SELECT session_id, COUNT(*) AS pv FROM visitor_events
           WHERE ${w} AND event_type = 'pageview' AND session_id IS NOT NULL
           GROUP BY session_id)`,
-      [siteId, since],
+      wParams,
     ).then((r) => (r.error || !r.data[0] ? { sessions: 0, single: 0 } : r.data[0])),
     // AN-CWV — real-user Core Web Vitals p75 (queried directly; not in the rollup).
-    getWebVitalsSummary(env, siteId, windowDays),
+    getWebVitalsSummary(env, siteId, windowDays, window),
     // AN-CONV — conversions by kind (queried directly; not in the rollup).
-    getConversionKinds(env, siteId, windowDays),
+    getConversionKinds(env, siteId, windowDays, window),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -421,7 +500,7 @@ export async function getTrafficSummary(
       uniqueSessions: prevSessions,
       conversions: prevConversions,
     },
-    windowDays,
+    windowDays: effectiveWindowDays,
   });
 }
 
