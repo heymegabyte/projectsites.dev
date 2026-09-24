@@ -426,16 +426,6 @@ const LOW_BALANCE_CENTS = 500;
       .dp-mono--accent {
         color: var(--ps-accent, #00e5ff);
       }
-      /* Availability symbol shown right beside each domain URL: green = available,
-         red = taken. Decorative ● — the adjacent badge carries the accessible text. */
-      .dp-avail {
-        font-size: 0.7rem;
-        line-height: 1;
-        flex: 0 0 auto;
-      }
-      .dp-avail--ok { color: #34d399; }
-      .dp-avail--no { color: #f87171; }
-      .dp-avail--unknown { color: #9ca3af; }
       .dp-pill {
         display: inline-block;
         padding: 1px 6px;
@@ -504,28 +494,38 @@ const LOW_BALANCE_CENTS = 500;
         flex-wrap: wrap;
       }
       .dp-status {
-        font-size: 0.66rem;
+        font-size: 0.58rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
         font-family: var(--ps-font-mono, 'JetBrains Mono', ui-monospace, monospace);
-        padding: 1px 6px;
-        border-radius: 4px;
+        padding: 2px 9px;
+        border-radius: 999px;
         display: inline-flex;
         align-items: center;
+        gap: 4px;
+        border: 1px solid transparent;
+        white-space: nowrap;
       }
       .dp-status--ok {
         color: #34d399;
-        background: rgba(52, 211, 153, 0.1);
+        background: color-mix(in oklch, #34d399 13%, transparent);
+        border-color: color-mix(in oklch, #34d399 34%, transparent);
       }
       .dp-status--no {
         color: #f87171;
-        background: rgba(248, 113, 113, 0.1);
+        background: color-mix(in oklch, #f87171 12%, transparent);
+        border-color: color-mix(in oklch, #f87171 30%, transparent);
       }
       .dp-status--load {
         color: #f59e0b;
-        background: rgba(245, 158, 11, 0.12);
+        background: color-mix(in oklch, #f59e0b 13%, transparent);
+        border-color: color-mix(in oklch, #f59e0b 32%, transparent);
       }
       .dp-status--unknown {
         color: #9ca3af;
-        background: rgba(156, 163, 175, 0.12);
+        background: color-mix(in oklch, #9ca3af 13%, transparent);
+        border-color: color-mix(in oklch, #9ca3af 30%, transparent);
       }
       /* Taken domains: a single compact, calmly-grayed line (no reason/pitch/CTA,
          no hover-lift — it isn't actionable). Keeps the dropdown tight. */
@@ -982,15 +982,6 @@ const LOW_BALANCE_CENTS = 500;
         >
           <div class="dp-sugg-body">
           <div class="dp-row-head">
-            @if (!s.checking) {
-              @if (s.status === 'available' || purchasedDomains().has(s.domain)) {
-                <span class="dp-avail dp-avail--ok" title="Available" aria-hidden="true">●</span>
-              } @else if (s.status === 'taken') {
-                <span class="dp-avail dp-avail--no" title="Taken" aria-hidden="true">●</span>
-              } @else if (s.status === 'unknown') {
-                <span class="dp-avail dp-avail--unknown" title="Availability couldn't be checked" aria-hidden="true">●</span>
-              }
-            }
             <span class="dp-mono" [class.dp-mono--accent]="s.status === 'available' && !purchasedDomains().has(s.domain)">{{ s.domain }}</span>
             @if (section === 'register' && !purchasedDomains().has(s.domain)) {
               <span class="dp-rec-pill" title="Automatically determined as a recommendable URL for your business">Recommended</span>
@@ -1003,7 +994,7 @@ const LOW_BALANCE_CENTS = 500;
             } @else if (purchasedDomains().has(s.domain)) {
               <span class="dp-status dp-status--ok">✓ yours · SSL pending</span>
             } @else if (s.status === 'available') {
-              <span class="dp-status dp-status--ok">✓ available</span>
+              <span class="dp-status dp-status--ok">Available</span>
             } @else if (s.status === 'taken') {
               <span class="dp-status dp-status--no">✗ taken</span>
             } @else if (s.status === 'unknown') {
