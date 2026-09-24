@@ -23,6 +23,7 @@ import { RevealDirective } from '../../../directives/reveal.directive';
 import { WebVitalsCardComponent } from './web-vitals-card.component';
 import { ConversionsCardComponent } from './conversions-card.component';
 import { DeliveryCardComponent } from './delivery-card.component';
+import { AnalyticsGlossaryComponent } from './analytics-glossary.component';
 import { buildAnalyticsCsv } from '../../../utils/analytics-csv';
 import { downloadText } from '../../../utils/csv-export';
 
@@ -65,7 +66,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, ConversionsCardComponent, DeliveryCardComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, ConversionsCardComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -532,6 +533,9 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
         [delivery]="envelope()?.delivery ?? null"
         [windowDays]="rangeDays()"
       />
+
+      <!-- Honest metric definitions + source/caveat per metric (clarity mandate). -->
+      <app-analytics-glossary appReveal />
 
       <p class="text-[0.65rem] text-text-secondary text-center">
         Source: {{ dataLabel() }} · {{ dataTooltip() }} ·

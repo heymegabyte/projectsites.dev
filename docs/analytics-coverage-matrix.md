@@ -47,7 +47,8 @@
 | **Core Web Vitals (LCP/INP/CLS + per-page)** | first-party RUM → `web_vital` events in D1 | none (no CF plan) | per site_id (+ per `path`) | D1 | none (all sessions) | ✅ **COMPLETE + per-path** — site p75 card PLUS a **"Slowest pages · LCP p75"** drilldown (`getWebVitalsSummary` buckets LCP by `path`, ranks worst-first, top 5, past a **5-sample floor**); honest ("measuring"/null never a fake 0; a page needs ≥5 samples to be ranked) | `/admin/analytics` "Core Web Vitals" card + slowest-pages table |
 | **Security (WAF/bot/challenges)** | CF GraphQL `firewallEventsAdaptiveGroups` | **plan lacks access** | per hostname | plan-dependent | — | ❌ **BLOCKED — verified 2026-09-24** by an introspection probe against our zone: returns authz *"zone does not have access to the path"*. Our plan has no firewall-analytics entitlement, so this is NOT buildable without a plan upgrade — a security card would be a permanent placeholder (which the doctrine forbids). | — (honestly absent) |
 | **CSV export (dashboard)** | (UI) client-side over fetched data | none | — | — | — | ✅ **COMPLETE** — `buildAnalyticsCsv` exports summary + top-pages/countries/referrers + the D1 device/channel/conversions/CWV breakdowns + **now the CF edge DELIVERY breakdown** (status classes, cache hit/miss/ratio, edge bandwidth — emitted ONLY when `has_data`, never fabricated zeros), with the ACCURATE source label; formula-injection-safe via the shared `csvEscape`. Matches the dashboard cards. | `/admin/analytics` Export CSV |
-| Source + freshness labels in UI | (UI) | none | — | — | — | ✅ **honest per-provenance (this fire)** — the "Source:" badge (`dataLabel`/`dataTooltip`) was hardcoding **"Cloudflare Edge" / "Cloudflare GraphQL" for ALL real data**, a source-conflation lie for every `*.projectsites.dev` subdomain + the D1 fallback (their numbers are first-party `visitor_events`, not CF's). Now routed through the authoritative `trafficSource` signal: first-party → **"ProjectSites analytics"** (tooltip: measured on-site, per serve, incl. true session bounce), genuine CF-zone custom domain → **"Cloudflare Edge"**. "Total requests" KPI sublabel de-jargoned ("on-site beacon" → "recorded on your site"). Freshness "as of" already present. | analytics header badge + chart caption + footer |
+| Source + freshness labels in UI | (UI) | none | — | — | — | ✅ **honest per-provenance** — the "Source:" badge routes through the authoritative `trafficSource` signal: first-party → **"ProjectSites analytics"**, genuine CF-zone custom domain → **"Cloudflare Edge"**. Freshness "as of" + "dates in UTC" present. | analytics header badge + chart caption + footer |
+| **Metric definitions / measurement transparency** | (UI) static, data-driven | none | — | — | — | ✅ **DONE (this fire)** — `AnalyticsGlossaryComponent`, an accessible "How these metrics are measured" `<details>` disclosure: per-metric plain-language definition + **source badge** (first-party / Cloudflare edge / real-user) + caveats (bots filtered, Chromium-only CWV shown only when sampled, edge adaptive-sampled + ~30-day retention). Explicitly spells out **requests ≠ page views** (never conflated). | `/admin/analytics` (below the cards) |
 
 ## Highest-impact gap (corrected — NOT "beacon not deployed")
 
@@ -143,8 +144,15 @@ new specs (`clampCustomDays` bounds; `rangeDays`/`getMultiUrlAnalytics` days wir
 isolation unchanged (rides the same `loadSiteAndAuth`/`resolveOwnedSiteId` authed path; `days` is a bounded integer,
 never a resource selector). Worker + frontend deployed.
 
-NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback complete): (1) **Arbitrary
-start/end date range** (a specific past window, e.g. Aug 1–15) — the richer form of custom range: accept `since`/`until`
-on both the D1 summary query and the CF windows (currently now-relative lookback only). (2) **Full timezone-aware
-bucketing** (day buckets in the viewer's tz; today they're UTC + labeled). (3) **Migrate bespoke CSV exports**
+**Metric definitions SHIPPED** (2026-09-24): `AnalyticsGlossaryComponent` — an accessible "How these metrics are
+measured" disclosure with a per-metric definition + source badge + caveat, explicitly stating requests ≠ page views.
+Frontend-only; +3 Karma specs; Karma 1960/1960; prod-verified live.
+
+NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions complete):
+(1) **Arbitrary start/end date range** (a specific past window, e.g. Aug 1–15) — the richer form of custom range. NOTE
+the real cost: `getTrafficSummary` builds the whole summary around a now-relative `since = -${windowDays} days` reused
+across ~8 sub-queries PLUS period-over-period PLUS the rollup path PLUS `getWebVitalsSummary`/`getConversionKinds` PLUS
+the CF windows — a multi-function refactor of the WORKING audience query (regression-sensitive). Do it in a dedicated
+fire: thread an optional `{since, until}` through all of those + 2 date pickers, with strong tests first. (2) **Full
+timezone-aware bucketing** (day buckets in the viewer's tz; today UTC + labeled). (3) **Migrate bespoke CSV exports**
 (events-table/audit/forms/super-admin) onto the shared `csvEscape`/`downloadText`.
