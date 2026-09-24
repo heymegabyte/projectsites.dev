@@ -37,7 +37,7 @@
 | Top pages / paths | D1 visitor_events | none | site_id | D1 | none | ✅ live | top-pages table |
 | Referrers | D1 visitor_events | none | site_id | D1 | none | ✅ live | referrer table |
 | Geography (country/city/region) | D1 metadata ← `request.cf` | none | site_id | D1 | none | ✅ live | geo breakdown |
-| Device / browser / OS | D1 metadata ← `enrichVisitor(ua)` | none | site_id | D1 | none | ✅ live | device breakdown |
+| **Device / browser / OS** | D1 metadata `json_extract($.device\|$.browser\|$.os)` ← `enrichVisitor(ua)` (`getDimensionBreakdown`, allowlisted dimension) | none | site_id | D1 | none (all pageviews) | ✅ **fully live (this fire)** — was device-only surfaced; browser + OS were INGESTED but not aggregated. Now a focused **`TechBreakdownComponent`** ("Devices & platforms") renders all three pageview splits (top-6, bar + count, "unknown" is a real bucket never dropped). Covers EVERY visitor (user-agent, unlike Chromium-only CWV). Both summary paths (live + rollup-reads-live). Prod-verified live REAL data: device `[desktop:19]`, browser `[Chrome:15, unknown:3, Firefox:1]`, os `[macOS:16, unknown:3]`. | `/admin/analytics` "Devices & platforms" card |
 | Channel / UTM | D1 metadata ← referrer+path | none | site_id | D1 | none | ✅ live | channel breakdown |
 | Daily time series | D1 visitor_events / analytics_daily | flag `analytics_rollup_read` | site_id | D1 | none | ✅ live | line chart |
 | Funnel (landing→engaged→converted) | D1 visitor_events | none | site_id | D1 | none | ✅ live | funnel widget |
@@ -251,10 +251,9 @@ improvement) → 1999 Karma green. Deployed R2 + chunk-hash prod-verified (forms
 
 NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions/shareable-range +
 **arbitrary-window + tz-aware bucketing/bounds + comparison-period Δ (KPI tiles AND conversions card, TOTAL and PER-KIND) +
-client-CSV consolidation + CWV rating distribution** all complete): (1) **DST-precision** — the fixed browser offset is approximate
-for a range spanning a DST change; a true IANA-zone shift would need a tz library or per-day offset (documented caveat in the UI
-today, honest but not exact). (2) **Browsers / operating systems breakdown** — the prompt lists them; today the audience split is
-device/channel/geo but not browser/OS (would need UA parsing at ingest or aggregation — verify `visitor_events` stores a UA first).
-(3) **Remaining CSV consolidation** — `analytics-dashboard` + the audit **full-trail** download the SERVER-built CSV via a
-hand-rolled Blob/`<a>` — migrate just their download mechanism to `downloadText` for one code path (consistency only, no security
-delta). (Lowest value — cosmetic.)
+client-CSV consolidation + CWV rating distribution + device/browser/OS breakdown** all complete): (1) **Tech breakdown in the CSV
+export** — the new `byBrowser`/`byOs` aren't yet in `buildAnalyticsCsv` (device already is); a small additive consistency slice.
+(2) **DST-precision** — the fixed browser offset is approximate for a range spanning a DST change; a true IANA-zone shift would need
+a tz library or per-day offset (documented caveat in the UI today, honest but not exact). (3) **Remaining CSV consolidation** —
+`analytics-dashboard` + the audit **full-trail** download the SERVER-built CSV via a hand-rolled Blob/`<a>` — migrate just their
+download mechanism to `downloadText` for one code path (consistency only, no security delta). (Lowest value — cosmetic.)

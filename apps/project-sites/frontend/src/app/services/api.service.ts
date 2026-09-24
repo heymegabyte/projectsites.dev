@@ -1686,6 +1686,9 @@ export interface SiteTrafficSummary {
   topPaths: { path: string; count: number; uniques: number }[];
   byType: { type: string; count: number }[];
   byDevice: { label: string; count: number }[];
+  /** Pageviews by browser + OS — from the same user-agent enrichment as `byDevice`. */
+  byBrowser?: { label: string; count: number }[];
+  byOs?: { label: string; count: number }[];
   byChannel: { label: string; count: number }[];
   byCountry: { label: string; count: number }[];
   /** Conversions by kind (call / directions / form / …) — the business outcomes. */

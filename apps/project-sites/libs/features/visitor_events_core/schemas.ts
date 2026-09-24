@@ -136,6 +136,11 @@ export const TrafficSummarySchema = z
     // keeps older producers/fixtures valid.
     byDevice: z.array(LabelCountSchema).default([]),
     byChannel: z.array(LabelCountSchema).default([]),
+    // AN-TECH — browser + OS split, from the SAME AN1 user-agent enrichment as
+    // `$.device` (`json_extract(metadata,'$.browser'|'$.os')`). Default [] for
+    // back-compat with producers/fixtures that predate the tech breakdown.
+    byBrowser: z.array(LabelCountSchema).default([]),
+    byOs: z.array(LabelCountSchema).default([]),
     // AN14 — visitors by country (CF `request.cf.country`, captured in metadata
     // since before AN1). Default [] for back-compat.
     byCountry: z.array(LabelCountSchema).default([]),

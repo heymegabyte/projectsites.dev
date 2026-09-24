@@ -21,6 +21,7 @@ import {
   getWebVitalsSummary,
   getConversionKinds,
   getPreviousConversionKinds,
+  getDimensionBreakdown,
   shiftWindowToTz,
 } from '../service.js';
 import type { Env } from '../../../../src/types/env.js';
@@ -137,6 +138,33 @@ describe('getWebVitalsSummary / getConversionKinds — absolute window', () => {
     const s = await getTrafficSummary(env, 'site_1', 30);
     expect(Array.isArray(s.previous.byConversionKind)).toBe(true);
     expect(s.previous.byConversionKind).toEqual([]); // no events → honest empty, never fabricated
+  });
+
+  it('getDimensionBreakdown groups pageviews by the metadata dimension over the window', async () => {
+    const { env, calls } = captureEnv();
+    await getDimensionBreakdown(env, 'site_1', 'browser', 30, { since: '2026-08-01', until: '2026-08-16' });
+    const q = calls.find((c) => c.sql.includes("json_extract(metadata, '$.browser')"));
+    expect(q).toBeDefined();
+    expect(q!.sql).toContain("event_type = 'pageview'");
+    expect(q!.sql).toContain('GROUP BY label');
+    expect(q!.params).toEqual(['site_1', '2026-08-01', '2026-08-16']);
+  });
+
+  it('getDimensionBreakdown REJECTS a non-allowlisted dimension (never interpolates it)', async () => {
+    const { env, calls } = captureEnv();
+    const out = await getDimensionBreakdown(env, 'site_1', 'metadata) --' as never, 30);
+    expect(out).toEqual([]);
+    // The hostile dimension string never reaches a query.
+    expect(calls.some((c) => c.sql.includes('metadata) --'))).toBe(false);
+  });
+
+  it('getTrafficSummary wires byBrowser + byOs (present + defaulted [] when empty)', async () => {
+    const { env } = captureEnv();
+    const s = await getTrafficSummary(env, 'site_1', 30);
+    expect(Array.isArray(s.byBrowser)).toBe(true);
+    expect(Array.isArray(s.byOs)).toBe(true);
+    expect(s.byBrowser).toEqual([]);
+    expect(s.byOs).toEqual([]);
   });
 
   it('web-vitals keeps the relative window with no absolute window', async () => {

@@ -22,6 +22,7 @@ import { ErrorCardComponent } from '../../../components/states';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { WebVitalsCardComponent } from './web-vitals-card.component';
 import { ConversionsCardComponent } from './conversions-card.component';
+import { TechBreakdownComponent } from './tech-breakdown.component';
 import type { TrendBadge } from './trend-badge.model';
 import { DeliveryCardComponent } from './delivery-card.component';
 import { AnalyticsGlossaryComponent } from './analytics-glossary.component';
@@ -67,7 +68,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, ConversionsCardComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, ConversionsCardComponent, TechBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -564,6 +565,17 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
       <app-web-vitals-card
         appReveal
         [webVitals]="siteTraffic()?.webVitals ?? null"
+        [windowDays]="rangeDays()"
+      />
+
+      <!-- Devices & platforms — first-party pageview split by device / browser / OS
+           from the user-agent enrichment (covers every visitor, unlike CWV). Honest
+           empty state; "unknown" is a real bucket, never dropped. -->
+      <app-tech-breakdown
+        appReveal
+        [devices]="siteTraffic()?.byDevice ?? []"
+        [browsers]="siteTraffic()?.byBrowser ?? []"
+        [os]="siteTraffic()?.byOs ?? []"
         [windowDays]="rangeDays()"
       />
 

@@ -424,6 +424,39 @@ export async function getPreviousConversionKinds(
   return conversionKindsForClause(env, pw, pwParams);
 }
 
+/** Metadata dimensions the tech breakdown may GROUP BY — an allowlist so the dimension
+ *  name (interpolated into `json_extract($.<dim>)`) is ALWAYS a trusted literal. */
+const TECH_DIMENSIONS = ['device', 'browser', 'os'] as const;
+
+/**
+ * Pageview breakdown by a user-agent metadata dimension (device / browser / os) over the
+ * window — the AN1 enrichment already stores `$.device`/`$.browser`/`$.os`, so this is a
+ * cheap GROUP BY, no new instrumentation. Null label (pre-enrichment events) → 'unknown'.
+ *
+ * @param dim - MUST be one of {@link TECH_DIMENSIONS} (allowlist → safe to interpolate).
+ * @remarks Fail-soft — a query error yields []. Not a percentile/scalar; a plain count split.
+ */
+export async function getDimensionBreakdown(
+  env: Env,
+  siteId: string,
+  dim: (typeof TECH_DIMENSIONS)[number],
+  windowDays = 30,
+  window?: AnalyticsWindow,
+): Promise<LabelCount[]> {
+  if (!TECH_DIMENSIONS.includes(dim)) return []; // never interpolate an untrusted string
+  const { clause, params } = currentWindow(siteId, windowDays, window);
+  const { data, error } = await dbQuery<{ label: string | null; n: number }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.${dim}') AS label, COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'pageview'
+      GROUP BY label ORDER BY n DESC`,
+    params,
+  );
+  if (error) return [];
+  return data.map((r) => ({ label: r.label ?? 'unknown', count: Number(r.n) }));
+}
+
 /** Roll up a site's traffic over a trailing window. */
 export async function getTrafficSummary(
   env: Env,
@@ -470,6 +503,8 @@ export async function getTrafficSummary(
     webVitals,
     byConversionKind,
     prevByConversionKind,
+    byBrowser,
+    byOs,
   ] = await Promise.all([
     scalar(env, `SELECT COUNT(*) AS n FROM visitor_events WHERE ${w} AND event_type = 'pageview'`, wParams),
     scalar(env, `SELECT COUNT(DISTINCT session_id) AS n FROM visitor_events WHERE ${w}`, wParams),
@@ -535,6 +570,9 @@ export async function getTrafficSummary(
     getConversionKinds(env, siteId, windowDays, window),
     // AN-CONV-Δ — prior-window conversions by kind, for the per-kind delta badges.
     getPreviousConversionKinds(env, siteId, windowDays, window),
+    // AN-TECH — browser + OS split (same AN1 user-agent enrichment as $.device).
+    getDimensionBreakdown(env, siteId, 'browser', windowDays, window),
+    getDimensionBreakdown(env, siteId, 'os', windowDays, window),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -564,6 +602,8 @@ export async function getTrafficSummary(
     topPaths,
     byType,
     byDevice,
+    byBrowser,
+    byOs,
     byChannel,
     byCountry,
     webVitals,
@@ -643,7 +683,7 @@ export async function getTrafficSummaryFromRollup(
     return error ? [] : data;
   };
 
-  const [cur, prev, pathRows, typeRows, channelRows, deviceRows, countryRows, webVitals, byConversionKind, prevByConversionKind] =
+  const [cur, prev, pathRows, typeRows, channelRows, deviceRows, countryRows, webVitals, byConversionKind, prevByConversionKind, byBrowser, byOs] =
     await Promise.all([
       sumScalars(curStart, null),
       sumScalars(prevStart, prevEnd),
@@ -652,10 +692,12 @@ export async function getTrafficSummaryFromRollup(
       merge('by_channel_json', 'label'),
       merge('by_device_json', 'label'),
       merge('by_country_json', 'label'),
-      // CWV + conversions-by-kind aren't rolled into analytics_daily — read live (current + prior window).
+      // CWV + conversions-by-kind + browser/OS aren't rolled into analytics_daily — read live.
       getWebVitalsSummary(env, siteId, windowDays),
       getConversionKinds(env, siteId, windowDays),
       getPreviousConversionKinds(env, siteId, windowDays),
+      getDimensionBreakdown(env, siteId, 'browser', windowDays),
+      getDimensionBreakdown(env, siteId, 'os', windowDays),
     ]);
 
   return TrafficSummarySchema.parse({
@@ -668,6 +710,8 @@ export async function getTrafficSummaryFromRollup(
     topPaths: pathRows.map((r) => ({ path: String(r.k ?? '/'), count: Number(r.c), uniques: Number(r.u) })),
     byType: typeRows.map((r) => ({ type: String(r.k ?? 'unknown'), count: Number(r.c) })),
     byDevice: deviceRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
+    byBrowser,
+    byOs,
     byChannel: channelRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     byCountry: countryRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     webVitals,

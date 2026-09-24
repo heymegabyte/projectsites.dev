@@ -337,6 +337,19 @@
   truth; mapping-with-data proven by unit tests, no prod rows seeded per guardrail). The Data section's CRUD story is now complete
   (browse · delete · edit · overview · freshness · **activity**). Next Data: broaden typed editors only if a genuinely-editable
   column appears; otherwise the shared-DB tenant model has no more non-blocked owner surface.
+- **Cycle 32 — 2026-09-24 (Analytics: device / browser / OS "Devices & platforms" breakdown):** The prompt lists "devices,
+  browsers, operating systems"; the ingest ALREADY enriched all three (`enrichVisitor(ua)` → `$.device/$.browser/$.os`), but only
+  DEVICE was aggregated — browser/OS were stored, unused (the Cycle-30 "needs UA at ingest" note was wrong). Server: new
+  `getDimensionBreakdown(env, siteId, dim, …)` (dim allowlisted to device/browser/os → the interpolated `json_extract($.<dim>)` is
+  always a trusted literal); wired `byBrowser` + `byOs` into BOTH summary paths (live + rollup-reads-them-live like CWV/conversions);
+  Zod `TrafficSummarySchema` gains `byBrowser`/`byOs` (defaulted []). Frontend: new focused presentational **`TechBreakdownComponent`**
+  ("Devices & platforms") renders all three pageview splits (top-6, bar + count) from `siteTraffic()` — honest: "unknown" is a real
+  bucket (never dropped), empty dimensions are omitted, all-empty → explicit note; source labeled first-party user-agent (covers
+  EVERY visitor, unlike Chromium-only CWV). TDD-first. Verified: worker tsc 0 · fe tsc 0 · backtick 0 · **Jest 752 suites / 12311**
+  (+3: dimension GROUP BY + allowlist-reject + byBrowser/byOs wiring) · **Karma 2042/2042** (+6) · eslint 0 err · frontend build 0 ·
+  **both deployed** (R2 `chunk-PD6IKD5C.js` + worker `ea41980e`; cleaned `.wrangler/tmp` per Cycle-29 lesson) · **prod-verified live
+  REAL data**: device `[desktop:19]`, browser `[Chrome:15, unknown:3, Firefox:1]`, os `[macOS:16, unknown:3]`. Next Analytics: add
+  browser/OS to the CSV export (device already there), then DST-precise tz, then CSV consolidation (cosmetic).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
