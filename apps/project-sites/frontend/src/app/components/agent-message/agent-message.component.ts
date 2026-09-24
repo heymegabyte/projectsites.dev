@@ -43,7 +43,7 @@
  * />
  * ```
  */
-import { ChangeDetectionStrategy, Component, computed, ElementRef, EventEmitter, HostListener, inject, input, Output, signal, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, ElementRef, HostListener, inject, input, output, signal, ViewChild } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
@@ -503,9 +503,9 @@ export class AgentMessageComponent {
   readonly streaming = input<boolean>(false);
 
   /** Emits the tool name when a tool chip (header or inline) is clicked. */
-  @Output() toolClick = new EventEmitter<string>();
+  readonly toolClick = output<string>();
   /** Emits the opaque action token when a suggested-action chip is clicked. */
-  @Output() actionClick = new EventEmitter<string>();
+  readonly actionClick = output<string>();
 
   /** Currently-open citation in the popover (null when closed). */
   readonly activeCitation = signal<AgentCitation | null>(null);

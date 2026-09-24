@@ -30,10 +30,41 @@ describe('RollingCounterComponent (cinematic stat primitive)', () => {
   });
   afterEach(() => TestBed.resetTestingModule());
 
-  function render(inputs: Partial<RollingCounterComponent>): ComponentFixture<RollingCounterComponent> {
+  function render(inputs: {
+    value?: number;
+    suffix?: string;
+    prefix?: string;
+    decimals?: number;
+    duration?: number;
+    locale?: string;
+    threshold?: number;
+  } = {}): ComponentFixture<RollingCounterComponent> {
     TestBed.configureTestingModule({ imports: [RollingCounterComponent] });
     const fx = TestBed.createComponent(RollingCounterComponent);
-    Object.assign(fx.componentInstance, inputs);
+
+    // Set signal inputs via fixture.componentRef.setInput()
+    if (inputs.value !== undefined) {
+      fx.componentRef.setInput('value', inputs.value);
+    }
+    if (inputs.suffix !== undefined) {
+      fx.componentRef.setInput('suffix', inputs.suffix);
+    }
+    if (inputs.prefix !== undefined) {
+      fx.componentRef.setInput('prefix', inputs.prefix);
+    }
+    if (inputs.decimals !== undefined) {
+      fx.componentRef.setInput('decimals', inputs.decimals);
+    }
+    if (inputs.duration !== undefined) {
+      fx.componentRef.setInput('duration', inputs.duration);
+    }
+    if (inputs.locale !== undefined) {
+      fx.componentRef.setInput('locale', inputs.locale);
+    }
+    if (inputs.threshold !== undefined) {
+      fx.componentRef.setInput('threshold', inputs.threshold);
+    }
+
     fx.detectChanges(); // ngOnInit → reduced-motion snap
     return fx;
   }

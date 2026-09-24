@@ -3,10 +3,11 @@ import {
   Component,
   ElementRef,
   HostListener,
-  Input,
   PLATFORM_ID,
   ViewChild,
+  effect,
   inject,
+  input,
   signal,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
@@ -47,20 +48,20 @@ import { isPlatformBrowser } from '@angular/common';
     >
       <img
         class="bas-img bas-img--after"
-        [src]="afterSrc"
-        [alt]="afterLabel"
+        [src]="afterSrc()"
+        [alt]="afterLabel()"
         draggable="false"
       />
       <img
         class="bas-img bas-img--before"
-        [src]="beforeSrc"
-        [alt]="beforeLabel"
+        [src]="beforeSrc()"
+        [alt]="beforeLabel()"
         [style.clip-path]="'inset(0 ' + (100 - position()) + '% 0 0)'"
         draggable="false"
       />
 
-      <span class="bas-tag bas-tag--before" aria-hidden="true">{{ beforeLabel }}</span>
-      <span class="bas-tag bas-tag--after" aria-hidden="true">{{ afterLabel }}</span>
+      <span class="bas-tag bas-tag--before" aria-hidden="true">{{ beforeLabel() }}</span>
+      <span class="bas-tag bas-tag--after" aria-hidden="true">{{ afterLabel() }}</span>
 
       <div
         #handle
@@ -68,7 +69,7 @@ import { isPlatformBrowser } from '@angular/common';
         [style.left.%]="position()"
         role="slider"
         tabindex="0"
-        [attr.aria-label]="ariaLabel"
+        [attr.aria-label]="ariaLabel()"
         aria-valuemin="0"
         aria-valuemax="100"
         [attr.aria-valuenow]="position()"
@@ -208,24 +209,31 @@ export class BeforeAfterSliderComponent {
   private readonly platformId = inject(PLATFORM_ID);
 
   /** URL of the "before" image (revealed on the left). */
-  @Input({ required: true }) beforeSrc!: string;
+  readonly beforeSrc = input.required<string>();
 
   /** URL of the "after" image (revealed on the right). */
-  @Input({ required: true }) afterSrc!: string;
+  readonly afterSrc = input.required<string>();
 
-  @Input() beforeLabel = 'Before';
-  @Input() afterLabel = 'After';
-  @Input() ariaLabel = 'Reveal slider — drag to compare before and after';
+  readonly beforeLabel = input('Before');
+  readonly afterLabel = input('After');
+  readonly ariaLabel = input('Reveal slider — drag to compare before and after');
 
   /** Initial divider position, 0-100. */
-  @Input() set initial(v: number) {
-    this.position.set(this.clamp(v));
-  }
+  readonly initial = input(50);
 
   @ViewChild('surface', { static: true }) private surfaceRef!: ElementRef<HTMLElement>;
 
   readonly position = signal<number>(50);
   private dragging = false;
+
+  constructor() {
+    // React to initial position input via effect().
+    // When [initial] changes, clamp and update position.
+    effect(() => {
+      const val = this.initial();
+      this.position.set(this.clamp(val));
+    });
+  }
 
   onHandlePointerDown(event: PointerEvent): void {
     this.dragging = true;

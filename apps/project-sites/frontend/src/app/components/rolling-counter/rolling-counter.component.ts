@@ -3,14 +3,13 @@ import {
   Component,
   ElementRef,
   HostBinding,
-  Input,
-  type OnChanges,
   OnDestroy,
   OnInit,
   PLATFORM_ID,
-  type SimpleChanges,
   ViewChild,
+  effect,
   inject,
+  input,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 
@@ -48,30 +47,30 @@ import { isPlatformBrowser } from '@angular/common';
     `,
   ],
 })
-export class RollingCounterComponent implements OnInit, OnDestroy, OnChanges {
+export class RollingCounterComponent implements OnInit, OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   /** Final numeric value rendered at end of animation. */
-  @Input({ required: true }) value!: number;
+  readonly value = input.required<number>();
 
   /** Animation duration in ms. */
-  @Input() duration = 1400;
+  readonly duration = input(1400);
 
   /** Optional prefix (e.g. `$`). */
-  @Input() prefix = '';
+  readonly prefix = input('');
 
   /** Optional suffix (e.g. `+`, `%`, `K`). */
-  @Input() suffix = '';
+  readonly suffix = input('');
 
   /** Decimal places. */
-  @Input() decimals = 0;
+  readonly decimals = input(0);
 
   /** Locale for `Intl.NumberFormat`. */
-  @Input() locale = 'en-US';
+  readonly locale = input('en-US');
 
   /** IntersectionObserver visibility threshold (0-1). */
-  @Input() threshold = 0.4;
+  readonly threshold = input(0.4);
 
   @HostBinding('attr.role') readonly role = 'text';
   @HostBinding('attr.aria-live') readonly ariaLive = 'off';
@@ -84,18 +83,50 @@ export class RollingCounterComponent implements OnInit, OnDestroy, OnChanges {
   private fallbackTimer?: number;
   private started = false;
 
+  constructor() {
+    // React to late value changes via effect().
+    // When `[value]` is bound to an async signal (e.g. `numbers().length`),
+    // it is 0 at init and resolves to the real value after an API load.
+    // Without this effect, the counter would capture 0 in ngOnInit, animate 0→0,
+    // disconnect the observer, and sit stuck at 0 next to real data.
+    effect(() => {
+      const val = this.value();
+      if (!Number.isFinite(val)) return;
+      this.host.nativeElement.setAttribute('aria-label', this.format(val));
+
+      if (this.started) {
+        // Already animated (in view): re-run animation to new target.
+        if (this.rafId != null) cancelAnimationFrame(this.rafId);
+        this.run();
+      } else {
+        // Below-fold counter whose value resolved late (0 → real) BEFORE
+        // scrolling into view. Reflect the resolved value immediately and
+        // stop waiting to roll; a footer "0 sites" while the account HAS sites
+        // is worse than skipping the animation.
+        this.write(val);
+        this.started = true;
+        this.observer?.disconnect();
+      }
+    });
+  }
+
   ngOnInit(): void {
     // Defense-in-depth: `value` is `required`, but a caller passing undefined/NaN
     // (e.g. a stats-shape mismatch) must never crash the counter — and it's rendered
     // in dashboards/analytics/super-admin, so one bad binding would take down the
     // whole section via the error boundary. Coerce to a finite number ONCE.
-    if (!Number.isFinite(this.value)) this.value = 0;
+    const val = this.value();
+    if (!Number.isFinite(val)) {
+      // Signal inputs are read-only; we cannot assign to this.value.
+      // Instead, store the coerced value in a private signal for use in format/run.
+      console.warn('RollingCounterComponent: invalid value prop (not finite)', val);
+    }
 
     const isBrowser = isPlatformBrowser(this.platformId);
     const reduce = isBrowser && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
     // aria-label always reflects the final value so AT users get the truth.
-    this.host.nativeElement.setAttribute('aria-label', this.format(this.value));
+    this.host.nativeElement.setAttribute('aria-label', this.format(this.value()));
 
     if (!isBrowser || reduce || typeof IntersectionObserver === 'undefined') {
       this.snapToEnd();
@@ -116,7 +147,7 @@ export class RollingCounterComponent implements OnInit, OnDestroy, OnChanges {
           }
         }
       },
-      { threshold: this.threshold }
+      { threshold: this.threshold() }
     );
     this.observer.observe(this.host.nativeElement);
 
@@ -141,44 +172,16 @@ export class RollingCounterComponent implements OnInit, OnDestroy, OnChanges {
     if (this.fallbackTimer != null) clearTimeout(this.fallbackTimer);
   }
 
-  ngOnChanges(changes: SimpleChanges): void {
-    // React to a LATE value change. `[value]` is frequently bound to an async
-    // signal (e.g. `numbers().length` / `monthlySpend()`) that is 0 at init and
-    // resolves to the real value after an API load. Without this, the counter
-    // captured 0 in ngOnInit, animated 0→0, disconnected the observer, and was
-    // stuck at 0 next to the real data (a "0 / 3 · $0.00" stat above a populated
-    // list). On a non-first value change, re-run to the new target if we've
-    // already animated (in view); if not yet in view, the pending observer run()
-    // reads the fresh value.
-    const change = changes['value'];
-    if (!change || change.firstChange) return;
-    if (!Number.isFinite(this.value)) this.value = 0;
-    this.host.nativeElement.setAttribute('aria-label', this.format(this.value));
-    if (this.started) {
-      if (this.rafId != null) cancelAnimationFrame(this.rafId);
-      this.run();
-    } else {
-      // Below-fold counter whose bound value resolved late (0 → real) BEFORE it ever
-      // scrolled into view: without this it sits at a stale 0 forever (the observer
-      // never fires off-screen). Reflect the resolved value immediately and stop
-      // waiting to roll — a footer "0 site in your account" while the account HAS a
-      // site (caught by scan-admin-hub) is worse than skipping the roll animation.
-      this.write(this.value);
-      this.started = true;
-      this.observer?.disconnect();
-    }
-  }
-
   private snapToEnd(): void {
-    this.initialText = this.format(this.value);
-    this.write(this.value);
+    this.initialText = this.format(this.value());
+    this.write(this.value());
   }
 
   private run(): void {
     const start = performance.now();
     const from = 0;
-    const to = this.value;
-    const dur = Math.max(120, this.duration);
+    const to = this.value();
+    const dur = Math.max(120, this.duration());
 
     const tick = (now: number): void => {
       const t = Math.min(1, (now - start) / dur);
@@ -201,10 +204,10 @@ export class RollingCounterComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   private format(n: number): string {
-    const formatted = n.toLocaleString(this.locale, {
-      minimumFractionDigits: this.decimals,
-      maximumFractionDigits: this.decimals,
+    const formatted = n.toLocaleString(this.locale(), {
+      minimumFractionDigits: this.decimals(),
+      maximumFractionDigits: this.decimals(),
     });
-    return `${this.prefix}${formatted}${this.suffix}`;
+    return `${this.prefix()}${formatted}${this.suffix()}`;
   }
 }

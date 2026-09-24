@@ -20,7 +20,7 @@
  * shortcuts.open.set(true);
  * ```
  */
-import { Component, EventEmitter, HostListener, Output, signal, type OnDestroy, type OnInit } from '@angular/core';
+import { Component, HostListener, output, signal, type OnDestroy, type OnInit } from '@angular/core';
 import { scaleFade } from '../../animations/motion';
 import { FocusTrapDirective } from '../../directives/focus-trap.directive';
 
@@ -276,7 +276,7 @@ export class ShortcutsOverlayComponent implements OnInit, OnDestroy {
    */
   open = signal(true);
 
-  @Output() closed = new EventEmitter<void>();
+  readonly closed = output<void>();
 
   readonly groups = SHORTCUT_GROUPS;
 
