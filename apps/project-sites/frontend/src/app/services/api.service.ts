@@ -1645,6 +1645,9 @@ export interface SiteTrafficSummary {
   /** Pageviews by browser + OS — from the same user-agent enrichment as `byDevice`. */
   byBrowser?: { label: string; count: number }[];
   byOs?: { label: string; count: number }[];
+  /** Tagged-visit pageviews by utm_source / utm_campaign (untagged traffic excluded). */
+  byUtmSource?: { label: string; count: number }[];
+  byUtmCampaign?: { label: string; count: number }[];
   byChannel: { label: string; count: number }[];
   byCountry: { label: string; count: number }[];
   /** Conversions by kind (call / directions / form / …) — the business outcomes. */

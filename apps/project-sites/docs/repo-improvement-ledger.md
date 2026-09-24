@@ -501,6 +501,27 @@
   the biggest remaining cleanup is the UNWIRED `site-kit/*` library (25+ components) — needs the Brian-gated
   intent decision (unbuilt site-builder vs. orphan) before removal/wiring. Data CRUD stays complete; the SQL-console
   editor UX (syntax highlight / completion / multi-tab) is the next non-blocked Data polish but needs a code-editor lib.
+- **Cycle 42 — 2026-09-24 (Analytics: surface campaign attribution — utm_source / utm_campaign, ingested-but-unshown):**
+  `enrichVisitor` has captured `utmSource`/`utmMedium`/`utmCampaign` into pageview metadata all along, but NO UI surfaced
+  it — the same ingested-but-unsurfaced gap as browser/OS in Cycle 32, and the prompt explicitly lists "campaign
+  parameters". Added `getCampaignBreakdown` (CAMPAIGN_DIMENSIONS allowlist → trusted literal; `json_extract($.<dim>)`
+  with **`IS NOT NULL`** so the untagged direct/organic MAJORITY is EXCLUDED — a campaign card must never bucket
+  untagged traffic as a giant "unknown"; top-20). Wired `byUtmSource` + `byUtmCampaign` into BOTH summary paths (live +
+  rollup-reads-live) + `TrafficSummarySchema` (defaulted [] for back-compat). Frontend: a focused
+  `CampaignBreakdownComponent` ("Campaigns & sources", mirroring `TechBreakdownComponent`) shows top source + campaign
+  with an honest empty state that **TEACHES how to tag links** (`?utm_source=instagram&utm_campaign=spring-sale`) — the
+  epic's "insight that explains its evidence"; wired into `analytics.component` + `SiteTrafficSummary`; CSV export gains
+  `campaign_source`/`campaign` rows. Tenant isolation unchanged (rides `/api/sites/:siteId/analytics` →
+  `resolveOwnedSiteId`; the dim is allowlisted, values bound). Verified: worker tsc 0 · **Jest 12324/12324** (+3:
+  getCampaignBreakdown excludes-null / allowlist-reject / summary-wiring) · fe tsc (app + spec) 0 · **Karma 2062/2062**
+  (+8: 6 campaign-component + 2 CSV; fixed a testid collision where the header note + source column shared
+  `an-campaigns-source` → renamed the note to `an-campaigns-note`) · builds 0. Deployed worker + frontend R2.
+  **Deploy note:** `wrangler deploy` hit a TRANSIENT Cloudflare **workflows-API 500** (`workflows.api.error.internal_server`)
+  across 3 retries on the idempotent workflow RE-registration step — a CF-side incident unrelated to this change (pure
+  D1 + frontend). The worker SCRIPT + bindings uploaded BEFORE that step: **prod-verified live** the traffic summary now
+  returns `byUtmSource`/`byUtmCampaign` (`[]` for the untagged test site) + `/health` 200, so the change is fully live;
+  the already-registered workflows keep running their prior version. Frontend `chunk-XO67NIOY.js` live + referenced.
+  Next: DST-precise IANA timezone (still a documented fixed-offset caveat), or a bot-filtered-count insight.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

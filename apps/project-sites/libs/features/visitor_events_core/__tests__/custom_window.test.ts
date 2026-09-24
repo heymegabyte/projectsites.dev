@@ -22,6 +22,7 @@ import {
   getConversionKinds,
   getPreviousConversionKinds,
   getDimensionBreakdown,
+  getCampaignBreakdown,
   shiftWindowToTz,
 } from '../service.js';
 import type { Env } from '../../../../src/types/env.js';
@@ -158,13 +159,36 @@ describe('getWebVitalsSummary / getConversionKinds — absolute window', () => {
     expect(calls.some((c) => c.sql.includes('metadata) --'))).toBe(false);
   });
 
-  it('getTrafficSummary wires byBrowser + byOs (present + defaulted [] when empty)', async () => {
+  it('getCampaignBreakdown groups TAGGED pageviews by the UTM param, EXCLUDING untagged (null)', async () => {
+    const { env, calls } = captureEnv();
+    await getCampaignBreakdown(env, 'site_1', 'utmSource', 30, { since: '2026-08-01', until: '2026-08-16' });
+    const q = calls.find((c) => c.sql.includes("json_extract(metadata, '$.utmSource')"));
+    expect(q).toBeDefined();
+    expect(q!.sql).toContain("event_type = 'pageview'");
+    // The untagged direct/organic majority (NULL) must be filtered OUT — a campaign
+    // breakdown never buckets untagged traffic as a giant "unknown".
+    expect(q!.sql).toContain('IS NOT NULL');
+    expect(q!.sql).toContain('GROUP BY label');
+    expect(q!.params).toEqual(['site_1', '2026-08-01', '2026-08-16']);
+  });
+
+  it('getCampaignBreakdown REJECTS a non-allowlisted UTM dimension (never interpolates it)', async () => {
+    const { env, calls } = captureEnv();
+    const out = await getCampaignBreakdown(env, 'site_1', "utmSource'); DROP" as never, 30);
+    expect(out).toEqual([]);
+    expect(calls.some((c) => c.sql.includes('DROP'))).toBe(false);
+  });
+
+  it('getTrafficSummary wires byBrowser + byOs + byUtmSource + byUtmCampaign (present + defaulted [])', async () => {
     const { env } = captureEnv();
     const s = await getTrafficSummary(env, 'site_1', 30);
     expect(Array.isArray(s.byBrowser)).toBe(true);
     expect(Array.isArray(s.byOs)).toBe(true);
     expect(s.byBrowser).toEqual([]);
     expect(s.byOs).toEqual([]);
+    // AN-UTM: campaign attribution wired into the summary, honestly empty for an untagged site.
+    expect(s.byUtmSource).toEqual([]);
+    expect(s.byUtmCampaign).toEqual([]);
   });
 
   it('web-vitals keeps the relative window with no absolute window', async () => {

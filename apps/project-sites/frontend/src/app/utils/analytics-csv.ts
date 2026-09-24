@@ -39,6 +39,8 @@ export interface AnalyticsCsvInput {
     byDevice?: ReadonlyArray<{ label: string; count: number }>;
     byBrowser?: ReadonlyArray<{ label: string; count: number }>;
     byOs?: ReadonlyArray<{ label: string; count: number }>;
+    byUtmSource?: ReadonlyArray<{ label: string; count: number }>;
+    byUtmCampaign?: ReadonlyArray<{ label: string; count: number }>;
     byChannel?: ReadonlyArray<{ label: string; count: number }>;
     byConversionKind?: ReadonlyArray<{ label: string; count: number }>;
     bounceRatePercent?: number | null;
@@ -86,6 +88,9 @@ export function buildAnalyticsCsv(input: AnalyticsCsvInput): string {
   for (const r of t?.byDevice ?? []) lines.push(`device,${csvEscape(r.label)},${r.count}`);
   for (const r of t?.byBrowser ?? []) lines.push(`browser,${csvEscape(r.label)},${r.count}`);
   for (const r of t?.byOs ?? []) lines.push(`os,${csvEscape(r.label)},${r.count}`);
+  // Campaign attribution — tagged visits only (mirrors the "Campaigns & sources" card).
+  for (const r of t?.byUtmSource ?? []) lines.push(`campaign_source,${csvEscape(r.label)},${r.count}`);
+  for (const r of t?.byUtmCampaign ?? []) lines.push(`campaign,${csvEscape(r.label)},${r.count}`);
   for (const r of t?.byChannel ?? []) lines.push(`channel,${csvEscape(r.label)},${r.count}`);
   for (const r of t?.byConversionKind ?? []) lines.push(`conversion,${csvEscape(r.label)},${r.count}`);
 

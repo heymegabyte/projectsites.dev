@@ -457,6 +457,44 @@ export async function getDimensionBreakdown(
   return data.map((r) => ({ label: r.label ?? 'unknown', count: Number(r.n) }));
 }
 
+/** UTM campaign parameters the campaign breakdown may GROUP BY — an allowlist so the
+ *  dimension (interpolated into `json_extract($.<dim>)`) is ALWAYS a trusted literal. */
+const CAMPAIGN_DIMENSIONS = ['utmSource', 'utmMedium', 'utmCampaign'] as const;
+
+/**
+ * Pageview breakdown by a UTM campaign parameter (source / medium / campaign) over the
+ * window — the AN1 enrichment stores `$.utmSource`/`$.utmMedium`/`$.utmCampaign` ONLY on
+ * UTM-tagged visits (an ad/email link), so this answers "which tagged campaigns drove
+ * traffic". CRITICAL vs {@link getDimensionBreakdown}: untagged visits (the direct/organic
+ * majority) have a NULL value and are EXCLUDED — a "campaign" breakdown must never bucket
+ * the untagged majority as a giant "unknown" (that would misread as "most traffic is
+ * unknown-source"). Zero tagged visits → `[]` → the card shows its honest empty state.
+ *
+ * @param dim - MUST be one of {@link CAMPAIGN_DIMENSIONS} (allowlist → safe to interpolate).
+ * @remarks Fail-soft — a query error yields []. Top-20 by count; no new instrumentation.
+ */
+export async function getCampaignBreakdown(
+  env: Env,
+  siteId: string,
+  dim: (typeof CAMPAIGN_DIMENSIONS)[number],
+  windowDays = 30,
+  window?: AnalyticsWindow,
+): Promise<LabelCount[]> {
+  if (!CAMPAIGN_DIMENSIONS.includes(dim)) return []; // never interpolate an untrusted string
+  const { clause, params } = currentWindow(siteId, windowDays, window);
+  const { data, error } = await dbQuery<{ label: string | null; n: number }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.${dim}') AS label, COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'pageview'
+        AND json_extract(metadata, '$.${dim}') IS NOT NULL
+      GROUP BY label ORDER BY n DESC LIMIT 20`,
+    params,
+  );
+  if (error) return [];
+  return data.map((r) => ({ label: String(r.label ?? 'unknown'), count: Number(r.n) }));
+}
+
 /** Roll up a site's traffic over a trailing window. */
 export async function getTrafficSummary(
   env: Env,
@@ -505,6 +543,8 @@ export async function getTrafficSummary(
     prevByConversionKind,
     byBrowser,
     byOs,
+    byUtmSource,
+    byUtmCampaign,
   ] = await Promise.all([
     scalar(env, `SELECT COUNT(*) AS n FROM visitor_events WHERE ${w} AND event_type = 'pageview'`, wParams),
     scalar(env, `SELECT COUNT(DISTINCT session_id) AS n FROM visitor_events WHERE ${w}`, wParams),
@@ -573,6 +613,9 @@ export async function getTrafficSummary(
     // AN-TECH — browser + OS split (same AN1 user-agent enrichment as $.device).
     getDimensionBreakdown(env, siteId, 'browser', windowDays, window),
     getDimensionBreakdown(env, siteId, 'os', windowDays, window),
+    // AN-UTM — campaign attribution (source + campaign; tagged visits only, untagged excluded).
+    getCampaignBreakdown(env, siteId, 'utmSource', windowDays, window),
+    getCampaignBreakdown(env, siteId, 'utmCampaign', windowDays, window),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -604,6 +647,8 @@ export async function getTrafficSummary(
     byDevice,
     byBrowser,
     byOs,
+    byUtmSource,
+    byUtmCampaign,
     byChannel,
     byCountry,
     webVitals,
@@ -683,7 +728,7 @@ export async function getTrafficSummaryFromRollup(
     return error ? [] : data;
   };
 
-  const [cur, prev, pathRows, typeRows, channelRows, deviceRows, countryRows, webVitals, byConversionKind, prevByConversionKind, byBrowser, byOs] =
+  const [cur, prev, pathRows, typeRows, channelRows, deviceRows, countryRows, webVitals, byConversionKind, prevByConversionKind, byBrowser, byOs, byUtmSource, byUtmCampaign] =
     await Promise.all([
       sumScalars(curStart, null),
       sumScalars(prevStart, prevEnd),
@@ -692,12 +737,14 @@ export async function getTrafficSummaryFromRollup(
       merge('by_channel_json', 'label'),
       merge('by_device_json', 'label'),
       merge('by_country_json', 'label'),
-      // CWV + conversions-by-kind + browser/OS aren't rolled into analytics_daily — read live.
+      // CWV + conversions-by-kind + browser/OS + UTM aren't rolled into analytics_daily — read live.
       getWebVitalsSummary(env, siteId, windowDays),
       getConversionKinds(env, siteId, windowDays),
       getPreviousConversionKinds(env, siteId, windowDays),
       getDimensionBreakdown(env, siteId, 'browser', windowDays),
       getDimensionBreakdown(env, siteId, 'os', windowDays),
+      getCampaignBreakdown(env, siteId, 'utmSource', windowDays),
+      getCampaignBreakdown(env, siteId, 'utmCampaign', windowDays),
     ]);
 
   return TrafficSummarySchema.parse({
@@ -712,6 +759,8 @@ export async function getTrafficSummaryFromRollup(
     byDevice: deviceRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     byBrowser,
     byOs,
+    byUtmSource,
+    byUtmCampaign,
     byChannel: channelRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     byCountry: countryRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     webVitals,

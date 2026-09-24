@@ -141,6 +141,11 @@ export const TrafficSummarySchema = z
     // back-compat with producers/fixtures that predate the tech breakdown.
     byBrowser: z.array(LabelCountSchema).default([]),
     byOs: z.array(LabelCountSchema).default([]),
+    // AN-UTM — campaign attribution: top utm_source + utm_campaign over TAGGED visits
+    // only (untagged direct/organic excluded). Default [] for back-compat + honest empty
+    // (a site running no campaigns has none — never a fabricated bucket).
+    byUtmSource: z.array(LabelCountSchema).default([]),
+    byUtmCampaign: z.array(LabelCountSchema).default([]),
     // AN14 — visitors by country (CF `request.cf.country`, captured in metadata
     // since before AN1). Default [] for back-compat.
     byCountry: z.array(LabelCountSchema).default([]),

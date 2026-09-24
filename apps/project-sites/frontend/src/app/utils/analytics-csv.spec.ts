@@ -17,6 +17,8 @@ const BASE: AnalyticsCsvInput = {
     byDevice: [{ label: 'mobile', count: 70 }],
     byBrowser: [{ label: 'Chrome', count: 61 }],
     byOs: [{ label: 'iOS', count: 44 }],
+    byUtmSource: [{ label: 'instagram', count: 18 }],
+    byUtmCampaign: [{ label: 'spring-sale', count: 12 }],
     byChannel: [{ label: 'organic', count: 55 }],
     byConversionKind: [{ label: 'call', count: 9 }],
     bounceRatePercent: 42,
@@ -67,6 +69,21 @@ describe('buildAnalyticsCsv', () => {
     const os = r.findIndex((l) => l.startsWith('os,'));
     expect(device).toBeLessThan(browser);
     expect(browser).toBeLessThan(os);
+  });
+
+  it('exports the campaign attribution rows (utm_source + utm_campaign) from tagged visits', () => {
+    const r = rows(buildAnalyticsCsv(BASE));
+    expect(r).toContain('campaign_source,instagram,18');
+    expect(r).toContain('campaign,spring-sale,12');
+  });
+
+  it('omits campaign rows when there is no tagged traffic (never a fabricated campaign)', () => {
+    const csv = buildAnalyticsCsv({
+      ...BASE,
+      traffic: { byDevice: [{ label: 'mobile', count: 70 }] }, // no utm breakdowns
+    });
+    expect(csv).not.toContain('campaign_source,');
+    expect(csv).not.toContain('\ncampaign,');
   });
 
   it('omits browser/os rows when those breakdowns are absent (never a fabricated row)', () => {
