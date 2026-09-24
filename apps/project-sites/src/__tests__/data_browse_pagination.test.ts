@@ -31,7 +31,9 @@ function makeD1(opts: {
   total?: number;
 }): D1Database {
   const siteOwned = opts.siteOwned !== false;
-  const rows = opts.rows ?? [{ id: 'r1', event_type: 'pageview', url: '/foo', created_at: '2024-01-01' }];
+  const rows = opts.rows ?? [
+    { id: 'r1', event_type: 'pageview', url: '/foo', created_at: '2024-01-01' },
+  ];
   const total = opts.total ?? rows.length;
 
   const prepare = jest.fn().mockImplementation((sql: string) => {
@@ -83,7 +85,9 @@ function makeApp(DB: D1Database) {
 
 function req(siteId: string, table: string, params: Record<string, string> = {}) {
   const qs = new URLSearchParams(params).toString();
-  return new Request(`http://localhost/api/sites/${siteId}/data-overview/${table}${qs ? `?${qs}` : ''}`);
+  return new Request(
+    `http://localhost/api/sites/${siteId}/data-overview/${table}${qs ? `?${qs}` : ''}`,
+  );
 }
 
 // ─── tests ──────────────────────────────────────────────────────────────────
@@ -91,7 +95,9 @@ function req(siteId: string, table: string, params: Record<string, string> = {})
 describe('GET /api/sites/:siteId/data-overview/:table pagination', () => {
   it('404 when site belongs to a different org (IDOR guard)', async () => {
     const DB = makeD1({ siteOwned: false });
-    const res = await makeApp(DB).request(req('site-1', 'visitor_events'), {}, { DB } as unknown as Env);
+    const res = await makeApp(DB).request(req('site-1', 'visitor_events'), {}, {
+      DB,
+    } as unknown as Env);
     expect(res.status).toBe(404);
   });
 
@@ -108,8 +114,13 @@ describe('GET /api/sites/:siteId/data-overview/:table pagination', () => {
     );
     expect(res.status).toBe(200);
 
-    interface PaginatedBody { data: { rows: unknown[] }; total: number; limit: number; offset: number }
-    const body = await res.json() as PaginatedBody;
+    interface PaginatedBody {
+      data: { rows: unknown[] };
+      total: number;
+      limit: number;
+      offset: number;
+    }
+    const body = (await res.json()) as PaginatedBody;
     expect(body.data.rows).toHaveLength(2);
     expect(body.total).toBe(10);
     expect(body.limit).toBe(2);
@@ -118,38 +129,34 @@ describe('GET /api/sites/:siteId/data-overview/:table pagination', () => {
 
   it('clamps limit to 100 (never unbounded)', async () => {
     const DB = makeD1({ rows: [], total: 0 });
-    const res = await makeApp(DB).request(
-      req('site-1', 'visitor_events', { limit: '9999' }),
-      {},
-      { DB } as unknown as Env,
-    );
+    const res = await makeApp(DB).request(req('site-1', 'visitor_events', { limit: '9999' }), {}, {
+      DB,
+    } as unknown as Env);
     expect(res.status).toBe(200);
 
-    interface PaginatedBody { limit: number }
-    const body = await res.json() as PaginatedBody;
+    interface PaginatedBody {
+      limit: number;
+    }
+    const body = (await res.json()) as PaginatedBody;
     expect(body.limit).toBe(100);
   });
 
   it('defaults limit to 25 when omitted', async () => {
     const DB = makeD1({ rows: [], total: 0 });
-    const res = await makeApp(DB).request(
-      req('site-1', 'visitor_events'),
-      {},
-      { DB } as unknown as Env,
-    );
+    const res = await makeApp(DB).request(req('site-1', 'visitor_events'), {}, {
+      DB,
+    } as unknown as Env);
     expect(res.status).toBe(200);
-    const body = await res.json() as { limit: number };
+    const body = (await res.json()) as { limit: number };
     expect(body.limit).toBe(25);
   });
 
   it('offset defaults to 0 when omitted', async () => {
     const DB = makeD1({ rows: [], total: 0 });
-    const res = await makeApp(DB).request(
-      req('site-1', 'visitor_events'),
-      {},
-      { DB } as unknown as Env,
-    );
-    const body = await res.json() as { offset: number };
+    const res = await makeApp(DB).request(req('site-1', 'visitor_events'), {}, {
+      DB,
+    } as unknown as Env);
+    const body = (await res.json()) as { offset: number };
     expect(body.offset).toBe(0);
   });
 
@@ -157,7 +164,7 @@ describe('GET /api/sites/:siteId/data-overview/:table pagination', () => {
     const DB = makeD1({ rows: [], total: 0 });
     // 'injected_col; DROP TABLE users--' is not in visitor_events allowlist
     const res = await makeApp(DB).request(
-      req('site-1', 'visitor_events', { orderBy: "injected_col; DROP TABLE users--" }),
+      req('site-1', 'visitor_events', { orderBy: 'injected_col; DROP TABLE users--' }),
       {},
       { DB } as unknown as Env,
     );
@@ -177,11 +184,9 @@ describe('GET /api/sites/:siteId/data-overview/:table pagination', () => {
 
   it('unknown table returns 400 (still protected by allowlist)', async () => {
     const DB = makeD1({});
-    const res = await makeApp(DB).request(
-      req('site-1', 'sqlite_master'),
-      {},
-      { DB } as unknown as Env,
-    );
+    const res = await makeApp(DB).request(req('site-1', 'sqlite_master'), {}, {
+      DB,
+    } as unknown as Env);
     expect(res.status).toBe(400);
   });
 });
