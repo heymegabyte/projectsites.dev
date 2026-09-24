@@ -61,7 +61,12 @@ function makeDb(
     }),
   };
   const prepare = jest.fn(() => stmt);
-  return { prepare, _all: all, _bind: stmt.bind, _boundParams: boundParams } as unknown as D1Database & {
+  return {
+    prepare,
+    _all: all,
+    _bind: stmt.bind,
+    _boundParams: boundParams,
+  } as unknown as D1Database & {
     prepare: jest.Mock;
     _all: jest.Mock;
     _bind: jest.Mock;
@@ -362,7 +367,11 @@ describe('POST /api/sites/:siteId/sql/exec', () => {
   it('coerces boolean bind params to 0/1 (SQLite has no native boolean)', async () => {
     mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
     const db = makeDb([]);
-    await exec(makeApp(AUTH), { query: 'SELECT 1 WHERE ?1 = ?2', params: [true, false] }, makeEnv(db));
+    await exec(
+      makeApp(AUTH),
+      { query: 'SELECT 1 WHERE ?1 = ?2', params: [true, false] },
+      makeEnv(db),
+    );
     expect((db as unknown as { _boundParams: unknown[][] })._boundParams).toEqual([[1, 0]]);
   });
 

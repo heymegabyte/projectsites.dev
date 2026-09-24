@@ -305,7 +305,11 @@ tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
       message: 'SQL query executed',
       // Log the param COUNT, never the values — bind params can carry sensitive filter
       // values (emails, tokens); the epic mandates redacting sensitive parameter values.
-      metadata_json: { query: q.slice(0, 200), rowcount: rows.length, param_count: boundParams.length },
+      metadata_json: {
+        query: q.slice(0, 200),
+        rowcount: rows.length,
+        param_count: boundParams.length,
+      },
     });
     const meta = (result.meta ?? {}) as {
       rows_read?: number;
