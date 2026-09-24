@@ -814,6 +814,20 @@
   flag + frontend the KV inspector from the salvaged worker files; (b) implement CSV/JSON row import directly (super-admin,
   schema-validated parameterized batch INSERT + dry-run). Verified Data reality: ONE shared multi-tenant D1 (no per-site
   DBs); 14/16 `data-section-capability-matrix.md` rows already DONE.
+- **Cycle 60 — 2026-09-24 (Data: complete the KV Inspector vertical slice — frontend, FOREGROUND):** Finished the KV
+  inspector (backend shipped cycle 59 / `4ad7d8794`). A salvaged background-agent frontend draft targeted a HALLUCINATED
+  contract (`/super-admin/kv/*` with `{bindings}`/`{data.keys}` wrappers) that would NEVER work against the real backend —
+  REWROTE it correctly against `/api/admin/kv/{namespaces,:binding/keys,:binding/value}` (`{namespaces:string[]}`,
+  `{keys:[{name}],list_complete,cursor}`, `{value,metadata,truncated,ttl}`). Binding picker → prefix search →
+  cursor-paginated key list → value+metadata+TTL panel; read-only, accessible, honest states + eventually-consistent note.
+  Route `/admin/kv-inspector` behind sysAdminGuard; backend stays super-admin + `kv_inspector`-flag-dark (404). **`ng build`
+  caught an NG8008 (EmptyStateComponent's required `title`) that app-tsc + spec-tsc + Karma ALL passed clean** → memory
+  `ng-build-catches-template-errors-tsc-karma-miss`; the build-broken commit was fix-forwarded. Verified: app-tsc +
+  spec-tsc clean · Karma **2113/2113** (+12 real-contract specs, incl. the read-only-`event.target` fix) · `ng build:prod`
+  0 err · deployed R2 · prod-verified (home 200, `main-O7FWEV6A.js` hash-matched, KV chunk `chunk-QO2S2V6P.js` 200, backend
+  404-dark). Commits `a00e1143e` + `78472c67c`. **KV Inspector = DONE (backend + frontend).** **Next (FOREGROUND per the
+  thrice-confirmed lesson — NOT background agents):** CSV/JSON row import · analytics filter UI · the 4-component Angular
+  signal-input batch (audit/site-copilot/deliverability/site-dna) — one coherent slice at a time.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

@@ -77,7 +77,7 @@
 
 | Resource | Inspect/manage via | Status | Hard limitation |
 |---|---|---|---|
-| **KV** | binding `list/get/put/delete` + REST keys | PLANNED | eventual consistency; bulk ≤100 keys |
+| **KV** | READ-ONLY inspector — binding `list` + `getWithMetadata` via `GET /api/admin/kv/*` (super-admin, flag `kv_inspector`) | ✅ **DONE (read-only)** — namespaces (server allowlist) → prefix search → cursor-paginated keys → value+metadata+TTL panel (64 KiB value cap); `/admin/kv-inspector` behind sysAdminGuard, backend 404-dark; 19 Jest + 12 Karma; deployed. Write/delete + bulk deferred. | eventual consistency (disclosed in UI); **shared platform** namespaces only (CACHE_KV/PROMPT_STORE), NOT tenant-owned |
 | **R2** | binding `list/get/put/delete` (+ S3) | PLANNED | no public REST *query*; binding-only; multipart for large objects |
 | **Vectorize** | binding `insert/query/deleteByIds/listVectors` + v2 REST | PLANNED | query is binding-only; mutations async (1–2 s) |
 | **Hyperdrive** | REST config + health | PLANNED | **no** inspect/query API; browser only via an authorized DB connection path |
