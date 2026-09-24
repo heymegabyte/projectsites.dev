@@ -5,7 +5,13 @@ import { ApiService } from '../services/api.service';
 
 /** Aggregate (non-PII) owner summary returned by the public share endpoint. */
 interface PublicSummary {
-  readonly traffic?: { readonly pageviews?: number; readonly uniqueVisitors?: number };
+  readonly traffic?: {
+    readonly pageviews?: number;
+    /** Distinct per-day anonymous sessions = "Visits" (visitor-days), NOT unique people.
+     *  The API (SiteAnalyticsSummary.traffic) provides `uniqueSessions` — reading the old
+     *  `uniqueVisitors` key silently rendered 0 (key-mismatch lying-empty). */
+    readonly uniqueSessions?: number;
+  };
   readonly contacts?: { readonly total?: number };
   readonly formSubmissions?: { readonly total?: number };
   readonly newsletter?: { readonly confirmed?: number };
@@ -91,7 +97,7 @@ export class PublicAnalyticsComponent implements OnInit {
   private toStats(s: PublicSummary): ReadonlyArray<{ label: string; value: string }> {
     const out: { label: string; value: string }[] = [
       { label: 'Pageviews', value: String(s.traffic?.pageviews ?? 0) },
-      { label: 'Unique visitors', value: String(s.traffic?.uniqueVisitors ?? 0) },
+      { label: 'Visits', value: String(s.traffic?.uniqueSessions ?? 0) },
       { label: 'Contacts', value: String(s.contacts?.total ?? 0) },
       { label: 'Form submissions', value: String(s.formSubmissions?.total ?? 0) },
       { label: 'Newsletter subscribers', value: String(s.newsletter?.confirmed ?? 0) },

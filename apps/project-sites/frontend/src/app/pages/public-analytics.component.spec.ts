@@ -6,7 +6,7 @@ import { ApiService } from '../services/api.service';
 
 const SUMMARY = {
   summary: {
-    traffic: { pageviews: 1234, uniqueVisitors: 567 },
+    traffic: { pageviews: 1234, uniqueSessions: 567 }, // real API key (was uniqueVisitors → always 0)
     contacts: { total: 12 },
     formSubmissions: { total: 8 },
     newsletter: { confirmed: 30 },
@@ -43,6 +43,11 @@ describe('PublicAnalyticsComponent (AN48 public read-only view)', () => {
     expect(f.nativeElement.textContent).toContain('1234');
     expect(f.nativeElement.textContent).toContain('Pageviews');
     expect(f.nativeElement.textContent).toContain('$250'); // donations 25000c → $250
+    // The visitors tile reads the REAL `uniqueSessions` key (was `uniqueVisitors` → always
+    // a fake 0) and is honestly labelled "Visits" (visitor-days), never "Unique visitors".
+    expect(f.nativeElement.textContent).withContext('honest label').toContain('Visits');
+    expect(f.nativeElement.textContent).withContext('real value, not a fake 0').toContain('567');
+    expect(f.nativeElement.textContent).withContext('no unique-people claim').not.toContain('Unique visitors');
   });
 
   it('shows the friendly expired/invalid message when the endpoint 404s', () => {

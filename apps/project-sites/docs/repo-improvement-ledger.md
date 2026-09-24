@@ -435,6 +435,23 @@
   freshness + activity — genuinely complete; remaining Data gaps are credential-blocked (D1 REST size/usage/Time-Travel)
   or product-N/A (no per-tenant KV/R2/DO/Vectorize data API). The super-admin SQL console's syntax-highlighting /
   schema-aware completion / multi-tab is the next non-blocked (but narrower-audience) polish.
+- **Cycle 38 — 2026-09-24 (Analytics: public share report — fix lying-empty "Unique visitors: 0" + conflation):**
+  Followed the Cycle-36 handoff to the SEPARATE public-analytics surface and found a real customer-facing bug: the
+  public share page (`/shared/analytics/:token`, `public-analytics.component`) read `s.traffic?.uniqueVisitors` — but
+  the API (`SiteAnalyticsSummary.traffic` = `visitor_events_core` `TrafficSummarySchema`) provides `uniqueSessions`,
+  NOT `uniqueVisitors`. So the "Unique visitors" tile ALWAYS rendered **0** (a key-mismatch lying-empty), AND the label
+  was the unique-people conflation. The existing spec fixture used the SAME wrong key (`uniqueVisitors: 567`), so the
+  mock agreed with the bug → phantom-green. Fixed both: the interface + read now use `uniqueSessions`, the tile is
+  labelled **"Visits"** (consistent with the Cycle-36 admin relabel), the spec fixture uses the REAL key, and a
+  regression lock asserts the tile shows the real 567 under "Visits" and never "Unique visitors". Pure frontend (the
+  backend already provided the right key). Verified: fe tsc (app + spec) 0 · **Karma 2053/2053** · build 0 · deployed
+  R2 + chunk-hash prod-verified (`chunk-RUNCFHGD.js` 200 with `uniqueSessions`/`Visits`, no "Unique visitors",
+  referenced by live `main-RLEHCBJS.js`). **Next (highest-priority):** the `/api/analytics/:siteId` endpoint
+  (`libs/features/analytics/handlers.ts`, consumed live by `admin-state.service.ts:168` → dashboard) returns
+  `stats.uniqueVisitors` from THREE sources with different meaning — D1 `uniqueSessions` (line 434 = Visits), CF
+  `unique_visitors` (356 = unique users), GA4 `totalUsers` (675 = unique users) — but its consumer labels all three the
+  same. Add a per-source visitors label (server sets `visitorsMetric: 'visits'|'unique_users'` by `source`; the
+  dashboard renders it) so the D1 fallback reads "Visits" and GA4/CF read "Unique visitors".
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
