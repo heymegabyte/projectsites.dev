@@ -31,6 +31,22 @@ const env = {
 
 const get = (path: string) => features.request(path, {}, env);
 
+/**
+ * Mount `features` behind a middleware injecting an AUTHED org — the secure path.
+ * `GET`/`POST /api/site-features` read the org from the session ONLY (the
+ * `?? c.req.query('org_id')` fallback was removed as an IDOR, commit 507257430),
+ * so tests must supply it via context, never a query param.
+ */
+function authed(orgId: string, e: unknown = env): (path: string) => Promise<Response> {
+  const app = new Hono();
+  app.use('*', async (c, next) => {
+    c.set('orgId', orgId);
+    await next();
+  });
+  app.route('/', features);
+  return (path: string) => app.request(path, {}, e as never);
+}
+
 describe('features public discovery routes (LIVE flag surfaces)', () => {
   it('GET /llms.txt → 200 text/plain', async () => {
     const res = await get('/llms.txt');
@@ -220,8 +236,8 @@ describe('GET /api/feature-flags/:key', () => {
 });
 
 describe('GET /api/site-features (owner catalog, plan-aware)', () => {
-  it('returns the owner feature catalog with a fallback free plan', async () => {
-    const res = await get('/api/site-features');
+  it('returns the owner feature catalog with a fallback free plan for an AUTHED org (no subscription → free)', async () => {
+    const res = await authed('org-free')('/api/site-features');
     expect(res.status).toBe(200);
     const json = (await res.json()) as {
       features: Array<{ key: string; entitled: string }>;
@@ -233,12 +249,20 @@ describe('GET /api/site-features (owner catalog, plan-aware)', () => {
     expect(Array.isArray(json.features)).toBe(true);
   });
 
+  it('401s an UNAUTHENTICATED caller — and a client `?org_id` param cannot resurrect the removed IDOR', async () => {
+    // Regression guard for commit 507257430: org comes from the authed session
+    // ONLY. An unauthed caller 401s, and a supplied `org_id` query param is ignored
+    // (never a cross-tenant read of another org's plan / feature-override state).
+    expect((await get('/api/site-features')).status).toBe(401);
+    expect((await get('/api/site-features?org_id=someone-elses-org')).status).toBe(401);
+  });
+
   it('resolves the org plan tier via a STATUS-gated subscription query (no past_due/canceled entitlement leak)', async () => {
     // readOrgPlan (which gates the paid-feature toggle) MUST resolve the plan through
     // the shared status-gated SSOT. The old query had NO status filter → a past_due
     // org (payment failed: status='past_due', plan still 'paid') kept the enterprise
-    // tier → could enable every paid feature (revenue leak). `?org_id=` drives the
-    // resolution path (readOrgPlan short-circuits to 'free' when orgId is absent).
+    // tier → could enable every paid feature (revenue leak). The AUTHED-session org
+    // drives the resolution path (the old `?org_id=` query vector was removed as an IDOR).
     const sqls: string[] = [];
     const capChain = {
       bind: () => capChain,
@@ -255,7 +279,7 @@ describe('GET /api/site-features (owner catalog, plan-aware)', () => {
       },
       CACHE_KV: { get: async () => null, put: async () => undefined },
     } as never;
-    const res = await features.request('/api/site-features?org_id=org-status-check', {}, capEnv);
+    const res = await authed('org-status-check', capEnv)('/api/site-features');
     expect(res.status).toBe(200);
     const planSql = sqls.find((s) => /FROM subscriptions/i.test(s));
     expect(planSql).toBeTruthy();

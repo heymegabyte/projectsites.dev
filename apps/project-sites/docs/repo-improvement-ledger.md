@@ -201,6 +201,17 @@
   backtick 0 · **Karma 1984/1984** (+5 specs) · build 0 · eslint 0 errors · deployed R2 + chunk-hash prod-verified
   (`chunk-6GWXJTTF.js`, `db-cell-copy`). Chose copy (safe, in-spec, customer-facing) over row edit/delete (PLANNED but
   destructive + big) and multi-tab SQL (superadmin, lower product value) given deep-session risk discipline.
+- **Cycle 21 — 2026-09-24 (repo health: restore main-green + cover the site-features IDOR fix):** Resolved a **7-fire-old
+  2-red `main`** (`src/__tests__/features_routes.test.ts` — `/api/site-features` returned 401 vs the tests' expected 200).
+  Root-caused via git: the 401 is a **deliberate security fix** (commit `507257430` "🔒 fix(security): scope GET
+  /api/site-features to the authed org (IDOR)") — the old `?? c.req.query('org_id')` fallback let an UNAUTHENTICATED caller
+  read any org's plan + feature-override state cross-tenant. So the ROUTE is correct; the 2 tests were **stale** (asserting the
+  old insecure behavior) and, crucially, the security fix had **zero test coverage**. Updated the 2 tests to the secure
+  contract (authed-session org via a new `authed(orgId)` mount helper, never the removed `?org_id` query) + **added a
+  regression guard** locking the IDOR fix (unauthed → 401; a client `?org_id` param is ignored → still 401). Test-only change
+  (route already correct + deployed) — full worker suite now **12262/12262 green (0 failures)**, tsc 0; prod-verified the live
+  contract (`/api/site-features` → 401 unauthed AND with `?org_id`). This clears the standing Rec carried since Cycle-and-fires
+  back and makes the security invariant permanent.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
