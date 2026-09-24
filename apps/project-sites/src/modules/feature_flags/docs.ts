@@ -530,6 +530,21 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Disable the flag → the rail routes 404',
     ],
   },
+  predicted_actions: {
+    checklist: [
+      'Cmd+K palette "Predicted" group — top actions ranked by the user\'s recent command frequency',
+      'Local-storage usage tally bumped on every execute; current route excluded from suggestions',
+      'Client-only flag (command-palette.component reads it) — no worker route surface',
+      'Flag-off / transport error (fail-safe false) → no Predicted group; default command list always present',
+    ],
+    explanation:
+      'Gates the "Predicted" group in the Cmd+K command palette — the 3-4 commands a user is most likely to want next, ranked by their own recent execution frequency (a local-storage tally bumped on each execute) with the current route excluded. Client-only progressive enhancement: command-palette.component reads the flag via FeatureFlagService.isOn() and renders the Predicted group only when on; the palette always-present alphabetical command list means flag-off — or any transport error, which fails safe to false — simply omits the extra group with zero functional loss. Registering the flag makes /api/feature-flags/predicted_actions resolve 200-with-false instead of 404, clearing a console error on every homepage load. Off (default) → the palette renders exactly as today.',
+    smoke_test: [
+      'Enable → open Cmd+K, execute a few commands, reopen → a Predicted group appears ranked by usage',
+      'Off (default) → open Cmd+K → no Predicted group; palette still opens/filters/navigates/closes',
+      'Load https://projectsites.dev → DevTools console shows no 404 for /api/feature-flags/predicted_actions',
+    ],
+  },
   preview_share_card: {
     checklist: [
       'Honest, slop-free share messages (SMS / WhatsApp / email / copy)',

@@ -338,6 +338,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  predicted_actions: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Command palette (Cmd+K) "Predicted" group — surfaces the 3-4 actions a user is most likely to want next, ranked by their own recent command-execution frequency (a local-storage tally bumped on every execute), with the current route excluded so it never suggests where you already are.\n\n• CLIENT-ONLY flag (no worker route gate): command-palette.component reads it via FeatureFlagService.isOn() and only renders the Predicted group when on.\n• The palette default alphabetical command list is always present, so flag-off (or any transport error → fail-safe false) simply hides the extra group with zero functional loss.\n• Registering it here makes GET /api/feature-flags/predicted_actions resolve 200-with-false (registry source) instead of 404 — clearing a console error on every homepage load.\n• Off (default) → the palette renders exactly as today (no Predicted group). Acceptance: flag-on + a few executes + reopen Cmd+K → a usage-ranked Predicted group; flag-off → no Predicted group, palette still opens/filters/navigates/closes.',
+    key: 'predicted_actions',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   preview_share_card: {
     default_enabled: false,
     default_rollout_percent: 0,
