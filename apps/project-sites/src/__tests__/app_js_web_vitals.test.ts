@@ -29,7 +29,9 @@ function webVitalsBody(): string {
 describe('app.js Core Web Vitals beacon (initWebVitals)', () => {
   describe('measurement — the standard algorithms are wired', () => {
     it('guards on PerformanceObserver support before observing anything', () => {
-      expect(webVitalsBody()).toMatch(/if\s*\(typeof PerformanceObserver === 'undefined'\)\s*return;/);
+      expect(webVitalsBody()).toMatch(
+        /if\s*\(typeof PerformanceObserver === 'undefined'\)\s*return;/,
+      );
     });
 
     it('observes LCP, CLS, INP-event, and first-input entry types', () => {
@@ -80,14 +82,18 @@ describe('app.js Core Web Vitals beacon (initWebVitals)', () => {
 
     it('sends CLS unitless (×1000 rounding) and LCP/INP as integer ms', () => {
       const body = webVitalsBody();
-      expect(body).toContain("metric === 'CLS' ? Math.round(value * 1000) / 1000 : Math.round(value)");
+      expect(body).toContain(
+        "metric === 'CLS' ? Math.round(value * 1000) / 1000 : Math.round(value)",
+      );
     });
   });
 
   describe('delivery — beacon once, on page hide, per page', () => {
     it('reports via track() as a web_vital event carrying metric + value + href', () => {
       const body = webVitalsBody();
-      expect(body).toMatch(/track\('web_vital',\s*\{\s*metric:\s*metric,\s*value:\s*v,\s*href:\s*location\.pathname\s*\}\)/);
+      expect(body).toMatch(
+        /track\('web_vital',\s*\{\s*metric:\s*metric,\s*value:\s*v,\s*href:\s*location\.pathname\s*\}\)/,
+      );
     });
 
     it('finalizes on the first of visibilitychange:hidden / pagehide, guarded once', () => {
@@ -102,7 +108,9 @@ describe('app.js Core Web Vitals beacon (initWebVitals)', () => {
     it('is invoked in boot inside a try/catch so a vitals throw cannot break the page', () => {
       const boot = APP_JS.slice(APP_JS.indexOf('onReady(function ()'));
       expect(boot).toContain('initWebVitals()');
-      expect(boot).toMatch(/try\s*\{[\s\S]{0,80}initWebVitals\(\)[\s\S]{0,40}\}\s*catch\s*\(e\)\s*\{\}/);
+      expect(boot).toMatch(
+        /try\s*\{[\s\S]{0,80}initWebVitals\(\)[\s\S]{0,40}\}\s*catch\s*\(e\)\s*\{\}/,
+      );
     });
   });
 
