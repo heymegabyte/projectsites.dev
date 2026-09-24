@@ -367,3 +367,62 @@ describe('SiteDataBrowserComponent — column show/hide', () => {
     expect(c.hiddenColumns().has('email')).withContext('per-table preference restored on switch').toBe(true);
   });
 });
+
+/**
+ * Copy affordances (read-only, in-spec "row detail, copy"): every non-null grid cell
+ * is a click-to-copy button, the row detail has a "Copy JSON" action, and a polite
+ * aria-live flash confirms the copy. writeClipboard is isolated so specs can spy it
+ * without a secure-context clipboard.
+ */
+describe('SiteDataBrowserComponent — copy affordances', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  type Clip = { writeClipboard(t: string): Promise<void> };
+
+  it('copyValue copies a raw string value + flashes a copied indicator', async () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    const spy = spyOn(c as unknown as Clip, 'writeClipboard').and.resolveTo();
+    await c.copyValue('owner@example.com');
+    expect(spy).toHaveBeenCalledWith('owner@example.com');
+    expect(c.copied()).toContain('Copied');
+  });
+
+  it('copyValue serializes an object value as compact JSON', async () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    const spy = spyOn(c as unknown as Clip, 'writeClipboard').and.resolveTo();
+    await c.copyValue({ a: 1 });
+    expect(spy).toHaveBeenCalledWith('{"a":1}');
+  });
+
+  it('copyRow copies the whole row as pretty JSON', async () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    const spy = spyOn(c as unknown as Clip, 'writeClipboard').and.resolveTo();
+    await c.copyRow({ event_type: 'pageview', path: '/' });
+    expect(spy).toHaveBeenCalledWith(JSON.stringify({ event_type: 'pageview', path: '/' }, null, 2));
+    expect(c.copied()).toBe('Copied row JSON');
+  });
+
+  it('renders each non-null cell as a copy button and copies its value on click', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    const spy = spyOn(c as unknown as Clip, 'writeClipboard').and.resolveTo();
+    const cellBtn = fixture.debugElement.query(By.css('[data-testid="db-copy-event_type"]'));
+    expect(cellBtn).withContext('cells render as click-to-copy buttons').toBeTruthy();
+    cellBtn.nativeElement.click();
+    expect(spy).toHaveBeenCalledWith('pageview'); // ROWS[0].event_type
+  });
+
+  it('exposes a polite aria-live copied flash after a copy', async () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    spyOn(c as unknown as Clip, 'writeClipboard').and.resolveTo();
+    await c.copyValue('x');
+    fixture.detectChanges();
+    const flash = fixture.debugElement.query(By.css('[data-testid="db-copied"]'));
+    expect(flash).withContext('flash appears').toBeTruthy();
+    expect(flash.nativeElement.getAttribute('aria-live')).toBe('polite');
+  });
+});

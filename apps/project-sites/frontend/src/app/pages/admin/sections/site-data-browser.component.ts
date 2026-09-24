@@ -162,6 +162,9 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
               </details>
             }
             <div class="db-actions">
+              @if (copied(); as msg) {
+                <span class="db-copied" aria-live="polite" data-testid="db-copied">✓ {{ msg }}</span>
+              }
               @if (exporting()) {
                 <span class="db-exporting" aria-live="polite" data-testid="db-exporting">Exporting…</span>
               }
@@ -240,7 +243,10 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                           @if (row[col] === null || row[col] === undefined) {
                             <span class="db-null" title="NULL value">NULL</span>
                           } @else {
-                            {{ formatCell(row[col]) }}
+                            <button type="button" class="db-cell-copy"
+                                    (click)="copyValue(row[col])"
+                                    [attr.data-testid]="'db-copy-' + col"
+                                    title="Click to copy this value">{{ formatCell(row[col]) }}</button>
                           }
                         </td>
                       }
@@ -258,6 +264,11 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                     @if (expandedRow() === $index) {
                       <tr class="db-detail-row" data-testid="db-detail">
                         <td [attr.colspan]="visibleColumns().length + 1">
+                          <div class="db-detail-bar">
+                            <button type="button" class="db-copy-row"
+                                    (click)="copyRow(row)" data-testid="db-copy-row"
+                                    aria-label="Copy this row as JSON">Copy JSON</button>
+                          </div>
                           <pre class="db-json">{{ rowJson(row) }}</pre>
                         </td>
                       </tr>
@@ -341,6 +352,14 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
     .db-cols-item input:disabled + span { opacity: 0.55; }
     .db-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 0.35rem; }
     .db-exporting { font-size: 0.72rem; color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; }
+    .db-copied { font-size: 0.72rem; color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; }
+    .db-cell-copy { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; text-align: left; cursor: copy; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+    .db-cell-copy:hover { color: var(--ps-accent, #00e5ff); text-decoration: underline dotted; }
+    .db-cell-copy:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; border-radius: 3px; }
+    .db-detail-bar { display: flex; justify-content: flex-end; margin-bottom: 0.4rem; }
+    .db-copy-row { font: inherit; font-size: 0.72rem; padding: 0.25rem 0.55rem; border-radius: 6px; color: var(--ps-accent, #00e5ff); background: rgba(0,0,0,0.25); border: 1px solid var(--ps-edge, rgba(255,255,255,0.14)); cursor: pointer; }
+    .db-copy-row:hover { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 16%, transparent); }
+    .db-copy-row:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     .db-export-note { margin: 0.4rem 0 0; font-size: 0.72rem; color: #ffc800; }
     .db-readonly-pill {
       margin-left: 0.5rem; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
@@ -737,5 +756,45 @@ export class SiteDataBrowserComponent implements OnInit {
     } catch {
       return String(row);
     }
+  }
+
+  /** Transient "Copied …" label driving the polite aria-live flash (null = hidden). */
+  readonly copied = signal<string | null>(null);
+  /** Monotonic token so a newer copy supersedes an older flash without clearTimeout. */
+  private copyFlashToken = 0;
+
+  /** Copy a single cell value to the clipboard — raw string, JSON for objects. */
+  async copyValue(value: unknown): Promise<void> {
+    const text =
+      value === null || value === undefined
+        ? ''
+        : typeof value === 'string'
+          ? value
+          : typeof value === 'object'
+            ? this.formatCell(value)
+            : String(value);
+    await this.writeClipboard(text);
+    this.flashCopied(text.length > 32 ? `${text.slice(0, 32)}…` : text || '(empty)');
+  }
+
+  /** Copy the whole row as pretty JSON (the detail view's "Copy JSON" action). */
+  async copyRow(row: Record<string, unknown>): Promise<void> {
+    await this.writeClipboard(this.rowJson(row));
+    this.flashCopied('row JSON');
+  }
+
+  /** Clipboard write, isolated so tests can spy it without a secure-context clipboard. */
+  protected writeClipboard(text: string): Promise<void> {
+    return navigator.clipboard?.writeText(text) ?? Promise.resolve();
+  }
+
+  /** Flash "Copied <label>" for ~1.8s; a token guards against stale timers (a
+   *  set-after-destroy is a harmless signal no-op, so no explicit teardown needed). */
+  private flashCopied(label: string): void {
+    this.copied.set(`Copied ${label}`);
+    const token = ++this.copyFlashToken;
+    setTimeout(() => {
+      if (this.copyFlashToken === token) this.copied.set(null);
+    }, 1800);
   }
 }

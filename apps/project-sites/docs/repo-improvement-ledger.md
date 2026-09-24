@@ -192,6 +192,15 @@
   flagged "risky refactor"; column-selection is customer-facing, in-spec, and low-risk. **Recon correction:** the agent
   wrongly reported EXPLAIN visualization as the gap — verified it's already DONE (`explainSql()` + `planHint()` in
   `site-detail.component.ts`), as are cost metadata + saved/history/starters.
+- **Cycle 20 — 2026-09-24 (Data section: owner copy affordances):** Shipped **click-to-copy** in the customer-facing Data
+  grid (`SiteDataBrowserComponent`) — the Data-epic's "row detail, copy" requirement + a real "embarrassingly-easy" win
+  (grab a lead's email/value in one click). Every non-null cell renders as a click-to-copy `<button class="db-cell-copy">`;
+  the row-detail panel gains a "Copy JSON" action; a polite `aria-live` "✓ Copied …" flash confirms (token-guarded ~1.8s, no
+  clearTimeout — a set-after-destroy is a harmless signal no-op). `writeClipboard` is an isolated protected method so specs
+  spy it without a secure-context clipboard. Read-only (no mutation, no worker change); clipboard fail-soft. Verified: tsc 0 ·
+  backtick 0 · **Karma 1984/1984** (+5 specs) · build 0 · eslint 0 errors · deployed R2 + chunk-hash prod-verified
+  (`chunk-6GWXJTTF.js`, `db-cell-copy`). Chose copy (safe, in-spec, customer-facing) over row edit/delete (PLANNED but
+  destructive + big) and multi-tab SQL (superadmin, lower product value) given deep-session risk discipline.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
