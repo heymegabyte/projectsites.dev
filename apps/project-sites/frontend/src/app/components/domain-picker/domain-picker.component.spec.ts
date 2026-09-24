@@ -475,6 +475,17 @@ describe('DomainPickerComponent — paid domains cannot be removed, only auto-re
  * pre-warms the cache so even the first open is instant.
  */
 describe('DomainPickerComponent — AI suggestions SWR cache + pre-warm', () => {
+  // The cache now persists to localStorage ("always cached" across reloads), so a
+  // prior test's set() would otherwise pre-warm the next test's freshly-hydrated
+  // cache and flip an "already warm" no-op assertion. Isolate each test (fix the
+  // spec's isolation, not the feature — root-cause-validator-findings).
+  beforeEach(() => {
+    try {
+      localStorage.removeItem('ps.domainSuggestions.v1');
+    } catch {
+      /* private-mode / SSR — nothing to clear */
+    }
+  });
   afterEach(() => TestBed.resetTestingModule());
 
   function setup(suggestions: Array<{ domain: string }>) {

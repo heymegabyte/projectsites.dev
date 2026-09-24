@@ -2,6 +2,8 @@ import { Injectable } from '@angular/core';
 
 import type { DomainSuggestion } from '../../services/api.service';
 
+const STORAGE_KEY = 'ps.domainSuggestions.v1';
+
 /**
  * Stale-while-revalidate cache for the domain-picker's AI suggestions, keyed by
  * site id.
@@ -13,13 +15,20 @@ import type { DomainSuggestion } from '../../services/api.service';
  * revalidates in the background and writes the fresh list back here. Trigger
  * hover/focus pre-warms the cache so even the FIRST open is instant.
  *
- * In-memory only (a `Map`) — suggestions are cheap to re-fetch and never
- * security-sensitive, so there's no need to persist across a full page reload.
+ * Persisted to `localStorage` so the picks are ALWAYS cached — instant even
+ * after a full page reload or a brand-new session, not just within one SPA
+ * lifetime. localStorage access is wrapped in try/catch so private-mode / quota
+ * / SSR never throw (per the app's localStorage discipline); an unavailable
+ * store degrades to a pure in-memory `Map`.
  */
 @Injectable({ providedIn: 'root' })
 export class DomainSuggestionsCache {
   /** Last-known suggestion list per site id. */
   private readonly store = new Map<string, DomainSuggestion[]>();
+
+  constructor() {
+    this.hydrate();
+  }
 
   /** True when a non-empty list has been cached for this site. */
   has(siteId: string): boolean {
@@ -39,11 +48,39 @@ export class DomainSuggestionsCache {
    * downgrade a populated view to empty on a flaky revalidate).
    */
   set(siteId: string, list: DomainSuggestion[] | null | undefined): void {
-    if (siteId && list && list.length > 0) this.store.set(siteId, list.slice());
+    if (siteId && list && list.length > 0) {
+      this.store.set(siteId, list.slice());
+      this.persist();
+    }
   }
 
   /** Drop a site's cache (e.g. after the underlying site is deleted). */
   clear(siteId: string): void {
-    this.store.delete(siteId);
+    if (this.store.delete(siteId)) this.persist();
+  }
+
+  /** Load the persisted cache from localStorage into the in-memory Map (fail-soft). */
+  private hydrate(): void {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, DomainSuggestion[]>;
+      for (const [siteId, list] of Object.entries(parsed)) {
+        if (Array.isArray(list) && list.length > 0) this.store.set(siteId, list);
+      }
+    } catch {
+      /* private-mode / quota / bad JSON → stay in-memory only */
+    }
+  }
+
+  /** Write the whole cache back to localStorage (fail-soft). */
+  private persist(): void {
+    try {
+      const obj: Record<string, DomainSuggestion[]> = {};
+      for (const [siteId, list] of this.store) obj[siteId] = list;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+    } catch {
+      /* quota / private-mode → keep the in-memory cache, skip persistence */
+    }
   }
 }

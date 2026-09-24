@@ -564,9 +564,9 @@ interface GhStatus {
                             @if (visionAxes(m); as axes) {
                               <app-vision-radar [scores]="axes" />
                               @if (m.vision_notes) {
-                                <p class="text-[0.72rem] text-text-secondary leading-relaxed m-0 mt-1 max-w-[240px]"
+                                <p class="text-[0.72rem] text-text-secondary leading-relaxed m-0 mt-1 max-w-[240px] line-clamp-3"
                                    data-testid="vision-notes"
-                                   [attr.title]="m.vision_model ? 'Scored by ' + m.vision_model : null">
+                                   [attr.title]="m.vision_notes + (m.vision_model ? ' — scored by ' + m.vision_model : '')">
                                   @if (m.vision_overall !== null && m.vision_overall !== undefined) {
                                     <span class="font-bold" [style.color]="'var(--ps-accent, #00e5ff)'">{{ m.vision_overall }}/10</span> —
                                   }

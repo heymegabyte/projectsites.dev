@@ -95,7 +95,7 @@ const SEARCH_TLDS: readonly string[] = [
   'com', 'app', 'io', 'dev', 'co', 'ai', 'me', 'xyz', 'studio', 'biz',
 ];
 
-const AI_SUGGESTION_COUNT = 10;
+const AI_SUGGESTION_COUNT = 20;
 
 const LOW_BALANCE_CENTS = 500;
 
@@ -493,7 +493,10 @@ const LOW_BALANCE_CENTS = 500;
       .dp-act--mute {
         color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent);
       }
-      .dp-row--reg { gap: 4px; }
+      .dp-row--reg { gap: 10px 12px; flex-direction: row; align-items: center; flex-wrap: wrap; }
+      .dp-sugg-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+      .dp-sugg-action { flex-shrink: 0; display: flex; align-items: center; gap: 6px; margin-left: auto; }
+      .dp-row--reg.dp-row--skeleton { flex-direction: column; align-items: stretch; }
       .dp-row-head {
         display: flex;
         align-items: center;
@@ -597,8 +600,8 @@ const LOW_BALANCE_CENTS = 500;
         line-height: 1.35;
       }
       .dp-register {
-        align-self: flex-end;
-        margin-top: 6px;
+        align-self: center;
+        margin-top: 0;
         padding: 6px 14px;
         font-size: 0.74rem;
         font-weight: 600;
@@ -643,24 +646,6 @@ const LOW_BALANCE_CENTS = 500;
         filter: none;
         box-shadow: none;
       }
-      .dp-refine {
-        align-self: center;
-        margin-top: 4px;
-        padding: 6px 14px;
-        font-size: 0.7rem;
-        background: transparent;
-        color: color-mix(in oklch, var(--ps-accent, #00e5ff) 80%, transparent);
-        border: 1px dashed color-mix(in oklch, var(--ps-accent, #00e5ff) 35%, transparent);
-        border-radius: 6px;
-        cursor: pointer;
-        transition: background 0.14s, color 0.14s, border-color 0.14s;
-      }
-      .dp-refine:hover:not(:disabled) {
-        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 10%, transparent);
-        color: var(--ps-accent, #00e5ff);
-        border-color: var(--ps-accent, #00e5ff);
-      }
-      .dp-refine:disabled { opacity: 0.5; cursor: progress; }
       .dp-row--skeleton {
         background: rgba(255, 255, 255, 0.025);
         pointer-events: none;
@@ -967,20 +952,6 @@ const LOW_BALANCE_CENTS = 500;
                 @for (s of suggestions(); track s.domain; let i = $index) {
                   <ng-container [ngTemplateOutlet]="suggestionRow" [ngTemplateOutletContext]="{ s, i, section: 'register' }"></ng-container>
                 }
-                @if (suggestions().length > 0) {
-                  <button
-                    type="button"
-                    class="dp-refine"
-                    [disabled]="refining()"
-                    (click)="refineSuggestions()"
-                  >
-                    @if (refining()) {
-                      Finding fresh picks…
-                    } @else {
-                      Show me different ones ↻
-                    }
-                  </button>
-                }
               }
             </div>
           }
@@ -1009,6 +980,7 @@ const LOW_BALANCE_CENTS = 500;
           [class.dp-row--taken]="s.status === 'taken' && !purchasedDomains().has(s.domain)"
           (mouseenter)="onSuggestionHover(section, i, s)"
         >
+          <div class="dp-sugg-body">
           <div class="dp-row-head">
             @if (!s.checking) {
               @if (s.status === 'available' || purchasedDomains().has(s.domain)) {
@@ -1046,8 +1018,8 @@ const LOW_BALANCE_CENTS = 500;
               <span class="dp-price" [class.dp-price--muted]="s.status !== 'available'">\${{ s.price_usd_yr }}/yr</span>
             }
           </div>
-          <!-- Reason/pitch + register CTA only for non-taken rows — a taken
-               domain stays a single compact, grayed line (the badge says it all). -->
+          <!-- Reason/pitch stays in the compact left body; a taken domain stays a
+               single grayed line (the badge says it all). -->
           @if (s.status !== 'taken' || purchasedDomains().has(s.domain)) {
             @if (s.reason) {
               <div class="dp-reason"><em>{{ s.reason }}</em></div>
@@ -1055,40 +1027,47 @@ const LOW_BALANCE_CENTS = 500;
             @if (s.pitch) {
               <div class="dp-pitch">{{ s.pitch }}</div>
             }
-            @if (purchasedDomains().has(s.domain)) {
-              <button type="button" class="dp-register dp-register--purchased" disabled>
-                ✓ Yours. SSL pending.
-              </button>
-              <div class="dp-sparkles" aria-hidden="true">
-                <span class="dp-sparkle dp-sparkle--a">✦</span>
-                <span class="dp-sparkle dp-sparkle--b">✧</span>
-                <span class="dp-sparkle dp-sparkle--c">✦</span>
-              </div>
-            } @else if (s.can_register_inline) {
-              <button
-                type="button"
-                class="dp-register"
-                [disabled]="registering() === s.domain"
-                (click)="register(s)"
-              >
-                @if (registering() === s.domain) {
-                  <span class="dp-spinner dp-spinner--mini dp-spinner--ink" aria-hidden="true"></span>
-                  Buying…
-                } @else {
-                  {{ registerCtaLabel(s) }}
-                }
-              </button>
-            } @else if (s.available && s.fallback_url) {
-              <a
-                class="dp-register dp-register--porkbun"
-                [href]="s.fallback_url"
-                target="_blank"
-                rel="noopener noreferrer"
-                title="CF Registrar doesn't carry this TLD — buy at Porkbun, then add via the custom-domain wizard."
-              >
-                Buy at Porkbun ↗
-              </a>
-            }
+          }
+          </div>
+          <!-- Register CTA lives in a right-hand action column so each pick is one
+               tight horizontal row, not a name stacked over a full-width button. -->
+          @if (s.status !== 'taken' || purchasedDomains().has(s.domain)) {
+            <div class="dp-sugg-action">
+              @if (purchasedDomains().has(s.domain)) {
+                <button type="button" class="dp-register dp-register--purchased" disabled>
+                  ✓ Yours. SSL pending.
+                </button>
+                <div class="dp-sparkles" aria-hidden="true">
+                  <span class="dp-sparkle dp-sparkle--a">✦</span>
+                  <span class="dp-sparkle dp-sparkle--b">✧</span>
+                  <span class="dp-sparkle dp-sparkle--c">✦</span>
+                </div>
+              } @else if (s.can_register_inline) {
+                <button
+                  type="button"
+                  class="dp-register"
+                  [disabled]="registering() === s.domain"
+                  (click)="register(s)"
+                >
+                  @if (registering() === s.domain) {
+                    <span class="dp-spinner dp-spinner--mini dp-spinner--ink" aria-hidden="true"></span>
+                    Buying…
+                  } @else {
+                    {{ registerCtaLabel(s) }}
+                  }
+                </button>
+              } @else if (s.available && s.fallback_url) {
+                <a
+                  class="dp-register dp-register--porkbun"
+                  [href]="s.fallback_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="CF Registrar doesn't carry this TLD — buy at Porkbun, then add via the custom-domain wizard."
+                >
+                  Buy at Porkbun ↗
+                </a>
+              }
+            </div>
           }
         </div>
       </ng-template>
@@ -1112,7 +1091,7 @@ export class DomainPickerComponent implements OnDestroy {
   @ViewChild('panel', { static: false }) panel?: ElementRef<HTMLDivElement>;
 
   /** Skeleton-row range — 10 placeholders while AI suggestions load. */
-  readonly skeletonRange = Array.from({ length: AI_SUGGESTION_COUNT }, (_, i) => i);
+  readonly skeletonRange = Array.from({ length: 8 }, (_, i) => i);
 
   // Picker state.
   open = signal(false);
@@ -1121,7 +1100,6 @@ export class DomainPickerComponent implements OnDestroy {
   queryModel = '';
   availabilityChecking = signal(false);
   suggestionsLoading = signal(false);
-  refining = signal(false);
   registering = signal<string | null>(null);
 
   hostnames = signal<Hostname[]>([]);
@@ -1415,30 +1393,6 @@ export class DomainPickerComponent implements OnDestroy {
       .map((domain) => ({ domain } as DomainSuggestion));
   }
 
-  /** "Show me different ones" — POST refine endpoint with current 10 excluded. */
-  async refineSuggestions(): Promise<void> {
-    const site = this.state.selectedSite();
-    if (!site || this.refining()) return;
-    this.refining.set(true);
-    try {
-      const exclude = this.suggestions().map((s) => s.domain);
-      const res = await this.fetchSuggestEndpoint(`/domains/suggest/refine`, 'POST', {
-        count: AI_SUGGESTION_COUNT,
-        exclude_domains: exclude,
-        site_id: site.id,
-      });
-      const fresh = ((res?.suggestions ?? []) as DomainSuggestion[]).slice(0, AI_SUGGESTION_COUNT);
-      this.suggestions.set(fresh);
-      // Cache the refined set so a re-opened picker shows the latest picks instantly.
-      this.suggestionsCache.set(site.id, fresh);
-      this.telemetry.track('domain.suggestions_shown', { count: fresh.length, refined: true });
-    } catch (err) {
-      console.warn('domain-picker refine failed', err);
-      this.toast.error("Couldn't fetch fresh picks — give it a moment.");
-    } finally {
-      this.refining.set(false);
-    }
-  }
 
   /**
    * Thin shim around ApiService for the suggest endpoints owned by sibling
