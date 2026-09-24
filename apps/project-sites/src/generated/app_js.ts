@@ -14,9 +14,13 @@
  * The script is PURE vanilla ES5-safe JS — no modules, no build step, runs in any
  * browser. It consolidates four concerns, each self-contained + fail-soft:
  *
- * 1. **Analytics** — fires a `pageview` to `POST /api/events` on load, and a
- *    `conversion` event for outbound / tel: / mailto: / CTA clicks. Fire-and-forget
- *    `fetch` with `keepalive:true`. Body matches `IncomingEventSchema`
+ * 1. **Analytics** — fires a `pageview` to `POST /api/events` on load, a
+ *    `conversion` event for outbound / tel: / mailto: / CTA clicks, and (via
+ *    `initWebVitals`) `web_vital` events carrying field-measured Core Web Vitals
+ *    (LCP / INP / CLS, `{metric, value, href}`) beaconed on page hide. Each metric
+ *    is sent ONLY when its PerformanceObserver attached and a real value exists —
+ *    an unmeasured vital is omitted, never a fabricated 0. Fire-and-forget `fetch`
+ *    with `keepalive:true`. Body matches `IncomingEventSchema`
  *    (`{eventId, siteId, eventType, timestamp, payload, referer}`).
  * 2. **Form hijack** — capture-phase submit listener + MutationObserver catch every
  *    `<form>` site-wide, `preventDefault`, serialize fields, POST to
@@ -668,10 +672,102 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     });
   }
 
+  /* ─────────────────── Core Web Vitals (first-party RUM) ─────────────────── */
+  // Field measurement of LCP / INP / CLS via PerformanceObserver, beaconed as
+  // 'web_vital' events (metric+value+href) on page hide. Values use the standard
+  // algorithms — final LCP frozen at first interaction, CLS session-window max,
+  // INP p98-longest-interaction — so they line up with CrUX/Cloudflare field data.
+  // HONESTY CONTRACT: a metric is reported ONLY if its observer attached AND a
+  // value exists. An unmeasured metric (unsupported browser / no interaction) is
+  // OMITTED, never sent as a fabricated 0 (LCP/CLS/INP are Chromium-only APIs).
+  function initWebVitals() {
+    if (typeof PerformanceObserver === 'undefined') return;
+    var support = { LCP: false, CLS: false, INP: false };
+    var lcp = -1;
+    var clsMax = 0, clsCur = 0, clsFirst = 0, clsLast = 0;
+    var inpMap = {}, inpCount = 0;
+    var done = false;
+
+    // ms for LCP/INP; unitless (3-decimal) for CLS. NaN/negative never sent.
+    function report(metric, value) {
+      if (value < 0 || value !== value) return;
+      var v = metric === 'CLS' ? Math.round(value * 1000) / 1000 : Math.round(value);
+      track('web_vital', { metric: metric, value: v, href: location.pathname });
+    }
+    // Group event-timing entries by interactionId; an interaction's latency is
+    // the MAX duration across its entries (keydown+keyup share one id).
+    function recordInteraction(id, dur) {
+      if (id == null) return;
+      var k = 'i' + id;
+      if (inpMap[k] === undefined) { inpCount++; inpMap[k] = dur; }
+      else if (dur > inpMap[k]) { inpMap[k] = dur; }
+    }
+    function inpValue() {
+      var d = [], k;
+      for (k in inpMap) { if (inpMap.hasOwnProperty(k)) d.push(inpMap[k]); }
+      if (!d.length) return -1;
+      d.sort(function (a, b) { return b - a; });
+      // p98-longest-interaction: index = floor(interactionCount / 50).
+      return d[Math.min(d.length - 1, Math.floor(inpCount / 50))];
+    }
+    function obs(type, extra, cb) {
+      try {
+        var o = new PerformanceObserver(function (l) { l.getEntries().forEach(cb); });
+        var init = { type: type, buffered: true };
+        if (extra) { for (var kk in extra) init[kk] = extra[kk]; }
+        o.observe(init);
+        return o;
+      } catch (e) { return null; }
+    }
+
+    var lcpO = obs('largest-contentful-paint', null, function (e) { lcp = e.startTime; });
+    if (lcpO) { support.LCP = true; }
+    // LCP is only valid up to the first user interaction — freeze it there.
+    var freezeLcp = function () { try { if (lcpO) lcpO.disconnect(); } catch (e) {} };
+    ['keydown', 'pointerdown', 'click'].forEach(function (t) {
+      try { window.addEventListener(t, freezeLcp, { once: true, capture: true, passive: true }); } catch (e) {}
+    });
+
+    if (obs('layout-shift', null, function (e) {
+      if (e.hadRecentInput) { return; }
+      var t = e.startTime;
+      if (clsCur && t - clsLast < 1000 && t - clsFirst < 5000) { clsCur += e.value; clsLast = t; }
+      else { clsCur = e.value; clsFirst = t; clsLast = t; }
+      if (clsCur > clsMax) { clsMax = clsCur; }
+    })) { support.CLS = true; }
+
+    var inpO = obs('event', { durationThreshold: 40 }, function (e) {
+      if (e.interactionId) { recordInteraction(e.interactionId, e.duration); }
+    });
+    var fiO = obs('first-input', null, function (e) {
+      recordInteraction(e.interactionId || 'fi', e.duration);
+    });
+    if (inpO || fiO) { support.INP = true; }
+
+    // Beacon once, on the first of visibilitychange:hidden / pagehide (unload-safe
+    // via track()'s keepalive fetch).
+    function finalize() {
+      if (done) { return; }
+      done = true;
+      if (support.LCP && lcp >= 0) { report('LCP', lcp); }
+      if (support.CLS) { report('CLS', clsMax); }      // 0 is a real (perfect) CLS
+      if (support.INP) { report('INP', inpValue()); }  // omitted when no interaction
+    }
+    try {
+      window.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') { finalize(); }
+      }, { capture: true });
+      window.addEventListener('pagehide', finalize, { capture: true });
+    } catch (e) {}
+  }
+
   /* ───────────────────────── Boot ───────────────────────── */
   onReady(function () {
     try {
       pageview();
+    } catch (e) {}
+    try {
+      initWebVitals();
     } catch (e) {}
     try {
       document.addEventListener('click', onClick, true);
