@@ -19,7 +19,7 @@ import { TelemetryService } from '../../services/telemetry.service';
 const site = (id: string): never => ({ id, slug: id, business_name: id, status: 'published' }) as never;
 
 function setup(opts: { sites?: never[]; meFails?: boolean; loadFails?: boolean } = {}): {
-  svc: AdminStateService; toastErr: jasmine.Spy;
+  svc: AdminStateService; toastErr: jasmine.Spy; getAnalytics: jasmine.Spy;
 } {
   const ok = <T,>(data: T) => of({ data });
   const api = {
@@ -27,7 +27,9 @@ function setup(opts: { sites?: never[]; meFails?: boolean; loadFails?: boolean }
     getDomainSummary: () => ok({ total: 0, active: 0, pending: 0, failed: 0 }),
     getSubscription: () => ok(null),
     getMe: () => (opts.meFails ? throwError(() => ({ status: 500 })) : ok({ org_id: 'org-1', is_super_admin: true })),
-    getAnalytics: () => ok(null),
+    // Kept as a spy to lock the removal of the dead, never-rendered GA4/CF analytics
+    // fetch: loadData()/refresh must NEVER call it (it wasted one CF API call per tick).
+    getAnalytics: jasmine.createSpy('getAnalytics').and.returnValue(ok(null)),
   };
   const toastErr = jasmine.createSpy('error');
   TestBed.configureTestingModule({
@@ -42,7 +44,7 @@ function setup(opts: { sites?: never[]; meFails?: boolean; loadFails?: boolean }
       { provide: Dialog, useValue: { open: () => ({ closed: of(undefined) }) } },
     ],
   });
-  return { svc: TestBed.inject(AdminStateService), toastErr };
+  return { svc: TestBed.inject(AdminStateService), toastErr, getAnalytics: api.getAnalytics };
 }
 
 describe('AdminStateService (selectedSite + loadData)', () => {
@@ -88,6 +90,15 @@ describe('AdminStateService (selectedSite + loadData)', () => {
     expect(svc.loading()).toBe(false);
   });
 
+  // Regression: the GA4/CF `getAnalytics` result was fetched into a signal that NO
+  // component ever rendered — a dead, recurring CF/GA4 API call per site/tick. loadData
+  // (and the live refresh it starts) must never fetch it. Prevents re-introduction.
+  it('loadData() does NOT fetch the never-rendered GA4/CF analytics (dead fetch removed)', () => {
+    const { svc, getAnalytics } = setup({ sites: [site('a')] });
+    svc.loadData();
+    expect(getAnalytics).not.toHaveBeenCalled();
+  });
+
   it('loadData() tolerates a /me failure (org defaults, dashboard still loads)', () => {
     const { svc } = setup({ sites: [site('a')], meFails: true });
     svc.loadData();
@@ -101,12 +112,6 @@ describe('AdminStateService (selectedSite + loadData)', () => {
     svc.loadData();
     expect(svc.loading()).toBe(false);
     expect(toastErr).toHaveBeenCalled();
-  });
-
-  it('setAnalyticsPeriod updates the period signal', () => {
-    const { svc } = setup({ sites: [site('a')] });
-    svc.setAnalyticsPeriod('30');
-    expect(svc.analyticsPeriod()).toBe('30');
   });
 });
 

@@ -468,6 +468,25 @@
   `main-ABRF4FZM.js`; homepage boots 200). Remaining decorator files: **43**. Next: WIRED simple-value-input leaves
   (`calendar-widget`, `pages/admin/empty-state`, `feature-flags/mode-switcher`) — NOT the unwired site-kit primitives;
   `focus-trap`/`reveal` use imperative setter/order-fragile reactivity → migrate carefully/last.
+- **Cycle 40 — 2026-09-24 (Analytics: remove a dead, wasteful GA4/CF fetch that no UI rendered):** Traced the Cycle-38
+  handoff (per-source `visitorsMetric` label on `/api/analytics/:siteId`) to its consumer and found the premise was
+  false: `AdminStateService.loadAnalytics` fetched that GA4→CF→D1 endpoint (`api.service.getAnalytics`, period='7') into
+  an `analytics` signal on init + site-switch + **every 60s refresh tick**, but **NO component ever read/rendered that
+  signal** (grep-confirmed: 0 template readers of `.analytics()`/`.analyticsLoading()`, no `setAnalyticsPeriod` UI). A
+  write-only dead fetch wasting one CF/GA4 API call per site per minute — exactly the "one CF request per widget per
+  customer" the doctrine forbids, and the per-source label had no surface to render on. Removed the whole dead chain from
+  `admin-state.service`: the `analytics`/`analyticsPeriod`/`analyticsLoading` signals, `loadAnalytics`/`setAnalyticsPeriod`
+  methods, their 4 call sites (init/site-load/60s-tick/site-switch), the now-unused `tick` counter + `AnalyticsData` import.
+  The live refresh now does only the rendered sites+domains+subscription poll. Updated the spec (dropped the
+  `setAnalyticsPeriod` test; **+1 regression test** asserting `loadData()`/refresh never call `getAnalytics`, preventing
+  re-introduction). `api.service.getAnalytics` + the `AnalyticsData`/`AnalyticsStats`/… type family + the backend
+  `/api/analytics/:siteId` handler are now frontend-orphaned — a candidate for a fuller removal (a bigger, tests-touching
+  decision), flagged not done. Verified: fe tsc (app + spec) 0 · **Karma 2054/2054** (−1 dead test, +1 regression) ·
+  build 0 · deployed R2; app boots (homepage/admin/main all 200, new `main-A6IFORFK.js`). **Next (highest-priority):**
+  decide the orphaned `/api/analytics/:siteId` + `getAnalytics` + `AnalyticsData` family — remove them (with the backend
+  endpoint + its Jest tests, a coherent cross-stack cleanup) OR wire the GA4/CF data into a real card if GA4-connected
+  sites warrant it (most sites have no GA4 → likely remove). Until then, the main analytics dashboard (visitor_events,
+  first-party) is the sole rendered source and is honest.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

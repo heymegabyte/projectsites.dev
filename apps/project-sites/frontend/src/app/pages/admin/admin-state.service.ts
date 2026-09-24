@@ -3,7 +3,7 @@ import { Dialog } from '@angular/cdk/dialog';
 import { Router } from '@angular/router';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { forkJoin, interval, takeWhile, switchMap, of, catchError } from 'rxjs';
-import { ApiService, type Site, type DomainSummary, type SubscriptionInfo, type AnalyticsData } from '../../services/api.service';
+import { ApiService, type Site, type DomainSummary, type SubscriptionInfo } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
 import { ToastService } from '../../services/toast.service';
 import { TelemetryService } from '../../services/telemetry.service';
@@ -76,9 +76,6 @@ export class AdminStateService {
   selectedSiteId = signal<string | null>(readPersistedSelectedSite());
   domainSummary = signal<DomainSummary>({ total: 0, active: 0, pending: 0, failed: 0 });
   subscription = signal<SubscriptionInfo | null>(null);
-  analytics = signal<AnalyticsData | null>(null);
-  analyticsPeriod = signal<string>('7');
-  analyticsLoading = signal(false);
   loading = signal(true);
 
   private alive = true;
@@ -91,7 +88,6 @@ export class AdminStateService {
     } else if (this.alive && this.sites().length > 0) {
       // Resume + fire one immediate refresh so the user sees fresh data on tab-return.
       this.startLiveRefresh();
-      this.loadAnalytics();
     }
   };
 
@@ -138,9 +134,7 @@ export class AdminStateService {
         this.orgName.set(res.me?.data?.org_name ?? '');
         this.isSuperAdmin.set(!!res.me?.data?.is_super_admin);
         this.loading.set(false);
-        // Load analytics for selected site
-        this.loadAnalytics();
-        // Start live refresh (every 60s for analytics, 30s for sites)
+        // Start live refresh (sites + domains + subscription every 30s)
         this.startLiveRefresh();
       },
       error: () => {
@@ -160,31 +154,12 @@ export class AdminStateService {
     });
   }
 
-  /** Load GA4 analytics data for the currently selected site. */
-  loadAnalytics(): void {
-    const site = this.selectedSite();
-    if (!site) return;
-    this.analyticsLoading.set(true);
-    this.api.getAnalytics(site.id, this.analyticsPeriod()).pipe(
-      catchError(() => of({ data: null as AnalyticsData | null }))
-    ).subscribe((res) => {
-      this.analytics.set(res.data);
-      this.analyticsLoading.set(false);
-    });
-  }
-
-  /** Change analytics period and reload. */
-  setAnalyticsPeriod(period: string): void {
-    this.analyticsPeriod.set(period);
-    this.loadAnalytics();
-  }
 
   /**
    * Start live data refresh for the dashboard. Sites + domains + subscription
-   * every 30s; analytics every 60s (every other tick). The interval is paused
-   * automatically when the tab becomes hidden via {@link visibilityHandler}
-   * and resumed when it returns to the foreground (with an immediate refresh
-   * to give the user fresh numbers on tab-return).
+   * every 30s. The interval is paused automatically when the tab becomes hidden
+   * via {@link visibilityHandler} and resumed when it returns to the foreground
+   * (with an immediate refresh to give the user fresh numbers on tab-return).
    */
   private startLiveRefresh(): void {
     this.stopLiveRefresh();
@@ -192,11 +167,8 @@ export class AdminStateService {
       // Idempotent — Browser dedupes identical (element, type, listener) triples.
       document.addEventListener('visibilitychange', this.visibilityHandler);
     }
-    let tick = 0;
     this.refreshTimer = setInterval(() => {
       if (!this.alive) return;
-      tick++;
-      // Sites + domains every 30s
       forkJoin({
         sites: this.api.listSites(),
         domains: this.api.getDomainSummary(),
@@ -208,10 +180,6 @@ export class AdminStateService {
           this.subscription.set(res.sub.data || null);
         }
       });
-      // Analytics every 60s (every other tick)
-      if (tick % 2 === 0) {
-        this.loadAnalytics();
-      }
     }, 30_000);
   }
 
@@ -253,8 +221,6 @@ export class AdminStateService {
       status: site.status,
       plan: site.plan,
     });
-    // Reload analytics for the newly selected site
-    this.loadAnalytics();
   }
 
   deleteSite(site: Site, cancelSub: boolean): void {

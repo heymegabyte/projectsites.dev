@@ -202,6 +202,15 @@ with a tooltip noting it's the current offset (DST-approximate across a change),
 rollup + `getTrafficSummaryFromRollup` can't be tz-shifted (pre-aggregated by UTC day) — the live path is the tz-aware one;
 the `/api/analytics/:siteId` legacy `byDay` (secondary route, not the UI's source) stays UTC.
 
+**Dead `getAnalytics` fetch removed — DONE (2026-09-24).** That legacy `/api/analytics/:siteId` (GA4→CF→D1) is NOT the UI's
+source — yet `AdminStateService.loadAnalytics` still fetched it into an `analytics` signal on init + site-switch + every
+60s refresh tick, and **NO component ever rendered that signal**: a write-only dead fetch that wasted one CF/GA4 API call
+per site per minute (exactly the "one CF request per widget per customer" the doctrine forbids). Removed the whole dead
+chain (`analytics`/`analyticsPeriod`/`analyticsLoading` signals + `loadAnalytics`/`setAnalyticsPeriod` + its 4 call sites).
+This also VOIDS the Cycle-38 handoff — its per-source `visitorsMetric` label had no surface to render on. `api.service.getAnalytics`
++ the `AnalyticsData` type family are now frontend-orphaned (candidates for removal alongside a decision on the backend
+endpoint). Regression-locked: a Karma test asserts `loadData()`/refresh never call `getAnalytics`. Frontend-only; Karma 2054/2054.
+
 **Absolute-window tz interpretation — DONE (2026-09-24).** The custom `?start&end` bounds are now interpreted in the OWNER's
 timezone, consistent with the tz-aware daily buckets. A pure `shiftWindowToTz(window, tzMin)` (in `visitor_events_core`)
 converts each date-only LOCAL midnight to its UTC datetime equivalent (`YYYY-MM-DD HH:MM:SS`, D1-comparable — never ISO T/Z):
