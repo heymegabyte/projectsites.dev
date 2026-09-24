@@ -16,7 +16,12 @@
  * window bounds each sub-query binds.
  */
 
-import { getTrafficSummary, getWebVitalsSummary, getConversionKinds } from '../service.js';
+import {
+  getTrafficSummary,
+  getWebVitalsSummary,
+  getConversionKinds,
+  shiftWindowToTz,
+} from '../service.js';
 import type { Env } from '../../../../src/types/env.js';
 
 interface Call {
@@ -114,5 +119,37 @@ describe('getWebVitalsSummary / getConversionKinds — absolute window', () => {
     const q = calls.find((c) => c.sql.includes("event_type = 'web_vital'"));
     expect(q!.sql).toContain("datetime('now', ?)");
     expect(q!.params).toEqual(['site_1', '-7 days']);
+  });
+});
+
+describe('shiftWindowToTz — interpret absolute window bounds in the owner tz', () => {
+  it('shifts PST (-480) local midnights to their UTC datetime equivalents', () => {
+    // 2026-08-01 00:00 PST = 2026-08-01 08:00 UTC; 2026-08-16 00:00 PST = 2026-08-16 08:00 UTC.
+    expect(shiftWindowToTz({ since: '2026-08-01', until: '2026-08-16' }, -480)).toEqual({
+      since: '2026-08-01 08:00:00',
+      until: '2026-08-16 08:00:00',
+    });
+  });
+
+  it('shifts IST (+330) — east of UTC → earlier UTC instant', () => {
+    // 2026-08-01 00:00 IST = 2026-07-31 18:30 UTC.
+    expect(shiftWindowToTz({ since: '2026-08-01', until: '2026-08-16' }, 330)).toEqual({
+      since: '2026-07-31 18:30:00',
+      until: '2026-08-15 18:30:00',
+    });
+  });
+
+  it('produces SQLite-comparable space-separated bounds (never ISO T/Z)', () => {
+    const w = shiftWindowToTz({ since: '2026-08-01', until: '2026-08-16' }, -480);
+    expect(w.since).not.toContain('T');
+    expect(w.since).not.toContain('Z');
+    expect(w.since).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  });
+
+  it('returns the window UNCHANGED for UTC (0), non-integer, and out-of-range offsets', () => {
+    const w = { since: '2026-08-01', until: '2026-08-16' };
+    for (const bad of [0, 9999, -9999, 1.5, Number.NaN, undefined]) {
+      expect(shiftWindowToTz(w, bad as number)).toEqual(w);
+    }
   });
 });

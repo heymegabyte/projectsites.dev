@@ -1803,7 +1803,7 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
       // recorded on every site-serve. The CF-zone dataset above is empty for
       // `*.projectsites.dev` subdomains, so a real site showed "No traffic yet"
       // while it had hundreds of recorded pageviews. Never throws (404/off → null).
-      site: this.api.getSiteAnalytics(site.id, this.rangeDays(), win).pipe(
+      site: this.api.getSiteAnalytics(site.id, this.rangeDays(), win, this.browserTzOffset()).pipe(
         timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
         catchError(() => of(null as SiteAnalyticsSummary | null)),
       ),

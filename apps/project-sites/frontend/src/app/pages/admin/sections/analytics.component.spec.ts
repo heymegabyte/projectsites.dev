@@ -1080,6 +1080,14 @@ describe('AdminAnalyticsComponent — custom absolute date window', () => {
     expect(getSiteAnalyticsDaily.calls.mostRecent().args[3]).toBe(-480);
   });
 
+  it('sends the tz offset to the SUMMARY endpoint too (shifts absolute-window bounds to owner-local)', () => {
+    build();
+    const c = fixture.componentInstance;
+    spyOn(c, 'browserTzOffset').and.returnValue(-480);
+    c.setRange('7d'); // triggers a reload
+    expect(getSiteAnalytics.calls.mostRecent().args[3]).toBe(-480);
+  });
+
   it('renders an honest "dates in <zone>" caption reflecting the daily bucket tz', () => {
     build();
     const c = fixture.componentInstance;

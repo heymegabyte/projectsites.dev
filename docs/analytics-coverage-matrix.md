@@ -194,10 +194,19 @@ with a tooltip noting it's the current offset (DST-approximate across a change),
 rollup + `getTrafficSummaryFromRollup` can't be tz-shifted (pre-aggregated by UTC day) — the live path is the tz-aware one;
 the `/api/analytics/:siteId` legacy `byDay` (secondary route, not the UI's source) stays UTC.
 
+**Absolute-window tz interpretation — DONE (2026-09-24).** The custom `?start&end` bounds are now interpreted in the OWNER's
+timezone, consistent with the tz-aware daily buckets. A pure `shiftWindowToTz(window, tzMin)` (in `visitor_events_core`)
+converts each date-only LOCAL midnight to its UTC datetime equivalent (`YYYY-MM-DD HH:MM:SS`, D1-comparable — never ISO T/Z):
+a PST owner's `since='2026-08-01'` → filter `created_at >= '2026-08-01 08:00:00'` (= Aug 1 00:00 PST), not UTC midnight.
+Both site_analytics routes (`/analytics` + `/analytics/daily`) parse `?tz` and shift the window before querying — the summary
+counts + the daily filter now match the owner's local days (the daily ALSO buckets by tz). UTC/junk/out-of-range → the window
+passes through unchanged (fail-safe). The response still echoes the ORIGINAL local dates (the shifted UTC bounds are an
+internal detail). Frontend sends `tz` to BOTH `getSiteAnalytics` + `getSiteAnalyticsDaily`. +4 Jest (PST/IST shift · no-T/Z ·
+fail-safe pass-through) + 1 Karma (summary gets tz) → 1987 Karma / 12266 Jest. Deployed; prod-verified.
+
 NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions/shareable-range +
-**arbitrary-window fully end-to-end + tz-aware daily bucketing** complete): (1) **Absolute-window tz interpretation** — the
-`?start&end` bounds are still compared as UTC date-only literals, so a PST owner picking "Aug 1" gets `>= 2026-08-01 00:00
-UTC` (= Jul 31 16:00 PST). Shift the window bounds by the same tz offset for full consistency with the now-tz-aware buckets.
-(2) **Comparison-period overlay** — the summary already returns `previous` (equal-length prior window) deltas; surface a
-visual compare (sparkline/Δ badges per KPI) beyond the current numeric delta. (3) **Migrate bespoke CSV exports**
-(events-table / audit / forms / super-admin) onto the shared `csvEscape`/`downloadText`.
+**arbitrary-window + tz-aware bucketing + tz-aware bounds** all complete): (1) **Comparison-period overlay** — the summary
+already returns `previous` (equal-length prior window) deltas; surface a visual compare (sparkline/Δ badges per KPI) beyond
+the current numeric delta. (2) **Migrate bespoke CSV exports** (events-table / audit / forms / super-admin) onto the shared
+`csvEscape`/`downloadText`. (3) **DST-precision** — the fixed browser offset is approximate for a range spanning a DST change;
+a true IANA-zone shift would need a tz library or per-day offset (documented caveat in the UI today, honest but not exact).

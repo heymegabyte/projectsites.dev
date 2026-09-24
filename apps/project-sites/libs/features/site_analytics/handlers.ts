@@ -33,6 +33,9 @@ import { mintShareToken, verifyShareToken } from './share.js';
 // Reusable server-side validator for an arbitrary ?start&end window (shared with
 // the /api/analytics/:siteId route). Bounds/validates the range; authz is separate.
 import { parseCustomWindow } from '../analytics/handlers.js';
+// Shifts an absolute window's date bounds into the owner's timezone (UTC-equiv),
+// so the ?start&end filter matches the tz-aware daily buckets.
+import { shiftWindowToTz } from '../visitor_events_core/service.js';
 
 /** Share-link default lifetime: 30 days. */
 const SHARE_TTL_MS = 30 * 86_400_000;
@@ -79,8 +82,13 @@ siteAnalytics.get('/api/sites/:siteId/analytics', async (c) => {
   const cw = parseCustomWindow(c.req.query('start'), c.req.query('end'));
   if (cw.error) return badWindow(c, cw.error);
   const windowDays = parseWindowDays(c, 'windowDays');
-  const summary = await getSiteAnalyticsSummary(c.env, gate.orgId, gate.siteId, windowDays, cw.window);
-  // Echo the exact window served so the UI labels the real range (never wider than queried).
+  // Interpret the ?start&end bounds in the owner's tz (no-op for UTC/absent tz), so
+  // the summary counts the owner's local days — consistent with the daily buckets.
+  const tzRaw = Number.parseInt(c.req.query('tz') ?? '', 10);
+  const win = cw.window ? shiftWindowToTz(cw.window, Number.isInteger(tzRaw) ? tzRaw : undefined) : undefined;
+  const summary = await getSiteAnalyticsSummary(c.env, gate.orgId, gate.siteId, windowDays, win);
+  // Echo the ORIGINAL local dates the owner picked (the shifted UTC bounds are an
+  // internal query detail) so the UI labels the real range, never wider than queried.
   return c.json(cw.window ? { ...summary, windowStart: cw.startDisplay, windowEnd: cw.endDisplay } : summary);
 });
 
@@ -92,15 +100,13 @@ siteAnalytics.get('/api/sites/:siteId/analytics/daily', async (c) => {
   const cw = parseCustomWindow(c.req.query('start'), c.req.query('end'));
   if (cw.error) return badWindow(c, cw.error);
   const days = parseWindowDays(c, 'days');
-  // Optional UTC-offset (minutes) for owner-local day bucketing; service re-validates + bounds it.
+  // Optional UTC-offset (minutes): shifts the ?start&end FILTER bounds into the
+  // owner's tz (shiftWindowToTz) AND buckets each day in the owner's tz (the raw
+  // offset passed to getDailySeries); both no-op for UTC/absent. Service re-validates.
   const tzRaw = Number.parseInt(c.req.query('tz') ?? '', 10);
-  const series = await getDailySeries(
-    c.env,
-    gate.siteId,
-    days,
-    cw.window,
-    Number.isInteger(tzRaw) ? tzRaw : undefined,
-  );
+  const tz = Number.isInteger(tzRaw) ? tzRaw : undefined;
+  const win = cw.window ? shiftWindowToTz(cw.window, tz) : undefined;
+  const series = await getDailySeries(c.env, gate.siteId, days, win, tz);
   return c.json(cw.window ? { ...series, windowStart: cw.startDisplay, windowEnd: cw.endDisplay } : series);
 });
 

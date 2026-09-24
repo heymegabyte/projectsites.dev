@@ -199,6 +199,34 @@ function windowMs(d: string): number {
   return Date.parse(d.length <= 10 ? `${d}T00:00:00Z` : `${d.replace(' ', 'T')}Z`);
 }
 
+/**
+ * Re-interpret an absolute window's date-only day boundaries in the OWNER's
+ * timezone by shifting each bound to its UTC equivalent — so "Aug 1" filters from
+ * the owner's local midnight, consistent with the tz-aware daily bucketing (a PST
+ * owner's `since='2026-08-01'` becomes `2026-08-01 08:00:00` UTC). `tzOffsetMinutes`
+ * is east-positive (PST = -480); local wall-clock T = UTC + offset ⇒ UTC = T - offset.
+ * Returns the window UNCHANGED for a 0 / non-integer / out-of-range (±14h) offset, so
+ * a UTC or junk value falls back to the plain date-only (UTC) bounds. Output is
+ * `YYYY-MM-DD HH:MM:SS` (D1-comparable, space-separated — never ISO `T`/`Z`).
+ */
+export function shiftWindowToTz(
+  window: AnalyticsWindow,
+  tzOffsetMinutes: number | undefined,
+): AnalyticsWindow {
+  if (
+    typeof tzOffsetMinutes !== 'number' ||
+    !Number.isInteger(tzOffsetMinutes) ||
+    tzOffsetMinutes === 0 ||
+    tzOffsetMinutes < -840 ||
+    tzOffsetMinutes > 840
+  ) {
+    return window;
+  }
+  const toUtc = (dateOnly: string): string =>
+    new Date(windowMs(dateOnly) - tzOffsetMinutes * 60_000).toISOString().slice(0, 19).replace('T', ' ');
+  return { since: toUtc(window.since), until: toUtc(window.until) };
+}
+
 /** Whole-day span of an absolute window (minimum 1). */
 function windowSpanDays(w: AnalyticsWindow): number {
   return Math.max(1, Math.round((windowMs(w.until) - windowMs(w.since)) / 86_400_000));

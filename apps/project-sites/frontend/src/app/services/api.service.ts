@@ -815,6 +815,7 @@ export class ApiService {
     siteId: string,
     windowDays = 30,
     window?: { start: string; end: string },
+    tzOffsetMinutes?: number,
   ): Observable<SiteAnalyticsSummary> {
     // An absolute window (start/end, YYYY-MM-DD) wins server-side over windowDays;
     // windowDays rides along as the fallback the worker uses when no window is sent.
@@ -822,6 +823,11 @@ export class ApiService {
     if (window) {
       params['start'] = window.start;
       params['end'] = window.end;
+    }
+    // tz shifts the absolute-window bounds into the owner's local day server-side
+    // (no-op without a window); the worker re-validates + bounds it.
+    if (typeof tzOffsetMinutes === 'number' && Number.isInteger(tzOffsetMinutes) && tzOffsetMinutes !== 0) {
+      params['tz'] = tzOffsetMinutes.toString();
     }
     return this.get(`/sites/${siteId}/analytics`, params, { silent: true });
   }
