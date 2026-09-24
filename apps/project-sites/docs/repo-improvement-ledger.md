@@ -798,6 +798,22 @@
   the built bundle is byte-identical to live. **Next:** the Brian-gated `site-kit/*` intent call (25+ unwired components =
   most of the remaining 37 decorator files), or the analytics drilldown/filter tenant-safe server core (Cycle 57's
   deferred feature).
+- **Cycle 59 — 2026-09-24 (parallel-agent fan-out: docs drift + Angular cohort shipped; Data KV/CSV in-flight):** Ran a
+  5-agent read-only discovery swarm (Data UI / Data API / CF-clients / Angular / docs) then a 4-agent worktree
+  implementation wave. Guard `guard-fat-agent.py` blocked `general-purpose` (fat tool surface dies in this MCP-heavy
+  session) → re-issued as narrow `test-writer`/`code-simplifier`. **Landed:** (1) **docs drift** —
+  AI_INTEGRATION/PROMPTS/SUBDOMAINS/generated-site-quality reconciled (model-routing cost table + quota-fallback note;
+  Plane status PLANNED→CONFIG; TODO→timeline) (commit `0c68a14f7`); (2) **Angular signal-input cohort** — 4 WIRED
+  spec-covered components (rolling-counter ~7 + before-after-slider ~6 `@Input`; agent-message + shortcuts-overlay
+  `@Output`) decorator→signal, behavior-preserving, app-tsc + spec-tsc clean, Karma 2101/2101, deployed R2 + prod-verified
+  (`main-QSZXZPTD.js` hash-matched, home 200) (commit `9e7118941`). **In-flight / failed:** the heavy Data vertical slices
+  did NOT converge as background narrow agents (budget-starved mid-slice — see memory
+  `heavy-vertical-slices-dont-converge-in-background-narrow-agents`). KV inspector worker files
+  (handlers/schemas/manifest/test) were written + are preserved in worktree `agent-a23297e2e91bc743d` (backend wiring +
+  frontend PENDING); the CSV-import agent produced 0 files (abandoned). **Next:** finish these FOREGROUND — (a) wire +
+  flag + frontend the KV inspector from the salvaged worker files; (b) implement CSV/JSON row import directly (super-admin,
+  schema-validated parameterized batch INSERT + dry-run). Verified Data reality: ONE shared multi-tenant D1 (no per-site
+  DBs); 14/16 `data-section-capability-matrix.md` rows already DONE.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
@@ -814,7 +830,7 @@
   (`before-after-slider`, `grafana-dashboard`; dropped an unused `effect` import too).
   The 3rd `constructor(private…)` hit is a test-mock class (`readiness-badge.component.spec`),
   not Angular DI.
-- **Signal inputs/outputs: ⏳ in progress** — **37** decorator files remain (was 38); **all WIRED directives are now
+- **Signal inputs/outputs: ⏳ in progress** — **33** decorator files remain (was 37 — cycle 59 migrated 4 wired components: rolling-counter, before-after-slider, agent-message, shortcuts-overlay); **all WIRED directives are now
   signal-input migrated** — `focus-trap` was the last. Migrating a coherent unit per
   cycle, preferring WIRED, spec-covered targets that IMPROVE the code over churn. ✅ done: `cmd-glyph` (cycle 17);
   `command-palette` (`@Output()`→`output()`, cycle 18); the `states/` family — `empty-state` + `error-card` (cycle 33);
