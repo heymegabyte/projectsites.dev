@@ -57,7 +57,7 @@ interface KvValueResponse {
       } @else if (namespaceLoadError()) {
         <app-error-card [title]="namespaceLoadError()!" (retry)="loadNamespaces()" />
       } @else if (!namespaces().length) {
-        <app-empty-state message="No KV namespaces are configured for inspection." />
+        <app-empty-state title="No namespaces" message="No KV namespaces are configured for inspection." />
       } @else {
         <label for="kv-binding" class="block text-[0.78rem] font-medium text-text-secondary mb-1">
           Namespace binding
@@ -110,10 +110,11 @@ interface KvValueResponse {
                 <app-error-card [title]="keysLoadError()!" (retry)="loadKeys()" />
               } @else if (!keys().length) {
                 <app-empty-state
+                  title="No keys"
                   [message]="
                     prefixFilter()
                       ? 'No keys match this prefix.'
-                      : 'No keys in this namespace.'
+                      : 'This namespace has no keys.'
                   "
                 />
               } @else {
@@ -180,7 +181,7 @@ interface KvValueResponse {
                   </div>
                 }
               } @else {
-                <app-empty-state message="Select a key to inspect its value." />
+                <app-empty-state title="No key selected" message="Select a key to inspect its value." />
               }
             </section>
           </div>
