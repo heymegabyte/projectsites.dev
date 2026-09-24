@@ -61,6 +61,15 @@ interface SqlResult {
   columns: string[];
   rows: Array<Record<string, unknown>>;
   duration_ms: number;
+  /**
+   * D1 query-cost metadata from the statement's `meta` (rows read/written drive
+   * D1 billing + performance; `d1_duration_ms` is D1's own execution time). `null`
+   * when the runtime didn't report a value — never a fabricated 0. Optional so
+   * older result literals (e.g. in tests) stay valid; `runSql` always sets them.
+   */
+  rows_read?: number | null;
+  rows_written?: number | null;
+  d1_duration_ms?: number | null;
 }
 
 interface IntegrationProvider {
@@ -290,6 +299,14 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'integra
           @if (sqlResult(); as r) {
             <div class="sql-result-meta">
               <span class="sql-result-count">{{ r.rows.length }} {{ r.rows.length === 1 ? 'row' : 'rows' }} · {{ r.duration_ms }}ms</span>
+              @if (r.rows_read != null || r.rows_written != null || r.d1_duration_ms != null) {
+                <span class="sql-cost" data-testid="sql-cost"
+                      title="Cloudflare D1 query cost for this statement. D1 billing + performance are driven by ROWS READ — a large read behind a small result means a table scan (add an index).">
+                  @if (r.rows_read != null) { <span data-testid="sql-cost-read">read {{ fmtNum(r.rows_read) }}</span> }
+                  @if (r.rows_written != null && r.rows_written > 0) { <span> · wrote {{ fmtNum(r.rows_written) }}</span> }
+                  @if (r.d1_duration_ms != null) { <span> · D1 {{ r.d1_duration_ms }}ms</span> }
+                </span>
+              }
               @if (r.rows.length > sqlRenderCap) {
                 <span class="sql-result-cap" data-testid="sql-result-cap">showing first {{ sqlRenderCap }} — Copy JSON for all</span>
               }
@@ -299,6 +316,12 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'integra
                 </button>
               }
             </div>
+            @if (isExpensiveScan(r)) {
+              <p class="sql-scan-warn" data-testid="sql-scan-warn" role="status">
+                <span aria-hidden="true">⚠</span> Expensive scan — this query read {{ fmtNum(r.rows_read!) }} rows.
+                D1 bills + slows on rows read; add an index on the filtered / sorted columns to scan fewer.
+              </p>
+            }
             <!-- Arbitrary SELECT results can be far wider than the viewport;
                  scroll the table inside its own region instead of overflowing
                  the page (WCAG 1.4.10 — matches the sites/domains/billing tables). -->
@@ -443,6 +466,13 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'integra
     .sql-result-meta { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem; }
     .sql-result-count { font-size: 0.72rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); font-variant-numeric: tabular-nums; }
     .sql-result-cap { font-size: 0.68rem; color: #ffc800; }
+    .sql-cost { font-size: 0.68rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); font-variant-numeric: tabular-nums; cursor: help; }
+    .sql-scan-warn {
+      margin: 0.35rem 0 0.6rem; padding: 0.4rem 0.6rem; border-radius: var(--ps-radius-sm, 8px);
+      font-size: 0.72rem; line-height: 1.45; color: #ffd166;
+      background: color-mix(in oklch, #ffd166 8%, transparent);
+      border: 1px solid color-mix(in oklch, #ffd166 26%, transparent);
+    }
     .sql-result-copy {
       margin-left: auto; font-size: 0.7rem; font-weight: 500; padding: 0.2rem 0.55rem; border-radius: 6px; cursor: pointer;
       color: var(--ps-accent, #00e5ff);
@@ -573,6 +603,21 @@ export class AdminSiteDetailComponent {
   readonly sqlRenderCap = 200;
   cappedRows(r: SqlResult): Array<Record<string, unknown>> {
     return r.rows.length > this.sqlRenderCap ? r.rows.slice(0, this.sqlRenderCap) : r.rows;
+  }
+
+  /** Rows-read threshold above which a query is flagged as an expensive scan. */
+  private static readonly EXPENSIVE_SCAN_ROWS = 10_000;
+  /**
+   * True when D1 reported a large `rows_read` — a table scan that D1 bills + slows
+   * on. Gated on a real reported value (never fires on a null/absent metric).
+   */
+  isExpensiveScan(r: SqlResult): boolean {
+    return r.rows_read != null && r.rows_read > AdminSiteDetailComponent.EXPENSIVE_SCAN_ROWS;
+  }
+
+  /** Thousands-separated integer for the D1 cost readout (e.g. 12000 → "12,000"). */
+  fmtNum(n: number): string {
+    return n.toLocaleString();
   }
 
   /**
@@ -867,6 +912,9 @@ export class AdminSiteDetailComponent {
       columns?: string[];
       rows?: Array<Record<string, unknown>>;
       duration_ms?: number;
+      rows_read?: number | null;
+      rows_written?: number | null;
+      d1_duration_ms?: number | null;
       error?: string;
     }
     this.api
@@ -890,6 +938,9 @@ export class AdminSiteDetailComponent {
           columns: res.columns ?? [],
           rows: res.rows ?? [],
           duration_ms: res.duration_ms ?? 0,
+          rows_read: res.rows_read ?? null,
+          rows_written: res.rows_written ?? null,
+          d1_duration_ms: res.d1_duration_ms ?? null,
         });
         // Persist history.
         const next = [query, ...this.sqlHistory().filter((q) => q !== query)].slice(0, 50);

@@ -132,6 +132,28 @@ describe('AdminSiteDetailComponent (tabs + logs + SQL console)', () => {
     expect(c.sqlRunning()).toBe(false);
   });
 
+  it('runSql surfaces D1 query cost (rows read/written + D1 duration) into the result', () => {
+    const post = jasmine.createSpy('post').and.returnValue(
+      of({ ok: true, columns: ['id'], rows: [{ id: 1 }], duration_ms: 8, rows_read: 12000, rows_written: 0, d1_duration_ms: 6 }),
+    );
+    const { c } = make(post);
+    c.sqlQuery.set('SELECT * FROM big_table');
+    c.runSql();
+    const r = c.sqlResult()!;
+    expect(r.rows_read).toBe(12000);
+    expect(r.rows_written).toBe(0);
+    expect(r.d1_duration_ms).toBe(6);
+    expect(c.isExpensiveScan(r)).toBeTrue(); // 12,000 read > 10,000 threshold → flagged
+  });
+
+  it('isExpensiveScan flags only a large REPORTED rows_read (never a null or small one)', () => {
+    const { c } = make();
+    const base = { columns: [], rows: [], duration_ms: 0, rows_written: 0, d1_duration_ms: 1 };
+    expect(c.isExpensiveScan({ ...base, rows_read: 12000 })).toBeTrue();
+    expect(c.isExpensiveScan({ ...base, rows_read: 500 })).toBeFalse();
+    expect(c.isExpensiveScan({ ...base, rows_read: null })).toBeFalse(); // null = not reported, not a fake 0
+  });
+
   // The Run button had no [disabled] + runSql had no in-flight guard, so a slow
   // query let repeated clicks pile up concurrent /sql/exec POSTs (wasteful +
   // flickering results). sqlRunning() now guards re-entry.

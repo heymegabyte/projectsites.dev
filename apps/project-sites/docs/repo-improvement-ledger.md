@@ -57,6 +57,13 @@
   metric → "Measuring…" not 0; rating shown as a WORD (WCAG use-of-color); labelled Chromium-only field data.
   Verified: tsc 0, **Karma 1906/1906** (+10), AOT build exit 0, eslint 0-errors, backtick gate PASS. Exemplar of
   the "focused child component wired into a god-component with a one-line edit" pattern (avoids bloating the 85KB file).
+- **Cycle 7 — 2026-09-23 (Data, one slice — built-but-unwired fix):** The SQL console's `/sql/exec` endpoint
+  already returned D1 query-cost meta (`rows_read`/`rows_written`/`d1_duration_ms`) but the frontend `SqlResult`
+  DROPPED it — a built-but-unwired gap. Wired it through (`SqlResult`/`SqlExecRes` + `sqlResult.set`) and now the
+  console **displays** "read N · wrote N · D1 Xms" and shows a ⚠ **expensive-scan warning** (`isExpensiveScan`,
+  >10k rows read → "add an index") — the prompt's "make cost visible" + "warn about expensive scans". Honest: cost
+  shown only for a REPORTED value (`!= null`), never a fabricated 0. +2 Karma specs (cost surfaced; scan threshold).
+  Verified: tsc 0, **Karma 1908/1908**, AOT build exit 0, eslint 0-errors, backtick gate PASS.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
