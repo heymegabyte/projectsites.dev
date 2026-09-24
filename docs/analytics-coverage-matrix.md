@@ -32,7 +32,8 @@
 |---|---|---|---|---|---|---|---|
 | Pageviews | D1 visitor_events (server) | none | per site_id | D1 (unbounded) | none | ✅ live | traffic card |
 | Unique sessions | D1 visitor_events (anon hash) | none | site_id | D1 | none | ✅ live | sessions card |
-| Conversions | D1 visitor_events (beacon) | none | site_id | D1 | none | ✅ live | conversions card |
+| Conversions (total) | D1 visitor_events (beacon) | none | site_id | D1 | none | ✅ live | conversions card |
+| **Conversions by kind** (call / directions / form / …) | D1 visitor_events `json_extract($.kind)` on `conversion` events | none | site_id | D1 | none | ✅ **live (this fire)** — `getConversionKinds` (both summary paths) → `traffic.byConversionKind` → focused **`ConversionsCardComponent`** (humanized labels + bar breakdown + total; kind-less → "other"; honest "no conversions tracked yet" empty state) | `/admin/analytics` "Conversions" card |
 | Top pages / paths | D1 visitor_events | none | site_id | D1 | none | ✅ live | top-pages table |
 | Referrers | D1 visitor_events | none | site_id | D1 | none | ✅ live | referrer table |
 | Geography (country/city/region) | D1 metadata ← `request.cf` | none | site_id | D1 | none | ✅ live | geo breakdown |
@@ -90,10 +91,16 @@ inp=null → honesty contract visibly correct).
 returns `webVitals.slowestPages` (top-5 worst-first, past a **5-sample floor** so a p75 isn't ranked off 1–2 hits);
 the card renders a "Slowest pages · LCP p75" table (path + p75 + rating word + samples) when any page qualifies, hidden
 otherwise. So the **CWV area is fully built out** (site + per-page). Covered by a per-path service spec + 2 card specs.
-NEXT highest-value gaps (the CWV area is done — move to a NEW category): (1) **Security coverage** (❌ still missing,
-now the top gap) — FIRST do CF GraphQL **schema introspection** for our account to confirm what `firewallEventsAdaptive`
-actually exposes for our shared `projectsites.dev` zone + custom hostnames (attribution via `clientRequestHTTPHost`),
-THEN a bot/challenge/block card, honestly gated ("custom domains in a CF zone only; subdomains share the platform zone
-and have no per-site WAF events" — never render 0 as "no attacks"). (2) **Usability honesty sweep** — an explicit source
-+ freshness ("as of") + "not available for subdomains" vs "no data yet" label on EVERY analytics card. (3) **CSV export
-of the analytics dashboard** via the shared `utils/csv-export` (traffic/top-pages/CWV rows).
+**Conversions-by-kind is DONE** (2026-09-24): `getConversionKinds` (`visitor_events_core/service.ts`, both summary
+paths) groups `conversion` events by `json_extract(metadata,'$.kind')` → `traffic.byConversionKind`; a focused
+`ConversionsCardComponent` renders humanized labels (Phone calls / Directions / Form submissions / …) + a bar
+breakdown + total, with an honest "no conversions tracked yet" empty state (kind-less conversions bucket as "other",
+never dropped). This is the highest-impact UNIVERSAL (D1, all sites) outcome metric — the ROI a small-business owner
+cares about. Covered by a service spec + 5 card specs.
+NEXT highest-value gaps (D1 outcome + CWV coverage is now strong — the remaining ones are CF-side or usability):
+(1) **Security coverage** (❌ still the top MISSING category) — FIRST do CF GraphQL **schema introspection** for our
+account to confirm what `firewallEventsAdaptive` exposes for our shared `projectsites.dev` zone + custom hostnames
+(attribution via `clientRequestHTTPHost`), THEN a bot/challenge/block card, honestly gated ("custom domains in a CF
+zone only; subdomains share the platform zone and have no per-site WAF events" — never render 0 as "no attacks").
+(2) **Usability honesty sweep** — explicit source + freshness ("as of") + "not available for subdomains" vs "no data
+yet" label on EVERY analytics card. (3) **CSV export** of the analytics dashboard via the shared `utils/csv-export`.

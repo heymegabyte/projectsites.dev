@@ -17,6 +17,7 @@ import {
   type TrafficSummary,
   type PathCountSchema,
   type WebVitals,
+  type LabelCount,
 } from './schemas.js';
 import type { z } from 'zod';
 
@@ -244,6 +245,33 @@ export async function getWebVitalsSummary(
   return { lcp: stat('LCP'), inp: stat('INP'), cls: stat('CLS'), slowestPages };
 }
 
+/**
+ * Conversions broken down by kind (call / directions / form / email / …) over the
+ * window — the actual business outcomes an owner acts on. Queried DIRECTLY from
+ * `visitor_events` `conversion` rows (works in BOTH the live + rollup summary paths,
+ * since the analytics_daily rollup carries by-type but not by-conversion-kind).
+ *
+ * @remarks Fail-soft — a missing table / query error yields []. A conversion with
+ * no `kind` (a generic goal) buckets as 'other' so it's counted, never dropped.
+ */
+export async function getConversionKinds(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+): Promise<LabelCount[]> {
+  const { data, error } = await dbQuery<{ label: string | null; n: number }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.kind') AS label, COUNT(*) AS n
+       FROM visitor_events
+      WHERE site_id = ? AND event_type = 'conversion'
+        AND created_at >= datetime('now', ?)
+      GROUP BY label ORDER BY n DESC LIMIT 20`,
+    [siteId, `-${windowDays} days`],
+  );
+  if (error) return [];
+  return data.map((r) => ({ label: r.label ?? 'other', count: Number(r.n) }));
+}
+
 /** Roll up a site's traffic over a trailing window. */
 export async function getTrafficSummary(
   env: Env,
@@ -285,6 +313,7 @@ export async function getTrafficSummary(
     byCountryRows,
     bounceRows,
     webVitals,
+    byConversionKind,
   ] = await Promise.all([
     scalar(env, `SELECT COUNT(*) AS n FROM visitor_events WHERE ${w} AND event_type = 'pageview'`, [
       siteId,
@@ -352,6 +381,8 @@ export async function getTrafficSummary(
     ).then((r) => (r.error || !r.data[0] ? { sessions: 0, single: 0 } : r.data[0])),
     // AN-CWV — real-user Core Web Vitals p75 (queried directly; not in the rollup).
     getWebVitalsSummary(env, siteId, windowDays),
+    // AN-CONV — conversions by kind (queried directly; not in the rollup).
+    getConversionKinds(env, siteId, windowDays),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -384,6 +415,7 @@ export async function getTrafficSummary(
     byChannel,
     byCountry,
     webVitals,
+    byConversionKind,
     previous: {
       pageviews: prevPageviews,
       uniqueSessions: prevSessions,
@@ -458,7 +490,7 @@ export async function getTrafficSummaryFromRollup(
     return error ? [] : data;
   };
 
-  const [cur, prev, pathRows, typeRows, channelRows, deviceRows, countryRows, webVitals] =
+  const [cur, prev, pathRows, typeRows, channelRows, deviceRows, countryRows, webVitals, byConversionKind] =
     await Promise.all([
       sumScalars(curStart, null),
       sumScalars(prevStart, prevEnd),
@@ -467,8 +499,9 @@ export async function getTrafficSummaryFromRollup(
       merge('by_channel_json', 'label'),
       merge('by_device_json', 'label'),
       merge('by_country_json', 'label'),
-      // CWV isn't rolled into analytics_daily — read it live from the web_vital rows.
+      // CWV + conversions-by-kind aren't rolled into analytics_daily — read live.
       getWebVitalsSummary(env, siteId, windowDays),
+      getConversionKinds(env, siteId, windowDays),
     ]);
 
   return TrafficSummarySchema.parse({
@@ -484,6 +517,7 @@ export async function getTrafficSummaryFromRollup(
     byChannel: channelRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     byCountry: countryRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     webVitals,
+    byConversionKind,
     previous: {
       pageviews: prev.pageviews,
       uniqueSessions: prev.uniqueSessions,

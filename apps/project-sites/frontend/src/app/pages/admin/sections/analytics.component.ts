@@ -21,6 +21,7 @@ import { EmptyStateComponent } from '../empty-state.component';
 import { ErrorCardComponent } from '../../../components/states';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { WebVitalsCardComponent } from './web-vitals-card.component';
+import { ConversionsCardComponent } from './conversions-card.component';
 
 type RangeId = AnalyticsRange;
 
@@ -61,7 +62,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, ConversionsCardComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -492,6 +493,14 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
           }
         </section>
       }
+
+      <!-- Conversions — the business outcomes (calls / directions / form submits)
+           from conversion beacon events. Honest counts; empty state when none tracked. -->
+      <app-conversions-card
+        appReveal
+        [rows]="siteTraffic()?.byConversionKind ?? []"
+        [windowDays]="rangeDays()"
+      />
 
       <!-- Real-user experience — field-measured Core Web Vitals p75 (LCP/INP/CLS)
            from the web_vital beacon rows. Honest: null metric → "measuring", never 0. -->

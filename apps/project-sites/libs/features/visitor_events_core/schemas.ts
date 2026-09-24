@@ -117,6 +117,10 @@ export const TrafficSummarySchema = z
     // AN14 — visitors by country (CF `request.cf.country`, captured in metadata
     // since before AN1). Default [] for back-compat.
     byCountry: z.array(LabelCountSchema).default([]),
+    // AN-CONV — conversions broken down by kind (call / directions / form / …)
+    // from `json_extract(metadata,'$.kind')` on `conversion` events. The actual
+    // business outcomes. Default [] for back-compat.
+    byConversionKind: z.array(LabelCountSchema).default([]),
     // AN-CWV — real-user Core Web Vitals p75 (LCP/INP/CLS) from the `web_vital`
     // beacon rows. Defaults to all-null (no samples) for back-compat with older
     // producers/fixtures that predate CWV.

@@ -80,6 +80,16 @@
   Pairs with cycle-7's cost/scan warning (cost shows THAT it scanned; EXPLAIN shows WHY). A fresh Run clears a stale
   plan. +3 Karma specs (post shape + plan parse; planHint scan/index/null; error → shared surface). Verified: tsc 0,
   **Karma 1913/1913**, AOT build OK, eslint 0-errors, backtick PASS.
+- **Cycle 10 — 2026-09-24 (Analytics conversions-by-kind, worker + Angular focused-component):** Added the
+  highest-impact UNIVERSAL outcome metric — **conversions broken down by kind** (calls / directions / form submits).
+  `getConversionKinds` groups `conversion` events by `json_extract(metadata,'$.kind')` (both summary paths, mirroring
+  the `getWebVitalsSummary` "query-directly" pattern) → `traffic.byConversionKind`; a NEW focused standalone
+  `ConversionsCardComponent` (signals + `input()` + native control flow, 5-spec Karma) renders humanized labels + a
+  bar breakdown + total, honest "no conversions tracked yet" empty state (kind-less → "other", never dropped). Wired
+  into `analytics.component.ts` with a minimal edit (import + `imports[]` + one `<app-conversions-card>` tag). Schema
+  (`byConversionKind` on `TrafficSummarySchema`, defaulted) + frontend contract updated. +1 worker service spec.
+  Verified: tsc 0 (worker + fe), **Jest 12215 pass** / **Karma 1918/1918**, AOT build OK, eslint 0-err, drift 0-err,
+  backtick PASS.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

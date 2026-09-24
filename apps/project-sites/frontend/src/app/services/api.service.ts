@@ -1553,6 +1553,8 @@ export interface SiteTrafficSummary {
   byDevice: { label: string; count: number }[];
   byChannel: { label: string; count: number }[];
   byCountry: { label: string; count: number }[];
+  /** Conversions by kind (call / directions / form / …) — the business outcomes. */
+  byConversionKind?: { label: string; count: number }[];
   /**
    * Real-user Core Web Vitals p75 (LCP/INP/CLS) from the `web_vital` beacon rows.
    * `null` per metric = no field samples yet (never a fabricated 0). `p75` is ms
