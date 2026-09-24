@@ -165,11 +165,19 @@ skips GA4 for a custom window (relative-only). Tenant authz unchanged (siteId→
 +16 tests (`custom_window` service + `site_analytics_window` handler/validator, incl. non-member-403-with-window). Deployed;
 prod-verified (valid→200 honest echo, malformed→400, reversed→400, relative→200 `windowStart:null`).
 
+**Arbitrary window — WORKER end-to-end COMPLETE (2026-09-24).** The window now flows through EVERY D1 audience route,
+including the ones the Editor UI actually calls: `getSiteAnalyticsSummary` (its "new-in-window" contact/form counts + the
+`getTrafficSummary` call) + `getDailySeries` in `libs/features/site_analytics/` both take the optional `{since, until}` →
+bound literals; both routes (`GET /api/sites/:siteId/analytics` + `/analytics/daily`) parse/validate `?start&end` via the
+shared `parseCustomWindow` (malformed/reversed → 400) + echo `windowStart`/`windowEnd`; `windowDays` echoes the span. Tenant
+authz (`requireOwnedSite` → flag + org-ownership) unchanged. +6 Jest; prod-verified authed (summary+daily 200 w/ echoed
+window + honest `pv:0`/0-buckets, malformed→400, relative→200 `windowStart:null`).
+
 NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions/shareable-range +
-arbitrary-window service/API complete): (1) **Wire arbitrary window into the UI's ACTUAL routes** — the Angular dashboard
-calls `GET /api/sites/:siteId/analytics` (`getSiteAnalyticsSummary`) + `/analytics/daily` (`getDailySeries`) in
-`libs/features/site_analytics/`, NOT `/api/analytics/:siteId`. Thread the same `{since, until}` through `getSiteAnalyticsSummary`
-+ `getDailySeries` (symmetric to the shipped pattern — both already delegate/mirror `getTrafficSummary`), then add exact
+arbitrary-window **service + ALL worker routes** complete): (1) **Frontend date-picker (the last mile — UI-only)** — add exact
 start/end `<input type="date">` to the `custom` range in `analytics.component.ts` (1784 lines; already has `customDays` +
-`?range=custom&days=` URL sync — add `?start&end`) + the `getSiteAnalytics`/`getSiteAnalyticsDaily` ApiService params + Karma
-specs. (2) **Full timezone-aware bucketing**. (3) **Migrate bespoke CSV exports** onto the shared `csvEscape`/`downloadText`.
+`?range=custom&days=` URL sync — add `?start&end`) + optional `start`/`end` params on the `getSiteAnalytics`/`getSiteAnalyticsDaily`
+ApiService methods + read the echoed `windowStart`/`windowEnd` for the range label + Karma specs. Design call to make first:
+how a custom absolute range interacts with the retention-limited CF **delivery** card (`getMultiUrlAnalytics`, ~30d CF cap) on
+the same page — honor + honestly note ">30d outside CF retention", or disable the delivery card for custom windows. (2) **Full
+timezone-aware bucketing**. (3) **Migrate bespoke CSV exports** onto the shared `csvEscape`/`downloadText`.
