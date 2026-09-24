@@ -374,6 +374,26 @@
   prod-verified (`chunk-6YFA6GWF.js`, 200 + `browser,`/`os,` markers live + referenced by live `main-WMKZGVGS.js`).
   Frontend-only (no worker deploy). Next: DST-precise IANA-zone timezone shift (currently an honest fixed-offset caveat),
   then the low-value CSV consolidation (audit/analytics-dashboard hand-rolled downloads → `downloadText`).
+- **Cycle 35 — 2026-09-24 (Data: schema browser — triggers, completing the SQLite schema tree):** The epic explicitly
+  wants the D1 schema browser to show "tables, **views, indexes, triggers**". The endpoint already enumerated
+  tables + views (`type IN (table,view)`) and attached indexes/FKs per table — but **triggers were missing**, and the
+  platform D1 has 2 real triggers + 6 views. Added `trigger` to the `sqlite_master` enumeration (now `type IN
+  (table,view,trigger)`, selecting `tbl_name`); a trigger short-circuits the loop — it carries no columns/indexes/FKs,
+  so the 3 PRAGMA round-trips are skipped and it returns just `{name, type:'trigger', create_sql, on_table}`. UI
+  (`SiteSchemaBrowserComponent`): triggers list with a type badge (already rendered for non-tables), the detail header
+  shows **"trigger on `<table>`"**, and a no-columns note replaces the empty columns grid while the CREATE TRIGGER SQL
+  stays copyable. `SchemaTable` gained `on_table?`. Now a complete SQLite schema tree matching DB Browser / Beekeeper /
+  SQLiteStudio. Chose this over broadening row-edit to `form_submissions` PII / add-row — editing a visitor's submitted
+  email/phone or injecting fake leads would corrupt an immutable submissions log (per memory: "only broaden typed
+  editors if a genuinely-editable column appears"). Verified: worker tsc 0 · **Jest 42/42** on the 2 schema suites (+1:
+  trigger enumeration + `on_table` + skipped-PRAGMAs) · fe tsc (app + spec) 0 · **Karma 2046/2046** (+1: trigger render —
+  on-table label / no-columns note / CREATE TRIGGER shown) · frontend build 0. Deployed **worker** (`--env production`,
+  clean `.wrangler/tmp`, version `091c850b`) + **frontend R2**. Prod-verified: frontend `chunk-JYMLJNSR.js` 200 with all
+  3 markers + referenced by live `main-WUV44WSB.js`; worker `/sql/schema` live + correctly gated — 401 (no auth), 403
+  (non-super-admin E2E key, exact FORBIDDEN body). NOTE the super-admin schema **output** (triggers appearing) can't be
+  exercised end-to-end via the E2E test-org (it 403s by design), so trigger correctness rests on the 42 Jest + the Karma
+  render test. Next: the schema browser is now epic-complete; remaining Data gaps are credential-blocked (D1 REST
+  size/usage/Time-Travel) or product-N/A (KV/R2/DO/Vectorize have no per-tenant data API today).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

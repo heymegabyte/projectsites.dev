@@ -1826,9 +1826,11 @@ export interface SchemaForeignKey {
 /** A table/view from D1 schema introspection (`GET /api/sites/:siteId/sql/schema`). */
 export interface SchemaTable {
   name: string;
-  /** 'table' | 'view'. */
+  /** 'table' | 'view' | 'trigger'. */
   type: string;
   create_sql: string | null;
+  /** For a trigger, the table it fires on; null for tables/views. */
+  on_table?: string | null;
   columns: SchemaColumn[];
   indexes: SchemaIndex[];
   foreign_keys: SchemaForeignKey[];

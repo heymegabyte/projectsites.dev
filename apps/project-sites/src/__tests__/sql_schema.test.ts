@@ -27,7 +27,7 @@ const mWriteAuditLog = audit.writeAuditLog as unknown as jest.Mock;
 
 // ─── D1 mock ────────────────────────────────────────────────────────────────
 
-type SqlMasterRow = { name: string; type: string; sql: string };
+type SqlMasterRow = { name: string; type: string; sql: string; tbl_name?: string | null };
 type TableInfoRow = {
   name: string;
   type: string;
@@ -256,6 +256,44 @@ describe('GET /api/sites/:siteId/sql/schema', () => {
     expect(names).not.toContain('sqlite_stat1');
     expect(names).not.toContain('sqlite_sequence');
     expect(names).toContain('sites');
+  });
+
+  it('includes triggers with the table they fire on + CREATE SQL (no columns/indexes/FKs)', async () => {
+    const DB = makeD1({
+      masterTables: [
+        { name: 'sites', type: 'table', sql: 'CREATE TABLE sites (id TEXT)' },
+        {
+          name: 'trg_sites_touch',
+          type: 'trigger',
+          sql: 'CREATE TRIGGER trg_sites_touch AFTER UPDATE ON sites BEGIN UPDATE sites SET updated_at = 1; END',
+          tbl_name: 'sites',
+        },
+      ],
+    });
+    const res = await makeApp(DB).request(req(), {}, { DB } as unknown as Env);
+    expect(res.status).toBe(200);
+
+    interface ObjRow {
+      name: string;
+      type: string;
+      on_table: string | null;
+      create_sql: string | null;
+      columns: unknown[];
+      indexes: unknown[];
+      foreign_keys: unknown[];
+    }
+    const body = (await res.json()) as { data: { tables: ObjRow[] } };
+    const trg = body.data.tables.find((t) => t.name === 'trg_sites_touch');
+    expect(trg).toBeDefined();
+    expect(trg?.type).toBe('trigger');
+    expect(trg?.on_table).toBe('sites');
+    expect(trg?.create_sql).toContain('CREATE TRIGGER');
+    // Triggers carry no columns/indexes/FKs — the handler skips those PRAGMAs.
+    expect(trg?.columns).toEqual([]);
+    expect(trg?.indexes).toEqual([]);
+    expect(trg?.foreign_keys).toEqual([]);
+    // The regular table alongside it is still fully introspected.
+    expect(body.data.tables.find((t) => t.name === 'sites')?.type).toBe('table');
   });
 
   it('audit-logs the introspection with action site.sql.schema', async () => {

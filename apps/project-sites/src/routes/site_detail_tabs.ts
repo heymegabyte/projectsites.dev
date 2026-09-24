@@ -316,9 +316,11 @@ tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/sites/:siteId/sql/schema
-// Read-only SQLite schema introspection for the D1 manager — every table/view with
+// Read-only SQLite schema introspection for the D1 manager — every table & view with
 // its columns (+ pk/notnull/default), indexes (+ their columns), and foreign keys,
-// plus the CREATE SQL. Super-admin ONLY (reads the shared multi-tenant DB — AL-792).
+// plus each object's CREATE SQL. Triggers are included too (name + the table they fire
+// on + CREATE SQL; they carry no columns/indexes/FKs). Super-admin ONLY (reads the
+// shared multi-tenant DB — AL-792).
 // PRAGMA arguments cannot be bound, so each object name is re-validated against
 // sqlite_master and only a confirmed identifier is ever interpolated (no injection).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -349,13 +351,14 @@ tabs.get('/api/sites/:siteId/sql/schema', async (c) => {
     return c.json({ error: { code: 'NOT_FOUND', message: 'site not found' } }, 404);
   }
 
-  // Enumerate real tables/views (never the sqlite_% internal objects). No "AND name"
-  // here — validating a specific name is a separate parameterized lookup below.
+  // Enumerate real tables/views/triggers (never the sqlite_% internal objects). No "AND
+  // name" here — validating a specific name is a separate parameterized lookup below.
+  // `tbl_name` is the table a trigger fires on (== name for tables/views; unused there).
   const master = await c.env.DB.prepare(
-    `SELECT name, type, sql FROM sqlite_master WHERE type IN (?1, ?2) ORDER BY name`,
+    `SELECT name, type, sql, tbl_name FROM sqlite_master WHERE type IN (?1, ?2, ?3) ORDER BY name`,
   )
-    .bind('table', 'view')
-    .all<{ name: string; type: string; sql: string | null }>();
+    .bind('table', 'view', 'trigger')
+    .all<{ name: string; type: string; sql: string | null; tbl_name: string | null }>();
   const objects = (master.results ?? []).filter((r) => !r.name.startsWith('sqlite_'));
 
   // Names come from sqlite_master (a trusted source), but PRAGMA arguments cannot be
@@ -365,6 +368,23 @@ tabs.get('/api/sites/:siteId/sql/schema', async (c) => {
   const tables: Array<Record<string, unknown>> = [];
   for (const obj of objects) {
     if (!SAFE_IDENT.test(obj.name)) continue;
+
+    // Triggers aren't tables — table_info/index_list/foreign_key_list are all empty for
+    // them. Surface just the CREATE SQL + the table they fire on (sqlite_master.tbl_name),
+    // skipping the three useless PRAGMA round-trips.
+    if (obj.type === 'trigger') {
+      tables.push({
+        name: obj.name,
+        type: 'trigger',
+        create_sql: obj.sql ?? null,
+        on_table: obj.tbl_name ?? null,
+        columns: [],
+        indexes: [],
+        foreign_keys: [],
+      });
+      continue;
+    }
+
     const ident = `"${obj.name}"`;
 
     const cols = await c.env.DB.prepare(`PRAGMA table_info(${ident})`).all<{
@@ -402,6 +422,7 @@ tabs.get('/api/sites/:siteId/sql/schema', async (c) => {
       name: obj.name,
       type: obj.type,
       create_sql: obj.sql ?? null,
+      on_table: null,
       columns: (cols.results ?? []).map((col) => ({
         name: col.name,
         type: col.type,

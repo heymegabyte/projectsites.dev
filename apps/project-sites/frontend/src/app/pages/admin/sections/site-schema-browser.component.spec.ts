@@ -26,6 +26,16 @@ const SCHEMA = {
         indexes: [],
         foreign_keys: [],
       },
+      {
+        name: 'trg_sites_touch',
+        type: 'trigger',
+        create_sql:
+          'CREATE TRIGGER trg_sites_touch AFTER UPDATE ON sites BEGIN UPDATE sites SET updated_at = 1; END',
+        on_table: 'sites',
+        columns: [],
+        indexes: [],
+        foreign_keys: [],
+      },
     ],
   },
 };
@@ -47,7 +57,7 @@ describe('SiteSchemaBrowserComponent', () => {
   it('loads the schema and auto-selects the first table', () => {
     const { fixture, c } = setup();
     fixture.detectChanges();
-    expect(c.tables().length).toBe(2);
+    expect(c.tables().length).toBe(3); // 2 tables + 1 trigger
     expect(c.selectedName()).toBe('sites');
   });
 
@@ -81,6 +91,25 @@ describe('SiteSchemaBrowserComponent', () => {
     c.select('orgs');
     expect(c.selected()?.name).toBe('orgs');
     expect(c.selected()?.columns.length).toBe(1);
+  });
+
+  it('renders a trigger with its "on <table>" label, a no-columns note, and the CREATE SQL', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    // the trigger appears in the object list (type badge shows for non-tables)
+    expect(fixture.debugElement.query(By.css('[data-testid="sb-table-trg_sites_touch"]'))).toBeTruthy();
+
+    c.select('trg_sites_touch');
+    fixture.detectChanges();
+
+    const sub = fixture.debugElement.query(By.css('[data-testid="sb-detail-sub"]')).nativeElement as HTMLElement;
+    expect(sub.textContent).toContain('trigger');
+    expect(sub.textContent).withContext('shows the table it fires on').toContain('sites');
+    // a trigger has no columns → the columns table is replaced by a note
+    expect(fixture.debugElement.query(By.css('[data-testid="sb-columns"]'))).withContext('no columns table').toBeNull();
+    expect(fixture.debugElement.query(By.css('[data-testid="sb-no-cols"]'))).withContext('no-columns note').toBeTruthy();
+    // the CREATE TRIGGER SQL is still shown (copyable)
+    expect((fixture.debugElement.query(By.css('[data-testid="sb-ddl"]')).nativeElement as HTMLElement).textContent).toContain('CREATE TRIGGER');
   });
 
   it('surfaces a retryable error on a shapeless 200 (no fake empty schema)', () => {

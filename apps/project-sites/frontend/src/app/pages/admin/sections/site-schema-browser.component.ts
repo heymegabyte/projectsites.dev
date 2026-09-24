@@ -3,11 +3,12 @@ import { CommonModule } from '@angular/common';
  * Site Schema Browser — the "Schema" tab body on `/admin/sites/:id`.
  *
  * A read-only browser for the site's D1 schema, backed by the real (superadmin-only)
- * `GET /api/sites/:siteId/sql/schema` introspection endpoint — tables/views with
- * columns (type · nullability · default · primary key), indexes, foreign keys, and
- * the CREATE SQL (copyable). The companion to the SQL console: inspect the shape
- * without writing a query. Focused standalone component (signals + `input()` +
- * native control flow); no mock data — every panel comes from the live endpoint.
+ * `GET /api/sites/:siteId/sql/schema` introspection endpoint — tables & views with
+ * columns (type · nullability · default · primary key), indexes, foreign keys, plus
+ * triggers (labelled with the table they fire on), and every object's CREATE SQL
+ * (copyable). The companion to the SQL console: inspect the shape without writing a
+ * query. Focused standalone component (signals + `input()` + native control flow);
+ * no mock data — every panel comes from the live endpoint.
  */
 import {
   ChangeDetectionStrategy,
@@ -74,6 +75,7 @@ import { ApiService, type SchemaTable } from '../../../services/api.service';
     .sb-copy:hover { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent); }
     .sb-copy:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     .sb-ddl { margin: 0; padding: 0.6rem 0.75rem; border-radius: 8px; background: rgba(0,0,0,0.3); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.74rem; line-height: 1.5; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 85%, transparent); white-space: pre-wrap; word-break: break-word; overflow-x: auto; }
+    .sb-no-cols { margin: 0; font-size: 0.8rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
   `],
   template: `
     <div class="sb" data-testid="site-schema-browser">
@@ -102,7 +104,7 @@ import { ApiService, type SchemaTable } from '../../../services/api.service';
         </div>
 
         <div class="sb-layout">
-          <ul class="sb-list" role="list" aria-label="Tables and views" data-testid="sb-list">
+          <ul class="sb-list" role="list" aria-label="Tables, views, and triggers" data-testid="sb-list">
             @for (t of filteredTables(); track t.name) {
               <li>
                 <button
@@ -122,7 +124,7 @@ import { ApiService, type SchemaTable } from '../../../services/api.service';
               </li>
             } @empty {
               <li>
-                <app-mini-empty [text]="tables().length ? 'No tables match your filter.' : 'No tables in this database.'">
+                <app-mini-empty [text]="tables().length ? 'No objects match your filter.' : 'No schema objects in this database.'">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
                 </app-mini-empty>
               </li>
@@ -133,27 +135,43 @@ import { ApiService, type SchemaTable } from '../../../services/api.service';
             <div class="sb-detail" data-testid="sb-detail">
               <header class="sb-detail-head">
                 <h4 class="sb-detail-name">{{ sel.name }}</h4>
-                <span class="sb-detail-sub">{{ sel.type }} · {{ sel.columns.length }} columns</span>
+                <span class="sb-detail-sub" data-testid="sb-detail-sub">
+                  @if (sel.type === 'trigger') {
+                    trigger@if (sel.on_table) { on <span class="sb-mono">{{ sel.on_table }}</span> }
+                  } @else {
+                    {{ sel.type }} · {{ sel.columns.length }} {{ sel.columns.length === 1 ? 'column' : 'columns' }}
+                  }
+                </span>
               </header>
 
-              <div class="sb-scroll" tabindex="0" role="region" [attr.aria-label]="sel.name + ' columns'">
-                <table class="sb-cols" data-testid="sb-columns">
-                  <thead>
-                    <tr><th scope="col">Column</th><th scope="col">Type</th><th scope="col">Nullable</th><th scope="col">Default</th><th scope="col">Key</th></tr>
-                  </thead>
-                  <tbody>
-                    @for (col of sel.columns; track col.name) {
-                      <tr data-testid="sb-col">
-                        <td class="sb-col-name">{{ col.name }}</td>
-                        <td class="sb-col-type">{{ col.type || '—' }}</td>
-                        <td>{{ col.notnull ? 'NOT NULL' : 'nullable' }}</td>
-                        <td class="sb-col-default">{{ col.dflt_value ?? '—' }}</td>
-                        <td>@if (col.pk > 0) { <span class="sb-pk" data-testid="sb-pk" title="Primary key">PK</span> }</td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
+              @if (sel.columns.length) {
+                <div class="sb-scroll" tabindex="0" role="region" [attr.aria-label]="sel.name + ' columns'">
+                  <table class="sb-cols" data-testid="sb-columns">
+                    <thead>
+                      <tr><th scope="col">Column</th><th scope="col">Type</th><th scope="col">Nullable</th><th scope="col">Default</th><th scope="col">Key</th></tr>
+                    </thead>
+                    <tbody>
+                      @for (col of sel.columns; track col.name) {
+                        <tr data-testid="sb-col">
+                          <td class="sb-col-name">{{ col.name }}</td>
+                          <td class="sb-col-type">{{ col.type || '—' }}</td>
+                          <td>{{ col.notnull ? 'NOT NULL' : 'nullable' }}</td>
+                          <td class="sb-col-default">{{ col.dflt_value ?? '—' }}</td>
+                          <td>@if (col.pk > 0) { <span class="sb-pk" data-testid="sb-pk" title="Primary key">PK</span> }</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              } @else {
+                <p class="sb-no-cols" data-testid="sb-no-cols">
+                  @if (sel.type === 'trigger') {
+                    This trigger has no columns — see its definition below.
+                  } @else {
+                    No columns.
+                  }
+                </p>
+              }
 
               @if (sel.indexes.length) {
                 <div class="sb-section">
