@@ -46,7 +46,7 @@
 | **Delivery & performance (status codes / cache hit-miss / bandwidth)** | CF GraphQL `httpRequestsAdaptiveGroups` (`edgeResponseStatus` + `cacheStatus` + `sum{edgeResponseBytes}`) | resolved via the shared zone for subdomains; API lookup for custom domains | per `clientRequestHTTPHost` | ~30 days | adaptive sampled | ✅ **LIVE for ALL sites (decoupled this fire)** — a SEPARATE `loadHostDelivery`/`resolveDeliveryZone` path resolves the shared projectsites.dev zone for `*.projectsites.dev` subdomains, so edge delivery works for the subdomain MAJORITY — **without flipping the audience numbers to CF** (audience stays first-party D1; `resolveDeliveryZone` is independent of the audience `resolveZoneForHostname`, which still returns null for subdomains → `resolved_zone:false` → "ProjectSites analytics" labeling preserved). `envelope.delivery` → `DeliveryCardComponent` (status classes + WORD, cache hit-ratio, bandwidth, top error codes, ≥5% 4xx/5xx warning). **Prod-verified live** on harborline: 30d = 31,610 req · 2xx 27588 / 5xx 3145 / 3xx 828 / 4xx 49 · cache 32% · 1.16 GB, while audience `resolved_zone:[false]` + pageviews first-party. | `/admin/analytics` "Delivery & performance" card |
 | **Core Web Vitals (LCP/INP/CLS + per-page)** | first-party RUM → `web_vital` events in D1 | none (no CF plan) | per site_id (+ per `path`) | D1 | none (all sessions) | ✅ **COMPLETE + per-path** — site p75 card PLUS a **"Slowest pages · LCP p75"** drilldown (`getWebVitalsSummary` buckets LCP by `path`, ranks worst-first, top 5, past a **5-sample floor**); honest ("measuring"/null never a fake 0; a page needs ≥5 samples to be ranked) | `/admin/analytics` "Core Web Vitals" card + slowest-pages table |
 | **Security (WAF/bot/challenges)** | CF GraphQL `firewallEventsAdaptiveGroups` | **plan lacks access** | per hostname | plan-dependent | — | ❌ **BLOCKED — verified 2026-09-24** by an introspection probe against our zone: returns authz *"zone does not have access to the path"*. Our plan has no firewall-analytics entitlement, so this is NOT buildable without a plan upgrade — a security card would be a permanent placeholder (which the doctrine forbids). | — (honestly absent) |
-| **CSV export (dashboard)** | (UI) client-side over fetched data | none | — | — | — | ✅ **DONE + fixed (this fire)** — `buildAnalyticsCsv` exports summary + top-pages/countries/referrers **plus the D1 device/channel/conversions/CWV breakdowns** (were missing), with the **ACCURATE source label** (was hardcoded "cloudflare_graphql" — lied for subdomains); formula-injection-safe via the hardened shared `csvEscape`. Custom range / comparison / TZ still partial. | `/admin/analytics` Export CSV |
+| **CSV export (dashboard)** | (UI) client-side over fetched data | none | — | — | — | ✅ **COMPLETE** — `buildAnalyticsCsv` exports summary + top-pages/countries/referrers + the D1 device/channel/conversions/CWV breakdowns + **now the CF edge DELIVERY breakdown** (status classes, cache hit/miss/ratio, edge bandwidth — emitted ONLY when `has_data`, never fabricated zeros), with the ACCURATE source label; formula-injection-safe via the shared `csvEscape`. Matches the dashboard cards. | `/admin/analytics` Export CSV |
 | Source + freshness labels in UI | (UI) | none | — | — | — | ✅ **honest per-provenance (this fire)** — the "Source:" badge (`dataLabel`/`dataTooltip`) was hardcoding **"Cloudflare Edge" / "Cloudflare GraphQL" for ALL real data**, a source-conflation lie for every `*.projectsites.dev` subdomain + the D1 fallback (their numbers are first-party `visitor_events`, not CF's). Now routed through the authoritative `trafficSource` signal: first-party → **"ProjectSites analytics"** (tooltip: measured on-site, per serve, incl. true session bounce), genuine CF-zone custom domain → **"Cloudflare Edge"**. "Total requests" KPI sublabel de-jargoned ("on-site beacon" → "recorded on your site"). Freshness "as of" already present. | analytics header badge + chart caption + footer |
 
 ## Highest-impact gap (corrected — NOT "beacon not deployed")
@@ -126,8 +126,17 @@ delivery additions to `loadHostAggregate` (which would've flipped audience) were
 10 worker delivery specs (incl. `resolveDeliveryZone` subdomain→shared-zone) + 265 analytics tests green; frontend
 unchanged (same `envelope.delivery` shape). The CF "subdomains-are-empty" assumption is confirmed OUTDATED.
 
-NEXT highest-value gaps (Security plan-blocked; delivery now covers all sites): (1) **Custom date range + timezone** in
-the range selector (today: 24h/7d/30d/90d pills). (2) **Latency/performance percentiles** — `httpRequestsAdaptiveGroups`
-exposes `originResponseDurationMs`/`edgeDnsResponseTimeMs` (seen in introspection); add an origin-vs-edge timing view via
-the same `loadHostDelivery` path (verify the fields return data first). (3) **Migrate bespoke CSV exports** onto the
-shared `csvEscape`/`downloadText`.
+**CSV export COMPLETED + honest TZ label** (2026-09-24): `buildAnalyticsCsv` now includes the CF edge delivery
+breakdown (status classes / cache hit-miss-ratio / bandwidth), emitted only when `has_data` (never fabricated zeros),
+so the export matches the dashboard. Added an honest **"dates in UTC"** label to the day-series chart caption (the
+buckets are UTC-aggregated; the "as of" is browser-local). Frontend-only; +2 CSV specs; Karma 1952/1952. **Latency
+percentiles are PLAN-BLOCKED** (verified this fire): `edgeTimeToFirstByteMs`/`edgeDnsResponseTimeMs` return authz
+"zone does not have access", and origin timings return `-1` (Worker-served sites have no origin fetch) — so latency is
+OFF the buildable list (would be a placeholder), same class as Security/WAF.
+
+NEXT highest-value gaps (Security + latency plan-blocked; delivery + CSV now complete): (1) **Custom date range (arbitrary
+start/end)** — the D1 endpoints already accept an arbitrary `windowDays` (`parseWindowDays`), but the CF/`multi-url`
+envelope is enum-only (`RANGE_TO_DAYS`); unify by giving `loadMultiUrlAnalytics` a `days` override + a frontend range
+picker (bound 1–90d for CF retention, honest clamp note). Timezone display is now labeled (UTC); full tz-aware bucketing
+is a later step. (2) **Migrate bespoke CSV exports** (events-table/audit/forms/super-admin) onto the shared
+`csvEscape`/`downloadText`.

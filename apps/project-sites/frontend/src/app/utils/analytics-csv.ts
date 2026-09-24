@@ -46,6 +46,18 @@ export interface AnalyticsCsvInput {
       cls: WebVitalStat | null;
     };
   } | null;
+  /**
+   * Cloudflare edge delivery (status classes / cache / bandwidth) from
+   * `envelope.delivery`. Rows are emitted ONLY when `has_data` — an unavailable or
+   * empty delivery block contributes nothing (never fake zeros), matching the card.
+   */
+  delivery?: {
+    has_data: boolean;
+    total_requests: number;
+    by_status_class: ReadonlyArray<{ class: string; count: number }>;
+    cache: { hit: number; miss: number; uncacheable: number; hit_ratio_pct: number | null };
+    response_bytes: number;
+  } | null;
 }
 
 /** Serialize the analytics dashboard to a `section,key,value` CSV document. */
@@ -76,6 +88,19 @@ export function buildAnalyticsCsv(input: AnalyticsCsvInput): string {
   if (wv?.lcp) lines.push(`web_vital,lcp_p75_ms,${wv.lcp.p75}`);
   if (wv?.inp) lines.push(`web_vital,inp_p75_ms,${wv.inp.p75}`);
   if (wv?.cls) lines.push(`web_vital,cls_p75,${wv.cls.p75}`);
+
+  // Cloudflare edge delivery — emitted ONLY when there's real edge data (matches the
+  // card's honest "not available / no traffic" states; never fabricated zeros).
+  const dl = input.delivery;
+  if (dl?.has_data) {
+    lines.push(`delivery,edge_requests,${dl.total_requests}`);
+    for (const s of dl.by_status_class) lines.push(`delivery,status_${csvEscape(s.class)},${s.count}`);
+    lines.push(`delivery,cache_hit,${dl.cache.hit}`);
+    lines.push(`delivery,cache_miss,${dl.cache.miss}`);
+    lines.push(`delivery,cache_uncacheable,${dl.cache.uncacheable}`);
+    if (dl.cache.hit_ratio_pct != null) lines.push(`delivery,cache_hit_ratio_pct,${dl.cache.hit_ratio_pct}`);
+    lines.push(`delivery,edge_response_bytes,${dl.response_bytes}`);
+  }
 
   for (const u of e.urls_included ?? []) {
     lines.push(`url_included,${csvEscape(u.hostname)},${u.resolved_zone ? 'resolved' : 'unresolved'}`);

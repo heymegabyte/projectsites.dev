@@ -69,6 +69,45 @@ describe('buildAnalyticsCsv', () => {
     expect(csv).not.toContain('bounce_rate_percent');
   });
 
+  it('includes the CF edge delivery breakdown when it has real data', () => {
+    const r = rows(
+      buildAnalyticsCsv({
+        ...BASE,
+        delivery: {
+          has_data: true,
+          total_requests: 31610,
+          by_status_class: [
+            { class: '2xx', count: 27588 },
+            { class: '5xx', count: 3145 },
+          ],
+          cache: { hit: 1477, miss: 3145, uncacheable: 26988, hit_ratio_pct: 32 },
+          response_bytes: 1165215050,
+        },
+      }),
+    );
+    expect(r).toContain('delivery,edge_requests,31610');
+    expect(r).toContain('delivery,status_2xx,27588');
+    expect(r).toContain('delivery,status_5xx,3145');
+    expect(r).toContain('delivery,cache_hit,1477');
+    expect(r).toContain('delivery,cache_hit_ratio_pct,32');
+    expect(r).toContain('delivery,edge_response_bytes,1165215050');
+  });
+
+  it('omits delivery rows when has_data is false or delivery is absent (never fabricated zeros)', () => {
+    const empty = buildAnalyticsCsv({
+      ...BASE,
+      delivery: {
+        has_data: false,
+        total_requests: 0,
+        by_status_class: [],
+        cache: { hit: 0, miss: 0, uncacheable: 0, hit_ratio_pct: null },
+        response_bytes: 0,
+      },
+    });
+    expect(empty).not.toContain('delivery,');
+    expect(buildAnalyticsCsv(BASE)).not.toContain('delivery,'); // absent → no rows
+  });
+
   it('escapes cells that would break the CSV grid', () => {
     const csv = buildAnalyticsCsv({
       ...BASE,

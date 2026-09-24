@@ -368,6 +368,8 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
           <span class="chart-meta-src">Source: {{ dataLabel() }}</span>
           <span class="chart-meta-sep" aria-hidden="true">·</span>
           <span>{{ refreshedAt() ? ('as of ' + (refreshedAt() | date:'shortTime')) : 'not yet loaded' }}</span>
+          <span class="chart-meta-sep" aria-hidden="true">·</span>
+          <span title="Daily buckets are aggregated by UTC calendar day.">dates in UTC</span>
         </p>
         @if (loading() && !envelope()) {
           <div class="skel skel-chart" aria-hidden="true"></div>
@@ -1327,6 +1329,7 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
       range: this.range(),
       envelope: env,
       traffic: this.siteTraffic(),
+      delivery: env.delivery,
     });
     downloadText(
       `projectsites-analytics-${this.range()}-${new Date().toISOString().slice(0, 10)}.csv`,
