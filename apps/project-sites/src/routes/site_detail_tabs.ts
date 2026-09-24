@@ -293,11 +293,21 @@ tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
       message: 'SQL query executed',
       metadata_json: { query: q.slice(0, 200), rowcount: rows.length },
     });
+    const meta = (result.meta ?? {}) as {
+      rows_read?: number;
+      rows_written?: number;
+      duration?: number;
+    };
     return c.json({
       ok: true,
       columns,
       rows,
       duration_ms: Date.now() - t0,
+      // D1 query cost — surfaced so the SQL workspace can show read/write cost.
+      // null (never 0) when the runtime doesn't report it, so the UI can say "n/a".
+      rows_read: meta.rows_read ?? null,
+      rows_written: meta.rows_written ?? null,
+      d1_duration_ms: meta.duration ?? null,
     });
   } catch (e) {
     return c.json({ ok: false, error: e instanceof Error ? e.message : 'query failed' }, 400);

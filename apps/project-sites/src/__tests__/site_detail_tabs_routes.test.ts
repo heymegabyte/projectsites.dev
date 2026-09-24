@@ -42,10 +42,13 @@ const mockIsSuperAdmin = isSuperAdmin as unknown as jest.Mock;
 // ─── Boundary harness ──────────────────────────────────────────────────────────
 
 /** D1 mock whose `prepare(...).all()` resolves to `rows` (or throws). */
-function makeDb(rows: Array<Record<string, unknown>> = [], opts: { throws?: boolean } = {}) {
+function makeDb(
+  rows: Array<Record<string, unknown>> = [],
+  opts: { throws?: boolean; meta?: Record<string, unknown> } = {},
+) {
   const all = jest.fn(async () => {
     if (opts.throws) throw new Error('SQLITE_ERROR: no such table');
-    return { results: rows };
+    return { results: rows, meta: opts.meta };
   });
   const prepare = jest.fn(() => ({ all }));
   return { prepare, _all: all } as unknown as D1Database & {
@@ -335,6 +338,28 @@ describe('POST /api/sites/:siteId/sql/exec', () => {
     expect(json.ok).toBe(true);
     expect(json.columns).toEqual([]);
     expect(json.rows).toEqual([]);
+  });
+
+  it('surfaces D1 query cost (rows_read / rows_written / duration) from meta', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
+    const db = makeDb([{ id: 'a' }], { meta: { rows_read: 42, rows_written: 0, duration: 3 } });
+    const res = await exec(makeApp(AUTH), { query: 'SELECT id FROM widgets' }, makeEnv(db));
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      rows_read: number | null;
+      rows_written: number | null;
+      d1_duration_ms: number | null;
+    };
+    expect(json.rows_read).toBe(42);
+    expect(json.rows_written).toBe(0);
+    expect(json.d1_duration_ms).toBe(3);
+  });
+
+  it('reports null query cost (never a fabricated 0) when the runtime gives no meta', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
+    const res = await exec(makeApp(AUTH), { query: 'SELECT id FROM widgets' }, makeEnv(makeDb([{ id: 'a' }])));
+    const json = (await res.json()) as { rows_read: number | null };
+    expect(json.rows_read).toBeNull();
   });
 
   it('returns 400 with the engine message when the query throws at runtime', async () => {
