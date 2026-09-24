@@ -28,10 +28,22 @@ const mWriteAuditLog = audit.writeAuditLog as unknown as jest.Mock;
 // ─── D1 mock ────────────────────────────────────────────────────────────────
 
 type SqlMasterRow = { name: string; type: string; sql: string };
-type TableInfoRow = { name: string; type: string; notnull: number; dflt_value: string | null; pk: number };
+type TableInfoRow = {
+  name: string;
+  type: string;
+  notnull: number;
+  dflt_value: string | null;
+  pk: number;
+};
 type IndexListRow = { name: string; unique: number; origin: string };
 type IndexInfoRow = { seqno: number; cid: number; name: string };
-type ForeignKeyRow = { from: string; table: string; to: string; on_update: string; on_delete: string };
+type ForeignKeyRow = {
+  from: string;
+  table: string;
+  to: string;
+  on_update: string;
+  on_delete: string;
+};
 
 function makeD1(opts: {
   siteRow?: Record<string, unknown> | null;
@@ -47,7 +59,10 @@ function makeD1(opts: {
     // site ownership lookup (SELECT id FROM sites WHERE id=? AND org_id=?)
     if (upper.startsWith('SELECT') && upper.includes('FROM SITES WHERE')) {
       return {
-        bind: () => ({ first: () => Promise.resolve(opts.siteRow !== undefined ? opts.siteRow : { id: 'site-1' }) }),
+        bind: () => ({
+          first: () =>
+            Promise.resolve(opts.siteRow !== undefined ? opts.siteRow : { id: 'site-1' }),
+        }),
       };
     }
 
@@ -57,9 +72,11 @@ function makeD1(opts: {
         bind: () => ({
           all: () =>
             Promise.resolve({
-              results: (opts.masterTables ?? [
-                { name: 'sites', type: 'table', sql: 'CREATE TABLE sites (id TEXT)' },
-              ]).filter((r) => !r.name.startsWith('sqlite_')),
+              results: (
+                opts.masterTables ?? [
+                  { name: 'sites', type: 'table', sql: 'CREATE TABLE sites (id TEXT)' },
+                ]
+              ).filter((r) => !r.name.startsWith('sqlite_')),
             }),
         }),
       };
@@ -85,7 +102,9 @@ function makeD1(opts: {
       return {
         all: () =>
           Promise.resolve({
-            results: opts.tableInfo ?? [{ name: 'id', type: 'TEXT', notnull: 0, dflt_value: null, pk: 1 }],
+            results: opts.tableInfo ?? [
+              { name: 'id', type: 'TEXT', notnull: 0, dflt_value: null, pk: 1 },
+            ],
           }),
       };
     }
@@ -98,7 +117,8 @@ function makeD1(opts: {
     // PRAGMA index_info("<name>")
     if (upper.includes('PRAGMA INDEX_INFO')) {
       return {
-        all: () => Promise.resolve({ results: opts.indexInfo ?? [{ seqno: 0, cid: 0, name: 'id' }] }),
+        all: () =>
+          Promise.resolve({ results: opts.indexInfo ?? [{ seqno: 0, cid: 0, name: 'id' }] }),
       };
     }
 
@@ -109,7 +129,10 @@ function makeD1(opts: {
 
     // fallback
     return {
-      bind: () => ({ all: () => Promise.resolve({ results: [] }), first: () => Promise.resolve(null) }),
+      bind: () => ({
+        all: () => Promise.resolve({ results: [] }),
+        first: () => Promise.resolve(null),
+      }),
       all: () => Promise.resolve({ results: [] }),
     };
   });
@@ -172,7 +195,9 @@ describe('GET /api/sites/:siteId/sql/schema', () => {
 
   it('200 with tables + columns including pk flag', async () => {
     const DB = makeD1({
-      masterTables: [{ name: 'sites', type: 'table', sql: 'CREATE TABLE sites (id TEXT PRIMARY KEY)' }],
+      masterTables: [
+        { name: 'sites', type: 'table', sql: 'CREATE TABLE sites (id TEXT PRIMARY KEY)' },
+      ],
       tableInfo: [
         { name: 'id', type: 'TEXT', notnull: 1, dflt_value: null, pk: 1 },
         { name: 'slug', type: 'TEXT', notnull: 0, dflt_value: null, pk: 0 },
@@ -181,8 +206,13 @@ describe('GET /api/sites/:siteId/sql/schema', () => {
     const res = await makeApp(DB).request(req(), {}, { DB } as unknown as Env);
     expect(res.status).toBe(200);
 
-    interface TableRow { name: string; columns: { name: string; pk: number }[]; indexes: unknown[]; foreign_keys: unknown[] }
-    const body = await res.json() as { data: { tables: TableRow[] } };
+    interface TableRow {
+      name: string;
+      columns: { name: string; pk: number }[];
+      indexes: unknown[];
+      foreign_keys: unknown[];
+    }
+    const body = (await res.json()) as { data: { tables: TableRow[] } };
     expect(body.data.tables).toHaveLength(1);
     const tbl = body.data.tables[0];
     expect(tbl.name).toBe('sites');
@@ -199,8 +229,12 @@ describe('GET /api/sites/:siteId/sql/schema', () => {
     const res = await makeApp(DB).request(req(), {}, { DB } as unknown as Env);
     expect(res.status).toBe(200);
 
-    interface IdxRow { name: string; unique: boolean; columns: string[] }
-    const body = await res.json() as { data: { tables: { indexes: IdxRow[] }[] } };
+    interface IdxRow {
+      name: string;
+      unique: boolean;
+      columns: string[];
+    }
+    const body = (await res.json()) as { data: { tables: { indexes: IdxRow[] }[] } };
     const idx = body.data.tables[0].indexes[0];
     expect(idx.name).toBe('idx_sites_slug');
     expect(idx.unique).toBe(true);
@@ -217,7 +251,7 @@ describe('GET /api/sites/:siteId/sql/schema', () => {
     });
     const res = await makeApp(DB).request(req(), {}, { DB } as unknown as Env);
     expect(res.status).toBe(200);
-    const body = await res.json() as { data: { tables: { name: string }[] } };
+    const body = (await res.json()) as { data: { tables: { name: string }[] } };
     const names = body.data.tables.map((t) => t.name);
     expect(names).not.toContain('sqlite_stat1');
     expect(names).not.toContain('sqlite_sequence');
