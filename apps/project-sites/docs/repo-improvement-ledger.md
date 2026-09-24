@@ -665,6 +665,24 @@
   (`[{hour:0,count:1},…,{hour:12,count:4},{hour:19,count:4},…]`) for the owned test site via the authed E2E owner —
   tenant resolved server-side. **Next:** DST-precision (low ROI) or audit full-trail CSV (cosmetic) — analytics is
   otherwise at a verified plateau (Security/WAF + latency plan-blocked).
+- **Cycle 51 — 2026-09-24 (Angular: migrate the two `animations/` directives to signal inputs + add their missing
+  specs):** Advanced the signal-input migration on the SAFEST remaining targets. The ledger's named next (`focus-trap`
+  setter + `reveal` order-fragile-stagger) are high-risk; an inventory found the two `animations/` directives are
+  plain-field `@Input()` (low risk) AND wired (`psRipple` → homepage CTAs + import-from-url; `psReveal` → voice sections)
+  AND had NO colocated specs. Migrated both: **`ripple`** (`psRippleColor`/`psRippleDuration` → `input()`; read at
+  pointerdown → signal reads the current value, ideal) + **`reveal-on-scroll`** (`psRevealThreshold`/`psRevealMargin`/
+  `psRevealOnce` → `input()`; read in ngOnInit for the IntersectionObserver + in its callback). Behavior-preserving —
+  consumers bind `[psRippleColor]`/`[psRevealThreshold]` identically for signal inputs, so no consumer changed. **Added
+  the two previously-MISSING specs** (net test-coverage gain, per the add-tests mandate): ripple (emits an ink span with
+  the bound color/duration on pointerdown; skips under reduced-motion) + reveal-on-scroll (the bound threshold/margin
+  reach the observer options — proving the input() migration; reduced-motion adds `is-visible` immediately). Verified: fe
+  tsc (app+spec) 0 · **Karma 2094/2094** (+4) · `ng build:prod` 0 err + 0 NG8113 · deployed R2 + prod-verified
+  (`main-FE25RZ4O.js` hash-matched live, homepage 200 — the ripple directive runs there). Frontend-only. **Next:** the
+  remaining directive migrations are the risky ones — `focus-trap` (a `set focusTrap(value)` setter that imperatively
+  activates/deactivates a keydown trap → `input()` + `effect(onCleanup)`, careful) and `reveal` (6 plain-field inputs but
+  a module-global stagger counter read only in ngOnInit + a spec that resets it — the inputs migrate cleanly, the counter
+  is untouched). Also `animations/ripple`'s sibling `motion.ts`/`directives/*` decorator holdouts + the unwired
+  `site-kit/*` (Brian-gated intent call).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
@@ -681,7 +699,7 @@
   (`before-after-slider`, `grafana-dashboard`; dropped an unused `effect` import too).
   The 3rd `constructor(private…)` hit is a test-mock class (`readiness-badge.component.spec`),
   not Angular DI.
-- **Signal inputs/outputs: ⏳ in progress** — **41** decorator files remain (was 42). Migrating a coherent unit per
+- **Signal inputs/outputs: ⏳ in progress** — **39** decorator files remain (was 41). Migrating a coherent unit per
   cycle, preferring WIRED, spec-covered targets that IMPROVE the code over churn. ✅ done: `cmd-glyph` (cycle 17);
   `command-palette` (`@Output()`→`output()`, cycle 18); the `states/` family — `empty-state` + `error-card` (cycle 33);
   **`directives/auth-image-src` — `@Input()`+`ngOnChanges`+`ngOnDestroy` → `input()`+`effect(onCleanup)`, which also
@@ -689,7 +707,9 @@
   `output()` + `OnPush`, and dropped the grep-proven-dead `secondary`/`secondaryClick` button (no consumer ever passed
   it); render-neutral for all 10 consumers (cycle 46)**; **`dashboard/calendar-widget` — `@Input() set props` (a setter
   that conditionally seeds `cursor`/`selectedDayMs`/`view`) → `input()` + a faithful conditional-override `effect()`;
-  render-neutral for its 1 consumer (`[props]="props()"` unchanged), cycle 48**. Newer components (`conversions-card`,
+  render-neutral for its 1 consumer (`[props]="props()"` unchanged), cycle 48**; **`animations/ripple` (2 inputs) +
+  `animations/reveal-on-scroll` (3 inputs) — plain-field `@Input()` → `input()`; behavior-preserving (event-time +
+  ngOnInit reads), + added their previously-MISSING specs (net coverage gain), cycle 51**. Newer components (`conversions-card`,
   `web-vitals-card`, `tech-breakdown`, `trend-badge`) already ship `input()`/`output()`. ⚠️ **`site-kit/*` (25+
   components, most of the remaining decorator files) is an UNWIRED library** — no importers/selectors/registry/build-
   includes (only 2 specs); migrating it is low-value churn, and it can't be deleted (actively maintained + tests-

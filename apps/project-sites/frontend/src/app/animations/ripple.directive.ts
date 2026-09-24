@@ -2,9 +2,9 @@ import {
   Directive,
   ElementRef,
   HostListener,
-  Input,
   OnInit,
   inject,
+  input,
 } from '@angular/core';
 
 /**
@@ -19,8 +19,8 @@ import {
 export class RippleDirective implements OnInit {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
-  @Input() psRippleColor = 'rgba(0, 229, 255, 0.35)';
-  @Input() psRippleDuration = 520;
+  readonly psRippleColor = input('rgba(0, 229, 255, 0.35)');
+  readonly psRippleDuration = input(520);
 
   ngOnInit(): void {
     const el = this.host.nativeElement;
@@ -50,10 +50,10 @@ export class RippleDirective implements OnInit {
       height: ${size}px;
       left: ${event.clientX - rect.left - size / 2}px;
       top: ${event.clientY - rect.top - size / 2}px;
-      background: ${this.psRippleColor};
+      background: ${this.psRippleColor()};
       transform: scale(0);
       opacity: 0.6;
-      animation: psRippleInk ${this.psRippleDuration}ms cubic-bezier(0.2, 0, 0, 1) forwards;
+      animation: psRippleInk ${this.psRippleDuration()}ms cubic-bezier(0.2, 0, 0, 1) forwards;
       will-change: transform, opacity;
       z-index: 0;
     `;

@@ -1,10 +1,10 @@
 import {
   Directive,
   ElementRef,
-  Input,
   OnDestroy,
   OnInit,
   inject,
+  input,
 } from '@angular/core';
 
 /**
@@ -23,13 +23,13 @@ export class RevealOnScrollDirective implements OnInit, OnDestroy {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   /** Fraction of the element that must be visible before triggering. 0–1. */
-  @Input() psRevealThreshold = 0.15;
+  readonly psRevealThreshold = input(0.15);
 
   /** Optional pixel offset (rootMargin) before triggering. Negative values delay. */
-  @Input() psRevealMargin = '0px 0px -8% 0px';
+  readonly psRevealMargin = input('0px 0px -8% 0px');
 
   /** Only fire once. Set to false for repeating reveals. */
-  @Input() psRevealOnce = true;
+  readonly psRevealOnce = input(true);
 
   private observer?: IntersectionObserver;
 
@@ -52,17 +52,17 @@ export class RevealOnScrollDirective implements OnInit, OnDestroy {
         for (const entry of entries) {
           if (entry.isIntersecting) {
             entry.target.classList.add('is-visible');
-            if (this.psRevealOnce) {
+            if (this.psRevealOnce()) {
               this.observer?.unobserve(entry.target);
             }
-          } else if (!this.psRevealOnce) {
+          } else if (!this.psRevealOnce()) {
             entry.target.classList.remove('is-visible');
           }
         }
       },
       {
-        threshold: this.psRevealThreshold,
-        rootMargin: this.psRevealMargin,
+        threshold: this.psRevealThreshold(),
+        rootMargin: this.psRevealMargin(),
       }
     );
 
