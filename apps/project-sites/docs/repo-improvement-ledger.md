@@ -90,6 +90,13 @@
   (`byConversionKind` on `TrafficSummarySchema`, defaulted) + frontend contract updated. +1 worker service spec.
   Verified: tsc 0 (worker + fe), **Jest 12215 pass** / **Karma 1918/1918**, AOT build OK, eslint 0-err, drift 0-err,
   backtick PASS.
+- **Cycle 11 — 2026-09-24 (Data SQL workspace, one slice):** Added **plain-language SQLite/D1 error explanations**
+  to the SQL console (`site-detail.component.ts`). `explainSqlError` (pure regex map) turns the common errors —
+  no-such-table / column / function, syntax (with the `near "…"`), unrecognized-token, UNIQUE / FK-constraint,
+  too-complex — into a friendly line, and the console now shows that ABOVE the RAW error (always retained, in a
+  `<code>` block, for debugging). Unknown errors → raw only, never hidden. Completes the SQL-workspace error UX
+  alongside cost/scan (cycle 7) + EXPLAIN (cycle 9). +1 Karma spec (all mapped patterns + null for unknown/empty).
+  Verified: tsc 0, **Karma 1919/1919**, AOT build OK, eslint 0-errors, backtick PASS.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

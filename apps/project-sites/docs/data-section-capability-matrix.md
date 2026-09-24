@@ -82,8 +82,11 @@
    + PII-safety). The only owner-editable data (`site_data` CMS rows) has its OWN CRUD endpoints
    (`PUT/DELETE /data/:table/:rowId`) and is edited in the site editor, not a raw grid. So the grid
    correctly stays read-only + says so (the pill). A future write surface would target `site_data` only.
-3. SQL console upgrades — **query-cost display + expensive-scan warning ✅ DONE; EXPLAIN QUERY PLAN
-   + index guidance ✅ DONE**; plain-language SQLite/D1 error explanations + multi-tab remain (history present).
+3. SQL console upgrades — **query-cost + expensive-scan warning ✅ DONE; EXPLAIN QUERY PLAN + index
+   guidance ✅ DONE; plain-language SQLite/D1 error explanations ✅ DONE** (`explainSqlError` maps no-such-
+   table/column/function · syntax · unrecognized-token · UNIQUE/FK-constraint · too-complex → a friendly
+   line, with the RAW error always retained below for debugging; unknown error → raw only, never hidden).
+   Multi-tab + saved queries remain (history already present).
 4. Import (CSV/JSON, chunked) + bounded exports. **Whole-table CSV/JSON export ✅ DONE**
    (owner grid, paged to a 5k cap via `utils/csv-export`, honest capped note); chunked import +
    true streaming/async export for >5k rows remain.

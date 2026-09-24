@@ -313,8 +313,15 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'integra
             </div>
           }
 
-          @if (sqlError()) {
-            <p class="sql-error" data-testid="sql-error">{{ sqlError() }}</p>
+          @if (sqlError(); as err) {
+            <div class="sql-error" data-testid="sql-error" role="alert">
+              @if (explainSqlError(err); as plain) {
+                <p class="sql-error-plain" data-testid="sql-error-plain">{{ plain }}</p>
+              }
+              <p class="sql-error-raw" data-testid="sql-error-raw">
+                <span class="sql-error-raw-label">Raw error:</span> <code>{{ err }}</code>
+              </p>
+            </div>
           }
 
           @if (sqlResult(); as r) {
@@ -521,7 +528,15 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'integra
     .sql-result-scroll:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     .sql-result-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
     .sql-result-table th, .sql-result-table td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); }
-    .sql-error { color: #ff7e8a; }
+    .sql-error {
+      margin: 0.5rem 0 1rem; padding: 0.6rem 0.75rem; border-radius: var(--ps-radius-sm, 8px);
+      background: color-mix(in oklch, #ff4d6d 8%, transparent);
+      border: 1px solid color-mix(in oklch, #ff4d6d 26%, transparent);
+    }
+    .sql-error-plain { margin: 0 0 0.4rem; font-size: 0.82rem; line-height: 1.45; color: #ff9fa8; }
+    .sql-error-raw { margin: 0; font-size: 0.72rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
+    .sql-error-raw-label { text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.62rem; font-weight: 700; opacity: 0.7; margin-right: 0.3rem; }
+    .sql-error-raw code { font-family: 'JetBrains Mono', ui-monospace, monospace; color: #ff7e8a; word-break: break-word; }
     .sql-readonly-pill {
       margin-left: auto; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.04em;
       text-transform: uppercase; padding: 0.2rem 0.55rem; border-radius: 999px; cursor: help;
@@ -654,6 +669,36 @@ export class AdminSiteDetailComponent {
   /** Thousands-separated integer for the D1 cost readout (e.g. 12000 → "12,000"). */
   fmtNum(n: number): string {
     return n.toLocaleString();
+  }
+
+  /**
+   * Plain-language explanation for a common SQLite/D1 error, or null when the error
+   * isn't one we recognize (the raw error is always shown alongside, so an unmapped
+   * error is never hidden). Pure — a regex map over the raw message, no side effects.
+   */
+  explainSqlError(raw: string): string | null {
+    if (!raw) return null;
+    let m = /no such table:\s*(\S+)/i.exec(raw);
+    if (m) return `The table "${m[1]}" doesn't exist. Check the name — the "List tables" starter shows what's available.`;
+    m = /no such column:\s*(\S+)/i.exec(raw);
+    if (m) return `There's no column "${m[1]}" in that table. Check the spelling, or open the schema to see the columns.`;
+    m = /no such function:\s*(\S+)/i.exec(raw);
+    if (m) return `SQLite/D1 has no function called "${m[1]}". D1 supports standard SQLite functions only — no loadable extensions.`;
+    m = /unique constraint failed:\s*(.+)$/i.exec(raw);
+    if (m) return `A row with that value already exists — the UNIQUE constraint on ${m[1].trim()} was violated.`;
+    m = /foreign key constraint failed/i.exec(raw);
+    if (m) return 'A foreign-key constraint failed — the referenced row is missing, or a child row still references this one.';
+    if (/syntax error/i.test(raw)) {
+      const near = /near\s+"([^"]*)"/i.exec(raw);
+      return near
+        ? `SQL syntax error near "${near[1]}". Check for a typo, a missing comma, or an unclosed quote or parenthesis.`
+        : 'SQL syntax error. Check for a typo, a missing comma, or an unclosed quote or parenthesis.';
+    }
+    if (/unrecognized token/i.test(raw)) return 'Unrecognized token — check for a stray character or an unclosed string literal.';
+    if (/incomplete input/i.test(raw)) return 'The statement looks incomplete — you may be missing a closing quote, parenthesis, or the rest of the query.';
+    if (/wrong number of arguments|requires an? .*argument/i.test(raw)) return 'A function was called with the wrong number of arguments — check its signature.';
+    if (/expression tree is too large|too many|parser stack overflow/i.test(raw)) return 'The query is too large or complex for D1 — simplify it or split it into smaller queries.';
+    return null;
   }
 
   /**

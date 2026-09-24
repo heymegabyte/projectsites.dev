@@ -196,6 +196,20 @@ describe('AdminSiteDetailComponent (tabs + logs + SQL console)', () => {
     expect(c.explainPlan()).toBeNull();
   });
 
+  it('explainSqlError maps common SQLite/D1 errors to plain language, null for unknown', () => {
+    const { c } = make();
+    expect(c.explainSqlError('no such table: visitor_eventz')).toContain("doesn't exist");
+    expect(c.explainSqlError('no such table: visitor_eventz')).toContain('visitor_eventz');
+    expect(c.explainSqlError('no such column: created')).toContain('column "created"');
+    expect(c.explainSqlError('no such function: NOW')).toContain('standard SQLite functions');
+    expect(c.explainSqlError('near "FROM": syntax error')).toContain('near "FROM"');
+    expect(c.explainSqlError('unrecognized token: "@"')).toContain('Unrecognized token');
+    expect(c.explainSqlError('UNIQUE constraint failed: users.email')).toContain('already exists');
+    // Unknown error → null so the UI shows ONLY the raw error (never hidden).
+    expect(c.explainSqlError('some totally novel D1 internal error')).toBeNull();
+    expect(c.explainSqlError('')).toBeNull();
+  });
+
   // The Run button had no [disabled] + runSql had no in-flight guard, so a slow
   // query let repeated clicks pile up concurrent /sql/exec POSTs (wasteful +
   // flickering results). sqlRunning() now guards re-entry.
