@@ -163,6 +163,21 @@
   "consumers" import only its `DisclosureMode` **type**, nothing renders `<app-flag-mode-switcher>`. Can't be removed:
   it has a preserved spec (test-preservation mandate overrides dead-code removal). Left in place; noted for a future
   decision (relocate the `DisclosureMode` type, then the component + spec could retire together).
+- **Cycle 18 — 2026-09-24 (Angular style: first `@Output()` → `output()` + adjacent flag-404 fix):** Migrated
+  **`CommandPaletteComponent`** (`components/command-palette`, the Cmd+K palette) from `@Output()` EventEmitter to signal
+  `output()` — its inputs were already `input()`, so this COMPLETES its signal migration: `@Output() closed = new
+  EventEmitter<void>()` + `showShortcuts` → `readonly closed = output<void>()` + `readonly showShortcuts = output<void>()`,
+  dropped `EventEmitter, Output` from the `@angular/core` import (added `output`). `.emit()` call sites (backdrop, Escape,
+  execute) unchanged — `output()` is API-compatible. Added a spec block locking both emitters (Escape → `closed`; execute a
+  `showShortcuts` command → both `closed` + `showShortcuts`). Verified: tsc 0 · backtick-gate 0 · **Karma 1967/1967** (2 new) ·
+  build 0 · eslint 0 errors · deployed to R2 + **prod-verified by bundle-hash** (`main-V34BD7UW.js` local == served) + a
+  **real-browser Cmd+K open→close journey** on prod (palette opens, input focused, role=combobox; Escape closes → `closed`
+  fires end-to-end). **Adjacent fix (context-spillover):** the prod journey surfaced a console `404` on
+  `GET /api/feature-flags/predicted_actions` every homepage load — the palette reads that CLIENT-ONLY flag via
+  `FeatureFlagService.isOn()` (fail-soft to false, so functionally correct) but the flag was never registered, so the endpoint
+  404'd (a browser network log JS `catchError` can't suppress). Registered `predicted_actions` in the worker `FLAG_REGISTRY`
+  + `FLAG_DOCS` (client-only precedent: `cinematic_scroll_reveals`; no manifest/route needed), so the endpoint now resolves
+  **200-with-false**. Worker: 82 feature-flag Jest green + tsc 0; deployed `--env production`; homepage console 404 gone.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
@@ -179,11 +194,12 @@
   (`before-after-slider`, `grafana-dashboard`; dropped an unused `effect` import too).
   The 3rd `constructor(private…)` hit is a test-mock class (`readiness-badge.component.spec`),
   not Angular DI.
-- **Signal inputs: ⏳ the big remaining item, in progress** — ~45 `@Input()`, 9 `@Output()`, 21 `@ViewChild`
+- **Signal inputs/outputs: ⏳ the big remaining item, in progress** — ~45 `@Input()`, ~7 `@Output()`, 21 `@ViewChild`
   files still use decorators. Migrating ONE component per cycle (coherent, not churn). ✅ done: `cmd-glyph`
-  (`input()`, cycle 17). Next small used leaves: `calendar-widget`, the site-kit primitives (`stats-band`/`logo-cloud`/
-  `trust-badges`, 2 inputs each). A 2-in+1-out component demonstrates `model()` (replaces the `@Input`-mutate + `@Output`
-  two-way pattern) — but pick a USED one (`mode-switcher` is dead, see cycle 17).
+  (`input()`, cycle 17); `command-palette` (first `@Output()` → `output()`, cycle 18). Next small used leaves:
+  `calendar-widget`, the site-kit primitives (`stats-band`/`logo-cloud`/`trust-badges`, 2 inputs each). A 2-in+1-out
+  component demonstrates `model()` (replaces the `@Input`-mutate + `@Output` two-way pattern) — but pick a USED one
+  (`mode-switcher` is dead, see cycle 17).
 - Standalone components: ✅ (no NgModules). Naming/colocation, a11y, focused-components:
   not yet swept.
 

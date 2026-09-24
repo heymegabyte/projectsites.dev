@@ -49,3 +49,46 @@ describe('CommandPaletteComponent (a11y: combobox + aria-activedescendant)', () 
     expect(activeOpt?.getAttribute('aria-selected')).toBe('true');
   });
 });
+
+/**
+ * Locks the signal `output()` migration (2026-09-24): the palette closes via the
+ * `closed` emitter on Escape/backdrop/execute, and asks the shell to open the
+ * shortcuts overlay via `showShortcuts`. `output()` exposes `.subscribe()` just
+ * like the former `EventEmitter`, so parent bindings are unaffected.
+ */
+describe('CommandPaletteComponent (signal outputs)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  function render(): CommandPaletteComponent {
+    TestBed.configureTestingModule({
+      imports: [CommandPaletteComponent],
+      providers: [
+        provideNoopAnimations(),
+        { provide: Router, useValue: { navigate: () => undefined, navigateByUrl: () => undefined, events: of() } },
+        { provide: FeatureFlagService, useValue: { isOn: () => of(false) } },
+      ],
+    });
+    const fx = TestBed.createComponent(CommandPaletteComponent);
+    fx.detectChanges();
+    return fx.componentInstance;
+  }
+
+  it('emits closed when Escape is pressed', () => {
+    const cmp = render();
+    let closed = 0;
+    cmp.closed.subscribe(() => closed++);
+    cmp.onKeydown({ key: 'Escape', preventDefault: () => undefined } as KeyboardEvent);
+    expect(closed).toBe(1);
+  });
+
+  it('executing a showShortcuts command emits both closed and showShortcuts', () => {
+    const cmp = render();
+    let closed = 0;
+    let shortcuts = 0;
+    cmp.closed.subscribe(() => closed++);
+    cmp.showShortcuts.subscribe(() => shortcuts++);
+    cmp.execute({ id: 'shortcuts', label: 'Show Keyboard Shortcuts', icon: 'keyboard', action: 'showShortcuts' });
+    expect(closed).toBe(1);
+    expect(shortcuts).toBe(1);
+  });
+});

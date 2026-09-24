@@ -1,4 +1,4 @@
-import { Component, inject, input, signal, computed, ElementRef, ViewChild, type AfterViewInit, type OnDestroy, EventEmitter, Output } from '@angular/core';
+import { Component, inject, input, output, signal, computed, ElementRef, ViewChild, type AfterViewInit, type OnDestroy } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { Subject, of } from 'rxjs';
@@ -312,8 +312,8 @@ const COMMANDS: PaletteCommand[] = [
 })
 export class CommandPaletteComponent implements AfterViewInit, OnDestroy {
   @ViewChild('searchInput') searchInputRef!: ElementRef<HTMLInputElement>;
-  @Output() closed = new EventEmitter<void>();
-  @Output() showShortcuts = new EventEmitter<void>();
+  readonly closed = output<void>();
+  readonly showShortcuts = output<void>();
 
   /** Caller-supplied commands appended to the defaults (e.g. the v2 cockpit's
    * 27 sections), so ⌘K can fuzzy-jump anywhere. Default empty → marketing
