@@ -45,7 +45,7 @@
 | Write SQL console | `.prepare().run()` | superadmin | DONE | PROTECTED_TABLES + destructive-confirm; single-statement |
 | Row edit / delete (typed, PK-stable) | parameterized UPDATE/DELETE | owner | PLANNED | needs schema PK (this arc's schema endpoint) |
 | CSV export (bounded) | client-side | owner/superadmin | DONE | filtered rows only |
-| EXPLAIN QUERY PLAN + index hints | `EXPLAIN QUERY PLAN` | superadmin | PLANNED | D1 supports EXPLAIN |
+| EXPLAIN QUERY PLAN + index hints | `EXPLAIN QUERY PLAN` via `/sql/exec` | superadmin | ✅ DONE — "Explain" button shows the plan (`detail` per step) + an **index hint** (flags a bare full-table `SCAN` / `USE TEMP B-TREE` sort → "add an index"; ✓ when the plan is index-covered) | EXPLAIN plans but never EXECUTES — safe for any query the editor holds |
 | Query cost (rows read/written, D1 duration) + **expensive-scan warning** | D1 `meta` | superadmin | ✅ DONE — `/sql/exec` returns `rows_read/rows_written/d1_duration_ms` AND the SQL console now **displays** "read N · wrote N · D1 Xms" + a ⚠ **expensive-scan warning** above 10k rows read ("add an index") | null (never a fabricated 0) when the runtime omits meta; shown only for a reported value |
 | CSV / JSON row import (preview, conflict) | batched INSERT | owner | PLANNED | 100 KB SQL cap → chunk ≤500 rows/call |
 | SQL import / export (full DB) | `POST /d1/database/{id}/{import,export}` (async, ETag poll) | superadmin | PLANNED | export = **SQL text dump, NOT a .sqlite file**; needs D1 REST creds |
@@ -82,8 +82,8 @@
    + PII-safety). The only owner-editable data (`site_data` CMS rows) has its OWN CRUD endpoints
    (`PUT/DELETE /data/:table/:rowId`) and is edited in the site editor, not a raw grid. So the grid
    correctly stays read-only + says so (the pill). A future write surface would target `site_data` only.
-3. SQL console upgrades — **`meta` query-cost display + expensive-scan warning ✅ DONE**; EXPLAIN
-   QUERY PLAN + plain-language SQLite/D1 error explanations + multi-tab remain (history already present).
+3. SQL console upgrades — **query-cost display + expensive-scan warning ✅ DONE; EXPLAIN QUERY PLAN
+   + index guidance ✅ DONE**; plain-language SQLite/D1 error explanations + multi-tab remain (history present).
 4. Import (CSV/JSON, chunked) + bounded exports. **Whole-table CSV/JSON export ✅ DONE**
    (owner grid, paged to a 5k cap via `utils/csv-export`, honest capped note); chunked import +
    true streaming/async export for >5k rows remain.

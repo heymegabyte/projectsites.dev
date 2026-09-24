@@ -279,6 +279,9 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'integra
           </div>
           <div class="sql-toolbar">
             <button type="button" (click)="runSql()" [disabled]="sqlRunning() || !sqlQuery().trim()">{{ sqlRunning() ? 'Running…' : 'Run' }}</button>
+            <button type="button" class="sql-explain-btn" data-testid="sql-explain"
+                    (click)="explainSql()" [disabled]="explainRunning() || sqlRunning() || !sqlQuery().trim()"
+                    title="Show the SQLite query plan (EXPLAIN QUERY PLAN) + index guidance. Does NOT run the query.">{{ explainRunning() ? 'Explaining…' : 'Explain' }}</button>
             @if (sqlRunning()) { <span class="muted">running…</span> }
             <span class="sql-readonly-pill" data-testid="sql-readonly-pill"
                   title="This console runs SELECT / EXPLAIN / WITH queries only — writes are rejected.">Read-only</span>
@@ -291,6 +294,24 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'integra
             (INSERT / UPDATE / DELETE / DROP / ALTER…) are blocked to protect your live
             site database.
           </p>
+
+          @if (explainPlan(); as plan) {
+            <div class="sql-plan" data-testid="sql-plan" role="region" aria-label="Query plan">
+              <div class="sql-plan-h">Query plan · EXPLAIN QUERY PLAN</div>
+              <ol class="sql-plan-list">
+                @for (line of plan; track $index) {
+                  <li data-testid="sql-plan-line">{{ line }}</li>
+                } @empty {
+                  <li class="muted">No plan steps returned.</li>
+                }
+              </ol>
+              @if (planHint(); as hint) {
+                <p class="sql-plan-hint" [attr.data-level]="hint.level" data-testid="sql-plan-hint">
+                  <span aria-hidden="true">{{ hint.level === 'ok' ? '✓' : '⚠' }}</span> {{ hint.text }}
+                </p>
+              }
+            </div>
+          }
 
           @if (sqlError()) {
             <p class="sql-error" data-testid="sql-error">{{ sqlError() }}</p>
@@ -452,6 +473,21 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'integra
     .rollback-btn:hover { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 12%, transparent); }
     /* .sql-editor removed — now Spartan hlmInput [multiline] (font-mono resize-y). */
     .sql-toolbar { display: flex; gap: 0.75rem; align-items: center; margin: 0.5rem 0 1rem; }
+    .sql-explain-btn {
+      font: inherit; font-size: 0.8rem; cursor: pointer; padding: 0.4rem 0.9rem; border-radius: 6px;
+      color: var(--ps-accent, #00e5ff);
+      background: color-mix(in oklch, var(--ps-accent, #00e5ff) 9%, transparent);
+      border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 30%, transparent);
+    }
+    .sql-explain-btn:hover:not(:disabled) { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent); }
+    .sql-explain-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .sql-explain-btn:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
+    .sql-plan { margin: 0 0 1rem; padding: 0.6rem 0.75rem; border-radius: var(--ps-radius-sm, 8px); background: rgba(0,0,0,0.28); border: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); }
+    .sql-plan-h { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); margin-bottom: 0.4rem; }
+    .sql-plan-list { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.2rem; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.78rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 85%, transparent); }
+    .sql-plan-hint { margin: 0.55rem 0 0; font-size: 0.72rem; line-height: 1.45; }
+    .sql-plan-hint[data-level='warn'] { color: #ffd166; }
+    .sql-plan-hint[data-level='ok'] { color: #4dffb5; }
     .sql-starters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.5rem; }
     .sql-starters-label { font-size: 0.66rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); }
     .sql-starter-chip {
@@ -647,6 +683,32 @@ export class AdminSiteDetailComponent {
   readonly sqlError = signal<string | null>(null);
   readonly sqlRunning = signal(false);
   readonly sqlHistory = signal<string[]>([]);
+  /** EXPLAIN QUERY PLAN output — the `detail` line per plan step; null until Explain runs. */
+  readonly explainPlan = signal<string[] | null>(null);
+  readonly explainRunning = signal(false);
+  /**
+   * Index guidance derived from the plan: a bare full-table `SCAN` (no index) or a
+   * `USE TEMP B-TREE` (unindexed sort/group) → warn with an actionable hint; an
+   * all-index plan → an OK note. Null when there's no plan.
+   */
+  readonly planHint = computed<{ level: 'warn' | 'ok'; text: string } | null>(() => {
+    const plan = this.explainPlan();
+    if (!plan || plan.length === 0) return null;
+    const fullScan = plan.some(
+      (d) => /\bSCAN\b/i.test(d) && !/USING\s+(?:COVERING\s+)?INDEX/i.test(d),
+    );
+    if (fullScan)
+      return {
+        level: 'warn',
+        text: 'This query scans a whole table (no index used). Add an index on the columns in the WHERE / ORDER BY / JOIN to avoid the scan on large tables.',
+      };
+    if (plan.some((d) => /USE TEMP B-TREE/i.test(d)))
+      return {
+        level: 'warn',
+        text: 'This query sorts or groups without an index (a temporary B-tree). An index matching the ORDER BY / GROUP BY can avoid it.',
+      };
+    return { level: 'ok', text: 'Uses an index — no full-table scan in this plan.' };
+  });
 
   // ── Integrations ─────────────────────────────────────────────────────
   readonly integrations = signal<IntegrationProvider[]>([]);
@@ -907,6 +969,7 @@ export class AdminSiteDetailComponent {
     const id = this.siteId();
     this.sqlRunning.set(true);
     this.sqlError.set(null);
+    this.explainPlan.set(null); // a fresh run supersedes any prior EXPLAIN plan
     interface SqlExecRes {
       ok: boolean;
       columns?: string[];
@@ -948,6 +1011,49 @@ export class AdminSiteDetailComponent {
         try {
           localStorage.setItem(`ps_sql_history_${id}`, JSON.stringify(next));
         } catch { /* ignore */ }
+      });
+  }
+
+  /**
+   * Run `EXPLAIN QUERY PLAN` for the current query and show the plan + index guidance.
+   * EXPLAIN does NOT execute the statement (it only plans), and the server allows it
+   * via the read allowlist — so this is safe for any query the editor holds, with no
+   * write-guard needed. Superadmin-gated like the rest of the console.
+   */
+  explainSql(): void {
+    if (!this.canUseSqlConsole()) return;
+    if (this.explainRunning() || this.sqlRunning()) return;
+    const query = this.sqlQuery().trim().replace(/;\s*$/, '');
+    if (!query) return;
+    const id = this.siteId();
+    this.explainRunning.set(true);
+    this.explainPlan.set(null);
+    this.sqlError.set(null);
+    interface ExplainRes {
+      ok: boolean;
+      rows?: Array<Record<string, unknown>>;
+      error?: string;
+    }
+    this.api
+      .post<ExplainRes>(`/sites/${id}/sql/exec`, { query: `EXPLAIN QUERY PLAN ${query}` })
+      .pipe(
+        catchError((err) =>
+          of<ExplainRes>({
+            ok: false,
+            error: err?.error?.error?.message ?? err?.message ?? 'unknown error',
+          }),
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((res: ExplainRes) => {
+        this.explainRunning.set(false);
+        if (!res.ok || res.error) {
+          // Reuse the shared error surface — an explain failure is a query error.
+          this.sqlError.set(res.error ?? 'Could not explain the query.');
+          return;
+        }
+        // SQLite EXPLAIN QUERY PLAN rows carry a human-readable `detail` per plan step.
+        this.explainPlan.set((res.rows ?? []).map((r) => String(r['detail'] ?? '')).filter(Boolean));
       });
   }
 

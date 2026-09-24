@@ -154,6 +154,48 @@ describe('AdminSiteDetailComponent (tabs + logs + SQL console)', () => {
     expect(c.isExpensiveScan({ ...base, rows_read: null })).toBeFalse(); // null = not reported, not a fake 0
   });
 
+  it('explainSql posts EXPLAIN QUERY PLAN (semicolon stripped) and populates the plan detail lines', () => {
+    const post = jasmine.createSpy('post').and.returnValue(
+      of({
+        ok: true,
+        columns: ['id', 'parent', 'notused', 'detail'],
+        rows: [
+          { id: 2, parent: 0, notused: 0, detail: 'SCAN visitor_events' },
+          { id: 3, parent: 0, notused: 0, detail: 'USE TEMP B-TREE FOR ORDER BY' },
+        ],
+      }),
+    );
+    const { c } = make(post);
+    c.sqlQuery.set('SELECT * FROM visitor_events ORDER BY created_at;');
+    c.explainSql();
+    expect(post).toHaveBeenCalled();
+    expect((post.calls.mostRecent().args[1] as { query: string }).query).toBe(
+      'EXPLAIN QUERY PLAN SELECT * FROM visitor_events ORDER BY created_at',
+    );
+    expect(c.explainPlan()).toEqual(['SCAN visitor_events', 'USE TEMP B-TREE FOR ORDER BY']);
+    expect(c.explainRunning()).toBeFalse();
+  });
+
+  it('planHint warns on a full-table scan / temp-B-tree and approves an index plan', () => {
+    const { c } = make();
+    c.explainPlan.set(['SCAN visitor_events']);
+    expect(c.planHint()?.level).toBe('warn');
+    expect(c.planHint()?.text).toContain('index');
+    c.explainPlan.set(['SEARCH visitor_events USING INDEX idx_site (site_id=?)']);
+    expect(c.planHint()?.level).toBe('ok');
+    c.explainPlan.set(null);
+    expect(c.planHint()).toBeNull();
+  });
+
+  it('explainSql surfaces an EXPLAIN error into the shared error surface without throwing', () => {
+    const post = jasmine.createSpy('post').and.returnValue(of({ ok: false, error: 'near "SELCT": syntax error' }));
+    const { c } = make(post);
+    c.sqlQuery.set('SELCT 1');
+    c.explainSql();
+    expect(c.sqlError()).toContain('syntax error');
+    expect(c.explainPlan()).toBeNull();
+  });
+
   // The Run button had no [disabled] + runSql had no in-flight guard, so a slow
   // query let repeated clicks pile up concurrent /sql/exec POSTs (wasteful +
   // flickering results). sqlRunning() now guards re-entry.

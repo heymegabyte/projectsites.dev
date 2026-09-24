@@ -72,6 +72,14 @@
   for back-compat) + frontend contract updated. +1 worker service spec (rank + sample-floor) + 2 card specs.
   Verified: tsc 0 (worker + fe), **Jest 12214 pass** / **Karma 1910/1910**, AOT build OK, eslint 0-errors, drift
   0-err, backtick PASS. The CWV analytics area is now fully built out (site + per-page); Security is the next category.
+- **Cycle 9 — 2026-09-24 (Data SQL workspace, one slice):** Added **EXPLAIN QUERY PLAN + index guidance** to
+  the superadmin SQL console (`site-detail.component.ts`). An "Explain" button posts `EXPLAIN QUERY PLAN <query>`
+  (semicolon-stripped) to the existing EXPLAIN-allowlisted `/sql/exec` (EXPLAIN plans but never executes — safe,
+  no write-guard needed), renders the plan (`detail` line per step), and a `planHint` computed derives actionable
+  guidance — a bare full-table `SCAN` or `USE TEMP B-TREE` sort → "add an index" (warn); an index-covered plan → ✓.
+  Pairs with cycle-7's cost/scan warning (cost shows THAT it scanned; EXPLAIN shows WHY). A fresh Run clears a stale
+  plan. +3 Karma specs (post shape + plan parse; planHint scan/index/null; error → shared surface). Verified: tsc 0,
+  **Karma 1913/1913**, AOT build OK, eslint 0-errors, backtick PASS.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
