@@ -357,7 +357,11 @@ describe('POST /api/sites/:siteId/sql/exec', () => {
 
   it('reports null query cost (never a fabricated 0) when the runtime gives no meta', async () => {
     mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
-    const res = await exec(makeApp(AUTH), { query: 'SELECT id FROM widgets' }, makeEnv(makeDb([{ id: 'a' }])));
+    const res = await exec(
+      makeApp(AUTH),
+      { query: 'SELECT id FROM widgets' },
+      makeEnv(makeDb([{ id: 'a' }])),
+    );
     const json = (await res.json()) as { rows_read: number | null };
     expect(json.rows_read).toBeNull();
   });
