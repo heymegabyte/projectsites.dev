@@ -612,6 +612,23 @@
   migration — retry later or it self-heals; does NOT affect Worker-script deploys. **Next:** the SQL console's remaining
   epic items (syntax highlighting / schema-aware completion / multi-tab) still need a code-editor lib (CodeMirror 6 —
   Brian-gated dep); or Analytics: DST-precise IANA timezone bucketing.
+- **Cycle 48 — 2026-09-24 (Angular: migrate `calendar-widget` `@Input() set props` → `input()` + `effect()`):** The
+  ledger's named next signal-input target. `dashboard/calendar-widget.component.ts` used a decorator SETTER input
+  (`@Input() set props(v)`) that conditionally seeds three writable signals — `cursor`, `selectedDayMs`, `view` — which
+  are ALSO user-mutable (calendar navigation / day-select), so they can't be `computed`. Migrated to a signal
+  `input()` + a `private readonly seedFromProps = effect(...)` that replicates the setter's exact CONDITIONAL override
+  (seed cursor+day only for a parseable date — the `Number.isNaN` guard preserved; view only for a valid option). Dropped
+  the now-unused `Input` import, added `input`/`effect`. **Render-neutral** for the 1 consumer (`dashboard/widgets.ts`
+  binds `[props]="props()"` — signal-input binding syntax is identical to the setter). +2 Karma specs (seeds cursor+view
+  from a valid date/view · ignores an unparseable date via the NaN guard but still applies a valid view — both flush the
+  effect via `fx.detectChanges()`). Verified: fe tsc (app+spec) 0 · **Karma 2080/2080** (+2) · `ng build:prod` 0 err + 0
+  NG8113 · deployed R2 + prod-verified (`main-RAKLPGX5.js` hash-matched live; calendar chunk `chunk-ZRY4Y7NS.js` 200).
+  Admin surface behind auth → behavior locked by Karma. **Constraint recorded:** the dead `feature-flags/mode-switcher`
+  COMPONENT (the other ledger candidate) can NOT be deleted — its preserved `.spec.ts` pins it (deleting the component
+  orphans a preserved spec = compile break); only its `DisclosureMode` type is live. **Next:** `focus-trap`/`reveal`
+  directives (imperative setter / order-fragile reactivity → careful), or lift `DisclosureMode` to a shared type file so
+  the dead mode-switcher component is import-free (still spec-pinned). Remaining decorator files are mostly the unwired
+  `site-kit/*` library (Brian-gated intent call).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
@@ -628,21 +645,25 @@
   (`before-after-slider`, `grafana-dashboard`; dropped an unused `effect` import too).
   The 3rd `constructor(private…)` hit is a test-mock class (`readiness-badge.component.spec`),
   not Angular DI.
-- **Signal inputs/outputs: ⏳ in progress** — **42** decorator files remain (was 43). Migrating a coherent unit per
+- **Signal inputs/outputs: ⏳ in progress** — **41** decorator files remain (was 42). Migrating a coherent unit per
   cycle, preferring WIRED, spec-covered targets that IMPROVE the code over churn. ✅ done: `cmd-glyph` (cycle 17);
   `command-palette` (`@Output()`→`output()`, cycle 18); the `states/` family — `empty-state` + `error-card` (cycle 33);
   **`directives/auth-image-src` — `@Input()`+`ngOnChanges`+`ngOnDestroy` → `input()`+`effect(onCleanup)`, which also
   fixed a latent in-flight-fetch race (cycle 39)**; **`pages/admin/empty-state` — 5 `@Input`+2 `@Output` → `input()`/
   `output()` + `OnPush`, and dropped the grep-proven-dead `secondary`/`secondaryClick` button (no consumer ever passed
-  it); render-neutral for all 10 consumers (cycle 46)**. Newer components (`conversions-card`, `web-vitals-card`,
-  `tech-breakdown`, `trend-badge`) already ship `input()`/`output()`. ⚠️ **`site-kit/*` (25+ components, most of the
-  remaining decorator files) is an UNWIRED library** — no importers/selectors/registry/build-includes (only 2 specs);
-  migrating it is low-value churn, and it can't be deleted (actively maintained + tests-preserved). **Resolve its intent
-  (unbuilt site-builder feature vs. orphan) before investing** — a Brian-gated call. Next WIRED leaves: `calendar-widget`
-  (1 input, but its input is a getter/setter pair with logic → migrate as `input()` + `computed`/`effect`, careful).
-  `feature-flags/mode-switcher` is **DEAD** (2 consumers import only its `DisclosureMode` *type*; no selector rendered
-  anywhere, no spec) → a delete candidate, not a migration target. `focus-trap`/`reveal` use imperative setter/
-  order-fragile reactivity → migrate carefully/last.
+  it); render-neutral for all 10 consumers (cycle 46)**; **`dashboard/calendar-widget` — `@Input() set props` (a setter
+  that conditionally seeds `cursor`/`selectedDayMs`/`view`) → `input()` + a faithful conditional-override `effect()`;
+  render-neutral for its 1 consumer (`[props]="props()"` unchanged), cycle 48**. Newer components (`conversions-card`,
+  `web-vitals-card`, `tech-breakdown`, `trend-badge`) already ship `input()`/`output()`. ⚠️ **`site-kit/*` (25+
+  components, most of the remaining decorator files) is an UNWIRED library** — no importers/selectors/registry/build-
+  includes (only 2 specs); migrating it is low-value churn, and it can't be deleted (actively maintained + tests-
+  preserved). **Resolve its intent (unbuilt site-builder feature vs. orphan) before investing** — a Brian-gated call.
+  `feature-flags/mode-switcher` — the COMPONENT (`FlagModeSwitcherComponent`, selector `app-flag-mode-switcher`) is
+  **DEAD** (never rendered; only its exported `DisclosureMode` *type* is used, by feature-flags + site-features), BUT it
+  **can't be deleted** — `mode-switcher.component.spec.ts` exists and the tests-preserved mandate pins it alive (deleting
+  the component would orphan a preserved spec = compile break). Consolidation move (future): lift `DisclosureMode` into a
+  tiny shared type file, leave the dead component + its spec. `focus-trap`/`reveal` use imperative setter/order-fragile
+  reactivity → migrate carefully/last.
 - **NG8113 dead-import sweep: ✅ (cycle 46)** — the Angular template compiler flagged 3 unused directive/component
   imports; all removed (compiler-proven dead, zero runtime change): `RouterLink` in `integrations` + `domain-picker`
   (kept `Router` the service in domain-picker), `CharCountComponent` in `settings` (kept its used `RouterLink`). `ng

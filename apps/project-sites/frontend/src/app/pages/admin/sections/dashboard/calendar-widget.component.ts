@@ -23,9 +23,10 @@ import {
   Component,
   ChangeDetectionStrategy,
   HostListener,
-  Input,
   computed,
+  effect,
   inject,
+  input,
   signal,
   OnInit,
 } from '@angular/core';
@@ -599,7 +600,16 @@ export class CalendarWidgetComponent implements OnInit {
   readonly weekdayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   readonly hours = Array.from({ length: 24 }, (_, i) => i);
 
-  @Input() set props(v: { date?: string; view?: View } | undefined) {
+  /** Optional seed from the parent (`[props]="props()"`): an initial date + view. */
+  readonly props = input<{ date?: string; view?: View } | undefined>();
+
+  /** Seed the calendar's writable state from `props` whenever it changes. `cursor`,
+   *  `selectedDayMs`, and `view` are ALSO user-mutable (navigation / day-select), so they
+   *  can't be `computed` — an effect that CONDITIONALLY re-seeds on input change is the
+   *  signal-era equivalent of the old `@Input() set props` setter: override cursor + day
+   *  only when a parseable date is provided, and view only when it's a valid option. */
+  private readonly seedFromProps = effect(() => {
+    const v = this.props();
     if (v?.date) {
       const d = new Date(v.date);
       if (!Number.isNaN(d.getTime())) {
@@ -608,7 +618,7 @@ export class CalendarWidgetComponent implements OnInit {
       }
     }
     if (v?.view && this.viewOptions.includes(v.view)) this.view.set(v.view);
-  }
+  });
 
   // ── Derived ──────────────────────────────────────────────
   instanced = computed<InstancedEvent[]>(() => {

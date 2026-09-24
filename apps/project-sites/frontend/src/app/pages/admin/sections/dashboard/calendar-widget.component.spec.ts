@@ -230,3 +230,46 @@ describe('CalendarWidgetComponent (calendar cells are keyboard-operable — WCAG
     }
   });
 });
+
+/**
+ * `props` is a signal `input()` (migrated from `@Input() set props`); the seeding runs in
+ * an `effect()` that flushes on detectChanges(). It faithfully keeps the old setter's
+ * CONDITIONAL override — seed cursor/day only for a parseable date, view only for a valid
+ * option, leaving state untouched otherwise.
+ */
+describe('CalendarWidgetComponent (props input seeds calendar state via effect)', () => {
+  function fixture() {
+    TestBed.configureTestingModule({
+      imports: [CalendarWidgetComponent],
+      providers: [
+        { provide: HttpClient, useValue: { get: () => of({ data: [] }), post: () => of({}), patch: () => of({}), delete: () => of({}) } },
+        { provide: AuthService, useValue: { getToken: () => 'tok' } },
+        { provide: ToastService, useValue: { error: () => 0, success: () => 0, warning: () => 0 } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({}) } } },
+        { provide: Router, useValue: { navigate: () => undefined } },
+      ],
+    });
+    return TestBed.createComponent(CalendarWidgetComponent);
+  }
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('seeds cursor + view from a valid props date/view', () => {
+    const fx = fixture();
+    fx.componentRef.setInput('props', { date: '2026-01-15T12:00:00', view: 'week' });
+    fx.detectChanges(); // flushes the seeding effect
+    const c = fx.componentInstance;
+    expect(c.view()).toBe('week');
+    expect(c.cursor().getFullYear()).toBe(2026);
+    expect(c.cursor().getMonth()).toBe(0); // January (0-indexed)
+  });
+
+  it('ignores an unparseable date (NaN guard) but still applies a valid view', () => {
+    const fx = fixture();
+    const before = fx.componentInstance.cursor().getTime();
+    fx.componentRef.setInput('props', { date: 'not-a-date', view: 'day' });
+    fx.detectChanges();
+    const c = fx.componentInstance;
+    expect(c.view()).toBe('day'); // valid view applied
+    expect(c.cursor().getTime()).toBe(before); // invalid date left cursor untouched
+  });
+});
