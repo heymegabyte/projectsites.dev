@@ -153,12 +153,23 @@ showed the recipient's own localStorage day count). Now: `?range=custom&days=45`
 localStorage, validated 1–90); `setRange`/`setCustomDays` write `days` to the URL (a preset clears a stale `?days`).
 Frontend-only; +5 Karma specs (incl. the deep-link restore + isolation fix); Karma 1965/1965; prod-verified live.
 
-NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions/shareable-range
-complete): (1) **Arbitrary start/end date range** (a specific past window, e.g. Aug 1–15). CONFIRMED bounded scope:
-`getTrafficSummary` centralizes the window as ONE `w` clause (`site_id = ? AND created_at >= datetime('now', ?)`) + a
-repeated `[siteId, since]` param across ~7 sub-queries + `pw`/`pwParams` (period-over-period) + `getWebVitalsSummary`/
-`getConversionKinds` (windowDays) + the rollup path + the CF windows. The refactor: thread an optional `{since, until}`,
-switch `w` to bound ISO literals (`created_at >= ? AND created_at < ?`), and when a custom range is set FORCE the live
-scan (skip the rollup optimization) to avoid touching `getTrafficSummaryFromRollup`. Regression-sensitive (the core
-audience query) → a dedicated, tests-first fire in a FRESH session (not the tail of a marathon). (2) **Full timezone-aware
-bucketing**. (3) **Migrate bespoke CSV exports** onto the shared `csvEscape`/`downloadText`.
+**Arbitrary start/end date range — SERVICE + `/api/analytics/:siteId` shipped (2026-09-24).** The regression-sensitive
+core is DONE: `getTrafficSummary` / `getWebVitalsSummary` / `getConversionKinds` (`libs/features/visitor_events_core/
+service.ts`) now take an optional absolute `{since, until}` window → bound SQLite-comparable literals (`created_at >= ? AND
+created_at < ?`, NEVER ISO `T`/`Z` which sorts wrong vs D1's space-separated `created_at`); the relative `datetime('now')`
+path is unchanged (backward-compat, proven by tests). An absolute window FORCES the live scan (skips the calendar-aligned
+rollup) and uses an equal-length immediately-preceding window for period-over-period. `GET /api/analytics/:siteId` parses/
+validates/bounds `?start=YYYY-MM-DD&end=YYYY-MM-DD` server-side (malformed/reversed → 400; span clamped to 90d keeping
+`end`), echoes the EXACT window served (`windowStart`/`windowEnd`) so the UI can never label a wider range than queried, and
+skips GA4 for a custom window (relative-only). Tenant authz unchanged (siteId→site→membership; window never touches authz).
++16 tests (`custom_window` service + `site_analytics_window` handler/validator, incl. non-member-403-with-window). Deployed;
+prod-verified (valid→200 honest echo, malformed→400, reversed→400, relative→200 `windowStart:null`).
+
+NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions/shareable-range +
+arbitrary-window service/API complete): (1) **Wire arbitrary window into the UI's ACTUAL routes** — the Angular dashboard
+calls `GET /api/sites/:siteId/analytics` (`getSiteAnalyticsSummary`) + `/analytics/daily` (`getDailySeries`) in
+`libs/features/site_analytics/`, NOT `/api/analytics/:siteId`. Thread the same `{since, until}` through `getSiteAnalyticsSummary`
++ `getDailySeries` (symmetric to the shipped pattern — both already delegate/mirror `getTrafficSummary`), then add exact
+start/end `<input type="date">` to the `custom` range in `analytics.component.ts` (1784 lines; already has `customDays` +
+`?range=custom&days=` URL sync — add `?start&end`) + the `getSiteAnalytics`/`getSiteAnalyticsDaily` ApiService params + Karma
+specs. (2) **Full timezone-aware bucketing**. (3) **Migrate bespoke CSV exports** onto the shared `csvEscape`/`downloadText`.
