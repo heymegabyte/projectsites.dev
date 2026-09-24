@@ -204,9 +204,19 @@ passes through unchanged (fail-safe). The response still echoes the ORIGINAL loc
 internal detail). Frontend sends `tz` to BOTH `getSiteAnalytics` + `getSiteAnalyticsDaily`. +4 Jest (PST/IST shift · no-T/Z ·
 fail-safe pass-through) + 1 Karma (summary gets tz) → 1987 Karma / 12266 Jest. Deployed; prod-verified.
 
+**Comparison-period Δ badges — DONE (2026-09-24).** The KPI tiles now show a period-over-period delta from the AUTHORITATIVE
+server `previous` (`getTrafficSummary.previous` — the true equal-length prior window, SAME D1 source as current, so the ratio
+is source-consistent). Replaces the pageviews tile's `pvTrend` halve-the-series proxy (kept as a fallback when `siteTraffic`
+is null, e.g. the CF-zone path) with `pvDelta`, and adds `visitorDelta` on the unique-visitors tile (`uniques` = `uniqueSessions`
+on the D1 path via `envelopeFromTraffic`, so no IPs-vs-sessions conflation). Honest `deltaBadge`: up/down/flat with the exact
+window in the hover ("vs the previous N days"), **"new" (never ∞%)** when the prior period was zero, `null` when there's nothing
+to compare. Frontend-only (data already served). +6 Karma (up/down · new · null-both-zero · flat · no-siteTraffic · chip
+renders) → 1997. Deployed R2 + chunk-hash prod-verified (`chunk-4NR7DMXE.js`, `kpi-pv-trend`).
+
 NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions/shareable-range +
-**arbitrary-window + tz-aware bucketing + tz-aware bounds** all complete): (1) **Comparison-period overlay** — the summary
-already returns `previous` (equal-length prior window) deltas; surface a visual compare (sparkline/Δ badges per KPI) beyond
-the current numeric delta. (2) **Migrate bespoke CSV exports** (events-table / audit / forms / super-admin) onto the shared
-`csvEscape`/`downloadText`. (3) **DST-precision** — the fixed browser offset is approximate for a range spanning a DST change;
-a true IANA-zone shift would need a tz library or per-day offset (documented caveat in the UI today, honest but not exact).
+**arbitrary-window + tz-aware bucketing/bounds + comparison-period Δ** all complete): (1) **Migrate bespoke CSV exports**
+(events-table / audit / forms / super-admin) onto the shared `csvEscape`/`downloadText`. (2) **Conversions-tile Δ** — extend
+the period-over-period badge to conversions (`previous.conversions` already returned; the conversions surface is a card, not a
+KPI tile, so it needs a small placement). (3) **DST-precision** — the fixed browser offset is approximate for a range spanning
+a DST change; a true IANA-zone shift would need a tz library or per-day offset (documented caveat in the UI today, honest but
+not exact).

@@ -1098,3 +1098,95 @@ describe('AdminAnalyticsComponent — custom absolute date window', () => {
     expect(cap!.textContent).toContain('dates in ' + c.dailyTz());
   });
 });
+
+/**
+ * Period-over-period deltas from the AUTHORITATIVE server `previous` (equal-length
+ * prior window, same D1 source as current). Honest: "new" (never ∞%) when the prior
+ * period was zero, null when there's nothing to compare or no siteTraffic (→ the
+ * pageviews tile falls back to the pvTrend halve-the-series proxy).
+ */
+describe('AdminAnalyticsComponent — comparison-period deltas', () => {
+  let fixture: ComponentFixture<AdminAnalyticsComponent>;
+
+  function build(): AdminAnalyticsComponent {
+    const selectedSite = signal<{ id: string } | null>({ id: 's1' });
+    TestBed.configureTestingModule({
+      imports: [AdminAnalyticsComponent],
+      providers: [
+        {
+          provide: ApiService,
+          useValue: {
+            getMultiUrlAnalytics: () => of({ data: null }),
+            listSiteUrls: () => of({ data: [] }),
+            getCloudflareCredentialStatus: () => of({ data: null }),
+            getSiteAnalytics: () => of(null),
+            getSiteAnalyticsDaily: () => of({ days: [] }),
+            getNetworkAnalytics: () => of({ data: null }),
+          },
+        },
+        { provide: ToastService, useValue: { error() {}, success() {} } },
+        { provide: PromptService, useValue: { prompt: () => Promise.resolve(null) } },
+        { provide: Router, useValue: { navigateByUrl() {}, navigate: () => Promise.resolve(true) } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } } } },
+        { provide: AdminStateService, useValue: { selectedSite } },
+      ],
+    });
+    fixture = TestBed.createComponent(AdminAnalyticsComponent);
+    fixture.detectChanges();
+    return fixture.componentInstance;
+  }
+
+  afterEach(() => TestBed.resetTestingModule());
+
+  const setTraffic = (c: AdminAnalyticsComponent, pv: number, us: number, prevPv: number, prevUs: number): void =>
+    c.siteTraffic.set({
+      pageviews: pv,
+      uniqueSessions: us,
+      conversions: 0,
+      previous: { pageviews: prevPv, uniqueSessions: prevUs, conversions: 0 },
+      windowDays: 7,
+    } as never);
+
+  it('computes up/down % vs the authoritative previous window (pv up 20, visitors down 20)', () => {
+    const c = build();
+    setTraffic(c, 120, 40, 100, 50);
+    expect(c.pvDelta()).toEqual(jasmine.objectContaining({ dir: 'up', label: '20%' }));
+    expect(c.visitorDelta()).toEqual(jasmine.objectContaining({ dir: 'down', label: '20%' }));
+    expect(c.pvDelta()?.title).toContain('the previous 7 days');
+  });
+
+  it('shows "new" (never ∞%) when the previous period was zero but current is not', () => {
+    const c = build();
+    setTraffic(c, 50, 5, 0, 0);
+    expect(c.pvDelta()).toEqual(jasmine.objectContaining({ dir: 'up', label: 'new' }));
+  });
+
+  it('is null when both current and previous are zero (nothing to compare)', () => {
+    const c = build();
+    setTraffic(c, 0, 0, 0, 0);
+    expect(c.pvDelta()).toBeNull();
+    expect(c.visitorDelta()).toBeNull();
+  });
+
+  it('is flat within ±1%', () => {
+    const c = build();
+    setTraffic(c, 100, 40, 100, 40);
+    expect(c.pvDelta()?.dir).toBe('flat');
+    expect(c.pvDelta()?.label).toBe('flat');
+  });
+
+  it('is null with no siteTraffic (no authoritative previous → tile falls back to pvTrend)', () => {
+    const c = build();
+    expect(c.pvDelta()).toBeNull();
+    expect(c.visitorDelta()).toBeNull();
+  });
+
+  it('renders the authoritative delta chip on the page-views tile', () => {
+    const c = build();
+    setTraffic(c, 120, 40, 100, 50);
+    fixture.detectChanges();
+    const chip = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="kpi-pv-trend"]');
+    expect(chip).withContext('pv delta chip renders').toBeTruthy();
+    expect(chip!.getAttribute('data-dir')).toBe('up');
+  });
+});

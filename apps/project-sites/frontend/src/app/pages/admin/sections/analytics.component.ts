@@ -29,6 +29,14 @@ import { downloadText } from '../../../utils/csv-export';
 
 type RangeId = AnalyticsRange | 'custom';
 
+/** A period-over-period trend badge (direction + short label + a11y/hover text). */
+interface TrendBadge {
+  dir: 'up' | 'down' | 'flat';
+  label: string;
+  aria: string;
+  title: string;
+}
+
 /** Auto-refresh cadence in seconds — surfaced in the header countdown. */
 const REFRESH_INTERVAL_SEC = 60;
 
@@ -300,8 +308,9 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
               </svg>
             </div>
             <div class="text-[0.68rem] text-text-secondary mt-1 flex items-center gap-2 flex-wrap">
-              @if (pvTrend(); as t) {
+              @if (pvDelta() ?? pvTrend(); as t) {
                 <span class="trend-chip"
+                      data-testid="kpi-pv-trend"
                       [attr.data-dir]="t.dir"
                       [attr.aria-label]="t.aria"
                       [title]="t.title">
@@ -344,7 +353,20 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
                 </defs>
               </svg>
             </div>
-            <div class="text-[0.68rem] text-text-secondary mt-1">Distinct IPs across {{ urls().length }} URL{{ urls().length === 1 ? '' : 's' }}</div>
+            <div class="text-[0.68rem] text-text-secondary mt-1 flex items-center gap-2 flex-wrap">
+              @if (visitorDelta(); as t) {
+                <span class="trend-chip" data-testid="kpi-visitor-trend"
+                      [attr.data-dir]="t.dir" [attr.aria-label]="t.aria" [title]="t.title">
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    @if (t.dir === 'up') { <path d="M6 15l6-6 6 6"/> }
+                    @else if (t.dir === 'down') { <path d="M6 9l6 6 6-6"/> }
+                    @else { <path d="M5 12h14"/> }
+                  </svg>
+                  {{ t.label }}
+                </span>
+              }
+              <span>Distinct IPs across {{ urls().length }} URL{{ urls().length === 1 ? '' : 's' }}</span>
+            </div>
           }
         </div>
 
@@ -1548,7 +1570,7 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
    * until there are ≥4 days of data (a 2v2 split is the minimum that means
    * anything). `aria` is the screen-reader sentence; `title` is the hover.
    */
-  pvTrend = computed<{ dir: 'up' | 'down' | 'flat'; label: string; aria: string; title: string } | null>(() => {
+  pvTrend = computed<TrendBadge | null>(() => {
     const series = this.envelope()?.series ?? [];
     if (series.length < 4) return null;
     const mid = Math.floor(series.length / 2);
@@ -1569,6 +1591,44 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
       aria: `Page views ${word}${dir === 'flat' ? '' : ' ' + rounded + ' percent'} versus the earlier half of this range`,
       title: `Recent half vs earlier half of the selected range (${dir === 'flat' ? 'no significant change' : word + ' ' + rounded + '%'})`,
     };
+  });
+
+  /**
+   * Honest period-over-period delta vs the AUTHORITATIVE prior equal-length window
+   * (`getTrafficSummary.previous` — the SAME D1 first-party source as `current`, so
+   * the ratio is source-consistent, unlike the {@link pvTrend} halve-the-series proxy).
+   * `null` when there's no prior datum to compare; `"new"` (never `∞%`) when the prior
+   * period was zero but the current isn't.
+   */
+  private deltaBadge(current: number, previous: number | undefined, windowDays: number): TrendBadge | null {
+    if (previous == null) return null;
+    const w = windowDays > 0 ? `the previous ${windowDays} days` : 'the previous period';
+    if (previous === 0) {
+      if (current === 0) return null;
+      return { dir: 'up', label: 'new', aria: `Up from zero versus ${w}`, title: `No activity in ${w}` };
+    }
+    const pct = ((current - previous) / previous) * 100;
+    const rounded = Math.round(Math.abs(pct));
+    const dir = pct > 1 ? 'up' : pct < -1 ? 'down' : 'flat';
+    const word = dir === 'up' ? 'up' : dir === 'down' ? 'down' : 'flat';
+    return {
+      dir,
+      label: dir === 'flat' ? 'flat' : `${rounded}%`,
+      aria: `${word}${dir === 'flat' ? '' : ' ' + rounded + ' percent'} versus ${w}`,
+      title: `vs ${w} (${dir === 'flat' ? 'no significant change' : word + ' ' + rounded + '%'})`,
+    };
+  }
+
+  /** Authoritative page-view period-over-period delta (D1 current vs prior window). */
+  readonly pvDelta = computed<TrendBadge | null>(() => {
+    const t = this.siteTraffic();
+    return t ? this.deltaBadge(t.pageviews, t.previous?.pageviews, t.windowDays) : null;
+  });
+
+  /** Authoritative unique-visitor (session) period-over-period delta. */
+  readonly visitorDelta = computed<TrendBadge | null>(() => {
+    const t = this.siteTraffic();
+    return t ? this.deltaBadge(t.uniqueSessions, t.previous?.uniqueSessions, t.windowDays) : null;
   });
 
   /**
