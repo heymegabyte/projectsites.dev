@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { FlagModeSwitcherComponent, type DisclosureMode } from './mode-switcher.component';
+import { FlagModeSwitcherComponent } from './mode-switcher.component';
+import { type DisclosureMode } from './disclosure-mode';
 
 /**
  * First coverage for the shared Simple/Advanced/Expert mode switcher — the

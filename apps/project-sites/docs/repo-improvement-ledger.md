@@ -784,6 +784,20 @@
   trusted literal, value bound), thread a tenant-safe filter param through the route + `getTrafficSummary` (force the live
   path when filtered) + comprehensive cross-tenant + allowlist-rejection tests, then clickable breakdown rows + a filter
   chip. Land the tenant-safe server core FIRST. Else analytics is at a deep coverage+honesty plateau.
+- **Cycle 58 — 2026-09-24 (Angular: lift `DisclosureMode` to a shared type file — decouple the 2 LIVE consumers from the
+  dead `mode-switcher`):** Executed the consolidation move the prior four cycles kept naming as "next". `feature-flags/
+  mode-switcher.component.ts` is a DEAD component (`app-flag-mode-switcher` never rendered) that nonetheless EXPORTED the
+  `DisclosureMode` type imported by `feature-flags` + `site-features` (both LIVE) — so two live control-plane layers
+  depended on a dead component's file for a type. Created `feature-flags/disclosure-mode.ts` holding just
+  `export type DisclosureMode = 'simple'|'advanced'|'expert';`; `mode-switcher` now IMPORTS the type (no longer exports
+  it); both consumers AND the mode-switcher spec now import from the new file (the spec imported the type too — split its
+  one `{ Component, type DisclosureMode }` import into value-from-component + type-from-new-file, caught by spec-tsc).
+  Type-only relocation → identical emitted JS, zero runtime change. Decorator count UNCHANGED at **37** (mode-switcher
+  keeps its `@Input`/`@Output` — this decouples the TYPE, not the decorators; the dead component + its preserved spec
+  stay). Verified: fe tsc (app 0 · spec 0) · **Karma 2101/2101** · `ng build:prod` 0 err. Frontend-only; type-erased →
+  the built bundle is byte-identical to live. **Next:** the Brian-gated `site-kit/*` intent call (25+ unwired components =
+  most of the remaining 37 decorator files), or the analytics drilldown/filter tenant-safe server core (Cycle 57's
+  deferred feature).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
@@ -825,9 +839,11 @@
   `feature-flags/mode-switcher` — the COMPONENT (`FlagModeSwitcherComponent`, selector `app-flag-mode-switcher`) is
   **DEAD** (never rendered; only its exported `DisclosureMode` *type* is used, by feature-flags + site-features), BUT it
   **can't be deleted** — `mode-switcher.component.spec.ts` exists and the tests-preserved mandate pins it alive (deleting
-  the component would orphan a preserved spec = compile break). Consolidation move (future): lift `DisclosureMode` into a
-  tiny shared type file, leave the dead component + its spec. `focus-trap`/`reveal` use imperative setter/order-fragile
-  reactivity → migrate carefully/last.
+  the component would orphan a preserved spec = compile break). Consolidation move **✅ done (cycle 58)**: `DisclosureMode`
+  now lives in `feature-flags/disclosure-mode.ts`; the 2 live consumers + the mode-switcher spec all import from there, so
+  NO live code depends on the dead component's file (it + its preserved spec stay, now import-free from consumers).
+  `focus-trap`/`reveal` (imperative-setter / order-fragile reactivity) were the carefully-migrated ones → both done
+  (cycles 56/54).
 - **NG8113 dead-import sweep: ✅ (cycle 46)** — the Angular template compiler flagged 3 unused directive/component
   imports; all removed (compiler-proven dead, zero runtime change): `RouterLink` in `integrations` + `domain-picker`
   (kept `Router` the service in domain-picker), `CharCountComponent` in `settings` (kept its used `RouterLink`). `ng

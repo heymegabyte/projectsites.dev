@@ -31,7 +31,7 @@ import { AdminStateService } from '../admin-state.service';
 import { EmptyStateComponent, ErrorCardComponent } from '../../../components/states';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { RollingCounterComponent } from '../../../components/rolling-counter/rolling-counter.component';
-import { type DisclosureMode } from './feature-flags/mode-switcher.component';
+import { type DisclosureMode } from './feature-flags/disclosure-mode';
 import { FlagBadgeRowComponent, type FlagBadge } from './feature-flags/badge-row.component';
 import { type EntitlementState, type PlanTier } from './feature-flags/flag-logic';
 import { FeatureDossierComponent } from '../../../components/feature-dossier/feature-dossier.component';

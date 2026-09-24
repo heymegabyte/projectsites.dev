@@ -1,9 +1,7 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HlmTablistDirective } from '../../../../ui';
-
-/** Progressive-disclosure mode shared by both control-plane layers. */
-export type DisclosureMode = 'simple' | 'advanced' | 'expert';
+import { type DisclosureMode } from './disclosure-mode';
 
 /**
  * Reusable Simple / Advanced / Expert mode switcher. Both control-plane layers

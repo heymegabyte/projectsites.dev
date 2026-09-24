@@ -52,7 +52,7 @@ import {
   type FlagConstraint,
   validateConstraints,
 } from './feature-flags/flag-logic';
-import { type DisclosureMode } from './feature-flags/mode-switcher.component';
+import { type DisclosureMode } from './feature-flags/disclosure-mode';
 
 interface FlagDefinition {
   key: string;
