@@ -82,7 +82,7 @@ function formatBytes(n: number): string {
         <span
           class="dl-src"
           data-testid="an-dl-source"
-          title="Cloudflare edge metrics (httpRequestsAdaptiveGroups) for this site's domains — HTTP requests served at the edge, cache result, and bandwidth. This counts requests, NOT pageviews (see the audience cards for first-party pageviews). ~30-day retention, adaptive-sampled."
+          title="Cloudflare edge metrics (httpRequestsAdaptiveGroups) for this site's domains — HTTP requests served at the edge, cache result, and bandwidth. This counts requests, NOT pageviews (see the audience cards for first-party pageviews). ~30-day retention, adaptive-sampled, and updated a few minutes behind live (first-party audience metrics are real-time)."
           >Cloudflare edge · last {{ windowDays() }} {{ windowDays() === 1 ? 'day' : 'days' }} · <span class="dl-est" data-testid="an-dl-sampled">sampled estimate</span></span
         >
       </h3>
@@ -135,7 +135,7 @@ function formatBytes(n: number): string {
             </div>
           }
 
-          <p class="dl-note" data-testid="an-dl-note">Cloudflare edge counts of HTTP requests (not pageviews), <strong>adaptive-sampled — approximate, not exact</strong>. Your audience metrics above (page views, visits, conversions) are exact first-party counts. Cache hit ratio is over cacheable requests.</p>
+          <p class="dl-note" data-testid="an-dl-note">Cloudflare edge counts of HTTP requests (not pageviews), <strong>adaptive-sampled — approximate, not exact</strong>, and updated on a <strong>short delay</strong> (a few minutes behind live). Your audience metrics above (page views, visits, conversions) are exact, real-time first-party counts. Cache hit ratio is over cacheable requests.</p>
         } @else if (d.zone_resolved) {
           <p class="dl-empty" data-testid="an-dl-empty">
             No edge requests recorded in this window yet. Status codes, cache hit-rate, and bandwidth appear here once traffic arrives.

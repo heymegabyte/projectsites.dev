@@ -63,9 +63,10 @@ affected-pages. Honest: a null metric shows "measuring", never a fabricated 0; C
 is disclosed. **Nothing to build here — do NOT rebuild CWV.**
 
 The customer analytics section is now at a **verified no-dep plateau**: audience/traffic, delivery
-(sampled-flagged), CWV, campaigns, device/browser/OS, bounce, conversions, comparison-period deltas,
+(sampled-flagged + **data-latency disclosed** — edge data "a few minutes behind live" vs real-time first-party,
+cycle 2026-09-24), CWV, campaigns, device/browser/OS, bounce, conversions, comparison-period deltas, busiest-hours,
 tz-aware daily bucketing, honest source/freshness/definition labels + a full glossary, and CSV export
-(incl. device/browser/OS/CWV) are all shipped. The only remaining items are plan-blocked (Security/WAF +
+(incl. device/browser/OS/CWV/hourly) are all shipped. The only remaining items are plan-blocked (Security/WAF +
 latency percentiles — no entitlement) or need new plumbing/deps (see Next).
 
 ## Deferred / not-a-gap

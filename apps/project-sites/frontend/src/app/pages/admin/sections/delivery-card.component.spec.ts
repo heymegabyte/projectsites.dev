@@ -61,8 +61,10 @@ describe('DeliveryCardComponent', () => {
     expect(badge.textContent).toContain('sampled estimate');
     const note = el.querySelector('[data-testid="an-dl-note"]') as HTMLElement;
     expect(note.textContent).toContain('approximate, not exact');
-    // Explicitly contrasts with the EXACT first-party audience metrics (no conflation).
-    expect(note.textContent).toContain('exact first-party');
+    // Data LATENCY is disclosed (edge data lags live) — the prompt: surface data latency.
+    expect(note.textContent).toContain('short delay');
+    // Explicitly contrasts with the EXACT, REAL-TIME first-party audience metrics (no conflation).
+    expect(note.textContent).toContain('real-time first-party');
   });
 
   it('flags an actionable error rate when 4xx/5xx ≥ 5% and lists the error codes', () => {

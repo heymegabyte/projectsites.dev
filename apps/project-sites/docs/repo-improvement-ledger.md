@@ -683,6 +683,23 @@
   a module-global stagger counter read only in ngOnInit + a spec that resets it — the inputs migrate cleanly, the counter
   is untouched). Also `animations/ripple`'s sibling `motion.ts`/`directives/*` decorator holdouts + the unwired
   `site-kit/*` (Brian-gated intent call).
+- **Cycle 52 — 2026-09-24 (Analytics: disclose edge-delivery DATA LATENCY — the last unaddressed honesty item):** The
+  analytics section is at a deep no-dep plateau (delivery card already renders status classes + errors + cache; CWV +
+  hourly + campaigns + tech all shipped). The prompt's honesty mandate lists "surface sampling, estimates, **data
+  latency**, and source definitions" — sampling/source/retention were disclosed (cycle 44), but **data latency was
+  NOT**. The CF-edge delivery data (`httpRequestsAdaptiveGroups`) lags live + is sampled, while first-party
+  `visitor_events` is real-time — an owner seeing edge requests that don't match their live pageviews needs that told.
+  Added to the delivery card's visible note + tooltip: edge data is "updated on a **short delay** (a few minutes behind
+  live)" and first-party audience metrics are "exact, **real-time**" — honest + QUALITATIVE (no invented precision, per
+  the never-imply-exact mandate). Fixed the existing spec assertion that broke on the reworded note (`exact first-party`
+  → `real-time first-party`) + added a `short delay` latency assertion. Verified: fe tsc (app+spec) 0 · **Karma
+  2094/2094** · `ng build:prod` 0 err + 0 NG8113 · deployed R2 + prod-verified (`main-MV67J3LY.js` hash-matched, delivery
+  chunk `chunk-DQFYHCSR.js` 200 with the "short delay" marker live). Frontend-only. **Analytics is now at a COMPLETE
+  no-dep honesty+coverage plateau** — every prompt coverage item is shipped or plan-blocked (Security/WAF + latency
+  percentiles need a CF entitlement) or a large cross-stack feature (drilldown/filter — click a country/device to filter
+  the dashboard, the top remaining genuine feature, medium-large: server filter param threaded tenant-safely + all
+  breakdown queries + frontend chips + tests + worker deploy). **Next:** drilldown/filter (biggest remaining value), or
+  DST-precision (low ROI, needs a tz lib / per-timestamp Intl).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
