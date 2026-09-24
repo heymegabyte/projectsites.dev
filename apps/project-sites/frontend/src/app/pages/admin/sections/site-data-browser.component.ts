@@ -52,6 +52,15 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
           (retry)="loadTables(siteId())"
         />
       } @else {
+        @if (dataSummary(); as s) {
+          <p class="db-summary" data-testid="db-summary" aria-live="polite">
+            <strong>{{ s.tableCount }}</strong> {{ s.tableCount === 1 ? 'table' : 'tables' }}
+            · <strong>{{ s.totalRows.toLocaleString() }}</strong> {{ s.totalRows === 1 ? 'record' : 'records' }}
+            @if (s.largest && s.largest.row_count > 0) {
+              · largest: <strong>{{ s.largest.label }}</strong> ({{ s.largest.row_count.toLocaleString() }})
+            }
+          </p>
+        }
         <div class="db-tables" role="tablist" aria-label="Site data tables" data-testid="db-table-list">
           @for (t of tables(); track t.key) {
             <button
@@ -308,6 +317,8 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
   styles: [`
     .db { color: var(--ps-ink, #f4f4ff); }
     .db-loading { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); font-size: 0.85rem; }
+    .db-summary { margin: 0 0 0.6rem; font-size: 0.74rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 62%, transparent); }
+    .db-summary strong { color: var(--ps-ink, #f4f4ff); font-variant-numeric: tabular-nums; }
     .db-tables { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
     .db-table-chip {
       display: inline-flex; align-items: center; gap: 0.45rem; cursor: pointer;
@@ -444,6 +455,21 @@ export class SiteDataBrowserComponent implements OnInit {
   readonly tablesLoading = signal(false);
   readonly tablesError = signal<string | null>(null);
   readonly selected = signal<DataOverviewTable | null>(null);
+
+  /** At-a-glance Overview: table count + total records + the largest table, derived
+   *  from the already-fetched per-table row counts (no extra request). Null until
+   *  tables load, so the strip never shows a misleading "0 records" while loading. */
+  readonly dataSummary = computed<{
+    tableCount: number;
+    totalRows: number;
+    largest: DataOverviewTable | null;
+  } | null>(() => {
+    const ts = this.tables();
+    if (ts.length === 0) return null;
+    const totalRows = ts.reduce((sum, t) => sum + (t.row_count || 0), 0);
+    const largest = ts.reduce((max, t) => (t.row_count > (max?.row_count ?? -1) ? t : max), ts[0]);
+    return { tableCount: ts.length, totalRows, largest };
+  });
 
   // ── Current page ─────────────────────────────────────────────────────
   readonly columns = signal<string[]>([]);

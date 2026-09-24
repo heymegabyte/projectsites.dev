@@ -508,3 +508,38 @@ describe('SiteDataBrowserComponent — per-column filter', () => {
     expect(val.disabled).withContext('value disabled with no column chosen').toBe(true);
   });
 });
+
+/**
+ * At-a-glance Overview summary — table count + total records + largest table,
+ * derived from the already-fetched per-table row counts (no extra request).
+ * Null (hidden) until tables load, so it never flashes a misleading "0 records".
+ */
+describe('SiteDataBrowserComponent — overview summary', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('derives tableCount + totalRows + the largest table from the loaded tables', () => {
+    // OVERVIEW: visitor_events (3 rows) + form_submissions (0 rows).
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    const s = c.dataSummary();
+    expect(s).not.toBeNull();
+    expect(s!.tableCount).toBe(2);
+    expect(s!.totalRows).toBe(3);
+    expect(s!.largest?.key).toBe('visitor_events');
+  });
+
+  it('is null before any tables load (no misleading "0 records" flash)', () => {
+    const { c } = setup(); // not detected yet → tables() empty
+    expect(c.dataSummary()).toBeNull();
+  });
+
+  it('renders the summary strip with the record total after load', () => {
+    const { fixture } = setup();
+    fixture.detectChanges();
+    const strip = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="db-summary"]');
+    expect(strip).withContext('summary strip renders').toBeTruthy();
+    expect(strip!.textContent).toContain('2'); // tables
+    expect(strip!.textContent).toContain('record');
+    expect(strip!.textContent).toContain('Visitor Events'); // largest table label
+  });
+});

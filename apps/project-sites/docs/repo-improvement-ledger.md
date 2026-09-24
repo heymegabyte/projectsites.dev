@@ -233,6 +233,15 @@
   new endpoint (reuses the prod-verified browse filter). Verified: tsc 0 · backtick 0 · **Karma 1999/1999** (+2) · build 0 ·
   eslint 0 err · deployed R2 + chunk-hash prod-verified (`chunk-EX4OOYLS.js`). Row edit/delete remains the deferred big gap
   (fresh-session, per risk discipline).
+- **Cycle 24 — 2026-09-24 (Data section: Overview summary strip):** Added an at-a-glance Overview strip above the table
+  picker — "N tables · M records · largest: <table> (K)" — a partial answer to the epic's "database metadata / table count /
+  recent activity" Overview. `dataSummary` computed derives count + total records + largest table from the already-fetched
+  per-table `row_count` (no extra request); null (hidden) until tables load so it never flashes a misleading "0 records";
+  `aria-live` polite. Honest — a sum of real counts, no fabricated size/usage (D1 size/usage/limits still need the blocked D1
+  REST API). Frontend-only. Verified: tsc 0 · backtick 0 · **Karma 2002/2002** (+3) · build 0 · eslint 0 err · deployed R2 +
+  chunk-hash prod-verified (`chunk-2DWUIDDD.js`). Chose this glanceable, safe, in-spec slice; row edit/delete stays deferred
+  (memory: `form_submissions` has NO `deleted_at` → an owner delete is a HARD, irreversible delete → fresh-session per risk
+  discipline).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
