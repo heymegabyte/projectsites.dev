@@ -896,6 +896,8 @@ export class ApiService {
       orderBy?: string;
       dir?: 'asc' | 'desc';
       search?: string;
+      filterCol?: string;
+      filterVal?: string;
       silent?: boolean;
     } = {},
   ): Observable<DataTablePage> {
@@ -906,6 +908,11 @@ export class ApiService {
     if (opts.dir) params['dir'] = opts.dir;
     // Text search across the table's non-timestamp safe columns (server LIKE filter).
     if (opts.search) params['search'] = opts.search;
+    // Precise per-column exact-match filter (server-validated column allowlist).
+    if (opts.filterCol && opts.filterVal) {
+      params['filterCol'] = opts.filterCol;
+      params['filterVal'] = opts.filterVal;
+    }
     return this.get(`/sites/${siteId}/data-overview/${encodeURIComponent(table)}`, params, {
       silent: opts.silent,
     });

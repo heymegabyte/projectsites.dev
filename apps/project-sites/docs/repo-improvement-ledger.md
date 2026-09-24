@@ -212,6 +212,18 @@
   (route already correct + deployed) — full worker suite now **12262/12262 green (0 failures)**, tsc 0; prod-verified the live
   contract (`/api/site-features` → 401 unauthed AND with `?org_id`). This clears the standing Rec carried since Cycle-and-fires
   back and makes the security invariant permanent.
+- **Cycle 22 — 2026-09-24 (Data section: owner per-column exact filter):** Shipped **per-column filtering** on the
+  customer-facing Data grid (`SiteDataBrowserComponent` + `site_data_api/handlers.ts`) — the Data-epic's "filters" requirement.
+  A column dropdown + value input add a precise server-side `AND "col" = ?` over the browse + count queries (so `total`
+  reflects the filter), complementing the existing OR-of-LIKE search. New pure `buildColumnFilter` mirrors `buildDataSearch`:
+  the column MUST be in the safe allowlist (same injection boundary as orderBy/search — a `;DROP`/quoted/unknown column yields
+  NO clause), the value is a **bound param** (never concatenated, 200-char cap). Frontend: `filterCol`/`filterVal` signals +
+  toolbar controls (value gated on a chosen column) + resets to page 1 + cleared on table switch; `browseDataTable` gained the
+  two params. Verified: tsc 0 · backtick 0 · **Karma 1991/1991** (+4) · **Jest 12270/12270** (+4) · build 0 · eslint 0 err ·
+  deployed worker + R2 · **prod-verified**: unfiltered 27 → `event_type=pageview` 15 → no-match 0 → non-allowlist column
+  IGNORED (27, no injection). Chose this (safe, in-spec, exercises the parameterized-allowlist discipline) over owner row
+  edit/delete — still deferred: it's DATA-LOSS-capable + needs a per-table deletable-allowlist + confirm + audit design call,
+  which per risk discipline belongs in a FRESH focused session, not a 11-fire-deep marathon.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

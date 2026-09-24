@@ -426,3 +426,55 @@ describe('SiteDataBrowserComponent — copy affordances', () => {
     expect(flash.nativeElement.getAttribute('aria-live')).toBe('polite');
   });
 });
+
+/**
+ * Per-column exact-match filter (in-spec "filters"): a column dropdown + value drive
+ * a server-side parameterized `= ?` (column allowlist-validated server-side). Resets
+ * to page 1, clears on table switch, and the value input is gated on a chosen column.
+ */
+describe('SiteDataBrowserComponent — per-column filter', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('applyColumnFilter sends filterCol/filterVal to the browse call + resets to page 1', () => {
+    const { fixture, c, browseDataTable } = setup();
+    fixture.detectChanges();
+    c.offset.set(50);
+    c.applyColumnFilter('event_type', ' pageview ');
+    expect(c.filterCol()).toBe('event_type');
+    expect(c.filterVal()).withContext('value trimmed').toBe('pageview');
+    expect(c.offset()).withContext('filter resets to first page').toBe(0);
+    expect(browseDataTable.calls.mostRecent().args[2]).toEqual(
+      jasmine.objectContaining({ filterCol: 'event_type', filterVal: 'pageview', offset: 0 }),
+    );
+  });
+
+  it('clearColumnFilter removes the filter + reloads unfiltered', () => {
+    const { fixture, c, browseDataTable } = setup();
+    fixture.detectChanges();
+    c.applyColumnFilter('event_type', 'pageview');
+    c.clearColumnFilter();
+    expect(c.filterCol()).toBe('');
+    expect(c.filterVal()).toBe('');
+    expect(browseDataTable.calls.mostRecent().args[2].filterCol).toBeUndefined();
+    expect(browseDataTable.calls.mostRecent().args[2].filterVal).toBeUndefined();
+  });
+
+  it('selectTable clears an active column filter (a new table starts unfiltered)', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    c.applyColumnFilter('event_type', 'pageview');
+    c.selectTable(c.tables()[1]);
+    expect(c.filterCol()).toBe('');
+    expect(c.filterVal()).toBe('');
+  });
+
+  it('renders the filter controls; the value input is disabled until a column is chosen', () => {
+    const { fixture } = setup();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="db-colfilter-col"]')).withContext('column select renders').toBeTruthy();
+    const val = host.querySelector('[data-testid="db-colfilter-val"]') as HTMLInputElement;
+    expect(val).toBeTruthy();
+    expect(val.disabled).withContext('value disabled with no column chosen').toBe(true);
+  });
+});

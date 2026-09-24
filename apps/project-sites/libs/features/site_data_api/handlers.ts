@@ -193,6 +193,32 @@ export function buildDataSearch(
 }
 
 /**
+ * Build a parameterized exact-match column filter clause for a browse query
+ * (`?filterCol=&filterVal=`). The column MUST be in the table's safe allowlist (the
+ * SQL-injection boundary — same set that gates orderBy + search); anything else, or
+ * an empty value, yields no clause. The value is parameterized (never concatenated)
+ * and bounded to 200 chars. Complements the OR-of-LIKE `buildDataSearch` with a
+ * precise single-column `= ?` for triaging (e.g. `status = new`).
+ *
+ * @param columns - the table's safe column allowlist
+ * @param rawCol - the client `?filterCol=` value
+ * @param rawVal - the client `?filterVal=` value
+ * @returns `{ clause, params }` — `clause` is ` AND "col" = ?` (or ''); one param
+ * @example buildColumnFilter(['status','path'], 'status', 'new') // { clause: ' AND "status" = ?', params: ['new'] }
+ */
+export function buildColumnFilter(
+  columns: readonly string[],
+  rawCol: string | undefined | null,
+  rawVal: string | undefined | null,
+): { clause: string; params: string[] } {
+  const col = String(rawCol ?? '').trim();
+  if (!col || !columns.includes(col)) return { clause: '', params: [] };
+  const val = String(rawVal ?? '').trim().slice(0, 200);
+  if (!val) return { clause: '', params: [] };
+  return { clause: ` AND "${col}" = ?`, params: [val] };
+}
+
+/**
  * Mask an email local part for display: `brian@x.com` → `b***@x.com`.
  * Non-string / malformed values return '' so a browse row never leaks a raw
  * address. A one-char local part still masks fully (`a@x.com` → `*@x.com`).
@@ -428,12 +454,20 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
   const orderBy = c.req.query('orderBy');
   const dir = String(c.req.query('dir') ?? '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
-  // Optional parameterized text search over the non-timestamp safe columns, injected
-  // after `WHERE site_id = ?` on BOTH the browse AND count queries so `total` reflects
-  // the filtered set. Built by the pure `buildDataSearch` (allowlist + wildcard strip).
+  // Optional parameterized text search (OR-of-LIKE) + a precise single-column
+  // exact-match filter, both injected after `WHERE site_id = ?` on BOTH the browse
+  // AND count queries so `total` reflects the filtered set. Columns are allowlist-
+  // validated (the injection boundary); values are parameterized + bounded.
   const { clause: searchClause, params: searchParams } = buildDataSearch(spec.columns, c.req.query('search'));
+  const { clause: filterClause, params: filterParams } = buildColumnFilter(
+    spec.columns,
+    c.req.query('filterCol'),
+    c.req.query('filterVal'),
+  );
+  const extraClause = `${searchClause}${filterClause}`;
+  const extraParams = [...searchParams, ...filterParams];
   const withSearch = (sql: string): string =>
-    searchClause ? sql.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${searchClause}`) : sql;
+    extraClause ? sql.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`) : sql;
 
   // Server-side pagination — never load a whole table into the browser. A VALID
   // orderBy (in the column allowlist) rebuilds the ORDER BY with that validated
@@ -449,8 +483,8 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
   let total = 0;
   try {
     const [browseRes, countRes] = await Promise.all([
-      c.env.DB.prepare(browseSql).bind(siteId, ...searchParams, limit, offset).all(),
-      c.env.DB.prepare(withSearch(spec.countSql)).bind(siteId, ...searchParams).first<{ n: number }>(),
+      c.env.DB.prepare(browseSql).bind(siteId, ...extraParams, limit, offset).all(),
+      c.env.DB.prepare(withSearch(spec.countSql)).bind(siteId, ...extraParams).first<{ n: number }>(),
     ]);
     rows = (browseRes.results || []) as Record<string, unknown>[];
     total = countRes?.n ?? 0;

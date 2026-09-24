@@ -100,6 +100,25 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                    (search)="setSearch(sb.value)"
                    placeholder="Search rows…"
                    aria-label="Search rows in this table" />
+            <div class="db-colfilter" role="group" aria-label="Filter by an exact column value" data-testid="db-colfilter">
+              <select #fc class="db-colfilter-sel" [value]="filterCol()"
+                      (change)="onFilterColChange(fc.value, fv.value)"
+                      data-testid="db-colfilter-col" aria-label="Filter column">
+                <option value="">Filter column…</option>
+                @for (col of columns(); track col) {
+                  <option [value]="col">{{ col }}</option>
+                }
+              </select>
+              <input #fv type="text" class="db-colfilter-val" [value]="filterVal()"
+                     [disabled]="!fc.value" placeholder="exact value"
+                     (change)="applyColumnFilter(fc.value, fv.value)"
+                     (keydown.enter)="applyColumnFilter(fc.value, fv.value)"
+                     data-testid="db-colfilter-val" aria-label="Exact filter value" />
+              @if (filterCol() && filterVal()) {
+                <button type="button" class="db-colfilter-clear" (click)="clearColumnFilter()"
+                        data-testid="db-colfilter-clear" aria-label="Clear column filter" title="Clear filter">×</button>
+              }
+            </div>
             <span class="db-range" data-testid="db-range">{{ rangeLabel() }}</span>
             <div class="db-pager" role="group" aria-label="Pagination">
               <button
@@ -320,6 +339,21 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
       border: 1px solid rgba(255,255,255,0.14); border-radius: 8px;
     }
     .db-search:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; }
+    .db-colfilter { display: inline-flex; align-items: center; gap: 0.3rem; }
+    .db-colfilter-sel, .db-colfilter-val {
+      padding: 4px 8px; font-size: 0.76rem; background: rgba(255,255,255,0.06);
+      color: var(--ps-ink, #f4f4ff); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px;
+    }
+    .db-colfilter-val { width: 8rem; }
+    .db-colfilter-val:disabled { opacity: 0.4; cursor: not-allowed; }
+    .db-colfilter-sel:focus-visible, .db-colfilter-val:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; }
+    .db-colfilter-clear {
+      display: inline-flex; align-items: center; justify-content: center; width: 1.4rem; height: 1.4rem;
+      font-size: 1rem; line-height: 1; color: var(--ps-ink, #f4f4ff); background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; cursor: pointer;
+    }
+    .db-colfilter-clear:hover { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent); }
+    .db-colfilter-clear:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     .db-range { font-size: 0.74rem; font-variant-numeric: tabular-nums; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
     .db-pager { display: inline-flex; gap: 0.35rem; }
     .db-pager button, .db-refresh, .db-export {
@@ -427,6 +461,10 @@ export class SiteDataBrowserComponent implements OnInit {
   readonly dir = signal<'asc' | 'desc'>('desc');
   /** Server-side text search across the table's non-timestamp safe columns. */
   readonly search = signal('');
+  /** Precise per-column exact-match filter (column + value); server re-validates the
+   *  column against the safe allowlist. Active only when BOTH are set. Cleared on switch. */
+  readonly filterCol = signal('');
+  readonly filterVal = signal('');
   readonly rowsLoading = signal(false);
   readonly rowsError = signal<string | null>(null);
   /** Index of the row whose full-JSON detail is expanded (single-open). */
@@ -493,9 +531,40 @@ export class SiteDataBrowserComponent implements OnInit {
     this.orderBy.set(null);
     this.dir.set('desc');
     this.search.set(''); // a new table starts unfiltered
+    this.filterCol.set('');
+    this.filterVal.set('');
     this.expandedRow.set(null);
     this.rowsError.set(null);
     this.loadPage();
+  }
+
+  /** Apply a per-column exact-match filter (column + value), reset to page 1, reload.
+   *  Empty column or value clears the filter. The server re-validates the column. */
+  applyColumnFilter(col: string, val: string): void {
+    this.filterCol.set(col);
+    this.filterVal.set(val.trim());
+    this.offset.set(0);
+    this.loadPage();
+  }
+
+  /** Clear the active per-column filter and reload the unfiltered first page. */
+  clearColumnFilter(): void {
+    if (!this.filterCol() && !this.filterVal()) return;
+    this.filterCol.set('');
+    this.filterVal.set('');
+    this.offset.set(0);
+    this.loadPage();
+  }
+
+  /** React to the filter-column dropdown: clear when blanked, re-apply when a value
+   *  is already typed, else just remember the column (value entry applies it). */
+  onFilterColChange(col: string, val: string): void {
+    if (!col) {
+      this.clearColumnFilter();
+      return;
+    }
+    if (val.trim()) this.applyColumnFilter(col, val);
+    else this.filterCol.set(col);
   }
 
   /** Load the current window of the selected table. Public for Retry + refresh. */
@@ -513,6 +582,8 @@ export class SiteDataBrowserComponent implements OnInit {
         orderBy: this.orderBy() ?? undefined,
         dir: this.dir(),
         search: this.search() || undefined,
+        filterCol: this.filterCol() || undefined,
+        filterVal: this.filterVal() || undefined,
         silent: true,
       })
       .pipe(

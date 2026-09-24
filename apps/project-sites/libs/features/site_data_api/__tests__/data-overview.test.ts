@@ -9,6 +9,7 @@ import {
   clampBrowseLimit,
   maskEmailValue,
   buildDataSearch,
+  buildColumnFilter,
 } from '../handlers';
 
 describe('data-overview registry', () => {
@@ -119,5 +120,37 @@ describe('buildDataSearch (browse text filter)', () => {
   it('bounds the search to 100 chars (query-cost guard)', () => {
     const { params } = buildDataSearch(['path'], 'x'.repeat(200));
     expect(params[0]).toBe(`%${'x'.repeat(100)}%`);
+  });
+});
+
+describe('buildColumnFilter (browse per-column exact-match filter)', () => {
+  const cols = ['event_type', 'status', 'path', 'created_at'];
+
+  it('builds a parameterized single-column `= ?` for an allowlisted column', () => {
+    expect(buildColumnFilter(cols, 'status', 'new')).toEqual({
+      clause: ' AND "status" = ?',
+      params: ['new'],
+    });
+  });
+
+  it('REJECTS a column outside the allowlist (the injection boundary) — no clause', () => {
+    expect(buildColumnFilter(cols, 'password', 'x')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilter(cols, 'status; DROP TABLE sites', 'x')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilter(cols, '"status"', 'x')).toEqual({ clause: '', params: [] });
+  });
+
+  it('returns no clause for an absent column or value', () => {
+    expect(buildColumnFilter(cols, undefined, 'new')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilter(cols, 'status', undefined)).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilter(cols, 'status', '   ')).toEqual({ clause: '', params: [] });
+  });
+
+  it('parameterizes the value (never concatenated) and bounds it to 200 chars', () => {
+    const inject = "new' OR '1'='1";
+    expect(buildColumnFilter(cols, 'status', inject)).toEqual({
+      clause: ' AND "status" = ?',
+      params: [inject], // the value is a bound param — harmless, never interpolated
+    });
+    expect(buildColumnFilter(cols, 'status', 'y'.repeat(500)).params[0]).toBe('y'.repeat(200));
   });
 });
