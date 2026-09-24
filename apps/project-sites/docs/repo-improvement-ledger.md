@@ -487,6 +487,20 @@
   endpoint + its Jest tests, a coherent cross-stack cleanup) OR wire the GA4/CF data into a real card if GA4-connected
   sites warrant it (most sites have no GA4 → likely remove). Until then, the main analytics dashboard (visitor_events,
   first-party) is the sole rendered source and is honest.
+- **Cycle 41 — 2026-09-24 (Cleanup: remove the frontend-orphaned `getAnalytics` client + `Analytics*` types):** Followed
+  the Cycle-40 handoff. After the dead admin-state fetch was removed, `api.service.getAnalytics` had zero real callers and
+  the `AnalyticsData`/`AnalyticsStats`/`AnalyticsChartPoint`/`AnalyticsTrafficSource`/`AnalyticsTopPage`/`AnalyticsTopCountry`
+  interfaces were used only by each other + `getAnalytics`. Verified safe: no spec tests the REAL method (the
+  `analytics.component` "getAnalytics" spy actually mocks `getMultiUrlAnalytics`; the admin-state regression test uses a
+  mock spy; `analytics-live` declares its OWN local `AnalyticsDataResponse`), and grep found no import of the types outside
+  `api.service`. Removed the method + all 6 interfaces (~65 lines); kept `AnalyticsRange` (separate, used by the multi-URL
+  endpoint). No test files touched (the removal breaks nothing — tsc + Karma confirm). Deliberately KEPT the backend
+  `/api/analytics/:siteId` handler + its Jest tests — removing them would touch preserved tests (a separate decision);
+  it's a documented legacy secondary route with no live consumer. Verified: fe tsc (app + spec) 0 · zero dangling refs ·
+  **Karma 2054/2054** · build 0 · deployed R2; app boots (homepage/admin/main all 200, new `main-KKRJBIPD.js`). **Next:**
+  the biggest remaining cleanup is the UNWIRED `site-kit/*` library (25+ components) — needs the Brian-gated
+  intent decision (unbuilt site-builder vs. orphan) before removal/wiring. Data CRUD stays complete; the SQL-console
+  editor UX (syntax highlight / completion / multi-tab) is the next non-blocked Data polish but needs a code-editor lib.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

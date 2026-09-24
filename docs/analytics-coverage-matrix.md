@@ -207,9 +207,15 @@ source — yet `AdminStateService.loadAnalytics` still fetched it into an `analy
 60s refresh tick, and **NO component ever rendered that signal**: a write-only dead fetch that wasted one CF/GA4 API call
 per site per minute (exactly the "one CF request per widget per customer" the doctrine forbids). Removed the whole dead
 chain (`analytics`/`analyticsPeriod`/`analyticsLoading` signals + `loadAnalytics`/`setAnalyticsPeriod` + its 4 call sites).
-This also VOIDS the Cycle-38 handoff — its per-source `visitorsMetric` label had no surface to render on. `api.service.getAnalytics`
-+ the `AnalyticsData` type family are now frontend-orphaned (candidates for removal alongside a decision on the backend
-endpoint). Regression-locked: a Karma test asserts `loadData()`/refresh never call `getAnalytics`. Frontend-only; Karma 2054/2054.
+This also VOIDS the Cycle-38 handoff — its per-source `visitorsMetric` label had no surface to render on. Regression-locked:
+a Karma test asserts `loadData()`/refresh never call `getAnalytics`. Frontend-only; Karma 2054/2054.
+
+**Frontend `getAnalytics` client + `Analytics*` types removed — DONE (2026-09-24, cycle 41).** Followed through on the
+above: deleted `api.service.getAnalytics` + the 6 now-orphaned `Analytics{Data,Stats,ChartPoint,TrafficSource,TopPage,TopCountry}`
+interfaces (no real-method test, no imports outside api.service — the `analytics.component` "getAnalytics" spy actually mocks
+`getMultiUrlAnalytics`; `analytics-live` has its own local interface). The BACKEND `/api/analytics/:siteId` handler + its Jest
+tests remain (removing them would touch preserved tests — a separate decision); it's a documented legacy secondary route with
+no live consumer. tsc + Karma 2054/2054 green; frontend-only.
 
 **Absolute-window tz interpretation — DONE (2026-09-24).** The custom `?start&end` bounds are now interpreted in the OWNER's
 timezone, consistent with the tz-aware daily buckets. A pure `shiftWindowToTz(window, tzMin)` (in `visitor_events_core`)

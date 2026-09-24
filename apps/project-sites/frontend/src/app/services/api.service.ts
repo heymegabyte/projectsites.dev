@@ -773,11 +773,6 @@ export class ApiService {
     return this.post(`/sites/${siteId}/publish-bolt`, { files, chat, slug });
   }
 
-  /** Get GA4 analytics data for a site */
-  getAnalytics(siteId: string, period = '7'): Observable<{ data: AnalyticsData }> {
-    return this.get(`/analytics/${siteId}`, { period });
-  }
-
   /**
    * Aggregated Cloudflare GraphQL analytics across every URL bound to a site.
    * Reads `site_urls` rows, fans out one CF query per URL, sums the result.
@@ -1577,66 +1572,6 @@ export interface DiscoveredVideo {
 export interface DiscoveredVideos {
   videos: DiscoveredVideo[];
   attribution: { author: string; license: string; source_url: string }[];
-}
-
-export interface AnalyticsStats {
-  pageViews: number;
-  uniqueVisitors: number;
-  /**
-   * Average session duration. Only GA4 supplies a real value; CF zone analytics
-   * and the D1 audit-log fallback both surface `'—'` / `'0s'`.
-   */
-  avgSessionDuration: string;
-  bounceRate: number;
-  /** CF zone analytics adds total HTTP requests (page views + assets). */
-  totalRequests?: number;
-}
-
-export interface AnalyticsChartPoint {
-  date: string;
-  views: number;
-}
-
-export interface AnalyticsTrafficSource {
-  name: string;
-  percent: number;
-}
-
-export interface AnalyticsTopPage {
-  path: string;
-  views: number;
-}
-
-export interface AnalyticsTopCountry {
-  country: string;
-  views: number;
-}
-
-/**
- * Per-site analytics envelope returned by `GET /api/analytics/:siteId`.
- *
- * The worker falls back through three sources:
- *  - `'ga4'` — Google Analytics Data API (requires `GA4_PROPERTY_ID` +
- *    `GA4_SERVICE_ACCOUNT_JSON`; ships bounceRate + avgSessionDuration).
- *  - `'cloudflare_zone_analytics'` — CF GraphQL (requires `CF_API_TOKEN` +
- *    `CF_ZONE_ID`; ships pageViews, uniqueVisitors, totalRequests, topPages,
- *    topCountries — but NOT bounceRate / avgSessionDuration).
- *  - `undefined` (D1 audit-log estimate) — last resort when neither GA4
- *    nor CF zone analytics is configured. All stats render as 0.
- */
-export interface AnalyticsData {
-  period: number;
-  slug?: string;
-  /** Which fallback path produced this payload. `undefined` = D1 estimate. */
-  source?: 'ga4' | 'cloudflare_zone_analytics';
-  ga4_connected: boolean;
-  ga4_measurement_id?: string | null;
-  gtm_container_id?: string | null;
-  stats: AnalyticsStats;
-  chartData: AnalyticsChartPoint[];
-  trafficSources: AnalyticsTrafficSource[];
-  topPages: AnalyticsTopPage[];
-  topCountries?: AnalyticsTopCountry[];
 }
 
 /** Time-range buckets accepted by the multi-URL analytics endpoint. */
