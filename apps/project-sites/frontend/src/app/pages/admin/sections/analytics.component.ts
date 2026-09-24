@@ -33,6 +33,18 @@ import { downloadText } from '../../../utils/csv-export';
 
 type RangeId = AnalyticsRange | 'custom';
 
+/**
+ * AN-FILTER — a first-party drilldown the dashboard restricts every audience metric to.
+ * `dim` is one of the server-allowlisted dimensions the UI exposes as clickable rows
+ * (country / device / browser / os / path); `value` is the clicked bucket. Sent to the
+ * summary fetch as `?filterDim=&filterValue=`; the server re-validates the dimension
+ * against its own enum + BINDS the value, so an unknown dimension is a 400 (never SQL).
+ */
+export interface AnalyticsDrill {
+  dim: 'country' | 'device' | 'browser' | 'os' | 'path';
+  value: string;
+}
+
 /** Auto-refresh cadence in seconds — surfaced in the header countdown. */
 const REFRESH_INTERVAL_SEC = 60;
 
@@ -279,6 +291,28 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
            banner above is the whole truth — never also paint "0 views / no
            traffic yet" (a definitive empty-data claim) over a FAILED load. -->
       @if (state.selectedSite() && !error() && !notAvailable()) {
+      <!-- ─────────────────── AN-FILTER — active drilldown chip ───────────────────
+           Rendered from the SERVER-echoed appliedFilter (never the click alone), so it
+           can't claim a restriction the server didn't honor. A real button; activating it
+           clears the filter and reloads the unfiltered view. -->
+      @if (appliedFilter(); as f) {
+        <div class="flex items-center gap-2 flex-wrap rounded-xl border border-[#00E5FF]/20 bg-[#00E5FF]/[0.06] px-3 py-2"
+             role="status" data-testid="an-filter-strip">
+          <span class="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#00E5FF] font-mono">Filtered</span>
+          <button type="button"
+                  class="inline-flex items-center gap-1.5 rounded-full border border-[#00E5FF]/40 bg-[#00E5FF]/10 px-2.5 py-1 text-[0.74rem] font-medium text-white transition hover:bg-[#00E5FF]/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#00E5FF]"
+                  data-testid="an-filter-chip"
+                  (click)="clearFilter()"
+                  [attr.aria-label]="'Clear filter: ' + filterDimLabel(f.dim) + ' is ' + f.value"
+                  title="Clear this filter">
+            <span class="opacity-70">{{ filterDimLabel(f.dim) }}</span>
+            <span aria-hidden="true" class="opacity-50">=</span>
+            <span class="truncate max-w-[16rem]">{{ f.value }}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+          <span class="text-[0.68rem] text-text-secondary min-w-0">Every metric below is restricted to this value — first-party audience only (edge delivery &amp; security aren’t drilled down).</span>
+        </div>
+      }
       <!-- ─────────────────── KPI TILES ─────────────────── -->
       <div class="grid gap-3 grid-cols-4 max-lg:grid-cols-2 max-md:grid-cols-1">
         <div class="card kpi" appReveal data-testid="kpi-pageviews" role="group" [attr.aria-label]="kpiPageviewsLabel()">
@@ -485,18 +519,26 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
               }
             </div>
           } @else if (displayTopPages().length === 0) {
-            <app-mini-empty text="No visits recorded yet.">
+            <app-mini-empty [text]="isFiltered() ? 'No pages match this filter.' : 'No visits recorded yet.'">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
             </app-mini-empty>
           } @else {
             @for (r of displayTopPages(); track r.path) {
-              <div class="bar-row">
+              <!-- Each page row drills the whole summary to path = this URL (toggle). -->
+              <button type="button"
+                      class="bar-row block w-full text-left cursor-pointer appearance-none border-0 bg-transparent rounded-lg px-1 -mx-1 transition hover:bg-white/[0.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#00E5FF]"
+                      data-testid="an-page-drill"
+                      [style.background]="isDrilled('path', r.path) ? 'color-mix(in oklch, var(--ps-accent, #00e5ff) 12%, transparent)' : null"
+                      [style.boxShadow]="isDrilled('path', r.path) ? 'inset 2px 0 0 var(--ps-accent, #00e5ff)' : null"
+                      [attr.aria-pressed]="isDrilled('path', r.path)"
+                      [attr.aria-label]="'Filter analytics by page ' + r.path + ' — ' + r.views + ' views'"
+                      (click)="applyDrill({ dim: 'path', value: r.path })">
                 <div class="flex justify-between mb-1 gap-2">
                   <span class="font-mono text-[0.72rem] truncate text-white" [attr.title]="r.path">{{ r.path }}</span>
                   <span class="text-[0.7rem] text-text-secondary tabular">{{ formatCount(r.views) }}</span>
                 </div>
                 <div class="bar"><div class="bar-fill" [style.width.%]="barWidth(r.views, maxPage())"></div></div>
-              </div>
+              </button>
             }
           }
         </section>
@@ -511,16 +553,23 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
               }
             </div>
           } @else if ((envelope()?.top_countries?.length ?? 0) === 0) {
-            <app-mini-empty text="No geo data yet.">
+            <app-mini-empty [text]="isFiltered() ? 'No countries match this filter.' : 'No geo data yet.'">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
             </app-mini-empty>
           } @else {
             <div class="grid grid-cols-2 gap-x-3 gap-y-1.5">
               @for (r of envelope()!.top_countries; track r.country) {
-                <div class="flex items-center justify-between border-b border-white/[0.04] py-1">
+                <!-- Each country row drills the whole summary to country = this value (toggle). -->
+                <button type="button"
+                        class="flex items-center justify-between border-b border-white/[0.04] py-1 w-full text-left cursor-pointer appearance-none bg-transparent rounded transition hover:bg-white/[0.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#00E5FF]"
+                        data-testid="an-country-drill"
+                        [style.background]="isDrilled('country', r.country) ? 'color-mix(in oklch, var(--ps-accent, #00e5ff) 12%, transparent)' : null"
+                        [attr.aria-pressed]="isDrilled('country', r.country)"
+                        [attr.aria-label]="'Filter analytics by country ' + r.country + ' — ' + r.views + ' views'"
+                        (click)="applyDrill({ dim: 'country', value: r.country })">
                   <span class="text-[0.78rem]">{{ flag(r.country) }} {{ r.country }}</span>
                   <span class="text-[0.7rem] text-text-secondary tabular">{{ formatCount(r.views) }}</span>
-                </div>
+                </button>
               }
             </div>
           }
@@ -579,6 +628,8 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
         [browsers]="siteTraffic()?.byBrowser ?? []"
         [os]="siteTraffic()?.byOs ?? []"
         [windowDays]="rangeDays()"
+        [activeFilter]="filter()"
+        (drill)="applyDrill($event)"
       />
 
       <!-- Busiest hours — first-party pageviews by hour-of-day, rotated from the server's
@@ -1000,6 +1051,22 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
    * or when the analytics route is 404/off.
    */
   siteTraffic = signal<SiteTrafficSummary | null>(null);
+  /**
+   * AN-FILTER — the active drilldown the user clicked (country / device / browser / os /
+   * path + a value), or `null` for the unfiltered view. Sent to the summary fetch as
+   * `?filterDim=&filterValue=`; the server validates the dimension + binds the value, then
+   * narrows every breakdown within the already owner-scoped site. Drives the clicked rows'
+   * pressed state (instant intent); toggling the same row clears it.
+   */
+  filter = signal<AnalyticsDrill | null>(null);
+  /**
+   * The filter the SERVER confirmed it applied (echoed `appliedFilter`). The removable
+   * chip renders from THIS, not `filter()` — so it can never claim a restriction the
+   * server didn't honor (a rejected filter 400s the fetch and leaves this null).
+   */
+  appliedFilter = signal<{ dim: string; value: string } | null>(null);
+  /** True while a drilldown is active — drives filter-aware empty-state copy. */
+  isFiltered = computed(() => this.filter() !== null);
   /**
    * Where the KPI numbers came from: `edge` = CF-zone HTTP-request dataset (custom
    * domains), `beacon` = D1 `visitor_events` overlay (every `*.projectsites.dev`
@@ -1926,7 +1993,7 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
       // recorded on every site-serve. The CF-zone dataset above is empty for
       // `*.projectsites.dev` subdomains, so a real site showed "No traffic yet"
       // while it had hundreds of recorded pageviews. Never throws (404/off → null).
-      site: this.api.getSiteAnalytics(site.id, this.rangeDays(), win, this.browserTzOffset()).pipe(
+      site: this.api.getSiteAnalytics(site.id, this.rangeDays(), win, this.browserTzOffset(), this.filter() ?? undefined).pipe(
         timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
         catchError(() => of(null as SiteAnalyticsSummary | null)),
       ),
@@ -1944,11 +2011,19 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
         // Keep the raw traffic block so the bounce KPI can prefer the true
         // session-depth bounce (`bounceRatePercent`) over the edge proxy.
         this.siteTraffic.set(traffic ?? null);
-        // Fall back to visitor_events whenever the CF-zone envelope is missing or
-        // reports no real data but the site actually HAS recorded pageviews — this
-        // is the fix for the "never had any traffic" lying-empty (CF-zone is blind
-        // to subdomain traffic; visitor_events is the source of truth).
-        if ((!env || !env.any_real_data) && traffic && traffic.pageviews > 0) {
+        // AN-FILTER — reflect the filter the SERVER confirmed it applied (drives the chip).
+        // Null when unfiltered or the server didn't honor one.
+        this.appliedFilter.set(r.site?.appliedFilter ?? null);
+        const filtered = this.filter() !== null;
+        // A drilldown filter restricts ONLY the first-party summary — the CF edge dataset
+        // (getMultiUrlAnalytics) can't be filtered by these first-party dimensions. So when
+        // a filter is active, render the envelope from the FILTERED traffic rather than mix
+        // filtered cards with an unfiltered CF top-pages/countries envelope (honest: a
+        // filtered view is first-party audience only). Otherwise keep the existing fallback
+        // that fixes the subdomain "never had any traffic" lying-empty.
+        if (filtered && traffic) {
+          env = this.envelopeFromTraffic(traffic, this.rangeDays(), r.daily?.days ?? []);
+        } else if ((!env || !env.any_real_data) && traffic && traffic.pageviews > 0) {
           env = this.envelopeFromTraffic(traffic, this.rangeDays(), r.daily?.days ?? []);
           this.notAvailable.set(false);
           this.error.set(null);
@@ -1960,7 +2035,10 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
           // backfills D1 visitor_events with total_requests == pageviews — the KPI
           // labels must then say "beacon", NOT "All HTTP requests at the edge". The
           // frontend fallback overlay (urls_included:[]) is likewise beacon-sourced.
-          this.trafficSource.set(env.urls_included?.some((u) => u.resolved_zone) ? 'edge' : 'beacon');
+          // A filtered view is always first-party (beacon) by construction above.
+          this.trafficSource.set(
+            !filtered && env.urls_included?.some((u) => u.resolved_zone) ? 'edge' : 'beacon',
+          );
           this.error.set(null);
         }
         // Count ONLY genuine load errors (catchError set error() + returned null)
@@ -1971,6 +2049,43 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
         this.loading.set(false);
       },
     });
+  }
+
+  /** Human label for a drilldown dimension — for the filter chip + aria copy. */
+  filterDimLabel(dim: string): string {
+    const labels: Record<string, string> = {
+      country: 'Country',
+      device: 'Device',
+      browser: 'Browser',
+      os: 'OS',
+      path: 'Page',
+      channel: 'Channel',
+    };
+    return labels[dim] ?? dim;
+  }
+
+  /** True when the active filter (intent) targets THIS dimension + value — a row's pressed state. */
+  isDrilled(dim: string, value: string): boolean {
+    const f = this.filter();
+    return !!f && f.dim === dim && f.value === value;
+  }
+
+  /**
+   * Apply — or toggle off — a drilldown filter, then reload. Clicking the row that is
+   * already active clears it. The server re-validates the dimension against its allowlist
+   * + binds the value; the chip renders from the echoed `appliedFilter`, not this signal.
+   */
+  applyDrill(d: AnalyticsDrill): void {
+    const cur = this.filter();
+    this.filter.set(cur && cur.dim === d.dim && cur.value === d.value ? null : d);
+    this.reload();
+  }
+
+  /** Clear the active drilldown + reload the unfiltered view (no-op when already clear). */
+  clearFilter(): void {
+    if (!this.filter() && !this.appliedFilter()) return;
+    this.filter.set(null);
+    this.reload();
   }
 
   /** Map the selected range pill to a day count for the visitor_events window.

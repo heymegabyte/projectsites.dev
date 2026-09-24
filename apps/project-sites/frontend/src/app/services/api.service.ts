@@ -811,6 +811,7 @@ export class ApiService {
     windowDays = 30,
     window?: { start: string; end: string },
     tzOffsetMinutes?: number,
+    filter?: { dim: string; value: string },
   ): Observable<SiteAnalyticsSummary> {
     // An absolute window (start/end, YYYY-MM-DD) wins server-side over windowDays;
     // windowDays rides along as the fallback the worker uses when no window is sent.
@@ -823,6 +824,14 @@ export class ApiService {
     // (no-op without a window); the worker re-validates + bounds it.
     if (typeof tzOffsetMinutes === 'number' && Number.isInteger(tzOffsetMinutes) && tzOffsetMinutes !== 0) {
       params['tz'] = tzOffsetMinutes.toString();
+    }
+    // AN-FILTER — an optional `{dim,value}` drilldown restriction. The server validates
+    // `filterDim` against its allowlist (unknown dimension → 400) and BINDS `filterValue`
+    // as a SQL parameter; both are sent only when a non-empty value is present, and the
+    // server echoes back `appliedFilter` so the UI renders its chip from what was honored.
+    if (filter && filter.dim && filter.value) {
+      params['filterDim'] = filter.dim;
+      params['filterValue'] = filter.value;
     }
     return this.get(`/sites/${siteId}/analytics`, params, { silent: true });
   }
@@ -1709,6 +1718,14 @@ export interface SiteAnalyticsSummary {
   siteId: string;
   windowDays: number;
   traffic: SiteTrafficSummary;
+  /**
+   * The drilldown filter the server actually APPLIED (`{dim,value}`), echoed back so the
+   * dashboard renders its removable chip from the SERVER'S confirmation — never from the
+   * click alone. Absent when no filter was requested (or when one was rejected → 400, in
+   * which case the fetch errors and the chip is not shown). `dim` is one of the server's
+   * allowlisted dimensions (country / device / browser / os / channel / path).
+   */
+  appliedFilter?: { dim: string; value: string };
 }
 
 /**

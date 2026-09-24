@@ -105,4 +105,43 @@ describe('TechBreakdownComponent', () => {
     expect(src.textContent).toContain('last 7 days');
     expect(src.textContent).toContain("visitor's browser");
   });
+
+  // ── Drilldown filter (AN-FILTER): each row is an accessible toggle button. ──
+  it('emits drill {dim,value} when a row button is clicked', () => {
+    const fixture = render(
+      [{ label: 'desktop', count: 40 }, { label: 'mobile', count: 25 }],
+      [{ label: 'Chrome', count: 50 }],
+      [],
+    );
+    const c = fixture.componentInstance;
+    let emitted: { dim: string; value: string } | undefined;
+    c.drill.subscribe((e) => (emitted = e));
+    const host = fixture.nativeElement as HTMLElement;
+    const firstDeviceBtn = host.querySelector('[data-testid="an-tech-drill-device"]') as HTMLButtonElement;
+    expect(firstDeviceBtn.tagName).toBe('BUTTON'); // a real button, keyboard-operable
+    firstDeviceBtn.click();
+    expect(emitted).toEqual({ dim: 'device', value: 'desktop' }); // top row by count
+  });
+
+  it('marks ONLY the row matching activeFilter aria-pressed=true', () => {
+    const fixture = render([{ label: 'desktop', count: 40 }, { label: 'mobile', count: 25 }], [], []);
+    fixture.componentRef.setInput('activeFilter', { dim: 'device', value: 'desktop' });
+    fixture.detectChanges();
+    const btns = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('[data-testid="an-tech-drill-device"]'),
+    ) as HTMLButtonElement[];
+    const pressed = btns.map((b) => b.getAttribute('aria-pressed'));
+    expect(pressed).toContain('true');
+    expect(pressed.filter((p) => p === 'true').length).toBe(1); // exactly the matching row
+  });
+
+  it('isActive matches only the same dimension AND value', () => {
+    const fixture = render([{ label: 'desktop', count: 1 }]);
+    fixture.componentRef.setInput('activeFilter', { dim: 'device', value: 'desktop' });
+    fixture.detectChanges();
+    const c = fixture.componentInstance;
+    expect(c.isActive('device', 'desktop')).toBe(true);
+    expect(c.isActive('device', 'mobile')).toBe(false); // same dim, different value
+    expect(c.isActive('browser', 'desktop')).toBe(false); // same value, different dim
+  });
 });
