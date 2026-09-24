@@ -49,6 +49,14 @@
     (analytics/billing), so migrating now risks merge conflicts; safe once they quiesce. Their bespoke
     `toCsv()` headers/formatting stay per-component; only the `esc` primitive + blob-download boilerplate
     should move to `csvEscape`/`downloadText` (output-preserving).
+- **Cycle 6 — 2026-09-23 (Analytics + Angular focused-component, one slice):** Completed the CWV arc with a
+  NEW focused standalone **`WebVitalsCardComponent`** (signals + `input()` + native control flow, colocated
+  10-spec Karma file) rendering the honest LCP/INP/CLS p75 card in `/admin/analytics`. Wired into the 85KB
+  `analytics.component.ts` with a MINIMAL edit (import + one `imports[]` entry + one `<app-web-vitals-card>` tag
+  bound to `siteTraffic()?.webVitals` + `rangeDays()`; made `rangeDays()` public for the template). Honest: null
+  metric → "Measuring…" not 0; rating shown as a WORD (WCAG use-of-color); labelled Chromium-only field data.
+  Verified: tsc 0, **Karma 1906/1906** (+10), AOT build exit 0, eslint 0-errors, backtick gate PASS. Exemplar of
+  the "focused child component wired into a god-component with a one-line edit" pattern (avoids bloating the 85KB file).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

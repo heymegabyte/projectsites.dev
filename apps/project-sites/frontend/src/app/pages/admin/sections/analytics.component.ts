@@ -20,6 +20,7 @@ import { MiniEmptyComponent } from '../../../components/mini-empty/mini-empty.co
 import { EmptyStateComponent } from '../empty-state.component';
 import { ErrorCardComponent } from '../../../components/states';
 import { RevealDirective } from '../../../directives/reveal.directive';
+import { WebVitalsCardComponent } from './web-vitals-card.component';
 
 type RangeId = AnalyticsRange;
 
@@ -60,7 +61,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -491,6 +492,14 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
           }
         </section>
       }
+
+      <!-- Real-user experience — field-measured Core Web Vitals p75 (LCP/INP/CLS)
+           from the web_vital beacon rows. Honest: null metric → "measuring", never 0. -->
+      <app-web-vitals-card
+        appReveal
+        [webVitals]="siteTraffic()?.webVitals ?? null"
+        [windowDays]="rangeDays()"
+      />
 
       <p class="text-[0.65rem] text-text-secondary text-center">
         Source: {{ dataLabel() }} · {{ dataTooltip() }} ·
@@ -1629,8 +1638,9 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Map the selected range pill to a day count for the visitor_events window. */
-  private rangeDays(): number {
+  /** Map the selected range pill to a day count for the visitor_events window.
+   *  Public so the template can pass it to `<app-web-vitals-card [windowDays]>`. */
+  rangeDays(): number {
     switch (this.range()) {
       case '24h':
         return 1;

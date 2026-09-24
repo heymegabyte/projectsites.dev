@@ -43,7 +43,7 @@
 | Forms / completions | D1 form_submissions | none | site_id | D1 | none | ✅ live | forms tab |
 | Period-over-period deltas | D1 visitor_events | none | site_id | D1 | none | ✅ live | comparison |
 | CF requests/bandwidth/cache/status | CF GraphQL httpRequestsAdaptiveGroups | custom domain in CF zone | per hostname | 30 days | adaptive sampled | ⚠️ fallback-only, not surfaced as its own view | — |
-| **Core Web Vitals (LCP/INP/CLS)** | first-party RUM → `web_vital` events in D1 | none (no CF plan) | per site_id | D1 | none (all sessions) | 🔨 **ingest + beacon + p75 aggregation DONE** — `initWebVitals()` collects → `visitor_events`; `getWebVitalsSummary` computes nearest-rank **p75 per metric** (null when no samples, never a fake 0) into `traffic.webVitals`; **UI card PENDING** | API: analytics summary `traffic.webVitals` |
+| **Core Web Vitals (LCP/INP/CLS)** | first-party RUM → `web_vital` events in D1 | none (no CF plan) | per site_id | D1 | none (all sessions) | ✅ **COMPLETE** — beacon collects → ingest → `getWebVitalsSummary` nearest-rank **p75** → honest **`WebVitalsCardComponent`** (p75 + Google rating word + sample count; "measuring" when a metric is null, NEVER a fabricated 0; labelled Chromium-only field data over the window) | `/admin/analytics` "Core Web Vitals" card |
 | **Security (WAF/bot/challenges)** | CF GraphQL firewall/security datasets | custom domain in zone (WAF plan) | per hostname | plan-dependent | — | ❌ missing | — |
 | **CSV export / custom range / comparison / TZ** | (UI) | none | — | — | — | ❌ partial/missing | — |
 | Source + freshness labels in UI | (UI) | none | — | — | — | ⚠️ verify present | — |
@@ -79,8 +79,15 @@ fake 0) — on page hide via `track()`'s keepalive fetch. Covered by 15 `app_js_
 on `TrafficSummarySchema` (`{lcp,inp,cls}`, each `{p75,samples}` or **null** when no samples — never a fabricated 0;
 defaulted for back-compat). Surfaced on the analytics summary API (`traffic.webVitals`) + the frontend `SiteTrafficSummary`
 contract. Covered by a p75 aggregation test + `percentile` unit tests (299 analytics/visitor_events specs green).
-NEXT, in order: (1) **UI card** — an LCP/INP/CLS p75 card in `analytics.component.ts` reading `traffic.webVitals`,
-labeled "field data (RUM, Chromium), last N days", showing p75 + `samples` count + good/needs-improvement/poor
-thresholds (LCP ≤2.5s/≤4s, INP ≤200/≤500ms, CLS ≤0.1/≤0.25), with an honest "measuring — no samples yet" empty
-state when a metric is null. NEVER a fabricated 0. (2) Confirm a real published site emits samples before the card
-claims data (a fresh/low-traffic site legitimately has none). (3) later: per-top-path p75 drilldown.
+**The UI card is DONE** (2026-09-23) — the **CWV arc is COMPLETE end-to-end**: beacon → ingest → p75 aggregation →
+honest `WebVitalsCardComponent` (focused standalone) in the analytics "Real-user experience" card. Per metric it shows
+p75 (LCP/INP in ms→s, CLS unitless) + the Google rating WORD (Good ≤2.5s/≤200ms/≤0.1 · Needs work ≤4s/≤500ms/≤0.25 ·
+Poor) + sample count; a null metric renders "Measuring — no samples yet" (NEVER a fabricated 0), and an all-empty card
+shows a "no field data yet" note. Labelled Chromium-only field data over the window. Covered by 10 `web_vitals_card`
+specs. Verified live (prior fire) that `traffic.webVitals` returns real data (lcp p75=2372/1 sample, cls p75=0/1 sample,
+inp=null → honesty contract visibly correct).
+NEXT highest-value gaps (pick one): (1) **per-path CWV p75** — group `getWebVitalsSummary` by `path` (the beacon's
+`href`) so owners see WHICH pages are slow; a small aggregation extension + a card drilldown. (2) **Security coverage**
+(❌ missing) — CF GraphQL `firewallEventsAdaptive` for custom-domain sites in a CF zone (bot/challenge/block counts +
+top rules), plan-gated + honestly labelled "custom domains only, not subdomains". (3) **Usability honesty sweep** — an
+explicit source + freshness ("as of") + "not available for subdomains" vs "no data yet" label on every analytics card.
