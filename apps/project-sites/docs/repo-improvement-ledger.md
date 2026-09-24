@@ -591,6 +591,27 @@
   **duplicate `EmptyStateComponent`** (two components, one selector — see the Angular-coverage note above); consolidation
   needs a visual-design call, so it's a tracked Rec, not this cycle. **Next:** `calendar-widget` signal-input migration
   (its 1 input is a getter/setter with logic → `input()` + `computed`/`effect`), or delete the dead `mode-switcher`.
+- **Cycle 47 — 2026-09-24 (Data: SQL console gains positional bind parameters `?N`):** The Data epic's SQL-workspace
+  spec explicitly asks for "parameters", and it's the "parameterize values, never concatenate" mandate as a *feature*.
+  Full vertical slice, no new dep/credential. **Worker** (`/sql/exec`): `SqlExecSchema` now accepts an optional Zod-typed
+  `params[]` (union string/number/bool/null, ≤50); the handler binds them via `.prepare(q).bind(...params).all()` —
+  `.bind()` only when params exist (a no-param query keeps its exact path), booleans coerced to 0/1 (no native SQLite
+  bool), and the audit metadata logs the param **count**, never the values (the epic's sensitive-parameter redaction).
+  **Frontend** (`site-detail.component.ts`): a "Bind params" JSON-array input (`["vitos", 42]` → `?1`, `?2`), a
+  `parseSqlParams()` validator, and three client guards that block a doomed POST with an inline reason — invalid JSON,
+  >50, and **params-but-no-`?`-placeholder** (the common footgun); `runSql` + `explainSql` both send `{query, params}`
+  only when non-empty; `useSqlStarter` clears stale binds (starters are parameterless + auto-run). Verified: worker tsc 0
+  · **worker Jest 12329/12329** (+5) · fe tsc (app+spec) 0 · **Karma 2078/2078** (+6) · worker lint 0 errors · `ng
+  build:prod` 0 err + 0 NG8113. Deployed BOTH surfaces: worker `wrangler deploy --env production` → version **`e7a61055`
+  @ 100%**, `/health` 200 (the CONTAINER app rollout timed out on a CF-side `standard`→`standard-1` instance-type
+  migration — that's the site-BUILD container, NOT the API routes; the Worker SCRIPT deployed + serves, verified via the
+  deployments list + health); frontend R2 → `main-DAXJOYPN.js` hash-matched, chunk `chunk-BXXDK73H.js` 200 with the
+  `sql-params` + `no ? placeholder` guard markers live. Super-admin surface → E2E key 403s it, so the bind path is locked
+  by the 39 route Jest tests (bind + boolean-coerce + no-bind-when-empty + >50-reject + count-only-audit). **CF platform
+  limitation discovered:** container-app deploys are currently timing out on CF's `standard`→`standard-1` instance
+  migration — retry later or it self-heals; does NOT affect Worker-script deploys. **Next:** the SQL console's remaining
+  epic items (syntax highlighting / schema-aware completion / multi-tab) still need a code-editor lib (CodeMirror 6 —
+  Brian-gated dep); or Analytics: DST-precise IANA timezone bucketing.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

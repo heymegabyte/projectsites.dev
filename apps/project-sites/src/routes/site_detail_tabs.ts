@@ -223,6 +223,13 @@ tabs.patch('/api/sites/:siteId/snapshots/:snapshotId', async (c) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const SqlExecSchema = z.object({
   query: z.string().min(1).max(8_000),
+  // Positional bind params for ?1, ?2, … — values are BOUND, never concatenated into the
+  // SQL (the epic's "parameterize values, never concatenate" mandate). Booleans are coerced
+  // to 0/1 at bind time (SQLite has no native boolean). Capped at 50 to bound abuse.
+  params: z
+    .array(z.union([z.string(), z.number(), z.boolean(), z.null()]))
+    .max(50)
+    .optional(),
 });
 
 const READONLY_PREFIX = /^\s*(SELECT|EXPLAIN|WITH|PRAGMA)\b/i;
@@ -251,7 +258,7 @@ tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
     );
   }
 
-  let body: { query: string };
+  let body: { query: string; params?: Array<string | number | boolean | null> };
   try {
     body = SqlExecSchema.parse(await c.req.json().catch(() => ({})));
   } catch (e) {
@@ -279,9 +286,14 @@ tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
     return c.json({ ok: false, error: 'site not found' }, 404);
   }
 
+  // Positional bind params — values are bound (never concatenated), booleans → 0/1 (no
+  // native SQLite boolean). Only call `.bind()` when params exist so a no-param query
+  // keeps its exact prepared-statement path.
+  const boundParams = (body.params ?? []).map((p) => (typeof p === 'boolean' ? (p ? 1 : 0) : p));
   const t0 = Date.now();
   try {
-    const result = await c.env.DB.prepare(q).all();
+    const stmt = c.env.DB.prepare(q);
+    const result = await (boundParams.length > 0 ? stmt.bind(...boundParams) : stmt).all();
     const rows = (result.results ?? []) as Array<Record<string, unknown>>;
     const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
     await writeAuditLog(c.env.DB, {
@@ -291,7 +303,9 @@ tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
       target_type: 'site',
       target_id: siteId,
       message: 'SQL query executed',
-      metadata_json: { query: q.slice(0, 200), rowcount: rows.length },
+      // Log the param COUNT, never the values — bind params can carry sensitive filter
+      // values (emails, tokens); the epic mandates redacting sensitive parameter values.
+      metadata_json: { query: q.slice(0, 200), rowcount: rows.length, param_count: boundParams.length },
     });
     const meta = (result.meta ?? {}) as {
       rows_read?: number;

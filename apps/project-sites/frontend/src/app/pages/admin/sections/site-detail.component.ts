@@ -306,6 +306,22 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'schema'
                       [title]="st.query" (click)="useSqlStarter(st.query)">{{ st.label }}</button>
             }
           </div>
+          <!-- Positional bind params (?1, ?2 …) — values are BOUND server-side, never
+               concatenated. A JSON array so numbers/null keep their type. -->
+          <div class="flex items-center gap-2 mt-2 flex-wrap" role="group" aria-label="Bind parameters">
+            <label for="sql-params-input" class="text-xs font-mono text-text-secondary shrink-0">Bind params</label>
+            <input
+              id="sql-params-input"
+              data-testid="sql-params"
+              hlmInput
+              class="font-mono flex-1 min-w-[12rem]"
+              [ngModel]="sqlParams()"
+              (ngModelChange)="sqlParams.set($event)"
+              placeholder='["vitos", 42]  →  ?1, ?2'
+              aria-label="Bind parameters as a JSON array"
+              title="Positional bind params for ?1, ?2, … — a JSON array of strings / numbers / booleans / null. Values are safely BOUND, never concatenated into the SQL." />
+            <span class="text-xs muted shrink-0" data-testid="sql-params-hint">JSON array → ?1, ?2 …</span>
+          </div>
           <div class="sql-toolbar">
             <button type="button" (click)="runSql()" [disabled]="sqlRunning() || !sqlQuery().trim()"
                     data-testid="sql-run"
@@ -717,6 +733,28 @@ export class AdminSiteDetailComponent {
   private effectiveSql(): string {
     return this.sqlSelection().trim() || this.sqlQuery().trim();
   }
+  /** Raw bind-params input — a JSON array of primitives bound to `?1`, `?2`, … in the query.
+   *  Kept independent of the query buffer so an operator can iterate on a query with the same
+   *  params. Values are BOUND server-side, never concatenated (the "parameterize values"
+   *  mandate), so a WHERE filter value can't become a SQL-injection vector. */
+  readonly sqlParams = signal('');
+  /** Parse {@link sqlParams}: a JSON array of string/number/boolean/null. Returns null when
+   *  blank, `{error}` the UI shows on bad input, else the validated `{params}`. */
+  private parseSqlParams(): { params: Array<string | number | boolean | null> } | { error: string } | null {
+    const raw = this.sqlParams().trim();
+    if (!raw) return null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { error: 'Bind params must be a JSON array, e.g. ["vitos", 42] — check the syntax.' };
+    }
+    if (!Array.isArray(parsed)) return { error: 'Bind params must be a JSON array — wrap the values in […].' };
+    if (parsed.length > 50) return { error: `Too many bind params (${parsed.length}) — the console binds at most 50.` };
+    const ok = parsed.every((p) => p === null || ['string', 'number', 'boolean'].includes(typeof p));
+    if (!ok) return { error: 'Bind params must be strings, numbers, booleans, or null (no nested objects/arrays).' };
+    return { params: parsed as Array<string | number | boolean | null> };
+  }
   /** Sync the live textarea selection into {@link sqlSelection} (bound to select/keyup/mouseup). */
   syncSqlSelection(ev: Event): void {
     const el = ev.target as HTMLTextAreaElement;
@@ -741,6 +779,7 @@ export class AdminSiteDetailComponent {
   useSqlStarter(query: string): void {
     this.sqlQuery.set(query);
     this.sqlSelection.set(''); // a recalled query replaces the buffer → any prior selection is stale
+    this.sqlParams.set(''); // starters are parameterless + auto-run → clear stale binds so the ?-guard can't trip
     this.runSql();
   }
 
@@ -1172,6 +1211,21 @@ export class AdminSiteDetailComponent {
       );
       return;
     }
+    // Bind params (?1, ?2 …) — parse + validate before firing; surface bad input inline.
+    const parsedParams = this.parseSqlParams();
+    if (parsedParams && 'error' in parsedParams) {
+      this.sqlResult.set(null);
+      this.sqlError.set(parsedParams.error);
+      return;
+    }
+    const params = parsedParams?.params ?? [];
+    if (params.length > 0 && !query.includes('?')) {
+      this.sqlResult.set(null);
+      this.sqlError.set(
+        `You provided ${params.length} bind ${params.length === 1 ? 'param' : 'params'} but the query has no ? placeholder — add ?1, ?2, … or clear the parameters.`,
+      );
+      return;
+    }
     const id = this.siteId();
     this.sqlRunning.set(true);
     this.sqlError.set(null);
@@ -1187,7 +1241,7 @@ export class AdminSiteDetailComponent {
       error?: string;
     }
     this.api
-      .post<SqlExecRes>(`/sites/${id}/sql/exec`, { query })
+      .post<SqlExecRes>(`/sites/${id}/sql/exec`, params.length > 0 ? { query, params } : { query })
       .pipe(
         catchError((err) =>
           of<SqlExecRes>({
@@ -1231,6 +1285,20 @@ export class AdminSiteDetailComponent {
     if (this.explainRunning() || this.sqlRunning()) return;
     const query = this.effectiveSql().replace(/;\s*$/, '');
     if (!query) return;
+    // Same bind-param contract as runSql — the ?N placeholders live in `query`; the
+    // EXPLAIN QUERY PLAN prefix adds none, so the param count still matches the query.
+    const parsedParams = this.parseSqlParams();
+    if (parsedParams && 'error' in parsedParams) {
+      this.sqlError.set(parsedParams.error);
+      return;
+    }
+    const params = parsedParams?.params ?? [];
+    if (params.length > 0 && !query.includes('?')) {
+      this.sqlError.set(
+        `You provided ${params.length} bind ${params.length === 1 ? 'param' : 'params'} but the query has no ? placeholder — add ?1, ?2, … or clear the parameters.`,
+      );
+      return;
+    }
     const id = this.siteId();
     this.explainRunning.set(true);
     this.explainPlan.set(null);
@@ -1241,7 +1309,12 @@ export class AdminSiteDetailComponent {
       error?: string;
     }
     this.api
-      .post<ExplainRes>(`/sites/${id}/sql/exec`, { query: `EXPLAIN QUERY PLAN ${query}` })
+      .post<ExplainRes>(
+        `/sites/${id}/sql/exec`,
+        params.length > 0
+          ? { query: `EXPLAIN QUERY PLAN ${query}`, params }
+          : { query: `EXPLAIN QUERY PLAN ${query}` },
+      )
       .pipe(
         catchError((err) =>
           of<ExplainRes>({

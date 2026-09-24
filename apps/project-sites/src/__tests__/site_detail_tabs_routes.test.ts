@@ -41,7 +41,9 @@ const mockIsSuperAdmin = isSuperAdmin as unknown as jest.Mock;
 
 // ─── Boundary harness ──────────────────────────────────────────────────────────
 
-/** D1 mock whose `prepare(...).all()` resolves to `rows` (or throws). */
+/** D1 mock whose `prepare(...).all()` resolves to `rows` (or throws). `prepare()` returns a
+ *  chainable statement with `.bind(...)` that records each call's args in `_boundParams`, so
+ *  the parameterized read-console path (values BOUND, never concatenated) can be asserted. */
 function makeDb(
   rows: Array<Record<string, unknown>> = [],
   opts: { throws?: boolean; meta?: Record<string, unknown> } = {},
@@ -50,10 +52,20 @@ function makeDb(
     if (opts.throws) throw new Error('SQLITE_ERROR: no such table');
     return { results: rows, meta: opts.meta };
   });
-  const prepare = jest.fn(() => ({ all }));
-  return { prepare, _all: all } as unknown as D1Database & {
+  const boundParams: unknown[][] = [];
+  const stmt: { all: jest.Mock; bind: jest.Mock } = {
+    all,
+    bind: jest.fn((...args: unknown[]) => {
+      boundParams.push(args);
+      return stmt;
+    }),
+  };
+  const prepare = jest.fn(() => stmt);
+  return { prepare, _all: all, _bind: stmt.bind, _boundParams: boundParams } as unknown as D1Database & {
     prepare: jest.Mock;
     _all: jest.Mock;
+    _bind: jest.Mock;
+    _boundParams: unknown[][];
   };
 }
 
@@ -327,6 +339,65 @@ describe('POST /api/sites/:siteId/sql/exec', () => {
       action: 'site.sql.exec',
       target_id: SITE,
     });
+  });
+
+  it('binds positional params for a parameterized read query (?1) and never concatenates', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
+    const db = makeDb([{ v: 'vitos' }]);
+    const res = await exec(
+      makeApp(AUTH),
+      { query: 'SELECT slug AS v FROM sites WHERE slug = ?1', params: ['vitos'] },
+      makeEnv(db),
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { ok: boolean; rows: unknown[] };
+    expect(json.ok).toBe(true);
+    // prepare() got the RAW parameterized SQL (no interpolation); the value went via bind().
+    expect((db as unknown as { prepare: jest.Mock }).prepare).toHaveBeenCalledWith(
+      'SELECT slug AS v FROM sites WHERE slug = ?1',
+    );
+    expect((db as unknown as { _boundParams: unknown[][] })._boundParams).toEqual([['vitos']]);
+  });
+
+  it('coerces boolean bind params to 0/1 (SQLite has no native boolean)', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
+    const db = makeDb([]);
+    await exec(makeApp(AUTH), { query: 'SELECT 1 WHERE ?1 = ?2', params: [true, false] }, makeEnv(db));
+    expect((db as unknown as { _boundParams: unknown[][] })._boundParams).toEqual([[1, 0]]);
+  });
+
+  it('does not call bind() when no params are supplied (unchanged prepared-statement path)', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
+    const db = makeDb([{ id: 'a' }]);
+    await exec(makeApp(AUTH), { query: 'SELECT id FROM widgets' }, makeEnv(db));
+    expect((db as unknown as { _bind: jest.Mock })._bind).not.toHaveBeenCalled();
+  });
+
+  it('rejects more than 50 bind params (Zod 400, DB never touched)', async () => {
+    const db = makeDb([]);
+    const res = await exec(
+      makeApp(AUTH),
+      { query: 'SELECT 1', params: Array.from({ length: 51 }, (_, i) => i) },
+      makeEnv(db),
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { ok: boolean }).ok).toBe(false);
+    expect((db as unknown as { prepare: jest.Mock }).prepare).not.toHaveBeenCalled();
+  });
+
+  it('audits the param COUNT, never the param values (redaction of sensitive filters)', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
+    await exec(
+      makeApp(AUTH),
+      { query: 'SELECT 1 WHERE email = ?1', params: ['secret@example.com'] },
+      makeEnv(makeDb([])),
+    );
+    const meta = mockWriteAuditLog.mock.calls[0][1].metadata_json as {
+      param_count: number;
+      query: string;
+    };
+    expect(meta.param_count).toBe(1);
+    expect(JSON.stringify(meta)).not.toContain('secret@example.com');
   });
 
   it('returns ok:true with empty columns when the result set is empty', async () => {

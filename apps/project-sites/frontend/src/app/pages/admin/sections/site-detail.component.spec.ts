@@ -163,6 +163,59 @@ describe('AdminSiteDetailComponent (tabs + logs + SQL console)', () => {
     expect((post.calls.mostRecent().args[1] as { query: string }).query).toBe('SELECT * FROM sites');
   });
 
+  it('runSql binds params: sends {query, params} when a JSON array + a ? placeholder exist', () => {
+    const { c, post } = make();
+    c.sqlQuery.set('SELECT * FROM sites WHERE slug = ?1');
+    c.sqlParams.set('["vitos"]');
+    c.runSql();
+    expect(post).toHaveBeenCalled();
+    expect(post.calls.mostRecent().args[1]).toEqual({
+      query: 'SELECT * FROM sites WHERE slug = ?1',
+      params: ['vitos'],
+    });
+  });
+
+  it('runSql omits params from the body when the bind-params field is blank', () => {
+    const { c, post } = make();
+    c.sqlQuery.set('SELECT 1');
+    c.runSql();
+    expect(post.calls.mostRecent().args[1]).toEqual({ query: 'SELECT 1' });
+  });
+
+  it('runSql rejects invalid bind-params JSON with an inline error and never POSTs', () => {
+    const { c, post } = make();
+    c.sqlQuery.set('SELECT * FROM sites WHERE slug = ?1');
+    c.sqlParams.set('["vitos"'); // malformed JSON
+    c.runSql();
+    expect(post).not.toHaveBeenCalled();
+    expect(c.sqlError()).toContain('JSON array');
+  });
+
+  it('runSql blocks params when the query has no ? placeholder (never fires a doomed POST)', () => {
+    const { c, post } = make();
+    c.sqlQuery.set('SELECT 1');
+    c.sqlParams.set('["vitos"]');
+    c.runSql();
+    expect(post).not.toHaveBeenCalled();
+    expect(c.sqlError()).toContain('no ? placeholder');
+  });
+
+  it('runSql rejects more than 50 bind params client-side (no POST)', () => {
+    const { c, post } = make();
+    c.sqlQuery.set('SELECT * FROM t WHERE x = ?1');
+    c.sqlParams.set(JSON.stringify(Array.from({ length: 51 }, (_, i) => i)));
+    c.runSql();
+    expect(post).not.toHaveBeenCalled();
+    expect(c.sqlError()).toContain('at most 50');
+  });
+
+  it('useSqlStarter clears stale bind params (starters are parameterless + auto-run)', () => {
+    const { c } = make();
+    c.sqlParams.set('["stale"]');
+    c.useSqlStarter("SELECT name FROM sqlite_master WHERE type='table'");
+    expect(c.sqlParams()).toBe('');
+  });
+
   it('hasSqlSelection is true only for a non-blank selection (drives the "Run selection" label)', () => {
     const { c } = make();
     expect(c.hasSqlSelection()).toBeFalse();
