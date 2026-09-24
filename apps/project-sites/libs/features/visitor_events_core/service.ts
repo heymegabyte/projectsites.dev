@@ -16,6 +16,7 @@ import {
   type VisitorEventInput,
   type TrafficSummary,
   type PathCountSchema,
+  type WebVitals,
 } from './schemas.js';
 import type { z } from 'zod';
 
@@ -157,6 +158,73 @@ async function scalar(env: Env, sql: string, params: unknown[]): Promise<number>
   return Number(data[0]?.n ?? 0);
 }
 
+/**
+ * Nearest-rank percentile of a numeric sample (the method CrUX/Cloudflare use for
+ * CWV p75). Sorts ascending, picks the value at rank `ceil(p/100 · n)` (1-based).
+ * Returns 0 for an empty input — callers must gate on sample count, not this value.
+ *
+ * @param values - the raw samples (unsorted; not mutated)
+ * @param p - percentile in (0, 100]
+ * @example percentile([10, 20, 30, 40], 75) // => 30
+ */
+export function percentile(values: readonly number[], p: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = Math.ceil((p / 100) * sorted.length);
+  const idx = Math.min(sorted.length - 1, Math.max(0, rank - 1));
+  return sorted[idx] as number;
+}
+
+/** The 3 CWV metrics we field-measure, and how each p75 is rounded for display. */
+const CWV_METRICS = ['LCP', 'INP', 'CLS'] as const;
+
+/**
+ * Real-user Core Web Vitals p75 over the window, computed from the `web_vital`
+ * beacon rows in `visitor_events`. Queried DIRECTLY (not via the analytics_daily
+ * rollup, which doesn't carry CWV), so it works in both the live and rollup
+ * summary paths. Bounded to the most-recent 50k samples for query cost.
+ *
+ * HONESTY: a metric with zero field samples is `null` (never `{p75: 0}`); LCP/INP
+ * round to integer ms, CLS to 3 decimals (as the beacon stores them).
+ *
+ * @remarks Fail-soft — a missing table / query error yields an all-null summary.
+ */
+export async function getWebVitalsSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+): Promise<WebVitals> {
+  const { data, error } = await dbQuery<{ metric: string | null; value: number }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.metric') AS metric,
+            CAST(json_extract(metadata, '$.value') AS REAL) AS value
+       FROM visitor_events
+      WHERE site_id = ? AND event_type = 'web_vital'
+        AND created_at >= datetime('now', ?)
+        AND json_extract(metadata, '$.metric') IN ('LCP', 'INP', 'CLS')
+      ORDER BY created_at DESC
+      LIMIT 50000`,
+    [siteId, `-${windowDays} days`],
+  );
+  const empty: WebVitals = { lcp: null, inp: null, cls: null };
+  if (error) return empty;
+
+  const buckets: Record<(typeof CWV_METRICS)[number], number[]> = { LCP: [], INP: [], CLS: [] };
+  for (const row of data) {
+    const m = row.metric as (typeof CWV_METRICS)[number] | null;
+    const v = Number(row.value);
+    if (m && m in buckets && Number.isFinite(v) && v >= 0) buckets[m].push(v);
+  }
+  const stat = (metric: (typeof CWV_METRICS)[number]) => {
+    const vals = buckets[metric];
+    if (vals.length === 0) return null;
+    const raw = percentile(vals, 75);
+    const p75 = metric === 'CLS' ? Math.round(raw * 1000) / 1000 : Math.round(raw);
+    return { p75, samples: vals.length };
+  };
+  return { lcp: stat('LCP'), inp: stat('INP'), cls: stat('CLS') };
+}
+
 /** Roll up a site's traffic over a trailing window. */
 export async function getTrafficSummary(
   env: Env,
@@ -197,6 +265,7 @@ export async function getTrafficSummary(
     prevConversions,
     byCountryRows,
     bounceRows,
+    webVitals,
   ] = await Promise.all([
     scalar(env, `SELECT COUNT(*) AS n FROM visitor_events WHERE ${w} AND event_type = 'pageview'`, [
       siteId,
@@ -262,6 +331,8 @@ export async function getTrafficSummary(
           GROUP BY session_id)`,
       [siteId, since],
     ).then((r) => (r.error || !r.data[0] ? { sessions: 0, single: 0 } : r.data[0])),
+    // AN-CWV — real-user Core Web Vitals p75 (queried directly; not in the rollup).
+    getWebVitalsSummary(env, siteId, windowDays),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -293,6 +364,7 @@ export async function getTrafficSummary(
     byDevice,
     byChannel,
     byCountry,
+    webVitals,
     previous: {
       pageviews: prevPageviews,
       uniqueSessions: prevSessions,
@@ -367,15 +439,18 @@ export async function getTrafficSummaryFromRollup(
     return error ? [] : data;
   };
 
-  const [cur, prev, pathRows, typeRows, channelRows, deviceRows, countryRows] = await Promise.all([
-    sumScalars(curStart, null),
-    sumScalars(prevStart, prevEnd),
-    merge('top_paths_json', 'path'),
-    merge('by_type_json', 'type'),
-    merge('by_channel_json', 'label'),
-    merge('by_device_json', 'label'),
-    merge('by_country_json', 'label'),
-  ]);
+  const [cur, prev, pathRows, typeRows, channelRows, deviceRows, countryRows, webVitals] =
+    await Promise.all([
+      sumScalars(curStart, null),
+      sumScalars(prevStart, prevEnd),
+      merge('top_paths_json', 'path'),
+      merge('by_type_json', 'type'),
+      merge('by_channel_json', 'label'),
+      merge('by_device_json', 'label'),
+      merge('by_country_json', 'label'),
+      // CWV isn't rolled into analytics_daily — read it live from the web_vital rows.
+      getWebVitalsSummary(env, siteId, windowDays),
+    ]);
 
   return TrafficSummarySchema.parse({
     pageviews: cur.pageviews,
@@ -389,6 +464,7 @@ export async function getTrafficSummaryFromRollup(
     byDevice: deviceRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     byChannel: channelRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     byCountry: countryRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
+    webVitals,
     previous: {
       pageviews: prev.pageviews,
       uniqueSessions: prev.uniqueSessions,

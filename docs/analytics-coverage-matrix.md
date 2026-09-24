@@ -43,7 +43,7 @@
 | Forms / completions | D1 form_submissions | none | site_id | D1 | none | ✅ live | forms tab |
 | Period-over-period deltas | D1 visitor_events | none | site_id | D1 | none | ✅ live | comparison |
 | CF requests/bandwidth/cache/status | CF GraphQL httpRequestsAdaptiveGroups | custom domain in CF zone | per hostname | 30 days | adaptive sampled | ⚠️ fallback-only, not surfaced as its own view | — |
-| **Core Web Vitals (LCP/INP/CLS)** | first-party RUM → `web_vital` events in D1 | none (no CF plan) | per site_id | D1 | none (all sessions) | 🔨 **ingest + client beacon DONE** — `app.js` `initWebVitals()` field-measures LCP/INP/CLS (Chromium-only APIs; unmeasured = omitted, never 0) → `POST /api/events` → `visitor_events`; **p75 aggregation + UI card PENDING** | — |
+| **Core Web Vitals (LCP/INP/CLS)** | first-party RUM → `web_vital` events in D1 | none (no CF plan) | per site_id | D1 | none (all sessions) | 🔨 **ingest + beacon + p75 aggregation DONE** — `initWebVitals()` collects → `visitor_events`; `getWebVitalsSummary` computes nearest-rank **p75 per metric** (null when no samples, never a fake 0) into `traffic.webVitals`; **UI card PENDING** | API: analytics summary `traffic.webVitals` |
 | **Security (WAF/bot/challenges)** | CF GraphQL firewall/security datasets | custom domain in zone (WAF plan) | per hostname | plan-dependent | — | ❌ missing | — |
 | **CSV export / custom range / comparison / TZ** | (UI) | none | — | — | — | ❌ partial/missing | — |
 | Source + freshness labels in UI | (UI) | none | — | — | — | ⚠️ verify present | — |
@@ -73,10 +73,14 @@ interaction, CLS session-window max, INP p98-longest-interaction) and beacons ea
 attached AND a real value exists (LCP/CLS/INP are Chromium-only APIs; an unmeasured vital is OMITTED, never a
 fake 0) — on page hide via `track()`'s keepalive fetch. Covered by 15 `app_js_web_vitals` contract specs + the
 52 ingest specs.
-NEXT, in order: (1) **p75 aggregation** — extend `getSiteAnalyticsSummary` (`libs/features/site_analytics/service.ts`)
-to read `visitor_events WHERE event_type='web_vital'` and compute p75 per metric (LCP/INP/CLS), overall + per top
-path, over the window; add a `webVitals` block to `TrafficSummarySchema` (default empty/null for back-compat).
-(2) **UI card** — an LCP/INP/CLS p75 card in `analytics.component.ts`, labeled "field data (RUM, Chromium), last
-N days", with good/needs-improvement/poor thresholds and an honest "measuring — no samples yet" empty state at
-zero samples. NEVER a fabricated 0. (3) Confirm a real published site emits samples before the card claims data
-(a fresh/low-traffic site legitimately has none — show the empty state, not a zero).
+**p75 aggregation is DONE** (2026-09-23): `getWebVitalsSummary` (`visitor_events_core/service.ts`) reads the
+`web_vital` rows directly (bounded to 50k, works in BOTH the live + rollup summary paths) and computes nearest-rank
+**p75 per metric** (LCP/INP integer ms, CLS 3-decimal) via the pure `percentile()` helper, into a `webVitals` block
+on `TrafficSummarySchema` (`{lcp,inp,cls}`, each `{p75,samples}` or **null** when no samples — never a fabricated 0;
+defaulted for back-compat). Surfaced on the analytics summary API (`traffic.webVitals`) + the frontend `SiteTrafficSummary`
+contract. Covered by a p75 aggregation test + `percentile` unit tests (299 analytics/visitor_events specs green).
+NEXT, in order: (1) **UI card** — an LCP/INP/CLS p75 card in `analytics.component.ts` reading `traffic.webVitals`,
+labeled "field data (RUM, Chromium), last N days", showing p75 + `samples` count + good/needs-improvement/poor
+thresholds (LCP ≤2.5s/≤4s, INP ≤200/≤500ms, CLS ≤0.1/≤0.25), with an honest "measuring — no samples yet" empty
+state when a metric is null. NEVER a fabricated 0. (2) Confirm a real published site emits samples before the card
+claims data (a fresh/low-traffic site legitimately has none). (3) later: per-top-path p75 drilldown.

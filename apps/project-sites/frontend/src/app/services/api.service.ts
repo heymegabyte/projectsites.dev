@@ -1553,8 +1553,24 @@ export interface SiteTrafficSummary {
   byDevice: { label: string; count: number }[];
   byChannel: { label: string; count: number }[];
   byCountry: { label: string; count: number }[];
+  /**
+   * Real-user Core Web Vitals p75 (LCP/INP/CLS) from the `web_vital` beacon rows.
+   * `null` per metric = no field samples yet (never a fabricated 0). `p75` is ms
+   * for LCP/INP, unitless for CLS. Optional for back-compat with older payloads.
+   */
+  webVitals?: {
+    lcp: WebVitalStat | null;
+    inp: WebVitalStat | null;
+    cls: WebVitalStat | null;
+  };
   previous: { pageviews: number; uniqueSessions: number; conversions: number };
   windowDays: number;
+}
+
+/** One CWV metric's field p75 + the sample count backing it (`samples` ≥ 1). */
+export interface WebVitalStat {
+  p75: number;
+  samples: number;
 }
 
 /**

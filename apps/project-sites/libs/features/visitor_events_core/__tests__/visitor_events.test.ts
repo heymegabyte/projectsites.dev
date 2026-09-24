@@ -9,6 +9,7 @@ import {
   getTrafficSummary,
   recordPageviewFromRequest,
   isPageRequest,
+  percentile,
   FLAG_KEY,
 } from '../service.js';
 import type { Env } from '../../../../src/types/env.js';
@@ -54,6 +55,17 @@ function makeEnv(opts: { throwAll?: boolean } = {}): { env: Env; events: Ev[] } 
         if (opts.throwAll) throw new Error('no such table: visitor_events');
         const site = bound[0] as string;
         const rows = events.filter((e) => e.site_id === site);
+        if (sql.includes("event_type = 'web_vital'")) {
+          // AN-CWV: the getWebVitalsSummary SELECT of {metric, value} pairs.
+          return {
+            results: rows
+              .filter((e) => e.event_type === 'web_vital')
+              .map((e) => {
+                const m = JSON.parse(e.metadata || '{}') as { metric?: string; value?: number };
+                return { metric: m.metric ?? null, value: Number(m.value) };
+              }) as unknown as T[],
+          };
+        }
         if (sql.includes('GROUP BY path')) {
           const m = new Map<string, number>();
           rows
@@ -112,6 +124,47 @@ describe('visitor_events_core service', () => {
     expect(id).toBeTruthy();
     const s = await getTrafficSummary(env, 'site1', 30);
     expect(s.byType).toEqual(expect.arrayContaining([{ type: 'web_vital', count: 1 }]));
+  });
+
+  it('summarizes Core Web Vitals p75 per metric, null when a metric has no samples (AN-CWV)', async () => {
+    const { env } = makeEnv();
+    const ctx = { orgId: 'org1', siteId: 'site1' };
+    // 4 LCP samples → nearest-rank p75 of [1000,2000,3000,4000] = 3000.
+    for (const value of [2000, 4000, 1000, 3000]) {
+      await recordVisitorEvent(env, ctx, {
+        sessionId: 'sess-cwv-lcp-1',
+        eventType: 'web_vital',
+        path: '/',
+        metadata: { metric: 'LCP', value },
+      });
+    }
+    await recordVisitorEvent(env, ctx, {
+      sessionId: 'sess-cwv-cls-1',
+      eventType: 'web_vital',
+      path: '/',
+      metadata: { metric: 'CLS', value: 0.08 },
+    });
+    const s = await getTrafficSummary(env, 'site1', 30);
+    expect(s.webVitals.lcp).toEqual({ p75: 3000, samples: 4 });
+    expect(s.webVitals.cls).toEqual({ p75: 0.08, samples: 1 });
+    // No INP samples → null, never a fabricated 0 (honesty contract).
+    expect(s.webVitals.inp).toBeNull();
+  });
+
+  describe('percentile (nearest-rank)', () => {
+    it('picks the nearest-rank value for p75', () => {
+      expect(percentile([10, 20, 30, 40], 75)).toBe(30); // ceil(0.75·4)=3 → 3rd
+      expect(percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 75)).toBe(8); // ceil(7.5)=8 → 8th
+    });
+    it('sorts unsorted input without mutating it', () => {
+      const input = [40, 10, 30, 20];
+      expect(percentile(input, 75)).toBe(30);
+      expect(input).toEqual([40, 10, 30, 20]);
+    });
+    it('returns the lone value for a single sample and 0 for an empty one', () => {
+      expect(percentile([2500], 75)).toBe(2500);
+      expect(percentile([], 75)).toBe(0); // callers gate on sample count, not this
+    });
   });
 
   it('records an event and rolls up traffic', async () => {

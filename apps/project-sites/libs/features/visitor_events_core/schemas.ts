@@ -57,6 +57,33 @@ export const LabelCountSchema = z
   .strict();
 export type LabelCount = z.infer<typeof LabelCountSchema>;
 
+/**
+ * Field-measured Core Web Vitals for ONE metric: the p75 (the CrUX/Cloudflare
+ * convention for a "typical" score) plus the sample count backing it. `samples`
+ * is ≥1 by construction — a metric with no field samples is `null` on the parent,
+ * never `{p75: 0}` (a fabricated perfect score). p75 units: ms for LCP/INP,
+ * unitless for CLS (as the beacon stores them).
+ */
+export const WebVitalStatSchema = z
+  .object({ p75: z.number(), samples: z.number().int().min(1) })
+  .strict();
+export type WebVitalStat = z.infer<typeof WebVitalStatSchema>;
+
+/**
+ * Real-user Core Web Vitals summary over the window, per metric. `null` per metric
+ * = NOT measured / no field samples yet (Chromium-only APIs; a fresh or low-traffic
+ * site legitimately has none) — the UI shows "measuring…", never a fabricated 0.
+ */
+export const WebVitalsSchema = z
+  .object({
+    lcp: WebVitalStatSchema.nullable().default(null),
+    inp: WebVitalStatSchema.nullable().default(null),
+    cls: WebVitalStatSchema.nullable().default(null),
+  })
+  .strict()
+  .default({ lcp: null, inp: null, cls: null });
+export type WebVitals = z.infer<typeof WebVitalsSchema>;
+
 /** Aggregated traffic summary for one site over a window. */
 export const TrafficSummarySchema = z
   .object({
@@ -76,6 +103,10 @@ export const TrafficSummarySchema = z
     // AN14 — visitors by country (CF `request.cf.country`, captured in metadata
     // since before AN1). Default [] for back-compat.
     byCountry: z.array(LabelCountSchema).default([]),
+    // AN-CWV — real-user Core Web Vitals p75 (LCP/INP/CLS) from the `web_vital`
+    // beacon rows. Defaults to all-null (no samples) for back-compat with older
+    // producers/fixtures that predate CWV.
+    webVitals: WebVitalsSchema,
     // AN15 — the immediately-preceding equal-length window's KPIs, for
     // period-over-period deltas. Defaults to zeros for back-compat.
     previous: z
