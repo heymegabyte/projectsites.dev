@@ -27,6 +27,16 @@
   **Karma 1882/1882** (+13), AOT build clean, eslint 0-errors, backtick gate PASS. Exemplar
   of signal-input-first authoring (the NEW component uses `input()`, showing the target the
   46 legacy `@Input()` files migrate toward — those remain the big Angular item).
+- **Cycle 4 — 2026-09-23 (Data + de-dup, one slice):** Added **CSV + JSON export of the
+  current page** to the owner Data grid (`SiteDataBrowserComponent.exportCsv/exportJson`) +
+  a **read-only pill** explaining why the grid isn't editable (the projections omit PKs by
+  design; the 5 tables are read-only system/analytics data — edit/delete slice is genuinely
+  N/A here, recorded in the matrix slice order). Seeded a shared, tested **`utils/csv-export.ts`**
+  (`csvEscape`/`toCsv`/`downloadText`, RFC-4180-safe, 10 specs) — the `toCsv()`/blob-download
+  pattern is currently DUPLICATED across `events-table`/`audit`/`forms`/`analytics`/`super-admin`;
+  the new component uses the shared util, and those 4-5 should migrate to it (deferred — coherent
+  feature-level, no churn this fire). Verified: tsc 0, **Karma 1896/1896** (+14), AOT build clean,
+  eslint 0-errors, backtick gate PASS.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

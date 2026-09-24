@@ -162,4 +162,50 @@ describe('SiteDataBrowserComponent', () => {
     expect(c.formatCell({ a: 1 })).toBe('{"a":1}');
     expect(c.rowJson({ path: '/', hits: 2 })).toContain('"hits": 2');
   });
+
+  describe('export (current page → CSV / JSON, bounded, read-only)', () => {
+    it('exportCsv downloads the loaded rows as a text/csv blob with the table columns', async () => {
+      const { fixture, c } = setup();
+      fixture.detectChanges();
+      const createSpy = spyOn(URL, 'createObjectURL').and.returnValue('blob:mock');
+      spyOn(URL, 'revokeObjectURL');
+      c.exportCsv();
+      expect(createSpy).toHaveBeenCalled();
+      const blob = createSpy.calls.mostRecent().args[0] as Blob;
+      expect(blob.type).toContain('text/csv');
+      const text = await blob.text();
+      expect(text).toContain('event_type,path,referrer,created_at'); // header
+      expect(text).toContain('pageview'); // a real row, not mock
+    });
+
+    it('exportJson downloads the loaded rows as an application/json blob', async () => {
+      const { fixture, c } = setup();
+      fixture.detectChanges();
+      const createSpy = spyOn(URL, 'createObjectURL').and.returnValue('blob:mock');
+      spyOn(URL, 'revokeObjectURL');
+      c.exportJson();
+      const blob = createSpy.calls.mostRecent().args[0] as Blob;
+      expect(blob.type).toContain('application/json');
+      expect(await blob.text()).toContain('"event_type": "pageview"');
+    });
+
+    it('both exports are a no-op when there are no rows (never a blank file)', () => {
+      const { fixture, c } = setup();
+      fixture.detectChanges();
+      c.rows.set([]);
+      const createSpy = spyOn(URL, 'createObjectURL');
+      c.exportCsv();
+      c.exportJson();
+      expect(createSpy).not.toHaveBeenCalled();
+    });
+
+    it('renders a read-only pill that explains rows cannot be edited from this grid', () => {
+      const { fixture } = setup();
+      fixture.detectChanges();
+      const pill = fixture.debugElement.query(By.css('[data-testid="db-readonly-pill"]'));
+      expect(pill).withContext('read-only pill present').toBeTruthy();
+      expect(pill.nativeElement.textContent).toContain('Read-only');
+      expect(pill.nativeElement.getAttribute('title')).toContain('site editor');
+    });
+  });
 });

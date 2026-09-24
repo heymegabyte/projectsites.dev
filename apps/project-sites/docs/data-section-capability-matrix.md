@@ -39,7 +39,7 @@
 | Table list + row counts | `sqlite_master` + `COUNT(*)` | owner (allowlist) / superadmin | DONE | counts are live per request |
 | Browse table rows | allowlist SELECT | owner | DONE | server-paginated; owner **Data-tab UI** now surfaces it |
 | **Server-side pagination** (`limit≤100/offset/orderBy/dir`) | SELECT … LIMIT/OFFSET + COUNT | owner | ✅ DONE — additive `total/limit/offset` on `/data-overview/:table` | orderBy validated against the column allowlist; unknown col keeps default sort (no injection) |
-| **Owner Data-tab UI** (table picker · server-paginated sortable grid · row-detail JSON · loading/empty/error states) | `SiteDataBrowserComponent` → `/data-overview[/:table]` | owner | ✅ DONE (this fire) — `/admin/sites/:id?tab=data`, focused standalone component, 13 Karma specs | read-only; wired to REAL endpoints only (no mock); launches on first non-empty table |
+| **Owner Data-tab UI** (table picker · server-paginated sortable grid · row-detail JSON · **CSV/JSON export of current page** · **read-only pill** · loading/empty/error states) | `SiteDataBrowserComponent` + `utils/csv-export` → `/data-overview[/:table]` | owner | ✅ DONE — `/admin/sites/:id?tab=data`, focused standalone component, 17 Karma specs + 10 csv-export specs | read-only (PKs deliberately not in the projection → not editable; explained via the pill); REAL endpoints only (no mock); export = the current page (bounded); full-table streaming export = future slice |
 | **Schema introspection** (columns/pk/indexes/FKs/DDL) | `PRAGMA table_info/index_list/index_info/foreign_key_list` | superadmin | ✅ DONE — `GET /api/sites/:siteId/sql/schema` | PRAGMA args can't bind → enumerate from `sqlite_master`, format-check each identifier |
 | Read SQL console | `.prepare().all()` | superadmin | DONE | 8 000-char cap; SELECT/EXPLAIN/WITH/PRAGMA only |
 | Write SQL console | `.prepare().run()` | superadmin | DONE | PROTECTED_TABLES + destructive-confirm; single-statement |
@@ -76,9 +76,15 @@
    owner-browse pagination. ✅ backend DONE; **owner UI shipped** — the `/admin/sites/:id`
    **Data tab** (`SiteDataBrowserComponent`): table picker with live row counts →
    server-paginated, column-sortable grid → per-row JSON detail, all on real endpoints.
-2. Row edit/delete with schema-derived stable PK predicates (owner).
+2. Row edit/delete with schema-derived stable PK predicates (owner). **N/A for the
+   data-overview grid** — its 5 tables are read-only system/analytics data whose safe-column
+   allowlist deliberately OMITS the `id` (no stable PK to target; `verify-against-source-of-truth`
+   + PII-safety). The only owner-editable data (`site_data` CMS rows) has its OWN CRUD endpoints
+   (`PUT/DELETE /data/:table/:rowId`) and is edited in the site editor, not a raw grid. So the grid
+   correctly stays read-only + says so (the pill). A future write surface would target `site_data` only.
 3. SQL console upgrades — EXPLAIN QUERY PLAN, `meta` metrics, multi-tab, history.
-4. Import (CSV/JSON, chunked) + bounded exports.
+4. Import (CSV/JSON, chunked) + bounded exports. **Bounded current-page CSV/JSON export ✅ DONE**
+   (owner grid, via `utils/csv-export`); chunked import + full-table streaming export remain.
 5. D1 REST import/export + Time Travel (needs a scoped D1 REST token — see below).
 6. Resource adapters (KV, R2, Vectorize, …) behind a shared authz/audit/UI base.
 

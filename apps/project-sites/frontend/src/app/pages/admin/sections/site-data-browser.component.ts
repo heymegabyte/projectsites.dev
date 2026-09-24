@@ -33,6 +33,7 @@ import { catchError, of } from 'rxjs';
 import { ApiService, type DataOverviewTable } from '../../../services/api.service';
 import { MiniEmptyComponent } from '../../../components/mini-empty/mini-empty.component';
 import { ErrorCardComponent } from '../../../components/states';
+import { toCsv, downloadText } from '../../../utils/csv-export';
 
 @Component({
   selector: 'app-site-data-browser',
@@ -73,7 +74,14 @@ import { ErrorCardComponent } from '../../../components/states';
         </div>
 
         @if (selected(); as sel) {
-          <p class="db-desc" data-testid="db-table-desc">{{ sel.description }}</p>
+          <p class="db-desc" data-testid="db-table-desc">
+            {{ sel.description }}
+            <span
+              class="db-readonly-pill"
+              data-testid="db-readonly-pill"
+              title="Read-only — a curated view of your site's system & analytics tables. Row IDs aren't exposed here for safety, so rows can't be edited from this grid; edit your content in the site editor."
+            >Read-only</span>
+          </p>
 
           @if (rowsError(); as rerr) {
             <app-error-card
@@ -116,14 +124,34 @@ import { ErrorCardComponent } from '../../../components/states';
                 <option [ngValue]="100">100</option>
               </select>
             </label>
-            <button
-              type="button"
-              class="db-refresh"
-              (click)="refresh()"
-              [disabled]="rowsLoading()"
-              data-testid="db-refresh"
-              aria-label="Refresh rows"
-            >{{ rowsLoading() ? 'Loading…' : 'Refresh' }}</button>
+            <div class="db-actions">
+              <button
+                type="button"
+                class="db-export"
+                (click)="exportCsv()"
+                [disabled]="rows().length === 0"
+                data-testid="db-export-csv"
+                [attr.title]="'Download the ' + rows().length + ' rows shown (this page) as CSV'"
+                aria-label="Export the current page as CSV"
+              >CSV</button>
+              <button
+                type="button"
+                class="db-export"
+                (click)="exportJson()"
+                [disabled]="rows().length === 0"
+                data-testid="db-export-json"
+                [attr.title]="'Download the ' + rows().length + ' rows shown (this page) as JSON'"
+                aria-label="Export the current page as JSON"
+              >JSON</button>
+              <button
+                type="button"
+                class="db-refresh"
+                (click)="refresh()"
+                [disabled]="rowsLoading()"
+                data-testid="db-refresh"
+                aria-label="Refresh rows"
+              >{{ rowsLoading() ? 'Loading…' : 'Refresh' }}</button>
+            </div>
           </div>
 
           @if (rowsLoading() && rows().length === 0) {
@@ -233,18 +261,25 @@ import { ErrorCardComponent } from '../../../components/states';
     .db-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.75rem; }
     .db-range { font-size: 0.74rem; font-variant-numeric: tabular-nums; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
     .db-pager { display: inline-flex; gap: 0.35rem; }
-    .db-pager button, .db-refresh {
+    .db-pager button, .db-refresh, .db-export {
       font: inherit; font-size: 0.76rem; cursor: pointer; padding: 0.3rem 0.7rem; border-radius: 6px;
       color: var(--ps-accent, #00e5ff);
       background: color-mix(in oklch, var(--ps-accent, #00e5ff) 9%, transparent);
       border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 28%, transparent);
     }
-    .db-pager button:hover:not(:disabled), .db-refresh:hover:not(:disabled) { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent); }
-    .db-pager button:disabled, .db-refresh:disabled { opacity: 0.4; cursor: not-allowed; }
-    .db-pager button:focus-visible, .db-refresh:focus-visible, .db-pagesize select:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
+    .db-pager button:hover:not(:disabled), .db-refresh:hover:not(:disabled), .db-export:hover:not(:disabled) { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent); }
+    .db-pager button:disabled, .db-refresh:disabled, .db-export:disabled { opacity: 0.4; cursor: not-allowed; }
+    .db-pager button:focus-visible, .db-refresh:focus-visible, .db-export:focus-visible, .db-pagesize select:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     .db-pagesize { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.74rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
     .db-pagesize select { font: inherit; font-size: 0.76rem; padding: 0.25rem 0.4rem; border-radius: 6px; color: inherit; background: rgba(0,0,0,0.25); border: 1px solid var(--ps-edge, rgba(255,255,255,0.12)); }
-    .db-refresh { margin-left: auto; }
+    .db-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 0.35rem; }
+    .db-readonly-pill {
+      margin-left: 0.5rem; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+      padding: 0.1rem 0.45rem; border-radius: 999px; cursor: help; white-space: nowrap;
+      color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 62%, transparent);
+      background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent);
+      border: 1px solid var(--ps-edge, rgba(255,255,255,0.12));
+    }
     .db-scroll { overflow-x: auto; max-width: 100%; border-radius: 8px; border: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); }
     .db-scroll:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     .db-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
@@ -445,6 +480,38 @@ export class SiteDataBrowserComponent implements OnInit {
 
   refresh(): void {
     this.loadPage();
+  }
+
+  /**
+   * Filename stem for an export: `{site}-{table}-{offsetStart}-{offsetEnd}` so the
+   * downloaded file names the exact window (the CURRENT page) it contains — never
+   * implying a full-table dump the bounded browse endpoint doesn't provide.
+   */
+  private exportBaseName(): string {
+    const table = this.selected()?.key ?? 'data';
+    const from = this.offset();
+    const to = this.offset() + this.rows().length;
+    return `${this.siteId() || 'site'}-${table}-${from}-${to}`;
+  }
+
+  /** Download the CURRENT page (respecting sort) as CSV — the loaded rows only. */
+  exportCsv(): void {
+    if (this.rows().length === 0) return;
+    downloadText(
+      `${this.exportBaseName()}.csv`,
+      toCsv(this.rows(), this.columns()),
+      'text/csv;charset=utf-8',
+    );
+  }
+
+  /** Download the CURRENT page as pretty JSON — the loaded rows only. */
+  exportJson(): void {
+    if (this.rows().length === 0) return;
+    downloadText(
+      `${this.exportBaseName()}.json`,
+      JSON.stringify(this.rows(), null, 2),
+      'application/json',
+    );
   }
 
   toggleRow(index: number): void {
