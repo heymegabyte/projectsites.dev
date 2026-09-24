@@ -22,7 +22,13 @@ export function csvEscape(value: unknown): string {
       : typeof value === 'object'
         ? JSON.stringify(value)
         : String(value);
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  // CWE-1236 formula-injection guard: a cell starting with `= + - @` (or a leading
+  // tab/CR) that ISN'T a plain number is prefixed with `'` so Excel/Sheets treat it
+  // as text, not a formula. Shared exports (Data grid rows, analytics) carry
+  // attacker-controllable strings (referrers, paths, emails), so this is on for all.
+  const guarded =
+    /^[=+\-@\t\r]/.test(s) && !/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(s) ? `'${s}` : s;
+  return /[",\n\r]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
 }
 
 /**

@@ -7,6 +7,7 @@ import { ApiService } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
 import { PromptService } from '../../../services/prompt.service';
 import { AdminStateService } from '../admin-state.service';
+import { csvEscape } from '../../../utils/csv-export';
 
 /**
  * Guards the P0 site-reactive-load class-bug fix for the Analytics section:
@@ -413,26 +414,26 @@ describe('AdminAnalyticsComponent (CSV export is formula-injection-safe)', () =>
 
   it('prefixes formula-trigger cells (= + - @) with an apostrophe', () => {
     // starts with = AND contains " → apostrophe-prefixed THEN RFC-4180 quoted
-    expect(c.csvCell('=HYPERLINK("http://evil")')).toBe(`"'=HYPERLINK(""http://evil"")"`);
+    expect(csvEscape('=HYPERLINK("http://evil")')).toBe(`"'=HYPERLINK(""http://evil"")"`);
     // no embedded quote/comma → just the apostrophe prefix
-    expect(c.csvCell('+1+1')).toBe(`'+1+1`);
-    expect(c.csvCell('-2-2')).toBe(`'-2-2`);
-    expect(c.csvCell('@cmd')).toBe(`'@cmd`);
-    expect(c.csvCell('\t=danger')).toBe(`'\t=danger`);
+    expect(csvEscape('+1+1')).toBe(`'+1+1`);
+    expect(csvEscape('-2-2')).toBe(`'-2-2`);
+    expect(csvEscape('@cmd')).toBe(`'@cmd`);
+    expect(csvEscape('\t=danger')).toBe(`'\t=danger`);
   });
 
   it('leaves a normal value untouched', () => {
-    expect(c.csvCell('/pricing')).toBe('/pricing');
-    expect(c.csvCell('google.com')).toBe('google.com');
+    expect(csvEscape('/pricing')).toBe('/pricing');
+    expect(csvEscape('google.com')).toBe('google.com');
   });
 
   it('RFC-4180-quotes embedded comma / quote / newline', () => {
-    expect(c.csvCell('a,b')).toBe('"a,b"');
-    expect(c.csvCell('he said "hi"')).toBe('"he said ""hi"""');
+    expect(csvEscape('a,b')).toBe('"a,b"');
+    expect(csvEscape('he said "hi"')).toBe('"he said ""hi"""');
   });
 
   it('combines both: a formula cell that also has a comma is prefixed THEN quoted', () => {
-    expect(c.csvCell('=A1,B1')).toBe(`"'=A1,B1"`);
+    expect(csvEscape('=A1,B1')).toBe(`"'=A1,B1"`);
   });
 });
 

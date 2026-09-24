@@ -22,6 +22,8 @@ import { ErrorCardComponent } from '../../../components/states';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { WebVitalsCardComponent } from './web-vitals-card.component';
 import { ConversionsCardComponent } from './conversions-card.component';
+import { buildAnalyticsCsv } from '../../../utils/analytics-csv';
+import { downloadText } from '../../../utils/csv-export';
 
 type RangeId = AnalyticsRange;
 
@@ -1299,38 +1301,22 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
   exportCsv(): void {
     const env = this.envelope();
     if (!env) return;
-    const lines: string[] = [];
-    lines.push('section,key,value');
-    lines.push(`summary,source,cloudflare_graphql`);
-    lines.push(`summary,page_views,${env.pageviews}`);
-    lines.push(`summary,unique_visitors,${env.uniques}`);
-    lines.push(`summary,total_requests,${env.total_requests}`);
-    for (const r of env.series || []) lines.push(`by_day,${r.date},${r.page_views}`);
-    for (const r of env.top_pages || []) lines.push(`top_page,${this.csvCell(r.path)},${r.views}`);
-    for (const r of env.top_countries || []) lines.push(`country,${this.csvCell(r.country)},${r.views}`);
-    for (const r of env.top_referrers || []) lines.push(`referrer,${this.csvCell(r.referrer)},${r.views}`);
-    for (const u of env.urls_included || []) lines.push(`url_included,${this.csvCell(u.hostname)},${u.resolved_zone ? 'resolved' : 'unresolved'}`);
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `projectsites-analytics-${this.range()}-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    // Accurate source (never a hardcoded "cloudflare_graphql" — the data is D1 for
+    // subdomains) + the D1 breakdowns (device/channel/conversions/CWV) the old
+    // export dropped. Built by the tested pure `buildAnalyticsCsv`.
+    const csv = buildAnalyticsCsv({
+      source: this.dataLabel(),
+      range: this.range(),
+      envelope: env,
+      traffic: this.siteTraffic(),
+    });
+    downloadText(
+      `projectsites-analytics-${this.range()}-${new Date().toISOString().slice(0, 10)}.csv`,
+      csv,
+      'text/csv;charset=utf-8',
+    );
   }
 
-  /**
-   * Escape one CSV cell. Two layers:
-   *  1. Formula-injection guard (CWE-1236): top_referrers / top_pages / hostnames
-   *     are attacker-controllable (a crafted `Referer` header lands in analytics),
-   *     so a value starting with = + - @ (or a leading tab/CR) is prefixed with a
-   *     literal apostrophe — Excel/Sheets then treat it as text, not a formula.
-   *  2. RFC 4180 quoting for embedded comma / quote / newline.
-   */
-  csvCell(s: string): string {
-    const str = String(s ?? '');
-    const guarded = /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
-    return /[",\n]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
-  }
 
   async copyShareLink(): Promise<void> {
     const url = this.liveUrl();

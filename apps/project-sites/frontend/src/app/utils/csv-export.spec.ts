@@ -25,6 +25,18 @@ describe('csv-export util', () => {
       expect(csvEscape({ a: 1 })).toBe('"{""a"":1}"'); // JSON has no comma here, but the quote triggers quoting
       expect(csvEscape({ a: 1, b: 2 })).toBe('"{""a"":1,""b"":2}"');
     });
+
+    it('guards CSV formula injection (CWE-1236) on non-numeric leading = + - @', () => {
+      expect(csvEscape('=1+1')).toBe("'=1+1");
+      expect(csvEscape('+cmd')).toBe("'+cmd");
+      expect(csvEscape('-cmd')).toBe("'-cmd");
+      expect(csvEscape('@SUM(A1)')).toBe("'@SUM(A1)");
+      expect(csvEscape('=cmd,x')).toBe(`"'=cmd,x"`); // guarded THEN quoted for the comma
+      // Plain numbers are data, not formulas — never munged into text.
+      expect(csvEscape('-5')).toBe('-5');
+      expect(csvEscape('+3.14')).toBe('+3.14');
+      expect(csvEscape(-5)).toBe('-5');
+    });
   });
 
   describe('toCsv', () => {

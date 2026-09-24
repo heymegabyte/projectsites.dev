@@ -45,8 +45,8 @@
 | Period-over-period deltas | D1 visitor_events | none | site_id | D1 | none | ✅ live | comparison |
 | CF requests/bandwidth/cache/status | CF GraphQL httpRequestsAdaptiveGroups | custom domain in CF zone | per hostname | 30 days | adaptive sampled | ⚠️ fallback-only, not surfaced as its own view | — |
 | **Core Web Vitals (LCP/INP/CLS + per-page)** | first-party RUM → `web_vital` events in D1 | none (no CF plan) | per site_id (+ per `path`) | D1 | none (all sessions) | ✅ **COMPLETE + per-path** — site p75 card PLUS a **"Slowest pages · LCP p75"** drilldown (`getWebVitalsSummary` buckets LCP by `path`, ranks worst-first, top 5, past a **5-sample floor**); honest ("measuring"/null never a fake 0; a page needs ≥5 samples to be ranked) | `/admin/analytics` "Core Web Vitals" card + slowest-pages table |
-| **Security (WAF/bot/challenges)** | CF GraphQL firewall/security datasets | custom domain in zone (WAF plan) | per hostname | plan-dependent | — | ❌ missing | — |
-| **CSV export / custom range / comparison / TZ** | (UI) | none | — | — | — | ❌ partial/missing | — |
+| **Security (WAF/bot/challenges)** | CF GraphQL `firewallEventsAdaptiveGroups` | **plan lacks access** | per hostname | plan-dependent | — | ❌ **BLOCKED — verified 2026-09-24** by an introspection probe against our zone: returns authz *"zone does not have access to the path"*. Our plan has no firewall-analytics entitlement, so this is NOT buildable without a plan upgrade — a security card would be a permanent placeholder (which the doctrine forbids). | — (honestly absent) |
+| **CSV export (dashboard)** | (UI) client-side over fetched data | none | — | — | — | ✅ **DONE + fixed (this fire)** — `buildAnalyticsCsv` exports summary + top-pages/countries/referrers **plus the D1 device/channel/conversions/CWV breakdowns** (were missing), with the **ACCURATE source label** (was hardcoded "cloudflare_graphql" — lied for subdomains); formula-injection-safe via the hardened shared `csvEscape`. Custom range / comparison / TZ still partial. | `/admin/analytics` Export CSV |
 | Source + freshness labels in UI | (UI) | none | — | — | — | ⚠️ verify present | — |
 
 ## Highest-impact gap (corrected — NOT "beacon not deployed")
@@ -97,10 +97,17 @@ paths) groups `conversion` events by `json_extract(metadata,'$.kind')` → `traf
 breakdown + total, with an honest "no conversions tracked yet" empty state (kind-less conversions bucket as "other",
 never dropped). This is the highest-impact UNIVERSAL (D1, all sites) outcome metric — the ROI a small-business owner
 cares about. Covered by a service spec + 5 card specs.
-NEXT highest-value gaps (D1 outcome + CWV coverage is now strong — the remaining ones are CF-side or usability):
-(1) **Security coverage** (❌ still the top MISSING category) — FIRST do CF GraphQL **schema introspection** for our
-account to confirm what `firewallEventsAdaptive` exposes for our shared `projectsites.dev` zone + custom hostnames
-(attribution via `clientRequestHTTPHost`), THEN a bot/challenge/block card, honestly gated ("custom domains in a CF
-zone only; subdomains share the platform zone and have no per-site WAF events" — never render 0 as "no attacks").
-(2) **Usability honesty sweep** — explicit source + freshness ("as of") + "not available for subdomains" vs "no data
-yet" label on EVERY analytics card. (3) **CSV export** of the analytics dashboard via the shared `utils/csv-export`.
+**Security is BLOCKED by our plan** (introspection done 2026-09-24): a probe of `firewallEventsAdaptiveGroups`
+against our zone returns authz *"zone does not have access to the path"* — our plan has no firewall-analytics
+entitlement. So Security is NOT buildable without a plan upgrade (a card would be a permanent placeholder). Removed
+from the buildable-next list. **CSV export is DONE + fixed** (this fire): `buildAnalyticsCsv` (tested pure fn) exports
+the D1 device/channel/conversions/CWV breakdowns the prior export dropped, with the ACCURATE source (was a hardcoded
+"cloudflare_graphql" lie for subdomains); the shared `csvEscape` was hardened with a CWE-1236 formula-injection guard
+(benefits the Data-grid export too) and the dead `csvCell` removed.
+NEXT highest-value gaps (Security is plan-blocked; the universal D1 coverage is strong): (1) **Usability honesty
+sweep** — an explicit source + freshness ("as of") + "not available for subdomains" vs "no data yet" label on EVERY
+analytics card (the CWV/conversions cards are honest; audit the CF-envelope traffic cards). (2) **Delivery/performance
+for custom-domain sites** — `httpRequestsAdaptiveGroups` (our free plan DOES have this per-host) exposes
+`edgeResponseStatus` / `cacheStatus`; a status-code + cache-hit breakdown card, honestly gated "custom domains only".
+(3) **Custom date range + timezone** in the range selector. (4) **Migrate the remaining bespoke CSV exports**
+(events-table/audit/forms/super-admin) onto the now-hardened shared `csvEscape`/`downloadText`.

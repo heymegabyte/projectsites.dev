@@ -97,6 +97,17 @@
   `<code>` block, for debugging). Unknown errors → raw only, never hidden. Completes the SQL-workspace error UX
   alongside cost/scan (cycle 7) + EXPLAIN (cycle 9). +1 Karma spec (all mapped patterns + null for unknown/empty).
   Verified: tsc 0, **Karma 1919/1919**, AOT build OK, eslint 0-errors, backtick PASS.
+- **Cycle 12 — 2026-09-24 (Analytics: introspection finding + CSV fix + security hardening + de-dup):** Ran a CF
+  GraphQL **introspection probe** — `firewallEventsAdaptiveGroups` returns authz "zone does not have access" → **Security
+  is plan-BLOCKED** (recorded in the matrix; removed from buildable-next, ending several fires of deferral). Pivoted to a
+  certain universal slice: **fixed + completed the analytics CSV export**. Found two real bugs — a hardcoded
+  `source,cloudflare_graphql` (a lie for the subdomain majority whose data is D1) and a scope gap (missed the D1
+  device/channel/conversions/CWV breakdowns). Extracted a tested pure **`utils/analytics-csv.ts` `buildAnalyticsCsv`**
+  (7 specs) with the accurate source + all breakdowns (CWV/bounce emitted only when measured, never a fake 0), and wired
+  `exportCsv` to it + the shared `downloadText`. **Hardened the shared `csvEscape` with a CWE-1236 formula-injection
+  guard** (excludes plain numbers) — benefits the owner Data-grid export too (it exports attacker-controllable path/
+  referrer) — and **removed the now-dead `csvCell`** from `analytics.component.ts` (repointing its 4 spec tests to
+  `csvEscape`, coverage preserved + grown). Verified: tsc 0, **Karma 1927/1927**, AOT build OK, eslint 0-errors, backtick PASS.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
