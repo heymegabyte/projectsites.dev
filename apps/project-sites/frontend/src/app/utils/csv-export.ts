@@ -52,7 +52,8 @@ export function toCsv(
  * object URL, and a transient anchor, clicks it, then revokes the URL. No-op on
  * empty text so an export button never downloads a blank file.
  *
- * @remarks Impure — touches `document`/`URL`. Guard callers on having data first.
+ * @remarks Impure — touches `document`/`URL`. SSR / non-DOM safe: no-ops when
+ * `document` or `URL.createObjectURL` is absent. Guard callers on having data first.
  */
 export function downloadText(
   filename: string,
@@ -60,6 +61,8 @@ export function downloadText(
   mime = 'text/plain;charset=utf-8',
 ): void {
   if (!text) return;
+  // No-op outside a browser (SSR / a non-DOM unit env) so an export never throws.
+  if (typeof document === 'undefined' || typeof URL?.createObjectURL !== 'function') return;
   const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

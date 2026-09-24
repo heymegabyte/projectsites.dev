@@ -50,18 +50,22 @@
 | Source + freshness labels in UI | (UI) | none | — | — | — | ✅ **honest per-provenance** — the "Source:" badge routes through the authoritative `trafficSource` signal: first-party → **"ProjectSites analytics"**, genuine CF-zone custom domain → **"Cloudflare Edge"**. Freshness "as of" + "dates in UTC" present. | analytics header badge + chart caption + footer |
 | **Metric definitions / measurement transparency** | (UI) static, data-driven | none | — | — | — | ✅ **DONE (this fire)** — `AnalyticsGlossaryComponent`, an accessible "How these metrics are measured" `<details>` disclosure: per-metric plain-language definition + **source badge** (first-party / Cloudflare edge / real-user) + caveats (bots filtered, Chromium-only CWV shown only when sampled, edge adaptive-sampled + ~30-day retention). Explicitly spells out **requests ≠ page views** (never conflated). | `/admin/analytics` (below the cards) |
 
-## Highest-impact gap (corrected — NOT "beacon not deployed")
+## Highest-impact gap — CWV is DONE (corrected 2026-09-24)
 
-**Real-user-experience / Core Web Vitals is the biggest genuine coverage gap** and the prompt
-emphasizes it. There is NO LCP/INP/CLS data today. A CNAME alone does not collect browser metrics —
-requires either the **Cloudflare Web Analytics beacon** deployed + associated per site, or a small
-first-party RUM beacon (`web-vitals` → `POST /api/events` as a new `web_vital` event type into
-visitor_events). Size: **M–L** (instrument + ingest + aggregate percentiles + UI). Must gate the UI
-on "beacon confirmed deployed for THIS site" — never show 0/empty as if measured.
+**Core Web Vitals is FULLY SHIPPED, not a gap.** The prior note here ("there is NO LCP/INP/CLS data
+today") was stale. First-party RUM is live end to end: the `initWebVitals` beacon in the edge-injected
+`app.js` posts `web_vital` events (LCP/INP/CLS/FCP/TTFB) → `/api/events` → mirrored into
+`visitor_events`; `getWebVitalsSummary` aggregates p75 + a good/needs/poor distribution + slowest
+pages; `<app-web-vitals-card>` renders each p75 WITH its Google-threshold rating (Good / Needs work /
+Poor — WCAG use-of-color: the WORD, never colour alone), a distribution histogram, and per-page
+affected-pages. Honest: a null metric shows "measuring", never a fabricated 0; Chromium-only sampling
+is disclosed. **Nothing to build here — do NOT rebuild CWV.**
 
-Runner-up (smaller, honesty-aligned): audit `/admin/analytics` UI for **explicit source + freshness
-labels + "not available for subdomains" vs "no data yet"** states (prompt: never imply unavailable=zero).
-Good first implementable slice if CWV instrumentation is too large for one fire.
+The customer analytics section is now at a **verified no-dep plateau**: audience/traffic, delivery
+(sampled-flagged), CWV, campaigns, device/browser/OS, bounce, conversions, comparison-period deltas,
+tz-aware daily bucketing, honest source/freshness/definition labels + a full glossary, and CSV export
+(incl. device/browser/OS/CWV) are all shipped. The only remaining items are plan-blocked (Security/WAF +
+latency percentiles — no entitlement) or need new plumbing/deps (see Next).
 
 ## Deferred / not-a-gap
 - Device/geo/channel are NOT beacon-blocked (server-enriched) — do not chase a beacon backfill for them.
@@ -264,11 +268,22 @@ while still guarding formula-SHAPED strings (`-2+cmd()`→`'-2+cmd()`). `events-
 helper. Specs updated (forms `\n`+trailing-newline; audit unit tests re-pointed at `csvEscape` incl. the numeric-exemption
 improvement) → 1999 Karma green. Deployed R2 + chunk-hash prod-verified (forms `PQRGT2D7`, audit `LN7JEF2J`).
 
-NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions/shareable-range +
-**arbitrary-window + tz-aware bucketing/bounds + comparison-period Δ (KPI tiles AND conversions card, TOTAL and PER-KIND) +
-client-CSV consolidation + CWV rating distribution + device/browser/OS breakdown** all complete): (1) **Tech breakdown in the CSV
-export** — the new `byBrowser`/`byOs` aren't yet in `buildAnalyticsCsv` (device already is); a small additive consistency slice.
-(2) **DST-precision** — the fixed browser offset is approximate for a range spanning a DST change; a true IANA-zone shift would need
-a tz library or per-day offset (documented caveat in the UI today, honest but not exact). (3) **Remaining CSV consolidation** —
-`analytics-dashboard` + the audit **full-trail** download the SERVER-built CSV via a hand-rolled Blob/`<a>` — migrate just their
-download mechanism to `downloadText` for one code path (consistency only, no security delta). (Lowest value — cosmetic.)
+NEXT highest-value gaps — the section is at a verified no-dep plateau (audience/delivery/CSV/custom-lookback/definitions/
+shareable-range + arbitrary-window + tz-aware bucketing/bounds + comparison-period Δ + CWV rating/distribution/affected-pages +
+device/browser/OS + bot-filtering disclosure + **tech-breakdown-in-CSV** all complete; `byBrowser`/`byOs` CSV rows shipped, and
+`analytics-dashboard`'s hand-rolled CSV download was **consolidated onto the shared `downloadText`** — cycle 2026-09-24, which was
+also hardened with an SSR/non-DOM guard). What remains, in priority order:
+1. **Hourly "Busiest hours" breakdown** (the top genuinely-NEW no-dep feature) — pageviews by hour-of-day in the owner's local
+   time, an actionable "your peak is 7–9pm" insight for a local owner. Derivable from existing `visitor_events` timestamps, read
+   live in both summary paths (like CWV/browser/OS). BLOCKED ON PLUMBING, not data: `getTrafficSummary` does NOT currently receive
+   `tzOffsetMinutes` (only the separate daily-series path does), so hourly needs the offset threaded through the analytics route +
+   both summary fns before it can bucket to local hours honestly. Medium slice (backend fn + route/summary tz-threading + schema +
+   frontend viz + CSV + tests + a worker deploy).
+2. **DST-precision** — the fixed browser offset is approximate for a range spanning a DST change; a true IANA-zone shift needs a tz
+   library or per-timestamp `Intl` offset (D1's SQLite only does fixed `±HH:MM` modifiers). Documented caveat in the UI today —
+   honest but not exact. Low ROI (~twice a year, near midnight).
+3. **audit full-trail CSV download** intentionally stays a hand-rolled blob-`<a>` (fetched `res.blob()` + append-to-DOM anchor) — a
+   genuinely different case from `downloadText`'s client-built text (blob→text semantic change + Firefox anchor-in-DOM). Cosmetic;
+   not worth the behavioral risk.
+- Plan-blocked (need a CF plan upgrade, not code): **Security/WAF** (`firewallEventsAdaptiveGroups` — no entitlement) + **latency
+  percentiles**. Honestly absent in the UI, never faked.

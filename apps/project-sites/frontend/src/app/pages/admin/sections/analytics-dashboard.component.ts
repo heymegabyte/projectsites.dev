@@ -13,6 +13,7 @@ import { ApiService } from '../../../services/api.service';
 import { AdminStateService } from '../admin-state.service';
 import { ToastService } from '../../../services/toast.service';
 import { copyToClipboard } from '../../../utils/clipboard';
+import { downloadText } from '../../../utils/csv-export';
 
 type AnalyticsTab =
   | 'overview'
@@ -205,7 +206,7 @@ export class AdminAnalyticsDashboardComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {
-          this.downloadCsv(r.filename || 'analytics.csv', r.csv);
+          downloadText(r.filename || 'analytics.csv', r.csv, 'text/csv;charset=utf-8');
           this.toast.success('Analytics CSV downloaded');
           this.exporting.set(false);
         },
@@ -216,15 +217,4 @@ export class AdminAnalyticsDashboardComponent implements OnInit {
       });
   }
 
-  /** Trigger a client-side download of CSV text. Guarded for non-browser test envs. */
-  private downloadCsv(filename: string, csv: string): void {
-    if (typeof document === 'undefined' || typeof URL?.createObjectURL !== 'function') return;
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
 }

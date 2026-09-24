@@ -87,5 +87,19 @@ describe('csv-export util', () => {
       expect(clickSpy).toHaveBeenCalled();
       expect(revokeSpy).toHaveBeenCalledWith('blob:mock');
     });
+
+    it('is a no-op when URL.createObjectURL is unavailable (SSR / non-DOM env)', () => {
+      const orig = URL.createObjectURL;
+      // Simulate a non-DOM env where createObjectURL isn't a function.
+      (URL as unknown as { createObjectURL: unknown }).createObjectURL = undefined;
+      const createElSpy = spyOn(document, 'createElement');
+      try {
+        // Non-empty text would download if unguarded — the guard must return first.
+        downloadText('x.csv', 'a,b\n1,2\n', 'text/csv;charset=utf-8');
+        expect(createElSpy).not.toHaveBeenCalled();
+      } finally {
+        (URL as unknown as { createObjectURL: unknown }).createObjectURL = orig;
+      }
+    });
   });
 });

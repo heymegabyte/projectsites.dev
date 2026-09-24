@@ -629,6 +629,24 @@
   directives (imperative setter / order-fragile reactivity → careful), or lift `DisclosureMode` to a shared type file so
   the dead mode-switcher component is import-free (still spec-pinned). Remaining decorator files are mostly the unwired
   `site-kit/*` library (Brian-gated intent call).
+- **Cycle 49 — 2026-09-24 (Analytics: verified-plateau — consolidate the last hand-rolled CSV download + reconcile the
+  stale coverage matrix):** Inspected the full analytics path and CONFIRMED the customer section is at a genuine no-dep
+  plateau — CWV is fully shipped (beacon → `web_vital` ingest → `getWebVitalsSummary` p75+distribution+slowest-pages →
+  `<app-web-vitals-card>` with Google-threshold Good/Needs/Poor ratings + histograms + per-page), bot-filtering is
+  surfaced (glossary: "automated bots are filtered out"), tz-aware daily bucketing done, and `buildAnalyticsCsv` already
+  emits device/browser/OS/CWV. The matrix's two "gap" sections were **stale** (claimed CWV was "the biggest gap / NO
+  LCP/INP/CLS data today" — false; and tech-breakdown-in-CSV as #1 — done). Shipped the one remaining tractable code item
+  (the matrix's own #3): `analytics-dashboard`'s hand-rolled `new Blob`/`createObjectURL` CSV download → the shared
+  `downloadText`, which was itself **hardened with an SSR/non-DOM guard** (`typeof document==='undefined' || URL.
+  createObjectURL not a fn → no-op`) so it's now safe for prerender/test too. Removed the duplicate `downloadCsv` method
+  (duplicate-impl cleanup). Left `audit`'s full-trail download hand-rolled — it downloads a fetched `res.blob()` (not
+  client-built text) with an append-to-DOM anchor, a genuinely different case (blob→text + Firefox risk). Verified: fe
+  tsc (app+spec) 0 · **Karma 2081/2081** (+1 SSR-guard test) · `ng build:prod` 0 err + 0 NG8113 · deployed R2 +
+  prod-verified (`main-XORNGH7V.js` hash-matched live). Frontend-only (no worker deploy). Reconciled both stale matrix
+  sections to match the verified implementation. **Analytics plateau — remaining is plan-blocked (Security/WAF + latency,
+  no CF entitlement) or needs plumbing/deps.** **Next (top genuinely-new feature):** hourly "Busiest hours" breakdown —
+  blocked on threading `tzOffsetMinutes` through the analytics route + both summary fns (getTrafficSummary doesn't receive
+  it today); medium slice + a worker deploy. Then DST-precision (low ROI).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
