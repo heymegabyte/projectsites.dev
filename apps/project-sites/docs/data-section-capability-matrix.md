@@ -78,7 +78,7 @@
 | Resource | Inspect/manage via | Status | Hard limitation |
 |---|---|---|---|
 | **KV** | READ-ONLY inspector — binding `list` + `getWithMetadata` via `GET /api/admin/kv/*` (super-admin, flag `kv_inspector`) | ✅ **DONE (read-only)** — namespaces (server allowlist) → prefix search → cursor-paginated keys → value+metadata+TTL panel (64 KiB value cap); `/admin/kv-inspector` behind sysAdminGuard, backend 404-dark; 19 Jest + 12 Karma; deployed. Write/delete + bulk deferred. | eventual consistency (disclosed in UI); **shared platform** namespaces only (CACHE_KV/PROMPT_STORE), NOT tenant-owned |
-| **R2** | binding `list/get/put/delete` (+ S3) | PLANNED | no public REST *query*; binding-only; multipart for large objects |
+| **R2** | READ-ONLY inspector — binding `list` + `head` via `GET /api/admin/r2/*` (super-admin, flag `r2_inspector`) | ✅ **DONE (read-only backend)** — buckets (server allowlist) → prefix + cursor-paginated objects (≤1000, key/size/uploaded/etag/contentType) → object METADATA via HEAD (never the body → no large-object memory risk); trace telemetry; 12 Jest; deployed 404-dark. Frontend + upload/download/delete deferred. | `head`-only (bodies not streamed this slice); **shared** SITES_BUCKET only (generated sites + media), NOT tenant-owned; multipart/object-size guards needed before body download |
 | **Vectorize** | binding `insert/query/deleteByIds/listVectors` + v2 REST | PLANNED | query is binding-only; mutations async (1–2 s) |
 | **Hyperdrive** | REST config + health | PLANNED | **no** inspect/query API; browser only via an authorized DB connection path |
 | **Durable Objects** | classes/bindings list | BLOCKED (data) | internal SQLite is **RPC-only**, NOT arbitrarily queryable via public API |
