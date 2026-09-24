@@ -233,6 +233,18 @@ export const routes: Routes = [
           ),
       },
       {
+        // Super-Admin KV Inspector — read-only browser for the shared platform KV
+        // namespaces (CACHE_KV/PROMPT_STORE). Backend GET /api/admin/kv/* is
+        // super-admin + `kv_inspector`-flag gated (404-dark when off); sysAdminGuard
+        // hides the route from normal owners.
+        path: 'kv-inspector',
+        canActivate: [sysAdminGuard],
+        loadComponent: () =>
+          import('./pages/admin/sections/kv-inspector.component').then(
+            (m) => m.KvInspectorComponent,
+          ),
+      },
+      {
         // Super-Admin lead scanner (#9) — Places no-website scan → scored leads →
         // mint outreach claim links. Flag-dark (`lead_scanner`) + super-admin only;
         // the worker route 404s when the flag is off and 403s non-operators.
