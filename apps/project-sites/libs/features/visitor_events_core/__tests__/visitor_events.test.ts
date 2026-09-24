@@ -56,13 +56,13 @@ function makeEnv(opts: { throwAll?: boolean } = {}): { env: Env; events: Ev[] } 
         const site = bound[0] as string;
         const rows = events.filter((e) => e.site_id === site);
         if (sql.includes("event_type = 'web_vital'")) {
-          // AN-CWV: the getWebVitalsSummary SELECT of {metric, value} pairs.
+          // AN-CWV: the getWebVitalsSummary SELECT of {metric, value, path} rows.
           return {
             results: rows
               .filter((e) => e.event_type === 'web_vital')
               .map((e) => {
                 const m = JSON.parse(e.metadata || '{}') as { metric?: string; value?: number };
-                return { metric: m.metric ?? null, value: Number(m.value) };
+                return { metric: m.metric ?? null, value: Number(m.value), path: e.path };
               }) as unknown as T[],
           };
         }
@@ -149,6 +149,28 @@ describe('visitor_events_core service', () => {
     expect(s.webVitals.cls).toEqual({ p75: 0.08, samples: 1 });
     // No INP samples → null, never a fabricated 0 (honesty contract).
     expect(s.webVitals.inp).toBeNull();
+  });
+
+  it('ranks slowest pages by LCP p75, requiring a per-page sample floor (AN-CWV per-path)', async () => {
+    const { env } = makeEnv();
+    const ctx = { orgId: 'org1', siteId: 'site1' };
+    const push = async (path: string, values: number[]) => {
+      for (const value of values) {
+        await recordVisitorEvent(env, ctx, {
+          sessionId: 'sess-cwv-path-1',
+          eventType: 'web_vital',
+          path,
+          metadata: { metric: 'LCP', value },
+        });
+      }
+    };
+    await push('/slow', [4000, 4200, 4400, 4600, 4800, 5000]); // p75 = 4800
+    await push('/fast', [1000, 1100, 1200, 1300, 1400, 1500]); // p75 = 1400
+    await push('/thin', [9000, 9500]); // 2 samples < floor(5) → EXCLUDED (unreliable p75)
+    const pages = (await getTrafficSummary(env, 'site1', 30)).webVitals.slowestPages;
+    expect(pages.map((p) => p.path)).toEqual(['/slow', '/fast']); // worst first, /thin dropped
+    expect(pages[0]).toEqual({ path: '/slow', lcpP75: 4800, samples: 6 });
+    expect(pages[0].lcpP75).toBeGreaterThan(pages[1].lcpP75);
   });
 
   describe('percentile (nearest-rank)', () => {

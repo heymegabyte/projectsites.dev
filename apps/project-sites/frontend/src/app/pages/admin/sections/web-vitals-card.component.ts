@@ -15,11 +15,19 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import type { WebVitalStat } from '../../../services/api.service';
 
+/** One page's LCP p75 + sample count, for the "slowest pages" drilldown. */
+export interface SlowPageStat {
+  path: string;
+  lcpP75: number;
+  samples: number;
+}
+
 /** The `traffic.webVitals` shape — each metric is a p75+samples stat or null. */
 export interface WebVitalsBlock {
   lcp: WebVitalStat | null;
   inp: WebVitalStat | null;
   cls: WebVitalStat | null;
+  slowestPages?: SlowPageStat[];
 }
 
 type MetricKey = 'lcp' | 'inp' | 'cls';
@@ -72,6 +80,26 @@ interface MetricTile {
         }
       </div>
 
+      @if (slowestPages().length) {
+        <div class="wv-pages" data-testid="an-wv-pages">
+          <div class="wv-pages-h">Slowest pages · LCP p75</div>
+          <table class="wv-pages-table">
+            <tbody>
+              @for (p of slowestPages(); track p.path) {
+                <tr data-testid="an-wv-page">
+                  <td class="wv-page-path" [attr.title]="p.path">{{ p.path }}</td>
+                  <td class="wv-page-val">{{ formatValue('lcp', p.lcpP75) }}</td>
+                  <td class="wv-page-rating" [attr.data-rating]="rating('lcp', p.lcpP75)">
+                    <span class="wv-dot" aria-hidden="true"></span>{{ ratingLabel(rating('lcp', p.lcpP75)) }}
+                  </td>
+                  <td class="wv-page-samples">{{ p.samples }} {{ p.samples === 1 ? 'sample' : 'samples' }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+
       @if (!hasAnySamples()) {
         <p class="wv-note" data-testid="an-wv-note">
           No field data yet. Core Web Vitals appear here once real visitors on Chrome / Edge load
@@ -107,6 +135,19 @@ interface MetricTile {
     .wv-measuring { margin-top: 0.3rem; font-size: 0.68rem; font-style: italic; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); }
     .wv-samples { margin-top: 0.15rem; font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); font-variant-numeric: tabular-nums; }
     .wv-note { margin: 0.75rem 0 0; font-size: 0.68rem; line-height: 1.45; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
+    .wv-pages { margin-top: 0.9rem; }
+    .wv-pages-h { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); margin-bottom: 0.35rem; }
+    .wv-pages-table { width: 100%; border-collapse: collapse; font-size: 0.74rem; }
+    .wv-pages-table td { padding: 0.32rem 0.4rem; border-bottom: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); vertical-align: middle; }
+    .wv-pages-table tr:last-child td { border-bottom: none; }
+    .wv-page-path { color: #fff; max-width: 0; width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .wv-page-val { color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .wv-page-rating { white-space: nowrap; }
+    .wv-page-rating > .wv-dot { display: inline-block; vertical-align: middle; margin-right: 4px; }
+    .wv-page-rating[data-rating='good'] { color: #4dffb5; }
+    .wv-page-rating[data-rating='needs'] { color: #ffd166; }
+    .wv-page-rating[data-rating='poor'] { color: #ff7e8a; }
+    .wv-page-samples { text-align: right; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); font-variant-numeric: tabular-nums; white-space: nowrap; }
   `],
 })
 export class WebVitalsCardComponent {
@@ -127,6 +168,9 @@ export class WebVitalsCardComponent {
 
   /** True when ANY metric has field samples — else the card shows the "no data" note. */
   readonly hasAnySamples = computed(() => this.metrics().some((m) => m.stat != null));
+
+  /** Slowest pages by LCP p75 (worst first) — the per-page drilldown, [] when none qualify. */
+  readonly slowestPages = computed<SlowPageStat[]>(() => this.webVitals()?.slowestPages ?? []);
 
   /**
    * Format a p75 for display. CLS is unitless (2 decimals); LCP/INP are ms, shown

@@ -178,6 +178,9 @@ export function percentile(values: readonly number[], p: number): number {
 /** The 3 CWV metrics we field-measure, and how each p75 is rounded for display. */
 const CWV_METRICS = ['LCP', 'INP', 'CLS'] as const;
 
+/** Min LCP samples a page needs before it's ranked in "slowest pages" (p75 reliability). */
+const MIN_PATH_SAMPLES = 5;
+
 /**
  * Real-user Core Web Vitals p75 over the window, computed from the `web_vital`
  * beacon rows in `visitor_events`. Queried DIRECTLY (not via the analytics_daily
@@ -194,10 +197,11 @@ export async function getWebVitalsSummary(
   siteId: string,
   windowDays = 30,
 ): Promise<WebVitals> {
-  const { data, error } = await dbQuery<{ metric: string | null; value: number }>(
+  const { data, error } = await dbQuery<{ metric: string | null; value: number; path: string | null }>(
     env.DB,
     `SELECT json_extract(metadata, '$.metric') AS metric,
-            CAST(json_extract(metadata, '$.value') AS REAL) AS value
+            CAST(json_extract(metadata, '$.value') AS REAL) AS value,
+            path
        FROM visitor_events
       WHERE site_id = ? AND event_type = 'web_vital'
         AND created_at >= datetime('now', ?)
@@ -206,14 +210,22 @@ export async function getWebVitalsSummary(
       LIMIT 50000`,
     [siteId, `-${windowDays} days`],
   );
-  const empty: WebVitals = { lcp: null, inp: null, cls: null };
+  const empty: WebVitals = { lcp: null, inp: null, cls: null, slowestPages: [] };
   if (error) return empty;
 
   const buckets: Record<(typeof CWV_METRICS)[number], number[]> = { LCP: [], INP: [], CLS: [] };
+  const lcpByPath = new Map<string, number[]>();
   for (const row of data) {
     const m = row.metric as (typeof CWV_METRICS)[number] | null;
     const v = Number(row.value);
-    if (m && m in buckets && Number.isFinite(v) && v >= 0) buckets[m].push(v);
+    if (!(m && m in buckets && Number.isFinite(v) && v >= 0)) continue;
+    buckets[m].push(v);
+    // Bucket LCP (the headline metric) per page for the "slowest pages" drilldown.
+    if (m === 'LCP' && typeof row.path === 'string' && row.path) {
+      const arr = lcpByPath.get(row.path);
+      if (arr) arr.push(v);
+      else lcpByPath.set(row.path, [v]);
+    }
   }
   const stat = (metric: (typeof CWV_METRICS)[number]) => {
     const vals = buckets[metric];
@@ -222,7 +234,14 @@ export async function getWebVitalsSummary(
     const p75 = metric === 'CLS' ? Math.round(raw * 1000) / 1000 : Math.round(raw);
     return { p75, samples: vals.length };
   };
-  return { lcp: stat('LCP'), inp: stat('INP'), cls: stat('CLS') };
+  // Slowest pages by LCP p75 — only pages past the sample floor (reliable p75),
+  // worst first, capped so the drilldown stays focused + bounded.
+  const slowestPages = [...lcpByPath.entries()]
+    .filter(([, vals]) => vals.length >= MIN_PATH_SAMPLES)
+    .map(([path, vals]) => ({ path, lcpP75: Math.round(percentile(vals, 75)), samples: vals.length }))
+    .sort((a, b) => b.lcpP75 - a.lcpP75)
+    .slice(0, 5);
+  return { lcp: stat('LCP'), inp: stat('INP'), cls: stat('CLS'), slowestPages };
 }
 
 /** Roll up a site's traffic over a trailing window. */

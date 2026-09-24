@@ -69,6 +69,30 @@ describe('WebVitalsCardComponent', () => {
     expect(fixture.debugElement.query(By.css('[data-testid="an-wv-note"]'))).toBeTruthy();
   });
 
+  it('renders a "slowest pages" drilldown (worst first) when per-path data is present', () => {
+    const fixture = render({
+      lcp: { p75: 3000, samples: 20 },
+      inp: null,
+      cls: null,
+      slowestPages: [
+        { path: '/pricing', lcpP75: 4200, samples: 8 },
+        { path: '/', lcpP75: 2100, samples: 12 },
+      ],
+    });
+    const rows = fixture.debugElement.queryAll(By.css('[data-testid="an-wv-page"]'));
+    expect(rows.length).toBe(2);
+    const first = rows[0].nativeElement as HTMLElement;
+    expect(first.textContent).toContain('/pricing');
+    expect(first.textContent).toContain('4.20 s'); // 4200ms → seconds
+    expect(first.textContent).toContain('Poor'); // 4200 > 4000 → poor
+    expect(first.textContent).toContain('8 samples');
+  });
+
+  it('hides the slowest-pages drilldown when no page has enough samples', () => {
+    const fixture = render({ lcp: { p75: 3000, samples: 4 }, inp: null, cls: null, slowestPages: [] });
+    expect(fixture.debugElement.query(By.css('[data-testid="an-wv-pages"]'))).toBeNull();
+  });
+
   describe('formatValue', () => {
     it('shows CLS unitless, LCP/INP in ms under 1s and seconds at/over 1s', () => {
       const c = render(null).componentInstance;

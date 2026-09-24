@@ -43,7 +43,7 @@
 | Forms / completions | D1 form_submissions | none | site_id | D1 | none | ✅ live | forms tab |
 | Period-over-period deltas | D1 visitor_events | none | site_id | D1 | none | ✅ live | comparison |
 | CF requests/bandwidth/cache/status | CF GraphQL httpRequestsAdaptiveGroups | custom domain in CF zone | per hostname | 30 days | adaptive sampled | ⚠️ fallback-only, not surfaced as its own view | — |
-| **Core Web Vitals (LCP/INP/CLS)** | first-party RUM → `web_vital` events in D1 | none (no CF plan) | per site_id | D1 | none (all sessions) | ✅ **COMPLETE** — beacon collects → ingest → `getWebVitalsSummary` nearest-rank **p75** → honest **`WebVitalsCardComponent`** (p75 + Google rating word + sample count; "measuring" when a metric is null, NEVER a fabricated 0; labelled Chromium-only field data over the window) | `/admin/analytics` "Core Web Vitals" card |
+| **Core Web Vitals (LCP/INP/CLS + per-page)** | first-party RUM → `web_vital` events in D1 | none (no CF plan) | per site_id (+ per `path`) | D1 | none (all sessions) | ✅ **COMPLETE + per-path** — site p75 card PLUS a **"Slowest pages · LCP p75"** drilldown (`getWebVitalsSummary` buckets LCP by `path`, ranks worst-first, top 5, past a **5-sample floor**); honest ("measuring"/null never a fake 0; a page needs ≥5 samples to be ranked) | `/admin/analytics` "Core Web Vitals" card + slowest-pages table |
 | **Security (WAF/bot/challenges)** | CF GraphQL firewall/security datasets | custom domain in zone (WAF plan) | per hostname | plan-dependent | — | ❌ missing | — |
 | **CSV export / custom range / comparison / TZ** | (UI) | none | — | — | — | ❌ partial/missing | — |
 | Source + freshness labels in UI | (UI) | none | — | — | — | ⚠️ verify present | — |
@@ -86,8 +86,14 @@ Poor) + sample count; a null metric renders "Measuring — no samples yet" (NEVE
 shows a "no field data yet" note. Labelled Chromium-only field data over the window. Covered by 10 `web_vitals_card`
 specs. Verified live (prior fire) that `traffic.webVitals` returns real data (lcp p75=2372/1 sample, cls p75=0/1 sample,
 inp=null → honesty contract visibly correct).
-NEXT highest-value gaps (pick one): (1) **per-path CWV p75** — group `getWebVitalsSummary` by `path` (the beacon's
-`href`) so owners see WHICH pages are slow; a small aggregation extension + a card drilldown. (2) **Security coverage**
-(❌ missing) — CF GraphQL `firewallEventsAdaptive` for custom-domain sites in a CF zone (bot/challenge/block counts +
-top rules), plan-gated + honestly labelled "custom domains only, not subdomains". (3) **Usability honesty sweep** — an
-explicit source + freshness ("as of") + "not available for subdomains" vs "no data yet" label on every analytics card.
+**Per-path CWV is DONE** (2026-09-24): `getWebVitalsSummary` now also buckets LCP by `path` from the same query and
+returns `webVitals.slowestPages` (top-5 worst-first, past a **5-sample floor** so a p75 isn't ranked off 1–2 hits);
+the card renders a "Slowest pages · LCP p75" table (path + p75 + rating word + samples) when any page qualifies, hidden
+otherwise. So the **CWV area is fully built out** (site + per-page). Covered by a per-path service spec + 2 card specs.
+NEXT highest-value gaps (the CWV area is done — move to a NEW category): (1) **Security coverage** (❌ still missing,
+now the top gap) — FIRST do CF GraphQL **schema introspection** for our account to confirm what `firewallEventsAdaptive`
+actually exposes for our shared `projectsites.dev` zone + custom hostnames (attribution via `clientRequestHTTPHost`),
+THEN a bot/challenge/block card, honestly gated ("custom domains in a CF zone only; subdomains share the platform zone
+and have no per-site WAF events" — never render 0 as "no attacks"). (2) **Usability honesty sweep** — an explicit source
++ freshness ("as of") + "not available for subdomains" vs "no data yet" label on EVERY analytics card. (3) **CSV export
+of the analytics dashboard** via the shared `utils/csv-export` (traffic/top-pages/CWV rows).

@@ -64,6 +64,14 @@
   >10k rows read → "add an index") — the prompt's "make cost visible" + "warn about expensive scans". Honest: cost
   shown only for a REPORTED value (`!= null`), never a fabricated 0. +2 Karma specs (cost surfaced; scan threshold).
   Verified: tsc 0, **Karma 1908/1908**, AOT build exit 0, eslint 0-errors, backtick gate PASS.
+- **Cycle 8 — 2026-09-24 (Analytics per-path, worker + frontend):** Added a **per-page CWV drilldown**.
+  `getWebVitalsSummary` now buckets LCP by `path` from the SAME query (no extra DB call) and returns
+  `webVitals.slowestPages` (top-5 worst-first, past a **5-sample floor** so a p75 isn't ranked off 1–2 hits);
+  `WebVitalsCardComponent` renders a "Slowest pages · LCP p75" table (path + p75 + rating word + samples) when
+  any page qualifies, hidden otherwise. Schema (`SlowPageSchema` + `slowestPages` on `WebVitalsSchema`, defaulted
+  for back-compat) + frontend contract updated. +1 worker service spec (rank + sample-floor) + 2 card specs.
+  Verified: tsc 0 (worker + fe), **Jest 12214 pass** / **Karma 1910/1910**, AOT build OK, eslint 0-errors, drift
+  0-err, backtick PASS. The CWV analytics area is now fully built out (site + per-page); Security is the next category.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

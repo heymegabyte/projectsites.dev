@@ -70,6 +70,17 @@ export const WebVitalStatSchema = z
 export type WebVitalStat = z.infer<typeof WebVitalStatSchema>;
 
 /**
+ * One page's LCP p75 (the headline CWV) + the sample count behind it — powers the
+ * "slowest pages" drilldown so an owner sees WHICH page is slow. `samples` ≥ 1 by
+ * construction; only pages past a sample floor are surfaced (a p75 off 1–2 hits is
+ * not reliable).
+ */
+export const SlowPageSchema = z
+  .object({ path: z.string(), lcpP75: z.number(), samples: z.number().int().min(1) })
+  .strict();
+export type SlowPage = z.infer<typeof SlowPageSchema>;
+
+/**
  * Real-user Core Web Vitals summary over the window, per metric. `null` per metric
  * = NOT measured / no field samples yet (Chromium-only APIs; a fresh or low-traffic
  * site legitimately has none) — the UI shows "measuring…", never a fabricated 0.
@@ -79,9 +90,12 @@ export const WebVitalsSchema = z
     lcp: WebVitalStatSchema.nullable().default(null),
     inp: WebVitalStatSchema.nullable().default(null),
     cls: WebVitalStatSchema.nullable().default(null),
+    // AN-CWV per-path — the slowest pages by LCP p75 (headline metric), for the
+    // "which page is slow" drilldown. Default [] for back-compat.
+    slowestPages: z.array(SlowPageSchema).default([]),
   })
   .strict()
-  .default({ lcp: null, inp: null, cls: null });
+  .default({ lcp: null, inp: null, cls: null, slowestPages: [] });
 export type WebVitals = z.infer<typeof WebVitalsSchema>;
 
 /** Aggregated traffic summary for one site over a window. */

@@ -1562,6 +1562,8 @@ export interface SiteTrafficSummary {
     lcp: WebVitalStat | null;
     inp: WebVitalStat | null;
     cls: WebVitalStat | null;
+    /** Slowest pages by LCP p75 (worst first) — the "which page is slow" drilldown. */
+    slowestPages?: Array<{ path: string; lcpP75: number; samples: number }>;
   };
   previous: { pageviews: number; uniqueSessions: number; conversions: number };
   windowDays: number;
