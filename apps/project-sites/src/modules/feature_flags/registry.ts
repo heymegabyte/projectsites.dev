@@ -428,6 +428,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  kv_inspector: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Read-only, super-admin platform debugging tool for the two shared KV namespaces (CACHE_KV = host/analytics cache, PROMPT_STORE = prompt hot-patch).\n\n• Worker: libs/features/kv_inspector/handlers.ts serves GET /api/admin/kv/namespaces, /api/admin/kv/:binding/keys (cursor-paginated, ≤1000), /api/admin/kv/:binding/value (64 KiB cap + truncated flag).\n• :binding validated against a SERVER allowlist (CACHE_KV|PROMPT_STORE) — client-supplied names never reach KV; unknown → 404.\n• Read-only (no write/delete). Super-admin only; flag off → 404 (never leak existence).\n• Admin surface: /admin/kv-inspector (System Administrator). Values are eventually consistent (disclosed in the UI).',
+    key: 'kv_inspector',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   site_analytics: {
     default_enabled: false,
     default_rollout_percent: 0,
