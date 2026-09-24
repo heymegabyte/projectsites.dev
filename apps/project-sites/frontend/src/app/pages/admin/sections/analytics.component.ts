@@ -22,6 +22,7 @@ import { ErrorCardComponent } from '../../../components/states';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { WebVitalsCardComponent } from './web-vitals-card.component';
 import { ConversionsCardComponent } from './conversions-card.component';
+import { DeliveryCardComponent } from './delivery-card.component';
 import { buildAnalyticsCsv } from '../../../utils/analytics-csv';
 import { downloadText } from '../../../utils/csv-export';
 
@@ -64,7 +65,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, ConversionsCardComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, ConversionsCardComponent, DeliveryCardComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -509,6 +510,15 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
       <app-web-vitals-card
         appReveal
         [webVitals]="siteTraffic()?.webVitals ?? null"
+        [windowDays]="rangeDays()"
+      />
+
+      <!-- Delivery & performance — Cloudflare edge status codes / cache / bandwidth
+           from envelope.delivery (httpRequestsAdaptiveGroups). Distinct source from
+           the first-party audience cards; honest null / no-data states. -->
+      <app-delivery-card
+        appReveal
+        [delivery]="envelope()?.delivery ?? null"
         [windowDays]="rangeDays()"
       />
 

@@ -43,6 +43,32 @@ export interface SeriesPoint {
 }
 
 /** Multi-URL aggregated analytics envelope. */
+/**
+ * Cloudflare edge DELIVERY & PERFORMANCE for the site's owned hostnames
+ * (`httpRequestsAdaptiveGroups`): HTTP status classes, cache hit/miss, bandwidth.
+ * A DISTINCT source from the first-party audience metrics — it counts HTTP requests
+ * at the edge, NOT pageviews. `has_data:false` = credentials resolved but no edge
+ * traffic yet (honest empty, never zeros-as-measured). `hit_ratio_pct` is null when
+ * there were no cacheable requests (unknown ratio, never a fabricated 0%).
+ */
+export interface DeliverySummary {
+  /**
+   * True when at least one owned host resolved a Cloudflare zone (so the edge
+   * dataset was actually queryable). `false` = this site's domains don't map to a
+   * queryable CF zone in this deployment (e.g. a shared-zone subdomain) — the card
+   * says "not available", NOT "no traffic yet" (which would be misleading for a site
+   * that HAS visitors). Distinguishes unavailable-source from genuinely-empty.
+   */
+  readonly zone_resolved: boolean;
+  readonly has_data: boolean;
+  readonly total_requests: number;
+  readonly by_status_class: ReadonlyArray<{ class: '2xx' | '3xx' | '4xx' | '5xx' | 'other'; count: number }>;
+  readonly top_statuses: ReadonlyArray<{ status: number; count: number }>;
+  readonly cache: { readonly hit: number; readonly miss: number; readonly uncacheable: number; readonly hit_ratio_pct: number | null };
+  readonly response_bytes: number;
+  readonly range_days: number;
+}
+
 export interface MultiUrlAnalytics {
   readonly range_days: number;
   readonly urls_included: ReadonlyArray<{ hostname: string; resolved_zone: boolean }>;
@@ -59,6 +85,11 @@ export interface MultiUrlAnalytics {
    * should surface a "connect Cloudflare credentials" CTA in that case.
    */
   readonly any_real_data: boolean;
+  /**
+   * Cloudflare edge delivery/performance for the owned hostnames; `null` when no CF
+   * credentials resolved. Rides the same per-host authed query — no extra request.
+   */
+  readonly delivery: DeliverySummary | null;
 }
 
 const RANGE_TO_DAYS = { '7d': 7, '24h': 1, '30d': 30, '90d': 90 } as const;
@@ -189,11 +220,13 @@ export async function resolveZoneForHostname(
 /** GraphQL response we depend on. */
 interface CfGroup {
   count?: number;
-  sum?: { visits?: number };
+  sum?: { visits?: number; edgeResponseBytes?: number };
   dimensions?: {
     clientRequestPath?: string;
     clientCountryName?: string;
     clientRequestReferer?: string;
+    edgeResponseStatus?: string;
+    cacheStatus?: string;
   };
 }
 interface CfGraphQlResponse {
@@ -222,6 +255,10 @@ interface HostAggregate {
   top_paths: Map<string, number>;
   top_countries: Map<string, number>;
   top_referrers: Map<string, number>;
+  /** Edge delivery: HTTP status code → request count, cacheStatus → count, total bytes. */
+  by_status: Map<number, number>;
+  by_cache: Map<string, number>;
+  response_bytes: number;
 }
 
 /**
@@ -235,10 +272,13 @@ async function loadHostAggregate(
   days: number,
 ): Promise<HostAggregate> {
   const empty: HostAggregate = {
+    by_cache: new Map(),
     by_day: new Map(),
+    by_status: new Map(),
     hostname,
     page_views: 0,
     resolved: false,
+    response_bytes: 0,
     top_countries: new Map(),
     top_paths: new Map(),
     top_referrers: new Map(),
@@ -275,6 +315,12 @@ async function loadHostAggregate(
     .join('\n          ');
   const breakdown = (name: string, dim: string, limit: number) =>
     `${name}: httpRequestsAdaptiveGroups(limit: ${limit}, filter: { datetime_geq: "${recent.since}", datetime_leq: "${recent.until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { ${dim} } }`;
+  // Delivery metrics (status / cache / bandwidth) aggregate over the FULL window in
+  // ONE sub-query each — multi-day ranges ARE supported (the per-day fan-out above is
+  // only needed to build the daily SERIES, not because of a range cap). fullSince =
+  // the oldest window's start; fullUntil = the most-recent window's end.
+  const fullSince = windows[windows.length - 1].since;
+  const fullUntil = recent.until;
 
   const query = /* GraphQL */ `
     query MultiUrlTraffic($zoneTag: String!, $host: String!) {
@@ -284,6 +330,8 @@ async function loadHostAggregate(
           ${breakdown('paths', 'clientRequestPath', 50)}
           ${breakdown('geo', 'clientCountryName', 25)}
           ${breakdown('refs', 'clientRequestReferer', 25)}
+          status: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${fullSince}", datetime_leq: "${fullUntil}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { edgeResponseStatus } }
+          cache: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${fullSince}", datetime_leq: "${fullUntil}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { edgeResponseBytes } dimensions { cacheStatus } }
         }
       }
     }
@@ -332,10 +380,13 @@ async function loadHostAggregate(
     if (!zoneRow) return { ...empty, resolved: true };
 
     const agg: HostAggregate = {
+      by_cache: new Map(),
       by_day: new Map(),
+      by_status: new Map(),
       hostname,
       page_views: 0,
       resolved: true,
+      response_bytes: 0,
       top_countries: new Map(),
       top_paths: new Map(),
       top_referrers: new Map(),
@@ -370,6 +421,18 @@ async function loadHostAggregate(
       const referrer = safeHost(String(row.dimensions?.clientRequestReferer ?? '')) || '(direct)';
       const c = Number(row.count ?? 0);
       if (c > 0) agg.top_referrers.set(referrer, (agg.top_referrers.get(referrer) ?? 0) + c);
+    }
+    // Delivery: HTTP status codes + cache result + edge bandwidth over the full window.
+    for (const row of zoneRow.status ?? []) {
+      const s = Number(row.dimensions?.edgeResponseStatus ?? 0);
+      const c = Number(row.count ?? 0);
+      if (s > 0 && c > 0) agg.by_status.set(s, (agg.by_status.get(s) ?? 0) + c);
+    }
+    for (const row of zoneRow.cache ?? []) {
+      const cs = String(row.dimensions?.cacheStatus ?? 'unknown');
+      const c = Number(row.count ?? 0);
+      if (c > 0) agg.by_cache.set(cs, (agg.by_cache.get(cs) ?? 0) + c);
+      agg.response_bytes += Number(row.sum?.edgeResponseBytes ?? 0);
     }
     return agg;
   } catch (err) {
@@ -641,6 +704,8 @@ export async function loadMultiUrlAnalytics(
     // (which never have CF per-host data regardless of credentials).
     envelope = {
       any_real_data: false,
+      // No CF credentials → delivery is genuinely unknown, NOT zero. Honest null.
+      delivery: null,
       pageviews: 0,
       range_days: days,
       series: emptySeries(days),
@@ -698,8 +763,21 @@ export async function loadMultiUrlAnalytics(
       .slice(0, 15)
       .map(([referrer, views]) => ({ referrer, views }));
 
+    // Merge delivery (status / cache / bandwidth) across all owned hosts.
+    const mergedStatus = new Map<number, number>();
+    const mergedCache = new Map<string, number>();
+    let mergedBytes = 0;
+    for (const a of aggregates) {
+      for (const [s, c] of a.by_status) mergedStatus.set(s, (mergedStatus.get(s) ?? 0) + c);
+      for (const [k, c] of a.by_cache) mergedCache.set(k, (mergedCache.get(k) ?? 0) + c);
+      mergedBytes += a.response_bytes;
+    }
+    const deliveryRangeDays = Math.min(Math.max(days, 1), CF_MAX_WINDOW_DAYS);
+    const deliveryZoneResolved = aggregates.some((a) => a.resolved);
+
     envelope = {
       any_real_data: aggregates.some((a) => a.resolved && a.total_requests > 0),
+      delivery: buildDeliverySummary(mergedStatus, mergedCache, mergedBytes, deliveryRangeDays, deliveryZoneResolved),
       pageviews: aggregates.reduce((sum, a) => sum + a.page_views, 0),
       // HONEST window: the CF path covers ≤CF_MAX_WINDOW_DAYS daily windows regardless of the
       // requested `days`. Reporting `days` (e.g. 90) here silently under-reported — a 90d request
@@ -766,6 +844,74 @@ function sumMaps(maps: ReadonlyArray<ReadonlyMap<string, number>>): Array<[strin
     }
   }
   return [...merged.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+type StatusClass = '2xx' | '3xx' | '4xx' | '5xx' | 'other';
+function statusClass(status: number): StatusClass {
+  if (status >= 200 && status < 300) return '2xx';
+  if (status >= 300 && status < 400) return '3xx';
+  if (status >= 400 && status < 500) return '4xx';
+  if (status >= 500 && status < 600) return '5xx';
+  return 'other';
+}
+/** CF `cacheStatus` values that count as served-from-cache vs a cacheable miss. */
+const CACHE_HIT_STATES = new Set(['hit', 'revalidated', 'updating', 'stale']);
+const CACHE_MISS_STATES = new Set(['miss', 'expired']);
+
+/**
+ * Build the honest delivery summary from merged per-host status/cache maps. Pure +
+ * deterministic. `hit_ratio_pct` is `null` when there were no cacheable requests
+ * (unknown ratio — NEVER a fabricated 0). Exported for direct unit testing.
+ *
+ * @param byStatus - HTTP status code → request count (merged across owned hosts)
+ * @param byCache - CF cacheStatus → request count
+ * @param responseBytes - total edge response bytes
+ * @param rangeDays - the window the counts cover
+ * @returns a {@link DeliverySummary}
+ * @example buildDeliverySummary(new Map([[200,74],[504,9]]), new Map([['hit',4]]), 1e6, 7)
+ */
+export function buildDeliverySummary(
+  byStatus: ReadonlyMap<number, number>,
+  byCache: ReadonlyMap<string, number>,
+  responseBytes: number,
+  rangeDays: number,
+  zoneResolved = false,
+): DeliverySummary {
+  let total = 0;
+  const classCounts = new Map<StatusClass, number>();
+  const topStatuses: Array<{ status: number; count: number }> = [];
+  for (const [status, count] of byStatus) {
+    total += count;
+    const cls = statusClass(status);
+    classCounts.set(cls, (classCounts.get(cls) ?? 0) + count);
+    topStatuses.push({ count, status });
+  }
+  const by_status_class = [...classCounts.entries()]
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([cls, count]) => ({ class: cls, count }));
+  topStatuses.sort((a, b) => b.count - a.count);
+
+  let hit = 0;
+  let miss = 0;
+  let uncacheable = 0;
+  for (const [state, count] of byCache) {
+    if (CACHE_HIT_STATES.has(state)) hit += count;
+    else if (CACHE_MISS_STATES.has(state)) miss += count;
+    else uncacheable += count;
+  }
+  const cacheable = hit + miss;
+
+  return {
+    by_status_class,
+    cache: { hit, hit_ratio_pct: cacheable > 0 ? Math.round((100 * hit) / cacheable) : null, miss, uncacheable },
+    has_data: total > 0,
+    range_days: rangeDays,
+    response_bytes: responseBytes,
+    top_statuses: topStatuses.slice(0, 8),
+    total_requests: total,
+    zone_resolved: zoneResolved,
+  };
 }
 
 /** Small djb2 hash to keep cache keys short (8 hex chars). */

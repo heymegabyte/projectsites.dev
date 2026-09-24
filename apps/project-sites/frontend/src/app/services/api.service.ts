@@ -1526,6 +1526,29 @@ export type AnalyticsRange = '24h' | '7d' | '30d' | '90d';
  * Aggregated Cloudflare GraphQL analytics envelope.
  * Returned by `GET /api/sites/:id/analytics`.
  */
+/**
+ * Cloudflare edge DELIVERY & PERFORMANCE for the site's owned hostnames
+ * (`httpRequestsAdaptiveGroups`: HTTP status codes + cache hit/miss + bandwidth).
+ * This is a DISTINCT data source from the first-party audience metrics — it counts
+ * HTTP requests at the edge, not pageviews. `null` when no CF credentials resolved;
+ * `has_data:false` when credentials exist but no owned host has edge traffic yet
+ * (an honest empty state, never zeros-as-measured). `hit_ratio_pct` is `null` when
+ * there were no cacheable requests (unknown ratio, never a fake 0%).
+ */
+export interface DeliverySummary {
+  /** True when an owned host resolved a CF zone (edge dataset was queryable).
+   *  `false` = this site's domains aren't a queryable CF zone here (shared-zone
+   *  subdomain) → the card says "not available", never "no traffic yet". */
+  zone_resolved: boolean;
+  has_data: boolean;
+  total_requests: number;
+  by_status_class: { class: '2xx' | '3xx' | '4xx' | '5xx' | 'other'; count: number }[];
+  top_statuses: { status: number; count: number }[];
+  cache: { hit: number; miss: number; uncacheable: number; hit_ratio_pct: number | null };
+  response_bytes: number;
+  range_days: number;
+}
+
 export interface MultiUrlAnalyticsEnvelope {
   range_days: number;
   urls_included: { hostname: string; resolved_zone: boolean }[];
@@ -1541,6 +1564,9 @@ export interface MultiUrlAnalyticsEnvelope {
    * UI should surface a "connect Cloudflare credentials" CTA.
    */
   any_real_data: boolean;
+  /** Cloudflare edge delivery/performance (status codes, cache, bandwidth); `null`
+   *  with no CF credentials. Rides the same authed query — no extra request. */
+  delivery?: DeliverySummary | null;
 }
 
 /**
