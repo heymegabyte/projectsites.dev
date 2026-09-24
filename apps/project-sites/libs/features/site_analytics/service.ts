@@ -15,7 +15,11 @@
 
 import type { Env } from '../../../src/types/env.js';
 import { dbQuery } from '../../../src/services/db.js';
-import { getTrafficSummary, type AnalyticsWindow } from '../visitor_events_core/service.js';
+import {
+  getTrafficSummary,
+  type AnalyticsWindow,
+  type AnalyticsFilter,
+} from '../visitor_events_core/service.js';
 import {
   SiteAnalyticsSummarySchema,
   SectionConversionsSchema,
@@ -107,7 +111,9 @@ export async function getDailySeries(
 ): Promise<{ days: DailyPoint[] }> {
   const n = Number.isInteger(days) && days > 0 && days <= 365 ? days : 30;
   // Absolute window → bound literals (created_at >= ? AND < ?); else trailing relative.
-  const timeClause = window ? 'created_at >= ? AND created_at < ?' : "created_at >= datetime('now', ?)";
+  const timeClause = window
+    ? 'created_at >= ? AND created_at < ?'
+    : "created_at >= datetime('now', ?)";
   const timeParams = window ? [window.since, window.until] : [`-${n} days`];
   // Timezone-aware day bucketing: SQLite can't do IANA zones, but a FIXED-offset
   // shift (`date(ts, '-480 minutes')`) buckets to the owner's local day instead of
@@ -422,10 +428,13 @@ export async function getSiteAnalyticsSummary(
   siteId: string,
   windowDays = 30,
   window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
 ): Promise<SiteAnalyticsSummary> {
   // "New in window" counts use bound literals for an absolute window, else the
   // trailing relative window. TOTALS below are window-independent and unchanged.
-  const newClause = window ? 'created_at >= ? AND created_at < ?' : "created_at >= datetime('now', ?)";
+  const newClause = window
+    ? 'created_at >= ? AND created_at < ?'
+    : "created_at >= datetime('now', ?)";
   const newParams = window ? [window.since, window.until] : [`-${windowDays} days`];
 
   const [
@@ -469,7 +478,8 @@ export async function getSiteAnalyticsSummary(
       [orgId, siteId],
     ).then((r) => (r.error ? [] : r.data)),
     // Traffic from visitor_events_core — defensive (no table/no events → all zeros).
-    getTrafficSummary(env, siteId, windowDays, window),
+    // The drilldown filter (if any) restricts the ENTIRE traffic block coherently.
+    getTrafficSummary(env, siteId, windowDays, window, filter),
   ]);
 
   const bySource: SourceCount[] = bySourceRows.map((r) => ({

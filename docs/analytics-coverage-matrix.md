@@ -50,6 +50,7 @@
 | **CSV export (dashboard)** | (UI) client-side over fetched data | none | — | — | — | ✅ **COMPLETE** — `buildAnalyticsCsv` exports summary + top-pages/countries/referrers + the D1 **device/browser/OS** (the full platform trio, grouped, mirroring the "Devices & platforms" card) + **campaign attribution (utm_source/utm_campaign, tagged visits only)** + channel/conversions/CWV breakdowns + the CF edge DELIVERY breakdown (status classes, cache hit/miss/ratio, edge bandwidth — emitted ONLY when `has_data`, never fabricated zeros), with the ACCURATE source label; browser/OS rows are omitted (never fabricated) when their breakdown is absent; formula-injection-safe via the shared `csvEscape`. Matches the dashboard cards. | `/admin/analytics` Export CSV |
 | Source + freshness labels in UI | (UI) | none | — | — | — | ✅ **honest per-provenance** — the "Source:" badge routes through the authoritative `trafficSource` signal: first-party → **"ProjectSites analytics"**, genuine CF-zone custom domain → **"Cloudflare Edge"**. Freshness "as of" + "dates in UTC" present. | analytics header badge + chart caption + footer |
 | **Metric definitions / measurement transparency** | (UI) static, data-driven | none | — | — | — | ✅ **DONE (this fire)** — `AnalyticsGlossaryComponent`, an accessible "How these metrics are measured" `<details>` disclosure: per-metric plain-language definition + **source badge** (first-party / Cloudflare edge / real-user) + caveats (bots filtered, Chromium-only CWV shown only when sampled, edge adaptive-sampled + ~30-day retention). Explicitly spells out **requests ≠ page views** (never conflated). | `/admin/analytics` (below the cards) |
+| **Drilldown filter (server core)** | D1 `visitor_events` — an allowlisted `{dim,value}` predicate (`FILTER_DIMENSION_SQL`: country/device/browser/os/channel/path) baked into `currentWindow`/`previousWindow`/`timePredicate` + forwarded to every breakdown helper | none | site_id (+ the narrowing dim) | D1 | none | ✅ **server core LIVE (2026-09-24)** — `GET /api/sites/:siteId/analytics?filterDim=&filterValue=` restricts the ENTIRE summary (KPIs + every breakdown + CWV + conversions + the prior-window comparison) to one dimension value. **Tenant-safe:** dim is a Zod-enum allowlist (unknown/injected → **400**, never reaches SQL), value is always a BOUND `?` param, and the filter only NARROWS within the already owner-scoped `site_id` (a non-owned site still **404s** WITH a valid filter). A filter FORCES the live scan (the calendar rollup can't answer it) and is ECHOED as `appliedFilter`. Metrics whose events lack the dim (e.g. CWV by country) go **honest-empty** when filtered, never a fabricated 0. 18 new tests (11 core + 7 route). **Next: the UI** — clickable breakdown rows + a removable filter chip. | (API live; UI chip = next) |
 
 ## Highest-impact gap — CWV is DONE (corrected 2026-09-24)
 
@@ -74,6 +75,30 @@ latency percentiles — no entitlement) or need new plumbing/deps (see Next).
 - Analytics Engine customer dashboards — ingest disabled; out of scope unless enabled.
 
 ## Next increment (handoff)
+
+**Drilldown filter — SERVER CORE is DONE (2026-09-24).** A tenant-safe `{dim,value}` filter now threads through
+the whole traffic summary: `AnalyticsFilterSchema` (Zod-enum allowlist country/device/browser/os/channel/path +
+bounded value) in `visitor_events_core/schemas.ts`; `FILTER_DIMENSION_SQL` maps each dim to a TRUSTED column
+expression (`satisfies Record<AnalyticsFilterDimension,string>` = compile-time coverage) and `filterClause()`
+emits ` AND <col> = ?` with the value BOUND; baked into `currentWindow`/`previousWindow`/`timePredicate` (so every
+inline query filters) + forwarded to all 6 breakdown helpers + `getTrafficSummary` (which SKIPS the rollup when
+filtered — the calendar rollup carries no per-dimension detail). Wired through `getSiteAnalyticsSummary` →
+`GET /api/sites/:siteId/analytics?filterDim=&filterValue=`; the handler validates dim against the allowlist
+(unknown/injected → **400**, never reaches SQL) and echoes `appliedFilter`. Tenant isolation: the filter only
+NARROWS within the already owner-scoped `site_id` (a non-owned site still 404s WITH a valid filter). 18 tests —
+11 core (`filtered_summary.test.ts`: bound-value correctness, path-column-vs-json, prev-window parity, web-vital
+threading, EVERY-query-binds-site_id isolation, unknown-dim SQL no-op, rollup-skip + a mock-live control) + 7 route
+(`filter_route.test.ts`: echo, allowlist-reject ×3, missing-half, over-long-value, authz-not-widened).
+
+**THE single highest-priority NEXT increment: the filter UI.** The API is live + honest but nothing in the Angular
+dashboard sends `filterDim`/`filterValue` yet. Next fire: (1) make breakdown rows (country/device/browser/os/channel +
+top-paths) clickable → set a `filter` signal → append `&filterDim=&filterValue=` to the summary fetch; (2) render a
+removable **filter chip** ("Country = US ✕") from the echoed `appliedFilter`; (3) an empty-when-filtered state ("no
+<metric> for this filter" — honest, since CWV/conversion events may lack the dim). Keep it accessible (chip is a real
+button; `aria-pressed` on active rows).
+
+---
+_CWV history (all DONE — do not rebuild):_
 **Ingest + client beacon are DONE** (2026-09-23). Ingest: `web_vital` accepted at `/api/events` → mirrored to
 `visitor_events` (metadata `{metric,value}`, validated metric∈{LCP,INP,CLS,FCP,TTFB} + value≥0, tenant-scoped
 via `site.org_id`). Beacon: `app.js` `initWebVitals()` field-measures LCP/INP/CLS (final LCP frozen at first

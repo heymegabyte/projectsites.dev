@@ -36,6 +36,9 @@ import { parseCustomWindow } from '../analytics/handlers.js';
 // Shifts an absolute window's date bounds into the owner's timezone (UTC-equiv),
 // so the ?start&end filter matches the tz-aware daily buckets.
 import { shiftWindowToTz } from '../visitor_events_core/service.js';
+// Drilldown-filter allowlist schema — validates ?filterDim against the trusted
+// dimension enum so an unknown/injected dimension is rejected here, never in SQL.
+import { AnalyticsFilterSchema, type AnalyticsFilter } from '../visitor_events_core/schemas.js';
 
 /** Share-link default lifetime: 30 days. */
 const SHARE_TTL_MS = 30 * 86_400_000;
@@ -68,9 +71,33 @@ function parseWindowDays(c: Context<AppContext>, param: string): number {
 /** 400 for a malformed/reversed ?start&end window (a client error, distinct from authz). */
 function badWindow(c: Context<AppContext>, message: string): Response {
   return c.json(
-    { error: { code: 'BAD_REQUEST', message, request_id: c.get('requestId') ?? crypto.randomUUID() } },
+    {
+      error: {
+        code: 'BAD_REQUEST',
+        message,
+        request_id: c.get('requestId') ?? crypto.randomUUID(),
+      },
+    },
     400,
   );
+}
+
+/**
+ * Parse the optional drilldown filter (`?filterDim=&filterValue=`). The dimension is
+ * validated against the {@link AnalyticsFilterSchema} allowlist and the value is bounded,
+ * so an unknown/injected `filterDim` (or an over-long value) is rejected HERE (400) and
+ * never reaches SQL. Returns `undefined` when no filter is requested, the validated filter,
+ * or a 400 `Response`. Authz is UNAFFECTED — the filter only NARROWS within the already
+ * owner-scoped `site_id` (it carries no hostname / zone / account).
+ */
+function parseFilter(c: Context<AppContext>): AnalyticsFilter | undefined | Response {
+  const dim = c.req.query('filterDim');
+  const value = c.req.query('filterValue');
+  if (dim === undefined && value === undefined) return undefined; // no filter requested
+  const parsed = AnalyticsFilterSchema.safeParse({ dim, value });
+  if (!parsed.success)
+    return badWindow(c, 'Invalid analytics filter (unknown dimension or bad value)');
+  return parsed.data;
 }
 
 export const siteAnalytics = new Hono<AppContext>();
@@ -85,11 +112,28 @@ siteAnalytics.get('/api/sites/:siteId/analytics', async (c) => {
   // Interpret the ?start&end bounds in the owner's tz (no-op for UTC/absent tz), so
   // the summary counts the owner's local days — consistent with the daily buckets.
   const tzRaw = Number.parseInt(c.req.query('tz') ?? '', 10);
-  const win = cw.window ? shiftWindowToTz(cw.window, Number.isInteger(tzRaw) ? tzRaw : undefined) : undefined;
-  const summary = await getSiteAnalyticsSummary(c.env, gate.orgId, gate.siteId, windowDays, win);
+  const win = cw.window
+    ? shiftWindowToTz(cw.window, Number.isInteger(tzRaw) ? tzRaw : undefined)
+    : undefined;
+  // AN-FILTER — optional drilldown restriction. Validated against the allowlist (bad
+  // dim → 400, never reaches SQL); only NARROWS within the already owner-scoped site.
+  const filter = parseFilter(c);
+  if (filter instanceof Response) return filter;
+  const summary = await getSiteAnalyticsSummary(
+    c.env,
+    gate.orgId,
+    gate.siteId,
+    windowDays,
+    win,
+    filter,
+  );
   // Echo the ORIGINAL local dates the owner picked (the shifted UTC bounds are an
   // internal query detail) so the UI labels the real range, never wider than queried.
-  return c.json(cw.window ? { ...summary, windowStart: cw.startDisplay, windowEnd: cw.endDisplay } : summary);
+  // Echo the applied filter too so the UI can render a chip AND confirm the server honored it.
+  const body = cw.window
+    ? { ...summary, windowStart: cw.startDisplay, windowEnd: cw.endDisplay }
+    : summary;
+  return c.json(filter ? { ...body, appliedFilter: filter } : body);
 });
 
 // AN5 follow-on — per-day traffic series from the analytics_daily rollup.
@@ -107,7 +151,9 @@ siteAnalytics.get('/api/sites/:siteId/analytics/daily', async (c) => {
   const tz = Number.isInteger(tzRaw) ? tzRaw : undefined;
   const win = cw.window ? shiftWindowToTz(cw.window, tz) : undefined;
   const series = await getDailySeries(c.env, gate.siteId, days, win, tz);
-  return c.json(cw.window ? { ...series, windowStart: cw.startDisplay, windowEnd: cw.endDisplay } : series);
+  return c.json(
+    cw.window ? { ...series, windowStart: cw.startDisplay, windowEnd: cw.endDisplay } : series,
+  );
 });
 
 // AN27 — section-level conversion attribution ("Services drives 40% of calls").
@@ -160,7 +206,10 @@ siteAnalytics.post('/api/sites/:siteId/analytics/share', async (c) => {
 
   const secret = manifestSecret(c.env);
   if (!secret) {
-    return c.json({ error: { code: 'INTERNAL_ERROR', message: 'Sharing is not configured.' } }, 500);
+    return c.json(
+      { error: { code: 'INTERNAL_ERROR', message: 'Sharing is not configured.' } },
+      500,
+    );
   }
   const expiresAt = Date.now() + SHARE_TTL_MS;
   const token = await mintShareToken(secret, gate.siteId, expiresAt);

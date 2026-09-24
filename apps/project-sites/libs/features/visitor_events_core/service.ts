@@ -19,7 +19,13 @@ import {
   type WebVitals,
   type LabelCount,
   type HourCount,
+  type AnalyticsFilter,
+  type AnalyticsFilterDimension,
 } from './schemas.js';
+
+// Re-export the drilldown filter type so consumers (e.g. site_analytics) import it
+// from the service module alongside AnalyticsWindow, not by reaching into schemas.
+export type { AnalyticsFilter } from './schemas.js';
 import type { z } from 'zod';
 
 /** Flag key gating this feature. */
@@ -235,7 +241,10 @@ export function shiftWindowToTz(
     return window;
   }
   const toUtc = (dateOnly: string): string =>
-    new Date(windowMs(dateOnly) - tzOffsetMinutes * 60_000).toISOString().slice(0, 19).replace('T', ' ');
+    new Date(windowMs(dateOnly) - tzOffsetMinutes * 60_000)
+      .toISOString()
+      .slice(0, 19)
+      .replace('T', ' ');
   return { since: toUtc(window.since), until: toUtc(window.until) };
 }
 
@@ -245,59 +254,109 @@ function windowSpanDays(w: AnalyticsWindow): number {
 }
 
 /**
+ * AN-FILTER — maps each allowlisted {@link AnalyticsFilterDimension} to its exact SQL
+ * column / json_extract expression for a drilldown restriction. Keyed by the Zod enum
+ * so it CANNOT drift: `satisfies Record<AnalyticsFilterDimension, string>` fails the
+ * build if a dimension is missing, and TypeScript rejects any extra key — so the only
+ * strings that can ever reach a query are these six trusted literals. The filter VALUE
+ * is always a bound `?` param (never interpolated).
+ */
+const FILTER_DIMENSION_SQL = {
+  country: "json_extract(metadata, '$.country')",
+  device: "json_extract(metadata, '$.device')",
+  browser: "json_extract(metadata, '$.browser')",
+  os: "json_extract(metadata, '$.os')",
+  channel: "json_extract(metadata, '$.channel')",
+  path: 'path',
+} as const satisfies Record<AnalyticsFilterDimension, string>;
+
+/**
+ * SQL fragment + bind params restricting a query to a single dimension value, appended
+ * AFTER the window clause (so it only ever NARROWS the already-`site_id`-scoped set — a
+ * filter can never widen or cross a tenant boundary). Empty for no filter OR an unknown
+ * dim (defense in depth — the column is only ever pulled from the trusted
+ * {@link FILTER_DIMENSION_SQL} map, so it is a literal; the value is always bound `?`).
+ */
+function filterClause(filter?: AnalyticsFilter): {
+  readonly sql: string;
+  readonly params: unknown[];
+} {
+  if (!filter) return { sql: '', params: [] };
+  const col = FILTER_DIMENSION_SQL[filter.dim];
+  if (!col) return { sql: '', params: [] }; // unknown dim → no-op; never interpolate a raw string
+  return { sql: ` AND ${col} = ?`, params: [filter.value] };
+}
+
+/**
  * Current-window WHERE clause + bind params for a `visitor_events` query scoped to
  * `site_id`. An absolute window → bound literals (`created_at >= ? AND created_at < ?`);
- * otherwise the trailing relative window (`created_at >= datetime('now', ?)`).
+ * otherwise the trailing relative window (`created_at >= datetime('now', ?)`). An
+ * optional {@link AnalyticsFilter} appends a bound `AND <col> = ?` drilldown restriction.
  */
 function currentWindow(
   siteId: string,
   windowDays: number,
   window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
 ): { readonly clause: string; readonly params: unknown[] } {
+  const f = filterClause(filter);
   if (window) {
     return {
-      clause: 'site_id = ? AND created_at >= ? AND created_at < ?',
-      params: [siteId, window.since, window.until],
+      clause: `site_id = ? AND created_at >= ? AND created_at < ?${f.sql}`,
+      params: [siteId, window.since, window.until, ...f.params],
     };
   }
   return {
-    clause: "site_id = ? AND created_at >= datetime('now', ?)",
-    params: [siteId, `-${windowDays} days`],
+    clause: `site_id = ? AND created_at >= datetime('now', ?)${f.sql}`,
+    params: [siteId, `-${windowDays} days`, ...f.params],
   };
 }
 
 /**
  * The equal-length window immediately BEFORE the current one, for period-over-period
- * deltas. Absolute: `[since - span, since)`; relative: `[now-2N, now-N)`.
+ * deltas. Absolute: `[since - span, since)`; relative: `[now-2N, now-N)`. The SAME
+ * {@link AnalyticsFilter} is applied so the comparison is like-for-like (US-this-period
+ * vs US-last-period, never US-now vs everyone-then).
  */
 function previousWindow(
   siteId: string,
   windowDays: number,
   window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
 ): { readonly pw: string; readonly pwParams: unknown[] } {
+  const f = filterClause(filter);
   if (window) {
     const span = windowMs(window.until) - windowMs(window.since);
     const prevSince = new Date(windowMs(window.since) - span).toISOString().slice(0, 10);
     return {
-      pw: 'site_id = ? AND created_at >= ? AND created_at < ?',
-      pwParams: [siteId, prevSince, window.since],
+      pw: `site_id = ? AND created_at >= ? AND created_at < ?${f.sql}`,
+      pwParams: [siteId, prevSince, window.since, ...f.params],
     };
   }
   return {
-    pw: "site_id = ? AND created_at >= datetime('now', ?) AND created_at < datetime('now', ?)",
-    pwParams: [siteId, `-${windowDays * 2} days`, `-${windowDays} days`],
+    pw: `site_id = ? AND created_at >= datetime('now', ?) AND created_at < datetime('now', ?)${f.sql}`,
+    pwParams: [siteId, `-${windowDays * 2} days`, `-${windowDays} days`, ...f.params],
   };
 }
 
-/** Time-only predicate + params for a single-query summary (web vitals / conversions). */
+/** Time-only predicate + params for a single-query summary (web vitals / conversions).
+ *  Threads the SAME optional {@link AnalyticsFilter} as the window builders. */
 function timePredicate(
   siteId: string,
   windowDays: number,
   window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
 ): { readonly time: string; readonly params: unknown[] } {
+  const f = filterClause(filter);
   return window
-    ? { time: 'created_at >= ? AND created_at < ?', params: [siteId, window.since, window.until] }
-    : { time: "created_at >= datetime('now', ?)", params: [siteId, `-${windowDays} days`] };
+    ? {
+        time: `created_at >= ? AND created_at < ?${f.sql}`,
+        params: [siteId, window.since, window.until, ...f.params],
+      }
+    : {
+        time: `created_at >= datetime('now', ?)${f.sql}`,
+        params: [siteId, `-${windowDays} days`, ...f.params],
+      };
 }
 
 /**
@@ -316,9 +375,14 @@ export async function getWebVitalsSummary(
   siteId: string,
   windowDays = 30,
   window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
 ): Promise<WebVitals> {
-  const win = timePredicate(siteId, windowDays, window);
-  const { data, error } = await dbQuery<{ metric: string | null; value: number; path: string | null }>(
+  const win = timePredicate(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{
+    metric: string | null;
+    value: number;
+    path: string | null;
+  }>(
     env.DB,
     `SELECT json_extract(metadata, '$.metric') AS metric,
             CAST(json_extract(metadata, '$.value') AS REAL) AS value,
@@ -428,8 +492,9 @@ export async function getConversionKinds(
   siteId: string,
   windowDays = 30,
   window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
 ): Promise<LabelCount[]> {
-  const { clause, params } = currentWindow(siteId, windowDays, window);
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
   return conversionKindsForClause(env, clause, params);
 }
 
@@ -443,8 +508,9 @@ export async function getPreviousConversionKinds(
   siteId: string,
   windowDays = 30,
   window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
 ): Promise<LabelCount[]> {
-  const { pw, pwParams } = previousWindow(siteId, windowDays, window);
+  const { pw, pwParams } = previousWindow(siteId, windowDays, window, filter);
   return conversionKindsForClause(env, pw, pwParams);
 }
 
@@ -466,9 +532,10 @@ export async function getDimensionBreakdown(
   dim: (typeof TECH_DIMENSIONS)[number],
   windowDays = 30,
   window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
 ): Promise<LabelCount[]> {
   if (!TECH_DIMENSIONS.includes(dim)) return []; // never interpolate an untrusted string
-  const { clause, params } = currentWindow(siteId, windowDays, window);
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
   const { data, error } = await dbQuery<{ label: string | null; n: number }>(
     env.DB,
     `SELECT json_extract(metadata, '$.${dim}') AS label, COUNT(*) AS n
@@ -493,8 +560,9 @@ export async function getHourlyBreakdown(
   siteId: string,
   windowDays = 30,
   window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
 ): Promise<HourCount[]> {
-  const { clause, params } = currentWindow(siteId, windowDays, window);
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
   const { data, error } = await dbQuery<{ hour: number | null; n: number }>(
     env.DB,
     `SELECT CAST(strftime('%H', created_at) AS INTEGER) AS hour, COUNT(*) AS n
@@ -531,9 +599,10 @@ export async function getCampaignBreakdown(
   dim: (typeof CAMPAIGN_DIMENSIONS)[number],
   windowDays = 30,
   window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
 ): Promise<LabelCount[]> {
   if (!CAMPAIGN_DIMENSIONS.includes(dim)) return []; // never interpolate an untrusted string
-  const { clause, params } = currentWindow(siteId, windowDays, window);
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
   const { data, error } = await dbQuery<{ label: string | null; n: number }>(
     env.DB,
     `SELECT json_extract(metadata, '$.${dim}') AS label, COUNT(*) AS n
@@ -553,12 +622,15 @@ export async function getTrafficSummary(
   siteId: string,
   windowDays = 30,
   window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
 ): Promise<TrafficSummary> {
   // AN3 — when the rollup-read flag is on, serve from analytics_daily (O(days)).
   // Fail-open: any flag-check error falls through to the live scan below.
-  // An ABSOLUTE window forces the live scan — the calendar-aligned rollup can't
-  // answer an arbitrary [since, until) precisely — so skip the rollup entirely.
-  if (!window) {
+  // An ABSOLUTE window OR a drilldown FILTER forces the live scan — the calendar-
+  // aligned rollup can't answer an arbitrary [since, until) precisely, and it carries
+  // NO per-dimension detail to filter on — so skip the rollup entirely in both cases
+  // (a filtered request must NEVER silently return unfiltered rollup totals).
+  if (!window && !filter) {
     try {
       const { isFlagOn } = await import('../../../src/modules/feature_flags/services.js');
       if (await isFlagOn(env, 'analytics_rollup_read', { siteId })) {
@@ -569,12 +641,12 @@ export async function getTrafficSummary(
     }
   }
 
-  const cur = currentWindow(siteId, windowDays, window);
+  const cur = currentWindow(siteId, windowDays, window, filter);
   const w = cur.clause;
   const wParams = cur.params;
   // AN15 — the equal-length window immediately BEFORE the current one, for
   // period-over-period deltas (relative [now-2N, now-N) or absolute [since-span, since)).
-  const { pw, pwParams } = previousWindow(siteId, windowDays, window);
+  const { pw, pwParams } = previousWindow(siteId, windowDays, window, filter);
   const effectiveWindowDays = window ? windowSpanDays(window) : windowDays;
 
   const [
@@ -599,7 +671,11 @@ export async function getTrafficSummary(
     byUtmCampaign,
     byHour,
   ] = await Promise.all([
-    scalar(env, `SELECT COUNT(*) AS n FROM visitor_events WHERE ${w} AND event_type = 'pageview'`, wParams),
+    scalar(
+      env,
+      `SELECT COUNT(*) AS n FROM visitor_events WHERE ${w} AND event_type = 'pageview'`,
+      wParams,
+    ),
     scalar(env, `SELECT COUNT(DISTINCT session_id) AS n FROM visitor_events WHERE ${w}`, wParams),
     scalar(
       env,
@@ -633,7 +709,11 @@ export async function getTrafficSummary(
       wParams,
     ).then((r) => (r.error ? [] : r.data)),
     // AN15 — previous-window scalars (same three KPIs) for the delta badges.
-    scalar(env, `SELECT COUNT(*) AS n FROM visitor_events WHERE ${pw} AND event_type = 'pageview'`, pwParams),
+    scalar(
+      env,
+      `SELECT COUNT(*) AS n FROM visitor_events WHERE ${pw} AND event_type = 'pageview'`,
+      pwParams,
+    ),
     scalar(env, `SELECT COUNT(DISTINCT session_id) AS n FROM visitor_events WHERE ${pw}`, pwParams),
     scalar(
       env,
@@ -658,19 +738,19 @@ export async function getTrafficSummary(
       wParams,
     ).then((r) => (r.error || !r.data[0] ? { sessions: 0, single: 0 } : r.data[0])),
     // AN-CWV — real-user Core Web Vitals p75 (queried directly; not in the rollup).
-    getWebVitalsSummary(env, siteId, windowDays, window),
+    getWebVitalsSummary(env, siteId, windowDays, window, filter),
     // AN-CONV — conversions by kind (queried directly; not in the rollup).
-    getConversionKinds(env, siteId, windowDays, window),
+    getConversionKinds(env, siteId, windowDays, window, filter),
     // AN-CONV-Δ — prior-window conversions by kind, for the per-kind delta badges.
-    getPreviousConversionKinds(env, siteId, windowDays, window),
+    getPreviousConversionKinds(env, siteId, windowDays, window, filter),
     // AN-TECH — browser + OS split (same AN1 user-agent enrichment as $.device).
-    getDimensionBreakdown(env, siteId, 'browser', windowDays, window),
-    getDimensionBreakdown(env, siteId, 'os', windowDays, window),
+    getDimensionBreakdown(env, siteId, 'browser', windowDays, window, filter),
+    getDimensionBreakdown(env, siteId, 'os', windowDays, window, filter),
     // AN-UTM — campaign attribution (source + campaign; tagged visits only, untagged excluded).
-    getCampaignBreakdown(env, siteId, 'utmSource', windowDays, window),
-    getCampaignBreakdown(env, siteId, 'utmCampaign', windowDays, window),
+    getCampaignBreakdown(env, siteId, 'utmSource', windowDays, window, filter),
+    getCampaignBreakdown(env, siteId, 'utmCampaign', windowDays, window, filter),
     // AN-HOUR — pageviews by hour-of-day (UTC; frontend rotates to local).
-    getHourlyBreakdown(env, siteId, windowDays, window),
+    getHourlyBreakdown(env, siteId, windowDays, window, filter),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -784,26 +864,41 @@ export async function getTrafficSummaryFromRollup(
     return error ? [] : data;
   };
 
-  const [cur, prev, pathRows, typeRows, channelRows, deviceRows, countryRows, webVitals, byConversionKind, prevByConversionKind, byBrowser, byOs, byUtmSource, byUtmCampaign, byHour] =
-    await Promise.all([
-      sumScalars(curStart, null),
-      sumScalars(prevStart, prevEnd),
-      merge('top_paths_json', 'path'),
-      merge('by_type_json', 'type'),
-      merge('by_channel_json', 'label'),
-      merge('by_device_json', 'label'),
-      merge('by_country_json', 'label'),
-      // CWV + conversions-by-kind + browser/OS + UTM aren't rolled into analytics_daily — read live.
-      getWebVitalsSummary(env, siteId, windowDays),
-      getConversionKinds(env, siteId, windowDays),
-      getPreviousConversionKinds(env, siteId, windowDays),
-      getDimensionBreakdown(env, siteId, 'browser', windowDays),
-      getDimensionBreakdown(env, siteId, 'os', windowDays),
-      getCampaignBreakdown(env, siteId, 'utmSource', windowDays),
-      getCampaignBreakdown(env, siteId, 'utmCampaign', windowDays),
-      // AN-HOUR — pageviews by hour-of-day (UTC; not in the rollup → read live).
-      getHourlyBreakdown(env, siteId, windowDays),
-    ]);
+  const [
+    cur,
+    prev,
+    pathRows,
+    typeRows,
+    channelRows,
+    deviceRows,
+    countryRows,
+    webVitals,
+    byConversionKind,
+    prevByConversionKind,
+    byBrowser,
+    byOs,
+    byUtmSource,
+    byUtmCampaign,
+    byHour,
+  ] = await Promise.all([
+    sumScalars(curStart, null),
+    sumScalars(prevStart, prevEnd),
+    merge('top_paths_json', 'path'),
+    merge('by_type_json', 'type'),
+    merge('by_channel_json', 'label'),
+    merge('by_device_json', 'label'),
+    merge('by_country_json', 'label'),
+    // CWV + conversions-by-kind + browser/OS + UTM aren't rolled into analytics_daily — read live.
+    getWebVitalsSummary(env, siteId, windowDays),
+    getConversionKinds(env, siteId, windowDays),
+    getPreviousConversionKinds(env, siteId, windowDays),
+    getDimensionBreakdown(env, siteId, 'browser', windowDays),
+    getDimensionBreakdown(env, siteId, 'os', windowDays),
+    getCampaignBreakdown(env, siteId, 'utmSource', windowDays),
+    getCampaignBreakdown(env, siteId, 'utmCampaign', windowDays),
+    // AN-HOUR — pageviews by hour-of-day (UTC; not in the rollup → read live).
+    getHourlyBreakdown(env, siteId, windowDays),
+  ]);
 
   return TrafficSummarySchema.parse({
     pageviews: cur.pageviews,
@@ -812,7 +907,11 @@ export async function getTrafficSummaryFromRollup(
     // The analytics_daily rollup has no per-session depth, so true single-page-session
     // bounce can't be computed here — null is honest (never fabricate from day sums).
     bounceRatePercent: null,
-    topPaths: pathRows.map((r) => ({ path: String(r.k ?? '/'), count: Number(r.c), uniques: Number(r.u) })),
+    topPaths: pathRows.map((r) => ({
+      path: String(r.k ?? '/'),
+      count: Number(r.c),
+      uniques: Number(r.u),
+    })),
     byType: typeRows.map((r) => ({ type: String(r.k ?? 'unknown'), count: Number(r.c) })),
     byDevice: deviceRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     byBrowser,

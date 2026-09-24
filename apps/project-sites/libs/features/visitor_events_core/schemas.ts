@@ -64,6 +64,38 @@ export const HourCountSchema = z
 export type HourCount = z.infer<typeof HourCountSchema>;
 
 /**
+ * AN-FILTER — dimensions a traffic summary may be DRILLED DOWN / restricted to. This
+ * enum IS the allowlist: the owner route validates a requested `filterDim` against it,
+ * so an unknown or injected dimension is rejected at the boundary (400) and can never
+ * reach SQL. Each name maps (in the service's SQL layer, `FILTER_DIMENSION_SQL`) to a
+ * trusted `visitor_events` column / json_extract expression; the filter VALUE is always
+ * BOUND as a `?` param, never interpolated. Note: a filter can only NARROW within the
+ * already-authorized `site_id` scope — it never carries a hostname / zone / account.
+ */
+export const AnalyticsFilterDimensionSchema = z.enum([
+  'country',
+  'device',
+  'browser',
+  'os',
+  'channel',
+  'path',
+]);
+export type AnalyticsFilterDimension = z.infer<typeof AnalyticsFilterDimensionSchema>;
+
+/**
+ * A single drilldown filter: restrict the summary to events where `dim` equals `value`.
+ * `value` is bounded (1–256 chars) and bound as a SQL param. `.strict()` rejects any
+ * extra key so a client can't smuggle a raw column/predicate through this boundary.
+ */
+export const AnalyticsFilterSchema = z
+  .object({
+    dim: AnalyticsFilterDimensionSchema,
+    value: z.string().min(1).max(256),
+  })
+  .strict();
+export type AnalyticsFilter = z.infer<typeof AnalyticsFilterSchema>;
+
+/**
  * Field-measured Core Web Vitals for ONE metric: the p75 (the CrUX/Cloudflare
  * convention for a "typical" score) plus the sample count backing it. `samples`
  * is ≥1 by construction — a metric with no field samples is `null` on the parent,
