@@ -40,7 +40,7 @@
 | Browse table rows | allowlist SELECT | owner | DONE | server-paginated; owner **Data-tab UI** now surfaces it |
 | **Server-side pagination** (`limit≤100/offset/orderBy/dir`) | SELECT … LIMIT/OFFSET + COUNT | owner | ✅ DONE — additive `total/limit/offset` on `/data-overview/:table` | orderBy validated against the column allowlist; unknown col keeps default sort (no injection) |
 | **Owner Data-tab UI** (table picker · server-paginated sortable grid · row-detail JSON · **whole-table CSV/JSON export (paged, ≤5k)** · **read-only pill** · loading/empty/error states) | `SiteDataBrowserComponent` + `utils/csv-export` → `/data-overview[/:table]` | owner | ✅ DONE — `/admin/sites/:id?tab=data`, focused standalone component, 19 Karma specs + 10 csv-export specs | read-only (PKs deliberately not in the projection → not editable; explained via the pill); REAL endpoints only (no mock); export pages the whole table to a **5,000-row cap** (honest capped note); true streaming/async export for >5k = future slice |
-| **Schema introspection** (columns/pk/indexes/FKs/DDL) | `PRAGMA table_info/index_list/index_info/foreign_key_list` | superadmin | ✅ DONE — `GET /api/sites/:siteId/sql/schema` | PRAGMA args can't bind → enumerate from `sqlite_master`, format-check each identifier |
+| **Schema introspection** (columns/pk/indexes/FKs/DDL) | `PRAGMA table_info/index_list/index_info/foreign_key_list` | superadmin | ✅ DONE — endpoint `GET /api/sites/:siteId/sql/schema` **+ Schema-tab UI** (`SiteSchemaBrowserComponent`, `/admin/sites/:id?tab=schema`, 7 Karma specs): searchable table list → columns (type/nullable/default/**PK badge**) · indexes · FKs · copyable CREATE SQL | PRAGMA args can't bind → enumerate from `sqlite_master`, format-check each identifier; the endpoint was **built-but-unwired** until this UI landed |
 | Read SQL console | `.prepare().all()` | superadmin | DONE | 8 000-char cap; SELECT/EXPLAIN/WITH/PRAGMA only |
 | Write SQL console | `.prepare().run()` | superadmin | DONE | PROTECTED_TABLES + destructive-confirm; single-statement |
 | Row edit / delete (typed, PK-stable) | parameterized UPDATE/DELETE | owner | PLANNED | needs schema PK (this arc's schema endpoint) |
@@ -76,6 +76,8 @@
    owner-browse pagination. ✅ backend DONE; **owner UI shipped** — the `/admin/sites/:id`
    **Data tab** (`SiteDataBrowserComponent`): table picker with live row counts →
    server-paginated, column-sortable grid → per-row JSON detail, all on real endpoints.
+   **Superadmin Schema tab shipped** — `SiteSchemaBrowserComponent` (searchable table list →
+   columns/indexes/FKs/DDL), consuming the previously-unwired `/sql/schema` endpoint.
 2. Row edit/delete with schema-derived stable PK predicates (owner). **N/A for the
    data-overview grid** — its 5 tables are read-only system/analytics data whose safe-column
    allowlist deliberately OMITS the `id` (no stable PK to target; `verify-against-source-of-truth`

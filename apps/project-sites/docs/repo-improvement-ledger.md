@@ -108,6 +108,18 @@
   guard** (excludes plain numbers) — benefits the owner Data-grid export too (it exports attacker-controllable path/
   referrer) — and **removed the now-dead `csvCell`** from `analytics.component.ts` (repointing its 4 spec tests to
   `csvEscape`, coverage preserved + grown). Verified: tsc 0, **Karma 1927/1927**, AOT build OK, eslint 0-errors, backtick PASS.
+- **Cycle 13 — 2026-09-24 (Data, one slice — built-but-unwired fix):** The superadmin schema endpoint
+  `GET /api/sites/:siteId/sql/schema` (columns/pk/indexes/FKs/DDL) was **built-but-unwired** — no frontend
+  consumer. Shipped the **Schema tab** — a NEW focused standalone **`SiteSchemaBrowserComponent`** (signals +
+  `input()` + native control flow + OnPush, colocated 7-spec Karma file): searchable table list → selected
+  table's columns (name/type/nullable/default + **PK badge**), indexes, FKs, and copyable CREATE SQL. Wired into
+  `site-detail.component.ts` as a superadmin-gated tab beside SQL (`@if (canUseSqlConsole())`), and **extended the
+  existing strand-guard effect** so a `?tab=schema` deep-link by a non-superadmin falls back to `logs` (same as
+  SQL) instead of a blank panel. Added typed `getSiteSchema` + `SchemaColumn/SchemaIndex/SchemaForeignKey/SchemaTable`
+  to `api.service.ts`. Honest: a shapeless 200 → retryable error (never a fake empty schema); **zero mock behavior**,
+  real endpoint only. Frontend-only (endpoint already deployed). Verified: tsc 0, **Karma 1934/1934** (+7), AOT
+  build exit 0, eslint **0-errors** (new file auto-fixed to 0 warnings), backtick gate PASS. Another exemplar of
+  "focused signal-input child wired into `site-detail` with a minimal edit" + a real built-but-unwired closure.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

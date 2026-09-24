@@ -38,6 +38,7 @@ import { ErrorCardComponent } from '../../../components/states';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { ReadinessBadgeComponent } from './readiness-badge.component';
 import { SiteDataBrowserComponent } from './site-data-browser.component';
+import { SiteSchemaBrowserComponent } from './site-schema-browser.component';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { of } from 'rxjs';
 import { catchError, switchMap, timer } from 'rxjs';
@@ -79,14 +80,14 @@ interface IntegrationProvider {
   oauth_supported: boolean;
 }
 
-type Tab = 'logs' | 'snapshots' | 'data' | 'sql' | 'integrations';
+type Tab = 'logs' | 'snapshots' | 'data' | 'sql' | 'schema' | 'integrations';
 /** Runtime allow-list for validating a `?tab=` deep-link (unknown → default). */
-const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'integrations'];
+const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'schema', 'integrations'];
 
 @Component({
   selector: 'app-admin-site-detail',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, HlmInputDirective, HlmSelectDirective, HlmTablistDirective, MiniEmptyComponent, ErrorCardComponent, RevealDirective, ReadinessBadgeComponent, SiteDataBrowserComponent],
+  imports: [CommonModule, FormsModule, RouterModule, HlmInputDirective, HlmSelectDirective, HlmTablistDirective, MiniEmptyComponent, ErrorCardComponent, RevealDirective, ReadinessBadgeComponent, SiteDataBrowserComponent, SiteSchemaBrowserComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="site-detail animate-fade-in" data-testid="site-detail">
@@ -150,6 +151,16 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'integra
             [class.active]="tab() === 'sql'"
             (click)="setTab('sql')"
           >SQL</button>
+          <button
+            type="button"
+            role="tab"
+            id="sd-tab-schema"
+            data-testid="sd-tab-schema"
+            [attr.aria-controls]="'sd-panel-schema'"
+            [attr.aria-selected]="tab() === 'schema'"
+            [class.active]="tab() === 'schema'"
+            (click)="setTab('schema')"
+          >Schema</button>
         }
         <button
           type="button"
@@ -253,6 +264,13 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'integra
       @if (tab() === 'data') {
         <div class="site-detail__panel" role="tabpanel" appReveal id="sd-panel-data" aria-labelledby="sd-tab-data" data-testid="site-data-panel">
           <app-site-data-browser [siteId]="siteId()" />
+        </div>
+      }
+
+      <!-- ──────────────────────────────────────── SCHEMA TAB ──────────────────────────────────────── -->
+      @if (tab() === 'schema' && canUseSqlConsole()) {
+        <div class="site-detail__panel" role="tabpanel" appReveal id="sd-panel-schema" aria-labelledby="sd-tab-schema" data-testid="site-schema-panel">
+          <app-site-schema-browser [siteId]="siteId()" />
         </div>
       }
 
@@ -783,13 +801,15 @@ export class AdminSiteDetailComponent {
         }
       });
 
-    // Never strand a non-super-admin on the (now-hidden) SQL tab. A `?tab=sql`
-    // deep-link, or the super-admin flag arriving late (getMe resolves after first
-    // paint) while `sql` is active, would otherwise leave the active tab pointing at
-    // a panel that no longer renders (a blank body). Fall back to the first visible
-    // tab (logs) whenever SQL is selected but the console isn't available.
+    // Never strand a non-super-admin on a super-admin-only tab (SQL or Schema). A
+    // `?tab=sql`/`?tab=schema` deep-link, or the super-admin flag arriving late (getMe
+    // resolves after first paint) while one is active, would otherwise leave the active
+    // tab pointing at a panel that no longer renders (a blank body). Fall back to the
+    // first visible tab (logs) whenever a gated tab is selected but the console isn't
+    // available.
     effect(() => {
-      if (this.tab() === 'sql' && !this.canUseSqlConsole()) {
+      const gated = this.tab() === 'sql' || this.tab() === 'schema';
+      if (gated && !this.canUseSqlConsole()) {
         this.tab.set('logs');
       }
     });

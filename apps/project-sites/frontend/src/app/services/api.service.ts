@@ -876,6 +876,16 @@ export class ApiService {
     });
   }
 
+  /**
+   * D1 schema introspection for a site's database — tables/views with columns
+   * (type/nullability/default/PK), indexes, foreign keys, and CREATE SQL. Superadmin
+   * only (introspects the shared platform DB; 404/403 for others). Silent — the
+   * schema browser renders its own error/empty state.
+   */
+  getSiteSchema(siteId: string): Observable<{ data: { tables: SchemaTable[] } }> {
+    return this.get(`/sites/${siteId}/sql/schema`, undefined, { silent: true });
+  }
+
   /** List the URLs (primary + alternates) bound to a site. */
   listSiteUrls(siteId: string): Observable<{ data: SiteUrlRow[] }> {
     // Silent: a failed URL list is explained inline by the analytics empty/cred
@@ -1613,6 +1623,44 @@ export interface DataTablePage {
   total: number;
   limit: number;
   offset: number;
+}
+
+/** One column of a D1 table from `PRAGMA table_info` (via `/sql/schema`). */
+export interface SchemaColumn {
+  name: string;
+  type: string;
+  /** 1 = NOT NULL. */
+  notnull: number;
+  dflt_value: string | null;
+  /** 0 = not a PK; >0 = position in a (possibly composite) primary key. */
+  pk: number;
+}
+
+/** One index of a D1 table (`PRAGMA index_list`/`index_info`). */
+export interface SchemaIndex {
+  name: string;
+  unique: boolean;
+  columns: string[];
+}
+
+/** One foreign key of a D1 table (`PRAGMA foreign_key_list`). */
+export interface SchemaForeignKey {
+  from: string;
+  table: string;
+  to: string;
+  on_update: string;
+  on_delete: string;
+}
+
+/** A table/view from D1 schema introspection (`GET /api/sites/:siteId/sql/schema`). */
+export interface SchemaTable {
+  name: string;
+  /** 'table' | 'view'. */
+  type: string;
+  create_sql: string | null;
+  columns: SchemaColumn[];
+  indexes: SchemaIndex[];
+  foreign_keys: SchemaForeignKey[];
 }
 
 /** Row in `site_urls` — primary URL plus alternates. */
