@@ -34,6 +34,7 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../../src/types/env.js';
+import { writeAuditLog } from '../../../src/services/audit.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 
@@ -89,6 +90,13 @@ interface OverviewTable {
   columns: string[];
   /** When true, mask the `email` column value before returning. */
   maskEmail?: boolean;
+  /**
+   * When true, the site owner may permanently delete their OWN rows from this table
+   * via the Data browser. Requires `browseSql` to SELECT a stable `id` (the delete
+   * key) and the key to be present in {@link DELETABLE_OVERVIEW_TABLES}. Off by
+   * default — analytics/snapshots/MCP/content are read-only here (own lifecycles).
+   */
+  deletable?: boolean;
 }
 
 /** Curated, read-only site-scoped tables. Column lists are the security boundary. */
@@ -107,9 +115,12 @@ export const SITE_DATA_OVERVIEW_TABLES: readonly OverviewTable[] = [
     description: 'Contact and lead form entries',
     countSql: `SELECT COUNT(*) AS n FROM form_submissions WHERE site_id = ?`,
     // PII-safe: no payload / ip_address / user_agent; email is masked below.
-    browseSql: `SELECT form_name, status, email, created_at FROM form_submissions WHERE site_id = ? ORDER BY created_at DESC LIMIT ?`,
+    // `id` is selected as the stable delete key (a random UUID, not PII) but kept
+    // OUT of `columns` so it's never a rendered / sortable / searchable column.
+    browseSql: `SELECT id, form_name, status, email, created_at FROM form_submissions WHERE site_id = ? ORDER BY created_at DESC LIMIT ?`,
     columns: ['form_name', 'status', 'email', 'created_at'],
     maskEmail: true,
+    deletable: true,
   },
   {
     key: 'site_snapshots',
@@ -148,6 +159,36 @@ export const SITE_DATA_OVERVIEW_TABLES: readonly OverviewTable[] = [
  */
 export function overviewTable(key: string): OverviewTable | undefined {
   return SITE_DATA_OVERVIEW_TABLES.find((t) => t.key === key);
+}
+
+/**
+ * Tables whose OWN rows a site owner may permanently delete from the Data browser.
+ * The KEY is the overview key; the VALUE is the real D1 table name — a trusted
+ * literal, NEVER a user string, so it is safe to interpolate into the DELETE. This
+ * map is BOTH the allowlist boundary AND the killswitch: a table absent here is
+ * read-only, so an owner delete can only ever touch a tenant-owned lead row
+ * (`form_submissions`), always scoped `WHERE id = ? AND site_id = ?`. Analytics,
+ * snapshots, MCP connections, and the content store have their own lifecycles and
+ * are intentionally NOT owner-deletable through this path.
+ */
+export const DELETABLE_OVERVIEW_TABLES: Readonly<Record<string, string>> = {
+  form_submissions: 'form_submissions',
+};
+
+/**
+ * Resolve an overview key to its real, DELETE-safe table name, or undefined when the
+ * table is read-only (not in the allowlist). Callers MUST treat undefined as a 400 —
+ * never fall back to the raw key (that would defeat the allowlist boundary).
+ *
+ * @param key - the `:table` path param
+ * @returns the trusted real table name, or undefined for a read-only/unknown table
+ * @example deletableTableName('form_submissions') // 'form_submissions'
+ * @example deletableTableName('visitor_events')   // undefined (read-only)
+ */
+export function deletableTableName(key: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(DELETABLE_OVERVIEW_TABLES, key)
+    ? DELETABLE_OVERVIEW_TABLES[key]
+    : undefined;
 }
 
 /**
@@ -426,6 +467,8 @@ siteDataApi.get('/api/sites/:siteId/data-overview', async (c) => {
         columns: t.columns,
         row_count: rowCount,
         browsable: true,
+        // Owner may delete their own rows here (server re-checks the allowlist).
+        deletable: !!t.deletable,
       };
     }),
   );
@@ -499,4 +542,59 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
   // `data.{table,columns,rows}` is preserved for the existing consumer; `total`,
   // `limit`, `offset` are additive for the paginated grid.
   return c.json({ data: { table: spec.key, columns: spec.columns, rows }, total, limit, offset });
+});
+
+/**
+ * Permanently delete ONE of the site's own rows from a DELETABLE overview table
+ * (currently only `form_submissions` — a tenant-owned lead). Read-only tables → 400.
+ *
+ * Safety chain: org auth (401) → {@link ownsSiteData} tenant gate (404, never a 403
+ * leak) → {@link deletableTableName} resolves the real table from the allowlist (a
+ * trusted literal, so a hostile `:table` string can NEVER reach the SQL) →
+ * parameterized `WHERE id = ? AND site_id = ?` (double-scoped: the row must match the
+ * given id AND belong to THIS owner's site) → `meta.changes === 0` means no such row
+ * for this site → 404 (never a silent success). Every delete is audit-logged.
+ * `form_submissions` has no `deleted_at`, so this is a HARD delete — the UI confirms
+ * before calling (irreversible).
+ */
+siteDataApi.delete('/api/sites/:siteId/data-overview/:table/:rowId', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table, rowId } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+  const realTable = deletableTableName(table);
+  if (!realTable) {
+    return c.json(
+      { error: { code: 'BAD_REQUEST', message: 'This table is read-only and cannot be edited here' } },
+      400,
+    );
+  }
+
+  // `realTable` is a trusted allowlist literal (never the user string); `rowId` +
+  // `siteId` are bound params. Double-scoping by site means a foreign rowId can
+  // never be deleted even if guessed.
+  const result = await c.env.DB.prepare(`DELETE FROM ${realTable} WHERE id = ? AND site_id = ?`)
+    .bind(rowId, siteId)
+    .run();
+
+  const changes = Number(result.meta?.changes ?? 0);
+  if (changes === 0) {
+    // No row matched (already gone, or never belonged to this site) — 404, not a lie.
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Row not found' } }, 404);
+  }
+
+  await writeAuditLog(c.env.DB, {
+    org_id: orgId,
+    actor_id: c.get('userId') ?? null,
+    action: 'site_data.row_deleted',
+    message: `Deleted a row from ${table}`,
+    target_type: table,
+    target_id: rowId,
+    metadata_json: { site_id: siteId, table, rows_affected: changes },
+  });
+
+  return c.json({ data: { id: rowId, deleted: true } });
 });

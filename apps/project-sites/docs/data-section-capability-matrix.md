@@ -51,7 +51,8 @@
 | **Saved queries + reusable snippets + history recall** | client-side (localStorage `ps_sql_saved_<siteId>`) | superadmin | ✅ DONE — name + Save the current query for one-click reuse (per-site, dedup-by-name, delete); built-in `sqlStarters` chips; query history is clickable-to-recall (loads into editor, no auto-run) | per-site + private-mode-safe; recall loads (never auto-runs) so the user reviews before running; multi-tab (concurrent buffers) still pending |
 | **SQL result export (Copy JSON · Download CSV · Download JSON)** | client-side over the fetched result | superadmin | ✅ DONE — Copy JSON (existing) + **Download CSV + Download JSON** buttons on the result grid, over the shared `toCsv`/`downloadText` (formula-injection-safe `csvEscape`). Exports the FULL result set (every returned row, not just the 200-row render cap). | bounded by the query's own result size (the backend caps the query); no streaming needed at this scale |
 | Write SQL console | `.prepare().run()` | superadmin | DONE | PROTECTED_TABLES + destructive-confirm; single-statement |
-| Row edit / delete (typed, PK-stable) | parameterized UPDATE/DELETE | owner | PLANNED | needs schema PK (this arc's schema endpoint) |
+| **Row delete (own rows, PK-stable, allowlisted)** | `DELETE /api/sites/:siteId/data-overview/:table/:rowId` → parameterized `DELETE … WHERE id = ? AND site_id = ?` | owner | ✅ **DONE (this fire)** — the owner can permanently delete their OWN rows from a DELETABLE table (currently **Form Submissions** — deleting spam/test leads). `DELETABLE_OVERVIEW_TABLES` (a `key→real-table` map) is the allowlist boundary AND the killswitch; `form_submissions` browse now SELECTs a stable `id` (kept out of the display columns). Full safety chain: org auth (401) → `ownsSiteData` tenant gate (404, never 403) → allowlist resolves a trusted literal table name (a hostile `:table` never reaches SQL, 400) → parameterized double-scope `WHERE id=? AND site_id=?` → `meta.changes===0` → 404 (never a silent success) → audit-logged (`site_data.row_deleted`). UI: a danger-styled **Delete row** button in the row-detail bar (only for a deletable table + a stable-`id` row) → `ConfirmService` dialog showing the exact parameterized statement → refreshes grid + Overview counts. +11 Jest (5 route: 401/404-tenant/400-readonly/400-hostile/200-parameterized/404-no-match + 6 helper: allowlist boundary) + 6 Karma (button-visibility deletable-only · read-only-hidden · confirm+call+toast+refresh · cancel-noop · readonly/no-id-noop · error-toast). Prod-verified live (non-destructive): 401 · 400 read-only · 404 no-match · 404 tenant-isolation. | HARD delete (`form_submissions` has no `deleted_at`) → explicit confirm required; only `form_submissions` is deletable (others read-only) |
+| Row edit / add (typed cells) | parameterized UPDATE/INSERT | owner | PLANNED | next slice — typed editors (NULL/number/bool/JSON) + DDL-derived column types; delete path + allowlist already in place to build on |
 | CSV export (bounded) | client-side | owner/superadmin | DONE | filtered rows only |
 | EXPLAIN QUERY PLAN + index hints | `EXPLAIN QUERY PLAN` via `/sql/exec` | superadmin | ✅ DONE — "Explain" button shows the plan (`detail` per step) + an **index hint** (flags a bare full-table `SCAN` / `USE TEMP B-TREE` sort → "add an index"; ✓ when the plan is index-covered) | EXPLAIN plans but never EXECUTES — safe for any query the editor holds |
 | Query cost (rows read/written, D1 duration) + **expensive-scan warning** | D1 `meta` | superadmin | ✅ DONE — `/sql/exec` returns `rows_read/rows_written/d1_duration_ms` AND the SQL console now **displays** "read N · wrote N · D1 Xms" + a ⚠ **expensive-scan warning** above 10k rows read ("add an index") | null (never a fabricated 0) when the runtime omits meta; shown only for a reported value |
@@ -86,12 +87,16 @@
    server-paginated, column-sortable grid → per-row JSON detail, all on real endpoints.
    **Superadmin Schema tab shipped** — `SiteSchemaBrowserComponent` (searchable table list →
    columns/indexes/FKs/DDL), consuming the previously-unwired `/sql/schema` endpoint.
-2. Row edit/delete with schema-derived stable PK predicates (owner). **N/A for the
-   data-overview grid** — its 5 tables are read-only system/analytics data whose safe-column
-   allowlist deliberately OMITS the `id` (no stable PK to target; `verify-against-source-of-truth`
-   + PII-safety). The only owner-editable data (`site_data` CMS rows) has its OWN CRUD endpoints
-   (`PUT/DELETE /data/:table/:rowId`) and is edited in the site editor, not a raw grid. So the grid
-   correctly stays read-only + says so (the pill). A future write surface would target `site_data` only.
+2. Row edit/delete with stable PK predicates (owner). **Row DELETE shipped for
+   `form_submissions`** (this fire) — the owner's most common data-management need is deleting
+   spam/test leads. The `form_submissions` browse now SELECTs a stable `id` (kept OUT of the
+   display columns), and `DELETABLE_OVERVIEW_TABLES` gates which tables expose a delete (only
+   `form_submissions` today; the other 4 overview tables — visitor_events/snapshots/mcp/site_data —
+   stay READ-ONLY, they're system/analytics data or have their own lifecycle). The delete is
+   allowlist-bounded + tenant-gated + parameterized `WHERE id=? AND site_id=?` + affected-rows-checked
+   + audit-logged + confirmed in the UI (HARD delete — `form_submissions` has no `deleted_at`).
+   **Row EDIT/ADD (typed cells) is the next slice** — the delete path, allowlist, and stable-id
+   plumbing are now in place to build typed editors on.
 3. SQL console upgrades — **query-cost + expensive-scan warning ✅ DONE; EXPLAIN QUERY PLAN + index
    guidance ✅ DONE; plain-language SQLite/D1 error explanations ✅ DONE** (`explainSqlError` maps no-such-
    table/column/function · syntax · unrecognized-token · UNIQUE/FK-constraint · too-complex → a friendly

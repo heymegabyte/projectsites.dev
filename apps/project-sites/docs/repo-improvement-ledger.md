@@ -253,6 +253,21 @@
   component) written before impl. Verified: tsc 0 · backtick 0 · **Karma 2008/2008** (+6) · build 0 · eslint 0 err · deployed
   R2 + chunk-hash prod-verified (`chunk-3SPBOWJE.js`, `an-conv-trend` live). Next: remaining server-CSV `downloadText`
   consolidation (`analytics-dashboard` + audit full-trail, consistency-only), then DST-precise tz shift.
+- **Cycle 26 — 2026-09-24 (Data: owner row DELETE for form_submissions — the long-deferred mutation path):** Shipped the
+  epic's most-requested, repeatedly-deferred capability — an owner deleting their OWN rows — scoped to the one table where
+  it's a genuine need + tenant-owned: **Form Submissions** (deleting spam/test leads). NEW `DELETE
+  /api/sites/:siteId/data-overview/:table/:rowId`: org auth (401) → `ownsSiteData` tenant gate (404) → `DELETABLE_OVERVIEW_TABLES`
+  allowlist resolves a trusted literal table name (hostile `:table` → 400, never reaches SQL — the allowlist is BOTH the boundary
+  AND the killswitch) → parameterized double-scope `DELETE … WHERE id=? AND site_id=?` → `meta.changes===0` → 404 (never a silent
+  success) → audit-logged (`site_data.row_deleted`). `form_submissions` browse now SELECTs a stable `id` (kept OUT of display
+  columns). UI: danger-styled **Delete row** in the row-detail bar (only for a deletable table + stable-`id` row) → `ConfirmService`
+  dialog showing the exact statement → refreshes grid + Overview counts. Extracted `deletable` onto `DataOverviewTable` +
+  `deleteOverviewRow` on `ApiService`. Docstring/pill reconciled (grid was "read-only"; now form_submissions is deletable, other 4
+  stay read-only). HARD delete (`form_submissions` has no `deleted_at`) — confirm required. TDD-first. Verified: worker tsc 0 · fe
+  tsc 0 · backtick 0 · **Jest 749 suites / 12280** (+10) · **Karma 2014/2014** (+6) · eslint 0 err · frontend build 0 · **both
+  deployed** (R2 `chunk-4SZTTIPL.js` + worker `b9f588b1`) · **prod-verified live NON-DESTRUCTIVELY** (nonexistent rowId): 401
+  unauth · 400 read-only-table · 404 no-match · 404 tenant-isolation · `deletable` flag correct per table. Next: row EDIT/ADD
+  (typed cells — NULL/number/bool/JSON editors on the now-in-place allowlist + stable-id plumbing).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

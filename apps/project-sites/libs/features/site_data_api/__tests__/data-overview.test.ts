@@ -10,6 +10,8 @@ import {
   maskEmailValue,
   buildDataSearch,
   buildColumnFilter,
+  deletableTableName,
+  DELETABLE_OVERVIEW_TABLES,
 } from '../handlers';
 
 describe('data-overview registry', () => {
@@ -52,6 +54,32 @@ describe('data-overview registry', () => {
     expect(overviewTable('form_submissions')?.maskEmail).toBe(true);
     // Tables without PII do not carry the mask flag.
     expect(overviewTable('visitor_events')?.maskEmail).toBeUndefined();
+  });
+
+  it('only form_submissions is deletable, and its browse selects the stable `id` delete key', () => {
+    // Exactly ONE table is owner-deletable (a tenant-owned lead row).
+    expect(overviewTable('form_submissions')?.deletable).toBe(true);
+    for (const key of ['visitor_events', 'site_snapshots', 'mcp_connections', 'site_data']) {
+      expect(overviewTable(key)?.deletable).toBeFalsy();
+    }
+    // A deletable table MUST select `id` (the delete key); read-only ones need not.
+    expect(overviewTable('form_submissions')?.browseSql).toContain('SELECT id,');
+  });
+});
+
+describe('deletableTableName (owner-delete allowlist — the killswitch boundary)', () => {
+  it('resolves ONLY form_submissions to a real table name', () => {
+    expect(deletableTableName('form_submissions')).toBe('form_submissions');
+  });
+  it('returns undefined (read-only) for every other / unknown / hostile key', () => {
+    for (const key of ['visitor_events', 'site_snapshots', 'mcp_connections', 'site_data', 'users', 'sqlite_master', '', 'form_submissions; DROP TABLE sites']) {
+      expect(deletableTableName(key)).toBeUndefined();
+    }
+  });
+  it('every allowlist value is a plain identifier (no interpolation risk)', () => {
+    for (const real of Object.values(DELETABLE_OVERVIEW_TABLES)) {
+      expect(real).toMatch(/^[a-z_][a-z0-9_]*$/);
+    }
   });
 });
 

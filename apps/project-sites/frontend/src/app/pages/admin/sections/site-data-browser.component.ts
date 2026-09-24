@@ -1,17 +1,21 @@
 /**
  * Site Data Browser — the "Data" tab body on `/admin/sites/:id`.
  *
- * An owner-facing, read-only browser for the site's REAL platform tables
- * (visitor events, form submissions, snapshots, MCP connections, content store).
- * Every surface is backed by a live, tenant-scoped endpoint — never mock data:
+ * An owner-facing browser for the site's REAL platform tables (visitor events,
+ * form submissions, snapshots, MCP connections, content store). Browsing is
+ * read-only; DELETABLE tables (currently Form Submissions) also let the owner
+ * permanently delete their OWN rows. Every surface is backed by a live,
+ * tenant-scoped endpoint — never mock data:
  *
- *  - `GET /api/sites/:siteId/data-overview`        → the table picker (row counts)
- *  - `GET /api/sites/:siteId/data-overview/:table` → one server-paginated page
+ *  - `GET    /api/sites/:siteId/data-overview`               → table picker (row counts)
+ *  - `GET    /api/sites/:siteId/data-overview/:table`        → one server-paginated page
+ *  - `DELETE /api/sites/:siteId/data-overview/:table/:rowId` → delete one own row (allowlisted)
  *
- * Both are org-scoped + IDOR-guarded server-side (404 on a foreign site), so this
+ * All are org-scoped + IDOR-guarded server-side (404 on a foreign site), so this
  * is safe for a first-time site OWNER (unlike the super-admin SQL console next to
  * it). Pagination, sorting, and result size are all bounded server-side — the
- * browser never loads a whole table.
+ * browser never loads a whole table. Deletes require an explicit confirmation and
+ * only fire against a stable-`id` row of an allowlisted table (irreversible).
  *
  * Focused, single-responsibility, standalone component (Angular style guide):
  * signals + `input()` + native control flow, no lifecycle beyond a load on init.
@@ -31,6 +35,8 @@ import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { catchError, firstValueFrom, of } from 'rxjs';
 import { ApiService, type DataOverviewTable } from '../../../services/api.service';
+import { ConfirmService } from '../../../services/confirm.service';
+import { ToastService } from '../../../services/toast.service';
 import { MiniEmptyComponent } from '../../../components/mini-empty/mini-empty.component';
 import { ErrorCardComponent } from '../../../components/states';
 import { toCsv, downloadText } from '../../../utils/csv-export';
@@ -293,6 +299,15 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                       <tr class="db-detail-row" data-testid="db-detail">
                         <td [attr.colspan]="visibleColumns().length + 1">
                           <div class="db-detail-bar">
+                            @if (selected()?.deletable && isString(row['id'])) {
+                              <button type="button" class="db-delete-row"
+                                      (click)="deleteRow(row)"
+                                      [disabled]="deletingId() === row['id']"
+                                      data-testid="db-delete-row"
+                                      aria-label="Delete this row permanently">
+                                {{ deletingId() === row['id'] ? 'Deleting…' : 'Delete row' }}
+                              </button>
+                            }
                             <button type="button" class="db-copy-row"
                                     (click)="copyRow(row)" data-testid="db-copy-row"
                                     aria-label="Copy this row as JSON">Copy JSON</button>
@@ -401,10 +416,14 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
     .db-cell-copy { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; text-align: left; cursor: copy; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
     .db-cell-copy:hover { color: var(--ps-accent, #00e5ff); text-decoration: underline dotted; }
     .db-cell-copy:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; border-radius: 3px; }
-    .db-detail-bar { display: flex; justify-content: flex-end; margin-bottom: 0.4rem; }
+    .db-detail-bar { display: flex; justify-content: flex-end; gap: 0.4rem; margin-bottom: 0.4rem; }
     .db-copy-row { font: inherit; font-size: 0.72rem; padding: 0.25rem 0.55rem; border-radius: 6px; color: var(--ps-accent, #00e5ff); background: rgba(0,0,0,0.25); border: 1px solid var(--ps-edge, rgba(255,255,255,0.14)); cursor: pointer; }
     .db-copy-row:hover { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 16%, transparent); }
     .db-copy-row:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
+    .db-delete-row { font: inherit; font-size: 0.72rem; padding: 0.25rem 0.55rem; border-radius: 6px; color: #ff8f9a; background: color-mix(in oklch, #ff6b6b 12%, transparent); border: 1px solid color-mix(in oklch, #ff6b6b 34%, transparent); cursor: pointer; }
+    .db-delete-row:hover:not(:disabled) { background: color-mix(in oklch, #ff6b6b 22%, transparent); color: #fff; }
+    .db-delete-row:focus-visible { outline: 2px solid #ff6b6b; outline-offset: 2px; }
+    .db-delete-row:disabled { opacity: 0.6; cursor: progress; }
     .db-export-note { margin: 0.4rem 0 0; font-size: 0.72rem; color: #ffc800; }
     .db-readonly-pill {
       margin-left: 0.5rem; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
@@ -445,6 +464,8 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
 })
 export class SiteDataBrowserComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
+  private readonly toast = inject(ToastService);
   private readonly destroyRef = inject(DestroyRef);
 
   /** The site whose data to browse. Bound by the parent site-detail tab. */
@@ -495,6 +516,8 @@ export class SiteDataBrowserComponent implements OnInit {
   readonly rowsError = signal<string | null>(null);
   /** Index of the row whose full-JSON detail is expanded (single-open). */
   readonly expandedRow = signal<number | null>(null);
+  /** `id` of the row currently being deleted (disables its button + shows "Deleting…"). */
+  readonly deletingId = signal<string | null>(null);
 
   /** "1–25 of 340" style range label; honest "0 of 0" on an empty table. */
   readonly rangeLabel = computed(() => {
@@ -889,6 +912,56 @@ export class SiteDataBrowserComponent implements OnInit {
   async copyRow(row: Record<string, unknown>): Promise<void> {
     await this.writeClipboard(this.rowJson(row));
     this.flashCopied('row JSON');
+  }
+
+  /** Template guard: is a row's `id` a usable string delete-key? (`typeof` isn't
+   *  callable in a template, and a row without a stable id must stay read-only.) */
+  isString(v: unknown): v is string {
+    return typeof v === 'string' && v.length > 0;
+  }
+
+  /**
+   * Permanently delete one row of a DELETABLE table (currently Form Submissions),
+   * with an explicit confirmation showing the exact parameterized statement. The row
+   * MUST carry a stable string `id`; without one it's read-only (no button rendered).
+   * The server re-checks the allowlist + tenant ownership + double-scopes by site, so
+   * this can only ever remove the owner's own row. Refreshes the page + table counts.
+   */
+  async deleteRow(row: Record<string, unknown>): Promise<void> {
+    const sel = this.selected();
+    const id = this.siteId();
+    const rowId = row['id'];
+    if (!sel?.deletable || !id || !this.isString(rowId)) return;
+
+    const singular = (sel.label || sel.key || 'row').replace(/s$/i, '').toLowerCase();
+    const ok = await this.confirm.confirm({
+      title: `Delete this ${singular}?`,
+      message:
+        `This permanently deletes the row from “${sel.label}” for your site and cannot be undone.\n\n` +
+        `Runs: DELETE FROM ${sel.key} WHERE id = ? AND site_id = ?  (1 row)`,
+      confirmLabel: 'Delete permanently',
+      danger: true,
+    });
+    if (!ok) return;
+
+    this.deletingId.set(rowId);
+    this.api
+      .deleteOverviewRow(id, sel.key, rowId)
+      .pipe(
+        catchError(() => of(null)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((res) => {
+        this.deletingId.set(null);
+        if (!res) {
+          this.toast.error('Could not delete the row — please retry.');
+          return;
+        }
+        this.toast.success('Row deleted.');
+        this.expandedRow.set(null);
+        this.loadPage(); // re-fetch the current window + total
+        this.loadTables(id); // refresh the table row-counts (Overview strip)
+      });
   }
 
   /** Clipboard write, isolated so tests can spy it without a secure-context clipboard. */

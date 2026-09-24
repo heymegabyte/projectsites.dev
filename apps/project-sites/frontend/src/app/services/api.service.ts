@@ -919,6 +919,29 @@ export class ApiService {
   }
 
   /**
+   * Permanently delete ONE of the site's own rows from a DELETABLE overview table
+   * (the server enforces the allowlist — only tenant-owned tables like
+   * `form_submissions`). The delete is double-scoped by `id` AND `site_id`
+   * server-side; a foreign/absent row is a 404, never a silent success.
+   * Irreversible — callers MUST confirm first.
+   *
+   * @example
+   * ```ts
+   * this.api.deleteOverviewRow(siteId, 'form_submissions', rowId)
+   *   .subscribe(() => this.loadPage());
+   * ```
+   */
+  deleteOverviewRow(
+    siteId: string,
+    table: string,
+    rowId: string,
+  ): Observable<{ data: { id: string; deleted: boolean } }> {
+    return this.delete(
+      `/sites/${siteId}/data-overview/${encodeURIComponent(table)}/${encodeURIComponent(rowId)}`,
+    );
+  }
+
+  /**
    * D1 schema introspection for a site's database — tables/views with columns
    * (type/nullability/default/PK), indexes, foreign keys, and CREATE SQL. Superadmin
    * only (introspects the shared platform DB; 404/403 for others). Silent — the
@@ -1679,6 +1702,8 @@ export interface DataOverviewTable {
   columns: string[];
   row_count: number;
   browsable: boolean;
+  /** Owner may permanently delete their own rows here (server re-checks the allowlist). */
+  deletable: boolean;
 }
 
 /**

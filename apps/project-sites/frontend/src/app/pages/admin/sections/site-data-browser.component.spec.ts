@@ -2,6 +2,8 @@ import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { of, throwError } from 'rxjs';
 import { ApiService } from '../../../services/api.service';
+import { ConfirmService } from '../../../services/confirm.service';
+import { ToastService } from '../../../services/toast.service';
 import { SiteDataBrowserComponent } from './site-data-browser.component';
 
 /**
@@ -20,8 +22,8 @@ const ROWS = [
 const OVERVIEW = {
   data: {
     tables: [
-      { key: 'visitor_events', label: 'Visitor Events', description: 'Analytics pageviews and events', columns: COLS, row_count: 3, browsable: true },
-      { key: 'form_submissions', label: 'Form Submissions', description: 'Contact and lead form entries', columns: ['form_name', 'status', 'email', 'created_at'], row_count: 0, browsable: true },
+      { key: 'visitor_events', label: 'Visitor Events', description: 'Analytics pageviews and events', columns: COLS, row_count: 3, browsable: true, deletable: false },
+      { key: 'form_submissions', label: 'Form Submissions', description: 'Contact and lead form entries', columns: ['form_name', 'status', 'email', 'created_at'], row_count: 2, browsable: true, deletable: true },
     ],
   },
 };
@@ -55,17 +57,31 @@ function pagedBrowse(total: number, rowsPerPage = 100): jasmine.Spy {
 function setup(overrides?: {
   getDataOverview?: jasmine.Spy;
   browseDataTable?: jasmine.Spy;
+  deleteOverviewRow?: jasmine.Spy;
+  confirmResult?: boolean;
 }) {
   const getDataOverview = overrides?.getDataOverview ?? jasmine.createSpy('getDataOverview').and.returnValue(of(OVERVIEW));
   const browseDataTable = overrides?.browseDataTable ?? browsePage(3);
-  const api = { getDataOverview, browseDataTable };
+  const deleteOverviewRow =
+    overrides?.deleteOverviewRow ??
+    jasmine.createSpy('deleteOverviewRow').and.returnValue(of({ data: { id: 'r', deleted: true } }));
+  const api = { getDataOverview, browseDataTable, deleteOverviewRow };
+  // Mock ConfirmService + ToastService so the real CDK-Dialog-backed ConfirmService
+  // never constructs in the unit harness (and so delete specs can drive the outcome).
+  const confirmSpy = jasmine.createSpy('confirm').and.resolveTo(overrides?.confirmResult ?? true);
+  const confirm = { confirm: confirmSpy };
+  const toast = { success: jasmine.createSpy('success'), error: jasmine.createSpy('error') };
   TestBed.configureTestingModule({
     imports: [SiteDataBrowserComponent],
-    providers: [{ provide: ApiService, useValue: api }],
+    providers: [
+      { provide: ApiService, useValue: api },
+      { provide: ConfirmService, useValue: confirm },
+      { provide: ToastService, useValue: toast },
+    ],
   });
   const fixture = TestBed.createComponent(SiteDataBrowserComponent);
   fixture.componentRef.setInput('siteId', 'site-1');
-  return { fixture, c: fixture.componentInstance, getDataOverview, browseDataTable };
+  return { fixture, c: fixture.componentInstance, getDataOverview, browseDataTable, deleteOverviewRow, confirmSpy, toast };
 }
 
 describe('SiteDataBrowserComponent', () => {
@@ -185,7 +201,7 @@ describe('SiteDataBrowserComponent', () => {
   });
 
   it('shows an honest empty-table message (not a page-past-end message) when total is 0', () => {
-    const overview = { data: { tables: [{ key: 'form_submissions', label: 'Form Submissions', description: 'x', columns: ['form_name', 'status', 'email', 'created_at'], row_count: 0, browsable: true }] } };
+    const overview = { data: { tables: [{ key: 'form_submissions', label: 'Form Submissions', description: 'x', columns: ['form_name', 'status', 'email', 'created_at'], row_count: 0, browsable: true, deletable: true }] } };
     const getDataOverview = jasmine.createSpy('getDataOverview').and.returnValue(of(overview));
     const browseDataTable = jasmine.createSpy('browseDataTable').and.returnValue(of({ data: { table: 'form_submissions', columns: ['form_name', 'status', 'email', 'created_at'], rows: [] }, total: 0, limit: 25, offset: 0 }));
     const { c } = setup({ getDataOverview, browseDataTable });
@@ -393,6 +409,7 @@ describe('SiteDataBrowserComponent — column show/hide', () => {
       columns: ['form_name', 'status', 'email', 'created_at'],
       row_count: 0,
       browsable: true,
+      deletable: true,
     });
     expect(c.hiddenColumns().has('email')).withContext('per-table preference restored on switch').toBe(true);
   });
@@ -518,13 +535,13 @@ describe('SiteDataBrowserComponent — overview summary', () => {
   afterEach(() => TestBed.resetTestingModule());
 
   it('derives tableCount + totalRows + the largest table from the loaded tables', () => {
-    // OVERVIEW: visitor_events (3 rows) + form_submissions (0 rows).
+    // OVERVIEW: visitor_events (3 rows) + form_submissions (2 rows) = 5 total.
     const { fixture, c } = setup();
     fixture.detectChanges();
     const s = c.dataSummary();
     expect(s).not.toBeNull();
     expect(s!.tableCount).toBe(2);
-    expect(s!.totalRows).toBe(3);
+    expect(s!.totalRows).toBe(5);
     expect(s!.largest?.key).toBe('visitor_events');
   });
 
@@ -541,5 +558,106 @@ describe('SiteDataBrowserComponent — overview summary', () => {
     expect(strip!.textContent).toContain('2'); // tables
     expect(strip!.textContent).toContain('record');
     expect(strip!.textContent).toContain('Visitor Events'); // largest table label
+  });
+});
+
+/**
+ * Row delete — the owner may permanently delete their OWN rows from a DELETABLE
+ * table (Form Submissions). Read-only tables show no delete affordance; the delete
+ * only fires on a stable-`id` row after an explicit confirmation, and the server
+ * re-checks the allowlist + tenant ownership + double-scopes by site.
+ */
+describe('SiteDataBrowserComponent — row delete', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const FS_COLS = ['form_name', 'status', 'email', 'created_at'];
+  const FS_ROWS = [
+    { id: 'row-abc', form_name: 'contact', status: 'received', email: 'a***@x.com', created_at: '2026-09-24T00:00:00Z' },
+  ];
+  /** A browse spy that serves form_submissions rows (each carrying a stable `id`). */
+  function browseForm(): jasmine.Spy {
+    return jasmine
+      .createSpy('browseDataTable')
+      .and.callFake((_id: string, table: string, opts: { limit?: number; offset?: number } = {}) =>
+        of({ data: { table, columns: FS_COLS, rows: FS_ROWS }, total: FS_ROWS.length, limit: opts.limit ?? 25, offset: opts.offset ?? 0 }),
+      );
+  }
+  const formTable = (c: SiteDataBrowserComponent) => c.tables().find((t) => t.key === 'form_submissions')!;
+  const visitorTable = (c: SiteDataBrowserComponent) => c.tables().find((t) => t.key === 'visitor_events')!;
+
+  it('renders a Delete button in row detail ONLY for a deletable table with a stable id', () => {
+    const { fixture, c } = setup({ browseDataTable: browseForm() });
+    fixture.detectChanges(); // loads overview + auto-selects visitor_events
+    c.selectTable(formTable(c));
+    fixture.detectChanges();
+    c.toggleRow(0); // expand the row to reveal the detail bar
+    fixture.detectChanges();
+    const del = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="db-delete-row"]');
+    expect(del).withContext('delete button shows for deletable form_submissions row').toBeTruthy();
+  });
+
+  it('shows NO delete button for a read-only table (visitor_events)', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges(); // auto-selects visitor_events (deletable:false)
+    c.selectTable(visitorTable(c));
+    fixture.detectChanges();
+    c.toggleRow(0);
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="db-delete-row"]')).toBeNull();
+  });
+
+  it('deleteRow: confirms, calls the site-scoped delete, toasts, and refreshes both grid + counts', async () => {
+    const deleteOverviewRow = jasmine
+      .createSpy('deleteOverviewRow')
+      .and.returnValue(of({ data: { id: 'row-abc', deleted: true } }));
+    const { fixture, c, confirmSpy, toast, browseDataTable, getDataOverview } = setup({
+      browseDataTable: browseForm(),
+      deleteOverviewRow,
+      confirmResult: true,
+    });
+    fixture.detectChanges();
+    c.selectTable(formTable(c));
+    browseDataTable.calls.reset();
+    getDataOverview.calls.reset();
+
+    await c.deleteRow({ id: 'row-abc', form_name: 'contact' });
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(deleteOverviewRow).toHaveBeenCalledWith('site-1', 'form_submissions', 'row-abc');
+    expect(toast.success).toHaveBeenCalled();
+    expect(browseDataTable).withContext('grid refetched').toHaveBeenCalled();
+    expect(getDataOverview).withContext('table counts refetched').toHaveBeenCalled();
+    expect(c.deletingId()).toBeNull();
+  });
+
+  it('deleteRow: does NOTHING when the user cancels the confirmation', async () => {
+    const deleteOverviewRow = jasmine.createSpy('deleteOverviewRow');
+    const { fixture, c } = setup({ browseDataTable: browseForm(), deleteOverviewRow, confirmResult: false });
+    fixture.detectChanges(); // load the overview so the real form_submissions table (with label) resolves
+    c.selected.set(formTable(c));
+    await c.deleteRow({ id: 'row-abc' });
+    expect(deleteOverviewRow).not.toHaveBeenCalled();
+  });
+
+  it('deleteRow: no-op on a read-only table or a row without a string id (never confirms/calls)', async () => {
+    const deleteOverviewRow = jasmine.createSpy('deleteOverviewRow');
+    const { fixture, c, confirmSpy } = setup({ deleteOverviewRow });
+    fixture.detectChanges();
+    c.selected.set(visitorTable(c)); // read-only table
+    await c.deleteRow({ id: 'x' });
+    c.selected.set(formTable(c)); // deletable, but row has no id
+    await c.deleteRow({ form_name: 'no-id' });
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(deleteOverviewRow).not.toHaveBeenCalled();
+  });
+
+  it('deleteRow: surfaces an error toast (and clears the spinner) when the delete fails', async () => {
+    const deleteOverviewRow = jasmine.createSpy('deleteOverviewRow').and.returnValue(throwError(() => ({ status: 500 })));
+    const { fixture, c, toast } = setup({ browseDataTable: browseForm(), deleteOverviewRow, confirmResult: true });
+    fixture.detectChanges();
+    c.selectTable(formTable(c));
+    await c.deleteRow({ id: 'row-abc' });
+    expect(toast.error).toHaveBeenCalled();
+    expect(c.deletingId()).toBeNull();
   });
 });
