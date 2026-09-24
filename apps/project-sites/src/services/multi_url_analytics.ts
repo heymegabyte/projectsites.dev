@@ -263,10 +263,6 @@ interface HostAggregate {
   top_paths: Map<string, number>;
   top_countries: Map<string, number>;
   top_referrers: Map<string, number>;
-  /** Edge delivery: HTTP status code → request count, cacheStatus → count, total bytes. */
-  by_status: Map<number, number>;
-  by_cache: Map<string, number>;
-  response_bytes: number;
 }
 
 /**
@@ -280,13 +276,10 @@ async function loadHostAggregate(
   days: number,
 ): Promise<HostAggregate> {
   const empty: HostAggregate = {
-    by_cache: new Map(),
     by_day: new Map(),
-    by_status: new Map(),
     hostname,
     page_views: 0,
     resolved: false,
-    response_bytes: 0,
     top_countries: new Map(),
     top_paths: new Map(),
     top_referrers: new Map(),
@@ -323,12 +316,6 @@ async function loadHostAggregate(
     .join('\n          ');
   const breakdown = (name: string, dim: string, limit: number) =>
     `${name}: httpRequestsAdaptiveGroups(limit: ${limit}, filter: { datetime_geq: "${recent.since}", datetime_leq: "${recent.until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { ${dim} } }`;
-  // Delivery metrics (status / cache / bandwidth) aggregate over the FULL window in
-  // ONE sub-query each — multi-day ranges ARE supported (the per-day fan-out above is
-  // only needed to build the daily SERIES, not because of a range cap). fullSince =
-  // the oldest window's start; fullUntil = the most-recent window's end.
-  const fullSince = windows[windows.length - 1].since;
-  const fullUntil = recent.until;
 
   const query = /* GraphQL */ `
     query MultiUrlTraffic($zoneTag: String!, $host: String!) {
@@ -338,8 +325,6 @@ async function loadHostAggregate(
           ${breakdown('paths', 'clientRequestPath', 50)}
           ${breakdown('geo', 'clientCountryName', 25)}
           ${breakdown('refs', 'clientRequestReferer', 25)}
-          status: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${fullSince}", datetime_leq: "${fullUntil}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { edgeResponseStatus } }
-          cache: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${fullSince}", datetime_leq: "${fullUntil}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { edgeResponseBytes } dimensions { cacheStatus } }
         }
       }
     }
@@ -388,13 +373,10 @@ async function loadHostAggregate(
     if (!zoneRow) return { ...empty, resolved: true };
 
     const agg: HostAggregate = {
-      by_cache: new Map(),
       by_day: new Map(),
-      by_status: new Map(),
       hostname,
       page_views: 0,
       resolved: true,
-      response_bytes: 0,
       top_countries: new Map(),
       top_paths: new Map(),
       top_referrers: new Map(),
@@ -430,18 +412,6 @@ async function loadHostAggregate(
       const c = Number(row.count ?? 0);
       if (c > 0) agg.top_referrers.set(referrer, (agg.top_referrers.get(referrer) ?? 0) + c);
     }
-    // Delivery: HTTP status codes + cache result + edge bandwidth over the full window.
-    for (const row of zoneRow.status ?? []) {
-      const s = Number(row.dimensions?.edgeResponseStatus ?? 0);
-      const c = Number(row.count ?? 0);
-      if (s > 0 && c > 0) agg.by_status.set(s, (agg.by_status.get(s) ?? 0) + c);
-    }
-    for (const row of zoneRow.cache ?? []) {
-      const cs = String(row.dimensions?.cacheStatus ?? 'unknown');
-      const c = Number(row.count ?? 0);
-      if (c > 0) agg.by_cache.set(cs, (agg.by_cache.get(cs) ?? 0) + c);
-      agg.response_bytes += Number(row.sum?.edgeResponseBytes ?? 0);
-    }
     return agg;
   } catch (err) {
     console.warn(
@@ -463,6 +433,106 @@ function safeHost(referrer: string): string {
     return new URL(referrer).hostname;
   } catch {
     return '';
+  }
+}
+
+/**
+ * The shared `projectsites.dev` Cloudflare zone — every `*.projectsites.dev`
+ * subdomain serves through it. Public identifier (see CLAUDE.md § CF resource IDs).
+ * Used ONLY for the DELIVERY/edge query so subdomains get real status/cache/bandwidth
+ * — the AUDIENCE path deliberately does NOT resolve this zone for subdomains (their
+ * pageviews stay first-party D1; CF `count` is HTTP requests, not pageviews).
+ */
+const SHARED_ZONE_ID = '9ceaa211750dd31899fd5d1bf8d1ec46';
+
+/** Per-host edge delivery aggregate (status / cache / bandwidth). */
+interface HostDelivery {
+  resolved: boolean;
+  by_status: Map<number, number>;
+  by_cache: Map<string, number>;
+  response_bytes: number;
+}
+
+/**
+ * Resolve the CF zone for DELIVERY metrics. Unlike the audience path, `*.projectsites.dev`
+ * subdomains DO resolve here (via the known shared zone) so edge delivery works for every
+ * site — decoupled from the audience source, which stays first-party D1 for subdomains.
+ * Custom domains resolve their own zone via the API (same as audience).
+ */
+export async function resolveDeliveryZone(
+  env: Env,
+  auth: CfAuth,
+  hostname: string,
+): Promise<{ zone_id: string } | null> {
+  if (apexDomain(hostname) === 'projectsites.dev') return { zone_id: env.CF_ZONE_ID ?? SHARED_ZONE_ID };
+  const z = await resolveZoneForHostname(env, auth, hostname);
+  return z ? { zone_id: z.zone_id } : null;
+}
+
+/**
+ * Query CF GraphQL for ONE host's edge DELIVERY over `days` (status codes + cache
+ * result + bandwidth), aggregated in a single multi-day sub-query each. Fail-soft:
+ * returns zeros (resolved:false) when the zone can't be resolved or the call fails,
+ * so one bad host never nukes the delivery block. Kept SEPARATE from the audience
+ * `loadHostAggregate` so enabling delivery for subdomains can't flip audience numbers.
+ */
+async function loadHostDelivery(
+  env: Env,
+  auth: CfAuth,
+  hostname: string,
+  days: number,
+): Promise<HostDelivery> {
+  const empty: HostDelivery = { by_cache: new Map(), by_status: new Map(), resolved: false, response_bytes: 0 };
+  const zone = await resolveDeliveryZone(env, auth, hostname);
+  if (!zone) return empty;
+
+  const windowCount = Math.min(Math.max(days, 1), CF_MAX_WINDOW_DAYS);
+  const nowMs = Date.now();
+  const since = new Date(nowMs - windowCount * 86_400_000).toISOString();
+  const until = new Date(nowMs).toISOString();
+  const query = /* GraphQL */ `
+    query HostDelivery($zoneTag: String!, $host: String!) {
+      viewer {
+        zones(filter: { zoneTag: $zoneTag }) {
+          status: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { edgeResponseStatus } }
+          cache: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { edgeResponseBytes } dimensions { cacheStatus } }
+        }
+      }
+    }
+  `;
+  try {
+    const res = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+      body: JSON.stringify({ query, variables: { host: hostname, zoneTag: zone.zone_id } }),
+      headers: { ...cfAuthHeaders(auth), 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    if (!res.ok) {
+      console.warn(JSON.stringify({ hostname, level: 'warn', op: 'loadHostDelivery', service: 'multi_url_analytics', status: res.status }));
+      return empty;
+    }
+    const json = (await res.json()) as CfGraphQlResponse;
+    if (json.errors?.length) {
+      console.warn(JSON.stringify({ graphql_errors: json.errors.map((e) => e.message).join('; ').slice(0, 300), hostname, level: 'warn', op: 'loadHostDelivery', service: 'multi_url_analytics' }));
+      return empty;
+    }
+    const zoneRow = json.data?.viewer?.zones?.[0];
+    if (!zoneRow) return { ...empty, resolved: true };
+    const agg: HostDelivery = { by_cache: new Map(), by_status: new Map(), resolved: true, response_bytes: 0 };
+    for (const row of zoneRow.status ?? []) {
+      const s = Number(row.dimensions?.edgeResponseStatus ?? 0);
+      const c = Number(row.count ?? 0);
+      if (s > 0 && c > 0) agg.by_status.set(s, (agg.by_status.get(s) ?? 0) + c);
+    }
+    for (const row of zoneRow.cache ?? []) {
+      const cs = String(row.dimensions?.cacheStatus ?? 'unknown');
+      const c = Number(row.count ?? 0);
+      if (c > 0) agg.by_cache.set(cs, (agg.by_cache.get(cs) ?? 0) + c);
+      agg.response_bytes += Number(row.sum?.edgeResponseBytes ?? 0);
+    }
+    return agg;
+  } catch (err) {
+    console.warn(JSON.stringify({ error: err instanceof Error ? err.message : String(err), hostname, level: 'warn', op: 'loadHostDelivery', service: 'multi_url_analytics' }));
+    return empty;
   }
 }
 
@@ -771,17 +841,21 @@ export async function loadMultiUrlAnalytics(
       .slice(0, 15)
       .map(([referrer, views]) => ({ referrer, views }));
 
-    // Merge delivery (status / cache / bandwidth) across all owned hosts.
+    // Edge delivery (status / cache / bandwidth) — a SEPARATE per-host query that
+    // resolves the shared projectsites.dev zone for subdomains, so delivery works for
+    // every site WITHOUT flipping the audience numbers to CF (audience stays D1). One
+    // batched query per host; cached with the rest of the envelope.
+    const deliveries = await Promise.all(filteredUrls.map((u) => loadHostDelivery(env, auth, u.hostname, days)));
     const mergedStatus = new Map<number, number>();
     const mergedCache = new Map<string, number>();
     let mergedBytes = 0;
-    for (const a of aggregates) {
-      for (const [s, c] of a.by_status) mergedStatus.set(s, (mergedStatus.get(s) ?? 0) + c);
-      for (const [k, c] of a.by_cache) mergedCache.set(k, (mergedCache.get(k) ?? 0) + c);
-      mergedBytes += a.response_bytes;
+    for (const dv of deliveries) {
+      for (const [s, c] of dv.by_status) mergedStatus.set(s, (mergedStatus.get(s) ?? 0) + c);
+      for (const [k, c] of dv.by_cache) mergedCache.set(k, (mergedCache.get(k) ?? 0) + c);
+      mergedBytes += dv.response_bytes;
     }
     const deliveryRangeDays = Math.min(Math.max(days, 1), CF_MAX_WINDOW_DAYS);
-    const deliveryZoneResolved = aggregates.some((a) => a.resolved);
+    const deliveryZoneResolved = deliveries.some((dv) => dv.resolved);
 
     envelope = {
       any_real_data: aggregates.some((a) => a.resolved && a.total_requests > 0),

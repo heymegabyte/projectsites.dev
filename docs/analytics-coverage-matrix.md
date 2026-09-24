@@ -43,7 +43,7 @@
 | Funnel (landing→engaged→converted) | D1 visitor_events | none | site_id | D1 | none | ✅ live | funnel widget |
 | Forms / completions | D1 form_submissions | none | site_id | D1 | none | ✅ live | forms tab |
 | Period-over-period deltas | D1 visitor_events | none | site_id | D1 | none | ✅ live | comparison |
-| **Delivery & performance (status codes / cache hit-miss / bandwidth)** | CF GraphQL `httpRequestsAdaptiveGroups` (`edgeResponseStatus` + `cacheStatus` + `sum{edgeResponseBytes}`) | needs a **resolved CF zone** for the host | per `clientRequestHTTPHost` | ~30 days | adaptive sampled | ✅ **card SHIPPED + honest (this fire)** — `buildDeliverySummary` folds status/cache/bytes into the SAME per-host authed query (zero extra requests) → `envelope.delivery` → focused `DeliveryCardComponent` (status classes + WORD, cache hit-ratio over cacheable, edge bandwidth, top error codes, ≥5% 4xx/5xx warning). **DATA verified real** via direct probe (harborline: 74% 200 · 9% 504 · 4% cache-hit · 1.16 GB/30d). **BLOCKED for subdomains in prod**: `CF_ZONE_ID` is unset in `[env.production.vars]`, so the zone fast-path is skipped for `*.projectsites.dev` → `zone_resolved:false` → the card honestly says "not available (shared zone)", NEVER "no traffic" (the site HAS visitors). Custom domains with a resolved zone show real data. | `/admin/analytics` "Delivery & performance" card |
+| **Delivery & performance (status codes / cache hit-miss / bandwidth)** | CF GraphQL `httpRequestsAdaptiveGroups` (`edgeResponseStatus` + `cacheStatus` + `sum{edgeResponseBytes}`) | resolved via the shared zone for subdomains; API lookup for custom domains | per `clientRequestHTTPHost` | ~30 days | adaptive sampled | ✅ **LIVE for ALL sites (decoupled this fire)** — a SEPARATE `loadHostDelivery`/`resolveDeliveryZone` path resolves the shared projectsites.dev zone for `*.projectsites.dev` subdomains, so edge delivery works for the subdomain MAJORITY — **without flipping the audience numbers to CF** (audience stays first-party D1; `resolveDeliveryZone` is independent of the audience `resolveZoneForHostname`, which still returns null for subdomains → `resolved_zone:false` → "ProjectSites analytics" labeling preserved). `envelope.delivery` → `DeliveryCardComponent` (status classes + WORD, cache hit-ratio, bandwidth, top error codes, ≥5% 4xx/5xx warning). **Prod-verified live** on harborline: 30d = 31,610 req · 2xx 27588 / 5xx 3145 / 3xx 828 / 4xx 49 · cache 32% · 1.16 GB, while audience `resolved_zone:[false]` + pageviews first-party. | `/admin/analytics` "Delivery & performance" card |
 | **Core Web Vitals (LCP/INP/CLS + per-page)** | first-party RUM → `web_vital` events in D1 | none (no CF plan) | per site_id (+ per `path`) | D1 | none (all sessions) | ✅ **COMPLETE + per-path** — site p75 card PLUS a **"Slowest pages · LCP p75"** drilldown (`getWebVitalsSummary` buckets LCP by `path`, ranks worst-first, top 5, past a **5-sample floor**); honest ("measuring"/null never a fake 0; a page needs ≥5 samples to be ranked) | `/admin/analytics` "Core Web Vitals" card + slowest-pages table |
 | **Security (WAF/bot/challenges)** | CF GraphQL `firewallEventsAdaptiveGroups` | **plan lacks access** | per hostname | plan-dependent | — | ❌ **BLOCKED — verified 2026-09-24** by an introspection probe against our zone: returns authz *"zone does not have access to the path"*. Our plan has no firewall-analytics entitlement, so this is NOT buildable without a plan upgrade — a security card would be a permanent placeholder (which the doctrine forbids). | — (honestly absent) |
 | **CSV export (dashboard)** | (UI) client-side over fetched data | none | — | — | — | ✅ **DONE + fixed (this fire)** — `buildAnalyticsCsv` exports summary + top-pages/countries/referrers **plus the D1 device/channel/conversions/CWV breakdowns** (were missing), with the **ACCURATE source label** (was hardcoded "cloudflare_graphql" — lied for subdomains); formula-injection-safe via the hardened shared `csvEscape`. Custom range / comparison / TZ still partial. | `/admin/analytics` Export CSV |
@@ -117,14 +117,17 @@ verified real via direct probe (harborline 74% 200 / 9% 504 / 4% cache-hit / 1.1
 flag: real data when the zone resolves, "no requests yet" when resolved+empty, "not available (shared zone)" when NOT
 resolved — NEVER "no traffic" for a site that has visitors. 8 worker + 8 card specs; 257 analytics tests still green.
 
-**KEY DISCOVERY / blocker:** the CF edge dataset DOES have per-host data for `*.projectsites.dev` subdomains (probe
-proved it) — the codebase's "subdomains are empty in adaptive-groups" assumption is OUTDATED. But in prod `CF_ZONE_ID`
-is UNSET in `[env.production.vars]`, so `resolveZoneForHostname`'s fast-path is skipped for subdomains → `zone_resolved:false`
-→ delivery empty for the subdomain majority (and the audience path already silently uses the D1 fallback for the same reason).
+**Delivery DECOUPLED → now LIVE for the subdomain majority** (2026-09-24): a SEPARATE `loadHostDelivery` +
+`resolveDeliveryZone` path resolves the shared projectsites.dev zone for `*.projectsites.dev` subdomains (one extra
+batched query per host, cached), so edge delivery works for every site — while the audience `resolveZoneForHostname`
+still returns null for subdomains, keeping pageviews first-party D1 + "ProjectSites analytics" labeling. Last fire's
+delivery additions to `loadHostAggregate` (which would've flipped audience) were REVERTED. Prod-verified: harborline
+30d = 31,610 req · 2xx 27588 / 5xx 3145 · cache 32% · 1.16 GB, audience `resolved_zone:false` + pageviews 1676 first-party.
+10 worker delivery specs (incl. `resolveDeliveryZone` subdomain→shared-zone) + 265 analytics tests green; frontend
+unchanged (same `envelope.delivery` shape). The CF "subdomains-are-empty" assumption is confirmed OUTDATED.
 
-NEXT highest-value gaps (Security plan-blocked): (1) **Make delivery real for subdomains WITHOUT changing the audience
-source.** Setting `CF_ZONE_ID` resolves the zone but would ALSO flip every subdomain's *audience* numbers from first-party
-D1 to CF-edge (reversing the deliberate first-party design + the "ProjectSites analytics" labeling) — a one-way-door
-decision. The clean fix: decouple zone-resolution-for-DELIVERY (status/cache/bandwidth, CF-only, no D1 conflict) from the
-audience source, so delivery populates for subdomains while pageviews stay first-party D1. (2) **Custom date range +
-timezone** in the range selector. (3) **Migrate bespoke CSV exports** onto the shared `csvEscape`/`downloadText`.
+NEXT highest-value gaps (Security plan-blocked; delivery now covers all sites): (1) **Custom date range + timezone** in
+the range selector (today: 24h/7d/30d/90d pills). (2) **Latency/performance percentiles** — `httpRequestsAdaptiveGroups`
+exposes `originResponseDurationMs`/`edgeDnsResponseTimeMs` (seen in introspection); add an origin-vs-edge timing view via
+the same `loadHostDelivery` path (verify the fields return data first). (3) **Migrate bespoke CSV exports** onto the
+shared `csvEscape`/`downloadText`.
