@@ -26,6 +26,41 @@
   (`site_analytics/handlers.ts:52`) resolve site→org server-side from ownership; 404 (no existence
   leak) on mismatch; hostname/zone never trusted from the client.
 
+## Cloudflare entitlement map — DEFINITIVE (GraphQL introspection + per-field probe, 2026-09-24)
+
+Probed our real zone (`9ceaa211750dd31899fd5d1bf8d1ec46`) field-by-field against
+`ZoneHttpRequestsAdaptiveGroups` — the ONE dataset that works per-`clientRequestHTTPHost`
+for `*.projectsites.dev` subdomains (the majority). This replaces guesswork: a field's
+presence in the schema ≠ entitlement; one gated field nulls the whole query, so each was
+probed alone. Method: `viewer.zones(zoneTag).httpRequestsAdaptiveGroups`, `authz` error =
+gated.
+
+- **✅ AVAILABLE on our (Free) plan — buildable per-subdomain, no upgrade:** `count`
+  (edge requests) · `sum.visits` (CF visits) · `sum.edgeResponseBytes/edgeRequestBytes`
+  (bandwidth) · `clientCountryName` (geo) · `clientDeviceType` + `userAgentBrowser` +
+  `userAgentOS` (edge-measured, covers non-JS) · `edgeResponseContentTypeName` (content
+  served) · `clientRequestHTTPProtocol` (HTTP/1.1·2·3) · `clientSSLProtocol` (TLS version)
+  · `clientRequestHTTPMethodName` · `edgeResponseStatus` + `cacheStatus` · `coloCode` (CF
+  data center) · `verifiedBotCategory` (Googlebot/Bingbot crawl visibility — SEO) ·
+  `securityAction`.
+- **❌ GATED (paid add-on — a card would be a permanent placeholder, forbidden):**
+  `edgeTimeToFirstByteMs`/`edgeDnsResponseTimeMs` avg+quantiles (**latency** — Pro+) ·
+  `botScore`/`botManagementDecision` (**Bot Management** add-on) · `wafAttackScore*`/
+  (WAF Attack Score — Biz/Ent) · `clientRefererHost`/`clientRequestReferer` (edge referer)
+  · `clientAsn`/`clientASNDescription` (network/ISP) · the whole `firewallEventsAdaptiveGroups`
+  dataset. Latency + Security/WAF stay honestly absent (never faked).
+- **RUM (Cloudflare Web Analytics)** datasets EXIST **account-scoped**
+  (`AccountRumPageloadEventsAdaptiveGroups` · `AccountRumWebVitalsEventsAdaptiveGroups`) — a
+  first-party-token beacon we do NOT deploy today (we run our OWN app.js RUM instead). A CF
+  beacon would DOUBLE-count with app.js; DEFERRED (decision: keep first-party RUM as the
+  source of truth). Documented so a future fire doesn't chase it blindly.
+- **SHIPPED from this map (2026-09-24):** HTTP protocol / TLS version / content-type /
+  method breakdowns → `envelope.delivery.{protocols,tls,content_types,methods}` →
+  `DeliveryCardComponent` edge-breakdown grid (same per-host query, zero extra requests).
+  **NEXT from this map (exact, buildable):** `verifiedBotCategory` (crawler visibility —
+  highest owner value, SEO) · `sum.visits`/edge-requests as explicit CF metrics · `coloCode`
+  edge-network view · edge geo/device to complement first-party.
+
 ## Coverage matrix
 
 | Metric | Source | Plan/config | Hostname filter | Retention | Sampling | Status | UI |
@@ -89,6 +124,13 @@ NARROWS within the already owner-scoped `site_id` (a non-owned site still 404s W
 11 core (`filtered_summary.test.ts`: bound-value correctness, path-column-vs-json, prev-window parity, web-vital
 threading, EVERY-query-binds-site_id isolation, unknown-dim SQL no-op, rollup-skip + a mock-live control) + 7 route
 (`filter_route.test.ts`: echo, allowlist-reject ×3, missing-half, over-long-value, authz-not-widened).
+
+**✅ FILTER UI — SHIPPED 2026-09-24 (commit `99c883ff8`).** Clickable device/browser/os (tech-breakdown),
+country (geo), and page (top-pages) rows now drill the whole summary to `{dim,value}` via the live
+`?filterDim&filterValue`; a removable chip renders from the SERVER-echoed `appliedFilter` (never the click
+alone), toggles off on re-click, honest empty-when-filtered states, accessible (rows = `aria-pressed` buttons,
+chip = real button). Filtered view is first-party audience only (edge can't filter these dims). +9 Karma. The
+prior handoff below is now HISTORICAL.
 
 **THE single highest-priority NEXT increment: the filter UI.** The API is live + honest but nothing in the Angular
 dashboard sends `filterDim`/`filterValue` yet. Next fire: (1) make breakdown rows (country/device/browser/os/channel +
