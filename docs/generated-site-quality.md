@@ -52,7 +52,7 @@ Current `.lighthouserc.json` runs `warn` at Perf 0.8 / A11y 0.9 / Best-practices
 | Best practices | ≥ 0.95 (error) |
 | SEO | ≥ 0.95 (error) |
 
-TODO: split a `lighthouserc.generated.json` that asserts `error` against a deployed `{slug}.projectsites.dev` sample, separate from the admin/marketing run.
+**Upcoming:** separate `lighthouserc.generated.json` that asserts `error` against a deployed `{slug}.projectsites.dev` sample, independent from admin/marketing suite (2026-Q4).
 
 ## SEO + structured data
 

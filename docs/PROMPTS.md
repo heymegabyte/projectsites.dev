@@ -232,16 +232,21 @@ const validated = validatePromptOutput('research_profile', JSON.parse(output));
 
 ### V2 Pipeline Prompts (current)
 
-| File | ID | Version | Model | Purpose |
-|------|----|---------|-------|---------|
-| `research_profile.prompt.md` | `research_profile` | 1 | `@cf/meta/llama-3.1-70b-instruct` | Deep business research |
-| `research_social.prompt.md` | `research_social` | 1 | `@cf/meta/llama-3.1-8b-instruct` | Social media discovery |
-| `research_brand.prompt.md` | `research_brand` | 1 | `@cf/meta/llama-3.1-70b-instruct` | Brand identity |
-| `research_selling_points.prompt.md` | `research_selling_points` | 1 | `@cf/meta/llama-3.1-70b-instruct` | USPs + hero content |
-| `research_images.prompt.md` | `research_images` | 1 | `@cf/meta/llama-3.1-8b-instruct` | Image strategies |
-| `generate_website.prompt.md` | `generate_website` | 1 | `@cf/meta/llama-3.1-70b-instruct` | Full HTML generation |
-| `generate_legal_pages.prompt.md` | `generate_legal_pages` | 1 | `@cf/meta/llama-3.1-8b-instruct` | Privacy/terms pages |
-| `score_website.prompt.md` | `score_website` | 1 | `@cf/meta/llama-3.1-70b-instruct` | Quality scoring |
+Default model routing per `src/services/external_llm.ts`:
+- **Heavy lifting (70B equiv)** — `claude-sonnet-4-6` primary; DeepSeek mid-tier fallback; Workers AI Llama 70B instant fallback
+- **Light tasks (8B equiv)** — `claude-haiku-4-5` primary; Workers AI Llama 8B instant fallback
+- Orchestration layers (architecture, completeness, security) — Opus 4.7
+
+| File | ID | Version | Model tier | Purpose |
+|------|----|---------|---------|---------|
+| `research_profile.prompt.md` | `research_profile` | 1 | 70B (Sonnet/Deepseek/Llama) | Deep business research |
+| `research_social.prompt.md` | `research_social` | 1 | 8B (Haiku/Llama) | Social media discovery |
+| `research_brand.prompt.md` | `research_brand` | 1 | 70B (Sonnet/Deepseek/Llama) | Brand identity |
+| `research_selling_points.prompt.md` | `research_selling_points` | 1 | 70B (Sonnet/Deepseek/Llama) | USPs + hero content |
+| `research_images.prompt.md` | `research_images` | 1 | 8B (Haiku/Llama) | Image strategies |
+| `generate_website.prompt.md` | `generate_website` | 1 | 70B (Sonnet/Deepseek/Llama) | Full HTML generation |
+| `generate_legal_pages.prompt.md` | `generate_legal_pages` | 1 | 8B (Haiku/Llama) | Privacy/terms pages |
+| `score_website.prompt.md` | `score_website` | 1 | 70B (Sonnet/Deepseek/Llama) | Quality scoring |
 
 ### Legacy Prompts (v1/v2)
 

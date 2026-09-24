@@ -32,7 +32,7 @@ not yet deployed · **PLANNED** = reserved name, referenced in code/docs, not bu
 | `crm.projectsites.dev` | Twenty CRM | **LIVE** |
 | `mail.projectsites.dev` | Listmonk — newsletters / campaigns (relays via SES) | **LIVE** |
 | `events.projectsites.dev` | Inngest — background jobs / event bus | **LIVE** |
-| `plane.projectsites.dev` | Plane — project management | PLANNED |
+| `plane.projectsites.dev` | Plane — project management | **CONFIG** (Fly draft via `infra/fly/plane/fly.toml`; to convert to CF Container 2026-Q4) |
 | `support.projectsites.dev` | Chatwoot — support inbox / live chat | **CONFIG** (Fly) |
 | `social.projectsites.dev` | Postiz — reference/transition social scheduler | **CONFIG** (Fly) |
 

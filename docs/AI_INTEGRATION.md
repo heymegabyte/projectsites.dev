@@ -189,18 +189,22 @@ biggest per-request bill in half on multi-turn flows.
 | `apps/project-sites/src/services/external_llm.ts:327` | `cache_control: ephemeral` injection when `system.length > 1024` |
 | `apps/project-sites/src/services/external_llm.ts:346` | System-prompt array assembly |
 
-**Model routing**
+**Model routing** (per `model-routing.md`)
 
-| Model | Use |
-| ----- | --- |
-| `claude-opus-4-7` | Architecture, security review, completeness checks (xhigh effort) |
-| `claude-sonnet-4-6` | Default — research, generation, debugging (high effort) |
-| `claude-haiku-4-5` | Content writing, formatting, changelog (low effort) |
+| Model | Use | Cost |
+| ----- | --- | --- |
+| `claude-opus-4-7` | Architecture, security review, completeness checks (xhigh effort) | ~$15/1M tokens |
+| `claude-sonnet-4-6` | Default — research, generation, debugging (high effort) | ~$3/1M tokens |
+| `claude-haiku-4-5` | Content writing, formatting, changelog (low effort) | ~$0.80/1M tokens |
+| `deepseek-chat` | Mid-tier fallback when Opus quota exhausted | ~$0.14/1M tokens |
+| `@cf/meta/llama-*` FP8 | Instant (free) — Workers AI via AI Gateway | Free |
+
+**Quota fallback** — When Opus weekly quota ≥95%, fall back to Sonnet 4.6 automatically. Zero Opus re-toggle needed; agents carry `model_fallback` in frontmatter. See `opus-quota-fallback.md`.
 
 **Prompt caching** — Automatic. When the rendered system prompt is longer than
 1024 chars, the worker rewrites it as a single-element array carrying
 `cache_control: { type: 'ephemeral' }`. Subsequent requests within the 5-min
-TTL hit cache. Track hit rate via `$ai_cache_read` in PostHog.
+TTL hit cache. Track hit rate via `$ai_cache_read` in PostHog. 90% cost reduction on repeated workflows.
 
 **Structured Outputs** — Use the `structured-outputs-2025-11-13` beta header
 on Anthropic requests that need strict JSON. Incompatible with Citations —
