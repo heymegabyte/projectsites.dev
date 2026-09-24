@@ -43,7 +43,7 @@
 | Forms / completions | D1 form_submissions | none | site_id | D1 | none | ✅ live | forms tab |
 | Period-over-period deltas | D1 visitor_events | none | site_id | D1 | none | ✅ live | comparison |
 | CF requests/bandwidth/cache/status | CF GraphQL httpRequestsAdaptiveGroups | custom domain in CF zone | per hostname | 30 days | adaptive sampled | ⚠️ fallback-only, not surfaced as its own view | — |
-| **Core Web Vitals (LCP/INP/CLS)** | — (needs CF Web Analytics beacon or RUM) | Web Analytics beacon on site | per hostname | — | — | ❌ **missing** | — |
+| **Core Web Vitals (LCP/INP/CLS)** | first-party RUM → `web_vital` events in D1 | none (no CF plan) | per site_id | D1 | none | 🔨 **ingest DONE** — `web_vital` accepted at `/api/events` → `visitor_events` (validates metric∈{LCP,INP,CLS,FCP,TTFB}+value≥0); client beacon + p75 + UI PENDING | — |
 | **Security (WAF/bot/challenges)** | CF GraphQL firewall/security datasets | custom domain in zone (WAF plan) | per hostname | plan-dependent | — | ❌ missing | — |
 | **CSV export / custom range / comparison / TZ** | (UI) | none | — | — | — | ❌ partial/missing | — |
 | Source + freshness labels in UI | (UI) | none | — | — | — | ⚠️ verify present | — |
@@ -66,8 +66,11 @@ Good first implementable slice if CWV instrumentation is too large for one fire.
 - Analytics Engine customer dashboards — ingest disabled; out of scope unless enabled.
 
 ## Next increment (handoff)
-Verify whether a CF Web Analytics beacon is injected into generated-site HTML at build (grep the
-template/site output for `static.cloudflareinsights.com` / a RUM beacon). If absent → implement a
-first-party `web_vital` beacon (client `web-vitals` lib → `/api/events` → visitor_events) with a
-"measurement enabled?" gate + p75 LCP/INP/CLS cards labeled estimated/sampled. Add tenant-isolation
-test for the new event type. Otherwise wire CF Web Analytics per-hostname read for custom domains.
+**Ingest is DONE** (2026-09-23): the `web_vital` event type is accepted at `/api/events` and mirrored
+to `visitor_events` (metadata `{metric, value}`), validated (metric ∈ {LCP,INP,CLS,FCP,TTFB}, value ≥ 0)
+and tenant-scoped via `site.org_id`. Both schema boundaries tested (analytics_events + visitor_events, 52/52).
+NEXT, in order: (1) **client RUM beacon** — add `web-vitals` (`onLCP/onINP/onCLS`) to the generated-site
+tracker → `POST /api/events {eventType:'web_vital', payload:{metric,value,href}}`, only on real published sites.
+(2) **p75 aggregation** — `getSiteAnalyticsSummary` reads `visitor_events WHERE event_type='web_vital'`, p75 per
+metric per path. (3) **UI card** — LCP/INP/CLS p75, labeled "field data (RUM), last N days", with an honest
+"measuring — no samples yet" empty state (never a fabricated 0). Confirm the beacon is deployed per site first.

@@ -20,6 +20,8 @@ export const VisitorEventTypeSchema = z.enum([
   'custom',
   'form_start',
   'form_submit',
+  // Core Web Vitals RUM sample (metadata: {metric, value}); see EVENT_TYPES.
+  'web_vital',
 ]);
 export type VisitorEventType = z.infer<typeof VisitorEventTypeSchema>;
 

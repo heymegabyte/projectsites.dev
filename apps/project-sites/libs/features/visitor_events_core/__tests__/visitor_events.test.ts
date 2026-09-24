@@ -100,6 +100,20 @@ describe('visitor_events_core service', () => {
     expect(FLAG_KEY).toBe('site_analytics');
   });
 
+  it('records a web_vital CWV sample with {metric,value} metadata (AN-CWV)', async () => {
+    const { env } = makeEnv();
+    const ctx = { orgId: 'org1', siteId: 'site1' };
+    const { id } = await recordVisitorEvent(env, ctx, {
+      sessionId: 'sess-cwv-0001',
+      eventType: 'web_vital',
+      path: '/pricing',
+      metadata: { metric: 'LCP', value: 2500 },
+    });
+    expect(id).toBeTruthy();
+    const s = await getTrafficSummary(env, 'site1', 30);
+    expect(s.byType).toEqual(expect.arrayContaining([{ type: 'web_vital', count: 1 }]));
+  });
+
   it('records an event and rolls up traffic', async () => {
     const { env } = makeEnv();
     const ctx = { orgId: 'org1', siteId: 'site1' };

@@ -34,6 +34,9 @@ export const EVENT_TYPES = [
   // panel open, `concierge_message` per visitor message — usage + engagement signal.
   'concierge_open',
   'concierge_message',
+  // AN-CWV: a Core Web Vitals sample from the client RUM beacon. Payload carries
+  // {metric: LCP|INP|CLS|FCP|TTFB, value: number, href}. Mirrored to visitor_events.
+  'web_vital',
 ] as const;
 
 /**

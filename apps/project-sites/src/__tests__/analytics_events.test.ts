@@ -34,6 +34,15 @@ describe('IncomingEventSchema', () => {
     expect(IncomingEventSchema.safeParse({ ...base, eventType: 'teleport' }).success).toBe(false);
   });
 
+  it('accepts a web_vital CWV sample with {metric,value,href} payload (AN-CWV)', () => {
+    const wv = {
+      ...base,
+      eventType: 'web_vital' as const,
+      payload: { metric: 'LCP', value: 2500, href: '/pricing' },
+    };
+    expect(IncomingEventSchema.safeParse(wv).success).toBe(true);
+  });
+
   it('accepts a click-to-call/directions conversion event with kind+section payload (AN18 #60)', () => {
     const conv = {
       ...base,

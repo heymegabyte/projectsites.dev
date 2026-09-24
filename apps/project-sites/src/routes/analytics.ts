@@ -29,7 +29,7 @@ import { recordVisitorEvent } from '../../libs/features/visitor_events_core/serv
  * (adds `error`/`scroll`), so the guard both filters AND narrows to a valid
  * `VisitorEventType` before we call `recordVisitorEvent`.
  */
-const VISITOR_MIRROR_TYPES = ['conversion', 'form_start', 'form_submit'] as const;
+const VISITOR_MIRROR_TYPES = ['conversion', 'form_start', 'form_submit', 'web_vital'] as const;
 type VisitorMirrorType = (typeof VISITOR_MIRROR_TYPES)[number];
 const isVisitorMirrorType = (t: string): t is VisitorMirrorType =>
   (VISITOR_MIRROR_TYPES as readonly string[]).includes(t);
@@ -210,10 +210,34 @@ analyticsRoutes.post('/api/events', async (c) => {
         );
         if (!site?.org_id) return;
         const p = event.payload as
-          | { kind?: unknown; section?: unknown; href?: unknown; channel?: unknown; form?: unknown }
+          | {
+              kind?: unknown;
+              section?: unknown;
+              href?: unknown;
+              channel?: unknown;
+              form?: unknown;
+              metric?: unknown;
+              value?: unknown;
+            }
           | undefined;
+        // web_vital carries {metric, value}: validate against the known CWV set + a
+        // finite non-negative number, and SKIP the mirror on anything else so the p75
+        // aggregation never sees a fabricated or hostile sample.
+        let cwvMetric = '';
+        let cwvValue = Number.NaN;
+        if (mirrorType === 'web_vital') {
+          cwvMetric = typeof p?.metric === 'string' ? p.metric.toUpperCase() : '';
+          cwvValue = typeof p?.value === 'number' ? p.value : Number.NaN;
+          if (
+            !['LCP', 'INP', 'CLS', 'FCP', 'TTFB'].includes(cwvMetric) ||
+            !Number.isFinite(cwvValue) ||
+            cwvValue < 0
+          ) {
+            return;
+          }
+        }
         // Conversions carry kind/section/channel (AN27 attribution); form events
-        // carry the form key (AN17 completion) — build the metadata per event type.
+        // carry the form key (AN17 completion); web_vital carries {metric, value}.
         const metadata: Record<string, unknown> =
           mirrorType === 'conversion'
             ? {
@@ -221,7 +245,9 @@ analyticsRoutes.post('/api/events', async (c) => {
                 section: typeof p?.section === 'string' ? p.section : undefined,
                 channel: typeof p?.channel === 'string' ? p.channel : undefined,
               }
-            : { form: typeof p?.form === 'string' ? p.form : undefined };
+            : mirrorType === 'web_vital'
+              ? { metric: cwvMetric, value: cwvValue }
+              : { form: typeof p?.form === 'string' ? p.form : undefined };
         await recordVisitorEvent(
           env,
           { orgId: site.org_id, siteId: site.id },
