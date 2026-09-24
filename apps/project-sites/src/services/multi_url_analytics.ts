@@ -464,7 +464,8 @@ export async function resolveDeliveryZone(
   auth: CfAuth,
   hostname: string,
 ): Promise<{ zone_id: string } | null> {
-  if (apexDomain(hostname) === 'projectsites.dev') return { zone_id: env.CF_ZONE_ID ?? SHARED_ZONE_ID };
+  if (apexDomain(hostname) === 'projectsites.dev')
+    return { zone_id: env.CF_ZONE_ID ?? SHARED_ZONE_ID };
   const z = await resolveZoneForHostname(env, auth, hostname);
   return z ? { zone_id: z.zone_id } : null;
 }
@@ -482,7 +483,12 @@ async function loadHostDelivery(
   hostname: string,
   days: number,
 ): Promise<HostDelivery> {
-  const empty: HostDelivery = { by_cache: new Map(), by_status: new Map(), resolved: false, response_bytes: 0 };
+  const empty: HostDelivery = {
+    by_cache: new Map(),
+    by_status: new Map(),
+    resolved: false,
+    response_bytes: 0,
+  };
   const zone = await resolveDeliveryZone(env, auth, hostname);
   if (!zone) return empty;
 
@@ -507,17 +513,41 @@ async function loadHostDelivery(
       method: 'POST',
     });
     if (!res.ok) {
-      console.warn(JSON.stringify({ hostname, level: 'warn', op: 'loadHostDelivery', service: 'multi_url_analytics', status: res.status }));
+      console.warn(
+        JSON.stringify({
+          hostname,
+          level: 'warn',
+          op: 'loadHostDelivery',
+          service: 'multi_url_analytics',
+          status: res.status,
+        }),
+      );
       return empty;
     }
     const json = (await res.json()) as CfGraphQlResponse;
     if (json.errors?.length) {
-      console.warn(JSON.stringify({ graphql_errors: json.errors.map((e) => e.message).join('; ').slice(0, 300), hostname, level: 'warn', op: 'loadHostDelivery', service: 'multi_url_analytics' }));
+      console.warn(
+        JSON.stringify({
+          graphql_errors: json.errors
+            .map((e) => e.message)
+            .join('; ')
+            .slice(0, 300),
+          hostname,
+          level: 'warn',
+          op: 'loadHostDelivery',
+          service: 'multi_url_analytics',
+        }),
+      );
       return empty;
     }
     const zoneRow = json.data?.viewer?.zones?.[0];
     if (!zoneRow) return { ...empty, resolved: true };
-    const agg: HostDelivery = { by_cache: new Map(), by_status: new Map(), resolved: true, response_bytes: 0 };
+    const agg: HostDelivery = {
+      by_cache: new Map(),
+      by_status: new Map(),
+      resolved: true,
+      response_bytes: 0,
+    };
     for (const row of zoneRow.status ?? []) {
       const s = Number(row.dimensions?.edgeResponseStatus ?? 0);
       const c = Number(row.count ?? 0);
@@ -531,7 +561,15 @@ async function loadHostDelivery(
     }
     return agg;
   } catch (err) {
-    console.warn(JSON.stringify({ error: err instanceof Error ? err.message : String(err), hostname, level: 'warn', op: 'loadHostDelivery', service: 'multi_url_analytics' }));
+    console.warn(
+      JSON.stringify({
+        error: err instanceof Error ? err.message : String(err),
+        hostname,
+        level: 'warn',
+        op: 'loadHostDelivery',
+        service: 'multi_url_analytics',
+      }),
+    );
     return empty;
   }
 }
@@ -845,7 +883,9 @@ export async function loadMultiUrlAnalytics(
     // resolves the shared projectsites.dev zone for subdomains, so delivery works for
     // every site WITHOUT flipping the audience numbers to CF (audience stays D1). One
     // batched query per host; cached with the rest of the envelope.
-    const deliveries = await Promise.all(filteredUrls.map((u) => loadHostDelivery(env, auth, u.hostname, days)));
+    const deliveries = await Promise.all(
+      filteredUrls.map((u) => loadHostDelivery(env, auth, u.hostname, days)),
+    );
     const mergedStatus = new Map<number, number>();
     const mergedCache = new Map<string, number>();
     let mergedBytes = 0;

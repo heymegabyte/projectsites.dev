@@ -132,12 +132,20 @@ describe('resolveDeliveryZone (delivery/audience decouple)', () => {
   const auth = {} as never;
 
   it('resolves *.projectsites.dev subdomains to the shared zone — so edge delivery works for subdomains WITHOUT the audience path resolving a zone (audience stays first-party D1)', async () => {
-    const z = await resolveDeliveryZone({} as never, auth, 'harborline-coffee-roasters-boston.projectsites.dev');
+    const z = await resolveDeliveryZone(
+      {} as never,
+      auth,
+      'harborline-coffee-roasters-boston.projectsites.dev',
+    );
     expect(z?.zone_id).toBe('9ceaa211750dd31899fd5d1bf8d1ec46');
   });
 
   it('honors an env.CF_ZONE_ID override for the shared projectsites.dev zone', async () => {
-    const z = await resolveDeliveryZone({ CF_ZONE_ID: 'zone-override' } as never, auth, 'x.projectsites.dev');
+    const z = await resolveDeliveryZone(
+      { CF_ZONE_ID: 'zone-override' } as never,
+      auth,
+      'x.projectsites.dev',
+    );
     expect(z?.zone_id).toBe('zone-override');
   });
 });
