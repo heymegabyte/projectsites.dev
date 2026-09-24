@@ -11,6 +11,11 @@
   (redundant + less accurate — I created it earlier this session; it wrongly called the
   D1 store a "client beacon" and marked device/geo/comparison as gaps). Canonical is
   `docs/analytics-coverage-matrix.md`. Verified the data-section matrix is NOT duplicated.
+- **Cycle 2 — 2026-09-23:** Angular style pass — confirmed native control flow is 100%
+  complete; migrated the 2 remaining constructor-DI components to `inject()`
+  (`before-after-slider`, `grafana-dashboard`) + removed an unused `effect` import.
+  Typecheck + 1870 Karma green. Recorded the signal-input migration (46 files) as the
+  big remaining Angular item.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
@@ -19,10 +24,19 @@
 - **Shared:** `packages/shared`.
 - **Tests (PRESERVED):** 677 Jest (Worker) + 168 Karma (Angular) + 535 e2e (Playwright).
 
-## Angular style-guide coverage (angular.dev/style-guide, v21) — NOT STARTED
-- `apps/project-sites/frontend` — **0% reviewed.** Next: inventory components vs the style
-  guide (naming + colocated files, feature structure, focused components, DI, signals +
-  native `@if/@for/@switch`, a11y, unused imports). Record per-area coverage here.
+## Angular style-guide coverage (angular.dev/style-guide, v21) — IN PROGRESS
+`apps/project-sites/frontend` (Angular 21.2.14):
+- **Native control flow: ✅ COMPLETE** — 0 real `*ngIf`/`*ngFor`/`ngSwitch`/`ngClass`
+  (the lone `*ngFor` grep hit is a JSDoc comment in `animations/motion.ts`).
+- **DI via `inject()`: ✅** — migrated the 2 constructor-DI component holdouts
+  (`before-after-slider`, `grafana-dashboard`; dropped an unused `effect` import too).
+  The 3rd `constructor(private…)` hit is a test-mock class (`readiness-badge.component.spec`),
+  not Angular DI.
+- **Signal inputs: ⏳ the big remaining item** — `@Input()`×46, `@Output()`×9, `@ViewChild`×21
+  files still use decorators. Migrate progressively, ONE component per cycle (coherent
+  feature-level, not mechanical churn); update its template (`{{ foo() }}`) + spec each time.
+- Standalone components: ✅ (no NgModules). Naming/colocation, a11y, focused-components:
+  not yet swept.
 
 ## Documentation map (canonical per topic)
 - **Analytics coverage** → `docs/analytics-coverage-matrix.md` ✅ canonical (dup removed cycle 1)
@@ -59,6 +73,7 @@
   active analytics loop is `348521da`.
 
 ## Next highest-value action
-Begin the **Angular style-guide file-by-file review** of `apps/project-sites/frontend` (record
-coverage above). Do NOT build analytics comparison deltas (already live). Before creating any
-doc, grep for an existing one.
+Migrate ONE component's `@Input()`/`@Output()` → `input()`/`output()` signals per cycle
+(46 `@Input()` files remain) — update its template to call the signal (`{{ foo() }}`) + its
+spec, keep typecheck + Karma green. Start with a small leaf component. Do NOT build analytics
+comparison deltas (already live). Before creating any doc, grep for an existing one.

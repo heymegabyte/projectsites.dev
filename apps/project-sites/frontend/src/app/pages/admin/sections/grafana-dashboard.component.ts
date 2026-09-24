@@ -1,4 +1,4 @@
-import { Component, signal, effect } from '@angular/core';
+import { Component, signal, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 
 /**
@@ -82,7 +82,9 @@ import { HttpClient } from '@angular/common/http';
 export class GrafanaDashboardComponent {
   apiKeyReady = signal(false);
 
-  constructor(private http: HttpClient) {
+  private readonly http = inject(HttpClient);
+
+  constructor() {
     // Check if the API key is configured by hitting the Worker health endpoint
     this.http.get<{ grafana_configured: boolean }>('/api/admin/grafana/status')
       .subscribe({

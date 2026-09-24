@@ -1,4 +1,4 @@
-import { Component, Input, ElementRef, ViewChild, AfterViewInit, OnDestroy } from '@angular/core';
+import { Component, Input, ElementRef, ViewChild, AfterViewInit, OnDestroy, inject } from '@angular/core';
 
 @Component({
   selector: 'sk-before-after-slider',
@@ -141,7 +141,7 @@ export class BeforeAfterSliderComponent implements AfterViewInit, OnDestroy {
   private boundMove = this.onMove.bind(this);
   private boundUp = this.stopDrag.bind(this);
 
-  constructor(private el: ElementRef) {}
+  private readonly el = inject(ElementRef);
 
   ngAfterViewInit(): void {
     this.pct = this.initial;
