@@ -242,6 +242,17 @@
   chunk-hash prod-verified (`chunk-2DWUIDDD.js`). Chose this glanceable, safe, in-spec slice; row edit/delete stays deferred
   (memory: `form_submissions` has NO `deleted_at` → an owner delete is a HARD, irreversible delete → fresh-session per risk
   discipline).
+- **Cycle 25 — 2026-09-24 (Analytics: conversions-tile Δ badge):** Extended the authoritative period-over-period trend badge
+  from the KPI tiles to the **Conversions card**. New `conversionDelta` computed feeds `deltaBadge(traffic.conversions,
+  traffic.previous.conversions, windowDays)` into `ConversionsCardComponent` via a new `delta` input, rendered as a trend chip
+  (`[data-testid=an-conv-trend]`) beside the "N total". Compares the authoritative `conversions` scalar across both periods
+  (same metric/source, not a re-summed breakdown) — source-consistent with `pvDelta`/`visitorDelta`. Honest: chip hidden
+  (`null`) when there's nothing to compare (never a fake "0%"), "new" when the prior period was zero. Extracted the `TrendBadge`
+  view-model to a shared `trend-badge.model.ts` (one type for the producer + both consumer cards — removes a would-be duplicate
+  per drift-detection). Frontend-only (`previous.conversions` already served by both summary paths). TDD-first: specs (card +
+  component) written before impl. Verified: tsc 0 · backtick 0 · **Karma 2008/2008** (+6) · build 0 · eslint 0 err · deployed
+  R2 + chunk-hash prod-verified (`chunk-3SPBOWJE.js`, `an-conv-trend` live). Next: remaining server-CSV `downloadText`
+  consolidation (`analytics-dashboard` + audit full-trail, consistency-only), then DST-precise tz shift.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

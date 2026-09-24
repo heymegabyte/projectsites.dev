@@ -32,7 +32,7 @@
 |---|---|---|---|---|---|---|---|
 | Pageviews | D1 visitor_events (server) | none | per site_id | D1 (unbounded) | none | ✅ live | traffic card |
 | Unique sessions | D1 visitor_events (anon hash) | none | site_id | D1 | none | ✅ live | sessions card |
-| Conversions (total) | D1 visitor_events (beacon) | none | site_id | D1 | none | ✅ live | conversions card |
+| Conversions (total) | D1 visitor_events (beacon) | none | site_id | D1 | none | ✅ live — **now with a period-over-period Δ chip** (`conversionDelta` vs `previous.conversions`, honest "new"/null) | conversions card |
 | **Conversions by kind** (call / directions / form / …) | D1 visitor_events `json_extract($.kind)` on `conversion` events | none | site_id | D1 | none | ✅ **live (this fire)** — `getConversionKinds` (both summary paths) → `traffic.byConversionKind` → focused **`ConversionsCardComponent`** (humanized labels + bar breakdown + total; kind-less → "other"; honest "no conversions tracked yet" empty state) | `/admin/analytics` "Conversions" card |
 | Top pages / paths | D1 visitor_events | none | site_id | D1 | none | ✅ live | top-pages table |
 | Referrers | D1 visitor_events | none | site_id | D1 | none | ✅ live | referrer table |
@@ -213,6 +213,16 @@ window in the hover ("vs the previous N days"), **"new" (never ∞%)** when the 
 to compare. Frontend-only (data already served). +6 Karma (up/down · new · null-both-zero · flat · no-siteTraffic · chip
 renders) → 1997. Deployed R2 + chunk-hash prod-verified (`chunk-4NR7DMXE.js`, `kpi-pv-trend`).
 
+**Conversions-tile Δ badge — DONE (2026-09-24).** The Conversions card now carries the SAME authoritative period-over-period
+badge as the KPI tiles: a new `conversionDelta` computed feeds `deltaBadge(traffic.conversions, traffic.previous.conversions,
+windowDays)` into `ConversionsCardComponent` via a new `delta` input, rendered as a trend chip (`[data-testid=an-conv-trend]`)
+beside the "N total". Compares the authoritative `conversions` scalar across both periods (same metric/source, not a re-summed
+breakdown) — source-consistent with `pvDelta`/`visitorDelta`. Honest: `null` (chip hidden) when there's nothing to compare,
+never a fake "0%"; "new" when the prior period was zero. Extracted the `TrendBadge` view-model to a shared `trend-badge.model.ts`
+(one type for producer + both consumer cards, no duplicate). Frontend-only (`previous.conversions` already served by both summary
+paths). +6 Karma (card: chip-when-delta · no-chip-when-null; component: compute 25% · new/null · null-no-traffic · card wiring)
+→ 2008. Deployed R2 + chunk-hash prod-verified (`chunk-3SPBOWJE.js`, `an-conv-trend`).
+
 **Bespoke CSV exports → shared helper (2026-09-24).** Migrated the client-built CSV exports onto the shared
 `toCsv`/`csvEscape`/`downloadText` (one tested, formula-injection-safe code path): **forms** (`buildSubmissionsCsv` — dropped
 the bespoke `csvCell`) + **audit** (`buildCsv`/`exportCsv` — dropped the bespoke `csvCell` + `csvFormulaGuard`). Net safety
@@ -222,10 +232,10 @@ helper. Specs updated (forms `\n`+trailing-newline; audit unit tests re-pointed 
 improvement) → 1999 Karma green. Deployed R2 + chunk-hash prod-verified (forms `PQRGT2D7`, audit `LN7JEF2J`).
 
 NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions/shareable-range +
-**arbitrary-window + tz-aware bucketing/bounds + comparison-period Δ + client-CSV consolidation** all complete): (1) **Remaining
-CSV consolidation** — `analytics-dashboard` + the audit **full-trail** download the SERVER-built CSV via a hand-rolled Blob/`<a>`
-(no client escaping needed since server-built) — migrate just their download mechanism to `downloadText` for one code path
-(consistency only, no security delta). (2) **Conversions-tile Δ** — extend the period-over-period badge to conversions
-(`previous.conversions` already returned; the conversions surface is a card, not a KPI tile, so it needs a small placement).
-(3) **DST-precision** — the fixed browser offset is approximate for a range spanning a DST change; a true IANA-zone shift would
-need a tz library or per-day offset (documented caveat in the UI today, honest but not exact).
+**arbitrary-window + tz-aware bucketing/bounds + comparison-period Δ (KPI tiles AND conversions card) + client-CSV consolidation**
+all complete): (1) **Remaining CSV consolidation** — `analytics-dashboard` + the audit **full-trail** download the SERVER-built CSV
+via a hand-rolled Blob/`<a>` (no client escaping needed since server-built) — migrate just their download mechanism to `downloadText`
+for one code path (consistency only, no security delta). (2) **DST-precision** — the fixed browser offset is approximate for a range
+spanning a DST change; a true IANA-zone shift would need a tz library or per-day offset (documented caveat in the UI today, honest
+but not exact). (3) **Conversions-by-kind Δ** — the card total now shows a period-over-period badge; a natural follow-on is a small
+per-kind delta (calls up, form-submits down) — needs `previous.byConversionKind` (NOT currently served, so a server increment first).

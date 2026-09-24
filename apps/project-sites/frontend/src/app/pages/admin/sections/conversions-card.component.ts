@@ -11,6 +11,8 @@
  */
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
+import type { TrendBadge } from './trend-badge.model';
+
 /** One `{ label(kind), count }` conversion-kind row from `traffic.byConversionKind`. */
 export interface ConversionKind {
   label: string;
@@ -46,7 +48,20 @@ const CONVERSION_LABELS: Record<string, string> = {
       </h3>
 
       @if (items().length) {
-        <div class="conv-total" data-testid="an-conv-total">{{ total() }} total</div>
+        <div class="conv-total" data-testid="an-conv-total">
+          <span>{{ total() }} total</span>
+          @if (delta(); as d) {
+            <span class="trend-chip" data-testid="an-conv-trend"
+                  [attr.data-dir]="d.dir" [attr.aria-label]="d.aria" [title]="d.title">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                @if (d.dir === 'up') { <path d="M6 15l6-6 6 6"/> }
+                @else if (d.dir === 'down') { <path d="M6 9l6 6 6-6"/> }
+                @else { <path d="M5 12h14"/> }
+              </svg>
+              {{ d.label }}
+            </span>
+          }
+        </div>
         <ul class="conv-list">
           @for (it of items(); track it.raw) {
             <li class="conv-row" data-testid="an-conv-row">
@@ -77,7 +92,29 @@ const CONVERSION_LABELS: Record<string, string> = {
     .conv-head { display: flex; align-items: baseline; gap: 0.5rem; margin: 0.25rem 0 0.4rem; }
     .conv-title { font-family: 'Sora', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.02em; font-size: 1rem; color: #fff; }
     .conv-sub { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
-    .conv-total { font-size: 0.72rem; font-variant-numeric: tabular-nums; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); margin-bottom: 0.6rem; }
+    .conv-total { display: inline-flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; font-size: 0.72rem; font-variant-numeric: tabular-nums; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); margin-bottom: 0.6rem; }
+    .trend-chip {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 1px 7px 1px 5px; border-radius: 999px;
+      font-size: 0.64rem; font-weight: 700; line-height: 1.4;
+      font-variant-numeric: tabular-nums; border: 1px solid transparent;
+    }
+    .trend-chip svg { flex-shrink: 0; }
+    .trend-chip[data-dir="up"] {
+      color: var(--ps-accent, #00E5FF);
+      background: color-mix(in oklch, var(--ps-accent, #00E5FF) 14%, transparent);
+      border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 32%, transparent);
+    }
+    .trend-chip[data-dir="down"] {
+      color: rgba(255,255,255,0.62);
+      background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 5%, transparent);
+      border-color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 12%, transparent);
+    }
+    .trend-chip[data-dir="flat"] {
+      color: rgba(255,255,255,0.5);
+      background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 4%, transparent);
+      border-color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent);
+    }
     .conv-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.55rem; }
     .conv-row-head { display: flex; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.2rem; }
     .conv-label { font-size: 0.82rem; color: #fff; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -92,6 +129,12 @@ export class ConversionsCardComponent {
   readonly rows = input<ConversionKind[]>([]);
   /** Window length, for the "last N days" freshness label. */
   readonly windowDays = input<number>(30);
+  /**
+   * Period-over-period conversions trend vs the authoritative prior equal-length
+   * window (computed by the parent from `traffic.previous.conversions`). `null` when
+   * there's nothing to compare — the chip simply doesn't render, never a fake "0%".
+   */
+  readonly delta = input<TrendBadge | null>(null);
 
   /** Non-empty rows, humanized + sorted by count desc. */
   readonly items = computed(() =>

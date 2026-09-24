@@ -22,20 +22,13 @@ import { ErrorCardComponent } from '../../../components/states';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { WebVitalsCardComponent } from './web-vitals-card.component';
 import { ConversionsCardComponent } from './conversions-card.component';
+import type { TrendBadge } from './trend-badge.model';
 import { DeliveryCardComponent } from './delivery-card.component';
 import { AnalyticsGlossaryComponent } from './analytics-glossary.component';
 import { buildAnalyticsCsv } from '../../../utils/analytics-csv';
 import { downloadText } from '../../../utils/csv-export';
 
 type RangeId = AnalyticsRange | 'custom';
-
-/** A period-over-period trend badge (direction + short label + a11y/hover text). */
-interface TrendBadge {
-  dir: 'up' | 'down' | 'flat';
-  label: string;
-  aria: string;
-  title: string;
-}
 
 /** Auto-refresh cadence in seconds — surfaced in the header countdown. */
 const REFRESH_INTERVAL_SEC = 60;
@@ -562,6 +555,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
         appReveal
         [rows]="siteTraffic()?.byConversionKind ?? []"
         [windowDays]="rangeDays()"
+        [delta]="conversionDelta()"
       />
 
       <!-- Real-user experience — field-measured Core Web Vitals p75 (LCP/INP/CLS)
@@ -1629,6 +1623,17 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
   readonly visitorDelta = computed<TrendBadge | null>(() => {
     const t = this.siteTraffic();
     return t ? this.deltaBadge(t.uniqueSessions, t.previous?.uniqueSessions, t.windowDays) : null;
+  });
+
+  /**
+   * Authoritative conversions period-over-period delta (D1 current vs prior window).
+   * Compares the `conversions` scalar across both periods (the same metric, same
+   * source) rather than a re-summed breakdown — source-consistent, exactly like
+   * {@link pvDelta} / {@link visitorDelta}. Feeds the conversions card's trend chip.
+   */
+  readonly conversionDelta = computed<TrendBadge | null>(() => {
+    const t = this.siteTraffic();
+    return t ? this.deltaBadge(t.conversions, t.previous?.conversions, t.windowDays) : null;
   });
 
   /**

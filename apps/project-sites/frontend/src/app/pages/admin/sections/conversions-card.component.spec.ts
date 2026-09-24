@@ -1,17 +1,19 @@
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { ConversionsCardComponent, type ConversionKind } from './conversions-card.component';
+import type { TrendBadge } from './trend-badge.model';
 
 /**
  * ConversionsCardComponent — the by-kind conversions breakdown (calls / directions /
  * form submits …). Every count is a real tracked event; the empty state says "no
  * conversions tracked yet", never a fabricated breakdown.
  */
-function render(rows: ConversionKind[], windowDays = 30) {
+function render(rows: ConversionKind[], windowDays = 30, delta: TrendBadge | null = null) {
   TestBed.configureTestingModule({ imports: [ConversionsCardComponent] });
   const fixture = TestBed.createComponent(ConversionsCardComponent);
   fixture.componentRef.setInput('rows', rows);
   fixture.componentRef.setInput('windowDays', windowDays);
+  fixture.componentRef.setInput('delta', delta);
   fixture.detectChanges();
   return fixture;
 }
@@ -63,5 +65,26 @@ describe('ConversionsCardComponent', () => {
   it('labels the window in the subtitle', () => {
     const fixture = render([{ label: 'call', count: 1 }], 7);
     expect((fixture.debugElement.query(By.css('.conv-sub')).nativeElement as HTMLElement).textContent).toContain('last 7 days');
+  });
+
+  it('renders the period-over-period delta chip beside the total when a delta is provided', () => {
+    const fixture = render([{ label: 'call', count: 30 }], 7, {
+      dir: 'up',
+      label: '25%',
+      aria: 'up 25 percent versus the previous 7 days',
+      title: 'vs the previous 7 days (up 25%)',
+    });
+    const chip = fixture.debugElement.query(By.css('[data-testid="an-conv-trend"]'));
+    expect(chip).withContext('conversions delta chip renders when delta present').toBeTruthy();
+    const el = chip.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('25%');
+    expect(el.getAttribute('data-dir')).toBe('up');
+    // The a11y sentence carries the evidence, not a bare number.
+    expect(el.getAttribute('aria-label')).toContain('versus the previous 7 days');
+  });
+
+  it('renders no delta chip when no delta is provided (null → nothing to compare)', () => {
+    const fixture = render([{ label: 'call', count: 30 }], 7, null);
+    expect(fixture.debugElement.query(By.css('[data-testid="an-conv-trend"]'))).toBeNull();
   });
 });

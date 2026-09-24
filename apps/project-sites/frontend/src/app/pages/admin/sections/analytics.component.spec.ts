@@ -1138,12 +1138,20 @@ describe('AdminAnalyticsComponent — comparison-period deltas', () => {
 
   afterEach(() => TestBed.resetTestingModule());
 
-  const setTraffic = (c: AdminAnalyticsComponent, pv: number, us: number, prevPv: number, prevUs: number): void =>
+  const setTraffic = (
+    c: AdminAnalyticsComponent,
+    pv: number,
+    us: number,
+    prevPv: number,
+    prevUs: number,
+    cv = 0,
+    prevCv = 0,
+  ): void =>
     c.siteTraffic.set({
       pageviews: pv,
       uniqueSessions: us,
-      conversions: 0,
-      previous: { pageviews: prevPv, uniqueSessions: prevUs, conversions: 0 },
+      conversions: cv,
+      previous: { pageviews: prevPv, uniqueSessions: prevUs, conversions: prevCv },
       windowDays: 7,
     } as never);
 
@@ -1187,6 +1195,42 @@ describe('AdminAnalyticsComponent — comparison-period deltas', () => {
     fixture.detectChanges();
     const chip = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="kpi-pv-trend"]');
     expect(chip).withContext('pv delta chip renders').toBeTruthy();
+    expect(chip!.getAttribute('data-dir')).toBe('up');
+  });
+
+  it('computes the conversions delta vs the authoritative previous conversions (30 vs 24 → +25%)', () => {
+    const c = build();
+    setTraffic(c, 120, 40, 100, 50, 30, 24);
+    expect(c.conversionDelta()).toEqual(jasmine.objectContaining({ dir: 'up', label: '25%' }));
+    expect(c.conversionDelta()?.title).toContain('the previous 7 days');
+  });
+
+  it('conversions delta shows "new" from zero and is null when both periods are zero', () => {
+    const c = build();
+    setTraffic(c, 10, 5, 10, 5, 4, 0);
+    expect(c.conversionDelta()).toEqual(jasmine.objectContaining({ dir: 'up', label: 'new' }));
+    setTraffic(c, 10, 5, 10, 5, 0, 0);
+    expect(c.conversionDelta()).toBeNull();
+  });
+
+  it('conversions delta is null with no siteTraffic', () => {
+    const c = build();
+    expect(c.conversionDelta()).toBeNull();
+  });
+
+  it('renders the conversions delta chip on the conversions card (parent → card wiring)', () => {
+    const c = build();
+    c.siteTraffic.set({
+      pageviews: 120,
+      uniqueSessions: 40,
+      conversions: 30,
+      byConversionKind: [{ label: 'call', count: 30 }],
+      previous: { pageviews: 100, uniqueSessions: 50, conversions: 24 },
+      windowDays: 7,
+    } as never);
+    fixture.detectChanges();
+    const chip = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="an-conv-trend"]');
+    expect(chip).withContext('conversions delta chip renders on the card').toBeTruthy();
     expect(chip!.getAttribute('data-dir')).toBe('up');
   });
 });
