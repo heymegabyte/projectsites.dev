@@ -828,6 +828,18 @@
   404-dark). Commits `a00e1143e` + `78472c67c`. **KV Inspector = DONE (backend + frontend).** **Next (FOREGROUND per the
   thrice-confirmed lesson — NOT background agents):** CSV/JSON row import · analytics filter UI · the 4-component Angular
   signal-input batch (audit/site-copilot/deliverability/site-dna) — one coherent slice at a time.
+- **Cycle 61 — 2026-09-24 (Data: R2 Inspector frontend — completes the vertical slice, FOREGROUND):** Shipped
+  `R2InspectorComponent` (`77a256375`) against the REAL backend contract, mirroring the KV inspector: bucket picker
+  (server allowlist) → prefix search → cursor-paginated object list (human size badges, `truncated`-driven "Load more"
+  — note R2's `truncated`=true is the INVERSE of KV's `list_complete`) → object metadata panel (size/uploaded/type/etag/
+  custom) loaded via HEAD, never the body. Route `/admin/r2-inspector` behind `sysAdminGuard`; built with signals +
+  native control flow (advances the Angular style mission). Verified: app-tsc + spec-tsc clean · Karma **2125/2125**
+  (+12 real-contract specs that lock the shape so the UI can't drift to a hallucinated one) · `ng build:prod` 0 err ·
+  deployed frontend R2 (chunk `chunk-BP6ZA45U.js` 200, home 200) · backend still 404-dark to non-super-admins. **Both
+  KV + R2 inspectors are now COMPLETE (backend + frontend + telemetry).** Landed via the isolated-worktree technique (a
+  concurrent session holds the primary checkout — memory `isolated-worktree-land-when-concurrent-session-holds-checkout`).
+  **Next (FOREGROUND):** DO/Vectorize/Hyperdrive read-only adapters (same gate + allowlist base), CSV/JSON row import, or
+  the analytics filter UI.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
