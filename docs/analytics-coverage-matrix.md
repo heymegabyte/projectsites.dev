@@ -173,11 +173,19 @@ shared `parseCustomWindow` (malformed/reversed → 400) + echo `windowStart`/`wi
 authz (`requireOwnedSite` → flag + org-ownership) unchanged. +6 Jest; prod-verified authed (summary+daily 200 w/ echoed
 window + honest `pv:0`/0-buckets, malformed→400, relative→200 `windowStart:null`).
 
+**Arbitrary window — FULLY END-TO-END + USER-VISIBLE (2026-09-24).** The frontend date-picker shipped: the `custom` range in
+`analytics.component.ts` now has exact-date `<input type="date">` (start → end) beside the days lookback; two valid ordered
+dates form `customWindow()` which supersedes `customDays`, feeds `getSiteAnalytics`/`getSiteAnalyticsDaily` as `?start&end`
+(ApiService methods take an optional `{start,end}`), drives `rangeDays()` (returns the inclusive span), and is
+bookmarkable/shareable (`?range=custom&start&end`, restored in the constructor; preset/lookback switches clear the params).
+An honest note resolves the CF-retention design call: **"Audience metrics show <start> → <end>; edge delivery + security
+reflect a recent window — Cloudflare can't query an arbitrary past range"** (the CF delivery/security cards stay on their
+trailing window). +5 Karma specs (customWindow validity, rangeDays span, window→API args, URL restore, conditional note) + 3
+updated for the new URL contract → 1979 total. Deployed R2 + chunk-hash prod-verified (`chunk-K4QYFOWI.js`, `an-range-dates`).
+
 NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions/shareable-range +
-arbitrary-window **service + ALL worker routes** complete): (1) **Frontend date-picker (the last mile — UI-only)** — add exact
-start/end `<input type="date">` to the `custom` range in `analytics.component.ts` (1784 lines; already has `customDays` +
-`?range=custom&days=` URL sync — add `?start&end`) + optional `start`/`end` params on the `getSiteAnalytics`/`getSiteAnalyticsDaily`
-ApiService methods + read the echoed `windowStart`/`windowEnd` for the range label + Karma specs. Design call to make first:
-how a custom absolute range interacts with the retention-limited CF **delivery** card (`getMultiUrlAnalytics`, ~30d CF cap) on
-the same page — honor + honestly note ">30d outside CF retention", or disable the delivery card for custom windows. (2) **Full
-timezone-aware bucketing**. (3) **Migrate bespoke CSV exports** onto the shared `csvEscape`/`downloadText`.
+**arbitrary-window fully end-to-end** complete): (1) **Full timezone-aware bucketing** — daily series + `date(created_at)`
+buckets are UTC; a site owner in PST sees days split on UTC midnight. Add a tz offset (site setting or browser tz) to the
+bucketing + window bounds. (2) **Comparison-period overlay** — the summary already returns `previous` (equal-length prior
+window) deltas; surface a visual compare (sparkline/Δ badges per KPI) beyond the current numeric delta. (3) **Migrate bespoke
+CSV exports** (events-table / audit / forms / super-admin) onto the shared `csvEscape`/`downloadText`.

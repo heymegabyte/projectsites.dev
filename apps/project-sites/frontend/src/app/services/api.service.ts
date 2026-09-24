@@ -811,8 +811,19 @@ export class ApiService {
    * source of truth the analytics panel falls back to.) Flag-gated `site_analytics`
    * (404 when off). Silent — the component renders its own inline empty/error state.
    */
-  getSiteAnalytics(siteId: string, windowDays = 30): Observable<SiteAnalyticsSummary> {
-    return this.get(`/sites/${siteId}/analytics`, { windowDays: windowDays.toString() }, { silent: true });
+  getSiteAnalytics(
+    siteId: string,
+    windowDays = 30,
+    window?: { start: string; end: string },
+  ): Observable<SiteAnalyticsSummary> {
+    // An absolute window (start/end, YYYY-MM-DD) wins server-side over windowDays;
+    // windowDays rides along as the fallback the worker uses when no window is sent.
+    const params: Record<string, string> = { windowDays: windowDays.toString() };
+    if (window) {
+      params['start'] = window.start;
+      params['end'] = window.end;
+    }
+    return this.get(`/sites/${siteId}/analytics`, params, { silent: true });
   }
 
   /**
@@ -823,8 +834,14 @@ export class ApiService {
   getSiteAnalyticsDaily(
     siteId: string,
     days = 30,
+    window?: { start: string; end: string },
   ): Observable<{ days: { day: string; pageviews: number; uniqueSessions: number; conversions: number }[] }> {
-    return this.get(`/sites/${siteId}/analytics/daily`, { days: days.toString() }, { silent: true });
+    const params: Record<string, string> = { days: days.toString() };
+    if (window) {
+      params['start'] = window.start;
+      params['end'] = window.end;
+    }
+    return this.get(`/sites/${siteId}/analytics/daily`, params, { silent: true });
   }
 
   /**

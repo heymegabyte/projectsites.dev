@@ -665,7 +665,7 @@ describe('AdminAnalyticsComponent (deep-linkable range)', () => {
     expect(navigate).toHaveBeenCalledWith(
       [],
       jasmine.objectContaining({
-        queryParams: { range: '90d', days: null }, // preset clears a lingering custom ?days
+        queryParams: { range: '90d', days: null, start: null, end: null }, // preset clears a lingering custom ?days + absolute window
         queryParamsHandling: 'merge',
         replaceUrl: true,
       }),
@@ -694,7 +694,7 @@ describe('AdminAnalyticsComponent (deep-linkable range)', () => {
     c.setRange('custom');
     expect(navigate).toHaveBeenCalledWith(
       [],
-      jasmine.objectContaining({ queryParams: { range: 'custom', days: 30 }, queryParamsHandling: 'merge', replaceUrl: true }),
+      jasmine.objectContaining({ queryParams: { range: 'custom', days: 30, start: null, end: null }, queryParamsHandling: 'merge', replaceUrl: true }),
     );
   });
 
@@ -705,7 +705,7 @@ describe('AdminAnalyticsComponent (deep-linkable range)', () => {
     c.setCustomDays(60);
     expect(navigate).toHaveBeenCalledWith(
       [],
-      jasmine.objectContaining({ queryParams: { range: 'custom', days: 60 }, queryParamsHandling: 'merge', replaceUrl: true }),
+      jasmine.objectContaining({ queryParams: { range: 'custom', days: 60, start: null, end: null }, queryParamsHandling: 'merge', replaceUrl: true }),
     );
   });
 });
@@ -963,5 +963,112 @@ describe('AdminAnalyticsComponent (bounce rate — true D1 value wins over edge 
     c.siteTraffic.set(null);
     expect(c.bounceRate()).withContext('honest — no session data, proxy clamped').toBeNull();
     expect(c.bounceIsMeasured()).toBe(false);
+  });
+});
+
+/**
+ * Custom ABSOLUTE date window (arbitrary start/end) — the last-mile UI for the
+ * worker capability already shipped on GET /api/sites/:siteId/analytics(/daily).
+ * Two valid ordered dates on the 'custom' range supersede the days lookback; the
+ * window is sent to the D1 audience calls, reflected in rangeDays(), URL-restorable,
+ * and paired with an honest note that CF edge-delivery can't answer a past range.
+ */
+describe('AdminAnalyticsComponent — custom absolute date window', () => {
+  let fixture: ComponentFixture<AdminAnalyticsComponent>;
+  let getSiteAnalytics: jasmine.Spy;
+  let getSiteAnalyticsDaily: jasmine.Spy;
+
+  function build(routeGet: (k: string) => string | null = () => null): void {
+    const selectedSite = signal<{ id: string } | null>({ id: 's1' });
+    getSiteAnalytics = jasmine.createSpy('getSiteAnalytics').and.returnValue(of(null));
+    getSiteAnalyticsDaily = jasmine.createSpy('getSiteAnalyticsDaily').and.returnValue(of({ days: [] }));
+    TestBed.configureTestingModule({
+      imports: [AdminAnalyticsComponent],
+      providers: [
+        {
+          provide: ApiService,
+          useValue: {
+            getMultiUrlAnalytics: () => of({ data: null }),
+            listSiteUrls: () => of({ data: [] }),
+            getCloudflareCredentialStatus: () => of({ data: null }),
+            getSiteAnalytics,
+            getSiteAnalyticsDaily,
+            getNetworkAnalytics: () => of({ data: null }),
+          },
+        },
+        { provide: ToastService, useValue: { error() {}, success() {} } },
+        { provide: PromptService, useValue: { prompt: () => Promise.resolve(null) } },
+        { provide: Router, useValue: { navigateByUrl() {}, navigate: () => Promise.resolve(true) } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: routeGet } } } },
+        { provide: AdminStateService, useValue: { selectedSite } },
+      ],
+    });
+    fixture = TestBed.createComponent(AdminAnalyticsComponent);
+    fixture.detectChanges();
+  }
+
+  afterEach(() => {
+    try {
+      localStorage.clear();
+    } catch {
+      /* private mode */
+    }
+    TestBed.resetTestingModule();
+  });
+
+  it('customWindow() is null unless range is custom with two valid, ordered dates', () => {
+    build();
+    const c = fixture.componentInstance;
+    c.setRange('7d');
+    c.customStart.set('2026-08-01');
+    c.customEnd.set('2026-08-15');
+    expect(c.customWindow()).withContext('range not custom').toBeNull();
+    c.setRange('custom');
+    expect(c.customWindow()).toEqual({ start: '2026-08-01', end: '2026-08-15' });
+    c.customEnd.set('2026-07-01');
+    expect(c.customWindow()).withContext('reversed → null').toBeNull();
+    c.customEnd.set('');
+    expect(c.customWindow()).withContext('missing → null').toBeNull();
+  });
+
+  it('rangeDays() returns the inclusive span of the absolute window', () => {
+    build();
+    const c = fixture.componentInstance;
+    c.setRange('custom');
+    c.customStart.set('2026-08-01');
+    c.customEnd.set('2026-08-15');
+    expect(c.rangeDays()).toBe(15);
+  });
+
+  it('sends the absolute window to getSiteAnalytics + daily once both dates are set', () => {
+    build();
+    const c = fixture.componentInstance;
+    c.setRange('custom');
+    c.setCustomDate('start', '2026-08-01');
+    c.setCustomDate('end', '2026-08-15');
+    expect(getSiteAnalytics.calls.mostRecent().args[2]).toEqual({ start: '2026-08-01', end: '2026-08-15' });
+    expect(getSiteAnalyticsDaily.calls.mostRecent().args[2]).toEqual({ start: '2026-08-01', end: '2026-08-15' });
+  });
+
+  it('restores an absolute window from ?range=custom&start&end', () => {
+    build((k) =>
+      k === 'range' ? 'custom' : k === 'start' ? '2026-08-01' : k === 'end' ? '2026-08-15' : null,
+    );
+    const c = fixture.componentInstance;
+    expect(c.range()).toBe('custom');
+    expect(c.customWindow()).toEqual({ start: '2026-08-01', end: '2026-08-15' });
+  });
+
+  it('shows the honest CF-delivery note ONLY when an absolute window is active', () => {
+    build();
+    const c = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+    c.setRange('custom');
+    fixture.detectChanges();
+    expect(host.querySelector('[data-testid="an-range-note"]')).withContext('no note without dates').toBeNull();
+    c.customStart.set('2026-08-01');
+    c.customEnd.set('2026-08-15');
+    fixture.detectChanges();
+    expect(host.querySelector('[data-testid="an-range-note"]')).withContext('note appears with window').not.toBeNull();
   });
 });

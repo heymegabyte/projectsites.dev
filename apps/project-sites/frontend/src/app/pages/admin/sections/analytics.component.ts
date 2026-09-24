@@ -154,6 +154,26 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
                        aria-label="Custom lookback in days, 1 to 90" />
                 days
               </label>
+              <span class="range-or" aria-hidden="true">or</span>
+              <label class="range-dates" data-testid="an-range-dates">
+                <span class="range-dates-label">Exact dates</span>
+                <input #cs type="date" [value]="customStart()"
+                       (change)="setCustomDate('start', cs.value)"
+                       data-testid="an-range-start"
+                       aria-label="Custom range start date" />
+                <span aria-hidden="true">→</span>
+                <input #ce type="date" [value]="customEnd()"
+                       (change)="setCustomDate('end', ce.value)"
+                       data-testid="an-range-end"
+                       aria-label="Custom range end date" />
+              </label>
+              @if (customWindow(); as w) {
+                <p class="range-note" data-testid="an-range-note">
+                  Audience metrics show {{ w.start }} → {{ w.end }} (max 90 days). Edge
+                  delivery + security reflect a recent window — Cloudflare can’t query an
+                  arbitrary past range.
+                </p>
+              }
             }
             <button class="btn-ghost"
                     type="button"
@@ -707,6 +727,12 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
       font-variant-numeric: tabular-nums;
     }
     .range-custom input:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; }
+    .range-or { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary, #9aa0b4); opacity: 0.7; }
+    .range-dates { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--text-secondary, #9aa0b4); }
+    .range-dates-label { white-space: nowrap; }
+    .range-dates input { padding: 3px 6px; background: rgba(255,255,255,0.06); color: var(--ps-ink, #f4f4ff); border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; font-variant-numeric: tabular-nums; color-scheme: dark; }
+    .range-dates input:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; }
+    .range-note { flex-basis: 100%; margin: 0.35rem 0 0; font-size: 0.7rem; line-height: 1.4; color: var(--text-secondary, #9aa0b4); }
     .range-chip {
       padding: 4px 12px; border-radius: 999px;
       background: transparent; border: 0;
@@ -994,6 +1020,13 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     // ignored (missing 'custom' above) AND fell back to the recipient's own day count.
     const d = Number.parseInt(this.route.snapshot.queryParamMap.get('days') ?? '', 10);
     if (Number.isFinite(d) && d >= 1 && d <= 90) this.customDays.set(d);
+    // A shared `?range=custom&start=YYYY-MM-DD&end=YYYY-MM-DD` link restores the EXACT
+    // absolute window (URL wins over the recipient's remembered dates).
+    const isoDay = /^\d{4}-\d{2}-\d{2}$/;
+    const qs = this.route.snapshot.queryParamMap.get('start');
+    const qe = this.route.snapshot.queryParamMap.get('end');
+    if (qs && isoDay.test(qs)) this.customStart.set(qs);
+    if (qe && isoDay.test(qe)) this.customEnd.set(qe);
 
     // Site-reactive load: when the selected site resolves on a deep-link (it
     // arrives AFTER mount) or the operator switches sites, fetch immediately
@@ -1043,19 +1076,81 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     } catch { return 14; }
   })());
 
+  /** Exact-date custom window bounds (YYYY-MM-DD). When BOTH are set + valid AND the
+   *  range is 'custom', an ABSOLUTE window supersedes the `customDays` lookback. Persisted. */
+  readonly customStart = signal<string>((() => {
+    try {
+      return localStorage.getItem('ps_analytics_custom_start') ?? '';
+    } catch {
+      return '';
+    }
+  })());
+  readonly customEnd = signal<string>((() => {
+    try {
+      return localStorage.getItem('ps_analytics_custom_end') ?? '';
+    } catch {
+      return '';
+    }
+  })());
+
+  /** The active absolute window, or null → fall back to the `customDays` lookback.
+   *  Only active on the 'custom' range with two valid, correctly-ordered ISO dates. */
+  readonly customWindow = computed<{ start: string; end: string } | null>(() => {
+    if (this.range() !== 'custom') return null;
+    const s = this.customStart();
+    const e = this.customEnd();
+    const iso = /^\d{4}-\d{2}-\d{2}$/;
+    if (!iso.test(s) || !iso.test(e) || s > e) return null; // ISO date strings compare chronologically
+    return { start: s, end: e };
+  });
+
+  /** Inclusive day-span of an absolute window, bounded 1–90 (matches the server clamp). */
+  private windowSpanDays(w: { start: string; end: string }): number {
+    const ms = Date.parse(`${w.end}T00:00:00Z`) - Date.parse(`${w.start}T00:00:00Z`);
+    return Math.min(90, Math.max(1, Math.round(ms / 86_400_000) + 1));
+  }
+
+  /** Set an exact-window bound, persist it, sync the URL, and reload if the window is active. */
+  setCustomDate(which: 'start' | 'end', value: string): void {
+    const v = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
+    (which === 'start' ? this.customStart : this.customEnd).set(v);
+    try {
+      localStorage.setItem(`ps_analytics_custom_${which}`, v);
+    } catch {
+      /* private mode */
+    }
+    if (this.range() === 'custom') {
+      const w = this.customWindow();
+      // An active absolute window puts start/end on the shareable URL (drops days);
+      // an incomplete/invalid pair falls back to the days-lookback link.
+      void this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: w
+          ? { range: 'custom', start: w.start, end: w.end, days: null }
+          : { range: 'custom', start: null, end: null, days: this.customDays() },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+      this.reload();
+    }
+  }
+
   /** Clamp + persist the custom lookback, then reload if the custom window is active. */
   setCustomDays(value: number | string): void {
     const n = Math.min(Math.max(Math.trunc(Number(value) || 0), 1), 90);
     this.customDays.set(n);
     try { localStorage.setItem('ps_analytics_custom_days', String(n)); } catch { /* */ }
     if (this.range() === 'custom') {
-      // Keep the shareable URL's `days` in sync with the active custom window.
-      void this.router.navigate([], {
-        relativeTo: this.route,
-        queryParams: { range: 'custom', days: n },
-        queryParamsHandling: 'merge',
-        replaceUrl: true,
-      });
+      // The lookback shapes the URL only when NO absolute window is active — an
+      // active start/end window supersedes `days`, so leave its params untouched.
+      if (!this.customWindow()) {
+        void this.router.navigate([], {
+          relativeTo: this.route,
+          queryParams: { range: 'custom', days: n, start: null, end: null },
+          queryParamsHandling: 'merge',
+          replaceUrl: true,
+        });
+      }
       this.reload();
     }
   }
@@ -1067,9 +1162,17 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     // (replaceUrl = no back-button spam; merge keeps other params; SPA no-reload).
     // `days` rides along only for the custom window; a preset clears it (null) so a
     // stale `?days` from a prior custom view can't linger on a preset link.
+    const w = id === 'custom' ? this.customWindow() : null;
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { range: id, days: id === 'custom' ? this.customDays() : null },
+      // custom + absolute window → start/end (drop days); custom + lookback → days
+      // (drop start/end); any preset → clear all three custom params.
+      queryParams: {
+        range: id,
+        days: id === 'custom' && !w ? this.customDays() : null,
+        start: w ? w.start : null,
+        end: w ? w.end : null,
+      },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
@@ -1636,6 +1739,10 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     // path; the server prefers `days`. Presets send their own days too (identical).
     const r = this.range();
     const cfRange: AnalyticsRange = r === 'custom' ? '30d' : r;
+    // An absolute custom window (start/end) drives the D1 audience calls; the CF
+    // delivery path stays a trailing window (it can't query arbitrary past dates —
+    // an honest note is shown in the custom-range controls when this is active).
+    const win = this.customWindow() ?? undefined;
     // Cancel any in-flight reload so a slower earlier response (a bigger range,
     // or the 60s poll) can't resolve last and clobber this reload's data on the
     // shared envelope() signal (last-write-wins).
@@ -1668,12 +1775,12 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
       // recorded on every site-serve. The CF-zone dataset above is empty for
       // `*.projectsites.dev` subdomains, so a real site showed "No traffic yet"
       // while it had hundreds of recorded pageviews. Never throws (404/off → null).
-      site: this.api.getSiteAnalytics(site.id, this.rangeDays()).pipe(
+      site: this.api.getSiteAnalytics(site.id, this.rangeDays(), win).pipe(
         timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
         catchError(() => of(null as SiteAnalyticsSummary | null)),
       ),
       // Daily rollup for the chart series — empty when the site has no rollup yet.
-      daily: this.api.getSiteAnalyticsDaily(site.id, this.rangeDays()).pipe(
+      daily: this.api.getSiteAnalyticsDaily(site.id, this.rangeDays(), win).pipe(
         timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
         catchError(() =>
           of({ days: [] as { day: string; pageviews: number; uniqueSessions: number; conversions: number }[] }),
@@ -1718,6 +1825,8 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
   /** Map the selected range pill to a day count for the visitor_events window.
    *  Public so the template can pass it to `<app-web-vitals-card [windowDays]>`. */
   rangeDays(): number {
+    const w = this.customWindow();
+    if (w) return this.windowSpanDays(w); // absolute window → its inclusive day-span
     switch (this.range()) {
       case 'custom':
         return this.customDays();
