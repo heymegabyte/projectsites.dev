@@ -866,6 +866,7 @@ export class ApiService {
       offset?: number;
       orderBy?: string;
       dir?: 'asc' | 'desc';
+      search?: string;
       silent?: boolean;
     } = {},
   ): Observable<DataTablePage> {
@@ -874,6 +875,8 @@ export class ApiService {
     if (opts.offset != null) params['offset'] = String(opts.offset);
     if (opts.orderBy) params['orderBy'] = opts.orderBy;
     if (opts.dir) params['dir'] = opts.dir;
+    // Text search across the table's non-timestamp safe columns (server LIKE filter).
+    if (opts.search) params['search'] = opts.search;
     return this.get(`/sites/${siteId}/data-overview/${encodeURIComponent(table)}`, params, {
       silent: opts.silent,
     });

@@ -8,6 +8,7 @@ import {
   overviewTable,
   clampBrowseLimit,
   maskEmailValue,
+  buildDataSearch,
 } from '../handlers';
 
 describe('data-overview registry', () => {
@@ -91,5 +92,32 @@ describe('maskEmailValue', () => {
     expect(maskEmailValue(null)).toBe('');
     expect(maskEmailValue(123)).toBe('');
     expect(maskEmailValue('@nolocal.com')).toBe('');
+  });
+});
+
+describe('buildDataSearch (browse text filter)', () => {
+  const cols = ['event_type', 'path', 'referrer', 'created_at'];
+
+  it('returns an empty clause for absent/blank search (no filter)', () => {
+    expect(buildDataSearch(cols, undefined)).toEqual({ clause: '', params: [] });
+    expect(buildDataSearch(cols, null)).toEqual({ clause: '', params: [] });
+    expect(buildDataSearch(cols, '   ')).toEqual({ clause: '', params: [] });
+  });
+
+  it('builds a parameterized OR-LIKE over the non-timestamp safe columns (excludes *_at)', () => {
+    const { clause, params } = buildDataSearch(cols, 'hello');
+    expect(clause).toBe(' AND ("event_type" LIKE ? OR "path" LIKE ? OR "referrer" LIKE ?)');
+    expect(clause).not.toContain('created_at'); // timestamp column excluded
+    expect(params).toEqual(['%hello%', '%hello%', '%hello%']); // one bound param per column
+  });
+
+  it('STRIPS LIKE wildcards from user input so % / _ can never act as metacharacters', () => {
+    const { params } = buildDataSearch(['path'], 'a%b_c');
+    expect(params).toEqual(['%abc%']); // % and _ removed, not escaped
+  });
+
+  it('bounds the search to 100 chars (query-cost guard)', () => {
+    const { params } = buildDataSearch(['path'], 'x'.repeat(200));
+    expect(params[0]).toBe(`%${'x'.repeat(100)}%`);
   });
 });

@@ -94,6 +94,12 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
           }
 
           <div class="db-toolbar">
+            <input #sb type="search" class="db-search" data-testid="db-search"
+                   [value]="search()"
+                   (change)="setSearch(sb.value)"
+                   (search)="setSearch(sb.value)"
+                   placeholder="Search rows…"
+                   aria-label="Search rows in this table" />
             <span class="db-range" data-testid="db-range">{{ rangeLabel() }}</span>
             <div class="db-pager" role="group" aria-label="Pagination">
               <button
@@ -265,6 +271,13 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
     .db-table-chip.is-active .db-table-count { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 22%, transparent); }
     .db-desc { margin: 0 0 0.75rem; font-size: 0.8rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
     .db-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.75rem; }
+    .db-search {
+      flex: 1 1 12rem; min-width: 8rem; max-width: 20rem;
+      padding: 4px 10px; font-size: 0.78rem;
+      background: rgba(255,255,255,0.06); color: var(--ps-ink, #f4f4ff);
+      border: 1px solid rgba(255,255,255,0.14); border-radius: 8px;
+    }
+    .db-search:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; }
     .db-range { font-size: 0.74rem; font-variant-numeric: tabular-nums; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
     .db-pager { display: inline-flex; gap: 0.35rem; }
     .db-pager button, .db-refresh, .db-export {
@@ -339,6 +352,8 @@ export class SiteDataBrowserComponent implements OnInit {
   readonly offset = signal(0);
   readonly orderBy = signal<string | null>(null);
   readonly dir = signal<'asc' | 'desc'>('desc');
+  /** Server-side text search across the table's non-timestamp safe columns. */
+  readonly search = signal('');
   readonly rowsLoading = signal(false);
   readonly rowsError = signal<string | null>(null);
   /** Index of the row whose full-JSON detail is expanded (single-open). */
@@ -403,6 +418,7 @@ export class SiteDataBrowserComponent implements OnInit {
     this.offset.set(0);
     this.orderBy.set(null);
     this.dir.set('desc');
+    this.search.set(''); // a new table starts unfiltered
     this.expandedRow.set(null);
     this.rowsError.set(null);
     this.loadPage();
@@ -422,6 +438,7 @@ export class SiteDataBrowserComponent implements OnInit {
         offset: this.offset(),
         orderBy: this.orderBy() ?? undefined,
         dir: this.dir(),
+        search: this.search() || undefined,
         silent: true,
       })
       .pipe(
@@ -444,6 +461,16 @@ export class SiteDataBrowserComponent implements OnInit {
         if (typeof res.limit === 'number') this.limit.set(res.limit);
         if (typeof res.offset === 'number') this.offset.set(res.offset);
       });
+  }
+
+  /** Apply a text search (server-side LIKE over the safe columns). Resets to page 1;
+   *  no-op when the trimmed value is unchanged (avoids a redundant refetch on blur). */
+  setSearch(value: string): void {
+    const v = value.trim();
+    if (v === this.search()) return;
+    this.search.set(v);
+    this.offset.set(0);
+    this.loadPage();
   }
 
   /** Toggle sort on a column (asc → desc). Server re-validates the column. */

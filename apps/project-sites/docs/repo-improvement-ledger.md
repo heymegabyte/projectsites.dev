@@ -141,6 +141,17 @@
   asserts both downloads fire with the correct CSV/JSON mime). Verified: tsc 0, **Karma 1953/1953** (+1), AOT build exit 0,
   eslint **0-errors**, backtick gate PASS; prod-verified live (chunk `chunk-CQ72BXPR.js`, buttons + `query-result-` filename
   served). Multi-tab (concurrent editor buffers) remains the only SQL-workspace item left.
+- **Cycle 16 — 2026-09-24 (Data browse, worker + frontend):** Added **server-side text search** to the owner Data grid
+  (the prompt's "Browse and edit data → search where supported"). Backend: extracted a pure, exported **`buildDataSearch`**
+  (parameterized `LIKE` over the non-timestamp safe columns — same allowlist that gates `orderBy`; **STRIPS** `%`/`_`
+  from user input per repo convention; 100-char bound) and injected it after `WHERE site_id = ?` on BOTH the browse AND
+  count queries so `total` reflects the filtered set; the `:table` handler reads `?search=`. Frontend: `search` signal +
+  `setSearch` (trims, resets to page 1, no-ops when unchanged) + a `type="search"` input on the grid toolbar (Enter +
+  native-clear via the `search` event); cleared on table switch. Tenant isolation unchanged (still `ownsSiteData` +
+  `WHERE site_id = ?` first; search is a bounded parameterized filter, never an identifier). +4 worker specs
+  (`buildDataSearch`) + 2 Karma specs (`setSearch` reset/no-op; `selectTable` clears search). Verified: worker tsc 0 +
+  23 data tests · frontend tsc 0 · **Karma 1957/1957** (+2) · AOT 0 · eslint 0-errors · worker (`7722b1d3`) + frontend
+  deployed · **prod-verified** (unfiltered 1886 → `search='/'` 1686 → no-match 0).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

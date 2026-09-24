@@ -165,6 +165,34 @@ export function clampBrowseLimit(raw: string | undefined | null): number {
 }
 
 /**
+ * Build the parameterized text-search predicate for a browse query. Searches the
+ * table's non-timestamp safe columns (the same allowlist that gates orderBy — the
+ * SQL-injection boundary). LIKE wildcards `%`/`_` are STRIPPED from user input (repo
+ * convention) so they can't act as metacharacters; the value is bounded to 100 chars.
+ * Returns an empty clause + params when there's nothing to search.
+ *
+ * @param columns - the table's safe column allowlist
+ * @param rawSearch - the client `?search=` value
+ * @returns `{ clause, params }` — `clause` is ` AND (...)` (or ''); one param per column
+ * @example buildDataSearch(['path','created_at'], 'ab') // { clause: ' AND ("path" LIKE ?)', params: ['%ab%'] }
+ */
+export function buildDataSearch(
+  columns: readonly string[],
+  rawSearch: string | undefined | null,
+): { clause: string; params: string[] } {
+  const search = String(rawSearch ?? '')
+    .trim()
+    .slice(0, 100)
+    .replace(/[%_]/g, '');
+  const cols = search ? columns.filter((col) => !/_at$/.test(col)) : [];
+  if (cols.length === 0) return { clause: '', params: [] };
+  return {
+    clause: ` AND (${cols.map((col) => `"${col}" LIKE ?`).join(' OR ')})`,
+    params: cols.map(() => `%${search}%`),
+  };
+}
+
+/**
  * Mask an email local part for display: `brian@x.com` → `b***@x.com`.
  * Non-string / malformed values return '' so a browse row never leaks a raw
  * address. A one-char local part still masks fully (`a@x.com` → `*@x.com`).
@@ -400,21 +428,29 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
   const orderBy = c.req.query('orderBy');
   const dir = String(c.req.query('dir') ?? '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
+  // Optional parameterized text search over the non-timestamp safe columns, injected
+  // after `WHERE site_id = ?` on BOTH the browse AND count queries so `total` reflects
+  // the filtered set. Built by the pure `buildDataSearch` (allowlist + wildcard strip).
+  const { clause: searchClause, params: searchParams } = buildDataSearch(spec.columns, c.req.query('search'));
+  const withSearch = (sql: string): string =>
+    searchClause ? sql.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${searchClause}`) : sql;
+
   // Server-side pagination — never load a whole table into the browser. A VALID
   // orderBy (in the column allowlist) rebuilds the ORDER BY with that validated
   // identifier; anything else keeps the spec's default sort, so an unknown/hostile
   // column string can never reach the SQL (allowlist is the injection boundary).
+  const base = withSearch(spec.browseSql);
   const browseSql =
     orderBy && spec.columns.includes(orderBy)
-      ? `${spec.browseSql.replace(/\s+ORDER BY\s+.+\s+LIMIT\s+\?\s*$/i, '')} ORDER BY "${orderBy}" ${dir} LIMIT ? OFFSET ?`
-      : spec.browseSql.replace(/\s+LIMIT\s+\?\s*$/i, ' LIMIT ? OFFSET ?');
+      ? `${base.replace(/\s+ORDER BY\s+.+\s+LIMIT\s+\?\s*$/i, '')} ORDER BY "${orderBy}" ${dir} LIMIT ? OFFSET ?`
+      : base.replace(/\s+LIMIT\s+\?\s*$/i, ' LIMIT ? OFFSET ?');
 
   let rows: Record<string, unknown>[] = [];
   let total = 0;
   try {
     const [browseRes, countRes] = await Promise.all([
-      c.env.DB.prepare(browseSql).bind(siteId, limit, offset).all(),
-      c.env.DB.prepare(spec.countSql).bind(siteId).first<{ n: number }>(),
+      c.env.DB.prepare(browseSql).bind(siteId, ...searchParams, limit, offset).all(),
+      c.env.DB.prepare(withSearch(spec.countSql)).bind(siteId, ...searchParams).first<{ n: number }>(),
     ]);
     rows = (browseRes.results || []) as Record<string, unknown>[];
     total = countRes?.n ?? 0;

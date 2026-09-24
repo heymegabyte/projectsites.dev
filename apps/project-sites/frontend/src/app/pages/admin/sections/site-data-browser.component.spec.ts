@@ -118,6 +118,29 @@ describe('SiteDataBrowserComponent', () => {
     expect(c.orderBy()).toBeNull();
   });
 
+  it('setSearch trims, resets to page 1, re-requests with the search, and no-ops when unchanged', () => {
+    const { fixture, c, browseDataTable } = setup();
+    fixture.detectChanges();
+    c.offset.set(50);
+    c.setSearch('  gmail  ');
+    expect(c.search()).withContext('trimmed').toBe('gmail');
+    expect(c.offset()).withContext('new search resets to the first page').toBe(0);
+    expect(browseDataTable.calls.mostRecent().args[2])
+      .toEqual(jasmine.objectContaining({ search: 'gmail', offset: 0 }));
+    const before = browseDataTable.calls.count();
+    c.setSearch('gmail'); // same trimmed value → no redundant refetch
+    expect(browseDataTable.calls.count()).withContext('unchanged search does not refetch').toBe(before);
+  });
+
+  it('selectTable clears an active search (a new table starts unfiltered)', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    c.setSearch('x');
+    expect(c.search()).toBe('x');
+    c.selectTable(c.tables()[1]);
+    expect(c.search()).toBe('');
+  });
+
   it('nextPage advances the offset by the page size and re-requests that window', () => {
     const { fixture, c, browseDataTable } = setup({ browseDataTable: browsePage(60) });
     fixture.detectChanges();
