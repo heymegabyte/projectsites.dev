@@ -1,10 +1,4 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  EventEmitter,
-  Input,
-  Output,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 /**
  * `app-empty-state` — friendly, on-brand "nothing here yet" surface. One of the
@@ -114,12 +108,12 @@ import {
   ],
   template: `
     <div class="es" data-testid="empty-state">
-      @if (icon) {
+      @if (icon()) {
         <!-- Colorful emoji icons map to monochrome cyan SVGs (cockpit cyan/black
              standard); on-brand mono symbols (⌬ ⚑ ⎇ ↪ ▦) + anything unmapped fall
              through to the @default text glyph. Consumers pass the same icon string. -->
         <div class="es-icon" data-testid="empty-glyph" aria-hidden="true">
-          @switch (icon) {
+          @switch (icon()) {
             @case ('💬') { <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> }
             @case ('🔗') { <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> }
             @case ('🔌') { <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg> }
@@ -131,7 +125,7 @@ import {
             @case ('📭') { <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg> }
             @case ('🔍') { <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg> }
             @case ('✨') { <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg> }
-            @default { {{ icon }} }
+            @default { {{ icon() }} }
           }
         </div>
       }
@@ -139,18 +133,18 @@ import {
            section's h1 (e.g. /admin/site-features with no features) → h3 would skip
            a level (axe heading-order). h2 never skips from any predecessor (h1→h2 ok,
            h2/h3→h2 ok). Styled by .es-title class, so the tag change is visual-neutral. -->
-      <h2 class="es-title" data-testid="empty-title">{{ title }}</h2>
-      @if (message) {
-        <p class="es-msg">{{ message }}</p>
+      <h2 class="es-title" data-testid="empty-title">{{ title() }}</h2>
+      @if (message()) {
+        <p class="es-msg">{{ message() }}</p>
       }
-      @if (ctaLabel) {
+      @if (ctaLabel()) {
         <button
           type="button"
           class="es-cta"
           data-testid="empty-cta"
           (click)="ctaClick.emit()"
         >
-          {{ ctaLabel }}
+          {{ ctaLabel() }}
         </button>
       }
     </div>
@@ -158,17 +152,17 @@ import {
 })
 export class EmptyStateComponent {
   /** Optional decorative glyph / emoji shown above the title. */
-  @Input() icon = '';
+  readonly icon = input('');
 
   /** Headline — what's missing. Required for a meaningful empty state. */
-  @Input({ required: true }) title = '';
+  readonly title = input.required<string>();
 
   /** Supporting one-liner explaining the empty condition. */
-  @Input() message = '';
+  readonly message = input('');
 
   /** CTA label. When set, renders the first-result action button. */
-  @Input() ctaLabel = '';
+  readonly ctaLabel = input('');
 
   /** Fires when the CTA button is activated. */
-  @Output() ctaClick = new EventEmitter<void>();
+  readonly ctaClick = output<void>();
 }

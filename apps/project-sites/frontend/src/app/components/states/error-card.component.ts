@@ -2,10 +2,10 @@ import { isPlatformBrowser } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
-  EventEmitter,
+  computed,
   inject,
-  Input,
-  Output,
+  input,
+  output,
   PLATFORM_ID,
   signal,
 } from '@angular/core';
@@ -173,21 +173,21 @@ import {
       <div class="ec-top">
         <span class="ec-glyph" aria-hidden="true">!</span>
         <div class="ec-body">
-          <h3 class="ec-title" data-testid="error-title">{{ title }}</h3>
-          @if (message) {
-            <p class="ec-msg">{{ message }}</p>
+          <h3 class="ec-title" data-testid="error-title">{{ title() }}</h3>
+          @if (message()) {
+            <p class="ec-msg">{{ message() }}</p>
           }
-          <p class="ec-hint">{{ hint }}</p>
+          <p class="ec-hint">{{ displayHint() }}</p>
 
-          @if (correlationId) {
+          @if (correlationId()) {
             <div class="ec-cid">
               <span class="ec-cid-label">Reference</span>
-              <code class="ec-cid-val" data-testid="error-correlation">{{ correlationId }}</code>
+              <code class="ec-cid-val" data-testid="error-correlation">{{ correlationId() }}</code>
               <button
                 type="button"
                 class="ec-copy"
                 data-testid="error-copy"
-                [attr.aria-label]="'Copy reference ' + correlationId"
+                [attr.aria-label]="'Copy reference ' + correlationId()"
                 (click)="copy()"
               >
                 {{ copied() ? 'Copied' : 'Copy' }}
@@ -204,7 +204,7 @@ import {
           data-testid="error-retry"
           (click)="retry.emit()"
         >
-          {{ retryLabel }}
+          {{ retryLabel() }}
         </button>
       </div>
     </div>
@@ -213,47 +213,48 @@ import {
 export class ErrorCardComponent {
   private readonly platformId = inject(PLATFORM_ID);
 
-  /** Headline — what failed. */
-  @Input({ required: true }) title = 'Something went wrong';
+  /** Headline — what failed. Required (the template-compile enforces the binding). */
+  readonly title = input.required<string>();
 
   /** What happened, in plain language. */
-  @Input() message = '';
+  readonly message = input('');
 
   /**
-   * "What to try next" recovery hint. When left at the default, the wording
-   * adapts to whether a reference is actually shown — so we never promise
-   * "copy the reference below" when no correlationId renders (a false promise).
-   * An explicit value passed by the caller is always respected verbatim.
+   * Explicit "what to try next" hint. `undefined` (unbound) → {@link displayHint}
+   * derives the wording from whether a reference actually renders (so we never
+   * promise "copy the reference below" when no correlationId shows). A bound value
+   * is respected verbatim.
    */
-  @Input()
-  set hint(v: string) {
-    this._hint = v;
-    this._hintExplicit = true;
-  }
-  get hint(): string {
-    if (this._hintExplicit) return this._hint;
-    return this.correlationId
-      ? 'Try again. If it keeps failing, copy the reference below for support.'
-      : 'Try again. If it keeps failing, contact support.';
-  }
-  private _hint = '';
-  private _hintExplicit = false;
+  readonly hint = input<string | undefined>(undefined);
 
   /** Optional correlation / request id surfaced for support hand-off. */
-  @Input() correlationId = '';
+  readonly correlationId = input('');
 
   /** Retry button label. */
-  @Input() retryLabel = 'Retry';
+  readonly retryLabel = input('Retry');
 
   /** Fires when the retry button is activated. */
-  @Output() retry = new EventEmitter<void>();
+  readonly retry = output<void>();
+
+  /**
+   * The hint to render: the explicit `hint` when bound, else a reactive default
+   * that only promises the reference when a `correlationId` is actually shown.
+   */
+  readonly displayHint = computed(() => {
+    const explicit = this.hint();
+    if (explicit !== undefined) return explicit;
+    return this.correlationId()
+      ? 'Try again. If it keeps failing, copy the reference below for support.'
+      : 'Try again. If it keeps failing, contact support.';
+  });
 
   protected readonly copied = signal(false);
 
   protected async copy(): Promise<void> {
-    if (!this.correlationId || !isPlatformBrowser(this.platformId)) return;
+    const cid = this.correlationId();
+    if (!cid || !isPlatformBrowser(this.platformId)) return;
     try {
-      await navigator.clipboard?.writeText(this.correlationId);
+      await navigator.clipboard?.writeText(cid);
       this.copied.set(true);
       setTimeout(() => this.copied.set(false), 1600);
     } catch {

@@ -350,6 +350,19 @@
   **both deployed** (R2 `chunk-PD6IKD5C.js` + worker `ea41980e`; cleaned `.wrangler/tmp` per Cycle-29 lesson) · **prod-verified live
   REAL data**: device `[desktop:19]`, browser `[Chrome:15, unknown:3, Firefox:1]`, os `[macOS:16, unknown:3]`. Next Analytics: add
   browser/OS to the CSV export (device already there), then DST-precise tz, then CSV consolidation (cosmetic).
+- **Cycle 33 — 2026-09-24 (Angular style: signal-input migration of the `states/` family):** Data + Analytics have
+  plateaued for non-blocked high-value work, so advanced the ledger's recorded next action — the Angular style-guide
+  `@Input()`/`@Output()` → `input()`/`output()` signal migration (newer components already use `input()`; the old
+  decorator holdouts were the drift). Migrated the coherent **`components/states/` family**: `empty-state` (4 `@Input`
+  + 1 `@Output` → `input()`/`output()`; `title` → `input.required<string>()` — the required binding was already
+  template-enforced) and `error-card` (5 `@Input` + 1 `@Output`; the getter/setter `hint` — which derived its default
+  from `correlationId` — became an `input<string|undefined>()` + a reactive `displayHint = computed()`, a faithful +
+  MORE reactive translation). Behavior-preserving: consumers' `[foo]`/`(bar)` bindings are unchanged; both components'
+  existing specs pass against the migrated code. Remaining decorator files: **42 `@Input` / 6 `@Output`** (from ~45/~7).
+  Verified: fe tsc (app + spec) 0 · backtick 0 · **Karma 2043/2043** (+1: error-card displayHint reactivity when a
+  correlationId arrives after render) · eslint 0 err · frontend build 0 · deployed R2 + chunk-hash prod-verified
+  (`chunk-UERS6MFZ.js`, 200 + marker). Frontend-only (no worker deploy). Next: continue the migration one coherent
+  component/family per cycle (`calendar-widget`, site-kit primitives), or return to Data/Analytics if a non-blocked gap appears.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
@@ -366,12 +379,14 @@
   (`before-after-slider`, `grafana-dashboard`; dropped an unused `effect` import too).
   The 3rd `constructor(private…)` hit is a test-mock class (`readiness-badge.component.spec`),
   not Angular DI.
-- **Signal inputs/outputs: ⏳ the big remaining item, in progress** — ~45 `@Input()`, ~7 `@Output()`, 21 `@ViewChild`
-  files still use decorators. Migrating ONE component per cycle (coherent, not churn). ✅ done: `cmd-glyph`
-  (`input()`, cycle 17); `command-palette` (first `@Output()` → `output()`, cycle 18). Next small used leaves:
-  `calendar-widget`, the site-kit primitives (`stats-band`/`logo-cloud`/`trust-badges`, 2 inputs each). A 2-in+1-out
-  component demonstrates `model()` (replaces the `@Input`-mutate + `@Output` two-way pattern) — but pick a USED one
-  (`mode-switcher` is dead, see cycle 17).
+- **Signal inputs/outputs: ⏳ in progress** — **42 `@Input()`, 6 `@Output()`** files still use decorators (down from
+  ~45/~7). Migrating a coherent component (or sibling family) per cycle, not churn. ✅ done: `cmd-glyph` (`input()`,
+  cycle 17); `command-palette` (first `@Output()` → `output()`, cycle 18); **the `states/` family — `empty-state`
+  (4 `@Input`+1 `@Output` → `input()`/`output()`) + `error-card` (5 `@Input`+1 `@Output`; the getter/setter `hint`
+  became an `input()` + reactive `computed()` displayHint) (cycle 33)**. Newer components (`conversions-card`,
+  `web-vitals-card`, `tech-breakdown`, `trend-badge`) already ship `input()`/`output()` — the migration closes the
+  old/new inconsistency. Next small used leaves: `calendar-widget`, the site-kit primitives (`stats-band`/`logo-cloud`/
+  `trust-badges`, 2 inputs each). A 2-in+1-out component demonstrates `model()` — but pick a USED one.
 - Standalone components: ✅ (no NgModules). Naming/colocation, a11y, focused-components:
   not yet swept.
 
@@ -410,7 +425,8 @@
   active analytics loop is `348521da`.
 
 ## Next highest-value action
-Migrate ONE component's `@Input()`/`@Output()` → `input()`/`output()` signals per cycle
-(46 `@Input()` files remain) — update its template to call the signal (`{{ foo() }}`) + its
+Migrate ONE coherent component/family's `@Input()`/`@Output()` → `input()`/`output()` signals per
+cycle (**42 `@Input()` / 6 `@Output()` files remain**; `states/` family done cycle 33) — update its
+template to call the signal (`{{ foo() }}`) + its
 spec, keep typecheck + Karma green. Start with a small leaf component. Do NOT build analytics
 comparison deltas (already live). Before creating any doc, grep for an existing one.

@@ -86,6 +86,17 @@ describe('ErrorCardComponent', () => {
     expect(q('.ec-hint')?.textContent?.trim()).toBe('Check your connection and retry.');
   });
 
+  // The default hint is a signal `computed()` (migrated from a getter) → it must react
+  // when a correlationId arrives AFTER first render, not stay stale.
+  it('default hint reactively flips to promise the reference when a correlationId arrives later', () => {
+    fixture.componentRef.setInput('title', 'Error');
+    fixture.detectChanges();
+    expect(q('.ec-hint')?.textContent ?? '').not.toContain('reference below'); // none yet
+    fixture.componentRef.setInput('correlationId', 'req_late');
+    fixture.detectChanges();
+    expect(q('.ec-hint')?.textContent ?? '').toContain('reference below'); // computed updated
+  });
+
   it('emits retry when the retry button is activated', () => {
     fixture.componentRef.setInput('title', 'Error');
     fixture.detectChanges();
