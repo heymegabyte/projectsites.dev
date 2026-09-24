@@ -609,7 +609,11 @@ async function loadHostDelivery(
     // Fold the four edge connection/content dimensions. Each value is trusted (it comes
     // FROM Cloudflare, not the client); skip the "UNK"/"none"/empty sentinels CF emits for
     // an unclassifiable request so a breakdown never shows a meaningless bucket as a real one.
-    const foldDim = (rows: CfGroup[] | undefined, into: Map<string, number>, key: keyof NonNullable<CfGroup['dimensions']>): void => {
+    const foldDim = (
+      rows: CfGroup[] | undefined,
+      into: Map<string, number>,
+      key: keyof NonNullable<CfGroup['dimensions']>,
+    ): void => {
       for (const row of rows ?? []) {
         const raw = String(row.dimensions?.[key] ?? '').trim();
         const c = Number(row.count ?? 0);
@@ -1090,7 +1094,10 @@ export function buildDeliverySummary(
   byMethod: ReadonlyMap<string, number> = new Map(),
 ): DeliverySummary {
   /** A label→count map → its top-`n` rows, highest first, zero-counts dropped. */
-  const topLabels = (m: ReadonlyMap<string, number>, n = 6): Array<{ label: string; count: number }> =>
+  const topLabels = (
+    m: ReadonlyMap<string, number>,
+    n = 6,
+  ): Array<{ label: string; count: number }> =>
     [...m.entries()]
       .filter(([, c]) => c > 0)
       .sort((a, b) => b[1] - a[1])

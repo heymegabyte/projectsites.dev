@@ -138,12 +138,24 @@ describe('buildDeliverySummary', () => {
       0,
       7,
       true,
-      new Map([['HTTP/3', 70], ['HTTP/2', 30]]),
-      new Map([['TLSv1.3', 99], ['TLSv1.2', 1]]),
-      new Map([['js', 60], ['html', 40]]),
+      new Map([
+        ['HTTP/3', 70],
+        ['HTTP/2', 30],
+      ]),
+      new Map([
+        ['TLSv1.3', 99],
+        ['TLSv1.2', 1],
+      ]),
+      new Map([
+        ['js', 60],
+        ['html', 40],
+      ]),
       new Map([['GET', 100]]),
     );
-    expect(result.protocols).toEqual([{ label: 'HTTP/3', count: 70 }, { label: 'HTTP/2', count: 30 }]);
+    expect(result.protocols).toEqual([
+      { label: 'HTTP/3', count: 70 },
+      { label: 'HTTP/2', count: 30 },
+    ]);
     expect(result.tls[0]).toEqual({ label: 'TLSv1.3', count: 99 });
     expect(result.content_types.map((r) => r.label)).toEqual(['js', 'html']);
     expect(result.methods).toEqual([{ label: 'GET', count: 100 }]);
