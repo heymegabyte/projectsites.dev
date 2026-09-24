@@ -19,7 +19,6 @@ import { HlmCheckboxDirective, HlmInputDirective, HlmSelectDirective, HlmTablist
 import { BrnTooltipImports } from '@spartan-ng/brain/tooltip';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { RollingCounterComponent } from '../../../components/rolling-counter/rolling-counter.component';
-import { CharCountComponent } from '../../../components/char-count/char-count.component';
 import { AiSparkComponent } from '../../../components/ai-spark/ai-spark.component';
 
 interface Member { id: string; email: string; name: string | null; role: string; created_at: string; }
@@ -61,7 +60,7 @@ const PROVIDERS = MCP_PROVIDERS;
 @Component({
   selector: 'app-admin-settings',
   standalone: true,
-  imports: [RevealDirective, RollingCounterComponent, CharCountComponent, AiSparkComponent, FormsModule, DatePipe, SlicePipe, RouterLink, EnvVarsManagerComponent, AdminWebhooksComponent, AdminDeliverabilityComponent, AdminDomainsComponent, AdminApiTokensComponent, HlmCheckboxDirective, HlmInputDirective, HlmSelectDirective, HlmTablistDirective, ...BrnTooltipImports],
+  imports: [RevealDirective, RollingCounterComponent, AiSparkComponent, FormsModule, DatePipe, SlicePipe, RouterLink, EnvVarsManagerComponent, AdminWebhooksComponent, AdminDeliverabilityComponent, AdminDomainsComponent, AdminApiTokensComponent, HlmCheckboxDirective, HlmInputDirective, HlmSelectDirective, HlmTablistDirective, ...BrnTooltipImports],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
       <header class="flex items-start justify-between gap-3 flex-wrap">

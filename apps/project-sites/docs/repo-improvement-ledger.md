@@ -571,6 +571,26 @@
   code-editor lib (CodeMirror 6) — a Brian-gated dependency decision, not a no-dep increment; selection execution is the
   last high-value no-dep SQL-console lever. Data section is otherwise plateaued (credential-blocked D1-REST/KV/R2/DO/
   Vectorize items, or product-N/A).
+- **Cycle 46 — 2026-09-24 (Angular: migrate the live admin `empty-state` to signal inputs/outputs + NG8113 dead-import
+  sweep):** Advanced the signal-input migration on the highest-value WIRED, spec-covered target. `pages/admin/empty-
+  state.component.ts` (imported by 10 admin sections — voice, analytics, apps, apps-instances, domains, domain-stack,
+  voice/{numbers,conversations,insights,mcps}) was still decorator-based (`@Input()`/`@Output()`, no `OnPush`).
+  Migrated to `input()`/`output()` + `ChangeDetectionStrategy.OnPush`, and **removed the grep-proven-dead
+  `secondary`/`secondaryClick` button** (no consumer ever passed it — dead-feature removal per the cleanup mandate).
+  Kept the exact used API (icon/title/body/primary/primaryClick), template structure, classes, testids, and styles →
+  **render-neutral**: all 10 consumers' `[title]`/`body=`/`primary=`/`(primaryClick)` bindings are unchanged (signal
+  input/output binding syntax is identical to decorators). Also swept the 3 compiler-flagged **NG8113** dead imports the
+  prod build surfaced (`RouterLink` in integrations + domain-picker, `CharCountComponent` in settings — each verified
+  unused in-template before removal; kept `Router` the service + settings' used `RouterLink`); `ng build` now emits 0
+  NG8113. Added 2 unit tests (primaryClick emits on CTA click / no CTA when `primary` unset — new coverage of the
+  migrated output + conditional-CTA). Verified: fe tsc (app + spec) 0 · **Karma 2072/2072** (+2) · `ng build:prod` 0
+  errors + **0 NG8113** · deployed R2 (293 files, CDN purged) + prod-verified: homepage 200, local `main-T62ZB734.js` ==
+  live `main-T62ZB734.js` (this build is deployed), empty-state admin chunks (`chunk-4L6W25SG.js`, `chunk-ZJRRYDYD.js`)
+  200 with the `empty-state-pretty` marker live. Admin surface is authed so a deep visual re-check needs the E2E key, but
+  the change is provably render-neutral (same markup/classes/testids) + behavior locked by Karma. Discovered + logged a
+  **duplicate `EmptyStateComponent`** (two components, one selector — see the Angular-coverage note above); consolidation
+  needs a visual-design call, so it's a tracked Rec, not this cycle. **Next:** `calendar-widget` signal-input migration
+  (its 1 input is a getter/setter with logic → `input()` + `computed`/`effect`), or delete the dead `mode-switcher`.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
@@ -587,17 +607,33 @@
   (`before-after-slider`, `grafana-dashboard`; dropped an unused `effect` import too).
   The 3rd `constructor(private…)` hit is a test-mock class (`readiness-badge.component.spec`),
   not Angular DI.
-- **Signal inputs/outputs: ⏳ in progress** — **43** decorator files remain (was 44). Migrating a coherent unit per
+- **Signal inputs/outputs: ⏳ in progress** — **42** decorator files remain (was 43). Migrating a coherent unit per
   cycle, preferring WIRED, spec-covered targets that IMPROVE the code over churn. ✅ done: `cmd-glyph` (cycle 17);
   `command-palette` (`@Output()`→`output()`, cycle 18); the `states/` family — `empty-state` + `error-card` (cycle 33);
   **`directives/auth-image-src` — `@Input()`+`ngOnChanges`+`ngOnDestroy` → `input()`+`effect(onCleanup)`, which also
-  fixed a latent in-flight-fetch race (cycle 39)**. Newer components (`conversions-card`, `web-vitals-card`,
+  fixed a latent in-flight-fetch race (cycle 39)**; **`pages/admin/empty-state` — 5 `@Input`+2 `@Output` → `input()`/
+  `output()` + `OnPush`, and dropped the grep-proven-dead `secondary`/`secondaryClick` button (no consumer ever passed
+  it); render-neutral for all 10 consumers (cycle 46)**. Newer components (`conversions-card`, `web-vitals-card`,
   `tech-breakdown`, `trend-badge`) already ship `input()`/`output()`. ⚠️ **`site-kit/*` (25+ components, most of the
   remaining decorator files) is an UNWIRED library** — no importers/selectors/registry/build-includes (only 2 specs);
   migrating it is low-value churn, and it can't be deleted (actively maintained + tests-preserved). **Resolve its intent
   (unbuilt site-builder feature vs. orphan) before investing** — a Brian-gated call. Next WIRED leaves: `calendar-widget`
-  (1 input), `pages/admin/empty-state`, `feature-flags/mode-switcher`. `focus-trap`/`reveal` use imperative
-  setter/order-fragile reactivity → migrate carefully/last.
+  (1 input, but its input is a getter/setter pair with logic → migrate as `input()` + `computed`/`effect`, careful).
+  `feature-flags/mode-switcher` is **DEAD** (2 consumers import only its `DisclosureMode` *type*; no selector rendered
+  anywhere, no spec) → a delete candidate, not a migration target. `focus-trap`/`reveal` use imperative setter/
+  order-fragile reactivity → migrate carefully/last.
+- **NG8113 dead-import sweep: ✅ (cycle 46)** — the Angular template compiler flagged 3 unused directive/component
+  imports; all removed (compiler-proven dead, zero runtime change): `RouterLink` in `integrations` + `domain-picker`
+  (kept `Router` the service in domain-picker), `CharCountComponent` in `settings` (kept its used `RouterLink`). `ng
+  build` now emits 0 NG8113 warnings. Re-run this grep-of-the-build each cycle to keep it at 0.
+- ⚠️ **DUPLICATE `EmptyStateComponent` (tracked drift, needs a design call):** TWO standalone components share the
+  selector `app-empty-state` AND the class name `EmptyStateComponent` — `pages/admin/empty-state.component.ts` (10
+  consumers; `body`/`primary` API; cyan-halo "pretty" style; now signal-based after cycle 46) and
+  `components/states/empty-state.component.ts` (4 consumers: feature-flags/site-features/site-branches/webhooks;
+  `message`/`ctaLabel` API; dashed-card style; signal-based since cycle 33). No runtime collision (standalone selector
+  resolution is per-component-imports), but it's a real duplicate. Consolidation would change 10 admin sections' empty-
+  state **visual style** (halo → dashed card) → a design decision, NOT a silent refactor. Rec: pick one canonical style +
+  a superset API (1 CTA is enough — `secondary` is dead), then repoint + delete the loser in a dedicated visual-QA'd arc.
 - Standalone components: ✅ (no NgModules). Naming/colocation, a11y, focused-components:
   not yet swept.
 

@@ -78,3 +78,32 @@ describe('AdminEmptyStateComponent (E2E testid contract — chaos-15/16 locators
     expect(root.querySelector('[data-testid="empty-cta"]')).withContext('primary CTA testid').not.toBeNull();
   });
 });
+
+describe('AdminEmptyStateComponent (signal output + conditional CTA)', () => {
+  let fx: ComponentFixture<EmptyStateComponent>;
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('emits primaryClick when the CTA button is activated', () => {
+    TestBed.configureTestingModule({ imports: [EmptyStateComponent] });
+    fx = TestBed.createComponent(EmptyStateComponent);
+    fx.componentRef.setInput('title', 'No app instances yet');
+    fx.componentRef.setInput('primary', 'Browse the app store');
+    fx.detectChanges();
+    let fired = 0;
+    fx.componentInstance.primaryClick.subscribe(() => (fired += 1));
+    (fx.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('[data-testid="empty-cta"]')
+      ?.click();
+    expect(fired).withContext('primaryClick emits once per CTA click').toBe(1);
+  });
+
+  it('renders no CTA button when no primary label is provided', () => {
+    TestBed.configureTestingModule({ imports: [EmptyStateComponent] });
+    fx = TestBed.createComponent(EmptyStateComponent);
+    fx.componentRef.setInput('title', 'Nothing to configure');
+    fx.detectChanges();
+    expect((fx.nativeElement as HTMLElement).querySelector('[data-testid="empty-cta"]'))
+      .withContext('no CTA without a primary label')
+      .toBeNull();
+  });
+});

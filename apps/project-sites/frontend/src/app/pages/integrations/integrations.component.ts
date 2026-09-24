@@ -24,7 +24,6 @@ import {
 
 import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
 import { MetaService } from '../../services/meta.service';
 
 /**
@@ -81,7 +80,7 @@ const CATEGORY_ORDER: readonly string[] = [
   selector: 'app-integrations',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule],
   template: `
     <section class="integrations-page">
       <div class="integrations-inner">

@@ -51,7 +51,7 @@ import {
 } from '@angular/core';
 import { CdkMenu, CdkMenuItem, CdkMenuTrigger } from '@angular/cdk/menu';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
 import { of, Subject } from 'rxjs';
 import { catchError, debounceTime, distinctUntilChanged, switchMap } from 'rxjs/operators';
 
@@ -101,7 +101,7 @@ const LOW_BALANCE_CENTS = 500;
 
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CdkMenu, CdkMenuItem, CdkMenuTrigger, FormsModule, NgTemplateOutlet, RouterLink],
+  imports: [CdkMenu, CdkMenuItem, CdkMenuTrigger, FormsModule, NgTemplateOutlet],
   selector: 'app-domain-picker',
   standalone: true,
   styles: [

@@ -8,19 +8,20 @@
  *     (primaryClick)="copy()"
  *   />
  */
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'app-empty-state',
   standalone: true,
   template: `
     <div class="empty-state-pretty" role="status" aria-live="polite" data-testid="empty-state">
-      @if (icon) {
+      @if (icon()) {
         <!-- Colorful emoji icons map to monochrome cyan SVGs (cockpit cyan/black
              standard); on-brand mono symbols (⌬ ▦ etc.) + anything unmapped fall
              through to the @default text glyph. Consumers pass the same icon string. -->
         <div class="empty-glyph" aria-hidden="true">
-          @switch (icon) {
+          @switch (icon()) {
             @case ('💬') { <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> }
             @case ('🔗') { <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> }
             @case ('🔌') { <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg> }
@@ -32,16 +33,15 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
             @case ('📭') { <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg> }
             @case ('✨') { <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg> }
             @case ('🔍') { <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg> }
-            @default { <span class="empty-emoji">{{ icon }}</span> }
+            @default { <span class="empty-emoji">{{ icon() }}</span> }
           }
         </div>
       }
-      <h3 class="glow-h-grad text-xl font-semibold m-0" data-testid="empty-title">{{ title }}</h3>
-      @if (body) { <p class="text-[0.88rem] text-text-secondary max-w-[480px] mx-auto m-0 leading-relaxed">{{ body }}</p> }
-      @if (primary || secondary) {
+      <h3 class="glow-h-grad text-xl font-semibold m-0" data-testid="empty-title">{{ title() }}</h3>
+      @if (body()) { <p class="text-[0.88rem] text-text-secondary max-w-[480px] mx-auto m-0 leading-relaxed">{{ body() }}</p> }
+      @if (primary()) {
         <div class="flex gap-2 justify-center mt-1 flex-wrap">
-          @if (primary)   { <button class="btn-primary" data-testid="empty-cta" (click)="primaryClick.emit()">{{ primary }}</button> }
-          @if (secondary) { <button class="btn-ghost" (click)="secondaryClick.emit()">{{ secondary }}</button> }
+          <button class="btn-primary" data-testid="empty-cta" (click)="primaryClick.emit()">{{ primary() }}</button>
         </div>
       }
     </div>
@@ -64,11 +64,14 @@ import { Component, EventEmitter, Input, Output } from '@angular/core';
   `],
 })
 export class EmptyStateComponent {
-  @Input() icon?: string;
-  @Input() title = '';
-  @Input() body?: string;
-  @Input() primary?: string;
-  @Input() secondary?: string;
-  @Output() primaryClick = new EventEmitter<void>();
-  @Output() secondaryClick = new EventEmitter<void>();
+  /** Optional decorative glyph / emoji above the title (maps to a monochrome cyan SVG). */
+  readonly icon = input<string>();
+  /** Headline — what's missing. */
+  readonly title = input('');
+  /** Supporting one-liner explaining the empty condition. */
+  readonly body = input<string>();
+  /** Primary CTA label. When set, renders the first-result action button. */
+  readonly primary = input<string>();
+  /** Fires when the primary CTA is activated. */
+  readonly primaryClick = output<void>();
 }
