@@ -8,7 +8,11 @@
  *  - Status class bucketing (2xx/3xx/4xx/5xx/other)
  *  - top_statuses sort order and top-8 cap
  */
-import { buildDeliverySummary, clampCustomDays, resolveDeliveryZone } from '../services/multi_url_analytics';
+import {
+  buildDeliverySummary,
+  clampCustomDays,
+  resolveDeliveryZone,
+} from '../services/multi_url_analytics';
 
 describe('buildDeliverySummary', () => {
   it('correctly buckets status codes and totals from real-world CF data', () => {
