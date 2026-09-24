@@ -363,6 +363,17 @@
   correlationId arrives after render) · eslint 0 err · frontend build 0 · deployed R2 + chunk-hash prod-verified
   (`chunk-UERS6MFZ.js`, 200 + marker). Frontend-only (no worker deploy). Next: continue the migration one coherent
   component/family per cycle (`calendar-widget`, site-kit primitives), or return to Data/Analytics if a non-blocked gap appears.
+- **Cycle 34 — 2026-09-24 (Analytics: CSV export browser/OS parity — the platform trio):** Closed the Cycle-32
+  handoff's top item. The "Devices & platforms" card renders **device / browser / OS**, but `buildAnalyticsCsv` only
+  exported **device** — an export⇄dashboard gap. Added `byBrowser`/`byOs` to the pure fn's typed input and emits them
+  grouped **device → browser → os** (mirroring the card) right after the device rows. Purely additive: the call site
+  already passes the full `siteTraffic()` (which carries `byBrowser`/`byOs`), so **no call-site change** — tsc confirms
+  structural assignability. Honest omission preserved — browser/os rows are omitted (never a fabricated row) when their
+  breakdown is absent, matching the device/CWV/delivery pattern. Verified: fe tsc (app + spec) 0 · **Karma 2045/2045**
+  (+2: full-trio grouped-order export + browser/os honest-omission) · frontend build 0 · deployed R2 + chunk-hash
+  prod-verified (`chunk-6YFA6GWF.js`, 200 + `browser,`/`os,` markers live + referenced by live `main-WMKZGVGS.js`).
+  Frontend-only (no worker deploy). Next: DST-precise IANA-zone timezone shift (currently an honest fixed-offset caveat),
+  then the low-value CSV consolidation (audit/analytics-dashboard hand-rolled downloads → `downloadText`).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

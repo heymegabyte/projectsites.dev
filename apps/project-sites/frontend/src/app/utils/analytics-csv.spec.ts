@@ -15,6 +15,8 @@ const BASE: AnalyticsCsvInput = {
   },
   traffic: {
     byDevice: [{ label: 'mobile', count: 70 }],
+    byBrowser: [{ label: 'Chrome', count: 61 }],
+    byOs: [{ label: 'iOS', count: 44 }],
     byChannel: [{ label: 'organic', count: 55 }],
     byConversionKind: [{ label: 'call', count: 9 }],
     bounceRatePercent: 42,
@@ -52,6 +54,29 @@ describe('buildAnalyticsCsv', () => {
     expect(r).toContain('channel,organic,55');
     expect(r).toContain('conversion,call,9');
     expect(r).toContain('summary,bounce_rate_percent,42');
+  });
+
+  it('exports the full device/browser/os platform trio in that grouped order', () => {
+    const r = rows(buildAnalyticsCsv(BASE));
+    expect(r).toContain('device,mobile,70');
+    expect(r).toContain('browser,Chrome,61');
+    expect(r).toContain('os,iOS,44');
+    // The three tech dimensions stay grouped, device → browser → os (mirrors the card).
+    const device = r.findIndex((l) => l.startsWith('device,'));
+    const browser = r.findIndex((l) => l.startsWith('browser,'));
+    const os = r.findIndex((l) => l.startsWith('os,'));
+    expect(device).toBeLessThan(browser);
+    expect(browser).toBeLessThan(os);
+  });
+
+  it('omits browser/os rows when those breakdowns are absent (never a fabricated row)', () => {
+    const csv = buildAnalyticsCsv({
+      ...BASE,
+      traffic: { byDevice: [{ label: 'mobile', count: 70 }] },
+    });
+    expect(csv).toContain('device,mobile,70'); // device still present
+    expect(csv).not.toContain('browser,');
+    expect(csv).not.toContain('os,');
   });
 
   it('emits a CWV row only for a MEASURED metric (null → omitted, never a fake 0)', () => {
