@@ -327,7 +327,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
             <div class="text-3xl font-bold text-white mt-1 leading-none" [title]="(envelope()?.total_requests ?? 0) | number">
               <app-rolling-counter [value]="envelope()?.total_requests ?? 0" [duration]="1100" />
             </div>
-            <div class="text-[0.68rem] text-text-secondary mt-1">{{ trafficSource() === 'beacon' ? 'Page requests via on-site beacon' : 'All HTTP requests at the edge' }}</div>
+            <div class="text-[0.68rem] text-text-secondary mt-1">{{ trafficSource() === 'beacon' ? 'Page views recorded on your site' : 'All HTTP requests at the edge' }}</div>
           }
         </div>
 
@@ -1031,7 +1031,13 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     if (this.notAvailable()) return 'No site traffic';
     if (!env && this.error()) return 'Unavailable';
     if (!env) return 'Loading';
-    if (env.any_real_data) return 'Cloudflare Edge';
+    // Honest provenance: numbers are first-party (recorded on-site in D1
+    // visitor_events) for every *.projectsites.dev subdomain + the D1 fallback,
+    // and only genuinely Cloudflare-edge when a custom domain resolved a CF zone.
+    // `trafficSource` is the authoritative edge-vs-first-party signal — the badge
+    // MUST use it (it previously hardcoded "Cloudflare Edge" for all real data,
+    // mislabeling first-party numbers as Cloudflare's).
+    if (env.any_real_data) return this.trafficSource() === 'edge' ? 'Cloudflare Edge' : 'ProjectSites analytics';
     const cred = this.credStatus();
     if (cred && cred.source === 'none') return 'Not connected';
     return 'No data yet';
@@ -1050,7 +1056,9 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     if (this.notAvailable()) return 'No per-site traffic recorded for this site yet.';
     if (!env && this.error()) return this.error()!;
     if (env?.any_real_data) {
-      return `Cloudflare GraphQL — aggregated across ${env.urls_included.length} URL${env.urls_included.length === 1 ? '' : 's'}. No session-duration / bounce-rate at the edge.`;
+      return this.trafficSource() === 'edge'
+        ? `Cloudflare GraphQL — aggregated across ${env.urls_included.length} URL${env.urls_included.length === 1 ? '' : 's'}. No session-duration / bounce-rate at the edge.`
+        : 'Measured first-party on your site — page views recorded on every serve; conversions & forms via the on-site beacon. Includes true session-based bounce rate (unavailable at the edge).';
     }
     return 'No traffic captured yet. Once visitors arrive, page-view trends plot here.';
   });

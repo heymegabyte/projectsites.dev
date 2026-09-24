@@ -325,7 +325,7 @@ describe('AdminAnalyticsComponent (site-reactive load)', () => {
 
     const req = el.querySelector('[data-testid="kpi-requests"]') as HTMLElement;
     expect(req.textContent).withContext('beacon: drops the false "at the edge" claim').not.toContain('at the edge');
-    expect(req.textContent).withContext('beacon: honest on-site-beacon source label').toContain('via on-site beacon');
+    expect(req.textContent).withContext('beacon: honest first-party source label (plain words, no jargon)').toContain('recorded on your site');
 
     const pv = el.querySelector('[data-testid="kpi-pageviews"]') as HTMLElement;
     expect(pv.textContent).withContext('beacon: no redundant "of N requests" (== pageviews)').toContain('In the selected period');
@@ -336,6 +336,38 @@ describe('AdminAnalyticsComponent (site-reactive load)', () => {
     fixture.detectChanges();
     const reqEdge = el.querySelector('[data-testid="kpi-requests"]') as HTMLElement;
     expect(reqEdge.textContent).withContext('edge: accurate edge-request label').toContain('All HTTP requests at the edge');
+  });
+
+  // The top-of-panel "Source:" badge (dataLabel/dataTooltip) must reflect the SAME
+  // edge-vs-first-party provenance the KPI sublabels do. It previously hardcoded
+  // "Cloudflare Edge"/"Cloudflare GraphQL" for ALL real data — a source-conflation
+  // lie for every *.projectsites.dev subdomain + the D1 fallback, whose numbers are
+  // first-party (recorded on-site in visitor_events), not Cloudflare's.
+  it('the Source badge reads "ProjectSites analytics" for first-party (beacon) data, never "Cloudflare"', () => {
+    build({ id: 'site-x' });
+    const c = fixture.componentInstance;
+    c.notAvailable.set(false);
+    c.error.set(null);
+    c.trafficSource.set('beacon');
+    c.envelope.set({ any_real_data: true, urls_included: [], series: [] } as never);
+    expect(c.dataLabel()).withContext('first-party numbers are NOT labeled Cloudflare').toBe('ProjectSites analytics');
+    expect(c.dataTooltip()).withContext('tooltip explains first-party').toContain('first-party');
+    expect(c.dataTooltip()).withContext('never conflated with Cloudflare').not.toContain('Cloudflare');
+  });
+
+  it('the Source badge reads "Cloudflare Edge" only when a custom domain resolved a CF zone (edge)', () => {
+    build({ id: 'site-x' });
+    const c = fixture.componentInstance;
+    c.notAvailable.set(false);
+    c.error.set(null);
+    c.trafficSource.set('edge');
+    c.envelope.set({
+      any_real_data: true,
+      urls_included: [{ hostname: 'shop.example.com', resolved_zone: true }],
+      series: [],
+    } as never);
+    expect(c.dataLabel()).withContext('genuine CF-edge data keeps the Cloudflare label').toBe('Cloudflare Edge');
+    expect(c.dataTooltip()).withContext('edge tooltip names Cloudflare GraphQL').toContain('Cloudflare GraphQL');
   });
 
   it('the KPI aria-labels do not lie during the loading skeleton (no premature "0 …" claim)', () => {

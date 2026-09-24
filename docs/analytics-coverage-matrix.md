@@ -47,7 +47,7 @@
 | **Core Web Vitals (LCP/INP/CLS + per-page)** | first-party RUM → `web_vital` events in D1 | none (no CF plan) | per site_id (+ per `path`) | D1 | none (all sessions) | ✅ **COMPLETE + per-path** — site p75 card PLUS a **"Slowest pages · LCP p75"** drilldown (`getWebVitalsSummary` buckets LCP by `path`, ranks worst-first, top 5, past a **5-sample floor**); honest ("measuring"/null never a fake 0; a page needs ≥5 samples to be ranked) | `/admin/analytics` "Core Web Vitals" card + slowest-pages table |
 | **Security (WAF/bot/challenges)** | CF GraphQL `firewallEventsAdaptiveGroups` | **plan lacks access** | per hostname | plan-dependent | — | ❌ **BLOCKED — verified 2026-09-24** by an introspection probe against our zone: returns authz *"zone does not have access to the path"*. Our plan has no firewall-analytics entitlement, so this is NOT buildable without a plan upgrade — a security card would be a permanent placeholder (which the doctrine forbids). | — (honestly absent) |
 | **CSV export (dashboard)** | (UI) client-side over fetched data | none | — | — | — | ✅ **DONE + fixed (this fire)** — `buildAnalyticsCsv` exports summary + top-pages/countries/referrers **plus the D1 device/channel/conversions/CWV breakdowns** (were missing), with the **ACCURATE source label** (was hardcoded "cloudflare_graphql" — lied for subdomains); formula-injection-safe via the hardened shared `csvEscape`. Custom range / comparison / TZ still partial. | `/admin/analytics` Export CSV |
-| Source + freshness labels in UI | (UI) | none | — | — | — | ⚠️ verify present | — |
+| Source + freshness labels in UI | (UI) | none | — | — | — | ✅ **honest per-provenance (this fire)** — the "Source:" badge (`dataLabel`/`dataTooltip`) was hardcoding **"Cloudflare Edge" / "Cloudflare GraphQL" for ALL real data**, a source-conflation lie for every `*.projectsites.dev` subdomain + the D1 fallback (their numbers are first-party `visitor_events`, not CF's). Now routed through the authoritative `trafficSource` signal: first-party → **"ProjectSites analytics"** (tooltip: measured on-site, per serve, incl. true session bounce), genuine CF-zone custom domain → **"Cloudflare Edge"**. "Total requests" KPI sublabel de-jargoned ("on-site beacon" → "recorded on your site"). Freshness "as of" already present. | analytics header badge + chart caption + footer |
 
 ## Highest-impact gap (corrected — NOT "beacon not deployed")
 
@@ -104,10 +104,17 @@ from the buildable-next list. **CSV export is DONE + fixed** (this fire): `build
 the D1 device/channel/conversions/CWV breakdowns the prior export dropped, with the ACCURATE source (was a hardcoded
 "cloudflare_graphql" lie for subdomains); the shared `csvEscape` was hardened with a CWE-1236 formula-injection guard
 (benefits the Data-grid export too) and the dead `csvCell` removed.
-NEXT highest-value gaps (Security is plan-blocked; the universal D1 coverage is strong): (1) **Usability honesty
-sweep** — an explicit source + freshness ("as of") + "not available for subdomains" vs "no data yet" label on EVERY
-analytics card (the CWV/conversions cards are honest; audit the CF-envelope traffic cards). (2) **Delivery/performance
-for custom-domain sites** — `httpRequestsAdaptiveGroups` (our free plan DOES have this per-host) exposes
-`edgeResponseStatus` / `cacheStatus`; a status-code + cache-hit breakdown card, honestly gated "custom domains only".
-(3) **Custom date range + timezone** in the range selector. (4) **Migrate the remaining bespoke CSV exports**
-(events-table/audit/forms/super-admin) onto the now-hardened shared `csvEscape`/`downloadText`.
+**Usability honesty sweep is DONE** (2026-09-24): the "Source:" badge no longer conflates first-party D1 data with
+Cloudflare. `dataLabel`/`dataTooltip` now branch on the authoritative `trafficSource` signal — first-party (every
+subdomain + the D1 fallback) reads **"ProjectSites analytics"** (measured on-site, per serve, with true session
+bounce), and only a genuine CF-zone custom domain reads **"Cloudflare Edge"** / "Cloudflare GraphQL". The "Total
+requests" KPI sublabel was de-jargoned ("on-site beacon" → "recorded on your site"). +2 focused specs assert the
+beacon-vs-edge badge; the beacon-KPI-sublabel spec was updated. tsc 0 · Karma 1936/1936 · AOT 0 · eslint 0-errors.
+
+NEXT highest-value gaps (Security is plan-blocked; the universal D1 coverage + honesty are now strong): (1)
+**Delivery/performance for custom-domain sites** — `httpRequestsAdaptiveGroups` (our free plan DOES have this per-host)
+exposes `edgeResponseStatus` / `cacheStatus`; a status-code + cache-hit breakdown card, honestly gated "custom domains
+only" (subdomains never resolve a CF zone → `trafficSource==='edge'` is the gate). **VERIFY the query returns real data
+for a real custom-domain hostname before shipping the card** (per the prompt: instrument+verify before showing). (2)
+**Custom date range + timezone** in the range selector (today: 24h/7d/30d/90d pills only). (3) **Migrate the remaining
+bespoke CSV exports** (events-table/audit/forms/super-admin) onto the now-hardened shared `csvEscape`/`downloadText`.
