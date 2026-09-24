@@ -612,7 +612,7 @@ describe('AdminAnalyticsComponent (deep-linkable range)', () => {
   let navigate: jasmine.Spy;
   let selectedSite: WritableSignal<{ id: string } | null>;
 
-  function build(rangeParam: string | null): AdminAnalyticsComponent {
+  function build(rangeParam: string | null, daysParam: string | null = null): AdminAnalyticsComponent {
     navigate = jasmine.createSpy('navigate').and.resolveTo(true);
     selectedSite = signal<{ id: string } | null>({ id: 'site-1' });
     // Permissive API stub: any method → a safe observable (constructor effect
@@ -628,7 +628,7 @@ describe('AdminAnalyticsComponent (deep-linkable range)', () => {
         { provide: ToastService, useValue: { error: () => 0, success: () => 0 } },
         { provide: PromptService, useValue: { prompt: () => Promise.resolve(null) } },
         { provide: Router, useValue: { navigateByUrl: () => 0, navigate } },
-        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => rangeParam } } } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: (k: string) => (k === 'days' ? daysParam : rangeParam) } } } },
         { provide: AdminStateService, useValue: { selectedSite } },
       ],
     });
@@ -638,7 +638,12 @@ describe('AdminAnalyticsComponent (deep-linkable range)', () => {
   }
 
   beforeEach(() => {
-    try { localStorage.removeItem('ps_analytics_range'); } catch { /* */ }
+    // Isolate: both range + custom-days persist to localStorage; a leak makes the
+    // "?days ignored → default" assertions read a prior test's value.
+    try {
+      localStorage.removeItem('ps_analytics_range');
+      localStorage.removeItem('ps_analytics_custom_days');
+    } catch { /* */ }
   });
   afterEach(() => TestBed.resetTestingModule());
 
@@ -652,7 +657,7 @@ describe('AdminAnalyticsComponent (deep-linkable range)', () => {
     expect(c.range()).toBe('7d');
   });
 
-  it('setRange() reflects the choice in the URL (merge + replaceUrl, no reload)', () => {
+  it('setRange() reflects the choice in the URL (merge + replaceUrl, no reload); a preset clears stale ?days', () => {
     const c = build(null);
     navigate.calls.reset();
     c.setRange('90d');
@@ -660,10 +665,47 @@ describe('AdminAnalyticsComponent (deep-linkable range)', () => {
     expect(navigate).toHaveBeenCalledWith(
       [],
       jasmine.objectContaining({
-        queryParams: { range: '90d' },
+        queryParams: { range: '90d', days: null }, // preset clears a lingering custom ?days
         queryParamsHandling: 'merge',
         replaceUrl: true,
       }),
+    );
+  });
+
+  it('restores a shared custom window from `?range=custom&days=45` (URL wins over localStorage)', () => {
+    const c = build('custom', '45');
+    expect(c.range()).withContext('custom deep-link is honored (was silently ignored)').toBe('custom');
+    expect(c.customDays()).withContext('the shared day count is restored from the URL').toBe(45);
+    expect(c.rangeDays()).toBe(45);
+  });
+
+  it('ignores an out-of-bounds `?days` (>90) and keeps the default day count', () => {
+    expect(build('custom', '9999').customDays()).toBe(14);
+  });
+
+  it('ignores a non-numeric `?days` and keeps the default day count', () => {
+    expect(build('custom', 'abc').customDays()).toBe(14);
+  });
+
+  it('setRange("custom") writes the day count to the URL so the window is shareable', () => {
+    const c = build(null);
+    c.customDays.set(30);
+    navigate.calls.reset();
+    c.setRange('custom');
+    expect(navigate).toHaveBeenCalledWith(
+      [],
+      jasmine.objectContaining({ queryParams: { range: 'custom', days: 30 }, queryParamsHandling: 'merge', replaceUrl: true }),
+    );
+  });
+
+  it('setCustomDays keeps the URL ?days in sync while the custom window is active', () => {
+    const c = build(null);
+    c.range.set('custom');
+    navigate.calls.reset();
+    c.setCustomDays(60);
+    expect(navigate).toHaveBeenCalledWith(
+      [],
+      jasmine.objectContaining({ queryParams: { range: 'custom', days: 60 }, queryParamsHandling: 'merge', replaceUrl: true }),
     );
   });
 });

@@ -144,15 +144,21 @@ new specs (`clampCustomDays` bounds; `rangeDays`/`getMultiUrlAnalytics` days wir
 isolation unchanged (rides the same `loadSiteAndAuth`/`resolveOwnedSiteId` authed path; `days` is a bounded integer,
 never a resource selector). Worker + frontend deployed.
 
-**Metric definitions SHIPPED** (2026-09-24): `AnalyticsGlossaryComponent` — an accessible "How these metrics are
-measured" disclosure with a per-metric definition + source badge + caveat, explicitly stating requests ≠ page views.
-Frontend-only; +3 Karma specs; Karma 1960/1960; prod-verified live.
+**Metric definitions SHIPPED** (2026-09-24): `AnalyticsGlossaryComponent` — accessible "How these metrics are measured"
+disclosure with per-metric definition + source badge + caveat, spelling out requests ≠ page views.
 
-NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions complete):
-(1) **Arbitrary start/end date range** (a specific past window, e.g. Aug 1–15) — the richer form of custom range. NOTE
-the real cost: `getTrafficSummary` builds the whole summary around a now-relative `since = -${windowDays} days` reused
-across ~8 sub-queries PLUS period-over-period PLUS the rollup path PLUS `getWebVitalsSummary`/`getConversionKinds` PLUS
-the CF windows — a multi-function refactor of the WORKING audience query (regression-sensitive). Do it in a dedicated
-fire: thread an optional `{since, until}` through all of those + 2 date pickers, with strong tests first. (2) **Full
-timezone-aware bucketing** (day buckets in the viewer's tz; today UTC + labeled). (3) **Migrate bespoke CSV exports**
-(events-table/audit/forms/super-admin) onto the shared `csvEscape`/`downloadText`.
+**Custom range now bookmarkable/shareable** (2026-09-24): fixed two real gaps — the range deep-link accepted `24h/7d/30d/90d`
+but NOT `custom` (a `?range=custom` link was silently ignored), and `?days` was never read or written (a shared custom link
+showed the recipient's own localStorage day count). Now: `?range=custom&days=45` restores the exact window (URL wins over
+localStorage, validated 1–90); `setRange`/`setCustomDays` write `days` to the URL (a preset clears a stale `?days`).
+Frontend-only; +5 Karma specs (incl. the deep-link restore + isolation fix); Karma 1965/1965; prod-verified live.
+
+NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions/shareable-range
+complete): (1) **Arbitrary start/end date range** (a specific past window, e.g. Aug 1–15). CONFIRMED bounded scope:
+`getTrafficSummary` centralizes the window as ONE `w` clause (`site_id = ? AND created_at >= datetime('now', ?)`) + a
+repeated `[siteId, since]` param across ~7 sub-queries + `pw`/`pwParams` (period-over-period) + `getWebVitalsSummary`/
+`getConversionKinds` (windowDays) + the rollup path + the CF windows. The refactor: thread an optional `{since, until}`,
+switch `w` to bound ISO literals (`created_at >= ? AND created_at < ?`), and when a custom range is set FORCE the live
+scan (skip the rollup optimization) to avoid touching `getTrafficSummaryFromRollup`. Regression-sensitive (the core
+audience query) → a dedicated, tests-first fire in a FRESH session (not the tail of a marathon). (2) **Full timezone-aware
+bucketing**. (3) **Migrate bespoke CSV exports** onto the shared `csvEscape`/`downloadText`.

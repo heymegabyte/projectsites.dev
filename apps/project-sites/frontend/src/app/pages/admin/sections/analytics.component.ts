@@ -988,7 +988,12 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     // ignored). Set BEFORE the site-reactive effect's first reload so the right
     // window loads immediately.
     const r = this.route.snapshot.queryParamMap.get('range');
-    if (r === '24h' || r === '7d' || r === '30d' || r === '90d') this.range.set(r);
+    if (r === '24h' || r === '7d' || r === '30d' || r === '90d' || r === 'custom') this.range.set(r);
+    // A shared `?range=custom&days=45` link restores the EXACT window (the URL wins over
+    // the recipient's localStorage) — without this, a custom-range link was silently
+    // ignored (missing 'custom' above) AND fell back to the recipient's own day count.
+    const d = Number.parseInt(this.route.snapshot.queryParamMap.get('days') ?? '', 10);
+    if (Number.isFinite(d) && d >= 1 && d <= 90) this.customDays.set(d);
 
     // Site-reactive load: when the selected site resolves on a deep-link (it
     // arrives AFTER mount) or the operator switches sites, fetch immediately
@@ -1043,7 +1048,16 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     const n = Math.min(Math.max(Math.trunc(Number(value) || 0), 1), 90);
     this.customDays.set(n);
     try { localStorage.setItem('ps_analytics_custom_days', String(n)); } catch { /* */ }
-    if (this.range() === 'custom') this.reload();
+    if (this.range() === 'custom') {
+      // Keep the shareable URL's `days` in sync with the active custom window.
+      void this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: { range: 'custom', days: n },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+      this.reload();
+    }
   }
 
   setRange(id: RangeId): void {
@@ -1051,9 +1065,11 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     try { localStorage.setItem('ps_analytics_range', id); } catch { /* */ }
     // Reflect in the URL so a time-window view is bookmarkable/shareable
     // (replaceUrl = no back-button spam; merge keeps other params; SPA no-reload).
+    // `days` rides along only for the custom window; a preset clears it (null) so a
+    // stale `?days` from a prior custom view can't linger on a preset link.
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { range: id },
+      queryParams: { range: id, days: id === 'custom' ? this.customDays() : null },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
