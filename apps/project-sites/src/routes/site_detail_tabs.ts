@@ -305,6 +305,125 @@ tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /api/sites/:siteId/sql/schema
+// Read-only SQLite schema introspection for the D1 manager — every table/view with
+// its columns (+ pk/notnull/default), indexes (+ their columns), and foreign keys,
+// plus the CREATE SQL. Super-admin ONLY (reads the shared multi-tenant DB — AL-792).
+// PRAGMA arguments cannot be bound, so each object name is re-validated against
+// sqlite_master and only a confirmed identifier is ever interpolated (no injection).
+// ─────────────────────────────────────────────────────────────────────────────
+tabs.get('/api/sites/:siteId/sql/schema', async (c) => {
+  const siteId = c.req.param('siteId');
+  const orgId = c.get('orgId');
+  const userId = c.get('userId');
+  if (!orgId || !userId) {
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Sign in required' } }, 401);
+  }
+  if (!(await isSuperAdmin(c.env, userId))) {
+    return c.json(
+      {
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Schema introspection is restricted to platform administrators.',
+        },
+      },
+      403,
+    );
+  }
+  const site = await c.env.DB.prepare(
+    `SELECT id FROM sites WHERE id = ?1 AND org_id = ?2 AND deleted_at IS NULL`,
+  )
+    .bind(siteId, orgId)
+    .first<{ id: string }>();
+  if (!site) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'site not found' } }, 404);
+  }
+
+  // Enumerate real tables/views (never the sqlite_% internal objects). No "AND name"
+  // here — validating a specific name is a separate parameterized lookup below.
+  const master = await c.env.DB.prepare(
+    `SELECT name, type, sql FROM sqlite_master WHERE type IN (?1, ?2) ORDER BY name`,
+  )
+    .bind('table', 'view')
+    .all<{ name: string; type: string; sql: string | null }>();
+  const objects = (master.results ?? []).filter((r) => !r.name.startsWith('sqlite_'));
+
+  // Names come from sqlite_master (a trusted source), but PRAGMA arguments cannot be
+  // bound — so format-check each identifier before interpolating it (belt-and-suspenders
+  // against any exotic object name). Only plain SQLite identifiers reach a PRAGMA.
+  const SAFE_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  const tables: Array<Record<string, unknown>> = [];
+  for (const obj of objects) {
+    if (!SAFE_IDENT.test(obj.name)) continue;
+    const ident = `"${obj.name}"`;
+
+    const cols = await c.env.DB.prepare(`PRAGMA table_info(${ident})`).all<{
+      name: string;
+      type: string;
+      notnull: number;
+      dflt_value: string | null;
+      pk: number;
+    }>();
+    const idxList = await c.env.DB.prepare(`PRAGMA index_list(${ident})`).all<{
+      name: string;
+      unique: number;
+      origin: string;
+    }>();
+    const indexes: Array<{ name: string; unique: boolean; columns: string[] }> = [];
+    for (const idx of idxList.results ?? []) {
+      const idxCols = await c.env.DB.prepare(
+        `PRAGMA index_info("${idx.name.replace(/"/g, '""')}")`,
+      ).all<{ name: string }>();
+      indexes.push({
+        name: idx.name,
+        unique: idx.unique === 1,
+        columns: (idxCols.results ?? []).map((r) => r.name),
+      });
+    }
+    const fks = await c.env.DB.prepare(`PRAGMA foreign_key_list(${ident})`).all<{
+      from: string;
+      table: string;
+      to: string;
+      on_update: string;
+      on_delete: string;
+    }>();
+
+    tables.push({
+      name: obj.name,
+      type: obj.type,
+      create_sql: obj.sql ?? null,
+      columns: (cols.results ?? []).map((col) => ({
+        name: col.name,
+        type: col.type,
+        notnull: col.notnull,
+        dflt_value: col.dflt_value,
+        pk: col.pk,
+      })),
+      indexes,
+      foreign_keys: (fks.results ?? []).map((fk) => ({
+        from: fk.from,
+        table: fk.table,
+        to: fk.to,
+        on_update: fk.on_update,
+        on_delete: fk.on_delete,
+      })),
+    });
+  }
+
+  await writeAuditLog(c.env.DB, {
+    org_id: orgId,
+    actor_id: userId,
+    action: 'site.sql.schema',
+    target_type: 'site',
+    target_id: siteId,
+    message: 'Schema introspected',
+    metadata_json: { table_count: tables.length },
+  });
+
+  return c.json({ data: { tables } });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/sites/:siteId/sql/exec-write
 // The WRITE half of the D1 manager — the standard SQLite-editor operations
 // (CREATE / DROP / ALTER TABLE, INSERT / UPDATE / DELETE / REPLACE). Super-admin

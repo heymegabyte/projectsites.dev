@@ -39,7 +39,7 @@
 | Table list + row counts | `sqlite_master` + `COUNT(*)` | owner (allowlist) / superadmin | DONE | counts are live per request |
 | Browse table rows | allowlist SELECT | owner | DONE | **was unbounded → SLICE adds pagination** |
 | **Server-side pagination** (`limit≤100/offset/orderBy/dir`) | SELECT … LIMIT/OFFSET | owner | **SLICE** | orderBy validated against allowlist |
-| **Schema introspection** (columns/pk/indexes/FKs/DDL) | `PRAGMA table_info/index_list/index_info/foreign_key_list` | superadmin | **SLICE** | PRAGMA args can't bind → validate name vs `sqlite_master` first |
+| **Schema introspection** (columns/pk/indexes/FKs/DDL) | `PRAGMA table_info/index_list/index_info/foreign_key_list` | superadmin | ✅ DONE — `GET /api/sites/:siteId/sql/schema` | PRAGMA args can't bind → enumerate from `sqlite_master`, format-check each identifier |
 | Read SQL console | `.prepare().all()` | superadmin | DONE | 8 000-char cap; SELECT/EXPLAIN/WITH/PRAGMA only |
 | Write SQL console | `.prepare().run()` | superadmin | DONE | PROTECTED_TABLES + destructive-confirm; single-statement |
 | Row edit / delete (typed, PK-stable) | parameterized UPDATE/DELETE | owner | PLANNED | needs schema PK (this arc's schema endpoint) |
