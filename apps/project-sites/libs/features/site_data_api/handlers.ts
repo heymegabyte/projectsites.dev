@@ -760,3 +760,61 @@ siteDataApi.patch('/api/sites/:siteId/data-overview/:table/:rowId', async (c) =>
 
   return c.json({ data: { id: rowId, column, value: validated.value, updated: true } });
 });
+
+/**
+ * Recent data-management activity for the site — the owner's OWN mutations made from THIS
+ * Data browser (row deletes + status edits), read from the append-only `audit_logs`.
+ *
+ * Read-only + org-scoped (`ownsSiteData` → 404) + site-scoped (the `site_id` the delete/edit
+ * handlers set in `metadata_json`) + action-filtered to `site_data.*`, so application traffic
+ * and unrelated audit events never leak in (console activity distinguished from app traffic).
+ * The raw `metadata_json` (which may carry a column value) is NEVER returned — only the safe
+ * human `message` + table + timestamp + actor — so no sensitive parameter value is exposed.
+ * Fail-soft: any query error yields an empty list, never a 500.
+ *
+ * NOTE the path is `/data-activity`, NOT `/data-overview/activity` — the latter would be
+ * shadowed by the `/data-overview/:table` browse route (`:table` = "activity").
+ */
+siteDataApi.get('/api/sites/:siteId/data-activity', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const siteId = c.req.param('siteId');
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+  let events: Array<{ action: string; table: string; message: string; actor: string | null; at: string }> = [];
+  try {
+    // `org_id` is indexed (idx_audit_logs_org); the action allowlist + LIMIT bound the scan.
+    // `json_extract($.site_id)` scopes to THIS site (the delete/edit handlers set it); siteId
+    // is a bound param, never interpolated.
+    const res = await c.env.DB.prepare(
+      `SELECT created_at, actor_id, action, target_type, message
+         FROM audit_logs
+        WHERE org_id = ?
+          AND action IN ('site_data.row_deleted', 'site_data.row_updated')
+          AND json_extract(metadata_json, '$.site_id') = ?
+        ORDER BY created_at DESC
+        LIMIT 50`,
+    )
+      .bind(orgId, siteId)
+      .all<{
+        created_at: string;
+        actor_id: string | null;
+        action: string;
+        target_type: string | null;
+        message: string | null;
+      }>();
+    events = (res.results || []).map((r) => ({
+      action: r.action,
+      table: r.target_type ?? '',
+      message: r.message ?? r.action,
+      actor: r.actor_id,
+      at: r.created_at,
+    }));
+  } catch {
+    events = []; // fail-soft — a missing audit table / query error → empty, never 500
+  }
+
+  return c.json({ data: { events } });
+});

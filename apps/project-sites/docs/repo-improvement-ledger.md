@@ -321,6 +321,22 @@
   Cycle-29 stale-bundle lesson) · **prod-verified live by SHAPE**: `previous.byConversionKind` present (current `[{call:2}]`, prior
   `[]` — honest empty for this site → the 'call' badge would be "new"). Next Analytics: DST-precise tz shift, or browsers/OS
   breakdown (needs UA at ingest), then CSV consolidation (cosmetic).
+- **Cycle 31 — 2026-09-24 (Data: "Recent activity" audit trail — the epic's Activity pillar):** Shipped the Cycle-29 next
+  candidate. NEW `GET /api/sites/:siteId/data-activity` reads `audit_logs` filtered to `action IN ('site_data.row_deleted',
+  'site_data.row_updated')` + `json_extract(metadata_json,'$.site_id') = ?` (the site_id the delete/edit handlers set) → a safe
+  shape (`action`/`table`/`message`/`actor`/`at`); the raw `metadata_json` is NEVER SELECTed (no column-value leak). Org-scoped
+  (`ownsSiteData` → 404) + action-allowlisted (app traffic never leaks in) + fail-soft (query error → empty, never 500). UI: a
+  collapsible **"Recent activity"** panel at the bottom of the Data browser lists the owner's OWN deletes/edits newest-first with
+  a delete/edit icon + safe summary + relative age (reuses Cycle-29 `compactAge`/`fullTimestamp`); loads on init, refreshes after
+  each delete/edit, hidden when empty. **ROUTE-SHADOW caught by the failing test:** `/data-overview/activity` was shadowed by the
+  `/data-overview/:table` browse route (`:table`="activity" → 400) → moved to a distinct sibling path `/data-activity`
+  ([[hono-wildcard-route-shadow]]). Also hit the `.withContext()` Jest pitfall again (Jasmine-only) → plain comment. TDD-first.
+  Verified: worker tsc 0 · fe tsc 0 · backtick 0 · **Jest 752 suites / 12308** (+4) · **Karma 2036/2036** (+3) · eslint 0 err ·
+  frontend build 0 · **both deployed** (R2 `chunk-6Y4V7JDG.js` + worker `dc2cd7da`; cleaned `.wrangler/tmp` per Cycle-29 lesson) ·
+  **prod-verified live**: 401 · 404 tenant · 200 honest-empty (test site has no real site_data mutations — verify-against-source-of-
+  truth; mapping-with-data proven by unit tests, no prod rows seeded per guardrail). The Data section's CRUD story is now complete
+  (browse · delete · edit · overview · freshness · **activity**). Next Data: broaden typed editors only if a genuinely-editable
+  column appears; otherwise the shared-DB tenant model has no more non-blocked owner surface.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

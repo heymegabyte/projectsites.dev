@@ -966,6 +966,16 @@ export class ApiService {
   }
 
   /**
+   * Recent data-management activity for the site — the owner's OWN mutations from the Data
+   * browser (row deletes + status edits), from the append-only audit log. Read-only,
+   * org + site scoped server-side, action-filtered to `site_data.*` (never app traffic).
+   * Silent — the panel renders its own empty/error state.
+   */
+  getDataActivity(siteId: string): Observable<{ data: { events: DataActivityEvent[] } }> {
+    return this.get(`/sites/${siteId}/data-activity`, undefined, { silent: true });
+  }
+
+  /**
    * D1 schema introspection for a site's database — tables/views with columns
    * (type/nullability/default/PK), indexes, foreign keys, and CREATE SQL. Superadmin
    * only (introspects the shared platform DB; 404/403 for others). Silent — the
@@ -1751,6 +1761,24 @@ export interface DataOverviewTable {
    * fabricated value: an empty table is `null`, shown as "no activity yet".
    */
   last_activity?: string | null;
+}
+
+/**
+ * One data-management activity event — a mutation the owner made from the Data browser
+ * (row delete / edit), from `GET /api/sites/:siteId/data-overview/activity`. Only the safe
+ * human `message` + table + actor + timestamp; the raw audit metadata is never exposed.
+ */
+export interface DataActivityEvent {
+  /** `site_data.row_deleted` | `site_data.row_updated`. */
+  action: string;
+  /** The affected table (audit `target_type`). */
+  table: string;
+  /** Safe human summary (audit `message`), e.g. "Deleted a row from form_submissions". */
+  message: string;
+  /** The actor's user id, or null for a system action. */
+  actor: string | null;
+  /** ISO timestamp (zoned) of the mutation. */
+  at: string;
 }
 
 /**

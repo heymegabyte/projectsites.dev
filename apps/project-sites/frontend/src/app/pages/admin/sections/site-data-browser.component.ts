@@ -11,6 +11,7 @@
  *  - `GET    /api/sites/:siteId/data-overview/:table`        → one server-paginated page
  *  - `DELETE /api/sites/:siteId/data-overview/:table/:rowId` → delete one own row (allowlisted)
  *  - `PATCH  /api/sites/:siteId/data-overview/:table/:rowId` → edit one allowlisted typed column
+ *  - `GET    /api/sites/:siteId/data-activity`               → recent data mutations (audit trail)
  *
  * All are org-scoped + IDOR-guarded server-side (404 on a foreign site), so this
  * is safe for a first-time site OWNER (unlike the super-admin SQL console next to
@@ -36,7 +37,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { catchError, firstValueFrom, of } from 'rxjs';
-import { ApiService, type DataOverviewTable } from '../../../services/api.service';
+import { ApiService, type DataOverviewTable, type DataActivityEvent } from '../../../services/api.service';
 import { ConfirmService } from '../../../services/confirm.service';
 import { ToastService } from '../../../services/toast.service';
 import { MiniEmptyComponent } from '../../../components/mini-empty/mini-empty.component';
@@ -363,6 +364,26 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
           </app-mini-empty>
         }
       }
+
+      <!-- Recent activity — the owner's OWN data mutations (deletes/edits) from this
+           browser, from the append-only audit log. Read-only; collapsed by default. -->
+      @if (activity().length) {
+        <details class="db-activity" data-testid="db-activity">
+          <summary class="db-activity-summary">
+            Recent activity
+            <span class="db-activity-count">{{ activity().length }}</span>
+          </summary>
+          <ul class="db-activity-list">
+            @for (ev of activity(); track $index) {
+              <li class="db-activity-item" data-testid="db-activity-item">
+                <span class="db-activity-icon" [attr.data-action]="ev.action" aria-hidden="true">{{ ev.action === 'site_data.row_deleted' ? '✕' : '✎' }}</span>
+                <span class="db-activity-msg">{{ ev.message }}</span>
+                <span class="db-activity-age" [attr.title]="fullTimestamp(ev.at)">{{ compactAge(ev.at) }}</span>
+              </li>
+            }
+          </ul>
+        </details>
+      }
     </div>
   `,
   styles: [`
@@ -393,6 +414,19 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
     }
     .db-table-chip.is-active .db-table-count { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 22%, transparent); }
     .db-table-fresh { font-variant-numeric: tabular-nums; font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 48%, transparent); }
+    .db-activity { margin-top: 1.1rem; border-top: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); padding-top: 0.7rem; }
+    .db-activity-summary { cursor: pointer; font-size: 0.72rem; font-weight: 600; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 70%, transparent); display: flex; align-items: center; gap: 0.4rem; list-style: none; }
+    .db-activity-summary::-webkit-details-marker { display: none; }
+    .db-activity-summary::before { content: '▸'; font-size: 0.7rem; transition: transform 150ms ease; }
+    .db-activity[open] .db-activity-summary::before { transform: rotate(90deg); }
+    .db-activity-count { font-variant-numeric: tabular-nums; font-size: 0.62rem; font-weight: 700; padding: 0.05rem 0.4rem; border-radius: 999px; background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent); }
+    .db-activity-list { list-style: none; margin: 0.6rem 0 0; padding: 0; display: grid; gap: 0.35rem; }
+    .db-activity-item { display: flex; align-items: baseline; gap: 0.5rem; font-size: 0.76rem; }
+    .db-activity-icon { flex-shrink: 0; width: 1.1rem; text-align: center; font-size: 0.72rem; }
+    .db-activity-icon[data-action="site_data.row_deleted"] { color: #ff8f9a; }
+    .db-activity-icon[data-action="site_data.row_updated"] { color: var(--ps-accent, #00e5ff); }
+    .db-activity-msg { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 85%, transparent); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .db-activity-age { margin-left: auto; flex-shrink: 0; font-variant-numeric: tabular-nums; font-size: 0.66rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
     .db-desc { margin: 0 0 0.75rem; font-size: 0.8rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
     .db-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.75rem; }
     .db-search {
@@ -569,6 +603,8 @@ export class SiteDataBrowserComponent implements OnInit {
   readonly editDraft = signal<Record<string, string>>({});
   /** True while a column edit is in flight (disables the Save button). */
   readonly savingEdit = signal(false);
+  /** Recent data-management mutations (deletes/edits) the owner made here, newest first. */
+  readonly activity = signal<DataActivityEvent[]>([]);
   /** The selected table's owner-editable columns as a render-ready list ([] = read-only). */
   readonly editableColumnsList = computed<{ column: string; type: string; options: string[] }[]>(() => {
     const ec = this.selected()?.editableColumns ?? {};
@@ -594,7 +630,25 @@ export class SiteDataBrowserComponent implements OnInit {
 
   ngOnInit(): void {
     const id = this.siteId();
-    if (id) this.loadTables(id);
+    if (id) {
+      this.loadTables(id);
+      this.loadActivity(id);
+    }
+  }
+
+  /** Load the recent data-mutation activity (deletes/edits) for this site. Fail-soft:
+   *  a failed load leaves the list empty (the panel shows its own empty state). */
+  loadActivity(id: string): void {
+    if (!id) return;
+    this.api
+      .getDataActivity(id)
+      .pipe(
+        catchError(() => of(null)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((res) => {
+        this.activity.set(Array.isArray(res?.data?.events) ? res!.data.events : []);
+      });
   }
 
   /** Public so the error card's Retry can re-fire the overview load. */
@@ -1067,6 +1121,7 @@ export class SiteDataBrowserComponent implements OnInit {
         this.expandedRow.set(null);
         this.loadPage(); // re-fetch the current window + total
         this.loadTables(id); // refresh the table row-counts (Overview strip)
+        this.loadActivity(id); // surface the delete in "Recent activity"
       });
   }
 
@@ -1133,6 +1188,7 @@ export class SiteDataBrowserComponent implements OnInit {
         this.toast.success(`Updated ${column}.`);
         this.editDraft.set({});
         this.loadPage(); // re-fetch so the grid + detail reflect the saved value
+        this.loadActivity(id); // surface the edit in "Recent activity"
       });
   }
 

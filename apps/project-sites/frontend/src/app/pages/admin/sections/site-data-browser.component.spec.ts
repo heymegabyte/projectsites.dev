@@ -59,6 +59,7 @@ function setup(overrides?: {
   browseDataTable?: jasmine.Spy;
   deleteOverviewRow?: jasmine.Spy;
   updateOverviewRow?: jasmine.Spy;
+  getDataActivity?: jasmine.Spy;
   confirmResult?: boolean;
 }) {
   const getDataOverview = overrides?.getDataOverview ?? jasmine.createSpy('getDataOverview').and.returnValue(of(OVERVIEW));
@@ -69,7 +70,10 @@ function setup(overrides?: {
   const updateOverviewRow =
     overrides?.updateOverviewRow ??
     jasmine.createSpy('updateOverviewRow').and.returnValue(of({ data: { id: 'r', column: 'status', value: 'forwarded', updated: true } }));
-  const api = { getDataOverview, browseDataTable, deleteOverviewRow, updateOverviewRow };
+  const getDataActivity =
+    overrides?.getDataActivity ??
+    jasmine.createSpy('getDataActivity').and.returnValue(of({ data: { events: [] } }));
+  const api = { getDataOverview, browseDataTable, deleteOverviewRow, updateOverviewRow, getDataActivity };
   // Mock ConfirmService + ToastService so the real CDK-Dialog-backed ConfirmService
   // never constructs in the unit harness (and so delete specs can drive the outcome).
   const confirmSpy = jasmine.createSpy('confirm').and.resolveTo(overrides?.confirmResult ?? true);
@@ -85,7 +89,7 @@ function setup(overrides?: {
   });
   const fixture = TestBed.createComponent(SiteDataBrowserComponent);
   fixture.componentRef.setInput('siteId', 'site-1');
-  return { fixture, c: fixture.componentInstance, getDataOverview, browseDataTable, deleteOverviewRow, updateOverviewRow, confirmSpy, toast };
+  return { fixture, c: fixture.componentInstance, getDataOverview, browseDataTable, deleteOverviewRow, updateOverviewRow, getDataActivity, confirmSpy, toast };
 }
 
 describe('SiteDataBrowserComponent', () => {
@@ -830,5 +834,47 @@ describe('SiteDataBrowserComponent — last-activity freshness', () => {
     expect(c.fullTimestamp('2026-09-24 12:00:00')).not.toBe('');
     expect(c.fullTimestamp(null)).toBe('');
     expect(c.fullTimestamp('nope')).toBe('');
+  });
+});
+
+/**
+ * Recent activity — the owner's OWN data mutations (deletes/edits), from the append-only
+ * audit log via getDataActivity. Read-only, collapsed panel; refreshes after a delete/edit.
+ */
+describe('SiteDataBrowserComponent — recent activity', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const EVENTS = [
+    { action: 'site_data.row_deleted', table: 'form_submissions', message: 'Deleted a row from form_submissions', actor: 'u1', at: '2026-09-24T12:00:00.000Z' },
+    { action: 'site_data.row_updated', table: 'form_submissions', message: 'Updated status on a form_submissions row', actor: 'u1', at: '2026-09-23T09:00:00.000Z' },
+  ];
+
+  it('renders the activity panel with one item per mutation (newest first)', () => {
+    const getDataActivity = jasmine.createSpy('getDataActivity').and.returnValue(of({ data: { events: EVENTS } }));
+    const { fixture } = setup({ getDataActivity });
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="db-activity"]')).withContext('panel renders with events').toBeTruthy();
+    const items = host.querySelectorAll('[data-testid="db-activity-item"]');
+    expect(items.length).toBe(2);
+    expect(items[0].textContent).toContain('Deleted a row from form_submissions');
+  });
+
+  it('does NOT render the activity panel when there are no mutations', () => {
+    const { fixture } = setup(); // default getDataActivity → empty events
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="db-activity"]')).toBeNull();
+  });
+
+  it('loads activity on init and refreshes it after a delete', async () => {
+    const getDataActivity = jasmine.createSpy('getDataActivity').and.returnValue(of({ data: { events: EVENTS } }));
+    const { fixture, c } = setup({ getDataActivity, confirmResult: true });
+    fixture.detectChanges();
+    expect(getDataActivity).toHaveBeenCalledWith('site-1'); // on init
+    const before = getDataActivity.calls.count();
+    c.selected.set(c.tables().find((t) => t.key === 'form_submissions')!);
+    await c.deleteRow({ id: 'row-abc' });
+    expect(getDataActivity.calls.count()).withContext('activity refetched after delete').toBeGreaterThan(before);
+    expect(c.activity().length).toBe(2);
   });
 });
