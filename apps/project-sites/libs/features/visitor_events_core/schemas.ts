@@ -104,7 +104,16 @@ export type WebVitalStat = z.infer<typeof WebVitalStatSchema>;
  * not reliable).
  */
 export const SlowPageSchema = z
-  .object({ path: z.string(), lcpP75: z.number(), samples: z.number().int().min(1) })
+  .object({
+    path: z.string(),
+    lcpP75: z.number(),
+    // INP + CLS p75 for the SAME page (present only when the page cleared the sample
+    // floor for that metric too) — the full per-page CWV picture. Omitted (never 0)
+    // when a page lacks enough INP/CLS samples.
+    inpP75: z.number().optional(),
+    clsP75: z.number().optional(),
+    samples: z.number().int().min(1),
+  })
   .strict();
 export type SlowPage = z.infer<typeof SlowPageSchema>;
 

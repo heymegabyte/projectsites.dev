@@ -336,16 +336,24 @@ export async function getWebVitalsSummary(
 
   const buckets: Record<(typeof CWV_METRICS)[number], number[]> = { LCP: [], INP: [], CLS: [] };
   const lcpByPath = new Map<string, number[]>();
+  const inpByPath = new Map<string, number[]>();
+  const clsByPath = new Map<string, number[]>();
+  const pushByPath = (map: Map<string, number[]>, path: string, v: number): void => {
+    const arr = map.get(path);
+    if (arr) arr.push(v);
+    else map.set(path, [v]);
+  };
   for (const row of data) {
     const m = row.metric as (typeof CWV_METRICS)[number] | null;
     const v = Number(row.value);
     if (!(m && m in buckets && Number.isFinite(v) && v >= 0)) continue;
     buckets[m].push(v);
-    // Bucket LCP (the headline metric) per page for the "slowest pages" drilldown.
-    if (m === 'LCP' && typeof row.path === 'string' && row.path) {
-      const arr = lcpByPath.get(row.path);
-      if (arr) arr.push(v);
-      else lcpByPath.set(row.path, [v]);
+    // Bucket EACH metric per page so the "slowest pages" drilldown shows the full
+    // per-page CWV picture (LCP · INP · CLS), not LCP alone.
+    if (typeof row.path === 'string' && row.path) {
+      if (m === 'LCP') pushByPath(lcpByPath, row.path, v);
+      else if (m === 'INP') pushByPath(inpByPath, row.path, v);
+      else if (m === 'CLS') pushByPath(clsByPath, row.path, v);
     }
   }
   const stat = (metric: (typeof CWV_METRICS)[number]) => {
@@ -364,11 +372,26 @@ export async function getWebVitalsSummary(
     }
     return { p75, samples: vals.length, dist };
   };
-  // Slowest pages by LCP p75 — only pages past the sample floor (reliable p75),
-  // worst first, capped so the drilldown stays focused + bounded.
+  // Slowest pages by LCP p75 — only pages past the sample floor (reliable p75), worst
+  // first, capped so the drilldown stays focused + bounded. Each page ALSO carries its
+  // INP + CLS p75 (when that page cleared the same sample floor for that metric) so the
+  // owner sees the FULL per-page CWV picture, not LCP alone. Undefined (never 0) when a
+  // page lacks enough INP/CLS samples — honest, never a fabricated metric.
+  const pathP75 = (map: Map<string, number[]>, path: string, isCls = false): number | undefined => {
+    const vals = map.get(path);
+    if (!vals || vals.length < MIN_PATH_SAMPLES) return undefined;
+    const raw = percentile(vals, 75);
+    return isCls ? Math.round(raw * 1000) / 1000 : Math.round(raw);
+  };
   const slowestPages = [...lcpByPath.entries()]
     .filter(([, vals]) => vals.length >= MIN_PATH_SAMPLES)
-    .map(([path, vals]) => ({ path, lcpP75: Math.round(percentile(vals, 75)), samples: vals.length }))
+    .map(([path, vals]) => ({
+      path,
+      lcpP75: Math.round(percentile(vals, 75)),
+      inpP75: pathP75(inpByPath, path),
+      clsP75: pathP75(clsByPath, path, true),
+      samples: vals.length,
+    }))
     .sort((a, b) => b.lcpP75 - a.lcpP75)
     .slice(0, 5);
   return { lcp: stat('LCP'), inp: stat('INP'), cls: stat('CLS'), slowestPages };

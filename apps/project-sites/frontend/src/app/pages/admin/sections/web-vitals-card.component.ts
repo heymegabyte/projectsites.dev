@@ -19,6 +19,10 @@ import type { WebVitalStat } from '../../../services/api.service';
 export interface SlowPageStat {
   path: string;
   lcpP75: number;
+  /** INP + CLS p75 for the SAME page (present only when it cleared the sample floor for
+   *  that metric) — the full per-page CWV picture. Omitted (never 0) when absent. */
+  inpP75?: number;
+  clsP75?: number;
   samples: number;
 }
 
@@ -101,7 +105,7 @@ interface MetricTile {
 
       @if (slowestPages().length) {
         <div class="wv-pages" data-testid="an-wv-pages">
-          <div class="wv-pages-h">Slowest pages · LCP p75</div>
+          <div class="wv-pages-h">Slowest pages · LCP / INP / CLS p75</div>
           <table class="wv-pages-table">
             <tbody>
               @for (p of slowestPages(); track p.path) {
@@ -110,6 +114,22 @@ interface MetricTile {
                   <td class="wv-page-val">{{ formatValue('lcp', p.lcpP75) }}</td>
                   <td class="wv-page-rating" [attr.data-rating]="rating('lcp', p.lcpP75)">
                     <span class="wv-dot" aria-hidden="true"></span>{{ ratingLabel(rating('lcp', p.lcpP75)) }}
+                  </td>
+                  <td
+                    class="wv-page-m"
+                    data-testid="an-wv-page-inp"
+                    [attr.data-rating]="p.inpP75 != null ? rating('inp', p.inpP75) : 'none'"
+                    title="INP p75 for this page"
+                  >
+                    <span class="wv-m-lbl">INP</span> {{ p.inpP75 != null ? formatValue('inp', p.inpP75) : '—' }}
+                  </td>
+                  <td
+                    class="wv-page-m"
+                    data-testid="an-wv-page-cls"
+                    [attr.data-rating]="p.clsP75 != null ? rating('cls', p.clsP75) : 'none'"
+                    title="CLS p75 for this page"
+                  >
+                    <span class="wv-m-lbl">CLS</span> {{ p.clsP75 != null ? formatValue('cls', p.clsP75) : '—' }}
                   </td>
                   <td class="wv-page-samples">{{ p.samples }} {{ p.samples === 1 ? 'sample' : 'samples' }}</td>
                 </tr>
@@ -169,8 +189,13 @@ interface MetricTile {
     .wv-pages-table { width: 100%; border-collapse: collapse; font-size: 0.74rem; }
     .wv-pages-table td { padding: 0.32rem 0.4rem; border-bottom: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); vertical-align: middle; }
     .wv-pages-table tr:last-child td { border-bottom: none; }
-    .wv-page-path { color: #fff; max-width: 0; width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .wv-page-path { color: #fff; max-width: 0; width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .wv-page-val { color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .wv-page-m { font-variant-numeric: tabular-nums; white-space: nowrap; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
+    .wv-m-lbl { font-size: 0.6rem; opacity: 0.6; }
+    .wv-page-m[data-rating='good'] { color: #4dffb5; }
+    .wv-page-m[data-rating='needs'] { color: #ffd166; }
+    .wv-page-m[data-rating='poor'] { color: #ff7e8a; }
     .wv-page-rating { white-space: nowrap; }
     .wv-page-rating > .wv-dot { display: inline-block; vertical-align: middle; margin-right: 4px; }
     .wv-page-rating[data-rating='good'] { color: #4dffb5; }

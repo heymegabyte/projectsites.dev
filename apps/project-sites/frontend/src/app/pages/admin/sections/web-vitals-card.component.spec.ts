@@ -88,6 +88,26 @@ describe('WebVitalsCardComponent', () => {
     expect(first.textContent).toContain('8 samples');
   });
 
+  it('shows per-page INP + CLS p75 (the full CWV picture) and "—" when a metric is absent', () => {
+    const fixture = render({
+      lcp: { p75: 3000, samples: 20 },
+      inp: null,
+      cls: null,
+      slowestPages: [
+        { path: '/pricing', lcpP75: 4200, inpP75: 250, clsP75: 0.15, samples: 8 },
+        { path: '/', lcpP75: 2100, samples: 12 }, // LCP only — no INP/CLS samples
+      ],
+    });
+    const rows = fixture.debugElement.queryAll(By.css('[data-testid="an-wv-page"]'));
+    const inp1 = rows[0].query(By.css('[data-testid="an-wv-page-inp"]')).nativeElement as HTMLElement;
+    const cls1 = rows[0].query(By.css('[data-testid="an-wv-page-cls"]')).nativeElement as HTMLElement;
+    expect(inp1.textContent).toContain('250'); // INP p75 (ms)
+    expect(cls1.textContent).toContain('0.15'); // CLS p75
+    // The page with no INP/CLS samples shows "—", never a fabricated 0.
+    const inp2 = rows[1].query(By.css('[data-testid="an-wv-page-inp"]')).nativeElement as HTMLElement;
+    expect(inp2.textContent).toContain('—');
+  });
+
   it('hides the slowest-pages drilldown when no page has enough samples', () => {
     const fixture = render({ lcp: { p75: 3000, samples: 4 }, inp: null, cls: null, slowestPages: [] });
     expect(fixture.debugElement.query(By.css('[data-testid="an-wv-pages"]'))).toBeNull();

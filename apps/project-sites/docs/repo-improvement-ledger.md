@@ -736,6 +736,23 @@
   the LAST risky directive — a `set focusTrap(value)` setter that imperatively activates/deactivates a keydown trap →
   `input()` + `effect(onCleanup)` (careful, a11y-critical, 7 consumers). Then lift `DisclosureMode` to a shared type file
   (decouples feature-flags + site-features from the dead `mode-switcher`), and the Brian-gated `site-kit/*` intent call.
+- **Cycle 55 — 2026-09-24 (Analytics: enrich CWV "affected pages" with per-page INP + CLS — was LCP-only):** The prompt
+  wants CWV "affected pages" for LCP, INP, AND CLS; the slowest-pages drilldown was **LCP-only** (`SlowPageSchema =
+  {path, lcpP75, samples}`), so an owner couldn't see WHICH pages have poor INP (responsiveness) or CLS (layout shift).
+  **Worker:** `getWebVitalsSummary` now buckets INP + CLS per `path` too (alongside LCP) and each slowest-page row carries
+  `inpP75` + `clsP75` — **present only when the page cleared the same 5-sample floor for that metric, else omitted
+  (undefined, never a fabricated 0)** — honest. `SlowPageSchema` gained optional `inpP75`/`clsP75`. **Frontend:** the
+  web-vitals-card slowest-pages table (header now "LCP / INP / CLS p75") shows each page's INP + CLS p75 with a rating
+  colour + "—" when absent, keeping the LCP word-rating as the WCAG-safe primary. Verified: worker tsc 0 · **worker Jest
+  68/68 visitor_events_core** (+1: per-page INP/CLS present + omitted-below-floor; had to drop `.withContext()` — Jasmine-
+  only, forbidden in worker Jest) · fe tsc (app+spec) 0 · **Karma 2099/2099** (+1) · worker lint 0 errors · build 0 + 0
+  NG8113. Deployed BOTH — the worker deploy **fully succeeded this time** (version `54a6e93f`, the CF `standard-1`
+  container migration finally completed), frontend `main-3TO2ZYJ3.js` hash-matched + wv chunk `chunk-MIIHIN7D.js` 200 with
+  the "LCP / INP / CLS" marker. **End-to-end data-verified:** the API returns real per-page CWV for the test site —
+  `slowestPages[0]` keys `['path','lcpP75','clsP75','samples']` (clsP75 present, **inpP75 honestly omitted** — that page
+  has <5 INP samples), tenant resolved server-side. **Next:** drilldown/filter (click a country/device to filter the
+  dashboard — the biggest remaining feature, medium-large cross-stack); else analytics is at a deep coverage+honesty
+  plateau (Security/WAF + latency percentiles plan-blocked).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
