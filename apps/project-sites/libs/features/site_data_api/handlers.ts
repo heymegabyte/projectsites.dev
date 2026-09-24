@@ -84,6 +84,12 @@ interface OverviewTable {
   description: string;
   /** COUNT(*) query — a single `?` bound to siteId. */
   countSql: string;
+  /**
+   * `SELECT MAX(<ts>) AS ts` query (single `?` = siteId) for the table's most-recent
+   * activity timestamp — powers the Overview "last activity" freshness label. Uses the
+   * SAME timestamp column + soft-delete filter as `browseSql`'s ORDER BY.
+   */
+  lastActivitySql: string;
   /** Browse query — `?` siteId then `?` limit; selects only safe columns. */
   browseSql: string;
   /** Safe columns returned by browseSql (for UI headers + drift clarity). */
@@ -106,6 +112,7 @@ export const SITE_DATA_OVERVIEW_TABLES: readonly OverviewTable[] = [
     label: 'Visitor Events',
     description: 'Analytics pageviews and events',
     countSql: `SELECT COUNT(*) AS n FROM visitor_events WHERE site_id = ?`,
+    lastActivitySql: `SELECT MAX(created_at) AS ts FROM visitor_events WHERE site_id = ?`,
     browseSql: `SELECT event_type, path, referrer, created_at FROM visitor_events WHERE site_id = ? ORDER BY created_at DESC LIMIT ?`,
     columns: ['event_type', 'path', 'referrer', 'created_at'],
   },
@@ -114,6 +121,7 @@ export const SITE_DATA_OVERVIEW_TABLES: readonly OverviewTable[] = [
     label: 'Form Submissions',
     description: 'Contact and lead form entries',
     countSql: `SELECT COUNT(*) AS n FROM form_submissions WHERE site_id = ?`,
+    lastActivitySql: `SELECT MAX(created_at) AS ts FROM form_submissions WHERE site_id = ?`,
     // PII-safe: no payload / ip_address / user_agent; email is masked below.
     // `id` is selected as the stable delete key (a random UUID, not PII) but kept
     // OUT of `columns` so it's never a rendered / sortable / searchable column.
@@ -127,6 +135,7 @@ export const SITE_DATA_OVERVIEW_TABLES: readonly OverviewTable[] = [
     label: 'Snapshots',
     description: 'Saved build versions',
     countSql: `SELECT COUNT(*) AS n FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL`,
+    lastActivitySql: `SELECT MAX(created_at) AS ts FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL`,
     browseSql: `SELECT snapshot_name, build_version, created_at FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ?`,
     columns: ['snapshot_name', 'build_version', 'created_at'],
   },
@@ -136,6 +145,7 @@ export const SITE_DATA_OVERVIEW_TABLES: readonly OverviewTable[] = [
     description: 'Connected integrations',
     // Token columns (access_token_encrypted, refresh_token_encrypted) are NEVER selected.
     countSql: `SELECT COUNT(*) AS n FROM mcp_connections WHERE site_id = ?`,
+    lastActivitySql: `SELECT MAX(connected_at) AS ts FROM mcp_connections WHERE site_id = ?`,
     browseSql: `SELECT provider, display_name, status, connected_at FROM mcp_connections WHERE site_id = ? ORDER BY connected_at DESC LIMIT ?`,
     columns: ['provider', 'display_name', 'status', 'connected_at'],
   },
@@ -144,6 +154,7 @@ export const SITE_DATA_OVERVIEW_TABLES: readonly OverviewTable[] = [
     label: 'Content Store',
     description: 'CMS rows synced to the live site',
     countSql: `SELECT COUNT(*) AS n FROM site_data WHERE site_id = ? AND deleted_at IS NULL`,
+    lastActivitySql: `SELECT MAX(created_at) AS ts FROM site_data WHERE site_id = ? AND deleted_at IS NULL`,
     browseSql: `SELECT table_name, data_json, created_at FROM site_data WHERE site_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ?`,
     columns: ['table_name', 'data_json', 'created_at'],
   },
@@ -526,11 +537,19 @@ siteDataApi.get('/api/sites/:siteId/data-overview', async (c) => {
   const tables = await Promise.all(
     SITE_DATA_OVERVIEW_TABLES.map(async (t) => {
       let rowCount = 0;
+      let lastActivity: string | null = null;
       try {
-        const row = await c.env.DB.prepare(t.countSql).bind(siteId).first<{ n: number }>();
-        rowCount = Number(row?.n ?? 0);
+        // Row count + most-recent-activity timestamp in parallel; both tenant-scoped
+        // (`WHERE site_id = ?`). MAX(ts) is null for an empty table → honest "no activity".
+        const [countRow, tsRow] = await Promise.all([
+          c.env.DB.prepare(t.countSql).bind(siteId).first<{ n: number }>(),
+          c.env.DB.prepare(t.lastActivitySql).bind(siteId).first<{ ts: string | null }>(),
+        ]);
+        rowCount = Number(countRow?.n ?? 0);
+        lastActivity = tsRow?.ts ?? null;
       } catch {
         rowCount = 0; // a missing/renamed table must never 500 the whole overview
+        lastActivity = null;
       }
       return {
         key: t.key,
@@ -544,6 +563,9 @@ siteDataApi.get('/api/sites/:siteId/data-overview', async (c) => {
         // Owner-editable columns (typed) for this table; {} = fully read-only. The
         // server re-validates the column + value on every PATCH (this is a UI hint).
         editableColumns: EDITABLE_OVERVIEW_COLUMNS[t.key] ?? {},
+        // Most-recent activity timestamp (MAX of the table's ts column), or null when
+        // the table is empty — the Overview shows an honest "last activity" freshness label.
+        last_activity: lastActivity,
       };
     }),
   );

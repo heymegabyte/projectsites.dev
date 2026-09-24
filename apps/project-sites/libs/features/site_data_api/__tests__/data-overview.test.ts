@@ -54,6 +54,16 @@ describe('data-overview registry', () => {
     }
   });
 
+  it('every last-activity query is a site-scoped MAX(ts), matching the browse soft-delete filter', () => {
+    for (const t of SITE_DATA_OVERVIEW_TABLES) {
+      expect(t.lastActivitySql.trim().startsWith('SELECT MAX(')).toBe(true);
+      expect(t.lastActivitySql).toContain('AS ts');
+      expect(t.lastActivitySql).toContain('WHERE site_id = ?');
+      // A table whose browse hides soft-deleted rows must exclude them from freshness too.
+      expect(t.lastActivitySql.includes('deleted_at IS NULL')).toBe(t.browseSql.includes('deleted_at IS NULL'));
+    }
+  });
+
   it('flags form_submissions for email masking', () => {
     expect(overviewTable('form_submissions')?.maskEmail).toBe(true);
     // Tables without PII do not carry the mask flag.

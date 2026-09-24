@@ -1740,6 +1740,12 @@ export interface DataOverviewTable {
    * every PATCH. Currently only `form_submissions.status` (an enum).
    */
   editableColumns?: Record<string, { type: string; options: string[] }>;
+  /**
+   * ISO timestamp of the table's most-recent row (server `MAX(<ts>)`), or null when the
+   * table is empty — powers the Overview "last activity" freshness label. Never a
+   * fabricated value: an empty table is `null`, shown as "no activity yet".
+   */
+  last_activity?: string | null;
 }
 
 /**

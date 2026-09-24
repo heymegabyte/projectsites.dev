@@ -82,6 +82,13 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
             >
               <span class="db-table-label">{{ t.label }}</span>
               <span class="db-table-count" [attr.title]="t.row_count + ' rows'">{{ t.row_count }}</span>
+              @if (compactAge(t.last_activity); as age) {
+                <span
+                  class="db-table-fresh"
+                  [attr.data-testid]="'db-table-fresh-' + t.key"
+                  [attr.title]="'Last activity: ' + fullTimestamp(t.last_activity)"
+                >{{ age }}</span>
+              }
             </button>
           } @empty {
             <app-mini-empty text="No data tables for this site yet.">
@@ -385,6 +392,7 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
       background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent);
     }
     .db-table-chip.is-active .db-table-count { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 22%, transparent); }
+    .db-table-fresh { font-variant-numeric: tabular-nums; font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 48%, transparent); }
     .db-desc { margin: 0 0 0.75rem; font-size: 0.8rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
     .db-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.75rem; }
     .db-search {
@@ -928,6 +936,54 @@ export class SiteDataBrowserComponent implements OnInit {
       }
     }
     return String(value);
+  }
+
+  /** `Date.now()`, isolated so tests can pin "now" for deterministic relative-time. */
+  protected now(): number {
+    return Date.now();
+  }
+
+  /**
+   * Parse a server timestamp to epoch ms as UTC. D1 stores `datetime('now')` as
+   * `YYYY-MM-DD HH:MM:SS` with NO zone — JS would parse that as LOCAL time (wrong by
+   * the tz offset), so we normalize to `…THH:MM:SSZ` first. Already-zoned ISO passes
+   * through. Returns NaN for an unparseable value.
+   */
+  private parseUtc(ts: string): number {
+    let s = ts.trim().replace(' ', 'T');
+    if (!/[zZ]|[+-]\d\d:?\d\d$/.test(s)) s += 'Z';
+    return Date.parse(s);
+  }
+
+  /**
+   * Compact relative age of a timestamp: "just now" / "5m" / "3h" / "2d" / "3w" /
+   * "5mo" / "1y". Empty string for null/undefined/unparseable (so the template's
+   * `@if` hides the chip) — never a fabricated "0" or a wrong local-time delta.
+   */
+  compactAge(ts: string | null | undefined): string {
+    if (!ts) return '';
+    const ms = this.parseUtc(ts);
+    if (Number.isNaN(ms)) return '';
+    const sec = Math.max(0, (this.now() - ms) / 1000);
+    if (sec < 60) return 'just now';
+    const m = Math.floor(sec / 60);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h`;
+    const d = Math.floor(h / 24);
+    if (d < 7) return `${d}d`;
+    const w = Math.floor(d / 7);
+    if (w < 5) return `${w}w`;
+    const mo = Math.floor(d / 30);
+    if (mo < 12) return `${mo}mo`;
+    return `${Math.floor(d / 365)}y`;
+  }
+
+  /** Full, correct local-time rendering of a UTC server timestamp (chip tooltip). */
+  fullTimestamp(ts: string | null | undefined): string {
+    if (!ts) return '';
+    const ms = this.parseUtc(ts);
+    return Number.isNaN(ms) ? '' : new Date(ms).toLocaleString();
   }
 
   /** Pretty-print the whole row for the expandable detail panel. */

@@ -295,6 +295,19 @@
   eslint 0 err · frontend build 0 · **both deployed** (R2 `chunk-ZRYDNZDJ.js` + worker `f55db969`) · **prod-verified live with REAL
   data**: `lcp dist {good:6,needs:1,poor:0}` (=7 samples), `cls {good:4,needs:3,poor:0}`, `inp null` (no samples → no dist). Next:
   conversions-by-kind Δ (needs a server `previous.byConversionKind` increment), then DST-precision, then CSV consolidation (cosmetic).
+- **Cycle 29 — 2026-09-24 (Data: Overview "recent activity" per-table freshness):** Answered the epic's Overview "recent
+  activity" ask (chose it over the low-value "broaden typed editors" handoff — owners don't add fake leads). Each `OverviewTable`
+  gains a `lastActivitySql` (`SELECT MAX(<ts>) AS ts` — same ts column + soft-delete filter as browse); the data-overview handler
+  runs it alongside count (Promise.all, fail-soft) → `last_activity` per table. Each table chip shows a compact relative age
+  ("just now"/"5m"/"3h"/"2d"/"3w"/"5mo"/"1y"); empty table → null → NO chip (never a fabricated "0"). Timestamps are UTC
+  `YYYY-MM-DD HH:MM:SS` (no zone) → new `compactAge`/`fullTimestamp`/`parseUtc` normalize to UTC before diffing (a local parse
+  would shift the delta by the tz offset); `now()` isolated for deterministic tests. TDD-first. Verified: worker tsc 0 · fe tsc 0 ·
+  backtick 0 · **Jest 751 suites / 12301** (+5) · **Karma 2028/2028** (+4) · eslint 0 err · frontend build 0 · **both deployed**
+  (R2 `chunk-6NRHGP4D.js` + worker `dd4eb2d2`). **DEPLOY GOTCHA caught by prod-surface verify:** the FIRST `wrangler deploy`
+  reported a new version ID (`50a5f537`) but served STALE code (response lacked `last_activity` — had only Cycle-27 fields); a
+  `rm -rf .wrangler/tmp` + redeploy fixed it. Prod-verified live REAL data: visitor_events 37 rows→'2026-09-24 12:54:02', empty
+  tables→null. Next Data: broaden typed editors (NULL/number/bool/JSON) IF a genuinely-editable column appears; else the Data
+  section has plateaued for the shared-DB tenant model (form_submissions CRUD + browse/export/overview/freshness all done).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

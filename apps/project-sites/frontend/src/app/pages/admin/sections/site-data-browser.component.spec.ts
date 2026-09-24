@@ -22,8 +22,8 @@ const ROWS = [
 const OVERVIEW = {
   data: {
     tables: [
-      { key: 'visitor_events', label: 'Visitor Events', description: 'Analytics pageviews and events', columns: COLS, row_count: 3, browsable: true, deletable: false },
-      { key: 'form_submissions', label: 'Form Submissions', description: 'Contact and lead form entries', columns: ['form_name', 'status', 'email', 'created_at'], row_count: 2, browsable: true, deletable: true, editableColumns: { status: { type: 'enum', options: ['received', 'forwarded', 'partial', 'failed'] } } },
+      { key: 'visitor_events', label: 'Visitor Events', description: 'Analytics pageviews and events', columns: COLS, row_count: 3, browsable: true, deletable: false, last_activity: '2026-09-20 12:00:00' },
+      { key: 'form_submissions', label: 'Form Submissions', description: 'Contact and lead form entries', columns: ['form_name', 'status', 'email', 'created_at'], row_count: 2, browsable: true, deletable: true, editableColumns: { status: { type: 'enum', options: ['received', 'forwarded', 'partial', 'failed'] } }, last_activity: null },
     ],
   },
 };
@@ -783,5 +783,52 @@ describe('SiteDataBrowserComponent — row edit', () => {
     await c.saveEdit({ id: 'row-abc', status: 'received' }, 'status');
     expect(toast.error).toHaveBeenCalled();
     expect(c.savingEdit()).toBeFalse();
+  });
+});
+
+/**
+ * Overview "last activity" freshness — each table chip shows a compact relative age
+ * (server MAX(ts)), or nothing when the table is empty. Server timestamps are UTC
+ * `YYYY-MM-DD HH:MM:SS` (no zone); compactAge must parse them as UTC, not local.
+ */
+describe('SiteDataBrowserComponent — last-activity freshness', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('renders a freshness chip for a table with last_activity, none for an empty one', () => {
+    const { fixture } = setup();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    // visitor_events has a timestamp → chip present; form_submissions is null → absent.
+    expect(host.querySelector('[data-testid="db-table-fresh-visitor_events"]')).withContext('ts → chip').toBeTruthy();
+    expect(host.querySelector('[data-testid="db-table-fresh-form_submissions"]')).withContext('null → no chip').toBeNull();
+  });
+
+  it('compactAge: buckets the age and parses UTC timestamps (not local)', () => {
+    const c = setup().c;
+    // Pin "now" to 2026-09-24 12:00:00 UTC for deterministic deltas.
+    const now = Date.parse('2026-09-24T12:00:00Z');
+    spyOn(c as unknown as { now(): number }, 'now').and.returnValue(now);
+    expect(c.compactAge('2026-09-24 11:59:30')).toBe('just now'); // 30s
+    expect(c.compactAge('2026-09-24 11:59:00')).toBe('1m'); // exactly 60s → 1m (boundary)
+    expect(c.compactAge('2026-09-24 11:30:00')).toBe('30m');
+    // UTC parse proof: '09:00:00' is 3h before 12:00 UTC → "3h". Parsed as LOCAL in a
+    // non-UTC tz it would land in a different bucket; the code normalizes to UTC.
+    expect(c.compactAge('2026-09-24 09:00:00')).toBe('3h');
+    expect(c.compactAge('2026-09-22 12:00:00')).toBe('2d');
+    expect(c.compactAge('2026-09-10 12:00:00')).toBe('2w');
+  });
+
+  it('compactAge: empty/null/unparseable → "" (template hides the chip, never a fake 0)', () => {
+    const c = setup().c;
+    expect(c.compactAge(null)).toBe('');
+    expect(c.compactAge(undefined)).toBe('');
+    expect(c.compactAge('not-a-date')).toBe('');
+  });
+
+  it('fullTimestamp: renders a real UTC instant (or "" for null/unparseable)', () => {
+    const c = setup().c;
+    expect(c.fullTimestamp('2026-09-24 12:00:00')).not.toBe('');
+    expect(c.fullTimestamp(null)).toBe('');
+    expect(c.fullTimestamp('nope')).toBe('');
   });
 });
