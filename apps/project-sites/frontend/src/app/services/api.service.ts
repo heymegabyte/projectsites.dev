@@ -942,6 +942,27 @@ export class ApiService {
   }
 
   /**
+   * Bulk-delete up to 100 of the site's own rows from a DELETABLE overview table
+   * (currently `form_submissions`). The server dedupes + caps the ids and deletes via a
+   * parameterized `id IN (…) AND site_id = ?` (double-scoped), reporting honest partial
+   * results (`requested`/`deleted`/`skipped`). Irreversible — callers MUST confirm first.
+   *
+   * @example
+   * ```ts
+   * this.api.bulkDeleteOverviewRows(siteId, 'form_submissions', ids).subscribe(() => this.loadPage());
+   * ```
+   */
+  bulkDeleteOverviewRows(
+    siteId: string,
+    table: string,
+    ids: readonly string[],
+  ): Observable<{ data: { requested: number; deleted: number; skipped: number } }> {
+    return this.post(`/sites/${siteId}/data-overview/${encodeURIComponent(table)}/bulk-delete`, {
+      ids,
+    });
+  }
+
+  /**
    * Update ONE editable column of the site's own row (server enforces the per-table,
    * per-column allowlist + validates the value against the column's enum). The update
    * is double-scoped by `id` AND `site_id`; a foreign/absent row is a 404. Reversible.

@@ -696,6 +696,88 @@ siteDataApi.delete('/api/sites/:siteId/data-overview/:table/:rowId', async (c) =
   return c.json({ data: { id: rowId, deleted: true } });
 });
 
+/** Hard cap on one bulk-delete batch — bounds query cost + blast radius. */
+const BULK_DELETE_CAP = 100;
+
+/**
+ * Bulk-delete up to {@link BULK_DELETE_CAP} of the site's own rows from a DELETABLE
+ * overview table (currently `form_submissions` — clearing spam/test leads in one action).
+ * Body: `{ ids: string[] }`.
+ *
+ * Same safety chain as the single-row delete — org auth (401) → {@link ownsSiteData}
+ * (404) → {@link deletableTableName} trusted-literal table (read-only → 400) — plus:
+ * the ids are deduped, validated as non-empty strings, and capped; the SQL is a
+ * parameterized `id IN (?,?,…)` list (EVERY id is a bound param, never interpolated) AND
+ * double-scoped by `site_id`, so a foreign/guessed id can never be deleted. Reports
+ * honest partial results (`requested` vs `deleted` vs `skipped`) — ids that didn't match
+ * a row for THIS site are silently skipped by the WHERE and surfaced in the count.
+ */
+siteDataApi.post('/api/sites/:siteId/data-overview/:table/bulk-delete', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+  const realTable = deletableTableName(table);
+  if (!realTable) {
+    return c.json(
+      { error: { code: 'BAD_REQUEST', message: 'This table is read-only and cannot be edited here' } },
+      400,
+    );
+  }
+
+  const body = (await c.req.json().catch(() => ({}))) as { ids?: unknown };
+  const rawIds = Array.isArray(body.ids) ? body.ids : null;
+  if (!rawIds || rawIds.length === 0) {
+    return c.json(
+      { error: { code: 'BAD_REQUEST', message: 'Provide a non-empty "ids" array' } },
+      400,
+    );
+  }
+  // Dedupe + keep only non-empty strings (a hostile/blank id is dropped, never bound).
+  const ids = [...new Set(rawIds.filter((x): x is string => typeof x === 'string' && x.length > 0))];
+  if (ids.length === 0) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'No valid row ids provided' } }, 400);
+  }
+  if (ids.length > BULK_DELETE_CAP) {
+    return c.json(
+      {
+        error: {
+          code: 'BAD_REQUEST',
+          message: `Too many rows — delete at most ${BULK_DELETE_CAP} at a time`,
+        },
+      },
+      400,
+    );
+  }
+
+  // `realTable` is a trusted allowlist literal; every id is a bound `?` + the site scope.
+  // Double-scoping by site means foreign ids can never be deleted even if guessed.
+  const placeholders = ids.map(() => '?').join(', ');
+  const result = await c.env.DB.prepare(
+    `DELETE FROM ${realTable} WHERE id IN (${placeholders}) AND site_id = ?`,
+  )
+    .bind(...ids, siteId)
+    .run();
+
+  const deleted = Number(result.meta?.changes ?? 0);
+
+  await writeAuditLog(c.env.DB, {
+    org_id: orgId,
+    actor_id: c.get('userId') ?? null,
+    action: 'site_data.rows_bulk_deleted',
+    message: `Bulk-deleted ${deleted} row${deleted === 1 ? '' : 's'} from ${table}`,
+    target_type: table,
+    target_id: siteId,
+    metadata_json: { site_id: siteId, table, requested: ids.length, rows_affected: deleted },
+  });
+
+  // Honest partial-failure report: requested vs actually-deleted vs skipped.
+  return c.json({ data: { requested: ids.length, deleted, skipped: ids.length - deleted } });
+});
+
 /**
  * Update ONE editable column of the site's own row in an EDITABLE overview table
  * (currently only `form_submissions.status` — retriage a lead). Body: `{ column, value }`.
@@ -792,7 +874,7 @@ siteDataApi.get('/api/sites/:siteId/data-activity', async (c) => {
       `SELECT created_at, actor_id, action, target_type, message
          FROM audit_logs
         WHERE org_id = ?
-          AND action IN ('site_data.row_deleted', 'site_data.row_updated')
+          AND action IN ('site_data.row_deleted', 'site_data.row_updated', 'site_data.rows_bulk_deleted')
           AND json_extract(metadata_json, '$.site_id') = ?
         ORDER BY created_at DESC
         LIMIT 50`,

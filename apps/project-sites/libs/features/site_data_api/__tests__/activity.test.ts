@@ -97,7 +97,9 @@ describe('GET /api/sites/:siteId/data-overview/activity', () => {
     });
     // Scoped by org + site (json_extract), filtered to the site_data action allowlist.
     const q = activityCall(calls)!;
-    expect(q.sql).toContain("action IN ('site_data.row_deleted', 'site_data.row_updated')");
+    expect(q.sql).toContain(
+      "action IN ('site_data.row_deleted', 'site_data.row_updated', 'site_data.rows_bulk_deleted')",
+    );
     expect(q.sql).toContain("json_extract(metadata_json, '$.site_id') = ?");
     // The SELECT list is the safe columns only — metadata_json is filtered ON, never returned.
     expect(q.sql).toContain('SELECT created_at, actor_id, action, target_type, message');

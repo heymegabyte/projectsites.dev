@@ -251,6 +251,25 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v4H3z"/><path d="M3 11h18M3 15h18M3 19h18"/></svg>
             </app-mini-empty>
           } @else {
+            @if (selectedCount() > 0) {
+              <div class="db-bulk-bar" role="region" aria-label="Bulk actions" data-testid="db-bulk-bar">
+                <span class="db-bulk-count" aria-live="polite">{{ selectedCount() }} selected</span>
+                <button
+                  type="button"
+                  class="db-bulk-delete"
+                  (click)="bulkDelete()"
+                  [disabled]="bulkDeleting()"
+                  data-testid="db-bulk-delete"
+                >{{ bulkDeleting() ? 'Deleting…' : 'Delete selected' }}</button>
+                <button
+                  type="button"
+                  class="db-bulk-clear"
+                  (click)="clearSelection()"
+                  [disabled]="bulkDeleting()"
+                  data-testid="db-bulk-clear"
+                >Clear</button>
+              </div>
+            }
             <div
               class="db-scroll"
               tabindex="0"
@@ -260,6 +279,18 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
               <table class="db-table" data-testid="db-grid">
                 <thead>
                   <tr>
+                    @if (selected()?.deletable) {
+                      <th scope="col" class="db-sel-h">
+                        <input
+                          type="checkbox"
+                          class="db-sel-all"
+                          [checked]="allPageSelected()"
+                          (change)="toggleSelectAllPage()"
+                          data-testid="db-select-all"
+                          aria-label="Select all rows on this page"
+                        />
+                      </th>
+                    }
                     @for (col of visibleColumns(); track col) {
                       <th scope="col" [attr.aria-sort]="ariaSort(col)">
                         <button
@@ -282,6 +313,20 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                 <tbody>
                   @for (row of rows(); track $index) {
                     <tr [class.is-expanded]="expandedRow() === $index" data-testid="db-row">
+                      @if (selected()?.deletable) {
+                        <td class="db-sel-c">
+                          @if (isString(row['id'])) {
+                            <input
+                              type="checkbox"
+                              class="db-sel"
+                              [checked]="isRowSelected(row)"
+                              (change)="toggleRowSelected(row)"
+                              [attr.data-testid]="'db-select-' + $index"
+                              [attr.aria-label]="'Select row ' + ($index + 1)"
+                            />
+                          }
+                        </td>
+                      }
                       @for (col of visibleColumns(); track col) {
                         <td data-testid="db-cell">
                           @if (row[col] === null || row[col] === undefined) {
@@ -307,7 +352,7 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                     </tr>
                     @if (expandedRow() === $index) {
                       <tr class="db-detail-row" data-testid="db-detail">
-                        <td [attr.colspan]="visibleColumns().length + 1">
+                        <td [attr.colspan]="visibleColumns().length + 1 + (selected()?.deletable ? 1 : 0)">
                           <div class="db-detail-bar">
                             @if (selected()?.deletable && isString(row['id'])) {
                               <button type="button" class="db-delete-row"
@@ -495,6 +540,18 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
     .db-delete-row:hover:not(:disabled) { background: color-mix(in oklch, #ff6b6b 22%, transparent); color: #fff; }
     .db-delete-row:focus-visible { outline: 2px solid #ff6b6b; outline-offset: 2px; }
     .db-delete-row:disabled { opacity: 0.6; cursor: progress; }
+    .db-sel-h, .db-sel-c { width: 1.8rem; text-align: center; padding: 0 0.3rem; }
+    .db-sel, .db-sel-all { width: 15px; height: 15px; cursor: pointer; accent-color: var(--ps-accent, #00e5ff); }
+    .db-sel:focus-visible, .db-sel-all:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
+    .db-bulk-bar { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; padding: 0.4rem 0.6rem; border-radius: 8px; background: color-mix(in oklch, #ff6b6b 8%, rgba(0,0,0,0.25)); border: 1px solid color-mix(in oklch, #ff6b6b 24%, transparent); }
+    .db-bulk-count { font-size: 0.76rem; font-variant-numeric: tabular-nums; color: var(--ps-ink, #f4f4ff); }
+    .db-bulk-delete { font: inherit; font-size: 0.74rem; font-weight: 600; padding: 0.28rem 0.7rem; border-radius: 6px; color: #ff8f9a; background: color-mix(in oklch, #ff6b6b 14%, transparent); border: 1px solid color-mix(in oklch, #ff6b6b 38%, transparent); cursor: pointer; }
+    .db-bulk-delete:hover:not(:disabled) { background: color-mix(in oklch, #ff6b6b 26%, transparent); color: #fff; }
+    .db-bulk-delete:focus-visible { outline: 2px solid #ff6b6b; outline-offset: 2px; }
+    .db-bulk-delete:disabled { opacity: 0.6; cursor: progress; }
+    .db-bulk-clear { font: inherit; font-size: 0.72rem; padding: 0.28rem 0.55rem; border-radius: 6px; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 70%, transparent); background: transparent; border: 1px solid var(--ps-edge, rgba(255,255,255,0.14)); cursor: pointer; }
+    .db-bulk-clear:hover:not(:disabled) { color: var(--ps-ink, #f4f4ff); background: rgba(255,255,255,0.05); }
+    .db-bulk-clear:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     .db-edit { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.5rem; }
     .db-edit-field { display: inline-flex; align-items: center; gap: 0.4rem; }
     .db-edit-label { font-size: 0.7rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); text-transform: capitalize; }
@@ -598,6 +655,11 @@ export class SiteDataBrowserComponent implements OnInit {
   readonly expandedRow = signal<number | null>(null);
   /** `id` of the row currently being deleted (disables its button + shows "Deleting…"). */
   readonly deletingId = signal<string | null>(null);
+  /** Row `id`s checked for a bulk action (deletable tables only). Cleared on any
+   *  page/table/filter/sort change (via loadPage) so a stale id can never be deleted. */
+  readonly selectedIds = signal<ReadonlySet<string>>(new Set());
+  /** True while a bulk delete is in flight (disables the bulk bar). */
+  readonly bulkDeleting = signal(false);
   /** Pending per-column edits for the expanded row (column → draft value); cleared on
    *  row collapse/switch and on a successful save. */
   readonly editDraft = signal<Record<string, string>>({});
@@ -735,6 +797,7 @@ export class SiteDataBrowserComponent implements OnInit {
     this.rowsLoading.set(true);
     this.rowsError.set(null);
     this.expandedRow.set(null);
+    this.clearSelection(); // a stale id from another page/filter must never be bulk-deleted
     this.api
       .browseDataTable(id, sel.key, {
         limit: this.limit(),
@@ -1078,6 +1141,109 @@ export class SiteDataBrowserComponent implements OnInit {
    *  callable in a template, and a row without a stable id must stay read-only.) */
   isString(v: unknown): v is string {
     return typeof v === 'string' && v.length > 0;
+  }
+
+  /** The current page's selectable row ids (those with a stable string `id`). */
+  private selectablePageIds(): string[] {
+    return this.rows()
+      .map((r) => r['id'])
+      .filter((v): v is string => this.isString(v));
+  }
+
+  /** Number of rows checked for a bulk action (drives the bulk bar + confirm copy). */
+  readonly selectedCount = computed(() => this.selectedIds().size);
+
+  /** True when EVERY selectable row on the page is checked (drives the header checkbox). */
+  readonly allPageSelected = computed(() => {
+    const ids = this.selectablePageIds();
+    const sel = this.selectedIds();
+    return ids.length > 0 && ids.every((id) => sel.has(id));
+  });
+
+  /** Whether a specific row is checked (its `id` is in the selection set). */
+  isRowSelected(row: Record<string, unknown>): boolean {
+    const id = row['id'];
+    return this.isString(id) && this.selectedIds().has(id);
+  }
+
+  /** Toggle one row's checkbox. */
+  toggleRowSelected(row: Record<string, unknown>): void {
+    const id = row['id'];
+    if (!this.isString(id)) return;
+    this.selectedIds.update((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** Select (or clear) every selectable row on the current page. */
+  toggleSelectAllPage(): void {
+    const ids = this.selectablePageIds();
+    this.selectedIds.update((s) => {
+      const allSelected = ids.length > 0 && ids.every((id) => s.has(id));
+      const next = new Set(s);
+      if (allSelected) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  /** Drop all checked rows (the bulk bar's Clear, and after any re-fetch). */
+  clearSelection(): void {
+    if (this.selectedIds().size) this.selectedIds.set(new Set());
+  }
+
+  /**
+   * Permanently delete every SELECTED row of a DELETABLE table in one batch, after an
+   * explicit confirmation showing the count + the exact parameterized statement. The
+   * server re-checks the allowlist + tenant ownership, caps the batch (≤100), and
+   * double-scopes by site, so this can only remove the owner's own rows. Reports honest
+   * partial results (deleted vs already-gone) and refreshes the page + counts + activity.
+   */
+  async bulkDelete(): Promise<void> {
+    const sel = this.selected();
+    const id = this.siteId();
+    const ids = [...this.selectedIds()];
+    if (!sel?.deletable || !id || ids.length === 0) return;
+
+    const n = ids.length;
+    const noun = n === 1 ? 'row' : 'rows';
+    const ok = await this.confirm.confirm({
+      title: `Delete ${n} ${noun}?`,
+      message:
+        `This permanently deletes ${n} selected ${noun} from “${sel.label}” for your site and cannot be undone.\n\n` +
+        `Runs: DELETE FROM ${sel.key} WHERE id IN (…) AND site_id = ?  (${n} ${noun})`,
+      confirmLabel: `Delete ${n} permanently`,
+      danger: true,
+    });
+    if (!ok) return;
+
+    this.bulkDeleting.set(true);
+    this.api
+      .bulkDeleteOverviewRows(id, sel.key, ids)
+      .pipe(
+        catchError(() => of(null)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((res) => {
+        this.bulkDeleting.set(false);
+        if (!res) {
+          this.toast.error('Could not delete the selected rows — please retry.');
+          return;
+        }
+        const { deleted, skipped } = res.data;
+        this.toast.success(
+          skipped > 0
+            ? `Deleted ${deleted} of ${deleted + skipped} — ${skipped} ${skipped === 1 ? 'was' : 'were'} already gone.`
+            : `Deleted ${deleted} ${deleted === 1 ? 'row' : 'rows'}.`,
+        );
+        this.expandedRow.set(null);
+        this.loadPage(); // re-fetch the current window (also clears the selection)
+        this.loadTables(id); // refresh the Overview row-counts
+        this.loadActivity(id); // surface the bulk delete in "Recent activity"
+      });
   }
 
   /**

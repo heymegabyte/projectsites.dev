@@ -411,6 +411,30 @@
   uniqueVisitors` (feeding `public-analytics.component` + the docs endpoint) while OTHER sources there are genuinely
   unique users (GA4 `totalUsers` @ line 675, CF-zone `unique_visitors`). Relabel per-source (D1=Visits, GA4/CF=unique
   users) — a distinct, careful slice, not a blind rename.
+- **Cycle 37 — 2026-09-24 (Data: bulk row selection + bulk delete — the epic's "bulk changes" pillar):** The owner
+  could delete `form_submissions` rows only ONE at a time; the epic explicitly wants "bulk selection and bulk changes
+  with previews, affected-row limits, confirmations, and clear partial-failure reporting". Shipped it end-to-end.
+  **Worker:** new `POST /data-overview/:table/bulk-delete` `{ids[]}` — same safety chain as the single delete (auth 401 →
+  `ownsSiteData` 404 → `deletableTableName` trusted-literal, read-only→400) PLUS ids deduped + validated (non-empty
+  strings) + capped at **100** (over-cap→400), a parameterized `id IN (?,…) AND site_id = ?` (every id BOUND, never
+  interpolated, double-scoped by site), audit-logged (`site_data.rows_bulk_deleted`, added to the `/data-activity`
+  filter), returning an honest `{requested, deleted, skipped}` (ids matching no row for this site are skipped, not
+  errors). **Frontend:** grid row checkboxes + select-all-on-page header check (deletable tables only, via a leading
+  column; detail colspan adjusts) + a danger bulk bar ("N selected · Delete selected · Clear") → `ConfirmService` shows
+  count + statement → `bulkDeleteOverviewRows` → toast (honest partial wording) → refresh grid/Overview/activity.
+  Selection is a `Set<string>` of ids, CLEARED on every re-fetch (in `loadPage`) so a stale id from another
+  page/filter can never be deleted (the epic's "unintended multi-row / stale edit" hazard). `api.service` gained
+  `bulkDeleteOverviewRows`. Chose bulk-delete over broadening row-EDIT to PII/add-row (still the wrong direction — an
+  immutable submissions log). Verified: worker tsc 0 · **Jest 12322/12322** (full suite; +11 bulk-delete route specs;
+  updated the activity filter assertion) · fe tsc (app + spec) 0 · **Karma 2053/2053** (+6 bulk specs) · build 0.
+  Deployed **worker** (`--env production`, clean tmp; container rollout timed out once → retried → version
+  `42f318df`) + **frontend R2**. Prod-verified NON-DESTRUCTIVELY on the owned test site: 401 (no auth) · 400 (read-only
+  table) · 400 (empty ids) · **200 `{requested:1,deleted:0,skipped:1}` via a nonexistent id (deleted nothing real)** ·
+  404 (foreign site — tenant isolation); frontend `chunk-GT47FLOG.js` 200 with bulk markers + referenced by live
+  `main-HABWKA3B.js`. Next: the owner Data CRUD is now browse/search/filter/sort/export/delete/**bulk-delete**/edit +
+  freshness + activity — genuinely complete; remaining Data gaps are credential-blocked (D1 REST size/usage/Time-Travel)
+  or product-N/A (no per-tenant KV/R2/DO/Vectorize data API). The super-admin SQL console's syntax-highlighting /
+  schema-aware completion / multi-tab is the next non-blocked (but narrower-audience) polish.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

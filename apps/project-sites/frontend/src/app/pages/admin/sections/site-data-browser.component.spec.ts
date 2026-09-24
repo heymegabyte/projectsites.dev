@@ -58,6 +58,7 @@ function setup(overrides?: {
   getDataOverview?: jasmine.Spy;
   browseDataTable?: jasmine.Spy;
   deleteOverviewRow?: jasmine.Spy;
+  bulkDeleteOverviewRows?: jasmine.Spy;
   updateOverviewRow?: jasmine.Spy;
   getDataActivity?: jasmine.Spy;
   confirmResult?: boolean;
@@ -67,13 +68,18 @@ function setup(overrides?: {
   const deleteOverviewRow =
     overrides?.deleteOverviewRow ??
     jasmine.createSpy('deleteOverviewRow').and.returnValue(of({ data: { id: 'r', deleted: true } }));
+  const bulkDeleteOverviewRows =
+    overrides?.bulkDeleteOverviewRows ??
+    jasmine
+      .createSpy('bulkDeleteOverviewRows')
+      .and.returnValue(of({ data: { requested: 2, deleted: 2, skipped: 0 } }));
   const updateOverviewRow =
     overrides?.updateOverviewRow ??
     jasmine.createSpy('updateOverviewRow').and.returnValue(of({ data: { id: 'r', column: 'status', value: 'forwarded', updated: true } }));
   const getDataActivity =
     overrides?.getDataActivity ??
     jasmine.createSpy('getDataActivity').and.returnValue(of({ data: { events: [] } }));
-  const api = { getDataOverview, browseDataTable, deleteOverviewRow, updateOverviewRow, getDataActivity };
+  const api = { getDataOverview, browseDataTable, deleteOverviewRow, bulkDeleteOverviewRows, updateOverviewRow, getDataActivity };
   // Mock ConfirmService + ToastService so the real CDK-Dialog-backed ConfirmService
   // never constructs in the unit harness (and so delete specs can drive the outcome).
   const confirmSpy = jasmine.createSpy('confirm').and.resolveTo(overrides?.confirmResult ?? true);
@@ -89,7 +95,7 @@ function setup(overrides?: {
   });
   const fixture = TestBed.createComponent(SiteDataBrowserComponent);
   fixture.componentRef.setInput('siteId', 'site-1');
-  return { fixture, c: fixture.componentInstance, getDataOverview, browseDataTable, deleteOverviewRow, updateOverviewRow, getDataActivity, confirmSpy, toast };
+  return { fixture, c: fixture.componentInstance, getDataOverview, browseDataTable, deleteOverviewRow, bulkDeleteOverviewRows, updateOverviewRow, getDataActivity, confirmSpy, toast };
 }
 
 describe('SiteDataBrowserComponent', () => {
@@ -876,5 +882,89 @@ describe('SiteDataBrowserComponent — recent activity', () => {
     await c.deleteRow({ id: 'row-abc' });
     expect(getDataActivity.calls.count()).withContext('activity refetched after delete').toBeGreaterThan(before);
     expect(c.activity().length).toBe(2);
+  });
+
+  // ── Bulk selection + bulk delete (deletable tables only) ──────────────────────
+  it('bulk-deletes the selected rows: confirm + parameterized bulk call + success toast', async () => {
+    const bulkDeleteOverviewRows = jasmine
+      .createSpy('bulkDeleteOverviewRows')
+      .and.returnValue(of({ data: { requested: 2, deleted: 2, skipped: 0 } }));
+    const { fixture, c, confirmSpy, toast } = setup({ bulkDeleteOverviewRows });
+    fixture.detectChanges();
+    c.selected.set(c.tables().find((t) => t.key === 'form_submissions')!);
+    c.rows.set([{ id: 'r1', form_name: 'Contact' }, { id: 'r2', form_name: 'Contact' }]);
+    c.toggleRowSelected(c.rows()[0]);
+    c.toggleRowSelected(c.rows()[1]);
+    expect(c.selectedCount()).toBe(2);
+
+    await c.bulkDelete();
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(bulkDeleteOverviewRows).toHaveBeenCalledWith('site-1', 'form_submissions', ['r1', 'r2']);
+    expect(toast.success).toHaveBeenCalled();
+  });
+
+  it('renders selection checkboxes ONLY for a deletable table', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    c.selected.set(c.tables().find((t) => t.key === 'form_submissions')!);
+    c.rows.set([{ id: 'r1', form_name: 'Contact', status: 'received', email: 'a@x', created_at: 'x' }]);
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="db-select-all"]')).withContext('deletable → select-all').toBeTruthy();
+    expect(el.querySelector('[data-testid="db-select-0"]')).withContext('deletable → row checkbox').toBeTruthy();
+
+    c.selected.set(c.tables().find((t) => t.key === 'visitor_events')!);
+    c.rows.set([{ event_type: 'pageview', path: '/p', referrer: null, created_at: 'x' }]);
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="db-select-all"]')).withContext('read-only → no select-all').toBeNull();
+  });
+
+  it('select-all selects every selectable row on the page (id-bearing rows only)', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    c.selected.set(c.tables().find((t) => t.key === 'form_submissions')!);
+    c.rows.set([{ id: 'r1' }, { id: 'r2' }, { form_name: 'no-id' }]); // 3rd has no stable id
+    c.toggleSelectAllPage();
+    expect(c.selectedCount()).withContext('only id-bearing rows selected').toBe(2);
+    expect(c.allPageSelected()).toBeTrue();
+    c.toggleSelectAllPage();
+    expect(c.selectedCount()).toBe(0);
+  });
+
+  it('cancelling the confirm does not call the bulk API', async () => {
+    const bulkDeleteOverviewRows = jasmine
+      .createSpy('bulkDeleteOverviewRows')
+      .and.returnValue(of({ data: { requested: 1, deleted: 1, skipped: 0 } }));
+    const { fixture, c } = setup({ bulkDeleteOverviewRows, confirmResult: false });
+    fixture.detectChanges();
+    c.selected.set(c.tables().find((t) => t.key === 'form_submissions')!);
+    c.rows.set([{ id: 'r1' }]);
+    c.toggleRowSelected(c.rows()[0]);
+    await c.bulkDelete();
+    expect(bulkDeleteOverviewRows).not.toHaveBeenCalled();
+  });
+
+  it('clears the selection on any re-fetch (a stale id can never be bulk-deleted)', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    c.selected.set(c.tables().find((t) => t.key === 'form_submissions')!);
+    c.rows.set([{ id: 'r1' }, { id: 'r2' }]);
+    c.toggleRowSelected(c.rows()[0]);
+    expect(c.selectedCount()).toBe(1);
+    c.loadPage(); // a sort/filter/page change re-fetches
+    expect(c.selectedCount()).withContext('selection cleared on re-fetch').toBe(0);
+  });
+
+  it('reports honest partial results in the toast when some rows were already gone', async () => {
+    const bulkDeleteOverviewRows = jasmine
+      .createSpy('bulkDeleteOverviewRows')
+      .and.returnValue(of({ data: { requested: 3, deleted: 1, skipped: 2 } }));
+    const { fixture, c, toast } = setup({ bulkDeleteOverviewRows });
+    fixture.detectChanges();
+    c.selected.set(c.tables().find((t) => t.key === 'form_submissions')!);
+    c.rows.set([{ id: 'r1' }, { id: 'r2' }, { id: 'r3' }]);
+    c.rows().forEach((r) => c.toggleRowSelected(r));
+    await c.bulkDelete();
+    expect(toast.success).toHaveBeenCalledWith(jasmine.stringMatching(/Deleted 1 of 3.*already gone/));
   });
 });
