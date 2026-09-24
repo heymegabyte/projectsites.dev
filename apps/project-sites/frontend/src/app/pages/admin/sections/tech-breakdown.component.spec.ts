@@ -80,6 +80,25 @@ describe('TechBreakdownComponent', () => {
     expect(c.barWidth(5, 0)).toBe(0); // empty group → 0, never divide-by-zero
   });
 
+  it('pct returns a row share of the FULL dimension total (0 when the total is 0)', () => {
+    const c = render().componentInstance;
+    expect(c.pct(68, 100)).toBe(68);
+    expect(c.pct(1, 3)).toBe(33);
+    expect(c.pct(5, 0)).toBe(0); // no total → 0, never divide-by-zero
+  });
+
+  it('renders each row share % of the full dimension total (not just the top-6)', () => {
+    // 3 devices summing to 100 → mobile is 68% of all device-attributed pageviews.
+    const host = render([
+      { label: 'mobile', count: 68 },
+      { label: 'desktop', count: 30 },
+      { label: 'tablet', count: 2 },
+    ]).nativeElement as HTMLElement;
+    const deviceCol = host.querySelector('[data-testid="an-tech-device"]')!;
+    expect(deviceCol.textContent).toContain('68%');
+    expect(deviceCol.textContent).toContain('30%');
+  });
+
   it('labels the window + names the source as first-party user-agent (never CWV-style Chromium-only)', () => {
     const fixture = render([{ label: 'mobile', count: 3 }], [], [], 7);
     const src = fixture.debugElement.query(By.css('[data-testid="an-tech-source"]')).nativeElement as HTMLElement;

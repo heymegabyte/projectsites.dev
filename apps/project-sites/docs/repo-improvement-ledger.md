@@ -769,6 +769,21 @@
   directive is now signal-input migrated.** **Next:** lift `DisclosureMode` to a shared type file (decouples feature-flags
   + site-features from the dead `mode-switcher`), then the remaining decorator files are almost all the unwired
   `site-kit/*` library (Brian-gated intent call) + a few dashboard `widgets.ts` holdouts.
+- **Cycle 57 — 2026-09-24 (Analytics: share-% on the device/browser/OS breakdown):** Confirmed the section's telemetry is
+  present (the CF-GraphQL delivery fetch already `console.warn(JSON.stringify(...))`s failures at every catch) and the
+  drilldown/filter is the only remaining feature — but it's medium-large (a tenant-safe filter must thread through
+  `currentWindow`/`previousWindow`/`timePredicate` + ~10 breakdown fns since the filter applies to relative windows too,
+  so it can't ride the optional `window` object), too large to land *safely* in a deep-session cycle → correctly deferred
+  with that plan. Shipped a small complete win instead: the `TechBreakdownComponent` showed **counts only** (bar =
+  relative-to-max), no SHARE — an owner couldn't see "mobile is 68% of visitors." Added a **share %** per row (`count ·
+  N%`), computed client-side from the **FULL dimension total** (all rows, not just the displayed top-6) so the % is
+  honest; `pct(count,total)` guards divide-by-zero → 0. Frontend-only. Verified: fe tsc (app+spec) 0 · **Karma 2101/2101**
+  (+2: pct unit + renders-share-of-full-total) · `ng build:prod` 0 err + 0 NG8113 · deployed R2 + prod-verified
+  (`main-E5CD72TJ.js` hash-matched, tech chunk `chunk-L62OLD5P.js` 200). **Next (biggest remaining feature):**
+  drilldown/filter — extend `currentWindow`/`previousWindow` with an optional allowlisted `{dim,value}` predicate (dim a
+  trusted literal, value bound), thread a tenant-safe filter param through the route + `getTrafficSummary` (force the live
+  path when filtered) + comprehensive cross-tenant + allowlist-rejection tests, then clickable breakdown rows + a filter
+  chip. Land the tenant-safe server core FIRST. Else analytics is at a deep coverage+honesty plateau.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

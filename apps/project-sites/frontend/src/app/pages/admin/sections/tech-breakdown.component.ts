@@ -25,6 +25,8 @@ interface TechGroup {
   label: string;
   rows: TechCount[];
   max: number;
+  /** Sum of ALL rows in the dimension (not just the top-6) — the share denominator. */
+  total: number;
 }
 
 @Component({
@@ -54,7 +56,7 @@ interface TechGroup {
                     <li class="tech-row" [attr.data-testid]="'an-tech-row-' + g.key">
                       <div class="tech-row-head">
                         <span class="tech-label" [attr.title]="r.label">{{ r.label }}</span>
-                        <span class="tech-count">{{ r.count }}</span>
+                        <span class="tech-count">{{ r.count }} <span class="tech-pct">· {{ pct(r.count, g.total) }}%</span></span>
                       </div>
                       <div class="tech-bar" aria-hidden="true">
                         <div class="tech-bar-fill" [style.width.%]="barWidth(r.count, g.max)"></div>
@@ -90,6 +92,7 @@ interface TechGroup {
     .tech-row-head { display: flex; justify-content: space-between; gap: 0.6rem; margin-bottom: 0.2rem; }
     .tech-label { font-size: 0.78rem; color: #fff; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: capitalize; }
     .tech-count { font-size: 0.72rem; font-weight: 600; color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+    .tech-pct { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); font-size: 0.9em; font-variant-numeric: tabular-nums; }
     .tech-bar { height: 5px; border-radius: 999px; background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent); overflow: hidden; }
     .tech-bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, color-mix(in oklch, var(--ps-accent, #00e5ff) 70%, transparent), var(--ps-accent, #00e5ff)); }
     .tech-empty { margin: 0; font-size: 0.72rem; line-height: 1.5; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
@@ -117,11 +120,22 @@ export class TechBreakdownComponent {
   readonly groups = computed<TechGroup[]>(() =>
     (
       [
-        { key: 'device', label: 'Devices', rows: this.top(this.devices()) },
-        { key: 'browser', label: 'Browsers', rows: this.top(this.browsers()) },
-        { key: 'os', label: 'Operating systems', rows: this.top(this.os()) },
+        { key: 'device', label: 'Devices', all: this.devices() },
+        { key: 'browser', label: 'Browsers', all: this.browsers() },
+        { key: 'os', label: 'Operating systems', all: this.os() },
       ] as const
-    ).map((g) => ({ ...g, max: g.rows.reduce((m, r) => Math.max(m, r.count), 0) })),
+    ).map((g) => {
+      const rows = this.top(g.all);
+      return {
+        key: g.key,
+        label: g.label,
+        rows,
+        max: rows.reduce((m, r) => Math.max(m, r.count), 0),
+        // Share denominator = the FULL dimension total (all rows, not just the top-6),
+        // so "N%" is an honest share of all pageviews attributed to that dimension.
+        total: g.all.reduce((s, r) => s + Math.max(0, r.count), 0),
+      };
+    }),
   );
 
   /** True when ANY dimension has data — else the card shows the honest empty state. */
@@ -130,5 +144,10 @@ export class TechBreakdownComponent {
   /** Bar width as a % of the group's largest count (min 4% so a small bar stays visible). */
   barWidth(count: number, max: number): number {
     return max > 0 ? Math.max(4, Math.round((count / max) * 100)) : 0;
+  }
+
+  /** Row's share of the dimension total (all rows, not just the top-6 shown), rounded. */
+  pct(count: number, total: number): number {
+    return total > 0 ? Math.round((count / total) * 100) : 0;
   }
 }
