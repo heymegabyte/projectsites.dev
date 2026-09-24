@@ -12,6 +12,10 @@ import {
   buildColumnFilter,
   deletableTableName,
   DELETABLE_OVERVIEW_TABLES,
+  editableTableName,
+  editableColumn,
+  validateEditableValue,
+  EDITABLE_OVERVIEW_COLUMNS,
 } from '../handlers';
 
 describe('data-overview registry', () => {
@@ -79,6 +83,61 @@ describe('deletableTableName (owner-delete allowlist — the killswitch boundary
   it('every allowlist value is a plain identifier (no interpolation risk)', () => {
     for (const real of Object.values(DELETABLE_OVERVIEW_TABLES)) {
       expect(real).toMatch(/^[a-z_][a-z0-9_]*$/);
+    }
+  });
+});
+
+describe('editable-column allowlist (owner edit boundary — the killswitch)', () => {
+  it('resolves ONLY form_submissions as an editable table', () => {
+    expect(editableTableName('form_submissions')).toBe('form_submissions');
+    for (const key of ['visitor_events', 'site_snapshots', 'mcp_connections', 'site_data', 'users', '']) {
+      expect(editableTableName(key)).toBeUndefined();
+    }
+  });
+
+  it('exposes ONLY form_submissions.status (an enum) as editable; PII/structural columns are not', () => {
+    expect(editableColumn('form_submissions', 'status')?.type).toBe('enum');
+    // PII + structural + unknown columns are read-only (undefined → caller 400s).
+    for (const col of ['email', 'payload', 'id', 'site_id', 'form_name', 'created_at', 'DROP TABLE sites']) {
+      expect(editableColumn('form_submissions', col)).toBeUndefined();
+    }
+    // Non-editable table → every column undefined.
+    expect(editableColumn('visitor_events', 'status')).toBeUndefined();
+  });
+
+  it('the status enum mirrors the D1 CHECK constraint exactly', () => {
+    expect(editableColumn('form_submissions', 'status')?.options).toEqual([
+      'received',
+      'forwarded',
+      'partial',
+      'failed',
+    ]);
+  });
+
+  it('every editable column name + table key is a plain identifier (no interpolation risk)', () => {
+    for (const [table, cols] of Object.entries(EDITABLE_OVERVIEW_COLUMNS)) {
+      expect(table).toMatch(/^[a-z_][a-z0-9_]*$/);
+      for (const col of Object.keys(cols)) expect(col).toMatch(/^[a-z_][a-z0-9_]*$/);
+    }
+  });
+});
+
+describe('validateEditableValue (enum bound — the value gate)', () => {
+  const status = editableColumn('form_submissions', 'status')!;
+
+  it('accepts an in-enum value and returns the string to bind', () => {
+    expect(validateEditableValue(status, 'forwarded')).toEqual({ ok: true, value: 'forwarded' });
+  });
+
+  it('REJECTS an out-of-enum value (never written)', () => {
+    const r = validateEditableValue(status, 'deleted');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toContain('one of');
+  });
+
+  it('REJECTS injection-shaped + empty + non-string values', () => {
+    for (const bad of ["received' OR '1'='1", '', null, undefined, 42, {}]) {
+      expect(validateEditableValue(status, bad).ok).toBe(false);
     }
   });
 });

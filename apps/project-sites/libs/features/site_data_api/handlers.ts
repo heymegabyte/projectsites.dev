@@ -191,6 +191,78 @@ export function deletableTableName(key: string): string | undefined {
     : undefined;
 }
 
+/** How one owner-editable overview column is typed + validated. */
+export interface EditableColumnSpec {
+  /** Only 'enum' today — a fixed option set mirroring the D1 CHECK constraint. */
+  type: 'enum';
+  /** Allowed values; anything outside is a 400 (never written). */
+  options: readonly string[];
+}
+
+/**
+ * Per-table, per-column EDIT allowlist for the owner Data browser — the boundary AND
+ * killswitch for owner edits. OUTER key = overview key; INNER key = the (trusted,
+ * quoted) column; value = how the field is typed + validated. Only a SAFE,
+ * constraint-bounded column is exposed: `form_submissions.status` is a CHECK-
+ * constrained enum, so an owner can retriage a lead (received → forwarded) but can
+ * NEVER edit PII (email/payload) or a structural column. A table/column absent here
+ * is read-only. Values are validated against `options` server-side; the UPDATE is
+ * always `WHERE id = ? AND site_id = ?` (double-scoped to the owner's own row).
+ */
+export const EDITABLE_OVERVIEW_COLUMNS: Readonly<
+  Record<string, Readonly<Record<string, EditableColumnSpec>>>
+> = {
+  form_submissions: {
+    status: { type: 'enum', options: ['received', 'forwarded', 'partial', 'failed'] },
+  },
+};
+
+/**
+ * Resolve an overview key to its real, UPDATE-safe table name, or undefined when the
+ * table has no editable columns (read-only). The key is a member of the trusted
+ * `EDITABLE_OVERVIEW_COLUMNS` key set, so it is safe to interpolate.
+ *
+ * @example editableTableName('form_submissions') // 'form_submissions'
+ * @example editableTableName('visitor_events')   // undefined (read-only)
+ */
+export function editableTableName(key: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(EDITABLE_OVERVIEW_COLUMNS, key) ? key : undefined;
+}
+
+/**
+ * Resolve an (overview key, column) pair to its edit spec, or undefined when the
+ * table/column is read-only. Callers MUST treat undefined as a 400 — never edit a
+ * column absent from the allowlist (that would defeat the boundary + could write PII
+ * or a structural column).
+ *
+ * @example editableColumn('form_submissions', 'status')?.type // 'enum'
+ * @example editableColumn('form_submissions', 'email')        // undefined (read-only)
+ */
+export function editableColumn(key: string, column: string): EditableColumnSpec | undefined {
+  const cols = EDITABLE_OVERVIEW_COLUMNS[key];
+  return cols && Object.prototype.hasOwnProperty.call(cols, column) ? cols[column] : undefined;
+}
+
+/**
+ * Validate a candidate value against a column's edit spec. Enum: the value (coerced
+ * to string) must be one of `options`. Returns the string to bind, or an error reason.
+ *
+ * @example validateEditableValue({type:'enum',options:['a','b']}, 'a') // { ok:true, value:'a' }
+ * @example validateEditableValue({type:'enum',options:['a']}, 'x')     // { ok:false, reason:… }
+ */
+export function validateEditableValue(
+  spec: EditableColumnSpec,
+  raw: unknown,
+): { ok: true; value: string } | { ok: false; reason: string } {
+  const value = String(raw ?? '');
+  if (spec.type === 'enum') {
+    return spec.options.includes(value)
+      ? { ok: true, value }
+      : { ok: false, reason: `Value must be one of: ${spec.options.join(', ')}` };
+  }
+  return { ok: false, reason: 'Unsupported column type' };
+}
+
 /**
  * Clamp a browse `limit` query param to a safe 1–100 range (default 25).
  * A non-numeric / missing value falls back to 25; never returns 0 or negatives.
@@ -469,6 +541,9 @@ siteDataApi.get('/api/sites/:siteId/data-overview', async (c) => {
         browsable: true,
         // Owner may delete their own rows here (server re-checks the allowlist).
         deletable: !!t.deletable,
+        // Owner-editable columns (typed) for this table; {} = fully read-only. The
+        // server re-validates the column + value on every PATCH (this is a UI hint).
+        editableColumns: EDITABLE_OVERVIEW_COLUMNS[t.key] ?? {},
       };
     }),
   );
@@ -597,4 +672,69 @@ siteDataApi.delete('/api/sites/:siteId/data-overview/:table/:rowId', async (c) =
   });
 
   return c.json({ data: { id: rowId, deleted: true } });
+});
+
+/**
+ * Update ONE editable column of the site's own row in an EDITABLE overview table
+ * (currently only `form_submissions.status` — retriage a lead). Body: `{ column, value }`.
+ *
+ * Safety chain mirrors the delete: org auth (401) → {@link ownsSiteData} tenant gate
+ * (404) → {@link editableTableName} resolves a trusted literal table (read-only table
+ * → 400) → {@link editableColumn} allowlists the column (non-editable → 400, so a
+ * hostile column never reaches SQL) → {@link validateEditableValue} bounds the value
+ * to the column's enum (invalid → 400) → parameterized `UPDATE … SET "col" = ? WHERE
+ * id = ? AND site_id = ?` → `meta.changes === 0` → 404 → audit-logged. Reversible (a
+ * status change), unlike the hard delete.
+ */
+siteDataApi.patch('/api/sites/:siteId/data-overview/:table/:rowId', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table, rowId } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+  const realTable = editableTableName(table);
+  if (!realTable) {
+    return c.json(
+      { error: { code: 'BAD_REQUEST', message: 'This table is read-only and cannot be edited here' } },
+      400,
+    );
+  }
+
+  const body = (await c.req.json().catch(() => null)) as { column?: unknown; value?: unknown } | null;
+  const column = typeof body?.column === 'string' ? body.column : '';
+  const spec = editableColumn(table, column);
+  if (!spec) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'This column is not editable' } }, 400);
+  }
+  const validated = validateEditableValue(spec, body?.value);
+  if (!validated.ok) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: validated.reason } }, 400);
+  }
+
+  // `realTable` + `column` are trusted allowlist literals (quoted); the value, rowId,
+  // and siteId are bound params. Double-scoped by site so a foreign row is untouchable.
+  const result = await c.env.DB.prepare(
+    `UPDATE ${realTable} SET "${column}" = ? WHERE id = ? AND site_id = ?`,
+  )
+    .bind(validated.value, rowId, siteId)
+    .run();
+
+  const changes = Number(result.meta?.changes ?? 0);
+  if (changes === 0) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Row not found' } }, 404);
+  }
+
+  await writeAuditLog(c.env.DB, {
+    org_id: orgId,
+    actor_id: c.get('userId') ?? null,
+    action: 'site_data.row_updated',
+    message: `Updated ${column} on a ${table} row`,
+    target_type: table,
+    target_id: rowId,
+    metadata_json: { site_id: siteId, table, column, value: validated.value },
+  });
+
+  return c.json({ data: { id: rowId, column, value: validated.value, updated: true } });
 });

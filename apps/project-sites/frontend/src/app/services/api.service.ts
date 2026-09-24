@@ -942,6 +942,30 @@ export class ApiService {
   }
 
   /**
+   * Update ONE editable column of the site's own row (server enforces the per-table,
+   * per-column allowlist + validates the value against the column's enum). The update
+   * is double-scoped by `id` AND `site_id`; a foreign/absent row is a 404. Reversible.
+   *
+   * @example
+   * ```ts
+   * this.api.updateOverviewRow(siteId, 'form_submissions', rowId, 'status', 'forwarded')
+   *   .subscribe(() => this.loadPage());
+   * ```
+   */
+  updateOverviewRow(
+    siteId: string,
+    table: string,
+    rowId: string,
+    column: string,
+    value: string,
+  ): Observable<{ data: { id: string; column: string; value: string; updated: boolean } }> {
+    return this.patch(
+      `/sites/${siteId}/data-overview/${encodeURIComponent(table)}/${encodeURIComponent(rowId)}`,
+      { column, value },
+    );
+  }
+
+  /**
    * D1 schema introspection for a site's database — tables/views with columns
    * (type/nullability/default/PK), indexes, foreign keys, and CREATE SQL. Superadmin
    * only (introspects the shared platform DB; 404/403 for others). Silent — the
@@ -1704,6 +1728,12 @@ export interface DataOverviewTable {
   browsable: boolean;
   /** Owner may permanently delete their own rows here (server re-checks the allowlist). */
   deletable: boolean;
+  /**
+   * Owner-editable columns for this table, keyed by column name (empty/absent = fully
+   * read-only). Each spec is a UI hint; the server re-validates the column + value on
+   * every PATCH. Currently only `form_submissions.status` (an enum).
+   */
+  editableColumns?: Record<string, { type: string; options: string[] }>;
 }
 
 /**

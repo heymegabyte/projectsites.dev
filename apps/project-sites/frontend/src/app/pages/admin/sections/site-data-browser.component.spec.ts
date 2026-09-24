@@ -23,7 +23,7 @@ const OVERVIEW = {
   data: {
     tables: [
       { key: 'visitor_events', label: 'Visitor Events', description: 'Analytics pageviews and events', columns: COLS, row_count: 3, browsable: true, deletable: false },
-      { key: 'form_submissions', label: 'Form Submissions', description: 'Contact and lead form entries', columns: ['form_name', 'status', 'email', 'created_at'], row_count: 2, browsable: true, deletable: true },
+      { key: 'form_submissions', label: 'Form Submissions', description: 'Contact and lead form entries', columns: ['form_name', 'status', 'email', 'created_at'], row_count: 2, browsable: true, deletable: true, editableColumns: { status: { type: 'enum', options: ['received', 'forwarded', 'partial', 'failed'] } } },
     ],
   },
 };
@@ -58,6 +58,7 @@ function setup(overrides?: {
   getDataOverview?: jasmine.Spy;
   browseDataTable?: jasmine.Spy;
   deleteOverviewRow?: jasmine.Spy;
+  updateOverviewRow?: jasmine.Spy;
   confirmResult?: boolean;
 }) {
   const getDataOverview = overrides?.getDataOverview ?? jasmine.createSpy('getDataOverview').and.returnValue(of(OVERVIEW));
@@ -65,7 +66,10 @@ function setup(overrides?: {
   const deleteOverviewRow =
     overrides?.deleteOverviewRow ??
     jasmine.createSpy('deleteOverviewRow').and.returnValue(of({ data: { id: 'r', deleted: true } }));
-  const api = { getDataOverview, browseDataTable, deleteOverviewRow };
+  const updateOverviewRow =
+    overrides?.updateOverviewRow ??
+    jasmine.createSpy('updateOverviewRow').and.returnValue(of({ data: { id: 'r', column: 'status', value: 'forwarded', updated: true } }));
+  const api = { getDataOverview, browseDataTable, deleteOverviewRow, updateOverviewRow };
   // Mock ConfirmService + ToastService so the real CDK-Dialog-backed ConfirmService
   // never constructs in the unit harness (and so delete specs can drive the outcome).
   const confirmSpy = jasmine.createSpy('confirm').and.resolveTo(overrides?.confirmResult ?? true);
@@ -81,7 +85,7 @@ function setup(overrides?: {
   });
   const fixture = TestBed.createComponent(SiteDataBrowserComponent);
   fixture.componentRef.setInput('siteId', 'site-1');
-  return { fixture, c: fixture.componentInstance, getDataOverview, browseDataTable, deleteOverviewRow, confirmSpy, toast };
+  return { fixture, c: fixture.componentInstance, getDataOverview, browseDataTable, deleteOverviewRow, updateOverviewRow, confirmSpy, toast };
 }
 
 describe('SiteDataBrowserComponent', () => {
@@ -659,5 +663,125 @@ describe('SiteDataBrowserComponent — row delete', () => {
     await c.deleteRow({ id: 'row-abc' });
     expect(toast.error).toHaveBeenCalled();
     expect(c.deletingId()).toBeNull();
+  });
+});
+
+/**
+ * Row edit — the owner may edit an allowlisted typed column of their OWN row
+ * (currently `form_submissions.status`, an enum). Read-only tables show no editor;
+ * Save is disabled until the value changes, confirms before writing, and the server
+ * re-checks the allowlist + validates the value + double-scopes by site.
+ */
+describe('SiteDataBrowserComponent — row edit', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const FS_COLS = ['form_name', 'status', 'email', 'created_at'];
+  const FS_ROWS = [
+    { id: 'row-abc', form_name: 'contact', status: 'received', email: 'a***@x.com', created_at: '2026-09-24T00:00:00Z' },
+  ];
+  function browseForm(): jasmine.Spy {
+    return jasmine
+      .createSpy('browseDataTable')
+      .and.callFake((_id: string, table: string, opts: { limit?: number; offset?: number } = {}) =>
+        of({ data: { table, columns: FS_COLS, rows: FS_ROWS }, total: FS_ROWS.length, limit: opts.limit ?? 25, offset: opts.offset ?? 0 }),
+      );
+  }
+  const formTable = (c: SiteDataBrowserComponent) => c.tables().find((t) => t.key === 'form_submissions')!;
+  const visitorTable = (c: SiteDataBrowserComponent) => c.tables().find((t) => t.key === 'visitor_events')!;
+
+  it('exposes the editable columns of the selected table ([] for a read-only table)', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    c.selectTable(formTable(c));
+    expect(c.editableColumnsList().map((e) => e.column)).toEqual(['status']);
+    expect(c.editableColumnsList()[0].options).toEqual(['received', 'forwarded', 'partial', 'failed']);
+    c.selectTable(visitorTable(c));
+    expect(c.editableColumnsList()).toEqual([]);
+  });
+
+  it('renders an enum <select> + Save in row detail ONLY for an editable table', () => {
+    const { fixture, c } = setup({ browseDataTable: browseForm() });
+    fixture.detectChanges();
+    c.selectTable(formTable(c));
+    fixture.detectChanges();
+    c.toggleRow(0);
+    fixture.detectChanges();
+    const sel = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="db-edit-status"]');
+    expect(sel).withContext('status select renders for form_submissions').toBeTruthy();
+    expect(sel!.querySelectorAll('option').length).toBe(4);
+  });
+
+  it('draftValue/isEdited: Save enables only once the value actually changes', () => {
+    const { fixture, c } = setup({ browseDataTable: browseForm() });
+    fixture.detectChanges();
+    c.selectTable(formTable(c));
+    const row = { id: 'row-abc', status: 'received' };
+    expect(c.draftValue(row, 'status')).toBe('received');
+    expect(c.isEdited(row, 'status')).toBe(false);
+    c.setDraft('status', 'received'); // same value → not edited
+    expect(c.isEdited(row, 'status')).toBe(false);
+    c.setDraft('status', 'forwarded'); // changed → edited
+    expect(c.draftValue(row, 'status')).toBe('forwarded');
+    expect(c.isEdited(row, 'status')).toBe(true);
+  });
+
+  it('saveEdit: confirms, PATCHes the scoped column, toasts, and refreshes', async () => {
+    const updateOverviewRow = jasmine
+      .createSpy('updateOverviewRow')
+      .and.returnValue(of({ data: { id: 'row-abc', column: 'status', value: 'forwarded', updated: true } }));
+    const { fixture, c, confirmSpy, toast, browseDataTable } = setup({
+      browseDataTable: browseForm(),
+      updateOverviewRow,
+      confirmResult: true,
+    });
+    fixture.detectChanges();
+    c.selectTable(formTable(c));
+    c.setDraft('status', 'forwarded');
+    browseDataTable.calls.reset();
+
+    await c.saveEdit({ id: 'row-abc', status: 'received' }, 'status');
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(updateOverviewRow).toHaveBeenCalledWith('site-1', 'form_submissions', 'row-abc', 'status', 'forwarded');
+    expect(toast.success).toHaveBeenCalled();
+    expect(browseDataTable).withContext('grid refetched').toHaveBeenCalled();
+    expect(c.savingEdit()).toBeFalse();
+    expect(c.editDraft()).toEqual({}); // draft cleared after save
+  });
+
+  it('saveEdit: cancelling the confirmation reverts the draft and calls nothing', async () => {
+    const updateOverviewRow = jasmine.createSpy('updateOverviewRow');
+    const { fixture, c } = setup({ browseDataTable: browseForm(), updateOverviewRow, confirmResult: false });
+    fixture.detectChanges();
+    c.selectTable(formTable(c));
+    c.setDraft('status', 'forwarded');
+    await c.saveEdit({ id: 'row-abc', status: 'received' }, 'status');
+    expect(updateOverviewRow).not.toHaveBeenCalled();
+    expect(c.isEdited({ id: 'row-abc', status: 'received' }, 'status')).toBe(false); // reverted
+  });
+
+  it('saveEdit: no-op when unchanged, on a read-only table, or a row without an id', async () => {
+    const updateOverviewRow = jasmine.createSpy('updateOverviewRow');
+    const { fixture, c, confirmSpy } = setup({ browseDataTable: browseForm(), updateOverviewRow });
+    fixture.detectChanges();
+    c.selectTable(formTable(c));
+    await c.saveEdit({ id: 'row-abc', status: 'received' }, 'status'); // no draft → unchanged
+    c.setDraft('status', 'forwarded');
+    await c.saveEdit({ status: 'received' }, 'status'); // deletable/editable but no id
+    c.selectTable(visitorTable(c));
+    await c.saveEdit({ id: 'x', status: 'received' }, 'status'); // read-only table
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(updateOverviewRow).not.toHaveBeenCalled();
+  });
+
+  it('saveEdit: surfaces an error toast (and clears the spinner) when the update fails', async () => {
+    const updateOverviewRow = jasmine.createSpy('updateOverviewRow').and.returnValue(throwError(() => ({ status: 500 })));
+    const { fixture, c, toast } = setup({ browseDataTable: browseForm(), updateOverviewRow, confirmResult: true });
+    fixture.detectChanges();
+    c.selectTable(formTable(c));
+    c.setDraft('status', 'forwarded');
+    await c.saveEdit({ id: 'row-abc', status: 'received' }, 'status');
+    expect(toast.error).toHaveBeenCalled();
+    expect(c.savingEdit()).toBeFalse();
   });
 });

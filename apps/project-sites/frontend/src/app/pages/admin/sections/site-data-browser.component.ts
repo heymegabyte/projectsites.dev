@@ -3,19 +3,21 @@
  *
  * An owner-facing browser for the site's REAL platform tables (visitor events,
  * form submissions, snapshots, MCP connections, content store). Browsing is
- * read-only; DELETABLE tables (currently Form Submissions) also let the owner
- * permanently delete their OWN rows. Every surface is backed by a live,
- * tenant-scoped endpoint — never mock data:
+ * read-only; DELETABLE / EDITABLE tables (currently Form Submissions) also let the
+ * owner delete their OWN rows and edit allowlisted typed columns (e.g. a lead's
+ * `status`). Every surface is backed by a live, tenant-scoped endpoint — never mock:
  *
  *  - `GET    /api/sites/:siteId/data-overview`               → table picker (row counts)
  *  - `GET    /api/sites/:siteId/data-overview/:table`        → one server-paginated page
  *  - `DELETE /api/sites/:siteId/data-overview/:table/:rowId` → delete one own row (allowlisted)
+ *  - `PATCH  /api/sites/:siteId/data-overview/:table/:rowId` → edit one allowlisted typed column
  *
  * All are org-scoped + IDOR-guarded server-side (404 on a foreign site), so this
  * is safe for a first-time site OWNER (unlike the super-admin SQL console next to
  * it). Pagination, sorting, and result size are all bounded server-side — the
- * browser never loads a whole table. Deletes require an explicit confirmation and
- * only fire against a stable-`id` row of an allowlisted table (irreversible).
+ * browser never loads a whole table. Delete + edit require an explicit confirmation
+ * and only fire against a stable-`id` row; the server re-checks the allowlist +
+ * validates the value (delete is irreversible; a status edit is reversible).
  *
  * Focused, single-responsibility, standalone component (Angular style guide):
  * signals + `input()` + native control flow, no lifecycle beyond a load on init.
@@ -312,6 +314,33 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                                     (click)="copyRow(row)" data-testid="db-copy-row"
                                     aria-label="Copy this row as JSON">Copy JSON</button>
                           </div>
+                          @if (editableColumnsList().length && isString(row['id'])) {
+                            <div class="db-edit" data-testid="db-edit">
+                              @for (ec of editableColumnsList(); track ec.column) {
+                                <div class="db-edit-field">
+                                  <label class="db-edit-label" [attr.for]="'db-edit-' + ec.column">{{ ec.column }}</label>
+                                  @if (ec.type === 'enum') {
+                                    <select class="db-edit-select"
+                                            [id]="'db-edit-' + ec.column"
+                                            [attr.data-testid]="'db-edit-' + ec.column"
+                                            [value]="draftValue(row, ec.column)"
+                                            (change)="setDraft(ec.column, $any($event.target).value)">
+                                      @for (opt of ec.options; track opt) {
+                                        <option [value]="opt" [selected]="draftValue(row, ec.column) === opt">{{ opt }}</option>
+                                      }
+                                    </select>
+                                  }
+                                  <button type="button" class="db-edit-save"
+                                          [disabled]="!isEdited(row, ec.column) || savingEdit()"
+                                          (click)="saveEdit(row, ec.column)"
+                                          [attr.data-testid]="'db-edit-save-' + ec.column"
+                                          [attr.aria-label]="'Save ' + ec.column">
+                                    {{ savingEdit() ? 'Saving…' : 'Save' }}
+                                  </button>
+                                </div>
+                              }
+                            </div>
+                          }
                           <pre class="db-json">{{ rowJson(row) }}</pre>
                         </td>
                       </tr>
@@ -424,6 +453,15 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
     .db-delete-row:hover:not(:disabled) { background: color-mix(in oklch, #ff6b6b 22%, transparent); color: #fff; }
     .db-delete-row:focus-visible { outline: 2px solid #ff6b6b; outline-offset: 2px; }
     .db-delete-row:disabled { opacity: 0.6; cursor: progress; }
+    .db-edit { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.5rem; }
+    .db-edit-field { display: inline-flex; align-items: center; gap: 0.4rem; }
+    .db-edit-label { font-size: 0.7rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); text-transform: capitalize; }
+    .db-edit-select { font: inherit; font-size: 0.74rem; padding: 0.2rem 0.4rem; border-radius: 6px; color: var(--ps-ink, #f4f4ff); background: rgba(0,0,0,0.35); border: 1px solid var(--ps-edge, rgba(255,255,255,0.14)); }
+    .db-edit-select:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
+    .db-edit-save { font: inherit; font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 6px; color: var(--ps-accent, #00e5ff); background: color-mix(in oklch, var(--ps-accent, #00e5ff) 12%, transparent); border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 30%, transparent); cursor: pointer; }
+    .db-edit-save:hover:not(:disabled) { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 22%, transparent); }
+    .db-edit-save:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
+    .db-edit-save:disabled { opacity: 0.45; cursor: default; }
     .db-export-note { margin: 0.4rem 0 0; font-size: 0.72rem; color: #ffc800; }
     .db-readonly-pill {
       margin-left: 0.5rem; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
@@ -518,6 +556,16 @@ export class SiteDataBrowserComponent implements OnInit {
   readonly expandedRow = signal<number | null>(null);
   /** `id` of the row currently being deleted (disables its button + shows "Deleting…"). */
   readonly deletingId = signal<string | null>(null);
+  /** Pending per-column edits for the expanded row (column → draft value); cleared on
+   *  row collapse/switch and on a successful save. */
+  readonly editDraft = signal<Record<string, string>>({});
+  /** True while a column edit is in flight (disables the Save button). */
+  readonly savingEdit = signal(false);
+  /** The selected table's owner-editable columns as a render-ready list ([] = read-only). */
+  readonly editableColumnsList = computed<{ column: string; type: string; options: string[] }[]>(() => {
+    const ec = this.selected()?.editableColumns ?? {};
+    return Object.entries(ec).map(([column, spec]) => ({ column, type: spec.type, options: spec.options }));
+  });
 
   /** "1–25 of 340" style range label; honest "0 of 0" on an empty table. */
   readonly rangeLabel = computed(() => {
@@ -583,6 +631,7 @@ export class SiteDataBrowserComponent implements OnInit {
     this.filterCol.set('');
     this.filterVal.set('');
     this.expandedRow.set(null);
+    this.editDraft.set({}); // a draft belongs to one table's expanded row — never carry it across
     this.rowsError.set(null);
     this.loadPage();
   }
@@ -863,6 +912,7 @@ export class SiteDataBrowserComponent implements OnInit {
 
   toggleRow(index: number): void {
     this.expandedRow.set(this.expandedRow() === index ? null : index);
+    this.editDraft.set({}); // a draft belongs to one expanded row — never bleed across rows
   }
 
   /**
@@ -961,6 +1011,72 @@ export class SiteDataBrowserComponent implements OnInit {
         this.expandedRow.set(null);
         this.loadPage(); // re-fetch the current window + total
         this.loadTables(id); // refresh the table row-counts (Overview strip)
+      });
+  }
+
+  /** The value to show for an editable column: the pending draft if edited, else the row's. */
+  draftValue(row: Record<string, unknown>, column: string): string {
+    const d = this.editDraft();
+    return column in d ? d[column] : String(row[column] ?? '');
+  }
+
+  /** Record a pending edit for a column (the Save button enables when it differs). */
+  setDraft(column: string, value: unknown): void {
+    this.editDraft.update((d) => ({ ...d, [column]: String(value ?? '') }));
+  }
+
+  /** True when the column's draft differs from the row's stored value (Save-enabled). */
+  isEdited(row: Record<string, unknown>, column: string): boolean {
+    const d = this.editDraft();
+    return column in d && d[column] !== String(row[column] ?? '');
+  }
+
+  /**
+   * Save one edited column of a row (editable tables only), with a confirmation showing
+   * the exact parameterized UPDATE. The server re-checks the allowlist + validates the
+   * value against the column's enum + double-scopes by site. Reverts the draft on cancel.
+   */
+  async saveEdit(row: Record<string, unknown>, column: string): Promise<void> {
+    const sel = this.selected();
+    const id = this.siteId();
+    const rowId = row['id'];
+    const editable = this.editableColumnsList().some((e) => e.column === column);
+    if (!sel || !id || !editable || !this.isString(rowId) || !this.isEdited(row, column)) return;
+    const newValue = this.editDraft()[column];
+
+    const ok = await this.confirm.confirm({
+      title: `Update ${column}?`,
+      message:
+        `Set “${column}” to “${newValue}” for this row.\n\n` +
+        `Runs: UPDATE ${sel.key} SET ${column} = ? WHERE id = ? AND site_id = ?  (1 row)`,
+      confirmLabel: 'Save change',
+    });
+    if (!ok) {
+      // Revert the draft so the select snaps back to the stored value.
+      this.editDraft.update((d) => {
+        const next = { ...d };
+        delete next[column];
+        return next;
+      });
+      return;
+    }
+
+    this.savingEdit.set(true);
+    this.api
+      .updateOverviewRow(id, sel.key, rowId, column, newValue)
+      .pipe(
+        catchError(() => of(null)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((res) => {
+        this.savingEdit.set(false);
+        if (!res) {
+          this.toast.error(`Could not save ${column} — please retry.`);
+          return;
+        }
+        this.toast.success(`Updated ${column}.`);
+        this.editDraft.set({});
+        this.loadPage(); // re-fetch so the grid + detail reflect the saved value
       });
   }
 

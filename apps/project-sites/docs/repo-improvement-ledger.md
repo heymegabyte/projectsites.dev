@@ -268,6 +268,21 @@
   deployed** (R2 `chunk-4SZTTIPL.js` + worker `b9f588b1`) · **prod-verified live NON-DESTRUCTIVELY** (nonexistent rowId): 401
   unauth · 400 read-only-table · 404 no-match · 404 tenant-isolation · `deletable` flag correct per table. Next: row EDIT/ADD
   (typed cells — NULL/number/bool/JSON editors on the now-in-place allowlist + stable-id plumbing).
+- **Cycle 27 — 2026-09-24 (Data: owner row EDIT for form_submissions.status — completes browse/delete/edit CRUD):** Added the
+  edit path on the Cycle-26 foundation. NEW `PATCH /api/sites/:siteId/data-overview/:table/:rowId` `{column,value}`: auth (401) →
+  `ownsSiteData` (404) → `editableTableName` (read-only table → 400) → `editableColumn` (`EDITABLE_OVERVIEW_COLUMNS` per-table
+  `{column→{type,options}}` allowlist; non-editable/hostile column → 400, never reaches SQL) → `validateEditableValue` (out-of-enum
+  → 400, never written) → parameterized double-scope `UPDATE … SET "col"=? WHERE id=? AND site_id=?` → `meta.changes===0` → 404 →
+  audit (`site_data.row_updated`). First editable column: **`form_submissions.status`** (enum mirroring the D1 CHECK — retriage a
+  lead). Only SAFE constraint-bounded columns are exposed (never PII/structural). UI: enum `<select>` + Save in the row-detail (only
+  for editable tables/columns), Save-enabled only when changed, `ConfirmService` shows the exact UPDATE, reverts draft on cancel;
+  `selectTable`/`toggleRow` clear the draft so it never bleeds across rows. Reversible (unlike delete). `editableColumns` added to the
+  data-overview response + `DataOverviewTable`; `updateOverviewRow` on `ApiService`. Docstring/matrix reconciled. TDD-first. Verified:
+  worker tsc 0 · fe tsc 0 · backtick 0 · **Jest 750 suites / 12294** (+14: 7 route + 7 helper; 1 pre-existing flaky timer-leak test,
+  passed on re-run) · **Karma 2021/2021** (+7) · eslint 0 err · frontend build 0 · **both deployed** (R2 `chunk-HSFZLQMS.js` + worker
+  `ae2047f3`) · **prod-verified live NON-DESTRUCTIVELY**: 401 · 400 read-only-table · 400 non-editable-column · 400 invalid-enum ·
+  404 no-match · 404 tenant · `editableColumns:['status']` for form_submissions only. Next: broaden typed editors (NULL/number/bool/
+  JSON) + INSERT (add-row) on the same allowlist.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
