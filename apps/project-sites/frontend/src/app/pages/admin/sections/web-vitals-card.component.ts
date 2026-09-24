@@ -70,6 +70,25 @@ interface MetricTile {
                 <span class="wv-dot" aria-hidden="true"></span>{{ ratingLabel(rating(m.key, s.p75)) }} · p75
               </div>
               <div class="wv-samples">{{ s.samples }} {{ s.samples === 1 ? 'sample' : 'samples' }}</div>
+              @if (s.dist; as d) {
+                <div
+                  class="wv-dist"
+                  [attr.data-testid]="'an-wv-' + m.key + '-dist'"
+                  role="img"
+                  [attr.aria-label]="distAria(d)"
+                >
+                  <div class="wv-dist-bar" aria-hidden="true">
+                    <span class="wv-seg wv-seg-good" [style.width.%]="pct(d.good, s.samples)"></span>
+                    <span class="wv-seg wv-seg-needs" [style.width.%]="pct(d.needs, s.samples)"></span>
+                    <span class="wv-seg wv-seg-poor" [style.width.%]="pct(d.poor, s.samples)"></span>
+                  </div>
+                  <div class="wv-dist-legend" aria-hidden="true">
+                    <span class="wv-dist-lg wv-dist-good">{{ pct(d.good, s.samples) }}%</span>
+                    <span class="wv-dist-lg wv-dist-needs">{{ pct(d.needs, s.samples) }}%</span>
+                    <span class="wv-dist-lg wv-dist-poor">{{ pct(d.poor, s.samples) }}%</span>
+                  </div>
+                </div>
+              }
             } @else {
               <div class="wv-value wv-empty">—</div>
               <div class="wv-measuring" [attr.data-testid]="'an-wv-' + m.key + '-empty'">
@@ -134,6 +153,16 @@ interface MetricTile {
     .wv-rating[data-rating='poor'] { color: #ff7e8a; }
     .wv-measuring { margin-top: 0.3rem; font-size: 0.68rem; font-style: italic; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); }
     .wv-samples { margin-top: 0.15rem; font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); font-variant-numeric: tabular-nums; }
+    .wv-dist { margin-top: 0.4rem; }
+    .wv-dist-bar { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent); }
+    .wv-seg { height: 100%; }
+    .wv-seg-good { background: #4dffb5; }
+    .wv-seg-needs { background: #ffd166; }
+    .wv-seg-poor { background: #ff7e8a; }
+    .wv-dist-legend { display: flex; justify-content: space-between; gap: 0.4rem; margin-top: 0.2rem; font-size: 0.58rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .wv-dist-good { color: #4dffb5; }
+    .wv-dist-needs { color: #ffd166; }
+    .wv-dist-poor { color: #ff7e8a; }
     .wv-note { margin: 0.75rem 0 0; font-size: 0.68rem; line-height: 1.45; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
     .wv-pages { margin-top: 0.9rem; }
     .wv-pages-h { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); margin-bottom: 0.35rem; }
@@ -192,6 +221,17 @@ export class WebVitalsCardComponent {
   /** Word label for a rating (WCAG — never rely on colour alone). */
   ratingLabel(r: Rating): string {
     return r === 'good' ? 'Good' : r === 'needs' ? 'Needs work' : 'Poor';
+  }
+
+  /** A count as a whole-percent of the total (0 when total is 0 — never divides by zero). */
+  pct(count: number, total: number): number {
+    return total > 0 ? Math.round((count / total) * 100) : 0;
+  }
+
+  /** Screen-reader sentence for the distribution bar — exact COUNTS (the visual legend
+   *  shows rounded percentages; percentages can sum to 99–101, counts never lie). */
+  distAria(d: { good: number; needs: number; poor: number }): string {
+    return `Distribution: ${d.good} good, ${d.needs} needs improvement, ${d.poor} poor`;
   }
 
   /** Plain-language definition per metric (tooltip + screen-reader title). */

@@ -283,6 +283,18 @@
   `ae2047f3`) · **prod-verified live NON-DESTRUCTIVELY**: 401 · 400 read-only-table · 400 non-editable-column · 400 invalid-enum ·
   404 no-match · 404 tenant · `editableColumns:['status']` for form_submissions only. Next: broaden typed editors (NULL/number/bool/
   JSON) + INSERT (add-row) on the same allowlist.
+- **Cycle 28 — 2026-09-24 (Analytics: CWV rating distribution — the good/needs/poor spread behind each p75):** The prompt
+  explicitly asks for CWV "distributions"; the card showed only the p75 point. `getWebVitalsSummary`'s `stat()` now classifies
+  every real sample against a new server-side `CWV_THRESHOLDS` (Google's official good/needs/poor, mirroring the card's `rating()`)
+  into `dist:{good,needs,poor}` on each `WebVitalStat` (`good+needs+poor===samples`). Zod `WebVitalStatSchema` gains an optional
+  `dist` (WebVitalDistSchema) — optional for back-compat, always populated live. `WebVitalsCardComponent` renders a 3-segment
+  distribution BAR per metric + a %-legend (visual) + an **exact-count aria label** (percentages round to 99–101; counts never lie),
+  only when `dist` + samples exist (no fabricated dist). Shows the spread the p75 hides (a "needs" p75 can be mostly-good). Both
+  summary paths covered (single `getWebVitalsSummary` change). TDD-first. Verified: worker tsc 0 · fe tsc 0 · backtick 0 · **Jest
+  750 suites / 12296** (+2 dist service specs; updated 1 exact-shape assertion to the new contract) · **Karma 2024/2024** (+3) ·
+  eslint 0 err · frontend build 0 · **both deployed** (R2 `chunk-ZRYDNZDJ.js` + worker `f55db969`) · **prod-verified live with REAL
+  data**: `lcp dist {good:6,needs:1,poor:0}` (=7 samples), `cls {good:4,needs:3,poor:0}`, `inp null` (no samples → no dist). Next:
+  conversions-by-kind Δ (needs a server `previous.byConversionKind` increment), then DST-precision, then CSV consolidation (cosmetic).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

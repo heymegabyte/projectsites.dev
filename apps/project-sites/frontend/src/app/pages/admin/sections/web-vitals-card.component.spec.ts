@@ -118,4 +118,34 @@ describe('WebVitalsCardComponent', () => {
       expect(c.rating('cls', 0.26)).toBe('poor');
     });
   });
+
+  describe('rating distribution (good/needs/poor spread)', () => {
+    it('renders the distribution bar + percentage legend when a metric carries dist', () => {
+      const fixture = render({
+        lcp: { p75: 3000, samples: 10, dist: { good: 7, needs: 2, poor: 1 } },
+        inp: null,
+        cls: null,
+      });
+      const dist = fixture.debugElement.query(By.css('[data-testid="an-wv-lcp-dist"]'));
+      expect(dist).withContext('dist bar renders when present').toBeTruthy();
+      const el = dist.nativeElement as HTMLElement;
+      expect(el.textContent).toContain('70%'); // good
+      expect(el.textContent).toContain('20%'); // needs
+      expect(el.textContent).toContain('10%'); // poor
+      // Exact counts in the accessible label (percentages can round; counts never lie).
+      expect(el.getAttribute('aria-label')).toBe('Distribution: 7 good, 2 needs improvement, 1 poor');
+    });
+
+    it('does NOT render a distribution bar when the stat omits dist (older payload)', () => {
+      const fixture = render({ lcp: { p75: 3000, samples: 10 }, inp: null, cls: null });
+      expect(fixture.debugElement.query(By.css('[data-testid="an-wv-lcp-dist"]'))).toBeNull();
+    });
+
+    it('pct rounds to a whole percent and never divides by zero', () => {
+      const c = render(null).componentInstance;
+      expect(c.pct(7, 10)).toBe(70);
+      expect(c.pct(1, 3)).toBe(33);
+      expect(c.pct(5, 0)).toBe(0); // no samples → 0, never NaN
+    });
+  });
 });

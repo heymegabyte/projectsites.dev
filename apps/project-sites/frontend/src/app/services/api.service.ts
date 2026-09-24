@@ -1700,6 +1700,12 @@ export interface SiteTrafficSummary {
 export interface WebVitalStat {
   p75: number;
   samples: number;
+  /**
+   * The good / needs-improvement / poor sample split (Google thresholds) behind the
+   * p75. `good + needs + poor === samples`. Optional (older payloads omit it); the
+   * card shows the distribution bar only when present with samples.
+   */
+  dist?: { good: number; needs: number; poor: number };
 }
 
 /**

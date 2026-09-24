@@ -122,6 +122,67 @@ describe('getWebVitalsSummary / getConversionKinds — absolute window', () => {
   });
 });
 
+/**
+ * The good/needs/poor distribution behind each CWV p75 — classified from the REAL
+ * samples against Google's thresholds. Shows the spread the p75 point can't (a good
+ * p75 can still hide a poor tail); never a fabricated distribution.
+ */
+describe('getWebVitalsSummary — rating distribution (dist)', () => {
+  /** D1 stub that returns the given rows for the web_vital read (else empty). */
+  function webVitalEnv(rows: Array<{ metric: string; value: number; path?: string }>): Env {
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(..._params: unknown[]) {
+            return {
+              all: async () => ({ results: sql.includes("event_type = 'web_vital'") ? rows : [] }),
+              first: async () => null,
+              run: async () => ({ success: true, meta: { changes: 0 } }),
+            };
+          },
+        };
+      },
+    };
+    return { DB: db } as unknown as Env;
+  }
+
+  it('classifies each sample into good/needs/poor and the counts sum to samples', async () => {
+    const wv = await getWebVitalsSummary(
+      webVitalEnv([
+        { metric: 'LCP', value: 2000 }, // good (≤2500)
+        { metric: 'LCP', value: 2000 }, // good
+        { metric: 'LCP', value: 3000 }, // needs (≤4000)
+        { metric: 'LCP', value: 5000 }, // poor (>4000)
+        { metric: 'CLS', value: 0.05 }, // good (≤0.1)
+        { metric: 'CLS', value: 0.2 }, // needs (≤0.25)
+        { metric: 'CLS', value: 0.3 }, // poor
+      ]),
+      'site_1',
+      30,
+    );
+    expect(wv.lcp?.dist).toEqual({ good: 2, needs: 1, poor: 1 });
+    expect(wv.lcp?.samples).toBe(4);
+    expect(wv.cls?.dist).toEqual({ good: 1, needs: 1, poor: 1 });
+    const d = wv.lcp!.dist!;
+    expect(d.good + d.needs + d.poor).toBe(wv.lcp!.samples);
+    // A metric with no field samples stays null — no fabricated dist.
+    expect(wv.inp).toBeNull();
+  });
+
+  it('threshold boundaries: ≤good is good, ≤needs is needs, else poor (INP 200/500)', async () => {
+    const wv = await getWebVitalsSummary(
+      webVitalEnv([
+        { metric: 'INP', value: 200 }, // good (≤200)
+        { metric: 'INP', value: 500 }, // needs (≤500)
+        { metric: 'INP', value: 501 }, // poor (>500)
+      ]),
+      'site_1',
+      30,
+    );
+    expect(wv.inp?.dist).toEqual({ good: 1, needs: 1, poor: 1 });
+  });
+});
+
 describe('shiftWindowToTz — interpret absolute window bounds in the owner tz', () => {
   it('shifts PST (-480) local midnights to their UTC datetime equivalents', () => {
     // 2026-08-01 00:00 PST = 2026-08-01 08:00 UTC; 2026-08-16 00:00 PST = 2026-08-16 08:00 UTC.

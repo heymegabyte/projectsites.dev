@@ -179,6 +179,17 @@ export function percentile(values: readonly number[], p: number): number {
 /** The 3 CWV metrics we field-measure, and how each p75 is rounded for display. */
 const CWV_METRICS = ['LCP', 'INP', 'CLS'] as const;
 
+/**
+ * Google's official CWV rating thresholds `[good-max, needs-improvement-max]` — a value
+ * `≤ good` is "good", `≤ needs` is "needs improvement", else "poor". MUST stay in sync
+ * with the frontend `WebVitalsCardComponent.rating()`.
+ */
+const CWV_THRESHOLDS: Record<(typeof CWV_METRICS)[number], readonly [number, number]> = {
+  LCP: [2500, 4000],
+  INP: [200, 500],
+  CLS: [0.1, 0.25],
+};
+
 /** Min LCP samples a page needs before it's ranked in "slowest pages" (p75 reliability). */
 const MIN_PATH_SAMPLES = 5;
 
@@ -341,7 +352,16 @@ export async function getWebVitalsSummary(
     if (vals.length === 0) return null;
     const raw = percentile(vals, 75);
     const p75 = metric === 'CLS' ? Math.round(raw * 1000) / 1000 : Math.round(raw);
-    return { p75, samples: vals.length };
+    // Distribution behind the p75 — classify each real sample against Google's
+    // thresholds so the card shows the SPREAD (a good p75 can still hide a poor tail).
+    const [good, needs] = CWV_THRESHOLDS[metric];
+    const dist = { good: 0, needs: 0, poor: 0 };
+    for (const v of vals) {
+      if (v <= good) dist.good++;
+      else if (v <= needs) dist.needs++;
+      else dist.poor++;
+    }
+    return { p75, samples: vals.length, dist };
   };
   // Slowest pages by LCP p75 — only pages past the sample floor (reliable p75),
   // worst first, capped so the drilldown stays focused + bounded.

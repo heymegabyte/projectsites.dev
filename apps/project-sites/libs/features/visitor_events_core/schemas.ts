@@ -64,8 +64,30 @@ export type LabelCount = z.infer<typeof LabelCountSchema>;
  * never `{p75: 0}` (a fabricated perfect score). p75 units: ms for LCP/INP,
  * unitless for CLS (as the beacon stores them).
  */
+/**
+ * The good / needs-improvement / poor sample split for ONE metric, classified against
+ * Google's official CWV thresholds. `good + needs + poor === samples` by construction —
+ * it shows the SPREAD behind the p75 (a "good" p75 can still hide a poor tail), never a
+ * fabricated distribution.
+ */
+export const WebVitalDistSchema = z
+  .object({
+    good: z.number().int().min(0),
+    needs: z.number().int().min(0),
+    poor: z.number().int().min(0),
+  })
+  .strict();
+export type WebVitalDist = z.infer<typeof WebVitalDistSchema>;
+
 export const WebVitalStatSchema = z
-  .object({ p75: z.number(), samples: z.number().int().min(1) })
+  .object({
+    p75: z.number(),
+    samples: z.number().int().min(1),
+    // AN-CWV-DIST — the good/needs/poor sample split (Google thresholds) so the UI can
+    // show the distribution, not just the p75 point. Optional for back-compat with
+    // pre-dist fixtures; the live aggregation always populates it.
+    dist: WebVitalDistSchema.optional(),
+  })
   .strict();
 export type WebVitalStat = z.infer<typeof WebVitalStatSchema>;
 

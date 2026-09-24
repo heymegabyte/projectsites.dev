@@ -44,7 +44,7 @@
 | Forms / completions | D1 form_submissions | none | site_id | D1 | none | ✅ live | forms tab |
 | Period-over-period deltas | D1 visitor_events | none | site_id | D1 | none | ✅ live | comparison |
 | **Delivery & performance (status codes / cache hit-miss / bandwidth)** | CF GraphQL `httpRequestsAdaptiveGroups` (`edgeResponseStatus` + `cacheStatus` + `sum{edgeResponseBytes}`) | resolved via the shared zone for subdomains; API lookup for custom domains | per `clientRequestHTTPHost` | ~30 days | adaptive sampled | ✅ **LIVE for ALL sites (decoupled this fire)** — a SEPARATE `loadHostDelivery`/`resolveDeliveryZone` path resolves the shared projectsites.dev zone for `*.projectsites.dev` subdomains, so edge delivery works for the subdomain MAJORITY — **without flipping the audience numbers to CF** (audience stays first-party D1; `resolveDeliveryZone` is independent of the audience `resolveZoneForHostname`, which still returns null for subdomains → `resolved_zone:false` → "ProjectSites analytics" labeling preserved). `envelope.delivery` → `DeliveryCardComponent` (status classes + WORD, cache hit-ratio, bandwidth, top error codes, ≥5% 4xx/5xx warning). **Prod-verified live** on harborline: 30d = 31,610 req · 2xx 27588 / 5xx 3145 / 3xx 828 / 4xx 49 · cache 32% · 1.16 GB, while audience `resolved_zone:[false]` + pageviews first-party. | `/admin/analytics` "Delivery & performance" card |
-| **Core Web Vitals (LCP/INP/CLS + per-page)** | first-party RUM → `web_vital` events in D1 | none (no CF plan) | per site_id (+ per `path`) | D1 | none (all sessions) | ✅ **COMPLETE + per-path** — site p75 card PLUS a **"Slowest pages · LCP p75"** drilldown (`getWebVitalsSummary` buckets LCP by `path`, ranks worst-first, top 5, past a **5-sample floor**); honest ("measuring"/null never a fake 0; a page needs ≥5 samples to be ranked) | `/admin/analytics` "Core Web Vitals" card + slowest-pages table |
+| **Core Web Vitals (LCP/INP/CLS + per-page + distribution)** | first-party RUM → `web_vital` events in D1 | none (no CF plan) | per site_id (+ per `path`) | D1 | none (all sessions) | ✅ **COMPLETE + per-path + distribution** — site p75 card, a **"Slowest pages · LCP p75"** drilldown (buckets LCP by `path`, worst-first top 5, past a **5-sample floor**), AND **(this fire) a good/needs/poor DISTRIBUTION bar per metric** (`getWebVitalsSummary` classifies every real sample against Google's thresholds → `dist:{good,needs,poor}` where `good+needs+poor===samples`; the card shows a 3-segment bar + %-legend + exact-count aria). Shows the SPREAD the p75 point hides (a "needs" p75 can still be mostly-good). Honest ("measuring"/null never a fake 0; no dist without samples) | `/admin/analytics` "Core Web Vitals" card + slowest-pages table + per-metric distribution bar |
 | **Security (WAF/bot/challenges)** | CF GraphQL `firewallEventsAdaptiveGroups` | **plan lacks access** | per hostname | plan-dependent | — | ❌ **BLOCKED — verified 2026-09-24** by an introspection probe against our zone: returns authz *"zone does not have access to the path"*. Our plan has no firewall-analytics entitlement, so this is NOT buildable without a plan upgrade — a security card would be a permanent placeholder (which the doctrine forbids). | — (honestly absent) |
 | **CSV export (dashboard)** | (UI) client-side over fetched data | none | — | — | — | ✅ **COMPLETE** — `buildAnalyticsCsv` exports summary + top-pages/countries/referrers + the D1 device/channel/conversions/CWV breakdowns + **now the CF edge DELIVERY breakdown** (status classes, cache hit/miss/ratio, edge bandwidth — emitted ONLY when `has_data`, never fabricated zeros), with the ACCURATE source label; formula-injection-safe via the shared `csvEscape`. Matches the dashboard cards. | `/admin/analytics` Export CSV |
 | Source + freshness labels in UI | (UI) | none | — | — | — | ✅ **honest per-provenance** — the "Source:" badge routes through the authoritative `trafficSource` signal: first-party → **"ProjectSites analytics"**, genuine CF-zone custom domain → **"Cloudflare Edge"**. Freshness "as of" + "dates in UTC" present. | analytics header badge + chart caption + footer |
@@ -92,6 +92,14 @@ inp=null → honesty contract visibly correct).
 returns `webVitals.slowestPages` (top-5 worst-first, past a **5-sample floor** so a p75 isn't ranked off 1–2 hits);
 the card renders a "Slowest pages · LCP p75" table (path + p75 + rating word + samples) when any page qualifies, hidden
 otherwise. So the **CWV area is fully built out** (site + per-page). Covered by a per-path service spec + 2 card specs.
+**CWV rating distribution is DONE** (2026-09-24): `getWebVitalsSummary`'s `stat()` now classifies every real sample
+against `CWV_THRESHOLDS` (Google's official good/needs/poor, mirroring the card's `rating()`) into `dist:{good,needs,poor}`
+on each `WebVitalStat` (`good+needs+poor===samples`; optional in the Zod schema for back-compat, always populated live).
+The card renders a 3-segment distribution BAR per metric + a %-legend (visual) + an **exact-count aria label** (percentages
+can round to 99–101; the counts never lie). Shows the SPREAD the p75 point hides — e.g. a CLS p75 of 0.157 ("needs") whose
+dist is 4 good / 3 needs. Prompt-requested ("distributions, percentiles"). Verified live: `lcp dist {good:6,needs:1,poor:0}`
+(=7 samples), `cls {good:4,needs:3,poor:0}`, `inp null` (no samples → no fabricated dist). +2 service specs (classification
++ boundaries) + 3 card specs (bar renders / omitted without dist / pct math).
 **Conversions-by-kind is DONE** (2026-09-24): `getConversionKinds` (`visitor_events_core/service.ts`, both summary
 paths) groups `conversion` events by `json_extract(metadata,'$.kind')` → `traffic.byConversionKind`; a focused
 `ConversionsCardComponent` renders humanized labels (Phone calls / Directions / Form submissions / …) + a bar
@@ -232,10 +240,11 @@ helper. Specs updated (forms `\n`+trailing-newline; audit unit tests re-pointed 
 improvement) → 1999 Karma green. Deployed R2 + chunk-hash prod-verified (forms `PQRGT2D7`, audit `LN7JEF2J`).
 
 NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions/shareable-range +
-**arbitrary-window + tz-aware bucketing/bounds + comparison-period Δ (KPI tiles AND conversions card) + client-CSV consolidation**
-all complete): (1) **Remaining CSV consolidation** — `analytics-dashboard` + the audit **full-trail** download the SERVER-built CSV
-via a hand-rolled Blob/`<a>` (no client escaping needed since server-built) — migrate just their download mechanism to `downloadText`
-for one code path (consistency only, no security delta). (2) **DST-precision** — the fixed browser offset is approximate for a range
-spanning a DST change; a true IANA-zone shift would need a tz library or per-day offset (documented caveat in the UI today, honest
-but not exact). (3) **Conversions-by-kind Δ** — the card total now shows a period-over-period badge; a natural follow-on is a small
-per-kind delta (calls up, form-submits down) — needs `previous.byConversionKind` (NOT currently served, so a server increment first).
+**arbitrary-window + tz-aware bucketing/bounds + comparison-period Δ (KPI tiles AND conversions card) + client-CSV consolidation +
+CWV rating distribution** all complete): (1) **Conversions-by-kind Δ** — the card total now shows a period-over-period badge; a
+natural follow-on is a small per-kind delta (calls up, form-submits down) — needs `previous.byConversionKind` (NOT currently served,
+so a server increment first). (2) **DST-precision** — the fixed browser offset is approximate for a range spanning a DST change; a
+true IANA-zone shift would need a tz library or per-day offset (documented caveat in the UI today, honest but not exact).
+(3) **Remaining CSV consolidation** — `analytics-dashboard` + the audit **full-trail** download the SERVER-built CSV via a
+hand-rolled Blob/`<a>` — migrate just their download mechanism to `downloadText` for one code path (consistency only, no security
+delta). (Lowest value — cosmetic.)
