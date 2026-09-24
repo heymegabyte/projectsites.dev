@@ -1001,6 +1001,11 @@ export class ApiService {
     return this.get(`/sites/${siteId}/sql/schema`, undefined, { silent: true });
   }
 
+  /** Applied-migration ledger (`d1_migrations`) for the platform D1 — super-admin. */
+  getSiteMigrations(siteId: string): Observable<{ data: SiteMigrations }> {
+    return this.get(`/sites/${siteId}/sql/migrations`, undefined, { silent: true });
+  }
+
   /** List the URLs (primary + alternates) bound to a site. */
   listSiteUrls(siteId: string): Observable<{ data: SiteUrlRow[] }> {
     // Silent: a failed URL list is explained inline by the analytics empty/cred
@@ -1786,6 +1791,13 @@ export interface SchemaForeignKey {
 }
 
 /** A table/view from D1 schema introspection (`GET /api/sites/:siteId/sql/schema`). */
+/** The applied-migration ledger (`d1_migrations`). `available:false` when the DB was
+ *  never migrated via wrangler (honest — not a fabricated empty ledger). */
+export interface SiteMigrations {
+  available: boolean;
+  count: number;
+  migrations: { name: string; applied_at: string }[];
+}
 export interface SchemaTable {
   name: string;
   /** 'table' | 'view' | 'trigger'. */

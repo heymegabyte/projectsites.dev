@@ -473,6 +473,65 @@ tabs.get('/api/sites/:siteId/sql/schema', async (c) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /api/sites/:siteId/sql/migrations
+// The applied-migration ledger for the platform D1 — the wrangler-managed
+// `d1_migrations` table (one row per applied migration file: name + applied_at).
+// Super-admin ONLY (reads the shared multi-tenant DB — AL-792). Read-only, bounded.
+// Honest: `d1_migrations` is ABSENT on a DB that never ran `wrangler d1 migrations
+// apply` → returns `available:false` (never a fabricated "0 migrations"). We do NOT
+// offer applied-vs-pending "drift": the migration FILES aren't present in the running
+// Worker, so we can't compute pending without lying — the UI states this.
+// ─────────────────────────────────────────────────────────────────────────────
+tabs.get('/api/sites/:siteId/sql/migrations', async (c) => {
+  const siteId = c.req.param('siteId');
+  const orgId = c.get('orgId');
+  const userId = c.get('userId');
+  if (!orgId || !userId) {
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Sign in required' } }, 401);
+  }
+  if (!(await isSuperAdmin(c.env, userId))) {
+    return c.json(
+      {
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Migration status is restricted to platform administrators.',
+        },
+      },
+      403,
+    );
+  }
+  // Org-scope check (defense-in-depth; a super-admin passes regardless).
+  const site = await dbQueryOne<{ id: string }>(
+    c.env.DB,
+    `SELECT id FROM sites WHERE id = ?1 AND org_id = ?2 AND deleted_at IS NULL`,
+    [siteId, orgId],
+  );
+  if (!site) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+  }
+  try {
+    const result = await c.env.DB.prepare(
+      `SELECT name, applied_at FROM d1_migrations ORDER BY id DESC LIMIT 500`,
+    ).all();
+    const migrations = (result.results ?? []) as Array<{ name: string; applied_at: string }>;
+    await writeAuditLog(c.env.DB, {
+      org_id: orgId,
+      actor_id: userId,
+      action: 'site.sql.migrations',
+      target_type: 'site',
+      target_id: siteId,
+      message: 'Viewed applied migrations',
+      metadata_json: { count: migrations.length },
+    });
+    return c.json({ data: { available: true, count: migrations.length, migrations } });
+  } catch {
+    // No `d1_migrations` table (this DB never migrated via wrangler) — honest
+    // "unavailable", NOT an error and NOT a fabricated empty ledger.
+    return c.json({ data: { available: false, count: 0, migrations: [] } });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/sites/:siteId/sql/exec-write
 // The WRITE half of the D1 manager — the standard SQLite-editor operations
 // (CREATE / DROP / ALTER TABLE, INSERT / UPDATE / DELETE / REPLACE). Super-admin

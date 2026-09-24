@@ -54,11 +54,18 @@ const SCHEMA = {
   },
 };
 
-function setup(getSiteSchema?: jasmine.Spy) {
+function setup(getSiteSchema?: jasmine.Spy, getSiteMigrations?: jasmine.Spy) {
   const spy = getSiteSchema ?? jasmine.createSpy('getSiteSchema').and.returnValue(of(SCHEMA));
+  const migSpy =
+    getSiteMigrations ??
+    jasmine
+      .createSpy('getSiteMigrations')
+      .and.returnValue(of({ data: { available: true, count: 0, migrations: [] } }));
   TestBed.configureTestingModule({
     imports: [SiteSchemaBrowserComponent],
-    providers: [{ provide: ApiService, useValue: { getSiteSchema: spy } }],
+    providers: [
+      { provide: ApiService, useValue: { getSiteSchema: spy, getSiteMigrations: migSpy } },
+    ],
   });
   const fixture = TestBed.createComponent(SiteSchemaBrowserComponent);
   fixture.componentRef.setInput('siteId', 'site-1');
@@ -73,6 +80,48 @@ describe('SiteSchemaBrowserComponent', () => {
     fixture.detectChanges();
     expect(c.tables().length).toBe(4); // 3 tables + 1 trigger
     expect(c.selectedName()).toBe('sites');
+  });
+
+  it('renders the applied-migration ledger (newest first) from getSiteMigrations', () => {
+    const mig = jasmine.createSpy('getSiteMigrations').and.returnValue(
+      of({
+        data: {
+          available: true,
+          count: 2,
+          migrations: [
+            { name: '0170_x.sql', applied_at: '2026-09-24 00:00:00' },
+            { name: '0001_initial_schema.sql', applied_at: '2026-05-18 00:00:00' },
+          ],
+        },
+      }),
+    );
+    const { fixture, c } = setup(undefined, mig);
+    fixture.detectChanges();
+    expect(c.migrationsAvailable()).toBeTrue();
+    expect(c.migrations().length).toBe(2);
+    const items = fixture.debugElement.queryAll(By.css('[data-testid="sb-mig-item"]'));
+    expect(items.length).toBe(2);
+    expect(items[0].nativeElement.textContent).toContain('0170_x.sql'); // newest first
+  });
+
+  it('shows an honest "ledger not available" state (never a fake empty) when d1_migrations is absent', () => {
+    const mig = jasmine
+      .createSpy('getSiteMigrations')
+      .and.returnValue(of({ data: { available: false, count: 0, migrations: [] } }));
+    const { fixture, c } = setup(undefined, mig);
+    fixture.detectChanges();
+    expect(c.migrationsAvailable()).toBeFalse();
+    expect(fixture.debugElement.query(By.css('[data-testid="sb-mig-unavailable"]'))).toBeTruthy();
+  });
+
+  it('treats a migrations fetch failure (e.g. a 403) as unavailable, not an error', () => {
+    const mig = jasmine
+      .createSpy('getSiteMigrations')
+      .and.returnValue(throwError(() => ({ status: 403 })));
+    const { fixture, c } = setup(undefined, mig);
+    fixture.detectChanges();
+    expect(c.migrationsLoaded()).toBeTrue();
+    expect(c.migrationsAvailable()).toBeFalse();
   });
 
   it('renders a button per table and the selected table columns with a PK badge', () => {

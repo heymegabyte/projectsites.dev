@@ -700,6 +700,28 @@
   the dashboard, the top remaining genuine feature, medium-large: server filter param threaded tenant-safely + all
   breakdown queries + frontend chips + tests + worker deploy). **Next:** drilldown/filter (biggest remaining value), or
   DST-precision (low ROI, needs a tz lib / per-timestamp Intl).
+- **Cycle 53 — 2026-09-24 (Data: surface the applied-migration ledger — the epic's "Show migration status"):** Inspected
+  the Data section: the SQL result grid already honestly caps ("showing first 200 — Copy/Download exports all"), but the
+  epic's "Integrate the migration system · Show migration status" was UNMET — `d1_migrations` was only in the write-console
+  denylist, never surfaced. Shipped it end to end. **Worker:** `GET /api/sites/:id/sql/migrations` (super-admin, mirrors
+  the schema endpoint) → `SELECT name, applied_at FROM d1_migrations ORDER BY id DESC LIMIT 500`; full auth chain (401 →
+  **403 non-super-admin, ledger never read** → 404 site-not-in-org via `dbQueryOne` → read → audit `site.sql.migrations`);
+  **honest** — an absent `d1_migrations` (DB never wrangler-migrated) returns `available:false`, never a fake empty. **Do
+  NOT offer drift/pending** — the migration FILES aren't in the running Worker, so applied-vs-pending can't be computed
+  without lying; the UI says so. **Frontend:** an "Applied migrations" `<details>` panel in the Schema tab
+  (`SiteSchemaBrowserComponent`) — newest-first list (name + applied_at), a count, the honest "ledger not available"
+  state, and a 403/network fail-soft to "unavailable" (never an error card). Verified: worker tsc 0 · **worker Jest
+  12336/12336** (+5 route: 401/403-no-read/404/list+audit/absent→available:false) · fe tsc (app+spec) 0 · **Karma
+  2097/2097** (+3: newest-first / honest-unavailable / 403→unavailable; updated the schema-browser mock to add
+  `getSiteMigrations` so ngOnInit's new fetch doesn't break the existing tests) · worker lint 0 errors · build 0 + 0
+  NG8113. Deployed BOTH: worker (script uploaded + version live @ health 200; container step errored on the CF `standard-1`
+  migration again — routes verified by shape: `/sql/migrations` returns **403** to the E2E non-super-admin, **401** unauth,
+  NOT 404 → route live + gated), frontend `main-356GVX7G.js` hash-matched + schema chunk `chunk-ET67LVTG.js` 200 with the
+  "Applied migrations" marker. Super-admin surface → the 200-path is locked by Jest (E2E key 403s it). **CF/credential
+  blockers (unchanged):** DB size/usage + Time-Travel need D1 REST creds; guided DDL (create/alter table) + full-DB SQL
+  export are the remaining big D1 items; KV/R2/DO/Vectorize adapters + syntax-highlight/completion/multi-tab (CodeMirror)
+  are credential-/dependency-blocked. **Next:** guided schema DDL (super-admin, CREATE INDEX/VIEW with preview+confirm) is
+  the top remaining no-credential D1 item, or the CodeMirror console-UX dependency decision.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

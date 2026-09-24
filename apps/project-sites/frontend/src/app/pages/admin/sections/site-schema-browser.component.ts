@@ -26,7 +26,7 @@ import { catchError, of } from 'rxjs';
 
 import { MiniEmptyComponent } from '../../../components/mini-empty/mini-empty.component';
 import { ErrorCardComponent } from '../../../components/states';
-import { ApiService, type SchemaTable } from '../../../services/api.service';
+import { ApiService, type SchemaTable, type SiteMigrations } from '../../../services/api.service';
 
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -229,6 +229,44 @@ import { ApiService, type SchemaTable } from '../../../services/api.service';
           }
         </div>
       }
+
+      <!-- Applied-migration ledger (d1_migrations) — the wrangler-managed applied list.
+           Honest: "not available" when the DB never migrated; pending/drift NOT shown
+           (the migration files aren't in the running Worker). -->
+      <details class="sb-migrations" data-testid="sb-migrations">
+        <summary class="sb-mig-summary">
+          Applied migrations
+          @if (migrationsLoaded()) {
+            @if (migrationsAvailable()) {
+              <span class="sb-dim">· {{ migrations().length }} applied</span>
+            } @else {
+              <span class="sb-dim">· ledger not available</span>
+            }
+          }
+        </summary>
+        @if (!migrationsLoaded()) {
+          <p class="sb-dim sb-mig-note">Loading…</p>
+        } @else if (!migrationsAvailable()) {
+          <p class="sb-dim sb-mig-note" data-testid="sb-mig-unavailable">
+            No <code>d1_migrations</code> ledger on this database (it was never migrated via wrangler).
+          </p>
+        } @else if (migrations().length === 0) {
+          <p class="sb-dim sb-mig-note">The migration ledger is empty.</p>
+        } @else {
+          <ul class="sb-mig-list">
+            @for (m of migrations(); track m.name) {
+              <li data-testid="sb-mig-item">
+                <span class="sb-mono">{{ m.name }}</span>
+                <span class="sb-dim">{{ m.applied_at }}</span>
+              </li>
+            }
+          </ul>
+          <p class="sb-dim sb-mig-note">
+            Newest first — the <strong>applied</strong> ledger. Pending / drift isn't shown here
+            (the migration files aren't present in the running Worker).
+          </p>
+        }
+      </details>
     </div>
   `,
 })
@@ -245,6 +283,11 @@ export class SiteSchemaBrowserComponent implements OnInit {
   readonly selectedName = signal<string | null>(null);
   readonly search = signal('');
   readonly copied = signal(false);
+
+  // Applied-migration ledger (d1_migrations) — loads alongside the schema (super-admin).
+  readonly migrations = signal<SiteMigrations['migrations']>([]);
+  readonly migrationsAvailable = signal(true);
+  readonly migrationsLoaded = signal(false);
 
   /** Tables filtered by the (case-insensitive) search box. */
   readonly filteredTables = computed(() => {
@@ -284,6 +327,31 @@ export class SiteSchemaBrowserComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    this.loadMigrations();
+  }
+
+  /** Fetch the applied-migration ledger (super-admin only). Fails soft to "unavailable"
+   *  so a 403 / absent table / network error never shows an error card. */
+  private loadMigrations(): void {
+    const id = this.siteId();
+    if (!id) return;
+    this.api
+      .getSiteMigrations(id)
+      .pipe(
+        catchError(() => of(null)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((res) => {
+        this.migrationsLoaded.set(true);
+        const d = res?.data;
+        if (!d) {
+          this.migrationsAvailable.set(false);
+          this.migrations.set([]);
+          return;
+        }
+        this.migrationsAvailable.set(d.available);
+        this.migrations.set(d.migrations ?? []);
+      });
   }
 
   /** Fetch (or refresh) the schema. Public so the error card + Refresh can re-fire. */

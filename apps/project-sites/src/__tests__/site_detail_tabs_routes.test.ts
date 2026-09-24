@@ -589,6 +589,65 @@ describe('POST /api/sites/:siteId/sql/exec-write (D1 manager writes — AL-872)'
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+describe('GET /api/sites/:siteId/sql/migrations', () => {
+  const PATH = `/api/sites/${SITE}/sql/migrations`;
+  const get = (app: Hono<{ Bindings: Env; Variables: Variables }>, env: Env) =>
+    req(app, PATH, { method: 'GET' }, env);
+
+  it('returns 401 when unauthenticated', async () => {
+    const res = await get(makeApp(), makeEnv(makeDb()));
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 for an authed non-super-admin — the ledger is never read (AL-792)', async () => {
+    mockIsSuperAdmin.mockResolvedValue(false);
+    const db = makeDb();
+    const res = await get(makeApp(AUTH), makeEnv(db));
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error?: { code?: string } }).error?.code).toBe('FORBIDDEN');
+    // Gated before any DB touch — no ownership lookup, no d1_migrations read.
+    expect(mockDbQueryOne).not.toHaveBeenCalled();
+    expect((db as unknown as { prepare: jest.Mock }).prepare).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 (non-leak) when the site is not in the caller org', async () => {
+    mockDbQueryOne.mockResolvedValueOnce(null);
+    const res = await get(makeApp(AUTH), makeEnv(makeDb()));
+    expect(res.status).toBe(404);
+    expect(mockWriteAuditLog).not.toHaveBeenCalled();
+  });
+
+  it('returns the applied migrations (newest first) + audits the view', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
+    const db = makeDb([
+      { name: '0170_x.sql', applied_at: '2026-09-24 00:00:00' },
+      { name: '0001_initial_schema.sql', applied_at: '2026-05-18 00:00:00' },
+    ]);
+    const res = await get(makeApp(AUTH), makeEnv(db));
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      data: { available: boolean; count: number; migrations: Array<{ name: string }> };
+    };
+    expect(json.data.available).toBe(true);
+    expect(json.data.count).toBe(2);
+    expect(json.data.migrations[0].name).toBe('0170_x.sql');
+    expect(mockWriteAuditLog.mock.calls[0][1]).toMatchObject({
+      action: 'site.sql.migrations',
+      target_id: SITE,
+    });
+  });
+
+  it('reports available:false (honest — never a fake empty) when d1_migrations is absent', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
+    // makeDb({throws}) → the d1_migrations SELECT throws "no such table" → caught.
+    const res = await get(makeApp(AUTH), makeEnv(makeDb([], { throws: true })));
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { data: { available: boolean; migrations: unknown[] } };
+    expect(json.data.available).toBe(false);
+    expect(json.data.migrations).toEqual([]);
+  });
+});
+
 describe('GET /api/sites/:siteId/integration-providers', () => {
   const PATH = `/api/sites/${SITE}/integration-providers`;
 
