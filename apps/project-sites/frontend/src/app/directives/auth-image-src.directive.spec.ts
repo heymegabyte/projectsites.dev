@@ -1,6 +1,6 @@
 import { Component, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { AuthImageSrcDirective } from './auth-image-src.directive';
 import { ApiService } from '../services/api.service';
 
@@ -81,5 +81,28 @@ describe('AuthImageSrcDirective (authed <img> via blob)', () => {
     expect(revoke).withContext('old URL revoked before binding the new one').toHaveBeenCalledWith('blob:one');
     expect(img(fx).getAttribute('src')).toBe('blob:two');
     expect(createSpy).toHaveBeenCalledTimes(2);
+  });
+
+  // The effect's onCleanup unsubscribes the prior fetch on a src change, so a SLOW
+  // old fetch that resolves late can never bind a stale object URL over the newer
+  // src (a latent race the old ngOnChanges version did not guard).
+  it('cancels an in-flight fetch when src changes (a slow old blob never overwrites the new)', () => {
+    const slowFirst = new Subject<Blob>();
+    getBlobAbsolute = jasmine
+      .createSpy('getBlobAbsolute')
+      .and.returnValues(slowFirst, of(new Blob(['2'])));
+    // The first (pending) fetch never emits → never creates an object URL; only the
+    // second (resolved) fetch does. So createObjectURL fires exactly once → 'blob:new'.
+    const createSpy = spyOn(URL, 'createObjectURL').and.returnValue('blob:new');
+    const fx = render(); // subscribes to the still-pending first fetch
+    fx.componentInstance.src.set('/api/sites/s1/snapshots/y/screenshot.png');
+    fx.detectChanges(); // onCleanup unsubscribes the first; the second resolves → 'blob:new'
+    expect(img(fx).getAttribute('src')).toBe('blob:new');
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    // The old fetch resolving LATE is ignored (its subscription was cancelled) — it must
+    // NOT create a second object URL or rebind a stale src.
+    slowFirst.next(new Blob(['1']));
+    expect(img(fx).getAttribute('src')).withContext('stale fetch ignored').toBe('blob:new');
+    expect(createSpy).withContext('stale fetch never bound a second URL').toHaveBeenCalledTimes(1);
   });
 });

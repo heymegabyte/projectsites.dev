@@ -452,6 +452,22 @@
   `unique_visitors` (356 = unique users), GA4 `totalUsers` (675 = unique users) — but its consumer labels all three the
   same. Add a per-source visitors label (server sets `visitorsMetric: 'visits'|'unique_users'` by `source`; the
   dashboard renders it) so the D1 fallback reads "Visits" and GA4/CF read "Unique visitors".
+- **Cycle 39 — 2026-09-24 (Angular style: `auth-image-src` directive → `input()` + `effect(onCleanup)`, fixing a fetch
+  race):** Inventoried the 44 remaining `@Input()`/`@Output()` decorator files. The recorded next candidates (site-kit
+  `stats-band`/`logo-cloud`/`trust-badges`) turned out to live in the **entirely UNWIRED `site-kit/*` library** (25+
+  components — no importers, selectors, registry, or build includes; only 2 specs; last touched 14h ago by cycle 2's DI
+  migration) → low-value churn (and NOT deletable: actively maintained + deleting would orphan its 2 preserved specs).
+  Pivoted to a WIRED, spec-covered target that IMPROVES the code: migrated `directives/auth-image-src.directive` from
+  `@Input()` + `ngOnChanges` + `ngOnDestroy` to `input()` + a single `effect((onCleanup) => …)`. Beyond the v21 idiom (2
+  lifecycle hooks removed), `onCleanup` unsubscribes the prior in-flight fetch on every src change — **fixing a latent
+  race** (a slow old thumbnail fetch could resolve late and overwrite a newer src). The only consumer
+  (`snapshots.component`) uses the unchanged `[appAuthImageSrc]` template binding — no consumer change. The 5 existing
+  specs (drive via host binding + `detectChanges`, never a direct `ngOnChanges` call) validate the migration is
+  behavior-preserving; **+1 new spec** locks the race fix. Verified: fe tsc (app + spec) 0 · **Karma 2054/2054** (+1) ·
+  build 0 · deployed R2 + chunk-hash prod-verified (`chunk-BU5ZOWHI.js` 200 carrying the directive + referenced by live
+  `main-ABRF4FZM.js`; homepage boots 200). Remaining decorator files: **43**. Next: WIRED simple-value-input leaves
+  (`calendar-widget`, `pages/admin/empty-state`, `feature-flags/mode-switcher`) — NOT the unwired site-kit primitives;
+  `focus-trap`/`reveal` use imperative setter/order-fragile reactivity → migrate carefully/last.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.
@@ -468,14 +484,17 @@
   (`before-after-slider`, `grafana-dashboard`; dropped an unused `effect` import too).
   The 3rd `constructor(private…)` hit is a test-mock class (`readiness-badge.component.spec`),
   not Angular DI.
-- **Signal inputs/outputs: ⏳ in progress** — **42 `@Input()`, 6 `@Output()`** files still use decorators (down from
-  ~45/~7). Migrating a coherent component (or sibling family) per cycle, not churn. ✅ done: `cmd-glyph` (`input()`,
-  cycle 17); `command-palette` (first `@Output()` → `output()`, cycle 18); **the `states/` family — `empty-state`
-  (4 `@Input`+1 `@Output` → `input()`/`output()`) + `error-card` (5 `@Input`+1 `@Output`; the getter/setter `hint`
-  became an `input()` + reactive `computed()` displayHint) (cycle 33)**. Newer components (`conversions-card`,
-  `web-vitals-card`, `tech-breakdown`, `trend-badge`) already ship `input()`/`output()` — the migration closes the
-  old/new inconsistency. Next small used leaves: `calendar-widget`, the site-kit primitives (`stats-band`/`logo-cloud`/
-  `trust-badges`, 2 inputs each). A 2-in+1-out component demonstrates `model()` — but pick a USED one.
+- **Signal inputs/outputs: ⏳ in progress** — **43** decorator files remain (was 44). Migrating a coherent unit per
+  cycle, preferring WIRED, spec-covered targets that IMPROVE the code over churn. ✅ done: `cmd-glyph` (cycle 17);
+  `command-palette` (`@Output()`→`output()`, cycle 18); the `states/` family — `empty-state` + `error-card` (cycle 33);
+  **`directives/auth-image-src` — `@Input()`+`ngOnChanges`+`ngOnDestroy` → `input()`+`effect(onCleanup)`, which also
+  fixed a latent in-flight-fetch race (cycle 39)**. Newer components (`conversions-card`, `web-vitals-card`,
+  `tech-breakdown`, `trend-badge`) already ship `input()`/`output()`. ⚠️ **`site-kit/*` (25+ components, most of the
+  remaining decorator files) is an UNWIRED library** — no importers/selectors/registry/build-includes (only 2 specs);
+  migrating it is low-value churn, and it can't be deleted (actively maintained + tests-preserved). **Resolve its intent
+  (unbuilt site-builder feature vs. orphan) before investing** — a Brian-gated call. Next WIRED leaves: `calendar-widget`
+  (1 input), `pages/admin/empty-state`, `feature-flags/mode-switcher`. `focus-trap`/`reveal` use imperative
+  setter/order-fragile reactivity → migrate carefully/last.
 - Standalone components: ✅ (no NgModules). Naming/colocation, a11y, focused-components:
   not yet swept.
 
@@ -514,8 +533,10 @@
   active analytics loop is `348521da`.
 
 ## Next highest-value action
-Migrate ONE coherent component/family's `@Input()`/`@Output()` → `input()`/`output()` signals per
-cycle (**42 `@Input()` / 6 `@Output()` files remain**; `states/` family done cycle 33) — update its
-template to call the signal (`{{ foo() }}`) + its
-spec, keep typecheck + Karma green. Start with a small leaf component. Do NOT build analytics
-comparison deltas (already live). Before creating any doc, grep for an existing one.
+Migrate ONE coherent, **WIRED, spec-covered** `@Input()`/`@Output()` → `input()`/`output()` unit per
+cycle (**43 decorator files remain**; auth-image-src done cycle 39). Prefer wired leaves that IMPROVE the
+code over churn: `calendar-widget` (1 input), `pages/admin/empty-state`, `feature-flags/mode-switcher`.
+**Do NOT migrate the unwired `site-kit/*` library** (~25 files, low-value churn) — first resolve its intent
+(unbuilt site-builder feature vs. orphan; Brian-gated). `focus-trap`/`reveal` use imperative
+setter/order-fragile reactivity → migrate carefully/last. Do NOT build analytics comparison deltas (already
+live). Before creating any doc, grep for an existing one.
