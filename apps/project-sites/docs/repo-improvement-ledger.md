@@ -394,6 +394,23 @@
   exercised end-to-end via the E2E test-org (it 403s by design), so trigger correctness rests on the 42 Jest + the Karma
   render test. Next: the schema browser is now epic-complete; remaining Data gaps are credential-blocked (D1 REST
   size/usage/Time-Travel) or product-N/A (KV/R2/DO/Vectorize have no per-tenant data API today).
+- **Cycle 36 — 2026-09-24 (Analytics: honest "Visits" label — kill the unique-people conflation):** The prompt's central
+  correctness mandate is "do not conflate requests / visits / pageviews / unique people". The primary admin Analytics KPI
+  tile labeled `COUNT(DISTINCT session_id)` as **"Unique visitors"** with a **"Distinct IPs"** sub-label — but
+  `session_id = SHA-256(ip|ua|YYYY-MM-DD)` is stable **per visitor per UTC day**, so over an N-day window it's distinct
+  visitor-DAYS summed (a person on 3 days = 3), which is MORE than unique people and isn't "distinct IPs" (two UAs on one
+  IP = 2). Relabeled honestly → **"Visits"** everywhere: tile label + sub-label ("Anonymous visitors, counted once per
+  day") + `kpiVisitorsLabel` aria ("312 visits") + `visitorDelta`/`pagesPerVisit` comments; glossary term "Unique
+  sessions" → **"Visits"** with a per-day-accurate definition spelling out "MORE than the number of unique people … not
+  page views or requests". Backend unchanged (the field was already honestly named `uniqueSessions`); this is a
+  frontend+glossary honesty fix. Verified: fe tsc (app + spec) 0 · **Karma 2047/2047** (+1 honesty-lock test: tile reads
+  "Visits", never "Unique visitors"/"Distinct IPs"; +glossary assertion) · build 0 · deployed R2 + chunk-hash
+  prod-verified (`chunk-W4ACX2ML.js` 200 with the new sub-label, **"Distinct IPs across" gone**, referenced by live
+  `main-XYEXBZG2.js`). Frontend-only (no worker deploy). **Next (highest-priority):** the SAME conflation persists on the
+  SEPARATE public-analytics surface — `libs/features/analytics/handlers.ts:434` maps `summary.uniqueSessions →
+  uniqueVisitors` (feeding `public-analytics.component` + the docs endpoint) while OTHER sources there are genuinely
+  unique users (GA4 `totalUsers` @ line 675, CF-zone `unique_visitors`). Relabel per-source (D1=Visits, GA4/CF=unique
+  users) — a distinct, careful slice, not a blind rename.
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

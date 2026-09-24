@@ -40,5 +40,8 @@ describe('AnalyticsGlossaryComponent', () => {
     expect(text).withContext('CWV honesty: never a fake 0').toContain('never a fabricated 0');
     expect(text).withContext('CWV is Chromium-only field data').toContain('Chromium-only');
     expect(text).withContext('edge data is sampled, not exact').toContain('adaptive-sampled');
+    // Visits is honestly defined as visitor-days, NOT whole-range unique people.
+    expect(text).withContext('defines the Visits metric').toContain('Visits');
+    expect(text).withContext('visits ≠ unique people (honest disambiguation)').toContain('unique people');
   });
 });

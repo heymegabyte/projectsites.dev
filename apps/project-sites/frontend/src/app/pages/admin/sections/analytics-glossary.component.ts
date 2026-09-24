@@ -27,9 +27,9 @@ const DEFS: readonly MetricDef[] = [
     term: 'Page views',
   },
   {
-    def: 'Distinct visitor sessions (one anonymized visitor’s activity in a sitting). Not unique people — the same person on two devices counts as two.',
+    def: 'Anonymous visitors counted once per day, summed over the range. Someone returning on another day — or on a second device — counts again, so this is MORE than the number of unique people, and it is not the same as page views or requests.',
     source: 'ProjectSites (first-party)',
-    term: 'Unique sessions',
+    term: 'Visits',
   },
   {
     def: 'Share of sessions that viewed exactly one page before leaving, computed from real first-party session depth (not an edge estimate).',

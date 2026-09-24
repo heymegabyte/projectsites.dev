@@ -331,7 +331,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
             <div class="skel skel-line w-24 h-7 mb-2"></div>
             <div class="skel skel-line w-28 h-3"></div>
           } @else {
-            <div class="muted-h">Unique visitors</div>
+            <div class="muted-h">Visits</div>
             <div class="kpi-row">
               <div class="text-3xl font-bold text-white mt-1 leading-none" [title]="(envelope()?.uniques ?? 0) | number">
                 <app-rolling-counter [value]="envelope()?.uniques ?? 0" [duration]="1100" />
@@ -359,7 +359,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
                   {{ t.label }}
                 </span>
               }
-              <span>Distinct IPs across {{ urls().length }} URL{{ urls().length === 1 ? '' : 's' }}</span>
+              <span>Anonymous visitors, counted once per day · {{ urls().length }} URL{{ urls().length === 1 ? '' : 's' }}</span>
             </div>
           }
         </div>
@@ -1632,7 +1632,7 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     return t ? this.deltaBadge(t.pageviews, t.previous?.pageviews, t.windowDays) : null;
   });
 
-  /** Authoritative unique-visitor (session) period-over-period delta. */
+  /** Authoritative visits (per-day-unique anonymous sessions) period-over-period delta. */
   readonly visitorDelta = computed<TrendBadge | null>(() => {
     const t = this.siteTraffic();
     return t ? this.deltaBadge(t.uniqueSessions, t.previous?.uniqueSessions, t.windowDays) : null;
@@ -1683,13 +1683,13 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     return `${(value).toLocaleString()} ${noun.toLowerCase()}`;
   }
   kpiPageviewsLabel = computed(() => this.kpiLabel(this.envelope()?.pageviews ?? 0, 'Page views'));
-  kpiVisitorsLabel = computed(() => this.kpiLabel(this.envelope()?.uniques ?? 0, 'Unique visitors'));
+  kpiVisitorsLabel = computed(() => this.kpiLabel(this.envelope()?.uniques ?? 0, 'Visits'));
   kpiRequestsLabel = computed(() => this.kpiLabel(this.envelope()?.total_requests ?? 0, 'Total requests'));
 
   /**
-   * Average pages per unique visit (pageviews ÷ unique visitors). The lever behind
-   * the bounce proxy: a value near 1.0 means most visits saw a single page. Rounded
-   * to one decimal; `null` when there are no visitors to divide by.
+   * Average pages per visit (pageviews ÷ visits). The lever behind the bounce proxy:
+   * a value near 1.0 means most visits saw a single page. Rounded to one decimal;
+   * `null` when there are no visits to divide by.
    */
   pagesPerVisit = computed<number | null>(() => {
     const env = this.envelope();

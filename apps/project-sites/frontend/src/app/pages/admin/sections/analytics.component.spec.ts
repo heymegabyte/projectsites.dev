@@ -244,7 +244,7 @@ describe('AdminAnalyticsComponent (site-reactive load)', () => {
 
   // a11y: each primary KPI figure is an animated <app-rolling-counter> number —
   // a screen reader otherwise reads the bare value with no label tying it to its
-  // meaning ("Page views" / "Unique visitors" / "Total requests"). Each tile must
+  // meaning ("Page views" / "Visits" / "Total requests"). Each tile must
   // be a role=group with an aria-label combining the value AND the metric name
   // (the same per-stat pattern as the seo summary). aria-label is the SR truth so
   // it's read correctly even mid-count-up.
@@ -262,11 +262,30 @@ describe('AdminAnalyticsComponent (site-reactive load)', () => {
 
     const vis = el.querySelector('[data-testid="kpi-visitors"]');
     expect(vis?.getAttribute('role')).toBe('group');
-    expect(vis?.getAttribute('aria-label')).toBe('312 unique visitors');
+    expect(vis?.getAttribute('aria-label')).toBe('312 visits');
 
     const req = el.querySelector('[data-testid="kpi-requests"]');
     expect(req?.getAttribute('role')).toBe('group');
     expect(req?.getAttribute('aria-label')).toBe('5,000 total requests');
+  });
+
+  // Honesty (conflation guard, per the analytics doctrine): the sessions KPI is
+  // COUNT(DISTINCT anon session = hash(ip|ua|day)) — distinct visitor-DAYS, not
+  // whole-range unique PEOPLE (someone on 3 days counts 3×). It must read "Visits",
+  // never "Unique visitors" (which would imply de-duplicated people) and never the
+  // old "Distinct IPs" sub-label (two UAs on one IP = two).
+  it('labels the sessions metric "Visits", never the misleading "Unique visitors"/"Distinct IPs"', () => {
+    build({ id: 'site-x' });
+    const c = fixture.componentInstance;
+    c.error.set(null);
+    c.envelope.set({ series: [], pageviews: 1240, uniques: 312, total_requests: 5000 } as never);
+    fixture.detectChanges();
+    const vis = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="kpi-visitors"]',
+    ) as HTMLElement;
+    expect(vis.textContent).withContext('honest "Visits" label present').toContain('Visits');
+    expect(vis.textContent).withContext('no unique-people claim').not.toContain('Unique visitors');
+    expect(vis.textContent).withContext('no distinct-IPs claim').not.toContain('Distinct IPs');
   });
 
   // Truthfulness (AL-430 refines AL-405): bounce is a LABELLED PROXY (2 − pages/visit) — no

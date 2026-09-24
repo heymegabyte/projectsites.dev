@@ -31,7 +31,7 @@
 | Metric | Source | Plan/config | Hostname filter | Retention | Sampling | Status | UI |
 |---|---|---|---|---|---|---|---|
 | Pageviews | D1 visitor_events (server) | none | per site_id | D1 (unbounded) | none | ✅ live | traffic card |
-| Unique sessions | D1 visitor_events (anon hash) | none | site_id | D1 | none | ✅ live | sessions card |
+| Visits (distinct visitor-days) | D1 visitor_events, `COUNT(DISTINCT session_id)` where `session_id = SHA-256(ip\|ua\|YYYY-MM-DD)` | none | site_id | D1 | none | ✅ live — **relabeled honestly (this fire)**: the KPI tile + glossary + aria now read **"Visits"**, NOT "Unique visitors"/"Distinct IPs". The id is stable per visitor per UTC day, so over an N-day window this is distinct visitor-DAYS summed (a person on 3 days = 3) — MORE than whole-range unique people, and not pageviews/requests. Glossary spells this out. | Visits KPI tile |
 | Conversions (total) | D1 visitor_events (beacon) | none | site_id | D1 | none | ✅ live — **now with a period-over-period Δ chip** (`conversionDelta` vs `previous.conversions`, honest "new"/null) | conversions card |
 | **Conversions by kind** (call / directions / form / …) **+ per-kind Δ** | D1 visitor_events `json_extract($.kind)` on `conversion` events (current + prior window) | none | site_id | D1 | none | ✅ **live** — `getConversionKinds` (both summary paths) → `traffic.byConversionKind` → focused **`ConversionsCardComponent`** (humanized labels + bar breakdown + total; kind-less → "other"; honest "no conversions tracked yet"). **(this fire)** each kind row now carries a period-over-period **Δ chip** (calls ↑, form-submits ↓) from `getPreviousConversionKinds` → `previous.byConversionKind`; "new" from zero, no chip when nothing to compare. | `/admin/analytics` "Conversions" card |
 | Top pages / paths | D1 visitor_events | none | site_id | D1 | none | ✅ live | top-pages table |
@@ -215,7 +215,7 @@ fail-safe pass-through) + 1 Karma (summary gets tz) → 1987 Karma / 12266 Jest.
 **Comparison-period Δ badges — DONE (2026-09-24).** The KPI tiles now show a period-over-period delta from the AUTHORITATIVE
 server `previous` (`getTrafficSummary.previous` — the true equal-length prior window, SAME D1 source as current, so the ratio
 is source-consistent). Replaces the pageviews tile's `pvTrend` halve-the-series proxy (kept as a fallback when `siteTraffic`
-is null, e.g. the CF-zone path) with `pvDelta`, and adds `visitorDelta` on the unique-visitors tile (`uniques` = `uniqueSessions`
+is null, e.g. the CF-zone path) with `pvDelta`, and adds `visitorDelta` on the **Visits** tile (`uniques` = `uniqueSessions`
 on the D1 path via `envelopeFromTraffic`, so no IPs-vs-sessions conflation). Honest `deltaBadge`: up/down/flat with the exact
 window in the hover ("vs the previous N days"), **"new" (never ∞%)** when the prior period was zero, `null` when there's nothing
 to compare. Frontend-only (data already served). +6 Karma (up/down · new · null-both-zero · flat · no-siteTraffic · chip
