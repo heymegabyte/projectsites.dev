@@ -37,6 +37,18 @@
   the new component uses the shared util, and those 4-5 should migrate to it (deferred — coherent
   feature-level, no churn this fire). Verified: tsc 0, **Karma 1896/1896** (+14), AOT build clean,
   eslint 0-errors, backtick gate PASS.
+- **Cycle 5 — 2026-09-23 (Data, one slice):** Upgraded the owner Data-grid export from current-page
+  to **whole-table** — `collectAllRows()` pages the selected table (respecting sort) up to a hard
+  **5,000-row cap**, then downloads CSV/JSON; a `db-export-note` honestly states when the cap
+  truncated (`"Exported the first 5,000 of N rows"`), an `exporting` signal disables the buttons +
+  shows "Exporting…". Bounded (never an unbounded fetch), real endpoints only. `exportCsv/exportJson`
+  are now async. +2 export specs (whole-table paging @ offsets 0/100/200; cap+note). Verified: tsc 0,
+  **Karma 1898/1898**, AOT build clean, eslint 0-errors, backtick gate PASS.
+  - **Deferred (unchanged):** the CSV-primitive de-dup migration of `events-table`/`audit`/`forms`/
+    `analytics`/`super-admin` onto `utils/csv-export` — those files are actively edited by other loops
+    (analytics/billing), so migrating now risks merge conflicts; safe once they quiesce. Their bespoke
+    `toCsv()` headers/formatting stay per-component; only the `esc` primitive + blob-download boilerplate
+    should move to `csvEscape`/`downloadText` (output-preserving).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

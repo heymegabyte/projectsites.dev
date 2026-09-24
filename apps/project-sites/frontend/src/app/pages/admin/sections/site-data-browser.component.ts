@@ -29,7 +29,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { catchError, of } from 'rxjs';
+import { catchError, firstValueFrom, of } from 'rxjs';
 import { ApiService, type DataOverviewTable } from '../../../services/api.service';
 import { MiniEmptyComponent } from '../../../components/mini-empty/mini-empty.component';
 import { ErrorCardComponent } from '../../../components/states';
@@ -125,34 +125,40 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
               </select>
             </label>
             <div class="db-actions">
+              @if (exporting()) {
+                <span class="db-exporting" aria-live="polite" data-testid="db-exporting">Exporting…</span>
+              }
               <button
                 type="button"
                 class="db-export"
                 (click)="exportCsv()"
-                [disabled]="rows().length === 0"
+                [disabled]="total() === 0 || exporting()"
                 data-testid="db-export-csv"
-                [attr.title]="'Download the ' + rows().length + ' rows shown (this page) as CSV'"
-                aria-label="Export the current page as CSV"
+                title="Download the whole table (up to 5,000 rows, current sort) as CSV"
+                aria-label="Export the whole table as CSV"
               >CSV</button>
               <button
                 type="button"
                 class="db-export"
                 (click)="exportJson()"
-                [disabled]="rows().length === 0"
+                [disabled]="total() === 0 || exporting()"
                 data-testid="db-export-json"
-                [attr.title]="'Download the ' + rows().length + ' rows shown (this page) as JSON'"
-                aria-label="Export the current page as JSON"
+                title="Download the whole table (up to 5,000 rows, current sort) as JSON"
+                aria-label="Export the whole table as JSON"
               >JSON</button>
               <button
                 type="button"
                 class="db-refresh"
                 (click)="refresh()"
-                [disabled]="rowsLoading()"
+                [disabled]="rowsLoading() || exporting()"
                 data-testid="db-refresh"
                 aria-label="Refresh rows"
               >{{ rowsLoading() ? 'Loading…' : 'Refresh' }}</button>
             </div>
           </div>
+          @if (exportNote(); as note) {
+            <p class="db-export-note" data-testid="db-export-note">{{ note }}</p>
+          }
 
           @if (rowsLoading() && rows().length === 0) {
             <p class="db-loading" data-testid="db-rows-loading">Loading rows…</p>
@@ -273,6 +279,8 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
     .db-pagesize { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.74rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
     .db-pagesize select { font: inherit; font-size: 0.76rem; padding: 0.25rem 0.4rem; border-radius: 6px; color: inherit; background: rgba(0,0,0,0.25); border: 1px solid var(--ps-edge, rgba(255,255,255,0.12)); }
     .db-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 0.35rem; }
+    .db-exporting { font-size: 0.72rem; color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; }
+    .db-export-note { margin: 0.4rem 0 0; font-size: 0.72rem; color: #ffc800; }
     .db-readonly-pill {
       margin-left: 0.5rem; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
       padding: 0.1rem 0.45rem; border-radius: 999px; cursor: help; white-space: nowrap;
@@ -482,36 +490,90 @@ export class SiteDataBrowserComponent implements OnInit {
     this.loadPage();
   }
 
+  /** True while a full-table export is fetching pages (disables the buttons). */
+  readonly exporting = signal(false);
+  /** Honest note after an export (only set when the export was capped); else null. */
+  readonly exportNote = signal<string | null>(null);
+  /** Hard cap on a client-side full-table export — bounds cost + request count. */
+  private static readonly EXPORT_CAP = 5000;
+  private static readonly EXPORT_PAGE = 100;
+
   /**
-   * Filename stem for an export: `{site}-{table}-{offsetStart}-{offsetEnd}` so the
-   * downloaded file names the exact window (the CURRENT page) it contains — never
-   * implying a full-table dump the bounded browse endpoint doesn't provide.
+   * Fetch up to {@link EXPORT_CAP} rows of the selected table across pages
+   * (respecting the current sort), so an export is the WHOLE table, not just the
+   * visible page — but still bounded (never loads an unbounded table into the
+   * browser). Sets {@link exportNote} when the cap truncates the result.
    */
-  private exportBaseName(): string {
+  private async collectAllRows(): Promise<Array<Record<string, unknown>>> {
+    const sel = this.selected();
+    const id = this.siteId();
+    if (!sel || !id) return [];
+    const cap = SiteDataBrowserComponent.EXPORT_CAP;
+    const pageSize = SiteDataBrowserComponent.EXPORT_PAGE;
+    const out: Array<Record<string, unknown>> = [];
+    let offset = 0;
+    let total = this.total();
+    while (out.length < cap) {
+      const page = await firstValueFrom(
+        this.api
+          .browseDataTable(id, sel.key, {
+            limit: pageSize,
+            offset,
+            orderBy: this.orderBy() ?? undefined,
+            dir: this.dir(),
+            silent: true,
+          })
+          .pipe(catchError(() => of(null))),
+      );
+      const rows = page?.data?.rows ?? [];
+      if (rows.length === 0) break; // error or genuine end
+      out.push(...rows);
+      offset += rows.length;
+      total = page?.total ?? total;
+      if (offset >= total || rows.length < pageSize) break; // last page reached
+    }
+    const capped = out.length >= cap && total > cap;
+    this.exportNote.set(
+      capped
+        ? `Exported the first ${cap.toLocaleString()} of ${total.toLocaleString()} rows (export is capped).`
+        : null,
+    );
+    return out.slice(0, cap);
+  }
+
+  /** `{site}-{table}-{rowCount}rows` — names the exact row count the file holds. */
+  private exportBaseName(count: number): string {
     const table = this.selected()?.key ?? 'data';
-    const from = this.offset();
-    const to = this.offset() + this.rows().length;
-    return `${this.siteId() || 'site'}-${table}-${from}-${to}`;
+    return `${this.siteId() || 'site'}-${table}-${count}rows`;
   }
 
-  /** Download the CURRENT page (respecting sort) as CSV — the loaded rows only. */
-  exportCsv(): void {
-    if (this.rows().length === 0) return;
-    downloadText(
-      `${this.exportBaseName()}.csv`,
-      toCsv(this.rows(), this.columns()),
-      'text/csv;charset=utf-8',
-    );
+  /** Fetch the whole table (bounded) and download it in the chosen format. */
+  private async runExport(format: 'csv' | 'json'): Promise<void> {
+    if (this.total() === 0 || this.exporting()) return;
+    this.exporting.set(true);
+    this.exportNote.set(null);
+    try {
+      const rows = await this.collectAllRows();
+      if (rows.length === 0) return;
+      const name = this.exportBaseName(rows.length);
+      if (format === 'csv') {
+        downloadText(`${name}.csv`, toCsv(rows, this.columns()), 'text/csv;charset=utf-8');
+      } else {
+        downloadText(`${name}.json`, JSON.stringify(rows, null, 2), 'application/json');
+      }
+    } finally {
+      this.exporting.set(false);
+    }
   }
 
-  /** Download the CURRENT page as pretty JSON — the loaded rows only. */
-  exportJson(): void {
-    if (this.rows().length === 0) return;
-    downloadText(
-      `${this.exportBaseName()}.json`,
-      JSON.stringify(this.rows(), null, 2),
-      'application/json',
-    );
+  /** Download the whole table (up to the cap, current sort) as CSV. */
+  exportCsv(): Promise<void> {
+    return this.runExport('csv');
+  }
+
+  /** Download the whole table (up to the cap, current sort) as pretty JSON. */
+  exportJson(): Promise<void> {
+    return this.runExport('json');
   }
 
   toggleRow(index: number): void {

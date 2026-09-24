@@ -35,6 +35,23 @@ function browsePage(total: number): jasmine.Spy {
     );
 }
 
+/** A browse spy that serves `total` synthetic rows across real pages (honors offset). */
+function pagedBrowse(total: number, rowsPerPage = 100): jasmine.Spy {
+  return jasmine
+    .createSpy('browseDataTable')
+    .and.callFake((_id: string, _table: string, opts: { limit?: number; offset?: number } = {}) => {
+      const offset = opts.offset ?? 0;
+      const n = Math.max(0, Math.min(rowsPerPage, total - offset));
+      const rows = Array.from({ length: n }, (_, i) => ({
+        event_type: 'pageview',
+        path: '/p' + (offset + i),
+        referrer: null,
+        created_at: 'x',
+      }));
+      return of({ data: { table: 'visitor_events', columns: COLS, rows }, total, limit: rowsPerPage, offset });
+    });
+}
+
 function setup(overrides?: {
   getDataOverview?: jasmine.Spy;
   browseDataTable?: jasmine.Spy;
@@ -163,13 +180,13 @@ describe('SiteDataBrowserComponent', () => {
     expect(c.rowJson({ path: '/', hits: 2 })).toContain('"hits": 2');
   });
 
-  describe('export (current page → CSV / JSON, bounded, read-only)', () => {
-    it('exportCsv downloads the loaded rows as a text/csv blob with the table columns', async () => {
+  describe('export (whole table → CSV / JSON, bounded, read-only)', () => {
+    it('exportCsv downloads the fetched rows as a text/csv blob with the table columns', async () => {
       const { fixture, c } = setup();
       fixture.detectChanges();
       const createSpy = spyOn(URL, 'createObjectURL').and.returnValue('blob:mock');
       spyOn(URL, 'revokeObjectURL');
-      c.exportCsv();
+      await c.exportCsv();
       expect(createSpy).toHaveBeenCalled();
       const blob = createSpy.calls.mostRecent().args[0] as Blob;
       expect(blob.type).toContain('text/csv');
@@ -178,24 +195,53 @@ describe('SiteDataBrowserComponent', () => {
       expect(text).toContain('pageview'); // a real row, not mock
     });
 
-    it('exportJson downloads the loaded rows as an application/json blob', async () => {
+    it('exportJson downloads the fetched rows as an application/json blob', async () => {
       const { fixture, c } = setup();
       fixture.detectChanges();
       const createSpy = spyOn(URL, 'createObjectURL').and.returnValue('blob:mock');
       spyOn(URL, 'revokeObjectURL');
-      c.exportJson();
+      await c.exportJson();
       const blob = createSpy.calls.mostRecent().args[0] as Blob;
       expect(blob.type).toContain('application/json');
       expect(await blob.text()).toContain('"event_type": "pageview"');
     });
 
-    it('both exports are a no-op when there are no rows (never a blank file)', () => {
+    it('fetches the WHOLE table across pages, not just the visible page', async () => {
+      const paged = pagedBrowse(250);
+      const { fixture, c } = setup({ browseDataTable: paged });
+      fixture.detectChanges();
+      paged.calls.reset(); // ignore the initial page load
+      const createSpy = spyOn(URL, 'createObjectURL').and.returnValue('blob:mock');
+      spyOn(URL, 'revokeObjectURL');
+      await c.exportCsv();
+      // 250 rows / 100 per page → 3 export fetches at offsets 0, 100, 200.
+      expect(paged.calls.count()).toBe(3);
+      expect(paged.calls.allArgs().map((a) => (a[2] as { offset?: number }).offset)).toEqual([0, 100, 200]);
+      const text = await (createSpy.calls.mostRecent().args[0] as Blob).text();
+      expect(text.trimEnd().split('\n').length).toBe(251); // 1 header + 250 rows
+      expect(c.exportNote()).toBeNull(); // 250 < cap → not capped
+    });
+
+    it('caps the export at 5,000 rows and sets an honest capped note', async () => {
+      const { fixture, c } = setup({ browseDataTable: pagedBrowse(20000) });
+      fixture.detectChanges();
+      const createSpy = spyOn(URL, 'createObjectURL').and.returnValue('blob:mock');
+      spyOn(URL, 'revokeObjectURL');
+      await c.exportCsv();
+      expect(createSpy).toHaveBeenCalled();
+      expect(c.exportNote()).toContain('5,000');
+      expect(c.exportNote()).toContain('20,000');
+      const text = await (createSpy.calls.mostRecent().args[0] as Blob).text();
+      expect(text.trimEnd().split('\n').length).toBe(5001); // 1 header + 5,000 rows
+    });
+
+    it('both exports are a no-op when the table is empty (never a blank file)', async () => {
       const { fixture, c } = setup();
       fixture.detectChanges();
-      c.rows.set([]);
+      c.total.set(0);
       const createSpy = spyOn(URL, 'createObjectURL');
-      c.exportCsv();
-      c.exportJson();
+      await c.exportCsv();
+      await c.exportJson();
       expect(createSpy).not.toHaveBeenCalled();
     });
 
