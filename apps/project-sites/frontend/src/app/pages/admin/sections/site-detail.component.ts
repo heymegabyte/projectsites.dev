@@ -37,6 +37,7 @@ import { MiniEmptyComponent } from '../../../components/mini-empty/mini-empty.co
 import { ErrorCardComponent } from '../../../components/states';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { ReadinessBadgeComponent } from './readiness-badge.component';
+import { SiteDataBrowserComponent } from './site-data-browser.component';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { of } from 'rxjs';
 import { catchError, switchMap, timer } from 'rxjs';
@@ -69,14 +70,14 @@ interface IntegrationProvider {
   oauth_supported: boolean;
 }
 
-type Tab = 'logs' | 'snapshots' | 'sql' | 'integrations';
+type Tab = 'logs' | 'snapshots' | 'data' | 'sql' | 'integrations';
 /** Runtime allow-list for validating a `?tab=` deep-link (unknown → default). */
-const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'sql', 'integrations'];
+const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'data', 'sql', 'integrations'];
 
 @Component({
   selector: 'app-admin-site-detail',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, HlmInputDirective, HlmSelectDirective, HlmTablistDirective, MiniEmptyComponent, ErrorCardComponent, RevealDirective, ReadinessBadgeComponent],
+  imports: [CommonModule, FormsModule, RouterModule, HlmInputDirective, HlmSelectDirective, HlmTablistDirective, MiniEmptyComponent, ErrorCardComponent, RevealDirective, ReadinessBadgeComponent, SiteDataBrowserComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="site-detail animate-fade-in" data-testid="site-detail">
@@ -119,6 +120,16 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'sql', 'integrations'];
           [class.active]="tab() === 'snapshots'"
           (click)="setTab('snapshots')"
         >Snapshots</button>
+        <button
+          type="button"
+          role="tab"
+          id="sd-tab-data"
+          data-testid="sd-tab-data"
+          [attr.aria-controls]="'sd-panel-data'"
+          [attr.aria-selected]="tab() === 'data'"
+          [class.active]="tab() === 'data'"
+          (click)="setTab('data')"
+        >Data</button>
         @if (canUseSqlConsole()) {
           <button
             type="button"
@@ -226,6 +237,13 @@ const VALID_TABS: readonly Tab[] = ['logs', 'snapshots', 'sql', 'integrations'];
           @if (rollbackError()) {
             <p class="rollback-error" role="alert" data-testid="rollback-error">{{ rollbackError() }}</p>
           }
+        </div>
+      }
+
+      <!-- ──────────────────────────────────────── DATA TAB ──────────────────────────────────────── -->
+      @if (tab() === 'data') {
+        <div class="site-detail__panel" role="tabpanel" appReveal id="sd-panel-data" aria-labelledby="sd-tab-data" data-testid="site-data-panel">
+          <app-site-data-browser [siteId]="siteId()" />
         </div>
       }
 

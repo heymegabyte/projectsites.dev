@@ -16,6 +16,17 @@
   (`before-after-slider`, `grafana-dashboard`) + removed an unused `effect` import.
   Typecheck + 1870 Karma green. Recorded the signal-input migration (46 files) as the
   big remaining Angular item.
+- **Cycle 3 — 2026-09-23 (Data + Angular, one slice):** Shipped the owner-facing **Data
+  tab** UI — a NEW focused standalone `SiteDataBrowserComponent` (signals + `input()` +
+  native control flow, colocated 13-spec Karma file) wired into `site-detail.component.ts`
+  as an owner-accessible tab (unlike the super-admin SQL tab). Surfaces the already-DONE
+  real endpoints (`/data-overview` picker + `/data-overview/:table` server-paginated,
+  sortable grid + per-row JSON detail) — **zero mock behavior**. Added typed
+  `getDataOverview`/`browseDataTable` + `DataOverviewTable`/`DataTablePage` to `api.service.ts`;
+  updated `data-section-capability-matrix.md` (slice-1 owner UI = DONE). Verified: tsc 0,
+  **Karma 1882/1882** (+13), AOT build clean, eslint 0-errors, backtick gate PASS. Exemplar
+  of signal-input-first authoring (the NEW component uses `input()`, showing the target the
+  46 legacy `@Input()` files migrate toward — those remain the big Angular item).
 
 ## Repository shape
 - **Angular app (1):** `apps/project-sites/frontend` — Angular **21.2.14**.

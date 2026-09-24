@@ -37,8 +37,9 @@
 | Feature | CF API / binding | Permission | Status | Limitation |
 |---|---|---|---|---|
 | Table list + row counts | `sqlite_master` + `COUNT(*)` | owner (allowlist) / superadmin | DONE | counts are live per request |
-| Browse table rows | allowlist SELECT | owner | DONE | **was unbounded → SLICE adds pagination** |
+| Browse table rows | allowlist SELECT | owner | DONE | server-paginated; owner **Data-tab UI** now surfaces it |
 | **Server-side pagination** (`limit≤100/offset/orderBy/dir`) | SELECT … LIMIT/OFFSET + COUNT | owner | ✅ DONE — additive `total/limit/offset` on `/data-overview/:table` | orderBy validated against the column allowlist; unknown col keeps default sort (no injection) |
+| **Owner Data-tab UI** (table picker · server-paginated sortable grid · row-detail JSON · loading/empty/error states) | `SiteDataBrowserComponent` → `/data-overview[/:table]` | owner | ✅ DONE (this fire) — `/admin/sites/:id?tab=data`, focused standalone component, 13 Karma specs | read-only; wired to REAL endpoints only (no mock); launches on first non-empty table |
 | **Schema introspection** (columns/pk/indexes/FKs/DDL) | `PRAGMA table_info/index_list/index_info/foreign_key_list` | superadmin | ✅ DONE — `GET /api/sites/:siteId/sql/schema` | PRAGMA args can't bind → enumerate from `sqlite_master`, format-check each identifier |
 | Read SQL console | `.prepare().all()` | superadmin | DONE | 8 000-char cap; SELECT/EXPLAIN/WITH/PRAGMA only |
 | Write SQL console | `.prepare().run()` | superadmin | DONE | PROTECTED_TABLES + destructive-confirm; single-statement |
@@ -72,7 +73,9 @@
 
 ## Slice order (execution)
 1. **Authorized discovery + safe browse** — schema introspection (superadmin) +
-   owner-browse pagination. ← **this arc's first slice.**
+   owner-browse pagination. ✅ backend DONE; **owner UI shipped** — the `/admin/sites/:id`
+   **Data tab** (`SiteDataBrowserComponent`): table picker with live row counts →
+   server-paginated, column-sortable grid → per-row JSON detail, all on real endpoints.
 2. Row edit/delete with schema-derived stable PK predicates (owner).
 3. SQL console upgrades — EXPLAIN QUERY PLAN, `meta` metrics, multi-tab, history.
 4. Import (CSV/JSON, chunked) + bounded exports.

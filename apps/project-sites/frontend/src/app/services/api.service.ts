@@ -824,6 +824,58 @@ export class ApiService {
     return this.get(`/sites/${siteId}/analytics/daily`, { days: days.toString() }, { silent: true });
   }
 
+  /**
+   * Browsable per-site platform data tables (visitor_events, form_submissions,
+   * snapshots, MCP connections, content store) with live row counts + each
+   * table's safe-column allowlist. Org-scoped + IDOR-guarded server-side (404 on
+   * a foreign site — never a 403 leak). Backs the site-detail "Data" tab picker.
+   *
+   * @example
+   * ```ts
+   * this.api.getDataOverview(siteId).subscribe(r => this.tables.set(r.data.tables));
+   * ```
+   */
+  getDataOverview(
+    siteId: string,
+    opts?: { silent?: boolean },
+  ): Observable<{ data: { tables: DataOverviewTable[] } }> {
+    return this.get(`/sites/${siteId}/data-overview`, undefined, opts);
+  }
+
+  /**
+   * One server-paginated page of an overview table. `orderBy` is validated
+   * server-side against the table's column allowlist (an unknown/hostile column
+   * keeps the default sort — never an error, never SQL injection); `limit` is
+   * clamped 1–100 so the browser never loads a whole table. Read-only.
+   *
+   * @param opts.dir - sort direction for `orderBy` ('asc' | 'desc', default 'desc').
+   * @example
+   * ```ts
+   * this.api.browseDataTable(siteId, 'visitor_events', { limit: 25, offset: 0 })
+   *   .subscribe(p => { this.rows.set(p.data.rows); this.total.set(p.total); });
+   * ```
+   */
+  browseDataTable(
+    siteId: string,
+    table: string,
+    opts: {
+      limit?: number;
+      offset?: number;
+      orderBy?: string;
+      dir?: 'asc' | 'desc';
+      silent?: boolean;
+    } = {},
+  ): Observable<DataTablePage> {
+    const params: Record<string, string> = {};
+    if (opts.limit != null) params['limit'] = String(opts.limit);
+    if (opts.offset != null) params['offset'] = String(opts.offset);
+    if (opts.orderBy) params['orderBy'] = opts.orderBy;
+    if (opts.dir) params['dir'] = opts.dir;
+    return this.get(`/sites/${siteId}/data-overview/${encodeURIComponent(table)}`, params, {
+      silent: opts.silent,
+    });
+  }
+
   /** List the URLs (primary + alternates) bound to a site. */
   listSiteUrls(siteId: string): Observable<{ data: SiteUrlRow[] }> {
     // Silent: a failed URL list is explained inline by the analytics empty/cred
@@ -1515,6 +1567,32 @@ export interface SiteAnalyticsSummary {
   siteId: string;
   windowDays: number;
   traffic: SiteTrafficSummary;
+}
+
+/**
+ * A browsable per-site data table from `GET /api/sites/:siteId/data-overview`.
+ * `columns` is the safe-column allowlist the server will return + the ONLY set a
+ * client may pass as `orderBy` (the server re-validates against it).
+ */
+export interface DataOverviewTable {
+  key: string;
+  label: string;
+  description: string;
+  columns: string[];
+  row_count: number;
+  browsable: boolean;
+}
+
+/**
+ * One server-paginated page from `GET /api/sites/:siteId/data-overview/:table`.
+ * `data.{table,columns,rows}` is the page payload; `total` is the full row count
+ * (for the pager), `limit`/`offset` echo the applied window.
+ */
+export interface DataTablePage {
+  data: { table: string; columns: string[]; rows: Array<Record<string, unknown>> };
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 /** Row in `site_urls` — primary URL plus alternates. */
