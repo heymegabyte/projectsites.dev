@@ -30,6 +30,9 @@ import {
   siteOrgId,
 } from './service.js';
 import { mintShareToken, verifyShareToken } from './share.js';
+// Reusable server-side validator for an arbitrary ?start&end window (shared with
+// the /api/analytics/:siteId route). Bounds/validates the range; authz is separate.
+import { parseCustomWindow } from '../analytics/handlers.js';
 
 /** Share-link default lifetime: 30 days. */
 const SHARE_TTL_MS = 30 * 86_400_000;
@@ -59,15 +62,26 @@ function parseWindowDays(c: Context<AppContext>, param: string): number {
   return Number.isInteger(raw) && raw > 0 && raw <= 365 ? raw : 30;
 }
 
+/** 400 for a malformed/reversed ?start&end window (a client error, distinct from authz). */
+function badWindow(c: Context<AppContext>, message: string): Response {
+  return c.json(
+    { error: { code: 'BAD_REQUEST', message, request_id: c.get('requestId') ?? crypto.randomUUID() } },
+    400,
+  );
+}
+
 export const siteAnalytics = new Hono<AppContext>();
 
 siteAnalytics.get('/api/sites/:siteId/analytics', async (c) => {
   const gate = await requireOwnedSite(c);
   if (gate instanceof Response) return gate;
 
+  const cw = parseCustomWindow(c.req.query('start'), c.req.query('end'));
+  if (cw.error) return badWindow(c, cw.error);
   const windowDays = parseWindowDays(c, 'windowDays');
-  const summary = await getSiteAnalyticsSummary(c.env, gate.orgId, gate.siteId, windowDays);
-  return c.json(summary);
+  const summary = await getSiteAnalyticsSummary(c.env, gate.orgId, gate.siteId, windowDays, cw.window);
+  // Echo the exact window served so the UI labels the real range (never wider than queried).
+  return c.json(cw.window ? { ...summary, windowStart: cw.startDisplay, windowEnd: cw.endDisplay } : summary);
 });
 
 // AN5 follow-on — per-day traffic series from the analytics_daily rollup.
@@ -75,9 +89,11 @@ siteAnalytics.get('/api/sites/:siteId/analytics/daily', async (c) => {
   const gate = await requireOwnedSite(c);
   if (gate instanceof Response) return gate;
 
+  const cw = parseCustomWindow(c.req.query('start'), c.req.query('end'));
+  if (cw.error) return badWindow(c, cw.error);
   const days = parseWindowDays(c, 'days');
-  const series = await getDailySeries(c.env, gate.siteId, days);
-  return c.json(series);
+  const series = await getDailySeries(c.env, gate.siteId, days, cw.window);
+  return c.json(cw.window ? { ...series, windowStart: cw.startDisplay, windowEnd: cw.endDisplay } : series);
 });
 
 // AN27 — section-level conversion attribution ("Services drives 40% of calls").

@@ -15,7 +15,7 @@
 
 import type { Env } from '../../../src/types/env.js';
 import { dbQuery } from '../../../src/services/db.js';
-import { getTrafficSummary } from '../visitor_events_core/service.js';
+import { getTrafficSummary, type AnalyticsWindow } from '../visitor_events_core/service.js';
 import {
   SiteAnalyticsSummarySchema,
   SectionConversionsSchema,
@@ -90,8 +90,12 @@ export async function getDailySeries(
   env: Env,
   siteId: string,
   days = 30,
+  window?: AnalyticsWindow,
 ): Promise<{ days: DailyPoint[] }> {
   const n = Number.isInteger(days) && days > 0 && days <= 365 ? days : 30;
+  // Absolute window → bound literals (created_at >= ? AND < ?); else trailing relative.
+  const timeClause = window ? 'created_at >= ? AND created_at < ?' : "created_at >= datetime('now', ?)";
+  const timeParams = window ? [window.since, window.until] : [`-${n} days`];
   const { data, error } = await dbQuery<{
     day: string;
     pageviews: number;
@@ -106,9 +110,9 @@ export async function getDailySeries(
             COUNT(DISTINCT session_id) AS unique_sessions,
             SUM(CASE WHEN event_type = 'conversion' THEN 1 ELSE 0 END) AS conversions
        FROM visitor_events
-      WHERE site_id = ? AND created_at >= datetime('now', ?)
+      WHERE site_id = ? AND ${timeClause}
       GROUP BY date(created_at) ORDER BY day ASC`,
-    [siteId, `-${n} days`],
+    [siteId, ...timeParams],
   );
   if (error) return { days: [] };
   return {
@@ -396,8 +400,12 @@ export async function getSiteAnalyticsSummary(
   orgId: string,
   siteId: string,
   windowDays = 30,
+  window?: AnalyticsWindow,
 ): Promise<SiteAnalyticsSummary> {
-  const since = `-${windowDays} days`;
+  // "New in window" counts use bound literals for an absolute window, else the
+  // trailing relative window. TOTALS below are window-independent and unchanged.
+  const newClause = window ? 'created_at >= ? AND created_at < ?' : "created_at >= datetime('now', ?)";
+  const newParams = window ? [window.since, window.until] : [`-${windowDays} days`];
 
   const [
     contactsTotal,
@@ -416,8 +424,8 @@ export async function getSiteAnalyticsSummary(
     ),
     scalar(
       env,
-      `SELECT COUNT(*) AS n FROM contacts WHERE org_id = ? AND site_id = ? AND deleted_at IS NULL AND created_at >= datetime('now', ?)`,
-      [orgId, siteId, since],
+      `SELECT COUNT(*) AS n FROM contacts WHERE org_id = ? AND site_id = ? AND deleted_at IS NULL AND ${newClause}`,
+      [orgId, siteId, ...newParams],
     ),
     scalar(env, 'SELECT COUNT(*) AS n FROM form_submissions WHERE org_id = ? AND site_id = ?', [
       orgId,
@@ -425,8 +433,8 @@ export async function getSiteAnalyticsSummary(
     ]),
     scalar(
       env,
-      `SELECT COUNT(*) AS n FROM form_submissions WHERE org_id = ? AND site_id = ? AND created_at >= datetime('now', ?)`,
-      [orgId, siteId, since],
+      `SELECT COUNT(*) AS n FROM form_submissions WHERE org_id = ? AND site_id = ? AND ${newClause}`,
+      [orgId, siteId, ...newParams],
     ),
     scalar(
       env,
@@ -440,7 +448,7 @@ export async function getSiteAnalyticsSummary(
       [orgId, siteId],
     ).then((r) => (r.error ? [] : r.data)),
     // Traffic from visitor_events_core — defensive (no table/no events → all zeros).
-    getTrafficSummary(env, siteId, windowDays),
+    getTrafficSummary(env, siteId, windowDays, window),
   ]);
 
   const bySource: SourceCount[] = bySourceRows.map((r) => ({
@@ -450,7 +458,9 @@ export async function getSiteAnalyticsSummary(
 
   return SiteAnalyticsSummarySchema.parse({
     siteId,
-    windowDays,
+    // Echo the ACTUAL span served: an absolute window reports its day-span (from the
+    // traffic summary), a relative request reports the requested windowDays.
+    windowDays: window ? traffic.windowDays : windowDays,
     contacts: { total: contactsTotal, newInWindow: contactsNew, bySource },
     formSubmissions: { total: formTotal, newInWindow: formNew },
     newsletter: { confirmed: newsConfirmed, total: newsTotal },
