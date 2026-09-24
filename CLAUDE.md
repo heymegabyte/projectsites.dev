@@ -104,7 +104,7 @@ Status machine: `draft → collecting → imaging → generating → published |
   Head before the bundle loads (overrides the default `/headless` iframe); `WebContainer.boot()` in
   `app/lib/webcontainer/index.ts` uses `coep:'credentialless'`. Boot failures → check headers, the
   iframe URL, third-party-storage blocking (stackblitz.com / webcontainer.io exceptions).
-- **Removed — never reintroduce**: Supabase, phone-OTP (legacy Twilio SMS auth removed), Lago/Unkey/Nango/Inngest (keep Postiz as transition-only + Novu),
+- **Removed — never reintroduce**: Supabase, phone-OTP (legacy Twilio SMS auth removed; Twilio VOICE is KEPT — `src/services/twilio.ts` + `routes/voice*`), Lago/Unkey/Nango/Inngest/Novu (Novu replaced by psnotify; Postiz KEPT as an HTTP-boundary transition social scheduler at social.projectsites.dev),
   **AI Agents** (the `/admin/ai-endpoints` UI-authored AI-endpoint feature + `ai_endpoints` D1 table + the
   `/api/ai/:slug/:endpoint` dispatcher — replaced by code-defined **Functions** on Cloudflare Workers for
   Platforms; owners define endpoints in a `functions/` folder in their site code, not a dashboard form. See
