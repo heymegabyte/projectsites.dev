@@ -213,10 +213,19 @@ window in the hover ("vs the previous N days"), **"new" (never ∞%)** when the 
 to compare. Frontend-only (data already served). +6 Karma (up/down · new · null-both-zero · flat · no-siteTraffic · chip
 renders) → 1997. Deployed R2 + chunk-hash prod-verified (`chunk-4NR7DMXE.js`, `kpi-pv-trend`).
 
+**Bespoke CSV exports → shared helper (2026-09-24).** Migrated the client-built CSV exports onto the shared
+`toCsv`/`csvEscape`/`downloadText` (one tested, formula-injection-safe code path): **forms** (`buildSubmissionsCsv` — dropped
+the bespoke `csvCell`) + **audit** (`buildCsv`/`exportCsv` — dropped the bespoke `csvCell` + `csvFormulaGuard`). Net safety
+improvement: the shared `csvEscape` EXEMPTS plain numbers from the `'` formula-prefix (the old guards corrupted `-2`→`'-2`),
+while still guarding formula-SHAPED strings (`-2+cmd()`→`'-2+cmd()`). `events-table` + `site-detail` already used the shared
+helper. Specs updated (forms `\n`+trailing-newline; audit unit tests re-pointed at `csvEscape` incl. the numeric-exemption
+improvement) → 1999 Karma green. Deployed R2 + chunk-hash prod-verified (forms `PQRGT2D7`, audit `LN7JEF2J`).
+
 NEXT highest-value gaps (Security + latency plan-blocked; audience/delivery/CSV/custom-lookback/definitions/shareable-range +
-**arbitrary-window + tz-aware bucketing/bounds + comparison-period Δ** all complete): (1) **Migrate bespoke CSV exports**
-(events-table / audit / forms / super-admin) onto the shared `csvEscape`/`downloadText`. (2) **Conversions-tile Δ** — extend
-the period-over-period badge to conversions (`previous.conversions` already returned; the conversions surface is a card, not a
-KPI tile, so it needs a small placement). (3) **DST-precision** — the fixed browser offset is approximate for a range spanning
-a DST change; a true IANA-zone shift would need a tz library or per-day offset (documented caveat in the UI today, honest but
-not exact).
+**arbitrary-window + tz-aware bucketing/bounds + comparison-period Δ + client-CSV consolidation** all complete): (1) **Remaining
+CSV consolidation** — `analytics-dashboard` + the audit **full-trail** download the SERVER-built CSV via a hand-rolled Blob/`<a>`
+(no client escaping needed since server-built) — migrate just their download mechanism to `downloadText` for one code path
+(consistency only, no security delta). (2) **Conversions-tile Δ** — extend the period-over-period badge to conversions
+(`previous.conversions` already returned; the conversions surface is a card, not a KPI tile, so it needs a small placement).
+(3) **DST-precision** — the fixed browser offset is approximate for a range spanning a DST change; a true IANA-zone shift would
+need a tz library or per-day offset (documented caveat in the UI today, honest but not exact).

@@ -13,6 +13,7 @@ import { RouterLink } from '@angular/router';
 import { AdminStateService } from '../admin-state.service';
 import { ApiService } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
+import { toCsv, downloadText } from '../../../utils/csv-export';
 import { FullscreenOverlayComponent } from '../../../components/fullscreen-overlay/fullscreen-overlay.component';
 import { HlmInputDirective, HlmTablistDirective } from '../../../ui';
 import { BrnTooltipImports } from '@spartan-ng/brain/tooltip';
@@ -1032,37 +1033,30 @@ export class AdminFormsComponent implements OnInit, OnDestroy {
   exportCsv(): void {
     const rows = this.exportRows();
     if (rows.length === 0) return;
-    const blob = new Blob([this.buildSubmissionsCsv(rows)], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `submissions-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadText(
+      `submissions-${new Date().toISOString().slice(0, 10)}.csv`,
+      this.buildSubmissionsCsv(rows),
+      'text/csv;charset=utf-8;',
+    );
   }
 
-  /** Build an RFC4180 CSV (with a formula-injection guard) from submission rows. */
+  /**
+   * Build a CSV from submission rows via the SHARED `toCsv`/`csvEscape` (one tested,
+   * formula-injection-safe code path — replaces the former bespoke `csvCell`).
+   * Columns: Date/Form/Email/Status + the union of dynamic field keys; the base
+   * columns are spread last so a field named "Email" etc. can't shadow them.
+   */
   buildSubmissionsCsv(rows: Submission[]): string {
     const fieldKeys = Array.from(new Set(rows.flatMap((r) => Object.keys(r.fields ?? {})))).sort();
     const header = ['Date', 'Form', 'Email', 'Status', ...fieldKeys];
-    const lines = [header.map((h) => this.csvCell(h)).join(',')];
-    for (const r of rows) {
-      const base = [r.created_at, r.form_name, r.email ?? '', r.status];
-      const extra = fieldKeys.map((k) => {
-        const v = (r.fields ?? {})[k];
-        return v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
-      });
-      lines.push([...base, ...extra].map((c) => this.csvCell(c)).join(','));
-    }
-    return lines.join('\r\n');
-  }
-
-  /** Escape a CSV cell + neutralize spreadsheet formula injection (leading =,+,-,@). */
-  private csvCell(value: unknown): string {
-    let s = value == null ? '' : String(value);
-    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-    if (/[",\r\n]/.test(s)) s = `"${s.replace(/"/g, '""')}"`;
-    return s;
+    const flat = rows.map((r) => ({
+      ...(r.fields ?? {}),
+      Date: r.created_at,
+      Form: r.form_name,
+      Email: r.email ?? '',
+      Status: r.status,
+    }));
+    return toCsv(flat, header);
   }
 
   testing = signal(false);

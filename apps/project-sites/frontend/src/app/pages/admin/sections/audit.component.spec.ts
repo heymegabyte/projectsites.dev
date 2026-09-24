@@ -3,6 +3,7 @@ import { signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { AdminAuditComponent } from './audit.component';
+import { csvEscape } from '../../../utils/csv-export';
 import { ApiService } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
 import { AuthService } from '../../../services/auth.service';
@@ -471,35 +472,39 @@ describe('AdminAuditComponent (CSV export is formula-injection-safe)', () => {
     localStorage.clear();
   });
 
-  it('csvFormulaGuard prefixes formula-trigger cells, leaves normal values', () => {
-    const c = make(jasmine.createSpy('get').and.returnValue(of({ data: [] })));
-    expect(c.csvFormulaGuard('=cmd|calc')).toBe(`'=cmd|calc`);
-    expect(c.csvFormulaGuard('+1')).toBe(`'+1`);
-    expect(c.csvFormulaGuard('-2')).toBe(`'-2`);
-    expect(c.csvFormulaGuard('@SUM')).toBe(`'@SUM`);
-    expect(c.csvFormulaGuard('\t=x')).toBe(`'\t=x`);
-    expect(c.csvFormulaGuard('admin@megabyte.space')).toBe('admin@megabyte.space'); // @ not leading
-    expect(c.csvFormulaGuard('site.created')).toBe('site.created');
-    expect(c.csvFormulaGuard(null)).toBe('');
+  // The guard/quoting now lives in the SHARED csvEscape (one code path — the former
+  // bespoke csvFormulaGuard/csvCell were dropped). These lock the security-critical
+  // behavior the audit export relies on, including the improvement over the old guard.
+  it('the shared csvEscape prefixes formula-trigger cells but leaves plain numbers + normal values (CWE-1236)', () => {
+    expect(csvEscape('=cmd|calc')).toBe(`'=cmd|calc`);
+    expect(csvEscape('@SUM')).toBe(`'@SUM`);
+    expect(csvEscape('\t=x')).toBe(`'\t=x`);
+    expect(csvEscape('admin@megabyte.space')).toBe('admin@megabyte.space'); // @ not leading
+    expect(csvEscape('site.created')).toBe('site.created');
+    expect(csvEscape(null)).toBe('');
+    // Improvement over the former bespoke guard: a plain +/- number is NOT text-prefixed
+    // (it stays numeric); only formula-SHAPED strings are guarded.
+    expect(csvEscape('-2')).toBe('-2');
+    expect(csvEscape('+1')).toBe('+1');
+    expect(csvEscape('-2+cmd()')).toBe(`'-2+cmd()`); // not a plain number → guarded
   });
 
-  it('csvCell applies RFC-4180 quoting (commas, quotes, newlines)', () => {
-    const c = make(jasmine.createSpy('get').and.returnValue(of({ data: [] })));
-    expect(c.csvCell('a,b')).toBe('"a,b"');
-    expect(c.csvCell('say "hi"')).toBe('"say ""hi"""');
-    expect(c.csvCell('line1\nline2')).toBe('"line1\nline2"');
-    expect(c.csvCell('plain')).toBe('plain');
+  it('the shared csvEscape applies RFC-4180 quoting (commas, quotes, newlines)', () => {
+    expect(csvEscape('a,b')).toBe('"a,b"');
+    expect(csvEscape('say "hi"')).toBe('"say ""hi"""');
+    expect(csvEscape('line1\nline2')).toBe('"line1\nline2"');
+    expect(csvEscape('plain')).toBe('plain');
   });
 
-  it('buildCsv emits the header row + guarded, quoted cells from the filtered rows', () => {
+  it('buildCsv emits the header row + guarded, quoted cells from the filtered rows (via the shared toCsv)', () => {
     const c = make(
       jasmine.createSpy('get').and.returnValue(
         of({ data: [ROW({ id: 'm1', action: '=weird', message: 'has,comma', metadata: { a: 1 } })] }),
       ),
     );
     c.load(); // seed an event so the table data is populated
-    const csv = c.buildCsv();
-    const lines = csv.split('\r\n');
+    // Shared toCsv() joins with '\n' + a trailing newline (was bespoke '\r\n').
+    const lines = c.buildCsv().trimEnd().split('\n');
     expect(lines[0]).toBe('action,message,created_at,site,actor_id,target,request_id,metadata');
     expect(lines[1]).toContain(`'=weird`);
     expect(lines[1]).toContain('"has,comma"');

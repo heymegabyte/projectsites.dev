@@ -554,7 +554,8 @@ describe('AdminFormsComponent (submissions CSV export)', () => {
     const csv = (c as unknown as { buildSubmissionsCsv(r: unknown[]): string }).buildSubmissionsCsv([
       row({ fields: { message: 'hi, there', danger: '=SUM(A1)' } }),
     ]);
-    const lines = csv.split('\r\n');
+    // Shared toCsv() joins with '\n' and adds a trailing newline (RFC-4180-safe).
+    const lines = csv.trimEnd().split('\n');
     expect(lines[0]).toContain('Date');
     expect(lines[0]).toContain('Email');
     expect(lines[0]).toContain('danger');

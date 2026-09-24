@@ -14,6 +14,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ApiService } from '../../../services/api.service';
 import { ToastService } from '../../../services/toast.service';
 import { AuthService } from '../../../services/auth.service';
+import { toCsv, downloadText } from '../../../utils/csv-export';
 import { FeatureFlagService } from '../../../services/feature-flag.service';
 import { AdminStateService } from '../admin-state.service';
 import { RollingCounterComponent } from '../../../components/rolling-counter/rolling-counter.component';
@@ -1082,11 +1083,15 @@ export class AdminAuditComponent implements OnInit, OnDestroy {
    */
   buildCsv(): string {
     const rows = this.table.getFilteredRowModel().rows.map((r) => r.original);
-    const lines: string[] = [AdminAuditComponent.CSV_HEADERS.join(',')];
-    for (const r of rows) {
-      lines.push(AdminAuditComponent.CSV_HEADERS.map((h) => this.csvCell(this.cellFor(r, h))).join(','));
-    }
-    return lines.join('\r\n');
+    // One flat record per row keyed by CSV_HEADERS, then the SHARED toCsv/csvEscape
+    // (one tested, formula-injection-safe code path — replaces the former bespoke
+    // csvCell + csvFormulaGuard, and correctly leaves plain numbers un-prefixed).
+    const flat = rows.map((r) => {
+      const rec: Record<string, unknown> = {};
+      for (const h of AdminAuditComponent.CSV_HEADERS) rec[h] = this.cellFor(r, h);
+      return rec;
+    });
+    return toCsv(flat, AdminAuditComponent.CSV_HEADERS as readonly string[]);
   }
 
   /** The raw value for one CSV column of a row. */
@@ -1104,30 +1109,13 @@ export class AdminAuditComponent implements OnInit, OnDestroy {
     }
   }
 
-  /** RFC-4180 quoting composed with the formula-injection guard. */
-  csvCell(raw: string): string {
-    const guarded = this.csvFormulaGuard(raw);
-    return /[",\r\n]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
-  }
-
-  /** Apostrophe-prefix a cell whose value begins with a spreadsheet formula
-   *  trigger (= + - @ or a leading tab/CR) so Excel/Sheets render it as text. */
-  csvFormulaGuard(value: unknown): string {
-    const s = value == null ? '' : String(value);
-    return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
-  }
-
   exportCsv(): void {
     if (!this.canExport()) return; // nothing to export — never emit a headers-only CSV
-    const blob = new Blob([this.buildCsv()], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadText(
+      `audit-log-${new Date().toISOString().slice(0, 10)}.csv`,
+      this.buildCsv(),
+      'text/csv;charset=utf-8;',
+    );
   }
 
   /**
