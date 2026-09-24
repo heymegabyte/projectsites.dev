@@ -62,9 +62,17 @@ export interface DeliverySummary {
   readonly zone_resolved: boolean;
   readonly has_data: boolean;
   readonly total_requests: number;
-  readonly by_status_class: ReadonlyArray<{ class: '2xx' | '3xx' | '4xx' | '5xx' | 'other'; count: number }>;
+  readonly by_status_class: ReadonlyArray<{
+    class: '2xx' | '3xx' | '4xx' | '5xx' | 'other';
+    count: number;
+  }>;
   readonly top_statuses: ReadonlyArray<{ status: number; count: number }>;
-  readonly cache: { readonly hit: number; readonly miss: number; readonly uncacheable: number; readonly hit_ratio_pct: number | null };
+  readonly cache: {
+    readonly hit: number;
+    readonly miss: number;
+    readonly uncacheable: number;
+    readonly hit_ratio_pct: number | null;
+  };
   readonly response_bytes: number;
   readonly range_days: number;
 }
@@ -777,7 +785,13 @@ export async function loadMultiUrlAnalytics(
 
     envelope = {
       any_real_data: aggregates.some((a) => a.resolved && a.total_requests > 0),
-      delivery: buildDeliverySummary(mergedStatus, mergedCache, mergedBytes, deliveryRangeDays, deliveryZoneResolved),
+      delivery: buildDeliverySummary(
+        mergedStatus,
+        mergedCache,
+        mergedBytes,
+        deliveryRangeDays,
+        deliveryZoneResolved,
+      ),
       pageviews: aggregates.reduce((sum, a) => sum + a.page_views, 0),
       // HONEST window: the CF path covers ≤CF_MAX_WINDOW_DAYS daily windows regardless of the
       // requested `days`. Reporting `days` (e.g. 90) here silently under-reported — a 90d request
@@ -904,7 +918,12 @@ export function buildDeliverySummary(
 
   return {
     by_status_class,
-    cache: { hit, hit_ratio_pct: cacheable > 0 ? Math.round((100 * hit) / cacheable) : null, miss, uncacheable },
+    cache: {
+      hit,
+      hit_ratio_pct: cacheable > 0 ? Math.round((100 * hit) / cacheable) : null,
+      miss,
+      uncacheable,
+    },
     has_data: total > 0,
     range_days: rangeDays,
     response_bytes: responseBytes,
