@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { of, throwError } from 'rxjs';
-import { PublicAnalyticsComponent } from './public-analytics.component';
+import { PublicAnalyticsComponent, cwvOverallRating } from './public-analytics.component';
 import { ApiService } from '../services/api.service';
 
 const SUMMARY = {
@@ -108,5 +108,64 @@ describe('PublicAnalyticsComponent (AN48 public read-only view)', () => {
     const { f, get } = make({ token: '' });
     expect(get).not.toHaveBeenCalled();
     expect(f.nativeElement.querySelector('[data-testid="public-analytics-error"]')).toBeTruthy();
+  });
+
+  it('renders a "Page speed" verdict from Core Web Vitals when measured', () => {
+    const rich = {
+      summary: {
+        ...SUMMARY.summary,
+        traffic: {
+          pageviews: 1234,
+          uniqueSessions: 567,
+          webVitals: {
+            lcp: { p75: 1800, samples: 80 }, // good
+            inp: { p75: 150, samples: 80 }, // good
+            cls: { p75: 0.05, samples: 80 }, // good
+          },
+        },
+      },
+      expiresAt: 2_000_000_000_000,
+    };
+    const { f } = make({ get: jasmine.createSpy('get').and.returnValue(of(rich)) });
+    const text = f.nativeElement.textContent;
+    expect(text).toContain('Page speed');
+    expect(text).toContain('Good');
+  });
+
+  it('OMITS "Page speed" when no CWV field samples exist (never a fabricated rating)', () => {
+    const empty = {
+      summary: {
+        ...SUMMARY.summary,
+        traffic: { pageviews: 1234, uniqueSessions: 567, webVitals: { lcp: null, inp: null, cls: null } },
+      },
+      expiresAt: 2_000_000_000_000,
+    };
+    const { f } = make({ get: jasmine.createSpy('get').and.returnValue(of(empty)) });
+    expect(f.nativeElement.textContent).not.toContain('Page speed');
+  });
+});
+
+describe('cwvOverallRating (public "Page speed" verdict — Google pass model)', () => {
+  const stat = (p75: number) => ({ p75, samples: 50 });
+  it('Good only when EVERY measured core metric is good', () => {
+    expect(cwvOverallRating({ lcp: stat(1800), inp: stat(150), cls: stat(0.05) })).toBe('Good');
+  });
+  it('Poor when ANY measured metric is poor', () => {
+    expect(cwvOverallRating({ lcp: stat(5000), inp: stat(150), cls: stat(0.05) })).toBe('Poor');
+  });
+  it('Needs improvement when the worst measured metric is "needs" (no poor)', () => {
+    expect(cwvOverallRating({ lcp: stat(3000), cls: stat(0.05) })).toBe('Needs improvement');
+  });
+  it('ignores unmeasured metrics (null / 0 samples) — rates only what has data', () => {
+    expect(cwvOverallRating({ lcp: stat(1800), inp: null, cls: { p75: 0.05, samples: 0 } })).toBe('Good');
+  });
+  it('null when NO core metric has samples, or the block is absent', () => {
+    expect(cwvOverallRating({ lcp: null, inp: null, cls: null })).toBeNull();
+    expect(cwvOverallRating(undefined)).toBeNull();
+  });
+  it('uses Google thresholds at the boundaries (LCP ≤2500 good, ≤4000 needs)', () => {
+    expect(cwvOverallRating({ lcp: stat(2500) })).toBe('Good');
+    expect(cwvOverallRating({ lcp: stat(2501) })).toBe('Needs improvement');
+    expect(cwvOverallRating({ lcp: stat(4001) })).toBe('Poor');
   });
 });

@@ -3,6 +3,52 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { ApiService } from '../services/api.service';
 
+/** One Core Web Vital's real-user field stat. */
+type CwvMetric = { p75?: number; samples?: number } | null | undefined;
+
+/** Google's CWV thresholds `[good-max, needs-max]` per core metric (LCP/INP ms; CLS unitless). */
+const CWV_THRESHOLDS: Record<'lcp' | 'inp' | 'cls', readonly [number, number]> = {
+  lcp: [2500, 4000],
+  inp: [200, 500],
+  cls: [0.1, 0.25],
+};
+
+/** One metric's rating from its p75, or null when it has no field samples/p75. */
+function metricRating(key: 'lcp' | 'inp' | 'cls', stat: CwvMetric): 'good' | 'needs' | 'poor' | null {
+  if (!stat || typeof stat.p75 !== 'number' || !(typeof stat.samples === 'number' && stat.samples > 0)) {
+    return null;
+  }
+  const [good, needs] = CWV_THRESHOLDS[key];
+  if (stat.p75 <= good) return 'good';
+  if (stat.p75 <= needs) return 'needs';
+  return 'poor';
+}
+
+/**
+ * Overall "Page speed" verdict for the public share report from real-user Core Web Vitals p75s,
+ * using Google's pass model: a site is "Good" only when EVERY measured core metric (LCP/INP/CLS)
+ * is good; "Poor" if any measured metric is poor; else "Needs improvement". Returns null when NO
+ * core metric has field samples yet — the tile is then OMITTED (never a fabricated rating). Pure.
+ *
+ * @example cwvOverallRating({ lcp: { p75: 1800, samples: 50 }, cls: { p75: 0.05, samples: 50 } }) // 'Good'
+ * @example cwvOverallRating({ lcp: { p75: 5000, samples: 50 } }) // 'Poor'
+ * @example cwvOverallRating(undefined) // null
+ */
+export function cwvOverallRating(
+  webVitals: { lcp?: CwvMetric; inp?: CwvMetric; cls?: CwvMetric } | undefined,
+): 'Good' | 'Needs improvement' | 'Poor' | null {
+  if (!webVitals) return null;
+  const ratings = [
+    metricRating('lcp', webVitals.lcp),
+    metricRating('inp', webVitals.inp),
+    metricRating('cls', webVitals.cls),
+  ].filter((r): r is 'good' | 'needs' | 'poor' => r !== null);
+  if (ratings.length === 0) return null;
+  if (ratings.some((r) => r === 'poor')) return 'Poor';
+  if (ratings.some((r) => r === 'needs')) return 'Needs improvement';
+  return 'Good';
+}
+
 /** Aggregate (non-PII) owner summary returned by the public share endpoint. */
 interface PublicSummary {
   readonly traffic?: {
@@ -17,6 +63,13 @@ interface PublicSummary {
     readonly scrollDepth?: { readonly medianPercent?: number | null; readonly samples?: number };
     /** First-party page-load — median total load ms. Rendered only when `samples > 0`. */
     readonly navTiming?: { readonly total?: number | null; readonly samples?: number };
+    /** Real-user Core Web Vitals p75 (LCP/INP/CLS). A metric is null when it has no field
+     *  samples yet; the overall "Page speed" rating is shown only when ≥1 core metric has data. */
+    readonly webVitals?: {
+      readonly lcp?: { readonly p75?: number; readonly samples?: number } | null;
+      readonly inp?: { readonly p75?: number; readonly samples?: number } | null;
+      readonly cls?: { readonly p75?: number; readonly samples?: number } | null;
+    };
   };
   readonly contacts?: { readonly total?: number };
   readonly formSubmissions?: { readonly total?: number };
@@ -129,6 +182,12 @@ export class PublicAnalyticsComponent implements OnInit {
     const nav = s.traffic?.navTiming;
     if ((nav?.samples ?? 0) > 0 && typeof nav?.total === 'number') {
       out.push({ label: 'Median page load', value: this.fmtLoad(nav.total) });
+    }
+    // Core Web Vitals verdict — the recognizable Google "is my site fast" signal, shown only
+    // when a core metric has real field samples (never a fabricated rating).
+    const speed = cwvOverallRating(s.traffic?.webVitals);
+    if (speed) {
+      out.push({ label: 'Page speed', value: speed });
     }
     return out;
   }
