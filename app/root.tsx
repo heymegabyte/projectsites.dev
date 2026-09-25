@@ -5,7 +5,7 @@ import tailwindReset from '@unocss/reset/tailwind-compat.css?url';
 import { themeStore } from './lib/stores/theme';
 import { stripIndents } from './utils/stripIndent';
 import { createHead } from 'remix-island';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { ClientOnly } from 'remix-utils/client-only';
@@ -14,6 +14,7 @@ import { cssTransition, ToastContainer } from 'react-toastify';
 import reactToastifyStyles from 'react-toastify/dist/ReactToastify.css?url';
 import globalStyles from './styles/index.scss?url';
 import xtermStyles from '@xterm/xterm/css/xterm.css?url';
+import { EditorLoadingScreen } from './components/chat/EditorLoadingScreen';
 
 import 'virtual:uno.css';
 
@@ -91,7 +92,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <ClientOnly>{() => <BootSkeleton />}</ClientOnly>
+      {/*
+       * Full-surface editor loading screen. Rendered OUTSIDE ClientOnly so it
+       * is in the initial HTML and paints before hydration ("as early as
+       * possible"), then fades out — background and all — once the editor's
+       * files are loaded. Self-managing + SSR-safe (starts visible, no slug).
+       */}
+      <EditorLoadingScreen />
       <ClientOnly>{() => <DndProvider backend={HTML5Backend}>{children}</DndProvider>}</ClientOnly>
       <ToastContainer
         closeButton={({ closeToast }) => {
@@ -125,87 +132,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 import { logStore } from './lib/stores/logs';
-
-/**
- * Item 32 — boot skeleton. Shows "Booting {slug}" until either the
- * WebContainer signals ready OR the chat shell signals ready (in embedded
- * mode where WC never boots). Auto-hides after 30s as a safety net so a
- * stuck environment never leaves the overlay onscreen.
- */
-function BootSkeleton() {
-  const [ready, setReady] = useState(false);
-  const [slug, setSlug] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return undefined;
-    }
-
-    const params = new URLSearchParams(window.location.search);
-    setSlug(params.get('slug'));
-
-    const markReady = () => setReady(true);
-
-    // Poll for the WebContainer context loaded flag (every 200ms).
-    const interval = window.setInterval(async () => {
-      try {
-        const mod = await import('~/lib/webcontainer');
-
-        if (mod.webcontainerContext.loaded) {
-          markReady();
-          window.clearInterval(interval);
-        }
-      } catch {
-        // ignore — fall back to ready-by-text path below
-      }
-    }, 200);
-
-    /*
-     * Embedded mode never boots WC — listen for the chat-ready text probe.
-     * Accept BOTH the legacy dynamic placeholder AND the current chat input
-     * placeholder (journey 2026-08-19: the current placeholder is
-     * 'What are we shipping?' — the old single-string probe NEVER fired, so
-     * the skeleton only cleared via the 30s timeout).
-     */
-    const READY_TEXTS = ['Build a professional website for', 'What are we shipping?', 'What are we discussing?'];
-    const probe = () =>
-      READY_TEXTS.some((t) => document.body?.innerText?.includes(t)) ||
-      READY_TEXTS.some((t) => !!document.querySelector(`[placeholder*="${t}"]`));
-    const textInterval = window.setInterval(() => {
-      if (probe()) {
-        markReady();
-        window.clearInterval(textInterval);
-        window.clearInterval(interval);
-      }
-    }, 300);
-
-    const timeout = window.setTimeout(markReady, 30_000);
-
-    return () => {
-      window.clearInterval(interval);
-      window.clearInterval(textInterval);
-      window.clearTimeout(timeout);
-    };
-  }, []);
-
-  if (ready) {
-    return null;
-  }
-
-  return (
-    <div className="ps-boot-skeleton" aria-live="polite" aria-busy="true">
-      <div className="ps-boot-skeleton__inner">
-        <img src="/favicon.svg" alt="" width={28} height={28} className="ps-boot-skeleton__favicon" />
-        <div className="ps-boot-skeleton__text">
-          <div className="ps-boot-skeleton__title">Booting {slug ?? 'workspace'}</div>
-          <div className="ps-boot-skeleton__bar">
-            <span />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function App() {
   const theme = useStore(themeStore);
