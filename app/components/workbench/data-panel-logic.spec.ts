@@ -42,6 +42,7 @@ import {
   toggleHiddenColumn,
   coerceCellInput,
   buildInsertStatement,
+  buildDeleteByPk,
   RowMutationError,
 } from './data-panel-logic';
 
@@ -772,5 +773,44 @@ describe('buildInsertStatement (parameterized INSERT — never concatenates valu
 
   it('rejects a column/value count mismatch', () => {
     expect(() => buildInsertStatement('t', ['a', 'b'], ['x'])).toThrow(RowMutationError);
+  });
+});
+
+describe('buildDeleteByPk (single-row parameterized DELETE — never whole-table)', () => {
+  it('builds a quoted PK predicate with the value bound as a param', () => {
+    const stmt = buildDeleteByPk('todos', ['id'], { id: 42, title: 'x' });
+    expect(stmt.sql).toBe('DELETE FROM "todos" WHERE "id" = ?1');
+    expect(stmt.params).toEqual([42]);
+  });
+
+  it('supports composite keys (each PK column ANDed, in order)', () => {
+    const stmt = buildDeleteByPk('m2m', ['a_id', 'b_id'], { a_id: 'x', b_id: 7, extra: 'ignored' });
+    expect(stmt.sql).toBe('DELETE FROM "m2m" WHERE "a_id" = ?1 AND "b_id" = ?2');
+    expect(stmt.params).toEqual(['x', 7]);
+  });
+
+  it('binds the PK value (never interpolates) — an injection-shaped key rides as a param', () => {
+    const stmt = buildDeleteByPk('t', ['id'], { id: "1 OR 1=1; DROP TABLE t;--" });
+    expect(stmt.sql).toBe('DELETE FROM "t" WHERE "id" = ?1');
+    expect(stmt.params).toEqual(["1 OR 1=1; DROP TABLE t;--"]);
+  });
+
+  it('refuses when the table has NO primary key (never a whole-table delete)', () => {
+    expect(() => buildDeleteByPk('t', [], { a: 1 })).toThrow(RowMutationError);
+  });
+
+  it('refuses when a PK value is missing/null (row not safely targetable)', () => {
+    expect(() => buildDeleteByPk('t', ['id'], { title: 'no id here' })).toThrow(RowMutationError);
+    expect(() => buildDeleteByPk('t', ['id'], { id: null })).toThrow(RowMutationError);
+  });
+
+  it('refuses a non-string/number PK value (not a stable key)', () => {
+    expect(() => buildDeleteByPk('t', ['id'], { id: { nested: 1 } })).toThrow(RowMutationError);
+    expect(() => buildDeleteByPk('t', ['id'], { id: true })).toThrow(RowMutationError);
+  });
+
+  it('rejects invalid table / PK-column identifiers', () => {
+    expect(() => buildDeleteByPk('bad name', ['id'], { id: 1 })).toThrow(RowMutationError);
+    expect(() => buildDeleteByPk('t', ['bad col'], { 'bad col': 1 })).toThrow(RowMutationError);
   });
 });

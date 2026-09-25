@@ -52,6 +52,8 @@ import {
   toggleHiddenColumn,
   coerceCellInput,
   buildInsertStatement,
+  buildDeleteByPk,
+  pkFromTableInfo,
   RowMutationError,
   type CellInputKind,
   type BoundValue,
@@ -232,6 +234,17 @@ export const DataPanel = memo(() => {
   const addTargetRef = useRef<string | null>(null); // the table to re-open on success
 
   /*
+   * Row DELETE — the open table's primary-key column(s) (fetched via PRAGMA table_info when the
+   * viewer is a super-admin) power a SAFE single-row DELETE (`buildDeleteByPk`, PK-scoped +
+   * parameterized). Empty `browsePkCols` → no Delete affordance (the row stays read-only + we say
+   * why). PRAGMA runs on its OWN correlation id so it never clobbers the SQL-console result grid.
+   */
+  const [browsePkCols, setBrowsePkCols] = useState<string[]>([]);
+  const pkCid = useRef<string | null>(null); // PRAGMA table_info round-trip id (distinct from the SQL console)
+  const deletePending = useRef(false); // a row delete is in flight → route the next PS_SQL_RESPONSE
+  const deleteTargetRef = useRef<string | null>(null); // the table to re-open after a delete
+
+  /*
    * Multi-tab SQL console — independent query buffers you can switch between (each keeps
    * its own text). Hydrated once from localStorage via a lazy ref so the three related
    * states (tabs, active id, editor buffer) all initialise from the SAME restored bundle.
@@ -390,33 +403,47 @@ export const DataPanel = memo(() => {
     postToParent({ type: 'PS_DATA_REQUEST', correlationId: cid });
   }, []);
 
-  const openTable = useCallback((key: string) => {
-    setActive(key);
-    setRows([]);
-    setColumns([]);
-    setBrowseError('');
-    setSearch('');
-    setDetailIdx(null);
-    setBrowseSort(null);
-    setHiddenCols(readHiddenCols(key)); // restore this table's column selection
-    setColMenuOpen(false);
-    setBrowseLoading(true);
+  const openTable = useCallback(
+    (key: string) => {
+      setActive(key);
+      setRows([]);
+      setColumns([]);
+      setBrowseError('');
+      setSearch('');
+      setDetailIdx(null);
+      setBrowseSort(null);
+      setHiddenCols(readHiddenCols(key)); // restore this table's column selection
+      setColMenuOpen(false);
+      setBrowseLoading(true);
+      setBrowsePkCols([]); // clear the prior table's PK until this one's PRAGMA returns
 
-    const cid = newCorrelationId(key);
-    browseCid.current = cid;
+      const cid = newCorrelationId(key);
+      browseCid.current = cid;
 
-    if (browseTimer.current) {
-      clearTimeout(browseTimer.current);
-    }
-
-    browseTimer.current = setTimeout(() => {
-      if (browseCid.current === cid) {
-        setBrowseError('Timed out loading rows.');
-        setBrowseLoading(false);
+      if (browseTimer.current) {
+        clearTimeout(browseTimer.current);
       }
-    }, REQUEST_TIMEOUT_MS);
-    postToParent({ type: 'PS_DATA_REQUEST', table: key, correlationId: cid });
-  }, []);
+
+      browseTimer.current = setTimeout(() => {
+        if (browseCid.current === cid) {
+          setBrowseError('Timed out loading rows.');
+          setBrowseLoading(false);
+        }
+      }, REQUEST_TIMEOUT_MS);
+      postToParent({ type: 'PS_DATA_REQUEST', table: key, correlationId: cid });
+
+      /*
+       * Super-admins get row DELETE — resolve the PK via PRAGMA table_info on its OWN correlation id
+       * (a plain valid identifier only, so the quoted PRAGMA arg is injection-free). Read-only path.
+       */
+      if (canRunSql && /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+        const pcid = newCorrelationId(`pk-${key}`);
+        pkCid.current = pcid;
+        postToParent({ type: 'PS_SQL_REQUEST', query: `PRAGMA table_info("${key}")`, correlationId: pcid });
+      }
+    },
+    [canRunSql],
+  );
 
   /*
    * Run ONE statement through the admin bridge (super-admin only). READS → POST /sql/exec;
@@ -593,6 +620,20 @@ export const DataPanel = memo(() => {
     const off = onParentMessage((msg: ParentToChildMessage) => {
       // SQL console reply (D1 manager) — match on the sql correlation id.
       if (msg.type === 'PS_SQL_RESPONSE') {
+        /*
+         * PRAGMA table_info reply for the browse grid's DELETE affordance — its OWN correlation id,
+         * handled BEFORE the SQL-console id check so it never touches the console result grid.
+         */
+        if (msg.correlationId === pkCid.current) {
+          pkCid.current = null;
+
+          if (!msg.error && Array.isArray(msg.rows)) {
+            setBrowsePkCols(pkFromTableInfo(msg.rows as Array<Record<string, unknown>>));
+          }
+
+          return;
+        }
+
         if (msg.correlationId !== sqlCid.current) {
           return;
         }
@@ -613,6 +654,20 @@ export const DataPanel = memo(() => {
             addPending.current = false;
             setAddBusy(false);
             setAddError(msg.error);
+
+            return;
+          }
+
+          /*
+           * A row DELETE failed (e.g. FK constraint) → surface it visibly (the user is in tables
+           * mode) and keep the row; never a silent failure.
+           */
+          if (deletePending.current) {
+            deletePending.current = false;
+
+            if (typeof window !== 'undefined') {
+              window.alert(`Could not delete the row:\n\n${msg.error}`);
+            }
 
             return;
           }
@@ -643,6 +698,33 @@ export const DataPanel = memo(() => {
             requestOverview();
 
             const t = addTargetRef.current;
+
+            if (t) {
+              openTable(t);
+            }
+
+            return;
+          }
+
+          /*
+           * A row DELETE succeeded → collapse the detail, flash a status, refresh counts, re-open
+           * the table so the row is gone from the grid. (Inline flash — flashStatus is defined
+           * after this effect, so we set the aria-live line directly via the in-scope token.)
+           */
+          if (deletePending.current) {
+            deletePending.current = false;
+            setDetailIdx(null);
+
+            const tok = ++copyToken.current;
+            setCopied('Row deleted');
+            setTimeout(() => {
+              if (copyToken.current === tok) {
+                setCopied('');
+              }
+            }, 1800);
+            requestOverview();
+
+            const t = deleteTargetRef.current;
 
             if (t) {
               openTable(t);
@@ -827,15 +909,18 @@ export const DataPanel = memo(() => {
     }
   }, []);
 
-  const flashCopied = useCallback((label: string): void => {
+  /** Flash a transient aria-live status line (~1.8s, token-guarded so a rapid second flash wins). */
+  const flashStatus = useCallback((message: string): void => {
     const token = ++copyToken.current;
-    setCopied(`Copied ${label}`);
+    setCopied(message);
     setTimeout(() => {
       if (copyToken.current === token) {
         setCopied('');
       }
     }, 1800);
   }, []);
+
+  const flashCopied = useCallback((label: string): void => flashStatus(`Copied ${label}`), [flashStatus]);
 
   /** Copy one cell's RAW value (never the display em-dash); no-op + no flash for an empty cell. */
   const copyValue = useCallback(
@@ -859,6 +944,44 @@ export const DataPanel = memo(() => {
       flashCopied('row as JSON');
     },
     [writeClipboard, flashCopied],
+  );
+
+  /**
+   * Permanently delete ONE row by its primary key (super-admin only; the write goes through the
+   * gated `/sql/exec-write`). Builds a PK-scoped PARAMETERIZED DELETE, shows the exact statement +
+   * bound values in a confirm, then sends it. On success the response handler refreshes the table.
+   */
+  const deleteRow = useCallback(
+    (row: Record<string, unknown>): void => {
+      if (!active || browsePkCols.length === 0) {
+        return;
+      }
+
+      let stmt: { sql: string; params: BoundValue[] };
+
+      try {
+        stmt = buildDeleteByPk(active, browsePkCols, row);
+      } catch (e) {
+        flashStatus(e instanceof RowMutationError ? e.message : 'This row cannot be deleted safely.');
+
+        return;
+      }
+
+      const ok =
+        typeof window !== 'undefined' &&
+        window.confirm(
+          `Permanently delete this row? This cannot be undone.\n\n${stmt.sql}\nvalues: ${JSON.stringify(stmt.params)}`,
+        );
+
+      if (!ok) {
+        return;
+      }
+
+      deletePending.current = true;
+      deleteTargetRef.current = active;
+      runSql(stmt.sql, stmt.params);
+    },
+    [active, browsePkCols, runSql, flashStatus],
   );
 
   /** The SQL result grid, client-sorted (honest — reorders the full returned result). */
@@ -1485,7 +1608,17 @@ export const DataPanel = memo(() => {
                       {detailIdx === i && (
                         <tr data-testid="data-row-detail">
                           <td colSpan={visibleCols.length} className="bg-bolt-elements-background-depth-1 px-3 py-2">
-                            <div className="flex justify-end mb-1.5">
+                            <div className="flex items-center justify-end gap-2 mb-1.5">
+                              {/* No primary key → can't target this row safely; explain, never a doomed Delete. */}
+                              {canRunSql && browsePkCols.length === 0 && (
+                                <span
+                                  className="text-[10px] text-bolt-elements-textTertiary"
+                                  data-testid="data-no-pk-note"
+                                  title="This table has no primary key, so a single row can't be safely targeted for delete."
+                                >
+                                  No primary key — read-only
+                                </span>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => copyRow(r)}
@@ -1495,6 +1628,18 @@ export const DataPanel = memo(() => {
                               >
                                 <div className="i-ph:copy text-[11px]" /> Copy row (JSON)
                               </button>
+                              {/* Delete row — super-admin only (gated /sql/exec-write) + a resolvable PK. */}
+                              {canRunSql && browsePkCols.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => deleteRow(r)}
+                                  data-testid="data-delete-row"
+                                  title="Permanently delete this row (parameterized, keyed by primary key)"
+                                  className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 border border-red-500/40 text-red-400 hover:bg-red-500/10 hover:border-red-500/70 cursor-pointer"
+                                >
+                                  <div className="i-ph:trash text-[11px]" /> Delete row
+                                </button>
+                              )}
                             </div>
                             <dl className="grid grid-cols-[minmax(90px,auto)_1fr] gap-x-3 gap-y-1">
                               {detailEntries(r, columns).map(([label, val], idx) => (

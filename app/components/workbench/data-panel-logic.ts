@@ -1248,3 +1248,63 @@ export function buildInsertStatement(
     params: [...values],
   };
 }
+
+/**
+ * Build a PARAMETERIZED `DELETE` scoped to ONE row by its primary key. Every identifier (table +
+ * PK columns) is validated + double-quoted; every PK value becomes a bound `?N` param — a
+ * whole-table `DELETE` is impossible (a non-empty PK predicate is required). Composite keys are
+ * supported (each PK column ANDed). Pure.
+ *
+ * @param table - the target table (validated as an identifier)
+ * @param pkColumns - the row's primary-key column(s), in order (from `pkFromTableInfo`)
+ * @param row - the row object; each PK column's value is read + bound as the WHERE predicate
+ * @returns `{ sql, params }` — a single-row parameterized DELETE
+ * @throws {RowMutationError} when the table/a PK column is invalid, there is NO primary key, or a
+ *   PK value is null/undefined (the row can't be targeted safely → the caller keeps it read-only)
+ * @example buildDeleteByPk('todos', ['id'], { id: 42, title: 'x' })
+ *   // { sql: 'DELETE FROM "todos" WHERE "id" = ?1', params: [42] }
+ */
+export function buildDeleteByPk(
+  table: string,
+  pkColumns: readonly string[],
+  row: Record<string, unknown>,
+): ParameterizedStatement {
+  const t = (table ?? '').trim();
+
+  if (!IDENT_RE.test(t)) {
+    throw new RowMutationError('This table has an unsafe name — delete is disabled.');
+  }
+
+  if (pkColumns.length === 0) {
+    throw new RowMutationError('This table has no primary key, so a row cannot be safely targeted.');
+  }
+
+  const params: BoundValue[] = [];
+  const predicates = pkColumns.map((col, i) => {
+    const c = (col ?? '').trim();
+
+    if (!IDENT_RE.test(c)) {
+      throw new RowMutationError(`"${col}" is not a valid primary-key column.`);
+    }
+
+    const value = row[c];
+
+    if (value === undefined || value === null) {
+      throw new RowMutationError(`This row has no "${c}" value — it cannot be targeted safely.`);
+    }
+
+    // Only string / number are safe, stable PK predicates (a boolean/JSON PK is not a real key).
+    if (typeof value !== 'string' && typeof value !== 'number') {
+      throw new RowMutationError(`"${c}" is not a stable key value — delete is disabled for this row.`);
+    }
+
+    params.push(value);
+
+    return `"${c}" = ?${i + 1}`;
+  });
+
+  return {
+    sql: `DELETE FROM "${t}" WHERE ${predicates.join(' AND ')}`,
+    params,
+  };
+}
