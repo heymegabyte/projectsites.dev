@@ -76,8 +76,21 @@ interface PublicSummary {
   readonly newsletter?: { readonly confirmed?: number };
   readonly donations?: { readonly raisedCents?: number; readonly count?: number };
 }
+/** Cloudflare RUM (CF-measured, sampled) for the site's owned host — an INDEPENDENT second source
+ *  to the first-party beacon. Each metric is `{p75, samples}` (+ a server rating we don't re-read).
+ *  Null when CF has no data for the host (the report then omits the Cloudflare tiles). */
+interface PublicCfRum {
+  readonly webVitals?: {
+    readonly lcp?: CwvMetric;
+    readonly inp?: CwvMetric;
+    readonly cls?: CwvMetric;
+  };
+  readonly navTiming?: { readonly ttfb?: { readonly p75?: number; readonly samples?: number } | null };
+}
 interface PublicResponse {
   readonly summary: PublicSummary;
+  /** CF RUM for the owned host (independent of first-party) — null/absent when CF has no data. */
+  readonly cloudflareRum?: PublicCfRum | null;
   readonly expiresAt: number;
 }
 
@@ -143,7 +156,7 @@ export class PublicAnalyticsComponent implements OnInit {
     }
     this.api.get<PublicResponse>(`/public/analytics/${token}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
-        this.stats.set(this.toStats(r.summary));
+        this.stats.set(this.toStats(r.summary, r.cloudflareRum));
         this.loading.set(false);
       },
       error: () => {
@@ -153,7 +166,10 @@ export class PublicAnalyticsComponent implements OnInit {
     });
   }
 
-  private toStats(s: PublicSummary): ReadonlyArray<{ label: string; value: string }> {
+  private toStats(
+    s: PublicSummary,
+    cfRum?: PublicCfRum | null,
+  ): ReadonlyArray<{ label: string; value: string }> {
     const out: { label: string; value: string }[] = [
       { label: 'Pageviews', value: String(s.traffic?.pageviews ?? 0) },
       { label: 'Visits', value: String(s.traffic?.uniqueSessions ?? 0) },
@@ -188,6 +204,18 @@ export class PublicAnalyticsComponent implements OnInit {
     const speed = cwvOverallRating(s.traffic?.webVitals);
     if (speed) {
       out.push({ label: 'Page speed', value: speed });
+    }
+    // Cloudflare RUM — an INDEPENDENT, Cloudflare-measured (sampled) second source. Labelled
+    // "· Cloudflare" so it never blurs with the first-party numbers above; shown only when CF has
+    // real field samples (never a fabricated verdict/0). TTFB (server response) is NEW here — the
+    // first-party report shows page-load but not TTFB.
+    const cfSpeed = cwvOverallRating(cfRum?.webVitals);
+    if (cfSpeed) {
+      out.push({ label: 'Page speed · Cloudflare', value: cfSpeed });
+    }
+    const cfTtfb = cfRum?.navTiming?.ttfb;
+    if ((cfTtfb?.samples ?? 0) > 0 && typeof cfTtfb?.p75 === 'number') {
+      out.push({ label: 'Server response · Cloudflare', value: this.fmtLoad(cfTtfb.p75) });
     }
     return out;
   }

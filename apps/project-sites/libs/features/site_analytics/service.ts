@@ -16,6 +16,10 @@
 import type { Env } from '../../../src/types/env.js';
 import { dbQuery } from '../../../src/services/db.js';
 import {
+  getCloudflareRumSummary,
+  type CloudflareRumSummary,
+} from '../../../src/services/cloudflare_rum.js';
+import {
   getTrafficSummary,
   type AnalyticsWindow,
   type AnalyticsFilter,
@@ -53,6 +57,42 @@ export async function siteOrgId(env: Env, siteId: string): Promise<string | null
     [siteId],
   );
   return data[0]?.org_id ?? null;
+}
+
+/**
+ * Cloudflare RUM (CF-measured CWV + Navigation Timing) for a site's OWNED host — for the public
+ * share report + reusable elsewhere. The `siteId` is trusted (the caller has already authorized it,
+ * e.g. via the verified HMAC share grant or an owner check); the host is resolved from the site's
+ * OWN records (primary custom hostname → else `{slug}.projectsites.dev`), NEVER a client value.
+ * Fail-soft: null on no-such-site / no host / CF error, so a share report never 500s or fakes a 0.
+ *
+ * @param env - Worker env (CF creds + DB)
+ * @param siteId - the already-authorized site id
+ * @param days - window length (clamped 1..30)
+ * @returns the CF RUM summary, or null when unavailable
+ */
+export async function getCloudflareRumForSite(
+  env: Env,
+  siteId: string,
+  days: number,
+): Promise<CloudflareRumSummary | null> {
+  const { data } = await dbQuery<{ slug: string; hostname: string | null }>(
+    env.DB,
+    `SELECT s.slug AS slug,
+            (SELECT h.hostname FROM hostnames h
+              WHERE h.site_id = s.id AND h.deleted_at IS NULL
+              ORDER BY COALESCE(h.is_primary, 0) DESC, h.created_at ASC LIMIT 1) AS hostname
+       FROM sites s WHERE s.id = ? AND s.deleted_at IS NULL LIMIT 1`,
+    [siteId],
+  );
+  const row = data[0];
+  if (!row?.slug) return null;
+
+  const host = (row.hostname || `${row.slug}.projectsites.dev`).toLowerCase();
+  const clamped = Math.min(30, Math.max(1, Math.floor(days)));
+  const until = new Date();
+  const since = new Date(until.getTime() - clamped * 24 * 60 * 60 * 1000);
+  return getCloudflareRumSummary(env, host, since.toISOString(), until.toISOString());
 }
 
 /** One day of the analytics_daily rollup series. */

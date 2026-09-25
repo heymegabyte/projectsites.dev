@@ -143,6 +143,42 @@ describe('PublicAnalyticsComponent (AN48 public read-only view)', () => {
     const { f } = make({ get: jasmine.createSpy('get').and.returnValue(of(empty)) });
     expect(f.nativeElement.textContent).not.toContain('Page speed');
   });
+
+  it('renders Cloudflare RUM tiles (verdict + server response) — labelled Cloudflare, independent source', () => {
+    const withCf = {
+      summary: SUMMARY.summary,
+      cloudflareRum: {
+        webVitals: {
+          lcp: { p75: 1248, samples: 20 },
+          inp: { p75: 40, samples: 20 },
+          cls: { p75: 0.02, samples: 20 },
+        },
+        navTiming: { ttfb: { p75: 14, samples: 10 } },
+      },
+      expiresAt: 2_000_000_000_000,
+    };
+    const { f } = make({ get: jasmine.createSpy('get').and.returnValue(of(withCf)) });
+    const t = f.nativeElement.textContent as string;
+    expect(t).withContext('CF verdict labelled Cloudflare').toContain('Page speed · Cloudflare');
+    expect(t).withContext('CF verdict value').toContain('Good');
+    expect(t).withContext('CF TTFB tile (new metric)').toContain('Server response · Cloudflare');
+    expect(t).toContain('14ms');
+  });
+
+  it('OMITS Cloudflare tiles when cloudflareRum is null / has no samples (never a fabricated 0)', () => {
+    const noCf = { summary: SUMMARY.summary, cloudflareRum: null, expiresAt: 2_000_000_000_000 };
+    const { f } = make({ get: jasmine.createSpy('get').and.returnValue(of(noCf)) });
+    expect(f.nativeElement.textContent).not.toContain('Cloudflare');
+
+    // present-but-empty (0 samples) → still omitted
+    const emptyCf = {
+      summary: SUMMARY.summary,
+      cloudflareRum: { webVitals: { lcp: null, inp: null, cls: null }, navTiming: { ttfb: { p75: null, samples: 0 } } },
+      expiresAt: 2_000_000_000_000,
+    };
+    const { f: f2 } = make({ get: jasmine.createSpy('get').and.returnValue(of(emptyCf)) });
+    expect(f2.nativeElement.textContent).not.toContain('Cloudflare');
+  });
 });
 
 describe('cwvOverallRating (public "Page speed" verdict — Google pass model)', () => {

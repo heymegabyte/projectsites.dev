@@ -28,6 +28,7 @@ import {
   getVisitorFunnel,
   summaryToCsv,
   siteOrgId,
+  getCloudflareRumForSite,
 } from './service.js';
 import { mintShareToken, verifyShareToken } from './share.js';
 // Reusable server-side validator for an arbitrary ?start&end window (shared with
@@ -230,5 +231,9 @@ siteAnalytics.get('/api/public/analytics/:token', async (c) => {
   if (!owner) return notFound(c);
 
   const summary = await getSiteAnalyticsSummary(c.env, owner, grant.siteId, 30);
-  return c.json({ summary, expiresAt: grant.expEpochMs });
+  // Cloudflare RUM (CF-measured CWV + TTFB) for the site's owned host — an INDEPENDENT second source
+  // to the first-party beacon. Site is trusted from the verified share grant; the host is resolved
+  // server-side. Fail-soft: null when no data / CF error (the report simply omits the CF tiles).
+  const cloudflareRum = await getCloudflareRumForSite(c.env, grant.siteId, 30);
+  return c.json({ summary, cloudflareRum, expiresAt: grant.expEpochMs });
 });
