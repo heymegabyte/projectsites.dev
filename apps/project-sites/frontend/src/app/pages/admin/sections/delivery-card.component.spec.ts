@@ -44,6 +44,23 @@ describe('DeliveryCardComponent', () => {
     expect(statuses.textContent).withContext('server-error word present, not colour-only').toContain('5xx · server error');
   });
 
+  it('labels the ACTUAL CF-covered window (range_days), not the requested window, and flags the cap', () => {
+    // 90-day request, but CF edge retention caps the delivery data at 30 days.
+    const { el } = setup({ ...REAL, range_days: 30 }, 90);
+    const src = el.querySelector('[data-testid="an-dl-source"]') as HTMLElement;
+    expect(src.textContent).toContain('last 30 days'); // covered window, NOT "last 90 days"
+    expect(src.textContent).not.toContain('last 90 days'); // must never claim the full requested window
+    const cap = el.querySelector('[data-testid="an-dl-window-cap"]') as HTMLElement;
+    expect(cap).withContext('cap note shown when CF window < requested').toBeTruthy();
+    expect(cap.textContent).toContain('90 requested');
+  });
+
+  it('shows NO cap note when the CF window equals the requested window', () => {
+    const { el } = setup({ ...REAL, range_days: 7 }, 7);
+    expect(el.querySelector('[data-testid="an-dl-window-cap"]')).toBeNull();
+    expect((el.querySelector('[data-testid="an-dl-source"]') as HTMLElement).textContent).toContain('last 7 days');
+  });
+
   it('renders the edge breakdown (protocol / TLS / content-type / method) with request shares', () => {
     const withEdge: DeliverySummary = {
       ...REAL,

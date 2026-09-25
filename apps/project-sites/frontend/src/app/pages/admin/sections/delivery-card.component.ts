@@ -54,6 +54,7 @@ function formatBytes(n: number): string {
     .dl-title { font-size: 1rem; font-weight: 700; color: var(--ps-ink, #f4f4ff); }
     .dl-src { font-size: 0.62rem; color: var(--text-secondary, #9aa0b4); cursor: help; }
     .dl-est { color: #f5c451; font-style: italic; }
+    .dl-cap { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); }
     .dl-statuses { display: grid; gap: 0.3rem; }
     .dl-status-row { display: grid; grid-template-columns: 8.5rem 1fr auto; align-items: center; gap: 0.5rem; font-size: 0.75rem; }
     .dl-status-label { color: var(--ps-ink, #f4f4ff); white-space: nowrap; }
@@ -98,7 +99,7 @@ function formatBytes(n: number): string {
           class="dl-src"
           data-testid="an-dl-source"
           title="Cloudflare edge metrics (httpRequestsAdaptiveGroups) for this site's domains — HTTP requests served at the edge, cache result, and bandwidth. This counts requests, NOT pageviews (see the audience cards for first-party pageviews). ~30-day retention, adaptive-sampled, and updated a few minutes behind live (first-party audience metrics are real-time)."
-          >Cloudflare edge · last {{ windowDays() }} {{ windowDays() === 1 ? 'day' : 'days' }} · <span class="dl-est" data-testid="an-dl-sampled">sampled estimate</span></span
+          >Cloudflare edge · last {{ coveredDays() }} {{ coveredDays() === 1 ? 'day' : 'days' }}@if (windowCapped()) {<span class="dl-cap" data-testid="an-dl-window-cap"> (of {{ windowDays() }} requested — CF ~30-day edge cap)</span>} · <span class="dl-est" data-testid="an-dl-sampled">sampled estimate</span></span
         >
       </h3>
 
@@ -218,6 +219,24 @@ export class DeliveryCardComponent {
   readonly delivery = input<DeliverySummary | null>(null);
   /** The selected window, for the source label. */
   readonly windowDays = input<number>(7);
+
+  /**
+   * The window the CF EDGE data ACTUALLY covers — `delivery.range_days`, which the worker caps at
+   * Cloudflare's ~30-day httpRequestsAdaptiveGroups retention. Falls back to the requested window
+   * when there's no delivery block. This (not the requested `windowDays`) is the honest label: a
+   * 90-day request over CF-capped edge data covers ≤30 days, and the card must not claim 90.
+   */
+  readonly coveredDays = computed<number>(() => this.delivery()?.range_days ?? this.windowDays());
+
+  /**
+   * True when CF's edge window is SHORTER than the requested one (retention cap hit) — the header
+   * then shows "(of N requested — CF ~30-day edge cap)" so an owner never reads the requested
+   * window as the covered one. First-party audience metrics still honor the full requested window.
+   */
+  readonly windowCapped = computed<boolean>(() => {
+    const r = this.delivery()?.range_days;
+    return typeof r === 'number' && r < this.windowDays();
+  });
 
   /** Status classes with computed % of total + a plain-language word. */
   readonly statusRows = computed(() => {
