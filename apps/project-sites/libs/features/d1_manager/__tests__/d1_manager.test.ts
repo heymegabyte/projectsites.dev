@@ -53,6 +53,19 @@ async function req(app: Hono, path: string, env: AppEnv = makeEnv()): Promise<Re
   return app.request(path, {}, env as never);
 }
 
+async function postReq(
+  app: Hono,
+  path: string,
+  body: unknown = {},
+  env: AppEnv = makeEnv(),
+): Promise<Response> {
+  return app.request(
+    path,
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+    env as never,
+  );
+}
+
 const REAL_UUID = 'ea3e839a-c641-4861-ae30-dfc63bff8032';
 
 const mockFetch = jest.fn();
@@ -181,5 +194,111 @@ describe('GET /api/admin/d1/:databaseId/overview', () => {
     expect(body.numTables).toBeNull();
     expect(body.region).toBeNull();
     expect(body.readReplication).toBeNull();
+  });
+});
+
+describe('POST /api/admin/d1/:databaseId/export', () => {
+  it('404 when flag off / unauth / non-super-admin (CF never called)', async () => {
+    mockIsFlagOn.mockResolvedValue(false);
+    expect((await postReq(appWith('u'), `/api/admin/d1/${REAL_UUID}/export`)).status).toBe(404);
+    mockIsFlagOn.mockResolvedValue(true);
+    expect((await postReq(appWith(), `/api/admin/d1/${REAL_UUID}/export`)).status).toBe(404);
+    mockDbQueryOne.mockResolvedValue({ is_super_admin: 0 });
+    expect((await postReq(appWith('owner'), `/api/admin/d1/${REAL_UUID}/export`)).status).toBe(404);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('404 for a non-UUID id (no REST-path injection); 400 for a hostile table name', async () => {
+    expect((await postReq(appWith('super-1'), '/api/admin/d1/not-a-uuid/export')).status).toBe(404);
+    const bad = await postReq(appWith('super-1'), `/api/admin/d1/${REAL_UUID}/export`, {
+      tables: ['users); DROP TABLE users;--'],
+    });
+    expect(bad.status).toBe(400); // rejected at the Zod boundary, never reaches CF
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('completes: returns the signed URL + filename + honest note when CF reports complete', async () => {
+    mockFetch.mockResolvedValue(
+      cfResp(200, {
+        at_bookmark: 'bm-final',
+        status: 'complete',
+        result: { signed_url: 'https://cf-storage/dump.sql?sig=x', filename: 'db-export.sql' },
+      }),
+    );
+    const res = await postReq(appWith('super-1'), `/api/admin/d1/${REAL_UUID}/export`);
+    expect(res.status).toBe(200);
+    const body = await res.json<{ status: string; signedUrl: string; filename: string; note: string }>();
+    expect(body.status).toBe('complete');
+    expect(body.signedUrl).toBe('https://cf-storage/dump.sql?sig=x');
+    expect(body.filename).toBe('db-export.sql');
+    expect(body.note).toContain('unavailable'); // the honest DB-unavailability caveat, always present
+    // credentials stay server-side + the export POSTs polling to the account d1 export path
+    const [url, opts] = mockFetch.mock.calls[0] as [string, { method: string; body: string; headers: Record<string, string> }];
+    expect(url).toBe(`https://api.cloudflare.com/client/v4/accounts/acct-123/d1/database/${REAL_UUID}/export`);
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body)).toEqual({ output_format: 'polling' });
+    expect(opts.headers['X-Auth-Key']).toBe('gk');
+  });
+
+  it('scopes the export to specific tables via dump_options.tables', async () => {
+    mockFetch.mockResolvedValue(
+      cfResp(200, { at_bookmark: 'b', status: 'complete', result: { signed_url: 'u', filename: 'f' } }),
+    );
+    await postReq(appWith('super-1'), `/api/admin/d1/${REAL_UUID}/export`, {
+      tables: ['form_submissions'],
+      dataOnly: true,
+    });
+    const [, opts] = mockFetch.mock.calls[0] as [string, { body: string }];
+    expect(JSON.parse(opts.body)).toEqual({
+      output_format: 'polling',
+      dump_options: { tables: ['form_submissions'], no_schema: true },
+    });
+  });
+
+  it('processing: bounded-polls then hands back the bookmark to resume (never blocks forever)', async () => {
+    mockFetch.mockResolvedValue(cfResp(200, { at_bookmark: 'bm-1', status: 'processing' })); // never completes
+    const res = await postReq(appWith('super-1'), `/api/admin/d1/${REAL_UUID}/export`);
+    const body = await res.json<{ status: string; bookmark: string }>();
+    expect(body.status).toBe('processing');
+    expect(body.bookmark).toBe('bm-1');
+    expect(mockFetch).toHaveBeenCalledTimes(6); // MAX_EXPORT_POLLS
+    // polls 2..6 resume with the current_bookmark from the prior poll
+    const [, opts2] = mockFetch.mock.calls[1] as [string, { body: string }];
+    expect(JSON.parse(opts2.body).current_bookmark).toBe('bm-1');
+  });
+
+  it('resumes an in-progress export from a client-supplied currentBookmark', async () => {
+    mockFetch.mockResolvedValue(
+      cfResp(200, { at_bookmark: 'bm-2', status: 'complete', result: { signed_url: 'u', filename: 'f' } }),
+    );
+    await postReq(appWith('super-1'), `/api/admin/d1/${REAL_UUID}/export`, { currentBookmark: 'bm-resume' });
+    const [, opts] = mockFetch.mock.calls[0] as [string, { body: string }];
+    expect(JSON.parse(opts.body).current_bookmark).toBe('bm-resume');
+  });
+
+  it('error: CF export error surfaces status:error (never a fabricated URL)', async () => {
+    mockFetch.mockResolvedValue(cfResp(200, { at_bookmark: 'b', status: 'error', error: 'export blew up' }));
+    const res = await postReq(appWith('super-1'), `/api/admin/d1/${REAL_UUID}/export`);
+    const body = await res.json<{ status: string; reason: string; signedUrl?: string }>();
+    expect(body.status).toBe('error');
+    expect(body.reason).toBe('export blew up');
+    expect(body.signedUrl).toBeUndefined();
+  });
+
+  it('unavailable (no fabricated URL) when the worker has no CF key', async () => {
+    const env = { ...makeEnv(), CLOUDFLARE_API_KEY: '', CLOUDFLARE_EMAIL: '' } as AppEnv;
+    const res = await postReq(appWith('super-1'), `/api/admin/d1/${REAL_UUID}/export`, {}, env);
+    const body = await res.json<{ status: string; reason: string }>();
+    expect(body.status).toBe('unavailable');
+    expect(body.reason).toBe('no_credentials');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('database_not_found when CF 404s the export (honest, no URL)', async () => {
+    mockFetch.mockResolvedValue(cfResp(404, null));
+    const res = await postReq(appWith('super-1'), `/api/admin/d1/${REAL_UUID}/export`);
+    const body = await res.json<{ status: string; reason: string }>();
+    expect(body.status).toBe('error');
+    expect(body.reason).toBe('database_not_found');
   });
 });

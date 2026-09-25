@@ -36,6 +36,7 @@ export default defineFeatureManifest({
   apiRoutes: [
     'GET /api/admin/d1/databases',
     'GET /api/admin/d1/:databaseId/overview',
+    'POST /api/admin/d1/:databaseId/export',
   ],
 
   // ---- governance ----

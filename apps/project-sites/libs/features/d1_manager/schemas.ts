@@ -66,3 +66,57 @@ export const D1OverviewResponseSchema = z.object({
 });
 
 export type D1OverviewResponse = z.infer<typeof D1OverviewResponseSchema>;
+
+/**
+ * A SQLite identifier (table name) for a scoped export — letters/digits/underscore, ≤64 chars.
+ * Bounds what we forward into CF's `dump_options.tables`; a hostile value is rejected here (400)
+ * and never reaches the REST call. (CF re-validates too — this is defense-in-depth, not the only gate.)
+ */
+export const D1TableNameSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'A table name is a SQLite identifier.');
+
+/**
+ * Body for POST /api/admin/d1/:databaseId/export. All fields optional:
+ * - `tables`  — scope the export to specific tables (fewer tables ⇒ shorter DB-unavailability window);
+ *               omitted ⇒ full-database export.
+ * - `schemaOnly` / `dataOnly` — CF `dump_options.no_data` / `no_schema` (mutually exclusive; both false ⇒ full dump).
+ * - `currentBookmark` — resume polling an in-progress export (the `bookmark` from a prior `processing` response).
+ */
+export const D1ExportRequestSchema = z
+  .object({
+    tables: z.array(D1TableNameSchema).max(50).optional(),
+    schemaOnly: z.boolean().optional(),
+    dataOnly: z.boolean().optional(),
+    currentBookmark: z.string().min(1).max(256).optional(),
+  })
+  .strict()
+  .refine((b) => !(b.schemaOnly && b.dataOnly), {
+    message: 'schemaOnly and dataOnly are mutually exclusive.',
+  });
+
+export type D1ExportRequest = z.infer<typeof D1ExportRequestSchema>;
+
+/**
+ * Response for the export endpoint. `status` drives the client:
+ * - `complete`   — `signedUrl` (valid ~1h) + `filename` are set; download it.
+ * - `processing` — still running; re-POST with `{ currentBookmark: bookmark }` to resume.
+ * - `error`      — CF reported an export error (`reason` + `messages`).
+ * - `unavailable`— credentials/API failure (honest, never a fabricated URL).
+ * `note` always carries the honest caveat that exporting briefly makes the DB unavailable to queries.
+ */
+export const D1ExportResponseSchema = z.object({
+  status: z.enum(['complete', 'processing', 'error', 'unavailable']),
+  /** Signed SQL-dump download URL — ONLY when complete (valid ~1 hour). Never fabricated. */
+  signedUrl: z.string().optional(),
+  filename: z.string().optional(),
+  /** Time-travel bookmark: resume token when processing; the export's `at_bookmark` when complete. */
+  bookmark: z.string().optional(),
+  messages: z.array(z.string()).optional(),
+  reason: z.string().optional(),
+  note: z.string(),
+});
+
+export type D1ExportResponse = z.infer<typeof D1ExportResponseSchema>;
