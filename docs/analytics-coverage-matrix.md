@@ -9,10 +9,11 @@
 The EXISTING analytics cards are verified-complete — a 4-agent scan's ~24 "gaps" were all already-shipped,
 honestly-blocked, or deliberately-dropped (verified against source; scans mis-report by not tracing the wrapper
 chain). **BUT the plateau is on the existing CARDS, not the metric space.** The prompt's "AUGMENT with advanced
-first-party metrics" clause still had genuine unbuilt metrics: **new-vs-returning shipped 2026-09-25** (row below)
-— the beacon had NO returning-visitor detection. Still-unbuilt first-party AUGMENTs (verified not-measured):
-**session duration** + **entry/exit pages** (both need a beacon session boundary), and the beacon `click`/`custom`
-event types. So existing cards are done, but the augment tier has runway. Do NOT rebuild the already-shipped set
+first-party metrics" clause still had genuine unbuilt metrics: **new-vs-returning + top-landing (entry) pages
+both shipped 2026-09-25** (rows below) — the beacon had NO returning-visitor detection and NO session-entry
+attribution. Still-unbuilt first-party AUGMENTs (verified not-measured): **session duration** + **exit pages**
+(both now UNBLOCKED — the `ps_sess` session boundary went live with the entry-pages fire; no further beacon work
+needed), and the beacon `click`/`custom` event types. So existing cards are done, but the augment tier has runway. Do NOT rebuild the already-shipped set
 (the scans mis-report them because they don't trace the wrapper chain):
 
 - **First-party cards ARE wired** (WebVitals/Engagement/Scroll/Network/NavTiming/JS-errors/OutboundClicks/
@@ -29,7 +30,7 @@ event types. So existing cards are done, but the augment tier has runway. Do NOT
 
 **Doctrine (corrected 2026-09-25):** "plateau on existing cards" is NOT "plateau on the metric space." Before
 declaring analytics done + reallocating, check the NOT-MEASURED first-party AUGMENT tier (session duration,
-entry/exit pages, click-through — new-vs-returning is now done) — the prompt explicitly invites these AND they
+exit pages, click-through — new-vs-returning + entry pages are now done) — the prompt explicitly invites these AND they
 need a beacon change, so a grep of the existing aggregators misses them (that's what caused 3 premature
 "plateau" fires this session). VERIFY a scanned gap against the wrapper chain before building (agents over-report
 already-shipped cards). Reallocate to the DATA loop's un-plateaued adapters (Hyperdrive/DO still PLANNED) only
@@ -104,6 +105,21 @@ once the augment tier is genuinely exhausted. A CF plan upgrade is the only path
   device or cleared storage counts as new (no cookie, no PII, a single timestamp). +4 Jest (fold incl.
   null→unknown · fail-soft · tenant 404 · 200 owned) + Karma card spec. Worker deployed (`eb2953b4`),
   `/analytics/visitors` prod 401-gated, beacon `/app.js` carries the `nv` logic. Data accrues from first serve.
+- **Top landing (entry) pages (✅ DONE end-to-end 2026-09-25):** the AUGMENT metric showing WHERE visits begin —
+  which page a session's FIRST pageview landed on (the SEO/campaign entry surface), distinct from top-pages-by-volume.
+  `app.js` sets a cookieless `sessionStorage` `ps_sess` per-session marker and sends `ep: 1` on the **first**
+  `page_engagement` beacon of a session (omitted thereafter), so exactly one entry is attributed per visit. Ingest
+  mirrors `ep` (1 only) into `page_engagement` metadata → **`getEntryPagesSummary`** folds
+  `WHERE json_extract(metadata,'$.ep')=1 GROUP BY path ORDER BY n DESC LIMIT 20` into `{pages:[{path,count}]}`
+  (skips null/empty path, fail-soft `{pages:[]}`) → owner-scoped route `GET /api/sites/:siteId/analytics/entry-pages`
+  (`requireOwnedSite` tenant gate, cross-org → 404) → **`EntryPagesCardComponent`** ("Top landing pages") shows the
+  ranked entry paths with share bars, a **"Measuring…"** empty state (never a fabricated 0), and the HONEST
+  disclaimer: session-scoped (a new tab/cleared session = a new entry; cookieless, no PII). +4 Jest (rank+limit ·
+  skip-empty-path · fail-soft · tenant 404 via real `dbQuery` against a D1 double) + Karma card spec. Worker deployed
+  (`df43a76e`, redeploy after a stale-bundle 404→401 verify-by-shape), `/analytics/entry-pages` prod 401-gated,
+  beacon `/app.js` carries the `ep` session-boundary logic (**5 `ep` markers verified live**), frontend card
+  deployed to R2 (297/297). Data accrues from first serve. **The `ps_sess` boundary this added also unblocks
+  session-duration + exit-pages for the next fires.**
 - **CF GraphQL `httpRequestsAdaptiveGroups`** (`services/multi_url_analytics.ts`) is **fallback-only**
   now — the prior "no traffic" bug (reading empty CF-zone data for `*.projectsites.dev` subdomains
   instead of D1) is fixed. CF-zone per-host data is only meaningful for **custom domains in a CF zone**,
