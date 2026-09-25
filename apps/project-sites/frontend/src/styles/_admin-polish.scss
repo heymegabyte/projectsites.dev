@@ -216,9 +216,12 @@ main > app-section-error-boundary {
     }
   }
 }
+// Opacity-only (no translateY) — the residual panel slide that still read as
+// "the new panel jumps up a few pixels" on section change. A pure fade-in
+// matches the rest of the route transitions (psContentIn) and the no-jump goal.
 @keyframes psAdminSectionIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 // Loading spinner — brand-accent conic gradient (replaces 2px border).
