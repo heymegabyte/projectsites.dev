@@ -16,7 +16,10 @@ const nextConfig = {
   },
   // Packages with Cloudflare Workers (workerd) specific code
   // Read more: https://opennext.js.org/cloudflare/howtos/workerd
-  serverExternalPackages: ['jose', 'pg-cloudflare'],
+  // drizzle-kit is a dev/migration CLI pulled in by the D1 adapter — never bundle it
+  // (esbuild "require drizzle-kit/api" bundle error). If this doesn't fully resolve it,
+  // add drizzle-kit to open-next.config.ts external as well.
+  serverExternalPackages: ['jose', 'pg-cloudflare', 'drizzle-kit'],
 
   // Your Next.js config here
   webpack: (webpackConfig: any) => {

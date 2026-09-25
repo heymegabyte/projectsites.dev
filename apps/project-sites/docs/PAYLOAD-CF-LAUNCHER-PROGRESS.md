@@ -67,6 +67,16 @@
   side-effect imports have no type decls — TS2882, type-only, runtime-safe). Build retrying for
   the `.open-next/worker.js` bundle. **If more drift surfaces, re-degit at tag `#v3.82.1`**
   (`63702d7…`) so source matches deps — the robust class-fix.
+- **Fire 2 RESULT:** after 4 fixes the build now compiles ALL the way to the final OpenNext
+  esbuild bundling — `.open-next/{worker.js, assets/, server-functions/}` all produced (43M).
+  Last blocker: esbuild fails on `require('drizzle-kit/api')` (a dev CLI that must not be
+  bundled). Fix applied: added `drizzle-kit` to `next.config.ts serverExternalPackages`.
+  **NEXT FIRE:** (1) re-run `opennextjs-cloudflare build` → verify a CLEAN bundle (0 esbuild
+  errors); if drizzle-kit still bundles, add it to `open-next.config.ts` external too.
+  (2) create a throwaway D1 (+ `payload migrate`) + R2, deploy the bundle as a WfP user Worker
+  (worker + assets via assets-upload-session + D1/R2 bindings + PAYLOAD_SECRET), (3) **curl the
+  `/admin` login → assert 200** (the acceptance milestone). Build env that worked: `PAYLOAD_SECRET`
+  set + `NODE_OPTIONS=--max-old-space-size=8000` + D1 `remote:false`.
 
 ## Remaining slices (in order)
 
