@@ -166,9 +166,20 @@ gated.
   "not measured yet"). `FunnelStageSchema.key` gains `deeply_engaged`; the frontend renders it
   automatically (generic stage list). +2 Jest (inserts-when-measured+monotonic / omits-when-no-samples);
   the first-party metrics now propagate to BOTH the public report AND the funnel. Worker tsc+jest clean.
+- **Top outbound/contact links SHIPPED (2026-09-25):** outbound-link clicks were collected as
+  `conversion` events but the DESTINATION was dropped at the mirror (only kind/section/channel
+  stored). Now the mirror persists the click `href` — SERVER-normalized (`normalizeClickHref`:
+  tel:/mailto:/sms: kept whole; http(s) → origin+pathname with query+fragment stripped so tracking
+  params are never stored; relative/#/js/CTA-buttons dropped; length-capped) — and
+  **`getOutboundClicksSummary`** groups by href → top-8 destinations (kind + count) + a total,
+  folded into both summary paths. **`OutboundLinksCardComponent`** ("Top links clicked") renders it
+  beside Conversions (the WHICH-LINKS companion to the by-category counts), scheme stripped for
+  display, honest empty when none. These are the owner's OWN links, not visitor PII. +9 Jest
+  (5 aggregate + 4 normalize) + 4 Karma. Worker tsc+jest; app tsc; card Karma 4/4.
   **REMAINING (ranked, all optional):** (1) surface CWV ratings on the public report too; (2) the
   drilldown filter UI (owned by a concurrent session — not mine). The analytics section is at a
-  broad-coverage plateau: every AVAILABLE CF dataset + the full advanced-first-party set is shipped.
+  broad-coverage plateau: every AVAILABLE CF dataset + the full advanced-first-party set is shipped,
+  and first-party metrics propagate to the admin dashboard, the public report, and the funnel.
 
 ## Coverage matrix
 
