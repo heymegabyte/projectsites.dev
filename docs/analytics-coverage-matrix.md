@@ -54,6 +54,13 @@ gated.
   first-party-token beacon we do NOT deploy today (we run our OWN app.js RUM instead). A CF
   beacon would DOUBLE-count with app.js; DEFERRED (decision: keep first-party RUM as the
   source of truth). Documented so a future fire doesn't chase it blindly.
+  - **(2026-09-25) This decision is now CONFIRMED IN THE OWNER-FACING UI** — the analytics
+    glossary states real-user speed metrics come from the ProjectSites first-party beacon
+    (app.js) on every page, **NOT the Cloudflare Web Analytics beacon**, so an owner never
+    assumes a CF beacon (that a CNAME alone wouldn't establish) is collecting their RUM. The
+    glossary also carries a distinct "Page load speed (FCP · TTFB)" entry (every-browser
+    Navigation Timing, unlike Chromium-only CWV). Directly answers the prompt's beacon-
+    confirmation ask; locked by `analytics-glossary.component.spec.ts`.
 - **SHIPPED from this map:** (2026-09-24) HTTP protocol / TLS version / content-type /
   method breakdowns → `envelope.delivery.{protocols,tls,content_types,methods}` →
   `DeliveryCardComponent` edge-breakdown grid (same per-host query, zero extra requests);
