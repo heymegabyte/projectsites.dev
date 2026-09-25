@@ -14,8 +14,16 @@
   referrer, path)`) into the event `metadata` JSON, with bot-UA filtering (`BOT_UA_RE`). So the
   device / geo / channel / referrer breakdowns are **real**, not empty-pending-beacon.
 - **Client beacon (`POST /api/events`)** mirrors `conversion` / `form_start` / `form_submit` /
-  `web_vital` / **`js_error`** into `visitor_events` (`routes/analytics.ts`) — pageviews are
-  intentionally NOT re-mirrored (server records them) to avoid double-count.
+  `web_vital` / `js_error` / **`page_engagement`** into `visitor_events` (`routes/analytics.ts`) —
+  pageviews are intentionally NOT re-mirrored (server records them) to avoid double-count.
+- **Time-on-page / engagement (INSTRUMENTED 2026-09-25, display pending):** `app.js`
+  `initEngagement()` measures dwell (interactive → first hide) and beacons it once as a
+  `page_engagement` event (`{duration_ms, href}`), client-bounded **1s–30min** (drops
+  bounce/bot noise + abandoned open tabs). Ingest `EVENT_TYPES` accepts it → mirrored to
+  `visitor_events` with a server-re-guarded `{duration_ms}` (finite, 0–30min). First-party
+  engagement signal CF's plan has NO dataset for. Per "instrument before showing," the aggregate
+  (**median** time-on-page per page — mean is outlier-skewed) + a card are the NEXT fire.
+  +7 tests (app.js contract: booted/beacon/measure/bounds/once/listeners + schema acceptance).
 - **JS-error site-health (✅ DONE end-to-end 2026-09-25):** `app.js` `initErrorBeacon()` turns an
   uncaught error / unhandled rejection into a `js_error` event (`{message, source, line}`, deduped
   once/session · capped ≤5 · message truncated 300 · resource-404s skipped · self-guarded) → ingest
