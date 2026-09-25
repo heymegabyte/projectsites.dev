@@ -138,6 +138,7 @@ import { integrationHealth } from './routes/integration_health.js';
 import { tokenBurnMeter } from '../libs/features/token_burn_meter/handlers.js'; // #13 per-tenant token-burn meter + budget killswitch (flag: token_burn_meter)
 import { siteAnalytics } from '../libs/features/site_analytics/handlers.js'; // owner-facing per-site analytics summary (flag: site_analytics)
 import { kvInspector } from '../libs/features/kv_inspector/handlers.js'; // read-only super-admin KV inspector (flag: kv_inspector)
+import { d1Manager } from '../libs/features/d1_manager/handlers.js'; // read-only super-admin D1 resource-discovery + Overview (flag: d1_manager)
 import { r2Inspector } from '../libs/features/r2_inspector/handlers.js'; // read-only super-admin R2 object inspector (flag: r2_inspector)
 import { vectorizeInspector } from '../libs/features/vectorize_inspector/handlers.js'; // read-only super-admin Vectorize index inspector (flag: vectorize_inspector)
 import { queuesInspector } from '../libs/features/queues_inspector/handlers.js'; // read-only super-admin Queues inspector (flag: queues_inspector)
@@ -981,6 +982,7 @@ app.route('/', tokenBurnMeter); // /api/usage/budget + /api/admin/usage/budget �
 app.route('/', siteAnalytics); // /api/sites/:siteId/analytics — owner analytics summary (flag: site_analytics). Must precede `api` so the :siteId/analytics suffix wins.
 app.route('/', cloudflareRum); // /api/sites/:siteId/cloudflare-rum — CF Web Analytics RUM (CWV + NavTiming, per owned host). Must precede `api` so the :siteId/cloudflare-rum suffix wins.
 app.route('/', kvInspector); // /api/admin/kv/* — read-only super-admin KV inspector (flag: kv_inspector)
+app.route('/', d1Manager); // /api/admin/d1/* — read-only super-admin D1 resource-discovery + Overview (flag: d1_manager)
 app.route('/', r2Inspector); // /api/admin/r2/* — read-only super-admin R2 object inspector (flag: r2_inspector)
 app.route('/', vectorizeInspector); // /api/admin/vectorize/* — read-only super-admin Vectorize index inspector (flag: vectorize_inspector)
 app.route('/', queuesInspector); // /api/admin/queues/* — read-only super-admin Queues inspector (flag: queues_inspector)

@@ -437,6 +437,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  d1_manager: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Read-only, super-admin D1 resource-discovery + Overview surface for the Cloudflare account\'s D1 databases.\n\n• Worker: libs/features/d1_manager/handlers.ts serves GET /api/admin/d1/databases (list: id/name/created/version) + /api/admin/d1/:databaseId/overview (metadata: file size, table count, region, read-replication, version) via the Cloudflare D1 REST API.\n• Cloudflare credentials stay SERVER-side (resolveCfCredentials); account id is env.CF_ACCOUNT_ID, never client-supplied. :databaseId is a validated UUID (no REST-path injection); the super-admin gate is the authz boundary (account-wide platform view, not per-tenant).\n• Read-only (no query/write/restore — the raw SQL console + Time Travel restore are separate). Super-admin only; flag off → 404 (never leak existence). Honest "not available" (never a fabricated empty list) when creds/API fail.\n• Surfaced in the Editor Data panel D1 Overview strip + /admin/data (System Administrator).',
+    key: 'd1_manager',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   r2_inspector: {
     default_enabled: false,
     default_rollout_percent: 0,
