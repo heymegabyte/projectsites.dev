@@ -63,6 +63,7 @@ import {
   type CellInputKind,
   type BoundValue,
 } from './data-panel-logic';
+import { SqlEditor } from './SqlEditor';
 import { classNames } from '~/utils/classNames';
 
 type Status = 'loading' | 'ready' | 'error' | 'standalone';
@@ -2409,20 +2410,12 @@ export const DataPanel = memo(() => {
                 </button>
               )}
             </div>
-            <textarea
+            <SqlEditor
               value={sql}
-              onChange={(e) => updateSql(e.target.value)}
-              onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                  e.preventDefault();
-                  runSql(sql);
-                }
-              }}
-              spellCheck={false}
-              rows={4}
-              data-testid="data-sql-input"
+              onValueChange={updateSql}
+              onRun={() => runSql(sql)}
               placeholder="SELECT … · CREATE TABLE … · INSERT/UPDATE/DELETE …  (⌘↵ to run · destructive statements confirm first)"
-              className="w-full resize-y rounded-md bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor px-3 py-2 font-mono text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-bolt-elements-item-contentAccent/50"
+              testId="data-sql-input"
             />
             <div className="flex items-center gap-3">
               <button
