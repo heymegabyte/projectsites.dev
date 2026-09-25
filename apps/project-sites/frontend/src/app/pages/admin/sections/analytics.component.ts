@@ -31,6 +31,7 @@ import { ScrollDepthCardComponent } from './scroll-depth-card.component';
 import { NetworkQualityCardComponent } from './network-quality-card.component';
 import { NavTimingCardComponent } from './nav-timing-card.component';
 import { TechBreakdownComponent } from './tech-breakdown.component';
+import { VisitorTypeCardComponent } from './visitor-type-card.component';
 import { ChannelBreakdownComponent } from './channel-breakdown.component';
 import { FormFunnelCardComponent } from './form-funnel-card.component';
 import { CampaignBreakdownComponent } from './campaign-breakdown.component';
@@ -93,7 +94,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, CloudflareRumCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, NetworkQualityCardComponent, NavTimingCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, OutboundLinksCardComponent, FormFunnelCardComponent, TechBreakdownComponent, ChannelBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, CloudflareRumCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, NetworkQualityCardComponent, NavTimingCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, OutboundLinksCardComponent, FormFunnelCardComponent, TechBreakdownComponent, VisitorTypeCardComponent, ChannelBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -654,6 +655,15 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
            owned host, an INDEPENDENT second source to the first-party beacon above (cross-check,
            never summed). Self-fetches /api/sites/:id/cloudflare-rum; sampled + honest empties. -->
       <app-cloudflare-rum-card
+        appReveal
+        [siteId]="state.selectedSite()?.id ?? null"
+        [windowDays]="rangeDays()"
+      />
+
+      <!-- New vs returning — first-party page_engagement nv flag (browser-scoped, cookieless
+           localStorage). CF has no returning-visitor dataset; this is the AUGMENT metric. Honest:
+           a new device / cleared storage counts as new; unknown (private mode) surfaced separately. -->
+      <app-visitor-type-card
         appReveal
         [siteId]="state.selectedSite()?.id ?? null"
         [windowDays]="rangeDays()"

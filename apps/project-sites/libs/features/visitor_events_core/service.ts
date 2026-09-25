@@ -802,7 +802,9 @@ export async function getNewVsReturningSummary(
   if (error) return out;
   for (const r of data) {
     const n = Number(r.n) || 0;
-    if (Number(r.nv) === 1) out.newVisits += n;
+    // Null-check FIRST — Number(null) === 0 would misfold "unknown" into returning.
+    if (r.nv === null || r.nv === undefined) out.unknownVisits += n;
+    else if (Number(r.nv) === 1) out.newVisits += n;
     else if (Number(r.nv) === 0) out.returningVisits += n;
     else out.unknownVisits += n;
   }
