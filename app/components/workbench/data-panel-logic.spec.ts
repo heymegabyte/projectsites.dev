@@ -22,6 +22,8 @@ import {
   stripSqlCommentsAndStrings,
   classifySqlStatement,
   classifySql,
+  explainQuery,
+  explainPlanHint,
 } from './data-panel-logic';
 
 describe('iconForTable', () => {
@@ -398,5 +400,49 @@ describe('classifySql: batch aggregation', () => {
       statementCount: 0,
     });
     expect(classifySql(';;;').statementCount).toBe(0);
+  });
+});
+
+describe('explainQuery', () => {
+  it('wraps the first statement in EXPLAIN QUERY PLAN', () => {
+    expect(explainQuery('SELECT * FROM t')).toBe('EXPLAIN QUERY PLAN SELECT * FROM t');
+  });
+  it('strips a trailing semicolon and only wraps the FIRST statement (EXPLAIN is single-statement)', () => {
+    expect(explainQuery('SELECT 1;')).toBe('EXPLAIN QUERY PLAN SELECT 1');
+    expect(explainQuery('SELECT 1; SELECT 2')).toBe('EXPLAIN QUERY PLAN SELECT 1');
+  });
+  it('is idempotent — never double-wraps an already-EXPLAIN query (case-insensitive)', () => {
+    expect(explainQuery('EXPLAIN QUERY PLAN SELECT 1')).toBe('EXPLAIN QUERY PLAN SELECT 1');
+    expect(explainQuery('explain select 1')).toBe('explain select 1');
+  });
+  it('returns empty string for a blank/whitespace/semicolon-only buffer', () => {
+    expect(explainQuery('')).toBe('');
+    expect(explainQuery('   ;;  ')).toBe('');
+  });
+});
+
+describe('explainPlanHint', () => {
+  it('warns on a bare full-table SCAN and counts the scanned tables', () => {
+    const h = explainPlanHint([{ detail: 'SCAN users' }, { detail: 'SCAN orders' }]);
+    expect(h?.level).toBe('warn');
+    expect(h?.message).toContain('2 tables');
+  });
+  it('reports GOOD when every step uses an index (no bare scan)', () => {
+    const h = explainPlanHint([{ detail: 'SEARCH users USING INDEX ix_email (email=?)' }]);
+    expect(h?.level).toBe('good');
+  });
+  it('does not treat "USING COVERING INDEX" as a scan', () => {
+    expect(explainPlanHint([{ detail: 'SCAN t USING COVERING INDEX ix' }])?.level).toBe('good');
+  });
+  it('flags a temp B-tree sort as info when there is no scan', () => {
+    const h = explainPlanHint([
+      { detail: 'SEARCH t USING INDEX ix' },
+      { detail: 'USE TEMP B-TREE FOR ORDER BY' },
+    ]);
+    expect(h?.level).toBe('info');
+  });
+  it('returns null when the rows are NOT a query plan (no detail column) — shows only after Explain', () => {
+    expect(explainPlanHint([{ id: 1, name: 'x' }])).toBeNull();
+    expect(explainPlanHint([])).toBeNull();
   });
 });
