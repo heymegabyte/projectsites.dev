@@ -16,14 +16,41 @@ import { SiteDataBrowserComponent } from './site-data-browser.component';
 const COLS = ['event_type', 'path', 'referrer', 'created_at'];
 const ROWS = [
   { event_type: 'pageview', path: '/', referrer: null, created_at: '2026-09-23T12:00:00Z' },
-  { event_type: 'pageview', path: '/pricing', referrer: 'https://google.com', created_at: '2026-09-23T12:01:00Z' },
+  {
+    event_type: 'pageview',
+    path: '/pricing',
+    referrer: 'https://google.com',
+    created_at: '2026-09-23T12:01:00Z',
+  },
 ];
 
 const OVERVIEW = {
   data: {
     tables: [
-      { key: 'visitor_events', label: 'Visitor Events', description: 'Analytics pageviews and events', columns: COLS, row_count: 3, browsable: true, deletable: false, last_activity: '2026-09-20 12:00:00' },
-      { key: 'form_submissions', label: 'Form Submissions', description: 'Contact and lead form entries', columns: ['form_name', 'status', 'notes', 'email', 'created_at'], row_count: 2, browsable: true, deletable: true, editableColumns: { status: { type: 'enum', options: ['received', 'forwarded', 'partial', 'failed'] }, notes: { type: 'text', maxLength: 2000 } }, last_activity: null },
+      {
+        key: 'visitor_events',
+        label: 'Visitor Events',
+        description: 'Analytics pageviews and events',
+        columns: COLS,
+        row_count: 3,
+        browsable: true,
+        deletable: false,
+        last_activity: '2026-09-20 12:00:00',
+      },
+      {
+        key: 'form_submissions',
+        label: 'Form Submissions',
+        description: 'Contact and lead form entries',
+        columns: ['form_name', 'status', 'notes', 'email', 'created_at'],
+        row_count: 2,
+        browsable: true,
+        deletable: true,
+        editableColumns: {
+          status: { type: 'enum', options: ['received', 'forwarded', 'partial', 'failed'] },
+          notes: { type: 'text', maxLength: 2000 },
+        },
+        last_activity: null,
+      },
     ],
   },
 };
@@ -33,7 +60,12 @@ function browsePage(total: number): jasmine.Spy {
   return jasmine
     .createSpy('browseDataTable')
     .and.callFake((_id: string, _table: string, opts: { limit?: number; offset?: number } = {}) =>
-      of({ data: { table: 'visitor_events', columns: COLS, rows: ROWS }, total, limit: opts.limit ?? 25, offset: opts.offset ?? 0 }),
+      of({
+        data: { table: 'visitor_events', columns: COLS, rows: ROWS },
+        total,
+        limit: opts.limit ?? 25,
+        offset: opts.offset ?? 0,
+      }),
     );
 }
 
@@ -50,7 +82,12 @@ function pagedBrowse(total: number, rowsPerPage = 100): jasmine.Spy {
         referrer: null,
         created_at: 'x',
       }));
-      return of({ data: { table: 'visitor_events', columns: COLS, rows }, total, limit: rowsPerPage, offset });
+      return of({
+        data: { table: 'visitor_events', columns: COLS, rows },
+        total,
+        limit: rowsPerPage,
+        offset,
+      });
     });
 }
 
@@ -63,11 +100,15 @@ function setup(overrides?: {
   getDataActivity?: jasmine.Spy;
   confirmResult?: boolean;
 }) {
-  const getDataOverview = overrides?.getDataOverview ?? jasmine.createSpy('getDataOverview').and.returnValue(of(OVERVIEW));
+  const getDataOverview =
+    overrides?.getDataOverview ??
+    jasmine.createSpy('getDataOverview').and.returnValue(of(OVERVIEW));
   const browseDataTable = overrides?.browseDataTable ?? browsePage(3);
   const deleteOverviewRow =
     overrides?.deleteOverviewRow ??
-    jasmine.createSpy('deleteOverviewRow').and.returnValue(of({ data: { id: 'r', deleted: true } }));
+    jasmine
+      .createSpy('deleteOverviewRow')
+      .and.returnValue(of({ data: { id: 'r', deleted: true } }));
   const bulkDeleteOverviewRows =
     overrides?.bulkDeleteOverviewRows ??
     jasmine
@@ -75,11 +116,22 @@ function setup(overrides?: {
       .and.returnValue(of({ data: { requested: 2, deleted: 2, skipped: 0 } }));
   const updateOverviewRow =
     overrides?.updateOverviewRow ??
-    jasmine.createSpy('updateOverviewRow').and.returnValue(of({ data: { id: 'r', column: 'status', value: 'forwarded', updated: true } }));
+    jasmine
+      .createSpy('updateOverviewRow')
+      .and.returnValue(
+        of({ data: { id: 'r', column: 'status', value: 'forwarded', updated: true } }),
+      );
   const getDataActivity =
     overrides?.getDataActivity ??
     jasmine.createSpy('getDataActivity').and.returnValue(of({ data: { events: [] } }));
-  const api = { getDataOverview, browseDataTable, deleteOverviewRow, bulkDeleteOverviewRows, updateOverviewRow, getDataActivity };
+  const api = {
+    getDataOverview,
+    browseDataTable,
+    deleteOverviewRow,
+    bulkDeleteOverviewRows,
+    updateOverviewRow,
+    getDataActivity,
+  };
   // Mock ConfirmService + ToastService so the real CDK-Dialog-backed ConfirmService
   // never constructs in the unit harness (and so delete specs can drive the outcome).
   const confirmSpy = jasmine.createSpy('confirm').and.resolveTo(overrides?.confirmResult ?? true);
@@ -95,7 +147,18 @@ function setup(overrides?: {
   });
   const fixture = TestBed.createComponent(SiteDataBrowserComponent);
   fixture.componentRef.setInput('siteId', 'site-1');
-  return { fixture, c: fixture.componentInstance, getDataOverview, browseDataTable, deleteOverviewRow, bulkDeleteOverviewRows, updateOverviewRow, getDataActivity, confirmSpy, toast };
+  return {
+    fixture,
+    c: fixture.componentInstance,
+    getDataOverview,
+    browseDataTable,
+    deleteOverviewRow,
+    bulkDeleteOverviewRows,
+    updateOverviewRow,
+    getDataActivity,
+    confirmSpy,
+    toast,
+  };
 }
 
 describe('SiteDataBrowserComponent', () => {
@@ -107,7 +170,11 @@ describe('SiteDataBrowserComponent', () => {
     expect(c.tables().length).toBe(2);
     // visitor_events (3 rows) is chosen over form_submissions (0 rows).
     expect(c.selected()?.key).toBe('visitor_events');
-    expect(browseDataTable).toHaveBeenCalledWith('site-1', 'visitor_events', jasmine.objectContaining({ offset: 0 }));
+    expect(browseDataTable).toHaveBeenCalledWith(
+      'site-1',
+      'visitor_events',
+      jasmine.objectContaining({ offset: 0 }),
+    );
     expect(c.rows().length).toBe(2);
     expect(c.total()).toBe(3);
   });
@@ -119,6 +186,29 @@ describe('SiteDataBrowserComponent', () => {
     expect(chip).withContext('table chip present').toBeTruthy();
     expect(chip.nativeElement.textContent).toContain('3');
     expect(fixture.debugElement.queryAll(By.css('[data-testid="db-row"]')).length).toBe(2);
+  });
+
+  it('renders a NULL cell as a de-emphasized "—" (not literal "NULL"), keeping the NULL distinction on hover', () => {
+    const browse = jasmine.createSpy('browseDataTable').and.returnValue(
+      of({
+        data: {
+          table: 'visitor_events',
+          columns: ['path', 'referrer'],
+          rows: [{ path: '/x', referrer: null }],
+        },
+        total: 1,
+        limit: 25,
+        offset: 0,
+      }),
+    );
+    const { fixture } = setup({ browseDataTable: browse });
+    fixture.detectChanges();
+    const nullCell = fixture.debugElement.query(By.css('.db-null'));
+    expect(nullCell).withContext('null renders via the db-null span').toBeTruthy();
+    // Owner-friendly display is an em-dash, but the NULL semantics stay honest in title + aria-label.
+    expect(nullCell.nativeElement.textContent.trim()).toBe('—');
+    expect(nullCell.nativeElement.getAttribute('title')).toContain('NULL');
+    expect(nullCell.nativeElement.getAttribute('aria-label')).toBe('null');
   });
 
   it('rangeLabel reports the applied window honestly', () => {
@@ -133,7 +223,9 @@ describe('SiteDataBrowserComponent', () => {
     c.sortBy('path');
     expect(c.orderBy()).toBe('path');
     expect(c.dir()).toBe('asc');
-    expect(browseDataTable.calls.mostRecent().args[2]).toEqual(jasmine.objectContaining({ orderBy: 'path', dir: 'asc', offset: 0 }));
+    expect(browseDataTable.calls.mostRecent().args[2]).toEqual(
+      jasmine.objectContaining({ orderBy: 'path', dir: 'asc', offset: 0 }),
+    );
     c.sortBy('path');
     expect(c.dir()).toBe('desc');
     // aria-sort reflects the active column/direction (WCAG sortable semantics).
@@ -155,11 +247,14 @@ describe('SiteDataBrowserComponent', () => {
     c.setSearch('  gmail  ');
     expect(c.search()).withContext('trimmed').toBe('gmail');
     expect(c.offset()).withContext('new search resets to the first page').toBe(0);
-    expect(browseDataTable.calls.mostRecent().args[2])
-      .toEqual(jasmine.objectContaining({ search: 'gmail', offset: 0 }));
+    expect(browseDataTable.calls.mostRecent().args[2]).toEqual(
+      jasmine.objectContaining({ search: 'gmail', offset: 0 }),
+    );
     const before = browseDataTable.calls.count();
     c.setSearch('gmail'); // same trimmed value → no redundant refetch
-    expect(browseDataTable.calls.count()).withContext('unchanged search does not refetch').toBe(before);
+    expect(browseDataTable.calls.count())
+      .withContext('unchanged search does not refetch')
+      .toBe(before);
   });
 
   it('selectTable clears an active search (a new table starts unfiltered)', () => {
@@ -178,7 +273,9 @@ describe('SiteDataBrowserComponent', () => {
     expect(c.canPrev()).toBeFalse();
     c.nextPage();
     expect(c.offset()).toBe(25);
-    expect(browseDataTable.calls.mostRecent().args[2]).toEqual(jasmine.objectContaining({ offset: 25, limit: 25 }));
+    expect(browseDataTable.calls.mostRecent().args[2]).toEqual(
+      jasmine.objectContaining({ offset: 25, limit: 25 }),
+    );
     expect(c.canPrev()).toBeTrue();
   });
 
@@ -189,25 +286,35 @@ describe('SiteDataBrowserComponent', () => {
     c.setLimit(50);
     expect(c.limit()).toBe(50);
     expect(c.offset()).toBe(0);
-    expect(browseDataTable.calls.mostRecent().args[2]).toEqual(jasmine.objectContaining({ limit: 50, offset: 0 }));
+    expect(browseDataTable.calls.mostRecent().args[2]).toEqual(
+      jasmine.objectContaining({ limit: 50, offset: 0 }),
+    );
   });
 
   it('surfaces a retryable error (no fake empty) when the overview response is shapeless', () => {
-    const { c } = setup({ getDataOverview: jasmine.createSpy('getDataOverview').and.returnValue(of({})) });
+    const { c } = setup({
+      getDataOverview: jasmine.createSpy('getDataOverview').and.returnValue(of({})),
+    });
     c.loadTables('site-1'); // direct call — assert the signal without rendering the error card
     expect(c.tables()).toEqual([]);
     expect(c.tablesError()).toContain('unexpected');
   });
 
   it('surfaces a retryable error when the overview load hard-fails', () => {
-    const { c } = setup({ getDataOverview: jasmine.createSpy('getDataOverview').and.returnValue(throwError(() => ({ status: 500 }))) });
+    const { c } = setup({
+      getDataOverview: jasmine
+        .createSpy('getDataOverview')
+        .and.returnValue(throwError(() => ({ status: 500 }))),
+    });
     c.loadTables('site-1');
     expect(c.tablesError()).toBeTruthy();
     expect(c.tables()).toEqual([]);
   });
 
   it('surfaces a rows error (never a fake success) when a page load fails', () => {
-    const browseDataTable = jasmine.createSpy('browseDataTable').and.returnValue(throwError(() => ({ status: 500 })));
+    const browseDataTable = jasmine
+      .createSpy('browseDataTable')
+      .and.returnValue(throwError(() => ({ status: 500 })));
     const { c } = setup({ browseDataTable });
     c.loadTables('site-1'); // synchronous: auto-selects → loadPage → error, no render
     expect(c.rowsError()).toBeTruthy();
@@ -215,9 +322,36 @@ describe('SiteDataBrowserComponent', () => {
   });
 
   it('shows an honest empty-table message (not a page-past-end message) when total is 0', () => {
-    const overview = { data: { tables: [{ key: 'form_submissions', label: 'Form Submissions', description: 'x', columns: ['form_name', 'status', 'email', 'created_at'], row_count: 0, browsable: true, deletable: true }] } };
+    const overview = {
+      data: {
+        tables: [
+          {
+            key: 'form_submissions',
+            label: 'Form Submissions',
+            description: 'x',
+            columns: ['form_name', 'status', 'email', 'created_at'],
+            row_count: 0,
+            browsable: true,
+            deletable: true,
+          },
+        ],
+      },
+    };
     const getDataOverview = jasmine.createSpy('getDataOverview').and.returnValue(of(overview));
-    const browseDataTable = jasmine.createSpy('browseDataTable').and.returnValue(of({ data: { table: 'form_submissions', columns: ['form_name', 'status', 'email', 'created_at'], rows: [] }, total: 0, limit: 25, offset: 0 }));
+    const browseDataTable = jasmine
+      .createSpy('browseDataTable')
+      .and.returnValue(
+        of({
+          data: {
+            table: 'form_submissions',
+            columns: ['form_name', 'status', 'email', 'created_at'],
+            rows: [],
+          },
+          total: 0,
+          limit: 25,
+          offset: 0,
+        }),
+      );
     const { c } = setup({ getDataOverview, browseDataTable });
     c.loadTables('site-1');
     expect(c.rows()).toEqual([]);
@@ -269,7 +403,9 @@ describe('SiteDataBrowserComponent', () => {
       await c.exportCsv();
       // 250 rows / 100 per page → 3 export fetches at offsets 0, 100, 200.
       expect(paged.calls.count()).toBe(3);
-      expect(paged.calls.allArgs().map((a) => (a[2] as { offset?: number }).offset)).toEqual([0, 100, 200]);
+      expect(paged.calls.allArgs().map((a) => (a[2] as { offset?: number }).offset)).toEqual([
+        0, 100, 200,
+      ]);
       const text = await (createSpy.calls.mostRecent().args[0] as Blob).text();
       expect(text.trimEnd().split('\n').length).toBe(251); // 1 header + 250 rows
       expect(c.exportNote()).toBeNull(); // 250 < cap → not capped
@@ -362,7 +498,9 @@ describe('SiteDataBrowserComponent — column show/hide', () => {
     c.toggleColumn('referrer');
     expect(c.visibleColumns()).toEqual(['event_type', 'path', 'created_at']);
     expect(c.hiddenColumns().has('referrer')).toBe(true);
-    expect(c.columns()).withContext('full column set stays intact for detail + export').toEqual(COLS);
+    expect(c.columns())
+      .withContext('full column set stays intact for detail + export')
+      .toEqual(COLS);
   });
 
   it('renders only the visible columns in the grid header', () => {
@@ -396,7 +534,9 @@ describe('SiteDataBrowserComponent — column show/hide', () => {
     c.toggleColumn('referrer');
     expect(c.visibleColumns()).toEqual(['created_at']);
     c.toggleColumn('created_at'); // refused — would empty the grid
-    expect(c.visibleColumns()).withContext('the last column cannot be hidden').toEqual(['created_at']);
+    expect(c.visibleColumns())
+      .withContext('the last column cannot be hidden')
+      .toEqual(['created_at']);
   });
 
   it('persists the hidden set per (site, table) and restores it on the next mount', () => {
@@ -425,7 +565,9 @@ describe('SiteDataBrowserComponent — column show/hide', () => {
       browsable: true,
       deletable: true,
     });
-    expect(c.hiddenColumns().has('email')).withContext('per-table preference restored on switch').toBe(true);
+    expect(c.hiddenColumns().has('email'))
+      .withContext('per-table preference restored on switch')
+      .toBe(true);
   });
 });
 
@@ -462,7 +604,9 @@ describe('SiteDataBrowserComponent — copy affordances', () => {
     fixture.detectChanges();
     const spy = spyOn(c as unknown as Clip, 'writeClipboard').and.resolveTo();
     await c.copyRow({ event_type: 'pageview', path: '/' });
-    expect(spy).toHaveBeenCalledWith(JSON.stringify({ event_type: 'pageview', path: '/' }, null, 2));
+    expect(spy).toHaveBeenCalledWith(
+      JSON.stringify({ event_type: 'pageview', path: '/' }, null, 2),
+    );
     expect(c.copied()).toBe('Copied row JSON');
   });
 
@@ -533,7 +677,9 @@ describe('SiteDataBrowserComponent — per-column filter', () => {
     const { fixture } = setup();
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelector('[data-testid="db-colfilter-col"]')).withContext('column select renders').toBeTruthy();
+    expect(host.querySelector('[data-testid="db-colfilter-col"]'))
+      .withContext('column select renders')
+      .toBeTruthy();
     const val = host.querySelector('[data-testid="db-colfilter-val"]') as HTMLInputElement;
     expect(val).toBeTruthy();
     expect(val.disabled).withContext('value disabled with no column chosen').toBe(true);
@@ -567,7 +713,9 @@ describe('SiteDataBrowserComponent — overview summary', () => {
   it('renders the summary strip with the record total after load', () => {
     const { fixture } = setup();
     fixture.detectChanges();
-    const strip = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="db-summary"]');
+    const strip = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="db-summary"]',
+    );
     expect(strip).withContext('summary strip renders').toBeTruthy();
     expect(strip!.textContent).toContain('2'); // tables
     expect(strip!.textContent).toContain('record');
@@ -586,18 +734,31 @@ describe('SiteDataBrowserComponent — row delete', () => {
 
   const FS_COLS = ['form_name', 'status', 'email', 'created_at'];
   const FS_ROWS = [
-    { id: 'row-abc', form_name: 'contact', status: 'received', email: 'a***@x.com', created_at: '2026-09-24T00:00:00Z' },
+    {
+      id: 'row-abc',
+      form_name: 'contact',
+      status: 'received',
+      email: 'a***@x.com',
+      created_at: '2026-09-24T00:00:00Z',
+    },
   ];
   /** A browse spy that serves form_submissions rows (each carrying a stable `id`). */
   function browseForm(): jasmine.Spy {
     return jasmine
       .createSpy('browseDataTable')
       .and.callFake((_id: string, table: string, opts: { limit?: number; offset?: number } = {}) =>
-        of({ data: { table, columns: FS_COLS, rows: FS_ROWS }, total: FS_ROWS.length, limit: opts.limit ?? 25, offset: opts.offset ?? 0 }),
+        of({
+          data: { table, columns: FS_COLS, rows: FS_ROWS },
+          total: FS_ROWS.length,
+          limit: opts.limit ?? 25,
+          offset: opts.offset ?? 0,
+        }),
       );
   }
-  const formTable = (c: SiteDataBrowserComponent) => c.tables().find((t) => t.key === 'form_submissions')!;
-  const visitorTable = (c: SiteDataBrowserComponent) => c.tables().find((t) => t.key === 'visitor_events')!;
+  const formTable = (c: SiteDataBrowserComponent) =>
+    c.tables().find((t) => t.key === 'form_submissions')!;
+  const visitorTable = (c: SiteDataBrowserComponent) =>
+    c.tables().find((t) => t.key === 'visitor_events')!;
 
   it('renders a Delete button in row detail ONLY for a deletable table with a stable id', () => {
     const { fixture, c } = setup({ browseDataTable: browseForm() });
@@ -606,7 +767,9 @@ describe('SiteDataBrowserComponent — row delete', () => {
     fixture.detectChanges();
     c.toggleRow(0); // expand the row to reveal the detail bar
     fixture.detectChanges();
-    const del = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="db-delete-row"]');
+    const del = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="db-delete-row"]',
+    );
     expect(del).withContext('delete button shows for deletable form_submissions row').toBeTruthy();
   });
 
@@ -617,7 +780,9 @@ describe('SiteDataBrowserComponent — row delete', () => {
     fixture.detectChanges();
     c.toggleRow(0);
     fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="db-delete-row"]')).toBeNull();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="db-delete-row"]'),
+    ).toBeNull();
   });
 
   it('deleteRow: confirms, calls the site-scoped delete, toasts, and refreshes both grid + counts', async () => {
@@ -646,7 +811,11 @@ describe('SiteDataBrowserComponent — row delete', () => {
 
   it('deleteRow: does NOTHING when the user cancels the confirmation', async () => {
     const deleteOverviewRow = jasmine.createSpy('deleteOverviewRow');
-    const { fixture, c } = setup({ browseDataTable: browseForm(), deleteOverviewRow, confirmResult: false });
+    const { fixture, c } = setup({
+      browseDataTable: browseForm(),
+      deleteOverviewRow,
+      confirmResult: false,
+    });
     fixture.detectChanges(); // load the overview so the real form_submissions table (with label) resolves
     c.selected.set(formTable(c));
     await c.deleteRow({ id: 'row-abc' });
@@ -666,8 +835,14 @@ describe('SiteDataBrowserComponent — row delete', () => {
   });
 
   it('deleteRow: surfaces an error toast (and clears the spinner) when the delete fails', async () => {
-    const deleteOverviewRow = jasmine.createSpy('deleteOverviewRow').and.returnValue(throwError(() => ({ status: 500 })));
-    const { fixture, c, toast } = setup({ browseDataTable: browseForm(), deleteOverviewRow, confirmResult: true });
+    const deleteOverviewRow = jasmine
+      .createSpy('deleteOverviewRow')
+      .and.returnValue(throwError(() => ({ status: 500 })));
+    const { fixture, c, toast } = setup({
+      browseDataTable: browseForm(),
+      deleteOverviewRow,
+      confirmResult: true,
+    });
     fixture.detectChanges();
     c.selectTable(formTable(c));
     await c.deleteRow({ id: 'row-abc' });
@@ -687,24 +862,42 @@ describe('SiteDataBrowserComponent — row edit', () => {
 
   const FS_COLS = ['form_name', 'status', 'email', 'created_at'];
   const FS_ROWS = [
-    { id: 'row-abc', form_name: 'contact', status: 'received', email: 'a***@x.com', created_at: '2026-09-24T00:00:00Z' },
+    {
+      id: 'row-abc',
+      form_name: 'contact',
+      status: 'received',
+      email: 'a***@x.com',
+      created_at: '2026-09-24T00:00:00Z',
+    },
   ];
   function browseForm(): jasmine.Spy {
     return jasmine
       .createSpy('browseDataTable')
       .and.callFake((_id: string, table: string, opts: { limit?: number; offset?: number } = {}) =>
-        of({ data: { table, columns: FS_COLS, rows: FS_ROWS }, total: FS_ROWS.length, limit: opts.limit ?? 25, offset: opts.offset ?? 0 }),
+        of({
+          data: { table, columns: FS_COLS, rows: FS_ROWS },
+          total: FS_ROWS.length,
+          limit: opts.limit ?? 25,
+          offset: opts.offset ?? 0,
+        }),
       );
   }
-  const formTable = (c: SiteDataBrowserComponent) => c.tables().find((t) => t.key === 'form_submissions')!;
-  const visitorTable = (c: SiteDataBrowserComponent) => c.tables().find((t) => t.key === 'visitor_events')!;
+  const formTable = (c: SiteDataBrowserComponent) =>
+    c.tables().find((t) => t.key === 'form_submissions')!;
+  const visitorTable = (c: SiteDataBrowserComponent) =>
+    c.tables().find((t) => t.key === 'visitor_events')!;
 
   it('exposes the editable columns of the selected table ([] for a read-only table)', () => {
     const { fixture, c } = setup();
     fixture.detectChanges();
     c.selectTable(formTable(c));
     expect(c.editableColumnsList().map((e) => e.column)).toEqual(['status', 'notes']);
-    expect(c.editableColumnsList()[0].options).toEqual(['received', 'forwarded', 'partial', 'failed']);
+    expect(c.editableColumnsList()[0].options).toEqual([
+      'received',
+      'forwarded',
+      'partial',
+      'failed',
+    ]);
     // The text column carries a maxLength (bound) + no options; the enum carries options + maxLength 0.
     const notes = c.editableColumnsList().find((e) => e.column === 'notes')!;
     expect(notes.type).toBe('text');
@@ -717,7 +910,9 @@ describe('SiteDataBrowserComponent — row edit', () => {
   it('renders a <textarea> (maxlength-bound) for the text column, and saveEdit PATCHes the note', async () => {
     const updateOverviewRow = jasmine
       .createSpy('updateOverviewRow')
-      .and.returnValue(of({ data: { id: 'row-abc', column: 'notes', value: 'called back', updated: true } }));
+      .and.returnValue(
+        of({ data: { id: 'row-abc', column: 'notes', value: 'called back', updated: true } }),
+      );
     const { fixture, c, confirmSpy, toast } = setup({
       browseDataTable: browseForm(),
       updateOverviewRow,
@@ -739,7 +934,13 @@ describe('SiteDataBrowserComponent — row edit', () => {
     c.setDraft('notes', 'called back');
     await c.saveEdit({ id: 'row-abc', notes: null }, 'notes');
     expect(confirmSpy).toHaveBeenCalled();
-    expect(updateOverviewRow).toHaveBeenCalledWith('site-1', 'form_submissions', 'row-abc', 'notes', 'called back');
+    expect(updateOverviewRow).toHaveBeenCalledWith(
+      'site-1',
+      'form_submissions',
+      'row-abc',
+      'notes',
+      'called back',
+    );
     expect(toast.success).toHaveBeenCalled();
   });
 
@@ -750,7 +951,9 @@ describe('SiteDataBrowserComponent — row edit', () => {
     fixture.detectChanges();
     c.toggleRow(0);
     fixture.detectChanges();
-    const sel = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="db-edit-status"]');
+    const sel = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="db-edit-status"]',
+    );
     expect(sel).withContext('status select renders for form_submissions').toBeTruthy();
     expect(sel!.querySelectorAll('option').length).toBe(4);
   });
@@ -772,7 +975,9 @@ describe('SiteDataBrowserComponent — row edit', () => {
   it('saveEdit: confirms, PATCHes the scoped column, toasts, and refreshes', async () => {
     const updateOverviewRow = jasmine
       .createSpy('updateOverviewRow')
-      .and.returnValue(of({ data: { id: 'row-abc', column: 'status', value: 'forwarded', updated: true } }));
+      .and.returnValue(
+        of({ data: { id: 'row-abc', column: 'status', value: 'forwarded', updated: true } }),
+      );
     const { fixture, c, confirmSpy, toast, browseDataTable } = setup({
       browseDataTable: browseForm(),
       updateOverviewRow,
@@ -786,7 +991,13 @@ describe('SiteDataBrowserComponent — row edit', () => {
     await c.saveEdit({ id: 'row-abc', status: 'received' }, 'status');
 
     expect(confirmSpy).toHaveBeenCalled();
-    expect(updateOverviewRow).toHaveBeenCalledWith('site-1', 'form_submissions', 'row-abc', 'status', 'forwarded');
+    expect(updateOverviewRow).toHaveBeenCalledWith(
+      'site-1',
+      'form_submissions',
+      'row-abc',
+      'status',
+      'forwarded',
+    );
     expect(toast.success).toHaveBeenCalled();
     expect(browseDataTable).withContext('grid refetched').toHaveBeenCalled();
     expect(c.savingEdit()).toBeFalse();
@@ -795,7 +1006,11 @@ describe('SiteDataBrowserComponent — row edit', () => {
 
   it('saveEdit: cancelling the confirmation reverts the draft and calls nothing', async () => {
     const updateOverviewRow = jasmine.createSpy('updateOverviewRow');
-    const { fixture, c } = setup({ browseDataTable: browseForm(), updateOverviewRow, confirmResult: false });
+    const { fixture, c } = setup({
+      browseDataTable: browseForm(),
+      updateOverviewRow,
+      confirmResult: false,
+    });
     fixture.detectChanges();
     c.selectTable(formTable(c));
     c.setDraft('status', 'forwarded');
@@ -819,8 +1034,14 @@ describe('SiteDataBrowserComponent — row edit', () => {
   });
 
   it('saveEdit: surfaces an error toast (and clears the spinner) when the update fails', async () => {
-    const updateOverviewRow = jasmine.createSpy('updateOverviewRow').and.returnValue(throwError(() => ({ status: 500 })));
-    const { fixture, c, toast } = setup({ browseDataTable: browseForm(), updateOverviewRow, confirmResult: true });
+    const updateOverviewRow = jasmine
+      .createSpy('updateOverviewRow')
+      .and.returnValue(throwError(() => ({ status: 500 })));
+    const { fixture, c, toast } = setup({
+      browseDataTable: browseForm(),
+      updateOverviewRow,
+      confirmResult: true,
+    });
     fixture.detectChanges();
     c.selectTable(formTable(c));
     c.setDraft('status', 'forwarded');
@@ -843,8 +1064,12 @@ describe('SiteDataBrowserComponent — last-activity freshness', () => {
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     // visitor_events has a timestamp → chip present; form_submissions is null → absent.
-    expect(host.querySelector('[data-testid="db-table-fresh-visitor_events"]')).withContext('ts → chip').toBeTruthy();
-    expect(host.querySelector('[data-testid="db-table-fresh-form_submissions"]')).withContext('null → no chip').toBeNull();
+    expect(host.querySelector('[data-testid="db-table-fresh-visitor_events"]'))
+      .withContext('ts → chip')
+      .toBeTruthy();
+    expect(host.querySelector('[data-testid="db-table-fresh-form_submissions"]'))
+      .withContext('null → no chip')
+      .toBeNull();
   });
 
   it('compactAge: buckets the age and parses UTC timestamps (not local)', () => {
@@ -885,16 +1110,32 @@ describe('SiteDataBrowserComponent — recent activity', () => {
   afterEach(() => TestBed.resetTestingModule());
 
   const EVENTS = [
-    { action: 'site_data.row_deleted', table: 'form_submissions', message: 'Deleted a row from form_submissions', actor: 'u1', at: '2026-09-24T12:00:00.000Z' },
-    { action: 'site_data.row_updated', table: 'form_submissions', message: 'Updated status on a form_submissions row', actor: 'u1', at: '2026-09-23T09:00:00.000Z' },
+    {
+      action: 'site_data.row_deleted',
+      table: 'form_submissions',
+      message: 'Deleted a row from form_submissions',
+      actor: 'u1',
+      at: '2026-09-24T12:00:00.000Z',
+    },
+    {
+      action: 'site_data.row_updated',
+      table: 'form_submissions',
+      message: 'Updated status on a form_submissions row',
+      actor: 'u1',
+      at: '2026-09-23T09:00:00.000Z',
+    },
   ];
 
   it('renders the activity panel with one item per mutation (newest first)', () => {
-    const getDataActivity = jasmine.createSpy('getDataActivity').and.returnValue(of({ data: { events: EVENTS } }));
+    const getDataActivity = jasmine
+      .createSpy('getDataActivity')
+      .and.returnValue(of({ data: { events: EVENTS } }));
     const { fixture } = setup({ getDataActivity });
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelector('[data-testid="db-activity"]')).withContext('panel renders with events').toBeTruthy();
+    expect(host.querySelector('[data-testid="db-activity"]'))
+      .withContext('panel renders with events')
+      .toBeTruthy();
     const items = host.querySelectorAll('[data-testid="db-activity-item"]');
     expect(items.length).toBe(2);
     expect(items[0].textContent).toContain('Deleted a row from form_submissions');
@@ -903,18 +1144,24 @@ describe('SiteDataBrowserComponent — recent activity', () => {
   it('does NOT render the activity panel when there are no mutations', () => {
     const { fixture } = setup(); // default getDataActivity → empty events
     fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="db-activity"]')).toBeNull();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('[data-testid="db-activity"]'),
+    ).toBeNull();
   });
 
   it('loads activity on init and refreshes it after a delete', async () => {
-    const getDataActivity = jasmine.createSpy('getDataActivity').and.returnValue(of({ data: { events: EVENTS } }));
+    const getDataActivity = jasmine
+      .createSpy('getDataActivity')
+      .and.returnValue(of({ data: { events: EVENTS } }));
     const { fixture, c } = setup({ getDataActivity, confirmResult: true });
     fixture.detectChanges();
     expect(getDataActivity).toHaveBeenCalledWith('site-1'); // on init
     const before = getDataActivity.calls.count();
     c.selected.set(c.tables().find((t) => t.key === 'form_submissions')!);
     await c.deleteRow({ id: 'row-abc' });
-    expect(getDataActivity.calls.count()).withContext('activity refetched after delete').toBeGreaterThan(before);
+    expect(getDataActivity.calls.count())
+      .withContext('activity refetched after delete')
+      .toBeGreaterThan(before);
     expect(c.activity().length).toBe(2);
   });
 
@@ -926,7 +1173,10 @@ describe('SiteDataBrowserComponent — recent activity', () => {
     const { fixture, c, confirmSpy, toast } = setup({ bulkDeleteOverviewRows });
     fixture.detectChanges();
     c.selected.set(c.tables().find((t) => t.key === 'form_submissions')!);
-    c.rows.set([{ id: 'r1', form_name: 'Contact' }, { id: 'r2', form_name: 'Contact' }]);
+    c.rows.set([
+      { id: 'r1', form_name: 'Contact' },
+      { id: 'r2', form_name: 'Contact' },
+    ]);
     c.toggleRowSelected(c.rows()[0]);
     c.toggleRowSelected(c.rows()[1]);
     expect(c.selectedCount()).toBe(2);
@@ -942,15 +1192,23 @@ describe('SiteDataBrowserComponent — recent activity', () => {
     fixture.detectChanges();
     const el = fixture.nativeElement as HTMLElement;
     c.selected.set(c.tables().find((t) => t.key === 'form_submissions')!);
-    c.rows.set([{ id: 'r1', form_name: 'Contact', status: 'received', email: 'a@x', created_at: 'x' }]);
+    c.rows.set([
+      { id: 'r1', form_name: 'Contact', status: 'received', email: 'a@x', created_at: 'x' },
+    ]);
     fixture.detectChanges();
-    expect(el.querySelector('[data-testid="db-select-all"]')).withContext('deletable → select-all').toBeTruthy();
-    expect(el.querySelector('[data-testid="db-select-0"]')).withContext('deletable → row checkbox').toBeTruthy();
+    expect(el.querySelector('[data-testid="db-select-all"]'))
+      .withContext('deletable → select-all')
+      .toBeTruthy();
+    expect(el.querySelector('[data-testid="db-select-0"]'))
+      .withContext('deletable → row checkbox')
+      .toBeTruthy();
 
     c.selected.set(c.tables().find((t) => t.key === 'visitor_events')!);
     c.rows.set([{ event_type: 'pageview', path: '/p', referrer: null, created_at: 'x' }]);
     fixture.detectChanges();
-    expect(el.querySelector('[data-testid="db-select-all"]')).withContext('read-only → no select-all').toBeNull();
+    expect(el.querySelector('[data-testid="db-select-all"]'))
+      .withContext('read-only → no select-all')
+      .toBeNull();
   });
 
   it('select-all selects every selectable row on the page (id-bearing rows only)', () => {
@@ -999,6 +1257,8 @@ describe('SiteDataBrowserComponent — recent activity', () => {
     c.rows.set([{ id: 'r1' }, { id: 'r2' }, { id: 'r3' }]);
     c.rows().forEach((r) => c.toggleRowSelected(r));
     await c.bulkDelete();
-    expect(toast.success).toHaveBeenCalledWith(jasmine.stringMatching(/Deleted 1 of 3.*already gone/));
+    expect(toast.success).toHaveBeenCalledWith(
+      jasmine.stringMatching(/Deleted 1 of 3.*already gone/),
+    );
   });
 });

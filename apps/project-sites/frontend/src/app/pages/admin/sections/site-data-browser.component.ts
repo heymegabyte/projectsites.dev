@@ -37,7 +37,11 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { catchError, firstValueFrom, of } from 'rxjs';
-import { ApiService, type DataOverviewTable, type DataActivityEvent } from '../../../services/api.service';
+import {
+  ApiService,
+  type DataOverviewTable,
+  type DataActivityEvent,
+} from '../../../services/api.service';
 import { ConfirmService } from '../../../services/confirm.service';
 import { ToastService } from '../../../services/toast.service';
 import { MiniEmptyComponent } from '../../../components/mini-empty/mini-empty.component';
@@ -63,14 +67,22 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
       } @else {
         @if (dataSummary(); as s) {
           <p class="db-summary" data-testid="db-summary" aria-live="polite">
-            <strong>{{ s.tableCount }}</strong> {{ s.tableCount === 1 ? 'table' : 'tables' }}
-            · <strong>{{ s.totalRows.toLocaleString() }}</strong> {{ s.totalRows === 1 ? 'record' : 'records' }}
+            <strong>{{ s.tableCount }}</strong> {{ s.tableCount === 1 ? 'table' : 'tables' }} ·
+            <strong>{{ s.totalRows.toLocaleString() }}</strong>
+            {{ s.totalRows === 1 ? 'record' : 'records' }}
             @if (s.largest && s.largest.row_count > 0) {
-              · largest: <strong>{{ s.largest.label }}</strong> ({{ s.largest.row_count.toLocaleString() }})
+              · largest: <strong>{{ s.largest.label }}</strong> ({{
+                s.largest.row_count.toLocaleString()
+              }})
             }
           </p>
         }
-        <div class="db-tables" role="tablist" aria-label="Site data tables" data-testid="db-table-list">
+        <div
+          class="db-tables"
+          role="tablist"
+          aria-label="Site data tables"
+          data-testid="db-table-list"
+        >
           @for (t of tables(); track t.key) {
             <button
               type="button"
@@ -82,18 +94,34 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
               (click)="selectTable(t)"
             >
               <span class="db-table-label">{{ t.label }}</span>
-              <span class="db-table-count" [attr.title]="t.row_count + ' rows'">{{ t.row_count }}</span>
+              <span class="db-table-count" [attr.title]="t.row_count + ' rows'">{{
+                t.row_count
+              }}</span>
               @if (compactAge(t.last_activity); as age) {
                 <span
                   class="db-table-fresh"
                   [attr.data-testid]="'db-table-fresh-' + t.key"
                   [attr.title]="'Last activity: ' + fullTimestamp(t.last_activity)"
-                >{{ age }}</span>
+                  >{{ age }}</span
+                >
               }
             </button>
           } @empty {
             <app-mini-empty text="No data tables for this site yet.">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <ellipse cx="12" cy="5" rx="9" ry="3" />
+                <path d="M3 5v14a9 3 0 0 0 18 0V5" />
+                <path d="M3 12a9 3 0 0 0 18 0" />
+              </svg>
             </app-mini-empty>
           }
         </div>
@@ -105,7 +133,8 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
               class="db-readonly-pill"
               data-testid="db-readonly-pill"
               title="Read-only — a curated view of your site's system & analytics tables. Row IDs aren't exposed here for safety, so rows can't be edited from this grid; edit your content in the site editor."
-            >Read-only</span>
+              >Read-only</span
+            >
           </p>
 
           @if (rowsError(); as rerr) {
@@ -119,29 +148,59 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
           }
 
           <div class="db-toolbar">
-            <input #sb type="search" class="db-search" data-testid="db-search"
-                   [value]="search()"
-                   (change)="setSearch(sb.value)"
-                   (search)="setSearch(sb.value)"
-                   placeholder="Search rows…"
-                   aria-label="Search rows in this table" />
-            <div class="db-colfilter" role="group" aria-label="Filter by an exact column value" data-testid="db-colfilter">
-              <select #fc class="db-colfilter-sel" [value]="filterCol()"
-                      (change)="onFilterColChange(fc.value, fv.value)"
-                      data-testid="db-colfilter-col" aria-label="Filter column">
+            <input
+              #sb
+              type="search"
+              class="db-search"
+              data-testid="db-search"
+              [value]="search()"
+              (change)="setSearch(sb.value)"
+              (search)="setSearch(sb.value)"
+              placeholder="Search rows…"
+              aria-label="Search rows in this table"
+            />
+            <div
+              class="db-colfilter"
+              role="group"
+              aria-label="Filter by an exact column value"
+              data-testid="db-colfilter"
+            >
+              <select
+                #fc
+                class="db-colfilter-sel"
+                [value]="filterCol()"
+                (change)="onFilterColChange(fc.value, fv.value)"
+                data-testid="db-colfilter-col"
+                aria-label="Filter column"
+              >
                 <option value="">Filter column…</option>
                 @for (col of columns(); track col) {
                   <option [value]="col">{{ col }}</option>
                 }
               </select>
-              <input #fv type="text" class="db-colfilter-val" [value]="filterVal()"
-                     [disabled]="!fc.value" placeholder="exact value"
-                     (change)="applyColumnFilter(fc.value, fv.value)"
-                     (keydown.enter)="applyColumnFilter(fc.value, fv.value)"
-                     data-testid="db-colfilter-val" aria-label="Exact filter value" />
+              <input
+                #fv
+                type="text"
+                class="db-colfilter-val"
+                [value]="filterVal()"
+                [disabled]="!fc.value"
+                placeholder="exact value"
+                (change)="applyColumnFilter(fc.value, fv.value)"
+                (keydown.enter)="applyColumnFilter(fc.value, fv.value)"
+                data-testid="db-colfilter-val"
+                aria-label="Exact filter value"
+              />
               @if (filterCol() && filterVal()) {
-                <button type="button" class="db-colfilter-clear" (click)="clearColumnFilter()"
-                        data-testid="db-colfilter-clear" aria-label="Clear column filter" title="Clear filter">×</button>
+                <button
+                  type="button"
+                  class="db-colfilter-clear"
+                  (click)="clearColumnFilter()"
+                  data-testid="db-colfilter-clear"
+                  aria-label="Clear column filter"
+                  title="Clear filter"
+                >
+                  ×
+                </button>
               }
             </div>
             <span class="db-range" data-testid="db-range">{{ rangeLabel() }}</span>
@@ -152,14 +211,18 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                 [disabled]="!canPrev() || rowsLoading()"
                 data-testid="db-prev"
                 aria-label="Previous page"
-              >Prev</button>
+              >
+                Prev
+              </button>
               <button
                 type="button"
                 (click)="nextPage()"
                 [disabled]="!canNext() || rowsLoading()"
                 data-testid="db-next"
                 aria-label="Next page"
-              >Next</button>
+              >
+                Next
+              </button>
             </div>
             <label class="db-pagesize">
               <span>Rows</span>
@@ -179,7 +242,9 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                 <summary class="db-cols-summary" aria-label="Choose which columns to show">
                   Columns
                   @if (hiddenColumns().size > 0) {
-                    <span class="db-cols-badge" data-testid="db-cols-badge">{{ visibleColumns().length }}/{{ columns().length }}</span>
+                    <span class="db-cols-badge" data-testid="db-cols-badge"
+                      >{{ visibleColumns().length }}/{{ columns().length }}</span
+                    >
                   }
                 </summary>
                 <div class="db-cols-menu" role="group" aria-label="Toggle table columns">
@@ -189,7 +254,9 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                     (click)="showAllColumns()"
                     [disabled]="hiddenColumns().size === 0"
                     data-testid="db-cols-all"
-                  >Show all</button>
+                  >
+                    Show all
+                  </button>
                   @for (col of columns(); track col) {
                     <label class="db-cols-item">
                       <input
@@ -207,10 +274,14 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
             }
             <div class="db-actions">
               @if (copied(); as msg) {
-                <span class="db-copied" aria-live="polite" data-testid="db-copied">✓ {{ msg }}</span>
+                <span class="db-copied" aria-live="polite" data-testid="db-copied"
+                  >✓ {{ msg }}</span
+                >
               }
               @if (exporting()) {
-                <span class="db-exporting" aria-live="polite" data-testid="db-exporting">Exporting…</span>
+                <span class="db-exporting" aria-live="polite" data-testid="db-exporting"
+                  >Exporting…</span
+                >
               }
               <button
                 type="button"
@@ -218,18 +289,34 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                 (click)="exportCsv()"
                 [disabled]="total() === 0 || exporting()"
                 data-testid="db-export-csv"
-                [title]="(filterActive() ? 'Download the filtered rows' : 'Download the whole table') + ' (up to 5,000 rows, current sort) as CSV'"
-                [attr.aria-label]="(filterActive() ? 'Export the filtered rows' : 'Export the whole table') + ' as CSV'"
-              >CSV</button>
+                [title]="
+                  (filterActive() ? 'Download the filtered rows' : 'Download the whole table') +
+                  ' (up to 5,000 rows, current sort) as CSV'
+                "
+                [attr.aria-label]="
+                  (filterActive() ? 'Export the filtered rows' : 'Export the whole table') +
+                  ' as CSV'
+                "
+              >
+                CSV
+              </button>
               <button
                 type="button"
                 class="db-export"
                 (click)="exportJson()"
                 [disabled]="total() === 0 || exporting()"
                 data-testid="db-export-json"
-                [title]="(filterActive() ? 'Download the filtered rows' : 'Download the whole table') + ' (up to 5,000 rows, current sort) as JSON'"
-                [attr.aria-label]="(filterActive() ? 'Export the filtered rows' : 'Export the whole table') + ' as JSON'"
-              >JSON</button>
+                [title]="
+                  (filterActive() ? 'Download the filtered rows' : 'Download the whole table') +
+                  ' (up to 5,000 rows, current sort) as JSON'
+                "
+                [attr.aria-label]="
+                  (filterActive() ? 'Export the filtered rows' : 'Export the whole table') +
+                  ' as JSON'
+                "
+              >
+                JSON
+              </button>
               <button
                 type="button"
                 class="db-refresh"
@@ -237,7 +324,9 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                 [disabled]="rowsLoading() || exporting()"
                 data-testid="db-refresh"
                 aria-label="Refresh rows"
-              >{{ rowsLoading() ? 'Loading…' : 'Refresh' }}</button>
+              >
+                {{ rowsLoading() ? 'Loading…' : 'Refresh' }}
+              </button>
             </div>
           </div>
           @if (exportNote(); as note) {
@@ -248,11 +337,28 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
             <p class="db-loading" data-testid="db-rows-loading">Loading rows…</p>
           } @else if (rows().length === 0) {
             <app-mini-empty [text]="emptyText()" data-testid="db-rows-empty">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v4H3z"/><path d="M3 11h18M3 15h18M3 19h18"/></svg>
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M3 3h18v4H3z" />
+                <path d="M3 11h18M3 15h18M3 19h18" />
+              </svg>
             </app-mini-empty>
           } @else {
             @if (selectedCount() > 0) {
-              <div class="db-bulk-bar" role="region" aria-label="Bulk actions" data-testid="db-bulk-bar">
+              <div
+                class="db-bulk-bar"
+                role="region"
+                aria-label="Bulk actions"
+                data-testid="db-bulk-bar"
+              >
                 <span class="db-bulk-count" aria-live="polite">{{ selectedCount() }} selected</span>
                 <button
                   type="button"
@@ -260,14 +366,18 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                   (click)="bulkDelete()"
                   [disabled]="bulkDeleting()"
                   data-testid="db-bulk-delete"
-                >{{ bulkDeleting() ? 'Deleting…' : 'Delete selected' }}</button>
+                >
+                  {{ bulkDeleting() ? 'Deleting…' : 'Delete selected' }}
+                </button>
                 <button
                   type="button"
                   class="db-bulk-clear"
                   (click)="clearSelection()"
                   [disabled]="bulkDeleting()"
                   data-testid="db-bulk-clear"
-                >Clear</button>
+                >
+                  Clear
+                </button>
               </div>
             }
             <div
@@ -302,7 +412,9 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                         >
                           {{ col }}
                           @if (orderBy() === col) {
-                            <span class="db-arrow" aria-hidden="true">{{ dir() === 'asc' ? '↑' : '↓' }}</span>
+                            <span class="db-arrow" aria-hidden="true">{{
+                              dir() === 'asc' ? '↑' : '↓'
+                            }}</span>
                           }
                         </button>
                       </th>
@@ -330,12 +442,19 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                       @for (col of visibleColumns(); track col) {
                         <td data-testid="db-cell">
                           @if (row[col] === null || row[col] === undefined) {
-                            <span class="db-null" title="NULL value">NULL</span>
+                            <span class="db-null" title="NULL — no value stored" aria-label="null"
+                              >—</span
+                            >
                           } @else {
-                            <button type="button" class="db-cell-copy"
-                                    (click)="copyValue(row[col])"
-                                    [attr.data-testid]="'db-copy-' + col"
-                                    title="Click to copy this value">{{ formatCell(row[col]) }}</button>
+                            <button
+                              type="button"
+                              class="db-cell-copy"
+                              (click)="copyValue(row[col])"
+                              [attr.data-testid]="'db-copy-' + col"
+                              title="Click to copy this value"
+                            >
+                              {{ formatCell(row[col]) }}
+                            </button>
                           }
                         </td>
                       }
@@ -346,57 +465,90 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                           (click)="toggleRow($index)"
                           [attr.aria-expanded]="expandedRow() === $index"
                           [attr.data-testid]="'db-expand-' + $index"
-                          [attr.aria-label]="expandedRow() === $index ? 'Hide row detail' : 'Show row detail'"
-                        >{{ expandedRow() === $index ? '▾' : '▸' }}</button>
+                          [attr.aria-label]="
+                            expandedRow() === $index ? 'Hide row detail' : 'Show row detail'
+                          "
+                        >
+                          {{ expandedRow() === $index ? '▾' : '▸' }}
+                        </button>
                       </td>
                     </tr>
                     @if (expandedRow() === $index) {
                       <tr class="db-detail-row" data-testid="db-detail">
-                        <td [attr.colspan]="visibleColumns().length + 1 + (selected()?.deletable ? 1 : 0)">
+                        <td
+                          [attr.colspan]="
+                            visibleColumns().length + 1 + (selected()?.deletable ? 1 : 0)
+                          "
+                        >
                           <div class="db-detail-bar">
                             @if (selected()?.deletable && isString(row['id'])) {
-                              <button type="button" class="db-delete-row"
-                                      (click)="deleteRow(row)"
-                                      [disabled]="deletingId() === row['id']"
-                                      data-testid="db-delete-row"
-                                      aria-label="Delete this row permanently">
+                              <button
+                                type="button"
+                                class="db-delete-row"
+                                (click)="deleteRow(row)"
+                                [disabled]="deletingId() === row['id']"
+                                data-testid="db-delete-row"
+                                aria-label="Delete this row permanently"
+                              >
                                 {{ deletingId() === row['id'] ? 'Deleting…' : 'Delete row' }}
                               </button>
                             }
-                            <button type="button" class="db-copy-row"
-                                    (click)="copyRow(row)" data-testid="db-copy-row"
-                                    aria-label="Copy this row as JSON">Copy JSON</button>
+                            <button
+                              type="button"
+                              class="db-copy-row"
+                              (click)="copyRow(row)"
+                              data-testid="db-copy-row"
+                              aria-label="Copy this row as JSON"
+                            >
+                              Copy JSON
+                            </button>
                           </div>
                           @if (editableColumnsList().length && isString(row['id'])) {
                             <div class="db-edit" data-testid="db-edit">
                               @for (ec of editableColumnsList(); track ec.column) {
                                 <div class="db-edit-field">
-                                  <label class="db-edit-label" [attr.for]="'db-edit-' + ec.column">{{ ec.column }}</label>
+                                  <label
+                                    class="db-edit-label"
+                                    [attr.for]="'db-edit-' + ec.column"
+                                    >{{ ec.column }}</label
+                                  >
                                   @if (ec.type === 'enum') {
-                                    <select class="db-edit-select"
-                                            [id]="'db-edit-' + ec.column"
-                                            [attr.data-testid]="'db-edit-' + ec.column"
-                                            [value]="draftValue(row, ec.column)"
-                                            (change)="setDraft(ec.column, $any($event.target).value)">
+                                    <select
+                                      class="db-edit-select"
+                                      [id]="'db-edit-' + ec.column"
+                                      [attr.data-testid]="'db-edit-' + ec.column"
+                                      [value]="draftValue(row, ec.column)"
+                                      (change)="setDraft(ec.column, $any($event.target).value)"
+                                    >
                                       @for (opt of ec.options; track opt) {
-                                        <option [value]="opt" [selected]="draftValue(row, ec.column) === opt">{{ opt }}</option>
+                                        <option
+                                          [value]="opt"
+                                          [selected]="draftValue(row, ec.column) === opt"
+                                        >
+                                          {{ opt }}
+                                        </option>
                                       }
                                     </select>
                                   } @else if (ec.type === 'text') {
-                                    <textarea class="db-edit-textarea"
-                                              [id]="'db-edit-' + ec.column"
-                                              [attr.data-testid]="'db-edit-' + ec.column"
-                                              [value]="draftValue(row, ec.column)"
-                                              (input)="setDraft(ec.column, $any($event.target).value)"
-                                              [attr.maxlength]="ec.maxLength || null"
-                                              rows="2"
-                                              placeholder="Add a private note…"></textarea>
+                                    <textarea
+                                      class="db-edit-textarea"
+                                      [id]="'db-edit-' + ec.column"
+                                      [attr.data-testid]="'db-edit-' + ec.column"
+                                      [value]="draftValue(row, ec.column)"
+                                      (input)="setDraft(ec.column, $any($event.target).value)"
+                                      [attr.maxlength]="ec.maxLength || null"
+                                      rows="2"
+                                      placeholder="Add a private note…"
+                                    ></textarea>
                                   }
-                                  <button type="button" class="db-edit-save"
-                                          [disabled]="!isEdited(row, ec.column) || savingEdit()"
-                                          (click)="saveEdit(row, ec.column)"
-                                          [attr.data-testid]="'db-edit-save-' + ec.column"
-                                          [attr.aria-label]="'Save ' + ec.column">
+                                  <button
+                                    type="button"
+                                    class="db-edit-save"
+                                    [disabled]="!isEdited(row, ec.column) || savingEdit()"
+                                    (click)="saveEdit(row, ec.column)"
+                                    [attr.data-testid]="'db-edit-save-' + ec.column"
+                                    [attr.aria-label]="'Save ' + ec.column"
+                                  >
                                     {{ savingEdit() ? 'Saving…' : 'Save' }}
                                   </button>
                                 </div>
@@ -414,7 +566,18 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
           }
         } @else {
           <app-mini-empty text="Select a table above to browse its rows.">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
           </app-mini-empty>
         }
       }
@@ -430,9 +593,13 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
           <ul class="db-activity-list">
             @for (ev of activity(); track $index) {
               <li class="db-activity-item" data-testid="db-activity-item">
-                <span class="db-activity-icon" [attr.data-action]="ev.action" aria-hidden="true">{{ ev.action === 'site_data.row_deleted' ? '✕' : '✎' }}</span>
+                <span class="db-activity-icon" [attr.data-action]="ev.action" aria-hidden="true">{{
+                  ev.action === 'site_data.row_deleted' ? '✕' : '✎'
+                }}</span>
                 <span class="db-activity-msg">{{ ev.message }}</span>
-                <span class="db-activity-age" [attr.title]="fullTimestamp(ev.at)">{{ compactAge(ev.at) }}</span>
+                <span class="db-activity-age" [attr.title]="fullTimestamp(ev.at)">{{
+                  compactAge(ev.at)
+                }}</span>
               </li>
             }
           </ul>
@@ -440,175 +607,729 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
       }
     </div>
   `,
-  styles: [`
-    .db { color: var(--ps-ink, #f4f4ff); }
-    .db-loading { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); font-size: 0.85rem; }
-    .db-summary { margin: 0 0 0.6rem; font-size: 0.74rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 62%, transparent); }
-    .db-summary strong { color: var(--ps-ink, #f4f4ff); font-variant-numeric: tabular-nums; }
-    .db-tables { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
-    .db-table-chip {
-      display: inline-flex; align-items: center; gap: 0.45rem; cursor: pointer;
-      padding: 0.35rem 0.7rem; border-radius: 999px; font: inherit; font-size: 0.8rem;
-      color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, transparent);
-      background: rgba(255,255,255,0.04);
-      border: 1px solid var(--ps-edge, rgba(255,255,255,0.08));
-      transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
-    }
-    .db-table-chip:hover { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 10%, transparent); border-color: color-mix(in oklch, var(--ps-accent, #00e5ff) 30%, transparent); }
-    .db-table-chip:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
-    .db-table-chip.is-active {
-      color: var(--ps-accent, #00e5ff);
-      background: color-mix(in oklch, var(--ps-accent, #00e5ff) 14%, transparent);
-      border-color: color-mix(in oklch, var(--ps-accent, #00e5ff) 45%, transparent);
-    }
-    .db-table-count {
-      font-variant-numeric: tabular-nums; font-size: 0.72rem; font-weight: 600;
-      padding: 0.05rem 0.4rem; border-radius: 999px;
-      background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent);
-    }
-    .db-table-chip.is-active .db-table-count { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 22%, transparent); }
-    .db-table-fresh { font-variant-numeric: tabular-nums; font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 48%, transparent); }
-    .db-activity { margin-top: 1.1rem; border-top: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); padding-top: 0.7rem; }
-    .db-activity-summary { cursor: pointer; font-size: 0.72rem; font-weight: 600; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 70%, transparent); display: flex; align-items: center; gap: 0.4rem; list-style: none; }
-    .db-activity-summary::-webkit-details-marker { display: none; }
-    .db-activity-summary::before { content: '▸'; font-size: 0.7rem; transition: transform 150ms ease; }
-    .db-activity[open] .db-activity-summary::before { transform: rotate(90deg); }
-    .db-activity-count { font-variant-numeric: tabular-nums; font-size: 0.62rem; font-weight: 700; padding: 0.05rem 0.4rem; border-radius: 999px; background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent); }
-    .db-activity-list { list-style: none; margin: 0.6rem 0 0; padding: 0; display: grid; gap: 0.35rem; }
-    .db-activity-item { display: flex; align-items: baseline; gap: 0.5rem; font-size: 0.76rem; }
-    .db-activity-icon { flex-shrink: 0; width: 1.1rem; text-align: center; font-size: 0.72rem; }
-    .db-activity-icon[data-action="site_data.row_deleted"] { color: #ff8f9a; }
-    .db-activity-icon[data-action="site_data.row_updated"] { color: var(--ps-accent, #00e5ff); }
-    .db-activity-msg { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 85%, transparent); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .db-activity-age { margin-left: auto; flex-shrink: 0; font-variant-numeric: tabular-nums; font-size: 0.66rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
-    .db-desc { margin: 0 0 0.75rem; font-size: 0.8rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
-    .db-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.75rem; }
-    .db-search {
-      flex: 1 1 12rem; min-width: 8rem; max-width: 20rem;
-      padding: 4px 10px; font-size: 0.78rem;
-      background: rgba(255,255,255,0.06); color: var(--ps-ink, #f4f4ff);
-      border: 1px solid rgba(255,255,255,0.14); border-radius: 8px;
-    }
-    .db-search:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; }
-    .db-colfilter { display: inline-flex; align-items: center; gap: 0.3rem; }
-    .db-colfilter-sel, .db-colfilter-val {
-      padding: 4px 8px; font-size: 0.76rem; background: rgba(255,255,255,0.06);
-      color: var(--ps-ink, #f4f4ff); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px;
-    }
-    .db-colfilter-val { width: 8rem; }
-    .db-colfilter-val:disabled { opacity: 0.4; cursor: not-allowed; }
-    .db-colfilter-sel:focus-visible, .db-colfilter-val:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; }
-    .db-colfilter-clear {
-      display: inline-flex; align-items: center; justify-content: center; width: 1.4rem; height: 1.4rem;
-      font-size: 1rem; line-height: 1; color: var(--ps-ink, #f4f4ff); background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; cursor: pointer;
-    }
-    .db-colfilter-clear:hover { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent); }
-    .db-colfilter-clear:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
-    .db-range { font-size: 0.74rem; font-variant-numeric: tabular-nums; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
-    .db-pager { display: inline-flex; gap: 0.35rem; }
-    .db-pager button, .db-refresh, .db-export {
-      font: inherit; font-size: 0.76rem; cursor: pointer; padding: 0.3rem 0.7rem; border-radius: 6px;
-      color: var(--ps-accent, #00e5ff);
-      background: color-mix(in oklch, var(--ps-accent, #00e5ff) 9%, transparent);
-      border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 28%, transparent);
-    }
-    .db-pager button:hover:not(:disabled), .db-refresh:hover:not(:disabled), .db-export:hover:not(:disabled) { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent); }
-    .db-pager button:disabled, .db-refresh:disabled, .db-export:disabled { opacity: 0.4; cursor: not-allowed; }
-    .db-pager button:focus-visible, .db-refresh:focus-visible, .db-export:focus-visible, .db-pagesize select:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
-    .db-pagesize { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.74rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); }
-    .db-pagesize select { font: inherit; font-size: 0.76rem; padding: 0.25rem 0.4rem; border-radius: 6px; color: inherit; background: rgba(0,0,0,0.25); border: 1px solid var(--ps-edge, rgba(255,255,255,0.12)); }
-    .db-cols { position: relative; }
-    .db-cols-summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.76rem; padding: 0.3rem 0.55rem; border-radius: 6px; color: inherit; background: rgba(0,0,0,0.25); border: 1px solid var(--ps-edge, rgba(255,255,255,0.12)); }
-    .db-cols-summary::-webkit-details-marker { display: none; }
-    .db-cols-summary:hover { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent); }
-    .db-cols[open] > .db-cols-summary { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; }
-    .db-cols-summary:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
-    .db-cols-badge { font-size: 0.62rem; font-weight: 700; padding: 0.05rem 0.3rem; border-radius: 999px; background: color-mix(in oklch, var(--ps-accent, #00e5ff) 24%, transparent); color: var(--ps-ink, #f4f4ff); }
-    .db-cols-menu { position: absolute; z-index: 20; top: calc(100% + 0.35rem); left: 0; min-width: 12rem; max-height: 16rem; overflow-y: auto; display: grid; gap: 0.15rem; padding: 0.5rem; border-radius: 10px; background: var(--ps-surface, #12121c); border: 1px solid var(--ps-edge, rgba(255,255,255,0.14)); box-shadow: 0 12px 32px rgba(0,0,0,0.45); }
-    .db-cols-all { font: inherit; font-size: 0.72rem; text-align: left; padding: 0.3rem 0.4rem; margin-bottom: 0.25rem; border-radius: 6px; color: var(--ps-accent, #00e5ff); background: transparent; border: 1px solid var(--ps-edge, rgba(255,255,255,0.12)); cursor: pointer; }
-    .db-cols-all:hover:not(:disabled) { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 16%, transparent); }
-    .db-cols-all:disabled { opacity: 0.4; cursor: not-allowed; }
-    .db-cols-all:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
-    .db-cols-item { display: flex; align-items: center; gap: 0.45rem; font-size: 0.76rem; padding: 0.25rem 0.4rem; border-radius: 6px; cursor: pointer; }
-    .db-cols-item:hover { background: rgba(255,255,255,0.05); }
-    .db-cols-item input { accent-color: var(--ps-accent, #00e5ff); }
-    .db-cols-item input:disabled { cursor: not-allowed; }
-    .db-cols-item input:disabled + span { opacity: 0.55; }
-    .db-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 0.35rem; }
-    .db-exporting { font-size: 0.72rem; color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; }
-    .db-copied { font-size: 0.72rem; color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; }
-    .db-cell-copy { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; text-align: left; cursor: copy; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
-    .db-cell-copy:hover { color: var(--ps-accent, #00e5ff); text-decoration: underline dotted; }
-    .db-cell-copy:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; border-radius: 3px; }
-    .db-detail-bar { display: flex; justify-content: flex-end; gap: 0.4rem; margin-bottom: 0.4rem; }
-    .db-copy-row { font: inherit; font-size: 0.72rem; padding: 0.25rem 0.55rem; border-radius: 6px; color: var(--ps-accent, #00e5ff); background: rgba(0,0,0,0.25); border: 1px solid var(--ps-edge, rgba(255,255,255,0.14)); cursor: pointer; }
-    .db-copy-row:hover { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 16%, transparent); }
-    .db-copy-row:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
-    .db-delete-row { font: inherit; font-size: 0.72rem; padding: 0.25rem 0.55rem; border-radius: 6px; color: #ff8f9a; background: color-mix(in oklch, #ff6b6b 12%, transparent); border: 1px solid color-mix(in oklch, #ff6b6b 34%, transparent); cursor: pointer; }
-    .db-delete-row:hover:not(:disabled) { background: color-mix(in oklch, #ff6b6b 22%, transparent); color: #fff; }
-    .db-delete-row:focus-visible { outline: 2px solid #ff6b6b; outline-offset: 2px; }
-    .db-delete-row:disabled { opacity: 0.6; cursor: progress; }
-    .db-sel-h, .db-sel-c { width: 1.8rem; text-align: center; padding: 0 0.3rem; }
-    .db-sel, .db-sel-all { width: 15px; height: 15px; cursor: pointer; accent-color: var(--ps-accent, #00e5ff); }
-    .db-sel:focus-visible, .db-sel-all:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
-    .db-bulk-bar { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; padding: 0.4rem 0.6rem; border-radius: 8px; background: color-mix(in oklch, #ff6b6b 8%, rgba(0,0,0,0.25)); border: 1px solid color-mix(in oklch, #ff6b6b 24%, transparent); }
-    .db-bulk-count { font-size: 0.76rem; font-variant-numeric: tabular-nums; color: var(--ps-ink, #f4f4ff); }
-    .db-bulk-delete { font: inherit; font-size: 0.74rem; font-weight: 600; padding: 0.28rem 0.7rem; border-radius: 6px; color: #ff8f9a; background: color-mix(in oklch, #ff6b6b 14%, transparent); border: 1px solid color-mix(in oklch, #ff6b6b 38%, transparent); cursor: pointer; }
-    .db-bulk-delete:hover:not(:disabled) { background: color-mix(in oklch, #ff6b6b 26%, transparent); color: #fff; }
-    .db-bulk-delete:focus-visible { outline: 2px solid #ff6b6b; outline-offset: 2px; }
-    .db-bulk-delete:disabled { opacity: 0.6; cursor: progress; }
-    .db-bulk-clear { font: inherit; font-size: 0.72rem; padding: 0.28rem 0.55rem; border-radius: 6px; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 70%, transparent); background: transparent; border: 1px solid var(--ps-edge, rgba(255,255,255,0.14)); cursor: pointer; }
-    .db-bulk-clear:hover:not(:disabled) { color: var(--ps-ink, #f4f4ff); background: rgba(255,255,255,0.05); }
-    .db-bulk-clear:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
-    .db-edit { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.5rem; }
-    .db-edit-field { display: inline-flex; align-items: center; gap: 0.4rem; }
-    .db-edit-label { font-size: 0.7rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); text-transform: capitalize; }
-    .db-edit-select { font: inherit; font-size: 0.74rem; padding: 0.2rem 0.4rem; border-radius: 6px; color: var(--ps-ink, #f4f4ff); background: rgba(0,0,0,0.35); border: 1px solid var(--ps-edge, rgba(255,255,255,0.14)); }
-    .db-edit-select:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
-    .db-edit-textarea { font: inherit; font-size: 0.74rem; padding: 0.25rem 0.4rem; border-radius: 6px; color: var(--ps-ink, #f4f4ff); background: rgba(0,0,0,0.35); border: 1px solid var(--ps-edge, rgba(255,255,255,0.14)); resize: vertical; min-width: 15rem; max-width: 100%; line-height: 1.4; }
-    .db-edit-textarea:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
-    .db-edit-save { font: inherit; font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 6px; color: var(--ps-accent, #00e5ff); background: color-mix(in oklch, var(--ps-accent, #00e5ff) 12%, transparent); border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 30%, transparent); cursor: pointer; }
-    .db-edit-save:hover:not(:disabled) { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 22%, transparent); }
-    .db-edit-save:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
-    .db-edit-save:disabled { opacity: 0.45; cursor: default; }
-    .db-export-note { margin: 0.4rem 0 0; font-size: 0.72rem; color: #ffc800; }
-    .db-readonly-pill {
-      margin-left: 0.5rem; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
-      padding: 0.1rem 0.45rem; border-radius: 999px; cursor: help; white-space: nowrap;
-      color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 62%, transparent);
-      background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent);
-      border: 1px solid var(--ps-edge, rgba(255,255,255,0.12));
-    }
-    .db-scroll { overflow-x: auto; max-width: 100%; border-radius: 8px; border: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); }
-    .db-scroll:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
-    .db-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-    .db-table th, .db-table td { text-align: left; padding: 0.45rem 0.7rem; border-bottom: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); white-space: nowrap; vertical-align: top; }
-    .db-table thead th { position: sticky; top: 0; background: color-mix(in oklch, var(--ps-bg, #060610) 92%, transparent); backdrop-filter: blur(4px); }
-    .db-sort {
-      display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; font: inherit;
-      font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
-      color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 62%, transparent);
-      background: transparent; border: none; padding: 0;
-    }
-    .db-sort:hover { color: var(--ps-accent, #00e5ff); }
-    .db-sort:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; border-radius: 3px; }
-    .db-arrow { color: var(--ps-accent, #00e5ff); }
-    .db-detail-h { width: 2.2rem; }
-    .db-detail-c { text-align: center; }
-    .db-null {
-      font-size: 0.66rem; font-weight: 600; letter-spacing: 0.04em; padding: 0.05rem 0.35rem; border-radius: 4px;
-      color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent);
-      background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent);
-    }
-    .db-expand { cursor: pointer; font: inherit; background: transparent; border: none; color: var(--ps-accent, #00e5ff); padding: 0 0.2rem; line-height: 1; }
-    .db-expand:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; border-radius: 3px; }
-    tr.is-expanded { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 6%, transparent); }
-    .db-detail-row td { background: rgba(0,0,0,0.28); }
-    .db-json { margin: 0; padding: 0.6rem 0.75rem; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.76rem; white-space: pre-wrap; word-break: break-word; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 82%, transparent); }
-    .block { display: block; }
-    .mb-3 { margin-bottom: 0.75rem; }
-  `],
+  styles: [
+    `
+      .db {
+        color: var(--ps-ink, #f4f4ff);
+      }
+      .db-loading {
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent);
+        font-size: 0.85rem;
+      }
+      .db-summary {
+        margin: 0 0 0.6rem;
+        font-size: 0.74rem;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 62%, transparent);
+      }
+      .db-summary strong {
+        color: var(--ps-ink, #f4f4ff);
+        font-variant-numeric: tabular-nums;
+      }
+      .db-tables {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-bottom: 1rem;
+      }
+      .db-table-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        cursor: pointer;
+        padding: 0.35rem 0.7rem;
+        border-radius: 999px;
+        font: inherit;
+        font-size: 0.8rem;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 78%, transparent);
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--ps-edge, rgba(255, 255, 255, 0.08));
+        transition:
+          background 140ms ease,
+          border-color 140ms ease,
+          color 140ms ease;
+      }
+      .db-table-chip:hover {
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 10%, transparent);
+        border-color: color-mix(in oklch, var(--ps-accent, #00e5ff) 30%, transparent);
+      }
+      .db-table-chip:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .db-table-chip.is-active {
+        color: var(--ps-accent, #00e5ff);
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 14%, transparent);
+        border-color: color-mix(in oklch, var(--ps-accent, #00e5ff) 45%, transparent);
+      }
+      .db-table-count {
+        font-variant-numeric: tabular-nums;
+        font-size: 0.72rem;
+        font-weight: 600;
+        padding: 0.05rem 0.4rem;
+        border-radius: 999px;
+        background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent);
+      }
+      .db-table-chip.is-active .db-table-count {
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 22%, transparent);
+      }
+      .db-table-fresh {
+        font-variant-numeric: tabular-nums;
+        font-size: 0.62rem;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 48%, transparent);
+      }
+      .db-activity {
+        margin-top: 1.1rem;
+        border-top: 1px solid var(--ps-edge, rgba(255, 255, 255, 0.08));
+        padding-top: 0.7rem;
+      }
+      .db-activity-summary {
+        cursor: pointer;
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 70%, transparent);
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        list-style: none;
+      }
+      .db-activity-summary::-webkit-details-marker {
+        display: none;
+      }
+      .db-activity-summary::before {
+        content: '▸';
+        font-size: 0.7rem;
+        transition: transform 150ms ease;
+      }
+      .db-activity[open] .db-activity-summary::before {
+        transform: rotate(90deg);
+      }
+      .db-activity-count {
+        font-variant-numeric: tabular-nums;
+        font-size: 0.62rem;
+        font-weight: 700;
+        padding: 0.05rem 0.4rem;
+        border-radius: 999px;
+        background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent);
+      }
+      .db-activity-list {
+        list-style: none;
+        margin: 0.6rem 0 0;
+        padding: 0;
+        display: grid;
+        gap: 0.35rem;
+      }
+      .db-activity-item {
+        display: flex;
+        align-items: baseline;
+        gap: 0.5rem;
+        font-size: 0.76rem;
+      }
+      .db-activity-icon {
+        flex-shrink: 0;
+        width: 1.1rem;
+        text-align: center;
+        font-size: 0.72rem;
+      }
+      .db-activity-icon[data-action='site_data.row_deleted'] {
+        color: #ff8f9a;
+      }
+      .db-activity-icon[data-action='site_data.row_updated'] {
+        color: var(--ps-accent, #00e5ff);
+      }
+      .db-activity-msg {
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 85%, transparent);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .db-activity-age {
+        margin-left: auto;
+        flex-shrink: 0;
+        font-variant-numeric: tabular-nums;
+        font-size: 0.66rem;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent);
+      }
+      .db-desc {
+        margin: 0 0 0.75rem;
+        font-size: 0.8rem;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent);
+      }
+      .db-toolbar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-bottom: 0.75rem;
+      }
+      .db-search {
+        flex: 1 1 12rem;
+        min-width: 8rem;
+        max-width: 20rem;
+        padding: 4px 10px;
+        font-size: 0.78rem;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--ps-ink, #f4f4ff);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 8px;
+      }
+      .db-search:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 1px;
+      }
+      .db-colfilter {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+      }
+      .db-colfilter-sel,
+      .db-colfilter-val {
+        padding: 4px 8px;
+        font-size: 0.76rem;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--ps-ink, #f4f4ff);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 8px;
+      }
+      .db-colfilter-val {
+        width: 8rem;
+      }
+      .db-colfilter-val:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .db-colfilter-sel:focus-visible,
+      .db-colfilter-val:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 1px;
+      }
+      .db-colfilter-clear {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.4rem;
+        height: 1.4rem;
+        font-size: 1rem;
+        line-height: 1;
+        color: var(--ps-ink, #f4f4ff);
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .db-colfilter-clear:hover {
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent);
+      }
+      .db-colfilter-clear:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .db-range {
+        font-size: 0.74rem;
+        font-variant-numeric: tabular-nums;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent);
+      }
+      .db-pager {
+        display: inline-flex;
+        gap: 0.35rem;
+      }
+      .db-pager button,
+      .db-refresh,
+      .db-export {
+        font: inherit;
+        font-size: 0.76rem;
+        cursor: pointer;
+        padding: 0.3rem 0.7rem;
+        border-radius: 6px;
+        color: var(--ps-accent, #00e5ff);
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 9%, transparent);
+        border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 28%, transparent);
+      }
+      .db-pager button:hover:not(:disabled),
+      .db-refresh:hover:not(:disabled),
+      .db-export:hover:not(:disabled) {
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent);
+      }
+      .db-pager button:disabled,
+      .db-refresh:disabled,
+      .db-export:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .db-pager button:focus-visible,
+      .db-refresh:focus-visible,
+      .db-export:focus-visible,
+      .db-pagesize select:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .db-pagesize {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.74rem;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent);
+      }
+      .db-pagesize select {
+        font: inherit;
+        font-size: 0.76rem;
+        padding: 0.25rem 0.4rem;
+        border-radius: 6px;
+        color: inherit;
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid var(--ps-edge, rgba(255, 255, 255, 0.12));
+      }
+      .db-cols {
+        position: relative;
+      }
+      .db-cols-summary {
+        list-style: none;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.76rem;
+        padding: 0.3rem 0.55rem;
+        border-radius: 6px;
+        color: inherit;
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid var(--ps-edge, rgba(255, 255, 255, 0.12));
+      }
+      .db-cols-summary::-webkit-details-marker {
+        display: none;
+      }
+      .db-cols-summary:hover {
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent);
+      }
+      .db-cols[open] > .db-cols-summary {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 1px;
+      }
+      .db-cols-summary:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .db-cols-badge {
+        font-size: 0.62rem;
+        font-weight: 700;
+        padding: 0.05rem 0.3rem;
+        border-radius: 999px;
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 24%, transparent);
+        color: var(--ps-ink, #f4f4ff);
+      }
+      .db-cols-menu {
+        position: absolute;
+        z-index: 20;
+        top: calc(100% + 0.35rem);
+        left: 0;
+        min-width: 12rem;
+        max-height: 16rem;
+        overflow-y: auto;
+        display: grid;
+        gap: 0.15rem;
+        padding: 0.5rem;
+        border-radius: 10px;
+        background: var(--ps-surface, #12121c);
+        border: 1px solid var(--ps-edge, rgba(255, 255, 255, 0.14));
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+      }
+      .db-cols-all {
+        font: inherit;
+        font-size: 0.72rem;
+        text-align: left;
+        padding: 0.3rem 0.4rem;
+        margin-bottom: 0.25rem;
+        border-radius: 6px;
+        color: var(--ps-accent, #00e5ff);
+        background: transparent;
+        border: 1px solid var(--ps-edge, rgba(255, 255, 255, 0.12));
+        cursor: pointer;
+      }
+      .db-cols-all:hover:not(:disabled) {
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 16%, transparent);
+      }
+      .db-cols-all:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .db-cols-all:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .db-cols-item {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.76rem;
+        padding: 0.25rem 0.4rem;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .db-cols-item:hover {
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .db-cols-item input {
+        accent-color: var(--ps-accent, #00e5ff);
+      }
+      .db-cols-item input:disabled {
+        cursor: not-allowed;
+      }
+      .db-cols-item input:disabled + span {
+        opacity: 0.55;
+      }
+      .db-actions {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+      .db-exporting {
+        font-size: 0.72rem;
+        color: var(--ps-accent, #00e5ff);
+        font-variant-numeric: tabular-nums;
+      }
+      .db-copied {
+        font-size: 0.72rem;
+        color: var(--ps-accent, #00e5ff);
+        font-variant-numeric: tabular-nums;
+      }
+      .db-cell-copy {
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: 0;
+        padding: 0;
+        margin: 0;
+        text-align: left;
+        cursor: copy;
+        max-width: 22rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        display: inline-block;
+        vertical-align: bottom;
+      }
+      .db-cell-copy:hover {
+        color: var(--ps-accent, #00e5ff);
+        text-decoration: underline dotted;
+      }
+      .db-cell-copy:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 1px;
+        border-radius: 3px;
+      }
+      .db-detail-bar {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.4rem;
+        margin-bottom: 0.4rem;
+      }
+      .db-copy-row {
+        font: inherit;
+        font-size: 0.72rem;
+        padding: 0.25rem 0.55rem;
+        border-radius: 6px;
+        color: var(--ps-accent, #00e5ff);
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid var(--ps-edge, rgba(255, 255, 255, 0.14));
+        cursor: pointer;
+      }
+      .db-copy-row:hover {
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 16%, transparent);
+      }
+      .db-copy-row:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .db-delete-row {
+        font: inherit;
+        font-size: 0.72rem;
+        padding: 0.25rem 0.55rem;
+        border-radius: 6px;
+        color: #ff8f9a;
+        background: color-mix(in oklch, #ff6b6b 12%, transparent);
+        border: 1px solid color-mix(in oklch, #ff6b6b 34%, transparent);
+        cursor: pointer;
+      }
+      .db-delete-row:hover:not(:disabled) {
+        background: color-mix(in oklch, #ff6b6b 22%, transparent);
+        color: #fff;
+      }
+      .db-delete-row:focus-visible {
+        outline: 2px solid #ff6b6b;
+        outline-offset: 2px;
+      }
+      .db-delete-row:disabled {
+        opacity: 0.6;
+        cursor: progress;
+      }
+      .db-sel-h,
+      .db-sel-c {
+        width: 1.8rem;
+        text-align: center;
+        padding: 0 0.3rem;
+      }
+      .db-sel,
+      .db-sel-all {
+        width: 15px;
+        height: 15px;
+        cursor: pointer;
+        accent-color: var(--ps-accent, #00e5ff);
+      }
+      .db-sel:focus-visible,
+      .db-sel-all:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .db-bulk-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin-bottom: 0.5rem;
+        padding: 0.4rem 0.6rem;
+        border-radius: 8px;
+        background: color-mix(in oklch, #ff6b6b 8%, rgba(0, 0, 0, 0.25));
+        border: 1px solid color-mix(in oklch, #ff6b6b 24%, transparent);
+      }
+      .db-bulk-count {
+        font-size: 0.76rem;
+        font-variant-numeric: tabular-nums;
+        color: var(--ps-ink, #f4f4ff);
+      }
+      .db-bulk-delete {
+        font: inherit;
+        font-size: 0.74rem;
+        font-weight: 600;
+        padding: 0.28rem 0.7rem;
+        border-radius: 6px;
+        color: #ff8f9a;
+        background: color-mix(in oklch, #ff6b6b 14%, transparent);
+        border: 1px solid color-mix(in oklch, #ff6b6b 38%, transparent);
+        cursor: pointer;
+      }
+      .db-bulk-delete:hover:not(:disabled) {
+        background: color-mix(in oklch, #ff6b6b 26%, transparent);
+        color: #fff;
+      }
+      .db-bulk-delete:focus-visible {
+        outline: 2px solid #ff6b6b;
+        outline-offset: 2px;
+      }
+      .db-bulk-delete:disabled {
+        opacity: 0.6;
+        cursor: progress;
+      }
+      .db-bulk-clear {
+        font: inherit;
+        font-size: 0.72rem;
+        padding: 0.28rem 0.55rem;
+        border-radius: 6px;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 70%, transparent);
+        background: transparent;
+        border: 1px solid var(--ps-edge, rgba(255, 255, 255, 0.14));
+        cursor: pointer;
+      }
+      .db-bulk-clear:hover:not(:disabled) {
+        color: var(--ps-ink, #f4f4ff);
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .db-bulk-clear:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .db-edit {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+        margin-bottom: 0.5rem;
+      }
+      .db-edit-field {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .db-edit-label {
+        font-size: 0.7rem;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent);
+        text-transform: capitalize;
+      }
+      .db-edit-select {
+        font: inherit;
+        font-size: 0.74rem;
+        padding: 0.2rem 0.4rem;
+        border-radius: 6px;
+        color: var(--ps-ink, #f4f4ff);
+        background: rgba(0, 0, 0, 0.35);
+        border: 1px solid var(--ps-edge, rgba(255, 255, 255, 0.14));
+      }
+      .db-edit-select:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .db-edit-textarea {
+        font: inherit;
+        font-size: 0.74rem;
+        padding: 0.25rem 0.4rem;
+        border-radius: 6px;
+        color: var(--ps-ink, #f4f4ff);
+        background: rgba(0, 0, 0, 0.35);
+        border: 1px solid var(--ps-edge, rgba(255, 255, 255, 0.14));
+        resize: vertical;
+        min-width: 15rem;
+        max-width: 100%;
+        line-height: 1.4;
+      }
+      .db-edit-textarea:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .db-edit-save {
+        font: inherit;
+        font-size: 0.7rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 6px;
+        color: var(--ps-accent, #00e5ff);
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 12%, transparent);
+        border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 30%, transparent);
+        cursor: pointer;
+      }
+      .db-edit-save:hover:not(:disabled) {
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 22%, transparent);
+      }
+      .db-edit-save:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .db-edit-save:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      .db-export-note {
+        margin: 0.4rem 0 0;
+        font-size: 0.72rem;
+        color: #ffc800;
+      }
+      .db-readonly-pill {
+        margin-left: 0.5rem;
+        font-size: 0.62rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: 0.1rem 0.45rem;
+        border-radius: 999px;
+        cursor: help;
+        white-space: nowrap;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 62%, transparent);
+        background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent);
+        border: 1px solid var(--ps-edge, rgba(255, 255, 255, 0.12));
+      }
+      .db-scroll {
+        overflow-x: auto;
+        max-width: 100%;
+        border-radius: 8px;
+        border: 1px solid var(--ps-edge, rgba(255, 255, 255, 0.08));
+      }
+      .db-scroll:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .db-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+      }
+      .db-table th,
+      .db-table td {
+        text-align: left;
+        padding: 0.45rem 0.7rem;
+        border-bottom: 1px solid var(--ps-edge, rgba(255, 255, 255, 0.08));
+        white-space: nowrap;
+        vertical-align: top;
+      }
+      .db-table thead th {
+        position: sticky;
+        top: 0;
+        background: color-mix(in oklch, var(--ps-bg, #060610) 92%, transparent);
+        backdrop-filter: blur(4px);
+      }
+      .db-sort {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 62%, transparent);
+        background: transparent;
+        border: none;
+        padding: 0;
+      }
+      .db-sort:hover {
+        color: var(--ps-accent, #00e5ff);
+      }
+      .db-sort:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+        border-radius: 3px;
+      }
+      .db-arrow {
+        color: var(--ps-accent, #00e5ff);
+      }
+      .db-detail-h {
+        width: 2.2rem;
+      }
+      .db-detail-c {
+        text-align: center;
+      }
+      .db-null {
+        font-size: 0.66rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        padding: 0.05rem 0.35rem;
+        border-radius: 4px;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent);
+        background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent);
+      }
+      .db-expand {
+        cursor: pointer;
+        font: inherit;
+        background: transparent;
+        border: none;
+        color: var(--ps-accent, #00e5ff);
+        padding: 0 0.2rem;
+        line-height: 1;
+      }
+      .db-expand:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+        border-radius: 3px;
+      }
+      tr.is-expanded {
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 6%, transparent);
+      }
+      .db-detail-row td {
+        background: rgba(0, 0, 0, 0.28);
+      }
+      .db-json {
+        margin: 0;
+        padding: 0.6rem 0.75rem;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.76rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 82%, transparent);
+      }
+      .block {
+        display: block;
+      }
+      .mb-3 {
+        margin-bottom: 0.75rem;
+      }
+    `,
+  ],
 })
 export class SiteDataBrowserComponent implements OnInit {
   private readonly api = inject(ApiService);
@@ -647,7 +1368,9 @@ export class SiteDataBrowserComponent implements OnInit {
    *  scan aid that never loses or omits data. */
   readonly hiddenColumns = signal<ReadonlySet<string>>(new Set());
   /** Columns actually rendered in the grid = all columns minus the hidden set. */
-  readonly visibleColumns = computed(() => this.columns().filter((c) => !this.hiddenColumns().has(c)));
+  readonly visibleColumns = computed(() =>
+    this.columns().filter((c) => !this.hiddenColumns().has(c)),
+  );
   readonly rows = signal<Array<Record<string, unknown>>>([]);
   readonly total = signal(0);
   readonly limit = signal(25);
@@ -916,7 +1639,9 @@ export class SiteDataBrowserComponent implements OnInit {
     try {
       const raw = localStorage.getItem(this.colsStorageKey());
       const parsed: unknown = raw ? JSON.parse(raw) : [];
-      const cols = Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+      const cols = Array.isArray(parsed)
+        ? parsed.filter((x): x is string => typeof x === 'string')
+        : [];
       this.hiddenColumns.set(new Set(cols));
     } catch {
       this.hiddenColumns.set(new Set());
@@ -966,7 +1691,9 @@ export class SiteDataBrowserComponent implements OnInit {
   private static readonly EXPORT_PAGE = 100;
 
   /** Whether an owner filter (text search OR a per-column filter) is currently active. */
-  readonly filterActive = computed(() => !!this.search() || (!!this.filterCol() && !!this.filterVal()));
+  readonly filterActive = computed(
+    () => !!this.search() || (!!this.filterCol() && !!this.filterVal()),
+  );
 
   /**
    * Fetch up to {@link EXPORT_CAP} rows of the selected table across pages,

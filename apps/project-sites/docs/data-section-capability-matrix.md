@@ -74,9 +74,11 @@
 > (E2E key is `is_super_admin:false`). Ranked owner-facing fixes (Angular admin surface, deploys via R2):
 > - **V1. `?tab=` deep-link stability** [S] — a direct `?tab=data` URL bounces to Dashboard; only clicking
 >   the tab holds state. Fix the route/query-param restore so a deep link lands on Data. (Highest — a real bug.)
-> - **V2. NULL → "—" (de-emphasized) + stop rendering plain values as buttons** [S] — the grid shows literal
->   grey "NULL" and makes EVERY cell a `<button>`; render NULL as a muted "—" (`title="NULL"`) and let only
->   the row-detail affordance look clickable.
+> - **V2. NULL → "—" — ✅ DONE 2026-09-25** — the owner grid rendered a literal grey "NULL"; now a muted
+>   em-dash "—" with `title="NULL — no value stored"` + `aria-label="null"` (owner-friendly display, honest
+>   NULL semantics on hover + for screen readers). +1 Karma → 2297. NB: the agent's "stop rendering cells as
+>   buttons" half was REJECTED — those `<button>`s are the shipped click-to-copy affordance (row 82), a
+>   feature, not a bug.
 > - **V3. Real per-table empty states** [S] — empty tables (Form Submissions 0 · Content Store 0) show a blank
 >   grid; replace with a launchpad ("No submissions yet → share your form") per `embarrassingly-easy-to-use`.
 > - **V4. Overview strip → icon stat cards** [S] — the plain "5 tables · 90 records" text → scannable stat cards.
