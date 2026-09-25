@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MOCKUP — Vectors / Queues / Workflows Data tabs (never built)</title>
+<style>
+  :root{
+    --bg1:#0b0d0e; --bg2:#141719; --bg3:#1c2023; --bd:#2a2f33;
+    --ink:#f2f4f5; --ink2:#a5adb4; --ink3:#6b747b;
+    --accent:#00e5ff; --good:#34d399; --warn:#fbbf24; --bad:#f87171; --run:#60a5fa;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'Inter',system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#050607;color:var(--ink);font-family:var(--sans);font-size:13px;line-height:1.5}
+  .wrap{max-width:760px;margin:24px auto;padding:0 16px}
+  .banner{background:linear-gradient(90deg,rgba(248,113,113,.14),rgba(251,191,36,.10));border:1px solid rgba(248,113,113,.35);border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:12px}
+  .banner b{color:#fca5a5}
+  /* panel chrome mirrors app/components/workbench/DataPanel.tsx */
+  .panel{background:var(--bg1);border:1px solid var(--bd);border-radius:14px;overflow:hidden}
+  .head{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--bd)}
+  .head .ico{width:22px;height:22px;color:var(--ink2)}
+  .head h2{margin:0;font-size:13px;font-weight:600}
+  .head p{margin:0;font-size:10px;color:var(--ink3)}
+  .tabs{display:flex;gap:2px;padding:8px 12px;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+  .tab{font-size:11px;font-weight:600;padding:5px 11px;border-radius:8px;border:1px solid transparent;color:var(--ink3);cursor:pointer;background:none;display:flex;align-items:center;gap:6px}
+  .tab:hover{color:var(--ink2)}
+  .tab.on{background:var(--bg3);color:var(--ink);border-color:var(--bd)}
+  .tab.real{color:var(--ink2)}
+  .tab .dot{width:6px;height:6px;border-radius:50%;background:var(--warn)}
+  .tab.real .dot{background:var(--good)}
+  .body{padding:14px 16px;min-height:340px}
+  .toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .field{display:flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:6px 10px;color:var(--ink2);font-size:12px}
+  .field.grow{flex:1;min-width:180px}
+  .field input,.field select{background:none;border:none;color:var(--ink);font:inherit;outline:none;width:100%}
+  .btn{font-size:11px;font-weight:600;padding:6px 12px;border-radius:8px;border:1px solid rgba(0,229,255,.35);background:rgba(0,229,255,.12);color:var(--accent);cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+  .btn.ghost{border-color:var(--bd);background:var(--bg2);color:var(--ink2)}
+  .pills{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .pill{font-size:11px;padding:4px 10px;border-radius:999px;border:1px solid var(--bd);background:var(--bg2);color:var(--ink2);font-variant-numeric:tabular-nums}
+  .pill b{color:var(--ink)}
+  .pill.good{border-color:rgba(52,211,153,.3);background:rgba(52,211,153,.1);color:var(--good)}
+  .pill.warn{border-color:rgba(251,191,36,.3);background:rgba(251,191,36,.1);color:var(--warn)}
+  .pill.bad{border-color:rgba(248,113,113,.3);background:rgba(248,113,113,.1);color:var(--bad)}
+  table{width:100%;border-collapse:collapse;font-size:11.5px}
+  th{text-align:left;font-weight:600;color:var(--ink3);padding:7px 10px;border-bottom:1px solid var(--bd);white-space:nowrap}
+  td{padding:7px 10px;border-bottom:1px solid rgba(42,47,51,.5);color:var(--ink2);vertical-align:top}
+  tr:hover td{background:rgba(28,32,35,.5)}
+  .mono{font-family:var(--mono)}
+  .s-run{color:var(--run)} .s-ok{color:var(--good)} .s-warn{color:var(--warn)} .s-bad{color:var(--bad)} .s-wait{color:var(--ink3)}
+  .badge{font-size:10px;padding:2px 7px;border-radius:6px;border:1px solid var(--bd)}
+  .badge.run{color:var(--run);border-color:rgba(96,165,250,.3);background:rgba(96,165,250,.1)}
+  .badge.ok{color:var(--good);border-color:rgba(52,211,153,.3);background:rgba(52,211,153,.1)}
+  .badge.warn{color:var(--warn);border-color:rgba(251,191,36,.3);background:rgba(251,191,36,.1)}
+  .badge.bad{color:var(--bad);border-color:rgba(248,113,113,.3);background:rgba(248,113,113,.1)}
+  .badge.wait{color:var(--ink3)}
+  .hide{display:none}
+  .steps{display:flex;gap:0;margin-top:14px;padding:12px;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;overflow-x:auto}
+  .step{flex:1;min-width:88px;text-align:center;position:relative;font-size:10px;color:var(--ink3)}
+  .step .d{width:22px;height:22px;border-radius:50%;margin:0 auto 6px;display:grid;place-items:center;border:2px solid var(--bd);background:var(--bg1);font-size:11px}
+  .step.done .d{border-color:var(--good);color:var(--good)} .step.done{color:var(--ink2)}
+  .step.cur .d{border-color:var(--run);color:var(--run);box-shadow:0 0 0 4px rgba(96,165,250,.15)} .step.cur{color:var(--run)}
+  .step:not(:last-child):after{content:'';position:absolute;top:11px;left:60%;width:80%;height:2px;background:var(--bd)}
+  .step.done:not(:last-child):after{background:var(--good)}
+  .foot{margin-top:16px;font-size:11px;color:var(--ink3);text-align:center}
+  h3.k{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink3);margin:0 0 8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="banner">
+    <b>⚠ MOCKUP — never built.</b> These three tabs do <b>not</b> exist in the product (the Editor Data panel renders only <b>Tables</b> + <b>SQL</b>). This file is a design reference so you can decide on removal. No route, no component, no URL renders this today.
+  </div>
+
+  <div class="panel">
+    <div class="head">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+      <div style="flex:1">
+        <h2>Data</h2>
+        <p id="sub">projectsites-rag · 768-dim · cosine · 4,812 vectors</p>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab real"><span class="dot"></span>Tables</button>
+      <button class="tab real"><span class="dot"></span>SQL</button>
+      <button class="tab on" data-t="vec"><span class="dot"></span>Vectors</button>
+      <button class="tab" data-t="q"><span class="dot"></span>Queues</button>
+      <button class="tab" data-t="wf"><span class="dot"></span>Workflows</button>
+    </div>
+
+    <!-- VECTORS -->
+    <div class="body" id="vec">
+      <div class="toolbar">
+        <div class="field grow">🔎 <input value="customers who liked a warm restaurant hero" placeholder="Search by meaning…"></div>
+        <div class="field">topK <select><option>10</option><option>25</option><option>50</option></select></div>
+        <div class="field">namespace <select><option>site-dna-org_9f3…</option><option>all</option></select></div>
+        <button class="btn">▸ Query</button>
+      </div>
+      <div class="pills">
+        <span class="pill"><b>4,812</b> vectors</span>
+        <span class="pill"><b>18</b> namespaces</span>
+        <span class="pill">dim <b>768</b></span>
+        <span class="pill">metric <b>cosine</b></span>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>Namespace</th><th>Metadata</th><th>Score</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">vec_7a1c…</td><td class="mono">site-dna-org_9f3</td><td>{component:"hero", action:"accept", industry:"restaurant"}</td><td class="s-ok">0.942</td></tr>
+          <tr><td class="mono">vec_3e88…</td><td class="mono">site-dna-org_9f3</td><td>{component:"hero", action:"accept", tone:"warm"}</td><td class="s-ok">0.911</td></tr>
+          <tr><td class="mono">vec_bd20…</td><td class="mono">site-dna-org_9f3</td><td>{component:"gallery", action:"edit"}</td><td class="s-warn">0.774</td></tr>
+          <tr><td class="mono">vec_10ff…</td><td class="mono">site-dna-org_9f3</td><td>{component:"hero", action:"reject", tone:"corporate"}</td><td class="s-warn">0.688</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- QUEUES -->
+    <div class="body hide" id="q">
+      <div class="toolbar">
+        <div class="field grow">queue <select><option>site-events</option><option>image-processing</option></select></div>
+        <button class="btn ghost">↻ Refresh</button>
+        <button class="btn">＋ Publish test message</button>
+      </div>
+      <div class="pills">
+        <span class="pill warn"><b>23</b> backlog</span>
+        <span class="pill good"><b>1,204</b> delivered</span>
+        <span class="pill warn"><b>2</b> retrying</span>
+        <span class="pill"><b>0</b> DLQ</span>
+        <span class="pill"><b>1</b> consumer · 250 max</span>
+      </div>
+      <table>
+        <thead><tr><th>Message ID</th><th>Enqueued</th><th>Status</th><th>Body</th><th></th></tr></thead>
+        <tbody>
+          <tr><td class="mono">msg_c19a…</td><td>12:54:02</td><td><span class="badge wait">queued</span></td><td class="mono">{type:"form.submitted", site:"vitos"}</td><td><button class="btn ghost">Ack</button></td></tr>
+          <tr><td class="mono">msg_88de…</td><td>12:53:41</td><td><span class="badge warn">retry ×2</span></td><td class="mono">{type:"email.send", to:"***"}</td><td><button class="btn ghost">Retry</button></td></tr>
+          <tr><td class="mono">msg_02b7…</td><td>12:53:10</td><td><span class="badge ok">delivered</span></td><td class="mono">{type:"snapshot.create"}</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- WORKFLOWS -->
+    <div class="body hide" id="wf">
+      <div class="toolbar">
+        <div class="field grow">workflow <select><option>site-generation-workflow</option><option>image-generation-workflow</option></select></div>
+        <button class="btn ghost">↻ Refresh</button>
+        <button class="btn">▸ Trigger instance</button>
+      </div>
+      <div class="pills">
+        <span class="pill run"><b>3</b> running</span>
+        <span class="pill"><b>1</b> waiting</span>
+        <span class="pill good"><b>89</b> complete</span>
+        <span class="pill bad"><b>2</b> errored</span>
+      </div>
+      <table>
+        <thead><tr><th>Instance</th><th>Status</th><th>Current step</th><th>Started</th><th>Duration</th><th></th></tr></thead>
+        <tbody>
+          <tr><td class="mono">wf_5c2d…</td><td><span class="badge run">running</span></td><td>build-orchestrator</td><td>12:41</td><td>13m 20s</td><td><button class="btn ghost">Pause</button> <button class="btn ghost">Terminate</button></td></tr>
+          <tr><td class="mono">wf_9a01…</td><td><span class="badge wait">waiting</span></td><td>step.waitForEvent(user)</td><td>12:20</td><td>—</td><td><button class="btn ghost">Resume</button></td></tr>
+          <tr><td class="mono">wf_31ab…</td><td><span class="badge bad">errored</span></td><td>validate-build ✗</td><td>11:58</td><td>8m 04s</td><td><button class="btn ghost">Retry</button></td></tr>
+        </tbody>
+      </table>
+      <h3 class="k" style="margin-top:16px">wf_5c2d… — step timeline</h3>
+      <div class="steps">
+        <div class="step done"><div class="d">✓</div>research</div>
+        <div class="step done"><div class="d">✓</div>assets</div>
+        <div class="step cur"><div class="d">▸</div>build</div>
+        <div class="step"><div class="d">4</div>validate</div>
+        <div class="step"><div class="d">5</div>publish</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">Mockup styled to match <span class="mono">app/components/workbench/DataPanel.tsx</span> · click the amber-dotted tabs to switch · not wired to any data.</div>
+</div>
+<script>
+  document.querySelectorAll('.tab[data-t]').forEach(function(t){
+    t.addEventListener('click',function(){
+      document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')});
+      t.classList.add('on');
+      ['vec','q','wf'].forEach(function(id){document.getElementById(id).classList.add('hide')});
+      document.getElementById(t.dataset.t).classList.remove('hide');
+      var subs={vec:'projectsites-rag · 768-dim · cosine · 4,812 vectors',q:'site-events · 23 backlog · 1 consumer',wf:'site-generation-workflow · 95 instances'};
+      document.getElementById('sub').textContent=subs[t.dataset.t];
+    });
+  });
+</script>
+</body>
+</html>

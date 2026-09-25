@@ -65,6 +65,18 @@
 ::view-transition-new(ps-section) {
   animation: psContentIn 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+// Root fallback (marketing, signin, create, waiting — any page NOT named ps-content/ps-section
+// above): a fast, subtle cross-fade so EVERY page change fades instead of hard-cutting/flashing.
+// Reuses the opacity-only keyframes → compositor-driven, zero INP/LCP cost.
+::view-transition-old(root) { animation: psContentOut 160ms cubic-bezier(0.4, 0, 1, 1) both; }
+::view-transition-new(root) { animation: psContentIn 200ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+// Reduced-motion: no fade, instant swap — still flicker-free (both snapshots hold opacity 1).
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root), ::view-transition-new(root),
+  ::view-transition-old(ps-content), ::view-transition-new(ps-content),
+  ::view-transition-old(ps-section), ::view-transition-new(ps-section) { animation: none !important; }
+}
+
 // Sidebar + topbar + recents — instant snap, no animation = stable.
 ::view-transition-old(ps-sidebar),
 ::view-transition-new(ps-sidebar),

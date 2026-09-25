@@ -5,6 +5,14 @@
 > status is one of: **DONE** (shipped + verified), **SLICE** (in-flight this arc),
 > **PLANNED** (feasible, not started), **BLOCKED** (platform can't do it today).
 > Started 2026-09-23 from a 3-agent discovery pass. Update as slices land.
+>
+> **⭐ GOVERNING DECISION (ADR-0036, 2026-09-25) — the Data loop's current frontier:**
+> the Data section manages exactly TWO per-site resources — **D1 + KV** (each site its OWN,
+> isolated; KV backed by a `_kv` table inside the per-site D1). **Vectorize / Queues /
+> Workflows / R2 are REMOVED from Data.** R2 mounts into the bolt.diy editor file tree. The
+> loop's job now: (0) remove V/Q/W/R2 → (1) per-site D1+KV provisioning + isolation → (2)
+> fully-featured D1 SQLite editor → (3) fully-featured KV manager. See
+> `docs/decisions/0036-per-site-d1-kv-isolation.md` + Slice order below.
 
 ## Architecture reality (READ FIRST — do not skip)
 
@@ -25,10 +33,15 @@
 - **Editor DataPanel** (`app/components/workbench/DataPanel.tsx` + pure
   `data-panel-logic.ts`, Vitest-covered) talks to the Worker THROUGH the admin
   bridge (`PS_DATA_REQUEST` / `PS_SQL_REQUEST` postMessage). UnoCSS + bolt tokens.
-- **WfP** (`USER_DISPATCH` dispatch namespace) is **wired but DORMANT** — flag
-  `user_worker_functions` default-off, zero per-site User Workers deployed,
-  `resolveUserFunctionBindings` not implemented. "User Worker bindings" browsing is
-  BLOCKED until per-site Workers + real D1/KV/R2 provisioning exist.
+- **TARGET (ADR-0036):** each site gets its OWN isolated **D1** + **KV** (KV = a `_kv`
+  table inside the per-site D1; the native KV-namespace cap is 1,000/account, so a
+  namespace-per-site does NOT scale). The Data editor targets the SITE's own store; the
+  shared-platform-D1 console stays super-admin-only + OFF the owner surface. Isolation is
+  the WfP binding boundary (a tenant Worker sees only its own D1), NOT `WHERE site_id`.
+- **WfP** (`USER_DISPATCH` dispatch namespace) is **wired but DORMANT** (`wfp_dispatch.ts`
+  uploads a user Worker via the CF REST API + metadata bindings). Per-site D1/KV
+  provisioning (Slice 1) is the PREREQUISITE — no tenant code runs until a site's Worker
+  can be bound to ONLY its own D1 (never the shared platform DB).
 - **Consolidation note:** the admin `site-detail.component.ts` SQL tab and the bolt
   DataPanel are intentionally different (power-user vs embedded editor), NOT drift.
 
@@ -73,54 +86,109 @@
   loadable extensions; FKs **default OFF**. Supported PRAGMAs incl. table_info/table_list/
   index_list/index_info/foreign_key_list/quick_check/foreign_key_check.
 
-## Other resources — honest status
+## Resources in the "Data" section — DECIDED (ADR-0036, 2026-09-25)
 
-| Resource | Inspect/manage via | Status | Hard limitation |
-|---|---|---|---|
-| **KV** | binding `list/get/put/delete` + REST keys | PLANNED | eventual consistency; bulk ≤100 keys |
-| **R2** | binding `list/get/put/delete` (+ S3) | PLANNED | no public REST *query*; binding-only; multipart for large objects |
-| **Vectorize** | binding `insert/query/deleteByIds/listVectors` + v2 REST | PLANNED | query is binding-only; mutations async (1–2 s) |
-| **Hyperdrive** | REST config + health | PLANNED | **no** inspect/query API; browser only via an authorized DB connection path |
-| **Durable Objects** | classes/bindings list | BLOCKED (data) | internal SQLite is **RPC-only**, NOT arbitrarily queryable via public API |
-| **Queues** | REST pull/publish + binding | PLANNED | pull consumer needs explicit ack |
+**The Data section manages exactly TWO per-site resources: D1 and KV.** Everything else is
+removed from Data.
 
-## Slice order (execution)
-1. **Authorized discovery + safe browse** — schema introspection (superadmin) +
-   owner-browse pagination. ✅ backend DONE; **owner UI shipped** — the `/admin/sites/:id`
-   **Data tab** (`SiteDataBrowserComponent`): table picker with live row counts →
-   server-paginated, column-sortable grid → per-row JSON detail, all on real endpoints.
-   **Superadmin Schema tab shipped** — `SiteSchemaBrowserComponent` (searchable table list →
-   columns/indexes/FKs/DDL), consuming the previously-unwired `/sql/schema` endpoint.
-2. Row edit/delete with stable PK predicates (owner). **Row DELETE shipped for
-   `form_submissions`** (this fire) — the owner's most common data-management need is deleting
-   spam/test leads. The `form_submissions` browse now SELECTs a stable `id` (kept OUT of the
-   display columns), and `DELETABLE_OVERVIEW_TABLES` gates which tables expose a delete (only
-   `form_submissions` today; the other 4 overview tables — visitor_events/snapshots/mcp/site_data —
-   stay READ-ONLY, they're system/analytics data or have their own lifecycle). The delete is
-   allowlist-bounded + tenant-gated + parameterized `WHERE id=? AND site_id=?` + affected-rows-checked
-   + audit-logged + confirmed in the UI (HARD delete — `form_submissions` has no `deleted_at`).
-   **Row EDIT shipped for `form_submissions.status`** (this fire) — an allowlisted enum column
-   (`EDITABLE_OVERVIEW_COLUMNS`), edited via a typed `<select>` + confirm + `PATCH`, server-validated
-   against the enum + double-scoped by site + audited (`site_data.row_updated`). Reversible.
-   **Next: broaden the typed editors** — NULL/number/bool/JSON cell editors + INSERT (add-row) on
-   the same allowlist + stable-id plumbing (only enum-typed columns are editable today).
-3. SQL console upgrades — **query-cost + expensive-scan warning ✅ DONE; EXPLAIN QUERY PLAN + index
-   guidance ✅ DONE; plain-language SQLite/D1 error explanations ✅ DONE** (`explainSqlError` maps no-such-
-   table/column/function · syntax · unrecognized-token · UNIQUE/FK-constraint · too-complex → a friendly
-   line, with the RAW error always retained below for debugging; unknown error → raw only, never hidden).
-   **Saved queries + reusable reuse ✅ DONE (this fire)** — user-named, per-site-persisted saved queries
-   (`ps_sql_saved_<siteId>`, dedup-by-name, load-to-review + delete), the built-in `sqlStarters` chips, and
-   **query history is now clickable-to-recall** (loads into the editor without auto-running). Multi-tab
-   (multiple concurrent editor buffers) is the only remaining SQL-workspace item.
-4. Import (CSV/JSON, chunked) + bounded exports. **Whole-table CSV/JSON export ✅ DONE**
-   (owner grid, paged to a 5k cap via `utils/csv-export`, honest capped note); chunked import +
-   true streaming/async export for >5k rows remain.
-5. D1 REST import/export + Time Travel (needs a scoped D1 REST token — see below).
-6. Resource adapters (KV, R2, Vectorize, …) behind a shared authz/audit/UI base.
+| Resource | In "Data"? | Disposition |
+|---|---|---|
+| **D1** (per-site) | ✅ YES — first-class | Full SQLite editor — requirements below |
+| **KV** (per-site, `_kv`-in-D1) | ✅ YES — first-class | Full KV manager — requirements below |
+| **R2** | ❌ REMOVED | The whole bucket **mounts into the bolt.diy editor file tree** — files, not a data browser |
+| **Vectorize** | ❌ REMOVED | Not a tenant store; only a dormant platform-internal use (`RAG_INDEX`/site-DNA). If ever offered → a WfP-Functions binding, never Data |
+| **Queues** | ❌ REMOVED | Compute, not data → mediated Feature / WfP-Functions |
+| **Workflows** | ❌ REMOVED | Compute, not data → mediated Feature / WfP-Functions (≠ the platform's own `SITE_WORKFLOW`) |
+| **Hyperdrive · Durable Objects** | ❌ out of scope | Not Data-section resources |
 
-## Needs a decision / credential (surface, don't fake)
-- **Per-site D1 provisioning** (the "multiple D1 per site" vision) needs a CF D1 REST
-  token + a WfP binding-management pipeline — infra not present. Until then, the Data
-  section manages the shared platform DB (superadmin) + per-site rows (owner).
-- D1 **import/export + Time Travel** REST calls need a least-privilege D1 token stored
-  server-side (never in the browser).
+The V/Q/W/R2 mockup was archived to `docs/mockups/_archived/`. Removal is Slice 0 below.
+
+## D1 SQLite editor — full requirements (the "fully decked-out" target)
+
+Targets the SITE's OWN per-site D1 (never the shared platform DB). Best-in-class SQLite
+editor — DB Browser / Beekeeper / Outerbase parity:
+
+- **Table browser** — tables/views/indexes/triggers · live row counts · per-table recent-activity. ✅ *(retarget to per-site)*
+- **Row grid** — server-paginated · sortable · text search · per-column exact filter · column show/hide · click-to-copy · row-detail JSON · filtered CSV/JSON export. ✅ *(retarget to per-site)*
+- **Row CRUD (full)** — add row (INSERT) · edit ANY typed cell (text / number / bool / null / JSON / date — not just enums) · delete · bulk delete · inline validation + confirm + undo where possible. ⟳ *(today: enum-only edit + `form_submissions` delete)*
+- **Schema editor** — create / alter / drop table · add / drop / rename column · create / drop index · manage FKs — via UI + DDL. PLANNED
+- **SQL console (full)** — SELECT/DDL/DML · run-selection · positional bind params · saved queries · history recall · EXPLAIN QUERY PLAN + index hints · query cost + expensive-scan warning · plain-language errors · **multi-tab buffers** · **CodeMirror 6 syntax highlighting + schema-aware autocomplete**. ⟳ *(most ✅; multi-tab + CodeMirror pending — a dep decision)*
+- **Import / export** — CSV/JSON import (chunked · preview · conflict) · full SQL-dump export · **D1 Time Travel (bookmark / restore)** · applied-migrations ledger. PLANNED *(needs per-site D1 REST token)*
+- **Isolation** — it's the tenant's OWN DB, so no cross-tenant PROTECTED_TABLES denylist is needed; still protect platform-reserved tables (`_kv`, `d1_migrations`) + confirm destructive ops.
+
+## KV manager — full requirements (fully-featured target)
+
+Targets the site's KV (the `_kv` table in its per-site D1). Best-in-class KV browser:
+
+- **Key browser** — list keys with prefix filter + search · paginated · value preview + metadata + TTL/expiration per key · prefix-as-folder tree.
+- **Value viewer / editor** — view/edit value (text · JSON pretty-print · binary/base64) · edit metadata · set/clear TTL.
+- **CRUD** — put (create/update) · delete · bulk delete · bulk import (JSON/CSV of key→value [+metadata +ttl]) · export (JSON/CSV).
+- **Affordances** — click-to-copy key/value · honest counts · loading / empty / error states · confirm on destructive.
+- **Isolation** — scoped to the site's own `_kv`; a tenant Worker binds only its own store.
+
+### Resource categorization + provenance (Brian, 2026-09-25)
+
+- **These six rows are a 2026-09-23 discovery-pass INVENTORY of "what CF resources
+  COULD be surfaced," NOT a committed product decision.** No ADR, no flag, no rendered
+  tab — only D1 ships. Do not treat the inventory as agreed scope.
+- **Data ≠ Compute — only stores the OWNER browses belong in "Data":**
+  - **DATA (belongs here):** D1 (live) · **R2 / Media-Files** (per-org TODAY,
+    `media/{orgId}/…` + full `/api/media/*` — the #1 real near-term add, needs no WfP) ·
+    **Snapshots** (frozen build versions) · KV (once per-site KV exists).
+  - **COMPUTE / plumbing (does NOT belong in Data → the Functions tab):** Queues +
+    Workflows (in-flight messages / running processes, not stored data) · Durable Objects
+    (RPC-only) · Hyperdrive (a connection, not a store).
+- **Vectorize** is a real store but per-site vectors are speculative for our small-biz
+  output → gate behind an AI-features flag, never default Data. It's already a platform
+  binding (`RAG_INDEX`) accessed FROM a Worker; "doing vectors in a Worker" still means
+  this binding (or a worse brute-force-in-D1 fallback — D1 has no vector index).
+- **Workflows/Queues are NOT alternatives to Workers** — they're Workers-platform
+  primitives (we already run `SITE_WORKFLOW`). Bind them; don't reimplement durability in
+  a Durable Object + alarms.
+- **Exposing compute to tenants — two models (WfP CAN bind Queues/Workflows per-tenant with
+  full isolation; verified against CF docs 2026-09-25):**
+  - **(1) Shared-infra Features (DEFAULT — scales to 1M):** WE run one shared Queue + a
+    handful of `WorkflowEntrypoint` definitions on OUR account, tagged by `site_id`; the owner
+    controls the *automation* (background job / scheduled task / event trigger), never the raw
+    binding. Fits the account caps (few definitions + millions of sleeping instances).
+  - **(2) Raw per-tenant bindings (WfP Functions / code-deploy tier ONLY):** a tenant that
+    deploys its own `functions/` Worker binds its OWN Queue producer + `WorkflowEntrypoint`
+    class, isolated (user Workers accept KV/R2/D1/DO/Queues/Workflows/Hyperdrive/AE bindings via
+    the upload metadata array). **Gated by account caps: 10,000 queues + 500 workflow
+    *definitions* (= Worker scripts) per account** → ~hundreds–10k code-deploy customers per WfP
+    account, NOT 1M; shard across dispatch namespaces/accounts beyond that.
+  - **Why dormant today:** a Workflow is a class IN the tenant's Worker and a Queue consumer IS
+    a Worker — both need the customer running code. Our static-site output has no running Worker,
+    so there is nowhere to host either until WfP Functions ships.
+
+## Slice order (execution — reframed by ADR-0036, 2026-09-25)
+
+> The DONE history in the D1 checklist above (owner browse / search / filter / export /
+> delete / edit / activity + superadmin schema / SQL-console / EXPLAIN / cost / migrations)
+> is RETAINED and STILL VALID — it re-targets from the shared DB to the per-site D1 in
+> Slice 2. The old slices 1–4 are complete; the frontier is now Slices 0–4 below.
+
+- **Slice 0 — Remove V/Q/W/R2 from Data.** Delete the Vectorize/Queues/Workflows/R2 PLANNED
+  status (done in the DECIDED table above); remove the dormant Vectorize footprint
+  (`RAG_INDEX` binding, `site_dna` vector calls, `service-registry` entry, `rag.ts`/AutoRAG
+  doc drift). R2 → a bolt.diy editor file-tree mount (a separate editor slice).
+- **Slice 1 — Per-site D1 + KV provisioning + isolation (PREREQUISITE, ADR-0036).**
+  `provisionSiteResources(siteId)` (CF D1 REST create + base migration incl. `_kv`), persist
+  the D1 id/name on the `sites` row, wire the isolated binding into the WfP upload metadata
+  (ONLY that site's D1). Flag `per_site_data`, default-off. Gate: no tenant code until a
+  Worker provably cannot read another site's DB.
+- **Slice 2 — Fully-featured D1 SQLite editor** against the per-site D1 (requirements
+  above): retarget existing browse/SQL to the site's own DB → full typed CRUD → schema
+  editor → multi-tab + CodeMirror 6 → chunked import/export → Time Travel.
+- **Slice 3 — Fully-featured KV manager** against the per-site `_kv` (requirements above):
+  key browser + value/metadata/TTL editor + CRUD + bulk import/export.
+- **Slice 4 — Backfill** existing shared-D1 rows (`site_data`/`form_submissions`/
+  `visitor_events`, scoped by `site_id`) → each site's new per-site DB. One-way; run with
+  D1 Time Travel as the safety net.
+
+## Decided / still-needs-a-credential
+- **Per-site D1 + KV: DECIDED** (ADR-0036) — one isolated per-site D1, KV backed by its
+  `_kv` table. Supersedes the old "shared DB only" state. Provisioning (Slice 1) is the
+  build; the shared DB + owner row-scoping remain the honest CURRENT state until it lands.
+- **Still needs a scoped CF D1 REST token** (server-side, never the browser) for per-site
+  D1 provisioning + import/export + Time Travel — the Slice-1 credential blocker.

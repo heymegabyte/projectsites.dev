@@ -176,6 +176,13 @@ export class AppComponent implements OnInit, OnDestroy {
   /** The URL of the in-flight navigation, captured on NavigationStart — lets `routeLoading`
    * exclude the homepage before the (homepage-lazy) RouteConfigLoadStart would otherwise fire. */
   private pendingNavUrl = '';
+  /** Timer that arms the lazy-route skeleton ONLY if the chunk load outlasts the delay.
+   * After `PreloadAllModules` most navigations resolve in a few ms, so arming the skeleton
+   * instantly made it FLASH in-and-out between page changes. A short delay lets a fast/cached
+   * nav settle first (clearing the timer) → no skeleton, no flash; only a genuinely slow cold
+   * load (~3s `/create`/editor chunk) ever shows it. Cleared on every nav settle. */
+  private routeLoadingTimer?: ReturnType<typeof setTimeout>;
+  private readonly ROUTE_SKELETON_DELAY_MS = 160;
 
   private cursorFollowerEl?: HTMLElement;
   private cursorAnimationId?: number;
@@ -287,13 +294,21 @@ export class AppComponent implements OnInit, OnDestroy {
         // the real browser path (`/create` immediately) — NOT router.url (still `/` until nav settles).
         const url = this.pendingNavUrl || (typeof location !== 'undefined' ? location.pathname : '');
         if (url && url !== '/' && !url.startsWith('/?') && !url.startsWith('/#')) {
-          this.routeLoading.set(true);
+          // DELAY arming: a fast/cached nav (the common case post-PreloadAllModules) settles
+          // before the timer fires, so the skeleton never flashes between page changes. Only a
+          // slow cold chunk (>160ms) surfaces it. The timer is cleared on nav settle below.
+          if (this.routeLoadingTimer) clearTimeout(this.routeLoadingTimer);
+          this.routeLoadingTimer = setTimeout(() => this.routeLoading.set(true), this.ROUTE_SKELETON_DELAY_MS);
         }
       } else if (
         e instanceof NavigationEnd ||
         e instanceof NavigationCancel ||
         e instanceof NavigationError
       ) {
+        if (this.routeLoadingTimer) {
+          clearTimeout(this.routeLoadingTimer);
+          this.routeLoadingTimer = undefined;
+        }
         this.routeLoading.set(false);
       }
     });
