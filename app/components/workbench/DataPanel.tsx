@@ -1393,7 +1393,10 @@ export const DataPanel = memo(() => {
   );
 
   return (
-    <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 overflow-y-auto modern-scrollbar relative">
+    <div
+      className="h-full flex flex-col bg-bolt-elements-background-depth-1 overflow-y-auto modern-scrollbar relative"
+      style={{ colorScheme: 'dark' }}
+    >
       {/* Clipboard confirmation — a polite live-region toast; visually a small pill, and
           announced to screen readers. Empty (no node rendered) when nothing was just copied. */}
       <div aria-live="polite" className="sr-only" data-testid="data-copy-live">
@@ -1641,6 +1644,8 @@ export const DataPanel = memo(() => {
                                 disabled={isLastVisible}
                                 onChange={() => toggleCol(c)}
                                 data-testid="data-cols-checkbox"
+                                className="h-3.5 w-3.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                style={{ accentColor: '#00E5FF' }}
                               />
                               <span className="truncate">{columnLabel(c)}</span>
                             </label>
@@ -1891,7 +1896,8 @@ export const DataPanel = memo(() => {
                           data-testid="data-bulk-select-all"
                           aria-label="Select all rows on this page"
                           title="Select all rows on this page"
-                          className="cursor-pointer align-middle"
+                          className="h-3.5 w-3.5 cursor-pointer align-middle"
+                          style={{ accentColor: '#00E5FF' }}
                         />
                       </th>
                     )}
@@ -1972,7 +1978,8 @@ export const DataPanel = memo(() => {
                               onChange={() => toggleRowSelect(r)}
                               data-testid="data-bulk-select-row"
                               aria-label={`Select row ${i + 1}`}
-                              className="cursor-pointer align-middle disabled:opacity-30 disabled:cursor-not-allowed"
+                              className="h-3.5 w-3.5 cursor-pointer align-middle disabled:opacity-30 disabled:cursor-not-allowed"
+                              style={{ accentColor: '#00E5FF' }}
                             />
                           </td>
                         )}
