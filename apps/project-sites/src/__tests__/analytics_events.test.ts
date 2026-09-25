@@ -52,6 +52,15 @@ describe('IncomingEventSchema', () => {
     expect(IncomingEventSchema.safeParse(err).success).toBe(true);
   });
 
+  it('accepts a page_engagement dwell event with {duration_ms,href} payload', () => {
+    const eng = {
+      ...base,
+      eventType: 'page_engagement' as const,
+      payload: { duration_ms: 42_000, href: '/pricing' },
+    };
+    expect(IncomingEventSchema.safeParse(eng).success).toBe(true);
+  });
+
   it('accepts a click-to-call/directions conversion event with kind+section payload (AN18 #60)', () => {
     const conv = {
       ...base,
