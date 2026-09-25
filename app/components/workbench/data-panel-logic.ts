@@ -1125,6 +1125,46 @@ export type CellInputKind = 'text' | 'number' | 'boolean' | 'null' | 'json';
 export type BoundValue = string | number | boolean | null;
 
 /**
+ * Infer the typed-editor `{ kind, value }` to PREFILL for an existing cell value — the inverse of
+ * {@link coerceCellInput}. Used to seed the Edit + Duplicate editors from a browsed row: null/undefined
+ * → `null` editor; number/boolean → their editors; an object → `json` (pretty-printed text); anything
+ * else → `text`. Pure.
+ *
+ * @param value - the raw cell value from a browsed row
+ * @returns the editor `kind` + the string to prefill its input with
+ * @example inferCellEditor(42)          // { kind: 'number', value: '42' }
+ * @example inferCellEditor(null)        // { kind: 'null', value: '' }
+ * @example inferCellEditor({ a: 1 })    // { kind: 'json', value: '{"a":1}' }
+ */
+export function inferCellEditor(value: unknown): { kind: CellInputKind; value: string } {
+  if (value === null || value === undefined) {
+    return { kind: 'null', value: '' };
+  }
+
+  if (typeof value === 'number') {
+    return { kind: 'number', value: String(value) };
+  }
+
+  if (typeof value === 'boolean') {
+    return { kind: 'boolean', value: value ? 'true' : 'false' };
+  }
+
+  if (typeof value === 'object') {
+    let text: string;
+
+    try {
+      text = JSON.stringify(value);
+    } catch {
+      text = String(value);
+    }
+
+    return { kind: 'json', value: text };
+  }
+
+  return { kind: 'text', value: String(value) };
+}
+
+/**
  * Coerce a typed row-editor input into a value ready to BIND (never string-interpolated).
  * `null` ignores the raw text; `number` rejects blank/NaN; `boolean` accepts true/false/1/0/yes/no;
  * `json` validates the text parses and binds the ORIGINAL text (SQLite has no JSON type — JSON is

@@ -41,6 +41,7 @@ import {
   visibleColumns,
   toggleHiddenColumn,
   coerceCellInput,
+  inferCellEditor,
   buildInsertStatement,
   buildDeleteByPk,
   buildUpdateByPk,
@@ -857,5 +858,29 @@ describe('buildUpdateByPk (single-row, single-column parameterized UPDATE)', () 
   it('rejects invalid table / set-column identifiers', () => {
     expect(() => buildUpdateByPk('bad name', ['id'], { id: 1 }, 'x', 1)).toThrow(RowMutationError);
     expect(() => buildUpdateByPk('t', ['id'], { id: 1 }, 'bad col', 1)).toThrow(RowMutationError);
+  });
+});
+
+describe('inferCellEditor (prefill an editor from an existing value — inverse of coerceCellInput)', () => {
+  it('maps each value type to its editor kind + prefill string', () => {
+    expect(inferCellEditor('hello')).toEqual({ kind: 'text', value: 'hello' });
+    expect(inferCellEditor(42)).toEqual({ kind: 'number', value: '42' });
+    expect(inferCellEditor(0)).toEqual({ kind: 'number', value: '0' });
+    expect(inferCellEditor(true)).toEqual({ kind: 'boolean', value: 'true' });
+    expect(inferCellEditor(false)).toEqual({ kind: 'boolean', value: 'false' });
+    expect(inferCellEditor(null)).toEqual({ kind: 'null', value: '' });
+    expect(inferCellEditor(undefined)).toEqual({ kind: 'null', value: '' });
+    expect(inferCellEditor({ a: 1 })).toEqual({ kind: 'json', value: '{"a":1}' });
+    expect(inferCellEditor([1, 2])).toEqual({ kind: 'json', value: '[1,2]' });
+  });
+
+  it('round-trips through coerceCellInput (infer → coerce restores the value)', () => {
+    for (const v of ['hi', 42, true, null] as const) {
+      const ed = inferCellEditor(v);
+      expect(coerceCellInput(ed.kind, ed.value)).toEqual(v);
+    }
+    // JSON round-trips as its text form (SQLite stores JSON as TEXT).
+    const j = inferCellEditor({ a: 1 });
+    expect(coerceCellInput(j.kind, j.value)).toBe('{"a":1}');
   });
 });

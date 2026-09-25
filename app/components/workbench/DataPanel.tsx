@@ -51,6 +51,7 @@ import {
   visibleColumns,
   toggleHiddenColumn,
   coerceCellInput,
+  inferCellEditor,
   buildInsertStatement,
   buildDeleteByPk,
   buildUpdateByPk,
@@ -1040,29 +1041,41 @@ export const DataPanel = memo(() => {
     setEditError('');
     setEditCol(col);
 
-    let kind: CellInputKind;
-    let value: string;
-
-    if (rawValue === null || rawValue === undefined) {
-      kind = 'null';
-      value = '';
-    } else if (typeof rawValue === 'number') {
-      kind = 'number';
-      value = String(rawValue);
-    } else if (typeof rawValue === 'boolean') {
-      kind = 'boolean';
-      value = rawValue ? 'true' : 'false';
-    } else if (typeof rawValue === 'object') {
-      kind = 'json';
-      value = JSON.stringify(rawValue);
-    } else {
-      kind = 'text';
-      value = String(rawValue);
-    }
-
+    const { kind, value } = inferCellEditor(rawValue);
     setEditKind(kind);
     setEditValue(value);
   }, []);
+
+  /**
+   * Duplicate a row — open the Add-row form PREFILLED from this row, with the PRIMARY-KEY column(s)
+   * left at 'default' (omitted) so the DB generates a fresh key (no UNIQUE collision). The user
+   * reviews + edits + Saves → a normal parameterized INSERT. When the table has no known PK, every
+   * column is prefilled (the user clears any unique value before saving).
+   */
+  const duplicateRow = useCallback(
+    (row: Record<string, unknown>): void => {
+      const kinds: Record<string, CellInputKind | 'default'> = {};
+      const values: Record<string, string> = {};
+
+      for (const col of columns) {
+        if (browsePkCols.includes(col)) {
+          kinds[col] = 'default'; // omit the key → DB assigns a fresh one
+          continue;
+        }
+
+        const { kind, value } = inferCellEditor(row[col]);
+        kinds[col] = kind;
+        values[col] = value;
+      }
+
+      setAddError('');
+      setAddKinds(kinds);
+      setAddValues(values);
+      setAddingRow(true);
+      setDetailIdx(null); // collapse the source row-detail; the prefilled form is at the top
+    },
+    [columns, browsePkCols],
+  );
 
   const cancelEdit = useCallback((): void => {
     setEditCol(null);
@@ -1764,6 +1777,19 @@ export const DataPanel = memo(() => {
                               >
                                 <div className="i-ph:copy text-[11px]" /> Copy row (JSON)
                               </button>
+                              {/* Duplicate row — super-admin only; opens the Add-row form prefilled
+                                  from this row, with the PK omitted (DB assigns a fresh key). */}
+                              {canRunSql && (
+                                <button
+                                  type="button"
+                                  onClick={() => duplicateRow(r)}
+                                  data-testid="data-duplicate-row"
+                                  title="Duplicate this row — opens the Add-row form prefilled (primary key omitted so a new one is generated)"
+                                  className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-bolt-elements-item-contentAccent/40 cursor-pointer"
+                                >
+                                  <div className="i-ph:copy-simple text-[11px]" /> Duplicate
+                                </button>
+                              )}
                               {/* Delete row — super-admin only (gated /sql/exec-write) + a resolvable PK. */}
                               {canRunSql && browsePkCols.length > 0 && (
                                 <button
