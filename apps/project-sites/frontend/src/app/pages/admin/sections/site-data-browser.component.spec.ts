@@ -23,7 +23,7 @@ const OVERVIEW = {
   data: {
     tables: [
       { key: 'visitor_events', label: 'Visitor Events', description: 'Analytics pageviews and events', columns: COLS, row_count: 3, browsable: true, deletable: false, last_activity: '2026-09-20 12:00:00' },
-      { key: 'form_submissions', label: 'Form Submissions', description: 'Contact and lead form entries', columns: ['form_name', 'status', 'email', 'created_at'], row_count: 2, browsable: true, deletable: true, editableColumns: { status: { type: 'enum', options: ['received', 'forwarded', 'partial', 'failed'] } }, last_activity: null },
+      { key: 'form_submissions', label: 'Form Submissions', description: 'Contact and lead form entries', columns: ['form_name', 'status', 'notes', 'email', 'created_at'], row_count: 2, browsable: true, deletable: true, editableColumns: { status: { type: 'enum', options: ['received', 'forwarded', 'partial', 'failed'] }, notes: { type: 'text', maxLength: 2000 } }, last_activity: null },
     ],
   },
 };
@@ -703,10 +703,44 @@ describe('SiteDataBrowserComponent — row edit', () => {
     const { fixture, c } = setup();
     fixture.detectChanges();
     c.selectTable(formTable(c));
-    expect(c.editableColumnsList().map((e) => e.column)).toEqual(['status']);
+    expect(c.editableColumnsList().map((e) => e.column)).toEqual(['status', 'notes']);
     expect(c.editableColumnsList()[0].options).toEqual(['received', 'forwarded', 'partial', 'failed']);
+    // The text column carries a maxLength (bound) + no options; the enum carries options + maxLength 0.
+    const notes = c.editableColumnsList().find((e) => e.column === 'notes')!;
+    expect(notes.type).toBe('text');
+    expect(notes.maxLength).toBe(2000);
+    expect(notes.options).toEqual([]);
     c.selectTable(visitorTable(c));
     expect(c.editableColumnsList()).toEqual([]);
+  });
+
+  it('renders a <textarea> (maxlength-bound) for the text column, and saveEdit PATCHes the note', async () => {
+    const updateOverviewRow = jasmine
+      .createSpy('updateOverviewRow')
+      .and.returnValue(of({ data: { id: 'row-abc', column: 'notes', value: 'called back', updated: true } }));
+    const { fixture, c, confirmSpy, toast } = setup({
+      browseDataTable: browseForm(),
+      updateOverviewRow,
+      confirmResult: true,
+    });
+    fixture.detectChanges();
+    c.selectTable(formTable(c));
+    fixture.detectChanges();
+    c.toggleRow(0);
+    fixture.detectChanges();
+    const ta = (fixture.nativeElement as HTMLElement).querySelector(
+      'textarea[data-testid="db-edit-notes"]',
+    ) as HTMLTextAreaElement | null;
+    expect(ta).withContext('notes textarea renders for form_submissions').toBeTruthy();
+    expect(ta!.getAttribute('maxlength')).withContext('bounded to the server cap').toBe('2000');
+    // A null note renders as an empty textarea (never the string "null").
+    expect(c.draftValue({ id: 'row-abc', notes: null }, 'notes')).toBe('');
+
+    c.setDraft('notes', 'called back');
+    await c.saveEdit({ id: 'row-abc', notes: null }, 'notes');
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(updateOverviewRow).toHaveBeenCalledWith('site-1', 'form_submissions', 'row-abc', 'notes', 'called back');
+    expect(toast.success).toHaveBeenCalled();
   });
 
   it('renders an enum <select> + Save in row detail ONLY for an editable table', () => {
