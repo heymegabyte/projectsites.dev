@@ -119,6 +119,13 @@ export interface MultiUrlAnalytics {
   readonly uniques: number;
   readonly total_requests: number;
   readonly series: ReadonlyArray<SeriesPoint>;
+  /**
+   * Top paths / countries / referrers. `views` = pageview-ish "visits" (CF's `sum.visits`, which
+   * this file already uses as its day-level pageview proxy) on the CF-zone path, or the real
+   * first-party pageview COUNT on the D1 subdomain path — NEVER raw HTTP request count (which
+   * would conflate requests with visits per the analytics correctness mandate). CF `visits` is
+   * adaptive-SAMPLED; the UI labels these as views/estimated, not exact request counts.
+   */
   readonly top_pages: ReadonlyArray<{ path: string; views: number }>;
   readonly top_countries: ReadonlyArray<{ country: string; views: number }>;
   readonly top_referrers: ReadonlyArray<{ referrer: string; views: number }>;
@@ -371,7 +378,7 @@ async function loadHostAggregate(
     )
     .join('\n          ');
   const breakdown = (name: string, dim: string, limit: number) =>
-    `${name}: httpRequestsAdaptiveGroups(limit: ${limit}, filter: { datetime_geq: "${recent.since}", datetime_leq: "${recent.until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { ${dim} } }`;
+    `${name}: httpRequestsAdaptiveGroups(limit: ${limit}, filter: { datetime_geq: "${recent.since}", datetime_leq: "${recent.until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { visits } dimensions { ${dim} } }`;
 
   const query = /* GraphQL */ `
     query MultiUrlTraffic($zoneTag: String!, $host: String!) {
@@ -453,20 +460,25 @@ async function loadHostAggregate(
       agg.page_views += views;
       agg.by_day.set(w.date, { page_views: views, requests, unique_visitors: 0 });
     }
+    // Top paths/countries/referrers use sum.visits (CF's pageview-ish "visits"), NOT count (raw
+    // HTTP requests incl. assets/subrequests/retries) — consistent with the day-level pageviews
+    // above (which already use sum.visits) and honest with the `views` field these feed. Ranking
+    // by count_DESC in the query, but only visits>0 rows are surfaced, so an asset with many
+    // requests but no real visits never mislabels the "top pages" list as a high-view page.
     for (const row of zoneRow.paths ?? []) {
       const path = String(row.dimensions?.clientRequestPath ?? '/');
-      const c = Number(row.count ?? 0);
-      if (c > 0) agg.top_paths.set(path, (agg.top_paths.get(path) ?? 0) + c);
+      const v = Number(row.sum?.visits ?? 0);
+      if (v > 0) agg.top_paths.set(path, (agg.top_paths.get(path) ?? 0) + v);
     }
     for (const row of zoneRow.geo ?? []) {
       const country = String(row.dimensions?.clientCountryName ?? 'Unknown');
-      const c = Number(row.count ?? 0);
-      if (c > 0) agg.top_countries.set(country, (agg.top_countries.get(country) ?? 0) + c);
+      const v = Number(row.sum?.visits ?? 0);
+      if (v > 0) agg.top_countries.set(country, (agg.top_countries.get(country) ?? 0) + v);
     }
     for (const row of zoneRow.refs ?? []) {
       const referrer = safeHost(String(row.dimensions?.clientRequestReferer ?? '')) || '(direct)';
-      const c = Number(row.count ?? 0);
-      if (c > 0) agg.top_referrers.set(referrer, (agg.top_referrers.get(referrer) ?? 0) + c);
+      const v = Number(row.sum?.visits ?? 0);
+      if (v > 0) agg.top_referrers.set(referrer, (agg.top_referrers.get(referrer) ?? 0) + v);
     }
     return agg;
   } catch (err) {

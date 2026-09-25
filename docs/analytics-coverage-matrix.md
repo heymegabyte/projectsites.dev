@@ -124,6 +124,30 @@ once the augment tier is genuinely exhausted. A CF plan upgrade is the only path
   now — the prior "no traffic" bug (reading empty CF-zone data for `*.projectsites.dev` subdomains
   instead of D1) is fixed. CF-zone per-host data is only meaningful for **custom domains in a CF zone**,
   30-day retention.
+  - **(2026-09-25) Top pages/countries/referrers now count VISITS, not requests (correctness fix).**
+    The audience `breakdown()` sub-query (`multi_url_analytics.ts:373`) selected only `{ count }` (raw
+    HTTP requests incl. assets/subrequests/retries) while exposing it through a field literally named
+    **`views`** — a requests-vs-visits **conflation** the mandate forbids (a CSS/JS asset can dwarf a
+    real page in requests). Now selects `sum { visits }` and populates the `top_paths/geo/refs` maps
+    from `sum.visits` (CF's pageview-ish metric — the SAME proxy this file already uses for the
+    day-level pageviews), consistent with + honest as the `views` field AND with the first-party D1
+    path (which already used real pageview COUNTs). visits is adaptive-SAMPLED → the response doc now
+    says so; only visits>0 rows surface (an asset with requests-but-no-visits never mislabels the top-
+    pages list). Custom-domain owners' "top pages" table now shows real visitors, not inflated request
+    counts. Worker-only (the `views` field name + the Angular card are unchanged — the DATA is now
+    honest). +1 `top_referrers` assertion added; `multi_url_analytics_load` mock proves visits≠count is
+    read. 29/29 multi_url + 72/72 sibling analytics suites green.
+  - **Ranked backlog (4-agent scan 2026-09-25, verified not-shipped):** (1) ✅ **top-pages VISITS —
+    DONE this fire**; (2) UTM **medium** breakdown — `enrich.ts` extracts `utmMedium` but no
+    aggregator (byUtmSource + byUtmCampaign exist) → complete the UTM triad (partly redundant w/ the
+    derived channel card, so mid value); (3) conversions **by-kind drilldown filter** — `byConversionKind`
+    returned but `filterDimLabel()` lacks `conversion_kind`, so it's the one breakdown with no click-to-
+    filter (feature parity); (4) delivery **`by_cache_visits`** — the `cache` sub-query has bytes but
+    not visits (mirror `by_status_visits`, tiny); (5) **exit pages / session-duration** — high value but
+    need a session id on events server-side (bigger than one fire; the `ps_sess` beacon boundary exists
+    client-side only). FALSE gaps rejected: new-vs-returning + entry-pages (shipped as dedicated
+    self-fetching cards, not via `getTrafficSummary`); `byType` card (deliberately dropped as telemetry
+    noise).
 - **Analytics Engine (`ANALYTICS` binding)** — ops/debug only (`services/cf_analytics.ts`), not in the
   customer dashboard; ingest gated by `ANALYTICS_INGEST_ENABLED="false"`.
 - **Tenant isolation: SAFE** — `resolveOwnedSiteId` (`routes/analytics.ts:57`) + `requireOwnedSite`
