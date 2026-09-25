@@ -176,10 +176,17 @@ gated.
   beside Conversions (the WHICH-LINKS companion to the by-category counts), scheme stripped for
   display, honest empty when none. These are the owner's OWN links, not visitor PII. +9 Jest
   (5 aggregate + 4 normalize) + 4 Karma. Worker tsc+jest; app tsc; card Karma 4/4.
-  **REMAINING (ranked, all optional):** (1) surface CWV ratings on the public report too; (2) the
-  drilldown filter UI (owned by a concurrent session — not mine). The analytics section is at a
-  broad-coverage plateau: every AVAILABLE CF dataset + the full advanced-first-party set is shipped,
-  and first-party metrics propagate to the admin dashboard, the public report, and the funnel.
+- **Public report "Page speed" (CWV verdict) SHIPPED (2026-09-25):** the public
+  `/shared/analytics/:token` report gains a recognizable **Page speed** tile (Good / Needs
+  improvement / Poor) from real-user Core Web Vitals. Frontend-only (the endpoint already returns
+  `traffic.webVitals`). Pure `cwvOverallRating` (exported, tested): Google thresholds (LCP 2500/4000,
+  INP 200/500, CLS 0.1/0.25) + Google's pass model — Good only when EVERY measured core metric is
+  good, Poor if any is poor, else Needs improvement; rates only metrics with field samples; null →
+  tile omitted (never a fabricated rating). +8 Karma. Prod-verified: chunk live with the marker.
+  **REMAINING:** the drilldown filter UI is the ONLY open item (owned by the concurrent
+  `analytics-drilldown-filter` session — not mine). The analytics section is at a genuine plateau:
+  every AVAILABLE CF dataset + the full advanced-first-party set is shipped, and first-party metrics
+  propagate to the admin dashboard, the public report, AND the funnel.
 
 ## Coverage matrix
 
