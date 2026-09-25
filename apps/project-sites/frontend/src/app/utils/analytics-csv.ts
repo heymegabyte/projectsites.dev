@@ -48,12 +48,16 @@ export interface AnalyticsCsvInput {
       lcp: WebVitalStat | null;
       inp: WebVitalStat | null;
       cls: WebVitalStat | null;
+      /** Page-load timing (first-party): FCP + TTFB p75, emitted only when measured. */
+      fcp?: WebVitalStat | null;
+      ttfb?: WebVitalStat | null;
     };
   } | null;
   /**
-   * Cloudflare edge delivery (status classes / cache / bandwidth) from
-   * `envelope.delivery`. Rows are emitted ONLY when `has_data` — an unavailable or
-   * empty delivery block contributes nothing (never fake zeros), matching the card.
+   * Cloudflare edge delivery from `envelope.delivery` (status classes / cache / bandwidth
+   * + the connection/content breakdowns: HTTP protocol, TLS, content-type, method, and
+   * verified bots). Rows are emitted ONLY when `has_data` — an unavailable or empty
+   * delivery block contributes nothing (never fake zeros), matching the cards.
    */
   delivery?: {
     has_data: boolean;
@@ -61,6 +65,11 @@ export interface AnalyticsCsvInput {
     by_status_class: ReadonlyArray<{ class: string; count: number }>;
     cache: { hit: number; miss: number; uncacheable: number; hit_ratio_pct: number | null };
     response_bytes: number;
+    protocols?: ReadonlyArray<{ label: string; count: number }>;
+    tls?: ReadonlyArray<{ label: string; count: number }>;
+    content_types?: ReadonlyArray<{ label: string; count: number }>;
+    methods?: ReadonlyArray<{ label: string; count: number }>;
+    verified_bots?: ReadonlyArray<{ label: string; count: number }>;
   } | null;
   /**
    * Busiest-hours buckets ALREADY rotated to the viewer's local time (0–23), typically
@@ -104,6 +113,9 @@ export function buildAnalyticsCsv(input: AnalyticsCsvInput): string {
   if (wv?.lcp) lines.push(`web_vital,lcp_p75_ms,${wv.lcp.p75}`);
   if (wv?.inp) lines.push(`web_vital,inp_p75_ms,${wv.inp.p75}`);
   if (wv?.cls) lines.push(`web_vital,cls_p75,${wv.cls.p75}`);
+  // Page-load timing (first-party) — emitted only when measured (never a fake 0).
+  if (wv?.ttfb) lines.push(`web_vital,ttfb_p75_ms,${wv.ttfb.p75}`);
+  if (wv?.fcp) lines.push(`web_vital,fcp_p75_ms,${wv.fcp.p75}`);
 
   // Cloudflare edge delivery — emitted ONLY when there's real edge data (matches the
   // card's honest "not available / no traffic" states; never fabricated zeros).
@@ -116,6 +128,13 @@ export function buildAnalyticsCsv(input: AnalyticsCsvInput): string {
     lines.push(`delivery,cache_uncacheable,${dl.cache.uncacheable}`);
     if (dl.cache.hit_ratio_pct != null) lines.push(`delivery,cache_hit_ratio_pct,${dl.cache.hit_ratio_pct}`);
     lines.push(`delivery,edge_response_bytes,${dl.response_bytes}`);
+    // Edge connection/content breakdowns (mirror the Delivery card's edge grid) — each
+    // top row as `edge_<dim>,<label>,<count>`. Absent dims contribute nothing.
+    for (const r of dl.protocols ?? []) lines.push(`edge_protocol,${csvEscape(r.label)},${r.count}`);
+    for (const r of dl.tls ?? []) lines.push(`edge_tls,${csvEscape(r.label)},${r.count}`);
+    for (const r of dl.content_types ?? []) lines.push(`edge_content_type,${csvEscape(r.label)},${r.count}`);
+    for (const r of dl.methods ?? []) lines.push(`edge_method,${csvEscape(r.label)},${r.count}`);
+    for (const r of dl.verified_bots ?? []) lines.push(`edge_verified_bot,${csvEscape(r.label)},${r.count}`);
   }
 
   // Busiest hours — local-time buckets (the caller rotated from UTC), `HH:00` labels.
