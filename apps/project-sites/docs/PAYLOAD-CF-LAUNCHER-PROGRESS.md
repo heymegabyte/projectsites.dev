@@ -78,7 +78,22 @@
   `/admin` login → assert 200** (the acceptance milestone). Build env that worked: `PAYLOAD_SECRET`
   set + `NODE_OPTIONS=--max-old-space-size=8000` + D1 `remote:false`.
 
-## ⚠️ BLOCKED on an OPEN UPSTREAM BUG (Fire 3, 2026-09-25)
+## ✅✅ REAL PAYLOAD BUNDLE BUILDS (Fire 5, 2026-09-25) — the 5-fire blocker is CLEARED
+
+`opennextjs-cloudflare build` = **exit 0, 0 esbuild errors, "Worker saved in `.open-next/worker.js` 🚀
+OpenNext build complete."** The winning combination (all committed):
+1. build script → `payload generate:importmap && next build --webpack`
+2. `next.config.ts` → `typescript.ignoreBuildErrors` + `eslint.ignoreDuringBuilds`
+3. `wrangler.jsonc` → D1 `remote:false` (build uses local D1)
+4. Turbopack `resolveAlias` `drizzle-kit/api` → `stubs/drizzle-kit-api.mjs` (kept for safety)
+5. **`--webpack` (NOT Turbopack)** — the key fix: Turbopack's chunk output panics OpenNext's
+   esbuild ("Unexpected expression of type `<nil>`"); webpack output bundles cleanly AND respects
+   `serverExternalPackages` for drizzle-kit.
+`layout.tsx` viewport drop (fire 2) also required. Next: deploy `.open-next` (worker + assets) as a
+per-instance Worker with real D1+R2+PAYLOAD_SECRET + `payload migrate` → real 200 login → swap into
+the proven launch/delete pipeline.
+
+## ⚠️ (historical) BLOCKED on an OPEN UPSTREAM BUG (Fire 3, 2026-09-25)
 
 The official template's OpenNext build fails at the final esbuild bundle on
 `Could not resolve "drizzle-kit-<hash>/api"`. Root cause = **[payloadcms/payload#16470](https://github.com/payloadcms/payload/issues/16470)** (open, May 2026): `@payloadcms/db-d1-sqlite`
