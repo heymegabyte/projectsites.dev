@@ -7,6 +7,14 @@ const nextConfig = {
   // unblocks the OpenNext build; runtime is unaffected.
   typescript: { ignoreBuildErrors: true },
   eslint: { ignoreDuringBuilds: true },
+  // Alias drizzle-kit/api (migration-only) to a build stub so Turbopack never pulls the real
+  // tooling into the Worker server graph (root cause of the OpenNext esbuild bundle failure,
+  // payload#16470). `payload migrate` (Node CLI, deploy-time) still uses the real drizzle-kit.
+  turbopack: {
+    resolveAlias: {
+      'drizzle-kit/api': './stubs/drizzle-kit-api.mjs',
+    },
+  },
   images: {
     localPatterns: [
       {

@@ -131,6 +131,25 @@ module once it builds. **Real fix path (NOT source-level):** mark `drizzle-kit` 
 OpenNext's OWN esbuild (`open-next.config.ts`, needs the verified API) OR re-base on Cloudflare's
 official custom-D1 Payload adapter. The `patch-package` try/catch patch is WIP, insufficient alone.
 
+**Fire 5 (2026-09-25):** root-cause fix attempt — a **Turbopack `resolveAlias`** mapping
+`drizzle-kit/api` → a build stub (`stubs/drizzle-kit-api.mjs`) in `next.config.ts`, so Turbopack
+never pulls the real migration tooling into the Worker server graph (hence never hashes it for
+OpenNext's esbuild to choke on). `payload migrate` (Node CLI, deploy-time) still uses the real
+drizzle-kit. Confirmed OpenNext's server esbuild has no clean user-external hook (hardcoded
+externals + internal plugins), so the fix belongs upstream of it (Turbopack). Build verifying → if
+clean, deploy the REAL Payload bundle as a WfP user Worker → real 200 login (swap into the
+already-proven launch/delete pipeline).
+
+**Fire 5 RESULT:** the Turbopack stub-alias WORKED for drizzle-kit — `Could not resolve` → **0**
+(esbuild errors 9 → 1). New blocker surfaced: esbuild **panics on Turbopack's chunk output**
+("Unexpected expression of type `<nil>`") — a known Next-16-Turbopack ↔ OpenNext-esbuild
+incompatibility. **Fix:** switched the build to **`next build --webpack`** (Next 16.3.3 supports
+`--webpack`); webpack respects `serverExternalPackages` AND emits esbuild-friendly output (should
+fix BOTH the panic and drizzle-kit). Webpack build verifying. **If webpack ALSO fails**, the
+community template on Next-16 HEAD is a compounding-upstream-bug dead end → pivot to CF's official
+custom-D1 Payload adapter (B). Fixes so far (all committed): build script · viewport · TS/lint skip
+· D1 remote · drizzle-kit Turbopack-stub-alias (`stubs/drizzle-kit-api.mjs`) · webpack build.
+
 ## Remaining slices (in order)
 
 1. **Migration** — add `d1_database_id` + `worker_script_name` to `app_instances`
