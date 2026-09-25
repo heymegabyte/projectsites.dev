@@ -123,10 +123,12 @@ export const SITE_DATA_OVERVIEW_TABLES: readonly OverviewTable[] = [
     countSql: `SELECT COUNT(*) AS n FROM form_submissions WHERE site_id = ?`,
     lastActivitySql: `SELECT MAX(created_at) AS ts FROM form_submissions WHERE site_id = ?`,
     // PII-safe: no payload / ip_address / user_agent; email is masked below.
-    // `id` is selected as the stable delete key (a random UUID, not PII) but kept
+    // `id` is selected as the stable delete/edit key (a random UUID, not PII) but kept
     // OUT of `columns` so it's never a rendered / sortable / searchable column.
-    browseSql: `SELECT id, form_name, status, email, created_at FROM form_submissions WHERE site_id = ? ORDER BY created_at DESC LIMIT ?`,
-    columns: ['form_name', 'status', 'email', 'created_at'],
+    // `notes` is the OWNER's own free-text annotation on a lead (not lead-supplied PII)
+    // — displayed + owner-editable via the typed TEXT editor (EDITABLE_OVERVIEW_COLUMNS).
+    browseSql: `SELECT id, form_name, status, notes, email, created_at FROM form_submissions WHERE site_id = ? ORDER BY created_at DESC LIMIT ?`,
+    columns: ['form_name', 'status', 'notes', 'email', 'created_at'],
     maskEmail: true,
     deletable: true,
   },
