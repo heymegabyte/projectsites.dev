@@ -4,6 +4,31 @@
 > Maintained by the analytics loop (`65648642`). Rule: never imply an unavailable metric is zero,
 > never present an estimate as exact. Verify display-vs-store, not just render-vs-endpoint.
 
+## ✅ VERIFIED-COMPLETE / PLATEAU (2026-09-25)
+
+A 4-agent parallel READ-ONLY scan (frontend cards · worker CF services · first-party pipeline · matrix/tests)
+returned ~24 "gaps" — **every top finding was verified against source to be already-shipped, honestly-blocked,
+or deliberately-dropped.** No buildable increment remains without a CF plan upgrade. Do NOT rebuild these
+(the scans mis-report them because they don't trace the wrapper chain):
+
+- **First-party cards ARE wired** (WebVitals/Engagement/Scroll/Network/NavTiming/JS-errors/OutboundClicks/
+  Conversions/FormFunnel/device-browser-os/hourly/campaign): `getTrafficSummary` (`visitor_events_core/service.ts:1167`)
+  wraps ALL 12 aggregators internally; `site_analytics/service.ts:547` calls `getTrafficSummary`. A grep for the
+  individual `get*Summary` names in `site_analytics` returns 0 — that's the wrapper, NOT a missing wire.
+- **CF-edge delivery is complete**: `DeliverySummary.top_statuses` carries `{status,count,bytes,visits}`
+  (`multi_url_analytics.ts:75`); `cache` carries `hit_bytes/miss_bytes/uncacheable_bytes`; `protocols` (h2/h3)
+  + `tls` are queried, parsed, AND rendered in `delivery-card` (lines 303-304). Content-type + method too.
+- **Referrer/channel attribution** = `channel-breakdown.component.ts` (direct/organic/social/paid/email/referral).
+- **Tenant isolation is tested**: all analytics endpoints share `requireOwnedSite` (`handlers.ts:55-62`,
+  cross-org → 404); `site_analytics_handlers.test.ts:78` proves "404 when the site belongs to another org".
+- **Honestly-blocked (never build)**: WAF/`firewallEventsAdaptiveGroups`, botScore, edge TTFB — no plan entitlement.
+
+**Doctrine (loop-arc-economics):** the analytics section has reached marginal-value saturation. Future analytics
+fires: VERIFY a scanned gap against the wrapper chain BEFORE building (agents over-report), and prefer
+REALLOCATING to the DATA loop's un-plateaued Editor resource adapters (R2/DO/Vectorize/Hyperdrive still PLANNED)
+over fabricating a marginal analytics card. Only genuinely-new, verified gaps (or a CF plan upgrade unlocking WAF)
+warrant a new analytics build.
+
 ## Architecture (verified 2026-09-23, iteration 1)
 
 - **Primary store: D1 `visitor_events`** (first-party). Pageviews are recorded **server-side per
