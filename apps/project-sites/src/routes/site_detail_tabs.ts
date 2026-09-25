@@ -333,6 +333,141 @@ tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /api/sites/:siteId/sql/nl2sql — AI SQL assistant (natural language → SQL)
+// Grounds Workers AI (Llama, free) on the REAL server-fetched schema and returns ONE
+// read-only SELECT for the operator to REVIEW. It NEVER executes — the returned SQL is
+// run (if the user chooses) through /sql/exec, which independently enforces the
+// SELECT/EXPLAIN/WITH/PRAGMA allowlist + super-admin gate. Super-admin ONLY (shared DB).
+// ─────────────────────────────────────────────────────────────────────────────
+const Nl2SqlSchema = z.object({ question: z.string().min(1).max(500) });
+
+/** The valid, current Workers AI Llama alias (per model-alias discipline — 70B fp8-fast, free). */
+const NL2SQL_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+
+/**
+ * Build the chat messages for NL→SQL — a strict SQLite-expert system prompt grounded in the real DDL.
+ * Read-only by construction (the model is told to emit ONE SELECT and never mutate); the schema is
+ * bounded so a huge DB can't blow the context. Pure + exported for tests.
+ */
+export function buildNl2SqlMessages(
+  question: string,
+  schemaDdl: string,
+): Array<{ role: 'system' | 'user'; content: string }> {
+  const system =
+    'You are a careful SQLite expert. Translate the user request into ONE single read-only SQLite ' +
+    'SELECT that answers it. Rules: (1) output ONLY the SQL — no prose, no markdown fences, no ' +
+    'explanation; (2) NEVER write or modify data (no INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/REPLACE); ' +
+    '(3) use ONLY tables and columns present in the schema; (4) add a LIMIT of at most 100 unless the ' +
+    'request is an aggregate; (5) if it cannot be answered from this schema, output exactly: ' +
+    '-- cannot answer from this schema';
+  const schema = schemaDdl.trim() ? schemaDdl.trim().slice(0, 12_000) : '(no tables)';
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: `Schema:\n${schema}\n\nRequest: ${question.trim()}\n\nSQL:` },
+  ];
+}
+
+/**
+ * Extract a clean single SQL statement from the model's text — strips a markdown fence, a leading
+ * "sql" language hint, and a trailing semicolon. Best-effort; the read-exec path re-validates the
+ * allowlist regardless, so a stray write can never execute. Pure + exported for tests.
+ */
+export function extractSqlFromAiText(text: string): string {
+  let t = (text ?? '').trim();
+  const fence = /```(?:sql)?\s*([\s\S]*?)```/i.exec(t);
+  if (fence) {
+    t = fence[1].trim();
+  }
+  t = t.replace(/^sql\s*\n/i, '').trim();
+  return t.replace(/;\s*$/, '').trim();
+}
+
+tabs.post('/api/sites/:siteId/sql/nl2sql', async (c) => {
+  const siteId = c.req.param('siteId');
+  const orgId = c.get('orgId');
+  const userId = c.get('userId');
+  if (!orgId || !userId) {
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Sign in required' } }, 401);
+  }
+  if (!(await isSuperAdmin(c.env, userId))) {
+    return c.json(
+      {
+        error: {
+          code: 'FORBIDDEN',
+          message: 'The SQL console is restricted to platform administrators.',
+        },
+      },
+      403,
+    );
+  }
+
+  let body: { question: string };
+  try {
+    body = Nl2SqlSchema.parse(await c.req.json().catch(() => ({})));
+  } catch (e) {
+    return c.json({ ok: false, error: e instanceof Error ? e.message : 'invalid body' }, 400);
+  }
+
+  const site = await dbQueryOne<{ id: string }>(
+    c.env.DB,
+    `SELECT id FROM sites WHERE id = ?1 AND org_id = ?2 AND deleted_at IS NULL`,
+    [siteId, orgId],
+  );
+  if (!site) {
+    return c.json({ ok: false, error: 'site not found' }, 404);
+  }
+
+  // Ground the model on the REAL schema (server-fetched DDL) — NEVER a client-supplied schema.
+  let schemaDdl = '';
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND sql IS NOT NULL ORDER BY name LIMIT 200`,
+    ).all();
+    schemaDdl = ((rows.results ?? []) as Array<{ sql?: unknown }>)
+      .map((r) => String(r.sql ?? ''))
+      .filter(Boolean)
+      .join(';\n');
+  } catch {
+    schemaDdl = '';
+  }
+
+  let sql = '';
+  try {
+    const ai = c.env.AI as {
+      run: (model: string, inputs: unknown) => Promise<{ response?: string } | string>;
+    };
+    const out = await ai.run(NL2SQL_MODEL, {
+      messages: buildNl2SqlMessages(body.question, schemaDdl),
+    });
+    const text = typeof out === 'string' ? out : String(out?.response ?? '');
+    sql = extractSqlFromAiText(text);
+  } catch (e) {
+    return c.json(
+      {
+        ok: false,
+        error: 'AI temporarily unavailable',
+        detail: e instanceof Error ? e.message : 'ai_error',
+      },
+      502,
+    );
+  }
+
+  await writeAuditLog(c.env.DB, {
+    org_id: orgId,
+    actor_id: userId,
+    action: 'site.sql.nl2sql',
+    target_type: 'site',
+    target_id: siteId,
+    // Log the question + model, never row data. The generated SQL is not executed here.
+    message: 'NL→SQL generated',
+    metadata_json: { question: body.question.slice(0, 200), model: NL2SQL_MODEL },
+  });
+
+  // Return the SQL for REVIEW — never executed here (the user runs it through the guarded /sql/exec).
+  return c.json({ ok: true, sql, model: NL2SQL_MODEL });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/sites/:siteId/sql/schema
 // Read-only SQLite schema introspection for the D1 manager — every table & view with
 // its columns (+ pk/notnull/default), indexes (+ their columns), and foreign keys,
