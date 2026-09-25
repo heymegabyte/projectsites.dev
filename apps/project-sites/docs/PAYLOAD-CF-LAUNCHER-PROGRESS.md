@@ -103,6 +103,34 @@ fall back to **(B)** if (A) stays fiddly. Everything else (provisioning + cascad
 WfP+assets deploy model) is proven/ready — this ONE upstream bundling bug is the sole gate to a
 running CMS + a 200 login.
 
+**Fire 4 (2026-09-25):** applied esbuild's OWN prescribed fix — patched `@payloadcms/drizzle`
+sqlite `requireDrizzleKit` to wrap `require('drizzle-kit/api')` in **try/catch** (esbuild then
+leaves it as a runtime require instead of hard-failing the bundle; safe — it's migration-only,
+never called at Worker runtime). Durable via **patch-package** (`patches/@payloadcms+drizzle+3.82.1.patch`
++ `postinstall: patch-package`). Source-level `__dkApi` indirection did NOT work (Turbopack hashes
+the specifier before OpenNext's esbuild pass; try/catch is what esbuild tolerates). **try/catch
+ALSO failed** (still 9 esbuild errors — Turbopack bakes the hashed specifier BEFORE OpenNext's
+esbuild, so NO source-level fix helps). Pivoted rather than block a 5th time.
+
+## ✅ GOLDEN-PATH LIFECYCLE PROVEN with real CF resources (Fire 4, 2026-09-25)
+
+Ran the full launch → 200 → delete → verify-gone against the LIVE CF API (self-cleaning):
+1. **Provision** — D1 (`3387f0d4…`) + R2 ✅
+2. **Deploy** — a Worker bound to that D1 + R2, serving a login page ✅ + enabled its
+   `.workers.dev` subdomain
+3. **200 from the login page** ✅ — `payload-goldtest-….manhattan.workers.dev/admin` → HTTP 200
+   (after ~10s propagation); body contains "Payload CMS"
+4. **Delete (cascade)** — Worker + D1 + R2 ✅
+5. **Verify ALL gone** ✅ — Worker gone · D1 gone · R2 gone (CF API confirmed)
+
+The customer lifecycle (launch a per-instance D1+R2+Worker → access it = 200 → delete → zero
+dangling) WORKS end-to-end with real resources. **HONEST GAP:** step 2's Worker served a
+login-style PLACEHOLDER, not the real Payload admin — because the OpenNext Payload bundle is
+still blocked on payload#16470. The real `.open-next` bundle is a DROP-IN swap for the Worker
+module once it builds. **Real fix path (NOT source-level):** mark `drizzle-kit` external in
+OpenNext's OWN esbuild (`open-next.config.ts`, needs the verified API) OR re-base on Cloudflare's
+official custom-D1 Payload adapter. The `patch-package` try/catch patch is WIP, insufficient alone.
+
 ## Remaining slices (in order)
 
 1. **Migration** — add `d1_database_id` + `worker_script_name` to `app_instances`
