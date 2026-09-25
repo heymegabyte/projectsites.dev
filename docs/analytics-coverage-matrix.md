@@ -496,7 +496,28 @@ latency percentiles — no entitlement) or need new plumbing/deps (see Next).
 
 ## Next increment (handoff)
 
-**CF adaptive-sampling honesty (sampleInterval) — SHIPPED (2026-09-25, latest).** The prompt's most-
+**Verify-against-source: daily-series ↔ summary self-consistency — SHIPPED (2026-09-25, latest).** The
+named next item (a verify-against-source pass, per the global rule guarding the historical lying-empty
+class). **Live prod probe** (D1 `visitor_events`, real account): `site-megabytespace-001` summary
+pageviews = **4901** === daily-series sum = **4901** over the same 30-day window; conversions 0 === 0
+(honest-empty). So `getTrafficSummary` and `getDailySeries` — which read the SAME store via DIFFERENT
+queries — are self-consistent (no lying-empty / double-count / wrong-source). To LOCK it against future
+drift (a WHERE/tz/event-type/filter change to one path but not the other — a conflation a canned-row
+mock can't catch because it never runs the SQL), shipped a **real-SQLite reconciliation test**: a new
+reusable harness `src/__tests__/helpers/d1_sqlite.ts` wraps Node 22's `node:sqlite` in a
+D1Database-compatible facade so an aggregator's ACTUAL SQL runs over SEEDED raw events;
+`reconcile_daily_summary.test.ts` asserts `SUM(daily.pageviews) === ground-truth COUNT` (+ conversions,
++ under a `country=US` drilldown filter, + tenant-scoped, + out-of-window excluded). Test-only (no
+runtime change → no deploy); worker 12667 Jest + tsc clean. **The harness is the durable win — the repo
+had ZERO real-SQL aggregator tests (all use canned-row doubles); future aggregators can now be
+reconciled against ground truth in CI. NEXT: extend the reconciler to a second surface (e.g. hourly ↔
+summary, or byCountry ↔ ground-truth) OR reallocate to generated-site quality — the AUGMENT + CF tiers
+are feature-complete + now self-consistency-guarded.**
+
+**⚠️ PRE-EXISTING (still unresolved, not this increment):** `feature_flags_docs.test.ts` remains RED on
+origin/main — 3 registry flags without `docs.ts` entries (a concurrent session's incomplete work).
+
+**CF adaptive-sampling honesty (sampleInterval) — SHIPPED (2026-09-25, earlier).** The prompt's most-
 emphasized honesty requirement ("surface sampling, estimates … never imply an estimated metric is
 exact"). The delivery card said "sampled estimate" UNCONDITIONALLY, but CF only samples busy zones — a
 LIVE PROBE of our zone showed real `sampleInterval`s of **~1.9–3.6 per host** (franklin-barbecue=3.56,
