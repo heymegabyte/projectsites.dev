@@ -168,8 +168,9 @@ async function deployWorker(
     main_module: 'index.js',
     compatibility_date: '2025-09-01',
     bindings: [
-      { type: 'd1', name: 'DB', id: bindings.d1DatabaseId },
-      { type: 'r2_bucket', name: 'MEDIA', bucket_name: bindings.r2BucketName },
+      // Binding names MUST match the with-cloudflare-d1 template's wrangler.jsonc: D1 + R2.
+      { type: 'd1', name: 'D1', id: bindings.d1DatabaseId },
+      { type: 'r2_bucket', name: 'R2', bucket_name: bindings.r2BucketName },
       ...Object.entries(bindings.vars ?? {}).map(([k, v]) => ({
         type: 'plain_text',
         name: k,
@@ -204,14 +205,19 @@ async function deleteWorker(c: CfCreds, name: string): Promise<'deleted' | 'not_
 
 /**
  * Minimal placeholder Worker deployed at launch so the subdomain resolves + the
- * D1/R2 bindings are exercised. Swapped for the real `with-cloudflare-d1` Payload
- * bundle in the next slice (see `docs/PAYLOAD-CF-LAUNCHER-PROGRESS.md`).
+ * D1/R2 bindings are exercised via a plain script upload.
+ *
+ * ⚠️ NOT how the real CMS deploys. The `with-cloudflare-d1` template is a Next.js +
+ * Payload app built by **OpenNext** (`main: .open-next/worker.js` + an `ASSETS`
+ * binding over `.open-next/assets/`) — a bundle + static assets, not a JS string.
+ * The real deploy = build the OpenNext bundle once, then per-instance upload the
+ * worker + assets with per-instance D1/R2 bindings (see PROGRESS doc, slice B1).
  */
 export const PAYLOAD_BOOTSTRAP_WORKER = `export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', app: 'payload-cf', hasDB: !!env.DB, hasMedia: !!env.MEDIA });
+      return Response.json({ status: 'ok', app: 'payload-cf', hasD1: !!env.D1, hasR2: !!env.R2 });
     }
     return new Response('Payload CMS instance provisioning… (D1 + R2 bound)', {
       headers: { 'content-type': 'text/plain' },

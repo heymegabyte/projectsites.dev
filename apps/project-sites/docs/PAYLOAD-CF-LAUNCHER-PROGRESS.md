@@ -20,11 +20,27 @@
 
 ## ⛔ Two hard blockers before a WORKING prod launch (both real, neither quick)
 
-- **B1 — the real Payload app bundle.** `provisionPayloadStack` currently deploys
-  `PAYLOAD_BOOTSTRAP_WORKER` (a placeholder that proves the D1+R2 bindings resolve). The actual
-  CMS needs the `payloadcms/payload/templates/with-cloudflare-d1` app **built into a Worker
-  module** + its D1 migrations run on the fresh per-instance D1 at provision time. This is a
-  heavy Next.js+Payload→Worker build — its own slice.
+- **B1 — the real Payload app bundle (template now CLONED to `infra/payload-d1/`, 2026-09-25).**
+  The real CMS is NOT a plain script upload (the current `PAYLOAD_BOOTSTRAP_WORKER` is a
+  placeholder). Verified template facts:
+  - **Stack:** Next 16 + `@opennextjs/cloudflare` ^1.11 + Payload 3.82 + `@payloadcms/db-d1-sqlite`
+    + `@payloadcms/storage-r2` + `@payloadcms/richtext-lexical`. `wrangler ~4.116`.
+  - **Deploy is OpenNext:** `main: ".open-next/worker.js"` + an **`ASSETS`** binding over
+    `.open-next/assets/`. Bindings in `wrangler.jsonc`: **`D1`** (d1_databases) · **`R2`**
+    (r2_buckets) · **`ASSETS`**. compat_date `2025-08-15`, flags `nodejs_compat` +
+    `global_fetch_strictly_public`.
+  - **Deploy cmds:** `deploy:database` = `payload migrate && wrangler d1 execute D1 … --remote`;
+    `deploy:app` = `opennextjs-cloudflare build && opennextjs-cloudflare deploy`. Migrations via
+    `payload migrate:create`.
+  - **Constraints:** **PAID Workers plan** (3 MB bundle limit); GraphQL unreliable in Workers.
+  - **Real per-instance deploy model:** build the OpenNext bundle ONCE (`.open-next/worker.js` +
+    `.open-next/assets/`), then per instance: create D1 → `payload migrate` on it → create R2 →
+    deploy the SAME bundle with per-instance bindings (`D1` id, `R2` bucket, `PAYLOAD_SECRET`) +
+    name `payload-{slug}` + route `{slug}.app.projectsites.dev`. Upload = worker script + the
+    ASSETS directory (Workers Assets API), or `wrangler deploy` with a generated per-instance
+    config. **"WfP where appropriate":** evaluate hosting the bundle as a dispatch-namespace user
+    Worker vs a standalone per-instance Worker — OpenNext's ASSETS binding + size may favor
+    standalone; decide in the deploy slice.
 - **B2 — a runtime provisioning credential.** The Worker provisions at runtime, so it needs a
   **scoped `CF_PROVISION_TOKEN`** (D1:Edit + Workers R2 Storage:Edit + Workers Scripts:Edit) set
   via `wrangler secret put` (the local tests used the global key, which is NOT a Worker secret).
