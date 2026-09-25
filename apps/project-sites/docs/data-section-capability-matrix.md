@@ -49,8 +49,14 @@
   em-dash) + `rowJson` (pretty whole-row JSON). Browse row-detail: a "Copy row (JSON)" button + a
   per-field copy icon; SQL result grid: every non-empty cell is a click-to-copy `<button>`. A
   polite `aria-live` + toast confirms each copy (token-guarded); `writeClipboard` fail-soft (blocked
-  context → no-op). +6 Vitest. Remaining toward a full SQLite manager: **inline typed row edit
-  in the grid** (grid cell → parameterized UPDATE preview) + **server-side full-table sort** (a
+  context → no-op). +6 Vitest. **Column show/hide — DONE (2026-09-25):** the prompt's "column
+  selection" — a "Columns" checklist dropdown in the browse toolbar toggles which columns the grid
+  renders (wide tables no longer force horizontal scroll); per-table + localStorage-persisted
+  (`ps-data-cols-hidden-<table>`), restored on table open. VIEW-ONLY (pure `visibleColumns` +
+  `toggleHiddenColumn`): the row-detail + CSV export keep EVERY column so hiding never omits data,
+  and the last visible column can't be hidden (never a dead-end empty grid; the detail colSpan
+  tracks the visible count). +7 Vitest. Remaining toward a full SQLite manager: **inline typed row
+  edit in the grid** (grid cell → parameterized UPDATE preview) + **server-side full-table sort** (a
   worker sort param on the browse endpoint, validated against the column allowlist).
 - **WfP** (`USER_DISPATCH` dispatch namespace) is **wired but DORMANT** — flag
   `user_worker_functions` default-off, zero per-site User Workers deployed,
