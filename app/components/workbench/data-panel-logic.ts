@@ -744,6 +744,73 @@ export function isExpensiveScan(rowsRead: number | null | undefined): boolean {
 }
 
 /**
+ * The default row cap the console offers to append to an UNBOUNDED SELECT. Bounds BOTH the
+ * result size streamed to the browser AND the rows D1 scans/bills for on a `SELECT *` against a
+ * large table — the "warn/auto-append LIMIT to a bare SELECT" guard. A first screen, not the
+ * whole table (mirrors the browse grid's page-size philosophy); the operator can still Run the
+ * raw unbounded query.
+ */
+export const DEFAULT_ROW_LIMIT = 500;
+
+/** Advice on bounding an unbounded row-returning query's result size (see {@link analyzeRowLimit}). */
+export interface RowLimitAdvice {
+  /** True when the first statement is a bare `SELECT` / `WITH…SELECT` with NO `LIMIT` — unbounded. */
+  readonly needsLimit: boolean;
+
+  /** The first statement with `LIMIT <limit>` appended, or the input unchanged when not needed. */
+  readonly limitedSql: string;
+
+  /** The limit that would be applied. */
+  readonly limit: number;
+}
+
+/**
+ * Detect an UNBOUNDED row-returning query — a `SELECT` or `WITH…SELECT` with no `LIMIT` — and
+ * produce a `LIMIT`-appended variant so the console can bound result size + scan cost BEFORE
+ * running it (a `SELECT * FROM big_table` otherwise streams every row to the browser and bills for
+ * a full scan). Only the FIRST statement is considered (the console runs one statement, like
+ * {@link explainQuery}). Detection runs on a comment/string-stripped copy so a `'…LIMIT…'` string
+ * literal can't cause a false match; the `LIMIT` is appended to the REAL statement. Conservative +
+ * safe: `EXPLAIN`/`PRAGMA`/`VALUES`/writes are left alone, and ANY existing `LIMIT` (even one in a
+ * subquery) suppresses the offer so a valid query is never turned into a double-`LIMIT` syntax
+ * error. Pure string logic; SQLite's own parser bounds the value at run time.
+ *
+ * @param sql - the editor buffer
+ * @param limit - the row cap to offer (default {@link DEFAULT_ROW_LIMIT})
+ * @example analyzeRowLimit('SELECT * FROM users')         // needsLimit:true  → 'SELECT * FROM users LIMIT 500'
+ * @example analyzeRowLimit('select a from t limit 10')    // needsLimit:false (already bounded)
+ * @example analyzeRowLimit('EXPLAIN QUERY PLAN SELECT 1') // needsLimit:false (not a bare SELECT)
+ * @example analyzeRowLimit('PRAGMA table_info(t)')        // needsLimit:false
+ */
+export function analyzeRowLimit(sql: string, limit: number = DEFAULT_ROW_LIMIT): RowLimitAdvice {
+  const raw = String(sql ?? '');
+
+  // First statement only — mirror explainQuery's split (the console runs one statement).
+  const first = raw
+    .split(';')
+    .map((p) => p.trim())
+    .find((p) => p.length > 0);
+  const unchanged: RowLimitAdvice = { needsLimit: false, limitedSql: raw, limit };
+
+  if (!first) {
+    return unchanged;
+  }
+
+  // Detect on a comment/string-stripped copy so a string literal can't false-match SELECT/LIMIT.
+  const probe = stripSqlCommentsAndStrings(first).trim();
+
+  if (!/^(SELECT|WITH)\b/i.test(probe)) {
+    return unchanged;
+  } // EXPLAIN/PRAGMA/VALUES/writes excluded
+
+  if (/\bLIMIT\b/i.test(probe)) {
+    return unchanged;
+  } // already bounded — never risk a double LIMIT
+
+  return { needsLimit: true, limitedSql: `${first} LIMIT ${limit}`, limit };
+}
+
+/**
  * The honest write-target descriptor for the D1 SQL console. This is the SSOT behind the
  * console's safety banner so the facts it shows the user can never drift from a code
  * comment. The console (super-admin only) runs against the SHARED, multi-tenant PLATFORM

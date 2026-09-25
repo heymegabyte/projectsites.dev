@@ -42,6 +42,7 @@ import {
   explainQuery,
   explainPlanHint,
   isExpensiveScan,
+  analyzeRowLimit,
   detectChartable,
   buildChartSeries,
   sqlConsoleTarget,
@@ -1523,6 +1524,9 @@ export const DataPanel = memo(() => {
   /** Index guidance when the current result is an EXPLAIN QUERY PLAN (null otherwise). */
   const sqlPlanHint = useMemo(() => explainPlanHint(sqlRows), [sqlRows]);
 
+  /** "Bare SELECT with no LIMIT" pre-run guard — offers a bounded first page (see analyzeRowLimit). */
+  const rowLimitAdvice = useMemo(() => analyzeRowLimit(sql), [sql]);
+
   /** Persist the saved-query list to localStorage (best-effort — never breaks a save). */
   const persistSaved = useCallback((next: readonly SavedQuery[]): void => {
     try {
@@ -2870,6 +2874,17 @@ export const DataPanel = memo(() => {
               >
                 <div className="i-ph:git-fork" /> Explain
               </button>
+              {rowLimitAdvice.needsLimit && !sqlRunning && (
+                <button
+                  type="button"
+                  onClick={() => runSql(rowLimitAdvice.limitedSql)}
+                  data-testid="data-sql-add-limit"
+                  title={`This SELECT has no LIMIT — it can return every row and scan the whole table. Run a bounded first ${rowLimitAdvice.limit} rows instead (you can still Run the full query).`}
+                  className="text-[10px] text-amber-300 rounded-md px-2 py-1 flex items-center gap-1 border border-amber-300/30 hover:bg-amber-300/10 cursor-pointer transition-colors"
+                >
+                  <div className="i-ph:warning" /> Add LIMIT {rowLimitAdvice.limit}
+                </button>
+              )}
               {sqlMeta && !sqlError && (
                 <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums" data-testid="data-sql-meta">
                   {sqlMeta.rows.toLocaleString()} {sqlMeta.rows === 1 ? 'row' : 'rows'}

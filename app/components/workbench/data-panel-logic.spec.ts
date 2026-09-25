@@ -28,6 +28,8 @@ import {
   explainPlanHint,
   isExpensiveScan,
   EXPENSIVE_SCAN_ROWS,
+  analyzeRowLimit,
+  DEFAULT_ROW_LIMIT,
   sqlConsoleTarget,
   MAX_QUERY_TABS,
   nextQueryTabTitle,
@@ -488,6 +490,61 @@ describe('isExpensiveScan', () => {
   it('never flags an UNREPORTED value (null/undefined) — no fabricated warning', () => {
     expect(isExpensiveScan(null)).toBe(false);
     expect(isExpensiveScan(undefined)).toBe(false);
+  });
+});
+
+describe('analyzeRowLimit', () => {
+  it('flags a bare SELECT with no LIMIT and appends the default cap', () => {
+    const a = analyzeRowLimit('SELECT * FROM users');
+    expect(a.needsLimit).toBe(true);
+    expect(a.limit).toBe(DEFAULT_ROW_LIMIT);
+    expect(a.limitedSql).toBe(`SELECT * FROM users LIMIT ${DEFAULT_ROW_LIMIT}`);
+  });
+
+  it('leaves an already-LIMITed query alone (never a double LIMIT), case-insensitive', () => {
+    const a = analyzeRowLimit('select a from t limit 10');
+    expect(a.needsLimit).toBe(false);
+    expect(a.limitedSql).toBe('select a from t limit 10');
+  });
+
+  it('bounds a WITH…SELECT (CTE) — it returns rows too', () => {
+    const a = analyzeRowLimit('WITH c AS (SELECT 1 AS n) SELECT * FROM c');
+    expect(a.needsLimit).toBe(true);
+    expect(a.limitedSql).toBe('WITH c AS (SELECT 1 AS n) SELECT * FROM c LIMIT 500');
+  });
+
+  it('leaves EXPLAIN / PRAGMA / VALUES / writes alone (not a bare row-returning SELECT)', () => {
+    expect(analyzeRowLimit('EXPLAIN QUERY PLAN SELECT * FROM t').needsLimit).toBe(false);
+    expect(analyzeRowLimit('PRAGMA table_info(t)').needsLimit).toBe(false);
+    expect(analyzeRowLimit('VALUES (1),(2)').needsLimit).toBe(false);
+    expect(analyzeRowLimit('DELETE FROM t').needsLimit).toBe(false);
+  });
+
+  it('honors a custom limit', () => {
+    expect(analyzeRowLimit('SELECT * FROM t', 100).limitedSql).toBe('SELECT * FROM t LIMIT 100');
+  });
+
+  it('does NOT false-match a LIMIT inside a string literal (detects on a stripped copy)', () => {
+    // The word LIMIT lives only inside a quoted value → the query is genuinely unbounded.
+    const a = analyzeRowLimit("SELECT * FROM t WHERE note = 'has the word LIMIT in it'");
+    expect(a.needsLimit).toBe(true);
+    expect(a.limitedSql.endsWith(`LIMIT ${DEFAULT_ROW_LIMIT}`)).toBe(true);
+  });
+
+  it('only bounds the FIRST statement of a multi-statement buffer (the console runs one)', () => {
+    const a = analyzeRowLimit('SELECT * FROM a; SELECT * FROM b');
+    expect(a.needsLimit).toBe(true);
+    expect(a.limitedSql).toBe('SELECT * FROM a LIMIT 500');
+  });
+
+  it('conservatively suppresses the offer when ANY LIMIT is present (subquery) — never risks a double LIMIT', () => {
+    expect(analyzeRowLimit('SELECT * FROM (SELECT x FROM t LIMIT 5)').needsLimit).toBe(false);
+  });
+
+  it('is a no-op on a blank / whitespace / semicolon-only buffer', () => {
+    expect(analyzeRowLimit('').needsLimit).toBe(false);
+    expect(analyzeRowLimit('   ;; ').needsLimit).toBe(false);
+    expect(analyzeRowLimit('   ').limitedSql).toBe('   ');
   });
 });
 
