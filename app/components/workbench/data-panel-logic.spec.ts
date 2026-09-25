@@ -40,6 +40,9 @@ import {
   rowJson,
   visibleColumns,
   toggleHiddenColumn,
+  coerceCellInput,
+  buildInsertStatement,
+  RowMutationError,
 } from './data-panel-logic';
 
 describe('iconForTable', () => {
@@ -697,5 +700,77 @@ describe('toggleHiddenColumn (3-state safe toggle, last-column guard)', () => {
     // hide c then a → stored in all-order [a, c], not insertion order [c, a]
     const afterC = toggleHiddenColumn([], 'c', ['a', 'b', 'c']);
     expect(toggleHiddenColumn(afterC, 'a', ['a', 'b', 'c'])).toEqual(['a', 'c']);
+  });
+});
+
+describe('coerceCellInput (typed row-editor value coercion)', () => {
+  it('null ignores the raw text and returns null', () => {
+    expect(coerceCellInput('null', 'anything at all')).toBeNull();
+    expect(coerceCellInput('null', '')).toBeNull();
+  });
+
+  it('text binds the raw string verbatim', () => {
+    expect(coerceCellInput('text', "O'Brien")).toBe("O'Brien"); // no escaping — it's bound, not concatenated
+    expect(coerceCellInput('text', '')).toBe('');
+  });
+
+  it('number parses finite numbers, rejects blank + NaN', () => {
+    expect(coerceCellInput('number', '42')).toBe(42);
+    expect(coerceCellInput('number', '-3.5')).toBe(-3.5);
+    expect(() => coerceCellInput('number', '')).toThrow(RowMutationError);
+    expect(() => coerceCellInput('number', 'abc')).toThrow(RowMutationError);
+  });
+
+  it('boolean accepts true/false/1/0/yes/no, rejects garbage', () => {
+    expect(coerceCellInput('boolean', 'true')).toBe(true);
+    expect(coerceCellInput('boolean', '1')).toBe(true);
+    expect(coerceCellInput('boolean', 'yes')).toBe(true);
+    expect(coerceCellInput('boolean', 'false')).toBe(false);
+    expect(coerceCellInput('boolean', '0')).toBe(false);
+    expect(coerceCellInput('boolean', '')).toBe(false);
+    expect(() => coerceCellInput('boolean', 'maybe')).toThrow(RowMutationError);
+  });
+
+  it('json validates parse-ability and binds the original text (SQLite stores JSON as TEXT)', () => {
+    expect(coerceCellInput('json', '{"a":1}')).toBe('{"a":1}');
+    expect(coerceCellInput('json', '[1,2,3]')).toBe('[1,2,3]');
+    expect(() => coerceCellInput('json', '{a:1}')).toThrow(RowMutationError);
+    expect(() => coerceCellInput('json', '')).toThrow(RowMutationError);
+  });
+});
+
+describe('buildInsertStatement (parameterized INSERT — never concatenates values)', () => {
+  it('builds quoted identifiers + ?N placeholders + aligned params', () => {
+    const stmt = buildInsertStatement('todos', ['title', 'done'], ['Buy milk', 0]);
+    expect(stmt.sql).toBe('INSERT INTO "todos" ("title", "done") VALUES (?1, ?2)');
+    expect(stmt.params).toEqual(['Buy milk', 0]);
+  });
+
+  it('binds a value with quotes as a PARAM, never interpolated into the SQL', () => {
+    const stmt = buildInsertStatement('t', ['name'], ["Robert'); DROP TABLE students;--"]);
+    expect(stmt.sql).toBe('INSERT INTO "t" ("name") VALUES (?1)'); // injection lives only in params
+    expect(stmt.params).toEqual(["Robert'); DROP TABLE students;--"]);
+  });
+
+  it('preserves null / boolean / number param types for the worker to bind', () => {
+    const stmt = buildInsertStatement('t', ['a', 'b', 'c'], [null, true, 7]);
+    expect(stmt.params).toEqual([null, true, 7]);
+  });
+
+  it('rejects an invalid table identifier', () => {
+    expect(() => buildInsertStatement('bad name', ['a'], ['x'])).toThrow(RowMutationError);
+    expect(() => buildInsertStatement('"; DROP', ['a'], ['x'])).toThrow(RowMutationError);
+  });
+
+  it('rejects an invalid column identifier', () => {
+    expect(() => buildInsertStatement('t', ['ok', 'bad col'], ['x', 'y'])).toThrow(RowMutationError);
+  });
+
+  it('rejects an empty column set (nothing to insert)', () => {
+    expect(() => buildInsertStatement('t', [], [])).toThrow(RowMutationError);
+  });
+
+  it('rejects a column/value count mismatch', () => {
+    expect(() => buildInsertStatement('t', ['a', 'b'], ['x'])).toThrow(RowMutationError);
   });
 });

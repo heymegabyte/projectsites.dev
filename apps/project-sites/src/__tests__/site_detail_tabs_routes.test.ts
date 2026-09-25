@@ -463,16 +463,28 @@ describe('POST /api/sites/:siteId/sql/exec', () => {
 describe('POST /api/sites/:siteId/sql/exec-write (D1 manager writes — AL-872)', () => {
   const PATH = `/api/sites/${SITE}/sql/exec-write`;
 
-  /** D1 mock whose `prepare(...).run()` resolves to a write-meta envelope (or throws). */
+  /** D1 mock whose `prepare(...).run()` resolves to a write-meta envelope (or throws). The
+   *  chainable `.bind(...)` records each call's args in `_boundParams` so the parameterized
+   *  write path (typed row editors — values BOUND, never concatenated) can be asserted. */
   function makeWriteDb(opts: { throws?: boolean } = {}) {
     const run = jest.fn(async () => {
       if (opts.throws) throw new Error('SQLITE_ERROR: syntax error');
       return { success: true, meta: { changes: 3, last_row_id: 42 } };
     });
-    const prepare = jest.fn(() => ({ run }));
-    return { prepare, _run: run } as unknown as D1Database & {
+    const boundParams: unknown[][] = [];
+    const stmt: { run: jest.Mock; bind: jest.Mock } = {
+      run,
+      bind: jest.fn((...args: unknown[]) => {
+        boundParams.push(args);
+        return stmt;
+      }),
+    };
+    const prepare = jest.fn(() => stmt);
+    return { prepare, _run: run, _bind: stmt.bind, _boundParams: boundParams } as unknown as D1Database & {
       prepare: jest.Mock;
       _run: jest.Mock;
+      _bind: jest.Mock;
+      _boundParams: unknown[][];
     };
   }
 
@@ -584,6 +596,34 @@ describe('POST /api/sites/:siteId/sql/exec-write (D1 manager writes — AL-872)'
     expect(json.ok).toBe(true);
     expect(json.rows_affected).toBe(3);
     expect(json.last_row_id).toBe(42);
+    expect((db as unknown as { _run: jest.Mock })._run).toHaveBeenCalled();
+  });
+
+  it('BINDS positional params on a parameterized INSERT (booleans → 0/1, values never concatenated)', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
+    const db = makeWriteDb();
+    const res = await write(
+      makeApp(AUTH),
+      {
+        statement: 'INSERT INTO "widgets" ("name", "active", "qty") VALUES (?1, ?2, ?3)',
+        params: ["Robert'); DROP TABLE students;--", true, 7],
+      },
+      makeEnv(db),
+    );
+    expect(res.status).toBe(200);
+    const bound = (db as unknown as { _boundParams: unknown[][] })._boundParams;
+    // The injection payload rides as a BOUND param — never interpolated into the SQL — and the
+    // boolean is coerced to SQLite's 0/1 at bind time.
+    expect(bound[0]).toEqual(["Robert'); DROP TABLE students;--", 1, 7]);
+    // Audit log records the param COUNT, never the values.
+    expect(mockWriteAuditLog.mock.calls[0][1].metadata_json).toMatchObject({ param_count: 3 });
+  });
+
+  it('runs a no-param write WITHOUT calling .bind() (keeps the exact prepared-statement path)', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
+    const db = makeWriteDb();
+    await write(makeApp(AUTH), { statement: 'CREATE TABLE t2 (id TEXT)' }, makeEnv(db));
+    expect((db as unknown as { _bind: jest.Mock })._bind).not.toHaveBeenCalled();
     expect((db as unknown as { _run: jest.Mock })._run).toHaveBeenCalled();
   });
 });

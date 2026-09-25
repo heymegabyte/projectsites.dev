@@ -50,6 +50,11 @@ import {
   rowJson,
   visibleColumns,
   toggleHiddenColumn,
+  coerceCellInput,
+  buildInsertStatement,
+  RowMutationError,
+  type CellInputKind,
+  type BoundValue,
 } from './data-panel-logic';
 import { classNames } from '~/utils/classNames';
 
@@ -212,6 +217,19 @@ export const DataPanel = memo(() => {
    */
   const [canRunSql, setCanRunSql] = useState(false);
   const [mode, setMode] = useState<'tables' | 'sql'>('tables');
+
+  /*
+   * Add-row — a typed row editor that builds a PARAMETERIZED INSERT (values BOUND via ?N, never
+   * concatenated) and sends it through the super-admin-gated write path. Only reachable when
+   * `canRunSql`. A column left at 'default' is omitted so its DB default / autoincrement applies.
+   */
+  const [addingRow, setAddingRow] = useState(false);
+  const [addKinds, setAddKinds] = useState<Record<string, CellInputKind | 'default'>>({});
+  const [addValues, setAddValues] = useState<Record<string, string>>({});
+  const [addError, setAddError] = useState('');
+  const [addBusy, setAddBusy] = useState(false);
+  const addPending = useRef(false); // an add is in flight → route the next PS_SQL_RESPONSE to the form
+  const addTargetRef = useRef<string | null>(null); // the table to re-open on success
 
   /*
    * Multi-tab SQL console — independent query buffers you can switch between (each keeps
@@ -406,7 +424,7 @@ export const DataPanel = memo(() => {
    * (DROP/ALTER, or DELETE/UPDATE without WHERE) get a type-to-confirm BEFORE sending; the worker
    * re-guards server-side (protected-table denylist + confirm). A 403/400 comes back as `sqlError`.
    */
-  const runSql = useCallback((query: string) => {
+  const runSql = useCallback((query: string, params?: BoundValue[]) => {
     const q = query.trim();
 
     if (!q || !isEmbedded) {
@@ -469,9 +487,102 @@ export const DataPanel = memo(() => {
       type: 'PS_SQL_REQUEST',
       query: q,
       correlationId: cid,
+      ...(params && params.length ? { params } : {}),
       ...(write ? { write: true, confirm: confirmDestructive } : {}),
     });
   }, []);
+
+  const openAddRow = useCallback(() => {
+    setAddError('');
+    setAddKinds({}); // every column starts at 'default' (omitted) — user opts in per column
+    setAddValues({});
+    setAddingRow(true);
+  }, []);
+
+  const cancelAddRow = useCallback(() => {
+    setAddingRow(false);
+    setAddError('');
+  }, []);
+
+  const setAddKind = useCallback((col: string, kind: CellInputKind | 'default') => {
+    setAddError('');
+    setAddKinds((prev) => ({ ...prev, [col]: kind }));
+  }, []);
+
+  const setAddValue = useCallback((col: string, value: string) => {
+    setAddError('');
+    setAddValues((prev) => ({ ...prev, [col]: value }));
+  }, []);
+
+  // Columns the user opted to set (kind !== 'default'), in table-column order.
+  const addActiveCols = useMemo(
+    () => columns.filter((c) => addKinds[c] && addKinds[c] !== 'default'),
+    [columns, addKinds],
+  );
+
+  /*
+   * Live preview of the EXACT parameterized statement we'll send (honest: shows the `?N` SQL + the
+   * bound-value count, never the interpolated values). Uses null placeholders for the count so a
+   * half-typed number never throws mid-edit.
+   */
+  const addPreview = useMemo(() => {
+    if (!active || addActiveCols.length === 0) {
+      return null;
+    }
+
+    try {
+      const stmt = buildInsertStatement(
+        active,
+        addActiveCols,
+        addActiveCols.map(() => null),
+      );
+
+      return { sql: stmt.sql, count: addActiveCols.length };
+    } catch {
+      return null;
+    }
+  }, [active, addActiveCols]);
+
+  const submitAddRow = useCallback(() => {
+    if (!active) {
+      return;
+    }
+
+    setAddError('');
+
+    const cols = columns.filter((c) => addKinds[c] && addKinds[c] !== 'default');
+
+    if (cols.length === 0) {
+      setAddError('Set at least one column value to add a row.');
+
+      return;
+    }
+
+    let values: BoundValue[];
+
+    try {
+      values = cols.map((c) => coerceCellInput(addKinds[c] as CellInputKind, addValues[c] ?? ''));
+    } catch (e) {
+      setAddError(e instanceof RowMutationError ? e.message : 'Could not read one of the values.');
+
+      return;
+    }
+
+    let stmt: { sql: string; params: BoundValue[] };
+
+    try {
+      stmt = buildInsertStatement(active, cols, values);
+    } catch (e) {
+      setAddError(e instanceof RowMutationError ? e.message : 'Could not build the statement.');
+
+      return;
+    }
+
+    addPending.current = true;
+    addTargetRef.current = active;
+    setAddBusy(true);
+    runSql(stmt.sql, stmt.params);
+  }, [active, columns, addKinds, addValues, runSql]);
 
   // Subscribe to PS_DATA_RESPONSE from the admin parent.
   useEffect(() => {
@@ -494,6 +605,18 @@ export const DataPanel = memo(() => {
         setSqlRunning(false);
 
         if (msg.error) {
+          /*
+           * An in-flight Add-row failed → surface the error IN the form (the user is in tables
+           * mode; the SQL-tab error banner would be invisible), keep the form open to fix.
+           */
+          if (addPending.current) {
+            addPending.current = false;
+            setAddBusy(false);
+            setAddError(msg.error);
+
+            return;
+          }
+
           setSqlError(msg.needs_confirm ? `${msg.error}` : msg.error);
           setSqlRows([]);
           setSqlColumns([]);
@@ -507,6 +630,27 @@ export const DataPanel = memo(() => {
          * refresh the Tables tab so a CREATE/DROP is reflected there too.
          */
         if (typeof msg.rows_affected === 'number') {
+          /*
+           * An Add-row succeeded → close + reset the form, refresh counts, and re-open the target
+           * table so the new row appears in the grid immediately.
+           */
+          if (addPending.current) {
+            addPending.current = false;
+            setAddBusy(false);
+            setAddingRow(false);
+            setAddKinds({});
+            setAddValues({});
+            requestOverview();
+
+            const t = addTargetRef.current;
+
+            if (t) {
+              openTable(t);
+            }
+
+            return;
+          }
+
           setSqlColumns([]);
           setSqlRows([]);
           setWriteResult({ rows_affected: msg.rows_affected, last_row_id: msg.last_row_id ?? null });
@@ -595,7 +739,7 @@ export const DataPanel = memo(() => {
         clearTimeout(sqlTimer.current);
       }
     };
-  }, [requestOverview]);
+  }, [requestOverview, openTable]);
 
   /*
    * Auto-refresh: re-pull the overview (and the open table) on an interval when enabled.
@@ -998,9 +1142,23 @@ export const DataPanel = memo(() => {
               {Math.min(activeTable.row_count, rows.length || 0).toLocaleString()}
               {search && rows.length > 0 ? ` · ${visibleRows.length} match` : ''}
             </span>
-            {rows.length > 0 && (
+            {(canRunSql || rows.length > 0) && (
               <div className="ml-auto flex items-center gap-3">
-                {columns.length > 1 && (
+                {/* Add row — super-admin only (writes go through the gated /sql/exec-write path);
+                    hidden for non-browsable tables/views so we never show a doomed control. */}
+                {canRunSql && columns.length > 0 && activeTable.browsable !== false && (
+                  <button
+                    type="button"
+                    onClick={openAddRow}
+                    data-testid="data-add-row-toggle"
+                    aria-expanded={addingRow}
+                    className="text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer flex items-center gap-1"
+                    title="Insert a new row with typed values (parameterized — values are bound, never concatenated)"
+                  >
+                    <div className="i-ph:plus" /> Add row
+                  </button>
+                )}
+                {rows.length > 0 && columns.length > 1 && (
                   <div className="relative">
                     <button
                       type="button"
@@ -1046,18 +1204,137 @@ export const DataPanel = memo(() => {
                     )}
                   </div>
                 )}
-                <button
-                  type="button"
-                  onClick={exportCsv}
-                  data-testid="data-export-csv"
-                  className="text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer flex items-center gap-1"
-                  title="Export the current view to CSV (every column, not just the visible ones)"
-                >
-                  <div className="i-ph:download-simple" /> CSV
-                </button>
+                {rows.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={exportCsv}
+                    data-testid="data-export-csv"
+                    className="text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer flex items-center gap-1"
+                    title="Export the current view to CSV (every column, not just the visible ones)"
+                  >
+                    <div className="i-ph:download-simple" /> CSV
+                  </button>
+                )}
               </div>
             )}
           </div>
+
+          {/* Add-row form — typed editors → a parameterized INSERT (values BOUND, never concatenated). */}
+          {addingRow && (
+            <div
+              className="border-b border-bolt-elements-borderColor/50 bg-bolt-elements-background-depth-1 px-3 py-2"
+              data-testid="data-add-row-form"
+            >
+              <div className="mb-2 flex items-center gap-2">
+                <div className="i-ph:plus-circle text-bolt-elements-item-contentAccent" />
+                <span className="text-xs font-medium text-bolt-elements-textPrimary">
+                  Add row to {activeTable.label}
+                </span>
+                <span className="text-[10px] text-bolt-elements-textTertiary">
+                  values are bound as parameters — never concatenated into SQL
+                </span>
+              </div>
+
+              <div className="max-h-56 space-y-1 overflow-auto pr-1">
+                {columns.map((c) => {
+                  const kind = addKinds[c] ?? 'default';
+                  const disabled = kind === 'default' || kind === 'null';
+
+                  return (
+                    <div key={c} className="flex items-center gap-2">
+                      <span
+                        className="w-32 shrink-0 truncate font-mono text-[10px] text-bolt-elements-textSecondary"
+                        title={c}
+                      >
+                        {c}
+                      </span>
+                      <select
+                        value={kind}
+                        onChange={(e) => setAddKind(c, e.target.value as CellInputKind | 'default')}
+                        data-testid="data-add-kind"
+                        aria-label={`Type for ${c}`}
+                        className="shrink-0 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[10px] text-bolt-elements-textPrimary focus:outline-none"
+                      >
+                        <option value="default">default</option>
+                        <option value="text">text</option>
+                        <option value="number">number</option>
+                        <option value="boolean">boolean</option>
+                        <option value="null">NULL</option>
+                        <option value="json">JSON</option>
+                      </select>
+                      <input
+                        value={addValues[c] ?? ''}
+                        onChange={(e) => setAddValue(c, e.target.value)}
+                        disabled={disabled}
+                        data-testid="data-add-value"
+                        aria-label={`Value for ${c}`}
+                        placeholder={
+                          kind === 'default'
+                            ? 'uses column default'
+                            : kind === 'null'
+                              ? 'NULL'
+                              : kind === 'boolean'
+                                ? 'true / false'
+                                : kind === 'json'
+                                  ? '{"key":"value"}'
+                                  : ''
+                        }
+                        spellCheck={false}
+                        className={classNames(
+                          'min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-0.5 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none',
+                          disabled ? 'opacity-40' : '',
+                        )}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+
+              {addPreview && (
+                <div
+                  className="mt-2 overflow-x-auto rounded bg-bolt-elements-background-depth-2 px-2 py-1 font-mono text-[10px] text-bolt-elements-textTertiary"
+                  data-testid="data-add-preview"
+                >
+                  {addPreview.sql}
+                  <span className="ml-1 text-bolt-elements-textSecondary">
+                    · {addPreview.count} value{addPreview.count === 1 ? '' : 's'} bound
+                  </span>
+                </div>
+              )}
+
+              {addError && (
+                <p className="mt-2 text-[11px] text-red-400" role="alert" data-testid="data-add-error">
+                  {addError}
+                </p>
+              )}
+
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={submitAddRow}
+                  disabled={addBusy || addActiveCols.length === 0}
+                  data-testid="data-add-submit"
+                  className={classNames(
+                    'rounded px-2.5 py-1 text-[11px] font-medium',
+                    addBusy || addActiveCols.length === 0
+                      ? 'cursor-not-allowed bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary'
+                      : 'cursor-pointer bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:opacity-90',
+                  )}
+                >
+                  {addBusy ? 'Adding…' : 'Add row'}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelAddRow}
+                  disabled={addBusy}
+                  data-testid="data-add-cancel"
+                  className="cursor-pointer text-[11px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* In-table search */}
           {rows.length > 0 && (

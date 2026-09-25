@@ -547,6 +547,15 @@ tabs.get('/api/sites/:siteId/sql/migrations', async (c) => {
 const SqlWriteSchema = z.object({
   statement: z.string().min(1).max(16_000),
   confirm: z.boolean().optional(),
+  // Positional bind params for ?1, ?2, … — values are BOUND, never concatenated into the
+  // statement (the epic's "parameterize values, never concatenate" mandate). This is what
+  // lets the grid's typed row editors (Add/Edit/Delete) generate a parameterized statement
+  // instead of stringifying user values into SQL. Booleans → 0/1 at bind time (SQLite has no
+  // native boolean). Capped at 200 (an INSERT can carry one param per column of a wide table).
+  params: z
+    .array(z.union([z.string(), z.number(), z.boolean(), z.null()]))
+    .max(200)
+    .optional(),
 });
 
 /**
@@ -609,7 +618,7 @@ tabs.post('/api/sites/:siteId/sql/exec-write', async (c) => {
     );
   }
 
-  let body: { statement: string; confirm?: boolean };
+  let body: { statement: string; confirm?: boolean; params?: Array<string | number | boolean | null> };
   try {
     body = SqlWriteSchema.parse(await c.req.json().catch(() => ({})));
   } catch (e) {
@@ -664,9 +673,13 @@ tabs.post('/api/sites/:siteId/sql/exec-write', async (c) => {
     return c.json({ ok: false, error: 'site not found' }, 404);
   }
 
+  // Positional bind params — bound (never concatenated), booleans → 0/1. Only call `.bind()`
+  // when params exist so a no-param statement keeps its exact prepared-statement path.
+  const boundParams = (body.params ?? []).map((p) => (typeof p === 'boolean' ? (p ? 1 : 0) : p));
   const t0 = Date.now();
   try {
-    const result = await c.env.DB.prepare(q).run();
+    const stmt = c.env.DB.prepare(q);
+    const result = await (boundParams.length > 0 ? stmt.bind(...boundParams) : stmt).run();
     const meta = (result.meta ?? {}) as { changes?: number; last_row_id?: number };
     await writeAuditLog(c.env.DB, {
       org_id: orgId,
@@ -675,7 +688,14 @@ tabs.post('/api/sites/:siteId/sql/exec-write', async (c) => {
       target_type: 'site',
       target_id: siteId,
       message: destructive ? 'SQL destructive write executed' : 'SQL write executed',
-      metadata_json: { statement: q.slice(0, 200), destructive, rows_affected: meta.changes ?? 0 },
+      // Log the param COUNT, never the values — bind params can carry sensitive data; the
+      // epic mandates redacting sensitive parameter values from the audit trail.
+      metadata_json: {
+        statement: q.slice(0, 200),
+        destructive,
+        rows_affected: meta.changes ?? 0,
+        param_count: boundParams.length,
+      },
     });
     return c.json({
       ok: true,

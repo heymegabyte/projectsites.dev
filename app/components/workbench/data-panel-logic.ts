@@ -1101,3 +1101,150 @@ export function toggleHiddenColumn(hidden: readonly string[], col: string, all: 
 
   return all.filter((c) => set.has(c));
 }
+
+/*
+ * Typed row editors → parameterized statements.
+ * The grid's "Add row" (and, later, Edit/Delete) build a PARAMETERIZED statement: identifiers are
+ * validated + quoted, values are BOUND via ?1..?N — never concatenated into the SQL (the epic's
+ * "parameterize values, never concatenate" mandate). The worker's /sql/exec-write path binds these
+ * params server-side.
+ */
+
+/** Thrown when a typed row-editor input can't be coerced, or a statement can't be built safely. */
+export class RowMutationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RowMutationError';
+  }
+}
+
+/** Which typed editor a cell uses — maps to how the raw text input is coerced before binding. */
+export type CellInputKind = 'text' | 'number' | 'boolean' | 'null' | 'json';
+
+/** A value ready to bind as a positional SQL param (SQLite storage classes we support from the UI). */
+export type BoundValue = string | number | boolean | null;
+
+/**
+ * Coerce a typed row-editor input into a value ready to BIND (never string-interpolated).
+ * `null` ignores the raw text; `number` rejects blank/NaN; `boolean` accepts true/false/1/0/yes/no;
+ * `json` validates the text parses and binds the ORIGINAL text (SQLite has no JSON type — JSON is
+ * stored as TEXT); `text` binds the raw string verbatim. Impure only in that it throws on bad input.
+ *
+ * @param kind - the typed editor the cell used
+ * @param raw - the raw text the user typed
+ * @returns the value to bind (string | number | boolean | null)
+ * @throws {RowMutationError} when a number is blank/NaN or JSON is malformed
+ * @example coerceCellInput('number', '42')      // 42
+ * @example coerceCellInput('boolean', 'yes')    // true
+ * @example coerceCellInput('null', 'anything')  // null
+ * @example coerceCellInput('json', '{"a":1}')   // '{"a":1}'
+ */
+export function coerceCellInput(kind: CellInputKind, raw: string): BoundValue {
+  switch (kind) {
+    case 'null':
+      return null;
+    case 'number': {
+      const t = (raw ?? '').trim();
+
+      if (t === '') {
+        throw new RowMutationError('Enter a number, or switch the cell type to NULL.');
+      }
+
+      const n = Number(t);
+
+      if (!Number.isFinite(n)) {
+        throw new RowMutationError(`"${raw}" is not a valid number.`);
+      }
+
+      return n;
+    }
+    case 'boolean': {
+      const t = (raw ?? '').trim().toLowerCase();
+
+      if (t === 'true' || t === '1' || t === 'yes') {
+        return true;
+      }
+
+      if (t === 'false' || t === '0' || t === 'no' || t === '') {
+        return false;
+      }
+
+      throw new RowMutationError(`"${raw}" is not a boolean (use true/false).`);
+    }
+    case 'json': {
+      const t = (raw ?? '').trim();
+
+      if (t === '') {
+        throw new RowMutationError('Enter JSON, or switch the cell type to NULL.');
+      }
+
+      try {
+        JSON.parse(t);
+      } catch {
+        throw new RowMutationError('That is not valid JSON.');
+      }
+
+      return t; // store validated JSON as TEXT
+    }
+    case 'text':
+    default:
+      return raw ?? '';
+  }
+}
+
+/** A parameterized statement: `?1..?N` placeholders in `sql`, values in `params` (bind order). */
+export interface ParameterizedStatement {
+  /** The SQL with quoted identifiers and `?1..?N` placeholders — safe to log/preview. */
+  sql: string;
+
+  /** The values to bind, in `?1..?N` order. Never interpolated into `sql`. */
+  params: BoundValue[];
+}
+
+/**
+ * Build a PARAMETERIZED `INSERT` for the grid's "Add row". Every identifier (table + columns) is
+ * validated against the SQLite identifier grammar and double-quoted; every value becomes a bound
+ * `?N` param — nothing is concatenated. Columns the user leaves at "default" are omitted so column
+ * defaults / autoincrement apply. Pure.
+ *
+ * @param table - the target table name (validated as an identifier)
+ * @param columns - the columns to write (each validated; must be non-empty and match `values`)
+ * @param values - the already-coerced values to bind, aligned to `columns`
+ * @returns `{ sql, params }` — a parameterized INSERT
+ * @throws {RowMutationError} when the table/a column is not a valid identifier, or nothing to insert
+ * @example buildInsertStatement('todos', ['title', 'done'], ['Buy milk', 0])
+ *   // { sql: 'INSERT INTO "todos" ("title", "done") VALUES (?1, ?2)', params: ['Buy milk', 0] }
+ */
+export function buildInsertStatement(
+  table: string,
+  columns: readonly string[],
+  values: readonly BoundValue[],
+): ParameterizedStatement {
+  const t = (table ?? '').trim();
+
+  if (!IDENT_RE.test(t)) {
+    throw new RowMutationError('Pick a table with a valid name before adding a row.');
+  }
+
+  if (columns.length === 0) {
+    throw new RowMutationError('Set at least one column value (or leave all at default) to add a row.');
+  }
+
+  if (columns.length !== values.length) {
+    throw new RowMutationError('Internal: column/value count mismatch.');
+  }
+
+  for (const col of columns) {
+    if (!IDENT_RE.test((col ?? '').trim())) {
+      throw new RowMutationError(`"${col}" is not a valid column name.`);
+    }
+  }
+
+  const colList = columns.map((c) => `"${c.trim()}"`).join(', ');
+  const placeholders = columns.map((_, i) => `?${i + 1}`).join(', ');
+
+  return {
+    sql: `INSERT INTO "${t}" (${colList}) VALUES (${placeholders})`,
+    params: [...values],
+  };
+}

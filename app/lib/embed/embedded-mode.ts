@@ -226,6 +226,13 @@ export interface SqlRequestMessage {
 
   /** Required `true` for destructive writes (DROP/ALTER, unscoped DELETE/UPDATE) — the type-to-confirm. */
   confirm?: boolean;
+
+  /**
+   * Positional bind params for `?1, ?2, …` — the worker BINDS these (never concatenates), so the
+   * grid's typed row editors (Add/Edit/Delete) send a parameterized statement instead of
+   * stringifying user values into SQL.
+   */
+  params?: Array<string | number | boolean | null>;
 }
 
 /** Parent → Child: the admin's reply to {@link SqlRequestMessage} (mirrors the sql/exec[-write] envelope). */

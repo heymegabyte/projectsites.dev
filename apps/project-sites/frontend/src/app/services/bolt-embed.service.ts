@@ -65,6 +65,12 @@ interface PsMessage {
   readonly write?: boolean;
   /** PS_SQL_REQUEST: confirm a destructive write (DROP/ALTER, or unscoped DELETE/UPDATE). */
   readonly confirm?: boolean;
+  /**
+   * PS_SQL_REQUEST: positional bind params for ?1, ?2, … The worker BINDS these (never
+   * concatenates), so the grid's typed row editors (Add/Edit/Delete) can build a parameterized
+   * statement instead of stringifying user values into SQL.
+   */
+  readonly params?: Array<string | number | boolean | null>;
 }
 
 export interface BoltFileEntry {
@@ -567,7 +573,13 @@ export class BoltEmbedService {
             break;
           }
           const path = isWrite ? `/sites/${site.id}/sql/exec-write` : `/sites/${site.id}/sql/exec`;
-          const reqBody = isWrite ? { statement: query, confirm: msg.confirm === true } : { query };
+          // Forward positional bind params when present — the worker BINDS them (never
+          // concatenates). Both endpoints accept `params`; the grid's typed row editors rely on
+          // this for parameterized INSERT/UPDATE/DELETE.
+          const params = Array.isArray(msg.params) ? msg.params : undefined;
+          const reqBody = isWrite
+            ? { statement: query, confirm: msg.confirm === true, ...(params ? { params } : {}) }
+            : { query, ...(params ? { params } : {}) };
           this.api
             .post<{
               ok?: boolean;
