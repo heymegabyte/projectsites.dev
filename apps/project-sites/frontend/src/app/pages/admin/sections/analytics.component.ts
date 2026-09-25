@@ -26,6 +26,8 @@ import { ConversionsCardComponent } from './conversions-card.component';
 import { TechBreakdownComponent } from './tech-breakdown.component';
 import { CampaignBreakdownComponent } from './campaign-breakdown.component';
 import type { TrendBadge } from './trend-badge.model';
+import { InsightsStripComponent } from './insights-strip.component';
+import { buildAnalyticsInsights, type AnalyticsInsight } from '../../../utils/analytics-insights';
 import { DeliveryCardComponent } from './delivery-card.component';
 import { AnalyticsGlossaryComponent } from './analytics-glossary.component';
 import { buildAnalyticsCsv } from '../../../utils/analytics-csv';
@@ -82,7 +84,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -313,6 +315,8 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
           <span class="text-[0.68rem] text-text-secondary min-w-0">Every metric below is restricted to this value — first-party audience only (edge delivery &amp; security aren’t drilled down).</span>
         </div>
       }
+      <!-- ─────────────────── HIGHLIGHTS — evidence-backed "so what" ─────────────────── -->
+      <app-insights-strip appReveal [insights]="insights()" />
       <!-- ─────────────────── KPI TILES ─────────────────── -->
       <div class="grid gap-3 grid-cols-4 max-lg:grid-cols-2 max-md:grid-cols-1">
         <div class="card kpi" appReveal data-testid="kpi-pageviews" role="group" [attr.aria-label]="kpiPageviewsLabel()">
@@ -1817,6 +1821,35 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
    * + honest title copy on the KPI tile.
    */
   bounceIsMeasured = computed(() => this.siteTraffic()?.bounceRatePercent != null);
+
+  /**
+   * Evidence-backed "Highlights" — the owner-friendly one-line takeaways derived from
+   * the same data the cards below show (traffic + delta, conversions + delta, top page,
+   * device majority, top location, true bounce). Pure via {@link buildAnalyticsInsights};
+   * every insight is honest (only from present data, comparisons only from the real
+   * `pvDelta`/`conversionDelta`, bounce only when session-measured). `[]` hides the strip.
+   */
+  readonly insights = computed<AnalyticsInsight[]>(() => {
+    const env = this.envelope();
+    if (!env) return [];
+    const t = this.siteTraffic();
+    const pages = this.displayTopPages();
+    const maxBy = (rows: ReadonlyArray<{ label: string; count: number }> | undefined) =>
+      rows && rows.length ? rows.reduce((a, b) => (b.count > a.count ? b : a)) : null;
+    const topConv = maxBy(t?.byConversionKind);
+    const topCountry = maxBy(t?.byCountry);
+    return buildAnalyticsInsights({
+      windowDays: this.rangeDays(),
+      pageviews: env.pageviews ?? 0,
+      pvDelta: this.pvDelta(),
+      topPage: pages[0] ? { path: pages[0].path, views: pages[0].views } : null,
+      byDevice: t?.byDevice ?? [],
+      topCountry: topCountry ? { label: topCountry.label, count: topCountry.count } : null,
+      topConversionKind: topConv ? { label: topConv.label, count: topConv.count } : null,
+      conversionDelta: this.conversionDelta(),
+      bounceRatePercent: t?.bounceRatePercent ?? null,
+    });
+  });
 
   kpiBounceLabel = computed(() => {
     if (this.loading() && !this.envelope()) return 'Bounce rate, loading';
