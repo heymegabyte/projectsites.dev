@@ -545,3 +545,34 @@ export function parseIndexColumns(sql: string | null): { unique: boolean; column
 
   return { unique, columns };
 }
+
+// ── timeTravelInfo (Backups & recovery) ─────────────────────────────────────────
+
+/** Honest recovery facts for a D1 database — retention + the Wrangler restore command + the no-REST caveat. */
+export interface TimeTravelInfo {
+  retentionNote: string;
+  restoreCommand: string;
+  caveat: string;
+}
+
+/**
+ * Honest, static Time-Travel (point-in-time recovery) info for a D1 database. Cloudflare exposes Time
+ * Travel ONLY via the Wrangler CLI + the Worker binding — there is **NO REST API** (verified against CF
+ * docs 2026-09-25) — so this surfaces the real recovery path (retention + the exact restore command)
+ * WITHOUT a fake one-click restore button (which would be an attractive control backed by nothing).
+ * Retention is ~30 days on a paid plan / 7 days on the free plan.
+ *
+ * @param dbNameOrId - the database name (preferred) or UUID, interpolated into the command.
+ * @example timeTravelInfo('prod-db').restoreCommand
+ *   // → "wrangler d1 time-travel restore prod-db --timestamp=<ISO-8601>"
+ */
+export function timeTravelInfo(dbNameOrId: string): TimeTravelInfo {
+  const target = dbNameOrId.trim() || '<database>';
+  return {
+    retentionNote:
+      'Cloudflare keeps point-in-time history for this database — about 30 days on a paid plan (7 days on the free plan) — so it can be restored to any moment in that window.',
+    restoreCommand: `wrangler d1 time-travel restore ${target} --timestamp=<ISO-8601>`,
+    caveat:
+      'Time Travel has no REST API (Wrangler CLI only), so a one-click restore is not offered here. For a portable copy you can keep, use the SQL-dump export above.',
+  };
+}

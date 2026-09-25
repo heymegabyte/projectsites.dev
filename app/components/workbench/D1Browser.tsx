@@ -48,6 +48,7 @@ import {
   parseForeignKeys,
   parseIndexColumns,
   schemaCountsLabel,
+  timeTravelInfo,
 } from './d1-browser-logic';
 
 /** One index of the selected table (from the catalog objects + its parsed CREATE SQL). */
@@ -246,6 +247,9 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
 
   /** Column names that are foreign keys — drives the inline "FK" badge in the columns grid. */
   const fkColumns = useMemo(() => new Set(foreignKeys.map((f) => f.column)), [foreignKeys]);
+
+  /** Honest Backups & recovery facts for the selected database (retention + the CLI restore command). */
+  const ttInfo = useMemo(() => timeTravelInfo(overview?.name ?? selectedId ?? ''), [overview?.name, selectedId]);
 
   /**
    * Run (or resume) the SQL-dump export for the selected database, driving the worker's async poll
@@ -485,6 +489,39 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
                         </button>
                       </div>
                     )}
+
+                    {/* Point-in-time recovery — Time Travel is CLI-only (no REST API), surfaced honestly
+                       (no fake one-click restore button). The SQL-dump export above is the portable backup. */}
+                    <div
+                      className="mt-3 border-t border-bolt-elements-borderColor/20 pt-2"
+                      data-testid="data-d1-timetravel"
+                    >
+                      <span className="text-[11px] font-medium text-bolt-elements-textSecondary">
+                        Point-in-time recovery
+                      </span>
+                      <p className="mt-1 text-[10px] leading-relaxed text-bolt-elements-textTertiary">
+                        {ttInfo.retentionNote}
+                      </p>
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <code
+                          className="min-w-0 flex-1 truncate rounded bg-bolt-elements-background-depth-3 px-1.5 py-1 font-mono text-[9px] text-bolt-elements-textSecondary"
+                          title={ttInfo.restoreCommand}
+                        >
+                          {ttInfo.restoreCommand}
+                        </code>
+                        <button
+                          type="button"
+                          data-testid="data-d1-timetravel-copy"
+                          onClick={() => copyText(ttInfo.restoreCommand)}
+                          className="shrink-0 cursor-pointer text-[9px] text-bolt-elements-textTertiary underline hover:text-bolt-elements-textSecondary"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <p className="mt-1 text-[9px] italic leading-relaxed text-bolt-elements-textTertiary">
+                        {ttInfo.caveat}
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>

@@ -17,6 +17,7 @@ import {
   parseForeignKeys,
   parseIndexColumns,
   schemaCountsLabel,
+  timeTravelInfo,
 } from './d1-browser-logic';
 import type { D1SchemaObjectSummary } from '~/lib/embed/embedded-mode';
 
@@ -255,5 +256,24 @@ describe('parseIndexColumns (from an index CREATE SQL)', () => {
   it('null / non-index DDL (no ON clause) → empty', () => {
     expect(parseIndexColumns(null)).toEqual({ unique: false, columns: [] });
     expect(parseIndexColumns('CREATE TABLE t (id TEXT)')).toEqual({ unique: false, columns: [] });
+  });
+});
+
+describe('timeTravelInfo (Backups & recovery — honest, no fake REST restore)', () => {
+  it('interpolates the db name into the wrangler restore command', () => {
+    const info = timeTravelInfo('prod-db');
+    expect(info.restoreCommand).toBe('wrangler d1 time-travel restore prod-db --timestamp=<ISO-8601>');
+  });
+
+  it('falls back to a placeholder for a blank target', () => {
+    expect(timeTravelInfo('   ').restoreCommand).toContain('restore <database>');
+  });
+
+  it('states the real retention window and the no-REST-API caveat (never promises a one-click restore)', () => {
+    const info = timeTravelInfo('db');
+    expect(info.retentionNote).toContain('30 days');
+    expect(info.retentionNote).toContain('7 days');
+    expect(info.caveat).toContain('no REST API');
+    expect(info.caveat).toContain('Wrangler CLI');
   });
 });

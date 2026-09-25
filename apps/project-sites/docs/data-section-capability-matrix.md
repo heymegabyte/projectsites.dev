@@ -6,6 +6,64 @@
 > **PLANNED** (feasible, not started), **BLOCKED** (platform can't do it today).
 > Started 2026-09-23 from a 3-agent discovery pass. Update as slices land.
 
+## ★ Brilliant improvements — pending backlog (the Data loop implements from here, ranked)
+
+> Formulated 2026-09-25 (Brian directive: "formulate your most brilliant improvements … implement
+> them + add them to the pending items list"). The core checklist below is ~95% DONE; these are the
+> next-generation, high-value + AI-native + pro-SQLite-manager improvements. Each fire: pick the
+> TOP unbuilt item, implement it end-to-end (worker + editor + tests + prod-verify), tick it here.
+> **Honesty gate still applies** — never a fake button; a blocked capability is surfaced, not faked.
+
+**Tier 1 — AI-native (the emdash "AI does the work, the user confirms" doctrine):**
+1. **AI SQL assistant (natural-language → SQL)** [M] — a "describe what you want" box → Workers AI
+   (Llama 3.3 70B, free) generates a **schema-grounded, read-only SELECT** (fed the inspected
+   table+column names so it never invents a column), rendered for REVIEW before Run (never auto-runs;
+   never a write). Reuses the SQL console's existing run/params/EXPLAIN path. THE highest-value
+   owner-facing D1 feature — a non-technical owner queries their own data in plain English.
+2. **"Explain this table" (plain-English)** [S] — Workers AI summarizes what a selected table stores +
+   its FK relationships in one paragraph, from the already-parsed columns + FKs. Owner-friendly.
+3. **Data insights strip** [M] — like the analytics Highlights strip: ≤5 plain-language takeaways from
+   REAL data (largest table, fastest-growing via `last_activity` deltas, empty tables, an anomaly);
+   present-data-only, never "0 of…".
+
+**Tier 2 — SQLite-manager polish (DB Browser / Beekeeper / SQLiteStudio parity):**
+4. **Table data profiling** [M] — one-click "Profile" runs BOUNDED aggregates (row count · per-column
+   null/distinct counts · numeric min/max/avg · top-5 values) → a column-stats panel. The standout
+   feature of pro SQLite managers; bound every query + surface cost.
+5. **Relationship (ERD) view** [M] — from the now-parsed FKs, a zero-dep SVG node-edge diagram
+   (tables = nodes, FK = edges) — the prompt's explicit "understandable relationship view."
+6. **Query-result mini-charts** [S] — auto-detect a chartable result (a label column + a numeric
+   column) → a zero-dep SVG bar/line toggle beside the grid.
+7. **Inline grid cell edit** [M] — double-click a browse-grid cell → inline typed editor →
+   parameterized UPDATE (vs today's row-detail pencil). Matrix-named remaining item.
+8. **Auto-LIMIT + rows-scanned estimate** [S] — warn/auto-append `LIMIT` to a bare `SELECT`; pre-run
+   `EXPLAIN QUERY PLAN` to estimate scan cost BEFORE executing (bound query cost).
+
+**Tier 3 — cross-resource + portability:**
+9. **R2 object preview / download** [M] — the R2 inspector is HEAD-only; add a size-capped body GET →
+   inline preview for text/JSON/image, download link otherwise (guarded, safe-types). Prompt-named.
+10. **KV value edit / delete** [M] — the KV inspector is read-only; add guarded edit/delete (super-admin
+    + confirm + eventual-consistency note). Matrix-deferred.
+11. **Unified Data search** [M] — one box spanning D1 table names + KV keys + R2 object keys → a merged
+    result list that deep-links into the right adapter.
+12. **Owner data export to emailed CSV / Sheets** [S] — one-click "email me this table as CSV" (SES)
+    for non-technical owners.
+
+**Tier 4 — UX / perf / delight:**
+13. **Cmd+K Data palette** [S] — jump to a table · run a starter · switch resource adapter.
+14. **Virtualized result grid** [M] — windowed rendering for large SQL results (perf).
+15. **Empty-state launchpads** [S] — every empty Data screen offers the one obvious first action
+    (create table / run a starter / import) per `embarrassingly-easy-to-use`.
+
+**Recently shipped from this backlog:**
+- ✅ **Backups & recovery (D1 Time Travel info) — DONE 2026-09-25** — the account-wide D1Browser now
+  has a "Point-in-time recovery" panel beside the SQL-dump export: it states D1's REAL retention
+  (~30 days paid / 7 days free, verified against CF docs) + the exact `wrangler d1 time-travel restore
+  <db> --timestamp=<ISO>` command (copyable) + the honest caveat that Time Travel has **no REST API**
+  (Wrangler-CLI-only) so it is NOT a one-click button here. Pure `timeTravelInfo()` SSOT + 3 Vitest;
+  no fake control. Completes the prompt's "Backups" pillar honestly.
+- (Visual-QA pass 2026-09-25 folded its findings in below as they land.)
+
 ## Architecture reality (READ FIRST — do not skip)
 
 - **One shared multi-tenant platform D1** (`env.DB`). There are **NO per-site D1
@@ -100,7 +158,7 @@
 | SQL / CSV / JSON row IMPORT | `POST /d1/database/{id}/import` (async) or batched INSERT | superadmin/owner | PLANNED | preview + type mapping + conflict behaviour + validation + chunking; respects statement-size limits |
 | **Resource discovery + database Overview** (list DBs · size · table count · region · read-replication · version) | CF D1 REST `GET /d1/database[/:id]` via `GET /api/admin/d1/*` (super-admin, flag `d1_manager`) | superadmin | ✅ **DONE (2026-09-25)** — mirrors the KV/R2/Vectorize/Queues inspector pattern: `libs/features/d1_manager` lists the account's D1 databases + one DB's Overview metadata (file size, table count, running region, read-replication mode, version). **Proves the worker HAS working D1 REST creds** — `resolveCfCredentials` (the same global key the Vectorize/Queues inspectors call REST with), so the "needs D1 REST creds" caveat on the import/export + Time-Travel rows is really "needs implementation," not "needs a token." Account = `env.CF_ACCOUNT_ID` (never client); `:databaseId` UUID-validated (no REST-path injection); the super-admin gate is authz. Honest `available:false` (never a fabricated empty list) on CF failure, `found:false` on 404, metrics `null` (never a fabricated 0) when omitted. +10 Jest; worker deployed (`2d60735b`), routes prod-verified 404-dark (exact `{error:{code:NOT_FOUND}}` shape, matching the sibling inspectors). **Surfaced IN the Editor Data panel** — a "D1" tab (`D1Browser.tsx` → `PS_D1_REQUEST` bridge → `bolt-embed.service` proxy → `/api/admin/d1/*`): database list → Overview metadata card + honest empty/unavailable states. +5 Vitest (formatBytes/formatCount/dbLabel); editor+frontend tsc 0; pushed (Pages auto-deploy). | account-wide super-admin view (shared platform DBs, like the KV/R2/Vec/Queue inspectors); read-only (no query/write/restore); this is the REST-sourced answer to the Overview + migration rows' "size/usage need D1 REST creds" caveat, at super-admin scope |
 | **Account-wide schema catalog + columns + FKs + indexes** (the `d1_manager` D1Browser) | REST `sqlite_master` SELECT via `GET /api/admin/d1/:databaseId/tables` (super-admin, flag `d1_manager`) + **client-side CREATE-SQL parse** | superadmin | ✅ **DONE (2026-09-25)** — the account-wide D1 tab (`D1Browser.tsx`, sibling of the KV/R2/Vec/Queue inspectors) gained a **Schema browser** under the Overview card: the worker runs ONE static read-only `sqlite_master` SELECT → tables/views/indexes/triggers catalog (+ per-type counts + each object's CREATE SQL); the editor filters/searches the object list and, on selecting a table, **parses its columns from the DDL** (`parseCreateTableColumns` — name/type/NOT NULL/DEFAULT/PK incl. composite 1-based position) since REST blocks PRAGMA; a copyable "CREATE SQL" expander is the always-available source of truth (views/virtual/FTS tables show DDL only). **Indexes + foreign keys added (2026-09-25):** a selected table now also shows its **foreign keys** (`parseForeignKeys` — inline `col REFERENCES t(x)` + table-level `FOREIGN KEY (a,b) REFERENCES t(x,y)` composite-paired + named `CONSTRAINT`; a purple **FK** badge annotates the column grid) and its **indexes** (from the catalog's `type='index'` objects whose `tbl_name` = the table, each parsed by `parseIndexColumns` → column list + **UNIQUE** badge). Honest states: `available:false` (CF fail) / `found:false` (unknown DB) / empty catalog / "column details unavailable — see CREATE SQL". +5 Jest (gate/uuid/catalog-map+counts/CF-404/CF-fail) + 17 Vitest (`parseCreateTableColumns` 5 + **`parseForeignKeys` 4** + **`parseIndexColumns` 3** + `filterSchemaObjects`/`schemaCountsLabel`/`isBrowsableObject`/labels). Worker + editor tsc/eslint/prettier clean; CF `sqlite_master` REST verified against prod D1 (real objects returned). | REST `/query` **blocks PRAGMA** (`SQLITE_AUTH`) → columns/FKs are parsed from CREATE SQL (best-effort; DDL always shown as fallback), indexes from the catalog. Account-wide super-admin view of SHARED platform DBs (like the KV/R2/Vec/Queue inspectors); read-only (no query/write/restore). Now matches the site-scoped Schema tab's (row 83) index/FK detail; generated columns + WITHOUT ROWID still surface only via the raw DDL |
-| Time Travel (bookmark + restore) | `wrangler d1 time-travel` / REST | superadmin | PLANNED — creds are available (see `d1_manager`); the REST bookmark path is CLI-documented (needs confirming); `d1_manager`'s DB list + ids is the foundation it hangs off | retention **30 d paid / 7 d free**; ≤10 restores/10 min |
+| Time Travel (point-in-time recovery) | `wrangler d1 time-travel` CLI + Worker binding (**NO REST API** — verified against CF docs 2026-09-25) | superadmin | ✅ **INFO SURFACED (2026-09-25)** — the D1Browser "Point-in-time recovery" panel (beside the SQL-dump export) states the real retention + the exact `wrangler d1 time-travel restore <db> --timestamp=<ISO>` command (copyable) + the honest no-REST caveat. A one-click restore is intentionally NOT offered — CF exposes Time Travel only via the CLI/binding, so a REST-driven restore button would be a fake control. `timeTravelInfo()` SSOT + 3 Vitest. | retention **30 d paid / 7 d free** (verified); restore is CLI/binding-only — **no REST endpoint exists**, so it can't be a worker button. The portable-backup alternative that IS available is the SQL-dump export (row 99) |
 | **Migration status (applied ledger)** | `GET /api/sites/:id/sql/migrations` → `SELECT name, applied_at FROM d1_migrations ORDER BY id DESC` | superadmin | ✅ **DONE (this fire)** — an "Applied migrations" panel in the Schema tab (`SiteSchemaBrowserComponent`) lists the wrangler-managed `d1_migrations` ledger (name + applied_at, newest first, ≤500). Full auth chain: 401 unauth → **403 non-super-admin (ledger never read)** → 404 site-not-in-org (`dbQueryOne`) → read → audit (`site.sql.migrations`). Honest: `d1_migrations` absent → `available:false` (never a fake "0 migrations"); a 403/network failure fails soft to "ledger not available", never an error card. +5 Jest (401/403-no-read/404/list+audit/absent→available:false) + 3 Karma (renders newest-first / honest-unavailable / 403→unavailable). Prod-verified live+gated: 401 · 403 (E2E key) · endpoint 200-path locked by Jest. | Applied ledger only. **Drift / pending NOT offered** — the migration FILES aren't present in the running Worker, so applied-vs-pending can't be computed without lying; the UI states this. DB size / usage need D1 REST creds. |
 
 ### D1 platform facts (verified 2026)
