@@ -14,9 +14,9 @@ const REAL: DeliverySummary = {
     { class: '4xx', count: 2 },
   ],
   top_statuses: [
-    { status: 200, count: 74 },
-    { status: 504, count: 9 },
-    { status: 404, count: 2 },
+    { status: 200, count: 74, bytes: 900_000_000, visits: 60 },
+    { status: 504, count: 9, bytes: 46_080, visits: 7 },
+    { status: 404, count: 2, bytes: 8_000, visits: 0 },
   ],
   cache: { hit: 1475, miss: 3139, uncacheable: 26879, hit_ratio_pct: 32 },
   response_bytes: 1_159_813_769,
@@ -127,6 +127,20 @@ describe('DeliveryCardComponent', () => {
       .toBe(false);
   });
 
+  it('shows real visitor counts + bytes on error responses, and NO visitor chip when 0 (sampled → honest)', () => {
+    const { el } = setup(REAL);
+    const rows = Array.from(el.querySelectorAll('[data-testid="an-dl-error-code"]')).map(
+      (c) => c.textContent ?? '',
+    );
+    const all = rows.join(' | ');
+    // 504 had 7 real visitors + 46 KB of edge bandwidth — the owner's actionable signal.
+    expect(all).toContain('7 visitors hit');
+    expect(all).toContain('45.0 KB'); // 46080 bytes → 45.0 KB (formatBytes 1-decimal)
+    // 404 sampled 0 visits → its visitor chip is OMITTED (never a fabricated "0 visitors").
+    const chips = el.querySelectorAll('[data-testid="an-dl-error-visits"]');
+    expect(chips.length).withContext('only the 504 (visits>0) shows a visitor chip').toBe(1);
+  });
+
   it('does NOT warn when the error rate is below 5%', () => {
     const clean: DeliverySummary = {
       ...REAL,
@@ -134,7 +148,7 @@ describe('DeliveryCardComponent', () => {
         { class: '2xx', count: 98 },
         { class: '3xx', count: 2 },
       ],
-      top_statuses: [{ status: 200, count: 98 }],
+      top_statuses: [{ status: 200, count: 98, bytes: 1_000_000, visits: 80 }],
     };
     const { el } = setup(clean);
     expect(el.querySelector('[data-testid="an-dl-error-warn"]')).toBeNull();

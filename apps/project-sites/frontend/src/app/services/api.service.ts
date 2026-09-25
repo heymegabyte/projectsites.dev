@@ -1612,7 +1612,8 @@ export interface DeliverySummary {
   has_data: boolean;
   total_requests: number;
   by_status_class: { class: '2xx' | '3xx' | '4xx' | '5xx' | 'other'; count: number }[];
-  top_statuses: { status: number; count: number }[];
+  /** Each top status now carries its edge `bytes` (bandwidth) + `visits` (≈ real visitors who hit it). */
+  top_statuses: { status: number; count: number; bytes: number; visits: number }[];
   cache: { hit: number; miss: number; uncacheable: number; hit_ratio_pct: number | null };
   response_bytes: number;
   range_days: number;

@@ -71,6 +71,11 @@ function formatBytes(n: number): string {
     .dl-errors { display: grid; gap: 0.25rem; }
     .dl-error-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
     .dl-error-list li { font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.04); border-radius: 4px; font-variant-numeric: tabular-nums; }
+    .dl-error-rows { flex-direction: column; gap: 0.25rem; }
+    .dl-error-rows li { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; width: 100%; box-sizing: border-box; }
+    .dl-error-code { color: #f5405e; font-weight: 700; }
+    .dl-error-visits { color: var(--ps-ink, #f4f4ff); font-weight: 600; }
+    .dl-error-meta { color: var(--text-secondary, #9aa0b4); margin-left: auto; }
     .dl-edge { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
     .dl-edge-group { min-width: 0; }
     .dl-edge-list { list-style: none; margin: 0.3rem 0 0; padding: 0; display: grid; gap: 0.25rem; }
@@ -137,11 +142,23 @@ function formatBytes(n: number): string {
           @if (errorCodes().length) {
             <div class="dl-errors">
               <div class="dl-stat-label">Top error responses</div>
-              <ul class="dl-error-list">
+              <ul class="dl-error-list dl-error-rows">
                 @for (e of errorCodes(); track e.status) {
-                  <li data-testid="an-dl-error-code"><code>{{ e.status }}</code> · {{ fmt(e.count) }}</li>
+                  <li data-testid="an-dl-error-code">
+                    <code class="dl-error-code">{{ e.status }}</code>
+                    @if (e.visits > 0) {
+                      <span class="dl-error-visits" data-testid="an-dl-error-visits"
+                        >{{ fmt(e.visits) }} {{ e.visits === 1 ? 'visitor' : 'visitors' }} hit</span
+                      >
+                    }
+                    <span class="dl-error-meta">{{ fmt(e.count) }} req · {{ bytes(e.bytes) }}</span>
+                  </li>
                 }
               </ul>
+              <p class="dl-note" data-testid="an-dl-error-note">
+                “Visitors” ≈ how many real people (not bots or raw requests) hit each error — a sampled
+                estimate. Fix the links or pages behind any code with real visitor traffic first.
+              </p>
             </div>
           }
 
@@ -282,5 +299,10 @@ export class DeliveryCardComponent {
   /** Thousands-separated integer. */
   fmt(n: number): string {
     return n.toLocaleString();
+  }
+
+  /** Human byte size for a single value (per-status edge bandwidth). */
+  bytes(n: number): string {
+    return formatBytes(n);
   }
 }
