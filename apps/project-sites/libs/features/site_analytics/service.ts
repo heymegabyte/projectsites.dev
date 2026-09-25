@@ -250,10 +250,13 @@ export async function getVisitorFunnel(
   windowDays = 30,
 ): Promise<VisitorFunnel> {
   const n = Number.isInteger(windowDays) && windowDays > 0 && windowDays <= 365 ? windowDays : 30;
-  const { data, error } = await dbQuery<{ pv: number; conv: number }>(
+  const { data, error } = await dbQuery<{ pv: number; conv: number; max_scroll: number; has_scroll: number }>(
     env.DB,
     `SELECT SUM(CASE WHEN event_type = 'pageview' THEN 1 ELSE 0 END) AS pv,
-            MAX(CASE WHEN event_type = 'conversion' THEN 1 ELSE 0 END) AS conv
+            MAX(CASE WHEN event_type = 'conversion' THEN 1 ELSE 0 END) AS conv,
+            MAX(CASE WHEN event_type = 'scroll_depth'
+                     THEN CAST(json_extract(metadata, '$.percent') AS INTEGER) ELSE 0 END) AS max_scroll,
+            MAX(CASE WHEN event_type = 'scroll_depth' THEN 1 ELSE 0 END) AS has_scroll
        FROM visitor_events
       WHERE site_id = ? AND session_id IS NOT NULL
         AND created_at >= datetime('now', ?)
@@ -263,40 +266,64 @@ export async function getVisitorFunnel(
 
   let landing = 0;
   let engaged = 0;
+  let deeplyEngaged = 0;
   let converted = 0;
+  let scrollMeasuredSessions = 0; // sessions that emitted ≥1 scroll_depth sample
   if (!error) {
     for (const r of data) {
       const pv = Number(r.pv) || 0;
       if (pv >= 1) landing += 1;
       if (pv >= 2) engaged += 1;
+      // Deeply engaged = an ENGAGED session (2+ pages) that ALSO scrolled ≥50% on its deepest
+      // page — a guaranteed SUBSET of engaged, so the funnel stays monotonic (no negative drop).
+      if (pv >= 2 && (Number(r.max_scroll) || 0) >= 50) deeplyEngaged += 1;
+      if (Number(r.has_scroll) > 0) scrollMeasuredSessions += 1;
       if (Number(r.conv) > 0) converted += 1;
     }
   }
   const pct = (v: number) => (landing > 0 ? Math.round((v / landing) * 1000) / 10 : 0);
 
+  const stages: Array<{
+    key: 'landing' | 'engaged' | 'deeply_engaged' | 'converted';
+    label: string;
+    sessions: number;
+    percentOfLanding: number;
+  }> = [
+    {
+      key: 'landing',
+      label: 'Landed',
+      sessions: landing,
+      percentOfLanding: landing > 0 ? 100 : 0,
+    },
+    {
+      key: 'engaged',
+      label: 'Engaged (2+ pages)',
+      sessions: engaged,
+      percentOfLanding: pct(engaged),
+    },
+  ];
+  // Only surface the deep-engagement stage when scroll depth is ACTUALLY being measured for
+  // this site (≥1 scroll_depth sample). With zero samples a "0 deeply engaged" would read as
+  // "nobody read deeply" when the truth is "not measured yet" — a lying-empty. Omit instead.
+  if (scrollMeasuredSessions > 0) {
+    stages.push({
+      key: 'deeply_engaged',
+      label: 'Deeply engaged (read 50%+)',
+      sessions: deeplyEngaged,
+      percentOfLanding: pct(deeplyEngaged),
+    });
+  }
+  stages.push({
+    key: 'converted',
+    label: 'Converted',
+    sessions: converted,
+    percentOfLanding: pct(converted),
+  });
+
   return VisitorFunnelSchema.parse({
     siteId,
     windowDays: n,
-    stages: [
-      {
-        key: 'landing',
-        label: 'Landed',
-        sessions: landing,
-        percentOfLanding: landing > 0 ? 100 : 0,
-      },
-      {
-        key: 'engaged',
-        label: 'Engaged (2+ pages)',
-        sessions: engaged,
-        percentOfLanding: pct(engaged),
-      },
-      {
-        key: 'converted',
-        label: 'Converted',
-        sessions: converted,
-        percentOfLanding: pct(converted),
-      },
-    ],
+    stages,
     generatedAt: new Date().toISOString(),
   });
 }

@@ -103,7 +103,7 @@ export type FormAnalytics = z.infer<typeof FormAnalyticsSchema>;
 /** One stage of the per-site visitor funnel (AN19). */
 export const FunnelStageSchema = z
   .object({
-    key: z.enum(['landing', 'engaged', 'converted']),
+    key: z.enum(['landing', 'engaged', 'deeply_engaged', 'converted']),
     label: z.string(),
     sessions: z.number().int().min(0),
     /** Share of the landing (top-of-funnel) sessions, 0–100, one decimal. */
