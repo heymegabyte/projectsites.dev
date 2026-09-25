@@ -207,6 +207,33 @@ export const JsErrorSummarySchema = z
   .default({ total: 0, byMessage: [] });
 export type JsErrorSummary = z.infer<typeof JsErrorSummarySchema>;
 
+/** One page's median dwell — how long visitors typically stay on it. */
+export const EngagementPageSchema = z
+  .object({
+    path: z.string(),
+    medianMs: z.number().int().min(0),
+    samples: z.number().int().min(1),
+  })
+  .strict();
+export type EngagementPage = z.infer<typeof EngagementPageSchema>;
+
+/**
+ * AN-ENGAGE — first-party time-on-page (dwell) over the window, from the `page_engagement`
+ * beacon (mirrored into `visitor_events`). `medianMs` is the site-wide MEDIAN dwell (median,
+ * not mean — dwell is outlier-skewed); `byPage` the per-page medians (top by dwell, past a
+ * sample floor). `medianMs` is `null` when there are no samples yet — the card shows
+ * "measuring…", never a fabricated 0 (the beacon runs on every page, so 0 isn't "no data").
+ */
+export const EngagementSummarySchema = z
+  .object({
+    medianMs: z.number().int().min(0).nullable().default(null),
+    samples: z.number().int().min(0),
+    byPage: z.array(EngagementPageSchema).default([]),
+  })
+  .strict()
+  .default({ medianMs: null, samples: 0, byPage: [] });
+export type EngagementSummary = z.infer<typeof EngagementSummarySchema>;
+
 /** Aggregated traffic summary for one site over a window. */
 export const TrafficSummarySchema = z
   .object({
@@ -251,6 +278,9 @@ export const TrafficSummarySchema = z
     // AN-JSERR — first-party JS-error site-health (grouped by message). Defaults to an
     // empty clean summary for back-compat with producers/fixtures that predate it.
     jsErrors: JsErrorSummarySchema,
+    // AN-ENGAGE — first-party time-on-page (median dwell + per-page). Defaults to an empty
+    // (null-median) summary for back-compat with producers/fixtures that predate it.
+    engagement: EngagementSummarySchema,
     // AN15 — the immediately-preceding equal-length window's KPIs, for
     // period-over-period deltas. Defaults to zeros for back-compat.
     previous: z

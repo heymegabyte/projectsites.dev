@@ -18,6 +18,7 @@ import {
   type PathCountSchema,
   type WebVitals,
   type JsErrorSummary,
+  type EngagementSummary,
   type LabelCount,
   type HourCount,
   type AnalyticsFilter,
@@ -593,6 +594,56 @@ export async function getJsErrorSummary(
 }
 
 /**
+ * AN-ENGAGE — first-party time-on-page (dwell) over the window: MEDIAN `duration_ms` from
+ * the `page_engagement` beacon (mirrored into `visitor_events`), site-wide + per page (top
+ * by dwell, past the {@link MIN_PATH_SAMPLES} floor). Median, NOT mean — dwell is
+ * outlier-skewed. Queried DIRECTLY (works in BOTH summary paths, like CWV/js_error). Owner
+ * scope rides the `currentWindow` bound `site_id`. Durations bounded 50k rows.
+ *
+ * @remarks Fail-soft — a missing table / query error yields the empty (null-median)
+ * summary. `medianMs` is `null` when there are no samples (never a fabricated 0 — the beacon
+ * runs on every page, so 0 is not "no data").
+ */
+export async function getEngagementSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<EngagementSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ path: string | null; duration: number }>(
+    env.DB,
+    `SELECT path, CAST(json_extract(metadata, '$.duration_ms') AS INTEGER) AS duration
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'page_engagement'
+        AND json_extract(metadata, '$.duration_ms') IS NOT NULL
+      LIMIT 50000`,
+    params,
+  );
+  if (error) return { medianMs: null, samples: 0, byPage: [] };
+  const all: number[] = [];
+  const byPath = new Map<string, number[]>();
+  for (const r of data) {
+    const d = Number(r.duration);
+    if (!Number.isFinite(d) || d < 0) continue;
+    all.push(d);
+    if (typeof r.path === 'string' && r.path) {
+      const arr = byPath.get(r.path);
+      if (arr) arr.push(d);
+      else byPath.set(r.path, [d]);
+    }
+  }
+  if (all.length === 0) return { medianMs: null, samples: 0, byPage: [] };
+  const byPage = [...byPath.entries()]
+    .filter(([, vals]) => vals.length >= MIN_PATH_SAMPLES)
+    .map(([path, vals]) => ({ path, medianMs: Math.round(percentile(vals, 50)), samples: vals.length }))
+    .sort((a, b) => b.medianMs - a.medianMs)
+    .slice(0, 8);
+  return { medianMs: Math.round(percentile(all, 50)), samples: all.length, byPage };
+}
+
+/**
  * Conversions by kind over the equal-length window immediately BEFORE the current one —
  * the prior-period baseline for the per-kind delta badges. Same SQL as
  * {@link getConversionKinds}, scoped to the {@link previousWindow} predicate.
@@ -765,6 +816,7 @@ export async function getTrafficSummary(
     byUtmCampaign,
     byHour,
     jsErrors,
+    engagement,
   ] = await Promise.all([
     scalar(
       env,
@@ -848,6 +900,8 @@ export async function getTrafficSummary(
     getHourlyBreakdown(env, siteId, windowDays, window, filter),
     // AN-JSERR — first-party JS-error site-health (queried directly; not in the rollup).
     getJsErrorSummary(env, siteId, windowDays, window, filter),
+    // AN-ENGAGE — first-party time-on-page median (queried directly; not in the rollup).
+    getEngagementSummary(env, siteId, windowDays, window, filter),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -886,6 +940,7 @@ export async function getTrafficSummary(
     byCountry,
     webVitals,
     jsErrors,
+    engagement,
     byConversionKind,
     previous: {
       pageviews: prevPageviews,
@@ -979,6 +1034,7 @@ export async function getTrafficSummaryFromRollup(
     byUtmCampaign,
     byHour,
     jsErrors,
+    engagement,
   ] = await Promise.all([
     sumScalars(curStart, null),
     sumScalars(prevStart, prevEnd),
@@ -999,6 +1055,8 @@ export async function getTrafficSummaryFromRollup(
     getHourlyBreakdown(env, siteId, windowDays),
     // AN-JSERR — first-party JS-error site-health (queried live; not in the rollup).
     getJsErrorSummary(env, siteId, windowDays),
+    // AN-ENGAGE — first-party time-on-page median (queried live; not in the rollup).
+    getEngagementSummary(env, siteId, windowDays),
   ]);
 
   return TrafficSummarySchema.parse({
@@ -1024,6 +1082,7 @@ export async function getTrafficSummaryFromRollup(
     byCountry: countryRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     webVitals,
     jsErrors,
+    engagement,
     byConversionKind,
     previous: {
       pageviews: prev.pageviews,
