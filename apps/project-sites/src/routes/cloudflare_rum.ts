@@ -69,7 +69,8 @@ cloudflareRum.get('/api/sites/:siteId/cloudflare-rum', async (c) => {
       available: false,
       host,
       window: { since: sinceISO, until: untilISO },
-      reason: 'Cloudflare RUM returned no data for this host, or analytics credentials are unavailable.',
+      reason:
+        'Cloudflare RUM returned no data for this host, or analytics credentials are unavailable.',
     });
   }
 

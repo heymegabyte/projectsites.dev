@@ -107,7 +107,11 @@ describe('getCloudflareRumSummary — conversion + rating (live shape)', () => {
       data: {
         viewer: {
           accounts: [
-            { pageload: [{ count: 0 }], webVitals: [{ count: 0, quantiles: {} }], perf: [{ count: 0, quantiles: {} }] },
+            {
+              pageload: [{ count: 0 }],
+              webVitals: [{ count: 0, quantiles: {} }],
+              perf: [{ count: 0, quantiles: {} }],
+            },
           ],
         },
       },

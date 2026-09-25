@@ -53,7 +53,13 @@ export interface CloudflareRumSummary {
   /** Cloudflare-measured Core Web Vitals (independent of our first-party beacon). */
   webVitals: { lcp: RumMetric; inp: RumMetric; cls: RumMetric };
   /** Navigation Timing — incl. TTFB (`responseTime`), the latency the HTTP dataset can't give. */
-  navTiming: { ttfb: RumMetric; fcp: RumMetric; pageLoad: RumMetric; dns: RumMetric; connect: RumMetric };
+  navTiming: {
+    ttfb: RumMetric;
+    fcp: RumMetric;
+    pageLoad: RumMetric;
+    dns: RumMetric;
+    connect: RumMetric;
+  };
   /** The queried window (ISO 8601). */
   window: { since: string; until: string };
 }
@@ -91,7 +97,11 @@ export function rateMetric(
 type MetricKind = 'lcp' | 'inp' | 'ttfb' | 'fcp' | 'cls' | 'timing';
 
 /** Build a {@link RumMetric} from a raw quantile: convert (if timing), rate, and carry the sample count. */
-function metric(rawQuantile: number | null | undefined, samples: number, kind: MetricKind): RumMetric {
+function metric(
+  rawQuantile: number | null | undefined,
+  samples: number,
+  kind: MetricKind,
+): RumMetric {
   // CLS is unitless (no µs conversion); every other metric is µs → ms.
   const value =
     kind === 'cls' ? (typeof rawQuantile === 'number' ? rawQuantile : null) : usToMs(rawQuantile);
