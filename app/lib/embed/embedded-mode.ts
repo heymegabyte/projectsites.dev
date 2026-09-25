@@ -482,6 +482,55 @@ export interface QueueResponseMessage {
   error?: string;
 }
 
+/** One D1 database row for the D1 Overview strip. */
+export interface D1DatabaseSummary {
+  id: string;
+  name: string;
+  created?: string | null;
+  version?: string | null;
+}
+
+/**
+ * Child → Parent (D1 Overview): ask the admin to proxy a read-only Cloudflare D1 inspection
+ * (list databases / one database's Overview metadata). No query / write / restore is exposed.
+ */
+export interface D1RequestMessage {
+  type: 'PS_D1_REQUEST';
+  correlationId: string;
+  op: 'databases' | 'overview';
+  /** Required for the `overview` op — the D1 database UUID to describe. */
+  databaseId?: string;
+}
+
+export interface D1DatabasesData {
+  databases: D1DatabaseSummary[];
+  available: boolean;
+  reason?: string;
+}
+
+export interface D1OverviewData {
+  found: boolean;
+  id: string;
+  name?: string | null;
+  /** On-disk size in bytes, or null when the CF API omits it (never a fabricated 0). */
+  fileSize?: number | null;
+  numTables?: number | null;
+  version?: string | null;
+  region?: string | null;
+  readReplication?: string | null;
+  available?: boolean;
+  reason?: string;
+}
+
+/** Parent → Child (D1 Overview): the admin's reply to {@link D1RequestMessage}. */
+export interface D1ResponseMessage {
+  type: 'PS_D1_RESPONSE';
+  correlationId: string;
+  ok: boolean;
+  data?: D1DatabasesData | D1OverviewData;
+  error?: string;
+}
+
 export type ParentToChildMessage =
   | SubmitPromptMessage
   | ImportFilesMessage
@@ -496,6 +545,7 @@ export type ParentToChildMessage =
   | R2ResponseMessage
   | VectorizeResponseMessage
   | QueueResponseMessage
+  | D1ResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -509,6 +559,7 @@ export type ChildToParentMessage =
   | R2RequestMessage
   | VectorizeRequestMessage
   | QueueRequestMessage
+  | D1RequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;

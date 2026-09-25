@@ -82,13 +82,17 @@ interface PsMessage {
     | 'indexes'
     | 'index'
     | 'queues'
-    | 'queue';
+    | 'queue'
+    | 'databases'
+    | 'overview';
   /** PS_R2_REQUEST: the R2 bucket binding name (required for the objects + object ops). */
   readonly bucket?: string;
   /** PS_VEC_REQUEST: the Vectorize index name (required for the `index` describe op). */
   readonly name?: string;
   /** PS_QUEUE_REQUEST: the queue id (required for the `queue` describe op). */
   readonly queueId?: string;
+  /** PS_D1_REQUEST: the D1 database UUID (required for the `overview` op). */
+  readonly databaseId?: string;
   /** PS_KV_REQUEST: the KV binding name (required for the keys + value ops). */
   readonly binding?: string;
   /** PS_KV_REQUEST (keys op): key-name prefix filter. */
@@ -154,7 +158,12 @@ export class BoltEmbedService {
    *  Save & Deploy double-published (journey 2026-08-19). */
   private readonly publishedCorrelationIds = new Set<string>();
   /** Optional consumer for `PS_DEPLOY_REQUEST` messages from the editor (item 43). */
-  private deployHandler: ((req: { files: Record<string, string>; chat?: { messages: unknown[]; description?: string; exportDate?: string } }) => void) | null = null;
+  private deployHandler:
+    | ((req: {
+        files: Record<string, string>;
+        chat?: { messages: unknown[]; description?: string; exportDate?: string };
+      }) => void)
+    | null = null;
   /** Toast ids already mirrored to the editor — prevents echo loops (item 44). */
   private readonly mirroredToastIds = new Set<number>();
   /** True while we're showing a toast forwarded FROM the editor — stops
@@ -224,7 +233,8 @@ export class BoltEmbedService {
       frame.src = `${EDITOR_BASE}/?embedded=true&prewarm=true`;
       frame.setAttribute('aria-hidden', 'true');
       frame.tabIndex = -1;
-      frame.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;border:0;opacity:0;pointer-events:none;';
+      frame.style.cssText =
+        'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;border:0;opacity:0;pointer-events:none;';
       // `loading=eager` is the default but we make it explicit — pre-warm is
       // the whole point, lazy would defeat the purpose.
       frame.loading = 'eager';
@@ -307,7 +317,8 @@ export class BoltEmbedService {
       params.set('importChatFrom', `${window.location.origin}/api/sites/by-slug/${site.slug}/chat`);
     }
     if (opts.file) params.set('file', opts.file);
-    if (opts.line && Number.isFinite(opts.line) && opts.line > 0) params.set('line', String(opts.line));
+    if (opts.line && Number.isFinite(opts.line) && opts.line > 0)
+      params.set('line', String(opts.line));
     this.iframeUrl.set(
       this.sanitizer.bypassSecurityTrustResourceUrl(`${EDITOR_BASE}/?${params.toString()}`),
     );
@@ -330,7 +341,12 @@ export class BoltEmbedService {
       return;
     }
     iframe.contentWindow.postMessage(
-      { type: 'PS_OPEN_SNAPSHOT', snapshot_id: snapshotId, slug: site.slug, correlationId: crypto.randomUUID() },
+      {
+        type: 'PS_OPEN_SNAPSHOT',
+        snapshot_id: snapshotId,
+        slug: site.slug,
+        correlationId: crypto.randomUUID(),
+      },
       EDITOR_BASE,
     );
   }
@@ -372,10 +388,7 @@ export class BoltEmbedService {
         window.clearTimeout(timer);
         resolve(files);
       });
-      iframe.contentWindow!.postMessage(
-        { type: 'PS_LIST_FILES', correlationId },
-        EDITOR_BASE,
-      );
+      iframe.contentWindow!.postMessage({ type: 'PS_LIST_FILES', correlationId }, EDITOR_BASE);
     });
   }
 
@@ -451,8 +464,14 @@ export class BoltEmbedService {
   }
 
   private clearTimers(): void {
-    if (this.hardTimeout) { clearTimeout(this.hardTimeout); this.hardTimeout = null; }
-    if (this.softTimeout) { clearTimeout(this.softTimeout); this.softTimeout = null; }
+    if (this.hardTimeout) {
+      clearTimeout(this.hardTimeout);
+      this.hardTimeout = null;
+    }
+    if (this.softTimeout) {
+      clearTimeout(this.softTimeout);
+      this.softTimeout = null;
+    }
   }
 
   private attachMessageListener(): void {
@@ -607,6 +626,37 @@ export class BoltEmbedService {
           });
           break;
         }
+        case 'PS_D1_REQUEST': {
+          // D1 manager — mirrors the PS_QUEUE bridge. Proxies read-only D1 resource discovery to
+          // /api/admin/d1/* (super-admin; list + Overview metadata only, never query/write/restore).
+          const iframe = this.iframeEl;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_D1_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          const op = msg.op;
+          let dPath: string;
+          if (op === 'databases') {
+            dPath = '/admin/d1/databases';
+          } else if (op === 'overview') {
+            if (!msg.databaseId) {
+              reply({ ok: false, error: 'No database id' });
+              break;
+            }
+            dPath = `/admin/d1/${encodeURIComponent(msg.databaseId)}/overview`;
+          } else {
+            reply({ ok: false, error: 'Unknown D1 op' });
+            break;
+          }
+          this.api.get<Record<string, unknown>>(dPath, undefined, { silent: true }).subscribe({
+            next: (res) => reply({ ok: true, data: res ?? {} }),
+            error: () => reply({ ok: false, error: 'D1 manager not available' }),
+          });
+          break;
+        }
         case 'PS_VEC_REQUEST': {
           // Vectorize inspector — mirrors the PS_KV/PS_R2 bridge. Proxies read-only index inspection
           // to /api/admin/vectorize/* (super-admin; list + describe only, never query/insert/delete).
@@ -675,9 +725,13 @@ export class BoltEmbedService {
             break;
           }
           this.api
-            .get<Record<string, unknown>>(r2Path, Object.keys(r2Params).length ? r2Params : undefined, {
-              silent: true,
-            })
+            .get<Record<string, unknown>>(
+              r2Path,
+              Object.keys(r2Params).length ? r2Params : undefined,
+              {
+                silent: true,
+              },
+            )
             .subscribe({
               next: (res) => reply({ ok: true, data: res ?? {} }),
               error: () => reply({ ok: false, error: 'R2 inspector not available' }),
@@ -722,9 +776,13 @@ export class BoltEmbedService {
             break;
           }
           this.api
-            .get<Record<string, unknown>>(kvPath, Object.keys(kvParams).length ? kvParams : undefined, {
-              silent: true,
-            })
+            .get<Record<string, unknown>>(
+              kvPath,
+              Object.keys(kvParams).length ? kvParams : undefined,
+              {
+                silent: true,
+              },
+            )
             .subscribe({
               next: (res) => reply({ ok: true, data: res ?? {} }),
               error: () => reply({ ok: false, error: 'KV inspector not available' }),
@@ -818,10 +876,13 @@ export class BoltEmbedService {
             const kind = msg.kind ?? msg.level ?? 'info';
             const text = msg.message ?? '';
             const id =
-              kind === 'error' ? this.toast.error(text)
-              : kind === 'success' ? this.toast.success(text)
-              : kind === 'warning' ? this.toast.warning(text)
-              : this.toast.info(text);
+              kind === 'error'
+                ? this.toast.error(text)
+                : kind === 'success'
+                  ? this.toast.success(text)
+                  : kind === 'warning'
+                    ? this.toast.warning(text)
+                    : this.toast.info(text);
             this.mirroredToastIds.add(id);
           } finally {
             this.suppressMirror = false;
@@ -841,7 +902,12 @@ export class BoltEmbedService {
    * consumer is supported at a time — re-registering replaces the prior.
    */
   registerDeployHandler(
-    fn: ((req: { files: Record<string, string>; chat?: { messages: unknown[]; description?: string; exportDate?: string } }) => void) | null,
+    fn:
+      | ((req: {
+          files: Record<string, string>;
+          chat?: { messages: unknown[]; description?: string; exportDate?: string };
+        }) => void)
+      | null,
   ): () => void {
     this.deployHandler = fn;
     return () => {
