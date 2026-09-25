@@ -15,11 +15,9 @@
 > **Honesty gate still applies** — never a fake button; a blocked capability is surfaced, not faked.
 
 **Tier 1 — AI-native (the emdash "AI does the work, the user confirms" doctrine):**
-1. **AI SQL assistant (natural-language → SQL)** [M] — a "describe what you want" box → Workers AI
-   (Llama 3.3 70B, free) generates a **schema-grounded, read-only SELECT** (fed the inspected
-   table+column names so it never invents a column), rendered for REVIEW before Run (never auto-runs;
-   never a write). Reuses the SQL console's existing run/params/EXPLAIN path. THE highest-value
-   owner-facing D1 feature — a non-technical owner queries their own data in plain English.
+1. ~~**AI SQL assistant (natural-language → SQL)**~~ ✅ **DONE 2026-09-25 (both halves)** — see
+   "Recently shipped" below. Plain-English box → schema-grounded read-only SELECT dropped into the
+   editor for REVIEW before Run (never auto-runs). THE highest-value owner-facing D1 feature.
 2. **"Explain this table" (plain-English)** [S] — Workers AI summarizes what a selected table stores +
    its FK relationships in one paragraph, from the already-parsed columns + FKs. Owner-friendly.
 3. **Data insights strip** [M] — like the analytics Highlights strip: ≤5 plain-language takeaways from
@@ -56,14 +54,22 @@
     (create table / run a starter / import) per `embarrassingly-easy-to-use`.
 
 **Recently shipped from this backlog:**
-- ✅ **#1 AI SQL assistant — WORKER DONE 2026-09-25** — the first-class differentiator. `POST
-  /api/sites/:siteId/sql/nl2sql` (super-admin) grounds Workers AI (Llama 3.3 70B, free) on the REAL
-  server-fetched `sqlite_master` DDL and returns ONE read-only SELECT for the operator to REVIEW —
-  it NEVER executes (the user runs it through the guarded `/sql/exec` allowlist). Server-fetched
-  schema (never client-supplied), read-only system prompt, honest 502 on AI failure, audits the
-  question + model (never row data). Pure `buildNl2SqlMessages` + `extractSqlFromAiText`; +8 Jest;
-  worker deployed (`edaee198`) + prod-verified 401-gated. **Remaining half:** the editor SQL-console
-  "✨ Ask AI" input that calls it + populates the editor for review (next fire).
+- ✅ **#1 AI SQL assistant — COMPLETE (both halves) 2026-09-25** — the first-class differentiator,
+  now end-to-end. **Worker half:** `POST /api/sites/:siteId/sql/nl2sql` (super-admin) grounds Workers
+  AI (Llama 3.3 70B, free) on the REAL server-fetched `sqlite_master` DDL and returns ONE read-only
+  SELECT for the operator to REVIEW — it NEVER executes (the user runs it through the guarded
+  `/sql/exec` allowlist). Server-fetched schema (never client-supplied), read-only system prompt,
+  honest 502 on AI failure, audits the question + model (never row data). Pure `buildNl2SqlMessages`
+  + `extractSqlFromAiText`; +8 Jest; deployed `edaee198`, prod-verified 401-gated. **Editor half
+  (this fire, `a7011b3cd`):** the SQL console opens with a "✨ Ask AI" band — type a question in plain
+  English → the reply is dropped into the editor for REVIEW with a "{model} drafted this — review it,
+  then Run. Nothing runs automatically." note; never auto-executed. Bridge: `PS_NL2SQL_REQUEST/
+  RESPONSE` (embedded-mode.ts) + Angular proxy case (bolt-embed.service.ts, 403/404/502/400 → human
+  errors); UI inside `mode==='sql'` (already super-admin-gated, never a doomed control); latest-ref
+  `updateSql` so the `[]`-deps message effect targets the CURRENT tab without stale capture. Pure
+  `friendlyModelLabel` + `canAskAi` (+`MAX_AI_QUESTION_LEN`); +9 Vitest (154 total). Editor Pages +
+  frontend R2 both deployed + prod-verified (worker 401; editor deploy-success; frontend
+  `chunk-4YLQX2OA.js` live at root with the bridge string).
 - ✅ **Data tab scope grouping (Site vs Platform) — DONE 2026-09-25** — the Editor DataPanel's flat
   7-tab nav is now grouped into two clearly-labelled scopes: **Site** (Tables — this site's own
   site_id-scoped data) and **Platform** (SQL · D1 · KV · R2 · Vectors · Queues — the global platform
