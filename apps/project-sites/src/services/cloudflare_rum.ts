@@ -259,7 +259,12 @@ export async function getCachedCloudflareRum(
 
   const until = new Date();
   const since = new Date(until.getTime() - clamped * 24 * 60 * 60 * 1000);
-  const summary = await getCloudflareRumSummary(env, host, since.toISOString(), until.toISOString());
+  const summary = await getCloudflareRumSummary(
+    env,
+    host,
+    since.toISOString(),
+    until.toISOString(),
+  );
 
   // Cache success only (5 min) — a null (CF error / no creds) is left to retry on the next call.
   if (summary && kv) {

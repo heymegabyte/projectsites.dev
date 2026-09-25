@@ -8,7 +8,12 @@
  * Route: auth 401, tenant-scoped 404 (non-leak), owned 200, host resolved SERVER-SIDE (primary
  * hostname → else slug subdomain), and fail-soft `available:false` (never a 500).
  */
-import { getCloudflareRumSummary, getCachedCloudflareRum, usToMs, rateMetric } from '../services/cloudflare_rum.js';
+import {
+  getCloudflareRumSummary,
+  getCachedCloudflareRum,
+  usToMs,
+  rateMetric,
+} from '../services/cloudflare_rum.js';
 import type { Env } from '../types/env.js';
 
 const ENV = {
@@ -144,7 +149,9 @@ describe('getCloudflareRumSummary — conversion + rating (live shape)', () => {
 describe('getCachedCloudflareRum (one CF request per host per ~5-min window)', () => {
   /** In-memory KV double honoring get(key,'json') + put(key,str,{expirationTtl}). */
   function kvDouble(seed: Record<string, unknown> = {}) {
-    const store = new Map<string, string>(Object.entries(seed).map(([k, v]) => [k, JSON.stringify(v)]));
+    const store = new Map<string, string>(
+      Object.entries(seed).map(([k, v]) => [k, JSON.stringify(v)]),
+    );
     const put = jest.fn(async (k: string, v: string) => void store.set(k, v));
     const get = jest.fn(async (k: string, _t?: string) => {
       const raw = store.get(k);
@@ -161,14 +168,22 @@ describe('getCachedCloudflareRum (one CF request per host per ~5-min window)', (
     const kv = kvDouble();
     const r = await getCachedCloudflareRum(envWithKv(kv), 'acme.projectsites.dev', 30);
     expect(r).not.toBeNull();
-    expect((global.fetch as jest.Mock)).toHaveBeenCalledTimes(1);
+    expect(global.fetch as jest.Mock).toHaveBeenCalledTimes(1);
     expect(kv.put).toHaveBeenCalledTimes(1);
     expect(kv.put.mock.calls[0][0]).toBe('cf_rum:v1:acme.projectsites.dev:30');
     expect(kv.put.mock.calls[0][2]).toEqual({ expirationTtl: 300 });
   });
 
   it('cache HIT → returns the cached summary WITHOUT calling CF', async () => {
-    const cached = { source: 'cloudflare_rum', sampled: true, host: 'acme.projectsites.dev', pageviews: 5, webVitals: {}, navTiming: {}, window: { since: 'S', until: 'U' } };
+    const cached = {
+      source: 'cloudflare_rum',
+      sampled: true,
+      host: 'acme.projectsites.dev',
+      pageviews: 5,
+      webVitals: {},
+      navTiming: {},
+      window: { since: 'S', until: 'U' },
+    };
     const kv = kvDouble({ 'cf_rum:v1:acme.projectsites.dev:7': cached });
     const fetchSpy = jest.fn();
     global.fetch = fetchSpy as unknown as typeof fetch;
@@ -181,7 +196,7 @@ describe('getCachedCloudflareRum (one CF request per host per ~5-min window)', (
     mockFetch(LIVE_BODY);
     const r = await getCachedCloudflareRum(ENV, 'acme.projectsites.dev', 30); // ENV has no CACHE_KV
     expect(r).not.toBeNull();
-    expect((global.fetch as jest.Mock)).toHaveBeenCalledTimes(1);
+    expect(global.fetch as jest.Mock).toHaveBeenCalledTimes(1);
   });
 
   it('does NOT cache a null result (a transient CF failure retries next call)', async () => {
