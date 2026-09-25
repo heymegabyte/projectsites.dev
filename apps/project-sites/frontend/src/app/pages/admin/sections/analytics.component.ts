@@ -3204,9 +3204,17 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
           timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
           catchError(() => of(null as SiteAnalyticsSummary | null)),
         ),
-      // Daily rollup for the chart series — empty when the site has no rollup yet.
+      // Daily rollup for the chart series — empty when the site has no rollup yet. Threads the
+      // active drilldown filter so the chart line matches the filtered KPIs (re-fetches with the
+      // summary whenever the filter changes, since both live in this one reload block).
       daily: this.api
-        .getSiteAnalyticsDaily(site.id, this.rangeDays(), win, this.browserTzOffset())
+        .getSiteAnalyticsDaily(
+          site.id,
+          this.rangeDays(),
+          win,
+          this.browserTzOffset(),
+          this.filter() ?? undefined,
+        )
         .pipe(
           timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
           catchError(() =>

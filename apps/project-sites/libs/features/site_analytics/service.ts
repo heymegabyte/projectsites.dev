@@ -21,6 +21,7 @@ import {
 } from '../../../src/services/cloudflare_rum.js';
 import {
   getTrafficSummary,
+  filterClause,
   type AnalyticsWindow,
   type AnalyticsFilter,
 } from '../visitor_events_core/service.js';
@@ -172,8 +173,14 @@ export async function getDailySeries(
   days = 30,
   window?: AnalyticsWindow,
   tzOffsetMinutes?: number,
+  filter?: AnalyticsFilter,
 ): Promise<{ days: DailyPoint[] }> {
   const n = Number.isInteger(days) && days > 0 && days <= 365 ? days : 30;
+  // AN-FILTER — the SAME drilldown restriction the summary + every breakdown applies, so the
+  // chart line stays consistent with the filtered KPIs (a `country=US` drill re-scopes the daily
+  // series too). Appended AFTER the window clause → only NARROWS within the owner-scoped site;
+  // the value is always a BOUND `?` (never concatenated). Empty for no/unknown filter.
+  const f = filterClause(filter);
   // Absolute window → bound literals (created_at >= ? AND < ?); else trailing relative.
   const timeClause = window
     ? 'created_at >= ? AND created_at < ?'
@@ -201,9 +208,9 @@ export async function getDailySeries(
             COUNT(DISTINCT session_id) AS unique_sessions,
             SUM(CASE WHEN event_type = 'conversion' THEN 1 ELSE 0 END) AS conversions
        FROM visitor_events
-      WHERE site_id = ? AND ${timeClause}
+      WHERE site_id = ? AND ${timeClause}${f.sql}
       GROUP BY ${dayExpr} ORDER BY day ASC`,
-    [...dayParam, siteId, ...timeParams, ...dayParam],
+    [...dayParam, siteId, ...timeParams, ...f.params, ...dayParam],
   );
   if (error) return { days: [] };
   return {

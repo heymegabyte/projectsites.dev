@@ -849,6 +849,7 @@ export class ApiService {
     days = 30,
     window?: { start: string; end: string },
     tzOffsetMinutes?: number,
+    filter?: { dim: string; value: string },
   ): Observable<{
     days: { day: string; pageviews: number; uniqueSessions: number; conversions: number }[];
   }> {
@@ -865,6 +866,13 @@ export class ApiService {
       tzOffsetMinutes !== 0
     ) {
       params['tz'] = tzOffsetMinutes.toString();
+    }
+    // AN-FILTER — the SAME drilldown restriction as the summary, so the chart line stays
+    // consistent with the filtered KPIs. Server validates `filterDim` (unknown → 400) + BINDS
+    // `filterValue`; sent only when a non-empty value is present.
+    if (filter && filter.dim && filter.value) {
+      params['filterDim'] = filter.dim;
+      params['filterValue'] = filter.value;
     }
     return this.get(`/sites/${siteId}/analytics/daily`, params, { silent: true });
   }

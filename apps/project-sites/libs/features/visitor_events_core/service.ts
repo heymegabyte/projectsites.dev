@@ -299,7 +299,7 @@ const FILTER_DIMENSION_SQL = {
  * dim (defense in depth — the column is only ever pulled from the trusted
  * {@link FILTER_DIMENSION_SQL} map, so it is a literal; the value is always bound `?`).
  */
-function filterClause(filter?: AnalyticsFilter): {
+export function filterClause(filter?: AnalyticsFilter): {
   readonly sql: string;
   readonly params: unknown[];
 } {

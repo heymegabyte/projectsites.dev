@@ -169,7 +169,11 @@ siteAnalytics.get('/api/sites/:siteId/analytics/daily', async (c) => {
   const tzRaw = Number.parseInt(c.req.query('tz') ?? '', 10);
   const tz = Number.isInteger(tzRaw) ? tzRaw : undefined;
   const win = cw.window ? shiftWindowToTz(cw.window, tz) : undefined;
-  const series = await getDailySeries(c.env, gate.siteId, days, win, tz);
+  // AN-FILTER — same allowlisted drilldown as the summary, so the chart line matches the filtered
+  // KPIs. Unknown/injected dim → 400 (never reaches SQL); a filter never widens the owner scope.
+  const filter = parseFilter(c);
+  if (filter instanceof Response) return filter;
+  const series = await getDailySeries(c.env, gate.siteId, days, win, tz, filter);
   return c.json(
     cw.window ? { ...series, windowStart: cw.startDisplay, windowEnd: cw.endDisplay } : series,
   );
