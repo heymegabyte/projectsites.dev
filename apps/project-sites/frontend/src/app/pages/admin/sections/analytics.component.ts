@@ -31,6 +31,7 @@ import { ScrollDepthCardComponent } from './scroll-depth-card.component';
 import { NetworkQualityCardComponent } from './network-quality-card.component';
 import { NavTimingCardComponent } from './nav-timing-card.component';
 import { TechBreakdownComponent } from './tech-breakdown.component';
+import { ChannelBreakdownComponent } from './channel-breakdown.component';
 import { CampaignBreakdownComponent } from './campaign-breakdown.component';
 import type { TrendBadge } from './trend-badge.model';
 import { InsightsStripComponent } from './insights-strip.component';
@@ -50,7 +51,7 @@ type RangeId = AnalyticsRange | 'custom';
  * against its own enum + BINDS the value, so an unknown dimension is a 400 (never SQL).
  */
 export interface AnalyticsDrill {
-  dim: 'country' | 'device' | 'browser' | 'os' | 'path';
+  dim: 'country' | 'device' | 'browser' | 'os' | 'path' | 'channel';
   value: string;
 }
 
@@ -91,7 +92,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, CloudflareRumCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, NetworkQualityCardComponent, NavTimingCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, OutboundLinksCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, CloudflareRumCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, NetworkQualityCardComponent, NavTimingCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, OutboundLinksCardComponent, TechBreakdownComponent, ChannelBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -702,6 +703,18 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
         [devices]="siteTraffic()?.byDevice ?? []"
         [browsers]="siteTraffic()?.byBrowser ?? []"
         [os]="siteTraffic()?.byOs ?? []"
+        [windowDays]="rangeDays()"
+        [activeFilter]="filter()"
+        (drill)="applyDrill($event)"
+      />
+
+      <!-- Acquisition channels — first-party traffic.byChannel (direct/organic/social/...), one
+           channel per pageview. Each row drills the whole summary by channel (the row value is the
+           RAW stored channel, so the server filter is exact — never lying-empty). Distinct from
+           Campaigns and sources (utm-tagged only) + Top referrers (hosts). -->
+      <app-channel-breakdown
+        appReveal
+        [channels]="siteTraffic()?.byChannel ?? []"
         [windowDays]="rangeDays()"
         [activeFilter]="filter()"
         (drill)="applyDrill($event)"

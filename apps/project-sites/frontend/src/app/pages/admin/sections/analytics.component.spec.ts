@@ -42,6 +42,9 @@ describe('AdminAnalyticsComponent (site-reactive load)', () => {
             // loadNetwork() runs on mount (zone-level, fail-soft) — stub so
             // detectChanges() doesn't crash on an undefined ApiService method.
             getNetworkAnalytics: jasmine.createSpy('getNetworkAnalytics').and.returnValue(of({ data: null })),
+            // The self-fetching <app-cloudflare-rum-card> child calls api.get on render — stub it
+            // (honest available:false) so the parent's detectChanges() doesn't crash.
+            get: jasmine.createSpy('get').and.returnValue(of({ available: false })),
           },
         },
         { provide: ToastService, useValue: { error: jasmine.createSpy('error'), success: jasmine.createSpy('success') } },
@@ -451,7 +454,7 @@ describe('AdminAnalyticsComponent (CSV export is formula-injection-safe)', () =>
     TestBed.configureTestingModule({
       imports: [AdminAnalyticsComponent],
       providers: [
-        { provide: ApiService, useValue: { getMultiUrlAnalytics: () => of({ data: null }), listSiteUrls: () => of({ data: [] }), getCloudflareCredentialStatus: () => of({ data: null }) } },
+        { provide: ApiService, useValue: { getMultiUrlAnalytics: () => of({ data: null }), listSiteUrls: () => of({ data: [] }), getCloudflareCredentialStatus: () => of({ data: null }), get: () => of({ available: false }) } },
         { provide: ToastService, useValue: { error: () => 0, success: () => 0 } },
         { provide: PromptService, useValue: { prompt: () => Promise.resolve(null) } },
         { provide: Router, useValue: { navigateByUrl: () => 0, navigate: () => Promise.resolve(true) } },
@@ -506,6 +509,7 @@ describe('AdminAnalyticsComponent (top-pages/countries cyan mini-empty cohesion)
         {
           provide: ApiService,
           useValue: {
+            get: () => of({ available: false }),
             getMultiUrlAnalytics: () => of({ data: null }),
             listSiteUrls: () => of({ data: [] }),
             getCloudflareCredentialStatus: () => of({ data: null }),
@@ -553,6 +557,7 @@ describe('AdminAnalyticsComponent — bounded auto-refresh retry (error-recovery
       imports: [AdminAnalyticsComponent],
       providers: [
         { provide: ApiService, useValue: {
+          get: () => of({ available: false }),
           getMultiUrlAnalytics: getAnalytics,
           listSiteUrls: () => of({ data: [] }),
           getCloudflareCredentialStatus: () => of({ data: null }),
@@ -754,6 +759,7 @@ describe('AdminAnalyticsComponent (range-switch race — last-write-wins)', () =
         {
           provide: ApiService,
           useValue: {
+            get: () => of({ available: false }),
             getMultiUrlAnalytics: getAnalytics,
             getSiteAnalytics: () => of(null),
             getSiteAnalyticsDaily: () => of({ days: [] }),
@@ -799,7 +805,7 @@ describe('AdminAnalyticsComponent (Top referrers — accurate channel labels)', 
     TestBed.configureTestingModule({
       imports: [AdminAnalyticsComponent],
       providers: [
-        { provide: ApiService, useValue: { getMultiUrlAnalytics: () => of({ data: null }), listSiteUrls: () => of({ data: [] }), getCloudflareCredentialStatus: () => of({ data: null }) } },
+        { provide: ApiService, useValue: { getMultiUrlAnalytics: () => of({ data: null }), listSiteUrls: () => of({ data: [] }), getCloudflareCredentialStatus: () => of({ data: null }), get: () => of({ available: false }) } },
         { provide: ToastService, useValue: { error: () => 0, success: () => 0 } },
         { provide: PromptService, useValue: { prompt: () => Promise.resolve(null) } },
         { provide: Router, useValue: { navigateByUrl: () => 0, navigate: () => Promise.resolve(true) } },
@@ -912,6 +918,7 @@ describe('AdminAnalyticsComponent (bounce rate — true D1 value wins over edge 
         {
           provide: ApiService,
           useValue: {
+            get: () => of({ available: false }),
             getMultiUrlAnalytics: jasmine.createSpy('getMultiUrlAnalytics').and.returnValue(of({ data: null })),
             listSiteUrls: jasmine.createSpy('listSiteUrls').and.returnValue(of({ data: [] })),
             getCloudflareCredentialStatus: jasmine.createSpy('getCloudflareCredentialStatus').and.returnValue(of({ data: null })),
@@ -1007,6 +1014,7 @@ describe('AdminAnalyticsComponent — custom absolute date window', () => {
         {
           provide: ApiService,
           useValue: {
+            get: () => of({ available: false }),
             getMultiUrlAnalytics: () => of({ data: null }),
             listSiteUrls: () => of({ data: [] }),
             getCloudflareCredentialStatus: () => of({ data: null }),
@@ -1135,6 +1143,7 @@ describe('AdminAnalyticsComponent — comparison-period deltas', () => {
         {
           provide: ApiService,
           useValue: {
+            get: () => of({ available: false }),
             getMultiUrlAnalytics: () => of({ data: null }),
             listSiteUrls: () => of({ data: [] }),
             getCloudflareCredentialStatus: () => of({ data: null }),
@@ -1313,6 +1322,7 @@ describe('AdminAnalyticsComponent (drilldown filter — AN-FILTER)', () => {
       imports: [AdminAnalyticsComponent],
       providers: [
         { provide: ApiService, useValue: {
+          get: () => of({ available: false }),
           getMultiUrlAnalytics: () => of({ data: null }),
           listSiteUrls: () => of({ data: [] }),
           getCloudflareCredentialStatus: () => of({ data: null }),
