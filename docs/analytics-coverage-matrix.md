@@ -25,8 +25,10 @@
   **MEDIAN** dwell (median, not mean — outlier-resistant; per-page past the 5-sample floor, longest
   first; fail-soft to a null-median empty) folded into BOTH traffic-summary paths (live + rollup) →
   **`EngagementCard`** ("Time on page") on `/admin/analytics` shows the median (formatted 8s / 1m 20s)
+  + a **"How long visits lasted" DISTRIBUTION** (2026-09-25 — `distribution.{s10,s30,s60,s180}`, the % of
+  visits past ≥10s/30s/1m/3m, the dwell analogue of the scroll reach funnel; the spread the median hides)
   + most-engaging pages, or **"Measuring…"** when 0 samples (never a fabricated 0 — the beacon runs on
-  every page). First-party signal CF's plan has NO dataset for. Tenant-scoped by the summary owner gate
+  every page; the distribution block hides rather than showing 0%s). First-party signal CF's plan has NO dataset for. Tenant-scoped by the summary owner gate
   + `getEngagementSummary`'s bound `site_id`. +17 tests (7 instrument + 5 aggregate:
   median/per-page/floor/fail-soft/tenant + 4 card + formatDwell). Verified: worker tsc+jest, app tsc,
   Karma, build:prod.
@@ -234,16 +236,24 @@ gated.
   computed-but-unrendered gaps a plateau claim missed.
 
   **RANKED BACKLOG (from the 2026-09-25 parallel scan — build top-down next fires):**
-  1. **Outbound clicks BY KIND** (S) — `getOutboundClicksSummary.byLink` already carries `kind`
-     (call/email/directions), but there's no by-KIND rollup card ("40 calls · 12 emails · 8 directions").
-  2. **Concierge chat engagement** (M) — `concierge_open`/`concierge_message` are beacon-sent + stored
-     but never aggregated/displayed (a chat-adoption KPI). MEASURED-BUT-UNSURFACED.
-  3. **Delivery bytes/pageviews BY STATUS & cache-state** (M) — reuse the SAME `loadHostDelivery` CF
-     query (add `sum{edgeResponseBytes}`/`sum{visits}` per status/cache; NO new CF request).
-  4. **Per-page nav-timing / network-quality / engagement-distribution** (M each) — first-party, stored,
-     need per-page aggregation (mirror the CWV slowest-pages pattern).
-  5. **Content-type `byType` card** (S, low owner-value) — computed + returned, but no card renders it.
-  6. **Missing tests** — per-metric honest-empty when a filter dim is absent; filter + cross-tenant 404.
+  - ~~Outbound clicks BY KIND~~ — **DROPPED as redundant** (2026-09-25): `getConversionKinds` →
+    `byConversionKind` (the shipped Conversions card) ALREADY gives the by-category counts
+    (call/directions/form). A second "by kind" view would confuse, not clarify. Verified in source.
+  - ~~engagement-distribution~~ — **SHIPPED (2026-09-25, this fire):** `EngagementSummary.distribution`
+    {s10,s30,s60,s180} (visits past each dwell threshold, monotonic) → the "How long visits lasted"
+    rung funnel in the Engagement card. Answers "are people reading, or bouncing in 3s?" — the spread
+    the median hides. 6 Jest + 2 Karma; worker `11924ec6`, chunk `chunk-GSJ5MXOV.js`; prod-verified
+    (field flows; honest all-0 when 0 samples; non-owned 404).
+  1. **Delivery bytes/pageviews BY STATUS & cache-state** (M) — reuse the SAME `loadHostDelivery` CF
+     query (add `sum{edgeResponseBytes}`/`sum{visits}` per status/cache; NO new CF request). DEV-value.
+  2. **Concierge chat engagement** (M) — `concierge_open`/`concierge_message` are beacon-EMITTED
+     (`app_js.ts`) but NOT in `VISITOR_MIRROR_TYPES`, so they're NOT stored in `visitor_events`.
+     Needs a mirror-type addition FIRST (instrument the store) + aggregation + card. Starts empty (no
+     history) — honest but delayed payoff. A chat-adoption KPI once data flows.
+  3. **Per-page nav-timing / network-quality** (M each) — first-party, stored, need per-page
+     aggregation (mirror the CWV slowest-pages pattern). Owner-value: which page is slow / mobile-hostile.
+  4. **Content-type `byType` card** (S, low owner-value) — computed + returned, but no card renders it.
+  5. **Missing tests** — per-metric honest-empty when a filter dim is absent; filter + cross-tenant 404.
   Every AVAILABLE CF dataset is shipped (CF RUM cached); the backlog is first-party DEPTH, not CF.
 
 ## Coverage matrix
@@ -299,7 +309,18 @@ latency percentiles — no entitlement) or need new plumbing/deps (see Next).
 
 ## Next increment (handoff)
 
-**Contact-form LEAD FUNNEL — SHIPPED (2026-09-25, this fire).** A parallel-agent scan of the whole
+**Time-on-page DISTRIBUTION — SHIPPED (2026-09-25, latest fire).** `EngagementSummary.distribution`
+{s10,s30,s60,s180} (count of visits past each dwell threshold, monotonic) → the "How long visits lasted"
+rung funnel under the median in the Engagement card. Reuses the durations `getEngagementSummary` already
+loads (NO new query) — the dwell analogue of the scroll-depth reach funnel. Answers "are visitors reading,
+or bouncing in 3s?" — the spread the median point hides. Honest: all-0 + hidden block when 0 samples.
+6 Jest + 2 Karma; worker `11924ec6`, chunk `chunk-GSJ5MXOV.js`; prod-verified (field flows;
+berkeley-bowl-2 honest-empty at 0 samples; non-owned 404). Also this fire: DROPPED outbound-by-kind from
+the backlog as redundant with the shipped `byConversionKind` card. **NEXT: Delivery bytes/pageviews BY
+STATUS** — reuse the `loadHostDelivery` CF query (add `sum{edgeResponseBytes}`/`sum{visits}` per status;
+no new CF request); see the ranked backlog above.
+
+**Contact-form LEAD FUNNEL — SHIPPED (2026-09-25).** A parallel-agent scan of the whole
 analytics section found `form_start`/`form_submit` (beacon-emitted + mirrored into `visitor_events` for
 months) had NO aggregation — a MEASURED-BUT-UNSURFACED gap the prior "plateau" note missed. Now:
 `getFormFunnelSummary` (both summary paths) → `traffic.formFunnel` → `FormFunnelCardComponent`
