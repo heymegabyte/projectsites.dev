@@ -1707,6 +1707,8 @@ export interface SiteTrafficSummary {
       lcpP75: number;
       inpP75?: number;
       clsP75?: number;
+      fcpP75?: number;
+      ttfbP75?: number;
       samples: number;
     }>;
   };

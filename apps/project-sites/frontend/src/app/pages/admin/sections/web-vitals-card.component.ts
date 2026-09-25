@@ -19,10 +19,12 @@ import type { WebVitalStat } from '../../../services/api.service';
 export interface SlowPageStat {
   path: string;
   lcpP75: number;
-  /** INP + CLS p75 for the SAME page (present only when it cleared the sample floor for
-   *  that metric) — the full per-page CWV picture. Omitted (never 0) when absent. */
+  /** INP + CLS + FCP + TTFB p75 for the SAME page (present only when it cleared the sample
+   *  floor for that metric) — the full per-page performance picture. Omitted (never 0) when absent. */
   inpP75?: number;
   clsP75?: number;
+  fcpP75?: number;
+  ttfbP75?: number;
   samples: number;
 }
 
@@ -141,7 +143,7 @@ interface MetricTile {
 
       @if (slowestPages().length) {
         <div class="wv-pages" data-testid="an-wv-pages">
-          <div class="wv-pages-h">Slowest pages · LCP / INP / CLS p75</div>
+          <div class="wv-pages-h">Slowest pages · LCP / INP / CLS / FCP / TTFB p75</div>
           <table class="wv-pages-table">
             <tbody>
               @for (p of slowestPages(); track p.path) {
@@ -166,6 +168,22 @@ interface MetricTile {
                     title="CLS p75 for this page"
                   >
                     <span class="wv-m-lbl">CLS</span> {{ p.clsP75 != null ? formatValue('cls', p.clsP75) : '—' }}
+                  </td>
+                  <td
+                    class="wv-page-m"
+                    data-testid="an-wv-page-fcp"
+                    [attr.data-rating]="p.fcpP75 != null ? plRating('fcp', p.fcpP75) : 'none'"
+                    title="FCP p75 for this page (first paint)"
+                  >
+                    <span class="wv-m-lbl">FCP</span> {{ p.fcpP75 != null ? plFormat(p.fcpP75) : '—' }}
+                  </td>
+                  <td
+                    class="wv-page-m"
+                    data-testid="an-wv-page-ttfb"
+                    [attr.data-rating]="p.ttfbP75 != null ? plRating('ttfb', p.ttfbP75) : 'none'"
+                    title="TTFB p75 for this page (server response)"
+                  >
+                    <span class="wv-m-lbl">TTFB</span> {{ p.ttfbP75 != null ? plFormat(p.ttfbP75) : '—' }}
                   </td>
                   <td class="wv-page-samples">{{ p.samples }} {{ p.samples === 1 ? 'sample' : 'samples' }}</td>
                 </tr>

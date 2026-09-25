@@ -302,6 +302,26 @@ describe('getWebVitalsSummary — rating distribution (dist)', () => {
     expect(about?.clsP75).toBeUndefined();
   });
 
+  it('enriches each slowest page with its FCP + TTFB p75 (omitted below the 5-sample floor)', async () => {
+    const rows: Array<{ metric: string; value: number; path?: string }> = [];
+    // /pricing: 5 LCP (ranks it) + 5 FCP + 5 TTFB → both page-load p75 present.
+    for (let i = 0; i < 5; i++) rows.push({ metric: 'LCP', value: 3000, path: '/pricing' });
+    for (let i = 0; i < 5; i++) rows.push({ metric: 'FCP', value: 1800, path: '/pricing' });
+    for (let i = 0; i < 5; i++) rows.push({ metric: 'TTFB', value: 650, path: '/pricing' });
+    // /about: 5 LCP (ranks it) but only 3 FCP + 0 TTFB (below the floor) → both omitted.
+    for (let i = 0; i < 5; i++) rows.push({ metric: 'LCP', value: 2600, path: '/about' });
+    for (let i = 0; i < 3; i++) rows.push({ metric: 'FCP', value: 1200, path: '/about' });
+    const wv = await getWebVitalsSummary(webVitalEnv(rows), 'site_1', 30);
+    const pricing = wv.slowestPages.find((p) => p.path === '/pricing');
+    expect(pricing?.fcpP75).toBe(1800); // integer ms, not CLS-rounded
+    expect(pricing?.ttfbP75).toBe(650);
+    const about = wv.slowestPages.find((p) => p.path === '/about');
+    expect(about?.lcpP75).toBe(2600);
+    // Below the 5-sample floor → omitted (undefined), never a fabricated 0.
+    expect(about?.fcpP75).toBeUndefined();
+    expect(about?.ttfbP75).toBeUndefined();
+  });
+
   it('threshold boundaries: ≤good is good, ≤needs is needs, else poor (INP 200/500)', async () => {
     const wv = await getWebVitalsSummary(
       webVitalEnv([

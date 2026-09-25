@@ -108,6 +108,28 @@ describe('WebVitalsCardComponent', () => {
     expect(inp2.textContent).toContain('—');
   });
 
+  it('shows per-page FCP + TTFB p75 (page-load timing) and "—" when absent', () => {
+    const fixture = render({
+      lcp: { p75: 3000, samples: 20 },
+      inp: null,
+      cls: null,
+      slowestPages: [
+        { path: '/pricing', lcpP75: 4200, fcpP75: 1800, ttfbP75: 650, samples: 8 },
+        { path: '/', lcpP75: 2100, samples: 12 }, // LCP only — no FCP/TTFB samples
+      ],
+    });
+    const rows = fixture.debugElement.queryAll(By.css('[data-testid="an-wv-page"]'));
+    const fcp1 = rows[0].query(By.css('[data-testid="an-wv-page-fcp"]')).nativeElement as HTMLElement;
+    const ttfb1 = rows[0].query(By.css('[data-testid="an-wv-page-ttfb"]')).nativeElement as HTMLElement;
+    expect(fcp1.textContent).toContain('1.8'); // 1800ms → "1.8 s" via plFormat
+    expect(ttfb1.textContent).toContain('650'); // 650ms → "650 ms"
+    // The page with no FCP/TTFB samples shows "—", never a fabricated 0.
+    const fcp2 = rows[1].query(By.css('[data-testid="an-wv-page-fcp"]')).nativeElement as HTMLElement;
+    const ttfb2 = rows[1].query(By.css('[data-testid="an-wv-page-ttfb"]')).nativeElement as HTMLElement;
+    expect(fcp2.textContent).toContain('—');
+    expect(ttfb2.textContent).toContain('—');
+  });
+
   it('hides the slowest-pages drilldown when no page has enough samples', () => {
     const fixture = render({ lcp: { p75: 3000, samples: 4 }, inp: null, cls: null, slowestPages: [] });
     expect(fixture.debugElement.query(By.css('[data-testid="an-wv-pages"]'))).toBeNull();

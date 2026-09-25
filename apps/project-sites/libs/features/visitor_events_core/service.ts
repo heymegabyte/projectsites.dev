@@ -415,6 +415,8 @@ export async function getWebVitalsSummary(
   const lcpByPath = new Map<string, number[]>();
   const inpByPath = new Map<string, number[]>();
   const clsByPath = new Map<string, number[]>();
+  const fcpByPath = new Map<string, number[]>();
+  const ttfbByPath = new Map<string, number[]>();
   const pushByPath = (map: Map<string, number[]>, path: string, v: number): void => {
     const arr = map.get(path);
     if (arr) arr.push(v);
@@ -426,7 +428,13 @@ export async function getWebVitalsSummary(
     if (!(m && Number.isFinite(v) && v >= 0)) continue;
     if (m in plBuckets) {
       plBuckets[m as (typeof PAGELOAD_METRICS)[number]].push(v);
-      continue; // FCP/TTFB are page-load timing, not CWV — no per-page CWV bucketing
+      // Also bucket FCP/TTFB PER PAGE so the slowest-pages drilldown shows the full
+      // per-page picture (LCP · INP · CLS · FCP · TTFB), gated on the same sample floor.
+      if (typeof row.path === 'string' && row.path) {
+        if (m === 'FCP') pushByPath(fcpByPath, row.path, v);
+        else if (m === 'TTFB') pushByPath(ttfbByPath, row.path, v);
+      }
+      continue; // FCP/TTFB are page-load timing, not CWV — no CWV-bucket, no LCP ranking
     }
     if (!(m in buckets)) continue;
     const cm = m as (typeof CWV_METRICS)[number];
@@ -488,6 +496,8 @@ export async function getWebVitalsSummary(
       lcpP75: Math.round(percentile(vals, 75)),
       inpP75: pathP75(inpByPath, path),
       clsP75: pathP75(clsByPath, path, true),
+      fcpP75: pathP75(fcpByPath, path),
+      ttfbP75: pathP75(ttfbByPath, path),
       samples: vals.length,
     }))
     .sort((a, b) => b.lcpP75 - a.lcpP75)
