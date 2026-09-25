@@ -1505,6 +1505,9 @@ export async function getTrafficSummary(
       `SELECT COUNT(*) AS n FROM visitor_events WHERE ${w} AND event_type = 'pageview'`,
       wParams,
     ),
+    // uniqueSessions ("Visits"). `session_id` is a PER-TAB-SESSION id (app.js sources it from the
+    // persisted `ps_sess` UUID, 2026-09-25) — so this counts real sessions, not page loads. Older
+    // rows (pre-fix) carry per-pageload ids, so the number corrects as fresh traffic accrues.
     scalar(env, `SELECT COUNT(DISTINCT session_id) AS n FROM visitor_events WHERE ${w}`, wParams),
     scalar(
       env,

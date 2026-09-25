@@ -77,4 +77,14 @@ describe('app.js session id (groups a visit for entry/exit pages, cookieless)', 
     expect(APP_JS).toContain('IS_ENTRY');
     expect(engagementBody()).toContain('ep: IS_ENTRY');
   });
+
+  it('the session_id COLUMN derives from the persisted per-tab key (so uniqueSessions = real sessions, not pageloads)', () => {
+    // The correctness fix: SESSION_ID (sent as sessionId on EVERY event) is the persisted per-tab
+    // ps_sess UUID when storage works, falling back to a per-pageload id only when storage is
+    // unavailable — so COUNT(DISTINCT session_id) counts sessions, not page loads.
+    expect(APP_JS).toContain('var SESSION_ID = SESSION_KEY ||');
+    expect(APP_JS).toContain('sessionId: SESSION_ID');
+    // and it must NOT be the old unconditional per-pageload id
+    expect(APP_JS).not.toContain('var SESSION_ID = (function');
+  });
 });

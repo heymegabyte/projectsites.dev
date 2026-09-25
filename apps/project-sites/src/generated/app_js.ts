@@ -117,17 +117,32 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     else document.addEventListener('DOMContentLoaded', fn, { once: true });
   };
 
-  // ── session id (in-memory, cookieless) ───────────────────────────────
-  var SESSION_ID = (function () {
+  // ── session id + entry flag (per-tab, cookieless) ───────────────────
+  // ps_sess holds a per-tab-session UUID (sessionStorage: per-tab, cleared on tab close). It is the
+  // SESSION id for EVERY event this tab sends, so COUNT(DISTINCT session_id) counts real SESSIONS,
+  // not pageloads — a visit that views 5 pages is ONE session, not five (this is what makes the
+  // Visits count + bounce rate honest, instead of ~= pageviews). Absent means this is the session
+  // FIRST page (IS_ENTRY = 1, its landing page); the legacy single-char marker is upgraded to a real
+  // id in place (a mid-session upgrade is not an entry, so IS_ENTRY stays 0). uuid() is a hoisted
+  // function declaration, so it is callable here even though it is defined just below.
+  var IS_ENTRY = 0;
+  var SESSION_KEY;
+  try {
+    SESSION_KEY = sessionStorage.getItem('ps_sess');
+    if (!SESSION_KEY || SESSION_KEY === '1') {
+      IS_ENTRY = SESSION_KEY ? 0 : 1;
+      SESSION_KEY = uuid();
+      sessionStorage.setItem('ps_sess', SESSION_KEY);
+    }
+  } catch (e) { SESSION_KEY = undefined; }
+  // The session_id COLUMN = the per-tab id when storage works, else a fresh per-pageload id so events
+  // still carry a session id. Honest: without sessionStorage a visit cannot be grouped, so THAT
+  // visitor degrades to the old per-pageload behaviour (their pageviews look like separate sessions).
+  var SESSION_ID = SESSION_KEY || (function () {
     try {
       if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
     } catch (e) {}
-    return (
-      'ps-' +
-      Date.now().toString(36) +
-      '-' +
-      Math.random().toString(36).slice(2, 10)
-    );
+    return 'ps-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
   })();
 
   function uuid() {
@@ -828,23 +843,8 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     if (NEW_VISITOR === 1) { localStorage.setItem('ps_v', String(Date.now())); }
   } catch (e) { NEW_VISITOR = undefined; }
 
-  // ── session id + entry page (session-scoped, cookieless) ─────────────
-  // ps_sess holds a per-tab-session id (a UUID). Absent means this is the session FIRST page
-  // (IS_ENTRY = 1, its landing page). The id groups a visit pages so the server can report entry
-  // AND exit pages without a cookie. sessionStorage is per-tab + cleared on tab close. Omitted when
-  // storage is unavailable so the server counts no entry/exit for that visit (honest, never
-  // fabricated). The legacy single-char marker is upgraded to a real id in place (a mid-session
-  // upgrade is not an entry, so IS_ENTRY stays 0 for it).
-  var IS_ENTRY = 0;
-  var SESSION_KEY;
-  try {
-    SESSION_KEY = sessionStorage.getItem('ps_sess');
-    if (!SESSION_KEY || SESSION_KEY === '1') {
-      IS_ENTRY = SESSION_KEY ? 0 : 1;
-      SESSION_KEY = uuid();
-      sessionStorage.setItem('ps_sess', SESSION_KEY);
-    }
-  } catch (e) { SESSION_KEY = undefined; }
+  // (SESSION_KEY + IS_ENTRY are derived once at the top of this IIFE, alongside the session id, so
+  // the per-tab id is the session_id COLUMN for every event — not just the page_engagement metadata.)
 
   function initEngagement() {
     var start = Date.now();
