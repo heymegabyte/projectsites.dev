@@ -27,6 +27,7 @@ import { ScriptErrorsCardComponent } from './script-errors-card.component';
 import { EngagementCardComponent } from './engagement-card.component';
 import { ScrollDepthCardComponent } from './scroll-depth-card.component';
 import { NetworkQualityCardComponent } from './network-quality-card.component';
+import { NavTimingCardComponent } from './nav-timing-card.component';
 import { TechBreakdownComponent } from './tech-breakdown.component';
 import { CampaignBreakdownComponent } from './campaign-breakdown.component';
 import type { TrendBadge } from './trend-badge.model';
@@ -88,7 +89,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, NetworkQualityCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, NetworkQualityCardComponent, NavTimingCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -660,6 +661,16 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
       <app-network-quality-card
         appReveal
         [networkQuality]="siteTraffic()?.networkQuality"
+        [windowDays]="rangeDays()"
+      />
+
+      <!-- Page-load breakdown — first-party PerformanceNavigationTiming (app.js nav_timing
+           beacon → visitor_events): median dns/connect/ttfb/transfer/dom + total, as
+           independent-median bars (never a strict decomposition). "Measuring…" when 0
+           samples (never a fake 0). The edge-latency breakdown CF's plan can't give. -->
+      <app-nav-timing-card
+        appReveal
+        [navTiming]="siteTraffic()?.navTiming"
         [windowDays]="rangeDays()"
       />
 

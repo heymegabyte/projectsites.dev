@@ -1748,6 +1748,18 @@ export interface SiteTrafficSummary {
     medianRttMs: number | null;
     saveDataPercent: number | null;
   };
+  /** AN-NAV — first-party page-load waterfall. Median ms per phase (dns/connect/ttfb/transfer/
+   *  dom/total) from the `nav_timing` beacon. A phase is null only with no samples (card shows
+   *  "measuring…", never a fake 0); an honest 0 (cached DNS) is a real value. */
+  navTiming?: {
+    samples: number;
+    dns: number | null;
+    connect: number | null;
+    ttfb: number | null;
+    transfer: number | null;
+    dom: number | null;
+    total: number | null;
+  };
   previous: {
     pageviews: number;
     uniqueSessions: number;
