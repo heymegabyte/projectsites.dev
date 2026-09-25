@@ -931,6 +931,90 @@ export async function getExitPagesSummary(
   return { pages };
 }
 
+/** Result of {@link getSessionDurationSummary} — session-LENGTH statistics (distinct from per-page dwell). */
+export interface SessionDurationSummary {
+  /** Number of tab-sessions with ≥1 measured `page_engagement` — the denominator. 0 when none. */
+  readonly sessions: number;
+  /** Median total session duration in ms (SUM of per-page dwell across the session). `null` (never a fabricated 0) when there are no sessions. */
+  readonly medianMs: number | null;
+  /** Mean total session duration in ms. `null` when no sessions. */
+  readonly avgMs: number | null;
+  /** The single longest session's total duration in ms. `null` when no sessions. */
+  readonly maxMs: number | null;
+  /** Monotonic distribution — sessions lasting ≥30s / ≥1m / ≥3m / ≥5m (a ≥5m session is also ≥3m). */
+  readonly distribution: { s30: number; s60: number; s180: number; s300: number };
+}
+
+/** Empty session-duration summary — honest "measuring…" (null median), never a fabricated 0. */
+function emptySessionDuration(): SessionDurationSummary {
+  return {
+    sessions: 0,
+    medianMs: null,
+    avgMs: null,
+    maxMs: null,
+    distribution: { s30: 0, s60: 0, s180: 0, s300: 0 },
+  };
+}
+
+/**
+ * AN-SESSION-DURATION — first-party SESSION LENGTH over the window: the total time a visitor spends
+ * across a whole tab-session, = SUM of every `page_engagement` `duration_ms` sharing that session's
+ * `sid`. Distinct from {@link getEngagementSummary} (per-PAGE dwell) — a 3-page visit sums all three
+ * pages into ONE session length (GA ships both "time on page" AND "session duration"; this is the
+ * latter). The SQL groups per `sid` (one total per session, bounded 50k), then JS computes the MEDIAN
+ * (dwell is outlier-skewed, so median not mean), the mean, the longest, and a ≥30s/≥1m/≥3m/≥5m
+ * distribution.
+ *
+ * TENANT ISOLATION: the query is site-scoped by `currentWindow`'s bound `site_id` BEFORE the
+ * `GROUP BY sid`, so a session total never mixes tenants. Sessions with no `sid` (storage unavailable)
+ * are excluded, never guessed.
+ *
+ * @remarks Fail-soft — a missing table / query error yields the empty (null-median) summary. `medianMs`
+ * is `null` when there are no sessions (never a fabricated 0 — the beacon runs on every page).
+ */
+export async function getSessionDurationSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<SessionDurationSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ total: number }>(
+    env.DB,
+    `SELECT SUM(CAST(json_extract(metadata, '$.duration_ms') AS INTEGER)) AS total
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'page_engagement'
+        AND json_extract(metadata, '$.sid') IS NOT NULL
+        AND json_extract(metadata, '$.duration_ms') IS NOT NULL
+      GROUP BY json_extract(metadata, '$.sid')
+      LIMIT 50000`,
+    params,
+  );
+  if (error) return emptySessionDuration();
+  const totals: number[] = [];
+  for (const r of data) {
+    const t = Number(r.total);
+    if (Number.isFinite(t) && t >= 0) totals.push(t);
+  }
+  if (totals.length === 0) return emptySessionDuration();
+  const sum = totals.reduce((a, b) => a + b, 0);
+  const max = totals.reduce((m, t) => (t > m ? t : m), 0); // reduce (not spread) — up to 50k values
+  const distribution = {
+    s30: totals.filter((t) => t >= 30_000).length,
+    s60: totals.filter((t) => t >= 60_000).length,
+    s180: totals.filter((t) => t >= 180_000).length,
+    s300: totals.filter((t) => t >= 300_000).length,
+  };
+  return {
+    sessions: totals.length,
+    medianMs: Math.round(percentile(totals, 50)),
+    avgMs: Math.round(sum / totals.length),
+    maxMs: max,
+    distribution,
+  };
+}
+
 /** Empty scroll-depth summary — honest "measuring…" (null median), never a fabricated 0. */
 function emptyScrollDepth(): ScrollDepthSummary {
   return {

@@ -11,9 +11,9 @@ honestly-blocked, or deliberately-dropped (verified against source; scans mis-re
 chain). **BUT the plateau is on the existing CARDS, not the metric space.** The prompt's "AUGMENT with advanced
 first-party metrics" clause still had genuine unbuilt metrics: **new-vs-returning + top-landing (entry) pages
 both shipped 2026-09-25** (rows below) — the beacon had NO returning-visitor detection and NO session-entry
-attribution. Still-unbuilt first-party AUGMENTs (verified not-measured): **session duration** + **exit pages**
-(both now UNBLOCKED — the `ps_sess` session boundary went live with the entry-pages fire; no further beacon work
-needed), and the beacon `click`/`custom` event types. So existing cards are done, but the augment tier has runway. Do NOT rebuild the already-shipped set
+attribution. Still-unbuilt first-party AUGMENTs: only the beacon `click`/`custom` event types remain — **exit pages**
+and **session duration** are now BOTH shipped (2026-09-25, rows below), completing the measurable-dwell AUGMENT
+tier (time-on-page · scroll · nav-timing · network · entry · exit · new-vs-returning · session-duration). Do NOT rebuild the already-shipped set
 (the scans mis-report them because they don't trace the wrapper chain):
 
 - **First-party cards ARE wired** (WebVitals/Engagement/Scroll/Network/NavTiming/JS-errors/OutboundClicks/
@@ -29,8 +29,8 @@ needed), and the beacon `click`/`custom` event types. So existing cards are done
 - **Honestly-blocked (never build)**: WAF/`firewallEventsAdaptiveGroups`, botScore, edge TTFB — no plan entitlement.
 
 **Doctrine (corrected 2026-09-25):** "plateau on existing cards" is NOT "plateau on the metric space." Before
-declaring analytics done + reallocating, check the NOT-MEASURED first-party AUGMENT tier (session duration,
-exit pages, click-through — new-vs-returning + entry pages are now done) — the prompt explicitly invites these AND they
+declaring analytics done + reallocating, check the NOT-MEASURED first-party AUGMENT tier (click-through /
+custom events — session-duration + exit-pages + new-vs-returning + entry-pages are now ALL done) — the prompt explicitly invites these AND they
 need a beacon change, so a grep of the existing aggregators misses them (that's what caused 3 premature
 "plateau" fires this session). VERIFY a scanned gap against the wrapper chain before building (agents over-report
 already-shipped cards). Reallocate to the DATA loop's un-plateaued adapters (Hyperdrive/DO still PLANNED) only
@@ -136,6 +136,24 @@ once the augment tier is genuinely exhausted. A CF plan upgrade is the only path
   card. Worker deployed (`bac1a0cd`), `/analytics/exit-pages` prod 401-gated, beacon `/app.js` carries `sid: SESSION_KEY`
   + the `ps_sess` UUID logic (verified live). Data accrues from first serve. **Session-duration is now the last
   first-party AUGMENT (the `sid` this added is its foundation too).**
+- **Session duration (✅ DONE end-to-end 2026-09-25):** the LAST first-party AUGMENT — how long a whole VISIT
+  lasts (GA's "avg. session duration"), distinct from per-page dwell (the engagement card). Built on the `sid`
+  the exit-pages fire added — **NO beacon change**. **`getSessionDurationSummary`** sums each tab-session's
+  per-page `duration_ms` (`SUM(CAST(json_extract(metadata,'$.duration_ms') AS INTEGER)) … GROUP BY
+  json_extract(metadata,'$.sid')`, page_engagement only, sid+duration non-null, bounded 50k sessions), then JS
+  computes the nearest-rank MEDIAN (the CrUX/CF method the whole stack uses — dwell is outlier-skewed), the mean,
+  the longest, and a ≥30s/≥1m/≥3m/≥5m distribution → owner route `GET /api/sites/:siteId/analytics/session-duration`
+  (`requireOwnedSite`, cross-org 404; query site-scoped BEFORE the GROUP BY so a session total never mixes
+  tenants) → **`SessionDurationCardComponent`** (median headline + avg/longest/sessions + distribution bars)
+  beside the exit-pages card, honest "Measuring session length…" empty (never a fabricated 0), tab-scoped/
+  cookieless disclaimer ("a session = one browser tab's visit; distinct from time-on-page"). **Fixed a latent
+  window bug in passing:** the entry/exit/session cards send `?days=N` but the routes read
+  `parseWindowDays(c,'windowDays')` → the window selector was SILENTLY IGNORED (always 30d); `parseWindowDays`
+  now falls back to `?days` (a valid named param still wins), so all three cards honor the selected window.
+  +10 Jest (median/avg/max/distribution · empty · fail-soft · GROUP-BY-sid query shape · tenant 404 · 200 owned
+  · 4 `parseWindowDays` fallback cases) + 13 Karma card. Worker + frontend tsc/eslint/prettier clean; Jest
+  **213/213** analytics suites; Karma **2296**. **First-party AUGMENT tier COMPLETE** (only the `click`/`custom`
+  beacon event types remain unbuilt across the whole first-party space).
 - **CF GraphQL `httpRequestsAdaptiveGroups`** (`services/multi_url_analytics.ts`) is **fallback-only**
   now — the prior "no traffic" bug (reading empty CF-zone data for `*.projectsites.dev` subdomains
   instead of D1) is fixed. CF-zone per-host data is only meaningful for **custom domains in a CF zone**,
@@ -173,9 +191,11 @@ once the augment tier is genuinely exhausted. A CF plan upgrade is the only path
     `$.sid`) + `getExitPagesSummary` (the codebase's first `ROW_NUMBER() OVER (PARTITION BY sid ORDER BY time DESC)`
     window function → last page per session) + owner route + `ExitPagesCardComponent` beside entry pages. Isolated
     from the per-pageload `session_id` column (uniqueSessions/bounce untouched). Worker `bac1a0cd`, route 401-gated,
-    beacon `sid` live. (5) **session-duration** (next) — the last first-party AUGMENT; the `sid` foundation is now
-    live, so it's `SUM(duration_ms) per sid → median across sessions` (a session-level roll-up of the shipped
-    per-page dwell), no beacon change needed.
+    beacon `sid` live. (5) ✅ **session-duration — DONE this fire**: `getSessionDurationSummary`
+    (`SUM(duration_ms)` per `sid` → nearest-rank median + avg + longest + ≥30s/1m/3m/5m distribution, no beacon
+    change) + owner route + `SessionDurationCardComponent` beside exit-pages; ALSO fixed the `?days`-vs-`windowDays`
+    window bug in `parseWindowDays` (entry/exit/session cards now honor the window selector). **First-party AUGMENT
+    tier now COMPLETE** — only the beacon `click`/`custom` event types remain in the whole first-party space.
   - **REJECTED — conversions by-kind drilldown filter (❌ FALSE GAP, do NOT build):** a prior scan flagged
     `byConversionKind` as "the one breakdown with no click-to-filter." But `conversion_kind` (metadata
     `$.kind`) exists ONLY on `event_type='conversion'` events, and the drilldown filter appends

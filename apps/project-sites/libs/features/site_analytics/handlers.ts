@@ -40,6 +40,7 @@ import {
   getEntryPagesSummary,
   getExitPagesSummary,
   getNewVsReturningSummary,
+  getSessionDurationSummary,
   shiftWindowToTz,
 } from '../visitor_events_core/service.js';
 // Drilldown-filter allowlist schema — validates ?filterDim against the trusted
@@ -68,10 +69,18 @@ async function requireOwnedSite(
   return { orgId: g.orgId, siteId };
 }
 
-/** Parse a bounded day-window query param (integer 1–365, default 30). */
-function parseWindowDays(c: Context<AppContext>, param: string): number {
-  const raw = Number(c.req.query(param));
-  return Number.isInteger(raw) && raw > 0 && raw <= 365 ? raw : 30;
+/**
+ * Parse a bounded day-window query param (integer 1–365, default 30). Checks the named `param`
+ * first, then falls back to `days` — the self-fetching cards (entry/exit/session-duration) send
+ * `?days=N`, so a route declared with `'windowDays'` still honors their selected window instead of
+ * silently defaulting to 30. Backward-compatible: a valid named param always wins.
+ */
+export function parseWindowDays(c: Context<AppContext>, param: string): number {
+  const pick = (v: string | undefined): number | null => {
+    const n = Number(v);
+    return Number.isInteger(n) && n > 0 && n <= 365 ? n : null;
+  };
+  return pick(c.req.query(param)) ?? pick(c.req.query('days')) ?? 30;
 }
 
 /** 400 for a malformed/reversed ?start&end window (a client error, distinct from authz). */
@@ -209,6 +218,17 @@ siteAnalytics.get('/api/sites/:siteId/analytics/exit-pages', async (c) => {
 
   const windowDays = parseWindowDays(c, 'windowDays');
   const summary = await getExitPagesSummary(c.env, gate.siteId, windowDays);
+  return c.json(summary);
+});
+
+// AN — session duration (median/avg/longest session LENGTH + distribution), first-party
+// SUM(duration_ms) per session `sid`; distinct from per-page dwell. Owner-scoped.
+siteAnalytics.get('/api/sites/:siteId/analytics/session-duration', async (c) => {
+  const gate = await requireOwnedSite(c);
+  if (gate instanceof Response) return gate;
+
+  const windowDays = parseWindowDays(c, 'windowDays');
+  const summary = await getSessionDurationSummary(c.env, gate.siteId, windowDays);
   return c.json(summary);
 });
 

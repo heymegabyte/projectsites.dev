@@ -42,6 +42,7 @@ import { TechBreakdownComponent } from './tech-breakdown.component';
 import { VisitorTypeCardComponent } from './visitor-type-card.component';
 import { EntryPagesCardComponent } from './entry-pages-card.component';
 import { ExitPagesCardComponent } from './exit-pages-card.component';
+import { SessionDurationCardComponent } from './session-duration-card.component';
 import { ChannelBreakdownComponent } from './channel-breakdown.component';
 import { FormFunnelCardComponent } from './form-funnel-card.component';
 import { CampaignBreakdownComponent } from './campaign-breakdown.component';
@@ -128,6 +129,7 @@ function sparklinePath(
     VisitorTypeCardComponent,
     EntryPagesCardComponent,
     ExitPagesCardComponent,
+    SessionDurationCardComponent,
     ChannelBreakdownComponent,
     CampaignBreakdownComponent,
     DeliveryCardComponent,
@@ -1162,6 +1164,15 @@ function sparklinePath(
         <!-- Top exit pages — the LAST page_engagement per session (grouped by the session id).
            Where visitors leave from; the complement to landing pages. CF has no exit dataset. -->
         <app-exit-pages-card
+          appReveal
+          [siteId]="state.selectedSite()?.id ?? null"
+          [windowDays]="rangeDays()"
+        />
+
+        <!-- Session duration — first-party SESSION LENGTH: SUM of duration_ms per tab-session id,
+           reduced to median/avg/longest + a 30s/1m/3m/5m distribution. Distinct from per-page dwell
+           (the engagement card); GA ships both time-on-page and session-duration. -->
+        <app-session-duration-card
           appReveal
           [siteId]="state.selectedSite()?.id ?? null"
           [windowDays]="rangeDays()"
