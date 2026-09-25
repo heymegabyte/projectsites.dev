@@ -1712,6 +1712,13 @@ export interface SiteTrafficSummary {
       samples: number;
     }>;
   };
+  /** AN-JSERR — first-party JS-error site-health (uncaught errors / rejections on the
+   *  published site, grouped by message). `total` 0 + `byMessage` [] = a clean site (the
+   *  beacon runs on every page) — never "not measured". Optional for back-compat. */
+  jsErrors?: {
+    total: number;
+    byMessage: { message: string; count: number; samplePath?: string }[];
+  };
   previous: {
     pageviews: number;
     uniqueSessions: number;

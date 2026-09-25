@@ -23,6 +23,7 @@ import { RevealDirective } from '../../../directives/reveal.directive';
 import { WebVitalsCardComponent } from './web-vitals-card.component';
 import { HourlyBreakdownComponent, rotateToLocalHours } from './hourly-breakdown.component';
 import { ConversionsCardComponent } from './conversions-card.component';
+import { ScriptErrorsCardComponent } from './script-errors-card.component';
 import { TechBreakdownComponent } from './tech-breakdown.component';
 import { CampaignBreakdownComponent } from './campaign-breakdown.component';
 import type { TrendBadge } from './trend-badge.model';
@@ -84,7 +85,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, ScriptErrorsCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -620,6 +621,15 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
       <app-web-vitals-card
         appReveal
         [webVitals]="siteTraffic()?.webVitals ?? null"
+        [windowDays]="rangeDays()"
+      />
+
+      <!-- Script errors — first-party site-health: uncaught JS errors / rejections on the
+           published site (app.js beacon → visitor_events), grouped by message. Shows a green
+           "running clean" when 0 (a real 0, the beacon runs on every page). -->
+      <app-script-errors-card
+        appReveal
+        [jsErrors]="siteTraffic()?.jsErrors"
         [windowDays]="rangeDays()"
       />
 
