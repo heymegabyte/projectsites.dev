@@ -629,6 +629,7 @@ describe('getNetworkQualitySummary — first-party visitor connection quality', 
       downlink: number | null;
       rtt: number | null;
       save_data: number | null;
+      path?: string | null;
     }>,
     opts: { error?: boolean } = {},
   ): Env {
@@ -695,7 +696,21 @@ describe('getNetworkQualitySummary — first-party visitor connection quality', 
       medianDownlinkMbps: null,
       medianRttMs: null,
       saveDataPercent: null,
+      byPage: [],
     });
+  });
+
+  it('ranks pages by SLOWEST median downlink (lowest first), floor-gated, each with median rtt', async () => {
+    // /heavy: 5 visits on slow links (~1.5 Mbps). /light: 5 on fast (~20 Mbps). /thin: 2 → below floor.
+    const rows = [
+      ...Array.from({ length: 5 }, () => ({ etype: '3g', downlink: 1.5, rtt: 300, save_data: 0, path: '/heavy' })),
+      ...Array.from({ length: 5 }, () => ({ etype: '4g', downlink: 20, rtt: 40, save_data: 0, path: '/light' })),
+      ...Array.from({ length: 2 }, () => ({ etype: '4g', downlink: 15, rtt: 50, save_data: 0, path: '/thin' })),
+    ];
+    const s = await getNetworkQualitySummary(netEnv(rows), 'site_1', 30);
+    expect(s.byPage.map((p) => p.path)).toEqual(['/heavy', '/light']); // slowest-connection first; /thin dropped
+    expect(s.byPage[0]).toEqual({ path: '/heavy', medianDownlinkMbps: 1.5, medianRttMs: 300, samples: 5 });
+    expect(s.byPage[1].medianDownlinkMbps).toBe(20);
   });
 
   it('fail-soft — a query error yields the empty summary, never throws', async () => {

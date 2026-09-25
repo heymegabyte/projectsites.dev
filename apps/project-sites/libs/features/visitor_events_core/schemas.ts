@@ -337,6 +337,18 @@ export type NetworkClass = z.infer<typeof NetworkClassSchema>;
  * browser reported it, and the medians are `null` (→ "measuring…") when there are none, never
  * a fabricated 0. CF's plan exposes no client network-quality dataset.
  */
+/** One page's visitor-connection story — median downlink (Mbps) + median RTT, past a sample floor. */
+export const NetworkPageSchema = z
+  .object({
+    path: z.string(),
+    /** Median downlink Mbps of THIS page's visitors (the ranking key — lower = slower audience). */
+    medianDownlinkMbps: z.number().min(0),
+    medianRttMs: z.number().int().min(0).nullable().default(null),
+    samples: z.number().int().min(1),
+  })
+  .strict();
+export type NetworkPage = z.infer<typeof NetworkPageSchema>;
+
 export const NetworkQualitySummarySchema = z
   .object({
     samples: z.number().int().min(0),
@@ -344,6 +356,10 @@ export const NetworkQualitySummarySchema = z
     medianDownlinkMbps: z.number().min(0).nullable().default(null),
     medianRttMs: z.number().int().min(0).nullable().default(null),
     saveDataPercent: z.number().int().min(0).max(100).nullable().default(null),
+    // AN-NET-PAGE — pages whose visitors have the SLOWEST connections (lowest median downlink),
+    // so an owner knows which pages to make lean for mobile/rural audiences. Floor-gated by
+    // downlink samples; slowest-first, top 8. Default [] for back-compat / honest empty.
+    byPage: z.array(NetworkPageSchema).default([]),
   })
   .strict()
   .default({
@@ -352,6 +368,7 @@ export const NetworkQualitySummarySchema = z
     medianDownlinkMbps: null,
     medianRttMs: null,
     saveDataPercent: null,
+    byPage: [],
   });
 export type NetworkQualitySummary = z.infer<typeof NetworkQualitySummarySchema>;
 

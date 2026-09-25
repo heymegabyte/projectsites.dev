@@ -839,6 +839,7 @@ function emptyNetworkQuality(): NetworkQualitySummary {
     medianDownlinkMbps: null,
     medianRttMs: null,
     saveDataPercent: null,
+    byPage: [],
   };
 }
 
@@ -864,13 +865,15 @@ export async function getNetworkQualitySummary(
 ): Promise<NetworkQualitySummary> {
   const { clause, params } = currentWindow(siteId, windowDays, window, filter);
   const { data, error } = await dbQuery<{
+    path: string | null;
     etype: string | null;
     downlink: number | null;
     rtt: number | null;
     save_data: number | null;
   }>(
     env.DB,
-    `SELECT json_extract(metadata, '$.effective_type') AS etype,
+    `SELECT path,
+            json_extract(metadata, '$.effective_type') AS etype,
             json_extract(metadata, '$.downlink')       AS downlink,
             CAST(json_extract(metadata, '$.rtt') AS INTEGER) AS rtt,
             json_extract(metadata, '$.save_data')      AS save_data
@@ -883,6 +886,9 @@ export async function getNetworkQualitySummary(
   const byType = new Map<string, number>();
   const downlinks: number[] = [];
   const rtts: number[] = [];
+  // Per-page connection samples (path → downlink Mbps + rtt ms) for the slowest-connection-pages drill.
+  const pageDownlink = new Map<string, number[]>();
+  const pageRtt = new Map<string, number[]>();
   let saveDataTrue = 0;
   let saveDataKnown = 0;
   let samples = 0;
@@ -895,6 +901,18 @@ export async function getNetworkQualitySummary(
     if (Number.isFinite(d) && d >= 0) downlinks.push(d);
     const rt = Number(r.rtt);
     if (Number.isFinite(rt) && rt >= 0) rtts.push(rt);
+    if (typeof r.path === 'string' && r.path) {
+      if (Number.isFinite(d) && d >= 0) {
+        const arr = pageDownlink.get(r.path);
+        if (arr) arr.push(d);
+        else pageDownlink.set(r.path, [d]);
+      }
+      if (Number.isFinite(rt) && rt >= 0) {
+        const arr = pageRtt.get(r.path);
+        if (arr) arr.push(rt);
+        else pageRtt.set(r.path, [rt]);
+      }
+    }
     // save_data is stored as a JSON boolean → SQLite 1/0; count only rows that carry it.
     if (r.save_data === 1 || r.save_data === 0) {
       saveDataKnown++;
@@ -906,12 +924,28 @@ export async function getNetworkQualitySummary(
     type: t,
     count: byType.get(t) as number,
   }));
+  // Slowest-connection pages: gated on ≥MIN_PATH_SAMPLES downlink samples (the ranking key is a
+  // reliable median), lowest median downlink first (the pages whose audience is on the slowest links).
+  const byPage = [...pageDownlink.entries()]
+    .filter(([, dls]) => dls.length >= MIN_PATH_SAMPLES)
+    .map(([path, dls]) => {
+      const rttArr = pageRtt.get(path) ?? [];
+      return {
+        path,
+        medianDownlinkMbps: Math.round(percentile(dls, 50) * 10) / 10,
+        medianRttMs: rttArr.length ? Math.round(percentile(rttArr, 50)) : null,
+        samples: dls.length,
+      };
+    })
+    .sort((a, b) => a.medianDownlinkMbps - b.medianDownlinkMbps)
+    .slice(0, 8);
   return {
     samples,
     byEffectiveType,
     medianDownlinkMbps: downlinks.length ? Math.round(percentile(downlinks, 50) * 10) / 10 : null,
     medianRttMs: rtts.length ? Math.round(percentile(rtts, 50)) : null,
     saveDataPercent: saveDataKnown ? Math.round((100 * saveDataTrue) / saveDataKnown) : null,
+    byPage,
   };
 }
 
