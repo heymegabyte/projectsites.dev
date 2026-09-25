@@ -40,8 +40,49 @@ describe('buildDeliverySummary', () => {
     expect(result.by_status_class[0].class).toBe('2xx');
     expect(result.by_status_class[0].count).toBe(87);
 
-    // top_statuses[0] is the highest-count individual status
-    expect(result.top_statuses[0]).toEqual({ status: 200, count: 74 });
+    // top_statuses[0] is the highest-count individual status (bytes/visits default 0 — none passed)
+    expect(result.top_statuses[0]).toEqual({ status: 200, count: 74, bytes: 0, visits: 0 });
+  });
+
+  it('carries per-status bytes + visits into top_statuses when provided', () => {
+    const byStatus = new Map([
+      [200, 100],
+      [404, 20],
+    ]);
+    const byStatusBytes = new Map([
+      [200, 5_000_000],
+      [404, 8_000],
+    ]);
+    const byStatusVisits = new Map([
+      [200, 60],
+      [404, 15],
+    ]);
+    const result = buildDeliverySummary(
+      byStatus,
+      new Map(),
+      0,
+      30,
+      false,
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      byStatusBytes,
+      byStatusVisits,
+    );
+    const s200 = result.top_statuses.find((s) => s.status === 200);
+    const s404 = result.top_statuses.find((s) => s.status === 404);
+    expect(s200).toEqual({ status: 200, count: 100, bytes: 5_000_000, visits: 60 });
+    // The owner-facing signal: 15 REAL visitors hit a 404 (not just 20 raw requests).
+    expect(s404?.visits).toBe(15);
+    expect(s404?.bytes).toBe(8_000);
+  });
+
+  it('defaults per-status bytes + visits to 0 when the maps omit a status (a real measured 0, never fabricated)', () => {
+    const byStatus = new Map([[200, 5]]);
+    const result = buildDeliverySummary(byStatus, new Map(), 0, 7);
+    expect(result.top_statuses[0]).toEqual({ status: 200, count: 5, bytes: 0, visits: 0 });
   });
 
   it('computes cache hit ratio correctly (hit / (hit + miss), not including uncacheable)', () => {

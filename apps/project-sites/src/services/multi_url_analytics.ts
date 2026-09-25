@@ -66,7 +66,18 @@ export interface DeliverySummary {
     class: '2xx' | '3xx' | '4xx' | '5xx' | 'other';
     count: number;
   }>;
-  readonly top_statuses: ReadonlyArray<{ status: number; count: number }>;
+  /**
+   * Top status codes by request count, EACH now carrying its edge bandwidth (`bytes`, the
+   * bandwidth that status consumed) + `visits` (≈ how many real visitors hit it — so an owner
+   * sees "N visitors got a 404", not just a raw request count). Adaptive-sampled like all edge
+   * data; 0 is a real measured 0 here (a status with no bytes/visits sampled), never fabricated.
+   */
+  readonly top_statuses: ReadonlyArray<{
+    status: number;
+    count: number;
+    bytes: number;
+    visits: number;
+  }>;
   readonly cache: {
     readonly hit: number;
     readonly miss: number;
@@ -489,6 +500,10 @@ const SHARED_ZONE_ID = '9ceaa211750dd31899fd5d1bf8d1ec46';
 interface HostDelivery {
   resolved: boolean;
   by_status: Map<number, number>;
+  /** Per-status edge bandwidth (status → sum{edgeResponseBytes}) — same status query, extra sums. */
+  by_status_bytes: Map<number, number>;
+  /** Per-status visits (status → sum{visits}) — "how many REAL visitors hit this status". */
+  by_status_visits: Map<number, number>;
   by_cache: Map<string, number>;
   /** Edge connection + content breakdowns (label → request count), all per-host CF-sampled. */
   by_protocol: Map<string, number>;
@@ -536,6 +551,8 @@ async function loadHostDelivery(
     by_method: new Map(),
     by_protocol: new Map(),
     by_status: new Map(),
+    by_status_bytes: new Map(),
+    by_status_visits: new Map(),
     by_tls: new Map(),
     by_verified_bot: new Map(),
     resolved: false,
@@ -552,7 +569,7 @@ async function loadHostDelivery(
     query HostDelivery($zoneTag: String!, $host: String!) {
       viewer {
         zones(filter: { zoneTag: $zoneTag }) {
-          status: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { edgeResponseStatus } }
+          status: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { edgeResponseBytes visits } dimensions { edgeResponseStatus } }
           cache: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { edgeResponseBytes } dimensions { cacheStatus } }
           protocol: httpRequestsAdaptiveGroups(limit: 10, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { clientRequestHTTPProtocol } }
           tls: httpRequestsAdaptiveGroups(limit: 10, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { clientSSLProtocol } }
@@ -605,6 +622,8 @@ async function loadHostDelivery(
       by_method: new Map(),
       by_protocol: new Map(),
       by_status: new Map(),
+      by_status_bytes: new Map(),
+      by_status_visits: new Map(),
       by_tls: new Map(),
       by_verified_bot: new Map(),
       resolved: true,
@@ -613,7 +632,11 @@ async function loadHostDelivery(
     for (const row of zoneRow.status ?? []) {
       const s = Number(row.dimensions?.edgeResponseStatus ?? 0);
       const c = Number(row.count ?? 0);
-      if (s > 0 && c > 0) agg.by_status.set(s, (agg.by_status.get(s) ?? 0) + c);
+      if (s > 0 && c > 0) {
+        agg.by_status.set(s, (agg.by_status.get(s) ?? 0) + c);
+        agg.by_status_bytes.set(s, (agg.by_status_bytes.get(s) ?? 0) + Number(row.sum?.edgeResponseBytes ?? 0));
+        agg.by_status_visits.set(s, (agg.by_status_visits.get(s) ?? 0) + Number(row.sum?.visits ?? 0));
+      }
     }
     for (const row of zoneRow.cache ?? []) {
       const cs = String(row.dimensions?.cacheStatus ?? 'unknown');
@@ -974,6 +997,8 @@ export async function loadMultiUrlAnalytics(
       filteredUrls.map((u) => loadHostDelivery(env, auth, u.hostname, days)),
     );
     const mergedStatus = new Map<number, number>();
+    const mergedStatusBytes = new Map<number, number>();
+    const mergedStatusVisits = new Map<number, number>();
     const mergedCache = new Map<string, number>();
     const mergedProtocol = new Map<string, number>();
     const mergedTls = new Map<string, number>();
@@ -986,6 +1011,8 @@ export async function loadMultiUrlAnalytics(
     let mergedBytes = 0;
     for (const dv of deliveries) {
       for (const [s, c] of dv.by_status) mergedStatus.set(s, (mergedStatus.get(s) ?? 0) + c);
+      for (const [s, b] of dv.by_status_bytes) mergedStatusBytes.set(s, (mergedStatusBytes.get(s) ?? 0) + b);
+      for (const [s, v] of dv.by_status_visits) mergedStatusVisits.set(s, (mergedStatusVisits.get(s) ?? 0) + v);
       for (const [k, c] of dv.by_cache) mergedCache.set(k, (mergedCache.get(k) ?? 0) + c);
       mergeInto(mergedProtocol, dv.by_protocol);
       mergeInto(mergedTls, dv.by_tls);
@@ -1010,6 +1037,8 @@ export async function loadMultiUrlAnalytics(
         mergedContent,
         mergedMethod,
         mergedVerifiedBot,
+        mergedStatusBytes,
+        mergedStatusVisits,
       ),
       pageviews: aggregates.reduce((sum, a) => sum + a.page_views, 0),
       // HONEST window: the CF path covers ≤CF_MAX_WINDOW_DAYS daily windows regardless of the
@@ -1114,6 +1143,8 @@ export function buildDeliverySummary(
   byContent: ReadonlyMap<string, number> = new Map(),
   byMethod: ReadonlyMap<string, number> = new Map(),
   byVerifiedBot: ReadonlyMap<string, number> = new Map(),
+  byStatusBytes: ReadonlyMap<number, number> = new Map(),
+  byStatusVisits: ReadonlyMap<number, number> = new Map(),
 ): DeliverySummary {
   /** A label→count map → its top-`n` rows, highest first, zero-counts dropped. */
   const topLabels = (
@@ -1127,12 +1158,17 @@ export function buildDeliverySummary(
       .map(([label, count]) => ({ count, label }));
   let total = 0;
   const classCounts = new Map<StatusClass, number>();
-  const topStatuses: Array<{ status: number; count: number }> = [];
+  const topStatuses: Array<{ status: number; count: number; bytes: number; visits: number }> = [];
   for (const [status, count] of byStatus) {
     total += count;
     const cls = statusClass(status);
     classCounts.set(cls, (classCounts.get(cls) ?? 0) + count);
-    topStatuses.push({ count, status });
+    topStatuses.push({
+      count,
+      status,
+      bytes: byStatusBytes.get(status) ?? 0,
+      visits: byStatusVisits.get(status) ?? 0,
+    });
   }
   const by_status_class = [...classCounts.entries()]
     .filter(([, count]) => count > 0)
