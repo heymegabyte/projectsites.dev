@@ -17,9 +17,10 @@
  * 1. **Analytics** — fires a `pageview` to `POST /api/events` on load, a
  *    `conversion` event for outbound / tel: / mailto: / CTA clicks, and (via
  *    `initWebVitals`) `web_vital` events carrying field-measured Core Web Vitals
- *    (LCP / INP / CLS, `{metric, value, href}`) beaconed on page hide. Each metric
- *    is sent ONLY when its PerformanceObserver attached and a real value exists —
- *    an unmeasured vital is omitted, never a fabricated 0. Fire-and-forget `fetch`
+ *    (LCP / INP / CLS) PLUS page-load timing (FCP / TTFB), `{metric, value, href}`,
+ *    beaconed on page hide. Each metric is sent ONLY when its source (a
+ *    PerformanceObserver, or Navigation Timing for TTFB) attached and a real value
+ *    exists — an unmeasured metric is omitted, never a fabricated 0. Fire-and-forget `fetch`
  *    with `keepalive:true`. Body matches `IncomingEventSchema`
  *    (`{eventId, siteId, eventType, timestamp, payload, referer}`).
  * 2. **Form hijack** — capture-phase submit listener + MutationObserver catch every
@@ -682,8 +683,9 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
   // OMITTED, never sent as a fabricated 0 (LCP/CLS/INP are Chromium-only APIs).
   function initWebVitals() {
     if (typeof PerformanceObserver === 'undefined') return;
-    var support = { LCP: false, CLS: false, INP: false };
+    var support = { LCP: false, CLS: false, INP: false, FCP: false };
     var lcp = -1;
+    var fcp = -1;
     var clsMax = 0, clsCur = 0, clsFirst = 0, clsLast = 0;
     var inpMap = {}, inpCount = 0;
     var done = false;
@@ -744,6 +746,12 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     });
     if (inpO || fiO) { support.INP = true; }
 
+    // FCP (First Contentful Paint) — page-load speed, not a Core Web Vital but the
+    // real-user "how fast did something appear" signal. From the paint observer.
+    if (obs('paint', null, function (e) {
+      if (e.name === 'first-contentful-paint') { fcp = e.startTime; }
+    })) { support.FCP = true; }
+
     // Beacon once, on the first of visibilitychange:hidden / pagehide (unload-safe
     // via track()'s keepalive fetch).
     function finalize() {
@@ -752,6 +760,14 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
       if (support.LCP && lcp >= 0) { report('LCP', lcp); }
       if (support.CLS) { report('CLS', clsMax); }      // 0 is a real (perfect) CLS
       if (support.INP) { report('INP', inpValue()); }  // omitted when no interaction
+      if (support.FCP && fcp >= 0) { report('FCP', fcp); }
+      // TTFB (Time To First Byte) — server response latency, from Navigation Timing's
+      // responseStart (no observer needed). This is the first-party page-load metric
+      // that Cloudflare's plan won't give us at the edge. Omitted when unavailable.
+      try {
+        var nav = performance.getEntriesByType('navigation')[0];
+        if (nav && nav.responseStart > 0) { report('TTFB', nav.responseStart); }
+      } catch (e) {}
     }
     try {
       window.addEventListener('visibilitychange', function () {

@@ -168,4 +168,38 @@ describe('WebVitalsCardComponent', () => {
       expect(c.pct(5, 0)).toBe(0); // no samples → 0, never NaN
     });
   });
+
+  describe('page-load speed (TTFB + FCP)', () => {
+    it('renders the page-load section with TTFB + FCP values and ratings when samples exist', () => {
+      const el = render({
+        lcp: null,
+        inp: null,
+        cls: null,
+        ttfb: { p75: 420, samples: 30, dist: { good: 25, needs: 4, poor: 1 } },
+        fcp: { p75: 1600, samples: 30, dist: { good: 20, needs: 8, poor: 2 } },
+      }).nativeElement as HTMLElement;
+      expect(el.querySelector('[data-testid="an-wv-pageload"]')).withContext('renders when TTFB/FCP have samples').toBeTruthy();
+      expect((el.querySelector('[data-testid="an-wv-ttfb-value"]') as HTMLElement).textContent).toContain('420 ms');
+      expect((el.querySelector('[data-testid="an-wv-fcp-value"]') as HTMLElement).textContent).toContain('1.60 s');
+      // TTFB 420 ≤ 800 → good (its OWN threshold, not the CWV LCP threshold)
+      expect((el.querySelector('[data-testid="an-wv-ttfb"]') as HTMLElement).getAttribute('data-rating')).toBe('good');
+      expect((el.querySelector('[data-testid="an-wv-fcp"]') as HTMLElement).getAttribute('data-rating')).toBe('good');
+    });
+
+    it('hides the page-load section when TTFB + FCP have no samples (never a fabricated 0)', () => {
+      const el = render({ lcp: { p75: 2000, samples: 5 }, inp: null, cls: null }).nativeElement as HTMLElement;
+      expect(el.querySelector('[data-testid="an-wv-pageload"]')).toBeNull();
+    });
+
+    it('plRating uses the page-load thresholds (distinct from CWV) and plFormat renders ms/s', () => {
+      const c = render(null).componentInstance;
+      expect(c.plRating('ttfb', 700)).toBe('good'); // ≤800
+      expect(c.plRating('ttfb', 1200)).toBe('needs'); // ≤1800
+      expect(c.plRating('ttfb', 2000)).toBe('poor');
+      expect(c.plRating('fcp', 1800)).toBe('good'); // boundary
+      expect(c.plRating('fcp', 3500)).toBe('poor');
+      expect(c.plFormat(420)).toBe('420 ms');
+      expect(c.plFormat(1600)).toBe('1.60 s');
+    });
+  });
 });

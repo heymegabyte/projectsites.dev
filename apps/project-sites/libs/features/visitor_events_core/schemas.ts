@@ -159,12 +159,17 @@ export const WebVitalsSchema = z
     lcp: WebVitalStatSchema.nullable().default(null),
     inp: WebVitalStatSchema.nullable().default(null),
     cls: WebVitalStatSchema.nullable().default(null),
+    // AN-PAGELOAD — page-load timing (NOT Core Web Vitals): FCP (first paint) + TTFB
+    // (server response), both first-party ms p75, filling the CF-gated edge-latency
+    // gap. Nullable + defaulted for back-compat with older payloads.
+    fcp: WebVitalStatSchema.nullable().default(null),
+    ttfb: WebVitalStatSchema.nullable().default(null),
     // AN-CWV per-path — the slowest pages by LCP p75 (headline metric), for the
     // "which page is slow" drilldown. Default [] for back-compat.
     slowestPages: z.array(SlowPageSchema).default([]),
   })
   .strict()
-  .default({ lcp: null, inp: null, cls: null, slowestPages: [] });
+  .default({ lcp: null, inp: null, cls: null, fcp: null, ttfb: null, slowestPages: [] });
 export type WebVitals = z.infer<typeof WebVitalsSchema>;
 
 /** Aggregated traffic summary for one site over a window. */

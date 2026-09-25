@@ -1696,6 +1696,11 @@ export interface SiteTrafficSummary {
     lcp: WebVitalStat | null;
     inp: WebVitalStat | null;
     cls: WebVitalStat | null;
+    /** Page-load timing (NOT Core Web Vitals): FCP (first paint) + TTFB (server response),
+     *  first-party ms p75 — the real-user page-speed signal Cloudflare's plan won't give
+     *  us at the edge. `null` when no samples yet (never a fabricated 0). */
+    fcp?: WebVitalStat | null;
+    ttfb?: WebVitalStat | null;
     /** Slowest pages by LCP p75 (worst first) — the "which page is slow" drilldown. */
     slowestPages?: Array<{
       path: string;

@@ -197,6 +197,18 @@ const CWV_THRESHOLDS: Record<(typeof CWV_METRICS)[number], readonly [number, num
   CLS: [0.1, 0.25],
 };
 
+/**
+ * Page-load timing metrics (NOT Core Web Vitals — kept separate so the CWV rating story
+ * stays clean): FCP (first paint) + TTFB (server response). Both ms. Google's thresholds
+ * `[good-max, needs-max]`. These fill the edge-latency gap Cloudflare's plan won't give
+ * us, measured first-party in `app.js` (Navigation Timing + the paint observer).
+ */
+const PAGELOAD_METRICS = ['FCP', 'TTFB'] as const;
+const PAGELOAD_THRESHOLDS: Record<(typeof PAGELOAD_METRICS)[number], readonly [number, number]> = {
+  FCP: [1800, 3000],
+  TTFB: [800, 1800],
+};
+
 /** Min LCP samples a page needs before it's ranked in "slowest pages" (p75 reliability). */
 const MIN_PATH_SAMPLES = 5;
 
@@ -390,15 +402,16 @@ export async function getWebVitalsSummary(
        FROM visitor_events
       WHERE site_id = ? AND event_type = 'web_vital'
         AND ${win.time}
-        AND json_extract(metadata, '$.metric') IN ('LCP', 'INP', 'CLS')
+        AND json_extract(metadata, '$.metric') IN ('LCP', 'INP', 'CLS', 'FCP', 'TTFB')
       ORDER BY created_at DESC
       LIMIT 50000`,
     win.params,
   );
-  const empty: WebVitals = { lcp: null, inp: null, cls: null, slowestPages: [] };
+  const empty: WebVitals = { lcp: null, inp: null, cls: null, fcp: null, ttfb: null, slowestPages: [] };
   if (error) return empty;
 
   const buckets: Record<(typeof CWV_METRICS)[number], number[]> = { LCP: [], INP: [], CLS: [] };
+  const plBuckets: Record<(typeof PAGELOAD_METRICS)[number], number[]> = { FCP: [], TTFB: [] };
   const lcpByPath = new Map<string, number[]>();
   const inpByPath = new Map<string, number[]>();
   const clsByPath = new Map<string, number[]>();
@@ -408,16 +421,22 @@ export async function getWebVitalsSummary(
     else map.set(path, [v]);
   };
   for (const row of data) {
-    const m = row.metric as (typeof CWV_METRICS)[number] | null;
+    const m = row.metric;
     const v = Number(row.value);
-    if (!(m && m in buckets && Number.isFinite(v) && v >= 0)) continue;
-    buckets[m].push(v);
+    if (!(m && Number.isFinite(v) && v >= 0)) continue;
+    if (m in plBuckets) {
+      plBuckets[m as (typeof PAGELOAD_METRICS)[number]].push(v);
+      continue; // FCP/TTFB are page-load timing, not CWV — no per-page CWV bucketing
+    }
+    if (!(m in buckets)) continue;
+    const cm = m as (typeof CWV_METRICS)[number];
+    buckets[cm].push(v);
     // Bucket EACH metric per page so the "slowest pages" drilldown shows the full
     // per-page CWV picture (LCP · INP · CLS), not LCP alone.
     if (typeof row.path === 'string' && row.path) {
-      if (m === 'LCP') pushByPath(lcpByPath, row.path, v);
-      else if (m === 'INP') pushByPath(inpByPath, row.path, v);
-      else if (m === 'CLS') pushByPath(clsByPath, row.path, v);
+      if (cm === 'LCP') pushByPath(lcpByPath, row.path, v);
+      else if (cm === 'INP') pushByPath(inpByPath, row.path, v);
+      else if (cm === 'CLS') pushByPath(clsByPath, row.path, v);
     }
   }
   const stat = (metric: (typeof CWV_METRICS)[number]) => {
@@ -428,6 +447,21 @@ export async function getWebVitalsSummary(
     // Distribution behind the p75 — classify each real sample against Google's
     // thresholds so the card shows the SPREAD (a good p75 can still hide a poor tail).
     const [good, needs] = CWV_THRESHOLDS[metric];
+    const dist = { good: 0, needs: 0, poor: 0 };
+    for (const v of vals) {
+      if (v <= good) dist.good++;
+      else if (v <= needs) dist.needs++;
+      else dist.poor++;
+    }
+    return { p75, samples: vals.length, dist };
+  };
+  // Page-load timing (FCP/TTFB): integer-ms p75 + good/needs/poor distribution against
+  // the page-load thresholds. Null (never a fabricated 0) when a metric has no samples.
+  const plStat = (metric: (typeof PAGELOAD_METRICS)[number]) => {
+    const vals = plBuckets[metric];
+    if (vals.length === 0) return null;
+    const p75 = Math.round(percentile(vals, 75));
+    const [good, needs] = PAGELOAD_THRESHOLDS[metric];
     const dist = { good: 0, needs: 0, poor: 0 };
     for (const v of vals) {
       if (v <= good) dist.good++;
@@ -458,7 +492,14 @@ export async function getWebVitalsSummary(
     }))
     .sort((a, b) => b.lcpP75 - a.lcpP75)
     .slice(0, 5);
-  return { lcp: stat('LCP'), inp: stat('INP'), cls: stat('CLS'), slowestPages };
+  return {
+    lcp: stat('LCP'),
+    inp: stat('INP'),
+    cls: stat('CLS'),
+    fcp: plStat('FCP'),
+    ttfb: plStat('TTFB'),
+    slowestPages,
+  };
 }
 
 /**
