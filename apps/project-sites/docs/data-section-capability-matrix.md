@@ -56,6 +56,20 @@
     (create table / run a starter / import) per `embarrassingly-easy-to-use`.
 
 **Recently shipped from this backlog:**
+- ✅ **#1 AI SQL assistant — WORKER DONE 2026-09-25** — the first-class differentiator. `POST
+  /api/sites/:siteId/sql/nl2sql` (super-admin) grounds Workers AI (Llama 3.3 70B, free) on the REAL
+  server-fetched `sqlite_master` DDL and returns ONE read-only SELECT for the operator to REVIEW —
+  it NEVER executes (the user runs it through the guarded `/sql/exec` allowlist). Server-fetched
+  schema (never client-supplied), read-only system prompt, honest 502 on AI failure, audits the
+  question + model (never row data). Pure `buildNl2SqlMessages` + `extractSqlFromAiText`; +8 Jest;
+  worker deployed (`edaee198`) + prod-verified 401-gated. **Remaining half:** the editor SQL-console
+  "✨ Ask AI" input that calls it + populates the editor for review (next fire).
+- ✅ **Data tab scope grouping (Site vs Platform) — DONE 2026-09-25** — the Editor DataPanel's flat
+  7-tab nav is now grouped into two clearly-labelled scopes: **Site** (Tables — this site's own
+  site_id-scoped data) and **Platform** (SQL · D1 · KV · R2 · Vectors · Queues — the global platform
+  database + account resources, spanning all sites), split by a divider. So an operator plainly sees
+  they can view BOTH the site-assigned data AND the global D1 (Brian directive). Purely visual
+  (`renderModeTab` + `MODE_META`; testids/behaviour unchanged); workbench Vitest 424/424.
 - ✅ **Backups & recovery (D1 Time Travel info) — DONE 2026-09-25** — the account-wide D1Browser now
   has a "Point-in-time recovery" panel beside the SQL-dump export: it states D1's REAL retention
   (~30 days paid / 7 days free, verified against CF docs) + the exact `wrangler d1 time-travel restore

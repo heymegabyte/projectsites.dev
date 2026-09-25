@@ -255,6 +255,7 @@ export const DataPanel = memo(() => {
    * why). PRAGMA runs on its OWN correlation id so it never clobbers the SQL-console result grid.
    */
   const [browsePkCols, setBrowsePkCols] = useState<string[]>([]);
+
   /** Declared SQLite type per column name — populated from the PRAGMA table_info reply. */
   const [browseColTypes, setBrowseColTypes] = useState<Record<string, string>>({});
   const pkCid = useRef<string | null>(null); // PRAGMA table_info round-trip id (distinct from the SQL console)
@@ -672,11 +673,14 @@ export const DataPanel = memo(() => {
           if (!msg.error && Array.isArray(msg.rows)) {
             const tableInfoRows = msg.rows as Array<Record<string, unknown>>;
             setBrowsePkCols(pkFromTableInfo(tableInfoRows));
+
             // Also extract declared types for columnTypeBadge display.
             const typeMap: Record<string, string> = {};
+
             for (const row of tableInfoRows) {
               const colName = String(row.name ?? row.column ?? '').trim();
               const colType = String(row.type ?? '').trim();
+
               if (colName && colType) {
                 typeMap[colName] = colType;
               }
@@ -994,8 +998,11 @@ export const DataPanel = memo(() => {
   const totalRows = useMemo(() => tables.reduce((s, t) => s + (t.row_count ?? 0), 0), [tables]);
   const sortedTables = useMemo(() => [...tables].sort((a, b) => (b.row_count ?? 0) - (a.row_count ?? 0)), [tables]);
   const activeTable = tables.find((t) => t.key === active) ?? null;
-  // Schema-aware SQL completion feed — REAL table + column identifiers from the inspected schema
-  // (never fabricated). Table keys + the de-duplicated union of every table's columns.
+
+  /*
+   * Schema-aware SQL completion feed — REAL table + column identifiers from the inspected schema
+   * (never fabricated). Table keys + the de-duplicated union of every table's columns.
+   */
   const sqlSchema = useMemo(
     () => ({
       tables: tables.map((t) => t.key),
@@ -1152,13 +1159,17 @@ export const DataPanel = memo(() => {
    * selection actually contains numbers, so a text-only selection never shows a meaningless "sum 0".
    */
   const selectionAgg = useMemo(() => {
-    if (selectedKeys.size === 0) return null;
+    if (selectedKeys.size === 0) {
+      return null;
+    }
+
     const values = visibleRows
       .filter((r) => {
         const k = rowPkKey(r, browsePkCols);
         return k !== null && selectedKeys.has(k);
       })
       .flatMap((r) => visibleCols.map((c) => r[c]));
+
     return computeAggregates(values);
   }, [selectedKeys, visibleRows, visibleCols, browsePkCols]);
 
@@ -1431,6 +1442,46 @@ export const DataPanel = memo(() => {
     [persistSaved],
   );
 
+  /*
+   * Sub-tab metadata + a single renderer, so the nav can group tabs by SCOPE — this SITE's data
+   * vs the GLOBAL platform database + account resources — without duplicating the button. The
+   * testids + click behaviour are unchanged (grouping is purely visual).
+   */
+  const MODE_META = {
+    tables: { icon: 'i-ph:table', label: 'Tables' },
+    sql: { icon: 'i-ph:terminal-window', label: 'SQL' },
+    d1: { icon: 'i-ph:database', label: 'D1' },
+    kv: { icon: 'i-ph:key', label: 'KV' },
+    r2: { icon: 'i-ph:hard-drives', label: 'R2' },
+    vec: { icon: 'i-ph:graph', label: 'Vectors' },
+    queues: { icon: 'i-ph:stack', label: 'Queues' },
+  } as const;
+  const renderModeTab = (m: keyof typeof MODE_META) => (
+    <button
+      key={m}
+      type="button"
+      role="tab"
+      aria-selected={mode === m}
+      data-testid={`data-mode-${m}`}
+      onClick={() => {
+        setMode(m);
+
+        if (m === 'sql' && !sqlMeta && !sqlRunning && !sqlError) {
+          runSql(sql);
+        }
+      }}
+      className={classNames(
+        'px-2.5 py-1 cursor-pointer transition-colors flex items-center gap-1',
+        mode === m
+          ? 'bg-bolt-elements-item-backgroundActive text-bolt-elements-textPrimary'
+          : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
+      )}
+    >
+      <div className={MODE_META[m].icon} />
+      {MODE_META[m].label}
+    </button>
+  );
+
   return (
     <div
       className="h-full flex flex-col bg-bolt-elements-background-depth-1 overflow-y-auto modern-scrollbar relative"
@@ -1469,64 +1520,31 @@ export const DataPanel = memo(() => {
             {/* Tables ⇆ SQL (D1 manager) — the console is super-admin-only, so the toggle
                 only appears when the admin bridge reported canRunSql. */}
             {canRunSql && (
-              <div
-                className="flex items-center rounded-md border border-bolt-elements-borderColor overflow-hidden text-[10px] font-medium"
-                role="tablist"
-                aria-label="Data view"
-              >
-                {(['tables', 'sql', 'd1', 'kv', 'r2', 'vec', 'queues'] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    role="tab"
-                    aria-selected={mode === m}
-                    data-testid={`data-mode-${m}`}
-                    onClick={() => {
-                      setMode(m);
+              <div className="flex items-center gap-2 text-[10px] font-medium" role="tablist" aria-label="Data view">
+                {/* Scope 1 — THIS SITE's own data (site_id-scoped rows in the platform D1). */}
+                <div className="flex items-center gap-1.5" title="This site's own data">
+                  <span className="text-[8px] font-semibold uppercase tracking-wider text-bolt-elements-textTertiary/60">
+                    Site
+                  </span>
+                  <div className="flex items-center overflow-hidden rounded-md border border-bolt-elements-borderColor">
+                    {renderModeTab('tables')}
+                  </div>
+                </div>
 
-                      if (m === 'sql' && !sqlMeta && !sqlRunning && !sqlError) {
-                        runSql(sql);
-                      }
-                    }}
-                    className={classNames(
-                      'px-2.5 py-1 cursor-pointer transition-colors flex items-center gap-1',
-                      mode === m
-                        ? 'bg-bolt-elements-item-backgroundActive text-bolt-elements-textPrimary'
-                        : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
-                    )}
-                  >
-                    <div
-                      className={
-                        m === 'sql'
-                          ? 'i-ph:terminal-window'
-                          : m === 'd1'
-                            ? 'i-ph:database'
-                            : m === 'kv'
-                              ? 'i-ph:key'
-                              : m === 'r2'
-                                ? 'i-ph:hard-drives'
-                                : m === 'vec'
-                                  ? 'i-ph:graph'
-                                  : m === 'queues'
-                                    ? 'i-ph:stack'
-                                    : 'i-ph:table'
-                      }
-                    />
-                    {m === 'sql'
-                      ? 'SQL'
-                      : m === 'd1'
-                        ? 'D1'
-                        : m === 'kv'
-                          ? 'KV'
-                          : m === 'r2'
-                            ? 'R2'
-                            : m === 'vec'
-                              ? 'Vectors'
-                              : m === 'queues'
-                                ? 'Queues'
-                                : 'Tables'}
-                  </button>
-                ))}
+                <div className="h-4 w-px bg-bolt-elements-borderColor/60" aria-hidden="true" />
+
+                {/* Scope 2 — the GLOBAL platform database + account resources (spans all sites). */}
+                <div
+                  className="flex items-center gap-1.5"
+                  title="The global platform database + account resources (all sites)"
+                >
+                  <span className="text-[8px] font-semibold uppercase tracking-wider text-bolt-elements-textTertiary/60">
+                    Platform
+                  </span>
+                  <div className="flex items-center overflow-hidden rounded-md border border-bolt-elements-borderColor">
+                    {(['sql', 'd1', 'kv', 'r2', 'vec', 'queues'] as const).map(renderModeTab)}
+                  </div>
+                </div>
               </div>
             )}
             {mode === 'tables' && (
@@ -2129,7 +2147,10 @@ export const DataPanel = memo(() => {
                                   type="button"
                                   disabled={browsePkCols.length === 0}
                                   onClick={() => {
-                                    if (browsePkCols.length === 0) return;
+                                    if (browsePkCols.length === 0) {
+                                      return;
+                                    }
+
                                     writeClipboard(rowToUpdateByPk(active, r, browsePkCols));
                                     flashStatus('Copied UPDATE');
                                   }}
