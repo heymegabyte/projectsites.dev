@@ -618,7 +618,11 @@ tabs.post('/api/sites/:siteId/sql/exec-write', async (c) => {
     );
   }
 
-  let body: { statement: string; confirm?: boolean; params?: Array<string | number | boolean | null> };
+  let body: {
+    statement: string;
+    confirm?: boolean;
+    params?: Array<string | number | boolean | null>;
+  };
   try {
     body = SqlWriteSchema.parse(await c.req.json().catch(() => ({})));
   } catch (e) {

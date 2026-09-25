@@ -141,7 +141,9 @@ describe('normalizeClickHref (outbound-click destination — privacy boundary)',
     expect(normalizeClickHref('sms:+15551234567')).toBe('sms:+15551234567');
   });
   it('STRIPS query + fragment from http(s) (never store tracking params)', () => {
-    expect(normalizeClickHref('https://instagram.com/biz?igsh=abc123&utm=x#top')).toBe('https://instagram.com/biz');
+    expect(normalizeClickHref('https://instagram.com/biz?igsh=abc123&utm=x#top')).toBe(
+      'https://instagram.com/biz',
+    );
     expect(normalizeClickHref('https://book.me/slot/')).toBe('https://book.me/slot/');
   });
   it('drops non-link hrefs (relative, #, javascript:, empty, non-string)', () => {

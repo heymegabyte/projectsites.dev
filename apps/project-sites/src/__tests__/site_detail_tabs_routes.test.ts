@@ -480,7 +480,12 @@ describe('POST /api/sites/:siteId/sql/exec-write (D1 manager writes — AL-872)'
       }),
     };
     const prepare = jest.fn(() => stmt);
-    return { prepare, _run: run, _bind: stmt.bind, _boundParams: boundParams } as unknown as D1Database & {
+    return {
+      prepare,
+      _run: run,
+      _bind: stmt.bind,
+      _boundParams: boundParams,
+    } as unknown as D1Database & {
       prepare: jest.Mock;
       _run: jest.Mock;
       _bind: jest.Mock;
