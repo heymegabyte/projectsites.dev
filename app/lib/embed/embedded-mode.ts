@@ -263,6 +263,71 @@ export interface SqlResponseMessage {
   error?: string;
 }
 
+// ── KV Browser bridge messages ────────────────────────────────────────────────
+
+/** KV namespace entry returned by the `namespaces` op. */
+export type KvNamespaceEntry = string;
+
+/** A single KV key descriptor from the `keys` op. */
+export interface KvKeyDescriptor {
+  name: string;
+  expiration?: number;
+  metadata?: unknown;
+}
+
+/**
+ * Child → Parent (KV Browser): ask the admin to proxy a Cloudflare KV
+ * operation on behalf of the editor (the editor has no cross-origin session).
+ *
+ * @remarks
+ * ops:
+ * - `namespaces` — list all KV namespace binding names for the current site.
+ * - `keys`       — list keys in `binding`; respects `prefix` + cursor paging.
+ * - `value`      — fetch the value for a single `key` in `binding`.
+ */
+export interface KvRequestMessage {
+  type: 'PS_KV_REQUEST';
+  correlationId: string;
+  op: 'namespaces' | 'keys' | 'value';
+  /** Required for `keys` and `value` ops — the KV binding name (e.g. `"KV"`). */
+  binding?: string;
+  /** For `keys` op — filter to keys starting with this string. */
+  prefix?: string;
+  /** For `keys` op — opaque pagination cursor from the previous page. */
+  cursor?: string;
+  /** For `value` op — the exact key to fetch. */
+  key?: string;
+}
+
+/** Data envelope variants keyed by op. */
+export interface KvNamespacesData {
+  namespaces: string[];
+}
+
+export interface KvKeysData {
+  keys: KvKeyDescriptor[];
+  cursor?: string;
+}
+
+export interface KvValueData {
+  key: string;
+  value: string | null;
+  metadata?: unknown;
+}
+
+/**
+ * Parent → Child (KV Browser): the admin's reply to {@link KvRequestMessage}.
+ * `ok` indicates success; `data` carries the op-specific payload; `error`
+ * is set on failure.
+ */
+export interface KvResponseMessage {
+  type: 'PS_KV_RESPONSE';
+  correlationId: string;
+  ok: boolean;
+  data?: KvNamespacesData | KvKeysData | KvValueData;
+  error?: string;
+}
+
 export type ParentToChildMessage =
   | SubmitPromptMessage
   | ImportFilesMessage
@@ -273,6 +338,7 @@ export type ParentToChildMessage =
   | ListFilesMessage
   | DataResponseMessage
   | SqlResponseMessage
+  | KvResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -282,6 +348,7 @@ export type ChildToParentMessage =
   | DeployRequestMessage
   | DataRequestMessage
   | SqlRequestMessage
+  | KvRequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;

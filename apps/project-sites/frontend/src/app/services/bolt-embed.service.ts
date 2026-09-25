@@ -71,6 +71,16 @@ interface PsMessage {
    * statement instead of stringifying user values into SQL.
    */
   readonly params?: Array<string | number | boolean | null>;
+  /** PS_KV_REQUEST (KV inspector): which read op to proxy to /api/admin/kv/*. */
+  readonly op?: 'namespaces' | 'keys' | 'value';
+  /** PS_KV_REQUEST: the KV binding name (required for the keys + value ops). */
+  readonly binding?: string;
+  /** PS_KV_REQUEST (keys op): key-name prefix filter. */
+  readonly prefix?: string;
+  /** PS_KV_REQUEST (keys op): opaque pagination cursor from the previous page. */
+  readonly cursor?: string;
+  /** PS_KV_REQUEST (value op): the exact key to fetch. */
+  readonly key?: string;
 }
 
 export interface BoltFileEntry {
@@ -547,6 +557,53 @@ export class BoltEmbedService {
                 });
               },
               error: () => reply({ error: 'Failed to load data' }),
+            });
+          break;
+        }
+        case 'PS_KV_REQUEST': {
+          // KV inspector — the embedded editor has no cross-origin session, so it asks US (we hold
+          // the ApiService bearer) to read the platform KV via /api/admin/kv/* (super-admin, read-only,
+          // account-level — not site-scoped). Reply with PS_KV_RESPONSE. Mirrors the PS_SQL bridge; the
+          // worker enforces super-admin + a binding allowlist and returns 404 (dark) when unavailable.
+          const iframe = this.iframeEl;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_KV_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          const op = msg.op;
+          let kvPath: string;
+          const kvParams: Record<string, string> = {};
+          if (op === 'namespaces') {
+            kvPath = '/admin/kv/namespaces';
+          } else if (op === 'keys') {
+            if (!msg.binding) {
+              reply({ ok: false, error: 'No KV binding' });
+              break;
+            }
+            kvPath = `/admin/kv/${encodeURIComponent(msg.binding)}/keys`;
+            if (msg.prefix) kvParams['prefix'] = msg.prefix;
+            if (msg.cursor) kvParams['cursor'] = msg.cursor;
+          } else if (op === 'value') {
+            if (!msg.binding || !msg.key) {
+              reply({ ok: false, error: 'Missing binding or key' });
+              break;
+            }
+            kvPath = `/admin/kv/${encodeURIComponent(msg.binding)}/value`;
+            kvParams['key'] = msg.key;
+          } else {
+            reply({ ok: false, error: 'Unknown KV op' });
+            break;
+          }
+          this.api
+            .get<Record<string, unknown>>(kvPath, Object.keys(kvParams).length ? kvParams : undefined, {
+              silent: true,
+            })
+            .subscribe({
+              next: (res) => reply({ ok: true, data: res ?? {} }),
+              error: () => reply({ ok: false, error: 'KV inspector not available' }),
             });
           break;
         }

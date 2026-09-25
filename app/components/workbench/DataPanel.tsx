@@ -19,6 +19,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isEmbedded, postToParent, onParentMessage } from '~/lib/embed/embedded-mode';
 import type { DataOverviewTable, ParentToChildMessage } from '~/lib/embed/embedded-mode';
+import { KvBrowser } from './KvBrowser';
 import {
   iconForTable,
   formatCellValue,
@@ -228,7 +229,7 @@ export const DataPanel = memo(() => {
    * multi-tenant DB). `canRunSql` arrives on the overview reply; `mode` toggles the console view.
    */
   const [canRunSql, setCanRunSql] = useState(false);
-  const [mode, setMode] = useState<'tables' | 'sql'>('tables');
+  const [mode, setMode] = useState<'tables' | 'sql' | 'kv'>('tables');
 
   /*
    * Add-row — a typed row editor that builds a PARAMETERIZED INSERT (values BOUND via ?N, never
@@ -1469,7 +1470,7 @@ export const DataPanel = memo(() => {
                 role="tablist"
                 aria-label="Data view"
               >
-                {(['tables', 'sql'] as const).map((m) => (
+                {(['tables', 'sql', 'kv'] as const).map((m) => (
                   <button
                     key={m}
                     type="button"
@@ -1490,8 +1491,12 @@ export const DataPanel = memo(() => {
                         : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
                     )}
                   >
-                    <div className={m === 'sql' ? 'i-ph:terminal-window' : 'i-ph:table'} />
-                    {m === 'sql' ? 'SQL' : 'Tables'}
+                    <div
+                      className={
+                        m === 'sql' ? 'i-ph:terminal-window' : m === 'kv' ? 'i-ph:key' : 'i-ph:table'
+                      }
+                    />
+                    {m === 'sql' ? 'SQL' : m === 'kv' ? 'KV' : 'Tables'}
                   </button>
                 ))}
               </div>
@@ -2320,6 +2325,11 @@ export const DataPanel = memo(() => {
 
       {/* SQL console — the D1 manager (super-admin). Outerbase-Studio-style: one-click starters,
           a query editor (⌘/Ctrl+↵ to run), and a results grid; runs read-only SELECT/PRAGMA. */}
+      {mode === 'kv' && (
+        <div className="flex-1 flex flex-col min-h-0 overflow-auto modern-scrollbar">
+          <KvBrowser postToParent={postToParent} />
+        </div>
+      )}
       {status === 'ready' && mode === 'sql' && (
         <div className="flex-1 flex flex-col min-h-0" data-testid="data-sql-console">
           {/* Write-target safety banner — the prompt requires surfacing the account/env/database
