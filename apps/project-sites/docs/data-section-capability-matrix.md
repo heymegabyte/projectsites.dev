@@ -37,8 +37,15 @@
   name, recall LOADS into the editor without auto-running, delete — the manual companion to
   the auto-history). **Multiple query tabs — DONE (2026-09-25):** independent SQL buffers you
   switch between (each preserves its own text), localStorage-persisted; the last remaining
-  SQL-workspace item besides a CodeMirror dependency. Remaining toward a full SQLite manager:
-  **inline typed row edit in the grid** (grid cell → parameterized UPDATE preview).
+  SQL-workspace item besides a CodeMirror dependency. **Sortable columns — DONE (2026-09-25):**
+  clicking a header in BOTH the browse grid and the SQL result grid sorts it (3-state
+  asc→desc→off toggle + caret + `aria-sort`), via the pure type-aware `sortRows` (numeric when
+  both cells are numbers/numeric-strings, else case-insensitive; null/''/undefined always last;
+  stable). HONEST: the browse grid sorts the LOADED window (it already discloses "showing latest
+  N"); the SQL grid sorts the FULL returned result (reorders exactly what's shown) + the CSV
+  export follows the sorted view. Remaining toward a full SQLite manager: **inline typed row edit
+  in the grid** (grid cell → parameterized UPDATE preview) + **server-side full-table sort** (a
+  worker sort param on the browse endpoint, validated against the column allowlist).
 - **WfP** (`USER_DISPATCH` dispatch namespace) is **wired but DORMANT** — flag
   `user_worker_functions` default-off, zero per-site User Workers deployed,
   `resolveUserFunctionBindings` not implemented. "User Worker bindings" browsing is
