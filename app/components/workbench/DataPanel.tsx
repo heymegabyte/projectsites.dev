@@ -38,6 +38,11 @@ import {
   explainPlanHint,
   isExpensiveScan,
   sqlConsoleTarget,
+  type QueryTab,
+  MAX_QUERY_TABS,
+  addQueryTab,
+  closeQueryTab,
+  updateQueryTabSql,
 } from './data-panel-logic';
 import { classNames } from '~/utils/classNames';
 
@@ -51,6 +56,47 @@ const SQL_HISTORY_KEY = 'ps-data-sql-history';
 
 /** localStorage key for the NAMED saved queries (per-browser, best-effort). */
 const SQL_SAVED_KEY = 'ps-data-sql-saved';
+
+/** localStorage key for the open SQL query tabs + which is active (per-browser). */
+const SQL_TABS_KEY = 'ps-data-sql-tabs';
+
+/**
+ * Rehydrate the SQL console's query tabs from localStorage, falling back to a single
+ * default tab seeded with the "list tables" query. Best-effort + defensive: a malformed
+ * blob, a private-mode throw, or an empty list all yield the seed tab so the console
+ * always opens with at least one usable buffer.
+ *
+ * @param seedId - a fresh id for the default tab when there's nothing valid to restore
+ */
+function hydrateQueryTabs(seedId: string): { tabs: QueryTab[]; activeId: string } {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SQL_TABS_KEY) : null;
+    const parsed = raw ? JSON.parse(raw) : null;
+
+    if (parsed && Array.isArray(parsed.tabs)) {
+      const tabs = (parsed.tabs as unknown[])
+        .filter(
+          (t): t is QueryTab =>
+            !!t &&
+            typeof (t as QueryTab).id === 'string' &&
+            typeof (t as QueryTab).title === 'string' &&
+            typeof (t as QueryTab).sql === 'string',
+        )
+        .slice(0, MAX_QUERY_TABS);
+
+      if (tabs.length) {
+        const activeId =
+          typeof parsed.activeId === 'string' && tabs.some((t) => t.id === parsed.activeId)
+            ? (parsed.activeId as string)
+            : tabs[0].id;
+        return { tabs, activeId };
+      }
+    }
+  } catch {
+    // ignore — fall through to the seed tab
+  }
+  return { tabs: [{ id: seedId, title: 'Query 1', sql: LIST_TABLES_SQL }], activeId: seedId };
+}
 
 /** `sqlite_master` table/view listing — the D1 manager's "show me every table" query. */
 const LIST_TABLES_SQL =
@@ -122,7 +168,87 @@ export const DataPanel = memo(() => {
    */
   const [canRunSql, setCanRunSql] = useState(false);
   const [mode, setMode] = useState<'tables' | 'sql'>('tables');
-  const [sql, setSql] = useState(LIST_TABLES_SQL);
+
+  /*
+   * Multi-tab SQL console — independent query buffers you can switch between (each keeps
+   * its own text). Hydrated once from localStorage via a lazy ref so the three related
+   * states (tabs, active id, editor buffer) all initialise from the SAME restored bundle.
+   */
+  const tabsInit = useRef<{ tabs: QueryTab[]; activeId: string } | null>(null);
+
+  if (tabsInit.current === null) {
+    tabsInit.current = hydrateQueryTabs(newCorrelationId());
+  }
+
+  const [queryTabs, setQueryTabs] = useState<QueryTab[]>(tabsInit.current.tabs);
+  const [activeTabId, setActiveTabId] = useState<string>(tabsInit.current.activeId);
+  const [sql, setSql] = useState(
+    () => tabsInit.current!.tabs.find((t) => t.id === tabsInit.current!.activeId)?.sql ?? LIST_TABLES_SQL,
+  );
+
+  /** Persist the tab set + active id (best-effort; private mode / quota throws are ignored). */
+  const persistTabs = useCallback((tabs: QueryTab[], activeId: string) => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(SQL_TABS_KEY, JSON.stringify({ tabs, activeId }));
+      }
+    } catch {
+      // ignore — tabs are a convenience, never load-bearing
+    }
+  }, []);
+
+  /**
+   * Change the editor buffer AND mirror it into the active tab (persisted). EVERY buffer
+   * change — typing, a starter, a template, a history/saved recall — goes through here so
+   * no tab ever silently loses its text when you switch away.
+   */
+  const updateSql = useCallback(
+    (next: string) => {
+      setSql(next);
+
+      const updated = updateQueryTabSql(queryTabs, activeTabId, next);
+      setQueryTabs(updated);
+      persistTabs(updated, activeTabId);
+    },
+    [queryTabs, activeTabId, persistTabs],
+  );
+
+  /** Switch to a tab — loads its buffer into the editor (never writes the old buffer back). */
+  const switchTab = useCallback(
+    (id: string) => {
+      const t = queryTabs.find((x) => x.id === id);
+
+      if (!t) {
+        return;
+      }
+
+      setSql(t.sql);
+      setActiveTabId(id);
+      persistTabs(queryTabs, id);
+    },
+    [queryTabs, persistTabs],
+  );
+
+  /** Open a new empty tab and focus it (no-op at MAX_QUERY_TABS — the strip hides "+"). */
+  const addTab = useCallback(() => {
+    const { tabs, activeId } = addQueryTab(queryTabs, newCorrelationId(), '');
+    setQueryTabs(tabs);
+    setActiveTabId(activeId);
+    setSql(tabs.find((t) => t.id === activeId)?.sql ?? '');
+    persistTabs(tabs, activeId);
+  }, [queryTabs, persistTabs]);
+
+  /** Close a tab; the neighbour becomes active (closing the last yields one fresh tab). */
+  const closeTab = useCallback(
+    (id: string) => {
+      const { tabs, activeId } = closeQueryTab(queryTabs, id, newCorrelationId());
+      setQueryTabs(tabs);
+      setActiveTabId(activeId);
+      setSql(tabs.find((t) => t.id === activeId)?.sql ?? '');
+      persistTabs(tabs, activeId);
+    },
+    [queryTabs, persistTabs],
+  );
   const [sqlRows, setSqlRows] = useState<Record<string, unknown>[]>([]);
   const [sqlColumns, setSqlColumns] = useState<string[]>([]);
   const [sqlError, setSqlError] = useState('');
@@ -911,7 +1037,7 @@ export const DataPanel = memo(() => {
                   key={s.label}
                   type="button"
                   onClick={() => {
-                    setSql(s.query);
+                    updateSql(s.query);
                     runSql(s.query);
                   }}
                   className="text-[10px] rounded-full px-2 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-bolt-elements-item-contentAccent/40 hover:text-bolt-elements-textPrimary cursor-pointer"
@@ -922,7 +1048,7 @@ export const DataPanel = memo(() => {
               <span className="mx-0.5 h-3 w-px bg-bolt-elements-borderColor" aria-hidden />
               <button
                 type="button"
-                onClick={() => setSql(NEW_TABLE_TEMPLATE)}
+                onClick={() => updateSql(NEW_TABLE_TEMPLATE)}
                 data-testid="data-sql-new-table"
                 title="Drop a CREATE TABLE template into the editor — edit the name + columns, then Run"
                 className="text-[10px] rounded-full px-2 py-0.5 border border-bolt-elements-item-contentAccent/40 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10 cursor-pointer flex items-center gap-1"
@@ -931,7 +1057,7 @@ export const DataPanel = memo(() => {
               </button>
               <button
                 type="button"
-                onClick={() => setSql(`INSERT INTO my_table (column_a, column_b)\nVALUES ('value a', 'value b');`)}
+                onClick={() => updateSql(`INSERT INTO my_table (column_a, column_b)\nVALUES ('value a', 'value b');`)}
                 data-testid="data-sql-new-row"
                 title="Drop an INSERT template into the editor — set the table, columns + values, then Run"
                 className="text-[10px] rounded-full px-2 py-0.5 border border-bolt-elements-item-contentAccent/40 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10 cursor-pointer flex items-center gap-1"
@@ -1005,7 +1131,7 @@ export const DataPanel = memo(() => {
                     key={i}
                     type="button"
                     onClick={() => {
-                      setSql(h);
+                      updateSql(h);
                       setHistoryOpen(false);
                       runSql(h);
                     }}
@@ -1030,7 +1156,7 @@ export const DataPanel = memo(() => {
                     <button
                       type="button"
                       onClick={() => {
-                        setSql(s.query);
+                        updateSql(s.query);
                         setSavedOpen(false);
                       }}
                       title={s.query}
@@ -1054,9 +1180,70 @@ export const DataPanel = memo(() => {
                 ))}
               </div>
             )}
+            {/* Query tabs — independent buffers you can switch between; each keeps its own
+                text (localStorage-persisted). Hold a SELECT, an EXPLAIN, and a schema lookup
+                side by side without losing any of them. */}
+            <div
+              className="flex items-center gap-1 px-3 pt-2 overflow-x-auto"
+              role="tablist"
+              aria-label="Query tabs"
+              data-testid="data-sql-tabs"
+            >
+              {queryTabs.map((t) => (
+                <div
+                  key={t.id}
+                  role="tab"
+                  aria-selected={t.id === activeTabId}
+                  tabIndex={0}
+                  data-testid="data-sql-tab"
+                  onClick={() => switchTab(t.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      switchTab(t.id);
+                    }
+                  }}
+                  className={classNames(
+                    'group flex items-center gap-1 shrink-0 rounded-t-md px-2 py-1 text-[11px] cursor-pointer border-b-2',
+                    t.id === activeTabId
+                      ? 'border-bolt-elements-item-contentAccent text-bolt-elements-textPrimary'
+                      : 'border-transparent text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary',
+                  )}
+                >
+                  <span className="max-w-[10rem] truncate">{t.title}</span>
+                  {queryTabs.length > 1 && (
+                    <button
+                      type="button"
+                      data-testid="data-sql-tab-close"
+                      aria-label={`Close ${t.title}`}
+                      title={`Close ${t.title}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        closeTab(t.id);
+                      }}
+                      className="shrink-0 opacity-40 hover:opacity-100 hover:text-red-400 cursor-pointer"
+                    >
+                      <div className="i-ph:x text-[10px]" />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {queryTabs.length < MAX_QUERY_TABS && (
+                <button
+                  type="button"
+                  data-testid="data-sql-tab-add"
+                  aria-label="New query tab"
+                  title="New query tab"
+                  onClick={addTab}
+                  className="shrink-0 px-1.5 py-1 text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer"
+                >
+                  <div className="i-ph:plus text-[12px]" />
+                </button>
+              )}
+            </div>
             <textarea
               value={sql}
-              onChange={(e) => setSql(e.target.value)}
+              onChange={(e) => updateSql(e.target.value)}
               onKeyDown={(e) => {
                 if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                   e.preventDefault();
@@ -1232,7 +1419,7 @@ export const DataPanel = memo(() => {
                               aria-label={`Browse ${r.name}`}
                               onClick={() => {
                                 const q = `SELECT * FROM "${r.name}" LIMIT 100;`;
-                                setSql(q);
+                                updateSql(q);
                                 runSql(q);
                               }}
                               className="i-ph:arrow-square-out text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer"
@@ -1244,7 +1431,7 @@ export const DataPanel = memo(() => {
                               data-testid="data-sql-structure"
                               onClick={() => {
                                 const q = `SELECT cid, name AS "column", type, "notnull" AS not_null, dflt_value AS default_value, pk FROM pragma_table_info('${r.name}') ORDER BY cid;`;
-                                setSql(q);
+                                updateSql(q);
                                 runSql(q);
                               }}
                               className="i-ph:table text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer"

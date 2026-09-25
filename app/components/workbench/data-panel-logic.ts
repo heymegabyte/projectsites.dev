@@ -778,3 +778,119 @@ export function sqlConsoleTarget(): SqlConsoleTarget {
       'Runs against the D1 shared by every site — a write affects all tenants. Protected platform tables are blocked and destructive statements confirm first.',
   };
 }
+
+/**
+ * One SQL editor buffer in the multi-tab console — an independent query you can keep in
+ * flight and switch between (each tab preserves its own text). Lets an operator hold a
+ * SELECT, an EXPLAIN, and a schema lookup side by side without losing any of them.
+ */
+export interface QueryTab {
+  id: string;
+  title: string;
+  sql: string;
+}
+
+/** Max concurrent query tabs — a soft cap so the strip stays usable + localStorage bounded. */
+export const MAX_QUERY_TABS = 8;
+
+/**
+ * The title for the next new tab: `"Query N"` with the smallest positive N not already
+ * taken by an existing `"Query N"` title (so closing #2 then adding reuses "Query 2").
+ *
+ * @param tabs - the current tabs
+ * @returns the next default tab title
+ * @example nextQueryTabTitle([{ id: 'a', title: 'Query 1', sql: '' }]) // 'Query 2'
+ */
+export function nextQueryTabTitle(tabs: readonly QueryTab[]): string {
+  const used = new Set<number>();
+
+  for (const t of tabs) {
+    const m = /^Query (\d+)$/.exec(t.title);
+
+    if (m) {
+      used.add(Number(m[1]));
+    }
+  }
+
+  let n = 1;
+
+  while (used.has(n)) {
+    n++;
+  }
+
+  return `Query ${n}`;
+}
+
+/**
+ * Append a new tab seeded with `sql`, using the caller-supplied unique `id` (kept pure +
+ * testable — the caller owns id generation). At {@link MAX_QUERY_TABS} the list is returned
+ * unchanged and the last tab stays active, so the caller can surface "tab limit reached".
+ *
+ * @param tabs - current tabs
+ * @param id - a unique id for the new tab
+ * @param sql - initial buffer text (default empty)
+ * @param title - optional explicit title (default the next `"Query N"`)
+ * @returns `{ tabs, activeId }` — the new list + the id that should become active
+ * @example addQueryTab([], 't1').activeId // 't1'
+ */
+export function addQueryTab(
+  tabs: readonly QueryTab[],
+  id: string,
+  sql = '',
+  title?: string,
+): { tabs: QueryTab[]; activeId: string } {
+  if (tabs.length >= MAX_QUERY_TABS) {
+    return { tabs: [...tabs], activeId: tabs[tabs.length - 1]?.id ?? id };
+  }
+
+  const tab: QueryTab = { id, title: title ?? nextQueryTabTitle(tabs), sql };
+
+  return { tabs: [...tabs, tab], activeId: id };
+}
+
+/**
+ * Close the tab with `id`. NEVER returns an empty list — closing the last tab yields a
+ * single fresh empty tab (using `freshId`). The newly-active tab is the closed tab's
+ * neighbor (same index, clamped) so focus stays where the user was.
+ *
+ * @param tabs - current tabs
+ * @param id - the tab to close
+ * @param freshId - id to use if the last tab is closed (a fresh empty tab is created)
+ * @returns `{ tabs, activeId }` — the remaining list + the id to activate
+ * @example closeQueryTab([{id:'a',title:'Query 1',sql:''}], 'a', 'z').tabs.length // 1 (a fresh tab)
+ */
+export function closeQueryTab(
+  tabs: readonly QueryTab[],
+  id: string,
+  freshId: string,
+): { tabs: QueryTab[]; activeId: string } {
+  const idx = tabs.findIndex((t) => t.id === id);
+
+  if (idx === -1) {
+    return { tabs: [...tabs], activeId: tabs[0]?.id ?? freshId };
+  }
+
+  const remaining = tabs.filter((t) => t.id !== id);
+
+  if (remaining.length === 0) {
+    const fresh: QueryTab = { id: freshId, title: 'Query 1', sql: '' };
+    return { tabs: [fresh], activeId: freshId };
+  }
+
+  const nextIdx = Math.min(idx, remaining.length - 1);
+
+  return { tabs: remaining, activeId: remaining[nextIdx]!.id };
+}
+
+/**
+ * Immutably set the `sql` of the tab with `id` (a no-op copy when the id is absent). The
+ * component calls this on every edit so the active tab always mirrors the live editor.
+ *
+ * @param tabs - current tabs
+ * @param id - the tab to update
+ * @param sql - the new buffer text
+ * @returns a new tabs array with that tab's `sql` replaced
+ */
+export function updateQueryTabSql(tabs: readonly QueryTab[], id: string, sql: string): QueryTab[] {
+  return tabs.map((t) => (t.id === id ? { ...t, sql } : t));
+}

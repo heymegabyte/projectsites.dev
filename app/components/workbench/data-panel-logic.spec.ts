@@ -29,6 +29,11 @@ import {
   isExpensiveScan,
   EXPENSIVE_SCAN_ROWS,
   sqlConsoleTarget,
+  MAX_QUERY_TABS,
+  nextQueryTabTitle,
+  addQueryTab,
+  closeQueryTab,
+  updateQueryTabSql,
 } from './data-panel-logic';
 
 describe('iconForTable', () => {
@@ -515,5 +520,59 @@ describe('sqlConsoleTarget', () => {
   it('returns a fresh object each call (no shared singleton to mutate)', () => {
     expect(sqlConsoleTarget()).not.toBe(sqlConsoleTarget());
     expect(sqlConsoleTarget()).toEqual(sqlConsoleTarget());
+  });
+});
+
+describe('query tabs (multi-buffer SQL console)', () => {
+  const tab = (id: string, title: string, sql = '') => ({ id, title, sql });
+
+  it('nextQueryTabTitle picks the smallest unused "Query N"', () => {
+    expect(nextQueryTabTitle([])).toBe('Query 1');
+    expect(nextQueryTabTitle([tab('a', 'Query 1')])).toBe('Query 2');
+
+    // gap reuse: 1 and 3 used → 2 is next
+    expect(nextQueryTabTitle([tab('a', 'Query 1'), tab('c', 'Query 3')])).toBe('Query 2');
+
+    // custom titles are ignored by the numbering
+    expect(nextQueryTabTitle([tab('a', 'My report')])).toBe('Query 1');
+  });
+
+  it('addQueryTab appends with the next title and makes it active', () => {
+    const r = addQueryTab([tab('a', 'Query 1', 'SELECT 1')], 'b', 'SELECT 2');
+    expect(r.tabs.map((t) => t.id)).toEqual(['a', 'b']);
+    expect(r.tabs[1]).toEqual({ id: 'b', title: 'Query 2', sql: 'SELECT 2' });
+    expect(r.activeId).toBe('b');
+  });
+
+  it('addQueryTab refuses past MAX_QUERY_TABS (list unchanged, last stays active)', () => {
+    const full = Array.from({ length: MAX_QUERY_TABS }, (_, i) => tab(`t${i}`, `Query ${i + 1}`));
+    const r = addQueryTab(full, 'overflow');
+    expect(r.tabs).toHaveLength(MAX_QUERY_TABS); // unchanged
+    expect(r.tabs.some((t) => t.id === 'overflow')).toBe(false);
+    expect(r.activeId).toBe(`t${MAX_QUERY_TABS - 1}`);
+  });
+
+  it('closeQueryTab activates the neighbor (same index, clamped)', () => {
+    const tabs = [tab('a', 'Query 1'), tab('b', 'Query 2'), tab('c', 'Query 3')];
+    const mid = closeQueryTab(tabs, 'b', 'fresh');
+    expect(mid.tabs.map((t) => t.id)).toEqual(['a', 'c']);
+    expect(mid.activeId).toBe('c'); // index 1 → clamped stays at the new index-1 (c)
+
+    const last = closeQueryTab(tabs, 'c', 'fresh');
+    expect(last.activeId).toBe('b'); // closing the last → previous neighbor
+  });
+
+  it('closeQueryTab never returns an empty list — the last close yields one fresh tab', () => {
+    const r = closeQueryTab([tab('only', 'Query 1', 'SELECT 1')], 'only', 'fresh');
+    expect(r.tabs).toEqual([{ id: 'fresh', title: 'Query 1', sql: '' }]);
+    expect(r.activeId).toBe('fresh');
+  });
+
+  it('updateQueryTabSql immutably sets only the target tab (absent id = no-op copy)', () => {
+    const tabs = [tab('a', 'Query 1', 'X'), tab('b', 'Query 2', 'Y')];
+    const out = updateQueryTabSql(tabs, 'b', 'Y2');
+    expect(out).not.toBe(tabs);
+    expect(out.map((t) => t.sql)).toEqual(['X', 'Y2']);
+    expect(updateQueryTabSql(tabs, 'zzz', 'Z').map((t) => t.sql)).toEqual(['X', 'Y']);
   });
 });
