@@ -1035,7 +1035,8 @@ export async function loadMultiUrlAnalytics(
       for (const [s, v] of dv.by_status_visits)
         mergedStatusVisits.set(s, (mergedStatusVisits.get(s) ?? 0) + v);
       for (const [k, c] of dv.by_cache) mergedCache.set(k, (mergedCache.get(k) ?? 0) + c);
-      for (const [k, b] of dv.by_cache_bytes) mergedCacheBytes.set(k, (mergedCacheBytes.get(k) ?? 0) + b);
+      for (const [k, b] of dv.by_cache_bytes)
+        mergedCacheBytes.set(k, (mergedCacheBytes.get(k) ?? 0) + b);
       mergeInto(mergedProtocol, dv.by_protocol);
       mergeInto(mergedTls, dv.by_tls);
       mergeInto(mergedContent, dv.by_content);
