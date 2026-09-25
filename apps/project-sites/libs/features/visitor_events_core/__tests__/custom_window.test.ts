@@ -20,6 +20,7 @@ import {
   getTrafficSummary,
   getWebVitalsSummary,
   getJsErrorSummary,
+  getEngagementSummary,
   getConversionKinds,
   getPreviousConversionKinds,
   getDimensionBreakdown,
@@ -445,5 +446,79 @@ describe('getJsErrorSummary — first-party site-health', () => {
     const q = calls.find((c) => c.sql.includes("event_type = 'js_error'"));
     expect(q?.sql).toContain('site_id = ?'); // bound predicate, not a literal
     expect(q?.params).toContain('site-XYZ'); // the caller-scoped site is a bound param
+  });
+});
+
+describe('getEngagementSummary — first-party time-on-page (median dwell)', () => {
+  /** D1 stub returning the given {path, duration} rows for the page_engagement query. */
+  function engEnv(
+    rows: Array<{ path: string | null; duration: number }>,
+    opts: { error?: boolean } = {},
+  ): Env {
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...params: unknown[]) {
+            return {
+              all: async () => {
+                if (opts.error) throw new Error('no such table');
+                return { results: sql.includes("event_type = 'page_engagement'") ? rows : [] };
+              },
+              first: async () => null,
+              run: async () => ({ success: true }),
+              _params: params,
+            };
+          },
+        };
+      },
+    };
+    return { DB: db } as unknown as Env;
+  }
+
+  it('computes the site-wide MEDIAN dwell (not mean — outlier-resistant)', async () => {
+    // durations: 1s,2s,3s,4s,100s → median 3s (mean would be ~22s, skewed by the 100s outlier)
+    const rows = [1000, 2000, 3000, 4000, 100000].map((d) => ({ path: '/', duration: d }));
+    const s = await getEngagementSummary(engEnv(rows), 'site_1', 30);
+    expect(s.medianMs).toBe(3000);
+    expect(s.samples).toBe(5);
+  });
+
+  it('reports per-page median, longest-dwell first, past the 5-sample floor', async () => {
+    const rows = [
+      ...Array.from({ length: 5 }, () => ({ path: '/pricing', duration: 60000 })), // 60s ×5 (qualifies)
+      ...Array.from({ length: 5 }, () => ({ path: '/', duration: 10000 })), // 10s ×5 (qualifies)
+      ...Array.from({ length: 2 }, () => ({ path: '/thin', duration: 90000 })), // only 2 → below floor
+    ];
+    const s = await getEngagementSummary(engEnv(rows), 'site_1', 30);
+    expect(s.byPage.map((p) => p.path)).toEqual(['/pricing', '/']); // /thin dropped (below floor); longest first
+    expect(s.byPage[0]).toEqual({ path: '/pricing', medianMs: 60000, samples: 5 });
+  });
+
+  it('no samples → {medianMs:null, samples:0, byPage:[]} (measuring…, never a fabricated 0)', async () => {
+    const s = await getEngagementSummary(engEnv([]), 'site_1', 30);
+    expect(s).toEqual({ medianMs: null, samples: 0, byPage: [] });
+  });
+
+  it('fail-soft — a query error yields the empty summary, never throws', async () => {
+    const s = await getEngagementSummary(engEnv([], { error: true }), 'site_1', 30);
+    expect(s).toEqual({ medianMs: null, samples: 0, byPage: [] });
+  });
+
+  it('scopes to the tenant — the site_id predicate is bound, never interpolated', async () => {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...params: unknown[]) {
+            calls.push({ sql, params });
+            return { all: async () => ({ results: [] }), first: async () => null, run: async () => ({}) };
+          },
+        };
+      },
+    };
+    await getEngagementSummary({ DB: db } as unknown as Env, 'site-ABC', 30);
+    const q = calls.find((c) => c.sql.includes("event_type = 'page_engagement'"));
+    expect(q?.sql).toContain('site_id = ?');
+    expect(q?.params).toContain('site-ABC');
   });
 });
