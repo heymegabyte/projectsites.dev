@@ -1762,6 +1762,8 @@ export interface SiteTrafficSummary {
     transfer: number | null;
     dom: number | null;
     total: number | null;
+    /** AN-NAV-PAGE — slowest pages by median total load, each with its median server-wait (TTFB). */
+    byPage?: { path: string; ttfb: number | null; total: number; samples: number }[];
   };
   /** AN-OUTBOUND — top clicked outbound/contact links (which links, by destination). `total`
    *  counts every link-click; `byLink` is the top-8 destinations, each with kind + count. */

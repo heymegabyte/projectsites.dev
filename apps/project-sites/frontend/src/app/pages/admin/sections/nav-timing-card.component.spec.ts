@@ -65,4 +65,40 @@ describe('NavTimingCardComponent', () => {
     const { el } = render(undefined);
     expect(el.querySelector('[data-testid="an-navtiming-empty"]')).toBeTruthy();
   });
+
+  it('renders the slowest pages with total load + per-page server-wait (TTFB), server chip omitted when TTFB null', () => {
+    const { fixture, el } = render({
+      samples: 40,
+      dns: 10,
+      connect: 20,
+      ttfb: 300,
+      transfer: 30,
+      dom: 200,
+      total: 1200,
+      byPage: [
+        { path: '/checkout', ttfb: 800, total: 3000, samples: 5 }, // slow SERVER
+        { path: '/', ttfb: null, total: 1000, samples: 20 },
+      ],
+    });
+    const pages = fixture.debugElement.queryAll(By.css('[data-testid="an-navtiming-page"]'));
+    expect(pages.length).toBe(2);
+    expect(pages[0].nativeElement.textContent).toContain('/checkout'); // worst-first (server order)
+    expect(pages[0].nativeElement.textContent).toContain('3.0s');
+    expect(pages[0].nativeElement.textContent).toContain('800ms server'); // per-page TTFB
+    // /'s TTFB is null → NO server chip (never a fabricated 0)
+    expect(el.querySelectorAll('[data-testid="an-navtiming-page-ttfb"]').length).toBe(1);
+  });
+
+  it('hides the slowest-pages block when byPage is absent (no fabricated rows)', () => {
+    const { fixture } = render({
+      samples: 40,
+      dns: 10,
+      connect: 20,
+      ttfb: 300,
+      transfer: 30,
+      dom: 200,
+      total: 1200,
+    });
+    expect(fixture.debugElement.query(By.css('[data-testid="an-navtiming-pages"]'))).toBeNull();
+  });
 });

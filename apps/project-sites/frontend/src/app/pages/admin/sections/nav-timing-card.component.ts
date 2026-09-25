@@ -12,6 +12,14 @@
  */
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
+/** One slow page: median total load + median server-wait (TTFB), past a sample floor. */
+export interface NavSlowPage {
+  path: string;
+  ttfb: number | null;
+  total: number;
+  samples: number;
+}
+
 /** The `traffic.navTiming` shape. */
 export interface NavTimingBlock {
   samples: number;
@@ -21,6 +29,7 @@ export interface NavTimingBlock {
   transfer: number | null;
   dom: number | null;
   total: number | null;
+  byPage?: NavSlowPage[];
 }
 
 /** One phase row for the waterfall. */
@@ -62,6 +71,13 @@ const PHASES: ReadonlyArray<{ key: keyof NavTimingBlock; label: string }> = [
     .nt-bar-fill { height: 100%; border-radius: 999px; background: var(--ps-accent, #00e5ff); }
     .nt-row-ms { color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .nt-note { margin: 0.55rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+    .nt-pages { margin: 0.75rem 0 0; padding: 0.7rem 0 0; border-top: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); }
+    .nt-pages-h { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); margin-bottom: 0.3rem; }
+    .nt-page-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.25rem; }
+    .nt-page-row { display: flex; justify-content: space-between; gap: 0.6rem; font-size: 0.72rem; }
+    .nt-page-path { color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .nt-page-ms { color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0; }
+    .nt-page-ttfb { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); }
     `,
   ],
   template: `
@@ -87,6 +103,26 @@ const PHASES: ReadonlyArray<{ key: keyof NavTimingBlock; label: string }> = [
             </div>
           }
         </div>
+
+        @if (slowestPages().length) {
+          <div class="nt-pages" data-testid="an-navtiming-pages">
+            <div class="nt-pages-h">Slowest pages · median load · server wait</div>
+            <ul class="nt-page-list">
+              @for (pg of slowestPages(); track pg.path) {
+                <li class="nt-page-row" data-testid="an-navtiming-page">
+                  <span class="nt-page-path" [attr.title]="pg.path">{{ pg.path }}</span>
+                  <span class="nt-page-ms">
+                    {{ fmt(pg.total) }}
+                    @if (pg.ttfb !== null) {
+                      <span class="nt-page-ttfb" data-testid="an-navtiming-page-ttfb" title="Median server wait (TTFB) for this page — high = slow SERVER, not slow browser">· {{ fmt(pg.ttfb) }} server</span>
+                    }
+                  </span>
+                </li>
+              }
+            </ul>
+          </div>
+        }
+
         <p class="nt-note">
           First-party — where your pages spend their load time, measured in every browser by the
           ProjectSites beacon (Cloudflare's plan has no latency dataset). Each phase is an
@@ -115,6 +151,9 @@ export class NavTimingCardComponent {
   readonly total = computed<number | null>(() => this.navTiming()?.total ?? null);
   /** Measured page loads behind the medians. */
   readonly samples = computed(() => this.navTiming()?.samples ?? 0);
+
+  /** Slowest pages by median total load (server-provided, worst-first, floor-gated). Empty when absent. */
+  readonly slowestPages = computed<NavSlowPage[]>(() => this.navTiming()?.byPage ?? []);
 
   /**
    * The phase rows, each bar scaled to the LARGEST phase median (so bars compare phases to each
