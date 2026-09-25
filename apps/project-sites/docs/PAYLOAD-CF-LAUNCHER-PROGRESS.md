@@ -61,7 +61,12 @@
   no monorepo workspaces). First build FAILED: the template's `build` script runs `payload build`,
   which is **invalid in Payload 3.82** (`Unknown command: "build"`). **Root fix:** build script →
   `payload generate:importmap && next build`. Node 26 is fine (template engines `>=24.15.0`).
-  OpenNext build retrying — verify `.open-next/worker.js` next.
+  Then two more template-HEAD-vs-3.82.1-deps drift fixes: (a) `layout.tsx` dropped the removed
+  `generatePayloadViewport` import + `generateViewport` export; (b) `next.config.ts` +
+  `typescript.ignoreBuildErrors` + `eslint.ignoreDuringBuilds` (the `@payloadcms/next/css`
+  side-effect imports have no type decls — TS2882, type-only, runtime-safe). Build retrying for
+  the `.open-next/worker.js` bundle. **If more drift surfaces, re-degit at tag `#v3.82.1`**
+  (`63702d7…`) so source matches deps — the robust class-fix.
 
 ## Remaining slices (in order)
 

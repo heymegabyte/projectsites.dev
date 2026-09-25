@@ -20,7 +20,9 @@
       "binding": "D1",
       "database_id": "DATABASE_ID",
       "database_name": "my-app",
-      "remote": true,
+      // Build uses a LOCAL D1 (no remote proxy / API token needed at build time). The
+      // per-instance deploy generates its own config with the real D1 id + remote:true.
+      "remote": false,
     },
   ],
   "services": [
