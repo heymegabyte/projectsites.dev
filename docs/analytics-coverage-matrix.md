@@ -63,6 +63,12 @@ gated.
   bot-management score). Prod-verified real data. +1 worker Jest + 2 Karma.
   **NEXT from this map (exact, buildable):** `sum.visits`/edge-requests as explicit CF metrics ·
   `coloCode` edge-network view · edge geo/device to complement first-party.
+- **First-party page-load timing SHIPPED (2026-09-25):** since CF gates edge latency, we now measure it
+  OURSELVES — `app.js` beacons **FCP** (paint observer) + **TTFB** (Navigation Timing `responseStart`);
+  `getWebVitalsSummary` aggregates their p75 + good/needs/poor distribution (thresholds FCP 1800/3000,
+  TTFB 800/1800), surfaced in a "Page load speed" section of the CWV card. Covers EVERY browser (unlike
+  Chromium-only CWV). Beacon prod-verified live; `traffic.webVitals.{fcp,ttfb}` keys live (null until
+  re-served sites accrue samples — honest, hides the section meanwhile). This is the app.js-augmentation lane.
 
 ## Coverage matrix
 
