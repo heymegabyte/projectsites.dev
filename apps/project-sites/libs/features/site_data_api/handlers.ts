@@ -204,13 +204,15 @@ export function deletableTableName(key: string): string | undefined {
     : undefined;
 }
 
-/** How one owner-editable overview column is typed + validated. */
-export interface EditableColumnSpec {
-  /** Only 'enum' today — a fixed option set mirroring the D1 CHECK constraint. */
-  type: 'enum';
-  /** Allowed values; anything outside is a 400 (never written). */
-  options: readonly string[];
-}
+/**
+ * How one owner-editable overview column is typed + validated. A discriminated union:
+ * `enum` (a fixed option set mirroring a D1 CHECK constraint) or `text` (bounded free
+ * text, e.g. an owner's private note on a lead). The `type` discriminant drives BOTH the
+ * server validator ({@link validateEditableValue}) and the row-detail editor the UI renders.
+ */
+export type EditableColumnSpec =
+  | { type: 'enum'; options: readonly string[] }
+  | { type: 'text'; maxLength: number };
 
 /**
  * Per-table, per-column EDIT allowlist for the owner Data browser — the boundary AND
@@ -227,6 +229,9 @@ export const EDITABLE_OVERVIEW_COLUMNS: Readonly<
 > = {
   form_submissions: {
     status: { type: 'enum', options: ['received', 'forwarded', 'partial', 'failed'] },
+    // Owner's private free-text note on a lead ("called back 3pm — interested"). Bounded
+    // ≤2000 chars; empty string is valid (clears the note). Not lead-supplied PII.
+    notes: { type: 'text', maxLength: 2000 },
   },
 };
 
@@ -257,23 +262,32 @@ export function editableColumn(key: string, column: string): EditableColumnSpec 
 }
 
 /**
- * Validate a candidate value against a column's edit spec. Enum: the value (coerced
- * to string) must be one of `options`. Returns the string to bind, or an error reason.
+ * Validate a candidate value against a column's edit spec. Enum: the value (coerced to
+ * string) must be one of `options`. Text: any string ≤ `maxLength` (empty = clear the
+ * note; null/undefined coerce to ''). Returns the string to bind, or an error reason.
  *
  * @example validateEditableValue({type:'enum',options:['a','b']}, 'a') // { ok:true, value:'a' }
  * @example validateEditableValue({type:'enum',options:['a']}, 'x')     // { ok:false, reason:… }
+ * @example validateEditableValue({type:'text',maxLength:5}, 'hello')   // { ok:true, value:'hello' }
+ * @example validateEditableValue({type:'text',maxLength:2}, 'nope')    // { ok:false, reason:… }
  */
 export function validateEditableValue(
   spec: EditableColumnSpec,
   raw: unknown,
 ): { ok: true; value: string } | { ok: false; reason: string } {
-  const value = String(raw ?? '');
-  if (spec.type === 'enum') {
-    return spec.options.includes(value)
+  if (spec.type === 'text') {
+    // Free text: an empty string is VALID (clears the note) — coerce null/undefined → ''
+    // so "clear the note" is a first-class action. Reject only over-length.
+    const value = raw == null ? '' : String(raw);
+    return value.length <= spec.maxLength
       ? { ok: true, value }
-      : { ok: false, reason: `Value must be one of: ${spec.options.join(', ')}` };
+      : { ok: false, reason: `Must be ${spec.maxLength} characters or fewer` };
   }
-  return { ok: false, reason: 'Unsupported column type' };
+  // enum: the value (coerced to string) must be one of the allowed options.
+  const value = String(raw ?? '');
+  return spec.options.includes(value)
+    ? { ok: true, value }
+    : { ok: false, reason: `Value must be one of: ${spec.options.join(', ')}` };
 }
 
 /**
