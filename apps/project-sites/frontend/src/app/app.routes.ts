@@ -267,6 +267,17 @@ export const routes: Routes = [
           ),
       },
       {
+        // Read-only super-admin Queues inspector — the account's Cloudflare Queues
+        // (job/workflow pipelines). Backend GET /api/admin/queues/* is super-admin +
+        // `queues_inspector`-flag gated (404-dark); sysAdminGuard hides the route.
+        path: 'queues-inspector',
+        canActivate: [sysAdminGuard],
+        loadComponent: () =>
+          import('./pages/admin/sections/queues-inspector.component').then(
+            (m) => m.QueuesInspectorComponent,
+          ),
+      },
+      {
         // Super-Admin lead scanner (#9) — Places no-website scan → scored leads →
         // mint outreach claim links. Flag-dark (`lead_scanner`) + super-admin only;
         // the worker route 404s when the flag is off and 403s non-operators.

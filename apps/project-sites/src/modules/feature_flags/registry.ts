@@ -455,6 +455,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  queues_inspector: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Read-only, super-admin platform debugging tool for the account Cloudflare Queues (job / workflow pipelines — shared platform infra, not tenant-owned).\n\n• Worker: libs/features/queues_inspector/handlers.ts serves GET /api/admin/queues (list) + /api/admin/queues/:id (describe: delivery delay, message retention, producers + consumers with worker script/service).\n• Cloudflare credentials stay SERVER-side (worker global key via resolveCfCredentials); account id is env.CF_ACCOUNT_ID, never client-supplied. :id validated as a slug/hex (no REST-path injection); the super-admin gate is the authz boundary.\n• Read-only (no publish/purge/delete). Super-admin only; flag off → 404 (never leak existence). Honest "not available" (never a fabricated empty list) when creds/API fail.\n• Admin surface: /admin/queues-inspector (System Administrator).',
+    key: 'queues_inspector',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   site_analytics: {
     default_enabled: false,
     default_rollout_percent: 0,
