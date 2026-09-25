@@ -40,6 +40,12 @@ export const ADMIN_SECTION_LABELS: Readonly<Record<string, string>> = {
   // Operator sections — nav-linked but were missing labels → title fell back to
   // 'Dashboard' (WCAG 2.4.2 Page Titled). Found via the route↔nav↔label coverage diff.
   leads: 'Lead Scanner',
+  // Data-resource inspectors — components + routes shipped (a00e1143e / R2), but were
+  // missing labels → document title fell back to 'Dashboard' (WCAG 2.4.2). Labels match each h1.
+  'kv-inspector': 'KV Inspector',
+  'r2-inspector': 'R2 Inspector',
+  'vectorize-inspector': 'Vectorize Inspector',
+  'queues-inspector': 'Queues Inspector',
   'super-admin': 'Super Admin',
 };
 

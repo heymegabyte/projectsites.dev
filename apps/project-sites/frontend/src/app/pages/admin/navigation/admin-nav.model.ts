@@ -132,6 +132,44 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
         sysAdminOnly: true,
         testid: 'nav-system-services',
       },
+      {
+        // KV Inspector — read-only platform KV browser. Component + route shipped
+        // (a00e1143e) but was never nav-linked → reachable only by typing the URL.
+        icon: 'system-services',
+        id: 'kv-inspector',
+        label: 'KV Inspector',
+        route: '/admin/kv-inspector',
+        sysAdminOnly: true,
+        testid: 'nav-kv-inspector',
+      },
+      {
+        // R2 Inspector — read-only platform R2 object browser. Same built-but-unwired
+        // gap as KV; wired here so both shipped data-resource inspectors are discoverable.
+        icon: 'system-services',
+        id: 'r2-inspector',
+        label: 'R2 Inspector',
+        route: '/admin/r2-inspector',
+        sysAdminOnly: true,
+        testid: 'nav-r2-inspector',
+      },
+      {
+        // Vectorize Inspector — read-only vector-index browser. Shipped but un-nav-linked.
+        icon: 'system-services',
+        id: 'vectorize-inspector',
+        label: 'Vectorize Inspector',
+        route: '/admin/vectorize-inspector',
+        sysAdminOnly: true,
+        testid: 'nav-vectorize-inspector',
+      },
+      {
+        // Queues Inspector — read-only queue/backlog browser. Shipped but un-nav-linked.
+        icon: 'system-services',
+        id: 'queues-inspector',
+        label: 'Queues Inspector',
+        route: '/admin/queues-inspector',
+        sysAdminOnly: true,
+        testid: 'nav-queues-inspector',
+      },
     ],
     label: 'Operations',
   },
