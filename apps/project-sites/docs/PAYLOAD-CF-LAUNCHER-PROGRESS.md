@@ -78,6 +78,37 @@
   `/admin` login → assert 200** (the acceptance milestone). Build env that worked: `PAYLOAD_SECRET`
   set + `NODE_OPTIONS=--max-old-space-size=8000` + D1 `remote:false`.
 
+## ✅✅✅ FULL REAL GOLDEN PATH PROVEN END-TO-END (Fire 6, 2026-09-25)
+
+Ran the COMPLETE lifecycle with the REAL Payload CMS against live CF (self-cleaning), evidence:
+1. **Provision** D1 (`bb2a955a…`) + R2 (`payload-r3-fb1436`) ✅
+2. **Migrate** the real remote D1 → `Migrated: 20260925_223056_init (28ms)  Done.` ✅ (non-interactive
+   `payload migrate` applying the committed migrations)
+3. **Deploy** the REAL OpenNext Payload bundle → `opennextjs-cloudflare deploy` exit 0 ✅ — the scoped
+   token failed the edge-preview auth (code 10000), the **GLOBAL KEY fallback succeeded**
+4. **Access** `https://payload-r3-fb1436.manhattan.workers.dev/admin` → **HTTP 200** ✅✅✅ (real Payload
+   admin login)
+5. **Delete** (cascade) Worker + D1 + R2 ✅
+6. **Verify** Worker gone · D1 gone · R2 gone ✅ — ZERO dangling
+
+**THE WINNING RECIPE (per-instance Payload on CF):**
+- Build once: `payload generate:importmap && next build --webpack` (NOT Turbopack) + drizzle-kit
+  Turbopack stub-alias + TS/lint skip + `layout.tsx` viewport drop + migrations committed.
+- Per instance: create D1 + R2 → `payload migrate` (remote:true, apply committed migrations,
+  non-interactive) → deploy the `.open-next` bundle with per-instance bindings (`D1` id, `R2`
+  bucket, `PAYLOAD_SECRET`) at `remote:false` → **deploy auth = GLOBAL KEY** (scoped token lacks
+  edge-preview/subdomain perms) → enable subdomain → **`/admin` = 200** → delete Worker+D1+R2.
+
+**REMAINING = productionize into the customer flow (the mechanism is proven; this is wiring):**
+1. Port the proven script into a provisioner service the `/admin/apps` **Launch** button calls
+   (create D1+R2 → migrate → deploy bundle → record ids on `app_instances`) + the **Delete** button
+   calls (cascade-delete + verify). Persist the OpenNext `.open-next` bundle as the artifact.
+2. Route at **`{slug}.app.projectsites.dev`** (WfP dispatch user Worker + assets-upload-session,
+   OR a per-instance custom hostname) instead of `workers.dev`.
+3. Runtime deploy credential: the deploy needs the **global key** (or a token scoped with Workers
+   Scripts + Workers Subdomain + D1 + R2 edit) as a Worker secret / provisioning-side.
+4. max-3-per-site + `site_id` column (per the earlier slices).
+
 ## ✅✅ REAL PAYLOAD BUNDLE BUILDS (Fire 5, 2026-09-25) — the 5-fire blocker is CLEARED
 
 `opennextjs-cloudflare build` = **exit 0, 0 esbuild errors, "Worker saved in `.open-next/worker.js` 🚀
