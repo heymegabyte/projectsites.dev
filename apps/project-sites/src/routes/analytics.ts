@@ -29,7 +29,15 @@ import { recordVisitorEvent } from '../../libs/features/visitor_events_core/serv
  * (adds `error`/`scroll`), so the guard both filters AND narrows to a valid
  * `VisitorEventType` before we call `recordVisitorEvent`.
  */
-const VISITOR_MIRROR_TYPES = ['conversion', 'form_start', 'form_submit', 'web_vital', 'js_error', 'page_engagement', 'scroll_depth'] as const;
+const VISITOR_MIRROR_TYPES = [
+  'conversion',
+  'form_start',
+  'form_submit',
+  'web_vital',
+  'js_error',
+  'page_engagement',
+  'scroll_depth',
+] as const;
 type VisitorMirrorType = (typeof VISITOR_MIRROR_TYPES)[number];
 const isVisitorMirrorType = (t: string): t is VisitorMirrorType =>
   (VISITOR_MIRROR_TYPES as readonly string[]).includes(t);
@@ -260,7 +268,8 @@ analyticsRoutes.post('/api/events', async (c) => {
                     // bound string, never executed.
                     message: typeof p?.message === 'string' ? p.message.slice(0, 300) : undefined,
                     source: typeof p?.source === 'string' ? p.source.slice(0, 300) : undefined,
-                    line: typeof p?.line === 'number' && Number.isFinite(p.line) ? p.line : undefined,
+                    line:
+                      typeof p?.line === 'number' && Number.isFinite(p.line) ? p.line : undefined,
                   }
                 : mirrorType === 'page_engagement'
                   ? {

@@ -47,7 +47,11 @@ describe('IncomingEventSchema', () => {
     const err = {
       ...base,
       eventType: 'js_error' as const,
-      payload: { message: "Cannot read properties of undefined (reading 'x')", source: '/assets/app.js', line: 42 },
+      payload: {
+        message: "Cannot read properties of undefined (reading 'x')",
+        source: '/assets/app.js',
+        line: 42,
+      },
     };
     expect(IncomingEventSchema.safeParse(err).success).toBe(true);
   });
