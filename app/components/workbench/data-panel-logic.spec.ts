@@ -18,7 +18,7 @@ import {
   addSavedQuery,
   removeSavedQuery,
   parseCsv,
-  csvToInserts,
+  buildCsvImportPlan,
   CsvImportError,
   pkFromTableInfo,
   stripSqlCommentsAndStrings,
@@ -251,32 +251,64 @@ describe('parseCsv', () => {
   });
 });
 
-describe('csvToInserts', () => {
-  it('builds a parameter-safe INSERT per data row', () => {
-    const r = csvToInserts('a,b\n1,2', 't');
-    expect(r.columns).toEqual(['a', 'b']);
-    expect(r.rowCount).toBe(1);
-    expect(r.inserts).toEqual(['INSERT INTO "t" ("a", "b") VALUES (\'1\', \'2\');']);
+describe('buildCsvImportPlan (parameterized + chunked CSV → table import)', () => {
+  it('builds ONE parameterized multi-row INSERT — values BOUND as ?, never inlined', () => {
+    const plan = buildCsvImportPlan('a,b\n1,2\n3,4', 't');
+    expect(plan.columns).toEqual(['a', 'b']);
+    expect(plan.rowCount).toBe(2);
+    expect(plan.batches).toHaveLength(1);
+    expect(plan.batches[0].statement).toBe('INSERT INTO "t" ("a", "b") VALUES (?, ?), (?, ?)');
+    expect(plan.batches[0].params).toEqual(['1', '2', '3', '4']);
+    expect(plan.batches[0].rowCount).toBe(2);
   });
-  it('maps empty cells to NULL, not empty string', () => {
-    expect(csvToInserts('a,b\n1,', 't').inserts[0]).toBe('INSERT INTO "t" ("a", "b") VALUES (\'1\', NULL);');
+
+  it('maps an empty cell to a bound null (never the string "" or a literal NULL)', () => {
+    const plan = buildCsvImportPlan('a,b\n1,', 't');
+    expect(plan.batches[0].params).toEqual(['1', null]);
+    expect(plan.batches[0].statement).not.toContain('NULL');
   });
-  it('escapes single quotes in values', () => {
-    expect(csvToInserts("name\nO'Brien", 't').inserts[0]).toBe('INSERT INTO "t" ("name") VALUES (\'O\'\'Brien\');');
+
+  it('a hostile value rides as an inert PARAM — the statement carries no injected SQL', () => {
+    const plan = buildCsvImportPlan("name\n');DROP TABLE users;--", 't');
+    expect(plan.batches[0].params).toEqual(["');DROP TABLE users;--"]);
+    expect(plan.batches[0].statement).toBe('INSERT INTO "t" ("name") VALUES (?)');
+    expect(plan.batches[0].statement.toUpperCase()).not.toContain('DROP');
   });
+
+  it('CHUNKS rows so each batch stays within the param cap', () => {
+    // maxParams=4, 2 cols → 2 rows/batch; 3 data rows → batches of [2, 1].
+    const plan = buildCsvImportPlan('a,b\n1,2\n3,4\n5,6', 't', 4);
+    expect(plan.batches).toHaveLength(2);
+    expect(plan.batches[0].rowCount).toBe(2);
+    expect(plan.batches[0].params).toEqual(['1', '2', '3', '4']);
+    expect(plan.batches[1].rowCount).toBe(1);
+    expect(plan.batches[1].params).toEqual(['5', '6']);
+    expect(plan.batches[0].statement).toBe('INSERT INTO "t" ("a", "b") VALUES (?, ?), (?, ?)');
+    expect(plan.batches[1].statement).toBe('INSERT INTO "t" ("a", "b") VALUES (?, ?)');
+  });
+
+  it('previews the first rows for the UI', () => {
+    const plan = buildCsvImportPlan('a\n1\n2\n3\n4\n5\n6\n7', 't');
+    expect(plan.rowCount).toBe(7);
+    expect(plan.preview).toEqual([['1'], ['2'], ['3'], ['4'], ['5']]); // CSV_IMPORT_PREVIEW_ROWS = 5
+  });
+
   it('rejects an invalid table name', () => {
-    expect(() => csvToInserts('a\n1', 'bad name')).toThrow(CsvImportError);
-    expect(() => csvToInserts('a\n1', '1t')).toThrow(CsvImportError);
+    expect(() => buildCsvImportPlan('a\n1', 'bad name')).toThrow(CsvImportError);
+    expect(() => buildCsvImportPlan('a\n1', '1t')).toThrow(CsvImportError);
   });
   it('rejects an invalid header identifier', () => {
-    expect(() => csvToInserts('bad col\n1', 't')).toThrow(CsvImportError);
+    expect(() => buildCsvImportPlan('bad col\n1', 't')).toThrow(CsvImportError);
   });
-  it('rejects fewer than two rows', () => {
-    expect(() => csvToInserts('a,b', 't')).toThrow(CsvImportError);
-    expect(() => csvToInserts('', 't')).toThrow(CsvImportError);
+  it('rejects fewer than two rows (header + ≥1 data row required)', () => {
+    expect(() => buildCsvImportPlan('a,b', 't')).toThrow(CsvImportError);
+    expect(() => buildCsvImportPlan('', 't')).toThrow(CsvImportError);
   });
   it('rejects a row whose column count mismatches the header', () => {
-    expect(() => csvToInserts('a,b\n1', 't')).toThrow(CsvImportError);
+    expect(() => buildCsvImportPlan('a,b\n1', 't')).toThrow(CsvImportError);
+  });
+  it('rejects a table too wide to import within one parameterized write', () => {
+    expect(() => buildCsvImportPlan('a,b,c\n1,2,3', 't', 2)).toThrow(CsvImportError);
   });
 });
 

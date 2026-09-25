@@ -71,6 +71,9 @@ import {
   friendlyModelLabel,
   canAskAi,
   MAX_AI_QUESTION_LEN,
+  buildCsvImportPlan,
+  CsvImportError,
+  type CsvImportPlan,
   type CellInputKind,
   type BoundValue,
 } from './data-panel-logic';
@@ -247,6 +250,10 @@ export const DataPanel = memo(() => {
    * `canRunSql`. A column left at 'default' is omitted so its DB default / autoincrement applies.
    */
   const [addingRow, setAddingRow] = useState(false);
+
+  // CSV → table import (super-admin write path): paste CSV, preview, import the parameterized batch.
+  const [importingCsv, setImportingCsv] = useState(false);
+  const [importCsvText, setImportCsvText] = useState('');
   const [addKinds, setAddKinds] = useState<Record<string, CellInputKind | 'default'>>({});
   const [addValues, setAddValues] = useState<Record<string, string>>({});
   const [addError, setAddError] = useState('');
@@ -638,7 +645,46 @@ export const DataPanel = memo(() => {
     setAddKinds({}); // every column starts at 'default' (omitted) — user opts in per column
     setAddValues({});
     setAddingRow(true);
+    setImportingCsv(false); // one write panel at a time
   }, []);
+
+  const openImport = useCallback(() => {
+    setImportCsvText('');
+    setImportingCsv(true);
+    setAddingRow(false);
+  }, []);
+
+  /**
+   * The parameterized import plan for the pasted CSV → the CURRENT table, or a human error. The plan
+   * is chunked (each batch ≤ the exec-write param cap); this UI runs the FIRST batch and honestly
+   * discloses when more rows remain (a promise-based bridge for auto-sequencing all batches is a
+   * follow-up — see the coverage matrix). Recomputed as the CSV / target table changes.
+   */
+  const importPlan = useMemo<{ plan: CsvImportPlan | null; error: string | null }>(() => {
+    if (!importCsvText.trim() || !active) {
+      return { plan: null, error: null };
+    }
+
+    try {
+      return { plan: buildCsvImportPlan(importCsvText, active), error: null };
+    } catch (e) {
+      return { plan: null, error: e instanceof CsvImportError ? e.message : 'Could not parse the CSV.' };
+    }
+  }, [importCsvText, active]);
+
+  /** Import the first parameterized batch through the existing super-admin write rail. */
+  const submitImport = useCallback(() => {
+    const p = importPlan.plan;
+
+    if (!p || p.batches.length === 0) {
+      return;
+    }
+
+    // Values are BOUND (batch.params), never concatenated — the write-result banner reports the count.
+    runSql(p.batches[0].statement, p.batches[0].params);
+    setImportingCsv(false);
+    setImportCsvText('');
+  }, [importPlan, runSql]);
 
   const cancelAddRow = useCallback(() => {
     setAddingRow(false);
@@ -1819,6 +1865,19 @@ export const DataPanel = memo(() => {
                     <div className="i-ph:plus" /> Add row
                   </button>
                 )}
+                {/* Import CSV — super-admin only; parameterized bulk INSERT into the current table. */}
+                {canRunSql && columns.length > 0 && activeTable.browsable !== false && (
+                  <button
+                    type="button"
+                    onClick={openImport}
+                    data-testid="data-import-csv-toggle"
+                    aria-expanded={importingCsv}
+                    className="text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer flex items-center gap-1"
+                    title="Import rows from CSV (parameterized — values are bound, never concatenated)"
+                  >
+                    <div className="i-ph:upload-simple" /> Import CSV
+                  </button>
+                )}
                 {rows.length > 0 && columns.length > 1 && (
                   <div className="relative">
                     <button
@@ -1991,6 +2050,94 @@ export const DataPanel = memo(() => {
                   onClick={cancelAddRow}
                   disabled={addBusy}
                   data-testid="data-add-cancel"
+                  className="cursor-pointer text-[11px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Import CSV → the current table (parameterized bulk INSERT via the super-admin write rail). */}
+          {importingCsv && (
+            <div
+              className="border-b border-bolt-elements-borderColor/50 bg-bolt-elements-background-depth-1 px-3 py-2"
+              data-testid="data-import-csv-form"
+            >
+              <div className="mb-2 flex items-center gap-2">
+                <div className="i-ph:upload-simple text-bolt-elements-item-contentAccent" />
+                <span className="text-xs font-medium text-bolt-elements-textPrimary">
+                  Import CSV into {activeTable.label}
+                </span>
+                <span className="text-[10px] text-bolt-elements-textTertiary">
+                  header row = column names · values bound as parameters, never concatenated
+                </span>
+              </div>
+
+              <textarea
+                value={importCsvText}
+                onChange={(e) => setImportCsvText(e.target.value)}
+                placeholder={`${columns.slice(0, 3).join(',') || 'col_a,col_b'}\nvalue,value,…`}
+                data-testid="data-import-csv-input"
+                rows={5}
+                spellCheck={false}
+                className="w-full rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1 font-mono text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none"
+              />
+
+              {importPlan.error && (
+                <p className="mt-2 text-[11px] text-red-400" role="alert" data-testid="data-import-error">
+                  {importPlan.error}
+                </p>
+              )}
+
+              {importPlan.plan && (
+                <div
+                  className="mt-2 overflow-x-auto rounded bg-bolt-elements-background-depth-2 px-2 py-1 text-[10px] text-bolt-elements-textTertiary"
+                  data-testid="data-import-preview"
+                >
+                  {importPlan.plan.rowCount.toLocaleString()} row
+                  {importPlan.plan.rowCount === 1 ? '' : 's'} · {importPlan.plan.columns.length} column
+                  {importPlan.plan.columns.length === 1 ? '' : 's'} ({importPlan.plan.columns.join(', ')})
+                  {importPlan.plan.batches.length > 1 && (
+                    <span className="text-amber-300">
+                      {' '}
+                      · only the first {importPlan.plan.batches[0].rowCount.toLocaleString()} rows import per run
+                      (parameterized-write limit) — import, then re-run with the remaining rows
+                    </span>
+                  )}
+                  <div
+                    className="mt-1 truncate font-mono text-bolt-elements-textSecondary"
+                    title={importPlan.plan.batches[0].statement}
+                  >
+                    {importPlan.plan.batches[0].statement}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={submitImport}
+                  disabled={!importPlan.plan || sqlRunning}
+                  data-testid="data-import-submit"
+                  className={classNames(
+                    'rounded px-2.5 py-1 text-[11px] font-medium',
+                    !importPlan.plan || sqlRunning
+                      ? 'cursor-not-allowed bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary'
+                      : 'cursor-pointer bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:opacity-90',
+                  )}
+                >
+                  {importPlan.plan
+                    ? `Import ${importPlan.plan.batches[0].rowCount.toLocaleString()} row${importPlan.plan.batches[0].rowCount === 1 ? '' : 's'}`
+                    : 'Import'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImportingCsv(false);
+                    setImportCsvText('');
+                  }}
+                  data-testid="data-import-cancel"
                   className="cursor-pointer text-[11px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
                 >
                   Cancel

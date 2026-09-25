@@ -349,24 +349,58 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
+/** The max bind params in one exec-write statement (mirrors the worker's `SqlWriteSchema.params` cap). */
+export const CSV_IMPORT_MAX_PARAMS = 200;
+
+/** How many data rows the import UI previews before running. */
+export const CSV_IMPORT_PREVIEW_ROWS = 5;
+
+/** One parameterized multi-row INSERT batch (≤ {@link CSV_IMPORT_MAX_PARAMS} bound values). */
+export interface CsvImportBatch {
+  /** `INSERT INTO "t" ("a", "b") VALUES (?, ?), (?, ?)` — value positions are `?`, never inlined. */
+  readonly statement: string;
+
+  /** Flat, row-major bound values; an empty cell → `null` (never `''` or a stringified NULL). */
+  readonly params: BoundValue[];
+  readonly rowCount: number;
+}
+
+/** A validated, PARAMETERIZED, chunked CSV→table import plan (the import counterpart to {@link toCsv}). */
+export interface CsvImportPlan {
+  readonly table: string;
+  readonly columns: string[];
+
+  /** Total data rows across every batch. */
+  readonly rowCount: number;
+
+  /** Parameterized multi-row INSERTs, each within the exec-write param cap, run sequentially. */
+  readonly batches: CsvImportBatch[];
+
+  /** The first {@link CSV_IMPORT_PREVIEW_ROWS} data rows, for the pre-import preview. */
+  readonly preview: string[][];
+}
+
 /**
- * Build parameter-safe `INSERT` statements from CSV text for `table` — the import counterpart to
- * {@link toCsv}. Row 1 is the header (column names); each later row → one INSERT. Table + column
- * names are identifier-gated (rejects injection via identifiers); values are single-quote-escaped
- * (`'` → `''`); an empty cell becomes `NULL` (not `''`). Non-destructive by nature — only adds rows.
- * Pure — the panel runs the returned statements through its existing write rail.
+ * Build a PARAMETERIZED, chunked INSERT plan from CSV text for `table` — the import counterpart to
+ * {@link toCsv}, run through the panel's existing bound `/sql/exec-write` rail. Row 1 is the header
+ * (column names, identifier-validated); every later row's cells become BOUND values in a multi-row
+ * `INSERT INTO "t" (...) VALUES (?, ?), (?, ?)…`. Values are bound `?`, **NEVER concatenated into
+ * SQL** (the epic's "parameterize values, never concatenate" mandate) — an injection payload rides
+ * as an inert param. An empty cell → bound `null` (not `''`). Rows are chunked so each batch stays
+ * within `maxParams` bind params, so a large CSV imports as several safe statements the caller runs
+ * in sequence. Table + column names are gated by `IDENT_RE` (a hostile identifier is rejected here,
+ * never quoted-in). Pure — no DOM, no I/O.
  *
- * @param csvText - the CSV to import (header + ≥1 data row)
- * @param table - target table name (SQLite identifier)
- * @returns `{ inserts, columns, rowCount }`
- * @throws {CsvImportError} empty/one-row input, bad table/column identifier, or a row whose
- *   column count differs from the header.
- * @example csvToInserts('a,b\n1,', 't').inserts // ['INSERT INTO "t" ("a", "b") VALUES (\'1\', NULL);']
+ * @throws {CsvImportError} empty/one-row input, a bad table/column identifier, a row whose column
+ *   count differs from the header, or a table too wide to import within one parameterized write.
+ * @example buildCsvImportPlan('a,b\n1,', 't').batches[0]
+ *   // → { statement: 'INSERT INTO "t" ("a", "b") VALUES (?, ?)', params: ['1', null], rowCount: 1 }
  */
-export function csvToInserts(
+export function buildCsvImportPlan(
   csvText: string,
   table: string,
-): { inserts: string[]; columns: string[]; rowCount: number } {
+  maxParams: number = CSV_IMPORT_MAX_PARAMS,
+): CsvImportPlan {
   const t = String(table ?? '').trim();
 
   if (!IDENT_RE.test(t)) {
@@ -381,22 +415,49 @@ export function csvToInserts(
 
   const columns = rows[0].map((c) => c.trim());
 
-  if (columns.some((c) => !IDENT_RE.test(c))) {
+  if (columns.length === 0 || columns.some((c) => !IDENT_RE.test(c))) {
     throw new CsvImportError('Every header column must be a valid identifier.');
   }
 
-  const colList = columns.map((c) => `"${c}"`).join(', ');
-  const inserts = rows.slice(1).map((r, idx) => {
+  if (columns.length > maxParams) {
+    throw new CsvImportError(
+      `Too many columns (${columns.length}) to import within one parameterized write (max ${maxParams}).`,
+    );
+  }
+
+  const dataRows = rows.slice(1);
+  dataRows.forEach((r, idx) => {
     if (r.length !== columns.length) {
       throw new CsvImportError(`Row ${idx + 1} has ${r.length} value(s); the header has ${columns.length}.`);
     }
-
-    const vals = r.map((v) => (v === '' ? 'NULL' : `'${v.replace(/'/g, "''")}'`)).join(', ');
-
-    return `INSERT INTO "${t}" (${colList}) VALUES (${vals});`;
   });
 
-  return { inserts, columns, rowCount: inserts.length };
+  const colList = columns.map((c) => `"${c}"`).join(', ');
+  const placeholderRow = `(${columns.map(() => '?').join(', ')})`;
+
+  // Chunk rows so cols × rows-per-batch ≤ maxParams (≥1 row per batch even for a wide table).
+  const rowsPerBatch = Math.max(1, Math.floor(maxParams / columns.length));
+
+  const batches: CsvImportBatch[] = [];
+
+  for (let i = 0; i < dataRows.length; i += rowsPerBatch) {
+    const chunk = dataRows.slice(i, i + rowsPerBatch);
+    const params: BoundValue[] = [];
+
+    for (const r of chunk) {
+      for (const v of r) {
+        params.push(v === '' ? null : v);
+      }
+    }
+
+    batches.push({
+      statement: `INSERT INTO "${t}" (${colList}) VALUES ${chunk.map(() => placeholderRow).join(', ')}`,
+      params,
+      rowCount: chunk.length,
+    });
+  }
+
+  return { table: t, columns, rowCount: dataRows.length, batches, preview: dataRows.slice(0, CSV_IMPORT_PREVIEW_ROWS) };
 }
 
 /**
