@@ -18,7 +18,18 @@ const REAL: DeliverySummary = {
     { status: 504, count: 9, bytes: 46_080, visits: 7 },
     { status: 404, count: 2, bytes: 8_000, visits: 0 },
   ],
-  cache: { hit: 1475, miss: 3139, uncacheable: 26879, hit_ratio_pct: 32, hit_bytes: 40_000_000, miss_bytes: 8_000_000, uncacheable_bytes: 500_000 },
+  cache: {
+    hit: 1475,
+    miss: 3139,
+    uncacheable: 26879,
+    hit_ratio_pct: 32,
+    hit_bytes: 40_000_000,
+    miss_bytes: 8_000_000,
+    uncacheable_bytes: 500_000,
+    hit_visits: 900,
+    miss_visits: 1800,
+    uncacheable_visits: 12000,
+  },
   response_bytes: 1_159_813_769,
   range_days: 7,
 };
@@ -41,7 +52,9 @@ describe('DeliveryCardComponent', () => {
     expect(statuses).toBeTruthy();
     expect(statuses.textContent).toContain('2xx · success');
     expect(statuses.textContent).toContain('87%');
-    expect(statuses.textContent).withContext('server-error word present, not colour-only').toContain('5xx · server error');
+    expect(statuses.textContent)
+      .withContext('server-error word present, not colour-only')
+      .toContain('5xx · server error');
   });
 
   it('surfaces bandwidth served on cache MISSES (the cacheable-to-save-bandwidth signal)', () => {
@@ -55,6 +68,18 @@ describe('DeliveryCardComponent', () => {
   it('hides the cache-miss-bytes line when miss_bytes is 0 (never a fabricated 0 MB)', () => {
     const { el } = setup({ ...REAL, cache: { ...REAL.cache, miss_bytes: 0 } });
     expect(el.querySelector('[data-testid="an-dl-cache-miss-bytes"]')).toBeNull();
+  });
+
+  it('surfaces REAL visitors who hit cache misses (the human companion to miss bandwidth)', () => {
+    const { el } = setup(REAL); // miss_visits: 1800
+    const v = el.querySelector('[data-testid="an-dl-cache-miss-visits"]') as HTMLElement;
+    expect(v).withContext('miss-visits line shown when miss_visits > 0').toBeTruthy();
+    expect(v.textContent).toContain('real visitors');
+  });
+
+  it('hides the cache-miss-visits line when miss_visits is 0 (sampled — never a fabricated 0)', () => {
+    const { el } = setup({ ...REAL, cache: { ...REAL.cache, miss_visits: 0 } });
+    expect(el.querySelector('[data-testid="an-dl-cache-miss-visits"]')).toBeNull();
   });
 
   it('labels the ACTUAL CF-covered window (range_days), not the requested window, and flags the cap', () => {
@@ -71,34 +96,59 @@ describe('DeliveryCardComponent', () => {
   it('shows NO cap note when the CF window equals the requested window', () => {
     const { el } = setup({ ...REAL, range_days: 7 }, 7);
     expect(el.querySelector('[data-testid="an-dl-window-cap"]')).toBeNull();
-    expect((el.querySelector('[data-testid="an-dl-source"]') as HTMLElement).textContent).toContain('last 7 days');
+    expect((el.querySelector('[data-testid="an-dl-source"]') as HTMLElement).textContent).toContain(
+      'last 7 days',
+    );
   });
 
   it('renders the edge breakdown (protocol / TLS / content-type / method) with request shares', () => {
     const withEdge: DeliverySummary = {
       ...REAL,
-      protocols: [{ label: 'HTTP/3', count: 70 }, { label: 'HTTP/2', count: 30 }],
-      tls: [{ label: 'TLSv1.3', count: 99 }, { label: 'TLSv1.2', count: 1 }],
-      content_types: [{ label: 'js', count: 60 }, { label: 'html', count: 40 }],
+      protocols: [
+        { label: 'HTTP/3', count: 70 },
+        { label: 'HTTP/2', count: 30 },
+      ],
+      tls: [
+        { label: 'TLSv1.3', count: 99 },
+        { label: 'TLSv1.2', count: 1 },
+      ],
+      content_types: [
+        { label: 'js', count: 60 },
+        { label: 'html', count: 40 },
+      ],
       methods: [{ label: 'GET', count: 100 }],
     };
     const { el } = setup(withEdge);
-    expect(el.querySelector('[data-testid="an-dl-edge"]')).withContext('edge breakdown renders when dims present').toBeTruthy();
+    expect(el.querySelector('[data-testid="an-dl-edge"]'))
+      .withContext('edge breakdown renders when dims present')
+      .toBeTruthy();
     const proto = el.querySelector('[data-testid="an-dl-edge-proto"]') as HTMLElement;
     expect(proto.textContent).toContain('HTTP/3');
     expect(proto.textContent).withContext('70 of 100 = 70% share').toContain('70%');
-    expect((el.querySelector('[data-testid="an-dl-edge-tls"]') as HTMLElement).textContent).toContain('TLSv1.3');
-    expect((el.querySelector('[data-testid="an-dl-edge-content"]') as HTMLElement).textContent).toContain('js');
+    expect(
+      (el.querySelector('[data-testid="an-dl-edge-tls"]') as HTMLElement).textContent,
+    ).toContain('TLSv1.3');
+    expect(
+      (el.querySelector('[data-testid="an-dl-edge-content"]') as HTMLElement).textContent,
+    ).toContain('js');
   });
 
   it('omits edge groups with no data (never a fabricated 0) — only the non-empty dimension surfaces', () => {
-    const partial = setup({ ...REAL, protocols: [{ label: 'HTTP/2', count: 5 }], tls: [], content_types: [], methods: [] });
+    const partial = setup({
+      ...REAL,
+      protocols: [{ label: 'HTTP/2', count: 5 }],
+      tls: [],
+      content_types: [],
+      methods: [],
+    });
     expect(partial.fixture.componentInstance.edgeGroups().map((g) => g.key)).toEqual(['proto']);
   });
 
   it('hides the whole edge block when every edge dimension is empty', () => {
     const { el } = setup({ ...REAL, protocols: [], tls: [], content_types: [], methods: [] });
-    expect(el.querySelector('[data-testid="an-dl-edge"]')).withContext('no edge block when every dim is empty').toBeNull();
+    expect(el.querySelector('[data-testid="an-dl-edge"]'))
+      .withContext('no edge block when every dim is empty')
+      .toBeNull();
   });
 
   it('renders verified bots (search crawlers) by category with request counts', () => {
@@ -114,7 +164,9 @@ describe('DeliveryCardComponent', () => {
     expect(bots.textContent).toContain('Search Engine Crawler');
     expect(bots.textContent).toContain('312 requests');
     // Honest framing: verified, not a bot-management score.
-    expect((el.querySelector('[data-testid="an-dl-bots-note"]') as HTMLElement).textContent).toContain('verified');
+    expect(
+      (el.querySelector('[data-testid="an-dl-bots-note"]') as HTMLElement).textContent,
+    ).toContain('verified');
   });
 
   it('hides the verified-bots section when the site has seen none (never a fabricated 0)', () => {
@@ -124,10 +176,14 @@ describe('DeliveryCardComponent', () => {
 
   it('shows the cache hit ratio + hit/miss/uncacheable counts + edge bandwidth', () => {
     const { el } = setup(REAL);
-    expect((el.querySelector('[data-testid="an-dl-cache"]') as HTMLElement).textContent).toContain('32%');
+    expect((el.querySelector('[data-testid="an-dl-cache"]') as HTMLElement).textContent).toContain(
+      '32%',
+    );
     expect(el.textContent).toContain('1,475 hit');
     // 1,159,813,769 bytes ≈ 1.1 GB
-    expect((el.querySelector('[data-testid="an-dl-bytes"]') as HTMLElement).textContent).toContain('GB');
+    expect((el.querySelector('[data-testid="an-dl-bytes"]') as HTMLElement).textContent).toContain(
+      'GB',
+    );
   });
 
   it('VISIBLY flags the edge metrics as a sampled estimate + contrasts the exact first-party audience', () => {
@@ -191,13 +247,26 @@ describe('DeliveryCardComponent', () => {
       total_requests: 0,
       by_status_class: [],
       top_statuses: [],
-      cache: { hit: 0, miss: 0, uncacheable: 0, hit_ratio_pct: null, hit_bytes: 0, miss_bytes: 0, uncacheable_bytes: 0 },
+      cache: {
+        hit: 0,
+        miss: 0,
+        uncacheable: 0,
+        hit_ratio_pct: null,
+        hit_bytes: 0,
+        miss_bytes: 0,
+        uncacheable_bytes: 0,
+        hit_visits: 0,
+        miss_visits: 0,
+        uncacheable_visits: 0,
+      },
       response_bytes: 0,
       range_days: 7,
     };
     const { el } = setup(empty);
     expect(el.querySelector('[data-testid="an-dl-empty"]')).toBeTruthy();
-    expect(el.querySelector('[data-testid="an-dl-statuses"]')).withContext('no fabricated status bars').toBeNull();
+    expect(el.querySelector('[data-testid="an-dl-statuses"]'))
+      .withContext('no fabricated status bars')
+      .toBeNull();
     expect(el.querySelector('[data-testid="an-dl-cache"]')).toBeNull();
   });
 
@@ -208,13 +277,26 @@ describe('DeliveryCardComponent', () => {
       total_requests: 0,
       by_status_class: [],
       top_statuses: [],
-      cache: { hit: 0, miss: 0, uncacheable: 0, hit_ratio_pct: null, hit_bytes: 0, miss_bytes: 0, uncacheable_bytes: 0 },
+      cache: {
+        hit: 0,
+        miss: 0,
+        uncacheable: 0,
+        hit_ratio_pct: null,
+        hit_bytes: 0,
+        miss_bytes: 0,
+        uncacheable_bytes: 0,
+        hit_visits: 0,
+        miss_visits: 0,
+        uncacheable_visits: 0,
+      },
       response_bytes: 0,
       range_days: 7,
     };
     const { el } = setup(unresolved);
     const unavail = el.querySelector('[data-testid="an-dl-unavailable"]') as HTMLElement;
-    expect(unavail).withContext('unresolved zone → "not available", not the empty state').toBeTruthy();
+    expect(unavail)
+      .withContext('unresolved zone → "not available", not the empty state')
+      .toBeTruthy();
     expect(el.querySelector('[data-testid="an-dl-empty"]')).toBeNull();
     // The site MAY have visitors — the copy must not claim otherwise.
     expect((unavail.textContent ?? '').toLowerCase()).not.toContain('once traffic arrives');
@@ -229,10 +311,22 @@ describe('DeliveryCardComponent', () => {
   it('null cache hit ratio (no cacheable requests) shows "no cacheable requests", never a fake 0%', () => {
     const noCacheable: DeliverySummary = {
       ...REAL,
-      cache: { hit: 0, miss: 0, uncacheable: 100, hit_ratio_pct: null, hit_bytes: 0, miss_bytes: 0, uncacheable_bytes: 0 },
+      cache: {
+        hit: 0,
+        miss: 0,
+        uncacheable: 100,
+        hit_ratio_pct: null,
+        hit_bytes: 0,
+        miss_bytes: 0,
+        uncacheable_bytes: 0,
+        hit_visits: 0,
+        miss_visits: 0,
+        uncacheable_visits: 0,
+      },
     };
     const { el } = setup(noCacheable);
-    const cache = (el.querySelector('[data-testid="an-dl-cache"]') as HTMLElement).textContent ?? '';
+    const cache =
+      (el.querySelector('[data-testid="an-dl-cache"]') as HTMLElement).textContent ?? '';
     expect(cache).toContain('no cacheable requests');
     expect(cache).withContext('never a fabricated 0%').not.toContain('0%');
   });

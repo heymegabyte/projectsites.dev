@@ -88,6 +88,12 @@ export interface DeliverySummary {
     readonly hit_bytes: number;
     readonly miss_bytes: number;
     readonly uncacheable_bytes: number;
+    /** REAL visitors (CF `sum{visits}`) per cache-state — the human companion to the byte savings
+     *  ("cache MISSES touched N visitors"). Same buckets as the counts; adaptive-sampled, a real 0
+     *  is honest (no visits in that state). Distinct from the request `count` (assets inflate it). */
+    readonly hit_visits: number;
+    readonly miss_visits: number;
+    readonly uncacheable_visits: number;
   };
   readonly response_bytes: number;
   readonly range_days: number;
@@ -525,6 +531,9 @@ interface HostDelivery {
   /** Per-cache-state edge bandwidth (cacheStatus → sum{edgeResponseBytes}) — same cache query,
    *  already fetched; surfaces "cache misses served N MB you could cache" instead of discarding it. */
   by_cache_bytes: Map<string, number>;
+  /** Per-cache-state REAL visitors (cacheStatus → sum{visits}) — "cache misses touched N visitors",
+   *  the human companion to the byte savings. Same cache query, one extra sum. */
+  by_cache_visits: Map<string, number>;
   /** Edge connection + content breakdowns (label → request count), all per-host CF-sampled. */
   by_protocol: Map<string, number>;
   by_tls: Map<string, number>;
@@ -568,6 +577,7 @@ async function loadHostDelivery(
   const empty: HostDelivery = {
     by_cache: new Map(),
     by_cache_bytes: new Map(),
+    by_cache_visits: new Map(),
     by_content: new Map(),
     by_method: new Map(),
     by_protocol: new Map(),
@@ -591,7 +601,7 @@ async function loadHostDelivery(
       viewer {
         zones(filter: { zoneTag: $zoneTag }) {
           status: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { edgeResponseBytes visits } dimensions { edgeResponseStatus } }
-          cache: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { edgeResponseBytes } dimensions { cacheStatus } }
+          cache: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { edgeResponseBytes visits } dimensions { cacheStatus } }
           protocol: httpRequestsAdaptiveGroups(limit: 10, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { clientRequestHTTPProtocol } }
           tls: httpRequestsAdaptiveGroups(limit: 10, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { clientSSLProtocol } }
           content: httpRequestsAdaptiveGroups(limit: 15, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { edgeResponseContentTypeName } }
@@ -640,6 +650,7 @@ async function loadHostDelivery(
     const agg: HostDelivery = {
       by_cache: new Map(),
       by_cache_bytes: new Map(),
+      by_cache_visits: new Map(),
       by_content: new Map(),
       by_method: new Map(),
       by_protocol: new Map(),
@@ -670,8 +681,10 @@ async function loadHostDelivery(
       const cs = String(row.dimensions?.cacheStatus ?? 'unknown');
       const c = Number(row.count ?? 0);
       const b = Number(row.sum?.edgeResponseBytes ?? 0);
+      const v = Number(row.sum?.visits ?? 0);
       if (c > 0) agg.by_cache.set(cs, (agg.by_cache.get(cs) ?? 0) + c);
       if (b > 0) agg.by_cache_bytes.set(cs, (agg.by_cache_bytes.get(cs) ?? 0) + b);
+      if (v > 0) agg.by_cache_visits.set(cs, (agg.by_cache_visits.get(cs) ?? 0) + v);
       agg.response_bytes += b;
     }
     // Fold the four edge connection/content dimensions. Each value is trusted (it comes
@@ -1031,6 +1044,7 @@ export async function loadMultiUrlAnalytics(
     const mergedStatusVisits = new Map<number, number>();
     const mergedCache = new Map<string, number>();
     const mergedCacheBytes = new Map<string, number>();
+    const mergedCacheVisits = new Map<string, number>();
     const mergedProtocol = new Map<string, number>();
     const mergedTls = new Map<string, number>();
     const mergedContent = new Map<string, number>();
@@ -1049,6 +1063,8 @@ export async function loadMultiUrlAnalytics(
       for (const [k, c] of dv.by_cache) mergedCache.set(k, (mergedCache.get(k) ?? 0) + c);
       for (const [k, b] of dv.by_cache_bytes)
         mergedCacheBytes.set(k, (mergedCacheBytes.get(k) ?? 0) + b);
+      for (const [k, v] of dv.by_cache_visits)
+        mergedCacheVisits.set(k, (mergedCacheVisits.get(k) ?? 0) + v);
       mergeInto(mergedProtocol, dv.by_protocol);
       mergeInto(mergedTls, dv.by_tls);
       mergeInto(mergedContent, dv.by_content);
@@ -1075,6 +1091,7 @@ export async function loadMultiUrlAnalytics(
         mergedStatusBytes,
         mergedStatusVisits,
         mergedCacheBytes,
+        mergedCacheVisits,
       ),
       pageviews: aggregates.reduce((sum, a) => sum + a.page_views, 0),
       // HONEST window: the CF path covers ≤CF_MAX_WINDOW_DAYS daily windows regardless of the
@@ -1182,6 +1199,7 @@ export function buildDeliverySummary(
   byStatusBytes: ReadonlyMap<number, number> = new Map(),
   byStatusVisits: ReadonlyMap<number, number> = new Map(),
   byCacheBytes: ReadonlyMap<string, number> = new Map(),
+  byCacheVisits: ReadonlyMap<string, number> = new Map(),
 ): DeliverySummary {
   /** A label→count map → its top-`n` rows, highest first, zero-counts dropped. */
   const topLabels = (
@@ -1232,6 +1250,15 @@ export function buildDeliverySummary(
     else if (CACHE_MISS_STATES.has(state)) missBytes += bytes;
     else uncacheableBytes += bytes;
   }
+  // REAL visitors per cache-state (same buckets) — the human companion to the byte savings.
+  let hitVisits = 0;
+  let missVisits = 0;
+  let uncacheableVisits = 0;
+  for (const [state, visits] of byCacheVisits) {
+    if (CACHE_HIT_STATES.has(state)) hitVisits += visits;
+    else if (CACHE_MISS_STATES.has(state)) missVisits += visits;
+    else uncacheableVisits += visits;
+  }
 
   return {
     by_status_class,
@@ -1243,6 +1270,9 @@ export function buildDeliverySummary(
       hit_bytes: hitBytes,
       miss_bytes: missBytes,
       uncacheable_bytes: uncacheableBytes,
+      hit_visits: hitVisits,
+      miss_visits: missVisits,
+      uncacheable_visits: uncacheableVisits,
     },
     content_types: topLabels(byContent),
     has_data: total > 0,

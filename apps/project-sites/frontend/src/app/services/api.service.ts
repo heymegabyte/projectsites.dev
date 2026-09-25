@@ -1632,6 +1632,10 @@ export interface DeliverySummary {
     hit_bytes: number;
     miss_bytes: number;
     uncacheable_bytes: number;
+    /** REAL visitors (CF sum{visits}, sampled) per cache-state — "N visitors hit cache misses". */
+    hit_visits: number;
+    miss_visits: number;
+    uncacheable_visits: number;
   };
   response_bytes: number;
   range_days: number;

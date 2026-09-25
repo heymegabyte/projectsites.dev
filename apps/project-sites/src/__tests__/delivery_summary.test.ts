@@ -132,11 +132,47 @@ describe('buildDeliverySummary', () => {
     expect(result.cache.uncacheable_bytes).toBe(1_000_000); // 'none' → uncacheable bucket
   });
 
-  it('defaults cache bytes to 0 when byCacheBytes is omitted (a real 0, never fabricated)', () => {
+  it('splits edge VISITS by cache-state (hit / miss / uncacheable) from byCacheVisits', () => {
+    const byCache = new Map([
+      ['hit', 100],
+      ['miss', 40],
+      ['none', 10],
+    ]);
+    // visits ≠ the request counts above — proving the builder reads byCacheVisits, not by_cache.
+    const byCacheVisits = new Map([
+      ['hit', 60],
+      ['miss', 22],
+      ['none', 4],
+    ]);
+    const result = buildDeliverySummary(
+      new Map(),
+      byCache,
+      0,
+      30,
+      false,
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      byCacheVisits,
+    );
+    expect(result.cache.hit_visits).toBe(60);
+    expect(result.cache.miss_visits).toBe(22); // "cache misses touched N REAL visitors" (not raw requests)
+    expect(result.cache.uncacheable_visits).toBe(4); // 'none' → uncacheable bucket
+  });
+
+  it('defaults cache bytes + visits to 0 when the maps are omitted (a real 0, never fabricated)', () => {
     const result = buildDeliverySummary(new Map(), new Map([['hit', 5]]), 0, 7);
     expect(result.cache.hit_bytes).toBe(0);
     expect(result.cache.miss_bytes).toBe(0);
     expect(result.cache.uncacheable_bytes).toBe(0);
+    expect(result.cache.hit_visits).toBe(0);
+    expect(result.cache.miss_visits).toBe(0);
+    expect(result.cache.uncacheable_visits).toBe(0);
   });
 
   it('returns hit_ratio_pct=null (NOT 0) when both hit and miss are zero', () => {
