@@ -14,6 +14,12 @@ import {
   formatCount,
   isBrowsableObject,
   incomingForeignKeys,
+  buildErdModel,
+  ERD_NODE_W,
+  ERD_NODE_H,
+  ERD_GAP_X,
+  ERD_GAP_Y,
+  ERD_PAD,
   parseCreateTableColumns,
   parseForeignKeys,
   parseIndexColumns,
@@ -310,6 +316,80 @@ describe('incomingForeignKeys (reverse relationships — "referenced by")', () =
   });
 });
 
+describe('buildErdModel (schema relationship diagram — zero-dep, deterministic)', () => {
+  const cat: D1SchemaObjectSummary[] = [
+    { type: 'table', name: 'users', tableName: 'users', sql: 'CREATE TABLE users (id TEXT PRIMARY KEY)' },
+    {
+      type: 'table',
+      name: 'orders',
+      tableName: 'orders',
+      sql: 'CREATE TABLE orders (id TEXT, user_id TEXT REFERENCES users(id))',
+    },
+    {
+      type: 'table',
+      name: 'items',
+      tableName: 'items',
+      sql: 'CREATE TABLE items (id TEXT, order_id TEXT REFERENCES orders(id), parent_id TEXT REFERENCES items(id))',
+    },
+    { type: 'index', name: 'ix', tableName: 'orders', sql: 'CREATE INDEX ix ON orders(user_id)' },
+    { type: 'view', name: 'v', tableName: 'v', sql: 'CREATE VIEW v AS SELECT 1' },
+  ];
+
+  it('nodes = TABLES only (views/indexes/triggers excluded), sorted by name for a stable layout', () => {
+    const m = buildErdModel(cat);
+    expect(m.nodes.map((n) => n.table)).toEqual(['items', 'orders', 'users']);
+    expect(m.tableCount).toBe(3);
+  });
+
+  it('edges = FKs between EXISTING tables, endpoints pre-resolved at node centers', () => {
+    const m = buildErdModel(cat);
+    const e = m.edges.find((x) => x.from === 'orders' && x.to === 'users')!;
+    expect(e).toMatchObject({ fromCol: 'user_id', toCol: 'id', self: false });
+
+    const orders = m.nodes.find((n) => n.table === 'orders')!;
+    const users = m.nodes.find((n) => n.table === 'users')!;
+    expect(e.x1).toBe(orders.x + orders.w / 2);
+    expect(e.y1).toBe(orders.y + orders.h / 2);
+    expect(e.x2).toBe(users.x + users.w / 2);
+    expect(e.y2).toBe(users.y + users.h / 2);
+  });
+
+  it('flags a self-referencing FK (items.parent_id → items) as self', () => {
+    const self = buildErdModel(cat).edges.find((x) => x.from === 'items' && x.to === 'items');
+    expect(self?.self).toBe(true);
+    expect(self).toMatchObject({ fromCol: 'parent_id', toCol: 'id' });
+  });
+
+  it('skips a FK to a non-existent / system table (never a dangling edge)', () => {
+    const m = buildErdModel([
+      { type: 'table', name: 'a', tableName: 'a', sql: 'CREATE TABLE a (id TEXT, x TEXT REFERENCES ghost(id))' },
+    ]);
+    expect(m.edges).toEqual([]);
+    expect(m.nodes.map((n) => n.table)).toEqual(['a']);
+  });
+
+  it('lays tables out in a deterministic grid (ceil(sqrt(n)) columns, name order)', () => {
+    const m = buildErdModel(cat); // 3 tables → ceil(sqrt(3)) = 2 cols
+    const [items, orders, users] = m.nodes;
+    expect(items).toMatchObject({ x: ERD_PAD, y: ERD_PAD });
+    expect(orders.x).toBe(ERD_PAD + ERD_NODE_W + ERD_GAP_X); // col 1, row 0
+    expect(orders.y).toBe(ERD_PAD);
+    expect(users.x).toBe(ERD_PAD); // wraps to col 0, row 1
+    expect(users.y).toBe(ERD_PAD + ERD_NODE_H + ERD_GAP_Y);
+    expect(m.width).toBeGreaterThan(0);
+    expect(m.height).toBeGreaterThan(0);
+  });
+
+  it('counts every valid FK edge (orders→users, items→orders, items→items)', () => {
+    expect(buildErdModel(cat).edgeCount).toBe(3);
+  });
+
+  it('an empty schema (no tables) → empty model, zero canvas', () => {
+    const m = buildErdModel([{ type: 'view', name: 'v', tableName: 'v', sql: 'CREATE VIEW v AS SELECT 1' }]);
+    expect(m).toMatchObject({ nodes: [], edges: [], width: 0, height: 0, tableCount: 0, edgeCount: 0 });
+  });
+});
+
 describe('buildDataInsights (D1 overview takeaways — present-data-only, deterministic)', () => {
   it('summarises tables + rows, largest, empty, and structure', () => {
     const out = buildDataInsights({
@@ -357,8 +437,22 @@ describe('buildDataInsights (D1 overview takeaways — present-data-only, determ
   });
 
   it('discloses the 40-table cap; returns [] for an empty/absent database', () => {
-    expect(buildDataInsights({ tables: [], counts: { table: 41, view: 0, index: 0, trigger: 0 }, totalRows: 999, capped: true })[0]).toContain('(first 40 tables)');
-    expect(buildDataInsights({ tables: [], counts: { table: 0, view: 0, index: 0, trigger: 0 }, totalRows: 0, capped: false })).toEqual([]);
+    expect(
+      buildDataInsights({
+        tables: [],
+        counts: { table: 41, view: 0, index: 0, trigger: 0 },
+        totalRows: 999,
+        capped: true,
+      })[0],
+    ).toContain('(first 40 tables)');
+    expect(
+      buildDataInsights({
+        tables: [],
+        counts: { table: 0, view: 0, index: 0, trigger: 0 },
+        totalRows: 0,
+        capped: false,
+      }),
+    ).toEqual([]);
     expect(buildDataInsights(null)).toEqual([]);
   });
 });

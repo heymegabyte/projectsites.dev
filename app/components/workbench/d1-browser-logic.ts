@@ -621,6 +621,116 @@ export function incomingForeignKeys(
   return out;
 }
 
+/*
+ * ── buildErdModel (relationship diagram) ────────────────────────────────────────
+ * The "understandable relationship view" (schema ERD): tables = nodes, FKs = edges. A pure,
+ * deterministic, ZERO-DEPENDENCY model — no d3/dagre — that a plain SVG renders directly.
+ */
+
+/** Layout constants for the ERD grid (px). Exported so the SVG viewBox can mirror them. */
+export const ERD_NODE_W = 152;
+export const ERD_NODE_H = 46;
+export const ERD_GAP_X = 56;
+export const ERD_GAP_Y = 52;
+export const ERD_PAD = 20;
+
+/** One table box in the ERD, grid-positioned (top-left `x,y`). */
+export interface ErdNode {
+  readonly table: string;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+/** One FK relationship edge, with pre-resolved node-center endpoints so the SVG is a plain `<line>`. */
+export interface ErdEdge {
+  readonly from: string;
+  readonly to: string;
+  readonly fromCol: string;
+  readonly toCol: string | null;
+
+  /** True when a table references itself (from === to) — the SVG draws a self-loop badge, not a line. */
+  readonly self: boolean;
+  readonly x1: number;
+  readonly y1: number;
+  readonly x2: number;
+  readonly y2: number;
+}
+
+/** The full ERD model — nodes + edges + the SVG canvas size + counts for the header. */
+export interface ErdModel {
+  readonly nodes: readonly ErdNode[];
+  readonly edges: readonly ErdEdge[];
+  readonly width: number;
+  readonly height: number;
+  readonly tableCount: number;
+  readonly edgeCount: number;
+}
+
+/**
+ * Build the schema relationship diagram (ERD) from the catalog: every `table` object becomes a
+ * grid-positioned node (sorted by name for a STABLE layout across refreshes), and every parsed
+ * foreign key becomes an edge — but ONLY when its referenced table is also a node, so a FK to a
+ * system/absent table never draws a dangling line. Edge endpoints are the source→target node
+ * CENTERS (pre-resolved so the SVG is a plain `<line>`); a self-referencing FK is flagged `self`
+ * (the renderer draws a loop badge, not a zero-length line). Pure + deterministic + zero-dep.
+ *
+ * @param objects - the D1 schema catalog (tables/views/indexes/triggers with their CREATE SQL)
+ * @returns the ERD model; `{nodes:[], edges:[], width:0, height:0}` for a schema with no tables
+ */
+export function buildErdModel(objects: readonly D1SchemaObjectSummary[]): ErdModel {
+  const tableObjects = objects.filter((o) => o.type === 'table');
+  const names = tableObjects.map((o) => o.name).sort((a, b) => a.localeCompare(b));
+  const tableSet = new Set(names);
+  const sqlByName = new Map(tableObjects.map((o) => [o.name, o.sql] as const));
+
+  const cols = Math.max(1, Math.ceil(Math.sqrt(names.length)));
+  const rows = Math.max(1, Math.ceil(names.length / cols));
+  const nodes: ErdNode[] = names.map((table, i) => ({
+    table,
+    x: ERD_PAD + (i % cols) * (ERD_NODE_W + ERD_GAP_X),
+    y: ERD_PAD + Math.floor(i / cols) * (ERD_NODE_H + ERD_GAP_Y),
+    w: ERD_NODE_W,
+    h: ERD_NODE_H,
+  }));
+  const centerOf = new Map(nodes.map((n) => [n.table, { cx: n.x + n.w / 2, cy: n.y + n.h / 2 }] as const));
+
+  const edges: ErdEdge[] = [];
+
+  for (const table of names) {
+    for (const fk of parseForeignKeys(sqlByName.get(table) ?? null)) {
+      if (!tableSet.has(fk.refTable)) {
+        continue; // FK to a system/absent table → never a dangling edge
+      }
+
+      const a = centerOf.get(table);
+      const b = centerOf.get(fk.refTable);
+
+      if (!a || !b) {
+        continue;
+      }
+
+      edges.push({
+        from: table,
+        to: fk.refTable,
+        fromCol: fk.column,
+        toCol: fk.refColumn,
+        self: table === fk.refTable,
+        x1: a.cx,
+        y1: a.cy,
+        x2: b.cx,
+        y2: b.cy,
+      });
+    }
+  }
+
+  const width = names.length === 0 ? 0 : ERD_PAD * 2 + cols * ERD_NODE_W + (cols - 1) * ERD_GAP_X;
+  const height = names.length === 0 ? 0 : ERD_PAD * 2 + rows * ERD_NODE_H + (rows - 1) * ERD_GAP_Y;
+
+  return { nodes, edges, width, height, tableCount: names.length, edgeCount: edges.length };
+}
+
 /** Facts for {@link buildDataInsights} — mirrors the worker's `D1InsightsData`. */
 export interface D1InsightsInput {
   tables: Array<{ name: string; rows: number }>;

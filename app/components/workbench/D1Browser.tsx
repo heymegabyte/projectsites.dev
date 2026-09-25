@@ -47,6 +47,7 @@ import {
   formatBytes,
   formatCount,
   buildDataInsights,
+  buildErdModel,
   incomingForeignKeys,
   isBrowsableObject,
   parseCreateTableColumns,
@@ -110,6 +111,7 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
   const [tables, setTables] = useState<D1TablesData | null>(null);
   const [tablesLoading, setTablesLoading] = useState(false);
   const [tableFilter, setTableFilter] = useState('');
+  const [showErd, setShowErd] = useState(false);
   const [selectedObject, setSelectedObject] = useState<D1SchemaObjectSummary | null>(null);
   const [columns, setColumns] = useState<D1ColumnInfo[]>([]);
   const [foreignKeys, setForeignKeys] = useState<D1ForeignKey[]>([]);
@@ -398,6 +400,9 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
     [tables, tableFilter],
   );
 
+  /** The zero-dep schema relationship diagram (ERD) — tables = nodes, FKs = edges. */
+  const erd = useMemo(() => buildErdModel(tables?.objects ?? []), [tables]);
+
   return (
     <div className="flex flex-col gap-3 p-3" data-testid="data-d1-browser" style={{ colorScheme: 'dark' }}>
       <div className="flex flex-wrap items-center gap-2">
@@ -652,10 +657,124 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
         >
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-bolt-elements-borderColor/30 px-3 py-1.5">
             <span className="text-[11px] font-medium text-bolt-elements-textSecondary">Schema</span>
-            {tables?.counts && (
-              <span className="text-[10px] text-bolt-elements-textTertiary">{schemaCountsLabel(tables.counts)}</span>
-            )}
+            <div className="flex items-center gap-2">
+              {tables?.counts && (
+                <span className="text-[10px] text-bolt-elements-textTertiary">{schemaCountsLabel(tables.counts)}</span>
+              )}
+              {erd.tableCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowErd((v) => !v)}
+                  data-testid="data-d1-erd-toggle"
+                  aria-pressed={showErd}
+                  title="Show the schema relationship diagram (tables + foreign keys)"
+                  className={classNames(
+                    'flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] transition-colors',
+                    showErd
+                      ? 'bg-bolt-elements-item-contentAccent/15 text-bolt-elements-item-contentAccent'
+                      : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
+                  )}
+                >
+                  <div className="i-ph:graph" /> Diagram
+                </button>
+              )}
+            </div>
           </div>
+
+          {showErd && erd.tableCount > 0 && (
+            <div
+              className="overflow-auto border-b border-bolt-elements-borderColor/20 p-3"
+              style={{ maxHeight: '420px' }}
+              data-testid="data-d1-erd"
+            >
+              {erd.edgeCount === 0 ? (
+                <div className="text-[10px] text-bolt-elements-textTertiary">
+                  No foreign-key relationships in this schema — {erd.tableCount}{' '}
+                  {erd.tableCount === 1 ? 'independent table' : 'independent tables'}.
+                </div>
+              ) : (
+                <>
+                  <div className="mb-2 text-[10px] text-bolt-elements-textTertiary">
+                    {erd.tableCount} tables · {erd.edgeCount} foreign-key{' '}
+                    {erd.edgeCount === 1 ? 'relationship' : 'relationships'} (arrows point to the referenced table)
+                  </div>
+                  <svg
+                    width={erd.width}
+                    height={erd.height}
+                    viewBox={`0 0 ${erd.width} ${erd.height}`}
+                    className="max-w-none"
+                    role="img"
+                    aria-label={`Schema relationship diagram: ${erd.tableCount} tables, ${erd.edgeCount} foreign-key relationships`}
+                  >
+                    <defs>
+                      <marker
+                        id="erd-arrow"
+                        markerWidth="9"
+                        markerHeight="9"
+                        refX="8"
+                        refY="4.5"
+                        orient="auto"
+                        markerUnits="userSpaceOnUse"
+                      >
+                        <path d="M0,0 L9,4.5 L0,9 Z" className="fill-bolt-elements-item-contentAccent" />
+                      </marker>
+                    </defs>
+                    {erd.edges
+                      .filter((e) => !e.self)
+                      .map((e, i) => (
+                        <line
+                          key={`erd-edge-${i}`}
+                          x1={e.x1}
+                          y1={e.y1}
+                          x2={e.x2}
+                          y2={e.y2}
+                          strokeWidth="1.5"
+                          strokeOpacity="0.5"
+                          markerEnd="url(#erd-arrow)"
+                          className="stroke-bolt-elements-item-contentAccent"
+                        >
+                          <title>{`${e.from}.${e.fromCol} → ${e.to}.${e.toCol ?? 'PK'}`}</title>
+                        </line>
+                      ))}
+                    {erd.nodes.map((n) => {
+                      const selfEdge = erd.edges.find((e) => e.self && e.from === n.table);
+                      return (
+                        <g key={`erd-node-${n.table}`}>
+                          <rect
+                            x={n.x}
+                            y={n.y}
+                            width={n.w}
+                            height={n.h}
+                            rx="6"
+                            strokeWidth="1"
+                            className="fill-bolt-elements-background-depth-1 stroke-bolt-elements-borderColor"
+                          />
+                          <text
+                            x={n.x + n.w / 2}
+                            y={n.y + n.h / 2 + 4}
+                            textAnchor="middle"
+                            className="fill-bolt-elements-textPrimary font-mono text-[11px]"
+                          >
+                            {n.table}
+                          </text>
+                          {selfEdge && (
+                            <circle
+                              cx={n.x + n.w - 9}
+                              cy={n.y + 9}
+                              r="4"
+                              className="fill-bolt-elements-item-contentAccent"
+                            >
+                              <title>{`${n.table}.${selfEdge.fromCol} → self (self-reference)`}</title>
+                            </circle>
+                          )}
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </>
+              )}
+            </div>
+          )}
 
           {tablesLoading && (
             <div className="px-3 py-3 text-[11px] text-bolt-elements-textTertiary">Loading schema…</div>
