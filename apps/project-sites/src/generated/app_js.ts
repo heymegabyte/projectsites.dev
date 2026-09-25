@@ -880,6 +880,29 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     } catch (e) {}
   }
 
+  /* ─────────────────── Network-quality beacon ─────────────────── */
+  // The visitor's navigator.connection estimate (effectiveType / downlink / rtt / saveData),
+  // beaconed once on load as a 'network_quality' event. First-party signal for "what
+  // connections are my visitors on" — which Cloudflare's plan has no dataset for. HONESTY:
+  // navigator.connection is CHROMIUM-ONLY (Chrome / Edge / Android); on Safari / Firefox the
+  // object is absent and NOTHING is sent (never a fabricated sample), so the metric is an
+  // explicit SUBSET the admin card labels as Chromium-only. Only present, valid fields are sent.
+  function initNetworkQuality() {
+    try {
+      var c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      if (!c) { return; } // not supported → no sample (honest omission)
+      var payload = { href: location.pathname };
+      if (typeof c.effectiveType === 'string' && c.effectiveType) { payload.effective_type = c.effectiveType; }
+      if (typeof c.downlink === 'number' && isFinite(c.downlink) && c.downlink >= 0) { payload.downlink = c.downlink; }
+      if (typeof c.rtt === 'number' && isFinite(c.rtt) && c.rtt >= 0) { payload.rtt = c.rtt; }
+      if (typeof c.saveData === 'boolean') { payload.save_data = c.saveData; }
+      // Only beacon when at least one real connection field was present (never an empty sample).
+      if (payload.effective_type === undefined && payload.downlink === undefined &&
+          payload.rtt === undefined && payload.save_data === undefined) { return; }
+      track('network_quality', payload);
+    } catch (e) {}
+  }
+
   /* ───────────────────────── Boot ───────────────────────── */
   onReady(function () {
     try {
@@ -896,6 +919,9 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     } catch (e) {}
     try {
       initScrollDepth();
+    } catch (e) {}
+    try {
+      initNetworkQuality();
     } catch (e) {}
     try {
       document.addEventListener('click', onClick, true);

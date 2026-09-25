@@ -22,6 +22,7 @@ import {
   getJsErrorSummary,
   getEngagementSummary,
   getScrollDepthSummary,
+  getNetworkQualitySummary,
   getConversionKinds,
   getPreviousConversionKinds,
   getDimensionBreakdown,
@@ -605,5 +606,107 @@ describe('getScrollDepthSummary — first-party scroll depth (reach funnel + med
     const q = calls.find((c) => c.sql.includes("event_type = 'scroll_depth'"));
     expect(q?.sql).toContain('site_id = ?');
     expect(q?.params).toContain('site-XYZ');
+  });
+});
+
+describe('getNetworkQualitySummary — first-party visitor connection quality', () => {
+  /** D1 stub returning the given network rows for the network_quality query. */
+  function netEnv(
+    rows: Array<{
+      etype: string | null;
+      downlink: number | null;
+      rtt: number | null;
+      save_data: number | null;
+    }>,
+    opts: { error?: boolean } = {},
+  ): Env {
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...params: unknown[]) {
+            return {
+              all: async () => {
+                if (opts.error) throw new Error('no such table');
+                return { results: sql.includes("event_type = 'network_quality'") ? rows : [] };
+              },
+              first: async () => null,
+              run: async () => ({ success: true }),
+              _params: params,
+            };
+          },
+        };
+      },
+    };
+    return { DB: db } as unknown as Env;
+  }
+  const row = (etype: string | null, downlink: number | null, rtt: number | null, save_data: number | null) => ({
+    etype,
+    downlink,
+    rtt,
+    save_data,
+  });
+
+  it('distributes by effectiveType (slow→fast) + medians downlink/rtt + save-data %', async () => {
+    const rows = [
+      row('4g', 10, 50, 0),
+      row('4g', 8, 70, 0),
+      row('3g', 2, 300, 1),
+      row('slow-2g', 0.4, 1200, 1),
+    ];
+    const s = await getNetworkQualitySummary(netEnv(rows), 'site_1', 30);
+    expect(s.samples).toBe(4);
+    // ordered worst→best, only classes seen
+    expect(s.byEffectiveType).toEqual([
+      { type: 'slow-2g', count: 1 },
+      { type: '3g', count: 1 },
+      { type: '4g', count: 2 },
+    ]);
+    expect(s.medianRttMs).toBe(70); // nearest-rank p50 of [50,70,300,1200] → index 1 = 70
+    expect(s.saveDataPercent).toBe(50); // 2 of 4 with save-data on
+    expect(s.medianDownlinkMbps).toBe(2); // nearest-rank p50 of [0.4,2,8,10] → 2
+  });
+
+  it('ignores unknown effectiveType classes + non-finite downlink/rtt (never fabricated)', async () => {
+    const rows = [row('lte', Number.NaN, -5, null), row('4g', 5, 40, 0)];
+    const s = await getNetworkQualitySummary(netEnv(rows), 'site_1', 30);
+    expect(s.samples).toBe(2); // both counted as samples
+    expect(s.byEffectiveType).toEqual([{ type: '4g', count: 1 }]); // 'lte' dropped
+    expect(s.medianRttMs).toBe(40); // only the valid rtt
+    expect(s.saveDataPercent).toBe(0); // only one row carried save_data (false)
+  });
+
+  it('no samples → empty summary (null medians, "measuring…", never a fabricated 0)', async () => {
+    const s = await getNetworkQualitySummary(netEnv([]), 'site_1', 30);
+    expect(s).toEqual({
+      samples: 0,
+      byEffectiveType: [],
+      medianDownlinkMbps: null,
+      medianRttMs: null,
+      saveDataPercent: null,
+    });
+  });
+
+  it('fail-soft — a query error yields the empty summary, never throws', async () => {
+    const s = await getNetworkQualitySummary(netEnv([], { error: true }), 'site_1', 30);
+    expect(s.samples).toBe(0);
+    expect(s.medianRttMs).toBeNull();
+  });
+
+  it('scopes to the tenant — the site_id predicate is bound, never interpolated', async () => {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...params: unknown[]) {
+            calls.push({ sql, params });
+            return { all: async () => ({ results: [] }), first: async () => null, run: async () => ({}) };
+          },
+        };
+      },
+    };
+    await getNetworkQualitySummary({ DB: db } as unknown as Env, 'site-NET', 30);
+    const q = calls.find((c) => c.sql.includes("event_type = 'network_quality'"));
+    expect(q?.sql).toContain('site_id = ?');
+    expect(q?.params).toContain('site-NET');
   });
 });

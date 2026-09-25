@@ -49,6 +49,10 @@ export const EVENT_TYPES = [
   // pagehide. Payload carries {percent, href} (client-clamped 0–100). Mirrored to
   // visitor_events for the scroll-depth reach funnel + per-page completion metric.
   'scroll_depth',
+  // First-party connection quality: the visitor's navigator.connection estimate, beaconed
+  // once on load. Payload carries {effective_type, downlink, rtt, save_data, href}
+  // (Chromium-only). Mirrored to visitor_events for the network-quality distribution metric.
+  'network_quality',
 ] as const;
 
 /**

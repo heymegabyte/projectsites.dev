@@ -33,6 +33,10 @@ export const VisitorEventTypeSchema = z.enum([
   // once on pagehide (client-clamped 0–100). First-party content-consumption signal; CF's
   // plan has no scroll-depth dataset.
   'scroll_depth',
+  // Network quality (metadata: {effective_type, downlink, rtt, save_data}) — the visitor's
+  // navigator.connection estimate, beaconed once on load. Chromium-only; CF's plan has no
+  // client network-quality dataset.
+  'network_quality',
 ]);
 export type VisitorEventType = z.infer<typeof VisitorEventTypeSchema>;
 
@@ -284,6 +288,44 @@ export const ScrollDepthSummarySchema = z
   });
 export type ScrollDepthSummary = z.infer<typeof ScrollDepthSummarySchema>;
 
+/** One connection-class bucket (4g / 3g / 2g / slow-2g) and how many visits were on it. */
+export const NetworkClassSchema = z
+  .object({
+    // 'slow-2g' | '2g' | '3g' | '4g' — the browser's effectiveType estimate.
+    type: z.string(),
+    count: z.number().int().min(1),
+  })
+  .strict();
+export type NetworkClass = z.infer<typeof NetworkClassSchema>;
+
+/**
+ * AN-NET — first-party visitor CONNECTION QUALITY over the window, from the `network_quality`
+ * beacon (`navigator.connection`, ONE sample per pageview, mirrored into `visitor_events`).
+ * `byEffectiveType` is the distribution across 4g/3g/2g/slow-2g; `medianDownlinkMbps` /
+ * `medianRttMs` the site-wide medians (median, not mean — connection estimates are skewed);
+ * `saveDataPercent` the share of visits with the browser data-saver on. HONESTY: this API is
+ * CHROMIUM-ONLY (Chrome/Edge/Android) — the card says so; `samples` counts only visits whose
+ * browser reported it, and the medians are `null` (→ "measuring…") when there are none, never
+ * a fabricated 0. CF's plan exposes no client network-quality dataset.
+ */
+export const NetworkQualitySummarySchema = z
+  .object({
+    samples: z.number().int().min(0),
+    byEffectiveType: z.array(NetworkClassSchema).default([]),
+    medianDownlinkMbps: z.number().min(0).nullable().default(null),
+    medianRttMs: z.number().int().min(0).nullable().default(null),
+    saveDataPercent: z.number().int().min(0).max(100).nullable().default(null),
+  })
+  .strict()
+  .default({
+    samples: 0,
+    byEffectiveType: [],
+    medianDownlinkMbps: null,
+    medianRttMs: null,
+    saveDataPercent: null,
+  });
+export type NetworkQualitySummary = z.infer<typeof NetworkQualitySummarySchema>;
+
 /** Aggregated traffic summary for one site over a window. */
 export const TrafficSummarySchema = z
   .object({
@@ -335,6 +377,10 @@ export const TrafficSummarySchema = z
     // Defaults to an empty (null-median) summary for back-compat with producers/fixtures
     // that predate it.
     scrollDepth: ScrollDepthSummarySchema,
+    // AN-NET — first-party visitor connection quality (effectiveType distribution + median
+    // downlink/rtt + save-data %). Chromium-only sample. Defaults to an empty summary for
+    // back-compat with producers/fixtures that predate it.
+    networkQuality: NetworkQualitySummarySchema,
     // AN15 — the immediately-preceding equal-length window's KPIs, for
     // period-over-period deltas. Defaults to zeros for back-compat.
     previous: z

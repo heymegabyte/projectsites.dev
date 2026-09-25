@@ -37,6 +37,7 @@ const VISITOR_MIRROR_TYPES = [
   'js_error',
   'page_engagement',
   'scroll_depth',
+  'network_quality',
 ] as const;
 type VisitorMirrorType = (typeof VISITOR_MIRROR_TYPES)[number];
 const isVisitorMirrorType = (t: string): t is VisitorMirrorType =>
@@ -231,6 +232,10 @@ analyticsRoutes.post('/api/events', async (c) => {
               line?: unknown;
               duration_ms?: unknown;
               percent?: unknown;
+              effective_type?: unknown;
+              downlink?: unknown;
+              rtt?: unknown;
+              save_data?: unknown;
             }
           | undefined;
         // web_vital carries {metric, value}: validate against the known CWV set + a
@@ -296,7 +301,30 @@ analyticsRoutes.post('/api/events', async (c) => {
                             ? Math.round(p.percent)
                             : undefined,
                       }
-                    : { form: typeof p?.form === 'string' ? p.form : undefined };
+                    : mirrorType === 'network_quality'
+                      ? {
+                          // Server-side re-guard on the navigator.connection estimate:
+                          // effective_type must be a known class; downlink/rtt finite + non-negative;
+                          // save_data a real boolean. Anything else is dropped so the distribution +
+                          // medians never see a fabricated or hostile value.
+                          effective_type:
+                            typeof p?.effective_type === 'string' &&
+                            ['slow-2g', '2g', '3g', '4g'].includes(p.effective_type)
+                              ? p.effective_type
+                              : undefined,
+                          downlink:
+                            typeof p?.downlink === 'number' &&
+                            Number.isFinite(p.downlink) &&
+                            p.downlink >= 0
+                              ? p.downlink
+                              : undefined,
+                          rtt:
+                            typeof p?.rtt === 'number' && Number.isFinite(p.rtt) && p.rtt >= 0
+                              ? Math.round(p.rtt)
+                              : undefined,
+                          save_data: typeof p?.save_data === 'boolean' ? p.save_data : undefined,
+                        }
+                      : { form: typeof p?.form === 'string' ? p.form : undefined };
         await recordVisitorEvent(
           env,
           { orgId: site.org_id, siteId: site.id },

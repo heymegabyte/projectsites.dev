@@ -20,6 +20,7 @@ import {
   type JsErrorSummary,
   type EngagementSummary,
   type ScrollDepthSummary,
+  type NetworkQualitySummary,
   type LabelCount,
   type HourCount,
   type AnalyticsFilter,
@@ -709,6 +710,90 @@ export async function getScrollDepthSummary(
   return { samples: all.length, medianPercent: Math.round(percentile(all, 50)), reach, byPage };
 }
 
+/** Empty network-quality summary — honest "measuring…" (null medians), never a fabricated 0. */
+function emptyNetworkQuality(): NetworkQualitySummary {
+  return {
+    samples: 0,
+    byEffectiveType: [],
+    medianDownlinkMbps: null,
+    medianRttMs: null,
+    saveDataPercent: null,
+  };
+}
+
+/** effectiveType classes worst→best, so the distribution renders slow-first (attention-first). */
+const NETWORK_CLASS_ORDER = ['slow-2g', '2g', '3g', '4g'] as const;
+
+/**
+ * AN-NET — first-party visitor connection quality over the window, from the `network_quality`
+ * beacon (`navigator.connection`, mirrored into `visitor_events`). Returns the distribution
+ * across 4g/3g/2g/slow-2g, the site-wide MEDIAN downlink (Mbps) + rtt (ms), and the share of
+ * visits with the browser data-saver on. Fail-soft: a query error OR no samples yields the
+ * empty summary (null medians) — the card shows "measuring…", NEVER a fabricated 0. Median
+ * (not mean) because the browser's estimates are coarse + skewed. HONESTY: the sample is
+ * Chromium-only (Chrome/Edge/Android report `navigator.connection`; Safari/Firefox don't), so
+ * `samples` is a SUBSET of visitors — the card states this so the split is never read as "all".
+ */
+export async function getNetworkQualitySummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<NetworkQualitySummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{
+    etype: string | null;
+    downlink: number | null;
+    rtt: number | null;
+    save_data: number | null;
+  }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.effective_type') AS etype,
+            json_extract(metadata, '$.downlink')       AS downlink,
+            CAST(json_extract(metadata, '$.rtt') AS INTEGER) AS rtt,
+            json_extract(metadata, '$.save_data')      AS save_data
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'network_quality'
+      LIMIT 50000`,
+    params,
+  );
+  if (error) return emptyNetworkQuality();
+  const byType = new Map<string, number>();
+  const downlinks: number[] = [];
+  const rtts: number[] = [];
+  let saveDataTrue = 0;
+  let saveDataKnown = 0;
+  let samples = 0;
+  for (const r of data) {
+    samples++;
+    if (typeof r.etype === 'string' && (NETWORK_CLASS_ORDER as readonly string[]).includes(r.etype)) {
+      byType.set(r.etype, (byType.get(r.etype) ?? 0) + 1);
+    }
+    const d = Number(r.downlink);
+    if (Number.isFinite(d) && d >= 0) downlinks.push(d);
+    const rt = Number(r.rtt);
+    if (Number.isFinite(rt) && rt >= 0) rtts.push(rt);
+    // save_data is stored as a JSON boolean → SQLite 1/0; count only rows that carry it.
+    if (r.save_data === 1 || r.save_data === 0) {
+      saveDataKnown++;
+      if (r.save_data === 1) saveDataTrue++;
+    }
+  }
+  if (samples === 0) return emptyNetworkQuality();
+  const byEffectiveType = NETWORK_CLASS_ORDER.filter((t) => (byType.get(t) ?? 0) > 0).map((t) => ({
+    type: t,
+    count: byType.get(t) as number,
+  }));
+  return {
+    samples,
+    byEffectiveType,
+    medianDownlinkMbps: downlinks.length ? Math.round(percentile(downlinks, 50) * 10) / 10 : null,
+    medianRttMs: rtts.length ? Math.round(percentile(rtts, 50)) : null,
+    saveDataPercent: saveDataKnown ? Math.round((100 * saveDataTrue) / saveDataKnown) : null,
+  };
+}
+
 /**
  * Conversions by kind over the equal-length window immediately BEFORE the current one —
  * the prior-period baseline for the per-kind delta badges. Same SQL as
@@ -884,6 +969,7 @@ export async function getTrafficSummary(
     jsErrors,
     engagement,
     scrollDepth,
+    networkQuality,
   ] = await Promise.all([
     scalar(
       env,
@@ -971,6 +1057,8 @@ export async function getTrafficSummary(
     getEngagementSummary(env, siteId, windowDays, window, filter),
     // AN-SCROLL — first-party scroll depth (queried directly; not in the rollup).
     getScrollDepthSummary(env, siteId, windowDays, window, filter),
+    // AN-NET — first-party visitor connection quality (queried directly; not in the rollup).
+    getNetworkQualitySummary(env, siteId, windowDays, window, filter),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -1011,6 +1099,7 @@ export async function getTrafficSummary(
     jsErrors,
     engagement,
     scrollDepth,
+    networkQuality,
     byConversionKind,
     previous: {
       pageviews: prevPageviews,
@@ -1106,6 +1195,7 @@ export async function getTrafficSummaryFromRollup(
     jsErrors,
     engagement,
     scrollDepth,
+    networkQuality,
   ] = await Promise.all([
     sumScalars(curStart, null),
     sumScalars(prevStart, prevEnd),
@@ -1130,6 +1220,8 @@ export async function getTrafficSummaryFromRollup(
     getEngagementSummary(env, siteId, windowDays),
     // AN-SCROLL — first-party scroll depth (queried live; not in the rollup).
     getScrollDepthSummary(env, siteId, windowDays),
+    // AN-NET — first-party visitor connection quality (queried live; not in the rollup).
+    getNetworkQualitySummary(env, siteId, windowDays),
   ]);
 
   return TrafficSummarySchema.parse({
@@ -1157,6 +1249,7 @@ export async function getTrafficSummaryFromRollup(
     jsErrors,
     engagement,
     scrollDepth,
+    networkQuality,
     byConversionKind,
     previous: {
       pageviews: prev.pageviews,
