@@ -18,11 +18,27 @@ export interface EngagementPageStat {
   samples: number;
 }
 
+/** Count of visits whose dwell reached each threshold (monotonic: s10 ≥ s30 ≥ s60 ≥ s180). */
+export interface EngagementDistribution {
+  s10: number;
+  s30: number;
+  s60: number;
+  s180: number;
+}
+
+/** One dwell-distribution rung for the template: its label, count, and % of all visits. */
+export interface EngagementRung {
+  label: string;
+  count: number;
+  percent: number;
+}
+
 /** The `traffic.engagement` shape. */
 export interface EngagementBlock {
   medianMs: number | null;
   samples: number;
   byPage: EngagementPageStat[];
+  distribution?: EngagementDistribution;
 }
 
 /** Format a ms duration as a compact human dwell: "8s" · "1m 20s" · "3m". */
@@ -59,6 +75,13 @@ export function formatDwell(ms: number): string {
     .en-val { color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; white-space: nowrap; }
     .en-n { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); font-variant-numeric: tabular-nums; white-space: nowrap; }
     .en-note { margin: 0.55rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+    .en-dist { margin: 0.6rem 0 0; padding: 0; list-style: none; display: grid; gap: 0.3rem; }
+    .en-dist-h { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); margin-bottom: 0.1rem; }
+    .en-rung { display: grid; grid-template-columns: 2.6rem 1fr auto; gap: 0.5rem; align-items: center; font-size: 0.72rem; }
+    .en-rung-lbl { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 70%, transparent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .en-rung-bar { height: 6px; border-radius: 999px; background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 8%, transparent); overflow: hidden; }
+    .en-rung-fill { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, color-mix(in oklch, var(--ps-accent, #00e5ff) 70%, transparent), var(--ps-accent, #00e5ff)); }
+    .en-rung-pct { color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap; }
     `,
   ],
   template: `
@@ -74,6 +97,19 @@ export function formatDwell(ms: number): string {
           <span class="en-median-lbl">median dwell</span>
         </div>
         <div class="en-samples">across {{ samples().toLocaleString() }} measured page view{{ samples() === 1 ? '' : 's' }}</div>
+
+        @if (rungs().length) {
+          <ul class="en-dist" aria-label="How long visits lasted">
+            <li class="en-dist-h">How long visits lasted</li>
+            @for (r of rungs(); track r.label) {
+              <li class="en-rung" data-testid="an-engagement-rung">
+                <span class="en-rung-lbl">{{ r.label }}</span>
+                <span class="en-rung-bar" aria-hidden="true"><span class="en-rung-fill" [style.width.%]="r.percent"></span></span>
+                <span class="en-rung-pct" [attr.aria-label]="r.percent + '% of visits stayed ' + r.label + ' (' + r.count + ' views)'">{{ r.percent }}%</span>
+              </li>
+            }
+          </ul>
+        }
 
         @if (pages().length) {
           <ul class="en-pages">
@@ -116,6 +152,23 @@ export class EngagementCardComponent {
   readonly samples = computed(() => this.engagement()?.samples ?? 0);
   /** Per-page medians (already longest-first, floor-gated, from the server). */
   readonly pages = computed<EngagementPageStat[]>(() => this.engagement()?.byPage ?? []);
+
+  /**
+   * Dwell-distribution rungs — the % of ALL measured visits that stayed past each threshold.
+   * Empty when there's no distribution or no samples (so the block hides rather than showing 0%s).
+   */
+  readonly rungs = computed<EngagementRung[]>(() => {
+    const d = this.engagement()?.distribution;
+    const total = this.samples();
+    if (!d || total <= 0) return [];
+    const rate = (n: number) => Math.round((n / total) * 100);
+    return [
+      { label: '≥10s', count: d.s10, percent: rate(d.s10) },
+      { label: '≥30s', count: d.s30, percent: rate(d.s30) },
+      { label: '≥1m', count: d.s60, percent: rate(d.s60) },
+      { label: '≥3m', count: d.s180, percent: rate(d.s180) },
+    ];
+  });
 
   /** Template helper — format a ms dwell compactly. */
   dwell(ms: number): string {

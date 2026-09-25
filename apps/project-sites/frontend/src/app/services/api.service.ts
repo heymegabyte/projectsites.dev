@@ -1726,6 +1726,8 @@ export interface SiteTrafficSummary {
     medianMs: number | null;
     samples: number;
     byPage: { path: string; medianMs: number; samples: number }[];
+    /** AN-ENGAGE-DIST — count of visits whose dwell reached ≥10s/30s/60s/180s (monotonic). */
+    distribution?: { s10: number; s30: number; s60: number; s180: number };
   };
   /** AN-SCROLL — first-party scroll depth. `medianPercent` is the site-wide MEDIAN max-depth
    *  (0–100); `reach` counts samples getting ≥25/50/75/100% deep (a monotonic funnel — divide

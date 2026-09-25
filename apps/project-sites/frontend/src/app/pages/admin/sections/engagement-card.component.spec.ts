@@ -44,6 +44,26 @@ describe('EngagementCardComponent', () => {
     expect(el.querySelector('[data-testid="an-engagement-empty"]')).toBeTruthy();
   });
 
+  it('renders the dwell distribution rungs as a % of all measured visits', () => {
+    const { fixture, el } = render({
+      medianMs: 45000,
+      samples: 100,
+      byPage: [],
+      distribution: { s10: 80, s30: 60, s60: 30, s180: 10 },
+    });
+    const rungs = fixture.debugElement.queryAll(By.css('[data-testid="an-engagement-rung"]'));
+    expect(rungs.length).toBe(4);
+    expect(el.textContent).toContain('≥30s');
+    expect(el.textContent).toContain('60%'); // 60/100
+    expect(el.textContent).toContain('≥3m');
+    expect(el.textContent).toContain('10%'); // 10/100
+  });
+
+  it('hides the distribution block when the payload has no distribution (no fabricated 0%)', () => {
+    const { fixture } = render({ medianMs: 45000, samples: 100, byPage: [] });
+    expect(fixture.debugElement.queryAll(By.css('[data-testid="an-engagement-rung"]')).length).toBe(0);
+  });
+
   it('formatDwell: seconds under a minute, m+s past it', () => {
     expect(formatDwell(8000)).toBe('8s');
     expect(formatDwell(60000)).toBe('1m');
