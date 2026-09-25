@@ -41,6 +41,10 @@ export const EVENT_TYPES = [
   // site. Payload carries {message, source, line} (message truncated + deduped + capped
   // client-side by the app.js beacon). Mirrored to visitor_events.
   'js_error',
+  // First-party engagement: dwell time on a page (load → first hide), beaconed once on
+  // pagehide. Payload carries {duration_ms, href} (client-bounded 1s–30min). Mirrored to
+  // visitor_events for a future median-time-on-page metric.
+  'page_engagement',
 ] as const;
 
 /**

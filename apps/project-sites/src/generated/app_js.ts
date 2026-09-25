@@ -812,6 +812,30 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     } catch (e) {}
   }
 
+  /* ─────────────────── Time-on-page (engagement) beacon ─────────────────── */
+  // Dwell time = interactive → the FIRST visibilitychange:hidden / pagehide, beaconed once
+  // as a 'page_engagement' event ({duration_ms, href}) via track()'s keepalive fetch. The
+  // first-party engagement signal — how long visitors actually stay — which Cloudflare's plan
+  // has no dataset for. Honest bounds: ignore <1s (bounce/bot noise) and >30min (an abandoned
+  // open tab, not real dwell) so a future median-time-on-page card isn't skewed by non-engagement.
+  function initEngagement() {
+    var start = Date.now();
+    var sent = false;
+    function beacon() {
+      if (sent) { return; }
+      sent = true;
+      var dur = Date.now() - start;
+      if (dur < 1000 || dur > 1800000) { return; }
+      track('page_engagement', { duration_ms: dur, href: location.pathname });
+    }
+    try {
+      window.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') { beacon(); }
+      }, { capture: true });
+      window.addEventListener('pagehide', beacon, { capture: true });
+    } catch (e) {}
+  }
+
   /* ───────────────────────── Boot ───────────────────────── */
   onReady(function () {
     try {
@@ -822,6 +846,9 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     } catch (e) {}
     try {
       initErrorBeacon();
+    } catch (e) {}
+    try {
+      initEngagement();
     } catch (e) {}
     try {
       document.addEventListener('click', onClick, true);

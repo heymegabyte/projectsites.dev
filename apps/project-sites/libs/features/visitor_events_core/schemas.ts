@@ -26,6 +26,9 @@ export const VisitorEventTypeSchema = z.enum([
   // source, line}) — a first-party site-health signal (CF's plan exposes no client-error
   // dataset). Deduped + capped + message-truncated client-side by the app.js beacon.
   'js_error',
+  // Page engagement / dwell time (metadata: {duration_ms}) — first-party time-on-page,
+  // beaconed once on pagehide, client-bounded 1s–30min. CF's plan has no dwell dataset.
+  'page_engagement',
 ]);
 export type VisitorEventType = z.infer<typeof VisitorEventTypeSchema>;
 

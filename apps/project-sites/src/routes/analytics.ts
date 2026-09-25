@@ -29,7 +29,7 @@ import { recordVisitorEvent } from '../../libs/features/visitor_events_core/serv
  * (adds `error`/`scroll`), so the guard both filters AND narrows to a valid
  * `VisitorEventType` before we call `recordVisitorEvent`.
  */
-const VISITOR_MIRROR_TYPES = ['conversion', 'form_start', 'form_submit', 'web_vital', 'js_error'] as const;
+const VISITOR_MIRROR_TYPES = ['conversion', 'form_start', 'form_submit', 'web_vital', 'js_error', 'page_engagement'] as const;
 type VisitorMirrorType = (typeof VISITOR_MIRROR_TYPES)[number];
 const isVisitorMirrorType = (t: string): t is VisitorMirrorType =>
   (VISITOR_MIRROR_TYPES as readonly string[]).includes(t);
@@ -221,6 +221,7 @@ analyticsRoutes.post('/api/events', async (c) => {
               message?: unknown;
               source?: unknown;
               line?: unknown;
+              duration_ms?: unknown;
             }
           | undefined;
         // web_vital carries {metric, value}: validate against the known CWV set + a
@@ -260,7 +261,19 @@ analyticsRoutes.post('/api/events', async (c) => {
                     source: typeof p?.source === 'string' ? p.source.slice(0, 300) : undefined,
                     line: typeof p?.line === 'number' && Number.isFinite(p.line) ? p.line : undefined,
                   }
-                : { form: typeof p?.form === 'string' ? p.form : undefined };
+                : mirrorType === 'page_engagement'
+                  ? {
+                      // Server-side re-guard: dwell must be a finite, sane duration (the client
+                      // already bounds 1s–30min); anything else is dropped so a median never skews.
+                      duration_ms:
+                        typeof p?.duration_ms === 'number' &&
+                        Number.isFinite(p.duration_ms) &&
+                        p.duration_ms >= 0 &&
+                        p.duration_ms <= 1_800_000
+                          ? Math.round(p.duration_ms)
+                          : undefined,
+                    }
+                  : { form: typeof p?.form === 'string' ? p.form : undefined };
         await recordVisitorEvent(
           env,
           { orgId: site.org_id, siteId: site.id },
