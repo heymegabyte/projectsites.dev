@@ -31,6 +31,8 @@ import {
   isRowActivationKey,
   isDismissKey,
   addToSqlHistory,
+  explainQuery,
+  explainPlanHint,
 } from './data-panel-logic';
 import { classNames } from '~/utils/classNames';
 
@@ -446,6 +448,9 @@ export const DataPanel = memo(() => {
     a.remove();
     URL.revokeObjectURL(url);
   }, [sqlColumns, sqlRows]);
+
+  /** Index guidance when the current result is an EXPLAIN QUERY PLAN (null otherwise). */
+  const sqlPlanHint = useMemo(() => explainPlanHint(sqlRows), [sqlRows]);
 
   return (
     <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 overflow-y-auto modern-scrollbar">
@@ -901,6 +906,21 @@ export const DataPanel = memo(() => {
                 {sqlRunning ? 'Running…' : 'Run'}
                 <kbd className="text-[9px] opacity-60 ml-0.5">⌘↵</kbd>
               </button>
+              <button
+                type="button"
+                onClick={() => runSql(explainQuery(sql))}
+                disabled={sqlRunning || !sql.trim()}
+                data-testid="data-sql-explain"
+                title="Show the SQLite query plan (EXPLAIN QUERY PLAN) + index guidance — a read-only optimizer view; never modifies data"
+                className={classNames(
+                  'text-xs rounded-md px-3 py-1.5 flex items-center gap-1.5 transition-colors',
+                  sqlRunning || !sql.trim()
+                    ? 'bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary cursor-not-allowed'
+                    : 'bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary border border-bolt-elements-borderColor hover:border-bolt-elements-item-contentAccent/40 cursor-pointer',
+                )}
+              >
+                <div className="i-ph:git-fork" /> Explain
+              </button>
               {sqlMeta && !sqlError && (
                 <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums" data-testid="data-sql-meta">
                   {sqlMeta.rows.toLocaleString()} {sqlMeta.rows === 1 ? 'row' : 'rows'}
@@ -947,6 +967,32 @@ export const DataPanel = memo(() => {
               Statement executed — {writeResult.rows_affected.toLocaleString()}{' '}
               {writeResult.rows_affected === 1 ? 'row' : 'rows'} affected
               {writeResult.last_row_id != null ? ` · last row id ${writeResult.last_row_id}` : ''}. Tables refreshed.
+            </div>
+          )}
+
+          {!sqlError && sqlPlanHint && (
+            <div
+              className={classNames(
+                'mx-3 mt-3 rounded-md border px-3 py-2 text-[11px] flex items-center gap-2',
+                sqlPlanHint.level === 'warn'
+                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                  : sqlPlanHint.level === 'good'
+                    ? 'border-green-500/30 bg-green-500/10 text-green-300'
+                    : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary',
+              )}
+              data-testid="data-sql-plan-hint"
+              role="status"
+            >
+              <div
+                className={
+                  sqlPlanHint.level === 'warn'
+                    ? 'i-ph:warning'
+                    : sqlPlanHint.level === 'good'
+                      ? 'i-ph:check-circle'
+                      : 'i-ph:info'
+                }
+              />
+              <span>{sqlPlanHint.message}</span>
             </div>
           )}
 
