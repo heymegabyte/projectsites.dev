@@ -818,6 +818,16 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
   // first-party engagement signal — how long visitors actually stay — which Cloudflare's plan
   // has no dataset for. Honest bounds: ignore <1s (bounce/bot noise) and >30min (an abandoned
   // open tab, not real dwell) so a future median-time-on-page card isn't skewed by non-engagement.
+  // ── new-vs-returning (browser-scoped, cookieless) ─────────────────────
+  // 1 = this browser's FIRST-EVER visit (no localStorage marker yet), 0 = seen before.
+  // undefined when storage is unavailable (private mode / disabled) — the server counts that as
+  // "unknown", never folded into new/returning. First-party; a single timestamp, no PII/no cookie.
+  var NEW_VISITOR;
+  try {
+    NEW_VISITOR = localStorage.getItem('ps_v') ? 0 : 1;
+    if (NEW_VISITOR === 1) { localStorage.setItem('ps_v', String(Date.now())); }
+  } catch (e) { NEW_VISITOR = undefined; }
+
   function initEngagement() {
     var start = Date.now();
     var sent = false;
@@ -826,7 +836,7 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
       sent = true;
       var dur = Date.now() - start;
       if (dur < 1000 || dur > 1800000) { return; }
-      track('page_engagement', { duration_ms: dur, href: location.pathname });
+      track('page_engagement', { duration_ms: dur, href: location.pathname, nv: NEW_VISITOR });
     }
     try {
       window.addEventListener('visibilitychange', function () {

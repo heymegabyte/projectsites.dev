@@ -279,6 +279,7 @@ analyticsRoutes.post('/api/events', async (c) => {
               transfer?: unknown;
               dom?: unknown;
               total?: unknown;
+              nv?: unknown;
             }
           | undefined;
         // web_vital carries {metric, value}: validate against the known CWV set + a
@@ -333,6 +334,9 @@ analyticsRoutes.post('/api/events', async (c) => {
                         p.duration_ms <= 1_800_000
                           ? Math.round(p.duration_ms)
                           : undefined,
+                      // New-vs-returning: browser-scoped flag (1 = new / 0 = returning); anything
+                      // else omitted → the aggregator counts it as "unknown", never new/returning.
+                      nv: p?.nv === 0 || p?.nv === 1 ? p.nv : undefined,
                     }
                   : mirrorType === 'scroll_depth'
                     ? {

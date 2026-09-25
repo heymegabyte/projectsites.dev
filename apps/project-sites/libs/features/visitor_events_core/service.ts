@@ -766,6 +766,49 @@ export async function getEngagementSummary(
   return { medianMs: Math.round(percentile(all, 50)), samples: all.length, byPage, distribution };
 }
 
+/** Result of {@link getNewVsReturningSummary}. */
+export interface NewVsReturningSummary {
+  /** Page visits from a browser recording its FIRST-EVER visit (localStorage marker was absent). */
+  readonly newVisits: number;
+  /** Page visits from a browser seen before (marker present). */
+  readonly returningVisits: number;
+  /** Page visits where the flag couldn't be determined (private mode / storage disabled) — NEVER folded into new/returning. */
+  readonly unknownVisits: number;
+}
+
+/**
+ * New-vs-returning page-visit split from the first-party `page_engagement` beacon's browser-scoped
+ * `nv` flag (1 = the browser's first-ever visit, 0 = seen before, absent = couldn't determine).
+ * Browser-scoped + honest: a new device or cleared storage counts as new; `unknownVisits` is surfaced
+ * separately, never folded into either bucket. Fail-soft: a query error yields all-zero.
+ */
+export async function getNewVsReturningSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<NewVsReturningSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ nv: number | null; n: number }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.nv') AS nv, COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'page_engagement'
+      GROUP BY nv`,
+    params,
+  );
+  const out = { newVisits: 0, returningVisits: 0, unknownVisits: 0 };
+  if (error) return out;
+  for (const r of data) {
+    const n = Number(r.n) || 0;
+    if (Number(r.nv) === 1) out.newVisits += n;
+    else if (Number(r.nv) === 0) out.returningVisits += n;
+    else out.unknownVisits += n;
+  }
+  return out;
+}
+
 /** Empty scroll-depth summary — honest "measuring…" (null median), never a fabricated 0. */
 function emptyScrollDepth(): ScrollDepthSummary {
   return { samples: 0, medianPercent: null, reach: { p25: 0, p50: 0, p75: 0, p100: 0 }, byPage: [] };
