@@ -428,6 +428,60 @@ export interface VectorizeResponseMessage {
   error?: string;
 }
 
+/** A Queue summary from the `queues` op. */
+export interface QueueSummary {
+  id: string;
+  name: string;
+  producers: number;
+  consumers: number;
+}
+
+/** A producer / consumer endpoint bound to a queue. */
+export interface QueueEndpoint {
+  script?: string | null;
+  environment?: string | null;
+}
+
+/**
+ * Child → Parent (Queues Browser): ask the admin to proxy a read-only Cloudflare Queues inspection
+ * (list queues / describe one). No send / purge / ack is exposed.
+ */
+export interface QueueRequestMessage {
+  type: 'PS_QUEUE_REQUEST';
+  correlationId: string;
+  op: 'queues' | 'queue';
+  /** Required for the `queue` op — the queue id to describe. */
+  queueId?: string;
+}
+
+export interface QueuesData {
+  queues: QueueSummary[];
+  available: boolean;
+  reason?: string;
+}
+
+export interface QueueDetailData {
+  found: boolean;
+  id: string;
+  name?: string;
+  created?: string | null;
+  modified?: string | null;
+  settings?: { deliveryDelaySeconds: number | null; messageRetentionSeconds: number | null };
+  producers?: QueueEndpoint[];
+  consumers?: QueueEndpoint[];
+  available?: boolean;
+  reason?: string;
+}
+
+/** Parent → Child (Queues Browser): the admin's reply to {@link QueueRequestMessage}. */
+export interface QueueResponseMessage {
+  type: 'PS_QUEUE_RESPONSE';
+  correlationId: string;
+  ok: boolean;
+  data?: QueuesData | QueueDetailData;
+  error?: string;
+}
+
 export type ParentToChildMessage =
   | SubmitPromptMessage
   | ImportFilesMessage
@@ -441,6 +495,7 @@ export type ParentToChildMessage =
   | KvResponseMessage
   | R2ResponseMessage
   | VectorizeResponseMessage
+  | QueueResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -453,6 +508,7 @@ export type ChildToParentMessage =
   | KvRequestMessage
   | R2RequestMessage
   | VectorizeRequestMessage
+  | QueueRequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;

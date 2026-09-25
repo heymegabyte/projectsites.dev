@@ -22,6 +22,7 @@ import type { DataOverviewTable, ParentToChildMessage } from '~/lib/embed/embedd
 import { KvBrowser } from './KvBrowser';
 import { R2Browser } from './R2Browser';
 import { VectorizeBrowser } from './VectorizeBrowser';
+import { QueuesBrowser } from './QueuesBrowser';
 import {
   iconForTable,
   formatCellValue,
@@ -231,7 +232,7 @@ export const DataPanel = memo(() => {
    * multi-tenant DB). `canRunSql` arrives on the overview reply; `mode` toggles the console view.
    */
   const [canRunSql, setCanRunSql] = useState(false);
-  const [mode, setMode] = useState<'tables' | 'sql' | 'kv' | 'r2' | 'vec'>('tables');
+  const [mode, setMode] = useState<'tables' | 'sql' | 'kv' | 'r2' | 'vec' | 'queues'>('tables');
 
   /*
    * Add-row — a typed row editor that builds a PARAMETERIZED INSERT (values BOUND via ?N, never
@@ -1472,7 +1473,7 @@ export const DataPanel = memo(() => {
                 role="tablist"
                 aria-label="Data view"
               >
-                {(['tables', 'sql', 'kv', 'r2', 'vec'] as const).map((m) => (
+                {(['tables', 'sql', 'kv', 'r2', 'vec', 'queues'] as const).map((m) => (
                   <button
                     key={m}
                     type="button"
@@ -1503,10 +1504,22 @@ export const DataPanel = memo(() => {
                               ? 'i-ph:hard-drives'
                               : m === 'vec'
                                 ? 'i-ph:graph'
-                                : 'i-ph:table'
+                                : m === 'queues'
+                                  ? 'i-ph:stack'
+                                  : 'i-ph:table'
                       }
                     />
-                    {m === 'sql' ? 'SQL' : m === 'kv' ? 'KV' : m === 'r2' ? 'R2' : m === 'vec' ? 'Vectors' : 'Tables'}
+                    {m === 'sql'
+                      ? 'SQL'
+                      : m === 'kv'
+                        ? 'KV'
+                        : m === 'r2'
+                          ? 'R2'
+                          : m === 'vec'
+                            ? 'Vectors'
+                            : m === 'queues'
+                              ? 'Queues'
+                              : 'Tables'}
                   </button>
                 ))}
               </div>
@@ -2348,6 +2361,11 @@ export const DataPanel = memo(() => {
       {mode === 'vec' && (
         <div className="flex-1 flex flex-col min-h-0 overflow-auto modern-scrollbar">
           <VectorizeBrowser postToParent={postToParent} />
+        </div>
+      )}
+      {mode === 'queues' && (
+        <div className="flex-1 flex flex-col min-h-0 overflow-auto modern-scrollbar">
+          <QueuesBrowser postToParent={postToParent} />
         </div>
       )}
       {status === 'ready' && mode === 'sql' && (

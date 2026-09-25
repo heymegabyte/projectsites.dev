@@ -80,11 +80,15 @@ interface PsMessage {
     | 'objects'
     | 'object'
     | 'indexes'
-    | 'index';
+    | 'index'
+    | 'queues'
+    | 'queue';
   /** PS_R2_REQUEST: the R2 bucket binding name (required for the objects + object ops). */
   readonly bucket?: string;
   /** PS_VEC_REQUEST: the Vectorize index name (required for the `index` describe op). */
   readonly name?: string;
+  /** PS_QUEUE_REQUEST: the queue id (required for the `queue` describe op). */
+  readonly queueId?: string;
   /** PS_KV_REQUEST: the KV binding name (required for the keys + value ops). */
   readonly binding?: string;
   /** PS_KV_REQUEST (keys op): key-name prefix filter. */
@@ -570,6 +574,37 @@ export class BoltEmbedService {
               },
               error: () => reply({ error: 'Failed to load data' }),
             });
+          break;
+        }
+        case 'PS_QUEUE_REQUEST': {
+          // Queues inspector — mirrors the PS_VEC bridge. Proxies read-only queue inspection to
+          // /api/admin/queues/* (super-admin; list + describe only, never send/purge/ack).
+          const iframe = this.iframeEl;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_QUEUE_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          const op = msg.op;
+          let qPath: string;
+          if (op === 'queues') {
+            qPath = '/admin/queues';
+          } else if (op === 'queue') {
+            if (!msg.queueId) {
+              reply({ ok: false, error: 'No queue id' });
+              break;
+            }
+            qPath = `/admin/queues/${encodeURIComponent(msg.queueId)}`;
+          } else {
+            reply({ ok: false, error: 'Unknown Queues op' });
+            break;
+          }
+          this.api.get<Record<string, unknown>>(qPath, undefined, { silent: true }).subscribe({
+            next: (res) => reply({ ok: true, data: res ?? {} }),
+            error: () => reply({ ok: false, error: 'Queues inspector not available' }),
+          });
           break;
         }
         case 'PS_VEC_REQUEST': {
