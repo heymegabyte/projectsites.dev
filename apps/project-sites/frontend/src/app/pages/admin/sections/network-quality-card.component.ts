@@ -24,6 +24,15 @@ export interface NetworkQualityBlock {
   medianDownlinkMbps: number | null;
   medianRttMs: number | null;
   saveDataPercent: number | null;
+  byPage?: NetworkSlowPage[];
+}
+
+/** One page whose visitors have a slow median connection (mobile-hostile page). */
+export interface NetworkSlowPage {
+  path: string;
+  medianDownlinkMbps: number;
+  medianRttMs: number | null;
+  samples: number;
 }
 
 /** A distribution rung for the template (class + reach rate). */
@@ -65,6 +74,13 @@ const CLASS_LABELS: Record<string, string> = {
     .nq-bar-fill { height: 100%; border-radius: 999px; background: var(--ps-accent, #00e5ff); }
     .nq-rung-pct { color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .nq-note { margin: 0.55rem 0 0; font-size: 0.62rem; line-height: 1.4; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 45%, transparent); }
+    .nq-pages { margin: 0.75rem 0 0; padding: 0.7rem 0 0; border-top: 1px solid var(--ps-edge, rgba(255,255,255,0.08)); }
+    .nq-pages-h { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); margin-bottom: 0.3rem; }
+    .nq-page-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.25rem; }
+    .nq-page-row { display: flex; justify-content: space-between; gap: 0.6rem; font-size: 0.72rem; }
+    .nq-page-path { color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .nq-page-ms { color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0; }
+    .nq-page-rtt { color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 50%, transparent); }
     `,
   ],
   template: `
@@ -108,6 +124,25 @@ const CLASS_LABELS: Record<string, string> = {
             }
           </div>
         }
+        @if (slowestPages().length) {
+          <div class="nq-pages" data-testid="an-network-pages">
+            <div class="nq-pages-h">Pages with the slowest-connection visitors</div>
+            <ul class="nq-page-list">
+              @for (pg of slowestPages(); track pg.path) {
+                <li class="nq-page-row" data-testid="an-network-page">
+                  <span class="nq-page-path" [attr.title]="pg.path">{{ pg.path }}</span>
+                  <span class="nq-page-ms">
+                    {{ pg.medianDownlinkMbps }} Mbps
+                    @if (pg.medianRttMs !== null) {
+                      <span class="nq-page-rtt" title="Median round-trip time for this page's visitors">· {{ pg.medianRttMs }} ms</span>
+                    }
+                  </span>
+                </li>
+              }
+            </ul>
+          </div>
+        }
+
         <p class="nq-note">
           First-party — the connection your visitors browse on, so you know how light the site
           must stay. <strong>Chromium only</strong> (Chrome, Edge, Android report it; Safari &amp;
@@ -157,4 +192,7 @@ export class NetworkQualityCardComponent {
       percent: Math.round((100 * c.count) / b.samples),
     }));
   });
+
+  /** Pages whose visitors have the slowest median connection (server-provided, slowest-first). */
+  readonly slowestPages = computed<NetworkSlowPage[]>(() => this.networkQuality()?.byPage ?? []);
 }

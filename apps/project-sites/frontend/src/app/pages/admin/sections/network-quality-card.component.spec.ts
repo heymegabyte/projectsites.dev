@@ -69,4 +69,36 @@ describe('NetworkQualityCardComponent', () => {
     const { el } = render(undefined);
     expect(el.querySelector('[data-testid="an-network-empty"]')).toBeTruthy();
   });
+
+  it('lists the slowest-connection pages (downlink + rtt); rtt chip omitted when null', () => {
+    const { fixture, el } = render({
+      samples: 20,
+      byEffectiveType: [{ type: '4g', count: 20 }],
+      medianDownlinkMbps: 8,
+      medianRttMs: 60,
+      saveDataPercent: 0,
+      byPage: [
+        { path: '/heavy', medianDownlinkMbps: 1.5, medianRttMs: 300, samples: 6 },
+        { path: '/light', medianDownlinkMbps: 20, medianRttMs: null, samples: 8 },
+      ],
+    });
+    const pages = fixture.debugElement.queryAll(By.css('[data-testid="an-network-page"]'));
+    expect(pages.length).toBe(2);
+    expect(pages[0].nativeElement.textContent).toContain('/heavy'); // slowest-first (server order)
+    expect(pages[0].nativeElement.textContent).toContain('1.5 Mbps');
+    expect(pages[0].nativeElement.textContent).toContain('300 ms');
+    // /light has null rtt → NO rtt chip (never a fabricated 0)
+    expect(el.querySelectorAll('[data-testid="an-network-page"] .nq-page-rtt').length).toBe(1);
+  });
+
+  it('hides the slowest-connection-pages block when byPage is absent', () => {
+    const { fixture } = render({
+      samples: 20,
+      byEffectiveType: [{ type: '4g', count: 20 }],
+      medianDownlinkMbps: 8,
+      medianRttMs: 60,
+      saveDataPercent: 0,
+    });
+    expect(fixture.debugElement.query(By.css('[data-testid="an-network-pages"]'))).toBeNull();
+  });
 });

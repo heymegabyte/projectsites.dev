@@ -1750,6 +1750,8 @@ export interface SiteTrafficSummary {
     medianDownlinkMbps: number | null;
     medianRttMs: number | null;
     saveDataPercent: number | null;
+    /** AN-NET-PAGE — pages whose visitors have the slowest median downlink (mobile-hostile pages). */
+    byPage?: { path: string; medianDownlinkMbps: number; medianRttMs: number | null; samples: number }[];
   };
   /** AN-NAV — first-party page-load waterfall. Median ms per phase (dns/connect/ttfb/transfer/
    *  dom/total) from the `nav_timing` beacon. A phase is null only with no samples (card shows
