@@ -807,6 +807,74 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
     ],
     e2e_tests: ['e2e/scan_profiles/scan-profiles.spec.ts'],
   },
+  // ── Data-section platform inspectors (2026-09-25): read-only, super-admin, flag-off→404
+  // debugging tools for the shared Cloudflare data resources. Verified via prod headless
+  // admin-verify probes (the established inspector pattern), not dev .spec.ts — so e2e_tests
+  // is intentionally omitted (honest: no fabricated spec path).
+  kv_inspector: {
+    checklist: [
+      'Read-only super-admin inspector for the 2 shared KV namespaces (CACHE_KV, PROMPT_STORE)',
+      'GET /api/admin/kv/namespaces · /:binding/keys (cursor-paginated ≤1000) · /:binding/value (64 KiB cap + truncated flag)',
+      ':binding validated against a SERVER allowlist (CACHE_KV|PROMPT_STORE) — client-supplied names never reach KV',
+      'Read-only (no write/delete); super-admin only; flag off → 404 (never leaks existence)',
+      'Admin surface /admin/kv-inspector; values labelled eventually-consistent in the UI',
+    ],
+    explanation:
+      'Read-only, super-admin platform debugging tool for the two SHARED KV namespaces (CACHE_KV = host/analytics cache, PROMPT_STORE = prompt hot-patch). The worker (libs/features/kv_inspector/handlers.ts) serves the namespace list, cursor-paginated keys (≤1000), and a single value read (64 KiB cap + truncated flag). The :binding is validated against a server-side allowlist so a client-supplied namespace name can never reach KV (unknown → 404). No write or delete path exists; the flag off → every route 404s (never a 403 that would leak the tool exists). These are shared platform infra, not tenant-owned.',
+    smoke_test: [
+      'Enable + super-admin → GET /api/admin/kv/namespaces → 200 lists CACHE_KV + PROMPT_STORE',
+      'GET /api/admin/kv/UNKNOWN/keys → 404 (binding not on the server allowlist)',
+      'Disable the flag → every /api/admin/kv/* route 404s (not 403)',
+    ],
+  },
+  r2_inspector: {
+    checklist: [
+      'Read-only super-admin inspector for the shared R2 bucket (SITES_BUCKET — generated site output + media)',
+      'GET /api/admin/r2/buckets · /:bucket/objects (prefix + cursor-paginated ≤1000) · /:bucket/object (metadata via HEAD, never the body)',
+      ':bucket validated against a SERVER allowlist (SITES_BUCKET) — client-supplied names never reach R2',
+      'Read-only (no put/delete, no body download); super-admin only; flag off → 404',
+      'Admin surface /admin/r2-inspector; SITES_BUCKET is SHARED platform infra, not tenant-owned',
+    ],
+    explanation:
+      'Read-only, super-admin platform debugging tool for the SHARED R2 bucket (SITES_BUCKET = generated site output + media). The worker (libs/features/r2_inspector/handlers.ts) serves the bucket list, prefix + cursor-paginated object listing (≤1000), and per-object metadata via HEAD — it never streams an object body. The :bucket is validated against a server-side allowlist so a client-supplied bucket name can never reach R2 (unknown → 404). No put or delete path exists; the flag off → every route 404s (never a 403 that would leak existence). SITES_BUCKET is shared platform infrastructure, not tenant-owned storage.',
+    smoke_test: [
+      'Enable + super-admin → GET /api/admin/r2/buckets → 200 lists SITES_BUCKET',
+      'GET /api/admin/r2/SITES_BUCKET/objects?prefix=sites/ → 200 (cursor-paginated ≤1000)',
+      'Disable the flag → every /api/admin/r2/* route 404s (not 403)',
+    ],
+  },
+  vectorize_inspector: {
+    checklist: [
+      'Read-only super-admin inspector for account Vectorize indexes (RAG / embeddings — shared platform infra)',
+      'GET /api/admin/vectorize/indexes (list) + /indexes/:name (describe: dimensions, distance metric, vector count, last mutation via v2 REST /info)',
+      'CF credentials stay SERVER-side (resolveCfCredentials); account id = env.CF_ACCOUNT_ID, never client-supplied',
+      ':name validated as a slug (no REST-path injection); the super-admin gate is the authz boundary',
+      'Read-only (no insert/query/delete); flag off → 404; honest "not available" (never a fabricated empty list) on creds/API failure',
+    ],
+    explanation:
+      'Read-only, super-admin platform debugging tool for the account Cloudflare Vectorize indexes (RAG / embeddings — shared platform infra, not tenant-owned). The worker (libs/features/vectorize_inspector/handlers.ts) lists indexes and describes one (dimensions, distance metric, description, vector count + last-processed mutation via the v2 REST /info endpoint). Cloudflare credentials stay server-side (the worker global key via resolveCfCredentials) and the account id is env.CF_ACCOUNT_ID — never client-supplied. The :name is validated as a slug so it cannot inject into the REST path; the super-admin gate is the real authorization boundary. Read-only; the flag off → 404 (never leaks existence); a creds/API failure returns an honest "not available", never a fabricated empty list.',
+    smoke_test: [
+      'Enable + super-admin → GET /api/admin/vectorize/indexes → 200 (real index list, or honest available:false)',
+      'GET /api/admin/vectorize/indexes/:name → 200 describe (dimensions + distance metric + vector count)',
+      'Disable the flag → the routes 404 (not 403)',
+    ],
+  },
+  queues_inspector: {
+    checklist: [
+      'Read-only super-admin inspector for account Cloudflare Queues (job / workflow pipelines — shared platform infra)',
+      'GET /api/admin/queues (list) + /queues/:id (describe: delivery delay, message retention, producers + consumers with worker script/service)',
+      'CF credentials stay SERVER-side (resolveCfCredentials); account id = env.CF_ACCOUNT_ID, never client-supplied',
+      ':id validated as a slug/hex (no REST-path injection); the super-admin gate is the authz boundary',
+      'Read-only (no publish/purge/delete); flag off → 404; honest "not available" on creds/API failure',
+    ],
+    explanation:
+      'Read-only, super-admin platform debugging tool for the account Cloudflare Queues (job / workflow pipelines — shared platform infra, not tenant-owned). The worker (libs/features/queues_inspector/handlers.ts) lists queues and describes one (delivery delay, message retention, and the producers + consumers with their worker script/service). Cloudflare credentials stay server-side (the worker global key via resolveCfCredentials) and the account id is env.CF_ACCOUNT_ID — never client-supplied. The :id is validated as a slug/hex so it cannot inject into the REST path; the super-admin gate is the real authorization boundary. Read-only; the flag off → 404 (never leaks existence); a creds/API failure returns an honest "not available", never a fabricated empty list.',
+    smoke_test: [
+      'Enable + super-admin → GET /api/admin/queues → 200 (real queue list, or honest available:false)',
+      'GET /api/admin/queues/:id → 200 describe (producers + consumers with worker script/service)',
+      'Disable the flag → the routes 404 (not 403)',
+    ],
+  },
 };
 
 export function getDocs(key: string): FlagDocs | undefined {
