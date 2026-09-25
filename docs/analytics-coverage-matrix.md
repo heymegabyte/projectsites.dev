@@ -222,13 +222,29 @@ gated.
   INP 200/500, CLS 0.1/0.25) + Google's pass model — Good only when EVERY measured core metric is
   good, Poor if any is poor, else Needs improvement; rates only metrics with field samples; null →
   tile omitted (never a fabricated rating). +8 Karma. Prod-verified: chunk live with the marker.
-  **REMAINING: NONE that need new code.** The drilldown filter UI is SHIPPED (verified 2026-09-25 —
-  clickable rows for path/country/device/browser/os + Highlights drills + a removable accessible chip +
-  filtered empty states; `channel` reachable via the API filter, not row-clickable by design). The
-  analytics section is at a genuine plateau: every AVAILABLE CF dataset + the full advanced-first-party
-  set is shipped (CF RUM cached), and first-party metrics propagate to the admin dashboard, the public
-  report, AND the funnel. Next loop fires should run a completeness-critic or reallocate to
-  generated-site quality — do NOT re-build the shipped drilldown UI.
+  **CORRECTION (2026-09-25): the "plateau" claim was premature — a parallel-agent scan found the
+  contact-form LEAD FUNNEL was a real MEASURED-BUT-UNSURFACED gap** (`form_start` + `form_submit` have
+  been beacon-emitted + mirrored into `visitor_events` for months, but NO aggregation consumed them).
+  NOW SHIPPED (this fire): `getFormFunnelSummary` + `FormFunnelSummarySchema` (both summary paths) →
+  `traffic.formFunnel` → `FormFunnelCardComponent` ("Contact form" lead funnel — starts → submits →
+  completion rate + abandonment + per-form). Prod-verified live REAL data (berkeley-bowl-2: 1 start / 1
+  submit / 100% / form "causal-beacon-form"); tenant-safe (owned 200, non-owned 404, no/bad-auth 401).
+  8 Jest + 7 Karma. **Lesson: NEVER declare a plateau without grepping every summary-schema field
+  against what a card renders** — `byChannel` (last fire) + `formFunnel` (this fire) were both
+  computed-but-unrendered gaps a plateau claim missed.
+
+  **RANKED BACKLOG (from the 2026-09-25 parallel scan — build top-down next fires):**
+  1. **Outbound clicks BY KIND** (S) — `getOutboundClicksSummary.byLink` already carries `kind`
+     (call/email/directions), but there's no by-KIND rollup card ("40 calls · 12 emails · 8 directions").
+  2. **Concierge chat engagement** (M) — `concierge_open`/`concierge_message` are beacon-sent + stored
+     but never aggregated/displayed (a chat-adoption KPI). MEASURED-BUT-UNSURFACED.
+  3. **Delivery bytes/pageviews BY STATUS & cache-state** (M) — reuse the SAME `loadHostDelivery` CF
+     query (add `sum{edgeResponseBytes}`/`sum{visits}` per status/cache; NO new CF request).
+  4. **Per-page nav-timing / network-quality / engagement-distribution** (M each) — first-party, stored,
+     need per-page aggregation (mirror the CWV slowest-pages pattern).
+  5. **Content-type `byType` card** (S, low owner-value) — computed + returned, but no card renders it.
+  6. **Missing tests** — per-metric honest-empty when a filter dim is absent; filter + cross-tenant 404.
+  Every AVAILABLE CF dataset is shipped (CF RUM cached); the backlog is first-party DEPTH, not CF.
 
 ## Coverage matrix
 
@@ -247,6 +263,7 @@ gated.
 | Daily time series | D1 visitor_events / analytics_daily | flag `analytics_rollup_read` | site_id | D1 | none | ✅ live | line chart |
 | Funnel (landing→engaged→converted) | D1 visitor_events | none | site_id | D1 | none | ✅ live | funnel widget |
 | Forms / completions | D1 form_submissions | none | site_id | D1 | none | ✅ live | forms tab |
+| **Contact-form LEAD FUNNEL (starts → submits → completion rate + abandonment, per form)** | D1 `visitor_events` — `form_start` (validated attempt) + `form_submit` (server-confirmed) beacon events, `COUNT` by `event_type` grouped by `json_extract(metadata,'$.form')` | none | site_id (+ drilldown predicate) | D1 | none (all events) | ✅ **NEW (2026-09-25)** — `getFormFunnelSummary` (both summary paths, reads `visitor_events` directly like conversions/outbound) → `traffic.formFunnel` → **`FormFunnelCardComponent`** ("Contact form" — big completion-rate stat + started→submitted funnel bars + a "N leads didn't get through" callout + per-form breakdown when >1 form). The ONLY view of form ABANDONMENT (starts − submits = lost leads), DISTINCT from the `form` conversion-kind (successes only). Honest: completion renders "—" (never 0%) when null, no activity → explicit empty state. Tenant-safe: `currentWindow` binds `site_id` first; owned 200 / non-owned 404 / no-auth 401 (prod-verified). Rate clamped ≤100 for the submit-without-start anomaly. 8 Jest + 7 Karma. Prod-verified live REAL data: berkeley-bowl-2 = 1 start / 1 submit / 100% / form "causal-beacon-form"; chunk `chunk-NNQ7WBNE.js` (200 + `an-form-funnel`); worker `f220e283`. | `/admin/analytics` "Contact form" lead-funnel card |
 | Period-over-period deltas | D1 visitor_events | none | site_id | D1 | none | ✅ live | comparison |
 | **Highlights / insights (evidence-backed)** | (UI) pure derivation over the fetched envelope + D1 traffic | none | — | — | — | ✅ **DONE (2026-09-25)** — `buildAnalyticsInsights` (pure, tested) turns the SAME data the cards show into ≤5 plain-language, owner-friendly takeaways (traffic + honest Δ · top conversion kind + Δ · most-visited page · **page speed** (first-party FCP p75, rated fast/okay/slow — added 2026-09-25 now that the page-load beacon accrued real samples) · device MAJORITY ≥50% only · top location · true session-bounce), rendered in an `InsightsStripComponent` at the top of the dashboard. **Honest:** every insight embeds its real number, is emitted ONLY from present data (never "0% of…"), comparisons appear ONLY from the real `pvDelta`/`conversionDelta` (null → no comparison; "new" when prior was zero), and the strip HIDES on a fresh site. No new query (pure derivation). **CLICKABLE (2026-09-25):** the device / top-page / top-location insights carry a `{dim,value}` drill and render as buttons ("68% of visitors are on mobile ↳ filter") that feed `applyDrill` — one tap from takeaway → filtered detail (reuses the drilldown filter); aggregate insights (traffic/conversions/bounce) have nothing single to filter to → plain text. Accessible (real button + aria-label). Prod-verified live (chunk MD5 local==prod). +12 Karma (8 util + 4 component). | `/admin/analytics` "Highlights" strip (top) |
 | **Delivery & performance (status codes / cache hit-miss / bandwidth)** | CF GraphQL `httpRequestsAdaptiveGroups` (`edgeResponseStatus` + `cacheStatus` + `sum{edgeResponseBytes}`) | resolved via the shared zone for subdomains; API lookup for custom domains | per `clientRequestHTTPHost` | ~30 days | adaptive sampled | ✅ **LIVE for ALL sites (decoupled this fire)** — a SEPARATE `loadHostDelivery`/`resolveDeliveryZone` path resolves the shared projectsites.dev zone for `*.projectsites.dev` subdomains, so edge delivery works for the subdomain MAJORITY — **without flipping the audience numbers to CF** (audience stays first-party D1; `resolveDeliveryZone` is independent of the audience `resolveZoneForHostname`, which still returns null for subdomains → `resolved_zone:false` → "ProjectSites analytics" labeling preserved). `envelope.delivery` → `DeliveryCardComponent` (status classes + WORD, cache hit-ratio, bandwidth, top error codes, ≥5% 4xx/5xx warning). **Prod-verified live** on harborline: 30d = 31,610 req · 2xx 27588 / 5xx 3145 / 3xx 828 / 4xx 49 · cache 32% · 1.16 GB, while audience `resolved_zone:[false]` + pageviews first-party. **Sampling now VISIBLY surfaced (this fire)** — the card header shows a "sampled estimate" tag + the note reads "adaptive-sampled — approximate, not exact" and explicitly contrasts the EXACT first-party audience metrics (was tooltip-only, which violated "never imply an estimated metric is exact"). | `/admin/analytics` "Delivery & performance" card |
@@ -281,6 +298,17 @@ latency percentiles — no entitlement) or need new plumbing/deps (see Next).
 - Analytics Engine customer dashboards — ingest disabled; out of scope unless enabled.
 
 ## Next increment (handoff)
+
+**Contact-form LEAD FUNNEL — SHIPPED (2026-09-25, this fire).** A parallel-agent scan of the whole
+analytics section found `form_start`/`form_submit` (beacon-emitted + mirrored into `visitor_events` for
+months) had NO aggregation — a MEASURED-BUT-UNSURFACED gap the prior "plateau" note missed. Now:
+`getFormFunnelSummary` (both summary paths) → `traffic.formFunnel` → `FormFunnelCardComponent`
+(started→submitted funnel + completion rate + abandonment callout + per-form). Tenant-safe (owned 200 /
+non-owned 404 / no-auth 401, prod-verified); honest (rate "—" not 0% when null; empty state on no
+activity). 8 Jest + 7 Karma; worker `f220e283`, chunk `chunk-NNQ7WBNE.js`; live REAL data proven
+(berkeley-bowl-2 1/1/100%). **NEXT (top of the ranked backlog above): Outbound clicks BY KIND** (S) —
+`byLink` already carries `kind`; add a by-kind rollup card ("40 calls · 12 emails · 8 directions"). Then
+concierge-chat engagement, then delivery bytes-by-status. Do NOT re-build the shipped funnel/drilldown.
 
 **Drilldown filter — SERVER CORE is DONE (2026-09-24).** A tenant-safe `{dim,value}` filter now threads through
 the whole traffic summary: `AnalyticsFilterSchema` (Zod-enum allowlist country/device/browser/os/channel/path +
