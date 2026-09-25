@@ -47,6 +47,9 @@ import {
   buildBulkDeleteByPk,
   rowPkKey,
   MAX_BULK_DELETE,
+  friendlyModelLabel,
+  canAskAi,
+  MAX_AI_QUESTION_LEN,
   buildUpdateByPk,
   RowMutationError,
 } from './data-panel-logic';
@@ -795,9 +798,9 @@ describe('buildDeleteByPk (single-row parameterized DELETE — never whole-table
   });
 
   it('binds the PK value (never interpolates) — an injection-shaped key rides as a param', () => {
-    const stmt = buildDeleteByPk('t', ['id'], { id: "1 OR 1=1; DROP TABLE t;--" });
+    const stmt = buildDeleteByPk('t', ['id'], { id: '1 OR 1=1; DROP TABLE t;--' });
     expect(stmt.sql).toBe('DELETE FROM "t" WHERE "id" = ?1');
-    expect(stmt.params).toEqual(["1 OR 1=1; DROP TABLE t;--"]);
+    expect(stmt.params).toEqual(['1 OR 1=1; DROP TABLE t;--']);
   });
 
   it('refuses when the table has NO primary key (never a whole-table delete)', () => {
@@ -882,6 +885,7 @@ describe('inferCellEditor (prefill an editor from an existing value — inverse 
       const ed = inferCellEditor(v);
       expect(coerceCellInput(ed.kind, ed.value)).toEqual(v);
     }
+
     // JSON round-trips as its text form (SQLite stores JSON as TEXT).
     const j = inferCellEditor({ a: 1 });
     expect(coerceCellInput(j.kind, j.value)).toBe('{"a":1}');
@@ -906,20 +910,28 @@ describe('buildBulkDeleteByPk (batched parameterized DELETE — capped, never wh
   });
 
   it('composite PK → OR of (col=? AND col=?) groups, param indices threaded across rows', () => {
-    const stmt = buildBulkDeleteByPk('m2m', ['a_id', 'b_id'], [{ a_id: 'x', b_id: 1 }, { a_id: 'y', b_id: 2 }]);
+    const stmt = buildBulkDeleteByPk(
+      'm2m',
+      ['a_id', 'b_id'],
+      [
+        { a_id: 'x', b_id: 1 },
+        { a_id: 'y', b_id: 2 },
+      ],
+    );
     expect(stmt.sql).toBe('DELETE FROM "m2m" WHERE ("a_id" = ?1 AND "b_id" = ?2) OR ("a_id" = ?3 AND "b_id" = ?4)');
     expect(stmt.params).toEqual(['x', 1, 'y', 2]);
   });
 
   it('binds values (never interpolates) — an injection-shaped id rides as a param', () => {
-    const stmt = buildBulkDeleteByPk('t', ['id'], [{ id: "1); DROP TABLE t;--" }]);
+    const stmt = buildBulkDeleteByPk('t', ['id'], [{ id: '1); DROP TABLE t;--' }]);
     expect(stmt.sql).toBe('DELETE FROM "t" WHERE "id" IN (?1)');
-    expect(stmt.params).toEqual(["1); DROP TABLE t;--"]);
+    expect(stmt.params).toEqual(['1); DROP TABLE t;--']);
   });
 
   it('enforces the cap (MAX_BULK_DELETE) — never an unbounded wipe', () => {
     const rows = Array.from({ length: MAX_BULK_DELETE + 1 }, (_, i) => ({ id: i }));
     expect(() => buildBulkDeleteByPk('t', ['id'], rows)).toThrow(RowMutationError);
+
     // exactly at the cap is allowed
     expect(() => buildBulkDeleteByPk('t', ['id'], rows.slice(0, MAX_BULK_DELETE))).not.toThrow();
   });
@@ -931,5 +943,47 @@ describe('buildBulkDeleteByPk (batched parameterized DELETE — capped, never wh
     expect(() => buildBulkDeleteByPk('t', ['id'], [{ id: true }])).toThrow(RowMutationError);
     expect(() => buildBulkDeleteByPk('bad name', ['id'], [{ id: 1 }])).toThrow(RowMutationError);
     expect(() => buildBulkDeleteByPk('t', ['bad col'], [{ 'bad col': 1 }])).toThrow(RowMutationError);
+  });
+});
+
+describe('friendlyModelLabel (AI SQL assistant)', () => {
+  it('reduces the CF Llama slug to a short human label', () => {
+    expect(friendlyModelLabel('@cf/meta/llama-3.3-70b-instruct-fp8-fast')).toBe('Llama 3.3 70B');
+  });
+
+  it('uppercases a trailing size unit and keeps version tokens', () => {
+    expect(friendlyModelLabel('@cf/meta/llama-3.1-8b-instruct')).toBe('Llama 3.1 8B');
+  });
+
+  it('degrades to the last path segment for unknown shapes; blank → "AI"', () => {
+    expect(friendlyModelLabel('some/custom/model-x')).toBe('Model X');
+    expect(friendlyModelLabel('')).toBe('AI');
+    expect(friendlyModelLabel('   ')).toBe('AI');
+  });
+
+  it('never throws on odd input (all-dropped tokens fall back to the segment)', () => {
+    expect(friendlyModelLabel('@cf/meta/instruct-fp8-fast')).toBe('instruct-fp8-fast');
+  });
+});
+
+describe('canAskAi (AI question guard)', () => {
+  it('blank / whitespace → not ok, no reason (button just disabled)', () => {
+    expect(canAskAi('')).toEqual({ ok: false });
+    expect(canAskAi('   ')).toEqual({ ok: false });
+  });
+
+  it('a normal question → ok', () => {
+    expect(canAskAi('list the 10 newest form submissions')).toEqual({ ok: true });
+  });
+
+  it('over the length cap → not ok WITH a human reason', () => {
+    const tooLong = 'a'.repeat(MAX_AI_QUESTION_LEN + 1);
+    const res = canAskAi(tooLong);
+    expect(res.ok).toBe(false);
+    expect(res.reason).toContain(String(MAX_AI_QUESTION_LEN));
+  });
+
+  it('exactly at the cap → ok', () => {
+    expect(canAskAi('a'.repeat(MAX_AI_QUESTION_LEN))).toEqual({ ok: true });
   });
 });

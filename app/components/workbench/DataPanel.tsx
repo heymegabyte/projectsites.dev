@@ -65,6 +65,9 @@ import {
   buildUpdateByPk,
   pkFromTableInfo,
   RowMutationError,
+  friendlyModelLabel,
+  canAskAi,
+  MAX_AI_QUESTION_LEN,
   type CellInputKind,
   type BoundValue,
 } from './data-panel-logic';
@@ -329,6 +332,13 @@ export const DataPanel = memo(() => {
     [queryTabs, activeTabId, persistTabs],
   );
 
+  /*
+   * Latest-ref for updateSql so the ONE-TIME (`[]`-deps) parent-message effect can drop
+   * AI-generated SQL into the CURRENT tab without capturing a stale queryTabs/activeTabId.
+   */
+  const updateSqlRef = useRef(updateSql);
+  updateSqlRef.current = updateSql;
+
   /** Switch to a tab — loads its buffer into the editor (never writes the old buffer back). */
   const switchTab = useCallback(
     (id: string) => {
@@ -420,6 +430,17 @@ export const DataPanel = memo(() => {
   const overviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const browseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sqlTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /*
+   * AI SQL assistant — a natural-language question the editor forwards to the worker's
+   * super-admin `/sql/nl2sql`; the reply drops SQL into the editor for REVIEW (never auto-run).
+   */
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiModel, setAiModel] = useState<string | null>(null); // set once SQL has been dropped in
+  const aiCid = useRef<string | null>(null);
+  const aiTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const requestOverview = useCallback(() => {
     if (!isEmbedded) {
@@ -562,6 +583,47 @@ export const DataPanel = memo(() => {
     });
   }, []);
 
+  /*
+   * Ask AI — translate a natural-language question to SQL via the admin bridge (super-admin only,
+   * gated server-side). The reply is dropped into the editor for the user to REVIEW and Run
+   * themselves; it is NEVER auto-executed. Honest states: busy spinner, error banner, model label.
+   */
+  const askAi = useCallback(() => {
+    const guard = canAskAi(aiQuestion);
+
+    if (!guard.ok || !isEmbedded) {
+      if (guard.reason) {
+        setAiError(guard.reason);
+      }
+
+      return;
+    }
+
+    setAiError('');
+    setAiBusy(true);
+
+    const cid = newCorrelationId('nl2sql');
+    aiCid.current = cid;
+
+    if (aiTimer.current) {
+      clearTimeout(aiTimer.current);
+    }
+
+    aiTimer.current = setTimeout(() => {
+      if (aiCid.current === cid) {
+        setAiError('The editor bridge did not respond.');
+        setAiBusy(false);
+        aiCid.current = null;
+      }
+    }, REQUEST_TIMEOUT_MS);
+
+    postToParent({
+      type: 'PS_NL2SQL_REQUEST',
+      question: aiQuestion.trim(),
+      correlationId: cid,
+    });
+  }, [aiQuestion]);
+
   const openAddRow = useCallback(() => {
     setAddError('');
     setAddKinds({}); // every column starts at 'default' (omitted) — user opts in per column
@@ -661,6 +723,40 @@ export const DataPanel = memo(() => {
     }
 
     const off = onParentMessage((msg: ParentToChildMessage) => {
+      // AI SQL assistant reply — drop the generated SQL into the editor for REVIEW (never auto-run).
+      if (msg.type === 'PS_NL2SQL_RESPONSE') {
+        if (msg.correlationId !== aiCid.current) {
+          return;
+        }
+
+        if (aiTimer.current) {
+          clearTimeout(aiTimer.current);
+        }
+
+        aiCid.current = null;
+        setAiBusy(false);
+
+        if (msg.error || !msg.ok) {
+          setAiError(msg.error || 'Could not generate SQL.');
+
+          return;
+        }
+
+        const generated = (msg.sql ?? '').trim();
+
+        if (!generated) {
+          setAiError('The assistant did not return any SQL — try rephrasing.');
+
+          return;
+        }
+
+        setAiError('');
+        setAiModel(msg.model ?? '');
+        updateSqlRef.current(generated); // populate the editor — the user reviews + runs it themselves
+
+        return;
+      }
+
       // SQL console reply (D1 manager) — match on the sql correlation id.
       if (msg.type === 'PS_SQL_RESPONSE') {
         /*
@@ -2419,6 +2515,79 @@ export const DataPanel = memo(() => {
               {' — '}
               {SQL_TARGET.scope}
             </span>
+          </div>
+          {/* ✨ Ask AI — describe what you want in plain English; the assistant writes SQL for you to
+              REVIEW and Run. It never executes automatically (honest, per the AI-SQL contract). The
+              worker grounds the model on the REAL server-fetched schema and is super-admin-gated. */}
+          <div
+            className="mx-3 mt-3 rounded-lg border border-bolt-elements-item-contentAccent/30 bg-gradient-to-r from-bolt-elements-item-contentAccent/10 to-transparent p-2.5"
+            data-testid="data-sql-ai"
+          >
+            <div className="flex items-center gap-2">
+              <div className="i-ph:sparkle-fill shrink-0 text-bolt-elements-item-contentAccent" aria-hidden />
+              <input
+                type="text"
+                value={aiQuestion}
+                onChange={(e) => {
+                  setAiQuestion(e.target.value);
+
+                  if (aiError) {
+                    setAiError('');
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !aiBusy && aiQuestion.trim()) {
+                    e.preventDefault();
+                    askAi();
+                  }
+                }}
+                disabled={aiBusy}
+                maxLength={MAX_AI_QUESTION_LEN}
+                placeholder="Ask in plain English — e.g. “the 10 newest form submissions”"
+                data-testid="data-sql-ai-input"
+                aria-label="Describe the query you want in plain English"
+                className="flex-1 min-w-0 rounded-md bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor px-2.5 py-1.5 text-xs text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-bolt-elements-item-contentAccent/50 disabled:opacity-60"
+              />
+              <button
+                type="button"
+                onClick={askAi}
+                disabled={aiBusy || !aiQuestion.trim()}
+                data-testid="data-sql-ai-ask"
+                title="Generate SQL from your question — it lands in the editor for you to review, then Run"
+                className={classNames(
+                  'shrink-0 text-xs rounded-md px-3 py-1.5 flex items-center gap-1.5 transition-colors',
+                  aiBusy || !aiQuestion.trim()
+                    ? 'bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary cursor-not-allowed'
+                    : 'bg-bolt-elements-item-contentAccent/15 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/25 border border-bolt-elements-item-contentAccent/30 cursor-pointer',
+                )}
+              >
+                <div className={aiBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:sparkle'} />
+                {aiBusy ? 'Thinking…' : 'Ask AI'}
+              </button>
+            </div>
+            {aiError && (
+              <p
+                className="mt-1.5 flex items-start gap-1 text-[11px] text-red-400"
+                data-testid="data-sql-ai-error"
+                role="alert"
+              >
+                <div className="i-ph:warning-circle mt-0.5 shrink-0" aria-hidden />
+                <span>{aiError}</span>
+              </p>
+            )}
+            {aiModel !== null && !aiError && !aiBusy && (
+              <p
+                className="mt-1.5 flex items-start gap-1 text-[11px] text-bolt-elements-textTertiary"
+                data-testid="data-sql-ai-note"
+              >
+                <div className="i-ph:info mt-0.5 shrink-0 text-bolt-elements-item-contentAccent" aria-hidden />
+                <span>
+                  <strong className="text-bolt-elements-textSecondary">{friendlyModelLabel(aiModel)}</strong> drafted
+                  the query below — <strong className="text-bolt-elements-textSecondary">review it</strong>, then Run.
+                  Nothing runs automatically.
+                </span>
+              </p>
+            )}
           </div>
           <div className="p-3 border-b border-bolt-elements-borderColor/50 space-y-2">
             <div className="flex flex-wrap items-center gap-1.5">

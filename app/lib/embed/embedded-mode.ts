@@ -263,6 +263,32 @@ export interface SqlResponseMessage {
   error?: string;
 }
 
+/**
+ * Child → Parent (AI SQL assistant): a natural-language question the admin
+ * forwards to `POST /sites/:id/sql/nl2sql`. The worker grounds the model on the
+ * REAL server-fetched schema and returns SQL for the user to REVIEW — it is NOT
+ * executed. Super-admin gated server-side (mirrors the SQL console).
+ */
+export interface Nl2SqlRequestMessage {
+  type: 'PS_NL2SQL_REQUEST';
+  question: string;
+  correlationId: string;
+}
+
+/** Parent → Child: the admin's reply to {@link Nl2SqlRequestMessage}. */
+export interface Nl2SqlResponseMessage {
+  type: 'PS_NL2SQL_RESPONSE';
+  correlationId?: string;
+  ok?: boolean;
+
+  /** The generated SQL — dropped into the editor for review, never auto-run. */
+  sql?: string;
+
+  /** The model that produced it (raw id; the UI shows a friendly label). */
+  model?: string;
+  error?: string;
+}
+
 // ── KV Browser bridge messages ────────────────────────────────────────────────
 
 /** KV namespace entry returned by the `namespaces` op. */
@@ -634,6 +660,7 @@ export type ParentToChildMessage =
   | ListFilesMessage
   | DataResponseMessage
   | SqlResponseMessage
+  | Nl2SqlResponseMessage
   | KvResponseMessage
   | R2ResponseMessage
   | VectorizeResponseMessage
@@ -648,6 +675,7 @@ export type ChildToParentMessage =
   | DeployRequestMessage
   | DataRequestMessage
   | SqlRequestMessage
+  | Nl2SqlRequestMessage
   | KvRequestMessage
   | R2RequestMessage
   | VectorizeRequestMessage

@@ -1527,3 +1527,76 @@ export function buildUpdateByPk(
     params: [setValue, ...values],
   };
 }
+
+// ── AI SQL assistant (natural-language → SQL) ────────────────────────────────
+
+/** Max length of a natural-language question the "Ask AI" box will send. */
+export const MAX_AI_QUESTION_LEN = 1000;
+
+/**
+ * Turn a Workers-AI model id into a short, human label for display next to
+ * AI-generated SQL. Strips the vendor path + runtime-quantization suffixes
+ * (`instruct` / `fp8` / `fast` / `awq` / …) and title-cases the rest, keeping
+ * a trailing size unit uppercased (`70b` → `70B`). Unknown shapes degrade to
+ * the last path segment so it never throws or shows an empty label.
+ *
+ * @param model - the raw model id (e.g. `@cf/meta/llama-3.3-70b-instruct-fp8-fast`)
+ * @returns a friendly label (e.g. `Llama 3.3 70B`); `'AI'` when the id is blank
+ * @example friendlyModelLabel('@cf/meta/llama-3.3-70b-instruct-fp8-fast') // 'Llama 3.3 70B'
+ * @example friendlyModelLabel('') // 'AI'
+ */
+export function friendlyModelLabel(model: string): string {
+  const raw = (model ?? '').trim();
+
+  if (!raw) {
+    return 'AI';
+  }
+
+  const last = raw.split('/').filter(Boolean).pop() ?? raw;
+  const DROP = new Set(['instruct', 'fp8', 'fast', 'awq', 'int8', 'lora', 'chat', 'hf']);
+  const tokens = last
+    .split('-')
+    .filter(Boolean)
+    .filter((t) => !DROP.has(t.toLowerCase()));
+
+  if (tokens.length === 0) {
+    return last;
+  }
+
+  return tokens
+    .map((t) => {
+      // A size token like `70b` / `8m` → uppercase the trailing unit letter.
+      if (/^\d+(?:\.\d+)?[a-z]$/i.test(t)) {
+        return t.slice(0, -1) + t.slice(-1).toUpperCase();
+      }
+
+      // A pure version token (`3.3`) stays as-is; a word gets Title Case.
+      return /^[\d.]+$/.test(t) ? t : t.charAt(0).toUpperCase() + t.slice(1);
+    })
+    .join(' ');
+}
+
+/**
+ * Guard a natural-language question before it is sent to the NL→SQL endpoint.
+ * A blank question just disables the control (no reason surfaced, like Run);
+ * an over-long one returns a human reason so the button explains itself rather
+ * than failing silently (per the "never a doomed/dead control" rule).
+ *
+ * @param question - the raw text from the Ask-AI box
+ * @returns `{ ok, reason? }` — `ok:false` with no reason ⇒ empty; with a reason ⇒ show it
+ * @example canAskAi('  ') // { ok: false }
+ * @example canAskAi('list the 10 newest form submissions') // { ok: true }
+ */
+export function canAskAi(question: string): { ok: boolean; reason?: string } {
+  const q = (question ?? '').trim();
+
+  if (!q) {
+    return { ok: false };
+  }
+
+  if (q.length > MAX_AI_QUESTION_LEN) {
+    return { ok: false, reason: `Question is too long — keep it under ${MAX_AI_QUESTION_LEN} characters.` };
+  }
+
+  return { ok: true };
+}

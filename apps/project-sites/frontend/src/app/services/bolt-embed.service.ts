@@ -71,6 +71,8 @@ interface PsMessage {
    * statement instead of stringifying user values into SQL.
    */
   readonly params?: Array<string | number | boolean | null>;
+  /** PS_NL2SQL_REQUEST (AI SQL assistant): the natural-language question to translate to SQL. */
+  readonly question?: string;
   /** PS_KV_REQUEST (KV inspector): which read op to proxy to /api/admin/kv/*. */
   readonly op?:
     | 'namespaces'
@@ -904,6 +906,58 @@ export class BoltEmbedService {
                         : isWrite
                           ? 'Statement failed.'
                           : 'Query failed.',
+                });
+              },
+            });
+          break;
+        }
+        case 'PS_NL2SQL_REQUEST': {
+          // AI SQL assistant — the editor asks US to translate a natural-language question to SQL.
+          // Forward to POST /sites/:id/sql/nl2sql; the worker is super-admin-gated (AL-792), grounds
+          // the model on the REAL server-fetched schema, and returns SQL for REVIEW (never executed).
+          // We hand back { ok, sql, model } or a friendly error; a 403/404/502 maps to a clear message.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const question = typeof msg.question === 'string' ? msg.question : '';
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_NL2SQL_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          this.api
+            .post<{ ok?: boolean; sql?: string; model?: string; error?: string }>(
+              `/sites/${site.id}/sql/nl2sql`,
+              { question },
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) =>
+                reply({
+                  ok: res?.ok ?? true,
+                  sql: res?.sql ?? '',
+                  model: res?.model ?? '',
+                  ...(res?.error ? { error: res.error } : {}),
+                }),
+              error: (e: unknown) => {
+                const status = (e as { status?: number })?.status;
+                reply({
+                  ok: false,
+                  error:
+                    status === 403
+                      ? 'The SQL console is restricted to platform administrators.'
+                      : status === 404
+                        ? 'Site not found.'
+                        : status === 502
+                          ? 'The AI assistant is temporarily unavailable — try again in a moment.'
+                          : status === 400
+                            ? 'Please enter a shorter question.'
+                            : 'Could not generate SQL.',
                 });
               },
             });
