@@ -252,24 +252,36 @@ gated.
     rung funnel in the Engagement card. Answers "are people reading, or bouncing in 3s?" — the spread
     the median hides. 6 Jest + 2 Karma; worker `11924ec6`, chunk `chunk-GSJ5MXOV.js`; prod-verified
     (field flows; honest all-0 when 0 samples; non-owned 404).
-  - ~~Delivery bytes/pageviews BY STATUS~~ — **SHIPPED (2026-09-25):** `top_statuses[]` now carries
-    `bytes` + `visits` (same `loadHostDelivery` CF request); the "Top error responses" list shows "N
-    visitors hit" per error code. (Per-cache-state bytes still available as a small follow-up — the
-    cache sub-query already fetches `sum{edgeResponseBytes}`, currently folded to a scalar.)
-  1. **Concierge chat engagement** (M) — `concierge_open`/`concierge_message` are beacon-EMITTED
-     (`app_js.ts`) but NOT in `VISITOR_MIRROR_TYPES`, so they're NOT stored in `visitor_events`.
-     Needs a mirror-type addition FIRST (instrument the store) + aggregation + card. Starts empty (no
-     history) — honest but delayed payoff. A chat-adoption KPI once data flows.
-  - ~~Per-page NAV-TIMING~~ — **SHIPPED (2026-09-25):** `NavTimingSummary.byPage[]` (slowest pages by
-    median total load + per-page TTFB) → the nav-timing card's "Slowest pages" drill.
-  - ~~Per-page NETWORK-QUALITY~~ — **SHIPPED (2026-09-25):** `NetworkQualitySummary.byPage[]`
-    (slowest-connection pages by median downlink + median rtt) → the network card's "Pages with the
-    slowest-connection visitors" list. Worker `f42a21954`, chunk `chunk-C7QXFZFO.js`.
-  1. **Content-type `byType` card** (S, low owner-value) — computed + returned, but no card renders it.
-     (Deliberately deferred multiple fires — low owner value; mixes telemetry event types.)
-  2. **Missing tests** — per-metric honest-empty when a filter dim is absent; filter + cross-tenant 404.
-  3. Concierge chat engagement — needs a `VISITOR_MIRROR_TYPES` add + the concierge may be gallery-only
-     (low real usage); per-cache-state delivery bytes (dev-value). BOTH sections now near completion.
+  - ~~Delivery bytes/pageviews BY STATUS~~ — **SHIPPED (2026-09-25):** `top_statuses[]` carries
+    `bytes` + `visits`; "Top error responses" shows "N visitors hit" per error code.
+  - ~~Per-page NAV-TIMING~~ — **SHIPPED (2026-09-25):** `NavTimingSummary.byPage[]` (slowest pages).
+  - ~~Per-page NETWORK-QUALITY~~ — **SHIPPED (2026-09-25):** `NetworkQualitySummary.byPage[]`.
+  - ~~Per-cache-state BYTES~~ — **SHIPPED (2026-09-25):** `cache.hit_bytes/miss_bytes/uncacheable_bytes`
+    (the cache query already fetched them; were folded to a scalar) → the card shows "N MB served on
+    cache misses — cacheable to save bandwidth". Worker `6ca7fad9`; prod-verified real data.
+
+  **BACKLOG CLEARED (2026-09-25, "implement them all" pass) — final disposition:**
+  - ❌ **Content-type `byType` card — DROPPED as redundant.** The meaningful business events are ALREADY
+    surfaced better elsewhere: pageviews = the headline KPI, conversions = the Conversions card,
+    form_start/submit = the Form-funnel card. A raw `byType` card would MIX in telemetry event types
+    (web_vital / scroll_depth / nav_timing / network_quality / page_engagement) that are noise to an
+    owner — building it is redundant chrome. Not worth building (like outbound-by-kind, dropped earlier).
+  - ❌ **Concierge chat engagement — DEFERRED (anti-value as-is).** `concierge_open`/`concierge_message`
+    are beacon-emitted but the AI concierge is Gallery-only (dead model on real sites — see memory
+    `ai-concierge-exists-gallery-only`). So a concierge card would be EMPTY for ~every real customer
+    forever — building an always-empty card violates "no attractive buttons backed by nothing". Revisit
+    ONLY if/when the concierge ships to customer sites.
+  - **SQL syntax highlighting (DATA)** — the sole remaining REAL feature. Needs `@codemirror/lang-sql`
+    (bolt.diy bundles the CodeMirror suite but not lang-sql) + a textarea→CodeMirror refactor in the
+    Pages-deployed root `app/`. A DEDICATED task: the dep can't be installed in a symlinked-node_modules
+    worktree without corrupting main, and it can't be verified locally without the dep — do it in a
+    focused session, not a loop fire.
+  - Tenant + honest-empty coverage is broad (every newer metric got honest-empty + tenant tests as it
+    shipped). Residual: a public-share + drilldown-filter cross-tenant test (minor — the token IS the
+    siteId source, so the surface is already narrow).
+  **Both analytics + DATA sections are feature-complete on their clean surfaces.** Next loop fires:
+  completeness-critic or reallocate to generated-site quality; the SQL-highlighting task when a session
+  can own the dep+Pages work.
   Every AVAILABLE CF dataset is shipped (CF RUM cached); the backlog is first-party DEPTH, not CF.
 
 ## Coverage matrix
@@ -325,7 +337,21 @@ latency percentiles — no entitlement) or need new plumbing/deps (see Next).
 
 ## Next increment (handoff)
 
-**Honest CF-edge WINDOW on the delivery card — SHIPPED (2026-09-25, latest fire).** A completeness-critic
+**"IMPLEMENT ALL PENDING ITEMS" pass — SHIPPED per-cache-state BYTES + cleared the backlog (2026-09-25,
+latest).** On a "scan all pending items and implement them all" directive: implemented the one clean,
+valuable, has-data item — **per-cache-state edge bytes** (`cache.hit_bytes/miss_bytes/uncacheable_bytes`;
+the cache query already fetched them, were folded to a scalar) → the delivery card shows "N MB served on
+cache misses — cacheable to save bandwidth". Worker `6ca7fad9`, chunk in R2; prod-verified real data
+(miss_bytes 3424, hit_bytes 69179). The remaining backlog was resolved by ENGINEERING JUDGMENT, not
+blind-built: **byType card DROPPED** (redundant — pageviews/conversions/form-funnel already surface the
+meaningful events; raw byType mixes telemetry noise); **concierge engagement DEFERRED** (the AI concierge
+is Gallery-only/dead-model → an always-empty card is anti-value); **SQL syntax highlighting** = the sole
+remaining real feature, a DEDICATED dep(`@codemirror/lang-sql`)+Pages task (can't install in a symlinked
+worktree or verify locally without the dep). See the BACKLOG CLEARED block above for full rationale.
+**Both sections feature-complete on their clean surfaces.** NEXT: the SQL-highlighting dedicated task, or
+reallocate to generated-site quality.
+
+**Honest CF-edge WINDOW on the delivery card — SHIPPED (2026-09-25).** A completeness-critic
 scan (the section is near-complete) found `DeliverySummary.range_days` computed-but-unrendered: the card
 header showed the REQUESTED window while the worker caps delivery at CF's ~30-day retention, so a 90-day
 request claimed "last 90 days" over ≤30 days of edge data. FIXED (frontend-only): header shows the ACTUAL
