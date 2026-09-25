@@ -24,6 +24,8 @@ import {
   classifySql,
   explainQuery,
   explainPlanHint,
+  isExpensiveScan,
+  EXPENSIVE_SCAN_ROWS,
 } from './data-panel-logic';
 
 describe('iconForTable', () => {
@@ -444,5 +446,21 @@ describe('explainPlanHint', () => {
   it('returns null when the rows are NOT a query plan (no detail column) — shows only after Explain', () => {
     expect(explainPlanHint([{ id: 1, name: 'x' }])).toBeNull();
     expect(explainPlanHint([])).toBeNull();
+  });
+});
+
+describe('isExpensiveScan', () => {
+  it('flags a query that read MORE than the threshold', () => {
+    expect(isExpensiveScan(EXPENSIVE_SCAN_ROWS + 1)).toBe(true);
+    expect(isExpensiveScan(1_000_000)).toBe(true);
+  });
+  it('does not flag at-or-below the threshold', () => {
+    expect(isExpensiveScan(EXPENSIVE_SCAN_ROWS)).toBe(false);
+    expect(isExpensiveScan(500)).toBe(false);
+    expect(isExpensiveScan(0)).toBe(false);
+  });
+  it('never flags an UNREPORTED value (null/undefined) — no fabricated warning', () => {
+    expect(isExpensiveScan(null)).toBe(false);
+    expect(isExpensiveScan(undefined)).toBe(false);
   });
 });

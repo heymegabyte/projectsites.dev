@@ -242,6 +242,14 @@ export interface SqlResponseMessage {
   rows_affected?: number;
   last_row_id?: number | null;
 
+  /**
+   * D1 query-cost meta (from `/sql/exec`): rows the query READ (the scan cost D1 bills +
+   * that drives latency) and rows it WROTE. `null` when the runtime omits them — shown as
+   * "—", never a fabricated 0. A large `rows_read` drives the expensive-scan warning.
+   */
+  rows_read?: number | null;
+  rows_written?: number | null;
+
   /** Set when the server refused a destructive write pending `confirm:true` — the UI prompts. */
   needs_confirm?: boolean;
   duration_ms?: number;

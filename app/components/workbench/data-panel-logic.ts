@@ -678,3 +678,25 @@ export function explainPlanHint(rows: readonly Record<string, unknown>[]): Expla
 
   return { level: 'good', message: 'Index-optimized — this query uses an index and avoids full-table scans.' };
 }
+
+/**
+ * The rows-read threshold above which the SQL console flags an expensive scan (mirrors
+ * the admin console's bar). D1 bills + slows on rows READ, so a large scan is the #1
+ * cause of a slow query.
+ */
+export const EXPENSIVE_SCAN_ROWS = 10_000;
+
+/**
+ * True when D1 REPORTED reading a large number of rows — a full-table scan D1 bills for
+ * and that slows down at scale. Fires only on a real reported value (never null =
+ * "not reported", never a small count), so a missing metric never shows a false warning.
+ *
+ * @param rowsRead - the `rows_read` from the query's D1 meta (null when unreported)
+ * @returns true when the query read more than {@link EXPENSIVE_SCAN_ROWS} rows
+ * @example isExpensiveScan(12000) // true
+ * @example isExpensiveScan(500)   // false
+ * @example isExpensiveScan(null)  // false (not reported — never a fabricated warning)
+ */
+export function isExpensiveScan(rowsRead: number | null | undefined): boolean {
+  return typeof rowsRead === 'number' && rowsRead > EXPENSIVE_SCAN_ROWS;
+}

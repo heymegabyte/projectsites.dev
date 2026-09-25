@@ -577,6 +577,11 @@ export class BoltEmbedService {
               last_row_id?: number | null;
               needs_confirm?: boolean;
               duration_ms?: number;
+              // D1 query-cost meta (`/sql/exec` returns these) — forwarded so the editor's
+              // SQL console shows rows read/written + an expensive-scan warning. Null when
+              // the runtime omits them (never fabricated as 0).
+              rows_read?: number | null;
+              rows_written?: number | null;
               error?: string;
             }>(path, reqBody, { silent: true })
             .subscribe({
@@ -588,6 +593,8 @@ export class BoltEmbedService {
                   rows_affected: res?.rows_affected,
                   last_row_id: res?.last_row_id,
                   duration_ms: res?.duration_ms,
+                  rows_read: res?.rows_read ?? null,
+                  rows_written: res?.rows_written ?? null,
                   ...(res?.needs_confirm ? { needs_confirm: true } : {}),
                   ...(res?.error ? { error: res.error } : {}),
                 }),

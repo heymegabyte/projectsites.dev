@@ -33,6 +33,7 @@ import {
   addToSqlHistory,
   explainQuery,
   explainPlanHint,
+  isExpensiveScan,
 } from './data-panel-logic';
 import { classNames } from '~/utils/classNames';
 
@@ -116,7 +117,12 @@ export const DataPanel = memo(() => {
   const [sqlColumns, setSqlColumns] = useState<string[]>([]);
   const [sqlError, setSqlError] = useState('');
   const [sqlRunning, setSqlRunning] = useState(false);
-  const [sqlMeta, setSqlMeta] = useState<{ rows: number; ms?: number } | null>(null);
+  const [sqlMeta, setSqlMeta] = useState<{
+    rows: number;
+    ms?: number;
+    read?: number | null;
+    written?: number | null;
+  } | null>(null);
 
   // Write results (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE) — shown as an executed banner, not a grid.
   const [writeResult, setWriteResult] = useState<{ rows_affected: number; last_row_id: number | null } | null>(null);
@@ -298,7 +304,7 @@ export const DataPanel = memo(() => {
           setSqlColumns([]);
           setSqlRows([]);
           setWriteResult({ rows_affected: msg.rows_affected, last_row_id: msg.last_row_id ?? null });
-          setSqlMeta({ rows: msg.rows_affected, ms: msg.duration_ms });
+          setSqlMeta({ rows: msg.rows_affected, ms: msg.duration_ms, read: msg.rows_read, written: msg.rows_written });
           requestOverview();
 
           return;
@@ -307,7 +313,7 @@ export const DataPanel = memo(() => {
         setSqlColumns(msg.columns ?? []);
         setSqlRows(msg.rows ?? []);
         setWriteResult(null);
-        setSqlMeta({ rows: (msg.rows ?? []).length, ms: msg.duration_ms });
+        setSqlMeta({ rows: (msg.rows ?? []).length, ms: msg.duration_ms, read: msg.rows_read, written: msg.rows_written });
 
         return;
       }
@@ -925,6 +931,20 @@ export const DataPanel = memo(() => {
                 <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums" data-testid="data-sql-meta">
                   {sqlMeta.rows.toLocaleString()} {sqlMeta.rows === 1 ? 'row' : 'rows'}
                   {typeof sqlMeta.ms === 'number' ? ` · ${sqlMeta.ms} ms` : ''}
+                  {typeof sqlMeta.read === 'number' ? ` · read ${sqlMeta.read.toLocaleString()}` : ''}
+                  {typeof sqlMeta.written === 'number' && sqlMeta.written > 0
+                    ? ` · wrote ${sqlMeta.written.toLocaleString()}`
+                    : ''}
+                </span>
+              )}
+              {sqlMeta && !sqlError && isExpensiveScan(sqlMeta.read) && (
+                <span
+                  className="text-[10px] text-amber-300 flex items-center gap-1"
+                  data-testid="data-sql-scan-warn"
+                  role="status"
+                  title="This query read a large number of rows — add an index on the column(s) you filter or join by to keep it fast at scale."
+                >
+                  <div className="i-ph:warning" /> expensive scan — {sqlMeta.read!.toLocaleString()} rows read
                 </span>
               )}
               {!sqlError && sqlColumns.length > 0 && (
