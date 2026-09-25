@@ -29,6 +29,8 @@ export interface AnalyticsInsightsInput {
   topConversionKind?: { label: string; count: number } | null;
   conversionDelta?: InsightDelta | null;
   bounceRatePercent?: number | null;
+  /** First Contentful Paint p75 (ms) — first-party page-load speed; null when unmeasured. */
+  fcpMs?: number | null;
 }
 
 /** One highlight — an id (for tracking/`@for`) + the plain-language sentence. */
@@ -131,13 +133,24 @@ export function buildAnalyticsInsights(input: AnalyticsInsightsInput): Analytics
     });
   }
 
-  // 4. Device split — only a genuine MAJORITY (≥50%) is worth calling out honestly.
+  // 4. Page speed — first-party FCP p75, owner-friendly "content appears" framing. Only
+  // when actually measured (real-user samples); rated against Google's FCP thresholds.
+  if (input.fcpMs != null && input.fcpMs > 0) {
+    const secs = (input.fcpMs / 1000).toFixed(1);
+    const rating = input.fcpMs <= 1800 ? 'fast' : input.fcpMs <= 3000 ? 'okay' : 'slow';
+    out.push({
+      id: 'page-speed',
+      text: `Your pages start showing content in ${secs}s (${rating}).`,
+    });
+  }
+
+  // 5. Device split — only a genuine MAJORITY (≥50%) is worth calling out honestly.
   const dev = topShare(input.byDevice);
   if (dev && dev.pct >= 50) {
     out.push({ id: 'device', text: `${dev.pct}% of visitors are on ${dev.label}.`, drill: { dim: 'device', value: dev.label } });
   }
 
-  // 5. Top visitor location — "top", never a "most/majority" claim we can't back.
+  // 6. Top visitor location — "top", never a "most/majority" claim we can't back.
   if (input.topCountry && input.topCountry.count > 0) {
     out.push({
       id: 'country',
@@ -146,7 +159,7 @@ export function buildAnalyticsInsights(input: AnalyticsInsightsInput): Analytics
     });
   }
 
-  // 6. Stickiness — only when bounce was actually measured (session depth), never a fake 0.
+  // 7. Stickiness — only when bounce was actually measured (session depth), never a fake 0.
   if (input.bounceRatePercent != null) {
     out.push({
       id: 'bounce',

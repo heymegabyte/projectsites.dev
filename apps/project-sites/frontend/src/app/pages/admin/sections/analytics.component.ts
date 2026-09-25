@@ -1848,6 +1848,7 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
       topConversionKind: topConv ? { label: topConv.label, count: topConv.count } : null,
       conversionDelta: this.conversionDelta(),
       bounceRatePercent: t?.bounceRatePercent ?? null,
+      fcpMs: t?.webVitals?.fcp?.p75 ?? null,
     });
   });
 

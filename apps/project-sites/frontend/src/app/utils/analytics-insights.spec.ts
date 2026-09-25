@@ -86,4 +86,14 @@ describe('buildAnalyticsInsights', () => {
     expect(byId['traffic'].drill).toBeUndefined();
     expect(byId['conversions'].drill).toBeUndefined();
   });
+
+  it('surfaces a page-speed insight from first-party FCP p75, rated, only when measured', () => {
+    const fast = buildAnalyticsInsights({ ...BASE, fcpMs: 1600 }).find((i) => i.id === 'page-speed');
+    expect(fast!.text).toBe('Your pages start showing content in 1.6s (fast).'); // ≤1800 → fast
+    expect(buildAnalyticsInsights({ ...BASE, fcpMs: 2500 }).find((i) => i.id === 'page-speed')!.text).toContain('(okay)');
+    expect(buildAnalyticsInsights({ ...BASE, fcpMs: 3500 }).find((i) => i.id === 'page-speed')!.text).toContain('(slow)');
+    // Not measured (null / 0) → NO page-speed insight (never a fabricated speed).
+    expect(buildAnalyticsInsights({ ...BASE, fcpMs: null }).some((i) => i.id === 'page-speed')).toBeFalse();
+    expect(buildAnalyticsInsights({ ...BASE, fcpMs: 0 }).some((i) => i.id === 'page-speed')).toBeFalse();
+  });
 });
