@@ -32,8 +32,11 @@
   + **EXPLAIN QUERY PLAN + index guidance** (`explainQuery`/`explainPlanHint`) + **query
   cost (rows read/written) + expensive-scan warning** (`isExpensiveScan` >10k; `rows_read`/
   `rows_written` threaded `/sql/exec` → `bolt-embed.service` → `SqlResponseMessage` →
-  DataPanel; honest "—"/omitted when the runtime doesn't report them). Remaining toward a
-  full SQLite manager: inline typed row edit in the grid, multiple query tabs, saved queries.
+  DataPanel; honest "—"/omitted when the runtime doesn't report them) + **named saved
+  queries** (`addSavedQuery`/`removeSavedQuery`, localStorage `ps-data-sql-saved`, dedup-by-
+  name, recall LOADS into the editor without auto-running, delete — the manual companion to
+  the auto-history). Remaining toward a full SQLite manager: **inline typed row edit in the
+  grid** (grid cell → parameterized UPDATE preview) + **multiple query tabs**.
 - **WfP** (`USER_DISPATCH` dispatch namespace) is **wired but DORMANT** — flag
   `user_worker_functions` default-off, zero per-site User Workers deployed,
   `resolveUserFunctionBindings` not implemented. "User Worker bindings" browsing is
