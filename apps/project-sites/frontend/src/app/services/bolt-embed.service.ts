@@ -19,7 +19,8 @@
  *   `/admin/billing`. By the time they click "Editor" the iframe is
  *   already running.
  * - Postmessage protocol mirrors the previous in-component handler
- *   (PS_BOLT_READY / PS_APP_RUNNING / PS_FILES_READY / PS_GENERATION_STATUS).
+ *   (PS_BOLT_READY / PS_BOLT_FILES_LOADED / PS_APP_RUNNING / PS_FILES_READY /
+ *   PS_GENERATION_STATUS).
  */
 
 import { Injectable, effect, inject, signal } from '@angular/core';
@@ -411,7 +412,7 @@ export class BoltEmbedService {
 
   // ── internals ──────────────────────────────────────────────────
 
-  private dismissVeil(_reason: 'app_running' | 'timeout' | 'chat_grace'): void {
+  private dismissVeil(_reason: 'app_running' | 'timeout' | 'chat_grace' | 'files_loaded'): void {
     if (this.editorReady()) return;
     this.loadingPhase.set(4);
     this.editorReady.set(true);
@@ -447,13 +448,24 @@ export class BoltEmbedService {
         case 'PS_BOLT_CHAT_READY':
           // The chat placeholder has painted (interactive) but the preview is usually still
           // installing/booting. Advance the phase and arm a short GRACE fallback so we never
-          // hang if no preview-ready arrives — in the common case PS_APP_RUNNING /
-          // preview_ready fires first and dismisses cleanly before the grace elapses.
+          // hang if no preview-ready arrives — in the common case PS_BOLT_FILES_LOADED /
+          // PS_APP_RUNNING fires first and dismisses cleanly before the grace elapses.
           this.loadingPhase.set(2);
           this.loadingStage.set('Preparing your site');
           if (!this.softTimeout) {
             this.softTimeout = setTimeout(() => this.dismissVeil('chat_grace'), CHAT_GRACE_MS);
           }
+          break;
+        case 'PS_BOLT_FILES_LOADED':
+          // Every project file is now in the editor — the in-iframe loader fades on
+          // this exact signal, so the parent veil dismisses on it too. This is the
+          // ACCURATE "editor is usable" moment (code + file tree populated), replacing
+          // the blind CHAT_GRACE guess: reveal the editor the instant files are in
+          // rather than after a fixed 10s, and in perfect sync with the loader beneath
+          // (both fade together → no flicker). The preview keeps booting behind it.
+          this.loadingPhase.set(3);
+          this.loadingStage.set('Loading your files');
+          this.dismissVeil('files_loaded');
           break;
         case 'PS_FILES_READY': {
           // Dedupe: the editor replies once per registered responder — the
