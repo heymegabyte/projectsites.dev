@@ -54,6 +54,9 @@ import {
   inferCellEditor,
   buildInsertStatement,
   buildDeleteByPk,
+  buildBulkDeleteByPk,
+  rowPkKey,
+  MAX_BULK_DELETE,
   buildUpdateByPk,
   pkFromTableInfo,
   RowMutationError,
@@ -260,6 +263,16 @@ export const DataPanel = memo(() => {
   const updateTargetRef = useRef<string | null>(null); // the table to re-open after an edit
 
   /*
+   * BULK row delete — checkbox selection (tracked by stable PK key so it survives re-sort/filter) →
+   * one batched parameterized DELETE (capped). Selection CLEARS on every re-fetch/table-switch so a
+   * stale id can never be deleted. Super-admin + resolvable-PK only.
+   */
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const bulkPending = useRef(false); // a bulk delete is in flight → route the next PS_SQL_RESPONSE
+  const bulkTargetRef = useRef<string | null>(null); // the table to re-open after a bulk delete
+  const bulkCount = useRef(0); // how many rows the batch targeted (for "deleted X of N" reporting)
+
+  /*
    * Multi-tab SQL console — independent query buffers you can switch between (each keeps
    * its own text). Hydrated once from localStorage via a lazy ref so the three related
    * states (tabs, active id, editor buffer) all initialise from the SAME restored bundle.
@@ -431,6 +444,7 @@ export const DataPanel = memo(() => {
       setColMenuOpen(false);
       setBrowseLoading(true);
       setBrowsePkCols([]); // clear the prior table's PK until this one's PRAGMA returns
+      setSelectedKeys(new Set()); // never carry a bulk selection across a table switch / re-fetch
 
       const cid = newCorrelationId(key);
       browseCid.current = cid;
@@ -687,6 +701,21 @@ export const DataPanel = memo(() => {
             return;
           }
 
+          /*
+           * A BULK delete failed (e.g. a foreign-key constraint) → surface the raw error verbatim
+           * (preserves FK detail); the selection stays so the user can adjust. Atomic in SQLite: no
+           * rows were deleted, so nothing to refresh.
+           */
+          if (bulkPending.current) {
+            bulkPending.current = false;
+
+            if (typeof window !== 'undefined') {
+              window.alert(`Could not delete the selected rows:\n\n${msg.error}`);
+            }
+
+            return;
+          }
+
           // A row EDIT failed → surface the error IN the cell editor (keep it open to fix).
           if (updatePending.current) {
             updatePending.current = false;
@@ -749,6 +778,39 @@ export const DataPanel = memo(() => {
             requestOverview();
 
             const t = deleteTargetRef.current;
+
+            if (t) {
+              openTable(t);
+            }
+
+            return;
+          }
+
+          /*
+           * A BULK delete succeeded → report "deleted X of N" (rows_affected vs the batch size, so a
+           * row already gone is counted honestly), clear the selection, refresh the table.
+           */
+          if (bulkPending.current) {
+            bulkPending.current = false;
+            setDetailIdx(null);
+            setSelectedKeys(new Set());
+
+            const affected = typeof msg.rows_affected === 'number' ? msg.rows_affected : 0;
+            const requested = bulkCount.current;
+            const tok = ++copyToken.current;
+            setCopied(
+              affected === requested
+                ? `Deleted ${affected} ${affected === 1 ? 'row' : 'rows'}`
+                : `Deleted ${affected} of ${requested} (some were already gone)`,
+            );
+            setTimeout(() => {
+              if (copyToken.current === tok) {
+                setCopied('');
+              }
+            }, 2400);
+            requestOverview();
+
+            const t = bulkTargetRef.current;
 
             if (t) {
               openTable(t);
@@ -1035,6 +1097,108 @@ export const DataPanel = memo(() => {
     },
     [active, browsePkCols, runSql, flashStatus],
   );
+
+  // Bulk selection is available only to a super-admin on a table with a resolvable PK.
+  const selectable = canRunSql && browsePkCols.length > 0;
+
+  /** The stable PK keys of the rows currently on screen that CAN be selected (have a usable PK). */
+  const selectableVisibleKeys = useMemo(
+    () => (selectable ? visibleRows.map((r) => rowPkKey(r, browsePkCols)).filter((k): k is string => k !== null) : []),
+    [selectable, visibleRows, browsePkCols],
+  );
+
+  /** True when every selectable row on this page is already selected (drives the header checkbox). */
+  const allVisibleSelected = useMemo(
+    () => selectableVisibleKeys.length > 0 && selectableVisibleKeys.every((k) => selectedKeys.has(k)),
+    [selectableVisibleKeys, selectedKeys],
+  );
+
+  const toggleRowSelect = useCallback(
+    (row: Record<string, unknown>): void => {
+      const key = rowPkKey(row, browsePkCols);
+
+      if (!key) {
+        return;
+      }
+
+      setSelectedKeys((prev) => {
+        const next = new Set(prev);
+
+        if (next.has(key)) {
+          next.delete(key);
+        } else {
+          next.add(key);
+        }
+
+        return next;
+      });
+    },
+    [browsePkCols],
+  );
+
+  const toggleSelectAll = useCallback((): void => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      const allOn = selectableVisibleKeys.length > 0 && selectableVisibleKeys.every((k) => next.has(k));
+
+      for (const k of selectableVisibleKeys) {
+        if (allOn) {
+          next.delete(k);
+        } else {
+          next.add(k);
+        }
+      }
+
+      return next;
+    });
+  }, [selectableVisibleKeys]);
+
+  const clearSelection = useCallback((): void => setSelectedKeys(new Set()), []);
+
+  /**
+   * Bulk-delete the selected rows in ONE batched parameterized statement (capped). Confirms with the
+   * exact count + statement; on success the response handler reports "deleted X of N" (rows already
+   * gone are counted honestly) and refreshes. Selection is by stable PK key, so only rows still on
+   * screen + still selected are targeted.
+   */
+  const bulkDeleteSelected = useCallback((): void => {
+    if (!active || selectedKeys.size === 0) {
+      return;
+    }
+
+    const rows = visibleRows.filter((r) => {
+      const k = rowPkKey(r, browsePkCols);
+      return k !== null && selectedKeys.has(k);
+    });
+
+    if (rows.length === 0) {
+      return;
+    }
+
+    let stmt: { sql: string; params: BoundValue[] };
+
+    try {
+      stmt = buildBulkDeleteByPk(active, browsePkCols, rows);
+    } catch (e) {
+      flashStatus(e instanceof RowMutationError ? e.message : 'These rows cannot be deleted safely.');
+      return;
+    }
+
+    const ok =
+      typeof window !== 'undefined' &&
+      window.confirm(
+        `Permanently delete ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}? This cannot be undone.\n\n${stmt.sql}`,
+      );
+
+    if (!ok) {
+      return;
+    }
+
+    bulkPending.current = true;
+    bulkTargetRef.current = active;
+    bulkCount.current = rows.length;
+    runSql(stmt.sql, stmt.params);
+  }, [active, selectedKeys, visibleRows, browsePkCols, runSql, flashStatus]);
 
   /** Open the inline editor for one cell — infer the initial type from the current value, prefill it. */
   const startEdit = useCallback((col: string, rawValue: unknown): void => {
@@ -1675,11 +1839,52 @@ export const DataPanel = memo(() => {
             </div>
           )}
 
+          {/* Bulk action bar — appears once rows are selected (super-admin + resolvable PK). */}
+          {selectable && selectedKeys.size > 0 && (
+            <div
+              className="flex items-center gap-3 px-3 py-1.5 border-b border-bolt-elements-borderColor/30 bg-bolt-elements-background-depth-1"
+              data-testid="data-bulk-bar"
+            >
+              <span className="text-[11px] text-bolt-elements-textSecondary">
+                {selectedKeys.size} selected{selectedKeys.size >= MAX_BULK_DELETE ? ` (max ${MAX_BULK_DELETE})` : ''}
+              </span>
+              <button
+                type="button"
+                onClick={bulkDeleteSelected}
+                data-testid="data-bulk-delete"
+                className="flex items-center gap-1 text-[10px] rounded px-2 py-0.5 border border-red-500/40 text-red-400 hover:bg-red-500/10 hover:border-red-500/70 cursor-pointer"
+              >
+                <div className="i-ph:trash text-[11px]" /> Delete selected
+              </button>
+              <button
+                type="button"
+                onClick={clearSelection}
+                data-testid="data-bulk-clear"
+                className="text-[10px] text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary cursor-pointer"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
           {!browseLoading && !browseError && visibleRows.length > 0 && (
             <div className="flex-1 overflow-auto modern-scrollbar">
               <table className="w-full text-[11px] border-collapse">
                 <thead className="sticky top-0 bg-bolt-elements-background-depth-2 z-10">
                   <tr>
+                    {selectable && (
+                      <th className="w-8 border-b border-bolt-elements-borderColor/50 px-2 py-1.5 align-middle">
+                        <input
+                          type="checkbox"
+                          checked={allVisibleSelected}
+                          onChange={toggleSelectAll}
+                          data-testid="data-bulk-select-all"
+                          aria-label="Select all rows on this page"
+                          title="Select all rows on this page"
+                          className="cursor-pointer align-middle"
+                        />
+                      </th>
+                    )}
                     {visibleCols.map((c) => (
                       <th
                         key={c}
@@ -1743,6 +1948,24 @@ export const DataPanel = memo(() => {
                             : 'hover:bg-bolt-elements-background-depth-2/50',
                         )}
                       >
+                        {selectable && (
+                          <td
+                            className="w-8 px-2 py-1.5 align-top"
+                            onClick={(e) => e.stopPropagation()} // the checkbox toggles selection, not the row detail
+                          >
+                            <input
+                              type="checkbox"
+                              checked={
+                                rowPkKey(r, browsePkCols) !== null && selectedKeys.has(rowPkKey(r, browsePkCols)!)
+                              }
+                              disabled={rowPkKey(r, browsePkCols) === null}
+                              onChange={() => toggleRowSelect(r)}
+                              data-testid="data-bulk-select-row"
+                              aria-label={`Select row ${i + 1}`}
+                              className="cursor-pointer align-middle disabled:opacity-30 disabled:cursor-not-allowed"
+                            />
+                          </td>
+                        )}
                         {visibleCols.map((c) => (
                           <td
                             key={c}
@@ -1756,7 +1979,10 @@ export const DataPanel = memo(() => {
                       {/* Row detail drill-down — every column, pretty-JSON for objects. */}
                       {detailIdx === i && (
                         <tr data-testid="data-row-detail">
-                          <td colSpan={visibleCols.length} className="bg-bolt-elements-background-depth-1 px-3 py-2">
+                          <td
+                            colSpan={visibleCols.length + (selectable ? 1 : 0)}
+                            className="bg-bolt-elements-background-depth-1 px-3 py-2"
+                          >
                             <div className="flex items-center justify-end gap-2 mb-1.5">
                               {/* No primary key → can't target this row safely; explain, never a doomed Delete. */}
                               {canRunSql && browsePkCols.length === 0 && (

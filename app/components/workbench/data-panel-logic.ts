@@ -1370,6 +1370,113 @@ export function buildDeleteByPk(
   };
 }
 
+/** Max rows a single bulk-delete may target — a fat-finger guard + a bound on statement size. */
+export const MAX_BULK_DELETE = 100;
+
+/**
+ * A stable per-row selection key from its PK value(s) — used to track a bulk selection across
+ *  re-sorts/filters. Returns null when the row has no usable PK (→ not selectable). Pure.
+ */
+export function rowPkKey(row: Record<string, unknown>, pkColumns: readonly string[]): string | null {
+  if (pkColumns.length === 0) {
+    return null;
+  }
+
+  const parts: unknown[] = [];
+
+  for (const col of pkColumns) {
+    const v = row[(col ?? '').trim()];
+
+    if (v === undefined || v === null || (typeof v !== 'string' && typeof v !== 'number')) {
+      return null; // no stable scalar key → not safely targetable
+    }
+
+    parts.push(v);
+  }
+
+  return JSON.stringify(parts);
+}
+
+/**
+ * Build a PARAMETERIZED bulk `DELETE` targeting MANY rows by primary key. Single-column PK →
+ * `WHERE "id" IN (?1, ?2, …)`; composite PK → `WHERE ("a"=?1 AND "b"=?2) OR (…) …`. Every identifier
+ * is validated + quoted; every PK value is a bound `?N` — nothing is concatenated, and a non-empty
+ * PK predicate is required so a whole-table wipe is impossible. Capped at {@link MAX_BULK_DELETE}. Pure.
+ *
+ * @param table - the target table (validated as an identifier)
+ * @param pkColumns - the primary-key column(s), in order (from `pkFromTableInfo`)
+ * @param rows - the selected rows (each supplies its PK values)
+ * @param cap - max rows per batch (default {@link MAX_BULK_DELETE})
+ * @returns `{ sql, params }` — a single parameterized bulk DELETE
+ * @throws {RowMutationError} when the table/a PK column is invalid, there is NO primary key, the
+ *   selection is empty or exceeds `cap`, or a row lacks a stable scalar PK value
+ * @example buildBulkDeleteByPk('todos', ['id'], [{ id: 1 }, { id: 2 }])
+ *   // { sql: 'DELETE FROM "todos" WHERE "id" IN (?1, ?2)', params: [1, 2] }
+ */
+export function buildBulkDeleteByPk(
+  table: string,
+  pkColumns: readonly string[],
+  rows: readonly Record<string, unknown>[],
+  cap: number = MAX_BULK_DELETE,
+): ParameterizedStatement {
+  const t = (table ?? '').trim();
+
+  if (!IDENT_RE.test(t)) {
+    throw new RowMutationError('This table has an unsafe name — delete is disabled.');
+  }
+
+  if (pkColumns.length === 0) {
+    throw new RowMutationError('This table has no primary key, so rows cannot be safely targeted.');
+  }
+
+  if (rows.length === 0) {
+    throw new RowMutationError('Select at least one row to delete.');
+  }
+
+  if (rows.length > cap) {
+    throw new RowMutationError(`Select at most ${cap} rows at a time (you selected ${rows.length}).`);
+  }
+
+  const params: BoundValue[] = [];
+
+  // Single-column PK → a clean `IN (…)` list.
+  if (pkColumns.length === 1) {
+    const col = (pkColumns[0] ?? '').trim();
+
+    if (!IDENT_RE.test(col)) {
+      throw new RowMutationError(`"${pkColumns[0]}" is not a valid primary-key column.`);
+    }
+
+    const placeholders = rows.map((row, i) => {
+      const v = row[col];
+
+      if (v === undefined || v === null) {
+        throw new RowMutationError(`A selected row has no "${col}" value — it can't be targeted safely.`);
+      }
+
+      if (typeof v !== 'string' && typeof v !== 'number') {
+        throw new RowMutationError(`"${col}" is not a stable key value on a selected row.`);
+      }
+
+      params.push(v);
+
+      return `?${i + 1}`;
+    });
+
+    return { sql: `DELETE FROM "${t}" WHERE "${col}" IN (${placeholders.join(', ')})`, params };
+  }
+
+  // Composite PK → OR of per-row (col=? AND col=?) groups, param indices threaded across rows.
+  const groups = rows.map((row) => {
+    const { clauses, values } = buildPkPredicate(pkColumns, row, params.length + 1);
+    params.push(...values);
+
+    return `(${clauses.join(' AND ')})`;
+  });
+
+  return { sql: `DELETE FROM "${t}" WHERE ${groups.join(' OR ')}`, params };
+}
+
 /**
  * Build a PARAMETERIZED single-column `UPDATE` scoped to ONE row by its primary key. The new value
  * is bound as `?1`; the PK predicate follows (`?2…`) so the statement can only ever affect the one

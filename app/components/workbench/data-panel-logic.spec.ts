@@ -44,6 +44,9 @@ import {
   inferCellEditor,
   buildInsertStatement,
   buildDeleteByPk,
+  buildBulkDeleteByPk,
+  rowPkKey,
+  MAX_BULK_DELETE,
   buildUpdateByPk,
   RowMutationError,
 } from './data-panel-logic';
@@ -882,5 +885,51 @@ describe('inferCellEditor (prefill an editor from an existing value — inverse 
     // JSON round-trips as its text form (SQLite stores JSON as TEXT).
     const j = inferCellEditor({ a: 1 });
     expect(coerceCellInput(j.kind, j.value)).toBe('{"a":1}');
+  });
+});
+
+describe('rowPkKey (stable per-row selection key)', () => {
+  it('serializes PK value(s) in order; null when the row lacks a usable PK', () => {
+    expect(rowPkKey({ id: 42, x: 'y' }, ['id'])).toBe('[42]');
+    expect(rowPkKey({ a: 'x', b: 7 }, ['a', 'b'])).toBe('["x",7]');
+    expect(rowPkKey({ x: 1 }, [])).toBeNull(); // no PK cols
+    expect(rowPkKey({ id: null }, ['id'])).toBeNull(); // null PK value
+    expect(rowPkKey({ id: { n: 1 } }, ['id'])).toBeNull(); // non-scalar PK
+  });
+});
+
+describe('buildBulkDeleteByPk (batched parameterized DELETE — capped, never whole-table)', () => {
+  it('single-column PK → WHERE "id" IN (?1, ?2, …) with bound params', () => {
+    const stmt = buildBulkDeleteByPk('todos', ['id'], [{ id: 1 }, { id: 2 }, { id: 3 }]);
+    expect(stmt.sql).toBe('DELETE FROM "todos" WHERE "id" IN (?1, ?2, ?3)');
+    expect(stmt.params).toEqual([1, 2, 3]);
+  });
+
+  it('composite PK → OR of (col=? AND col=?) groups, param indices threaded across rows', () => {
+    const stmt = buildBulkDeleteByPk('m2m', ['a_id', 'b_id'], [{ a_id: 'x', b_id: 1 }, { a_id: 'y', b_id: 2 }]);
+    expect(stmt.sql).toBe('DELETE FROM "m2m" WHERE ("a_id" = ?1 AND "b_id" = ?2) OR ("a_id" = ?3 AND "b_id" = ?4)');
+    expect(stmt.params).toEqual(['x', 1, 'y', 2]);
+  });
+
+  it('binds values (never interpolates) — an injection-shaped id rides as a param', () => {
+    const stmt = buildBulkDeleteByPk('t', ['id'], [{ id: "1); DROP TABLE t;--" }]);
+    expect(stmt.sql).toBe('DELETE FROM "t" WHERE "id" IN (?1)');
+    expect(stmt.params).toEqual(["1); DROP TABLE t;--"]);
+  });
+
+  it('enforces the cap (MAX_BULK_DELETE) — never an unbounded wipe', () => {
+    const rows = Array.from({ length: MAX_BULK_DELETE + 1 }, (_, i) => ({ id: i }));
+    expect(() => buildBulkDeleteByPk('t', ['id'], rows)).toThrow(RowMutationError);
+    // exactly at the cap is allowed
+    expect(() => buildBulkDeleteByPk('t', ['id'], rows.slice(0, MAX_BULK_DELETE))).not.toThrow();
+  });
+
+  it('refuses empty selection / no primary key / missing-PK / non-scalar-PK / bad idents', () => {
+    expect(() => buildBulkDeleteByPk('t', ['id'], [])).toThrow(RowMutationError);
+    expect(() => buildBulkDeleteByPk('t', [], [{ id: 1 }])).toThrow(RowMutationError);
+    expect(() => buildBulkDeleteByPk('t', ['id'], [{ x: 1 }])).toThrow(RowMutationError);
+    expect(() => buildBulkDeleteByPk('t', ['id'], [{ id: true }])).toThrow(RowMutationError);
+    expect(() => buildBulkDeleteByPk('bad name', ['id'], [{ id: 1 }])).toThrow(RowMutationError);
+    expect(() => buildBulkDeleteByPk('t', ['bad col'], [{ 'bad col': 1 }])).toThrow(RowMutationError);
   });
 });
