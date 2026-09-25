@@ -54,12 +54,15 @@ gated.
   first-party-token beacon we do NOT deploy today (we run our OWN app.js RUM instead). A CF
   beacon would DOUBLE-count with app.js; DEFERRED (decision: keep first-party RUM as the
   source of truth). Documented so a future fire doesn't chase it blindly.
-- **SHIPPED from this map (2026-09-24):** HTTP protocol / TLS version / content-type /
+- **SHIPPED from this map:** (2026-09-24) HTTP protocol / TLS version / content-type /
   method breakdowns → `envelope.delivery.{protocols,tls,content_types,methods}` →
-  `DeliveryCardComponent` edge-breakdown grid (same per-host query, zero extra requests).
-  **NEXT from this map (exact, buildable):** `verifiedBotCategory` (crawler visibility —
-  highest owner value, SEO) · `sum.visits`/edge-requests as explicit CF metrics · `coloCode`
-  edge-network view · edge geo/device to complement first-party.
+  `DeliveryCardComponent` edge-breakdown grid (same per-host query, zero extra requests);
+  **(2026-09-25) `verifiedBotCategory`** → `envelope.delivery.verified_bots` → a dedicated
+  "Verified bots · search crawlers & monitors" section — Cloudflare-verified bot traffic by
+  category (empty human bucket excluded server-side; hides when none seen; explicitly NOT a
+  bot-management score). Prod-verified real data. +1 worker Jest + 2 Karma.
+  **NEXT from this map (exact, buildable):** `sum.visits`/edge-requests as explicit CF metrics ·
+  `coloCode` edge-network view · edge geo/device to complement first-party.
 
 ## Coverage matrix
 
