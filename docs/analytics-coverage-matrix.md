@@ -146,9 +146,19 @@ gated.
   per-phase-medians / keeps-honest-0 / empty / fail-soft / tenant + 5 card). Verified: worker tsc+jest
   (51/51 custom_window), app tsc, card Karma 5/5. **This completes the prompt's advanced-first-party
   list** (Navigation Timing · network quality · scroll · time-on-page · outbound clicks · JS-error — all shipped).
-  **REMAINING (worker-dependent propagation, ranked):** (1) surface scroll-depth + dwell + network +
-  page-load on the **public share report** (`/shared/analytics/:token` — currently thin); (2) a
-  visitor-funnel scroll-depth "Deep engagement" 5th stage. NOT the filter UI (owned by a concurrent session).
+- **Public share report enriched SHIPPED (2026-09-25):** `/shared/analytics/:token` was thin
+  (pageviews/visits/contacts/forms/newsletter/donations). The public endpoint ALREADY returns the
+  full traffic summary (`getSiteAnalyticsSummary` → `TrafficSummarySchema`), so this was
+  FRONTEND-ONLY — `public-analytics.component.ts` now renders three owner-shareable tiles, each ONLY
+  when the metric has real samples + a non-null median (never a fabricated 0): **Avg. time on page**
+  (`traffic.engagement.medianMs`), **Median scroll depth** (`traffic.scrollDepth.medianPercent`),
+  **Median page load** (`traffic.navTiming.total`). Network quality + the full nav waterfall are
+  intentionally NOT on the public report (developer-facing / Chromium-only caveat). Tenant resolved
+  from the HMAC share token server-side (unchanged — the token IS the capability). +2 Karma (renders
+  when sampled / omits when 0 samples). Verified: app tsc, Karma 5/5, deployed chunk live on prod.
+  **REMAINING (ranked):** (1) a visitor-funnel scroll-depth "Deep engagement" 5th stage (worker
+  funnel-endpoint change); (2) surface CWV ratings on the public report too (optional). NOT the
+  filter UI (owned by a concurrent session).
 
 ## Coverage matrix
 
