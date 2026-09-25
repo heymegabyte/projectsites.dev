@@ -496,7 +496,35 @@ latency percentiles — no entitlement) or need new plumbing/deps (see Next).
 
 ## Next increment (handoff)
 
-**Day-of-week "Busiest days" breakdown — SHIPPED (2026-09-25, latest).** A parallel-agent section
+**Top referring SITES (external referrer-domain breakdown) — SHIPPED (2026-09-25, latest).** The
+named next gap: we captured the raw `referrer` + derived a COARSE `channel` (organic/social/direct)
+but never surfaced WHICH external sites send traffic. New **"Top referring sites"** card lists the top
+external referring domains (news.ycombinator.com · reddit.com …). `getReferrerDomains`
+(`visitor_events_core/service.ts`) reads the top raw referrers (bounded `LIMIT 500` → **`capped`**
+disclosed when the long tail may be undercounted), reduces each to a domain in JS via pure
+**`referrerToDomain`** (host + `www`-strip; non-http/malformed → null — SQLite has no URL parser),
+**EXCLUDES the site's OWN hosts** (`getSiteOwnHosts` in `site_analytics/service.ts` resolves
+`{slug}.projectsites.dev` + custom domains from OWN records — so internal navigation is NEVER
+miscounted as a referral, the prompt's "don't conflate/double-count"), merges by domain, top-15.
+Pageview-only, filter-aware, fail-soft. Route `GET /api/sites/:siteId/analytics/referrers`
+(`requireOwnedSite` → **404 non-owned even WITH a valid filter**; `parseFilter` allowlist → **400**
+injected dim; tz + custom-window). Self-fetching **`app-referrer-domains`** card (top-domain bars,
+honest loading/error/empty + capped disclosure); rows are **NOT drillable** (the filter keys on the
+RAW referrer, not the parsed domain — avoids a label≠value lying-empty), but drilldown-aware via
+`[activeFilter]`. 6 aggregator/helper + 3 route (tenant 404 + filter 400 + self-host exclusion) + 9
+card tests; worker 12630 · frontend 2324 · all tsc green. Deployed worker `d0b25aef` (route
+prod-verified 401-gated) + frontend `chunk-QTLCY5TH.js` (live at root). **NEXT: filtered daily-series
+(the daily conversion/traffic line ignores the active drilldown filter) OR reallocate to generated-site
+quality — the first-party AUGMENT tier is now very complete.**
+
+**⚠️ PRE-EXISTING (still unresolved, not this increment):** `feature_flags_docs.test.ts` remains RED on
+origin/main — 3 registry flags without `docs.ts` entries (a concurrent session's incomplete work; my
+diff never touches `feature_flags`). The owning session should complete the 3 docs entries.
+
+**Day-of-week "Busiest days" breakdown — SHIPPED (2026-09-25, earlier).** A parallel-agent section
+scan (per the loop mandate) confirmed the drilldown UI was already shipped (line 473) and surfaced the
+one genuine metric the "feature-complete" claim missed: we bucketed by **hour-of-day** (`byHour`) but
+NOT **day-of-week**. Shipped end-to-end: `getWeekdayBreakdown` (`visitor_events_core/service.ts`) buckets A parallel-agent section
 scan (per the loop mandate) confirmed the drilldown UI was already shipped (line 473) and surfaced the
 one genuine metric the "feature-complete" claim missed: we bucketed by **hour-of-day** (`byHour`) but
 NOT **day-of-week**. Shipped end-to-end: `getWeekdayBreakdown` (`visitor_events_core/service.ts`) buckets
