@@ -42,8 +42,9 @@
 **Tier 3 — cross-resource + portability:**
 9. **R2 object preview / download** [M] — the R2 inspector is HEAD-only; add a size-capped body GET →
    inline preview for text/JSON/image, download link otherwise (guarded, safe-types). Prompt-named.
-10. **KV value edit / delete** [M] — the KV inspector is read-only; add guarded edit/delete (super-admin
-    + confirm + eventual-consistency note). Matrix-deferred.
+10. ~~**KV value edit / delete**~~ ✅ **DONE 2026-09-25** — see "Recently shipped" below. The KV
+    inspector is now WRITABLE: guarded PUT (edit/create) + DELETE (type-the-key-to-confirm), super-admin,
+    binding-allowlisted, eventual-consistency disclosed, audited.
 11. **Unified Data search** [M] — one box spanning D1 table names + KV keys + R2 object keys → a merged
     result list that deep-links into the right adapter.
 12. **Owner data export to emailed CSV / Sheets** [S] — one-click "email me this table as CSV" (SES)
@@ -56,6 +57,20 @@
     (create table / run a starter / import) per `embarrassingly-easy-to-use`.
 
 **Recently shipped from this backlog:**
+- ✅ **#10 KV value edit + delete — DONE 2026-09-25** — the KV inspector was READ-ONLY (the prompt
+  explicitly requires "KV: create/edit/delete"); now it's writable. Worker `PUT` + `DELETE
+  /api/admin/kv/:binding/value` (kv_inspector) — super-admin + flag-dark `gate()`; the binding is
+  validated against the SERVER allowlist (`['CACHE_KV','PROMPT_STORE']` — a client-supplied name never
+  reaches KV, unknown → 404); PUT value **size-capped** at `KV_VALUE_MAX_BYTES` (so the editor can't
+  round-trip a truncated read and drop data) with optional `expirationTtl ≥60s`; write/delete failures →
+  502 (honest); mutations logged with actor + binding + key, **never the value**. Editor `KvBrowser`:
+  **Edit** (textarea + Save, disabled when the read was truncated) + **Delete key** (type-the-exact-key
+  to confirm) + an eventual-consistency note (~60s). Bridge `PS_KV_REQUEST` op `put`/`delete` +
+  `KvValueData.truncated`; Angular proxy → `api.put`/`api.delete`. +11 Jest (gate 404 ×3 · unknown
+  binding 404 · oversized/sub-60s-TTL/missing-key 400 · PUT/DELETE happy via the resolved binding · 502
+  on throw); worker 12664 · editor Vitest 439 · tsc + frontend 0 errors. Deployed worker `6111ce6e`
+  (PUT/DELETE prod-verified 404-gated) + frontend proxy chunk live + editor Pages (auto). **Both `CACHE_KV`
+  + `PROMPT_STORE` are platform caches/config — edits are recoverable; delete is type-to-confirm.**
 - ✅ **#6 Query-result mini-charts — DONE 2026-09-25** — the SQL console's result grid gets a
   "📊 Chart" toggle whenever the result is chartable: a **zero-dep horizontal bar chart** of the label
   column vs a numeric column, rendered purely client-side over the already-fetched rows (**no
