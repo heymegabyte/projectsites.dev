@@ -103,7 +103,20 @@ interface DebugResponse {
           No events yet. Click <strong>Send test event</strong> to confirm the pipeline, or wait for real traffic.
         </div>
       } @else {
-        <app-events-table [events]="events()" data-testid="al-table" />
+        @if (eventTypes().length > 1) {
+          <div class="mt-4 flex items-center gap-2 text-[0.8rem]">
+            <label for="al-type-filter" class="text-text-secondary">Filter</label>
+            <select id="al-type-filter" data-testid="al-type-filter"
+                    class="rounded-lg bg-white/[0.04] border border-white/[0.08] text-white px-2 py-1"
+                    [value]="typeFilter()" (change)="setTypeFilter($any($event.target).value)">
+              <option value="all">All types ({{ events().length }})</option>
+              @for (t of eventTypes(); track t) {
+                <option [value]="t">{{ t }}</option>
+              }
+            </select>
+          </div>
+        }
+        <app-events-table [events]="filteredEvents()" data-testid="al-table" />
       }
     </div>
   `,
@@ -128,6 +141,23 @@ export class AdminAnalyticsLiveComponent {
   readonly circuitList = computed(() =>
     Object.entries(this.circuits()).map(([provider, state]) => ({ provider, state })),
   );
+
+  /** Event-type filter for a busy live stream ('all' = no filter). */
+  readonly typeFilter = signal<string>('all');
+  /** Distinct event types present in the current stream, sorted — the filter options. */
+  readonly eventTypes = computed<string[]>(() =>
+    [...new Set(this.events().map((e) => e.eventType).filter(Boolean))].sort(),
+  );
+  /** The stream narrowed to the selected type (identity when 'all'). */
+  readonly filteredEvents = computed<LiveEvent[]>(() => {
+    const t = this.typeFilter();
+    return t === 'all' ? this.events() : this.events().filter((e) => e.eventType === t);
+  });
+
+  /** Set the active event-type filter (from the stream's `<select>`). */
+  setTypeFilter(value: string): void {
+    this.typeFilter.set(value || 'all');
+  }
 
   constructor() {
     // Reload whenever the selected site changes.

@@ -58,6 +58,16 @@ interface DoctorReport {
           </div>
         </div>
 
+        @if (severityCounts().length) {
+          <div class="flex flex-wrap gap-1.5 mb-2" data-testid="site-doctor-severity-summary"
+               aria-label="Issues by severity">
+            @for (s of severityCounts(); track s.severity) {
+              <span class="text-[0.65rem] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                    [class]="sevClass(s.severity)">{{ s.count }} {{ s.severity }}</span>
+            }
+          </div>
+        }
+
         <ul class="flex flex-col gap-2 list-none p-0 m-0" data-testid="site-doctor-issues">
           @for (i of data()!.issues; track i.id) {
             <li class="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"
@@ -107,6 +117,20 @@ export class SiteDoctorComponent {
     if (g === 'A' || g === 'B') return 'text-green-400';
     if (g === 'C') return 'text-amber-400';
     return 'text-red-400';
+  });
+
+  /**
+   * Issue counts by severity, worst-first, only for severities that actually occur — an
+   * at-a-glance triage row ("2 critical · 3 medium") so the owner sees the shape of the
+   * work before reading every card. Derived from the fetched issues; no new request, and
+   * a clean site yields [] (the summary hides), never a fabricated "0 critical".
+   */
+  readonly severityCounts = computed<Array<{ severity: DoctorIssue['severity']; count: number }>>(() => {
+    const issues = this.data()?.issues ?? [];
+    const order: DoctorIssue['severity'][] = ['critical', 'high', 'medium', 'low'];
+    return order
+      .map((severity) => ({ severity, count: issues.filter((i) => i.severity === severity).length }))
+      .filter((s) => s.count > 0);
   });
 
   constructor() {

@@ -102,6 +102,7 @@ interface AggregateResponse {
                 <th scope="col">Impressions</th>
                 <th scope="col">Reach</th>
                 <th scope="col">Engagement</th>
+                <th scope="col" title="Engagement ÷ impressions — how much each impression interacts">Eng. rate</th>
               </tr>
             </thead>
             <tbody>
@@ -112,10 +113,12 @@ interface AggregateResponse {
                   <td>{{ p.impressions | number }}</td>
                   <td>{{ p.reach | number }}</td>
                   <td>{{ p.engagement | number }}</td>
+                  <td [attr.title]="p.impressions > 0 ? null : 'No impressions yet — rate needs impressions to divide by'"
+                      data-testid="social-eng-rate">{{ engRateLabel(p) }}</td>
                 </tr>
               }
               @if (data()!.platform_totals.length === 0) {
-                <tr><td colspan="5" class="empty">No published posts in window. <a routerLink="/admin/social">Compose one →</a></td></tr>
+                <tr><td colspan="6" class="empty">No published posts in window. <a routerLink="/admin/social">Compose one →</a></td></tr>
               }
             </tbody>
           </table>
@@ -193,6 +196,16 @@ export class AdminSocialAnalyticsComponent implements OnInit {
   /** Public retry entry point for the error-card recovery action. */
   reload(): void {
     this.load();
+  }
+
+  /**
+   * Engagement rate = engagement ÷ impressions, as a display string. Returns an em-dash
+   * when there are no impressions to divide by (honest — a rate off 0 impressions is
+   * undefined, never shown as "0%"). Derived from data already on the row; no new request.
+   */
+  engRateLabel(p: PlatformTotals): string {
+    if (!p || p.impressions <= 0) return '—';
+    return `${Math.round((100 * p.engagement) / p.impressions)}%`;
   }
 
   private load(): void {

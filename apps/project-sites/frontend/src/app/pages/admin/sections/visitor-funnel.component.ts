@@ -48,12 +48,21 @@ interface VisitorFunnel {
         </div>
       } @else {
         <ul class="flex flex-col gap-2 list-none p-0 m-0" data-testid="visitor-funnel-stages">
-          @for (s of data()!.stages; track s.key) {
+          @for (s of rows(); track s.key) {
             <li class="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
               <div class="flex items-baseline justify-between gap-3">
                 <span class="text-[0.85rem] font-semibold text-white">{{ s.label }}</span>
-                <span class="text-[0.8rem] font-bold text-primary tabular-nums whitespace-nowrap">
-                  {{ s.sessions }} · {{ s.percentOfLanding }}%
+                <span class="flex items-baseline gap-2 whitespace-nowrap">
+                  @if (s.dropFromPrev !== null && s.dropFromPrev > 0) {
+                    <span class="text-[0.68rem] font-semibold text-amber-300/90 tabular-nums"
+                          data-testid="visitor-funnel-drop"
+                          [attr.title]="s.dropFromPrev + '% of the previous step did not reach ' + s.label">
+                      ▼ {{ s.dropFromPrev }}% drop
+                    </span>
+                  }
+                  <span class="text-[0.8rem] font-bold text-primary tabular-nums">
+                    {{ s.sessions }} · {{ s.percentOfLanding }}%
+                  </span>
                 </span>
               </div>
               <div class="mt-2 h-2 rounded-full bg-white/[0.06] overflow-hidden" aria-hidden="true">
@@ -76,6 +85,25 @@ export class VisitorFunnelComponent {
   readonly data = signal<VisitorFunnel | null>(null);
 
   readonly siteId = computed<string | null>(() => this.state.selectedSite()?.id ?? null);
+
+  /**
+   * Stages decorated with the step-to-step drop-off — the % of the PREVIOUS stage's
+   * sessions that did NOT reach this one (honest: null for the first stage and whenever
+   * the previous stage had 0 sessions; a stage that grows/holds shows no drop). Fulfills
+   * the card's stated promise ("where they drop off"), derived from the real session
+   * counts already fetched — no new request, no fabricated number.
+   */
+  readonly rows = computed<Array<FunnelStage & { dropFromPrev: number | null }>>(() => {
+    const stages = this.data()?.stages ?? [];
+    return stages.map((s, i) => {
+      const prev = stages[i - 1];
+      const dropFromPrev =
+        i === 0 || !prev || prev.sessions <= 0
+          ? null
+          : Math.max(0, Math.round((100 * (prev.sessions - s.sessions)) / prev.sessions));
+      return { ...s, dropFromPrev };
+    });
+  });
 
   constructor() {
     effect(() => {

@@ -55,8 +55,17 @@ interface FormAnalytics {
           @for (form of data()!.forms; track form.form) {
             <li class="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
               <div class="flex items-baseline justify-between gap-3">
-                <span class="text-[0.85rem] font-semibold text-white truncate" [attr.title]="form.form">
-                  {{ form.form }}
+                <span class="flex items-baseline gap-2 min-w-0">
+                  <span class="text-[0.85rem] font-semibold text-white truncate" [attr.title]="form.form">
+                    {{ form.form }}
+                  </span>
+                  @if (form.starts >= 5 && form.completionRate < 50) {
+                    <span class="shrink-0 rounded-full bg-amber-500/15 text-amber-300 text-[0.6rem] font-bold uppercase tracking-wide px-1.5 py-0.5"
+                          data-testid="form-analytics-attention"
+                          title="Fewer than half of the people who start this form finish it — worth simplifying">
+                      Needs attention
+                    </span>
+                  }
                 </span>
                 <span class="text-[0.8rem] font-bold text-primary tabular-nums whitespace-nowrap">
                   {{ form.completionRate }}% completed
