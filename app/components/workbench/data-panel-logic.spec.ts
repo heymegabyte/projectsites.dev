@@ -43,6 +43,7 @@ import {
   coerceCellInput,
   buildInsertStatement,
   buildDeleteByPk,
+  buildUpdateByPk,
   RowMutationError,
 } from './data-panel-logic';
 
@@ -812,5 +813,49 @@ describe('buildDeleteByPk (single-row parameterized DELETE — never whole-table
   it('rejects invalid table / PK-column identifiers', () => {
     expect(() => buildDeleteByPk('bad name', ['id'], { id: 1 })).toThrow(RowMutationError);
     expect(() => buildDeleteByPk('t', ['bad col'], { 'bad col': 1 })).toThrow(RowMutationError);
+  });
+});
+
+describe('buildUpdateByPk (single-row, single-column parameterized UPDATE)', () => {
+  it('binds the new value as ?1 and the PK predicate from ?2', () => {
+    const stmt = buildUpdateByPk('todos', ['id'], { id: 42, title: 'old' }, 'title', 'Buy oat milk');
+    expect(stmt.sql).toBe('UPDATE "todos" SET "title" = ?1 WHERE "id" = ?2');
+    expect(stmt.params).toEqual(['Buy oat milk', 42]);
+  });
+
+  it('supports composite keys (SET ?1, then each PK ANDed from ?2)', () => {
+    const stmt = buildUpdateByPk('m2m', ['a_id', 'b_id'], { a_id: 'x', b_id: 7 }, 'role', 'admin');
+    expect(stmt.sql).toBe('UPDATE "m2m" SET "role" = ?1 WHERE "a_id" = ?2 AND "b_id" = ?3');
+    expect(stmt.params).toEqual(['admin', 'x', 7]);
+  });
+
+  it('binds the value (never interpolates) — an injection-shaped value rides as ?1', () => {
+    const stmt = buildUpdateByPk('t', ['id'], { id: 1 }, 'note', "'); DROP TABLE t;--");
+    expect(stmt.sql).toBe('UPDATE "t" SET "note" = ?1 WHERE "id" = ?2');
+    expect(stmt.params).toEqual(["'); DROP TABLE t;--", 1]);
+  });
+
+  it('preserves null / boolean / number typed values', () => {
+    expect(buildUpdateByPk('t', ['id'], { id: 1 }, 'x', null).params).toEqual([null, 1]);
+    expect(buildUpdateByPk('t', ['id'], { id: 1 }, 'x', true).params).toEqual([true, 1]);
+    expect(buildUpdateByPk('t', ['id'], { id: 1 }, 'x', 0).params).toEqual([0, 1]);
+  });
+
+  it('refuses to edit a PRIMARY-KEY column (the key is the predicate, not editable)', () => {
+    expect(() => buildUpdateByPk('t', ['id'], { id: 1 }, 'id', 2)).toThrow(RowMutationError);
+  });
+
+  it('refuses when there is no primary key (never an unscoped UPDATE)', () => {
+    expect(() => buildUpdateByPk('t', [], { a: 1 }, 'a', 'x')).toThrow(RowMutationError);
+  });
+
+  it('refuses a missing/non-scalar PK value (row not safely targetable)', () => {
+    expect(() => buildUpdateByPk('t', ['id'], { title: 'no id' }, 'title', 'x')).toThrow(RowMutationError);
+    expect(() => buildUpdateByPk('t', ['id'], { id: { n: 1 } }, 'title', 'x')).toThrow(RowMutationError);
+  });
+
+  it('rejects invalid table / set-column identifiers', () => {
+    expect(() => buildUpdateByPk('bad name', ['id'], { id: 1 }, 'x', 1)).toThrow(RowMutationError);
+    expect(() => buildUpdateByPk('t', ['id'], { id: 1 }, 'bad col', 1)).toThrow(RowMutationError);
   });
 });

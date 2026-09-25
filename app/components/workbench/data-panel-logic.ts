@@ -1264,23 +1264,28 @@ export function buildInsertStatement(
  * @example buildDeleteByPk('todos', ['id'], { id: 42, title: 'x' })
  *   // { sql: 'DELETE FROM "todos" WHERE "id" = ?1', params: [42] }
  */
-export function buildDeleteByPk(
-  table: string,
+/**
+ * Build a PK `WHERE` predicate (`"col" = ?N AND …`) with bind params starting at `startIndex`.
+ * Shared by DELETE + UPDATE so both target EXACTLY one row by its key. Validates each PK identifier
+ * + requires a scalar (string/number) value for every key column. Pure.
+ *
+ * @param pkColumns - the primary-key column(s), in order
+ * @param row - the row supplying each PK value
+ * @param startIndex - the `?N` index for the FIRST predicate param (1 for DELETE, 2 for UPDATE after SET)
+ * @returns `{ clauses, values }` — the ANDed predicate fragments + their bind values, in order
+ * @throws {RowMutationError} when there is NO primary key, or a PK column is invalid / missing / non-scalar
+ */
+function buildPkPredicate(
   pkColumns: readonly string[],
   row: Record<string, unknown>,
-): ParameterizedStatement {
-  const t = (table ?? '').trim();
-
-  if (!IDENT_RE.test(t)) {
-    throw new RowMutationError('This table has an unsafe name — delete is disabled.');
-  }
-
+  startIndex: number,
+): { clauses: string[]; values: BoundValue[] } {
   if (pkColumns.length === 0) {
     throw new RowMutationError('This table has no primary key, so a row cannot be safely targeted.');
   }
 
-  const params: BoundValue[] = [];
-  const predicates = pkColumns.map((col, i) => {
+  const values: BoundValue[] = [];
+  const clauses = pkColumns.map((col, i) => {
     const c = (col ?? '').trim();
 
     if (!IDENT_RE.test(c)) {
@@ -1295,16 +1300,83 @@ export function buildDeleteByPk(
 
     // Only string / number are safe, stable PK predicates (a boolean/JSON PK is not a real key).
     if (typeof value !== 'string' && typeof value !== 'number') {
-      throw new RowMutationError(`"${c}" is not a stable key value — delete is disabled for this row.`);
+      throw new RowMutationError(`"${c}" is not a stable key value — this row can't be targeted safely.`);
     }
 
-    params.push(value);
+    values.push(value);
 
-    return `"${c}" = ?${i + 1}`;
+    return `"${c}" = ?${startIndex + i}`;
   });
 
+  return { clauses, values };
+}
+
+export function buildDeleteByPk(
+  table: string,
+  pkColumns: readonly string[],
+  row: Record<string, unknown>,
+): ParameterizedStatement {
+  const t = (table ?? '').trim();
+
+  if (!IDENT_RE.test(t)) {
+    throw new RowMutationError('This table has an unsafe name — delete is disabled.');
+  }
+
+  const { clauses, values } = buildPkPredicate(pkColumns, row, 1);
+
   return {
-    sql: `DELETE FROM "${t}" WHERE ${predicates.join(' AND ')}`,
-    params,
+    sql: `DELETE FROM "${t}" WHERE ${clauses.join(' AND ')}`,
+    params: values,
+  };
+}
+
+/**
+ * Build a PARAMETERIZED single-column `UPDATE` scoped to ONE row by its primary key. The new value
+ * is bound as `?1`; the PK predicate follows (`?2…`) so the statement can only ever affect the one
+ * keyed row. Identifiers are validated + double-quoted; the value is bound, never concatenated. Pure.
+ *
+ * A PK column itself is NOT editable here (it's the predicate — changing identity is out of scope);
+ * attempting it throws so the caller keeps the key read-only.
+ *
+ * @param table - the target table (validated as an identifier)
+ * @param pkColumns - the row's primary-key column(s), in order (from `pkFromTableInfo`)
+ * @param row - the row supplying the PK predicate values
+ * @param setColumn - the (non-PK) column to update (validated as an identifier)
+ * @param setValue - the already-coerced new value to bind
+ * @returns `{ sql, params }` — a single-row, single-column parameterized UPDATE
+ * @throws {RowMutationError} when the table/column is invalid, `setColumn` is a PK column, there is
+ *   no primary key, or a PK value is missing/non-scalar
+ * @example buildUpdateByPk('todos', ['id'], { id: 42 }, 'title', 'Buy oat milk')
+ *   // { sql: 'UPDATE "todos" SET "title" = ?1 WHERE "id" = ?2', params: ['Buy oat milk', 42] }
+ */
+export function buildUpdateByPk(
+  table: string,
+  pkColumns: readonly string[],
+  row: Record<string, unknown>,
+  setColumn: string,
+  setValue: BoundValue,
+): ParameterizedStatement {
+  const t = (table ?? '').trim();
+
+  if (!IDENT_RE.test(t)) {
+    throw new RowMutationError('This table has an unsafe name — edit is disabled.');
+  }
+
+  const setCol = (setColumn ?? '').trim();
+
+  if (!IDENT_RE.test(setCol)) {
+    throw new RowMutationError(`"${setColumn}" is not a valid column name.`);
+  }
+
+  if (pkColumns.some((c) => (c ?? '').trim() === setCol)) {
+    throw new RowMutationError(`"${setCol}" is a primary-key column — the key can't be edited here.`);
+  }
+
+  // SET value is ?1; the PK predicate binds from ?2 onward → the statement targets exactly one row.
+  const { clauses, values } = buildPkPredicate(pkColumns, row, 2);
+
+  return {
+    sql: `UPDATE "${t}" SET "${setCol}" = ?1 WHERE ${clauses.join(' AND ')}`,
+    params: [setValue, ...values],
   };
 }

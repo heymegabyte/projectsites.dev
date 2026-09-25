@@ -53,6 +53,7 @@ import {
   coerceCellInput,
   buildInsertStatement,
   buildDeleteByPk,
+  buildUpdateByPk,
   pkFromTableInfo,
   RowMutationError,
   type CellInputKind,
@@ -243,6 +244,19 @@ export const DataPanel = memo(() => {
   const pkCid = useRef<string | null>(null); // PRAGMA table_info round-trip id (distinct from the SQL console)
   const deletePending = useRef(false); // a row delete is in flight → route the next PS_SQL_RESPONSE
   const deleteTargetRef = useRef<string | null>(null); // the table to re-open after a delete
+
+  /*
+   * Row EDIT (single cell, single row) — reuses the resolved PK to build a `UPDATE … SET "col"=?1
+   * WHERE pk=?2` (parameterized). One editor open at a time; a PK column is never editable (it's the
+   * predicate). Non-super-admin / no-PK rows have no edit affordance (read-only).
+   */
+  const [editCol, setEditCol] = useState<string | null>(null); // the column whose inline editor is open
+  const [editKind, setEditKind] = useState<CellInputKind>('text');
+  const [editValue, setEditValue] = useState('');
+  const [editError, setEditError] = useState('');
+  const [editBusy, setEditBusy] = useState(false);
+  const updatePending = useRef(false); // a row edit is in flight → route the next PS_SQL_RESPONSE
+  const updateTargetRef = useRef<string | null>(null); // the table to re-open after an edit
 
   /*
    * Multi-tab SQL console — independent query buffers you can switch between (each keeps
@@ -672,6 +686,15 @@ export const DataPanel = memo(() => {
             return;
           }
 
+          // A row EDIT failed → surface the error IN the cell editor (keep it open to fix).
+          if (updatePending.current) {
+            updatePending.current = false;
+            setEditBusy(false);
+            setEditError(msg.error);
+
+            return;
+          }
+
           setSqlError(msg.needs_confirm ? `${msg.error}` : msg.error);
           setSqlRows([]);
           setSqlColumns([]);
@@ -725,6 +748,34 @@ export const DataPanel = memo(() => {
             requestOverview();
 
             const t = deleteTargetRef.current;
+
+            if (t) {
+              openTable(t);
+            }
+
+            return;
+          }
+
+          /*
+           * A row EDIT succeeded → close the cell editor, flash, re-open the table so the new value
+           * shows. (Inline flash — flashStatus is defined after this effect; set aria-live directly.)
+           */
+          if (updatePending.current) {
+            updatePending.current = false;
+            setEditBusy(false);
+            setEditCol(null);
+            setDetailIdx(null);
+
+            const tok = ++copyToken.current;
+            setCopied('Row updated');
+            setTimeout(() => {
+              if (copyToken.current === tok) {
+                setCopied('');
+              }
+            }, 1800);
+            requestOverview();
+
+            const t = updateTargetRef.current;
 
             if (t) {
               openTable(t);
@@ -982,6 +1033,91 @@ export const DataPanel = memo(() => {
       runSql(stmt.sql, stmt.params);
     },
     [active, browsePkCols, runSql, flashStatus],
+  );
+
+  /** Open the inline editor for one cell — infer the initial type from the current value, prefill it. */
+  const startEdit = useCallback((col: string, rawValue: unknown): void => {
+    setEditError('');
+    setEditCol(col);
+
+    let kind: CellInputKind;
+    let value: string;
+
+    if (rawValue === null || rawValue === undefined) {
+      kind = 'null';
+      value = '';
+    } else if (typeof rawValue === 'number') {
+      kind = 'number';
+      value = String(rawValue);
+    } else if (typeof rawValue === 'boolean') {
+      kind = 'boolean';
+      value = rawValue ? 'true' : 'false';
+    } else if (typeof rawValue === 'object') {
+      kind = 'json';
+      value = JSON.stringify(rawValue);
+    } else {
+      kind = 'text';
+      value = String(rawValue);
+    }
+
+    setEditKind(kind);
+    setEditValue(value);
+  }, []);
+
+  const cancelEdit = useCallback((): void => {
+    setEditCol(null);
+    setEditError('');
+  }, []);
+
+  /** Live preview of the exact parameterized UPDATE (SQL shape only — value is bound as ?1). */
+  const editPreview = useCallback((): string | null => {
+    const r = detailIdx != null ? visibleRows[detailIdx] : null;
+
+    if (!active || !editCol || !r) {
+      return null;
+    }
+
+    try {
+      return buildUpdateByPk(active, browsePkCols, r, editCol, null).sql;
+    } catch {
+      return null;
+    }
+  }, [active, editCol, browsePkCols, detailIdx, visibleRows]);
+
+  const submitEdit = useCallback(
+    (row: Record<string, unknown>): void => {
+      if (!active || !editCol) {
+        return;
+      }
+
+      setEditError('');
+
+      let value: BoundValue;
+
+      try {
+        value = coerceCellInput(editKind, editValue);
+      } catch (e) {
+        setEditError(e instanceof RowMutationError ? e.message : 'Could not read the value.');
+
+        return;
+      }
+
+      let stmt: { sql: string; params: BoundValue[] };
+
+      try {
+        stmt = buildUpdateByPk(active, browsePkCols, row, editCol, value);
+      } catch (e) {
+        setEditError(e instanceof RowMutationError ? e.message : 'Could not build the statement.');
+
+        return;
+      }
+
+      updatePending.current = true;
+      updateTargetRef.current = active;
+      setEditBusy(true);
+      runSql(stmt.sql, stmt.params);
+    },
+    [active, editCol, editKind, editValue, browsePkCols, runSql],
   );
 
   /** The SQL result grid, client-sorted (honest — reorders the full returned result). */
@@ -1642,28 +1778,137 @@ export const DataPanel = memo(() => {
                               )}
                             </div>
                             <dl className="grid grid-cols-[minmax(90px,auto)_1fr] gap-x-3 gap-y-1">
-                              {detailEntries(r, columns).map(([label, val], idx) => (
-                                <React.Fragment key={label}>
-                                  <dt className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary pt-0.5">
-                                    {label}
-                                  </dt>
-                                  <dd className="group text-[11px] text-bolt-elements-textPrimary font-mono whitespace-pre-wrap break-words flex items-start gap-1.5">
-                                    <span className="min-w-0 break-words">{val}</span>
-                                    {clipboardValue(r[columns[idx]]) && (
-                                      <button
-                                        type="button"
-                                        onClick={() => copyValue(r[columns[idx]], label)}
-                                        data-testid="data-copy-cell"
-                                        title={`Copy ${label}`}
-                                        aria-label={`Copy ${label}`}
-                                        className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 focus:opacity-100 text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer transition-opacity"
-                                      >
-                                        <div className="i-ph:copy text-[11px]" />
-                                      </button>
-                                    )}
-                                  </dd>
-                                </React.Fragment>
-                              ))}
+                              {detailEntries(r, columns).map(([label, val], idx) => {
+                                const col = columns[idx];
+
+                                // Editable = super-admin + a resolvable PK + this column is NOT part of the key.
+                                const editable = canRunSql && browsePkCols.length > 0 && !browsePkCols.includes(col);
+                                const editing = editCol === col;
+
+                                return (
+                                  <React.Fragment key={label}>
+                                    <dt className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary pt-0.5">
+                                      {label}
+                                    </dt>
+                                    <dd className="group text-[11px] text-bolt-elements-textPrimary font-mono whitespace-pre-wrap break-words flex items-start gap-1.5">
+                                      {editing ? (
+                                        <div className="flex w-full flex-col gap-1" data-testid="data-edit-cell">
+                                          <div className="flex items-center gap-1.5">
+                                            <select
+                                              value={editKind}
+                                              onChange={(e) => {
+                                                setEditError('');
+                                                setEditKind(e.target.value as CellInputKind);
+                                              }}
+                                              data-testid="data-edit-kind"
+                                              aria-label={`Type for ${label}`}
+                                              className="shrink-0 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[10px] text-bolt-elements-textPrimary focus:outline-none"
+                                            >
+                                              <option value="text">text</option>
+                                              <option value="number">number</option>
+                                              <option value="boolean">boolean</option>
+                                              <option value="null">NULL</option>
+                                              <option value="json">JSON</option>
+                                            </select>
+                                            <input
+                                              value={editValue}
+                                              onChange={(e) => {
+                                                setEditError('');
+                                                setEditValue(e.target.value);
+                                              }}
+                                              disabled={editKind === 'null'}
+                                              data-testid="data-edit-value"
+                                              aria-label={`New value for ${label}`}
+                                              placeholder={
+                                                editKind === 'null'
+                                                  ? 'NULL'
+                                                  : editKind === 'boolean'
+                                                    ? 'true / false'
+                                                    : ''
+                                              }
+                                              spellCheck={false}
+                                              className={classNames(
+                                                'min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-0.5 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none',
+                                                editKind === 'null' ? 'opacity-40' : '',
+                                              )}
+                                            />
+                                          </div>
+                                          {editPreview() && (
+                                            <div
+                                              className="overflow-x-auto rounded bg-bolt-elements-background-depth-2 px-2 py-1 text-[10px] text-bolt-elements-textTertiary"
+                                              data-testid="data-edit-preview"
+                                            >
+                                              {editPreview()}
+                                            </div>
+                                          )}
+                                          {editError && (
+                                            <p
+                                              className="text-[10px] text-red-400"
+                                              role="alert"
+                                              data-testid="data-edit-error"
+                                            >
+                                              {editError}
+                                            </p>
+                                          )}
+                                          <div className="flex items-center gap-2">
+                                            <button
+                                              type="button"
+                                              onClick={() => submitEdit(r)}
+                                              disabled={editBusy}
+                                              data-testid="data-edit-save"
+                                              className={classNames(
+                                                'rounded px-2 py-0.5 text-[10px] font-medium',
+                                                editBusy
+                                                  ? 'cursor-not-allowed bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary'
+                                                  : 'cursor-pointer bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:opacity-90',
+                                              )}
+                                            >
+                                              {editBusy ? 'Saving…' : 'Save'}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={cancelEdit}
+                                              disabled={editBusy}
+                                              data-testid="data-edit-cancel"
+                                              className="cursor-pointer text-[10px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
+                                            >
+                                              Cancel
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <span className="min-w-0 break-words">{val}</span>
+                                          {clipboardValue(r[col]) && (
+                                            <button
+                                              type="button"
+                                              onClick={() => copyValue(r[col], label)}
+                                              data-testid="data-copy-cell"
+                                              title={`Copy ${label}`}
+                                              aria-label={`Copy ${label}`}
+                                              className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 focus:opacity-100 text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer transition-opacity"
+                                            >
+                                              <div className="i-ph:copy text-[11px]" />
+                                            </button>
+                                          )}
+                                          {editable && (
+                                            <button
+                                              type="button"
+                                              onClick={() => startEdit(col, r[col])}
+                                              data-testid="data-edit-cell-open"
+                                              title={`Edit ${label}`}
+                                              aria-label={`Edit ${label}`}
+                                              className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 focus:opacity-100 text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer transition-opacity"
+                                            >
+                                              <div className="i-ph:pencil-simple text-[11px]" />
+                                            </button>
+                                          )}
+                                        </>
+                                      )}
+                                    </dd>
+                                  </React.Fragment>
+                                );
+                              })}
                             </dl>
                           </td>
                         </tr>
