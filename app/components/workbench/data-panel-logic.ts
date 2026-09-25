@@ -605,3 +605,76 @@ export function classifySql(sql: string): SqlBatchInfo {
 
   return { statements, destructive, kind, reasons, statementCount: statements.length };
 }
+
+/**
+ * Wrap the FIRST statement of the editor buffer in `EXPLAIN QUERY PLAN` — the SQLite
+ * query-optimizer view (which indexes it uses, where it full-scans). EXPLAIN never
+ * modifies data, so this is a pure read. Idempotent (won't double-wrap an already-EXPLAIN
+ * query); trailing `;` stripped so the wrap stays one statement.
+ *
+ * @param sql - the editor buffer
+ * @returns the EXPLAIN-wrapped query, or '' when there's nothing to explain
+ * @example explainQuery('SELECT * FROM t') // 'EXPLAIN QUERY PLAN SELECT * FROM t'
+ * @example explainQuery('EXPLAIN QUERY PLAN SELECT 1') // 'EXPLAIN QUERY PLAN SELECT 1' (unchanged)
+ */
+export function explainQuery(sql: string): string {
+  // Only the first statement — EXPLAIN takes a single statement, not a batch.
+  const first = String(sql ?? '')
+    .split(';')
+    .map((p) => p.trim())
+    .find((p) => p.length > 0);
+
+  if (!first) {
+    return '';
+  }
+
+  return /^EXPLAIN\b/i.test(first) ? first : `EXPLAIN QUERY PLAN ${first}`;
+}
+
+/** Plain-language index guidance derived from an EXPLAIN QUERY PLAN result. */
+export interface ExplainHint {
+  level: 'good' | 'warn' | 'info';
+  message: string;
+}
+
+/**
+ * Turn an EXPLAIN QUERY PLAN result into one plain-language index hint (the actionable
+ * "your query is/isn't index-optimized" a full SQLite manager shows). Reads each plan
+ * row's `detail` string: a bare `SCAN` (no `USING INDEX`) = a full-table scan → warn;
+ * `USE TEMP B-TREE` = an un-indexed sort/group → info; otherwise index-covered → good.
+ * Returns null when the rows aren't a query plan (no `detail` column) — so it shows ONLY
+ * after an Explain, never on a normal SELECT result.
+ *
+ * @param rows - the result rows from `EXPLAIN QUERY PLAN`
+ * @returns an {@link ExplainHint}, or null when the result isn't a plan
+ * @example explainPlanHint([{ detail: 'SCAN users' }]) // { level:'warn', … }
+ * @example explainPlanHint([{ detail: 'SEARCH users USING INDEX ix_email' }]) // { level:'good', … }
+ * @example explainPlanHint([{ id: 1, name: 'x' }]) // null (not a plan)
+ */
+export function explainPlanHint(rows: readonly Record<string, unknown>[]): ExplainHint | null {
+  const details = (rows ?? [])
+    .map((r) => (typeof r.detail === 'string' ? r.detail : ''))
+    .filter((d) => d.length > 0);
+
+  if (details.length === 0) {
+    return null; // not a query plan → no hint
+  }
+
+  const scans = details.filter((d) => /\bSCAN\b/i.test(d) && !/USING (COVERING )?INDEX/i.test(d));
+
+  if (scans.length > 0) {
+    return {
+      level: 'warn',
+      message: `Full-table scan on ${scans.length} table${scans.length > 1 ? 's' : ''} — add an index on the column(s) you filter or join by to make this query fast at scale.`,
+    };
+  }
+
+  if (details.some((d) => /USE TEMP B-TREE/i.test(d))) {
+    return {
+      level: 'info',
+      message: 'Sorting/grouping builds a temporary B-tree — an index on the ORDER BY / GROUP BY column can avoid it.',
+    };
+  }
+
+  return { level: 'good', message: 'Index-optimized — this query uses an index and avoids full-table scans.' };
+}
