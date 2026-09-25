@@ -52,6 +52,17 @@
   via `wrangler secret put` (the local tests used the global key, which is NOT a Worker secret).
   Mint at `https://dash.cloudflare.com/profile/api-tokens`.
 
+## Fire log
+
+- **Fire 1 (2026-09-25):** cloned the real `with-cloudflare-d1` template → `infra/payload-d1/`;
+  corrected provisioner binding names → `D1`/`R2`; recorded OpenNext facts; deploy model decided
+  (WfP user Worker + Static Assets).
+- **Fire 2 (2026-09-25):** `npm install --legacy-peer-deps` ✅ (45s, 671 pkgs, exit 0, isolated —
+  no monorepo workspaces). First build FAILED: the template's `build` script runs `payload build`,
+  which is **invalid in Payload 3.82** (`Unknown command: "build"`). **Root fix:** build script →
+  `payload generate:importmap && next build`. Node 26 is fine (template engines `>=24.15.0`).
+  OpenNext build retrying — verify `.open-next/worker.js` next.
+
 ## Remaining slices (in order)
 
 1. **Migration** — add `d1_database_id` + `worker_script_name` to `app_instances`
