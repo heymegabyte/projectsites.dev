@@ -26,9 +26,9 @@
    present-data-only, never "0 of…".
 
 **Tier 2 — SQLite-manager polish (DB Browser / Beekeeper / SQLiteStudio parity):**
-4. **Table data profiling** [M] — one-click "Profile" runs BOUNDED aggregates (row count · per-column
-   null/distinct counts · numeric min/max/avg · top-5 values) → a column-stats panel. The standout
-   feature of pro SQLite managers; bound every query + surface cost.
+4. ~~**Table data profiling**~~ ✅ **DONE 2026-09-25** — see "Recently shipped" below. One-click
+   "📊 Profile" runs ONE bounded single-scan aggregate → row count + per-column null/distinct/min/max
+   (+ avg for numerics) + surfaced scan cost (`rows_read`). Top-5-values deferred (per-column on-demand).
 5. **Relationship (ERD) view** [M] — from the now-parsed FKs, a zero-dep SVG node-edge diagram
    (tables = nodes, FK = edges) — the prompt's explicit "understandable relationship view."
 6. **Query-result mini-charts** [S] — auto-detect a chartable result (a label column + a numeric
@@ -55,6 +55,19 @@
     (create table / run a starter / import) per `embarrassingly-easy-to-use`.
 
 **Recently shipped from this backlog:**
+- ✅ **#4 Table data profiling — DONE 2026-09-25** — the standout pro-SQLite-manager feature. The
+  D1Browser schema view gets a "📊 Profile" button beside "✨ Explain": it runs ONE bounded
+  single-scan aggregate over the selected table and shows a **column-stats table** — per-column
+  null count · distinct count · min · max (+ avg for numeric columns) — plus the **row count** and
+  the **scan cost** ("scanned N rows" from D1 `meta.rows_read`). New worker route `POST
+  /api/admin/d1/:databaseId/profile-table` (super-admin + flag-dark `gate()`). **Bounded + safe:**
+  columns come from the SERVER-fetched DDL (never client input — `parseProfileColumns`), are quoted +
+  escaped (`quoteIdent`, hostile names can't break out), and capped at `PROFILE_COLUMN_CAP`=40 (rest
+  disclosed as "first 40 columns"); the whole profile is ONE scan (not N queries). Pure module
+  `d1_manager/profile.ts` (parse/quote/build/parseResult) with **10 unit tests** + **7 handler tests**
+  (gate 404 ×3 · bad-identifier 400 · unknown-table 404 · happy 200 w/ server-DDL columns + rows_read ·
+  502 on query fail). Bridge reuses `PS_D1_REQUEST` with `op:'profile'` (`D1ProfileData`). Editor tsc +
+  Vitest 432 + frontend tsc all green.
 - ✅ **#2 "Explain this table" (plain-English) — DONE 2026-09-25** — the D1Browser schema view now
   has an "✨ Explain" button beside each selected table/view: it asks the server (which re-fetches the
   table's REAL DDL from `sqlite_master`, never a client-supplied schema) for a Workers-AI plain-English

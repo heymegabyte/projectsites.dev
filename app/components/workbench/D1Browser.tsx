@@ -31,6 +31,7 @@ import type {
   D1ExportData,
   D1ForeignKey,
   D1OverviewData,
+  D1ProfileData,
   D1RequestMessage,
   D1ResponseMessage,
   D1SchemaObjectSummary,
@@ -117,6 +118,11 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
   const [explainModel, setExplainModel] = useState<string | null>(null);
   const [explainBusy, setExplainBusy] = useState(false);
   const [explainError, setExplainError] = useState<string | null>(null);
+
+  // "Profile table" — one bounded single-scan aggregate → per-column stats + scan cost (read-only).
+  const [profile, setProfile] = useState<D1ProfileData | null>(null);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   // Resolve pending bridge requests by correlationId.
   useEffect(() => {
@@ -236,11 +242,14 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
       setSelectedObject(obj);
       setDdlOpen(false);
 
-      // A fresh selection clears any prior AI summary (it described the previous table).
+      // A fresh selection clears any prior AI summary / profile (they described the previous table).
       setExplainSummary(null);
       setExplainModel(null);
       setExplainError(null);
       setExplainBusy(false);
+      setProfile(null);
+      setProfileError(null);
+      setProfileBusy(false);
 
       const browsable = isBrowsableObject(obj.type);
       setColumns(browsable ? parseCreateTableColumns(obj.sql) : []);
@@ -286,6 +295,29 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
       setExplainModel(d.model);
     } else {
       setExplainError(res.error ?? 'Could not generate a summary.');
+    }
+  }, [selectedObject, selectedId, request]);
+
+  /**
+   * "Profile table" — one bounded single-scan aggregate (server-side) → per-column non-null / null /
+   * distinct / min / max (+ avg for numerics) + the row count + the scan's rows-read cost. Read-only.
+   */
+  const profileTable = useCallback(async (): Promise<void> => {
+    if (!selectedObject || !selectedId) {
+      return;
+    }
+
+    setProfileBusy(true);
+    setProfileError(null);
+    setProfile(null);
+
+    const res = await request({ op: 'profile', databaseId: selectedId, table: selectedObject.name });
+    setProfileBusy(false);
+
+    if (res.ok && res.data && 'columns' in res.data && 'rowCount' in res.data) {
+      setProfile(res.data as D1ProfileData);
+    } else {
+      setProfileError(res.error ?? 'Could not profile this table.');
     }
   }, [selectedObject, selectedId, request]);
 
@@ -689,6 +721,24 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
                             {explainBusy ? 'Explaining…' : 'Explain'}
                           </button>
                         )}
+                        {isBrowsableObject(selectedObject.type) && (
+                          <button
+                            type="button"
+                            onClick={profileTable}
+                            disabled={profileBusy}
+                            data-testid="data-d1-profile"
+                            title="Scan the table once for per-column stats (nulls, distinct values, min/max/avg) + row count"
+                            className={classNames(
+                              'flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px]',
+                              profileBusy
+                                ? 'cursor-not-allowed text-bolt-elements-textTertiary'
+                                : 'cursor-pointer text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10',
+                            )}
+                          >
+                            <div className={profileBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:chart-bar'} />
+                            {profileBusy ? 'Profiling…' : 'Profile'}
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => copyText(selectedObject.name)}
@@ -738,6 +788,91 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
                               >
                                 Copy
                               </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Table profile — one bounded scan → per-column stats + the scan cost (rows read).
+                        Read-only; honest busy / error states. */}
+                    {(profileBusy || profile || profileError) && (
+                      <div className="mb-3" data-testid="data-d1-profile-panel">
+                        {profileBusy && (
+                          <div
+                            className="flex items-center gap-1.5 text-[10px] text-bolt-elements-textSecondary"
+                            aria-live="polite"
+                          >
+                            <div className="i-ph:circle-notch animate-spin" />
+                            Scanning the table…
+                          </div>
+                        )}
+                        {!profileBusy && profileError && (
+                          <div className="flex items-start gap-1 text-[10px] text-red-400" role="alert">
+                            <div className="i-ph:warning-circle mt-0.5 shrink-0" />
+                            <span>{profileError}</span>
+                          </div>
+                        )}
+                        {!profileBusy && profile && (
+                          <>
+                            <div className="mb-1 flex items-center justify-between gap-2 text-[9px] text-bolt-elements-textTertiary">
+                              <span data-testid="data-d1-profile-rows">
+                                {profile.rowCount.toLocaleString()} {profile.rowCount === 1 ? 'row' : 'rows'}
+                              </span>
+                              <span>
+                                {profile.rowsRead != null ? `scanned ${profile.rowsRead.toLocaleString()} rows` : ''}
+                                {profile.capped ? ' · first 40 columns' : ''}
+                              </span>
+                            </div>
+                            <div className="overflow-auto rounded border border-bolt-elements-borderColor/30">
+                              <table className="w-full text-[10px]">
+                                <thead>
+                                  <tr className="text-bolt-elements-textTertiary">
+                                    <th className="px-2 py-1 text-left font-medium">Column</th>
+                                    <th className="px-2 py-1 text-right font-medium" title="Rows with no value">
+                                      Null
+                                    </th>
+                                    <th className="px-2 py-1 text-right font-medium" title="Distinct values">
+                                      Distinct
+                                    </th>
+                                    <th className="px-2 py-1 text-left font-medium">Min</th>
+                                    <th className="px-2 py-1 text-left font-medium">Max</th>
+                                    <th className="px-2 py-1 text-right font-medium" title="Average (numeric columns)">
+                                      Avg
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {profile.columns.map((col) => (
+                                    <tr
+                                      key={col.name}
+                                      className="border-t border-bolt-elements-borderColor/20"
+                                      data-testid="data-d1-profile-row"
+                                    >
+                                      <td className="px-2 py-1 font-mono text-bolt-elements-textPrimary">{col.name}</td>
+                                      <td className="px-2 py-1 text-right text-bolt-elements-textTertiary">
+                                        {col.nullCount.toLocaleString()}
+                                      </td>
+                                      <td className="px-2 py-1 text-right text-bolt-elements-textSecondary">
+                                        {col.distinct.toLocaleString()}
+                                      </td>
+                                      <td className="px-2 py-1 font-mono text-bolt-elements-textTertiary">
+                                        <span className="block max-w-[9rem] truncate" title={col.min ?? ''}>
+                                          {col.min ?? '—'}
+                                        </span>
+                                      </td>
+                                      <td className="px-2 py-1 font-mono text-bolt-elements-textTertiary">
+                                        <span className="block max-w-[9rem] truncate" title={col.max ?? ''}>
+                                          {col.max ?? '—'}
+                                        </span>
+                                      </td>
+                                      <td className="px-2 py-1 text-right font-mono text-bolt-elements-textTertiary">
+                                        {col.avg != null ? Math.round(col.avg * 100) / 100 : '—'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
                             </div>
                           </>
                         )}

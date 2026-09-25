@@ -43,6 +43,7 @@ import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
 import { isSuperAdmin } from '../../../src/services/sysadmin.js';
 import { resolveCfCredentials, cfAuthHeaders } from '../../../src/services/cf_credentials.js';
 import { D1DatabaseIdSchema, D1ExportRequestSchema, D1TableNameSchema } from './schemas.js';
+import { buildProfileQuery, parseProfileColumns, parseProfileResult } from './profile.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 
@@ -418,6 +419,78 @@ d1Manager.post('/api/admin/d1/:databaseId/explain-table', async (c) => {
   // Telemetry only — the table name + model, NEVER row data (the AI saw only the DDL).
   logD1(c, { route: 'd1/explain', outcome: 'ok', table, model: EXPLAIN_MODEL, latency_ms: Date.now() - t0 });
   return c.json({ ok: true, summary, model: EXPLAIN_MODEL });
+});
+
+// ─── POST /api/admin/d1/:databaseId/profile-table ────────────────────────────
+// "Profile table" — the standout pro-SQLite-manager feature: ONE bounded single-scan aggregate over
+// the table returns per-column non-null / null / distinct / min / max (+ avg for numeric columns) +
+// the row count, with the scan's `rows_read` surfaced as the cost. Read-only (no mutation). Super-admin
+// + flag-dark. Columns come from the SERVER-fetched DDL (never client input) + are quoted defensively.
+d1Manager.post('/api/admin/d1/:databaseId/profile-table', async (c) => {
+  const block = await gate(c);
+  if (block) return block;
+
+  const parse = D1DatabaseIdSchema.safeParse(c.req.param('databaseId'));
+  if (!parse.success) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Unknown database' } }, 404);
+  }
+  const id = parse.data;
+
+  let table: string;
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as { table?: unknown };
+    table = D1TableNameSchema.parse(body.table);
+  } catch {
+    return c.json({ ok: false, error: 'A valid table name is required.' }, 400);
+  }
+
+  const t0 = Date.now();
+  // Server-fetch the table's REAL DDL (bound `?1`). The column list is parsed from HERE — the client
+  // never supplies column identifiers (the prompt's "validate identifiers against the inspected schema").
+  const ddlRes = await cfD1Query(
+    c,
+    id,
+    "SELECT sql FROM sqlite_master WHERE name = ?1 AND type = 'table' LIMIT 1",
+    [table],
+  );
+  if (!ddlRes.ok) {
+    logD1(c, { route: 'd1/profile', outcome: 'unavailable', status: ddlRes.status, reason: ddlRes.reason });
+    return c.json({ ok: false, error: 'The database is temporarily unavailable.' }, 503);
+  }
+  const ddl = typeof ddlRes.rows[0]?.sql === 'string' ? (ddlRes.rows[0].sql as string) : '';
+  if (!ddl) {
+    logD1(c, { route: 'd1/profile', outcome: 'miss' });
+    return c.json({ ok: false, error: 'No such table in this database (views cannot be profiled).' }, 404);
+  }
+
+  const columns = parseProfileColumns(ddl);
+  const { sql, used } = buildProfileQuery(table, columns);
+  // Run the ONE-scan aggregate directly so we can read `meta.rows_read` (the scan cost) from CF.
+  const post = await cfD1Post(c, `/${id}/query`, { sql });
+  if (!post.ok) {
+    logD1(c, { route: 'd1/profile', outcome: 'query_failed', latency_ms: Date.now() - t0 });
+    return c.json({ ok: false, error: 'The profiling query failed.' }, 502);
+  }
+  const arr = Array.isArray(post.result)
+    ? (post.result as Array<{ results?: unknown; meta?: { rows_read?: number } }>)
+    : [];
+  const first = arr[0];
+  const row =
+    first && Array.isArray(first.results)
+      ? (first.results[0] as Record<string, unknown> | undefined)
+      : undefined;
+  const rowsRead = typeof first?.meta?.rows_read === 'number' ? first.meta.rows_read : null;
+  const profile = parseProfileResult(row, used, rowsRead, columns.length > used.length);
+
+  logD1(c, {
+    route: 'd1/profile',
+    outcome: 'ok',
+    table,
+    columns: used.length,
+    rows_read: rowsRead,
+    latency_ms: Date.now() - t0,
+  });
+  return c.json({ ok: true, ...profile });
 });
 
 /**

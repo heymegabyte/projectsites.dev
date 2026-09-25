@@ -89,7 +89,8 @@ interface PsMessage {
     | 'overview'
     | 'tables'
     | 'export'
-    | 'explain';
+    | 'explain'
+    | 'profile';
   /** PS_R2_REQUEST: the R2 bucket binding name (required for the objects + object ops). */
   readonly bucket?: string;
   /** PS_VEC_REQUEST: the Vectorize index name (required for the `index` describe op). */
@@ -707,6 +708,18 @@ export class BoltEmbedService {
               .post<
                 Record<string, unknown>
               >(`/admin/d1/${encodeURIComponent(msg.databaseId)}/explain-table`, { table: msg.table }, { silent: true })
+              .subscribe({ next: onOk, error: onErr });
+          } else if (op === 'profile') {
+            // "Profile table" — one bounded single-scan aggregate → per-column stats + scan cost.
+            // Read-only; columns come from the server-fetched DDL. Super-admin + flag-dark server-side.
+            if (!msg.databaseId || !msg.table) {
+              reply({ ok: false, error: 'A database and table are required' });
+              break;
+            }
+            this.api
+              .post<
+                Record<string, unknown>
+              >(`/admin/d1/${encodeURIComponent(msg.databaseId)}/profile-table`, { table: msg.table }, { silent: true })
               .subscribe({ next: onOk, error: onErr });
           } else {
             reply({ ok: false, error: 'Unknown D1 op' });

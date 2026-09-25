@@ -533,12 +533,12 @@ export interface D1DatabaseSummary {
 export interface D1RequestMessage {
   type: 'PS_D1_REQUEST';
   correlationId: string;
-  op: 'databases' | 'overview' | 'tables' | 'export' | 'explain';
+  op: 'databases' | 'overview' | 'tables' | 'export' | 'explain' | 'profile';
 
-  /** Required for the `overview` / `tables` / `export` / `explain` ops — the D1 database UUID. */
+  /** Required for the `overview` / `tables` / `export` / `explain` / `profile` ops — the D1 database UUID. */
   databaseId?: string;
 
-  /** `explain` op: the single table/view to summarise (the server re-fetches its DDL by this name). */
+  /** `explain` + `profile` ops: the single table the server re-fetches its DDL by (name only). */
   table?: string;
 
   /** `export` op: scope the SQL dump to specific tables (fewer ⇒ shorter DB-unavailability). */
@@ -650,12 +650,36 @@ export interface D1ExplainData {
   model: string;
 }
 
+/** One column's profile stats (from the single-scan aggregate). `avg` is null for non-numeric columns. */
+export interface D1ColumnProfile {
+  name: string;
+  type: string;
+  nonNull: number;
+  nullCount: number;
+  distinct: number;
+  min: string | null;
+  max: string | null;
+  avg: number | null;
+}
+
+/** Parent → Child (`profile` op): row count + per-column stats + the scan cost (`rowsRead`). */
+export interface D1ProfileData {
+  rowCount: number;
+  columns: D1ColumnProfile[];
+
+  /** Rows the profiling scan READ (D1-billed cost), or null when the runtime omits it. */
+  rowsRead: number | null;
+
+  /** True when the table has more columns than were profiled (the rest are omitted). */
+  capped: boolean;
+}
+
 /** Parent → Child (D1 Overview): the admin's reply to {@link D1RequestMessage}. */
 export interface D1ResponseMessage {
   type: 'PS_D1_RESPONSE';
   correlationId: string;
   ok: boolean;
-  data?: D1DatabasesData | D1OverviewData | D1TablesData | D1ExportData | D1ExplainData;
+  data?: D1DatabasesData | D1OverviewData | D1TablesData | D1ExportData | D1ExplainData | D1ProfileData;
   error?: string;
 }
 
