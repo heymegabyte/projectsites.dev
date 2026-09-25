@@ -496,8 +496,35 @@ latency percentiles — no entitlement) or need new plumbing/deps (see Next).
 
 ## Next increment (handoff)
 
+**Day-of-week "Busiest days" breakdown — SHIPPED (2026-09-25, latest).** A parallel-agent section
+scan (per the loop mandate) confirmed the drilldown UI was already shipped (line 473) and surfaced the
+one genuine metric the "feature-complete" claim missed: we bucketed by **hour-of-day** (`byHour`) but
+NOT **day-of-week**. Shipped end-to-end: `getWeekdayBreakdown` (`visitor_events_core/service.ts`) buckets
+pageviews `strftime('%w')` 0=Sun…6=Sat **in the OWNER's local tz IN SQL** — a weekday histogram CANNOT be
+rotated client-side like hour-of-day (a late-night visit crosses into a different local weekday), so the
+tz shift (`datetime(created_at,'±<offset> minutes')`, offset validated ±14h → trusted literal) is done
+server-side; a 0/invalid/absent offset → UTC weekday + **`tzApplied:false`** so the card says "UTC" not
+"your local time" (never implies a precision we didn't compute). New route `GET
+/api/sites/:siteId/analytics/weekday?days=&tz=&filterDim=&filterValue=` (owner-gated, drilldown-aware) +
+self-fetching `app-weekday-breakdown` card (7 owner-local bars, busiest-day headline, honest
+loading/error/empty, `[activeFilter]`) registered after the hourly card. **Tenant isolation:**
+`requireOwnedSite` (non-owned → 404 even WITH a valid filter) + the Zod-enum filter allowlist (400 on
+injected dim, bound `?` value) — verified by `weekday_route.test.ts`. 7 aggregator + 4 route + 13
+card/densify tests; worker 12611 Jest, frontend 2315 Karma, both tsc clean. Deployed: worker `f61530da`
+(route prod-verified 401-gated), frontend `chunk-YADQC6AY.js` (live at root, `an-weekday` marker). **NEXT:
+referrer-DOMAIN breakdown (top referring sites, distinct from the coarse channel aggregate — `referrer`
+is captured but only grouped by type) OR filtered daily-series; else reallocate to generated-site quality.**
+
+**⚠️ PRE-EXISTING DRIFT (not this increment) — `feature_flags_docs.test.ts` RED on origin/main:** the
+registry↔docs completeness test reports **3 registry flags without a `docs.ts` entry** (a concurrent
+session added flags to the registry without their required 240–1200-char prose + `e2e_tests` +
+`smoke_steps`). I did NOT touch `feature_flags` (empty diff vs origin/main) and did NOT fix it blind —
+authoring stub docs would violate the feature-flags rule (docs must be real, not padding) and risks
+colliding with that in-flight session. The owning session should complete the 3 docs entries. Worker
+`wrangler deploy` is not jest-gated, so my analytics increment lands independently.
+
 **"IMPLEMENT ALL PENDING ITEMS" pass — SHIPPED per-cache-state BYTES + cleared the backlog (2026-09-25,
-latest).** On a "scan all pending items and implement them all" directive: implemented the one clean,
+earlier).** On a "scan all pending items and implement them all" directive: implemented the one clean,
 valuable, has-data item — **per-cache-state edge bytes** (`cache.hit_bytes/miss_bytes/uncacheable_bytes`;
 the cache query already fetched them, were folded to a scalar) → the delivery card shows "N MB served on
 cache misses — cacheable to save bandwidth". Worker `6ca7fad9`, chunk in R2; prod-verified real data
