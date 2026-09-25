@@ -35,8 +35,12 @@ export const EditorLoadingVisual = memo(({ leaving = false, onTransitionEnd }: E
       onTransitionEnd={onTransitionEnd}
     >
       <div className="ps-editor-loader__stage" aria-hidden="true">
+        <span className="ps-editor-loader__pulse" />
+        <span className="ps-editor-loader__pulse ps-editor-loader__pulse--2" />
         <span className="ps-editor-loader__ring" />
+        <span className="ps-editor-loader__ring ps-editor-loader__ring--inner" />
         <span className="ps-editor-loader__orb" />
+        <span className="ps-editor-loader__particle" />
       </div>
       <div className="ps-editor-loader__shimmer" aria-hidden="true">
         <span />
