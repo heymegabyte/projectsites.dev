@@ -15,6 +15,8 @@ import {
   isRowActivationKey,
   isDismissKey,
   addToSqlHistory,
+  addSavedQuery,
+  removeSavedQuery,
   parseCsv,
   csvToInserts,
   CsvImportError,
@@ -462,5 +464,40 @@ describe('isExpensiveScan', () => {
   it('never flags an UNREPORTED value (null/undefined) — no fabricated warning', () => {
     expect(isExpensiveScan(null)).toBe(false);
     expect(isExpensiveScan(undefined)).toBe(false);
+  });
+});
+
+describe('addSavedQuery / removeSavedQuery', () => {
+  it('saves a named query at the top of the list', () => {
+    expect(addSavedQuery([], 'actives', 'SELECT 1')).toEqual([{ name: 'actives', query: 'SELECT 1' }]);
+  });
+  it('overwrites by name (dedup) and moves the entry to the top', () => {
+    const start = [
+      { name: 'a', query: 'X' },
+      { name: 'b', query: 'Y' },
+    ];
+    expect(addSavedQuery(start, 'b', 'Z')).toEqual([
+      { name: 'b', query: 'Z' }, // updated query, jumped to top
+      { name: 'a', query: 'X' },
+    ]);
+  });
+  it('trims the name + query and no-ops on a blank name or blank query', () => {
+    expect(addSavedQuery([], '  spaced  ', '  SELECT 2  ')).toEqual([{ name: 'spaced', query: 'SELECT 2' }]);
+    expect(addSavedQuery([{ name: 'a', query: 'X' }], '   ', 'Y')).toEqual([{ name: 'a', query: 'X' }]);
+    expect(addSavedQuery([{ name: 'a', query: 'X' }], 'b', '   ')).toEqual([{ name: 'a', query: 'X' }]);
+  });
+  it('caps the retained entries (newest kept)', () => {
+    let list = addSavedQuery([], 'q0', 'v0', 2);
+    list = addSavedQuery(list, 'q1', 'v1', 2);
+    list = addSavedQuery(list, 'q2', 'v2', 2);
+    expect(list.map((s) => s.name)).toEqual(['q2', 'q1']); // q0 dropped past the cap of 2
+  });
+  it('removes a saved query by exact name; a missing name is a no-op', () => {
+    const start = [
+      { name: 'a', query: 'X' },
+      { name: 'b', query: 'Y' },
+    ];
+    expect(removeSavedQuery(start, 'a')).toEqual([{ name: 'b', query: 'Y' }]);
+    expect(removeSavedQuery(start, 'zzz')).toEqual(start);
   });
 });
