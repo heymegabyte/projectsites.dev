@@ -14,7 +14,7 @@
   referrer, path)`) into the event `metadata` JSON, with bot-UA filtering (`BOT_UA_RE`). So the
   device / geo / channel / referrer breakdowns are **real**, not empty-pending-beacon.
 - **Client beacon (`POST /api/events`)** mirrors `conversion` / `form_start` / `form_submit` /
-  `web_vital` / `js_error` / **`page_engagement`** / **`scroll_depth`** / **`network_quality`** into
+  `web_vital` / `js_error` / **`page_engagement`** / **`scroll_depth`** / **`network_quality`** / **`nav_timing`** into
   `visitor_events` (`routes/analytics.ts`) — pageviews are intentionally NOT re-mirrored (server
   records them) to avoid double-count.
 - **Time-on-page / engagement (✅ DONE end-to-end 2026-09-25):** `app.js` `initEngagement()`
@@ -133,10 +133,22 @@ gated.
   + `getNetworkQualitySummary`'s bound `site_id`. +11 tests (6 beacon-contract + 5 aggregate:
   distribution+medians+save-data / drop-unknown-class+non-finite / empty / fail-soft / tenant + 4 card).
   Verified: worker tsc+jest (46/46 custom_window), app tsc, card Karma 4/4.
-  **REMAINING advanced first-party (app.js lane, ranked):** (1) **Navigation Timing phases** — DNS /
-  TCP-connect / DOM-processing / load-event breakdown beyond the shipped TTFB+FCP (extends the
-  `web_vital` shape). Worker-dependent propagation still open: visitor-funnel scroll 5th stage +
-  public-report scroll/dwell/network cards. NOT the filter UI (owned by a concurrent session).
+- **First-party page-load waterfall SHIPPED (2026-09-25):** `app.js` `initNavTiming()` reads the
+  PerformanceNavigationTiming entry after load → `nav_timing` beacon (`{dns, connect, ttfb, transfer,
+  dom, total}`) → mirrored to `visitor_events` (`navPhase` re-guard: finite 0–600s, honest 0 kept) →
+  **`getNavTimingSummary`** (site-wide MEDIAN per phase) folded into BOTH summary paths →
+  **`NavTimingCard`** ("Page load breakdown") on `/admin/analytics` — a median-total headline + per-phase
+  bars scaled to the largest phase. HONESTY: each phase is an INDEPENDENT median (they don't sum to the
+  total — the card SAYS so, never a strict decomposition); a null phase is omitted (never a fake 0); a
+  real 0 (cached DNS / reused connection) is kept; a null total → "measuring…". The edge-latency
+  breakdown CF's plan blocks, measured first-party in every browser. Tenant-scoped by the summary owner
+  gate + `getNavTimingSummary`'s bound `site_id`. +11 tests (6 beacon-contract + 5 aggregate:
+  per-phase-medians / keeps-honest-0 / empty / fail-soft / tenant + 5 card). Verified: worker tsc+jest
+  (51/51 custom_window), app tsc, card Karma 5/5. **This completes the prompt's advanced-first-party
+  list** (Navigation Timing · network quality · scroll · time-on-page · outbound clicks · JS-error — all shipped).
+  **REMAINING (worker-dependent propagation, ranked):** (1) surface scroll-depth + dwell + network +
+  page-load on the **public share report** (`/shared/analytics/:token` — currently thin); (2) a
+  visitor-funnel scroll-depth "Deep engagement" 5th stage. NOT the filter UI (owned by a concurrent session).
 
 ## Coverage matrix
 
