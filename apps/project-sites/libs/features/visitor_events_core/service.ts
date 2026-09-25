@@ -17,6 +17,7 @@ import {
   type TrafficSummary,
   type PathCountSchema,
   type WebVitals,
+  type JsErrorSummary,
   type LabelCount,
   type HourCount,
   type AnalyticsFilter,
@@ -550,6 +551,48 @@ export async function getConversionKinds(
 }
 
 /**
+ * AN-JSERR — first-party JS-error site-health over the window: uncaught errors /
+ * unhandled rejections from the `js_error` beacon (mirrored into `visitor_events`),
+ * grouped by message (worst first, top 8 displayed) + a sample path each. Queried
+ * DIRECTLY (works in BOTH the live + rollup summary paths, like CWV/conversions). Owner
+ * scope rides the `currentWindow` predicate's bound `site_id` — never a client filter.
+ *
+ * @remarks Fail-soft — a missing table / query error yields the empty CLEAN summary
+ * (`{total:0, byMessage:[]}`). `total` sums every grouped message (capped 100 distinct);
+ * `byMessage` is the top 8 for display. An empty result = a clean site, NEVER "not
+ * measured" (the beacon runs on every page).
+ */
+export async function getJsErrorSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<JsErrorSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ message: string | null; n: number; sample_path: string | null }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.message') AS message,
+            COUNT(*) AS n,
+            MAX(path) AS sample_path
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'js_error'
+      GROUP BY message ORDER BY n DESC LIMIT 100`,
+    params,
+  );
+  if (error) return { total: 0, byMessage: [] };
+  const groups = data
+    .filter((r) => typeof r.message === 'string' && r.message)
+    .map((r) => ({
+      message: r.message as string,
+      count: Number(r.n),
+      samplePath: typeof r.sample_path === 'string' && r.sample_path ? r.sample_path : undefined,
+    }));
+  const total = groups.reduce((s, g) => s + g.count, 0);
+  return { total, byMessage: groups.slice(0, 8) };
+}
+
+/**
  * Conversions by kind over the equal-length window immediately BEFORE the current one —
  * the prior-period baseline for the per-kind delta badges. Same SQL as
  * {@link getConversionKinds}, scoped to the {@link previousWindow} predicate.
@@ -721,6 +764,7 @@ export async function getTrafficSummary(
     byUtmSource,
     byUtmCampaign,
     byHour,
+    jsErrors,
   ] = await Promise.all([
     scalar(
       env,
@@ -802,6 +846,8 @@ export async function getTrafficSummary(
     getCampaignBreakdown(env, siteId, 'utmCampaign', windowDays, window, filter),
     // AN-HOUR — pageviews by hour-of-day (UTC; frontend rotates to local).
     getHourlyBreakdown(env, siteId, windowDays, window, filter),
+    // AN-JSERR — first-party JS-error site-health (queried directly; not in the rollup).
+    getJsErrorSummary(env, siteId, windowDays, window, filter),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -839,6 +885,7 @@ export async function getTrafficSummary(
     byChannel,
     byCountry,
     webVitals,
+    jsErrors,
     byConversionKind,
     previous: {
       pageviews: prevPageviews,
@@ -931,6 +978,7 @@ export async function getTrafficSummaryFromRollup(
     byUtmSource,
     byUtmCampaign,
     byHour,
+    jsErrors,
   ] = await Promise.all([
     sumScalars(curStart, null),
     sumScalars(prevStart, prevEnd),
@@ -949,6 +997,8 @@ export async function getTrafficSummaryFromRollup(
     getCampaignBreakdown(env, siteId, 'utmCampaign', windowDays),
     // AN-HOUR — pageviews by hour-of-day (UTC; not in the rollup → read live).
     getHourlyBreakdown(env, siteId, windowDays),
+    // AN-JSERR — first-party JS-error site-health (queried live; not in the rollup).
+    getJsErrorSummary(env, siteId, windowDays),
   ]);
 
   return TrafficSummarySchema.parse({
@@ -973,6 +1023,7 @@ export async function getTrafficSummaryFromRollup(
     byChannel: channelRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     byCountry: countryRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     webVitals,
+    jsErrors,
     byConversionKind,
     previous: {
       pageviews: prev.pageviews,

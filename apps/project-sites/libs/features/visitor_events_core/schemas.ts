@@ -178,6 +178,32 @@ export const WebVitalsSchema = z
   .default({ lcp: null, inp: null, cls: null, fcp: null, ttfb: null, slowestPages: [] });
 export type WebVitals = z.infer<typeof WebVitalsSchema>;
 
+/** One grouped JS error: the message, how many times it fired, and a sample path it hit. */
+export const JsErrorGroupSchema = z
+  .object({
+    message: z.string(),
+    count: z.number().int().min(1),
+    samplePath: z.string().optional(),
+  })
+  .strict();
+export type JsErrorGroup = z.infer<typeof JsErrorGroupSchema>;
+
+/**
+ * AN-JSERR — first-party site-health: uncaught JS errors / unhandled rejections on the
+ * published site over the window (from the `js_error` beacon → `visitor_events`), grouped
+ * by message. `total` is the raw count; `byMessage` the top groups (worst first). An empty
+ * summary (`total:0`, `byMessage:[]`) means a CLEAN site — never "not measured" (the beacon
+ * runs on every page), so the card shows "running clean", never a fabricated/omitted metric.
+ */
+export const JsErrorSummarySchema = z
+  .object({
+    total: z.number().int().min(0),
+    byMessage: z.array(JsErrorGroupSchema).default([]),
+  })
+  .strict()
+  .default({ total: 0, byMessage: [] });
+export type JsErrorSummary = z.infer<typeof JsErrorSummarySchema>;
+
 /** Aggregated traffic summary for one site over a window. */
 export const TrafficSummarySchema = z
   .object({
@@ -219,6 +245,9 @@ export const TrafficSummarySchema = z
     // beacon rows. Defaults to all-null (no samples) for back-compat with older
     // producers/fixtures that predate CWV.
     webVitals: WebVitalsSchema,
+    // AN-JSERR — first-party JS-error site-health (grouped by message). Defaults to an
+    // empty clean summary for back-compat with producers/fixtures that predate it.
+    jsErrors: JsErrorSummarySchema,
     // AN15 — the immediately-preceding equal-length window's KPIs, for
     // period-over-period deltas. Defaults to zeros for back-compat.
     previous: z
