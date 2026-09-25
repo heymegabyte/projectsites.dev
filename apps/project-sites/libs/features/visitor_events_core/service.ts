@@ -415,7 +415,14 @@ export async function getWebVitalsSummary(
       LIMIT 50000`,
     win.params,
   );
-  const empty: WebVitals = { lcp: null, inp: null, cls: null, fcp: null, ttfb: null, slowestPages: [] };
+  const empty: WebVitals = {
+    lcp: null,
+    inp: null,
+    cls: null,
+    fcp: null,
+    ttfb: null,
+    slowestPages: [],
+  };
   if (error) return empty;
 
   const buckets: Record<(typeof CWV_METRICS)[number], number[]> = { LCP: [], INP: [], CLS: [] };
@@ -686,7 +693,11 @@ export async function getJsErrorSummary(
   filter?: AnalyticsFilter,
 ): Promise<JsErrorSummary> {
   const { clause, params } = currentWindow(siteId, windowDays, window, filter);
-  const { data, error } = await dbQuery<{ message: string | null; n: number; sample_path: string | null }>(
+  const { data, error } = await dbQuery<{
+    message: string | null;
+    n: number;
+    sample_path: string | null;
+  }>(
     env.DB,
     `SELECT json_extract(metadata, '$.message') AS message,
             COUNT(*) AS n,
@@ -736,7 +747,13 @@ export async function getEngagementSummary(
       LIMIT 50000`,
     params,
   );
-  if (error) return { medianMs: null, samples: 0, byPage: [], distribution: { s10: 0, s30: 0, s60: 0, s180: 0 } };
+  if (error)
+    return {
+      medianMs: null,
+      samples: 0,
+      byPage: [],
+      distribution: { s10: 0, s30: 0, s60: 0, s180: 0 },
+    };
   const all: number[] = [];
   const byPath = new Map<string, number[]>();
   for (const r of data) {
@@ -749,10 +766,20 @@ export async function getEngagementSummary(
       else byPath.set(r.path, [d]);
     }
   }
-  if (all.length === 0) return { medianMs: null, samples: 0, byPage: [], distribution: { s10: 0, s30: 0, s60: 0, s180: 0 } };
+  if (all.length === 0)
+    return {
+      medianMs: null,
+      samples: 0,
+      byPage: [],
+      distribution: { s10: 0, s30: 0, s60: 0, s180: 0 },
+    };
   const byPage = [...byPath.entries()]
     .filter(([, vals]) => vals.length >= MIN_PATH_SAMPLES)
-    .map(([path, vals]) => ({ path, medianMs: Math.round(percentile(vals, 50)), samples: vals.length }))
+    .map(([path, vals]) => ({
+      path,
+      medianMs: Math.round(percentile(vals, 50)),
+      samples: vals.length,
+    }))
     .sort((a, b) => b.medianMs - a.medianMs)
     .slice(0, 8);
   // AN-ENGAGE-DIST — dwell thresholds in ms; monotonic by construction (a visit past 60s is
@@ -853,7 +880,12 @@ export async function getEntryPagesSummary(
 
 /** Empty scroll-depth summary — honest "measuring…" (null median), never a fabricated 0. */
 function emptyScrollDepth(): ScrollDepthSummary {
-  return { samples: 0, medianPercent: null, reach: { p25: 0, p50: 0, p75: 0, p100: 0 }, byPage: [] };
+  return {
+    samples: 0,
+    medianPercent: null,
+    reach: { p25: 0, p50: 0, p75: 0, p100: 0 },
+    byPage: [],
+  };
 }
 
 /**
@@ -979,7 +1011,10 @@ export async function getNetworkQualitySummary(
   let samples = 0;
   for (const r of data) {
     samples++;
-    if (typeof r.etype === 'string' && (NETWORK_CLASS_ORDER as readonly string[]).includes(r.etype)) {
+    if (
+      typeof r.etype === 'string' &&
+      (NETWORK_CLASS_ORDER as readonly string[]).includes(r.etype)
+    ) {
       byType.set(r.etype, (byType.get(r.etype) ?? 0) + 1);
     }
     const d = Number(r.downlink);
@@ -1036,7 +1071,16 @@ export async function getNetworkQualitySummary(
 
 /** Empty page-load summary — honest "measuring…" (null medians), never a fabricated 0. */
 function emptyNavTiming(): NavTimingSummary {
-  return { samples: 0, dns: null, connect: null, ttfb: null, transfer: null, dom: null, total: null, byPage: [] };
+  return {
+    samples: 0,
+    dns: null,
+    connect: null,
+    ttfb: null,
+    transfer: null,
+    dom: null,
+    total: null,
+    byPage: [],
+  };
 }
 
 /** The nav-timing phases, in the load order they render as a waterfall. */
@@ -1076,7 +1120,14 @@ export async function getNavTimingSummary(
     params,
   );
   if (error) return emptyNavTiming();
-  const cols: Record<string, number[]> = { dns: [], connect: [], ttfb: [], transfer: [], dom: [], total: [] };
+  const cols: Record<string, number[]> = {
+    dns: [],
+    connect: [],
+    ttfb: [],
+    transfer: [],
+    dom: [],
+    total: [],
+  };
   // Per-page samples for the slowest-pages drilldown: path → total-load ms + TTFB ms.
   const pageTotal = new Map<string, number[]>();
   const pageTtfb = new Map<string, number[]>();
@@ -1105,7 +1156,8 @@ export async function getNavTimingSummary(
     }
   }
   if (samples === 0) return emptyNavTiming();
-  const med = (arr: number[]): number | null => (arr.length ? Math.round(percentile(arr, 50)) : null);
+  const med = (arr: number[]): number | null =>
+    arr.length ? Math.round(percentile(arr, 50)) : null;
   // Slowest pages by median total load (past the shared per-path sample floor), each carrying
   // its median TTFB (server wait) — worst-first, top 8. Mirrors the CWV slowest-pages drilldown.
   const byPage = [...pageTotal.entries()]
@@ -1300,6 +1352,7 @@ export async function getTrafficSummary(
     byBrowser,
     byOs,
     byUtmSource,
+    byUtmMedium,
     byUtmCampaign,
     byHour,
     jsErrors,
@@ -1385,8 +1438,9 @@ export async function getTrafficSummary(
     // AN-TECH — browser + OS split (same AN1 user-agent enrichment as $.device).
     getDimensionBreakdown(env, siteId, 'browser', windowDays, window, filter),
     getDimensionBreakdown(env, siteId, 'os', windowDays, window, filter),
-    // AN-UTM — campaign attribution (source + campaign; tagged visits only, untagged excluded).
+    // AN-UTM — campaign attribution (source + medium + campaign; tagged visits only, untagged excluded).
     getCampaignBreakdown(env, siteId, 'utmSource', windowDays, window, filter),
+    getCampaignBreakdown(env, siteId, 'utmMedium', windowDays, window, filter),
     getCampaignBreakdown(env, siteId, 'utmCampaign', windowDays, window, filter),
     // AN-HOUR — pageviews by hour-of-day (UTC; frontend rotates to local).
     getHourlyBreakdown(env, siteId, windowDays, window, filter),
@@ -1436,6 +1490,7 @@ export async function getTrafficSummary(
     byBrowser,
     byOs,
     byUtmSource,
+    byUtmMedium,
     byUtmCampaign,
     byHour,
     byChannel,
@@ -1538,6 +1593,7 @@ export async function getTrafficSummaryFromRollup(
     byBrowser,
     byOs,
     byUtmSource,
+    byUtmMedium,
     byUtmCampaign,
     byHour,
     jsErrors,
@@ -1562,6 +1618,7 @@ export async function getTrafficSummaryFromRollup(
     getDimensionBreakdown(env, siteId, 'browser', windowDays),
     getDimensionBreakdown(env, siteId, 'os', windowDays),
     getCampaignBreakdown(env, siteId, 'utmSource', windowDays),
+    getCampaignBreakdown(env, siteId, 'utmMedium', windowDays),
     getCampaignBreakdown(env, siteId, 'utmCampaign', windowDays),
     // AN-HOUR — pageviews by hour-of-day (UTC; not in the rollup → read live).
     getHourlyBreakdown(env, siteId, windowDays),
@@ -1598,6 +1655,7 @@ export async function getTrafficSummaryFromRollup(
     byBrowser,
     byOs,
     byUtmSource,
+    byUtmMedium,
     byUtmCampaign,
     byHour,
     byChannel: channelRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),

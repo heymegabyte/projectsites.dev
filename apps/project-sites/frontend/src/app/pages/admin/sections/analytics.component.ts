@@ -1,4 +1,12 @@
-import { Component, inject, signal, computed, effect, type OnInit, type OnDestroy } from '@angular/core';
+import {
+  Component,
+  inject,
+  signal,
+  computed,
+  effect,
+  type OnInit,
+  type OnDestroy,
+} from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { timeout, catchError } from 'rxjs/operators';
@@ -70,14 +78,20 @@ function formatCount(n: number | null | undefined): string {
   if (n == null || isNaN(n)) return '0';
   if (n < 1000) return n.toLocaleString();
   if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0).replace(/\.0$/, '')}K`;
-  if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0).replace(/\.0$/, '')}M`;
+  if (n < 1_000_000_000)
+    return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0).replace(/\.0$/, '')}M`;
   return `${(n / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`;
 }
 
 /**
  * Build a 0..maxX × 0..maxY normalized SVG path from an array of numeric samples.
  */
-function sparklinePath(values: number[], width: number, height: number, peak?: number): { line: string; area: string } {
+function sparklinePath(
+  values: number[],
+  width: number,
+  height: number,
+  peak?: number,
+): { line: string; area: string } {
   // Coerce non-finite samples to 0 so a single point, an all-equal series, or a
   // missing field can never produce a `NaN` SVG path coordinate (console error).
   const vals = values.map((v) => (Number.isFinite(v) ? v : 0));
@@ -85,7 +99,9 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
   const max = Math.max(1, peak ?? Math.max(...vals));
   const step = vals.length > 1 ? width / (vals.length - 1) : 0;
   const pts = vals.map((v, i) => ({ x: i * step, y: height - (v / max) * (height - 2) - 1 }));
-  const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+  const line = pts
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+    .join(' ');
   const last = pts[pts.length - 1]!;
   const first = pts[0]!;
   const area = `${line} L ${last.x.toFixed(1)} ${height} L ${first.x.toFixed(1)} ${height} Z`;
@@ -95,10 +111,37 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, CloudflareRumCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, NetworkQualityCardComponent, NavTimingCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, OutboundLinksCardComponent, FormFunnelCardComponent, TechBreakdownComponent, VisitorTypeCardComponent, EntryPagesCardComponent, ChannelBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [
+    WebVitalsCardComponent,
+    CloudflareRumCardComponent,
+    ScriptErrorsCardComponent,
+    EngagementCardComponent,
+    ScrollDepthCardComponent,
+    NetworkQualityCardComponent,
+    NavTimingCardComponent,
+    HourlyBreakdownComponent,
+    ConversionsCardComponent,
+    OutboundLinksCardComponent,
+    FormFunnelCardComponent,
+    TechBreakdownComponent,
+    VisitorTypeCardComponent,
+    EntryPagesCardComponent,
+    ChannelBreakdownComponent,
+    CampaignBreakdownComponent,
+    DeliveryCardComponent,
+    AnalyticsGlossaryComponent,
+    InsightsStripComponent,
+    RevealDirective,
+    DatePipe,
+    DecimalPipe,
+    RollingCounterComponent,
+    MiniEmptyComponent,
+    EmptyStateComponent,
+    HlmTablistDirective,
+    ErrorCardComponent,
+  ],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
-
       <!-- ─────────────────── HEADER ─────────────────── -->
       <header class="flex items-start justify-between gap-3 flex-wrap">
         <div>
@@ -106,7 +149,19 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
             <div class="kicker">{{ liveKicker() }}</div>
           }
           <h2 class="section-h text-lg font-bold text-white m-0 mt-1 flex items-center gap-2">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" class="text-accent"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+              class="text-accent"
+            >
+              <path d="M3 3v18h18" />
+              <path d="M7 14l4-4 4 4 5-5" />
+            </svg>
             Analytics
             <span class="status-pill" [attr.data-health]="dataHealth()" [title]="dataTooltip()">
               <span class="status-dot" aria-hidden="true"></span>
@@ -115,21 +170,43 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
           </h2>
           <p class="text-[0.78rem] text-text-secondary m-0 mt-1 max-w-prose leading-relaxed">
             Traffic for
-            <a class="host-link"
-               [href]="liveUrl()"
-               target="_blank"
-               rel="noopener noreferrer"
-               [attr.aria-label]="'Open ' + selectedHost() + ' in a new tab'"
-               [title]="'Open ' + selectedHost() + ' in a new tab'">
+            <a
+              class="host-link"
+              [href]="liveUrl()"
+              target="_blank"
+              rel="noopener noreferrer"
+              [attr.aria-label]="'Open ' + selectedHost() + ' in a new tab'"
+              [title]="'Open ' + selectedHost() + ' in a new tab'"
+            >
               <strong class="text-white">{{ selectedHost() }}</strong>
-              <svg class="ext-glyph" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M7 17 17 7"/><path d="M8 7h9v9"/>
+              <svg
+                class="ext-glyph"
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M7 17 17 7" />
+                <path d="M8 7h9v9" />
               </svg>
             </a>
             @if (!notAvailable() && !autoRefreshPaused()) {
               — refreshes every {{ refreshIntervalSec }}s.
             }
-            <span class="countdown" aria-live="polite" [title]="refreshedAt() ? 'Last refreshed ' + (refreshedAt() | date:'medium') : 'Not yet loaded'">
+            <span
+              class="countdown"
+              aria-live="polite"
+              [title]="
+                refreshedAt()
+                  ? 'Last refreshed ' + (refreshedAt() | date: 'medium')
+                  : 'Not yet loaded'
+              "
+            >
               @if (loading()) {
                 <span class="dots" aria-hidden="true"><span></span><span></span><span></span></span>
                 <span>Refreshing now</span>
@@ -152,13 +229,30 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
           </p>
         </div>
         <div class="flex items-center gap-3 flex-wrap">
-          <button class="btn-ghost refresh-btn"
-                  type="button"
-                  (click)="reload()"
-                  [disabled]="loading()"
-                  aria-label="Refresh analytics"
-                  title="Refresh data now">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" [class.spinning]="loading()"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          <button
+            class="btn-ghost refresh-btn"
+            type="button"
+            (click)="reload()"
+            [disabled]="loading()"
+            aria-label="Refresh analytics"
+            title="Refresh data now"
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+              [class.spinning]="loading()"
+            >
+              <polyline points="23 4 23 10 17 10" />
+              <polyline points="1 20 1 14 7 14" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
             <span>{{ loading() ? 'Refreshing' : 'Refresh' }}</span>
           </button>
           <!-- Range pills + Export act on traffic data; hide them while analytics
@@ -166,95 +260,168 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
           @if (!notAvailable()) {
             <div class="range-chip-strip" role="tablist" hlmTablist aria-label="Date range">
               @for (r of ranges; track r.id) {
-                <button class="range-chip"
-                        type="button"
-                        role="tab"
-                        [class.active]="range() === r.id"
-                        [attr.aria-selected]="range() === r.id"
-                        [attr.aria-label]="'View ' + r.label"
-                        (click)="setRange(r.id)">{{ r.label }}</button>
+                <button
+                  class="range-chip"
+                  type="button"
+                  role="tab"
+                  [class.active]="range() === r.id"
+                  [attr.aria-selected]="range() === r.id"
+                  [attr.aria-label]="'View ' + r.label"
+                  (click)="setRange(r.id)"
+                >
+                  {{ r.label }}
+                </button>
               }
             </div>
             @if (range() === 'custom') {
               <label class="range-custom" data-testid="an-range-custom">
                 Last
-                <input #cd type="number" min="1" max="90" step="1" [value]="customDays()"
-                       (change)="setCustomDays(cd.value)"
-                       aria-label="Custom lookback in days, 1 to 90" />
+                <input
+                  #cd
+                  type="number"
+                  min="1"
+                  max="90"
+                  step="1"
+                  [value]="customDays()"
+                  (change)="setCustomDays(cd.value)"
+                  aria-label="Custom lookback in days, 1 to 90"
+                />
                 days
               </label>
               <span class="range-or" aria-hidden="true">or</span>
               <label class="range-dates" data-testid="an-range-dates">
                 <span class="range-dates-label">Exact dates</span>
-                <input #cs type="date" [value]="customStart()"
-                       (change)="setCustomDate('start', cs.value)"
-                       data-testid="an-range-start"
-                       aria-label="Custom range start date" />
+                <input
+                  #cs
+                  type="date"
+                  [value]="customStart()"
+                  (change)="setCustomDate('start', cs.value)"
+                  data-testid="an-range-start"
+                  aria-label="Custom range start date"
+                />
                 <span aria-hidden="true">→</span>
-                <input #ce type="date" [value]="customEnd()"
-                       (change)="setCustomDate('end', ce.value)"
-                       data-testid="an-range-end"
-                       aria-label="Custom range end date" />
+                <input
+                  #ce
+                  type="date"
+                  [value]="customEnd()"
+                  (change)="setCustomDate('end', ce.value)"
+                  data-testid="an-range-end"
+                  aria-label="Custom range end date"
+                />
               </label>
               @if (customWindow(); as w) {
                 <p class="range-note" data-testid="an-range-note">
-                  Audience metrics show {{ w.start }} → {{ w.end }} (max 90 days). Edge
-                  delivery + security reflect a recent window — Cloudflare can’t query an
-                  arbitrary past range.
+                  Audience metrics show {{ w.start }} → {{ w.end }} (max 90 days). Edge delivery +
+                  security reflect a recent window — Cloudflare can’t query an arbitrary past range.
                 </p>
               }
             }
-            <button class="btn-ghost"
-                    type="button"
-                    (click)="exportCsv()"
-                    [disabled]="!envelope()"
-                    aria-label="Download visible data as CSV"
-                    title="Download visible data as CSV">Export CSV</button>
+            <button
+              class="btn-ghost"
+              type="button"
+              (click)="exportCsv()"
+              [disabled]="!envelope()"
+              aria-label="Download visible data as CSV"
+              title="Download visible data as CSV"
+            >
+              Export CSV
+            </button>
           }
         </div>
       </header>
 
-      
-
       <!-- ─────────────────── AGGREGATING — contributing URLs ─────────────────── -->
       @if (urls().length > 0) {
-        <div class="urls-row" role="group" aria-label="Websites contributing to this analytics forecast">
-          <span class="urls-label"
-                [title]="contributingHosts().length + ' website' + (contributingHosts().length === 1 ? '' : 's') + ' feeding the aggregated analytics'">
+        <div
+          class="urls-row"
+          role="group"
+          aria-label="Websites contributing to this analytics forecast"
+        >
+          <span
+            class="urls-label"
+            [title]="
+              contributingHosts().length +
+              ' website' +
+              (contributingHosts().length === 1 ? '' : 's') +
+              ' feeding the aggregated analytics'
+            "
+          >
             Aggregating
           </span>
           @for (u of urls(); track u.id) {
-            <span class="url-pill"
-                  [class.is-excluded]="excluded().has(u.hostname)"
-                  [class.is-unresolved]="!isResolved(u.hostname)"
-                  [class.is-contributing]="isContributing(u.hostname)"
-                  [title]="urlTooltip(u)">
+            <span
+              class="url-pill"
+              [class.is-excluded]="excluded().has(u.hostname)"
+              [class.is-unresolved]="!isResolved(u.hostname)"
+              [class.is-contributing]="isContributing(u.hostname)"
+              [title]="urlTooltip(u)"
+            >
               @if (u.is_primary) {
                 <span class="primary-dot" aria-hidden="true" title="Primary URL"></span>
               }
               <span class="url-text">{{ u.hostname }}</span>
               <!-- Include/exclude toggle stays for the primary + any URL, so a host
                    can be muted from the aggregate without unbinding it. -->
-              <button class="url-toggle"
-                      type="button"
-                      (click)="toggleExclude(u.hostname)"
-                      [attr.aria-label]="excluded().has(u.hostname) ? 'Include ' + u.hostname + ' in the forecast' : 'Mute ' + u.hostname + ' from the forecast'"
-                      [title]="excluded().has(u.hostname) ? 'Include this URL in the aggregate' : 'Mute this URL from the aggregate (keeps it bound)'">
-                @if (excluded().has(u.hostname)) { + } @else { – }
+              <button
+                class="url-toggle"
+                type="button"
+                (click)="toggleExclude(u.hostname)"
+                [attr.aria-label]="
+                  excluded().has(u.hostname)
+                    ? 'Include ' + u.hostname + ' in the forecast'
+                    : 'Mute ' + u.hostname + ' from the forecast'
+                "
+                [title]="
+                  excluded().has(u.hostname)
+                    ? 'Include this URL in the aggregate'
+                    : 'Mute this URL from the aggregate (keeps it bound)'
+                "
+              >
+                @if (excluded().has(u.hostname)) {
+                  +
+                } @else {
+                  –
+                }
               </button>
               <!-- Remove (unbind) — clickable X per website. Primary can't be removed. -->
               @if (!u.is_primary) {
-                <button class="url-remove"
-                        type="button"
-                        (click)="removeUrl(u)"
-                        [disabled]="removingId() === u.id"
-                        [attr.aria-label]="'Remove ' + u.hostname + ' from forecast'"
-                        [attr.aria-busy]="removingId() === u.id"
-                        [title]="'Remove ' + u.hostname + ' from the forecast (unbinds it)'">
+                <button
+                  class="url-remove"
+                  type="button"
+                  (click)="removeUrl(u)"
+                  [disabled]="removingId() === u.id"
+                  [attr.aria-label]="'Remove ' + u.hostname + ' from forecast'"
+                  [attr.aria-busy]="removingId() === u.id"
+                  [title]="'Remove ' + u.hostname + ' from the forecast (unbinds it)'"
+                >
                   @if (removingId() === u.id) {
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" class="rm-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                    <svg
+                      width="11"
+                      height="11"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.4"
+                      stroke-linecap="round"
+                      aria-hidden="true"
+                      class="rm-spin"
+                    >
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
                   } @else {
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                    <svg
+                      width="11"
+                      height="11"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.6"
+                      stroke-linecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M18 6 6 18" />
+                      <path d="m6 6 12 12" />
+                    </svg>
                   }
                 </button>
               }
@@ -266,7 +433,19 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
              operator sees WHAT is driving the numbers, not just what's bound. -->
         @if (contributingHosts().length > 0) {
           <p class="contributing-note" role="status">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
             <span>Contributing to this data:</span>
             @for (h of contributingHosts(); track h) {
               <span class="contributing-chip">{{ h }}</span>
@@ -287,870 +466,1574 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
              for the org OR the site has no per-site traffic yet. That's an
              honest empty state, NOT an error — a calm "no per-site traffic
              yet" notice, never the old alarming "unavailable". -->
-        <div class="rounded-xl border border-[#00E5FF]/15 bg-[#00E5FF]/[0.04] p-4 text-sm text-text-secondary" role="status" data-testid="analytics-unavailable">
+        <div
+          class="rounded-xl border border-[#00E5FF]/15 bg-[#00E5FF]/[0.04] p-4 text-sm text-text-secondary"
+          role="status"
+          data-testid="analytics-unavailable"
+        >
           <strong class="text-white">No per-site traffic recorded for this site yet.</strong>
-          <span class="block text-[0.74rem] mt-1">Per-site trends appear here once this site gets visitors — use <strong class="text-white">Refresh</strong> to check again.</span>
+          <span class="block text-[0.74rem] mt-1"
+            >Per-site trends appear here once this site gets visitors — use
+            <strong class="text-white">Refresh</strong> to check again.</span
+          >
         </div>
       } @else if (error()) {
-        <app-error-card class="block"
+        <app-error-card
+          class="block"
           data-testid="analytics-error"
           title="Analytics returned an error"
           [message]="error() ?? ''"
           [correlationId]="loadErrorRef()"
-          (retry)="reload()" />
+          (retry)="reload()"
+        />
       }
 
       <!-- Body renders ONLY with a site selected + no load error. On error the
            banner above is the whole truth — never also paint "0 views / no
            traffic yet" (a definitive empty-data claim) over a FAILED load. -->
       @if (state.selectedSite() && !error() && !notAvailable()) {
-      <!-- ─────────────────── AN-FILTER — active drilldown chip ───────────────────
+        <!-- ─────────────────── AN-FILTER — active drilldown chip ───────────────────
            Rendered from the SERVER-echoed appliedFilter (never the click alone), so it
            can't claim a restriction the server didn't honor. A real button; activating it
            clears the filter and reloads the unfiltered view. -->
-      @if (appliedFilter(); as f) {
-        <div class="flex items-center gap-2 flex-wrap rounded-xl border border-[#00E5FF]/20 bg-[#00E5FF]/[0.06] px-3 py-2"
-             role="status" data-testid="an-filter-strip">
-          <span class="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#00E5FF] font-mono">Filtered</span>
-          <button type="button"
-                  class="inline-flex items-center gap-1.5 rounded-full border border-[#00E5FF]/40 bg-[#00E5FF]/10 px-2.5 py-1 text-[0.74rem] font-medium text-white transition hover:bg-[#00E5FF]/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#00E5FF]"
-                  data-testid="an-filter-chip"
-                  (click)="clearFilter()"
-                  [attr.aria-label]="'Clear filter: ' + filterDimLabel(f.dim) + ' is ' + f.value"
-                  title="Clear this filter">
-            <span class="opacity-70">{{ filterDimLabel(f.dim) }}</span>
-            <span aria-hidden="true" class="opacity-50">=</span>
-            <span class="truncate max-w-[16rem]">{{ f.value }}</span>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-          </button>
-          <span class="text-[0.68rem] text-text-secondary min-w-0">Every metric below is restricted to this value — first-party audience only (edge delivery &amp; security aren’t drilled down).</span>
-        </div>
-      }
-      <!-- ─────────────────── HIGHLIGHTS — evidence-backed "so what" ─────────────────── -->
-      <app-insights-strip appReveal [insights]="insights()" (drill)="applyDrill($event)" />
-      <!-- ─────────────────── KPI TILES ─────────────────── -->
-      <div class="grid gap-3 grid-cols-4 max-lg:grid-cols-2 max-md:grid-cols-1">
-        <div class="card kpi" appReveal data-testid="kpi-pageviews" role="group" [attr.aria-label]="kpiPageviewsLabel()">
-          @if (loading() && !envelope()) {
-            <div class="skel skel-line w-20 h-3 mb-2"></div>
-            <div class="skel skel-line w-28 h-7 mb-2"></div>
-            <div class="skel skel-line w-32 h-3"></div>
-          } @else {
-            <div class="muted-h">Page views</div>
-            <div class="kpi-row">
-              <div class="text-3xl font-bold text-white mt-1 leading-none" [title]="(envelope()?.pageviews ?? 0) | number">
-                <app-rolling-counter [value]="envelope()?.pageviews ?? 0" [duration]="1100" />
-              </div>
-              <svg viewBox="0 0 80 24" preserveAspectRatio="none" class="kpi-spark" aria-hidden="true">
-                <path [attr.d]="kpiSparkArea()" fill="url(#kpi-grad)" />
-                <path [attr.d]="kpiSparkLine()" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-                <defs>
-                  <linearGradient id="kpi-grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="currentColor" stop-opacity="0.35"/>
-                    <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
-                  </linearGradient>
-                </defs>
+        @if (appliedFilter(); as f) {
+          <div
+            class="flex items-center gap-2 flex-wrap rounded-xl border border-[#00E5FF]/20 bg-[#00E5FF]/[0.06] px-3 py-2"
+            role="status"
+            data-testid="an-filter-strip"
+          >
+            <span
+              class="text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#00E5FF] font-mono"
+              >Filtered</span
+            >
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded-full border border-[#00E5FF]/40 bg-[#00E5FF]/10 px-2.5 py-1 text-[0.74rem] font-medium text-white transition hover:bg-[#00E5FF]/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#00E5FF]"
+              data-testid="an-filter-chip"
+              (click)="clearFilter()"
+              [attr.aria-label]="'Clear filter: ' + filterDimLabel(f.dim) + ' is ' + f.value"
+              title="Clear this filter"
+            >
+              <span class="opacity-70">{{ filterDimLabel(f.dim) }}</span>
+              <span aria-hidden="true" class="opacity-50">=</span>
+              <span class="truncate max-w-[16rem]">{{ f.value }}</span>
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.6"
+                stroke-linecap="round"
+                aria-hidden="true"
+              >
+                <path d="M18 6 6 18" />
+                <path d="m6 6 12 12" />
               </svg>
-            </div>
-            <div class="text-[0.68rem] text-text-secondary mt-1 flex items-center gap-2 flex-wrap">
-              @if (pvDelta() ?? pvTrend(); as t) {
-                <span class="trend-chip"
-                      data-testid="kpi-pv-trend"
-                      [attr.data-dir]="t.dir"
-                      [attr.aria-label]="t.aria"
-                      [title]="t.title">
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    @if (t.dir === 'up') { <path d="M6 15l6-6 6 6"/> }
-                    @else if (t.dir === 'down') { <path d="M6 9l6 6 6-6"/> }
-                    @else { <path d="M5 12h14"/> }
-                  </svg>
-                  {{ t.label }}
-                </span>
-              }
-              @if (trafficSource() === 'edge' && (envelope()?.total_requests ?? 0) > 0) {
-                <span>of {{ formatCount(envelope()?.total_requests ?? 0) }} requests</span>
-              } @else {
-                <span>In the selected period</span>
-              }
-            </div>
-          }
-        </div>
-
-        <div class="card kpi" appReveal data-testid="kpi-visitors" role="group" [attr.aria-label]="kpiVisitorsLabel()">
-          @if (loading() && !envelope()) {
-            <div class="skel skel-line w-24 h-3 mb-2"></div>
-            <div class="skel skel-line w-24 h-7 mb-2"></div>
-            <div class="skel skel-line w-28 h-3"></div>
-          } @else {
-            <div class="muted-h">Visits</div>
-            <div class="kpi-row">
-              <div class="text-3xl font-bold text-white mt-1 leading-none" [title]="(envelope()?.uniques ?? 0) | number">
-                <app-rolling-counter [value]="envelope()?.uniques ?? 0" [duration]="1100" />
-              </div>
-              <svg viewBox="0 0 80 24" preserveAspectRatio="none" class="kpi-spark kpi-spark--secondary" aria-hidden="true">
-                <path [attr.d]="kpiVisitorSparkArea()" fill="url(#kpi-grad-2)" />
-                <path [attr.d]="kpiVisitorSparkLine()" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-                <defs>
-                  <linearGradient id="kpi-grad-2" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="currentColor" stop-opacity="0.35"/>
-                    <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
-            <div class="text-[0.68rem] text-text-secondary mt-1 flex items-center gap-2 flex-wrap">
-              @if (visitorDelta(); as t) {
-                <span class="trend-chip" data-testid="kpi-visitor-trend"
-                      [attr.data-dir]="t.dir" [attr.aria-label]="t.aria" [title]="t.title">
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    @if (t.dir === 'up') { <path d="M6 15l6-6 6 6"/> }
-                    @else if (t.dir === 'down') { <path d="M6 9l6 6 6-6"/> }
-                    @else { <path d="M5 12h14"/> }
-                  </svg>
-                  {{ t.label }}
-                </span>
-              }
-              <span>Anonymous visitors, counted once per day · {{ urls().length }} URL{{ urls().length === 1 ? '' : 's' }}</span>
-            </div>
-          }
-        </div>
-
-        <div class="card kpi" appReveal data-testid="kpi-requests" role="group" [attr.aria-label]="kpiRequestsLabel()">
-          @if (loading() && !envelope()) {
-            <div class="skel skel-line w-24 h-3 mb-2"></div>
-            <div class="skel skel-line w-24 h-7 mb-2"></div>
-            <div class="skel skel-line w-28 h-3"></div>
-          } @else {
-            <div class="muted-h">Total requests</div>
-            <div class="text-3xl font-bold text-white mt-1 leading-none" [title]="(envelope()?.total_requests ?? 0) | number">
-              <app-rolling-counter [value]="envelope()?.total_requests ?? 0" [duration]="1100" />
-            </div>
-            <div class="text-[0.68rem] text-text-secondary mt-1">{{ trafficSource() === 'beacon' ? 'Page views recorded on your site' : 'All HTTP requests at the edge' }}</div>
-          }
-        </div>
-
-        <div class="card kpi" appReveal data-testid="kpi-bounce" role="group" [attr.aria-label]="kpiBounceLabel()">
-          @if (loading() && !envelope()) {
-            <div class="skel skel-line w-20 h-3 mb-2"></div>
-            <div class="skel skel-line w-16 h-7 mb-2"></div>
-            <div class="skel skel-line w-28 h-3"></div>
-          } @else {
-            <div class="muted-h">Bounce rate</div>
-            <div class="text-3xl font-bold text-white mt-1 leading-none tabular" [title]="bounceRate() == null ? 'No session data at this source' : (bounceIsMeasured() ? 'True single-page-session share from your visitor sessions' : 'Estimated ~' + bounceRate() + '% single-page sessions — approximated from pages/visit (no per-session data at this source)')">
-              {{ bounceRate() == null ? '—' : bounceRate() + '%' }}
-            </div>
-            <div class="text-[0.68rem] text-text-secondary mt-1">
-              @if (bounceRate() == null) {
-                Needs per-session data
-              } @else if (bounceIsMeasured()) {
-                session-based · single-page sessions
-              } @else {
-                Est. single-page visits · {{ pagesPerVisit() }} pages/visit
-              }
-            </div>
-          }
-        </div>
-      </div>
-
-      <!-- ─────────────────── MAIN CHART ─────────────────── -->
-      <section class="card" appReveal>
-        <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
-          <h3 class="section-h m-0 text-base font-semibold text-white">Page views over time</h3>
-          <span class="text-[0.7rem] text-text-secondary">
-            {{ envelope()?.series?.length || 0 }} {{ (envelope()?.series?.length || 0) === 1 ? 'day' : 'days' }} · peak {{ formatCount(peakDayVisits()) }}
-          </span>
-        </div>
-        <!-- On-figure source + as-of label (P4 — figures carry source+timestamp). -->
-        <p class="chart-meta" aria-live="polite">
-          <span class="chart-meta-src">Source: {{ dataLabel() }}</span>
-          <span class="chart-meta-sep" aria-hidden="true">·</span>
-          <span>{{ refreshedAt() ? ('as of ' + (refreshedAt() | date:'shortTime')) : 'not yet loaded' }}</span>
-          <span class="chart-meta-sep" aria-hidden="true">·</span>
-          <span
-            data-testid="an-daily-tz"
-            [title]="dailyTz() === 'UTC'
-              ? 'Daily buckets are aggregated by UTC calendar day.'
-              : 'Daily buckets use your local calendar day (' + dailyTz() + '), from your current UTC offset — approximate across a daylight-saving change.'"
-          >dates in {{ dailyTz() }}</span>
-        </p>
-        @if (loading() && !envelope()) {
-          <div class="skel skel-chart" aria-hidden="true"></div>
-        } @else if ((envelope()?.series?.length ?? 0) === 0 || peakDayVisits() === 0) {
-          <div class="empty-state-pretty" role="status">
-            <div class="empty-glyph" aria-hidden="true">
-              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/>
-              </svg>
-            </div>
-            <h4 class="glow-h-grad text-xl font-semibold m-0">No traffic yet — share your site</h4>
-            <p class="text-[0.86rem] text-text-secondary max-w-[440px] mx-auto m-0 leading-relaxed">
-              Once visitors arrive, page-view trends plot here in real time. Tap the button to copy your live URL and start driving traffic.
-            </p>
-            <div class="flex gap-2 justify-center mt-1 flex-wrap">
-              <button class="btn-primary" type="button" (click)="copyShareLink()" aria-label="Copy share link" title="Copy your live site URL">Copy share link</button>
-            </div>
+            </button>
+            <span class="text-[0.68rem] text-text-secondary min-w-0"
+              >Every metric below is restricted to this value — first-party audience only (edge
+              delivery &amp; security aren’t drilled down).</span
+            >
           </div>
-        } @else {
-          <svg viewBox="0 0 600 130" preserveAspectRatio="none" class="w-full h-32 sparkline" role="img" [attr.aria-label]="'Page views chart — peak ' + peakDayVisits() + ' on the busiest day'">
-            <defs>
-              <linearGradient id="visit-grad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="var(--ps-accent, #00E5FF)" stop-opacity="0.4"/>
-                <stop offset="100%" stop-color="var(--ps-accent, #00E5FF)" stop-opacity="0"/>
-              </linearGradient>
-            </defs>
-            <g class="grid" aria-hidden="true">
-              <line x1="0" y1="32"  x2="600" y2="32"  stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-              <line x1="0" y1="65"  x2="600" y2="65"  stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
-              <line x1="0" y1="98"  x2="600" y2="98"  stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-            </g>
-            <path [attr.d]="sparkArea()" fill="url(#visit-grad)" />
-            <path [attr.d]="sparkLine()" fill="none" stroke="var(--ps-accent, #00E5FF)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-            @for (p of sparkDots(); track p.x) {
-              <circle [attr.cx]="p.x" [attr.cy]="p.y" r="2.2" fill="var(--ps-accent, #00E5FF)"/>
-            }
-          </svg>
         }
-      </section>
+        <!-- ─────────────────── HIGHLIGHTS — evidence-backed "so what" ─────────────────── -->
+        <app-insights-strip appReveal [insights]="insights()" (drill)="applyDrill($event)" />
+        <!-- ─────────────────── KPI TILES ─────────────────── -->
+        <div class="grid gap-3 grid-cols-4 max-lg:grid-cols-2 max-md:grid-cols-1">
+          <div
+            class="card kpi"
+            appReveal
+            data-testid="kpi-pageviews"
+            role="group"
+            [attr.aria-label]="kpiPageviewsLabel()"
+          >
+            @if (loading() && !envelope()) {
+              <div class="skel skel-line w-20 h-3 mb-2"></div>
+              <div class="skel skel-line w-28 h-7 mb-2"></div>
+              <div class="skel skel-line w-32 h-3"></div>
+            } @else {
+              <div class="muted-h">Page views</div>
+              <div class="kpi-row">
+                <div
+                  class="text-3xl font-bold text-white mt-1 leading-none"
+                  [title]="envelope()?.pageviews ?? 0 | number"
+                >
+                  <app-rolling-counter [value]="envelope()?.pageviews ?? 0" [duration]="1100" />
+                </div>
+                <svg
+                  viewBox="0 0 80 24"
+                  preserveAspectRatio="none"
+                  class="kpi-spark"
+                  aria-hidden="true"
+                >
+                  <path [attr.d]="kpiSparkArea()" fill="url(#kpi-grad)" />
+                  <path
+                    [attr.d]="kpiSparkLine()"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <defs>
+                    <linearGradient id="kpi-grad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="currentColor" stop-opacity="0.35" />
+                      <stop offset="100%" stop-color="currentColor" stop-opacity="0" />
+                    </linearGradient>
+                  </defs>
+                </svg>
+              </div>
+              <div
+                class="text-[0.68rem] text-text-secondary mt-1 flex items-center gap-2 flex-wrap"
+              >
+                @if (pvDelta() ?? pvTrend(); as t) {
+                  <span
+                    class="trend-chip"
+                    data-testid="kpi-pv-trend"
+                    [attr.data-dir]="t.dir"
+                    [attr.aria-label]="t.aria"
+                    [title]="t.title"
+                  >
+                    <svg
+                      width="9"
+                      height="9"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      @if (t.dir === 'up') {
+                        <path d="M6 15l6-6 6 6" />
+                      } @else if (t.dir === 'down') {
+                        <path d="M6 9l6 6 6-6" />
+                      } @else {
+                        <path d="M5 12h14" />
+                      }
+                    </svg>
+                    {{ t.label }}
+                  </span>
+                }
+                @if (trafficSource() === 'edge' && (envelope()?.total_requests ?? 0) > 0) {
+                  <span>of {{ formatCount(envelope()?.total_requests ?? 0) }} requests</span>
+                } @else {
+                  <span>In the selected period</span>
+                }
+              </div>
+            }
+          </div>
 
-      <!-- ─────────────────── TOP PAGES + COUNTRIES ─────────────────── -->
-      <div class="grid md:grid-cols-2 gap-4">
+          <div
+            class="card kpi"
+            appReveal
+            data-testid="kpi-visitors"
+            role="group"
+            [attr.aria-label]="kpiVisitorsLabel()"
+          >
+            @if (loading() && !envelope()) {
+              <div class="skel skel-line w-24 h-3 mb-2"></div>
+              <div class="skel skel-line w-24 h-7 mb-2"></div>
+              <div class="skel skel-line w-28 h-3"></div>
+            } @else {
+              <div class="muted-h">Visits</div>
+              <div class="kpi-row">
+                <div
+                  class="text-3xl font-bold text-white mt-1 leading-none"
+                  [title]="envelope()?.uniques ?? 0 | number"
+                >
+                  <app-rolling-counter [value]="envelope()?.uniques ?? 0" [duration]="1100" />
+                </div>
+                <svg
+                  viewBox="0 0 80 24"
+                  preserveAspectRatio="none"
+                  class="kpi-spark kpi-spark--secondary"
+                  aria-hidden="true"
+                >
+                  <path [attr.d]="kpiVisitorSparkArea()" fill="url(#kpi-grad-2)" />
+                  <path
+                    [attr.d]="kpiVisitorSparkLine()"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <defs>
+                    <linearGradient id="kpi-grad-2" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="currentColor" stop-opacity="0.35" />
+                      <stop offset="100%" stop-color="currentColor" stop-opacity="0" />
+                    </linearGradient>
+                  </defs>
+                </svg>
+              </div>
+              <div
+                class="text-[0.68rem] text-text-secondary mt-1 flex items-center gap-2 flex-wrap"
+              >
+                @if (visitorDelta(); as t) {
+                  <span
+                    class="trend-chip"
+                    data-testid="kpi-visitor-trend"
+                    [attr.data-dir]="t.dir"
+                    [attr.aria-label]="t.aria"
+                    [title]="t.title"
+                  >
+                    <svg
+                      width="9"
+                      height="9"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      @if (t.dir === 'up') {
+                        <path d="M6 15l6-6 6 6" />
+                      } @else if (t.dir === 'down') {
+                        <path d="M6 9l6 6 6-6" />
+                      } @else {
+                        <path d="M5 12h14" />
+                      }
+                    </svg>
+                    {{ t.label }}
+                  </span>
+                }
+                <span
+                  >Anonymous visitors, counted once per day · {{ urls().length }} URL{{
+                    urls().length === 1 ? '' : 's'
+                  }}</span
+                >
+              </div>
+            }
+          </div>
+
+          <div
+            class="card kpi"
+            appReveal
+            data-testid="kpi-requests"
+            role="group"
+            [attr.aria-label]="kpiRequestsLabel()"
+          >
+            @if (loading() && !envelope()) {
+              <div class="skel skel-line w-24 h-3 mb-2"></div>
+              <div class="skel skel-line w-24 h-7 mb-2"></div>
+              <div class="skel skel-line w-28 h-3"></div>
+            } @else {
+              <div class="muted-h">Total requests</div>
+              <div
+                class="text-3xl font-bold text-white mt-1 leading-none"
+                [title]="envelope()?.total_requests ?? 0 | number"
+              >
+                <app-rolling-counter [value]="envelope()?.total_requests ?? 0" [duration]="1100" />
+              </div>
+              <div class="text-[0.68rem] text-text-secondary mt-1">
+                {{
+                  trafficSource() === 'beacon'
+                    ? 'Page views recorded on your site'
+                    : 'All HTTP requests at the edge'
+                }}
+              </div>
+            }
+          </div>
+
+          <div
+            class="card kpi"
+            appReveal
+            data-testid="kpi-bounce"
+            role="group"
+            [attr.aria-label]="kpiBounceLabel()"
+          >
+            @if (loading() && !envelope()) {
+              <div class="skel skel-line w-20 h-3 mb-2"></div>
+              <div class="skel skel-line w-16 h-7 mb-2"></div>
+              <div class="skel skel-line w-28 h-3"></div>
+            } @else {
+              <div class="muted-h">Bounce rate</div>
+              <div
+                class="text-3xl font-bold text-white mt-1 leading-none tabular"
+                [title]="
+                  bounceRate() == null
+                    ? 'No session data at this source'
+                    : bounceIsMeasured()
+                      ? 'True single-page-session share from your visitor sessions'
+                      : 'Estimated ~' +
+                        bounceRate() +
+                        '% single-page sessions — approximated from pages/visit (no per-session data at this source)'
+                "
+              >
+                {{ bounceRate() == null ? '—' : bounceRate() + '%' }}
+              </div>
+              <div class="text-[0.68rem] text-text-secondary mt-1">
+                @if (bounceRate() == null) {
+                  Needs per-session data
+                } @else if (bounceIsMeasured()) {
+                  session-based · single-page sessions
+                } @else {
+                  Est. single-page visits · {{ pagesPerVisit() }} pages/visit
+                }
+              </div>
+            }
+          </div>
+        </div>
+
+        <!-- ─────────────────── MAIN CHART ─────────────────── -->
         <section class="card" appReveal>
-          <div class="flex items-center justify-between gap-2 flex-wrap">
-            <div>
-              <div class="kicker">URLs</div>
-              <h3 class="section-h m-0 text-base font-semibold text-white mt-1 mb-3">Top pages</h3>
-            </div>
-            <!-- Bounce rate also surfaced here — the page list is where "how sticky
-                 is traffic?" is the natural question. Site-wide estimate; "—" when
-                 per-session data is unavailable (never a fabricated number). -->
-            <span class="stat-pill" [title]="bounceRate() == null ? 'No per-session data at this source' : (bounceIsMeasured() ? 'True single-page-session share from your visitor sessions' : 'Estimated single-page-session share across the site')">
-              Bounce {{ bounceRate() == null ? '—' : bounceRate() + '%' }}
+          <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
+            <h3 class="section-h m-0 text-base font-semibold text-white">Page views over time</h3>
+            <span class="text-[0.7rem] text-text-secondary">
+              {{ envelope()?.series?.length || 0 }}
+              {{ (envelope()?.series?.length || 0) === 1 ? 'day' : 'days' }} · peak
+              {{ formatCount(peakDayVisits()) }}
             </span>
           </div>
+          <!-- On-figure source + as-of label (P4 — figures carry source+timestamp). -->
+          <p class="chart-meta" aria-live="polite">
+            <span class="chart-meta-src">Source: {{ dataLabel() }}</span>
+            <span class="chart-meta-sep" aria-hidden="true">·</span>
+            <span>{{
+              refreshedAt() ? 'as of ' + (refreshedAt() | date: 'shortTime') : 'not yet loaded'
+            }}</span>
+            <span class="chart-meta-sep" aria-hidden="true">·</span>
+            <span
+              data-testid="an-daily-tz"
+              [title]="
+                dailyTz() === 'UTC'
+                  ? 'Daily buckets are aggregated by UTC calendar day.'
+                  : 'Daily buckets use your local calendar day (' +
+                    dailyTz() +
+                    '), from your current UTC offset — approximate across a daylight-saving change.'
+              "
+              >dates in {{ dailyTz() }}</span
+            >
+          </p>
           @if (loading() && !envelope()) {
-            <div class="space-y-2" aria-busy="true">
-              @for (i of [1,2,3,4]; track i) {
-                <div class="skel skel-line w-full h-4"></div>
-              }
+            <div class="skel skel-chart" aria-hidden="true"></div>
+          } @else if ((envelope()?.series?.length ?? 0) === 0 || peakDayVisits() === 0) {
+            <div class="empty-state-pretty" role="status">
+              <div class="empty-glyph" aria-hidden="true">
+                <svg
+                  width="44"
+                  height="44"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M3 3v18h18" />
+                  <path d="M7 14l4-4 4 4 5-5" />
+                </svg>
+              </div>
+              <h4 class="glow-h-grad text-xl font-semibold m-0">
+                No traffic yet — share your site
+              </h4>
+              <p
+                class="text-[0.86rem] text-text-secondary max-w-[440px] mx-auto m-0 leading-relaxed"
+              >
+                Once visitors arrive, page-view trends plot here in real time. Tap the button to
+                copy your live URL and start driving traffic.
+              </p>
+              <div class="flex gap-2 justify-center mt-1 flex-wrap">
+                <button
+                  class="btn-primary"
+                  type="button"
+                  (click)="copyShareLink()"
+                  aria-label="Copy share link"
+                  title="Copy your live site URL"
+                >
+                  Copy share link
+                </button>
+              </div>
             </div>
-          } @else if (displayTopPages().length === 0) {
-            <app-mini-empty [text]="isFiltered() ? 'No pages match this filter.' : 'No visits recorded yet.'">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-            </app-mini-empty>
           } @else {
-            @for (r of displayTopPages(); track r.path) {
-              <!-- Each page row drills the whole summary to path = this URL (toggle). -->
-              <button type="button"
-                      class="bar-row block w-full text-left cursor-pointer appearance-none border-0 bg-transparent rounded-lg px-1 -mx-1 transition hover:bg-white/[0.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#00E5FF]"
-                      data-testid="an-page-drill"
-                      [style.background]="isDrilled('path', r.path) ? 'color-mix(in oklch, var(--ps-accent, #00e5ff) 12%, transparent)' : null"
-                      [style.boxShadow]="isDrilled('path', r.path) ? 'inset 2px 0 0 var(--ps-accent, #00e5ff)' : null"
-                      [attr.aria-pressed]="isDrilled('path', r.path)"
-                      [attr.aria-label]="'Filter analytics by page ' + r.path + ' — ' + r.views + ' views'"
-                      (click)="applyDrill({ dim: 'path', value: r.path })">
-                <div class="flex justify-between mb-1 gap-2">
-                  <span class="font-mono text-[0.72rem] truncate text-white" [attr.title]="r.path">{{ r.path }}</span>
-                  <span class="text-[0.7rem] text-text-secondary tabular">{{ formatCount(r.views) }}</span>
-                </div>
-                <div class="bar"><div class="bar-fill" [style.width.%]="barWidth(r.views, maxPage())"></div></div>
-              </button>
-            }
+            <svg
+              viewBox="0 0 600 130"
+              preserveAspectRatio="none"
+              class="w-full h-32 sparkline"
+              role="img"
+              [attr.aria-label]="
+                'Page views chart — peak ' + peakDayVisits() + ' on the busiest day'
+              "
+            >
+              <defs>
+                <linearGradient id="visit-grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="var(--ps-accent, #00E5FF)" stop-opacity="0.4" />
+                  <stop offset="100%" stop-color="var(--ps-accent, #00E5FF)" stop-opacity="0" />
+                </linearGradient>
+              </defs>
+              <g class="grid" aria-hidden="true">
+                <line
+                  x1="0"
+                  y1="32"
+                  x2="600"
+                  y2="32"
+                  stroke="rgba(255,255,255,0.04)"
+                  stroke-width="1"
+                />
+                <line
+                  x1="0"
+                  y1="65"
+                  x2="600"
+                  y2="65"
+                  stroke="rgba(255,255,255,0.06)"
+                  stroke-width="1"
+                />
+                <line
+                  x1="0"
+                  y1="98"
+                  x2="600"
+                  y2="98"
+                  stroke="rgba(255,255,255,0.04)"
+                  stroke-width="1"
+                />
+              </g>
+              <path [attr.d]="sparkArea()" fill="url(#visit-grad)" />
+              <path
+                [attr.d]="sparkLine()"
+                fill="none"
+                stroke="var(--ps-accent, #00E5FF)"
+                stroke-width="1.5"
+                stroke-linejoin="round"
+                stroke-linecap="round"
+              />
+              @for (p of sparkDots(); track p.x) {
+                <circle [attr.cx]="p.x" [attr.cy]="p.y" r="2.2" fill="var(--ps-accent, #00E5FF)" />
+              }
+            </svg>
           }
         </section>
 
-        <section class="card" appReveal>
-          <div class="kicker">Geo</div>
-          <h3 class="section-h m-0 text-base font-semibold text-white mt-1 mb-3">Top countries</h3>
-          @if (loading() && !envelope()) {
-            <div class="grid grid-cols-2 gap-x-3 gap-y-1.5" aria-busy="true">
-              @for (i of [1,2,3,4,5,6]; track i) {
-                <div class="skel skel-line w-full h-4"></div>
-              }
+        <!-- ─────────────────── TOP PAGES + COUNTRIES ─────────────────── -->
+        <div class="grid md:grid-cols-2 gap-4">
+          <section class="card" appReveal>
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <div>
+                <div class="kicker">URLs</div>
+                <h3 class="section-h m-0 text-base font-semibold text-white mt-1 mb-3">
+                  Top pages
+                </h3>
+              </div>
+              <!-- Bounce rate also surfaced here — the page list is where "how sticky
+                 is traffic?" is the natural question. Site-wide estimate; "—" when
+                 per-session data is unavailable (never a fabricated number). -->
+              <span
+                class="stat-pill"
+                [title]="
+                  bounceRate() == null
+                    ? 'No per-session data at this source'
+                    : bounceIsMeasured()
+                      ? 'True single-page-session share from your visitor sessions'
+                      : 'Estimated single-page-session share across the site'
+                "
+              >
+                Bounce {{ bounceRate() == null ? '—' : bounceRate() + '%' }}
+              </span>
             </div>
-          } @else if ((envelope()?.top_countries?.length ?? 0) === 0) {
-            <app-mini-empty [text]="isFiltered() ? 'No countries match this filter.' : 'No geo data yet.'">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-            </app-mini-empty>
-          } @else {
-            <div class="grid grid-cols-2 gap-x-3 gap-y-1.5">
-              @for (r of envelope()!.top_countries; track r.country) {
-                <!-- Each country row drills the whole summary to country = this value (toggle). -->
-                <button type="button"
-                        class="flex items-center justify-between border-b border-white/[0.04] py-1 w-full text-left cursor-pointer appearance-none bg-transparent rounded transition hover:bg-white/[0.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#00E5FF]"
-                        data-testid="an-country-drill"
-                        [style.background]="isDrilled('country', r.country) ? 'color-mix(in oklch, var(--ps-accent, #00e5ff) 12%, transparent)' : null"
-                        [attr.aria-pressed]="isDrilled('country', r.country)"
-                        [attr.aria-label]="'Filter analytics by country ' + r.country + ' — ' + r.views + ' views'"
-                        (click)="applyDrill({ dim: 'country', value: r.country })">
-                  <span class="text-[0.78rem]">{{ flag(r.country) }} {{ r.country }}</span>
-                  <span class="text-[0.7rem] text-text-secondary tabular">{{ formatCount(r.views) }}</span>
+            @if (loading() && !envelope()) {
+              <div class="space-y-2" aria-busy="true">
+                @for (i of [1, 2, 3, 4]; track i) {
+                  <div class="skel skel-line w-full h-4"></div>
+                }
+              </div>
+            } @else if (displayTopPages().length === 0) {
+              <app-mini-empty
+                [text]="isFiltered() ? 'No pages match this filter.' : 'No visits recorded yet.'"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <path d="M14 2v6h6" />
+                </svg>
+              </app-mini-empty>
+            } @else {
+              @for (r of displayTopPages(); track r.path) {
+                <!-- Each page row drills the whole summary to path = this URL (toggle). -->
+                <button
+                  type="button"
+                  class="bar-row block w-full text-left cursor-pointer appearance-none border-0 bg-transparent rounded-lg px-1 -mx-1 transition hover:bg-white/[0.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#00E5FF]"
+                  data-testid="an-page-drill"
+                  [style.background]="
+                    isDrilled('path', r.path)
+                      ? 'color-mix(in oklch, var(--ps-accent, #00e5ff) 12%, transparent)'
+                      : null
+                  "
+                  [style.boxShadow]="
+                    isDrilled('path', r.path) ? 'inset 2px 0 0 var(--ps-accent, #00e5ff)' : null
+                  "
+                  [attr.aria-pressed]="isDrilled('path', r.path)"
+                  [attr.aria-label]="
+                    'Filter analytics by page ' + r.path + ' — ' + r.views + ' views'
+                  "
+                  (click)="applyDrill({ dim: 'path', value: r.path })"
+                >
+                  <div class="flex justify-between mb-1 gap-2">
+                    <span
+                      class="font-mono text-[0.72rem] truncate text-white"
+                      [attr.title]="r.path"
+                      >{{ r.path }}</span
+                    >
+                    <span class="text-[0.7rem] text-text-secondary tabular">{{
+                      formatCount(r.views)
+                    }}</span>
+                  </div>
+                  <div class="bar">
+                    <div class="bar-fill" [style.width.%]="barWidth(r.views, maxPage())"></div>
+                  </div>
                 </button>
               }
-            </div>
-          }
-        </section>
-      </div>
+            }
+          </section>
 
-      <!-- ─────────────────── REFERRERS ─────────────────── -->
-      @if ((envelope()?.top_referrers?.length ?? 0) > 0) {
-        <section class="card" appReveal>
-          <div class="kicker">Acquisition</div>
-          <h3 class="section-h m-0 text-base font-semibold text-white mt-1 mb-3">Top referrers</h3>
-          @for (r of envelope()!.top_referrers; track r.referrer) {
-            <div class="bar-row">
-              <div class="flex justify-between mb-1 gap-2">
-                <span class="text-[0.78rem] truncate min-w-0" [attr.title]="referrerLabel(r.referrer) + ' — ' + (referrerHost(r.referrer) || 'direct')">
-                  <!-- Names WHAT referred (Facebook / Google / Hacker News / ChatGPT …) with a
+          <section class="card" appReveal>
+            <div class="kicker">Geo</div>
+            <h3 class="section-h m-0 text-base font-semibold text-white mt-1 mb-3">
+              Top countries
+            </h3>
+            @if (loading() && !envelope()) {
+              <div class="grid grid-cols-2 gap-x-3 gap-y-1.5" aria-busy="true">
+                @for (i of [1, 2, 3, 4, 5, 6]; track i) {
+                  <div class="skel skel-line w-full h-4"></div>
+                }
+              </div>
+            } @else if ((envelope()?.top_countries?.length ?? 0) === 0) {
+              <app-mini-empty
+                [text]="isFiltered() ? 'No countries match this filter.' : 'No geo data yet.'"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M2 12h20" />
+                  <path
+                    d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+                  />
+                </svg>
+              </app-mini-empty>
+            } @else {
+              <div class="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                @for (r of envelope()!.top_countries; track r.country) {
+                  <!-- Each country row drills the whole summary to country = this value (toggle). -->
+                  <button
+                    type="button"
+                    class="flex items-center justify-between border-b border-white/[0.04] py-1 w-full text-left cursor-pointer appearance-none bg-transparent rounded transition hover:bg-white/[0.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#00E5FF]"
+                    data-testid="an-country-drill"
+                    [style.background]="
+                      isDrilled('country', r.country)
+                        ? 'color-mix(in oklch, var(--ps-accent, #00e5ff) 12%, transparent)'
+                        : null
+                    "
+                    [attr.aria-pressed]="isDrilled('country', r.country)"
+                    [attr.aria-label]="
+                      'Filter analytics by country ' + r.country + ' — ' + r.views + ' views'
+                    "
+                    (click)="applyDrill({ dim: 'country', value: r.country })"
+                  >
+                    <span class="text-[0.78rem]">{{ flag(r.country) }} {{ r.country }}</span>
+                    <span class="text-[0.7rem] text-text-secondary tabular">{{
+                      formatCount(r.views)
+                    }}</span>
+                  </button>
+                }
+              </div>
+            }
+          </section>
+        </div>
+
+        <!-- ─────────────────── REFERRERS ─────────────────── -->
+        @if ((envelope()?.top_referrers?.length ?? 0) > 0) {
+          <section class="card" appReveal>
+            <div class="kicker">Acquisition</div>
+            <h3 class="section-h m-0 text-base font-semibold text-white mt-1 mb-3">
+              Top referrers
+            </h3>
+            @for (r of envelope()!.top_referrers; track r.referrer) {
+              <div class="bar-row">
+                <div class="flex justify-between mb-1 gap-2">
+                  <span
+                    class="text-[0.78rem] truncate min-w-0"
+                    [attr.title]="
+                      referrerLabel(r.referrer) + ' — ' + (referrerHost(r.referrer) || 'direct')
+                    "
+                  >
+                    <!-- Names WHAT referred (Facebook / Google / Hacker News / ChatGPT …) with a
                        descriptive kind tag (social/search/AI/referral/email). A channel row
                        (direct/organic/…) shows its own name and no tag — never a false "(referral)". -->
-                  <span class="text-white">{{ referrerLabel(r.referrer) }}</span>
-                  @if (referrerIsHost(r.referrer)) {
-                    <span class="text-xs opacity-70 ml-1">({{ referrerTag(r.referrer) }})</span>
-                  }
-                </span>
-                <span class="text-[0.7rem] text-text-secondary tabular shrink-0">{{ formatCount(r.views) }}</span>
+                    <span class="text-white">{{ referrerLabel(r.referrer) }}</span>
+                    @if (referrerIsHost(r.referrer)) {
+                      <span class="text-xs opacity-70 ml-1">({{ referrerTag(r.referrer) }})</span>
+                    }
+                  </span>
+                  <span class="text-[0.7rem] text-text-secondary tabular shrink-0">{{
+                    formatCount(r.views)
+                  }}</span>
+                </div>
+                <div class="bar">
+                  <div class="bar-fill" [style.width.%]="barWidth(r.views, maxReferrer())"></div>
+                </div>
               </div>
-              <div class="bar"><div class="bar-fill" [style.width.%]="barWidth(r.views, maxReferrer())"></div></div>
-            </div>
-          }
-        </section>
-      }
+            }
+          </section>
+        }
 
-      <!-- Conversions — the business outcomes (calls / directions / form submits)
+        <!-- Conversions — the business outcomes (calls / directions / form submits)
            from conversion beacon events. Honest counts; empty state when none tracked. -->
-      <app-conversions-card
-        appReveal
-        [rows]="siteTraffic()?.byConversionKind ?? []"
-        [windowDays]="rangeDays()"
-        [delta]="conversionDelta()"
-        [kindDeltas]="conversionKindDeltas()"
-      />
+        <app-conversions-card
+          appReveal
+          [rows]="siteTraffic()?.byConversionKind ?? []"
+          [windowDays]="rangeDays()"
+          [delta]="conversionDelta()"
+          [kindDeltas]="conversionKindDeltas()"
+        />
 
-      <!-- Top links clicked — the WHICH-LINKS companion to Conversions (app.js conversion
+        <!-- Top links clicked — the WHICH-LINKS companion to Conversions (app.js conversion
            beacon href → visitor_events): top outbound/contact destinations by click count.
            Honest empty state when no link clicks tracked. -->
-      <app-outbound-links-card
-        appReveal
-        [outboundClicks]="siteTraffic()?.outboundClicks"
-        [windowDays]="rangeDays()"
-      />
+        <app-outbound-links-card
+          appReveal
+          [outboundClicks]="siteTraffic()?.outboundClicks"
+          [windowDays]="rangeDays()"
+        />
 
-      <!-- Contact-form lead funnel — first-party form_start (validated attempt) → form_submit
+        <!-- Contact-form lead funnel — first-party form_start (validated attempt) → form_submit
            (server-confirmed success) from the app.js beacon. The ONLY view of form ABANDONMENT
            (starts − submits = lost leads). Honest: null rate → "—", no activity → empty state. -->
-      <app-form-funnel-card
-        appReveal
-        [funnel]="siteTraffic()?.formFunnel ?? null"
-        [windowDays]="rangeDays()"
-      />
+        <app-form-funnel-card
+          appReveal
+          [funnel]="siteTraffic()?.formFunnel ?? null"
+          [windowDays]="rangeDays()"
+        />
 
-      <!-- Real-user experience — field-measured Core Web Vitals p75 (LCP/INP/CLS)
+        <!-- Real-user experience — field-measured Core Web Vitals p75 (LCP/INP/CLS)
            from the web_vital beacon rows. Honest: null metric → "measuring", never 0. -->
-      <app-web-vitals-card
-        appReveal
-        [webVitals]="siteTraffic()?.webVitals ?? null"
-        [windowDays]="rangeDays()"
-      />
+        <app-web-vitals-card
+          appReveal
+          [webVitals]="siteTraffic()?.webVitals ?? null"
+          [windowDays]="rangeDays()"
+        />
 
-      <!-- Cloudflare RUM — CF-measured CWV + Navigation Timing (incl. client TTFB) for the site's
+        <!-- Cloudflare RUM — CF-measured CWV + Navigation Timing (incl. client TTFB) for the site's
            owned host, an INDEPENDENT second source to the first-party beacon above (cross-check,
            never summed). Self-fetches /api/sites/:id/cloudflare-rum; sampled + honest empties. -->
-      <app-cloudflare-rum-card
-        appReveal
-        [siteId]="state.selectedSite()?.id ?? null"
-        [windowDays]="rangeDays()"
-      />
+        <app-cloudflare-rum-card
+          appReveal
+          [siteId]="state.selectedSite()?.id ?? null"
+          [windowDays]="rangeDays()"
+        />
 
-      <!-- New vs returning — first-party page_engagement nv flag (browser-scoped, cookieless
+        <!-- New vs returning — first-party page_engagement nv flag (browser-scoped, cookieless
            localStorage). CF has no returning-visitor dataset; this is the AUGMENT metric. Honest:
            a new device / cleared storage counts as new; unknown (private mode) surfaced separately. -->
-      <app-visitor-type-card
-        appReveal
-        [siteId]="state.selectedSite()?.id ?? null"
-        [windowDays]="rangeDays()"
-      />
+        <app-visitor-type-card
+          appReveal
+          [siteId]="state.selectedSite()?.id ?? null"
+          [windowDays]="rangeDays()"
+        />
 
-      <!-- Top landing pages — first-party page_engagement ep session-start flag. Where visitors
+        <!-- Top landing pages — first-party page_engagement ep session-start flag. Where visitors
            first arrive (a session's first page; tab-scoped, cookieless). CF has no landing dataset. -->
-      <app-entry-pages-card
-        appReveal
-        [siteId]="state.selectedSite()?.id ?? null"
-        [windowDays]="rangeDays()"
-      />
+        <app-entry-pages-card
+          appReveal
+          [siteId]="state.selectedSite()?.id ?? null"
+          [windowDays]="rangeDays()"
+        />
 
-      <!-- Script errors — first-party site-health: uncaught JS errors / rejections on the
+        <!-- Script errors — first-party site-health: uncaught JS errors / rejections on the
            published site (app.js beacon → visitor_events), grouped by message. Shows a green
            "running clean" when 0 (a real 0, the beacon runs on every page). -->
-      <app-script-errors-card
-        appReveal
-        [jsErrors]="siteTraffic()?.jsErrors"
-        [windowDays]="rangeDays()"
-      />
+        <app-script-errors-card
+          appReveal
+          [jsErrors]="siteTraffic()?.jsErrors"
+          [windowDays]="rangeDays()"
+        />
 
-      <!-- Time on page — first-party dwell (app.js page_engagement beacon → visitor_events),
+        <!-- Time on page — first-party dwell (app.js page_engagement beacon → visitor_events),
            site-wide MEDIAN + per-page. "Measuring…" when 0 samples (never a fake 0). -->
-      <app-engagement-card
-        appReveal
-        [engagement]="siteTraffic()?.engagement"
-        [windowDays]="rangeDays()"
-      />
+        <app-engagement-card
+          appReveal
+          [engagement]="siteTraffic()?.engagement"
+          [windowDays]="rangeDays()"
+        />
 
-      <!-- Scroll depth — first-party content consumption (app.js scroll_depth beacon →
+        <!-- Scroll depth — first-party content consumption (app.js scroll_depth beacon →
            visitor_events): median max-depth + reach funnel (25/50/75/100%) + per-page
            completion. "Measuring…" when 0 samples (never a fake 0). -->
-      <app-scroll-depth-card
-        appReveal
-        [scrollDepth]="siteTraffic()?.scrollDepth"
-        [windowDays]="rangeDays()"
-      />
+        <app-scroll-depth-card
+          appReveal
+          [scrollDepth]="siteTraffic()?.scrollDepth"
+          [windowDays]="rangeDays()"
+        />
 
-      <!-- Visitor connection quality — first-party navigator.connection (app.js
+        <!-- Visitor connection quality — first-party navigator.connection (app.js
            network_quality beacon → visitor_events): effectiveType distribution + median
            downlink/rtt + data-saver %. Chromium-only sample (labelled honestly);
            "Measuring…" when 0 samples (never a fake 0). -->
-      <app-network-quality-card
-        appReveal
-        [networkQuality]="siteTraffic()?.networkQuality"
-        [windowDays]="rangeDays()"
-      />
+        <app-network-quality-card
+          appReveal
+          [networkQuality]="siteTraffic()?.networkQuality"
+          [windowDays]="rangeDays()"
+        />
 
-      <!-- Page-load breakdown — first-party PerformanceNavigationTiming (app.js nav_timing
+        <!-- Page-load breakdown — first-party PerformanceNavigationTiming (app.js nav_timing
            beacon → visitor_events): median dns/connect/ttfb/transfer/dom + total, as
            independent-median bars (never a strict decomposition). "Measuring…" when 0
            samples (never a fake 0). The edge-latency breakdown CF's plan can't give. -->
-      <app-nav-timing-card
-        appReveal
-        [navTiming]="siteTraffic()?.navTiming"
-        [windowDays]="rangeDays()"
-      />
+        <app-nav-timing-card
+          appReveal
+          [navTiming]="siteTraffic()?.navTiming"
+          [windowDays]="rangeDays()"
+        />
 
-      <!-- Devices & platforms — first-party pageview split by device / browser / OS
+        <!-- Devices & platforms — first-party pageview split by device / browser / OS
            from the user-agent enrichment (covers every visitor, unlike CWV). Honest
            empty state; "unknown" is a real bucket, never dropped. -->
-      <app-tech-breakdown
-        appReveal
-        [devices]="siteTraffic()?.byDevice ?? []"
-        [browsers]="siteTraffic()?.byBrowser ?? []"
-        [os]="siteTraffic()?.byOs ?? []"
-        [windowDays]="rangeDays()"
-        [activeFilter]="filter()"
-        (drill)="applyDrill($event)"
-      />
+        <app-tech-breakdown
+          appReveal
+          [devices]="siteTraffic()?.byDevice ?? []"
+          [browsers]="siteTraffic()?.byBrowser ?? []"
+          [os]="siteTraffic()?.byOs ?? []"
+          [windowDays]="rangeDays()"
+          [activeFilter]="filter()"
+          (drill)="applyDrill($event)"
+        />
 
-      <!-- Acquisition channels — first-party traffic.byChannel (direct/organic/social/...), one
+        <!-- Acquisition channels — first-party traffic.byChannel (direct/organic/social/...), one
            channel per pageview. Each row drills the whole summary by channel (the row value is the
            RAW stored channel, so the server filter is exact — never lying-empty). Distinct from
            Campaigns and sources (utm-tagged only) + Top referrers (hosts). -->
-      <app-channel-breakdown
-        appReveal
-        [channels]="siteTraffic()?.byChannel ?? []"
-        [windowDays]="rangeDays()"
-        [activeFilter]="filter()"
-        (drill)="applyDrill($event)"
-      />
+        <app-channel-breakdown
+          appReveal
+          [channels]="siteTraffic()?.byChannel ?? []"
+          [windowDays]="rangeDays()"
+          [activeFilter]="filter()"
+          (drill)="applyDrill($event)"
+        />
 
-      <!-- Busiest hours — first-party pageviews by hour-of-day, rotated from the server's
+        <!-- Busiest hours — first-party pageviews by hour-of-day, rotated from the server's
            UTC buckets to the viewer's local time. Honest empty state; all-zero → no bars. -->
-      <app-hourly-breakdown
-        appReveal
-        [hours]="siteTraffic()?.byHour ?? []"
-        [windowDays]="rangeDays()"
-      />
+        <app-hourly-breakdown
+          appReveal
+          [hours]="siteTraffic()?.byHour ?? []"
+          [windowDays]="rangeDays()"
+        />
 
-      <!-- Campaigns & sources — utm_source / utm_campaign on TAGGED visits only (untagged
+        <!-- Campaigns & sources — utm_source / utm_campaign on TAGGED visits only (untagged
            direct/organic excluded server-side); empty state teaches how to tag links. -->
-      <app-campaign-breakdown
-        appReveal
-        [sources]="siteTraffic()?.byUtmSource ?? []"
-        [campaigns]="siteTraffic()?.byUtmCampaign ?? []"
-        [windowDays]="rangeDays()"
-      />
+        <app-campaign-breakdown
+          appReveal
+          [sources]="siteTraffic()?.byUtmSource ?? []"
+          [mediums]="siteTraffic()?.byUtmMedium ?? []"
+          [campaigns]="siteTraffic()?.byUtmCampaign ?? []"
+          [windowDays]="rangeDays()"
+        />
 
-      <!-- Delivery & performance — Cloudflare edge status codes / cache / bandwidth
+        <!-- Delivery & performance — Cloudflare edge status codes / cache / bandwidth
            from envelope.delivery (httpRequestsAdaptiveGroups). Distinct source from
            the first-party audience cards; honest null / no-data states. -->
-      <app-delivery-card
-        appReveal
-        [delivery]="envelope()?.delivery ?? null"
-        [windowDays]="rangeDays()"
-      />
+        <app-delivery-card
+          appReveal
+          [delivery]="envelope()?.delivery ?? null"
+          [windowDays]="rangeDays()"
+        />
 
-      <!-- Honest metric definitions + source/caveat per metric (clarity mandate). -->
-      <app-analytics-glossary appReveal />
+        <!-- Honest metric definitions + source/caveat per metric (clarity mandate). -->
+        <app-analytics-glossary appReveal />
 
-      <p class="text-[0.65rem] text-text-secondary text-center">
-        Source: {{ dataLabel() }} · {{ dataTooltip() }} ·
-        last refreshed {{ refreshedAt() ? (refreshedAt() | date:'medium') : '—' }}
-      </p>
+        <p class="text-[0.65rem] text-text-secondary text-center">
+          Source: {{ dataLabel() }} · {{ dataTooltip() }} · last refreshed
+          {{ refreshedAt() ? (refreshedAt() | date: 'medium') : '—' }}
+        </p>
       }
     </div>
   `,
-  styles: [`
-    :host { display: block; }
+  styles: [
+    `
+      :host {
+        display: block;
+      }
 
-    .kicker {
-      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.62rem; font-weight: 700; letter-spacing: 0.14em;
-      text-transform: uppercase; color: var(--ps-accent, #00E5FF); opacity: 0.85;
-    }
-    .section-h { font-family: 'Sora', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.02em; }
-    .text-accent { color: var(--ps-accent, #00E5FF); }
-    /* On-figure source + as-of caption (P4). */
-    .chart-meta {
-      margin: 0 0 12px; display: flex; gap: 7px; align-items: center; flex-wrap: wrap;
-      font-family: var(--ps-font-code, 'Fira Code', ui-monospace, monospace);
-      font-size: 0.62rem; letter-spacing: 0.03em;
-      color: var(--ps-text-muted, rgba(255,255,255,0.45));
-    }
-    .chart-meta-src { color: color-mix(in oklch, var(--ps-accent, #00e5ff) 60%, #b7cfd6); }
-    .chart-meta-sep { opacity: 0.5; }
+      .kicker {
+        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.62rem;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--ps-accent, #00e5ff);
+        opacity: 0.85;
+      }
+      .section-h {
+        font-family: 'Sora', system-ui, sans-serif;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+      .text-accent {
+        color: var(--ps-accent, #00e5ff);
+      }
+      /* On-figure source + as-of caption (P4). */
+      .chart-meta {
+        margin: 0 0 12px;
+        display: flex;
+        gap: 7px;
+        align-items: center;
+        flex-wrap: wrap;
+        font-family: var(--ps-font-code, 'Fira Code', ui-monospace, monospace);
+        font-size: 0.62rem;
+        letter-spacing: 0.03em;
+        color: var(--ps-text-muted, rgba(255, 255, 255, 0.45));
+      }
+      .chart-meta-src {
+        color: color-mix(in oklch, var(--ps-accent, #00e5ff) 60%, #b7cfd6);
+      }
+      .chart-meta-sep {
+        opacity: 0.5;
+      }
 
-    .host-link {
-      display: inline-flex; align-items: center; gap: 4px;
-      text-decoration: none;
-      color: inherit;
-      border-bottom: 1px dashed color-mix(in oklch, var(--ps-accent, #00E5FF) 38%, transparent);
-      transition: color 160ms ease, border-color 160ms ease;
-    }
-    .host-link:hover {
-      color: var(--ps-accent, #00E5FF);
-      border-color: var(--ps-accent, #00E5FF);
-    }
-    .host-link:focus-visible {
-      outline: 2px solid var(--ps-accent, #00E5FF);
-      outline-offset: 2px;
-      border-radius: 4px;
-    }
-    .ext-glyph {
-      color: color-mix(in oklch, var(--ps-accent, #00E5FF) 70%, var(--ps-ink, #fff) 30%);
-      transition: transform 160ms ease;
-    }
-    .host-link:hover .ext-glyph { transform: translate(1px, -1px); }
+      .host-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        text-decoration: none;
+        color: inherit;
+        border-bottom: 1px dashed color-mix(in oklch, var(--ps-accent, #00e5ff) 38%, transparent);
+        transition:
+          color 160ms ease,
+          border-color 160ms ease;
+      }
+      .host-link:hover {
+        color: var(--ps-accent, #00e5ff);
+        border-color: var(--ps-accent, #00e5ff);
+      }
+      .host-link:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+      .ext-glyph {
+        color: color-mix(in oklch, var(--ps-accent, #00e5ff) 70%, var(--ps-ink, #fff) 30%);
+        transition: transform 160ms ease;
+      }
+      .host-link:hover .ext-glyph {
+        transform: translate(1px, -1px);
+      }
 
-    .card {
-      background: var(--ps-surface-glass, rgba(13,13,40,0.62));
-      border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 14%, transparent);
-      border-radius: var(--ps-radius-xl, 14px);
-      padding: 1.4rem;
-      box-shadow: var(--ps-shadow-card, inset 0 0 0 1px color-mix(in oklch, var(--ps-ink, #f4f4ff) 2%, transparent));
-      transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
-    }
-    .card:hover {
-      transform: translateY(-1px);
-      border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 28%, transparent);
-      box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ps-ink, #f4f4ff) 4%, transparent), 0 8px 24px -16px color-mix(in oklch, var(--ps-accent, #00E5FF) 28%, transparent);
-    }
+      .card {
+        background: var(--ps-surface-glass, rgba(13, 13, 40, 0.62));
+        border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 14%, transparent);
+        border-radius: var(--ps-radius-xl, 14px);
+        padding: 1.4rem;
+        box-shadow: var(
+          --ps-shadow-card,
+          inset 0 0 0 1px color-mix(in oklch, var(--ps-ink, #f4f4ff) 2%, transparent)
+        );
+        transition:
+          transform 200ms ease,
+          border-color 200ms ease,
+          box-shadow 200ms ease;
+      }
+      .card:hover {
+        transform: translateY(-1px);
+        border-color: color-mix(in oklch, var(--ps-accent, #00e5ff) 28%, transparent);
+        box-shadow:
+          inset 0 0 0 1px color-mix(in oklch, var(--ps-ink, #f4f4ff) 4%, transparent),
+          0 8px 24px -16px color-mix(in oklch, var(--ps-accent, #00e5ff) 28%, transparent);
+      }
 
-    /* Reserve the loaded card height (measured 109px @1280) so the skeleton→data
+      /* Reserve the loaded card height (measured 109px @1280) so the skeleton→data
        transition never grows the tile — kills the dominant /admin/analytics CLS
        (0.0361 growth-shift of the KPI grid + the section below it). */
-    .kpi { padding: 1.1rem; position: relative; overflow: hidden; min-height: 110px; }
-    .kpi-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; }
-    .kpi-spark { width: 72px; height: 22px; flex-shrink: 0; color: var(--ps-accent, #00E5FF); opacity: 0.85; }
-    .kpi-spark--secondary { color: var(--ps-accent-secondary, #7C3AED); }
+      .kpi {
+        padding: 1.1rem;
+        position: relative;
+        overflow: hidden;
+        min-height: 110px;
+      }
+      .kpi-row {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .kpi-spark {
+        width: 72px;
+        height: 22px;
+        flex-shrink: 0;
+        color: var(--ps-accent, #00e5ff);
+        opacity: 0.85;
+      }
+      .kpi-spark--secondary {
+        color: var(--ps-accent-secondary, #7c3aed);
+      }
 
-    .muted-h { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); font-weight: 700; }
-    .tabular { font-variant-numeric: tabular-nums; }
+      .muted-h {
+        font-size: 0.6rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: rgba(255, 255, 255, 0.5);
+        font-weight: 700;
+      }
+      .tabular {
+        font-variant-numeric: tabular-nums;
+      }
 
-    /* Period-over-period trend chip — neon-cyan up, dimmed down, neutral flat.
+      /* Period-over-period trend chip — neon-cyan up, dimmed down, neutral flat.
        Up reads as the brand accent (the win we want to celebrate); down stays
        muted so a dip never shouts in off-brand red on the cyan/black cockpit. */
-    .trend-chip {
-      display: inline-flex; align-items: center; gap: 3px;
-      padding: 1px 7px 1px 5px; border-radius: 999px;
-      font-size: 0.64rem; font-weight: 700; line-height: 1.4;
-      font-variant-numeric: tabular-nums;
-      border: 1px solid transparent;
-    }
-    .trend-chip svg { flex-shrink: 0; }
-    .trend-chip[data-dir="up"] {
-      color: var(--ps-accent, #00E5FF);
-      background: color-mix(in oklch, var(--ps-accent, #00E5FF) 14%, transparent);
-      border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 32%, transparent);
-    }
-    .trend-chip[data-dir="down"] {
-      color: rgba(255,255,255,0.62);
-      background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 5%, transparent);
-      border-color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 12%, transparent);
-    }
-    .trend-chip[data-dir="flat"] {
-      color: rgba(255,255,255,0.5);
-      background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 4%, transparent);
-      border-color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent);
-    }
+      .trend-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 1px 7px 1px 5px;
+        border-radius: 999px;
+        font-size: 0.64rem;
+        font-weight: 700;
+        line-height: 1.4;
+        font-variant-numeric: tabular-nums;
+        border: 1px solid transparent;
+      }
+      .trend-chip svg {
+        flex-shrink: 0;
+      }
+      .trend-chip[data-dir='up'] {
+        color: var(--ps-accent, #00e5ff);
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 14%, transparent);
+        border-color: color-mix(in oklch, var(--ps-accent, #00e5ff) 32%, transparent);
+      }
+      .trend-chip[data-dir='down'] {
+        color: rgba(255, 255, 255, 0.62);
+        background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 5%, transparent);
+        border-color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 12%, transparent);
+      }
+      .trend-chip[data-dir='flat'] {
+        color: rgba(255, 255, 255, 0.5);
+        background: color-mix(in oklch, var(--ps-ink, #f4f4ff) 4%, transparent);
+        border-color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 10%, transparent);
+      }
 
-    .btn-ghost {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 0.45rem 0.9rem; border-radius: 8px; min-height: 32px;
-      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
-      color: #e5e7eb; font-size: 0.74rem; font-weight: 600; cursor: pointer;
-      transition: transform 200ms ease, border-color 200ms ease, background 200ms ease, color 200ms ease;
-    }
-    .btn-ghost:hover:not(:disabled) {
-      transform: translateY(-1px);
-      border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 30%, transparent);
-      color: #fff; background: rgba(255,255,255,0.06);
-    }
-    .btn-ghost:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-ghost:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
-    .refresh-btn { min-width: 110px; justify-content: center; }
-    .refresh-btn .spinning { animation: spin 1.2s linear infinite; }
-    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      .btn-ghost {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0.45rem 0.9rem;
+        border-radius: 8px;
+        min-height: 32px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #e5e7eb;
+        font-size: 0.74rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition:
+          transform 200ms ease,
+          border-color 200ms ease,
+          background 200ms ease,
+          color 200ms ease;
+      }
+      .btn-ghost:hover:not(:disabled) {
+        transform: translateY(-1px);
+        border-color: color-mix(in oklch, var(--ps-accent, #00e5ff) 30%, transparent);
+        color: #fff;
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .btn-ghost:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .btn-ghost:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
+      .refresh-btn {
+        min-width: 110px;
+        justify-content: center;
+      }
+      .refresh-btn .spinning {
+        animation: spin 1.2s linear infinite;
+      }
+      @keyframes spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
 
-    .btn-tiny-ghost {
-      padding: 3px 9px; border-radius: 6px; min-height: 24px;
-      font-size: 0.66rem; font-weight: 600; cursor: pointer;
-      background: rgba(255,255,255,0.03); color: rgba(255,255,255,0.7);
-      border: 1px dashed rgba(255,255,255,0.18);
-      transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
-    }
-    .btn-tiny-ghost:hover { color: #fff; background: rgba(255,255,255,0.06); border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 38%, transparent); }
-    .btn-tiny-ghost:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
+      .btn-tiny-ghost {
+        padding: 3px 9px;
+        border-radius: 6px;
+        min-height: 24px;
+        font-size: 0.66rem;
+        font-weight: 600;
+        cursor: pointer;
+        background: rgba(255, 255, 255, 0.03);
+        color: rgba(255, 255, 255, 0.7);
+        border: 1px dashed rgba(255, 255, 255, 0.18);
+        transition:
+          color 140ms ease,
+          border-color 140ms ease,
+          background 140ms ease;
+      }
+      .btn-tiny-ghost:hover {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.06);
+        border-color: color-mix(in oklch, var(--ps-accent, #00e5ff) 38%, transparent);
+      }
+      .btn-tiny-ghost:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
 
-    .btn-primary {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 0.5rem 1rem; border-radius: 10px; min-height: 32px;
-      background: linear-gradient(135deg, color-mix(in oklch, var(--ps-accent, #00E5FF) 28%, transparent), color-mix(in oklch, var(--ps-accent-secondary, #7C3AED) 22%, transparent));
-      color: var(--ps-bg, #060610);
-      font-weight: 700; border: 0; cursor: pointer; font-size: 0.78rem;
-      box-shadow: 0 6px 18px -8px color-mix(in oklch, var(--ps-accent, #00E5FF) 55%, transparent);
-      transition: transform 200ms ease, box-shadow 200ms ease;
-    }
-    .btn-primary:hover:not(:disabled) {
-      transform: translateY(-1px);
-      box-shadow: 0 10px 24px -8px color-mix(in oklch, var(--ps-accent, #00E5FF) 70%, transparent);
-    }
-    .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
-    .btn-primary:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
+      .btn-primary {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0.5rem 1rem;
+        border-radius: 10px;
+        min-height: 32px;
+        background: linear-gradient(
+          135deg,
+          color-mix(in oklch, var(--ps-accent, #00e5ff) 28%, transparent),
+          color-mix(in oklch, var(--ps-accent-secondary, #7c3aed) 22%, transparent)
+        );
+        color: var(--ps-bg, #060610);
+        font-weight: 700;
+        border: 0;
+        cursor: pointer;
+        font-size: 0.78rem;
+        box-shadow: 0 6px 18px -8px color-mix(in oklch, var(--ps-accent, #00e5ff) 55%, transparent);
+        transition:
+          transform 200ms ease,
+          box-shadow 200ms ease;
+      }
+      .btn-primary:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 24px -8px color-mix(in oklch, var(--ps-accent, #00e5ff) 70%, transparent);
+      }
+      .btn-primary:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .btn-primary:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
 
-    .bar-row { margin-bottom: 0.55rem; }
-    .bar { height: 6px; background: rgba(255,255,255,0.05); border-radius: 999px; overflow: hidden; }
-    .bar-fill {
-      height: 100%;
-      background: linear-gradient(90deg, var(--ps-accent, #00E5FF), var(--ps-accent-secondary, #7C3AED));
-      transition: width 320ms cubic-bezier(0.4, 0, 0.2, 1);
-    }
+      .bar-row {
+        margin-bottom: 0.55rem;
+      }
+      .bar {
+        height: 6px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 999px;
+        overflow: hidden;
+      }
+      .bar-fill {
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          var(--ps-accent, #00e5ff),
+          var(--ps-accent-secondary, #7c3aed)
+        );
+        transition: width 320ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
 
-    .range-chip-strip {
-      display: inline-flex;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 999px; padding: 2px; gap: 2px;
-    }
-    .range-custom {
-      display: inline-flex; align-items: center; gap: 0.4rem;
-      font-size: 0.75rem; color: var(--text-secondary, #9aa0b4);
-    }
-    .range-custom input {
-      width: 3.5rem; padding: 3px 6px; text-align: right;
-      background: rgba(255,255,255,0.06); color: var(--ps-ink, #f4f4ff);
-      border: 1px solid rgba(255,255,255,0.14); border-radius: 6px;
-      font-variant-numeric: tabular-nums;
-    }
-    .range-custom input:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; }
-    .range-or { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary, #9aa0b4); opacity: 0.7; }
-    .range-dates { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--text-secondary, #9aa0b4); }
-    .range-dates-label { white-space: nowrap; }
-    .range-dates input { padding: 3px 6px; background: rgba(255,255,255,0.06); color: var(--ps-ink, #f4f4ff); border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; font-variant-numeric: tabular-nums; color-scheme: dark; }
-    .range-dates input:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; }
-    .range-note { flex-basis: 100%; margin: 0.35rem 0 0; font-size: 0.7rem; line-height: 1.4; color: var(--text-secondary, #9aa0b4); }
-    .range-chip {
-      padding: 4px 12px; border-radius: 999px;
-      background: transparent; border: 0;
-      color: rgba(255,255,255,0.65);
-      font-size: 0.7rem; font-weight: 600; cursor: pointer;
-      min-height: 26px;
-      transition: color 160ms ease, background 160ms ease;
-    }
-    .range-chip:hover { color: #fff; }
-    .range-chip.active {
-      background: linear-gradient(135deg, color-mix(in oklch, var(--ps-accent, #00E5FF) 22%, transparent), color-mix(in oklch, var(--ps-accent-secondary, #7C3AED) 22%, transparent));
-      color: var(--ps-accent, #00E5FF);
-      box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ps-accent, #00E5FF) 30%, transparent);
-    }
-    .range-chip:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
+      .range-chip-strip {
+        display: inline-flex;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        padding: 2px;
+        gap: 2px;
+      }
+      .range-custom {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary, #9aa0b4);
+      }
+      .range-custom input {
+        width: 3.5rem;
+        padding: 3px 6px;
+        text-align: right;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--ps-ink, #f4f4ff);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 6px;
+        font-variant-numeric: tabular-nums;
+      }
+      .range-custom input:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 1px;
+      }
+      .range-or {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-secondary, #9aa0b4);
+        opacity: 0.7;
+      }
+      .range-dates {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary, #9aa0b4);
+      }
+      .range-dates-label {
+        white-space: nowrap;
+      }
+      .range-dates input {
+        padding: 3px 6px;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--ps-ink, #f4f4ff);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 6px;
+        font-variant-numeric: tabular-nums;
+        color-scheme: dark;
+      }
+      .range-dates input:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 1px;
+      }
+      .range-note {
+        flex-basis: 100%;
+        margin: 0.35rem 0 0;
+        font-size: 0.7rem;
+        line-height: 1.4;
+        color: var(--text-secondary, #9aa0b4);
+      }
+      .range-chip {
+        padding: 4px 12px;
+        border-radius: 999px;
+        background: transparent;
+        border: 0;
+        color: rgba(255, 255, 255, 0.65);
+        font-size: 0.7rem;
+        font-weight: 600;
+        cursor: pointer;
+        min-height: 26px;
+        transition:
+          color 160ms ease,
+          background 160ms ease;
+      }
+      .range-chip:hover {
+        color: #fff;
+      }
+      .range-chip.active {
+        background: linear-gradient(
+          135deg,
+          color-mix(in oklch, var(--ps-accent, #00e5ff) 22%, transparent),
+          color-mix(in oklch, var(--ps-accent-secondary, #7c3aed) 22%, transparent)
+        );
+        color: var(--ps-accent, #00e5ff);
+        box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ps-accent, #00e5ff) 30%, transparent);
+      }
+      .range-chip:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 2px;
+      }
 
-    .sparkline path { transition: d 320ms ease; }
+      .sparkline path {
+        transition: d 320ms ease;
+      }
 
-    .status-pill {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 2px 10px; border-radius: 999px;
-      font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-      vertical-align: middle; cursor: help;
-      border: 1px solid currentColor;
-      margin-left: 0.3rem;
-    }
-    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px currentColor; }
-    .status-pill[data-health="healthy"]  { color: #34d399; background: rgba(52, 211, 153, 0.10); border-color: rgba(52, 211, 153, 0.32); }
-    .status-pill[data-health="warning"]  { color: #fb923c; background: rgba(251, 146, 60, 0.10); border-color: rgba(251, 146, 60, 0.32); }
-    .status-pill[data-health="degraded"] { color: #f87171; background: rgba(248, 113, 113, 0.10); border-color: rgba(248, 113, 113, 0.32); }
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 0.6rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        vertical-align: middle;
+        cursor: help;
+        border: 1px solid currentColor;
+        margin-left: 0.3rem;
+      }
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        box-shadow: 0 0 6px currentColor;
+      }
+      .status-pill[data-health='healthy'] {
+        color: #34d399;
+        background: rgba(52, 211, 153, 0.1);
+        border-color: rgba(52, 211, 153, 0.32);
+      }
+      .status-pill[data-health='warning'] {
+        color: #fb923c;
+        background: rgba(251, 146, 60, 0.1);
+        border-color: rgba(251, 146, 60, 0.32);
+      }
+      .status-pill[data-health='degraded'] {
+        color: #f87171;
+        background: rgba(248, 113, 113, 0.1);
+        border-color: rgba(248, 113, 113, 0.32);
+      }
 
-    .urls-row {
-      display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
-      padding: 0.5rem 0.7rem;
-      background: rgba(255,255,255,0.025);
-      border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 12px;
-    }
-    .urls-label {
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
-      font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase;
-      color: rgba(255,255,255,0.8); margin-right: 4px;
-    }
-    .url-pill {
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 3px 8px 3px 9px;
-      background: color-mix(in oklch, var(--ps-accent, #00E5FF) 10%, transparent);
-      border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 28%, transparent);
-      border-radius: 999px;
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
-      font-size: 0.66rem; color: var(--ps-ink, #fff);
-      transition: opacity 140ms ease, background 140ms ease, border-color 140ms ease;
-    }
-    .url-pill.is-excluded { opacity: 0.4; background: transparent; }
-    .url-pill.is-unresolved {
-      border-color: color-mix(in oklch, #fb923c 38%, transparent);
-      color: #fde68a;
-      background: rgba(251, 146, 60, 0.06);
-    }
-    .url-text { line-height: 1; }
-    .primary-dot {
-      width: 5px; height: 5px; border-radius: 50%;
-      background: var(--ps-success, #4dffb5);
-      box-shadow: 0 0 5px color-mix(in oklch, var(--ps-success, #4dffb5) 60%, transparent);
-    }
-    .url-toggle {
-      width: 18px; height: 18px;
-      display: inline-flex; align-items: center; justify-content: center;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.65);
-      border: 0; cursor: pointer; font-size: 0.78rem; line-height: 1;
-      transition: background 140ms ease, color 140ms ease;
-    }
-    .url-toggle:hover { color: #fff; background: rgba(255,255,255,0.16); }
-    .url-toggle:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 1px; }
+      .urls-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 0.5rem 0.7rem;
+        background: rgba(255, 255, 255, 0.025);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+      }
+      .urls-label {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.6rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.8);
+        margin-right: 4px;
+      }
+      .url-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 8px 3px 9px;
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 10%, transparent);
+        border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 28%, transparent);
+        border-radius: 999px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.66rem;
+        color: var(--ps-ink, #fff);
+        transition:
+          opacity 140ms ease,
+          background 140ms ease,
+          border-color 140ms ease;
+      }
+      .url-pill.is-excluded {
+        opacity: 0.4;
+        background: transparent;
+      }
+      .url-pill.is-unresolved {
+        border-color: color-mix(in oklch, #fb923c 38%, transparent);
+        color: #fde68a;
+        background: rgba(251, 146, 60, 0.06);
+      }
+      .url-text {
+        line-height: 1;
+      }
+      .primary-dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--ps-success, #4dffb5);
+        box-shadow: 0 0 5px color-mix(in oklch, var(--ps-success, #4dffb5) 60%, transparent);
+      }
+      .url-toggle {
+        width: 18px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.65);
+        border: 0;
+        cursor: pointer;
+        font-size: 0.78rem;
+        line-height: 1;
+        transition:
+          background 140ms ease,
+          color 140ms ease;
+      }
+      .url-toggle:hover {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.16);
+      }
+      .url-toggle:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 1px;
+      }
 
-    /* Clickable X — removes (unbinds) a website from the forecast. ≥24px target. */
-    .url-remove {
-      min-width: 24px; min-height: 24px; padding: 0;
-      display: inline-flex; align-items: center; justify-content: center;
-      border-radius: 50%;
-      background: transparent; color: rgba(255,255,255,0.5);
-      border: 0; cursor: pointer; line-height: 1;
-      transition: background 140ms ease, color 140ms ease, transform 140ms ease;
-    }
-    .url-remove:hover:not(:disabled) {
-      color: #fecaca;
-      background: rgba(248, 113, 113, 0.16);
-      transform: scale(1.05);
-    }
-    .url-remove:disabled { opacity: 0.6; cursor: progress; }
-    .url-remove:focus-visible { outline: 2px solid #f87171; outline-offset: 1px; }
-    .rm-spin { animation: spin 0.9s linear infinite; }
+      /* Clickable X — removes (unbinds) a website from the forecast. ≥24px target. */
+      .url-remove {
+        min-width: 24px;
+        min-height: 24px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.5);
+        border: 0;
+        cursor: pointer;
+        line-height: 1;
+        transition:
+          background 140ms ease,
+          color 140ms ease,
+          transform 140ms ease;
+      }
+      .url-remove:hover:not(:disabled) {
+        color: #fecaca;
+        background: rgba(248, 113, 113, 0.16);
+        transform: scale(1.05);
+      }
+      .url-remove:disabled {
+        opacity: 0.6;
+        cursor: progress;
+      }
+      .url-remove:focus-visible {
+        outline: 2px solid #f87171;
+        outline-offset: 1px;
+      }
+      .rm-spin {
+        animation: spin 0.9s linear infinite;
+      }
 
-    /* A pill whose host is actively feeding the aggregate gets a subtle live ring. */
-    .url-pill.is-contributing {
-      box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ps-success, #4dffb5) 30%, transparent);
-    }
+      /* A pill whose host is actively feeding the aggregate gets a subtle live ring. */
+      .url-pill.is-contributing {
+        box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--ps-success, #4dffb5) 30%, transparent);
+      }
 
-    /* Read-only "Contributing to this data" source-of-truth line. */
-    .contributing-note {
-      display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
-      margin: -2px 0 0; padding: 0 2px;
-      font-size: 0.64rem; color: rgba(255,255,255,0.55);
-    }
-    .contributing-note > svg { color: var(--ps-success, #4dffb5); flex-shrink: 0; }
-    .contributing-chip {
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
-      font-size: 0.62rem; color: var(--ps-ink, #fff);
-      padding: 1px 7px; border-radius: 999px;
-      background: color-mix(in oklch, var(--ps-success, #4dffb5) 10%, transparent);
-      border: 1px solid color-mix(in oklch, var(--ps-success, #4dffb5) 24%, transparent);
-    }
+      /* Read-only "Contributing to this data" source-of-truth line. */
+      .contributing-note {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: -2px 0 0;
+        padding: 0 2px;
+        font-size: 0.64rem;
+        color: rgba(255, 255, 255, 0.55);
+      }
+      .contributing-note > svg {
+        color: var(--ps-success, #4dffb5);
+        flex-shrink: 0;
+      }
+      .contributing-chip {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.62rem;
+        color: var(--ps-ink, #fff);
+        padding: 1px 7px;
+        border-radius: 999px;
+        background: color-mix(in oklch, var(--ps-success, #4dffb5) 10%, transparent);
+        border: 1px solid color-mix(in oklch, var(--ps-success, #4dffb5) 24%, transparent);
+      }
 
-    /* Compact stat pill used for the on-card Bounce rate readout. */
-    .stat-pill {
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 2px 10px; border-radius: 999px;
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
-      font-size: 0.62rem; font-weight: 600; letter-spacing: 0.02em;
-      color: color-mix(in oklch, var(--ps-accent, #00E5FF) 70%, var(--ps-ink, #fff) 30%);
-      background: color-mix(in oklch, var(--ps-accent, #00E5FF) 8%, transparent);
-      border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 22%, transparent);
-    }
+      /* Compact stat pill used for the on-card Bounce rate readout. */
+      .stat-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.62rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: color-mix(in oklch, var(--ps-accent, #00e5ff) 70%, var(--ps-ink, #fff) 30%);
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 8%, transparent);
+        border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 22%, transparent);
+      }
 
-    .notice { display: flex; gap: 12px; align-items: center; justify-content: space-between; font-size: 0.78rem; line-height: 1.55; }
-    .notice strong { display: block; color: #fff; }
-    .notice-amber { background: rgba(251, 191, 36, 0.06); border-color: rgba(251, 191, 36, 0.3); color: #fde68a; }
-    .notice-amber strong { color: #fcd34d; }
-    .notice-red { background: rgba(248, 113, 113, 0.06); border-color: rgba(248, 113, 113, 0.3); color: #fecaca; }
-    .notice-red strong { color: #f87171; }
+      .notice {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 0.78rem;
+        line-height: 1.55;
+      }
+      .notice strong {
+        display: block;
+        color: #fff;
+      }
+      .notice-amber {
+        background: rgba(251, 191, 36, 0.06);
+        border-color: rgba(251, 191, 36, 0.3);
+        color: #fde68a;
+      }
+      .notice-amber strong {
+        color: #fcd34d;
+      }
+      .notice-red {
+        background: rgba(248, 113, 113, 0.06);
+        border-color: rgba(248, 113, 113, 0.3);
+        color: #fecaca;
+      }
+      .notice-red strong {
+        color: #f87171;
+      }
 
-    .empty-state-pretty {
-      display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
-      padding: 2.4rem 1.2rem; text-align: center;
-    }
-    .empty-glyph {
-      width: 80px; height: 80px;
-      display: flex; align-items: center; justify-content: center;
-      border-radius: 20px;
-      background: linear-gradient(135deg, color-mix(in oklch, var(--ps-accent, #00E5FF) 10%, transparent), color-mix(in oklch, var(--ps-accent-secondary, #7C3AED) 8%, transparent));
-      border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 18%, transparent);
-      color: color-mix(in oklch, var(--ps-accent, #00E5FF) 70%, currentColor 30%);
-      box-shadow: 0 16px 48px -24px color-mix(in oklch, var(--ps-accent, #00E5FF) 38%, transparent);
-      animation: pulseGlow 3.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-    }
-    @keyframes pulseGlow {
-      0%, 100% { box-shadow: 0 16px 48px -24px color-mix(in oklch, var(--ps-accent, #00E5FF) 32%, transparent); }
-      50%      { box-shadow: 0 20px 64px -24px color-mix(in oklch, var(--ps-accent, #00E5FF) 55%, transparent); }
-    }
-    .glow-h-grad {
-      background: linear-gradient(135deg, var(--ps-ink, #fff), color-mix(in oklch, var(--ps-accent, #00E5FF) 60%, var(--ps-ink, #fff) 40%));
-      -webkit-background-clip: text; background-clip: text; color: transparent;
-    }
+      .empty-state-pretty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 2.4rem 1.2rem;
+        text-align: center;
+      }
+      .empty-glyph {
+        width: 80px;
+        height: 80px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 20px;
+        background: linear-gradient(
+          135deg,
+          color-mix(in oklch, var(--ps-accent, #00e5ff) 10%, transparent),
+          color-mix(in oklch, var(--ps-accent-secondary, #7c3aed) 8%, transparent)
+        );
+        border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 18%, transparent);
+        color: color-mix(in oklch, var(--ps-accent, #00e5ff) 70%, currentColor 30%);
+        box-shadow: 0 16px 48px -24px
+          color-mix(in oklch, var(--ps-accent, #00e5ff) 38%, transparent);
+        animation: pulseGlow 3.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      }
+      @keyframes pulseGlow {
+        0%,
+        100% {
+          box-shadow: 0 16px 48px -24px
+            color-mix(in oklch, var(--ps-accent, #00e5ff) 32%, transparent);
+        }
+        50% {
+          box-shadow: 0 20px 64px -24px
+            color-mix(in oklch, var(--ps-accent, #00e5ff) 55%, transparent);
+        }
+      }
+      .glow-h-grad {
+        background: linear-gradient(
+          135deg,
+          var(--ps-ink, #fff),
+          color-mix(in oklch, var(--ps-accent, #00e5ff) 60%, var(--ps-ink, #fff) 40%)
+        );
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
 
-    .skel {
-      position: relative; overflow: hidden;
-      background: rgba(255,255,255,0.04);
-      border-radius: 6px;
-    }
-    .skel::after {
-      content: ""; position: absolute; inset: 0;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06) 40%, color-mix(in oklch, var(--ps-accent, #00E5FF) 12%, transparent) 50%, rgba(255,255,255,0.06) 60%, transparent);
-      background-size: 200% 100%;
-      animation: skel-shine 1.6s linear infinite;
-    }
-    @keyframes skel-shine { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-    .skel-line { display: block; }
-    .skel-chart { height: 128px; width: 100%; border-radius: 10px; }
+      .skel {
+        position: relative;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 6px;
+      }
+      .skel::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.06) 40%,
+          color-mix(in oklch, var(--ps-accent, #00e5ff) 12%, transparent) 50%,
+          rgba(255, 255, 255, 0.06) 60%,
+          transparent
+        );
+        background-size: 200% 100%;
+        animation: skel-shine 1.6s linear infinite;
+      }
+      @keyframes skel-shine {
+        from {
+          background-position: 200% 0;
+        }
+        to {
+          background-position: -200% 0;
+        }
+      }
+      .skel-line {
+        display: block;
+      }
+      .skel-chart {
+        height: 128px;
+        width: 100%;
+        border-radius: 10px;
+      }
 
-    .countdown {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 0 6px; margin-left: 4px;
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
-      font-size: 0.66rem;
-      color: rgba(255,255,255,0.55);
-      border-left: 1px solid rgba(255,255,255,0.1);
-    }
-    .dots { display: inline-flex; gap: 3px; }
-    .dots span {
-      width: 4px; height: 4px; border-radius: 50%;
-      background: var(--ps-accent, #00E5FF);
-      animation: dotPulse 1.2s ease-in-out infinite;
-    }
-    .dots span:nth-child(2) { animation-delay: 0.15s; }
-    .dots span:nth-child(3) { animation-delay: 0.3s; }
-    @keyframes dotPulse {
-      0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
-      40% { opacity: 1; transform: scale(1); }
-    }
+      .countdown {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 6px;
+        margin-left: 4px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 0.66rem;
+        color: rgba(255, 255, 255, 0.55);
+        border-left: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .dots {
+        display: inline-flex;
+        gap: 3px;
+      }
+      .dots span {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--ps-accent, #00e5ff);
+        animation: dotPulse 1.2s ease-in-out infinite;
+      }
+      .dots span:nth-child(2) {
+        animation-delay: 0.15s;
+      }
+      .dots span:nth-child(3) {
+        animation-delay: 0.3s;
+      }
+      @keyframes dotPulse {
+        0%,
+        80%,
+        100% {
+          opacity: 0.25;
+          transform: scale(0.8);
+        }
+        40% {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
 
-    @media (prefers-reduced-motion: reduce) {
-      .skel::after, .empty-glyph, .dots span, .refresh-btn .spinning, .rm-spin { animation: none; }
-      .sparkline path, .bar-fill, .btn-primary, .card, .url-pill { transition: none; }
-      .card:hover { transform: none; box-shadow: none; }
-    }
-  `],
+      @media (prefers-reduced-motion: reduce) {
+        .skel::after,
+        .empty-glyph,
+        .dots span,
+        .refresh-btn .spinning,
+        .rm-spin {
+          animation: none;
+        }
+        .sparkline path,
+        .bar-fill,
+        .btn-primary,
+        .card,
+        .url-pill {
+          transition: none;
+        }
+        .card:hover {
+          transform: none;
+          box-shadow: none;
+        }
+      }
+    `,
+  ],
 })
 export class AdminAnalyticsComponent implements OnInit, OnDestroy {
   state = inject(AdminStateService);
@@ -1213,7 +2096,10 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
    *  successful load resets the counter → auto-refresh resumes. */
   private static readonly MAX_AUTO_RETRIES = 3;
   readonly consecutiveErrors = signal(0);
-  readonly autoRefreshPaused = computed(() => this.consecutiveErrors() >= AdminAnalyticsComponent.MAX_AUTO_RETRIES || this.notAvailable());
+  readonly autoRefreshPaused = computed(
+    () =>
+      this.consecutiveErrors() >= AdminAnalyticsComponent.MAX_AUTO_RETRIES || this.notAvailable(),
+  );
   /**
    * Header eyebrow that reflects the REAL refresh state so it never lies:
    * 'Live' only while the 60s poll is actually running; 'Paused' when auto-
@@ -1251,7 +2137,8 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     // ignored). Set BEFORE the site-reactive effect's first reload so the right
     // window loads immediately.
     const r = this.route.snapshot.queryParamMap.get('range');
-    if (r === '24h' || r === '7d' || r === '30d' || r === '90d' || r === 'custom') this.range.set(r);
+    if (r === '24h' || r === '7d' || r === '30d' || r === '90d' || r === 'custom')
+      this.range.set(r);
     // A shared `?range=custom&days=45` link restores the EXACT window (the URL wins over
     // the recipient's localStorage) — without this, a custom-range link was silently
     // ignored (missing 'custom' above) AND fell back to the recipient's own day count.
@@ -1295,40 +2182,59 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     { id: 'custom', label: 'Custom' },
   ];
 
-  range = signal<RangeId>(((): RangeId => {
-    try {
-      const stored = localStorage.getItem('ps_analytics_range');
-      if (stored === '24h' || stored === '7d' || stored === '30d' || stored === '90d' || stored === 'custom') return stored;
-      // Migrate legacy '1d' value from the prior version.
-      if (stored === '1d') return '24h';
-      return '7d';
-    } catch { return '7d'; }
-  })());
+  range = signal<RangeId>(
+    ((): RangeId => {
+      try {
+        const stored = localStorage.getItem('ps_analytics_range');
+        if (
+          stored === '24h' ||
+          stored === '7d' ||
+          stored === '30d' ||
+          stored === '90d' ||
+          stored === 'custom'
+        )
+          return stored;
+        // Migrate legacy '1d' value from the prior version.
+        if (stored === '1d') return '24h';
+        return '7d';
+      } catch {
+        return '7d';
+      }
+    })(),
+  );
 
   /** Custom lookback in days (1–90) — used only when `range() === 'custom'`. Persisted. */
-  customDays = signal<number>(((): number => {
-    try {
-      const n = Number.parseInt(localStorage.getItem('ps_analytics_custom_days') ?? '', 10);
-      return Number.isFinite(n) && n >= 1 && n <= 90 ? n : 14;
-    } catch { return 14; }
-  })());
+  customDays = signal<number>(
+    ((): number => {
+      try {
+        const n = Number.parseInt(localStorage.getItem('ps_analytics_custom_days') ?? '', 10);
+        return Number.isFinite(n) && n >= 1 && n <= 90 ? n : 14;
+      } catch {
+        return 14;
+      }
+    })(),
+  );
 
   /** Exact-date custom window bounds (YYYY-MM-DD). When BOTH are set + valid AND the
    *  range is 'custom', an ABSOLUTE window supersedes the `customDays` lookback. Persisted. */
-  readonly customStart = signal<string>((() => {
-    try {
-      return localStorage.getItem('ps_analytics_custom_start') ?? '';
-    } catch {
-      return '';
-    }
-  })());
-  readonly customEnd = signal<string>((() => {
-    try {
-      return localStorage.getItem('ps_analytics_custom_end') ?? '';
-    } catch {
-      return '';
-    }
-  })());
+  readonly customStart = signal<string>(
+    (() => {
+      try {
+        return localStorage.getItem('ps_analytics_custom_start') ?? '';
+      } catch {
+        return '';
+      }
+    })(),
+  );
+  readonly customEnd = signal<string>(
+    (() => {
+      try {
+        return localStorage.getItem('ps_analytics_custom_end') ?? '';
+      } catch {
+        return '';
+      }
+    })(),
+  );
 
   /** The active absolute window, or null → fall back to the `customDays` lookback.
    *  Only active on the 'custom' range with two valid, correctly-ordered ISO dates. */
@@ -1399,7 +2305,11 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
   setCustomDays(value: number | string): void {
     const n = Math.min(Math.max(Math.trunc(Number(value) || 0), 1), 90);
     this.customDays.set(n);
-    try { localStorage.setItem('ps_analytics_custom_days', String(n)); } catch { /* */ }
+    try {
+      localStorage.setItem('ps_analytics_custom_days', String(n));
+    } catch {
+      /* */
+    }
     if (this.range() === 'custom') {
       // The lookback shapes the URL only when NO absolute window is active — an
       // active start/end window supersedes `days`, so leave its params untouched.
@@ -1417,7 +2327,11 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
 
   setRange(id: RangeId): void {
     this.range.set(id);
-    try { localStorage.setItem('ps_analytics_range', id); } catch { /* */ }
+    try {
+      localStorage.setItem('ps_analytics_range', id);
+    } catch {
+      /* */
+    }
     // Reflect in the URL so a time-window view is bookmarkable/shareable
     // (replaceUrl = no back-button spam; merge keeps other params; SPA no-reload).
     // `days` rides along only for the custom window; a preset clears it (null) so a
@@ -1469,7 +2383,8 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     // `trafficSource` is the authoritative edge-vs-first-party signal — the badge
     // MUST use it (it previously hardcoded "Cloudflare Edge" for all real data,
     // mislabeling first-party numbers as Cloudflare's).
-    if (env.any_real_data) return this.trafficSource() === 'edge' ? 'Cloudflare Edge' : 'ProjectSites analytics';
+    if (env.any_real_data)
+      return this.trafficSource() === 'edge' ? 'Cloudflare Edge' : 'ProjectSites analytics';
     const cred = this.credStatus();
     if (cred && cred.source === 'none') return 'Not connected';
     return 'No data yet';
@@ -1550,22 +2465,25 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     const prev = this.urls();
     // Optimistic: reactive local removal (satisfies the client-side-signal-update floor).
     this.urls.set(prev.filter((r) => r.id !== u.id));
-    this.api.removeSiteUrl(site.id, u.id).pipe(
-      timeout(8000),
-      catchError((err: unknown) => {
-        this.urls.set(prev); // roll back the optimistic drop
-        const message = err instanceof Error ? err.message : `Couldn't remove ${u.hostname}`;
-        this.toast.error(message);
-        return of(null);
-      }),
-    ).subscribe((res) => {
-      this.removingId.set(null);
-      if (res) {
-        this.toast.success(`${u.hostname} removed from the forecast`);
-        this.loadUrls();
-        this.reload();
-      }
-    });
+    this.api
+      .removeSiteUrl(site.id, u.id)
+      .pipe(
+        timeout(8000),
+        catchError((err: unknown) => {
+          this.urls.set(prev); // roll back the optimistic drop
+          const message = err instanceof Error ? err.message : `Couldn't remove ${u.hostname}`;
+          this.toast.error(message);
+          return of(null);
+        }),
+      )
+      .subscribe((res) => {
+        this.removingId.set(null);
+        if (res) {
+          this.toast.success(`${u.hostname} removed from the forecast`);
+          this.loadUrls();
+          this.reload();
+        }
+      });
   }
 
   /**
@@ -1684,7 +2602,9 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
 
   /** Resolve a referrer to a known `{ name, kind }`, or null when it's an unknown host. */
   private resolveHost(referrer: string): { name: string; kind: string } | null {
-    const host = this.referrerHost(referrer).toLowerCase().replace(/^www\./, '');
+    const host = this.referrerHost(referrer)
+      .toLowerCase()
+      .replace(/^www\./, '');
     if (!host) return null;
     for (const h of this.REFERRER_HOSTS) {
       if (this.hostMatch(host, h.match)) return { name: h.name, kind: h.kind };
@@ -1716,7 +2636,9 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     if (!raw) return 'Direct';
     if (this.REFERRER_CHANNELS[raw]) return this.REFERRER_CHANNELS[raw];
     return (
-      this.resolveApp(referrer)?.name ?? this.resolveHost(referrer)?.name ?? this.referrerHost(referrer)
+      this.resolveApp(referrer)?.name ??
+      this.resolveHost(referrer)?.name ??
+      this.referrerHost(referrer)
     );
   }
 
@@ -1763,7 +2685,6 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     );
   }
 
-
   async copyShareLink(): Promise<void> {
     const url = this.liveUrl();
     if (!url || url === '#') {
@@ -1793,7 +2714,12 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     const recent = series.slice(mid).reduce((s, d) => s + (d.page_views || 0), 0);
     if (older === 0 && recent === 0) return null;
     if (older === 0) {
-      return { dir: 'up', label: 'new', aria: 'Page views up from zero in the recent period', title: 'No views in the earlier half of this range' };
+      return {
+        dir: 'up',
+        label: 'new',
+        aria: 'Page views up from zero in the recent period',
+        title: 'No views in the earlier half of this range',
+      };
     }
     const pct = ((recent - older) / older) * 100;
     const rounded = Math.round(Math.abs(pct));
@@ -1815,12 +2741,21 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
    * `null` when there's no prior datum to compare; `"new"` (never `∞%`) when the prior
    * period was zero but the current isn't.
    */
-  private deltaBadge(current: number, previous: number | undefined, windowDays: number): TrendBadge | null {
+  private deltaBadge(
+    current: number,
+    previous: number | undefined,
+    windowDays: number,
+  ): TrendBadge | null {
     if (previous == null) return null;
     const w = windowDays > 0 ? `the previous ${windowDays} days` : 'the previous period';
     if (previous === 0) {
       if (current === 0) return null;
-      return { dir: 'up', label: 'new', aria: `Up from zero versus ${w}`, title: `No activity in ${w}` };
+      return {
+        dir: 'up',
+        label: 'new',
+        aria: `Up from zero versus ${w}`,
+        title: `No activity in ${w}`,
+      };
     }
     const pct = ((current - previous) / previous) * 100;
     const rounded = Math.round(Math.abs(pct));
@@ -1888,11 +2823,13 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
    */
   private kpiLabel(value: number, noun: string): string {
     if (this.loading() && !this.envelope()) return `${noun}, loading`;
-    return `${(value).toLocaleString()} ${noun.toLowerCase()}`;
+    return `${value.toLocaleString()} ${noun.toLowerCase()}`;
   }
   kpiPageviewsLabel = computed(() => this.kpiLabel(this.envelope()?.pageviews ?? 0, 'Page views'));
   kpiVisitorsLabel = computed(() => this.kpiLabel(this.envelope()?.uniques ?? 0, 'Visits'));
-  kpiRequestsLabel = computed(() => this.kpiLabel(this.envelope()?.total_requests ?? 0, 'Total requests'));
+  kpiRequestsLabel = computed(() =>
+    this.kpiLabel(this.envelope()?.total_requests ?? 0, 'Total requests'),
+  );
 
   /**
    * Average pages per visit (pageviews ÷ visits). The lever behind the bounce proxy:
@@ -1968,7 +2905,9 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
   kpiBounceLabel = computed(() => {
     if (this.loading() && !this.envelope()) return 'Bounce rate, loading';
     const b = this.bounceRate();
-    return b == null ? 'Bounce rate unavailable — no per-session data' : `${b} percent estimated bounce rate`;
+    return b == null
+      ? 'Bounce rate unavailable — no per-session data'
+      : `${b} percent estimated bounce rate`;
   });
 
   /**
@@ -1988,16 +2927,28 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
     // segment can't be a genuine URL, so it reads as gibberish in the "Top pages" list.
     if (p.includes('*') || /\/:[a-z]/.test(p)) return false;
     if (p.startsWith('/.well-known/') || p.startsWith('/assets/')) return false;
-    if (/^\/(offline\.html|sw\.js|ngsw-worker\.js|ngsw\.json|robots\.txt|sitemap[\w-]*\.xml|manifest[\w.-]*|browserconfig\.xml|humans\.txt|security\.txt|favicon[\w.-]*)$/.test(p))
+    if (
+      /^\/(offline\.html|sw\.js|ngsw-worker\.js|ngsw\.json|robots\.txt|sitemap[\w-]*\.xml|manifest[\w.-]*|browserconfig\.xml|humans\.txt|security\.txt|favicon[\w.-]*)$/.test(
+        p,
+      )
+    )
       return false;
-    return !/\.(webmanifest|xml|txt|ico|js|css|map|png|jpe?g|gif|svg|webp|avif|woff2?|ttf|json)$/.test(p);
+    return !/\.(webmanifest|xml|txt|ico|js|css|map|png|jpe?g|gif|svg|webp|avif|woff2?|ttf|json)$/.test(
+      p,
+    );
   }
   /** Top pages with static-asset / infra paths filtered out — what the "Top pages" list renders. */
-  readonly displayTopPages = computed(() => (this.envelope()?.top_pages ?? []).filter((r) => this.isRealPage(r.path)));
+  readonly displayTopPages = computed(() =>
+    (this.envelope()?.top_pages ?? []).filter((r) => this.isRealPage(r.path)),
+  );
 
   maxPage = computed(() => Math.max(1, ...this.displayTopPages().map((p) => p.views)));
-  maxReferrer = computed(() => Math.max(1, ...(this.envelope()?.top_referrers ?? []).map((r) => r.views)));
-  peakDayVisits = computed(() => Math.max(0, ...(this.envelope()?.series ?? []).map((d) => d.page_views)));
+  maxReferrer = computed(() =>
+    Math.max(1, ...(this.envelope()?.top_referrers ?? []).map((r) => r.views)),
+  );
+  peakDayVisits = computed(() =>
+    Math.max(0, ...(this.envelope()?.series ?? []).map((d) => d.page_views)),
+  );
 
   sparkPoints = computed<{ x: number; y: number }[]>(() => {
     const days = this.envelope()?.series ?? [];
@@ -2009,29 +2960,68 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
   sparkLine = computed(() => {
     const pts = this.sparkPoints();
     if (!pts.length) return '';
-    return pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+    return pts
+      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+      .join(' ');
   });
   sparkArea = computed(() => {
     const pts = this.sparkPoints();
     if (!pts.length) return '';
-    const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+    const line = pts
+      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+      .join(' ');
     const last = pts[pts.length - 1]!;
     const first = pts[0]!;
     return `${line} L ${last.x.toFixed(1)} 130 L ${first.x.toFixed(1)} 130 Z`;
   });
   sparkDots = computed(() => this.sparkPoints());
 
-  kpiSparkLine = computed(() => sparklinePath((this.envelope()?.series ?? []).map((d) => d.page_views), 80, 24).line);
-  kpiSparkArea = computed(() => sparklinePath((this.envelope()?.series ?? []).map((d) => d.page_views), 80, 24).area);
-  kpiVisitorSparkLine = computed(() => sparklinePath((this.envelope()?.series ?? []).map((d) => d.unique_visitors), 80, 24).line);
-  kpiVisitorSparkArea = computed(() => sparklinePath((this.envelope()?.series ?? []).map((d) => d.unique_visitors), 80, 24).area);
+  kpiSparkLine = computed(
+    () =>
+      sparklinePath(
+        (this.envelope()?.series ?? []).map((d) => d.page_views),
+        80,
+        24,
+      ).line,
+  );
+  kpiSparkArea = computed(
+    () =>
+      sparklinePath(
+        (this.envelope()?.series ?? []).map((d) => d.page_views),
+        80,
+        24,
+      ).area,
+  );
+  kpiVisitorSparkLine = computed(
+    () =>
+      sparklinePath(
+        (this.envelope()?.series ?? []).map((d) => d.unique_visitors),
+        80,
+        24,
+      ).line,
+  );
+  kpiVisitorSparkArea = computed(
+    () =>
+      sparklinePath(
+        (this.envelope()?.series ?? []).map((d) => d.unique_visitors),
+        80,
+        24,
+      ).area,
+  );
 
-  barWidth(visits: number, max: number): number { return max > 0 ? (visits / max) * 100 : 0; }
+  barWidth(visits: number, max: number): number {
+    return max > 0 ? (visits / max) * 100 : 0;
+  }
   flag(code: string): string {
     if (!code || code === '-' || code.length !== 2) return '🌐';
     const base = 'A'.charCodeAt(0);
     const A = 0x1f1e6;
-    return String.fromCodePoint(...code.toUpperCase().split('').map((c) => A + (c.charCodeAt(0) - base)));
+    return String.fromCodePoint(
+      ...code
+        .toUpperCase()
+        .split('')
+        .map((c) => A + (c.charCodeAt(0) - base)),
+    );
   }
 
   ngOnInit(): void {
@@ -2054,12 +3044,15 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
 
   /** Fetch the org's CF credential status (fire-and-forget). */
   loadCredStatus(): void {
-    this.api.getCloudflareCredentialStatus().pipe(
-      timeout(5000),
-      catchError(() => of({ data: null as CloudflareCredentialStatus | null })),
-    ).subscribe((r) => {
-      if (r.data) this.credStatus.set(r.data);
-    });
+    this.api
+      .getCloudflareCredentialStatus()
+      .pipe(
+        timeout(5000),
+        catchError(() => of({ data: null as CloudflareCredentialStatus | null })),
+      )
+      .subscribe((r) => {
+        if (r.data) this.credStatus.set(r.data);
+      });
   }
 
   loadUrls(): void {
@@ -2068,12 +3061,15 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
       this.urls.set([]);
       return;
     }
-    this.api.listSiteUrls(site.id).pipe(
-      timeout(5000),
-      catchError(() => of({ data: [] as SiteUrlRow[] })),
-    ).subscribe((r) => {
-      this.urls.set(r.data || []);
-    });
+    this.api
+      .listSiteUrls(site.id)
+      .pipe(
+        timeout(5000),
+        catchError(() => of({ data: [] as SiteUrlRow[] })),
+      )
+      .subscribe((r) => {
+        this.urls.set(r.data || []);
+      });
   }
 
   reload(): void {
@@ -2128,9 +3124,10 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
           }
           // The shared error card owns the Retry affordance, so the message no
           // longer says "Retry below"; capture the worker request_id for support.
-          const msg = err instanceof TimeoutError
-            ? 'Analytics request timed out after 10 s — this is usually temporary.'
-            : "Couldn't reach the analytics service — this is usually temporary.";
+          const msg =
+            err instanceof TimeoutError
+              ? 'Analytics request timed out after 10 s — this is usually temporary.'
+              : "Couldn't reach the analytics service — this is usually temporary.";
           this.error.set(msg);
           this.loadErrorRef.set(this.requestIdFrom(err));
           return of({ data: null as MultiUrlAnalyticsEnvelope | null });
@@ -2140,17 +3137,34 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
       // recorded on every site-serve. The CF-zone dataset above is empty for
       // `*.projectsites.dev` subdomains, so a real site showed "No traffic yet"
       // while it had hundreds of recorded pageviews. Never throws (404/off → null).
-      site: this.api.getSiteAnalytics(site.id, this.rangeDays(), win, this.browserTzOffset(), this.filter() ?? undefined).pipe(
-        timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
-        catchError(() => of(null as SiteAnalyticsSummary | null)),
-      ),
-      // Daily rollup for the chart series — empty when the site has no rollup yet.
-      daily: this.api.getSiteAnalyticsDaily(site.id, this.rangeDays(), win, this.browserTzOffset()).pipe(
-        timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
-        catchError(() =>
-          of({ days: [] as { day: string; pageviews: number; uniqueSessions: number; conversions: number }[] }),
+      site: this.api
+        .getSiteAnalytics(
+          site.id,
+          this.rangeDays(),
+          win,
+          this.browserTzOffset(),
+          this.filter() ?? undefined,
+        )
+        .pipe(
+          timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
+          catchError(() => of(null as SiteAnalyticsSummary | null)),
         ),
-      ),
+      // Daily rollup for the chart series — empty when the site has no rollup yet.
+      daily: this.api
+        .getSiteAnalyticsDaily(site.id, this.rangeDays(), win, this.browserTzOffset())
+        .pipe(
+          timeout(AdminAnalyticsComponent.FETCH_TIMEOUT_MS),
+          catchError(() =>
+            of({
+              days: [] as {
+                day: string;
+                pageviews: number;
+                uniqueSessions: number;
+                conversions: number;
+              }[],
+            }),
+          ),
+        ),
     }).subscribe({
       next: (r) => {
         let env = r.analytics.data;
@@ -2301,6 +3315,9 @@ export class AdminAnalyticsComponent implements OnInit, OnDestroy {
 
   /** Pull the worker request_id from a failed response ({ error: { request_id } }) for the support reference. */
   private requestIdFrom(e: unknown): string {
-    return ((e as { error?: { error?: { request_id?: string } } } | undefined)?.error?.error?.request_id) ?? '';
+    return (
+      (e as { error?: { error?: { request_id?: string } } } | undefined)?.error?.error
+        ?.request_id ?? ''
+    );
   }
 }

@@ -137,17 +137,26 @@ once the augment tier is genuinely exhausted. A CF plan upgrade is the only path
     counts. Worker-only (the `views` field name + the Angular card are unchanged — the DATA is now
     honest). +1 `top_referrers` assertion added; `multi_url_analytics_load` mock proves visits≠count is
     read. 29/29 multi_url + 72/72 sibling analytics suites green.
-  - **Ranked backlog (4-agent scan 2026-09-25, verified not-shipped):** (1) ✅ **top-pages VISITS —
-    DONE this fire**; (2) UTM **medium** breakdown — `enrich.ts` extracts `utmMedium` but no
-    aggregator (byUtmSource + byUtmCampaign exist) → complete the UTM triad (partly redundant w/ the
-    derived channel card, so mid value); (3) conversions **by-kind drilldown filter** — `byConversionKind`
-    returned but `filterDimLabel()` lacks `conversion_kind`, so it's the one breakdown with no click-to-
-    filter (feature parity); (4) delivery **`by_cache_visits`** — the `cache` sub-query has bytes but
-    not visits (mirror `by_status_visits`, tiny); (5) **exit pages / session-duration** — high value but
-    need a session id on events server-side (bigger than one fire; the `ps_sess` beacon boundary exists
-    client-side only). FALSE gaps rejected: new-vs-returning + entry-pages (shipped as dedicated
-    self-fetching cards, not via `getTrafficSummary`); `byType` card (deliberately dropped as telemetry
-    noise).
+  - **Ranked backlog (updated 2026-09-25):** (1) ✅ **top-pages VISITS — DONE**; (2) ✅ **UTM medium
+    breakdown — DONE this fire**: `getCampaignBreakdown` already supported all 3 CAMPAIGN_DIMENSIONS but
+    `getTrafficSummary` only requested source+campaign and the card rendered 2 columns; now wires
+    `getCampaignBreakdown('utmMedium')` into BOTH summary paths + `byUtmMedium` in the schema + a 3rd
+    "Mediums" column in `CampaignBreakdownComponent` + the CSV `campaign_medium` row. utm_medium is the
+    RAW owner-set medium (cpc/email/newsletter), DISTINCT from the coarse derived `byChannel` bucket —
+    completes the source/medium/campaign triad. +2 Jest (utmMedium breakdown groups by `$.utmMedium` +
+    summary wires byUtmMedium) + card/CSV Karma. (3) delivery **`by_cache_visits`** — the `cache`
+    sub-query has bytes but not visits (mirror `by_status_visits`, tiny); (4) **exit pages /
+    session-duration** — high value but need a session id on events server-side (bigger than one fire;
+    the `ps_sess` beacon boundary exists client-side only).
+  - **REJECTED — conversions by-kind drilldown filter (❌ FALSE GAP, do NOT build):** a prior scan flagged
+    `byConversionKind` as "the one breakdown with no click-to-filter." But `conversion_kind` (metadata
+    `$.kind`) exists ONLY on `event_type='conversion'` events, and the drilldown filter appends
+    `AND <col> = ?` to EVERY aggregator's query (`filterClause`). A global `conversion_kind` drilldown would
+    append `AND json_extract(metadata,'$.kind')='call'` to the pageview cards → NULL≠'call' → **every
+    traffic card collapses to 0**. It's a deliberate omission, not a missing feature — the drillable dims
+    (country/device/browser/os/channel/path) are all present on ALL events; conversion_kind is not.
+    Other FALSE gaps rejected: new-vs-returning + entry-pages (shipped as dedicated self-fetching cards,
+    not via `getTrafficSummary`); `byType` card (deliberately dropped as telemetry noise).
 - **Analytics Engine (`ANALYTICS` binding)** — ops/debug only (`services/cf_analytics.ts`), not in the
   customer dashboard; ingest gated by `ANALYTICS_INGEST_ENABLED="false"`.
 - **Tenant isolation: SAFE** — `resolveOwnedSiteId` (`routes/analytics.ts:57`) + `requireOwnedSite`
@@ -381,7 +390,7 @@ gated.
 | Geography (country/city/region) | D1 metadata ← `request.cf` | none | site_id | D1 | none | ✅ live | geo breakdown |
 | **Device / browser / OS** | D1 metadata `json_extract($.device\|$.browser\|$.os)` ← `enrichVisitor(ua)` (`getDimensionBreakdown`, allowlisted dimension) | none | site_id | D1 | none (all pageviews) | ✅ **fully live (this fire)** — was device-only surfaced; browser + OS were INGESTED but not aggregated. Now a focused **`TechBreakdownComponent`** ("Devices & platforms") renders all three pageview splits (top-6, bar + count + **share % of the FULL dimension total** — not just the top-6, so "mobile 68%" is honest, cycle 57 — "unknown" is a real bucket never dropped). Covers EVERY visitor (user-agent, unlike Chromium-only CWV). Both summary paths (live + rollup-reads-live). Prod-verified live REAL data: device `[desktop:19]`, browser `[Chrome:15, unknown:3, Firefox:1]`, os `[macOS:16, unknown:3]`. | `/admin/analytics` "Devices & platforms" card |
 | **Busiest hours (hour-of-day)** | D1 `strftime('%H', created_at)` over pageviews (`getHourlyBreakdown`) | none | site_id | D1 | none (all pageviews) | ✅ **live (2026-09-24)** — 24 UTC hour-of-day pageview buckets (`byHour`) read live in both summary paths; the card rotates to the viewer's LOCAL time (`rotateToLocalHours`) + shows a 24-bar strip + peak-hours insight + honest empty state; local-time basis + half-hour-zone approximation disclosed. Prod-verified REAL data via the API. | `/admin/analytics` "Busiest hours" card |
-| Channel + Campaigns (utm_source / utm_campaign) | D1 metadata ← `enrichVisitor` (channel from referrer+utm; utm_* parsed from the URL) via `getDimensionBreakdown` (channel) + `getCampaignBreakdown` (utm, allowlisted, **excludes untagged**) | none | site_id | D1 | none | ✅ channel live; **campaigns NEW (this fire)** — `CampaignBreakdownComponent` ("Campaigns & sources") renders top utm_source + utm_campaign over TAGGED visits ONLY (untagged direct/organic excluded, never a giant "unknown" bucket); honest empty state that TEACHES how to tag links (utm_source/utm_campaign example). Both summary paths + CSV. Prod-verified live: `byUtmSource`/`byUtmCampaign` in the summary (empty for the untagged test site). **(2026-09-25) Channels card NOW RENDERED** — `traffic.byChannel` was computed in BOTH summary paths (`getDimensionBreakdown('channel')`) + in CSV, but had NO dashboard card (computed-and-discarded). A focused **`ChannelBreakdownComponent`** ("Acquisition · Channels") now renders it (direct/organic/social/paid/email/referral, top-8, bar + count + honest share % of the full total; humanized labels; honest empty state), each row a drillable toggle (drills by the RAW stored channel value → exact server filter, never lying-empty). +6 Karma. Prod-verified chunk `chunk-LNG32YNM.js` (200 + `an-channel-drill`). | `/admin/analytics` "Acquisition · Channels" card (drillable) + "Campaigns & sources" card |
+| Channel + Campaigns (utm_source / utm_medium / utm_campaign) | D1 metadata ← `enrichVisitor` (channel from referrer+utm; utm_* parsed from the URL) via `getDimensionBreakdown` (channel) + `getCampaignBreakdown` (utm, allowlisted, **excludes untagged**) | none | site_id | D1 | none | ✅ channel live; **utm_medium 3rd column added 2026-09-25** (RAW owner-set medium cpc/email/newsletter, distinct from the coarse derived channel — completes the source/medium/campaign triad; `getCampaignBreakdown('utmMedium')` in both summary paths + `byUtmMedium` schema + a "Mediums" card column + CSV `campaign_medium`); **campaigns NEW (earlier fire)** — `CampaignBreakdownComponent` ("Campaigns & sources") renders top utm_source + utm_campaign over TAGGED visits ONLY (untagged direct/organic excluded, never a giant "unknown" bucket); honest empty state that TEACHES how to tag links (utm_source/utm_campaign example). Both summary paths + CSV. Prod-verified live: `byUtmSource`/`byUtmCampaign` in the summary (empty for the untagged test site). **(2026-09-25) Channels card NOW RENDERED** — `traffic.byChannel` was computed in BOTH summary paths (`getDimensionBreakdown('channel')`) + in CSV, but had NO dashboard card (computed-and-discarded). A focused **`ChannelBreakdownComponent`** ("Acquisition · Channels") now renders it (direct/organic/social/paid/email/referral, top-8, bar + count + honest share % of the full total; humanized labels; honest empty state), each row a drillable toggle (drills by the RAW stored channel value → exact server filter, never lying-empty). +6 Karma. Prod-verified chunk `chunk-LNG32YNM.js` (200 + `an-channel-drill`). | `/admin/analytics` "Acquisition · Channels" card (drillable) + "Campaigns & sources" card |
 | Daily time series | D1 visitor_events / analytics_daily | flag `analytics_rollup_read` | site_id | D1 | none | ✅ live | line chart |
 | Funnel (landing→engaged→converted) | D1 visitor_events | none | site_id | D1 | none | ✅ live | funnel widget |
 | Forms / completions | D1 form_submissions | none | site_id | D1 | none | ✅ live | forms tab |

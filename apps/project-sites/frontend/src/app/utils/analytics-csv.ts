@@ -40,6 +40,7 @@ export interface AnalyticsCsvInput {
     byBrowser?: ReadonlyArray<{ label: string; count: number }>;
     byOs?: ReadonlyArray<{ label: string; count: number }>;
     byUtmSource?: ReadonlyArray<{ label: string; count: number }>;
+    byUtmMedium?: ReadonlyArray<{ label: string; count: number }>;
     byUtmCampaign?: ReadonlyArray<{ label: string; count: number }>;
     byChannel?: ReadonlyArray<{ label: string; count: number }>;
     byConversionKind?: ReadonlyArray<{ label: string; count: number }>;
@@ -91,7 +92,8 @@ export function buildAnalyticsCsv(input: AnalyticsCsvInput): string {
   lines.push(`summary,unique_visitors,${e.uniques}`);
   lines.push(`summary,total_requests,${e.total_requests}`);
   // Bounce is emitted only when truly measured (session-depth) — never a fake 0.
-  if (t?.bounceRatePercent != null) lines.push(`summary,bounce_rate_percent,${t.bounceRatePercent}`);
+  if (t?.bounceRatePercent != null)
+    lines.push(`summary,bounce_rate_percent,${t.bounceRatePercent}`);
 
   for (const r of e.series ?? []) lines.push(`by_day,${csvEscape(r.date)},${r.page_views}`);
   for (const r of e.top_pages ?? []) lines.push(`top_page,${csvEscape(r.path)},${r.views}`);
@@ -104,10 +106,14 @@ export function buildAnalyticsCsv(input: AnalyticsCsvInput): string {
   for (const r of t?.byBrowser ?? []) lines.push(`browser,${csvEscape(r.label)},${r.count}`);
   for (const r of t?.byOs ?? []) lines.push(`os,${csvEscape(r.label)},${r.count}`);
   // Campaign attribution — tagged visits only (mirrors the "Campaigns & sources" card).
-  for (const r of t?.byUtmSource ?? []) lines.push(`campaign_source,${csvEscape(r.label)},${r.count}`);
+  for (const r of t?.byUtmSource ?? [])
+    lines.push(`campaign_source,${csvEscape(r.label)},${r.count}`);
+  for (const r of t?.byUtmMedium ?? [])
+    lines.push(`campaign_medium,${csvEscape(r.label)},${r.count}`);
   for (const r of t?.byUtmCampaign ?? []) lines.push(`campaign,${csvEscape(r.label)},${r.count}`);
   for (const r of t?.byChannel ?? []) lines.push(`channel,${csvEscape(r.label)},${r.count}`);
-  for (const r of t?.byConversionKind ?? []) lines.push(`conversion,${csvEscape(r.label)},${r.count}`);
+  for (const r of t?.byConversionKind ?? [])
+    lines.push(`conversion,${csvEscape(r.label)},${r.count}`);
 
   const wv = t?.webVitals;
   if (wv?.lcp) lines.push(`web_vital,lcp_p75_ms,${wv.lcp.p75}`);
@@ -122,19 +128,24 @@ export function buildAnalyticsCsv(input: AnalyticsCsvInput): string {
   const dl = input.delivery;
   if (dl?.has_data) {
     lines.push(`delivery,edge_requests,${dl.total_requests}`);
-    for (const s of dl.by_status_class) lines.push(`delivery,status_${csvEscape(s.class)},${s.count}`);
+    for (const s of dl.by_status_class)
+      lines.push(`delivery,status_${csvEscape(s.class)},${s.count}`);
     lines.push(`delivery,cache_hit,${dl.cache.hit}`);
     lines.push(`delivery,cache_miss,${dl.cache.miss}`);
     lines.push(`delivery,cache_uncacheable,${dl.cache.uncacheable}`);
-    if (dl.cache.hit_ratio_pct != null) lines.push(`delivery,cache_hit_ratio_pct,${dl.cache.hit_ratio_pct}`);
+    if (dl.cache.hit_ratio_pct != null)
+      lines.push(`delivery,cache_hit_ratio_pct,${dl.cache.hit_ratio_pct}`);
     lines.push(`delivery,edge_response_bytes,${dl.response_bytes}`);
     // Edge connection/content breakdowns (mirror the Delivery card's edge grid) — each
     // top row as `edge_<dim>,<label>,<count>`. Absent dims contribute nothing.
-    for (const r of dl.protocols ?? []) lines.push(`edge_protocol,${csvEscape(r.label)},${r.count}`);
+    for (const r of dl.protocols ?? [])
+      lines.push(`edge_protocol,${csvEscape(r.label)},${r.count}`);
     for (const r of dl.tls ?? []) lines.push(`edge_tls,${csvEscape(r.label)},${r.count}`);
-    for (const r of dl.content_types ?? []) lines.push(`edge_content_type,${csvEscape(r.label)},${r.count}`);
+    for (const r of dl.content_types ?? [])
+      lines.push(`edge_content_type,${csvEscape(r.label)},${r.count}`);
     for (const r of dl.methods ?? []) lines.push(`edge_method,${csvEscape(r.label)},${r.count}`);
-    for (const r of dl.verified_bots ?? []) lines.push(`edge_verified_bot,${csvEscape(r.label)},${r.count}`);
+    for (const r of dl.verified_bots ?? [])
+      lines.push(`edge_verified_bot,${csvEscape(r.label)},${r.count}`);
   }
 
   // Busiest hours — local-time buckets (the caller rotated from UTC), `HH:00` labels.
@@ -143,7 +154,9 @@ export function buildAnalyticsCsv(input: AnalyticsCsvInput): string {
   }
 
   for (const u of e.urls_included ?? []) {
-    lines.push(`url_included,${csvEscape(u.hostname)},${u.resolved_zone ? 'resolved' : 'unresolved'}`);
+    lines.push(
+      `url_included,${csvEscape(u.hostname)},${u.resolved_zone ? 'resolved' : 'unresolved'}`,
+    );
   }
 
   return lines.join('\n') + '\n';

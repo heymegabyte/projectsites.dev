@@ -18,6 +18,7 @@ const BASE: AnalyticsCsvInput = {
     byBrowser: [{ label: 'Chrome', count: 61 }],
     byOs: [{ label: 'iOS', count: 44 }],
     byUtmSource: [{ label: 'instagram', count: 18 }],
+    byUtmMedium: [{ label: 'cpc', count: 9 }],
     byUtmCampaign: [{ label: 'spring-sale', count: 12 }],
     byChannel: [{ label: 'organic', count: 55 }],
     byConversionKind: [{ label: 'call', count: 9 }],
@@ -90,9 +91,10 @@ describe('buildAnalyticsCsv', () => {
     expect(browser).toBeLessThan(os);
   });
 
-  it('exports the campaign attribution rows (utm_source + utm_campaign) from tagged visits', () => {
+  it('exports the campaign attribution rows (utm_source + utm_medium + utm_campaign) from tagged visits', () => {
     const r = rows(buildAnalyticsCsv(BASE));
     expect(r).toContain('campaign_source,instagram,18');
+    expect(r).toContain('campaign_medium,cpc,9');
     expect(r).toContain('campaign,spring-sale,12');
   });
 

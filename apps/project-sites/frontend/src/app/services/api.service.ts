@@ -612,7 +612,12 @@ export class ApiService {
     return this.get('/admin/domains/summary', undefined, opts);
   }
 
-  searchAddress(query: string, lat?: number, lng?: number, opts?: { silent?: boolean }): Observable<{ data: AddressResult[]; _error?: SearchProviderError }> {
+  searchAddress(
+    query: string,
+    lat?: number,
+    lng?: number,
+    opts?: { silent?: boolean },
+  ): Observable<{ data: AddressResult[]; _error?: SearchProviderError }> {
     const params: Record<string, string> = { q: query };
     if (lat != null) params['lat'] = lat.toString();
     if (lng != null) params['lng'] = lng.toString();
@@ -692,9 +697,7 @@ export class ApiService {
    *
    * @see {@link AutofillResult}
    */
-  autofillSite(
-    name: string,
-  ): Observable<{
+  autofillSite(name: string): Observable<{
     data: AutofillResult;
     meta?: { model: string; latency_ms: number; status: 'ok' | 'error' };
   }> {
@@ -728,9 +731,7 @@ export class ApiService {
   }
 
   /** Upload assets (logo, favicon, images) before site creation */
-  uploadAssets(
-    formData: FormData,
-  ): Observable<{
+  uploadAssets(formData: FormData): Observable<{
     data: {
       upload_id: string;
       assets: { key: string; name: string; size: number; type: string; url: string }[];
@@ -740,9 +741,7 @@ export class ApiService {
   }
 
   /** Get build assets for a site (generated during workflow) */
-  getBuildAssets(
-    siteId: string,
-  ): Observable<{
+  getBuildAssets(siteId: string): Observable<{
     data: { key: string; name: string; type: string; size: number; url: string }[];
   }> {
     return this.get(`/sites/${siteId}/build-assets`);
@@ -822,7 +821,11 @@ export class ApiService {
     }
     // tz shifts the absolute-window bounds into the owner's local day server-side
     // (no-op without a window); the worker re-validates + bounds it.
-    if (typeof tzOffsetMinutes === 'number' && Number.isInteger(tzOffsetMinutes) && tzOffsetMinutes !== 0) {
+    if (
+      typeof tzOffsetMinutes === 'number' &&
+      Number.isInteger(tzOffsetMinutes) &&
+      tzOffsetMinutes !== 0
+    ) {
       params['tz'] = tzOffsetMinutes.toString();
     }
     // AN-FILTER — an optional `{dim,value}` drilldown restriction. The server validates
@@ -846,7 +849,9 @@ export class ApiService {
     days = 30,
     window?: { start: string; end: string },
     tzOffsetMinutes?: number,
-  ): Observable<{ days: { day: string; pageviews: number; uniqueSessions: number; conversions: number }[] }> {
+  ): Observable<{
+    days: { day: string; pageviews: number; uniqueSessions: number; conversions: number }[];
+  }> {
     const params: Record<string, string> = { days: days.toString() };
     if (window) {
       params['start'] = window.start;
@@ -854,7 +859,11 @@ export class ApiService {
     }
     // Owner-local day bucketing (UTC offset in minutes, e.g. PST = -480); the
     // worker re-validates + bounds it and falls back to UTC when absent/invalid.
-    if (typeof tzOffsetMinutes === 'number' && Number.isInteger(tzOffsetMinutes) && tzOffsetMinutes !== 0) {
+    if (
+      typeof tzOffsetMinutes === 'number' &&
+      Number.isInteger(tzOffsetMinutes) &&
+      tzOffsetMinutes !== 0
+    ) {
       params['tz'] = tzOffsetMinutes.toString();
     }
     return this.get(`/sites/${siteId}/analytics/daily`, params, { silent: true });
@@ -1687,8 +1696,9 @@ export interface SiteTrafficSummary {
   /** Pageviews by browser + OS — from the same user-agent enrichment as `byDevice`. */
   byBrowser?: { label: string; count: number }[];
   byOs?: { label: string; count: number }[];
-  /** Tagged-visit pageviews by utm_source / utm_campaign (untagged traffic excluded). */
+  /** Tagged-visit pageviews by utm_source / utm_medium / utm_campaign (untagged traffic excluded). */
   byUtmSource?: { label: string; count: number }[];
+  byUtmMedium?: { label: string; count: number }[];
   byUtmCampaign?: { label: string; count: number }[];
   byChannel: { label: string; count: number }[];
   byCountry: { label: string; count: number }[];
@@ -1760,7 +1770,12 @@ export interface SiteTrafficSummary {
     medianRttMs: number | null;
     saveDataPercent: number | null;
     /** AN-NET-PAGE — pages whose visitors have the slowest median downlink (mobile-hostile pages). */
-    byPage?: { path: string; medianDownlinkMbps: number; medianRttMs: number | null; samples: number }[];
+    byPage?: {
+      path: string;
+      medianDownlinkMbps: number;
+      medianRttMs: number | null;
+      samples: number;
+    }[];
   };
   /** AN-NAV — first-party page-load waterfall. Median ms per phase (dns/connect/ttfb/transfer/
    *  dom/total) from the `nav_timing` beacon. A phase is null only with no samples (card shows
@@ -1788,7 +1803,12 @@ export interface SiteTrafficSummary {
     starts: number;
     submits: number;
     completionRatePercent: number | null;
-    byForm: { form: string; starts: number; submits: number; completionRatePercent: number | null }[];
+    byForm: {
+      form: string;
+      starts: number;
+      submits: number;
+      completionRatePercent: number | null;
+    }[];
   };
   previous: {
     pageviews: number;
