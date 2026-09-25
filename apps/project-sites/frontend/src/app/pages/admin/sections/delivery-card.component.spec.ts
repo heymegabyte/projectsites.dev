@@ -18,7 +18,7 @@ const REAL: DeliverySummary = {
     { status: 504, count: 9, bytes: 46_080, visits: 7 },
     { status: 404, count: 2, bytes: 8_000, visits: 0 },
   ],
-  cache: { hit: 1475, miss: 3139, uncacheable: 26879, hit_ratio_pct: 32 },
+  cache: { hit: 1475, miss: 3139, uncacheable: 26879, hit_ratio_pct: 32, hit_bytes: 40_000_000, miss_bytes: 8_000_000, uncacheable_bytes: 500_000 },
   response_bytes: 1_159_813_769,
   range_days: 7,
 };
@@ -42,6 +42,19 @@ describe('DeliveryCardComponent', () => {
     expect(statuses.textContent).toContain('2xx · success');
     expect(statuses.textContent).toContain('87%');
     expect(statuses.textContent).withContext('server-error word present, not colour-only').toContain('5xx · server error');
+  });
+
+  it('surfaces bandwidth served on cache MISSES (the cacheable-to-save-bandwidth signal)', () => {
+    const { el } = setup(REAL); // miss_bytes: 8_000_000
+    const miss = el.querySelector('[data-testid="an-dl-cache-miss-bytes"]') as HTMLElement;
+    expect(miss).withContext('miss-bytes line shown when miss_bytes > 0').toBeTruthy();
+    expect(miss.textContent).toContain('7.6 MB'); // 8_000_000 bytes → 7.6 MB
+    expect(miss.textContent).toContain('cache misses');
+  });
+
+  it('hides the cache-miss-bytes line when miss_bytes is 0 (never a fabricated 0 MB)', () => {
+    const { el } = setup({ ...REAL, cache: { ...REAL.cache, miss_bytes: 0 } });
+    expect(el.querySelector('[data-testid="an-dl-cache-miss-bytes"]')).toBeNull();
   });
 
   it('labels the ACTUAL CF-covered window (range_days), not the requested window, and flags the cap', () => {
@@ -178,7 +191,7 @@ describe('DeliveryCardComponent', () => {
       total_requests: 0,
       by_status_class: [],
       top_statuses: [],
-      cache: { hit: 0, miss: 0, uncacheable: 0, hit_ratio_pct: null },
+      cache: { hit: 0, miss: 0, uncacheable: 0, hit_ratio_pct: null, hit_bytes: 0, miss_bytes: 0, uncacheable_bytes: 0 },
       response_bytes: 0,
       range_days: 7,
     };
@@ -195,7 +208,7 @@ describe('DeliveryCardComponent', () => {
       total_requests: 0,
       by_status_class: [],
       top_statuses: [],
-      cache: { hit: 0, miss: 0, uncacheable: 0, hit_ratio_pct: null },
+      cache: { hit: 0, miss: 0, uncacheable: 0, hit_ratio_pct: null, hit_bytes: 0, miss_bytes: 0, uncacheable_bytes: 0 },
       response_bytes: 0,
       range_days: 7,
     };
@@ -216,7 +229,7 @@ describe('DeliveryCardComponent', () => {
   it('null cache hit ratio (no cacheable requests) shows "no cacheable requests", never a fake 0%', () => {
     const noCacheable: DeliverySummary = {
       ...REAL,
-      cache: { hit: 0, miss: 0, uncacheable: 100, hit_ratio_pct: null },
+      cache: { hit: 0, miss: 0, uncacheable: 100, hit_ratio_pct: null, hit_bytes: 0, miss_bytes: 0, uncacheable_bytes: 0 },
     };
     const { el } = setup(noCacheable);
     const cache = (el.querySelector('[data-testid="an-dl-cache"]') as HTMLElement).textContent ?? '';

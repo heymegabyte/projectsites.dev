@@ -132,6 +132,9 @@ function formatBytes(n: number): string {
                 }
               </div>
               <div class="dl-stat-sub">{{ fmt(d.cache.hit) }} hit · {{ fmt(d.cache.miss) }} miss · {{ fmt(d.cache.uncacheable) }} uncacheable</div>
+              @if (d.cache.miss_bytes > 0) {
+                <div class="dl-stat-sub" data-testid="an-dl-cache-miss-bytes">{{ bytes(d.cache.miss_bytes) }} served on cache misses — cacheable to save bandwidth</div>
+              }
             </div>
             <div class="dl-stat">
               <div class="dl-stat-label">Edge bandwidth</div>
