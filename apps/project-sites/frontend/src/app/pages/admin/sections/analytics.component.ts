@@ -26,6 +26,7 @@ import { ConversionsCardComponent } from './conversions-card.component';
 import { ScriptErrorsCardComponent } from './script-errors-card.component';
 import { EngagementCardComponent } from './engagement-card.component';
 import { ScrollDepthCardComponent } from './scroll-depth-card.component';
+import { NetworkQualityCardComponent } from './network-quality-card.component';
 import { TechBreakdownComponent } from './tech-breakdown.component';
 import { CampaignBreakdownComponent } from './campaign-breakdown.component';
 import type { TrendBadge } from './trend-badge.model';
@@ -87,7 +88,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, NetworkQualityCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -649,6 +650,16 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
       <app-scroll-depth-card
         appReveal
         [scrollDepth]="siteTraffic()?.scrollDepth"
+        [windowDays]="rangeDays()"
+      />
+
+      <!-- Visitor connection quality — first-party navigator.connection (app.js
+           network_quality beacon → visitor_events): effectiveType distribution + median
+           downlink/rtt + data-saver %. Chromium-only sample (labelled honestly);
+           "Measuring…" when 0 samples (never a fake 0). -->
+      <app-network-quality-card
+        appReveal
+        [networkQuality]="siteTraffic()?.networkQuality"
         [windowDays]="rangeDays()"
       />
 

@@ -1737,6 +1737,17 @@ export interface SiteTrafficSummary {
     reach: { p25: number; p50: number; p75: number; p100: number };
     byPage: { path: string; medianPercent: number; samples: number; completionPercent: number }[];
   };
+  /** AN-NET — first-party visitor connection quality (Chromium-only sample). `byEffectiveType`
+   *  is the distribution across slow-2g/2g/3g/4g; `medianDownlinkMbps`/`medianRttMs` the site
+   *  medians; `saveDataPercent` the share with data-saver on. Medians null = no samples
+   *  (card shows "measuring…", never a fabricated 0). */
+  networkQuality?: {
+    samples: number;
+    byEffectiveType: { type: string; count: number }[];
+    medianDownlinkMbps: number | null;
+    medianRttMs: number | null;
+    saveDataPercent: number | null;
+  };
   previous: {
     pageviews: number;
     uniqueSessions: number;
