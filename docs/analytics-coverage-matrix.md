@@ -496,7 +496,28 @@ latency percentiles — no entitlement) or need new plumbing/deps (see Next).
 
 ## Next increment (handoff)
 
-**Top referring SITES (external referrer-domain breakdown) — SHIPPED (2026-09-25, latest).** The
+**Filtered daily-series — SHIPPED (2026-09-25, latest).** The last drilldown-consistency gap: the
+`{dim,value}` filter re-scoped every card EXCEPT the daily line chart (`getDailySeries` + the
+`/analytics/daily` route + the frontend fetch ignored it), so a `country=US` drill filtered the KPIs +
+every breakdown but left the chart showing ALL traffic — a conflation. Fixed end-to-end: exported
+`filterClause` (visitor_events_core), threaded an optional `filter` through `getDailySeries` (appended
+AFTER the window clause, value BOUND `?`, correct param slot `[tz?, site, window, filterValue, tz?]`),
+`parseFilter` in the `/analytics/daily` route (unknown dim → 400, non-owned → 404 even with a valid
+filter), and `getSiteAnalyticsDaily` + the dashboard's `this.filter()` (same reload block as the
+summary → the chart re-fetches filtered whenever the filter changes/clears). +3 aggregator + 4 route
+tests; worker 12654 · frontend 2324 · tsc clean. Deployed worker `92353910` (route prod-verified
+401-gated, no 500 with filter params). **The drilldown filter now re-scopes ALL analytics surfaces
+(KPIs · every breakdown · CWV · conversions · prior-window · AND the daily chart) — the first-party
+AUGMENT tier is feature-complete on its clean surface. NEXT: a completeness-critic /
+verify-against-source pass (reconcile one displayed metric vs prod D1 for the real account) OR
+reallocate to generated-site quality — the remaining backlog (outbound-by-kind, delivery-bytes-by-
+status) is marginal.**
+
+**⚠️ PRE-EXISTING (still unresolved, not this increment):** `feature_flags_docs.test.ts` remains RED on
+origin/main — 3 registry flags without `docs.ts` entries (a concurrent session's incomplete work; my
+diff never touches `feature_flags`).
+
+**Top referring SITES (external referrer-domain breakdown) — SHIPPED (2026-09-25, earlier).** The
 named next gap: we captured the raw `referrer` + derived a COARSE `channel` (organic/social/direct)
 but never surfaced WHICH external sites send traffic. New **"Top referring sites"** card lists the top
 external referring domains (news.ycombinator.com · reddit.com …). `getReferrerDomains`
