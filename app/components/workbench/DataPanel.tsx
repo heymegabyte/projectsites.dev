@@ -65,6 +65,10 @@ import {
 } from './data-panel-logic';
 import { SqlEditor } from './SqlEditor';
 import { classNames } from '~/utils/classNames';
+import { classifyCell, columnTypeBadge } from './data-cell-format';
+import { JsonTree } from './JsonTree';
+import { rowToInsert, rowToUpdateByPk, rowsToMarkdown } from './data-copy-as';
+import { computeAggregates } from './data-aggregates';
 
 type Status = 'loading' | 'ready' | 'error' | 'standalone';
 
@@ -246,6 +250,8 @@ export const DataPanel = memo(() => {
    * why). PRAGMA runs on its OWN correlation id so it never clobbers the SQL-console result grid.
    */
   const [browsePkCols, setBrowsePkCols] = useState<string[]>([]);
+  /** Declared SQLite type per column name — populated from the PRAGMA table_info reply. */
+  const [browseColTypes, setBrowseColTypes] = useState<Record<string, string>>({});
   const pkCid = useRef<string | null>(null); // PRAGMA table_info round-trip id (distinct from the SQL console)
   const deletePending = useRef(false); // a row delete is in flight → route the next PS_SQL_RESPONSE
   const deleteTargetRef = useRef<string | null>(null); // the table to re-open after a delete
@@ -445,6 +451,7 @@ export const DataPanel = memo(() => {
       setColMenuOpen(false);
       setBrowseLoading(true);
       setBrowsePkCols([]); // clear the prior table's PK until this one's PRAGMA returns
+      setBrowseColTypes({});
       setSelectedKeys(new Set()); // never carry a bulk selection across a table switch / re-fetch
 
       const cid = newCorrelationId(key);
@@ -658,7 +665,18 @@ export const DataPanel = memo(() => {
           pkCid.current = null;
 
           if (!msg.error && Array.isArray(msg.rows)) {
-            setBrowsePkCols(pkFromTableInfo(msg.rows as Array<Record<string, unknown>>));
+            const tableInfoRows = msg.rows as Array<Record<string, unknown>>;
+            setBrowsePkCols(pkFromTableInfo(tableInfoRows));
+            // Also extract declared types for columnTypeBadge display.
+            const typeMap: Record<string, string> = {};
+            for (const row of tableInfoRows) {
+              const colName = String(row.name ?? row.column ?? '').trim();
+              const colType = String(row.type ?? '').trim();
+              if (colName && colType) {
+                typeMap[colName] = colType;
+              }
+            }
+            setBrowseColTypes(typeMap);
           }
 
           return;
@@ -1122,6 +1140,22 @@ export const DataPanel = memo(() => {
     () => selectableVisibleKeys.length > 0 && selectableVisibleKeys.every((k) => selectedKeys.has(k)),
     [selectableVisibleKeys, selectedKeys],
   );
+
+  /**
+   * Aggregates over every cell value in the currently-selected rows (DataGrip/TablePlus-style
+   * selection stats). Null when nothing is selected; the footer only renders numeric stats when the
+   * selection actually contains numbers, so a text-only selection never shows a meaningless "sum 0".
+   */
+  const selectionAgg = useMemo(() => {
+    if (selectedKeys.size === 0) return null;
+    const values = visibleRows
+      .filter((r) => {
+        const k = rowPkKey(r, browsePkCols);
+        return k !== null && selectedKeys.has(k);
+      })
+      .flatMap((r) => visibleCols.map((c) => r[c]));
+    return computeAggregates(values);
+  }, [selectedKeys, visibleRows, visibleCols, browsePkCols]);
 
   const toggleRowSelect = useCallback(
     (row: Record<string, unknown>): void => {
@@ -1863,6 +1897,18 @@ export const DataPanel = memo(() => {
               <span className="text-[11px] text-bolt-elements-textSecondary">
                 {selectedKeys.size} selected{selectedKeys.size >= MAX_BULK_DELETE ? ` (max ${MAX_BULK_DELETE})` : ''}
               </span>
+              {selectionAgg && selectionAgg.numericCount > 0 && (
+                <span
+                  className="text-[11px] text-bolt-elements-textTertiary tabular-nums"
+                  data-testid="data-agg-footer"
+                  title={`${selectionAgg.numericCount} of ${selectionAgg.count} selected cells are numeric`}
+                >
+                  sum <b style={{ color: '#00E5FF' }}>{selectionAgg.sum}</b>
+                  {' · '}avg <b style={{ color: '#00E5FF' }}>{selectionAgg.avg}</b>
+                  {' · '}min <b style={{ color: '#00E5FF' }}>{selectionAgg.min}</b>
+                  {' · '}max <b style={{ color: '#00E5FF' }}>{selectionAgg.max}</b>
+                </span>
+              )}
               <button
                 type="button"
                 onClick={bulkDeleteSelected}
@@ -1917,6 +1963,18 @@ export const DataPanel = memo(() => {
                           className="w-full flex items-center gap-1 px-3 py-1.5 text-left hover:text-bolt-elements-textPrimary cursor-pointer"
                         >
                           <span className="truncate">{columnLabel(c)}</span>
+                          {(() => {
+                            const badge = columnTypeBadge(browseColTypes[c]);
+                            return badge ? (
+                              <span
+                                className="shrink-0 rounded px-1 py-px text-[8px] font-mono font-medium bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary/70 border border-bolt-elements-borderColor/30"
+                                title={badge.title}
+                                aria-label={`Type: ${badge.title}`}
+                              >
+                                {badge.label}
+                              </span>
+                            ) : null;
+                          })()}
                           <span
                             aria-hidden="true"
                             className={classNames(
@@ -1983,15 +2041,18 @@ export const DataPanel = memo(() => {
                             />
                           </td>
                         )}
-                        {visibleCols.map((c) => (
-                          <td
-                            key={c}
-                            className="px-3 py-1.5 text-bolt-elements-textSecondary align-top max-w-[220px] truncate"
-                            title={formatCellValue(r[c])}
-                          >
-                            {formatCellValue(r[c])}
-                          </td>
-                        ))}
+                        {visibleCols.map((c) => {
+                          const cell = classifyCell(r[c]);
+                          return (
+                            <td
+                              key={c}
+                              className="px-3 py-1.5 align-top max-w-[220px] truncate"
+                              title={cell.display}
+                            >
+                              <span className={cell.className}>{cell.display}</span>
+                            </td>
+                          );
+                        })}
                       </tr>
                       {/* Row detail drill-down — every column, pretty-JSON for objects. */}
                       {detailIdx === i && (
@@ -2019,6 +2080,57 @@ export const DataPanel = memo(() => {
                                 className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-bolt-elements-item-contentAccent/40 cursor-pointer"
                               >
                                 <div className="i-ph:copy text-[11px]" /> Copy row (JSON)
+                              </button>
+                              {active && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    writeClipboard(rowToInsert(active, r));
+                                    flashStatus('Copied INSERT');
+                                  }}
+                                  data-testid="data-copy-insert"
+                                  title="Copy this row as an INSERT statement"
+                                  className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-bolt-elements-item-contentAccent/40 cursor-pointer"
+                                >
+                                  <div className="i-ph:code text-[11px]" /> INSERT
+                                </button>
+                              )}
+                              {active && (
+                                <button
+                                  type="button"
+                                  disabled={browsePkCols.length === 0}
+                                  onClick={() => {
+                                    if (browsePkCols.length === 0) return;
+                                    writeClipboard(rowToUpdateByPk(active, r, browsePkCols));
+                                    flashStatus('Copied UPDATE');
+                                  }}
+                                  data-testid="data-copy-update"
+                                  title={
+                                    browsePkCols.length === 0
+                                      ? 'UPDATE not available — no primary key'
+                                      : 'Copy this row as an UPDATE statement'
+                                  }
+                                  className={classNames(
+                                    'flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 border cursor-pointer',
+                                    browsePkCols.length === 0
+                                      ? 'border-bolt-elements-borderColor/30 text-bolt-elements-textTertiary opacity-40 cursor-not-allowed'
+                                      : 'border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-bolt-elements-item-contentAccent/40',
+                                  )}
+                                >
+                                  <div className="i-ph:pencil-line text-[11px]" /> UPDATE
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  writeClipboard(rowsToMarkdown(columns, [r]));
+                                  flashStatus('Copied Markdown');
+                                }}
+                                data-testid="data-copy-markdown"
+                                title="Copy this row as a Markdown table"
+                                className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-bolt-elements-item-contentAccent/40 cursor-pointer"
+                              >
+                                <div className="i-ph:table text-[11px]" /> Markdown
                               </button>
                               {/* Duplicate row — super-admin only; opens the Add-row form prefilled
                                   from this row, with the PK omitted (DB assigns a fresh key). */}
@@ -2147,7 +2259,22 @@ export const DataPanel = memo(() => {
                                         </div>
                                       ) : (
                                         <>
-                                          <span className="min-w-0 break-words">{val}</span>
+                                          {classifyCell(r[col]).isJson ? (
+                                            <div className="min-w-0 w-full" data-testid="data-json-tree">
+                                              <JsonTree
+                                                value={
+                                                  typeof r[col] === 'object'
+                                                    ? (r[col] as Record<string, unknown> | unknown[])
+                                                    : (() => {
+                                                        try { return JSON.parse(r[col] as string) as Record<string, unknown> | unknown[]; } catch { return {}; }
+                                                      })()
+                                                }
+                                                rootLabel={col}
+                                              />
+                                            </div>
+                                          ) : (
+                                            <span className="min-w-0 break-words">{val}</span>
+                                          )}
                                           {clipboardValue(r[col]) && (
                                             <button
                                               type="button"
