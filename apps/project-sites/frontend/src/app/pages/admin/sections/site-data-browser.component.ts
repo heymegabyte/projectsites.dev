@@ -382,6 +382,15 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                                         <option [value]="opt" [selected]="draftValue(row, ec.column) === opt">{{ opt }}</option>
                                       }
                                     </select>
+                                  } @else if (ec.type === 'text') {
+                                    <textarea class="db-edit-textarea"
+                                              [id]="'db-edit-' + ec.column"
+                                              [attr.data-testid]="'db-edit-' + ec.column"
+                                              [value]="draftValue(row, ec.column)"
+                                              (input)="setDraft(ec.column, $any($event.target).value)"
+                                              [attr.maxlength]="ec.maxLength || null"
+                                              rows="2"
+                                              placeholder="Add a private note…"></textarea>
                                   }
                                   <button type="button" class="db-edit-save"
                                           [disabled]="!isEdited(row, ec.column) || savingEdit()"
@@ -557,6 +566,8 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
     .db-edit-label { font-size: 0.7rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 60%, transparent); text-transform: capitalize; }
     .db-edit-select { font: inherit; font-size: 0.74rem; padding: 0.2rem 0.4rem; border-radius: 6px; color: var(--ps-ink, #f4f4ff); background: rgba(0,0,0,0.35); border: 1px solid var(--ps-edge, rgba(255,255,255,0.14)); }
     .db-edit-select:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
+    .db-edit-textarea { font: inherit; font-size: 0.74rem; padding: 0.25rem 0.4rem; border-radius: 6px; color: var(--ps-ink, #f4f4ff); background: rgba(0,0,0,0.35); border: 1px solid var(--ps-edge, rgba(255,255,255,0.14)); resize: vertical; min-width: 15rem; max-width: 100%; line-height: 1.4; }
+    .db-edit-textarea:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     .db-edit-save { font: inherit; font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 6px; color: var(--ps-accent, #00e5ff); background: color-mix(in oklch, var(--ps-accent, #00e5ff) 12%, transparent); border: 1px solid color-mix(in oklch, var(--ps-accent, #00e5ff) 30%, transparent); cursor: pointer; }
     .db-edit-save:hover:not(:disabled) { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 22%, transparent); }
     .db-edit-save:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
@@ -667,10 +678,18 @@ export class SiteDataBrowserComponent implements OnInit {
   readonly savingEdit = signal(false);
   /** Recent data-management mutations (deletes/edits) the owner made here, newest first. */
   readonly activity = signal<DataActivityEvent[]>([]);
-  /** The selected table's owner-editable columns as a render-ready list ([] = read-only). */
-  readonly editableColumnsList = computed<{ column: string; type: string; options: string[] }[]>(() => {
+  /** The selected table's owner-editable columns as a render-ready list ([] = read-only).
+   *  Flattens the enum/text union: `options` is [] for a text column, `maxLength` 0 for an enum. */
+  readonly editableColumnsList = computed<
+    { column: string; type: string; options: string[]; maxLength: number }[]
+  >(() => {
     const ec = this.selected()?.editableColumns ?? {};
-    return Object.entries(ec).map(([column, spec]) => ({ column, type: spec.type, options: spec.options }));
+    return Object.entries(ec).map(([column, spec]) => ({
+      column,
+      type: spec.type,
+      options: 'options' in spec ? spec.options : [],
+      maxLength: 'maxLength' in spec ? spec.maxLength : 0,
+    }));
   });
 
   /** "1–25 of 340" style range label; honest "0 of 0" on an empty table. */

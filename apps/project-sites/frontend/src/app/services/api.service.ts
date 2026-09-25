@@ -1769,10 +1769,14 @@ export interface DataOverviewTable {
   deletable: boolean;
   /**
    * Owner-editable columns for this table, keyed by column name (empty/absent = fully
-   * read-only). Each spec is a UI hint; the server re-validates the column + value on
-   * every PATCH. Currently only `form_submissions.status` (an enum).
+   * read-only). Each spec is a UI hint (a discriminated union: `enum` → a `<select>` of
+   * `options`, `text` → a `<textarea>` bounded by `maxLength`); the server re-validates
+   * the column + value on every PATCH. E.g. `form_submissions.status` (enum) + `notes` (text).
    */
-  editableColumns?: Record<string, { type: string; options: string[] }>;
+  editableColumns?: Record<
+    string,
+    { type: 'enum'; options: string[] } | { type: 'text'; maxLength: number }
+  >;
   /**
    * ISO timestamp of the table's most-recent row (server `MAX(<ts>)`), or null when the
    * table is empty — powers the Overview "last activity" freshness label. Never a
