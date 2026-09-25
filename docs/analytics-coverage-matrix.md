@@ -169,6 +169,14 @@ gated.
   per-phase-medians / keeps-honest-0 / empty / fail-soft / tenant + 5 card). Verified: worker tsc+jest
   (51/51 custom_window), app tsc, card Karma 5/5. **This completes the prompt's advanced-first-party
   list** (Navigation Timing · network quality · scroll · time-on-page · outbound clicks · JS-error — all shipped).
+  **(2026-09-25) Per-page SLOWEST PAGES** — `getNavTimingSummary` now also returns `byPage[]` (each page's
+  median total load + median TTFB, floor-gated ≥5 samples, worst-first, top 8; same nav_timing query, no new
+  scan) → the card's "Slowest pages · median load · server wait" list. An owner sees WHICH page is slow AND
+  whether it's slow off the SERVER (high TTFB) vs the client — the actionable drill the site-wide median hid.
+  Per-page TTFB chip shown only when non-null (never a fake 0); block hidden when byPage empty. Mirrors the
+  CWV slowest-pages pattern. +3 tests; worker `c328ef00`, chunk `chunk-ASRSJQJA.js`. Prod-verified: byPage
+  shape flows + tenant-safe (404/401); populated path unit-tested (the E2E org has 0 nav_timing samples, so
+  prod shows honest-empty byPage — a real-traffic owned site populates it).
 - **Public share report enriched SHIPPED (2026-09-25):** `/shared/analytics/:token` was thin
   (pageviews/visits/contacts/forms/newsletter/donations). The public endpoint ALREADY returns the
   full traffic summary (`getSiteAnalyticsSummary` → `TrafficSummarySchema`), so this was
@@ -252,9 +260,11 @@ gated.
      (`app_js.ts`) but NOT in `VISITOR_MIRROR_TYPES`, so they're NOT stored in `visitor_events`.
      Needs a mirror-type addition FIRST (instrument the store) + aggregation + card. Starts empty (no
      history) — honest but delayed payoff. A chat-adoption KPI once data flows.
-  3. **Per-page nav-timing / network-quality** (M each) — first-party, stored, need per-page
-     aggregation (mirror the CWV slowest-pages pattern). Owner-value: which page is slow / mobile-hostile.
-  4. **Content-type `byType` card** (S, low owner-value) — computed + returned, but no card renders it.
+  - ~~Per-page NAV-TIMING~~ — **SHIPPED (2026-09-25):** `NavTimingSummary.byPage[]` (slowest pages by
+    median total load + per-page TTFB) → the nav-timing card's "Slowest pages" drill.
+  2. **Per-page NETWORK-QUALITY** (M) — first-party, stored, needs per-page aggregation (mirror the
+     just-shipped nav-timing byPage pattern). Owner-value: which page is mobile-hostile (low downlink).
+  3. **Content-type `byType` card** (S, low owner-value) — computed + returned, but no card renders it.
   5. **Missing tests** — per-metric honest-empty when a filter dim is absent; filter + cross-tenant 404.
   Every AVAILABLE CF dataset is shipped (CF RUM cached); the backlog is first-party DEPTH, not CF.
 
@@ -311,7 +321,27 @@ latency percentiles — no entitlement) or need new plumbing/deps (see Next).
 
 ## Next increment (handoff)
 
-**Per-status edge BYTES + VISITS — SHIPPED (2026-09-25, latest fire).** The `status`
+**Per-page NAV-TIMING (slowest pages) — SHIPPED (2026-09-25, latest fire).** `getNavTimingSummary` now
+returns `byPage[]` (each page's median total load + median TTFB, floor-gated ≥5, worst-first top-8; same
+nav_timing query, no new scan) → the page-load card's "Slowest pages · median load · server wait" list.
+An owner sees WHICH page is slow AND whether it's slow off the SERVER (TTFB) vs the client — the drill the
+site-wide median hid. Mirrors the CWV slowest-pages pattern. Honest: per-page TTFB chip only when non-null;
+block hidden when empty. 3 Jest + 2 Karma; worker `c328ef00`, chunk `chunk-ASRSJQJA.js`; prod-verified
+(byPage shape flows + tenant-safe 404/401; the E2E org has 0 nav_timing samples so prod byPage is
+honest-empty — populated path is unit-tested). **NEXT: per-page NETWORK-QUALITY** — same byPage pattern on
+`getNetworkQualitySummary` (which page is mobile-hostile / low-downlink). Then concierge chat engagement
+(needs a `VISITOR_MIRROR_TYPES` add first) or the cheap per-cache-state delivery bytes.
+
+**DATA-loop note (this fire also scanned DATA):** the data-management utility's CLEAN surface is at a
+verified plateau — the admin data-overview is mature (browse/search/filter/sort/column-hide/schema/
+delete/bulk-delete/edit/activity/export) and the 4 resource inspectors (KV/R2/Vectorize/Queues) are
+done + nav-wired. The remaining DATA frontier is the Editor **DataPanel SQL-console polish** (CodeMirror
+highlighting, query history, saved queries), which sits behind an ABANDONED-but-unmerged EXPLAIN branch
+(`analytics-drilldown-filter`, unpushed since session start) + a separate Pages pipeline — not a clean
+15-min increment. A future DATA fire should confirm that branch is dead, land-or-drop it, then tackle the
+SQL console.
+
+**Per-status edge BYTES + VISITS — SHIPPED (2026-09-25).** The `status`
 httpRequestsAdaptiveGroups sub-query now also selects `sum{edgeResponseBytes, visits}` (same per-host
 CF request, no new call) → `top_statuses[]` carries `{status,count,bytes,visits}` → the delivery card's
 "Top error responses" shows "**N visitors hit**" per error code (real people who hit a 404/5xx — the
