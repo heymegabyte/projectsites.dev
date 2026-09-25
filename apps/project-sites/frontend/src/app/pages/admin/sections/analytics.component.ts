@@ -41,6 +41,7 @@ import { NavTimingCardComponent } from './nav-timing-card.component';
 import { TechBreakdownComponent } from './tech-breakdown.component';
 import { VisitorTypeCardComponent } from './visitor-type-card.component';
 import { EntryPagesCardComponent } from './entry-pages-card.component';
+import { ExitPagesCardComponent } from './exit-pages-card.component';
 import { ChannelBreakdownComponent } from './channel-breakdown.component';
 import { FormFunnelCardComponent } from './form-funnel-card.component';
 import { CampaignBreakdownComponent } from './campaign-breakdown.component';
@@ -126,6 +127,7 @@ function sparklinePath(
     TechBreakdownComponent,
     VisitorTypeCardComponent,
     EntryPagesCardComponent,
+    ExitPagesCardComponent,
     ChannelBreakdownComponent,
     CampaignBreakdownComponent,
     DeliveryCardComponent,
@@ -1152,6 +1154,14 @@ function sparklinePath(
         <!-- Top landing pages — first-party page_engagement ep session-start flag. Where visitors
            first arrive (a session's first page; tab-scoped, cookieless). CF has no landing dataset. -->
         <app-entry-pages-card
+          appReveal
+          [siteId]="state.selectedSite()?.id ?? null"
+          [windowDays]="rangeDays()"
+        />
+
+        <!-- Top exit pages — the LAST page_engagement per session (grouped by the session id).
+           Where visitors leave from; the complement to landing pages. CF has no exit dataset. -->
+        <app-exit-pages-card
           appReveal
           [siteId]="state.selectedSite()?.id ?? null"
           [windowDays]="rangeDays()"

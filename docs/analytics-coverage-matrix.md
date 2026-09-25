@@ -120,6 +120,22 @@ once the augment tier is genuinely exhausted. A CF plan upgrade is the only path
   beacon `/app.js` carries the `ep` session-boundary logic (**5 `ep` markers verified live**), frontend card
   deployed to R2 (297/297). Data accrues from first serve. **The `ps_sess` boundary this added also unblocks
   session-duration + exit-pages for the next fires.**
+- **Top EXIT (last) pages (✅ DONE end-to-end 2026-09-25):** the complement to entry pages — WHERE visits END
+  (the last page before a visitor leaves), a metric CF's plan has no dataset for. Needed a per-**session** id:
+  `SESSION_ID` in app.js was regenerated per-*pageload* (unusable), so `ps_sess` was **repurposed from a boolean
+  flag to a per-tab-session UUID** (deriving both `ep` unchanged AND a new `sid`; the legacy `'1'` marker is
+  migrated in place). The `page_engagement` beacon now sends `sid`; ingest mirrors it into metadata (`$.sid`,
+  ≤64 chars). **`getExitPagesSummary`** picks each session's LAST engagement via the codebase's FIRST window
+  function — `ROW_NUMBER() OVER (PARTITION BY json_extract(metadata,'$.sid') ORDER BY created_at DESC, rowid DESC)`
+  then `rn=1 GROUP BY path` (sessions with no `sid` excluded, never guessed; fail-soft empty) → owner-scoped
+  route `GET /api/sites/:siteId/analytics/exit-pages` (`requireOwnedSite`, cross-org 404) → **`ExitPagesCardComponent`**
+  ("Top exit pages") beside the landing-pages card, honest "measuring…"/error/empty states + tab-scoped/cookieless
+  disclaimer. **Deliberately isolated from the `session_id` COLUMN** (which is per-pageload + feeds
+  uniqueSessions/bounce — untouched, zero regression). +5 Jest (fold/skip-null · window-fn query shape · fail-soft ·
+  tenant 404 · 200 owned) + 3 beacon-contract Jest (sid sent · ps_sess UUID+migration · ep preserved) + 12 Karma
+  card. Worker deployed (`bac1a0cd`), `/analytics/exit-pages` prod 401-gated, beacon `/app.js` carries `sid: SESSION_KEY`
+  + the `ps_sess` UUID logic (verified live). Data accrues from first serve. **Session-duration is now the last
+  first-party AUGMENT (the `sid` this added is its foundation too).**
 - **CF GraphQL `httpRequestsAdaptiveGroups`** (`services/multi_url_analytics.ts`) is **fallback-only**
   now — the prior "no traffic" bug (reading empty CF-zone data for `*.projectsites.dev` subdomains
   instead of D1) is fixed. CF-zone per-host data is only meaningful for **custom domains in a CF zone**,
@@ -152,9 +168,14 @@ once the augment tier is genuinely exhausted. A CF plan upgrade is the only path
     shows "**N real visitors hit cache misses (sampled; not raw requests)**" under the miss-bytes line —
     the human companion to the "cacheable to save bandwidth" byte signal, gated on `miss_visits>0` (a
     sampled 0 renders no line, never a fabricated "0 visitors"). +2 Jest (splits visits by state /
-    defaults to 0) + 2 Karma (line shown when >0 / hidden when 0). (4) **exit pages / session-duration**
-    (next) — high value but need a session id on events server-side (bigger than one fire; the `ps_sess`
-    beacon boundary exists client-side only).
+    defaults to 0) + 2 Karma (line shown when >0 / hidden when 0). (4) ✅ **exit pages — DONE this fire**:
+    added a per-session `sid` (repurposed `ps_sess` to a UUID; `page_engagement` beacon sends it, ingest mirrors
+    `$.sid`) + `getExitPagesSummary` (the codebase's first `ROW_NUMBER() OVER (PARTITION BY sid ORDER BY time DESC)`
+    window function → last page per session) + owner route + `ExitPagesCardComponent` beside entry pages. Isolated
+    from the per-pageload `session_id` column (uniqueSessions/bounce untouched). Worker `bac1a0cd`, route 401-gated,
+    beacon `sid` live. (5) **session-duration** (next) — the last first-party AUGMENT; the `sid` foundation is now
+    live, so it's `SUM(duration_ms) per sid → median across sessions` (a session-level roll-up of the shipped
+    per-page dwell), no beacon change needed.
   - **REJECTED — conversions by-kind drilldown filter (❌ FALSE GAP, do NOT build):** a prior scan flagged
     `byConversionKind` as "the one breakdown with no click-to-filter." But `conversion_kind` (metadata
     `$.kind`) exists ONLY on `event_type='conversion'` events, and the drilldown filter appends

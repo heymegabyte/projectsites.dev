@@ -58,3 +58,23 @@ describe('app.js time-on-page beacon (initEngagement)', () => {
     expect(body).toContain("window.addEventListener('pagehide'");
   });
 });
+
+describe('app.js session id (groups a visit for entry/exit pages, cookieless)', () => {
+  it('sends the per-session sid on the page_engagement beacon', () => {
+    expect(engagementBody()).toContain('sid: SESSION_KEY');
+  });
+
+  it('persists a per-tab-session UUID in ps_sess, upgrading the legacy single-char marker in place', () => {
+    // ps_sess now holds a real session id (UUID), not the old boolean flag — so the server can
+    // group a visit's page_engagements to report the LAST (exit) page.
+    expect(APP_JS).toContain("sessionStorage.getItem('ps_sess')");
+    expect(APP_JS).toContain("sessionStorage.setItem('ps_sess', SESSION_KEY)");
+    expect(APP_JS).toContain('SESSION_KEY = uuid()');
+    expect(APP_JS).toContain("SESSION_KEY === '1'"); // legacy marker migrated
+  });
+
+  it('still marks the session first page as the entry (IS_ENTRY) — derived from the same key', () => {
+    expect(APP_JS).toContain('IS_ENTRY');
+    expect(engagementBody()).toContain('ep: IS_ENTRY');
+  });
+});

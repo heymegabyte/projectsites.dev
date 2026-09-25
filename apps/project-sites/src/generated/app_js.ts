@@ -828,17 +828,23 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     if (NEW_VISITOR === 1) { localStorage.setItem('ps_v', String(Date.now())); }
   } catch (e) { NEW_VISITOR = undefined; }
 
-  // ── entry page (session-scoped, cookieless) ──────────────────────────
-  // 1 = the FIRST page of this tab-session (no sessionStorage marker yet). sessionStorage is
-  // per-tab and cleared on tab close, so it marks a session's landing page. Omitted when storage
-  // is unavailable so the server simply does not count that visit as an entry.
+  // ── session id + entry page (session-scoped, cookieless) ─────────────
+  // ps_sess holds a per-tab-session id (a UUID). Absent means this is the session FIRST page
+  // (IS_ENTRY = 1, its landing page). The id groups a visit pages so the server can report entry
+  // AND exit pages without a cookie. sessionStorage is per-tab + cleared on tab close. Omitted when
+  // storage is unavailable so the server counts no entry/exit for that visit (honest, never
+  // fabricated). The legacy single-char marker is upgraded to a real id in place (a mid-session
+  // upgrade is not an entry, so IS_ENTRY stays 0 for it).
   var IS_ENTRY = 0;
+  var SESSION_KEY;
   try {
-    if (!sessionStorage.getItem('ps_sess')) {
-      IS_ENTRY = 1;
-      sessionStorage.setItem('ps_sess', '1');
+    SESSION_KEY = sessionStorage.getItem('ps_sess');
+    if (!SESSION_KEY || SESSION_KEY === '1') {
+      IS_ENTRY = SESSION_KEY ? 0 : 1;
+      SESSION_KEY = uuid();
+      sessionStorage.setItem('ps_sess', SESSION_KEY);
     }
-  } catch (e) {}
+  } catch (e) { SESSION_KEY = undefined; }
 
   function initEngagement() {
     var start = Date.now();
@@ -848,7 +854,7 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
       sent = true;
       var dur = Date.now() - start;
       if (dur < 1000 || dur > 1800000) { return; }
-      track('page_engagement', { duration_ms: dur, href: location.pathname, nv: NEW_VISITOR, ep: IS_ENTRY });
+      track('page_engagement', { duration_ms: dur, href: location.pathname, nv: NEW_VISITOR, ep: IS_ENTRY, sid: SESSION_KEY });
     }
     try {
       window.addEventListener('visibilitychange', function () {

@@ -878,6 +878,59 @@ export async function getEntryPagesSummary(
   return { pages };
 }
 
+/** Top exit (last) pages over the window — the complement to entry pages. */
+export interface ExitPagesSummary {
+  /** Top exit pages (the session's LAST page) by count, descending, capped at 20. */
+  readonly pages: ReadonlyArray<{ path: string; count: number }>;
+}
+
+/**
+ * Top EXIT (last) pages over the window — the LAST first-party `page_engagement` per tab-session
+ * (grouped by the session-scoped `sid` beacon field). Answers "where do visitors leave from?" — the
+ * complement to entry pages; a metric CF's plan has no dataset for. A window function (ROW_NUMBER)
+ * picks each session's last engagement; sessions with no `sid` (storage unavailable) are excluded,
+ * never guessed. Fail-soft: a query error yields the empty summary (the card shows "measuring…",
+ * never a fabricated 0).
+ */
+export async function getExitPagesSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<ExitPagesSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  // Exit page = each session's LAST page_engagement. The INNER query is already site-scoped by
+  // `clause` (tenant isolation); the window function only ranks within that scoped set, so the
+  // outer query never crosses a tenant boundary.
+  const { data, error } = await dbQuery<{ path: string | null; n: number }>(
+    env.DB,
+    `SELECT path, COUNT(*) AS n
+       FROM (
+         SELECT path,
+                ROW_NUMBER() OVER (
+                  PARTITION BY json_extract(metadata, '$.sid')
+                  ORDER BY created_at DESC, rowid DESC
+                ) AS rn
+           FROM visitor_events
+          WHERE ${clause} AND event_type = 'page_engagement'
+            AND json_extract(metadata, '$.sid') IS NOT NULL
+       )
+      WHERE rn = 1
+      GROUP BY path
+      ORDER BY n DESC
+      LIMIT 20`,
+    params,
+  );
+  if (error) return { pages: [] };
+  const pages: Array<{ path: string; count: number }> = [];
+  for (const r of data) {
+    const count = Number(r.n) || 0;
+    if (typeof r.path === 'string' && r.path && count > 0) pages.push({ path: r.path, count });
+  }
+  return { pages };
+}
+
 /** Empty scroll-depth summary — honest "measuring…" (null median), never a fabricated 0. */
 function emptyScrollDepth(): ScrollDepthSummary {
   return {

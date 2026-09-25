@@ -281,6 +281,7 @@ analyticsRoutes.post('/api/events', async (c) => {
               total?: unknown;
               nv?: unknown;
               ep?: unknown;
+              sid?: unknown;
             }
           | undefined;
         // web_vital carries {metric, value}: validate against the known CWV set + a
@@ -341,6 +342,10 @@ analyticsRoutes.post('/api/events', async (c) => {
                       // Entry page: 1 = the session's first (landing) page; else omitted so only
                       // entry pages carry the flag (the aggregator filters ep = 1).
                       ep: p?.ep === 1 ? 1 : undefined,
+                      // Session id (per-tab, from sessionStorage) — groups a visit's page_engagements so
+                      // the exit-pages aggregator can pick each session's LAST page. Bound + length-capped;
+                      // a non-string is omitted (that visit just isn't grouped, never fabricated).
+                      sid: typeof p?.sid === 'string' && p.sid ? p.sid.slice(0, 64) : undefined,
                     }
                   : mirrorType === 'scroll_depth'
                     ? {
