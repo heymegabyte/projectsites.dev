@@ -582,6 +582,22 @@ export interface D1ColumnInfo {
   pk: number;
 }
 
+/**
+ * One foreign-key relationship, PARSED CLIENT-SIDE from a table's CREATE SQL (D1's REST `/query`
+ * blocks `PRAGMA foreign_key_list`, like `table_info`). Both the table-level `FOREIGN KEY (c)
+ * REFERENCES t(x)` and the inline `c … REFERENCES t(x)` forms are captured.
+ */
+export interface D1ForeignKey {
+  /** The local column that references another table. */
+  column: string;
+
+  /** The referenced table. */
+  refTable: string;
+
+  /** The referenced column, or null when the DDL omits it (⇒ the referenced table's primary key). */
+  refColumn: string | null;
+}
+
 /** The D1 SQL-dump export result (mirrors the worker's `d1_manager` export response). */
 export interface D1ExportData {
   status: 'complete' | 'processing' | 'error' | 'unavailable';

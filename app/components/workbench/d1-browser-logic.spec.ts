@@ -14,6 +14,8 @@ import {
   formatCount,
   isBrowsableObject,
   parseCreateTableColumns,
+  parseForeignKeys,
+  parseIndexColumns,
   schemaCountsLabel,
 } from './d1-browser-logic';
 import type { D1SchemaObjectSummary } from '~/lib/embed/embedded-mode';
@@ -197,5 +199,61 @@ describe('parseCreateTableColumns (DDL parse — CF /query blocks PRAGMA)', () =
     const cols = parseCreateTableColumns('CREATE TABLE t (anything, id INTEGER PRIMARY KEY)');
     expect(cols[0]).toEqual({ cid: 0, name: 'anything', type: '', notNull: false, defaultValue: null, pk: 0 });
     expect(cols[1].pk).toBe(1);
+  });
+});
+
+describe('parseForeignKeys (DDL parse — CF /query blocks PRAGMA foreign_key_list)', () => {
+  it('parses an inline column-level REFERENCES with a target column', () => {
+    expect(parseForeignKeys('CREATE TABLE orders (id TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id))')).toEqual([
+      { column: 'user_id', refTable: 'users', refColumn: 'id' },
+    ]);
+  });
+
+  it('parses a table-level FOREIGN KEY, incl. a named CONSTRAINT and an omitted ref column', () => {
+    expect(
+      parseForeignKeys(
+        'CREATE TABLE t (a TEXT, b TEXT, CONSTRAINT fk_a FOREIGN KEY (a) REFERENCES other (x), FOREIGN KEY (b) REFERENCES two)',
+      ),
+    ).toEqual([
+      { column: 'a', refTable: 'other', refColumn: 'x' },
+      { column: 'b', refTable: 'two', refColumn: null },
+    ]);
+  });
+
+  it('pairs a composite FOREIGN KEY by position', () => {
+    expect(parseForeignKeys('CREATE TABLE t (a TEXT, b TEXT, FOREIGN KEY (a, b) REFERENCES o (x, y))')).toEqual([
+      { column: 'a', refTable: 'o', refColumn: 'x' },
+      { column: 'b', refTable: 'o', refColumn: 'y' },
+    ]);
+  });
+
+  it('handles quoted / bracket identifiers and returns [] for non-tables or FK-less DDL', () => {
+    expect(parseForeignKeys('CREATE TABLE "my t" ("uid" TEXT REFERENCES [users] ([id]))')).toEqual([
+      { column: 'uid', refTable: 'users', refColumn: 'id' },
+    ]);
+    expect(parseForeignKeys('CREATE TABLE t (id TEXT PRIMARY KEY, n INT)')).toEqual([]);
+    expect(parseForeignKeys('CREATE VIEW v AS SELECT * FROM t')).toEqual([]);
+    expect(parseForeignKeys(null)).toEqual([]);
+  });
+});
+
+describe('parseIndexColumns (from an index CREATE SQL)', () => {
+  it('parses a plain index → columns, unique=false', () => {
+    expect(parseIndexColumns('CREATE INDEX idx_email ON users (email)')).toEqual({
+      unique: false,
+      columns: ['email'],
+    });
+  });
+
+  it('parses a UNIQUE, multi-column index (quoted names), ignoring ASC/DESC + a partial WHERE', () => {
+    expect(parseIndexColumns('CREATE UNIQUE INDEX u ON "t" ("a" ASC, b DESC) WHERE b IS NOT NULL')).toEqual({
+      unique: true,
+      columns: ['a', 'b'],
+    });
+  });
+
+  it('null / non-index DDL (no ON clause) → empty', () => {
+    expect(parseIndexColumns(null)).toEqual({ unique: false, columns: [] });
+    expect(parseIndexColumns('CREATE TABLE t (id TEXT)')).toEqual({ unique: false, columns: [] });
   });
 });

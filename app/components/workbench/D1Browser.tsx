@@ -8,13 +8,14 @@
  *
  * The embedded editor has no cross-origin session, so — like the other Data tabs — it asks the
  * Angular admin parent to proxy the read via the postMessage bridge:
- *   child → parent  `PS_D1_REQUEST`  { op:'databases'|'overview'|'tables'|'columns'|'export', databaseId?, table?, … }
+ *   child → parent  `PS_D1_REQUEST`  { op:'databases'|'overview'|'tables'|'export', databaseId?, … }
  *   parent → child  `PS_D1_RESPONSE` { ok, data?, error? }   (parent calls GET/POST /api/admin/d1/* )
  *
  * The worker enforces super-admin server-side and exposes list + Overview metadata (file size, table
  * count, region, read-replication, version) + a SCHEMA BROWSER (tables/views/indexes/triggers catalog
- * with CREATE SQL, and per-table columns via read-only `sqlite_master`/`PRAGMA table_info` — a query,
- * so it never makes the DB unavailable) + a SQL-dump EXPORT (a read of the DB into a .sql dump — no
+ * with CREATE SQL; a selected table's columns + primary/foreign keys are parsed CLIENT-SIDE from its
+ * CREATE SQL — D1's REST `/query` blocks `PRAGMA` — and its indexes come from the catalog) + a
+ * SQL-dump EXPORT (a read of the DB into a .sql dump — no
  * data mutation, but it briefly makes the DB unavailable; the export UI warns + confirms before
  * running, then the client polls the async job to a signed download URL). No query / write / restore.
  * `available:false` / `found:false` distinguish a credential/API failure from a genuinely empty
@@ -27,6 +28,7 @@ import type {
   D1DatabaseSummary,
   D1DatabasesData,
   D1ExportData,
+  D1ForeignKey,
   D1OverviewData,
   D1RequestMessage,
   D1ResponseMessage,
@@ -43,8 +45,18 @@ import {
   formatCount,
   isBrowsableObject,
   parseCreateTableColumns,
+  parseForeignKeys,
+  parseIndexColumns,
   schemaCountsLabel,
 } from './d1-browser-logic';
+
+/** One index of the selected table (from the catalog objects + its parsed CREATE SQL). */
+interface TableIndex {
+  name: string;
+  sql: string | null;
+  unique: boolean;
+  columns: string[];
+}
 
 export interface D1BrowserProps {
   /** Post a bridge request to the admin parent (DataPanel's existing helper). */
@@ -91,6 +103,8 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
   const [tableFilter, setTableFilter] = useState('');
   const [selectedObject, setSelectedObject] = useState<D1SchemaObjectSummary | null>(null);
   const [columns, setColumns] = useState<D1ColumnInfo[]>([]);
+  const [foreignKeys, setForeignKeys] = useState<D1ForeignKey[]>([]);
+  const [indexes, setIndexes] = useState<TableIndex[]>([]);
   const [ddlOpen, setDdlOpen] = useState(false);
 
   // Resolve pending bridge requests by correlationId.
@@ -173,6 +187,8 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
       setTables(null);
       setSelectedObject(null);
       setColumns([]);
+      setForeignKeys([]);
+      setIndexes([]);
       setTableFilter('');
       setDdlOpen(false);
       setTablesLoading(true);
@@ -204,11 +220,32 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
    * D1 REST `/query` authorizer blocks `PRAGMA table_info`, so the DDL (already in the catalog) is the
    * column source. A view/virtual/unparseable object yields `[]` → the UI shows its raw DDL instead.
    */
-  const selectObject = useCallback((obj: D1SchemaObjectSummary): void => {
-    setSelectedObject(obj);
-    setDdlOpen(false);
-    setColumns(isBrowsableObject(obj.type) ? parseCreateTableColumns(obj.sql) : []);
-  }, []);
+  const selectObject = useCallback(
+    (obj: D1SchemaObjectSummary): void => {
+      setSelectedObject(obj);
+      setDdlOpen(false);
+
+      const browsable = isBrowsableObject(obj.type);
+      setColumns(browsable ? parseCreateTableColumns(obj.sql) : []);
+      setForeignKeys(browsable ? parseForeignKeys(obj.sql) : []);
+
+      /*
+       * Indexes for a TABLE: catalog objects of type 'index' whose tbl_name === this table (the
+       * catalog already fetched them; their columns/UNIQUE are parsed from each index's CREATE SQL).
+       */
+      setIndexes(
+        obj.type === 'table'
+          ? (tables?.objects ?? [])
+              .filter((o) => o.type === 'index' && o.tableName === obj.name)
+              .map((o) => ({ name: o.name, sql: o.sql, ...parseIndexColumns(o.sql) }))
+          : [],
+      );
+    },
+    [tables],
+  );
+
+  /** Column names that are foreign keys — drives the inline "FK" badge in the columns grid. */
+  const fkColumns = useMemo(() => new Set(foreignKeys.map((f) => f.column)), [foreignKeys]);
 
   /**
    * Run (or resume) the SQL-dump export for the selected database, driving the worker's async poll
@@ -584,14 +621,24 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
                                         {col.defaultValue ?? '—'}
                                       </td>
                                       <td className="px-2 py-1">
-                                        {col.pk > 0 && (
-                                          <span
-                                            className="rounded bg-bolt-elements-item-contentAccent/15 px-1 text-[8px] text-bolt-elements-item-contentAccent"
-                                            title={`Primary key (position ${col.pk})`}
-                                          >
-                                            PK
-                                          </span>
-                                        )}
+                                        <span className="flex flex-wrap gap-1">
+                                          {col.pk > 0 && (
+                                            <span
+                                              className="rounded bg-bolt-elements-item-contentAccent/15 px-1 text-[8px] text-bolt-elements-item-contentAccent"
+                                              title={`Primary key (position ${col.pk})`}
+                                            >
+                                              PK
+                                            </span>
+                                          )}
+                                          {fkColumns.has(col.name) && (
+                                            <span
+                                              className="rounded bg-purple-500/20 px-1 text-[8px] text-purple-300"
+                                              title="Foreign key"
+                                            >
+                                              FK
+                                            </span>
+                                          )}
+                                        </span>
                                       </td>
                                     </tr>
                                   ))}
@@ -609,6 +656,58 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
                           </div>
                         )}
                       </>
+                    )}
+
+                    {indexes.length > 0 && (
+                      <div className="mt-3" data-testid="data-d1-indexes">
+                        <div className="mb-1 text-[9px] font-medium uppercase tracking-wide text-bolt-elements-textTertiary">
+                          Indexes ({indexes.length})
+                        </div>
+                        <ul className="flex flex-col gap-1">
+                          {indexes.map((ix) => (
+                            <li
+                              key={ix.name}
+                              className="flex items-baseline justify-between gap-2 text-[10px]"
+                              data-testid="data-d1-index"
+                            >
+                              <span
+                                className="min-w-0 truncate font-mono text-bolt-elements-textSecondary"
+                                title={ix.sql ?? ix.name}
+                              >
+                                {ix.name}
+                                {ix.columns.length > 0 && (
+                                  <span className="text-bolt-elements-textTertiary"> ({ix.columns.join(', ')})</span>
+                                )}
+                              </span>
+                              {ix.unique && (
+                                <span className="shrink-0 rounded bg-bolt-elements-item-contentAccent/15 px-1 text-[8px] text-bolt-elements-item-contentAccent">
+                                  UNIQUE
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {foreignKeys.length > 0 && (
+                      <div className="mt-3" data-testid="data-d1-fks">
+                        <div className="mb-1 text-[9px] font-medium uppercase tracking-wide text-bolt-elements-textTertiary">
+                          Foreign keys ({foreignKeys.length})
+                        </div>
+                        <ul className="flex flex-col gap-1">
+                          {foreignKeys.map((fk, i) => (
+                            <li
+                              key={`${fk.column}-${i}`}
+                              className="font-mono text-[10px] text-bolt-elements-textSecondary"
+                              data-testid="data-d1-fk"
+                            >
+                              {fk.column} <span aria-hidden="true">→</span> {fk.refTable}
+                              {fk.refColumn ? `.${fk.refColumn}` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     )}
 
                     {selectedObject.sql && (

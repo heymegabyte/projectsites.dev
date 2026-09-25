@@ -10,6 +10,7 @@ import type {
   D1ColumnInfo,
   D1DatabaseSummary,
   D1ExportData,
+  D1ForeignKey,
   D1ResponseMessage,
   D1SchemaObjectSummary,
 } from '~/lib/embed/embedded-mode';
@@ -291,6 +292,38 @@ function splitTopLevelCommas(body: string): string[] {
   return out;
 }
 
+/** Return the substring INSIDE the first balanced `(...)` at/after `from`, or null when unbalanced. */
+function balancedParenBody(sql: string, from = 0): string | null {
+  const open = sql.indexOf('(', from);
+
+  if (open < 0) {
+    return null;
+  }
+
+  let depth = 0;
+
+  for (let i = open; i < sql.length; i += 1) {
+    if (sql[i] === '(') {
+      depth += 1;
+    } else if (sql[i] === ')') {
+      depth -= 1;
+
+      if (depth === 0) {
+        return sql.slice(open + 1, i);
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * A single SQLite identifier (quoted `"x"` / `` `x` `` / `[x]` or bare) as a regex-source string —
+ * reused across the parsers via `new RegExp`. Derived from a regex LITERAL's `.source` so the
+ * bracket/quote escaping is authored once, correctly (no hand-escaped string).
+ */
+const IDENT_RE = /"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|[A-Za-z_][\w$]*/.source;
+
 /** Column-level keyword that terminates the declared TYPE portion of a column definition. */
 const COL_TYPE_TERMINATOR = /\b(NOT\s+NULL|NULL|PRIMARY\s+KEY|DEFAULT|UNIQUE|CHECK|REFERENCES|COLLATE|GENERATED|AS)\b/i;
 
@@ -406,4 +439,109 @@ export function parseCreateTableColumns(sql: string | null): D1ColumnInfo[] {
   });
 
   return columns;
+}
+
+/** Leading-identifier matcher — a column name at the START of a clause (built once from `IDENT_RE`). */
+const LEADING_IDENT_RE = new RegExp(`^\\s*(${IDENT_RE})`, 'i');
+
+/**
+ * Parse foreign-key relationships from a `CREATE TABLE` DDL — both the table-level
+ * `FOREIGN KEY (a) REFERENCES t(x)` (composite-aware, pairs by position) and the inline
+ * `a … REFERENCES t(x)` forms. `refColumn` is null when the DDL omits it (⇒ the referenced table's
+ * PK). Returns `[]` for non-tables. Best-effort; never throws, never fabricates.
+ *
+ * @example parseForeignKeys('CREATE TABLE o (id TEXT, uid TEXT REFERENCES users(id))')
+ *   // → [{ column: 'uid', refTable: 'users', refColumn: 'id' }]
+ */
+export function parseForeignKeys(sql: string | null): D1ForeignKey[] {
+  if (!sql || !/^\s*CREATE\s+TABLE\b/i.test(sql)) {
+    return [];
+  }
+
+  const body = balancedParenBody(sql);
+
+  if (body === null) {
+    return [];
+  }
+
+  const tableFkRe = new RegExp(
+    `^(?:CONSTRAINT\\s+(?:${IDENT_RE})\\s+)?FOREIGN\\s+KEY\\s*\\(([^)]*)\\)\\s*REFERENCES\\s+(${IDENT_RE})\\s*(?:\\(([^)]*)\\))?`,
+    'i',
+  );
+  const inlineRefRe = new RegExp(`\\bREFERENCES\\s+(${IDENT_RE})\\s*(?:\\(\\s*(${IDENT_RE})\\s*\\))?`, 'i');
+
+  const fks: D1ForeignKey[] = [];
+
+  for (const part of splitTopLevelCommas(body)) {
+    const item = part.trim();
+
+    if (!item) {
+      continue;
+    }
+
+    const tableFk = tableFkRe.exec(item);
+
+    if (tableFk) {
+      const cols = tableFk[1].split(',').map(unquoteIdent).filter(Boolean);
+      const refTable = unquoteIdent(tableFk[2]);
+      const refCols = tableFk[3] ? tableFk[3].split(',').map(unquoteIdent).filter(Boolean) : [];
+      cols.forEach((column, i) => fks.push({ column, refTable, refColumn: refCols[i] ?? null }));
+      continue;
+    }
+
+    // Other table-level constraints are not FKs.
+    if (/^(CONSTRAINT\b|PRIMARY\s+KEY\b|UNIQUE\s*\(|CHECK\s*\()/i.test(item)) {
+      continue;
+    }
+
+    // Inline column-level reference: `<name> … REFERENCES other [(col)]`.
+    const ref = inlineRefRe.exec(item);
+
+    if (ref) {
+      const nameMatch = LEADING_IDENT_RE.exec(item);
+      const column = nameMatch ? unquoteIdent(nameMatch[1]) : '';
+
+      if (column) {
+        fks.push({ column, refTable: unquoteIdent(ref[1]), refColumn: ref[2] ? unquoteIdent(ref[2]) : null });
+      }
+    }
+  }
+
+  return fks;
+}
+
+/**
+ * Parse an index's CREATE SQL into its UNIQUE flag + the indexed column names — `CREATE [UNIQUE]
+ * INDEX name ON table (col1, col2)`. Best-effort: an expression term (`lower(x)`) yields its leading
+ * identifier; a partial-index `WHERE` clause is ignored (only the first `(...)` after `ON` is read).
+ *
+ * @example parseIndexColumns('CREATE UNIQUE INDEX u ON users (email)')
+ *   // → { unique: true, columns: ['email'] }
+ */
+export function parseIndexColumns(sql: string | null): { unique: boolean; columns: string[] } {
+  if (!sql) {
+    return { unique: false, columns: [] };
+  }
+
+  const unique = /\bCREATE\s+UNIQUE\s+INDEX\b/i.test(sql);
+  const on = /\bON\b/i.exec(sql);
+
+  if (!on) {
+    return { unique, columns: [] };
+  }
+
+  const body = balancedParenBody(sql, on.index);
+
+  if (body === null) {
+    return { unique, columns: [] };
+  }
+
+  const columns = splitTopLevelCommas(body)
+    .map((c) => {
+      const m = LEADING_IDENT_RE.exec(c);
+      return m ? unquoteIdent(m[1]) : '';
+    })
+    .filter(Boolean);
+
+  return { unique, columns };
 }
