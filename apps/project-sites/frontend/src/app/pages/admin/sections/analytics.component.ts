@@ -25,6 +25,7 @@ import { HourlyBreakdownComponent, rotateToLocalHours } from './hourly-breakdown
 import { ConversionsCardComponent } from './conversions-card.component';
 import { ScriptErrorsCardComponent } from './script-errors-card.component';
 import { EngagementCardComponent } from './engagement-card.component';
+import { ScrollDepthCardComponent } from './scroll-depth-card.component';
 import { TechBreakdownComponent } from './tech-breakdown.component';
 import { CampaignBreakdownComponent } from './campaign-breakdown.component';
 import type { TrendBadge } from './trend-badge.model';
@@ -86,7 +87,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -639,6 +640,15 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
       <app-engagement-card
         appReveal
         [engagement]="siteTraffic()?.engagement"
+        [windowDays]="rangeDays()"
+      />
+
+      <!-- Scroll depth — first-party content consumption (app.js scroll_depth beacon →
+           visitor_events): median max-depth + reach funnel (25/50/75/100%) + per-page
+           completion. "Measuring…" when 0 samples (never a fake 0). -->
+      <app-scroll-depth-card
+        appReveal
+        [scrollDepth]="siteTraffic()?.scrollDepth"
         [windowDays]="rangeDays()"
       />
 

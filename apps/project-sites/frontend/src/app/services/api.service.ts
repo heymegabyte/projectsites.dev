@@ -1727,6 +1727,16 @@ export interface SiteTrafficSummary {
     samples: number;
     byPage: { path: string; medianMs: number; samples: number }[];
   };
+  /** AN-SCROLL — first-party scroll depth. `medianPercent` is the site-wide MEDIAN max-depth
+   *  (0–100); `reach` counts samples getting ≥25/50/75/100% deep (a monotonic funnel — divide
+   *  by `samples` for reach rates); `byPage` the deepest-read pages (past a sample floor) with
+   *  each page's completion rate. `medianPercent` null = no samples (card shows "measuring…"). */
+  scrollDepth?: {
+    samples: number;
+    medianPercent: number | null;
+    reach: { p25: number; p50: number; p75: number; p100: number };
+    byPage: { path: string; medianPercent: number; samples: number; completionPercent: number }[];
+  };
   previous: {
     pageviews: number;
     uniqueSessions: number;
