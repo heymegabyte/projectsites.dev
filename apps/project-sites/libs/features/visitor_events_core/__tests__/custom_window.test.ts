@@ -19,6 +19,7 @@
 import {
   getTrafficSummary,
   getWebVitalsSummary,
+  getJsErrorSummary,
   getConversionKinds,
   getPreviousConversionKinds,
   getDimensionBreakdown,
@@ -365,5 +366,84 @@ describe('shiftWindowToTz — interpret absolute window bounds in the owner tz',
     for (const bad of [0, 9999, -9999, 1.5, Number.NaN, undefined]) {
       expect(shiftWindowToTz(w, bad as number)).toEqual(w);
     }
+  });
+});
+
+describe('getJsErrorSummary — first-party site-health', () => {
+  /** D1 stub returning the given grouped rows for the js_error query (else empty). */
+  function jsErrorEnv(
+    rows: Array<{ message: string | null; n: number; sample_path?: string | null }>,
+    opts: { error?: boolean } = {},
+  ): Env {
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind() {
+            return {
+              all: async () => {
+                if (opts.error) throw new Error('no such table: visitor_events');
+                return { results: sql.includes("event_type = 'js_error'") ? rows : [] };
+              },
+              first: async () => null,
+              run: async () => ({ success: true, meta: { changes: 0 } }),
+            };
+          },
+        };
+      },
+    };
+    return { DB: db } as unknown as Env;
+  }
+
+  it('groups by message, sums the true total, and carries a sample path', async () => {
+    const s = await getJsErrorSummary(
+      jsErrorEnv([
+        { message: "Cannot read properties of undefined (reading 'x')", n: 12, sample_path: '/pricing' },
+        { message: 'ChunkLoadError', n: 3, sample_path: '/blog' },
+      ]),
+      'site_1',
+      30,
+    );
+    expect(s.total).toBe(15); // 12 + 3 — the real count, not the group count
+    expect(s.byMessage[0]).toEqual({
+      message: "Cannot read properties of undefined (reading 'x')",
+      count: 12,
+      samplePath: '/pricing',
+    });
+    expect(s.byMessage).toHaveLength(2);
+  });
+
+  it('caps the DISPLAYED groups at 8 but the total still counts all of them', async () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({ message: 'err ' + i, n: i + 1 }));
+    const s = await getJsErrorSummary(jsErrorEnv(rows), 'site_1', 30);
+    expect(s.byMessage).toHaveLength(8); // top-8 for display
+    expect(s.total).toBe(rows.reduce((t, r) => t + r.n, 0)); // total counts ALL 12
+  });
+
+  it('a clean site → {total:0, byMessage:[]} (never implies "not measured")', async () => {
+    const s = await getJsErrorSummary(jsErrorEnv([]), 'site_1', 30);
+    expect(s).toEqual({ total: 0, byMessage: [] });
+  });
+
+  it('fail-soft — a query error yields the empty clean summary, never throws', async () => {
+    const s = await getJsErrorSummary(jsErrorEnv([], { error: true }), 'site_1', 30);
+    expect(s).toEqual({ total: 0, byMessage: [] });
+  });
+
+  it('scopes to the tenant — the site_id predicate is bound, never interpolated', async () => {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...params: unknown[]) {
+            calls.push({ sql, params });
+            return { all: async () => ({ results: [] }), first: async () => null, run: async () => ({}) };
+          },
+        };
+      },
+    };
+    await getJsErrorSummary({ DB: db } as unknown as Env, 'site-XYZ', 30);
+    const q = calls.find((c) => c.sql.includes("event_type = 'js_error'"));
+    expect(q?.sql).toContain('site_id = ?'); // bound predicate, not a literal
+    expect(q?.params).toContain('site-XYZ'); // the caller-scoped site is a bound param
   });
 });
