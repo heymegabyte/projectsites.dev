@@ -24,6 +24,7 @@ import { WebVitalsCardComponent } from './web-vitals-card.component';
 import { HourlyBreakdownComponent, rotateToLocalHours } from './hourly-breakdown.component';
 import { ConversionsCardComponent } from './conversions-card.component';
 import { ScriptErrorsCardComponent } from './script-errors-card.component';
+import { EngagementCardComponent } from './engagement-card.component';
 import { TechBreakdownComponent } from './tech-breakdown.component';
 import { CampaignBreakdownComponent } from './campaign-breakdown.component';
 import type { TrendBadge } from './trend-badge.model';
@@ -85,7 +86,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, ScriptErrorsCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -630,6 +631,14 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
       <app-script-errors-card
         appReveal
         [jsErrors]="siteTraffic()?.jsErrors"
+        [windowDays]="rangeDays()"
+      />
+
+      <!-- Time on page — first-party dwell (app.js page_engagement beacon → visitor_events),
+           site-wide MEDIAN + per-page. "Measuring…" when 0 samples (never a fake 0). -->
+      <app-engagement-card
+        appReveal
+        [engagement]="siteTraffic()?.engagement"
         [windowDays]="rangeDays()"
       />
 

@@ -1719,6 +1719,14 @@ export interface SiteTrafficSummary {
     total: number;
     byMessage: { message: string; count: number; samplePath?: string }[];
   };
+  /** AN-ENGAGE — first-party time-on-page (dwell). `medianMs` is the site-wide MEDIAN (median,
+   *  not mean — dwell is outlier-skewed); `byPage` the per-page medians (longest first, past a
+   *  sample floor). `medianMs` null = no samples yet (card shows "measuring…", never a fake 0). */
+  engagement?: {
+    medianMs: number | null;
+    samples: number;
+    byPage: { path: string; medianMs: number; samples: number }[];
+  };
   previous: {
     pageviews: number;
     uniqueSessions: number;
