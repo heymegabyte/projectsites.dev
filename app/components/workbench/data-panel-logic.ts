@@ -1054,3 +1054,50 @@ export function rowJson(row: Record<string, unknown>): string {
     return JSON.stringify(shallow, null, 2);
   }
 }
+
+/**
+ * Columns to RENDER in the browse grid — all columns minus the hidden set, ORDER PRESERVED.
+ * A stale hidden entry (a column no longer in the table, e.g. left over in localStorage after a
+ * schema change) is simply ignored. Hiding is VIEW-ONLY: the row-detail drill-down and the CSV/
+ * JSON exports still use the full column set, so this never omits data — it's a scan aid for wide
+ * tables that would otherwise force horizontal scrolling.
+ *
+ * @param all - every column the browse response returned, in display order
+ * @param hidden - the columns the user chose to hide
+ * @returns the visible columns, in `all`'s order
+ * @example visibleColumns(['a', 'b', 'c'], ['b']) // ['a', 'c']
+ */
+export function visibleColumns(all: readonly string[], hidden: readonly string[]): string[] {
+  const h = new Set(hidden);
+  return all.filter((c) => !h.has(c));
+}
+
+/**
+ * Toggle a column's visibility. Showing a column is always allowed; HIDING is refused when it
+ * would leave zero visible columns (never a dead-end empty grid). Returns the new hidden set,
+ * ordered by `all` for stable persistence, immutable (never mutates the input).
+ *
+ * @param hidden - the current hidden set
+ * @param col - the column being toggled
+ * @param all - every column in the table (to enforce the last-column guard + ordering)
+ * @returns the next hidden set
+ * @example toggleHiddenColumn([], 'b', ['a', 'b']) // ['b']
+ * @example toggleHiddenColumn(['a'], 'b', ['a', 'b']) // ['a'] — refused; 'b' is the last visible
+ */
+export function toggleHiddenColumn(hidden: readonly string[], col: string, all: readonly string[]): string[] {
+  const set = new Set(hidden);
+
+  if (set.has(col)) {
+    set.delete(col); // showing is always safe
+  } else {
+    const visibleCount = all.filter((c) => !set.has(c)).length;
+
+    if (visibleCount <= 1) {
+      return [...hidden];
+    } // refuse — would empty the grid
+
+    set.add(col);
+  }
+
+  return all.filter((c) => set.has(c));
+}

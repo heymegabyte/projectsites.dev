@@ -48,6 +48,8 @@ import {
   sortRows,
   clipboardValue,
   rowJson,
+  visibleColumns,
+  toggleHiddenColumn,
 } from './data-panel-logic';
 import { classNames } from '~/utils/classNames';
 
@@ -64,6 +66,21 @@ const SQL_SAVED_KEY = 'ps-data-sql-saved';
 
 /** localStorage key for the open SQL query tabs + which is active (per-browser). */
 const SQL_TABS_KEY = 'ps-data-sql-tabs';
+
+/** localStorage key PREFIX for a table's hidden browse columns (`…-<tableKey>`, per-browser). */
+const DATA_COLS_KEY = 'ps-data-cols-hidden';
+
+/** Read a table's persisted hidden-column set (best-effort; private-mode / junk → []). */
+function readHiddenCols(tableKey: string): string[] {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(`${DATA_COLS_KEY}-${tableKey}`) : null;
+    const parsed = raw ? JSON.parse(raw) : [];
+
+    return Array.isArray(parsed) ? parsed.filter((c): c is string => typeof c === 'string') : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Rehydrate the SQL console's query tabs from localStorage, falling back to a single
@@ -172,6 +189,15 @@ export const DataPanel = memo(() => {
    * showing the latest N). null = original (server) order; a header click cycles asc→desc→off.
    */
   const [browseSort, setBrowseSort] = useState<GridSort | null>(null);
+
+  /*
+   * View-only column selection for the browse grid (per-table, localStorage-persisted). Hidden
+   * columns are dropped from the GRID render only — the row-detail + CSV/JSON exports keep every
+   * column, so hiding never omits data (it's a scan aid for wide tables). `colMenuOpen` toggles
+   * the "Columns" checklist dropdown.
+   */
+  const [hiddenCols, setHiddenCols] = useState<string[]>([]);
+  const [colMenuOpen, setColMenuOpen] = useState(false);
 
   /*
    * Transient "✓ Copied …" flash for clipboard actions (announced via aria-live). A token
@@ -354,6 +380,8 @@ export const DataPanel = memo(() => {
     setSearch('');
     setDetailIdx(null);
     setBrowseSort(null);
+    setHiddenCols(readHiddenCols(key)); // restore this table's column selection
+    setColMenuOpen(false);
     setBrowseLoading(true);
 
     const cid = newCorrelationId(key);
@@ -605,6 +633,32 @@ export const DataPanel = memo(() => {
   const visibleRows = useMemo(
     () => sortRows(filterRows(rows, columns, search), browseSort),
     [rows, columns, search, browseSort],
+  );
+
+  /**
+   * Columns the GRID renders — the full set minus the user's hidden selection (view-only;
+   *  row-detail + exports still use `columns`).
+   */
+  const visibleCols = useMemo(() => visibleColumns(columns, hiddenCols), [columns, hiddenCols]);
+
+  /** Toggle a browse column's visibility (last-column-guarded) + persist per table. */
+  const toggleCol = useCallback(
+    (col: string) => {
+      setHiddenCols((prev) => {
+        const next = toggleHiddenColumn(prev, col, columns);
+
+        try {
+          if (active && typeof localStorage !== 'undefined') {
+            localStorage.setItem(`${DATA_COLS_KEY}-${active}`, JSON.stringify(next));
+          }
+        } catch {
+          /* private mode / quota — hiding is a convenience, never load-bearing */
+        }
+
+        return next;
+      });
+    },
+    [columns, active],
   );
 
   /**
@@ -945,15 +999,63 @@ export const DataPanel = memo(() => {
               {search && rows.length > 0 ? ` · ${visibleRows.length} match` : ''}
             </span>
             {rows.length > 0 && (
-              <button
-                type="button"
-                onClick={exportCsv}
-                data-testid="data-export-csv"
-                className="ml-auto text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer flex items-center gap-1"
-                title="Export the current view to CSV"
-              >
-                <div className="i-ph:download-simple" /> CSV
-              </button>
+              <div className="ml-auto flex items-center gap-3">
+                {columns.length > 1 && (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setColMenuOpen((v) => !v)}
+                      data-testid="data-cols-toggle"
+                      aria-expanded={colMenuOpen}
+                      title="Show or hide columns (view only — exports keep every column)"
+                      className="text-[10px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary cursor-pointer flex items-center gap-1"
+                    >
+                      <div className="i-ph:columns" /> Columns
+                      {hiddenCols.length ? ` (${visibleCols.length}/${columns.length})` : ''}
+                    </button>
+                    {colMenuOpen && (
+                      <div
+                        className="absolute right-0 top-full mt-1 z-20 min-w-[160px] max-h-64 overflow-auto rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-lg p-1"
+                        data-testid="data-cols-menu"
+                      >
+                        {columns.map((c) => {
+                          const visible = !hiddenCols.includes(c);
+                          const isLastVisible = visible && visibleCols.length <= 1;
+
+                          return (
+                            <label
+                              key={c}
+                              title={isLastVisible ? 'At least one column must stay visible' : undefined}
+                              className={classNames(
+                                'flex items-center gap-2 px-2 py-1 text-[11px] rounded hover:bg-bolt-elements-background-depth-1',
+                                isLastVisible ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={visible}
+                                disabled={isLastVisible}
+                                onChange={() => toggleCol(c)}
+                                data-testid="data-cols-checkbox"
+                              />
+                              <span className="truncate">{columnLabel(c)}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={exportCsv}
+                  data-testid="data-export-csv"
+                  className="text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer flex items-center gap-1"
+                  title="Export the current view to CSV (every column, not just the visible ones)"
+                >
+                  <div className="i-ph:download-simple" /> CSV
+                </button>
+              </div>
             )}
           </div>
 
@@ -1029,7 +1131,7 @@ export const DataPanel = memo(() => {
               <table className="w-full text-[11px] border-collapse">
                 <thead className="sticky top-0 bg-bolt-elements-background-depth-2 z-10">
                   <tr>
-                    {columns.map((c) => (
+                    {visibleCols.map((c) => (
                       <th
                         key={c}
                         aria-sort={
@@ -1092,7 +1194,7 @@ export const DataPanel = memo(() => {
                             : 'hover:bg-bolt-elements-background-depth-2/50',
                         )}
                       >
-                        {columns.map((c) => (
+                        {visibleCols.map((c) => (
                           <td
                             key={c}
                             className="px-3 py-1.5 text-bolt-elements-textSecondary align-top max-w-[220px] truncate"
@@ -1105,7 +1207,7 @@ export const DataPanel = memo(() => {
                       {/* Row detail drill-down — every column, pretty-JSON for objects. */}
                       {detailIdx === i && (
                         <tr data-testid="data-row-detail">
-                          <td colSpan={columns.length} className="bg-bolt-elements-background-depth-1 px-3 py-2">
+                          <td colSpan={visibleCols.length} className="bg-bolt-elements-background-depth-1 px-3 py-2">
                             <div className="flex justify-end mb-1.5">
                               <button
                                 type="button"

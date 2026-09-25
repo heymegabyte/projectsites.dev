@@ -38,6 +38,8 @@ import {
   sortRows,
   clipboardValue,
   rowJson,
+  visibleColumns,
+  toggleHiddenColumn,
 } from './data-panel-logic';
 
 describe('iconForTable', () => {
@@ -662,5 +664,38 @@ describe('rowJson (whole-row pretty JSON for "Copy row")', () => {
     r.self = r;
     expect(typeof rowJson(r)).toBe('string');
     expect(rowJson(r)).toContain('"a"');
+  });
+});
+
+describe('visibleColumns (grid column selection — view-only)', () => {
+  it('returns all columns minus the hidden set, ORDER preserved', () => {
+    expect(visibleColumns(['a', 'b', 'c'], ['b'])).toEqual(['a', 'c']);
+    expect(visibleColumns(['a', 'b', 'c'], [])).toEqual(['a', 'b', 'c']);
+  });
+  it('ignores a stale hidden entry no longer in the table', () => {
+    expect(visibleColumns(['a', 'b'], ['zzz'])).toEqual(['a', 'b']);
+  });
+});
+
+describe('toggleHiddenColumn (3-state safe toggle, last-column guard)', () => {
+  it('hides a column (immutable, ordered by `all`)', () => {
+    const out = toggleHiddenColumn([], 'b', ['a', 'b', 'c']);
+    expect(out).toEqual(['b']);
+  });
+  it('shows a previously hidden column', () => {
+    expect(toggleHiddenColumn(['b'], 'b', ['a', 'b', 'c'])).toEqual([]);
+  });
+  it('REFUSES to hide the last visible column (never a dead-end empty grid)', () => {
+    // a,b table with a already hidden → hiding b would leave 0 visible → refused (unchanged)
+    expect(toggleHiddenColumn(['a'], 'b', ['a', 'b'])).toEqual(['a']);
+  });
+  it('always allows SHOWING even at the guard boundary', () => {
+    // one visible (b), a hidden → showing a is fine
+    expect(toggleHiddenColumn(['a'], 'a', ['a', 'b'])).toEqual([]);
+  });
+  it('keeps the hidden set ordered by `all` for stable persistence', () => {
+    // hide c then a → stored in all-order [a, c], not insertion order [c, a]
+    const afterC = toggleHiddenColumn([], 'c', ['a', 'b', 'c']);
+    expect(toggleHiddenColumn(afterC, 'a', ['a', 'b', 'c'])).toEqual(['a', 'c']);
   });
 });
