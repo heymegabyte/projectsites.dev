@@ -222,10 +222,13 @@ gated.
   INP 200/500, CLS 0.1/0.25) + Google's pass model — Good only when EVERY measured core metric is
   good, Poor if any is poor, else Needs improvement; rates only metrics with field samples; null →
   tile omitted (never a fabricated rating). +8 Karma. Prod-verified: chunk live with the marker.
-  **REMAINING:** the drilldown filter UI is the ONLY open item (owned by the concurrent
-  `analytics-drilldown-filter` session — not mine). The analytics section is at a genuine plateau:
-  every AVAILABLE CF dataset + the full advanced-first-party set is shipped, and first-party metrics
-  propagate to the admin dashboard, the public report, AND the funnel.
+  **REMAINING: NONE that need new code.** The drilldown filter UI is SHIPPED (verified 2026-09-25 —
+  clickable rows for path/country/device/browser/os + Highlights drills + a removable accessible chip +
+  filtered empty states; `channel` reachable via the API filter, not row-clickable by design). The
+  analytics section is at a genuine plateau: every AVAILABLE CF dataset + the full advanced-first-party
+  set is shipped (CF RUM cached), and first-party metrics propagate to the admin dashboard, the public
+  report, AND the funnel. Next loop fires should run a completeness-critic or reallocate to
+  generated-site quality — do NOT re-build the shipped drilldown UI.
 
 ## Coverage matrix
 
@@ -253,7 +256,7 @@ gated.
 | **CSV export (dashboard)** | (UI) client-side over fetched data | none | — | — | — | ✅ **COMPLETE** — `buildAnalyticsCsv` exports summary + top-pages/countries/referrers + the D1 **device/browser/OS** (the full platform trio, grouped, mirroring the "Devices & platforms" card) + **campaign attribution (utm_source/utm_campaign, tagged visits only)** + channel/conversions/CWV breakdowns + the CF edge DELIVERY breakdown (status classes, cache hit/miss/ratio, edge bandwidth — emitted ONLY when `has_data`, never fabricated zeros) + **(2026-09-25) the edge connection/content breakdowns** (`edge_protocol`/`edge_tls`/`edge_content_type`/`edge_method`/`edge_verified_bot`) **AND first-party page-load timing** (`web_vital,ttfb_p75_ms`/`fcp_p75_ms`, only when measured) — reconciling the export with the dashboard after those 6 dimensions were added this session; with the ACCURATE source label; browser/OS + page-load rows are omitted (never fabricated) when absent; formula-injection-safe via the shared `csvEscape`. Matches the dashboard cards. | `/admin/analytics` Export CSV |
 | Source + freshness labels in UI | (UI) | none | — | — | — | ✅ **honest per-provenance** — the "Source:" badge routes through the authoritative `trafficSource` signal: first-party → **"ProjectSites analytics"**, genuine CF-zone custom domain → **"Cloudflare Edge"**. Freshness "as of" + "dates in UTC" present. | analytics header badge + chart caption + footer |
 | **Metric definitions / measurement transparency** | (UI) static, data-driven | none | — | — | — | ✅ **DONE (this fire)** — `AnalyticsGlossaryComponent`, an accessible "How these metrics are measured" `<details>` disclosure: per-metric plain-language definition + **source badge** (first-party / Cloudflare edge / real-user) + caveats (bots filtered, Chromium-only CWV shown only when sampled, edge adaptive-sampled + ~30-day retention). Explicitly spells out **requests ≠ page views** (never conflated). | `/admin/analytics` (below the cards) |
-| **Drilldown filter (server core)** | D1 `visitor_events` — an allowlisted `{dim,value}` predicate (`FILTER_DIMENSION_SQL`: country/device/browser/os/channel/path) baked into `currentWindow`/`previousWindow`/`timePredicate` + forwarded to every breakdown helper | none | site_id (+ the narrowing dim) | D1 | none | ✅ **server core LIVE (2026-09-24)** — `GET /api/sites/:siteId/analytics?filterDim=&filterValue=` restricts the ENTIRE summary (KPIs + every breakdown + CWV + conversions + the prior-window comparison) to one dimension value. **Tenant-safe:** dim is a Zod-enum allowlist (unknown/injected → **400**, never reaches SQL), value is always a BOUND `?` param, and the filter only NARROWS within the already owner-scoped `site_id` (a non-owned site still **404s** WITH a valid filter). A filter FORCES the live scan (the calendar rollup can't answer it) and is ECHOED as `appliedFilter`. Metrics whose events lack the dim (e.g. CWV by country) go **honest-empty** when filtered, never a fabricated 0. 18 new tests (11 core + 7 route). **Next: the UI** — clickable breakdown rows + a removable filter chip. | (API live; UI chip = next) |
+| **Drilldown filter (server core)** | D1 `visitor_events` — an allowlisted `{dim,value}` predicate (`FILTER_DIMENSION_SQL`: country/device/browser/os/channel/path) baked into `currentWindow`/`previousWindow`/`timePredicate` + forwarded to every breakdown helper | none | site_id (+ the narrowing dim) | D1 | none | ✅ **server core LIVE (2026-09-24)** — `GET /api/sites/:siteId/analytics?filterDim=&filterValue=` restricts the ENTIRE summary (KPIs + every breakdown + CWV + conversions + the prior-window comparison) to one dimension value. **Tenant-safe:** dim is a Zod-enum allowlist (unknown/injected → **400**, never reaches SQL), value is always a BOUND `?` param, and the filter only NARROWS within the already owner-scoped `site_id` (a non-owned site still **404s** WITH a valid filter). A filter FORCES the live scan (the calendar rollup can't answer it) and is ECHOED as `appliedFilter`. Metrics whose events lack the dim (e.g. CWV by country) go **honest-empty** when filtered, never a fabricated 0. 18 new tests (11 core + 7 route). **UI SHIPPED + VERIFIED (2026-09-25) — was stale-marked "next".** Clickable drill rows: **path** + **country** (breakdown rows), **device / browser / os** (via `<app-tech-breakdown (drill)>`), and the **Highlights strip** (device / top-page / top-location). A removable, accessible **filter chip** (`an-filter-chip` → `clearFilter()`, rendered from the SERVER-echoed `appliedFilter`, never the click alone) + `isFiltered()` empty-when-filtered states ("No pages/countries match this filter"). **5 of the 6 allowlisted dims are row-clickable; `channel` is intentionally NOT row-clickable** — the "Top referrers" breakdown mixes referrer-hosts + channel-names, so a per-row channel drill would bind a display label that may not equal the stored `metadata.channel` value (a lying-empty risk); `channel` stays reachable via the API filter param, tested server-side. | ✅ UI LIVE — drill rows (path·country·device·browser·os) + Highlights drills + removable chip + filtered empty states |
 
 ## Highest-impact gap — CWV is DONE (corrected 2026-09-24)
 
@@ -300,12 +303,14 @@ alone), toggles off on re-click, honest empty-when-filtered states, accessible (
 chip = real button). Filtered view is first-party audience only (edge can't filter these dims). +9 Karma. The
 prior handoff below is now HISTORICAL.
 
-**THE single highest-priority NEXT increment: the filter UI.** The API is live + honest but nothing in the Angular
-dashboard sends `filterDim`/`filterValue` yet. Next fire: (1) make breakdown rows (country/device/browser/os/channel +
-top-paths) clickable → set a `filter` signal → append `&filterDim=&filterValue=` to the summary fetch; (2) render a
-removable **filter chip** ("Country = US ✕") from the echoed `appliedFilter`; (3) an empty-when-filtered state ("no
-<metric> for this filter" — honest, since CWV/conversion events may lack the dim). Keep it accessible (chip is a real
-button; `aria-pressed` on active rows).
+**~~THE single highest-priority NEXT increment: the filter UI.~~ — DONE, superseded (verified 2026-09-25).** This
+block was stale (it contradicted the "FILTER UI — SHIPPED" note just above). The filter UI is live: breakdown rows
+for path/country + device/browser/os (via `<app-tech-breakdown (drill)>`) + the Highlights strip are clickable →
+`applyDrill` sets the `filter` signal → the summary fetch sends `&filterDim=&filterValue=`; a removable, accessible
+`an-filter-chip` renders from the SERVER-echoed `appliedFilter` (`clearFilter()`, `aria-pressed` rows); `isFiltered()`
+empty-when-filtered states are in place. `channel` is reachable via the API filter but intentionally NOT row-clickable
+(the "Top referrers" breakdown mixes hosts + channel-names → a per-row channel drill risks binding a display label ≠
+the stored `metadata.channel`, a lying-empty). **No filter-UI work remains** — the section is at a plateau.
 
 ---
 _CWV history (all DONE — do not rebuild):_
