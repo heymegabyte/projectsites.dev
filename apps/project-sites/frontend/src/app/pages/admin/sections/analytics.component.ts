@@ -21,6 +21,7 @@ import { EmptyStateComponent } from '../empty-state.component';
 import { ErrorCardComponent } from '../../../components/states';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { WebVitalsCardComponent } from './web-vitals-card.component';
+import { CloudflareRumCardComponent } from './cloudflare-rum-card.component';
 import { HourlyBreakdownComponent, rotateToLocalHours } from './hourly-breakdown.component';
 import { ConversionsCardComponent } from './conversions-card.component';
 import { OutboundLinksCardComponent } from './outbound-links-card.component';
@@ -90,7 +91,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, NetworkQualityCardComponent, NavTimingCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, OutboundLinksCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, CloudflareRumCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, NetworkQualityCardComponent, NavTimingCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, OutboundLinksCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -635,6 +636,15 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
       <app-web-vitals-card
         appReveal
         [webVitals]="siteTraffic()?.webVitals ?? null"
+        [windowDays]="rangeDays()"
+      />
+
+      <!-- Cloudflare RUM — CF-measured CWV + Navigation Timing (incl. client TTFB) for the site's
+           owned host, an INDEPENDENT second source to the first-party beacon above (cross-check,
+           never summed). Self-fetches /api/sites/:id/cloudflare-rum; sampled + honest empties. -->
+      <app-cloudflare-rum-card
+        appReveal
+        [siteId]="state.selectedSite()?.id ?? null"
         [windowDays]="rangeDays()"
       />
 
