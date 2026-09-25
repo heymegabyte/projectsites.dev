@@ -101,6 +101,44 @@ describe('buildDeliverySummary', () => {
     expect(result.cache.hit_ratio_pct).toBe(32);
   });
 
+  it('splits edge bytes by cache-state (hit / miss / uncacheable) from byCacheBytes', () => {
+    const byCache = new Map([
+      ['hit', 100],
+      ['miss', 40],
+      ['none', 10],
+    ]);
+    const byCacheBytes = new Map([
+      ['hit', 5_000_000],
+      ['miss', 8_000_000],
+      ['none', 1_000_000],
+    ]);
+    const result = buildDeliverySummary(
+      new Map(),
+      byCache,
+      14_000_000,
+      30,
+      false,
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      byCacheBytes,
+    );
+    expect(result.cache.hit_bytes).toBe(5_000_000);
+    expect(result.cache.miss_bytes).toBe(8_000_000); // the "you could cache this to save bandwidth" signal
+    expect(result.cache.uncacheable_bytes).toBe(1_000_000); // 'none' → uncacheable bucket
+  });
+
+  it('defaults cache bytes to 0 when byCacheBytes is omitted (a real 0, never fabricated)', () => {
+    const result = buildDeliverySummary(new Map(), new Map([['hit', 5]]), 0, 7);
+    expect(result.cache.hit_bytes).toBe(0);
+    expect(result.cache.miss_bytes).toBe(0);
+    expect(result.cache.uncacheable_bytes).toBe(0);
+  });
+
   it('returns hit_ratio_pct=null (NOT 0) when both hit and miss are zero', () => {
     const result = buildDeliverySummary(new Map(), new Map(), 0, 30);
 

@@ -83,6 +83,11 @@ export interface DeliverySummary {
     readonly miss: number;
     readonly uncacheable: number;
     readonly hit_ratio_pct: number | null;
+    /** Edge bandwidth (bytes) per cache-state — same buckets as the counts. Lets the card say
+     *  "cache misses served N MB". Adaptive-sampled; a real 0 is honest (no bytes in that state). */
+    readonly hit_bytes: number;
+    readonly miss_bytes: number;
+    readonly uncacheable_bytes: number;
   };
   readonly response_bytes: number;
   readonly range_days: number;
@@ -505,6 +510,9 @@ interface HostDelivery {
   /** Per-status visits (status → sum{visits}) — "how many REAL visitors hit this status". */
   by_status_visits: Map<number, number>;
   by_cache: Map<string, number>;
+  /** Per-cache-state edge bandwidth (cacheStatus → sum{edgeResponseBytes}) — same cache query,
+   *  already fetched; surfaces "cache misses served N MB you could cache" instead of discarding it. */
+  by_cache_bytes: Map<string, number>;
   /** Edge connection + content breakdowns (label → request count), all per-host CF-sampled. */
   by_protocol: Map<string, number>;
   by_tls: Map<string, number>;
@@ -547,6 +555,7 @@ async function loadHostDelivery(
 ): Promise<HostDelivery> {
   const empty: HostDelivery = {
     by_cache: new Map(),
+    by_cache_bytes: new Map(),
     by_content: new Map(),
     by_method: new Map(),
     by_protocol: new Map(),
@@ -618,6 +627,7 @@ async function loadHostDelivery(
     if (!zoneRow) return { ...empty, resolved: true };
     const agg: HostDelivery = {
       by_cache: new Map(),
+      by_cache_bytes: new Map(),
       by_content: new Map(),
       by_method: new Map(),
       by_protocol: new Map(),
@@ -647,8 +657,10 @@ async function loadHostDelivery(
     for (const row of zoneRow.cache ?? []) {
       const cs = String(row.dimensions?.cacheStatus ?? 'unknown');
       const c = Number(row.count ?? 0);
+      const b = Number(row.sum?.edgeResponseBytes ?? 0);
       if (c > 0) agg.by_cache.set(cs, (agg.by_cache.get(cs) ?? 0) + c);
-      agg.response_bytes += Number(row.sum?.edgeResponseBytes ?? 0);
+      if (b > 0) agg.by_cache_bytes.set(cs, (agg.by_cache_bytes.get(cs) ?? 0) + b);
+      agg.response_bytes += b;
     }
     // Fold the four edge connection/content dimensions. Each value is trusted (it comes
     // FROM Cloudflare, not the client); skip the "UNK"/"none"/empty sentinels CF emits for
@@ -1006,6 +1018,7 @@ export async function loadMultiUrlAnalytics(
     const mergedStatusBytes = new Map<number, number>();
     const mergedStatusVisits = new Map<number, number>();
     const mergedCache = new Map<string, number>();
+    const mergedCacheBytes = new Map<string, number>();
     const mergedProtocol = new Map<string, number>();
     const mergedTls = new Map<string, number>();
     const mergedContent = new Map<string, number>();
@@ -1022,6 +1035,7 @@ export async function loadMultiUrlAnalytics(
       for (const [s, v] of dv.by_status_visits)
         mergedStatusVisits.set(s, (mergedStatusVisits.get(s) ?? 0) + v);
       for (const [k, c] of dv.by_cache) mergedCache.set(k, (mergedCache.get(k) ?? 0) + c);
+      for (const [k, b] of dv.by_cache_bytes) mergedCacheBytes.set(k, (mergedCacheBytes.get(k) ?? 0) + b);
       mergeInto(mergedProtocol, dv.by_protocol);
       mergeInto(mergedTls, dv.by_tls);
       mergeInto(mergedContent, dv.by_content);
@@ -1047,6 +1061,7 @@ export async function loadMultiUrlAnalytics(
         mergedVerifiedBot,
         mergedStatusBytes,
         mergedStatusVisits,
+        mergedCacheBytes,
       ),
       pageviews: aggregates.reduce((sum, a) => sum + a.page_views, 0),
       // HONEST window: the CF path covers ≤CF_MAX_WINDOW_DAYS daily windows regardless of the
@@ -1153,6 +1168,7 @@ export function buildDeliverySummary(
   byVerifiedBot: ReadonlyMap<string, number> = new Map(),
   byStatusBytes: ReadonlyMap<number, number> = new Map(),
   byStatusVisits: ReadonlyMap<number, number> = new Map(),
+  byCacheBytes: ReadonlyMap<string, number> = new Map(),
 ): DeliverySummary {
   /** A label→count map → its top-`n` rows, highest first, zero-counts dropped. */
   const topLabels = (
@@ -1193,6 +1209,16 @@ export function buildDeliverySummary(
     else uncacheable += count;
   }
   const cacheable = hit + miss;
+  // Edge bandwidth per cache-state (same state buckets as the counts) — surfaces "your cache
+  // MISSES served N MB" (bandwidth you could save by caching), from bytes CF already returned.
+  let hitBytes = 0;
+  let missBytes = 0;
+  let uncacheableBytes = 0;
+  for (const [state, bytes] of byCacheBytes) {
+    if (CACHE_HIT_STATES.has(state)) hitBytes += bytes;
+    else if (CACHE_MISS_STATES.has(state)) missBytes += bytes;
+    else uncacheableBytes += bytes;
+  }
 
   return {
     by_status_class,
@@ -1201,6 +1227,9 @@ export function buildDeliverySummary(
       hit_ratio_pct: cacheable > 0 ? Math.round((100 * hit) / cacheable) : null,
       miss,
       uncacheable,
+      hit_bytes: hitBytes,
+      miss_bytes: missBytes,
+      uncacheable_bytes: uncacheableBytes,
     },
     content_types: topLabels(byContent),
     has_data: total > 0,
