@@ -917,7 +917,7 @@ export async function getNetworkQualitySummary(
 
 /** Empty page-load summary — honest "measuring…" (null medians), never a fabricated 0. */
 function emptyNavTiming(): NavTimingSummary {
-  return { samples: 0, dns: null, connect: null, ttfb: null, transfer: null, dom: null, total: null };
+  return { samples: 0, dns: null, connect: null, ttfb: null, transfer: null, dom: null, total: null, byPage: [] };
 }
 
 /** The nav-timing phases, in the load order they render as a waterfall. */
@@ -941,9 +941,10 @@ export async function getNavTimingSummary(
   filter?: AnalyticsFilter,
 ): Promise<NavTimingSummary> {
   const { clause, params } = currentWindow(siteId, windowDays, window, filter);
-  const { data, error } = await dbQuery<Record<string, number | null>>(
+  const { data, error } = await dbQuery<Record<string, number | null> & { path: string | null }>(
     env.DB,
-    `SELECT CAST(json_extract(metadata, '$.dns')      AS INTEGER) AS dns,
+    `SELECT path,
+            CAST(json_extract(metadata, '$.dns')      AS INTEGER) AS dns,
             CAST(json_extract(metadata, '$.connect')  AS INTEGER) AS connect,
             CAST(json_extract(metadata, '$.ttfb')     AS INTEGER) AS ttfb,
             CAST(json_extract(metadata, '$.transfer') AS INTEGER) AS transfer,
@@ -957,6 +958,9 @@ export async function getNavTimingSummary(
   );
   if (error) return emptyNavTiming();
   const cols: Record<string, number[]> = { dns: [], connect: [], ttfb: [], transfer: [], dom: [], total: [] };
+  // Per-page samples for the slowest-pages drilldown: path → total-load ms + TTFB ms.
+  const pageTotal = new Map<string, number[]>();
+  const pageTtfb = new Map<string, number[]>();
   let samples = 0;
   for (const r of data) {
     samples++;
@@ -966,9 +970,35 @@ export async function getNavTimingSummary(
       // non-finite / negative values are excluded so a median is never skewed by junk.
       if (Number.isFinite(v) && v >= 0) cols[phase].push(v);
     }
+    if (typeof r.path === 'string' && r.path) {
+      const t = Number(r.total);
+      if (Number.isFinite(t) && t >= 0) {
+        const arr = pageTotal.get(r.path);
+        if (arr) arr.push(t);
+        else pageTotal.set(r.path, [t]);
+      }
+      const tt = Number(r.ttfb);
+      if (Number.isFinite(tt) && tt >= 0) {
+        const arr = pageTtfb.get(r.path);
+        if (arr) arr.push(tt);
+        else pageTtfb.set(r.path, [tt]);
+      }
+    }
   }
   if (samples === 0) return emptyNavTiming();
   const med = (arr: number[]): number | null => (arr.length ? Math.round(percentile(arr, 50)) : null);
+  // Slowest pages by median total load (past the shared per-path sample floor), each carrying
+  // its median TTFB (server wait) — worst-first, top 8. Mirrors the CWV slowest-pages drilldown.
+  const byPage = [...pageTotal.entries()]
+    .filter(([, totals]) => totals.length >= MIN_PATH_SAMPLES)
+    .map(([path, totals]) => ({
+      path,
+      total: Math.round(percentile(totals, 50)),
+      ttfb: med(pageTtfb.get(path) ?? []),
+      samples: totals.length,
+    }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 8);
   return {
     samples,
     dns: med(cols.dns),
@@ -977,6 +1007,7 @@ export async function getNavTimingSummary(
     transfer: med(cols.transfer),
     dom: med(cols.dom),
     total: med(cols.total),
+    byPage,
   };
 }
 

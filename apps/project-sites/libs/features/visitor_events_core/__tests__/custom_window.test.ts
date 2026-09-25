@@ -731,6 +731,7 @@ describe('getNavTimingSummary — first-party page-load waterfall', () => {
     transfer: number | null;
     dom: number | null;
     total: number | null;
+    path?: string | null;
   };
   /** D1 stub returning the given nav rows for the nav_timing query. */
   function navEnv(rows: NavRow[], opts: { error?: boolean } = {}): Env {
@@ -784,7 +785,30 @@ describe('getNavTimingSummary — first-party page-load waterfall', () => {
 
   it('no samples → all-null summary (measuring…, never a fabricated 0)', async () => {
     const s = await getNavTimingSummary(navEnv([]), 'site_1', 30);
-    expect(s).toEqual({ samples: 0, dns: null, connect: null, ttfb: null, transfer: null, dom: null, total: null });
+    expect(s).toEqual({
+      samples: 0,
+      dns: null,
+      connect: null,
+      ttfb: null,
+      transfer: null,
+      dom: null,
+      total: null,
+      byPage: [],
+    });
+  });
+
+  it('ranks the slowest pages by median total load, each with its median TTFB (floor-gated, worst-first)', async () => {
+    const rows: NavRow[] = [
+      // /checkout: 5 samples, slow total + high server-wait (TTFB). / : 5 samples, faster.
+      // /thin: 2 samples → below the 5-sample floor → dropped.
+      ...Array.from({ length: 5 }, () => ({ ...row(10, 20, 800, 60, 400, 3000), path: '/checkout' })),
+      ...Array.from({ length: 5 }, () => ({ ...row(10, 20, 100, 60, 400, 1000), path: '/' })),
+      ...Array.from({ length: 2 }, () => ({ ...row(10, 20, 50, 60, 400, 500), path: '/thin' })),
+    ];
+    const s = await getNavTimingSummary(navEnv(rows), 'site_1', 30);
+    expect(s.byPage.map((p) => p.path)).toEqual(['/checkout', '/']); // worst-first by total; /thin dropped
+    expect(s.byPage[0]).toEqual({ path: '/checkout', total: 3000, ttfb: 800, samples: 5 });
+    expect(s.byPage[1]).toEqual({ path: '/', total: 1000, ttfb: 100, samples: 5 });
   });
 
   it('fail-soft — a query error yields the empty summary, never throws', async () => {

@@ -366,6 +366,19 @@ export type NetworkQualitySummary = z.infer<typeof NetworkQualitySummarySchema>;
  * 0); an HONEST 0 (cached DNS, reused connection) IS a real value and IS counted. Median (not
  * mean) — load timings are right-skewed.
  */
+/** One page's nav-timing story — median total page-load + median server-wait (TTFB), past a sample floor. */
+export const NavPageSchema = z
+  .object({
+    path: z.string(),
+    /** Median TTFB (server wait) for this page — null when it lacks enough TTFB samples (never a fake 0). */
+    ttfb: z.number().int().min(0).nullable().default(null),
+    /** Median total page-load ms for this page (the ranking key — worst-first). */
+    total: z.number().int().min(0),
+    samples: z.number().int().min(1),
+  })
+  .strict();
+export type NavPage = z.infer<typeof NavPageSchema>;
+
 export const NavTimingSummarySchema = z
   .object({
     samples: z.number().int().min(0),
@@ -375,9 +388,22 @@ export const NavTimingSummarySchema = z
     transfer: z.number().int().min(0).nullable().default(null),
     dom: z.number().int().min(0).nullable().default(null),
     total: z.number().int().min(0).nullable().default(null),
+    // AN-NAV-PAGE — the slowest pages by median total load (each with its median TTFB = server
+    // wait, so an owner tells a slow-SERVER page from a slow-CLIENT one). Mirrors the CWV
+    // slowest-pages drilldown; floor-gated. Default [] for back-compat / honest empty.
+    byPage: z.array(NavPageSchema).default([]),
   })
   .strict()
-  .default({ samples: 0, dns: null, connect: null, ttfb: null, transfer: null, dom: null, total: null });
+  .default({
+    samples: 0,
+    dns: null,
+    connect: null,
+    ttfb: null,
+    transfer: null,
+    dom: null,
+    total: null,
+    byPage: [],
+  });
 export type NavTimingSummary = z.infer<typeof NavTimingSummarySchema>;
 
 /** One clicked outbound/contact link: the destination, its kind, and the click count. */
