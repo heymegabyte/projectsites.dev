@@ -446,6 +446,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  vectorize_inspector: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Read-only, super-admin platform debugging tool for the account Cloudflare Vectorize indexes (RAG / embeddings — shared platform infra, not tenant-owned).\n\n• Worker: libs/features/vectorize_inspector/handlers.ts serves GET /api/admin/vectorize/indexes (list) + /api/admin/vectorize/indexes/:name (describe: dimensions, distance metric, description, vector count + last-processed mutation via v2 REST /info).\n• Cloudflare credentials stay SERVER-side (worker global key via resolveCfCredentials); account id is env.CF_ACCOUNT_ID, never client-supplied. :name validated as a slug (no REST-path injection); the super-admin gate is the authz boundary.\n• Read-only (no insert/query/delete). Super-admin only; flag off → 404 (never leak existence). Honest "not available" (never a fabricated empty list) when creds/API fail.\n• Admin surface: /admin/vectorize-inspector (System Administrator).',
+    key: 'vectorize_inspector',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   site_analytics: {
     default_enabled: false,
     default_rollout_percent: 0,
