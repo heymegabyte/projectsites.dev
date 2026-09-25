@@ -419,11 +419,17 @@ gated.
     form_start/submit = the Form-funnel card. A raw `byType` card would MIX in telemetry event types
     (web_vital / scroll_depth / nav_timing / network_quality / page_engagement) that are noise to an
     owner — building it is redundant chrome. Not worth building (like outbound-by-kind, dropped earlier).
-  - ❌ **Concierge chat engagement — DEFERRED (anti-value as-is).** `concierge_open`/`concierge_message`
-    are beacon-emitted but the AI concierge is Gallery-only (dead model on real sites — see memory
-    `ai-concierge-exists-gallery-only`). So a concierge card would be EMPTY for ~every real customer
-    forever — building an always-empty card violates "no attractive buttons backed by nothing". Revisit
-    ONLY if/when the concierge ships to customer sites.
+  - ✅ **Concierge chat engagement — DONE 2026-09-25 (via a SELF-HIDING card).** The earlier deferral
+    assumed an always-visible empty card. Reconsidered: the app.js `injectConcierge()` FAB is a
+    UNIVERSAL-runtime piece (on every published site, not just the Gallery — the "Gallery-only" memory
+    is about the separate React `AiChat.tsx`), so `concierge_open`/`concierge_message` CAN be real on
+    working sites. They were previously LOST (accepted by `/api/events` but only in the un-provisioned
+    `analytics_events` store, never mirrored). Now: mirrored into `visitor_events` (+ `VisitorEventTypeSchema`),
+    `getConciergeEngagementSummary` (opens · messages · uniqueVisitors · messages-per-open, honest null
+    rate), owner route `/analytics/concierge` (404 cross-org), and a **`ConciergeCardComponent` that
+    SELF-HIDES when opens===0** (during loading, on error, and on a genuine 0) — so it appears only where
+    the assistant is actually used and never clutters a dashboard where it isn't. +6 Jest + 6 Karma;
+    worker `3616d0f3` (route 401-gated), frontend deployed. Data accrues from first serve.
   - **SQL syntax highlighting (DATA)** — the sole remaining REAL feature. Needs `@codemirror/lang-sql`
     (bolt.diy bundles the CodeMirror suite but not lang-sql) + a textarea→CodeMirror refactor in the
     Pages-deployed root `app/`. A DEDICATED task: the dep can't be installed in a symlinked-node_modules

@@ -39,6 +39,11 @@ const VISITOR_MIRROR_TYPES = [
   'scroll_depth',
   'network_quality',
   'nav_timing',
+  // AI concierge usage (app.js universal-runtime FAB): `concierge_open` on panel open,
+  // `concierge_message` per visitor question. Previously LOST (only the un-provisioned
+  // analytics_events store held them) — mirror them so concierge engagement is measurable.
+  'concierge_open',
+  'concierge_message',
 ] as const;
 type VisitorMirrorType = (typeof VISITOR_MIRROR_TYPES)[number];
 const isVisitorMirrorType = (t: string): t is VisitorMirrorType =>
@@ -394,7 +399,11 @@ analyticsRoutes.post('/api/events', async (c) => {
                             dom: navPhase(p?.dom),
                             total: navPhase(p?.total),
                           }
-                        : { form: typeof p?.form === 'string' ? p.form : undefined };
+                        : mirrorType === 'concierge_open' || mirrorType === 'concierge_message'
+                          ? // Concierge events carry no payload — they're counted by event_type +
+                            // session_id (unique visitors) alone, so no metadata is stored.
+                            {}
+                          : { form: typeof p?.form === 'string' ? p.form : undefined };
         await recordVisitorEvent(
           env,
           { orgId: site.org_id, siteId: site.id },

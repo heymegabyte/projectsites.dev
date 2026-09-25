@@ -41,6 +41,11 @@ export const VisitorEventTypeSchema = z.enum([
   // PerformanceNavigationTiming phase durations, beaconed once on load. CF's plan has no
   // client latency dataset.
   'nav_timing',
+  // AI concierge usage (no metadata) — `concierge_open` on panel open, `concierge_message`
+  // per visitor question (app.js universal-runtime FAB). First-party engagement signal for
+  // the optional AI assistant; the analytics card self-hides when there are no opens.
+  'concierge_open',
+  'concierge_message',
 ]);
 export type VisitorEventType = z.infer<typeof VisitorEventTypeSchema>;
 

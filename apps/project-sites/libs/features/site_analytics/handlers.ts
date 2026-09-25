@@ -38,6 +38,7 @@ import { parseCustomWindow } from '../analytics/handlers.js';
 // so the ?start&end filter matches the tz-aware daily buckets.
 import {
   getEntryPagesSummary,
+  getConciergeEngagementSummary,
   getExitPagesSummary,
   getNewVsReturningSummary,
   getSessionDurationSummary,
@@ -229,6 +230,17 @@ siteAnalytics.get('/api/sites/:siteId/analytics/session-duration', async (c) => 
 
   const windowDays = parseWindowDays(c, 'windowDays');
   const summary = await getSessionDurationSummary(c.env, gate.siteId, windowDays);
+  return c.json(summary);
+});
+
+// AN — AI concierge engagement (opens · messages · unique visitors · messages/open), first-party
+// concierge_open/concierge_message beacon events. Owner-scoped. The card self-hides when opens = 0.
+siteAnalytics.get('/api/sites/:siteId/analytics/concierge', async (c) => {
+  const gate = await requireOwnedSite(c);
+  if (gate instanceof Response) return gate;
+
+  const windowDays = parseWindowDays(c, 'windowDays');
+  const summary = await getConciergeEngagementSummary(c.env, gate.siteId, windowDays);
   return c.json(summary);
 });
 

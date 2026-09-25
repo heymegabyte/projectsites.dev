@@ -838,6 +838,55 @@ export async function getNewVsReturningSummary(
   return out;
 }
 
+/** Result of {@link getConciergeEngagementSummary} — AI concierge usage over the window. */
+export interface ConciergeEngagementSummary {
+  /** Times the concierge panel was OPENED (COUNT of `concierge_open`). */
+  readonly opens: number;
+  /** Messages visitors sent to the concierge (COUNT of `concierge_message`). */
+  readonly messages: number;
+  /** Distinct tab-sessions that opened it — the unique visitors who engaged. */
+  readonly uniqueVisitors: number;
+  /** Messages per open (engagement depth), 1 decimal; `null` when there are no opens (never a fabricated 0). */
+  readonly messagesPerOpen: number | null;
+}
+
+/**
+ * AI concierge engagement over the window, from the first-party `concierge_open` / `concierge_message`
+ * beacon events (mirrored into `visitor_events`). Answers "are visitors using the AI assistant, and how
+ * deeply?" — a metric CF has no dataset for. Owner scope rides the `currentWindow` bound `site_id`.
+ * Fail-soft: a query error yields all-zero. The CARD self-hides when `opens = 0` (honest — the concierge
+ * is optional; no fabricated engagement + no empty-card clutter for sites where it isn't used).
+ */
+export async function getConciergeEngagementSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<ConciergeEngagementSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ event_type: string; n: number; u: number }>(
+    env.DB,
+    `SELECT event_type, COUNT(*) AS n, COUNT(DISTINCT session_id) AS u
+       FROM visitor_events
+      WHERE ${clause} AND event_type IN ('concierge_open', 'concierge_message')
+      GROUP BY event_type`,
+    params,
+  );
+  const out = { opens: 0, messages: 0, uniqueVisitors: 0, messagesPerOpen: null as number | null };
+  if (error) return out;
+  for (const r of data) {
+    if (r.event_type === 'concierge_open') {
+      out.opens = Number(r.n) || 0;
+      out.uniqueVisitors = Number(r.u) || 0;
+    } else if (r.event_type === 'concierge_message') {
+      out.messages = Number(r.n) || 0;
+    }
+  }
+  out.messagesPerOpen = out.opens > 0 ? Math.round((out.messages / out.opens) * 10) / 10 : null;
+  return out;
+}
+
 /** Result of {@link getEntryPagesSummary} — top entry (landing) pages by session-start count. */
 export interface EntryPagesSummary {
   /** Top landing pages (session's first page) by count, descending, capped at 20. */

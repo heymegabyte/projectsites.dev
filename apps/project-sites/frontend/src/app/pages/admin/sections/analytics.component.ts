@@ -43,6 +43,7 @@ import { VisitorTypeCardComponent } from './visitor-type-card.component';
 import { EntryPagesCardComponent } from './entry-pages-card.component';
 import { ExitPagesCardComponent } from './exit-pages-card.component';
 import { SessionDurationCardComponent } from './session-duration-card.component';
+import { ConciergeCardComponent } from './concierge-card.component';
 import { ChannelBreakdownComponent } from './channel-breakdown.component';
 import { FormFunnelCardComponent } from './form-funnel-card.component';
 import { CampaignBreakdownComponent } from './campaign-breakdown.component';
@@ -130,6 +131,7 @@ function sparklinePath(
     EntryPagesCardComponent,
     ExitPagesCardComponent,
     SessionDurationCardComponent,
+    ConciergeCardComponent,
     ChannelBreakdownComponent,
     CampaignBreakdownComponent,
     DeliveryCardComponent,
@@ -1173,6 +1175,14 @@ function sparklinePath(
            reduced to median/avg/longest + a 30s/1m/3m/5m distribution. Distinct from per-page dwell
            (the engagement card); GA ships both time-on-page and session-duration. -->
         <app-session-duration-card
+          appReveal
+          [siteId]="state.selectedSite()?.id ?? null"
+          [windowDays]="rangeDays()"
+        />
+
+        <!-- AI concierge engagement — first-party concierge_open/concierge_message beacon events.
+           SELF-HIDES when there are no opens (the assistant is optional; no empty-card clutter). -->
+        <app-concierge-card
           appReveal
           [siteId]="state.selectedSite()?.id ?? null"
           [windowDays]="rangeDays()"
