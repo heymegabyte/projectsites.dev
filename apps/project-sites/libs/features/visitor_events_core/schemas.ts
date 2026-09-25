@@ -230,20 +230,45 @@ export const EngagementPageSchema = z
 export type EngagementPage = z.infer<typeof EngagementPageSchema>;
 
 /**
+ * AN-ENGAGE-DIST — time-on-page distribution: the COUNT of visits whose dwell reached each
+ * threshold (≥10s / ≥30s / ≥60s / ≥180s). Monotonic by construction (s10 ≥ s30 ≥ s60 ≥ s180 —
+ * a visit past 60s is also past 30s). The dwell analogue of the scroll-depth reach funnel.
+ */
+export const EngagementDistributionSchema = z
+  .object({
+    s10: z.number().int().min(0),
+    s30: z.number().int().min(0),
+    s60: z.number().int().min(0),
+    s180: z.number().int().min(0),
+  })
+  .strict()
+  .default({ s10: 0, s30: 0, s60: 0, s180: 0 });
+export type EngagementDistribution = z.infer<typeof EngagementDistributionSchema>;
+
+/**
  * AN-ENGAGE — first-party time-on-page (dwell) over the window, from the `page_engagement`
  * beacon (mirrored into `visitor_events`). `medianMs` is the site-wide MEDIAN dwell (median,
  * not mean — dwell is outlier-skewed); `byPage` the per-page medians (top by dwell, past a
- * sample floor). `medianMs` is `null` when there are no samples yet — the card shows
- * "measuring…", never a fabricated 0 (the beacon runs on every page, so 0 isn't "no data").
+ * sample floor). `distribution` is how many visits stayed past each threshold — the SPREAD the
+ * median point hides (a low median can still hide a long tail of deeply-engaged readers).
+ * `medianMs` is `null` when there are no samples yet — the card shows "measuring…", never a
+ * fabricated 0 (the beacon runs on every page, so 0 isn't "no data").
  */
 export const EngagementSummarySchema = z
   .object({
     medianMs: z.number().int().min(0).nullable().default(null),
     samples: z.number().int().min(0),
     byPage: z.array(EngagementPageSchema).default([]),
+    // AN-ENGAGE-DIST — visits reaching ≥10s/30s/60s/180s (monotonic). Default all-0 for back-compat.
+    distribution: EngagementDistributionSchema,
   })
   .strict()
-  .default({ medianMs: null, samples: 0, byPage: [] });
+  .default({
+    medianMs: null,
+    samples: 0,
+    byPage: [],
+    distribution: { s10: 0, s30: 0, s60: 0, s180: 0 },
+  });
 export type EngagementSummary = z.infer<typeof EngagementSummarySchema>;
 
 /** One page's scroll-depth story — how far visitors typically get, and how many finish. */

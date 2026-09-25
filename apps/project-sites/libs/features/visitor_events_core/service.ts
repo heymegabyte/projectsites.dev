@@ -736,7 +736,7 @@ export async function getEngagementSummary(
       LIMIT 50000`,
     params,
   );
-  if (error) return { medianMs: null, samples: 0, byPage: [] };
+  if (error) return { medianMs: null, samples: 0, byPage: [], distribution: { s10: 0, s30: 0, s60: 0, s180: 0 } };
   const all: number[] = [];
   const byPath = new Map<string, number[]>();
   for (const r of data) {
@@ -749,13 +749,21 @@ export async function getEngagementSummary(
       else byPath.set(r.path, [d]);
     }
   }
-  if (all.length === 0) return { medianMs: null, samples: 0, byPage: [] };
+  if (all.length === 0) return { medianMs: null, samples: 0, byPage: [], distribution: { s10: 0, s30: 0, s60: 0, s180: 0 } };
   const byPage = [...byPath.entries()]
     .filter(([, vals]) => vals.length >= MIN_PATH_SAMPLES)
     .map(([path, vals]) => ({ path, medianMs: Math.round(percentile(vals, 50)), samples: vals.length }))
     .sort((a, b) => b.medianMs - a.medianMs)
     .slice(0, 8);
-  return { medianMs: Math.round(percentile(all, 50)), samples: all.length, byPage };
+  // AN-ENGAGE-DIST — dwell thresholds in ms; monotonic by construction (a visit past 60s is
+  // also past 30s). Counts of visits reaching each threshold — the spread the median hides.
+  const distribution = {
+    s10: all.filter((d) => d >= 10_000).length,
+    s30: all.filter((d) => d >= 30_000).length,
+    s60: all.filter((d) => d >= 60_000).length,
+    s180: all.filter((d) => d >= 180_000).length,
+  };
+  return { medianMs: Math.round(percentile(all, 50)), samples: all.length, byPage, distribution };
 }
 
 /** Empty scroll-depth summary — honest "measuring…" (null median), never a fabricated 0. */

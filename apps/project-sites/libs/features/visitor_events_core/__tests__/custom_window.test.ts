@@ -500,12 +500,22 @@ describe('getEngagementSummary — first-party time-on-page (median dwell)', () 
 
   it('no samples → {medianMs:null, samples:0, byPage:[]} (measuring…, never a fabricated 0)', async () => {
     const s = await getEngagementSummary(engEnv([]), 'site_1', 30);
-    expect(s).toEqual({ medianMs: null, samples: 0, byPage: [] });
+    expect(s).toEqual({
+      medianMs: null,
+      samples: 0,
+      byPage: [],
+      distribution: { s10: 0, s30: 0, s60: 0, s180: 0 },
+    });
   });
 
   it('fail-soft — a query error yields the empty summary, never throws', async () => {
     const s = await getEngagementSummary(engEnv([], { error: true }), 'site_1', 30);
-    expect(s).toEqual({ medianMs: null, samples: 0, byPage: [] });
+    expect(s).toEqual({
+      medianMs: null,
+      samples: 0,
+      byPage: [],
+      distribution: { s10: 0, s30: 0, s60: 0, s180: 0 },
+    });
   });
 
   it('scopes to the tenant — the site_id predicate is bound, never interpolated', async () => {
