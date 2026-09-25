@@ -72,9 +72,19 @@ interface PsMessage {
    */
   readonly params?: Array<string | number | boolean | null>;
   /** PS_KV_REQUEST (KV inspector): which read op to proxy to /api/admin/kv/*. */
-  readonly op?: 'namespaces' | 'keys' | 'value' | 'buckets' | 'objects' | 'object';
+  readonly op?:
+    | 'namespaces'
+    | 'keys'
+    | 'value'
+    | 'buckets'
+    | 'objects'
+    | 'object'
+    | 'indexes'
+    | 'index';
   /** PS_R2_REQUEST: the R2 bucket binding name (required for the objects + object ops). */
   readonly bucket?: string;
+  /** PS_VEC_REQUEST: the Vectorize index name (required for the `index` describe op). */
+  readonly name?: string;
   /** PS_KV_REQUEST: the KV binding name (required for the keys + value ops). */
   readonly binding?: string;
   /** PS_KV_REQUEST (keys op): key-name prefix filter. */
@@ -560,6 +570,37 @@ export class BoltEmbedService {
               },
               error: () => reply({ error: 'Failed to load data' }),
             });
+          break;
+        }
+        case 'PS_VEC_REQUEST': {
+          // Vectorize inspector — mirrors the PS_KV/PS_R2 bridge. Proxies read-only index inspection
+          // to /api/admin/vectorize/* (super-admin; list + describe only, never query/insert/delete).
+          const iframe = this.iframeEl;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_VEC_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          const op = msg.op;
+          let vecPath: string;
+          if (op === 'indexes') {
+            vecPath = '/admin/vectorize/indexes';
+          } else if (op === 'index') {
+            if (!msg.name) {
+              reply({ ok: false, error: 'No index name' });
+              break;
+            }
+            vecPath = `/admin/vectorize/indexes/${encodeURIComponent(msg.name)}`;
+          } else {
+            reply({ ok: false, error: 'Unknown Vectorize op' });
+            break;
+          }
+          this.api.get<Record<string, unknown>>(vecPath, undefined, { silent: true }).subscribe({
+            next: (res) => reply({ ok: true, data: res ?? {} }),
+            error: () => reply({ ok: false, error: 'Vectorize inspector not available' }),
+          });
           break;
         }
         case 'PS_R2_REQUEST': {

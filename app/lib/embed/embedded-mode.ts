@@ -383,6 +383,51 @@ export interface R2ResponseMessage {
   error?: string;
 }
 
+/** A Vectorize index summary from the `indexes` op. */
+export interface VectorizeIndexSummary {
+  name: string;
+  dimensions: number | null;
+  metric: string | null;
+}
+
+/**
+ * Child → Parent (Vectorize Browser): ask the admin to proxy a read-only Cloudflare Vectorize
+ * inspection (list indexes / describe one). No query / insert / delete is exposed.
+ */
+export interface VectorizeRequestMessage {
+  type: 'PS_VEC_REQUEST';
+  correlationId: string;
+  op: 'indexes' | 'index';
+  /** Required for the `index` op — the index name to describe. */
+  name?: string;
+}
+
+export interface VectorizeIndexesData {
+  indexes: VectorizeIndexSummary[];
+  available: boolean;
+  reason?: string;
+}
+
+export interface VectorizeIndexData {
+  found: boolean;
+  name: string;
+  dimensions: number | null;
+  metric: string | null;
+  vectorCount: number | null;
+  processedUpToMutation: string | null;
+  available?: boolean;
+  reason?: string;
+}
+
+/** Parent → Child (Vectorize Browser): the admin's reply to {@link VectorizeRequestMessage}. */
+export interface VectorizeResponseMessage {
+  type: 'PS_VEC_RESPONSE';
+  correlationId: string;
+  ok: boolean;
+  data?: VectorizeIndexesData | VectorizeIndexData;
+  error?: string;
+}
+
 export type ParentToChildMessage =
   | SubmitPromptMessage
   | ImportFilesMessage
@@ -395,6 +440,7 @@ export type ParentToChildMessage =
   | SqlResponseMessage
   | KvResponseMessage
   | R2ResponseMessage
+  | VectorizeResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -406,6 +452,7 @@ export type ChildToParentMessage =
   | SqlRequestMessage
   | KvRequestMessage
   | R2RequestMessage
+  | VectorizeRequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;
