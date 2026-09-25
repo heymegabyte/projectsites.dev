@@ -262,10 +262,14 @@ gated.
      history) — honest but delayed payoff. A chat-adoption KPI once data flows.
   - ~~Per-page NAV-TIMING~~ — **SHIPPED (2026-09-25):** `NavTimingSummary.byPage[]` (slowest pages by
     median total load + per-page TTFB) → the nav-timing card's "Slowest pages" drill.
-  2. **Per-page NETWORK-QUALITY** (M) — first-party, stored, needs per-page aggregation (mirror the
-     just-shipped nav-timing byPage pattern). Owner-value: which page is mobile-hostile (low downlink).
-  3. **Content-type `byType` card** (S, low owner-value) — computed + returned, but no card renders it.
-  5. **Missing tests** — per-metric honest-empty when a filter dim is absent; filter + cross-tenant 404.
+  - ~~Per-page NETWORK-QUALITY~~ — **SHIPPED (2026-09-25):** `NetworkQualitySummary.byPage[]`
+    (slowest-connection pages by median downlink + median rtt) → the network card's "Pages with the
+    slowest-connection visitors" list. Worker `f42a21954`, chunk `chunk-C7QXFZFO.js`.
+  1. **Content-type `byType` card** (S, low owner-value) — computed + returned, but no card renders it.
+     (Deliberately deferred multiple fires — low owner value; mixes telemetry event types.)
+  2. **Missing tests** — per-metric honest-empty when a filter dim is absent; filter + cross-tenant 404.
+  3. Concierge chat engagement — needs a `VISITOR_MIRROR_TYPES` add + the concierge may be gallery-only
+     (low real usage); per-cache-state delivery bytes (dev-value). BOTH sections now near completion.
   Every AVAILABLE CF dataset is shipped (CF RUM cached); the backlog is first-party DEPTH, not CF.
 
 ## Coverage matrix
@@ -321,7 +325,29 @@ latency percentiles — no entitlement) or need new plumbing/deps (see Next).
 
 ## Next increment (handoff)
 
-**Per-page NAV-TIMING (slowest pages) — SHIPPED (2026-09-25, latest fire).** `getNavTimingSummary` now
+**Per-page NETWORK-QUALITY (slowest-connection pages) — SHIPPED (2026-09-25, latest fire).**
+`getNetworkQualitySummary` now returns `byPage[]` (each page's median downlink + median rtt, floor-gated
+≥5 downlink samples, SLOWEST-downlink first, top-8; same network_quality query, no new scan) → the
+network card's "Pages with the slowest-connection visitors" list. An owner sees which pages their
+mobile/rural (low-bandwidth) visitors hit → make those lean. Honest: rtt chip only when non-null; block
+hidden when empty. 1 Jest + 2 Karma; worker `83289d15`, chunk `chunk-C7QXFZFO.js`; prod-verified (byPage
+shape flows + tenant 404/401; E2E org has 0 network_quality samples → honest-empty; populated path
+unit-tested). This closes the per-page first-party depth arc (nav-timing + network-quality both done).
+**NEXT (both sections near completion):** the remaining analytics backlog is low-value (content-type
+`byType` card, concierge chat [may be gallery-only], per-cache-state delivery bytes) or missing-tests.
+Consider a completeness-critic pass or reallocating the analytics loop to generated-site quality.
+
+**DATA loop — section VERIFIED feature-complete (this fire's DATA scan).** The DataPanel SQL console is
+FULLY featured on origin/main (EXPLAIN, query history, saved queries, multiple tabs, bind params, CSV/JSON
+import+export, expensive-scan warnings, selection-execution, D1 rows_read/written metadata, SQL
+formatting, PK-scoped CRUD). The `89e37cb2b` EXPLAIN "branch" I'd flagged as contention is SUPERSEDED
+(origin/main's DataPanel is ~2995 lines larger). The admin data-overview + 4 resource inspectors are done.
+The ONLY remaining DATA gap is **SQL syntax highlighting** — needs a new `@codemirror/lang-sql` dep in the
+Pages-deployed root `app/` (bolt.diy already bundles the CodeMirror suite but not lang-sql). That's a
+deliberate dedicated task (dep install + textarea→CodeMirror refactor + Pages deploy), NOT a clean 15-min
+loop increment — the reason DATA fires keep landing on analytics. A dedicated session should do it.
+
+**Per-page NAV-TIMING (slowest pages) — SHIPPED (2026-09-25).** `getNavTimingSummary` now
 returns `byPage[]` (each page's median total load + median TTFB, floor-gated ≥5, worst-first top-8; same
 nav_timing query, no new scan) → the page-load card's "Slowest pages · median load · server wait" list.
 An owner sees WHICH page is slow AND whether it's slow off the SERVER (TTFB) vs the client — the drill the
