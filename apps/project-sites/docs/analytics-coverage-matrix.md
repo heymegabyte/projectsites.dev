@@ -21,9 +21,12 @@ Cross-refs: `libs/features/visitor_events_core/service.ts` (first-party aggregat
   never a client hostname/zoneID. One GraphQL request per host (multi-day aliases), not per widget.
 - **Public share:** `/api/public/analytics/:token` — the opaque token IS the isolation boundary.
 - **Reconciliation locks (verify-against-source, real SQLite):** `reconcile_daily_summary` (daily↔summary),
-  `reconcile_hourly_summary` (hourly↔summary — 2026-09-25). Both assert breakdown SUM === ground-truth
-  count === headline, under filter + tenant scoping, so a drifting WHERE / tz double-count / event-type
-  mismatch fails CI.
+  `reconcile_hourly_summary` (hourly↔summary), `reconcile_bytype_summary` (event-TYPE decomposition ↔
+  headline KPIs — 2026-09-25). All assert breakdown SUM === ground-truth count === headline, under filter
+  + tenant scoping, so a drifting WHERE / tz double-count / event-type mismatch fails CI. The byType lock
+  additionally pins `byType['pageview'] === summary.pageviews` + `byType['conversion'] === summary.conversions`
+  (the "don't CONFLATE pageviews/conversions/client-events" guard) AND that null/empty-`event_type` rows are
+  dropped from byType (the aggregator's real filter, honestly pinned).
 
 ## First-party metrics (measured by us — D1 `visitor_events` + app.js beacon)
 
@@ -81,9 +84,14 @@ Surfaced via `multi_url_analytics.ts` → `DeliverySummary`, one request per hos
 
 ## Ranked backlog (honest — the section is at a feature plateau; remaining work is correctness + polish)
 
-1. **Extend reconciliation to a breakdown-sum surface** — `byCountry`/`byChannel`/`byDevice` SUM vs pageviews
-   (needs a null-bucket-attribution check first: a pageview with no `$.country` must land in an "Unknown"
-   bucket or the SUM won't equal pageviews — verify before asserting). `byType` is the cleanest candidate.
+1. ~~**Extend reconciliation to a breakdown-sum surface (`byType`)**~~ ✅ **DONE 2026-09-25** —
+   `reconcile_bytype_summary` locks the event-TYPE decomposition ↔ headline KPIs (see Reconciliation locks
+   above). **Next reconciliation candidate: `byConversionKind`** (clean — null kind → `'other'`, so
+   `SUM(byConversionKind) === conversions`; `getConversionKinds` at service.ts, no test yet). `byCountry`/
+   `byChannel`/`byDevice` map null→`'unknown'` (so SUM === pageviews holds by that bucketing) but that
+   MASKS pre-enrichment data loss — lock them only WITH an explicit "unknown-bucket = pre-AN1 events" note,
+   not as a clean invariant. `byUtmSource`/`byUtmCampaign` are DIRTY (WHERE excludes untagged rows → SUM ≠
+   pageviews by design) — do NOT reconcile-lock them.
 2. **Route-level tenant-404 tests** for any analytics route asserting only at the aggregator level (audit
    `funnel`/`forms`/`sections` handler routes for an explicit non-owned-site 404, matching entry/exit/weekday).
 3. **Verified-bot visit split** — `verifiedBotCategory` + `sum{visits}` already fetched; a "search engines
