@@ -50,6 +50,53 @@ describe('PublicAnalyticsComponent (AN48 public read-only view)', () => {
     expect(f.nativeElement.textContent).withContext('no unique-people claim').not.toContain('Unique visitors');
   });
 
+  it('renders first-party engagement + performance when they have real samples (formatted)', () => {
+    const rich = {
+      summary: {
+        ...SUMMARY.summary,
+        traffic: {
+          pageviews: 1234,
+          uniqueSessions: 567,
+          engagement: { medianMs: 80000, samples: 340 }, // 1m 20s
+          scrollDepth: { medianPercent: 62, samples: 200 },
+          navTiming: { total: 820, samples: 120 },
+        },
+      },
+      expiresAt: 2_000_000_000_000,
+    };
+    const { f } = make({ get: jasmine.createSpy('get').and.returnValue(of(rich)) });
+    const text = f.nativeElement.textContent;
+    expect(text).toContain('Avg. time on page');
+    expect(text).toContain('1m 20s');
+    expect(text).toContain('Median scroll depth');
+    expect(text).toContain('62%');
+    expect(text).toContain('Median page load');
+    expect(text).toContain('820ms');
+  });
+
+  it('OMITS engagement/scroll/load when there are no samples (never a fabricated 0)', () => {
+    const empty = {
+      summary: {
+        ...SUMMARY.summary,
+        traffic: {
+          pageviews: 1234,
+          uniqueSessions: 567,
+          engagement: { medianMs: null, samples: 0 },
+          scrollDepth: { medianPercent: null, samples: 0 },
+          navTiming: { total: null, samples: 0 },
+        },
+      },
+      expiresAt: 2_000_000_000_000,
+    };
+    const { f } = make({ get: jasmine.createSpy('get').and.returnValue(of(empty)) });
+    const text = f.nativeElement.textContent;
+    expect(text).not.toContain('Avg. time on page');
+    expect(text).not.toContain('Median scroll depth');
+    expect(text).not.toContain('Median page load');
+    // the base stats still render
+    expect(text).toContain('Pageviews');
+  });
+
   it('shows the friendly expired/invalid message when the endpoint 404s', () => {
     const { f } = make({
       get: jasmine.createSpy('get').and.returnValue(throwError(() => new Error('404'))),

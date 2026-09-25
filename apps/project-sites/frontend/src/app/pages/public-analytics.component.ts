@@ -11,6 +11,12 @@ interface PublicSummary {
      *  The API (SiteAnalyticsSummary.traffic) provides `uniqueSessions` — reading the old
      *  `uniqueVisitors` key silently rendered 0 (key-mismatch lying-empty). */
     readonly uniqueSessions?: number;
+    /** First-party engagement — median dwell. Rendered only when `samples > 0` (never a fake 0). */
+    readonly engagement?: { readonly medianMs?: number | null; readonly samples?: number };
+    /** First-party scroll depth — median max-depth %. Rendered only when `samples > 0`. */
+    readonly scrollDepth?: { readonly medianPercent?: number | null; readonly samples?: number };
+    /** First-party page-load — median total load ms. Rendered only when `samples > 0`. */
+    readonly navTiming?: { readonly total?: number | null; readonly samples?: number };
   };
   readonly contacts?: { readonly total?: number };
   readonly formSubmissions?: { readonly total?: number };
@@ -108,6 +114,38 @@ export class PublicAnalyticsComponent implements OnInit {
         value: `$${Math.round((s.donations?.raisedCents ?? 0) / 100).toLocaleString()}`,
       });
     }
+    // First-party engagement + performance — rendered ONLY when the metric has real samples
+    // AND a non-null median (never a fabricated 0; a fresh site with no visitors shows none of
+    // these, honestly). Same source (traffic.*) as the owner dashboard, tenant-resolved from the
+    // share token server-side.
+    const eng = s.traffic?.engagement;
+    if ((eng?.samples ?? 0) > 0 && typeof eng?.medianMs === 'number') {
+      out.push({ label: 'Avg. time on page', value: this.fmtDwell(eng.medianMs) });
+    }
+    const scroll = s.traffic?.scrollDepth;
+    if ((scroll?.samples ?? 0) > 0 && typeof scroll?.medianPercent === 'number') {
+      out.push({ label: 'Median scroll depth', value: `${scroll.medianPercent}%` });
+    }
+    const nav = s.traffic?.navTiming;
+    if ((nav?.samples ?? 0) > 0 && typeof nav?.total === 'number') {
+      out.push({ label: 'Median page load', value: this.fmtLoad(nav.total) });
+    }
     return out;
+  }
+
+  /** Compact dwell: "8s" · "1m 20s" · "3m" (mirrors the owner dashboard's engagement card). */
+  private fmtDwell(ms: number): string {
+    const sec = Math.round(ms / 1000);
+    if (sec < 60) {
+      return `${sec}s`;
+    }
+    const m = Math.floor(sec / 60);
+    const rem = sec % 60;
+    return rem ? `${m}m ${rem}s` : `${m}m`;
+  }
+
+  /** Compact load time: "820ms" · "1.2s" (mirrors the owner dashboard's page-load card). */
+  private fmtLoad(ms: number): string {
+    return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`;
   }
 }
