@@ -21,6 +21,7 @@ import {
   type EngagementSummary,
   type ScrollDepthSummary,
   type NetworkQualitySummary,
+  type NavTimingSummary,
   type LabelCount,
   type HourCount,
   type AnalyticsFilter,
@@ -794,6 +795,71 @@ export async function getNetworkQualitySummary(
   };
 }
 
+/** Empty page-load summary — honest "measuring…" (null medians), never a fabricated 0. */
+function emptyNavTiming(): NavTimingSummary {
+  return { samples: 0, dns: null, connect: null, ttfb: null, transfer: null, dom: null, total: null };
+}
+
+/** The nav-timing phases, in the load order they render as a waterfall. */
+const NAV_PHASES = ['dns', 'connect', 'ttfb', 'transfer', 'dom', 'total'] as const;
+
+/**
+ * AN-NAV — first-party page-load WATERFALL over the window, from the `nav_timing` beacon
+ * (PerformanceNavigationTiming, mirrored into `visitor_events`). Returns the site-wide MEDIAN
+ * of each load phase (ms): dns · connect · ttfb · transfer · dom · total — so an owner sees
+ * WHERE their load time goes. Fail-soft: a query error OR no samples yields the empty summary
+ * (all-null) — the card shows "measuring…", NEVER a fabricated 0. Each phase's median is over
+ * the rows that CARRY that phase (a phase is always present when the beacon fires, but a value
+ * can be an honest 0 — cached DNS / reused connection — which IS counted). Median (not mean)
+ * because page-load timings are right-skewed by slow tails.
+ */
+export async function getNavTimingSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<NavTimingSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<Record<string, number | null>>(
+    env.DB,
+    `SELECT CAST(json_extract(metadata, '$.dns')      AS INTEGER) AS dns,
+            CAST(json_extract(metadata, '$.connect')  AS INTEGER) AS connect,
+            CAST(json_extract(metadata, '$.ttfb')     AS INTEGER) AS ttfb,
+            CAST(json_extract(metadata, '$.transfer') AS INTEGER) AS transfer,
+            CAST(json_extract(metadata, '$.dom')      AS INTEGER) AS dom,
+            CAST(json_extract(metadata, '$.total')    AS INTEGER) AS total
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'nav_timing'
+        AND json_extract(metadata, '$.total') IS NOT NULL
+      LIMIT 50000`,
+    params,
+  );
+  if (error) return emptyNavTiming();
+  const cols: Record<string, number[]> = { dns: [], connect: [], ttfb: [], transfer: [], dom: [], total: [] };
+  let samples = 0;
+  for (const r of data) {
+    samples++;
+    for (const phase of NAV_PHASES) {
+      const v = Number(r[phase]);
+      // A phase value of 0 is a real datum (cached DNS, reused connection) — keep it; only
+      // non-finite / negative values are excluded so a median is never skewed by junk.
+      if (Number.isFinite(v) && v >= 0) cols[phase].push(v);
+    }
+  }
+  if (samples === 0) return emptyNavTiming();
+  const med = (arr: number[]): number | null => (arr.length ? Math.round(percentile(arr, 50)) : null);
+  return {
+    samples,
+    dns: med(cols.dns),
+    connect: med(cols.connect),
+    ttfb: med(cols.ttfb),
+    transfer: med(cols.transfer),
+    dom: med(cols.dom),
+    total: med(cols.total),
+  };
+}
+
 /**
  * Conversions by kind over the equal-length window immediately BEFORE the current one —
  * the prior-period baseline for the per-kind delta badges. Same SQL as
@@ -970,6 +1036,7 @@ export async function getTrafficSummary(
     engagement,
     scrollDepth,
     networkQuality,
+    navTiming,
   ] = await Promise.all([
     scalar(
       env,
@@ -1059,6 +1126,8 @@ export async function getTrafficSummary(
     getScrollDepthSummary(env, siteId, windowDays, window, filter),
     // AN-NET — first-party visitor connection quality (queried directly; not in the rollup).
     getNetworkQualitySummary(env, siteId, windowDays, window, filter),
+    // AN-NAV — first-party page-load waterfall (queried directly; not in the rollup).
+    getNavTimingSummary(env, siteId, windowDays, window, filter),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -1100,6 +1169,7 @@ export async function getTrafficSummary(
     engagement,
     scrollDepth,
     networkQuality,
+    navTiming,
     byConversionKind,
     previous: {
       pageviews: prevPageviews,
@@ -1196,6 +1266,7 @@ export async function getTrafficSummaryFromRollup(
     engagement,
     scrollDepth,
     networkQuality,
+    navTiming,
   ] = await Promise.all([
     sumScalars(curStart, null),
     sumScalars(prevStart, prevEnd),
@@ -1222,6 +1293,8 @@ export async function getTrafficSummaryFromRollup(
     getScrollDepthSummary(env, siteId, windowDays),
     // AN-NET — first-party visitor connection quality (queried live; not in the rollup).
     getNetworkQualitySummary(env, siteId, windowDays),
+    // AN-NAV — first-party page-load waterfall (queried live; not in the rollup).
+    getNavTimingSummary(env, siteId, windowDays),
   ]);
 
   return TrafficSummarySchema.parse({
@@ -1250,6 +1323,7 @@ export async function getTrafficSummaryFromRollup(
     engagement,
     scrollDepth,
     networkQuality,
+    navTiming,
     byConversionKind,
     previous: {
       pageviews: prev.pageviews,

@@ -23,6 +23,7 @@ import {
   getEngagementSummary,
   getScrollDepthSummary,
   getNetworkQualitySummary,
+  getNavTimingSummary,
   getConversionKinds,
   getPreviousConversionKinds,
   getDimensionBreakdown,
@@ -708,5 +709,94 @@ describe('getNetworkQualitySummary — first-party visitor connection quality', 
     const q = calls.find((c) => c.sql.includes("event_type = 'network_quality'"));
     expect(q?.sql).toContain('site_id = ?');
     expect(q?.params).toContain('site-NET');
+  });
+});
+
+describe('getNavTimingSummary — first-party page-load waterfall', () => {
+  type NavRow = {
+    dns: number | null;
+    connect: number | null;
+    ttfb: number | null;
+    transfer: number | null;
+    dom: number | null;
+    total: number | null;
+  };
+  /** D1 stub returning the given nav rows for the nav_timing query. */
+  function navEnv(rows: NavRow[], opts: { error?: boolean } = {}): Env {
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...params: unknown[]) {
+            return {
+              all: async () => {
+                if (opts.error) throw new Error('no such table');
+                return { results: sql.includes("event_type = 'nav_timing'") ? rows : [] };
+              },
+              first: async () => null,
+              run: async () => ({ success: true }),
+              _params: params,
+            };
+          },
+        };
+      },
+    };
+    return { DB: db } as unknown as Env;
+  }
+  const row = (dns: number, connect: number, ttfb: number, transfer: number, dom: number, total: number): NavRow => ({
+    dns,
+    connect,
+    ttfb,
+    transfer,
+    dom,
+    total,
+  });
+
+  it('computes the MEDIAN of every phase (dns/connect/ttfb/transfer/dom/total)', async () => {
+    const rows = [
+      row(10, 20, 100, 30, 200, 400),
+      row(20, 40, 200, 60, 400, 800),
+      row(30, 60, 300, 90, 600, 1200),
+    ];
+    const s = await getNavTimingSummary(navEnv(rows), 'site_1', 30);
+    expect(s.samples).toBe(3);
+    // nearest-rank p50 of 3 values → the middle
+    expect(s).toMatchObject({ dns: 20, connect: 40, ttfb: 200, transfer: 60, dom: 400, total: 800 });
+  });
+
+  it('KEEPS honest 0 phases (cached DNS / reused connection) — 0 is a real datum, not "no data"', async () => {
+    const rows = [row(0, 0, 120, 15, 180, 350), row(0, 0, 130, 25, 220, 450)];
+    const s = await getNavTimingSummary(navEnv(rows), 'site_1', 30);
+    expect(s.dns).toBe(0); // median of [0,0] = 0 (kept, not dropped)
+    expect(s.connect).toBe(0);
+    expect(s.samples).toBe(2);
+  });
+
+  it('no samples → all-null summary (measuring…, never a fabricated 0)', async () => {
+    const s = await getNavTimingSummary(navEnv([]), 'site_1', 30);
+    expect(s).toEqual({ samples: 0, dns: null, connect: null, ttfb: null, transfer: null, dom: null, total: null });
+  });
+
+  it('fail-soft — a query error yields the empty summary, never throws', async () => {
+    const s = await getNavTimingSummary(navEnv([], { error: true }), 'site_1', 30);
+    expect(s.samples).toBe(0);
+    expect(s.total).toBeNull();
+  });
+
+  it('scopes to the tenant — the site_id predicate is bound, never interpolated', async () => {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...params: unknown[]) {
+            calls.push({ sql, params });
+            return { all: async () => ({ results: [] }), first: async () => null, run: async () => ({}) };
+          },
+        };
+      },
+    };
+    await getNavTimingSummary({ DB: db } as unknown as Env, 'site-NAV', 30);
+    const q = calls.find((c) => c.sql.includes("event_type = 'nav_timing'"));
+    expect(q?.sql).toContain('site_id = ?');
+    expect(q?.params).toContain('site-NAV');
   });
 });

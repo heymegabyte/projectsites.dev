@@ -53,6 +53,10 @@ export const EVENT_TYPES = [
   // once on load. Payload carries {effective_type, downlink, rtt, save_data, href}
   // (Chromium-only). Mirrored to visitor_events for the network-quality distribution metric.
   'network_quality',
+  // First-party page-load waterfall: PerformanceNavigationTiming phase durations, beaconed
+  // once on load. Payload carries {dns, connect, ttfb, transfer, dom, total, href}. Mirrored
+  // to visitor_events for the page-load-breakdown metric.
+  'nav_timing',
 ] as const;
 
 /**

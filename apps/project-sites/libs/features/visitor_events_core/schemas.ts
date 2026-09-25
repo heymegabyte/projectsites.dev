@@ -37,6 +37,10 @@ export const VisitorEventTypeSchema = z.enum([
   // navigator.connection estimate, beaconed once on load. Chromium-only; CF's plan has no
   // client network-quality dataset.
   'network_quality',
+  // Page-load waterfall (metadata: {dns, connect, ttfb, transfer, dom, total}) — the
+  // PerformanceNavigationTiming phase durations, beaconed once on load. CF's plan has no
+  // client latency dataset.
+  'nav_timing',
 ]);
 export type VisitorEventType = z.infer<typeof VisitorEventTypeSchema>;
 
@@ -326,6 +330,31 @@ export const NetworkQualitySummarySchema = z
   });
 export type NetworkQualitySummary = z.infer<typeof NetworkQualitySummarySchema>;
 
+/**
+ * AN-NAV — first-party page-load WATERFALL over the window, from the `nav_timing` beacon
+ * (the PerformanceNavigationTiming entry, ONE sample per pageview, mirrored into
+ * `visitor_events`). Each field is the site-wide MEDIAN duration (ms) of one load phase —
+ * `dns` (DNS lookup) · `connect` (TCP+TLS) · `ttfb` (server wait) · `transfer` (response
+ * download) · `dom` (DOM build) · `total` (fetch→load). Shows an owner WHERE their load time
+ * goes (slow DNS vs slow server vs heavy DOM), the latency breakdown Cloudflare's plan blocks.
+ * A phase median is `null` only when there are no samples (→ "measuring…", never a fabricated
+ * 0); an HONEST 0 (cached DNS, reused connection) IS a real value and IS counted. Median (not
+ * mean) — load timings are right-skewed.
+ */
+export const NavTimingSummarySchema = z
+  .object({
+    samples: z.number().int().min(0),
+    dns: z.number().int().min(0).nullable().default(null),
+    connect: z.number().int().min(0).nullable().default(null),
+    ttfb: z.number().int().min(0).nullable().default(null),
+    transfer: z.number().int().min(0).nullable().default(null),
+    dom: z.number().int().min(0).nullable().default(null),
+    total: z.number().int().min(0).nullable().default(null),
+  })
+  .strict()
+  .default({ samples: 0, dns: null, connect: null, ttfb: null, transfer: null, dom: null, total: null });
+export type NavTimingSummary = z.infer<typeof NavTimingSummarySchema>;
+
 /** Aggregated traffic summary for one site over a window. */
 export const TrafficSummarySchema = z
   .object({
@@ -381,6 +410,9 @@ export const TrafficSummarySchema = z
     // downlink/rtt + save-data %). Chromium-only sample. Defaults to an empty summary for
     // back-compat with producers/fixtures that predate it.
     networkQuality: NetworkQualitySummarySchema,
+    // AN-NAV — first-party page-load waterfall (median dns/connect/ttfb/transfer/dom/total).
+    // Defaults to an empty (null-median) summary for back-compat with producers/fixtures.
+    navTiming: NavTimingSummarySchema,
     // AN15 — the immediately-preceding equal-length window's KPIs, for
     // period-over-period deltas. Defaults to zeros for back-compat.
     previous: z

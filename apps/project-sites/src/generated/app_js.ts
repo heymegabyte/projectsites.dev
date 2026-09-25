@@ -903,6 +903,39 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     } catch (e) {}
   }
 
+  /* ─────────────────── Page-load waterfall beacon ─────────────────── */
+  // The PerformanceNavigationTiming phase durations (DNS / connect / server-wait / download /
+  // DOM / total), beaconed once after load as a 'nav_timing' event. First-party page-load
+  // breakdown — WHERE the load time goes — which Cloudflare's plan (no edge latency) can't give.
+  // Fires after the load event so loadEventEnd is populated. HONESTY: a phase of 0 is a REAL
+  // value (cached DNS, reused connection), kept as-is; a nonsensical total (≤0 or >600s) or an
+  // unsupported Navigation-Timing API sends NOTHING (never a fabricated sample). Each phase is
+  // clamped ≥0 (clock skew can make a raw diff slightly negative).
+  function initNavTiming() {
+    function beacon() {
+      try {
+        var n = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+        if (!n) { return; } // Navigation Timing L2 unsupported → no sample
+        var total = n.loadEventEnd - n.startTime;
+        if (!(total > 0) || total > 600000) { return; } // not a real, sane load
+        var clamp = function (x) { return x > 0 ? Math.round(x) : 0; };
+        track('nav_timing', {
+          dns: clamp(n.domainLookupEnd - n.domainLookupStart),
+          connect: clamp(n.connectEnd - n.connectStart),
+          ttfb: clamp(n.responseStart - n.requestStart),
+          transfer: clamp(n.responseEnd - n.responseStart),
+          dom: clamp(n.domComplete - n.responseEnd),
+          total: Math.round(total),
+          href: location.pathname
+        });
+      } catch (e) {}
+    }
+    try {
+      if (document.readyState === 'complete') { setTimeout(beacon, 0); }
+      else { window.addEventListener('load', function () { setTimeout(beacon, 0); }, { once: true }); }
+    } catch (e) {}
+  }
+
   /* ───────────────────────── Boot ───────────────────────── */
   onReady(function () {
     try {
@@ -922,6 +955,9 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     } catch (e) {}
     try {
       initNetworkQuality();
+    } catch (e) {}
+    try {
+      initNavTiming();
     } catch (e) {}
     try {
       document.addEventListener('click', onClick, true);

@@ -38,10 +38,23 @@ const VISITOR_MIRROR_TYPES = [
   'page_engagement',
   'scroll_depth',
   'network_quality',
+  'nav_timing',
 ] as const;
 type VisitorMirrorType = (typeof VISITOR_MIRROR_TYPES)[number];
 const isVisitorMirrorType = (t: string): t is VisitorMirrorType =>
   (VISITOR_MIRROR_TYPES as readonly string[]).includes(t);
+
+/**
+ * Server-side re-guard for one `nav_timing` phase: a finite, non-negative, bounded (≤600s)
+ * millisecond duration, rounded. A 0 is HONEST (cached DNS / reused connection) and kept —
+ * only non-finite / negative / absurd values are dropped (→ undefined, omitted from metadata),
+ * so the median never sees a fabricated or hostile phase.
+ */
+function navPhase(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 600_000
+    ? Math.round(v)
+    : undefined;
+}
 
 export const analyticsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -236,6 +249,12 @@ analyticsRoutes.post('/api/events', async (c) => {
               downlink?: unknown;
               rtt?: unknown;
               save_data?: unknown;
+              dns?: unknown;
+              connect?: unknown;
+              ttfb?: unknown;
+              transfer?: unknown;
+              dom?: unknown;
+              total?: unknown;
             }
           | undefined;
         // web_vital carries {metric, value}: validate against the known CWV set + a
@@ -324,7 +343,18 @@ analyticsRoutes.post('/api/events', async (c) => {
                               : undefined,
                           save_data: typeof p?.save_data === 'boolean' ? p.save_data : undefined,
                         }
-                      : { form: typeof p?.form === 'string' ? p.form : undefined };
+                      : mirrorType === 'nav_timing'
+                        ? {
+                            // Each PerformanceNavigationTiming phase, re-guarded by navPhase
+                            // (finite, 0–600s, rounded; an honest 0 is kept).
+                            dns: navPhase(p?.dns),
+                            connect: navPhase(p?.connect),
+                            ttfb: navPhase(p?.ttfb),
+                            transfer: navPhase(p?.transfer),
+                            dom: navPhase(p?.dom),
+                            total: navPhase(p?.total),
+                          }
+                        : { form: typeof p?.form === 'string' ? p.form : undefined };
         await recordVisitorEvent(
           env,
           { orgId: site.org_id, siteId: site.id },
