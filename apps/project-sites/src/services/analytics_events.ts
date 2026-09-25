@@ -37,6 +37,10 @@ export const EVENT_TYPES = [
   // AN-CWV: a Core Web Vitals sample from the client RUM beacon. Payload carries
   // {metric: LCP|INP|CLS|FCP|TTFB, value: number, href}. Mirrored to visitor_events.
   'web_vital',
+  // First-party site-health: an uncaught JS error / unhandled rejection on a published
+  // site. Payload carries {message, source, line} (message truncated + deduped + capped
+  // client-side by the app.js beacon). Mirrored to visitor_events.
+  'js_error',
 ] as const;
 
 /**

@@ -43,6 +43,15 @@ describe('IncomingEventSchema', () => {
     expect(IncomingEventSchema.safeParse(wv).success).toBe(true);
   });
 
+  it('accepts a js_error site-health event with {message,source,line} payload', () => {
+    const err = {
+      ...base,
+      eventType: 'js_error' as const,
+      payload: { message: "Cannot read properties of undefined (reading 'x')", source: '/assets/app.js', line: 42 },
+    };
+    expect(IncomingEventSchema.safeParse(err).success).toBe(true);
+  });
+
   it('accepts a click-to-call/directions conversion event with kind+section payload (AN18 #60)', () => {
     const conv = {
       ...base,
