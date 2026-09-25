@@ -239,6 +239,55 @@ export function addToSqlHistory(history: readonly string[], query: string, max =
   return [q, ...history.filter((h) => h !== q)].slice(0, Math.max(1, max));
 }
 
+/** A user-named, saved SQL query — one-click reusable, distinct from the auto-history. */
+export interface SavedQuery {
+  name: string;
+  query: string;
+}
+
+/**
+ * Add (or update) a NAMED saved query — the manual, reusable-snippet companion to the
+ * auto-history. Dedupes by trimmed name: saving under an existing name OVERWRITES its query
+ * and moves it to the top. A blank name OR blank query is a no-op. Newest first, capped.
+ * Pure — no DOM/I/O (the panel persists the result to localStorage).
+ *
+ * @param saved - existing saved queries, most-recent first
+ * @param name - the label the user gave this query
+ * @param query - the SQL to store
+ * @param max - cap on retained entries (default 50)
+ * @returns the new saved-query list
+ * @example addSavedQuery([], 'actives', 'SELECT 1') // [{name:'actives', query:'SELECT 1'}]
+ * @example addSavedQuery([{name:'a',query:'X'}], 'a', 'Y') // [{name:'a', query:'Y'}]  (overwrite + top)
+ * @example addSavedQuery([{name:'a',query:'X'}], '  ', 'Y') // [{name:'a', query:'X'}]  (blank name = no-op)
+ */
+export function addSavedQuery(
+  saved: readonly SavedQuery[],
+  name: string,
+  query: string,
+  max = 50,
+): SavedQuery[] {
+  const n = (name ?? '').trim();
+  const q = (query ?? '').trim();
+
+  if (!n || !q) {
+    return saved.slice();
+  }
+
+  return [{ name: n, query: q }, ...saved.filter((s) => s.name !== n)].slice(0, Math.max(1, max));
+}
+
+/**
+ * Remove a saved query by exact name; a missing name leaves the list unchanged. Pure.
+ *
+ * @param saved - existing saved queries
+ * @param name - the name to remove
+ * @returns the new list without that entry
+ * @example removeSavedQuery([{name:'a',query:'X'}], 'a') // []
+ */
+export function removeSavedQuery(saved: readonly SavedQuery[], name: string): SavedQuery[] {
+  return saved.filter((s) => s.name !== name);
+}
+
 /**
  * Thrown when CSV-import input is malformed (no header + data row, bad identifier, or a row
  *  whose column count mismatches the header). Lets the panel show a precise, safe message.

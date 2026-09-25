@@ -31,6 +31,9 @@ import {
   isRowActivationKey,
   isDismissKey,
   addToSqlHistory,
+  addSavedQuery,
+  removeSavedQuery,
+  type SavedQuery,
   explainQuery,
   explainPlanHint,
   isExpensiveScan,
@@ -44,6 +47,8 @@ const AUTO_REFRESH_MS = 30_000;
 
 /** localStorage key for the SQL-console query history (per-browser, best-effort). */
 const SQL_HISTORY_KEY = 'ps-data-sql-history';
+/** localStorage key for the NAMED saved queries (per-browser, best-effort). */
+const SQL_SAVED_KEY = 'ps-data-sql-saved';
 
 /** `sqlite_master` table/view listing — the D1 manager's "show me every table" query. */
 const LIST_TABLES_SQL =
@@ -139,6 +144,25 @@ export const DataPanel = memo(() => {
     }
   });
   const [historyOpen, setHistoryOpen] = useState(false);
+
+  // Saved queries (NAMED, manual — the reusable-snippet companion to the auto-history).
+  // localStorage-backed per browser; dedup-by-name; recall loads into the editor (never auto-runs).
+  const [savedQueries, setSavedQueries] = useState<SavedQuery[]>(() => {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SQL_SAVED_KEY) : null;
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed)
+        ? parsed.filter(
+            (s): s is SavedQuery =>
+              !!s && typeof s.name === 'string' && typeof s.query === 'string',
+          )
+        : [];
+    } catch {
+      return [];
+    }
+  });
+  const [savedOpen, setSavedOpen] = useState(false);
+  const [saveName, setSaveName] = useState('');
 
   const overviewCid = useRef<string | null>(null);
   const browseCid = useRef<string | null>(null);
@@ -457,6 +481,44 @@ export const DataPanel = memo(() => {
 
   /** Index guidance when the current result is an EXPLAIN QUERY PLAN (null otherwise). */
   const sqlPlanHint = useMemo(() => explainPlanHint(sqlRows), [sqlRows]);
+
+  /** Persist the saved-query list to localStorage (best-effort — never breaks a save). */
+  const persistSaved = useCallback((next: readonly SavedQuery[]): void => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(SQL_SAVED_KEY, JSON.stringify(next));
+      }
+    } catch {
+      /* quota / SSR / private-mode never breaks the console */
+    }
+  }, []);
+
+  /** Save the current editor buffer under the entered name (dedup-by-name; recall later). */
+  const saveCurrentQuery = useCallback(() => {
+    const name = saveName.trim();
+    if (!name || !sql.trim()) {
+      return;
+    }
+    setSavedQueries((prev) => {
+      const next = addSavedQuery(prev, name, sql);
+      persistSaved(next);
+      return next;
+    });
+    setSaveName('');
+    setSavedOpen(true);
+  }, [saveName, sql, persistSaved]);
+
+  /** Delete a saved query by name. */
+  const deleteSavedQuery = useCallback(
+    (name: string) => {
+      setSavedQueries((prev) => {
+        const next = removeSavedQuery(prev, name);
+        persistSaved(next);
+        return next;
+      });
+    },
+    [persistSaved],
+  );
 
   return (
     <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 overflow-y-auto modern-scrollbar">
@@ -857,6 +919,50 @@ export const DataPanel = memo(() => {
                   <div className="i-ph:clock-counter-clockwise" /> History ({sqlHistory.length})
                 </button>
               )}
+              {savedQueries.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSavedOpen((v) => !v)}
+                  data-testid="data-sql-saved-toggle"
+                  aria-expanded={savedOpen}
+                  title="Your saved queries (this browser) — click to recall into the editor"
+                  className="text-[10px] rounded-full px-2 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-bolt-elements-item-contentAccent/40 hover:text-bolt-elements-textPrimary cursor-pointer flex items-center gap-1"
+                >
+                  <div className="i-ph:bookmark-simple" /> Saved ({savedQueries.length})
+                </button>
+              )}
+              <span className="inline-flex items-center gap-1">
+                <input
+                  type="text"
+                  value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      saveCurrentQuery();
+                    }
+                  }}
+                  placeholder="Name…"
+                  data-testid="data-sql-save-name"
+                  aria-label="Name to save the current query under"
+                  className="w-24 rounded-full bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor px-2 py-0.5 text-[10px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-bolt-elements-item-contentAccent/50"
+                />
+                <button
+                  type="button"
+                  onClick={saveCurrentQuery}
+                  disabled={!saveName.trim() || !sql.trim()}
+                  data-testid="data-sql-save"
+                  title="Save the current query under this name for one-click reuse"
+                  className={classNames(
+                    'text-[10px] rounded-full px-2 py-0.5 border flex items-center gap-1',
+                    !saveName.trim() || !sql.trim()
+                      ? 'border-bolt-elements-borderColor text-bolt-elements-textTertiary cursor-not-allowed'
+                      : 'border-bolt-elements-item-contentAccent/40 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10 cursor-pointer',
+                  )}
+                >
+                  <div className="i-ph:bookmark-simple" /> Save
+                </button>
+              </span>
             </div>
             {historyOpen && sqlHistory.length > 0 && (
               <div
@@ -877,6 +983,43 @@ export const DataPanel = memo(() => {
                   >
                     {h}
                   </button>
+                ))}
+              </div>
+            )}
+            {savedOpen && savedQueries.length > 0 && (
+              <div
+                data-testid="data-sql-saved"
+                className="rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 max-h-40 overflow-auto modern-scrollbar"
+              >
+                {savedQueries.map((s) => (
+                  <div
+                    key={s.name}
+                    className="flex items-center border-b border-bolt-elements-borderColor/20 last:border-b-0"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSql(s.query);
+                        setSavedOpen(false);
+                      }}
+                      title={s.query}
+                      data-testid="data-sql-saved-load"
+                      className="flex-1 min-w-0 text-left px-2.5 py-1.5 text-[11px] text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-3 hover:text-bolt-elements-textPrimary cursor-pointer truncate"
+                    >
+                      <span className="font-medium text-bolt-elements-item-contentAccent">{s.name}</span>
+                      <span className="ml-2 font-mono text-bolt-elements-textTertiary">{s.query}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteSavedQuery(s.name)}
+                      title={'Delete saved query: ' + s.name}
+                      aria-label={'Delete saved query: ' + s.name}
+                      data-testid="data-sql-saved-delete"
+                      className="shrink-0 px-2 py-1.5 text-[11px] text-bolt-elements-textTertiary hover:text-red-400 cursor-pointer"
+                    >
+                      <div className="i-ph:trash" />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
