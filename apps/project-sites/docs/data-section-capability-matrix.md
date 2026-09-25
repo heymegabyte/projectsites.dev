@@ -31,8 +31,9 @@
    (+ avg for numerics) + surfaced scan cost (`rows_read`). Top-5-values deferred (per-column on-demand).
 5. **Relationship (ERD) view** [M] — from the now-parsed FKs, a zero-dep SVG node-edge diagram
    (tables = nodes, FK = edges) — the prompt's explicit "understandable relationship view."
-6. **Query-result mini-charts** [S] — auto-detect a chartable result (a label column + a numeric
-   column) → a zero-dep SVG bar/line toggle beside the grid.
+6. ~~**Query-result mini-charts**~~ ✅ **DONE 2026-09-25** — see "Recently shipped" below. A chartable
+   SQL result (label column + numeric column, summary-sized) gets a "📊 Chart" toggle → a zero-dep
+   horizontal bar chart of the already-fetched rows (no re-query).
 7. **Inline grid cell edit** [M] — double-click a browse-grid cell → inline typed editor →
    parameterized UPDATE (vs today's row-detail pencil). Matrix-named remaining item.
 8. **Auto-LIMIT + rows-scanned estimate** [S] — warn/auto-append `LIMIT` to a bare `SELECT`; pre-run
@@ -55,6 +56,16 @@
     (create table / run a starter / import) per `embarrassingly-easy-to-use`.
 
 **Recently shipped from this backlog:**
+- ✅ **#6 Query-result mini-charts — DONE 2026-09-25** — the SQL console's result grid gets a
+  "📊 Chart" toggle whenever the result is chartable: a **zero-dep horizontal bar chart** of the label
+  column vs a numeric column, rendered purely client-side over the already-fetched rows (**no
+  re-query**, no charting dependency, no worker/security surface). Pure `detectChartable` (a summary-
+  sized result — 1..`MAX_CHART_ROWS`=60 rows — with a label column + ≥1 OTHER numeric column;
+  numeric-looking strings counted; a big raw dump / single-numeric / no-numeric → not chartable) +
+  `buildChartSeries` (null labels → ∅, non-finite values dropped — never a fabricated 0). A value-
+  column `<select>` appears when the result has multiple numerics; the chart resets on each new run;
+  bars scale to the max (floor 2%). +7 Vitest (161 total); editor tsc + Vitest 439 + eslint clean.
+  Makes the SQL workspace first-class (Beekeeper/Metabase/TablePlus all chart a result inline).
 - ✅ **#4 Table data profiling — DONE 2026-09-25** — the standout pro-SQLite-manager feature. The
   D1Browser schema view gets a "📊 Profile" button beside "✨ Explain": it runs ONE bounded
   single-scan aggregate over the selected table and shows a **column-stats table** — per-column

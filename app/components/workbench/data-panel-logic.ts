@@ -1600,3 +1600,107 @@ export function canAskAi(question: string): { ok: boolean; reason?: string } {
 
   return { ok: true };
 }
+
+// ── Query-result mini-charts ─────────────────────────────────────────────────
+
+/** A result is chartable only when it is summary-sized (a big raw dump is not a chart). */
+export const MAX_CHART_ROWS = 60;
+
+/** A chartable result: one label (category) column + one or more numeric value columns. */
+export interface ChartSpec {
+  labelCol: string;
+  valueCols: string[];
+}
+
+/** One `{label, value}` point of a mini-chart series. */
+export interface ChartPoint {
+  label: string;
+  value: number;
+}
+
+/** True when EVERY non-null value in `col` is a finite number (and at least one value exists). */
+function columnIsNumeric(rows: readonly Record<string, unknown>[], col: string): boolean {
+  let sawValue = false;
+
+  for (const r of rows) {
+    const v = r[col];
+
+    if (v === null || v === undefined || v === '') {
+      continue;
+    }
+
+    sawValue = true;
+
+    const ok =
+      typeof v === 'number'
+        ? Number.isFinite(v)
+        : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v));
+
+    if (!ok) {
+      return false;
+    }
+  }
+
+  return sawValue;
+}
+
+/**
+ * Decide whether a SQL result can be rendered as a bar chart, and how. A result is chartable when
+ * it is summary-sized (1..{@link MAX_CHART_ROWS} rows) and has BOTH a label column (the first
+ * non-numeric column, or the first column when all are numeric — e.g. a `year` axis) AND at least
+ * one OTHER numeric column to plot. Pure — inspects the already-fetched rows, never re-queries.
+ *
+ * @returns `{ labelCol, valueCols }` when chartable, else `null` (a raw dump / no numeric / too big)
+ * @example detectChartable(['country','n'], [{country:'US',n:5}]) // { labelCol:'country', valueCols:['n'] }
+ * @example detectChartable(['id'], [{id:1}]) // null (only one numeric column, nothing to plot)
+ */
+export function detectChartable(
+  columns: readonly string[],
+  rows: readonly Record<string, unknown>[],
+): ChartSpec | null {
+  if (columns.length < 2 || rows.length < 1 || rows.length > MAX_CHART_ROWS) {
+    return null;
+  }
+
+  const numeric = columns.filter((c) => columnIsNumeric(rows, c));
+
+  if (numeric.length === 0) {
+    return null;
+  }
+
+  const numericSet = new Set(numeric);
+  const labelCol = columns.find((c) => !numericSet.has(c)) ?? columns[0];
+  const valueCols = numeric.filter((c) => c !== labelCol);
+
+  if (valueCols.length === 0) {
+    return null;
+  }
+
+  return { labelCol, valueCols };
+}
+
+/**
+ * Extract the `{label, value}` series for one value column from the result rows. Null/blank labels
+ * render as `∅`; non-finite values are dropped (never a fabricated 0). Pure.
+ *
+ * @example buildChartSeries([{country:'US',n:5}], 'country', 'n') // [{label:'US', value:5}]
+ */
+export function buildChartSeries(
+  rows: readonly Record<string, unknown>[],
+  labelCol: string,
+  valueCol: string,
+): ChartPoint[] {
+  const out: ChartPoint[] = [];
+
+  for (const r of rows) {
+    const raw = r[labelCol];
+    const label = raw === null || raw === undefined || raw === '' ? '∅' : String(raw);
+    const value = Number(r[valueCol]);
+
+    if (Number.isFinite(value)) {
+      out.push({ label, value });
+    }
+  }
+
+  return out;
+}

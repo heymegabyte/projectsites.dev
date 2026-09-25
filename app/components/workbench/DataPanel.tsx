@@ -42,6 +42,8 @@ import {
   explainQuery,
   explainPlanHint,
   isExpensiveScan,
+  detectChartable,
+  buildChartSeries,
   sqlConsoleTarget,
   type QueryTab,
   MAX_QUERY_TABS,
@@ -380,6 +382,10 @@ export const DataPanel = memo(() => {
 
   // Client-side sort of the SQL result grid (honest — it reorders the full returned result).
   const [sqlSort, setSqlSort] = useState<GridSort | null>(null);
+
+  // Query-result mini-chart: whether the chart view is toggled on + which numeric column to plot.
+  const [chartOn, setChartOn] = useState(false);
+  const [sqlChartCol, setSqlChartCol] = useState<string | null>(null);
   const [sqlError, setSqlError] = useState('');
   const [sqlRunning, setSqlRunning] = useState(false);
   const [sqlMeta, setSqlMeta] = useState<{
@@ -544,6 +550,8 @@ export const DataPanel = memo(() => {
     setSqlRunning(true);
     setSqlMeta(null);
     setSqlSort(null); // a fresh result starts in its natural (query) order
+    setChartOn(false); // a new query hides the chart until re-toggled
+    setSqlChartCol(null);
 
     const cid = newCorrelationId('sql');
     sqlCid.current = cid;
@@ -1458,6 +1466,25 @@ export const DataPanel = memo(() => {
 
   /** Toggle the SQL result sort for a column (asc→desc→off). */
   const toggleSqlSort = useCallback((col: string) => setSqlSort((s) => nextSort(s, col)), []);
+
+  /*
+   * Query-result mini-chart — a chartable result (a label column + numeric column, summary-sized)
+   * can be rendered as a zero-dep horizontal bar chart. Pure client-side over the already-fetched
+   * rows (no re-query). `chartOn` is reset on each new run (below, in runSql).
+   */
+  const chartSpec = useMemo(() => detectChartable(sqlColumns, sqlVisibleRows), [sqlColumns, sqlVisibleRows]);
+  const chartValueCol = useMemo(
+    () =>
+      chartSpec && sqlChartCol && chartSpec.valueCols.includes(sqlChartCol)
+        ? sqlChartCol
+        : (chartSpec?.valueCols[0] ?? null),
+    [chartSpec, sqlChartCol],
+  );
+  const chartData = useMemo(
+    () => (chartSpec && chartValueCol ? buildChartSeries(sqlVisibleRows, chartSpec.labelCol, chartValueCol) : []),
+    [chartSpec, chartValueCol, sqlVisibleRows],
+  );
+  const chartMax = useMemo(() => chartData.reduce((m, p) => Math.max(m, p.value), 0), [chartData]);
 
   const exportCsv = useCallback(() => {
     if (typeof document === 'undefined' || !activeTable) {
@@ -2874,6 +2901,24 @@ export const DataPanel = memo(() => {
                   <div className="i-ph:download-simple" /> CSV
                 </button>
               )}
+              {!sqlError && chartSpec && (
+                <button
+                  type="button"
+                  onClick={() => setChartOn((v) => !v)}
+                  data-testid="data-sql-chart-toggle"
+                  aria-pressed={chartOn}
+                  title="Chart this result — a bar chart of the label column vs a numeric column"
+                  className={classNames(
+                    'text-[10px] cursor-pointer flex items-center gap-1',
+                    chartOn
+                      ? 'text-bolt-elements-item-contentAccent'
+                      : 'text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent',
+                  )}
+                >
+                  <div className={chartOn ? 'i-ph:table' : 'i-ph:chart-bar'} />
+                  {chartOn ? 'Table' : 'Chart'}
+                </button>
+              )}
               <span
                 className="ml-auto text-[10px] text-bolt-elements-textTertiary flex items-center gap-1"
                 title="Reads + writes (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE). Platform tables are protected; destructive statements confirm first."
@@ -2932,7 +2977,58 @@ export const DataPanel = memo(() => {
             </div>
           )}
 
-          {!sqlError && sqlColumns.length > 0 && (
+          {/* Query-result mini-chart — a zero-dep horizontal bar chart of the label column vs a
+              numeric column. Client-side over the already-fetched result (no re-query). */}
+          {!sqlError && chartOn && chartSpec && chartValueCol && (
+            <div className="flex-1 overflow-auto modern-scrollbar mt-1 p-3" data-testid="data-sql-chart">
+              <div className="mb-2 flex items-center gap-2 text-[10px] text-bolt-elements-textTertiary">
+                <span>
+                  {chartSpec.labelCol} × <strong className="text-bolt-elements-textSecondary">{chartValueCol}</strong>
+                </span>
+                {chartSpec.valueCols.length > 1 && (
+                  <select
+                    value={chartValueCol}
+                    onChange={(e) => setSqlChartCol(e.target.value)}
+                    data-testid="data-sql-chart-col"
+                    aria-label="Value column to plot"
+                    className="rounded bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor px-1.5 py-0.5 text-[10px] text-bolt-elements-textPrimary"
+                  >
+                    {chartSpec.valueCols.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <span className="ml-auto">
+                  {chartData.length} {chartData.length === 1 ? 'bar' : 'bars'}
+                </span>
+              </div>
+              <ul className="flex flex-col gap-1.5">
+                {chartData.map((p, i) => (
+                  <li key={`${p.label}-${i}`} className="flex items-center gap-2" data-testid="data-sql-chart-bar">
+                    <span
+                      className="w-28 shrink-0 truncate text-right font-mono text-[10px] text-bolt-elements-textSecondary"
+                      title={p.label}
+                    >
+                      {p.label}
+                    </span>
+                    <span className="relative h-4 flex-1 rounded bg-bolt-elements-background-depth-2">
+                      <span
+                        className="absolute inset-y-0 left-0 rounded bg-bolt-elements-item-contentAccent/70"
+                        style={{ width: `${chartMax > 0 ? Math.max(2, Math.round((p.value / chartMax) * 100)) : 0}%` }}
+                      />
+                    </span>
+                    <span className="w-16 shrink-0 text-right font-mono text-[10px] tabular-nums text-bolt-elements-textPrimary">
+                      {p.value.toLocaleString()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {!sqlError && sqlColumns.length > 0 && !(chartOn && chartSpec) && (
             <div className="flex-1 overflow-auto modern-scrollbar mt-1">
               <table className="w-full text-[11px] border-collapse">
                 <thead className="sticky top-0 bg-bolt-elements-background-depth-2 z-10">

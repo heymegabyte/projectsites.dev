@@ -50,6 +50,9 @@ import {
   friendlyModelLabel,
   canAskAi,
   MAX_AI_QUESTION_LEN,
+  detectChartable,
+  buildChartSeries,
+  MAX_CHART_ROWS,
   buildUpdateByPk,
   RowMutationError,
 } from './data-panel-logic';
@@ -985,5 +988,70 @@ describe('canAskAi (AI question guard)', () => {
 
   it('exactly at the cap → ok', () => {
     expect(canAskAi('a'.repeat(MAX_AI_QUESTION_LEN))).toEqual({ ok: true });
+  });
+});
+
+describe('detectChartable (query-result mini-charts)', () => {
+  it('detects a label + numeric column (the GROUP BY case)', () => {
+    const rows = [
+      { country: 'US', n: 5 },
+      { country: 'DE', n: 3 },
+    ];
+    expect(detectChartable(['country', 'n'], rows)).toEqual({ labelCol: 'country', valueCols: ['n'] });
+  });
+
+  it('picks the first non-numeric column as the label and plots the rest', () => {
+    const rows = [{ name: 'a', hits: 10, misses: 2 }];
+    expect(detectChartable(['name', 'hits', 'misses'], rows)).toEqual({
+      labelCol: 'name',
+      valueCols: ['hits', 'misses'],
+    });
+  });
+
+  it('uses the first column as a numeric axis label when ALL columns are numeric (e.g. year)', () => {
+    const rows = [
+      { year: 2024, revenue: 100 },
+      { year: 2025, revenue: 140 },
+    ];
+    expect(detectChartable(['year', 'revenue'], rows)).toEqual({
+      labelCol: 'year',
+      valueCols: ['revenue'],
+    });
+  });
+
+  it('is NOT chartable: single column, no numeric value, or a raw dump over the row cap', () => {
+    expect(detectChartable(['id'], [{ id: 1 }])).toBeNull(); // <2 columns
+    expect(detectChartable(['a', 'b'], [{ a: 'x', b: 'y' }])).toBeNull(); // no numeric
+    expect(detectChartable(['n'], [{ n: 1 }])).toBeNull(); // single numeric → nothing to label
+
+    const big = Array.from({ length: MAX_CHART_ROWS + 1 }, (_, i) => ({ k: `k${i}`, v: i }));
+    expect(detectChartable(['k', 'v'], big)).toBeNull(); // too many rows = a dump, not a summary
+  });
+
+  it('treats numeric-looking strings as numeric (D1 sometimes returns counts as strings)', () => {
+    expect(detectChartable(['label', 'n'], [{ label: 'x', n: '7' }])).toEqual({
+      labelCol: 'label',
+      valueCols: ['n'],
+    });
+  });
+});
+
+describe('buildChartSeries', () => {
+  it('maps rows to {label,value}, coercing values and stringifying labels', () => {
+    const rows = [
+      { country: 'US', n: 5 },
+      { country: 'DE', n: '3' },
+    ];
+    expect(buildChartSeries(rows, 'country', 'n')).toEqual([
+      { label: 'US', value: 5 },
+      { label: 'DE', value: 3 },
+    ]);
+  });
+  it('renders a null/blank label as ∅ and drops non-finite values (never a fabricated 0)', () => {
+    const rows = [
+      { c: null, n: 2 },
+      { c: 'x', n: 'not-a-number' },
+    ];
+    expect(buildChartSeries(rows, 'c', 'n')).toEqual([{ label: '∅', value: 2 }]);
   });
 });
