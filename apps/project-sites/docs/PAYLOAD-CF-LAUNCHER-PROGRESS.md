@@ -32,15 +32,21 @@
   - **Deploy cmds:** `deploy:database` = `payload migrate && wrangler d1 execute D1 … --remote`;
     `deploy:app` = `opennextjs-cloudflare build && opennextjs-cloudflare deploy`. Migrations via
     `payload migrate:create`.
-  - **Constraints:** **PAID Workers plan** (3 MB bundle limit); GraphQL unreliable in Workers.
-  - **Real per-instance deploy model:** build the OpenNext bundle ONCE (`.open-next/worker.js` +
+  - **Constraints:** GraphQL unreliable in Workers. The template's "paid Workers plan / 3 MB"
+    note is the FREE-tier cap — **Workers for Platforms IS paid**, so it's satisfied; WfP user
+    Workers get paid limits (size limit is 64 MiB uncompressed regardless).
+  - **DEPLOY MODEL — DECIDED: WfP user Worker + Static Assets (verified 2026-09-25).** WfP
+    supports attaching **Static Assets directly to a user Worker** in a dispatch namespace —
+    exactly what OpenNext needs. So: build the OpenNext bundle ONCE (`.open-next/worker.js` +
     `.open-next/assets/`), then per instance: create D1 → `payload migrate` on it → create R2 →
-    deploy the SAME bundle with per-instance bindings (`D1` id, `R2` bucket, `PAYLOAD_SECRET`) +
-    name `payload-{slug}` + route `{slug}.app.projectsites.dev`. Upload = worker script + the
-    ASSETS directory (Workers Assets API), or `wrangler deploy` with a generated per-instance
-    config. **"WfP where appropriate":** evaluate hosting the bundle as a dispatch-namespace user
-    Worker vs a standalone per-instance Worker — OpenNext's ASSETS binding + size may favor
-    standalone; decide in the deploy slice.
+    upload the user Worker into `USER_DISPATCH` with per-instance bindings (`D1` id, `R2` bucket,
+    `PAYLOAD_SECRET`) AND its assets, routed at `{slug}.app.projectsites.dev` by the dispatch
+    Worker (existing `app_host_resolver`). Assets API (scoped to the user Worker):
+    `POST /accounts/{acct}/workers/dispatch/namespaces/{ns}/scripts/{script}/assets-upload-session`
+    → provide a manifest (path→hash+size) → upload contents → link via the completion JWT. Up to
+    **100,000 assets/Worker**; **first upload is synchronous** (200 = ready to serve). Deprovision
+    already proven (delete user Worker + D1 + R2 → confirm gone). This settles "WfP where
+    appropriate" = YES, WfP dispatch user Worker is the deploy target.
 - **B2 — a runtime provisioning credential.** The Worker provisions at runtime, so it needs a
   **scoped `CF_PROVISION_TOKEN`** (D1:Edit + Workers R2 Storage:Edit + Workers Scripts:Edit) set
   via `wrangler secret put` (the local tests used the global key, which is NOT a Worker secret).
