@@ -32,6 +32,7 @@ import { NetworkQualityCardComponent } from './network-quality-card.component';
 import { NavTimingCardComponent } from './nav-timing-card.component';
 import { TechBreakdownComponent } from './tech-breakdown.component';
 import { ChannelBreakdownComponent } from './channel-breakdown.component';
+import { FormFunnelCardComponent } from './form-funnel-card.component';
 import { CampaignBreakdownComponent } from './campaign-breakdown.component';
 import type { TrendBadge } from './trend-badge.model';
 import { InsightsStripComponent } from './insights-strip.component';
@@ -92,7 +93,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, CloudflareRumCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, NetworkQualityCardComponent, NavTimingCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, OutboundLinksCardComponent, TechBreakdownComponent, ChannelBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, CloudflareRumCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, NetworkQualityCardComponent, NavTimingCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, OutboundLinksCardComponent, FormFunnelCardComponent, TechBreakdownComponent, ChannelBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -629,6 +630,15 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
       <app-outbound-links-card
         appReveal
         [outboundClicks]="siteTraffic()?.outboundClicks"
+        [windowDays]="rangeDays()"
+      />
+
+      <!-- Contact-form lead funnel — first-party form_start (validated attempt) → form_submit
+           (server-confirmed success) from the app.js beacon. The ONLY view of form ABANDONMENT
+           (starts − submits = lost leads). Honest: null rate → "—", no activity → empty state. -->
+      <app-form-funnel-card
+        appReveal
+        [funnel]="siteTraffic()?.formFunnel ?? null"
         [windowDays]="rangeDays()"
       />
 

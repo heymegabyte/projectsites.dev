@@ -1766,6 +1766,14 @@ export interface SiteTrafficSummary {
     total: number;
     byLink: { href: string; kind: string | null; count: number }[];
   };
+  /** AN-FORM — contact-form lead funnel: validated `starts` → confirmed `submits` →
+   *  `completionRatePercent` (null when no starts — never a fabricated 0%), per form. */
+  formFunnel?: {
+    starts: number;
+    submits: number;
+    completionRatePercent: number | null;
+    byForm: { form: string; starts: number; submits: number; completionRatePercent: number | null }[];
+  };
   previous: {
     pageviews: number;
     uniqueSessions: number;
