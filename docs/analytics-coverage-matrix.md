@@ -13,9 +13,16 @@
   (from `request.cf` edge geo), `ua`, and `device/browser/os + channel/utm` (`enrichVisitor(ua,
   referrer, path)`) into the event `metadata` JSON, with bot-UA filtering (`BOT_UA_RE`). So the
   device / geo / channel / referrer breakdowns are **real**, not empty-pending-beacon.
-- **Client beacon (`POST /api/events`)** mirrors ONLY `conversion` / `form_start` / `form_submit`
-  into `visitor_events` (`routes/analytics.ts`) — pageviews are intentionally NOT re-mirrored
-  (server records them) to avoid double-count.
+- **Client beacon (`POST /api/events`)** mirrors `conversion` / `form_start` / `form_submit` /
+  `web_vital` / **`js_error`** into `visitor_events` (`routes/analytics.ts`) — pageviews are
+  intentionally NOT re-mirrored (server records them) to avoid double-count.
+- **JS-error site-health (INSTRUMENTED 2026-09-25, display pending):** `app.js` `initErrorBeacon()`
+  turns an uncaught error / unhandled rejection into a `js_error` event (`{message, source, line}`,
+  deduped once/session · capped ≤5 · message truncated 300 · resource-404s skipped · self-guarded)
+  → ingest `EVENT_TYPES` accepts it → mirrored to `visitor_events` with server-re-truncated metadata.
+  This is the first-party site-health signal CF's plan has NO dataset for. Per "instrument before
+  showing," the aggregate + a "Script errors" card are the NEXT fire (once real samples accrue).
+  +7 tests (app.js contract: wired/dedupe/cap/truncate/resource-guard/self-guard + schema acceptance).
 - **CF GraphQL `httpRequestsAdaptiveGroups`** (`services/multi_url_analytics.ts`) is **fallback-only**
   now — the prior "no traffic" bug (reading empty CF-zone data for `*.projectsites.dev` subdomains
   instead of D1) is fixed. CF-zone per-host data is only meaningful for **custom domains in a CF zone**,
