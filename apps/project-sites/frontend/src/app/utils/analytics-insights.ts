@@ -35,6 +35,13 @@ export interface AnalyticsInsightsInput {
 export interface AnalyticsInsight {
   id: string;
   text: string;
+  /**
+   * The drilldown this insight is EVIDENCE for — clicking it filters the whole dashboard
+   * to that dimension value (reuses the drilldown filter). Present only on insights that
+   * map to a filterable dimension (device / top page / top country); absent on aggregate
+   * insights (traffic / conversions / bounce), which have no single value to filter to.
+   */
+  drill?: { dim: 'country' | 'device' | 'path'; value: string };
 }
 
 /** Friendly plural noun per conversion kind; falls back to the raw label + "s". */
@@ -115,23 +122,28 @@ export function buildAnalyticsInsights(input: AnalyticsInsightsInput): Analytics
     });
   }
 
-  // 3. Top page.
+  // 3. Top page — clickable to filter the dashboard to that path.
   if (input.topPage && input.topPage.views > 0) {
     out.push({
       id: 'top-page',
       text: `Your most-visited page is ${input.topPage.path} (${fmt(input.topPage.views)} ${plural(input.topPage.views, 'view')}).`,
+      drill: { dim: 'path', value: input.topPage.path },
     });
   }
 
   // 4. Device split — only a genuine MAJORITY (≥50%) is worth calling out honestly.
   const dev = topShare(input.byDevice);
   if (dev && dev.pct >= 50) {
-    out.push({ id: 'device', text: `${dev.pct}% of visitors are on ${dev.label}.` });
+    out.push({ id: 'device', text: `${dev.pct}% of visitors are on ${dev.label}.`, drill: { dim: 'device', value: dev.label } });
   }
 
   // 5. Top visitor location — "top", never a "most/majority" claim we can't back.
   if (input.topCountry && input.topCountry.count > 0) {
-    out.push({ id: 'country', text: `Your top visitor location is ${input.topCountry.label}.` });
+    out.push({
+      id: 'country',
+      text: `Your top visitor location is ${input.topCountry.label}.`,
+      drill: { dim: 'country', value: input.topCountry.label },
+    });
   }
 
   // 6. Stickiness — only when bounce was actually measured (session depth), never a fake 0.

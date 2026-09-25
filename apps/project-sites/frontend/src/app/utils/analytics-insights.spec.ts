@@ -76,4 +76,14 @@ describe('buildAnalyticsInsights', () => {
   it('omits bounce when not session-measured (null → no fabricated stickiness)', () => {
     expect(buildAnalyticsInsights({ ...BASE, bounceRatePercent: null }).some((i) => i.id === 'bounce')).toBeFalse();
   });
+
+  it('attaches a drilldown to the filterable insights (device/top-page/country), not the aggregate ones', () => {
+    const byId = Object.fromEntries(buildAnalyticsInsights(BASE).map((i) => [i.id, i]));
+    expect(byId['device'].drill).toEqual({ dim: 'device', value: 'mobile' });
+    expect(byId['top-page'].drill).toEqual({ dim: 'path', value: '/pricing' });
+    expect(byId['country'].drill).toEqual({ dim: 'country', value: 'US' });
+    // Aggregate insights have nothing single to filter to — no drill.
+    expect(byId['traffic'].drill).toBeUndefined();
+    expect(byId['conversions'].drill).toBeUndefined();
+  });
 });

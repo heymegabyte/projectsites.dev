@@ -316,7 +316,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
         </div>
       }
       <!-- ─────────────────── HIGHLIGHTS — evidence-backed "so what" ─────────────────── -->
-      <app-insights-strip appReveal [insights]="insights()" />
+      <app-insights-strip appReveal [insights]="insights()" (drill)="applyDrill($event)" />
       <!-- ─────────────────── KPI TILES ─────────────────── -->
       <div class="grid gap-3 grid-cols-4 max-lg:grid-cols-2 max-md:grid-cols-1">
         <div class="card kpi" appReveal data-testid="kpi-pageviews" role="group" [attr.aria-label]="kpiPageviewsLabel()">
