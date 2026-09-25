@@ -48,6 +48,7 @@ import { ConciergeCardComponent } from './concierge-card.component';
 import { ChannelBreakdownComponent } from './channel-breakdown.component';
 import { FormFunnelCardComponent } from './form-funnel-card.component';
 import { CampaignBreakdownComponent } from './campaign-breakdown.component';
+import { ReferrerDomainsComponent } from './referrer-domains.component';
 import type { TrendBadge } from './trend-badge.model';
 import { InsightsStripComponent } from './insights-strip.component';
 import { buildAnalyticsInsights, type AnalyticsInsight } from '../../../utils/analytics-insights';
@@ -136,6 +137,7 @@ function sparklinePath(
     ConciergeCardComponent,
     ChannelBreakdownComponent,
     CampaignBreakdownComponent,
+    ReferrerDomainsComponent,
     DeliveryCardComponent,
     AnalyticsGlossaryComponent,
     InsightsStripComponent,
@@ -1287,6 +1289,16 @@ function sparklinePath(
           [mediums]="siteTraffic()?.byUtmMedium ?? []"
           [campaigns]="siteTraffic()?.byUtmCampaign ?? []"
           [windowDays]="rangeDays()"
+        />
+
+        <!-- Top referring SITES — external referrer domains (the site's own hosts excluded server-side),
+           distinct from the coarse channel bucket. Self-fetching + drilldown-aware; honest empty +
+           long-tail-capped disclosure. -->
+        <app-referrer-domains
+          appReveal
+          [siteId]="state.selectedSite()?.id ?? null"
+          [windowDays]="rangeDays()"
+          [activeFilter]="filter()"
         />
 
         <!-- Delivery & performance — Cloudflare edge status codes / cache / bandwidth

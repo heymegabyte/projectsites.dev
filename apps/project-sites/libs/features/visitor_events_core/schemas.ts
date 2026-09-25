@@ -80,6 +80,23 @@ export const LabelCountSchema = z
   .object({ label: z.string(), count: z.number().int().min(0) })
   .strict();
 export type LabelCount = z.infer<typeof LabelCountSchema>;
+
+/**
+ * Top EXTERNAL referring domains — "where off-site traffic comes from" (e.g. news.ycombinator.com,
+ * reddit.com), distinct from the coarse `byChannel` bucket. `domains: []` = no external referrers
+ * tracked yet (an HONEST empty — visitors arrived directly / from untracked sources, never a
+ * fabricated 0). `capped` is true when the raw-referrer scan hit its row cap, so the long tail may
+ * be undercounted (surfaced, never hidden). The site's OWN hosts are excluded server-side so internal
+ * navigation is never miscounted as a referral (the prompt's "don't conflate / double-count").
+ */
+export const ReferrerDomainsSummarySchema = z
+  .object({
+    domains: z.array(LabelCountSchema).default([]),
+    capped: z.boolean().default(false),
+  })
+  .strict()
+  .default({ domains: [], capped: false });
+export type ReferrerDomainsSummary = z.infer<typeof ReferrerDomainsSummarySchema>;
 /** One `{ hour, count }` row of the hour-of-day breakdown. `hour` is the 0–23 UTC
  *  hour (`created_at` is stored UTC); the frontend rotates to the viewer's local time. */
 export const HourCountSchema = z

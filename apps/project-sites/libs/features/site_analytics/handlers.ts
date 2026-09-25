@@ -29,6 +29,7 @@ import {
   summaryToCsv,
   siteOrgId,
   getCloudflareRumForSite,
+  getSiteOwnHosts,
 } from './service.js';
 import { mintShareToken, verifyShareToken } from './share.js';
 // Reusable server-side validator for an arbitrary ?start&end window (shared with
@@ -43,6 +44,7 @@ import {
   getNewVsReturningSummary,
   getSessionDurationSummary,
   getWeekdayBreakdown,
+  getReferrerDomains,
   shiftWindowToTz,
 } from '../visitor_events_core/service.js';
 // Drilldown-filter allowlist schema — validates ?filterDim against the trusted
@@ -250,6 +252,26 @@ siteAnalytics.get('/api/sites/:siteId/analytics/weekday', async (c) => {
   const filter = parseFilter(c);
   if (filter instanceof Response) return filter;
   const summary = await getWeekdayBreakdown(c.env, gate.siteId, days, win, filter, tz);
+  return c.json(summary);
+});
+
+// AN — top EXTERNAL referring domains (where off-site traffic comes from), distinct from the coarse
+// channel bucket. Self/internal referrers are excluded server-side via the site's OWN hosts (resolved
+// from ownership records, never a client value). Owner-scoped (404 non-owned, 400 bad filter).
+siteAnalytics.get('/api/sites/:siteId/analytics/referrers', async (c) => {
+  const gate = await requireOwnedSite(c);
+  if (gate instanceof Response) return gate;
+
+  const cw = parseCustomWindow(c.req.query('start'), c.req.query('end'));
+  if (cw.error) return badWindow(c, cw.error);
+  const days = parseWindowDays(c, 'days');
+  const tzRaw = Number.parseInt(c.req.query('tz') ?? '', 10);
+  const win = cw.window ? shiftWindowToTz(cw.window, Number.isInteger(tzRaw) ? tzRaw : undefined) : undefined;
+  const filter = parseFilter(c);
+  if (filter instanceof Response) return filter;
+  // Exclude the site's OWN hosts so internal navigation is never counted as a referral.
+  const selfHosts = await getSiteOwnHosts(c.env, gate.siteId);
+  const summary = await getReferrerDomains(c.env, gate.siteId, days, win, filter, selfHosts);
   return c.json(summary);
 });
 

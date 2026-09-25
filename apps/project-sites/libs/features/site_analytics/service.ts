@@ -93,6 +93,32 @@ export async function getCloudflareRumForSite(
   return getCachedCloudflareRum(env, host, days);
 }
 
+/**
+ * The set of a site's OWN hostnames (lowercased, `www.`-stripped) — its `{slug}.projectsites.dev`
+ * subdomain plus every custom hostname it owns. Resolved from OWN records, NEVER a client value. Used
+ * to EXCLUDE self/internal referrers from the referring-domains breakdown, so navigation within the
+ * site is never miscounted as an external referral. Fail-soft to an empty set (→ no exclusion).
+ *
+ * @param siteId - the already-authorized site id
+ * @returns lowercased, www-stripped own-host set
+ */
+export async function getSiteOwnHosts(env: Env, siteId: string): Promise<Set<string>> {
+  const hosts = new Set<string>();
+  const { data } = await dbQuery<{ slug: string | null; hostname: string | null }>(
+    env.DB,
+    `SELECT s.slug AS slug, h.hostname AS hostname
+       FROM sites s
+       LEFT JOIN hostnames h ON h.site_id = s.id AND h.deleted_at IS NULL
+      WHERE s.id = ? AND s.deleted_at IS NULL`,
+    [siteId],
+  );
+  for (const r of data) {
+    if (r.slug) hosts.add(`${r.slug}.projectsites.dev`.toLowerCase());
+    if (r.hostname) hosts.add(r.hostname.toLowerCase().replace(/^www\./, ''));
+  }
+  return hosts;
+}
+
 /** One day of the analytics_daily rollup series. */
 export interface DailyPoint {
   day: string;

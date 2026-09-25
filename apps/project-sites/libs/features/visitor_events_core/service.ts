@@ -28,6 +28,7 @@ import {
   type LabelCount,
   type HourCount,
   type WeekdaySummary,
+  type ReferrerDomainsSummary,
   type AnalyticsFilter,
   type AnalyticsFilterDimension,
 } from './schemas.js';
@@ -1496,6 +1497,82 @@ export async function getWeekdayBreakdown(
     .filter((r) => r.wd != null && r.wd >= 0 && r.wd <= 6)
     .map((r) => ({ weekday: Number(r.wd), count: Number(r.n) }));
   return { byWeekday, tzApplied: tzOk };
+}
+
+/** How many distinct raw referrers the domain scan reads before merging (bounds query cost); a
+ *  larger count merges more of the long tail. Hitting it sets `capped` so the UI discloses it. */
+const REFERRER_SCAN_CAP = 500;
+/** Cap on referring domains returned (top-N). */
+const REFERRER_DOMAINS_LIMIT = 15;
+
+/**
+ * Reduce a raw referrer URL to its registrable-ish host (lowercased, `www.` stripped) — the unit a
+ * "top referring sites" list groups by. SQLite has no URL parser, so this runs in JS over the stored
+ * `referrer` column (reusing the platform's `URL` parsing, same as {@link enrichVisitor}). Pure.
+ *
+ * @param url - the raw stored referrer (may be empty / malformed)
+ * @returns the lowercased host without a leading `www.`, or `null` when absent/unparseable
+ * @example referrerToDomain('https://www.Google.com/search?q=x') // 'google.com'
+ * @example referrerToDomain('android-app://com.example') // null (no http host)
+ */
+export function referrerToDomain(url: string | null | undefined): string | null {
+  const raw = (url ?? '').trim();
+  if (!raw) return null;
+  let host = '';
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    host = u.hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (!host) return null;
+  return host.startsWith('www.') ? host.slice(4) : host;
+}
+
+/**
+ * Top EXTERNAL referring domains over the window — "where off-site traffic comes from", distinct
+ * from the coarse {@link deriveChannel} bucket. Reads the top raw referrers (bounded by
+ * {@link REFERRER_SCAN_CAP}), reduces each to a domain in JS ({@link referrerToDomain}), EXCLUDES the
+ * site's OWN hosts (`selfHosts`, resolved server-side from ownership records — so internal navigation
+ * is never miscounted as a referral), merges counts by domain, and returns the top
+ * {@link REFERRER_DOMAINS_LIMIT}. Pageviews only, filter-aware ({@link currentWindow}), owner-scoped.
+ * Fail-soft to an empty summary. `capped` discloses when the long tail may be undercounted.
+ *
+ * @param selfHosts - the site's own lowercased hostnames to exclude (e.g. `slug.projectsites.dev` + custom domains)
+ */
+export async function getReferrerDomains(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+  selfHosts: ReadonlySet<string> = new Set(),
+): Promise<ReferrerDomainsSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ referrer: string | null; n: number }>(
+    env.DB,
+    `SELECT referrer, COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'pageview'
+        AND referrer IS NOT NULL AND referrer != ''
+      GROUP BY referrer ORDER BY n DESC LIMIT ${REFERRER_SCAN_CAP}`,
+    params,
+  );
+  if (error) return { domains: [], capped: false };
+
+  const counts = new Map<string, number>();
+  for (const r of data) {
+    const domain = referrerToDomain(r.referrer);
+    if (!domain || selfHosts.has(domain)) continue; // drop unparseable + the site's OWN hosts
+    counts.set(domain, (counts.get(domain) ?? 0) + (Number(r.n) || 0));
+  }
+  const domains: LabelCount[] = [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, REFERRER_DOMAINS_LIMIT);
+
+  return { domains, capped: data.length >= REFERRER_SCAN_CAP };
 }
 
 /** UTM campaign parameters the campaign breakdown may GROUP BY — an allowlist so the
