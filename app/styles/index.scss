@@ -896,12 +896,14 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 30px;
-  background: #060610;
+  gap: 34px;
+  /* Solid brand-dark with a whisper of depth toward the centre (still reads #060610). */
+  background: radial-gradient(130% 100% at 50% 38%, #0a0a1e 0%, #060610 58%);
   color: var(--bolt-elements-textPrimary, #f4f4ff);
   opacity: 1;
-  animation: ps-editor-loader-in 320ms ease-out both;
-  transition: opacity 520ms ease;
+  overflow: hidden;
+  animation: ps-editor-loader-in 340ms ease-out both;
+  transition: opacity 560ms ease;
   will-change: opacity;
 }
 .ps-editor-loader[data-leaving='true'] {
@@ -909,61 +911,131 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
   pointer-events: none;
 }
 
-/* Faint dual-tone aurora — still reads as a solid #060610 field. */
+/* Layered tri-tone aurora — drifts slowly; blurred so it reads as ambient glow. */
 .ps-editor-loader::before {
+  content: '';
+  position: absolute;
+  inset: -12%;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 38% at 38% 34%, rgba(0, 229, 255, 0.14), transparent 60%),
+    radial-gradient(40% 36% at 66% 60%, rgba(124, 58, 237, 0.14), transparent 60%),
+    radial-gradient(30% 28% at 52% 80%, rgba(80, 170, 227, 0.1), transparent 62%);
+  filter: blur(6px);
+  animation: ps-editor-loader-drift 11s ease-in-out infinite alternate;
+}
+
+/* Soft vignette for depth. */
+.ps-editor-loader::after {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background:
-    radial-gradient(58% 48% at 50% 42%, rgba(0, 229, 255, 0.1), transparent 62%),
-    radial-gradient(46% 42% at 62% 60%, rgba(124, 58, 237, 0.1), transparent 60%);
-  animation: ps-editor-loader-drift 9s ease-in-out infinite alternate;
+  background: radial-gradient(120% 100% at 50% 46%, transparent 52%, rgba(3, 3, 10, 0.55) 100%);
 }
 
 .ps-editor-loader__stage {
   position: relative;
-  width: 96px;
-  height: 96px;
-  display: grid;
-  place-items: center;
+  width: 120px;
+  height: 120px;
 }
 
-/* Rotating conic accent ring, masked to a thin band. */
+/* Sonar ping rings — expand + fade outward from the core. */
+.ps-editor-loader__pulse {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 56px;
+  height: 56px;
+  margin: -28px;
+  border-radius: 9999px;
+  border: 1px solid rgba(0, 229, 255, 0.45);
+  animation: ps-editor-loader-ping 3s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+.ps-editor-loader__pulse--2 {
+  animation-delay: 1.5s;
+  border-color: rgba(124, 58, 237, 0.4);
+}
+
+/* Outer + inner counter-rotating conic rings, masked to thin bands. */
 .ps-editor-loader__ring {
   position: absolute;
-  inset: 0;
+  inset: 14px;
   border-radius: 9999px;
   background: conic-gradient(
     from 0deg,
-    transparent 0 18%,
-    rgba(0, 229, 255, 0.15) 30%,
-    #00e5ff 52%,
-    #7c3aed 70%,
-    transparent 84% 100%
+    transparent 0 16%,
+    rgba(0, 229, 255, 0.15) 28%,
+    #00e5ff 50%,
+    #7c3aed 68%,
+    transparent 82% 100%
   );
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
-  filter: drop-shadow(0 0 12px rgba(0, 229, 255, 0.35));
-  animation: ps-editor-loader-spin 1.5s linear infinite;
+  filter: drop-shadow(0 0 12px rgba(0, 229, 255, 0.4));
+  animation: ps-editor-loader-spin 1.6s linear infinite;
+}
+.ps-editor-loader__ring--inner {
+  inset: 30px;
+  background: conic-gradient(
+    from 200deg,
+    transparent 0 44%,
+    #7c3aed 62%,
+    rgba(0, 229, 255, 0.7) 80%,
+    transparent 92% 100%
+  );
+  filter: drop-shadow(0 0 8px rgba(124, 58, 237, 0.4));
+  animation: ps-editor-loader-spin 2.4s linear infinite reverse;
 }
 
-/* Breathing core orb. */
+/* Core orb — glassy cyan→violet sphere with an inner highlight + breathing corona. */
 .ps-editor-loader__orb {
-  width: 46px;
-  height: 46px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  margin: -22px;
   border-radius: 9999px;
-  background: radial-gradient(circle at 35% 30%, #6af7ff 0%, #00e5ff 42%, #7c3aed 100%);
+  background: radial-gradient(circle at 33% 28%, #b6fdff 0%, #24e9ff 34%, #00b8e6 56%, #7c3aed 100%);
   box-shadow:
-    0 0 28px 4px rgba(0, 229, 255, 0.45),
-    inset 0 0 12px rgba(255, 255, 255, 0.25);
-  animation: ps-editor-loader-pulse 2.2s ease-in-out infinite;
+    0 0 30px 6px rgba(0, 229, 255, 0.5),
+    0 0 64px 14px rgba(124, 58, 237, 0.28),
+    inset 0 0 14px rgba(255, 255, 255, 0.35);
+  animation: ps-editor-loader-pulse 2.4s ease-in-out infinite;
+}
+.ps-editor-loader__orb::before {
+  content: '';
+  position: absolute;
+  top: 16%;
+  left: 22%;
+  width: 36%;
+  height: 32%;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.95), transparent 70%);
+  filter: blur(0.5px);
+}
+
+/* A glowing particle orbiting the rings. */
+.ps-editor-loader__particle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px;
+  border-radius: 9999px;
+  background: #9dfcff;
+  box-shadow:
+    0 0 8px 2px rgba(0, 229, 255, 0.8),
+    0 0 16px 4px rgba(0, 229, 255, 0.35);
+  animation: ps-editor-loader-orbit 3.4s linear infinite;
 }
 
 /* Indeterminate shimmer sweep under the mark. */
 .ps-editor-loader__shimmer {
   position: relative;
-  width: min(180px, 40vw);
+  width: min(200px, 42vw);
   height: 2px;
   overflow: hidden;
   border-radius: 2px;
@@ -972,8 +1044,8 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
 .ps-editor-loader__shimmer > span {
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent 0%, #00e5ff 50%, transparent 100%);
-  animation: ps-editor-loader-slide 1.25s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent 0%, #00e5ff 45%, #7c3aed 62%, transparent 100%);
+  animation: ps-editor-loader-slide 1.3s ease-in-out infinite;
 }
 
 @keyframes ps-editor-loader-in {
@@ -992,12 +1064,33 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
 @keyframes ps-editor-loader-pulse {
   0%,
   100% {
-    transform: scale(0.86);
-    opacity: 0.9;
+    transform: scale(0.84);
+    opacity: 0.92;
   }
   50% {
-    transform: scale(1.06);
+    transform: scale(1.08);
     opacity: 1;
+  }
+}
+@keyframes ps-editor-loader-ping {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.75;
+  }
+  80% {
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+@keyframes ps-editor-loader-orbit {
+  from {
+    transform: rotate(0deg) translateX(52px);
+  }
+  to {
+    transform: rotate(360deg) translateX(52px);
   }
 }
 @keyframes ps-editor-loader-slide {
@@ -1261,8 +1354,10 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
   /* Editor loading screen — kill all motion, keep a static legible mark. */
   .ps-editor-loader,
   .ps-editor-loader::before,
+  .ps-editor-loader__pulse,
   .ps-editor-loader__ring,
   .ps-editor-loader__orb,
+  .ps-editor-loader__particle,
   .ps-editor-loader__shimmer > span {
     animation: none !important;
   }
@@ -1274,6 +1369,13 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
   .ps-editor-loader__orb {
     transform: none;
     opacity: 1;
+  }
+
+  /* Ping rings + orbiting particle add nothing when static — hide them so the
+     reduced-motion mark is a clean orb + rings. */
+  .ps-editor-loader__pulse,
+  .ps-editor-loader__particle {
+    display: none;
   }
 }
 
