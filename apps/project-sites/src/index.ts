@@ -126,6 +126,7 @@ import { publicRoutes } from './routes/public.js';
 import features from './routes/features.js';
 import { copilot } from './routes/copilot.js';
 import { siteDetailTabs } from './routes/site_detail_tabs.js';
+import { cloudflareRum } from './routes/cloudflare_rum.js';
 import { siteDna } from './routes/site_dna.js';
 import { emailDeliverabilityRoutes } from './routes/email_deliverability.js';
 import { reviewPublic } from './routes/review_public.js';
@@ -978,6 +979,7 @@ app.get('/app.js', (c) =>
 // libs/features/* — viral + billing + audit-chain modules (ideas #33, #34, #36, #46)
 app.route('/', tokenBurnMeter); // /api/usage/budget + /api/admin/usage/budget — #13 per-tenant token-burn meter + budget killswitch (flag: token_burn_meter)
 app.route('/', siteAnalytics); // /api/sites/:siteId/analytics — owner analytics summary (flag: site_analytics). Must precede `api` so the :siteId/analytics suffix wins.
+app.route('/', cloudflareRum); // /api/sites/:siteId/cloudflare-rum — CF Web Analytics RUM (CWV + NavTiming, per owned host). Must precede `api` so the :siteId/cloudflare-rum suffix wins.
 app.route('/', kvInspector); // /api/admin/kv/* — read-only super-admin KV inspector (flag: kv_inspector)
 app.route('/', r2Inspector); // /api/admin/r2/* — read-only super-admin R2 object inspector (flag: r2_inspector)
 app.route('/', vectorizeInspector); // /api/admin/vectorize/* — read-only super-admin Vectorize index inspector (flag: vectorize_inspector)
