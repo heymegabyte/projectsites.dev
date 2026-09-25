@@ -119,6 +119,17 @@
 | **Durable Objects** | classes/bindings list | BLOCKED (data) | internal SQLite is **RPC-only**, NOT arbitrarily queryable via public API |
 | **Queues** | READ-ONLY inspector — account REST `GET /queues` + `/queues/:id` via `GET /api/admin/queues/*` (super-admin, flag `queues_inspector`) | ✅ **DONE (read-only, backend + frontend, 2026-09-25)** — queue list → describe panel (message retention, delivery delay, **producers + consumers** with worker script/service); `/admin/queues-inspector` behind sysAdminGuard, backend **404-dark** (prod-verified: no-auth + authed-non-super-admin both 404). CF creds SERVER-side (`resolveCfCredentials` global key), account = `env.CF_ACCOUNT_ID` (never client); `:id` a validated slug (no REST-path injection). Honest `available:false`/`found:false` (never fabricated). Prod-verified on the account's **5 real queues** (gitlink-jobs, grants-*, project-sites-workflows-*). 9 Jest + 6 Karma; chunk MD5 local==prod. **Publish/purge/consume NOT exposed** (read-only). | shared PLATFORM pipelines (jobs/workflows), NOT tenant-owned — super-admin debug view (like KV/R2/Vectorize). Pull consumer needs explicit ack; message BODIES not read (metadata only) |
 
+> **Wiring completion (2026-09-25):** all four inspectors above shipped as component+route+spec but
+> were left **unwired** — NONE was in the admin nav, NONE had a `ADMIN_SECTION_LABELS` entry (doc title
+> fell back → WCAG 2.4.2), and NONE had an `admin-contract.mjs` row (4 build-blocking `check:admin-contract`
+> UNCOVERED drift errors). Fixed: 4 Operations nav items (`sysAdminOnly`), 4 section labels (match each
+> `<h1>`), 4 flag-dark contract rows (soft severity — worker 404s when the flag is off), and all 4 routes
+> locked into `admin-nav.model.spec` so they can't be silently dropped again. `check:admin-contract`: 4 → 0.
+> Prod-verified: `main` bundle byte-identical (all 4 routes live). The features remain flag-dark (default
+> off); a super-admin enables each via `/admin/feature-flags`, and each component 404-degrades honestly
+> until then. NOTE: the wiring is verified; the super-admin POPULATED path can't be exercised headless
+> (the E2E key isn't super-admin), but the backends+components were shipped+tested by the originating fires.
+
 ## Slice order (execution)
 1. **Authorized discovery + safe browse** — schema introspection (superadmin) +
    owner-browse pagination. ✅ backend DONE; **owner UI shipped** — the `/admin/sites/:id`
