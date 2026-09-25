@@ -22,6 +22,10 @@ export const VisitorEventTypeSchema = z.enum([
   'form_submit',
   // Core Web Vitals RUM sample (metadata: {metric, value}); see EVENT_TYPES.
   'web_vital',
+  // Uncaught JS error / unhandled rejection on a published site (metadata: {message,
+  // source, line}) — a first-party site-health signal (CF's plan exposes no client-error
+  // dataset). Deduped + capped + message-truncated client-side by the app.js beacon.
+  'js_error',
 ]);
 export type VisitorEventType = z.infer<typeof VisitorEventTypeSchema>;
 

@@ -777,6 +777,41 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     } catch (e) {}
   }
 
+  /* ─────────────────── First-party JS-error beacon ─────────────────── */
+  // Uncaught errors + unhandled rejections become a 'js_error' event, so an owner sees
+  // when their LIVE site is throwing (Cloudflare's plan exposes no client-error dataset).
+  // Deduped by message (once/session), capped (<=5/session), message truncated, and
+  // self-guarded (a throw inside the beacon never re-beacons).
+  function initErrorBeacon() {
+    var seen = {};
+    var count = 0;
+    function report(message, source, line) {
+      try {
+        if (!message || count >= 5) { return; }
+        var msg = String(message).slice(0, 300);
+        if (seen[msg]) { return; }
+        seen[msg] = 1;
+        count++;
+        track('js_error', {
+          message: msg,
+          source: source ? String(source).slice(0, 300) : undefined,
+          line: typeof line === 'number' ? line : undefined,
+        });
+      } catch (e) {}
+    }
+    try {
+      window.addEventListener('error', function (e) {
+        // Only real JS errors — resource-load failures (img/script 404) have no '.message'.
+        if (e && e.message) { report(e.message, e.filename, e.lineno); }
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e && e.reason;
+        var m = r && r.message ? r.message : (typeof r === 'string' ? r : 'Unhandled promise rejection');
+        report(m);
+      });
+    } catch (e) {}
+  }
+
   /* ───────────────────────── Boot ───────────────────────── */
   onReady(function () {
     try {
@@ -784,6 +819,9 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     } catch (e) {}
     try {
       initWebVitals();
+    } catch (e) {}
+    try {
+      initErrorBeacon();
     } catch (e) {}
     try {
       document.addEventListener('click', onClick, true);
