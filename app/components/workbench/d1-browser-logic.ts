@@ -576,3 +576,47 @@ export function timeTravelInfo(dbNameOrId: string): TimeTravelInfo {
       'Time Travel has no REST API (Wrangler CLI only), so a one-click restore is not offered here. For a portable copy you can keep, use the SQL-dump export above.',
   };
 }
+
+// ── incomingForeignKeys (reverse relationships) ─────────────────────────────────
+
+/** A foreign key POINTING AT a given table — the reverse of {@link parseForeignKeys} ("who references us"). */
+export interface IncomingForeignKey {
+  /** The table that holds the foreign key. */
+  table: string;
+
+  /** The column in that table that references us. */
+  column: string;
+
+  /** Our column it references, or null when the DDL omitted it. */
+  refColumn: string | null;
+}
+
+/**
+ * The tables that REFERENCE `tableName` (the incoming side of a relationship — complements
+ * `parseForeignKeys`' outgoing side, together giving the "understandable relationship view" the
+ * schema browser wants). Scans every table object's CREATE SQL for a FK whose target is `tableName`.
+ * Pure; best-effort (same DDL parser); skips self + non-tables.
+ *
+ * @example incomingForeignKeys([usersDDL, ordersRefDDL], 'users')
+ *   // → [{ table: 'orders', column: 'user_id', refColumn: 'id' }]
+ */
+export function incomingForeignKeys(
+  objects: readonly D1SchemaObjectSummary[],
+  tableName: string,
+): IncomingForeignKey[] {
+  const out: IncomingForeignKey[] = [];
+
+  for (const o of objects) {
+    if (o.type !== 'table' || o.name === tableName) {
+      continue;
+    }
+
+    for (const fk of parseForeignKeys(o.sql)) {
+      if (fk.refTable === tableName) {
+        out.push({ table: o.name, column: fk.column, refColumn: fk.refColumn });
+      }
+    }
+  }
+
+  return out;
+}

@@ -62,7 +62,28 @@
   <db> --timestamp=<ISO>` command (copyable) + the honest caveat that Time Travel has **no REST API**
   (Wrangler-CLI-only) so it is NOT a one-click button here. Pure `timeTravelInfo()` SSOT + 3 Vitest;
   no fake control. Completes the prompt's "Backups" pillar honestly.
-- (Visual-QA pass 2026-09-25 folded its findings in below as they land.)
+- ✅ **Relationship view completed — "Referenced by" (incoming FKs) — DONE 2026-09-25** — the D1Browser
+  schema browser now shows BOTH directions: outgoing FKs (this table → others) AND incoming
+  (`incomingForeignKeys` — the tables that reference the selected one, scanned from the catalog DDL) →
+  the prompt's "understandable relationship view." +2 Vitest.
+
+**Visual-QA findings (owner Data tab — real browser + a11y-tree, 2026-09-25) — pending backlog:**
+> The owner `/admin/sites/:id?tab=data` (`SiteDataBrowserComponent`) is structurally CLEAN (1 h1,
+> landmarks present, 0 empty buttons/links, 0 unlabeled inputs, no overflow @1663, brand fonts) but
+> reads "developer-grade, not owner-friendly." Super-admin inspectors + the bolt DataPanel were gated
+> (E2E key is `is_super_admin:false`). Ranked owner-facing fixes (Angular admin surface, deploys via R2):
+> - **V1. `?tab=` deep-link stability** [S] — a direct `?tab=data` URL bounces to Dashboard; only clicking
+>   the tab holds state. Fix the route/query-param restore so a deep link lands on Data. (Highest — a real bug.)
+> - **V2. NULL → "—" (de-emphasized) + stop rendering plain values as buttons** [S] — the grid shows literal
+>   grey "NULL" and makes EVERY cell a `<button>`; render NULL as a muted "—" (`title="NULL"`) and let only
+>   the row-detail affordance look clickable.
+> - **V3. Real per-table empty states** [S] — empty tables (Form Submissions 0 · Content Store 0) show a blank
+>   grid; replace with a launchpad ("No submissions yet → share your form") per `embarrassingly-easy-to-use`.
+> - **V4. Overview strip → icon stat cards** [S] — the plain "5 tables · 90 records" text → scannable stat cards.
+> - **V5. Loading skeletons + "why-disabled" hint** [S] — grid loading skeletons; a "pick a column first"
+>   placeholder on the filter-value input while it's disabled.
+> - **V6. Verify the Schema tab** — this matrix cites a `?tab=schema` (row 83) but the visual pass found NO
+>   such tab (tabs are Logs/Snapshots/Data/Integrations); confirm whether Schema is super-admin-gated or drifted.
 
 ## Architecture reality (READ FIRST — do not skip)
 

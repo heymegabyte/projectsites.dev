@@ -13,6 +13,7 @@ import {
   formatBytes,
   formatCount,
   isBrowsableObject,
+  incomingForeignKeys,
   parseCreateTableColumns,
   parseForeignKeys,
   parseIndexColumns,
@@ -275,5 +276,35 @@ describe('timeTravelInfo (Backups & recovery — honest, no fake REST restore)',
     expect(info.retentionNote).toContain('7 days');
     expect(info.caveat).toContain('no REST API');
     expect(info.caveat).toContain('Wrangler CLI');
+  });
+});
+
+describe('incomingForeignKeys (reverse relationships — "referenced by")', () => {
+  const cat: D1SchemaObjectSummary[] = [
+    { type: 'table', name: 'users', tableName: 'users', sql: 'CREATE TABLE users (id TEXT PRIMARY KEY)' },
+    {
+      type: 'table',
+      name: 'orders',
+      tableName: 'orders',
+      sql: 'CREATE TABLE orders (id TEXT, user_id TEXT REFERENCES users(id))',
+    },
+    {
+      type: 'table',
+      name: 'reviews',
+      tableName: 'reviews',
+      sql: 'CREATE TABLE reviews (id TEXT, uid TEXT, FOREIGN KEY (uid) REFERENCES users (id))',
+    },
+    { type: 'index', name: 'ix', tableName: 'orders', sql: 'CREATE INDEX ix ON orders(user_id)' },
+  ];
+
+  it('finds every TABLE that references the target (skips indexes + self)', () => {
+    expect(incomingForeignKeys(cat, 'users')).toEqual([
+      { table: 'orders', column: 'user_id', refColumn: 'id' },
+      { table: 'reviews', column: 'uid', refColumn: 'id' },
+    ]);
+  });
+
+  it('empty when nothing references it', () => {
+    expect(incomingForeignKeys(cat, 'orders')).toEqual([]);
   });
 });

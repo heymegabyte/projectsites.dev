@@ -43,6 +43,7 @@ import {
   filterSchemaObjects,
   formatBytes,
   formatCount,
+  incomingForeignKeys,
   isBrowsableObject,
   parseCreateTableColumns,
   parseForeignKeys,
@@ -250,6 +251,15 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
 
   /** Honest Backups & recovery facts for the selected database (retention + the CLI restore command). */
   const ttInfo = useMemo(() => timeTravelInfo(overview?.name ?? selectedId ?? ''), [overview?.name, selectedId]);
+
+  /** Reverse relationships — tables that REFERENCE the selected table (incoming FKs), from the catalog. */
+  const incomingFks = useMemo(
+    () =>
+      selectedObject?.type === 'table' && tables?.objects
+        ? incomingForeignKeys(tables.objects, selectedObject.name)
+        : [],
+    [selectedObject, tables],
+  );
 
   /**
    * Run (or resume) the SQL-dump export for the selected database, driving the worker's async poll
@@ -740,6 +750,26 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
                               data-testid="data-d1-fk"
                             >
                               {fk.column} <span aria-hidden="true">→</span> {fk.refTable}
+                              {fk.refColumn ? `.${fk.refColumn}` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {incomingFks.length > 0 && (
+                      <div className="mt-3" data-testid="data-d1-incoming-fks">
+                        <div className="mb-1 text-[9px] font-medium uppercase tracking-wide text-bolt-elements-textTertiary">
+                          Referenced by ({incomingFks.length})
+                        </div>
+                        <ul className="flex flex-col gap-1">
+                          {incomingFks.map((fk, i) => (
+                            <li
+                              key={`${fk.table}-${fk.column}-${i}`}
+                              className="font-mono text-[10px] text-bolt-elements-textSecondary"
+                              data-testid="data-d1-incoming-fk"
+                            >
+                              {fk.table}.{fk.column} <span aria-hidden="true">→</span> {selectedObject?.name}
                               {fk.refColumn ? `.${fk.refColumn}` : ''}
                             </li>
                           ))}
