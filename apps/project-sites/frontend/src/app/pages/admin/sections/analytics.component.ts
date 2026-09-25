@@ -23,6 +23,7 @@ import { RevealDirective } from '../../../directives/reveal.directive';
 import { WebVitalsCardComponent } from './web-vitals-card.component';
 import { HourlyBreakdownComponent, rotateToLocalHours } from './hourly-breakdown.component';
 import { ConversionsCardComponent } from './conversions-card.component';
+import { OutboundLinksCardComponent } from './outbound-links-card.component';
 import { ScriptErrorsCardComponent } from './script-errors-card.component';
 import { EngagementCardComponent } from './engagement-card.component';
 import { ScrollDepthCardComponent } from './scroll-depth-card.component';
@@ -89,7 +90,7 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
 @Component({
   selector: 'app-admin-analytics',
   standalone: true,
-  imports: [WebVitalsCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, NetworkQualityCardComponent, NavTimingCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
+  imports: [WebVitalsCardComponent, ScriptErrorsCardComponent, EngagementCardComponent, ScrollDepthCardComponent, NetworkQualityCardComponent, NavTimingCardComponent, HourlyBreakdownComponent, ConversionsCardComponent, OutboundLinksCardComponent, TechBreakdownComponent, CampaignBreakdownComponent, DeliveryCardComponent, AnalyticsGlossaryComponent, InsightsStripComponent, RevealDirective, DatePipe, DecimalPipe, RollingCounterComponent, MiniEmptyComponent, EmptyStateComponent, HlmTablistDirective, ErrorCardComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -618,6 +619,15 @@ function sparklinePath(values: number[], width: number, height: number, peak?: n
         [windowDays]="rangeDays()"
         [delta]="conversionDelta()"
         [kindDeltas]="conversionKindDeltas()"
+      />
+
+      <!-- Top links clicked — the WHICH-LINKS companion to Conversions (app.js conversion
+           beacon href → visitor_events): top outbound/contact destinations by click count.
+           Honest empty state when no link clicks tracked. -->
+      <app-outbound-links-card
+        appReveal
+        [outboundClicks]="siteTraffic()?.outboundClicks"
+        [windowDays]="rangeDays()"
       />
 
       <!-- Real-user experience — field-measured Core Web Vitals p75 (LCP/INP/CLS)

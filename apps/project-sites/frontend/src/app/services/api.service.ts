@@ -1760,6 +1760,12 @@ export interface SiteTrafficSummary {
     dom: number | null;
     total: number | null;
   };
+  /** AN-OUTBOUND — top clicked outbound/contact links (which links, by destination). `total`
+   *  counts every link-click; `byLink` is the top-8 destinations, each with kind + count. */
+  outboundClicks?: {
+    total: number;
+    byLink: { href: string; kind: string | null; count: number }[];
+  };
   previous: {
     pageviews: number;
     uniqueSessions: number;
