@@ -882,19 +882,101 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
   text-wrap: pretty;
 }
 
-/* ── Item 32 — Boot skeleton overlay ──────────────────────────────── */
-.ps-boot-skeleton {
+/* ── Editor loading screen — full-surface, solid, cinematic ─────────────
+   Replaces the old "Booting {slug}" boot skeleton. A solid #060610 field
+   (matches the admin shell + iframe → zero seam) with a breathing cyan→violet
+   orb inside a rotating accent ring + a thin indeterminate shimmer. Fades IN
+   on first paint and fades OUT — background and all — once the editor's files
+   are loaded. Owned by EditorLoadingScreen / EditorLoadingVisual. */
+.ps-editor-loader {
   position: fixed;
   inset: 0;
   z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+  background: #060610;
+  color: var(--bolt-elements-textPrimary, #f4f4ff);
+  opacity: 1;
+  animation: ps-editor-loader-in 320ms ease-out both;
+  transition: opacity 520ms ease;
+  will-change: opacity;
+}
+.ps-editor-loader[data-leaving='true'] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Faint dual-tone aurora — still reads as a solid #060610 field. */
+.ps-editor-loader::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(58% 48% at 50% 42%, rgba(0, 229, 255, 0.1), transparent 62%),
+    radial-gradient(46% 42% at 62% 60%, rgba(124, 58, 237, 0.1), transparent 60%);
+  animation: ps-editor-loader-drift 9s ease-in-out infinite alternate;
+}
+
+.ps-editor-loader__stage {
+  position: relative;
+  width: 96px;
+  height: 96px;
   display: grid;
   place-items: center;
-  background: radial-gradient(ellipse at center, rgba(6, 6, 16, 0.96) 0%, rgba(6, 6, 16, 1) 70%);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  animation: ps-boot-fade-in 0.18s ease-out;
 }
-@keyframes ps-boot-fade-in {
+
+/* Rotating conic accent ring, masked to a thin band. */
+.ps-editor-loader__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 18%,
+    rgba(0, 229, 255, 0.15) 30%,
+    #00e5ff 52%,
+    #7c3aed 70%,
+    transparent 84% 100%
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  filter: drop-shadow(0 0 12px rgba(0, 229, 255, 0.35));
+  animation: ps-editor-loader-spin 1.5s linear infinite;
+}
+
+/* Breathing core orb. */
+.ps-editor-loader__orb {
+  width: 46px;
+  height: 46px;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 30%, #6af7ff 0%, #00e5ff 42%, #7c3aed 100%);
+  box-shadow:
+    0 0 28px 4px rgba(0, 229, 255, 0.45),
+    inset 0 0 12px rgba(255, 255, 255, 0.25);
+  animation: ps-editor-loader-pulse 2.2s ease-in-out infinite;
+}
+
+/* Indeterminate shimmer sweep under the mark. */
+.ps-editor-loader__shimmer {
+  position: relative;
+  width: min(180px, 40vw);
+  height: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.ps-editor-loader__shimmer > span {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, #00e5ff 50%, transparent 100%);
+  animation: ps-editor-loader-slide 1.25s ease-in-out infinite;
+}
+
+@keyframes ps-editor-loader-in {
   from {
     opacity: 0;
   }
@@ -902,56 +984,36 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
     opacity: 1;
   }
 }
-.ps-boot-skeleton__inner {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 22px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(0, 229, 255, 0.18);
-  box-shadow:
-    0 24px 48px -16px rgba(0, 0, 0, 0.6),
-    0 0 0 1px rgba(0, 229, 255, 0.06);
+@keyframes ps-editor-loader-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
-.ps-boot-skeleton__favicon {
-  border-radius: 6px;
-  background: #ffffff;
-  padding: 3px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+@keyframes ps-editor-loader-pulse {
+  0%,
+  100% {
+    transform: scale(0.86);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
 }
-.ps-boot-skeleton__text {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 180px;
-}
-.ps-boot-skeleton__title {
-  font-family: 'Sora', system-ui, sans-serif;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--ps-ink, #f4f4ff);
-  letter-spacing: -0.005em;
-}
-.ps-boot-skeleton__bar {
-  position: relative;
-  height: 3px;
-  overflow: hidden;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.06);
-}
-.ps-boot-skeleton__bar > span {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent 0%, var(--ps-accent, #00e5ff) 50%, transparent 100%);
-  animation: ps-boot-slide 1.2s ease-in-out infinite;
-}
-@keyframes ps-boot-slide {
+@keyframes ps-editor-loader-slide {
   from {
     transform: translateX(-100%);
   }
   to {
     transform: translateX(200%);
+  }
+}
+@keyframes ps-editor-loader-drift {
+  from {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(2%, 1%, 0) scale(1.05);
   }
 }
 
@@ -1187,7 +1249,6 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
 
 /* Reduced-motion safety for the items above */
 @media (prefers-reduced-motion: reduce) {
-  .ps-boot-skeleton__bar > span,
   .z-prompt::before,
   .ps-ai-trail-dot,
   .ps-send-ring__bar.is-indeterminate,
@@ -1195,6 +1256,24 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
   ::view-transition-old(workbench) {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  /* Editor loading screen — kill all motion, keep a static legible mark. */
+  .ps-editor-loader,
+  .ps-editor-loader::before,
+  .ps-editor-loader__ring,
+  .ps-editor-loader__orb,
+  .ps-editor-loader__shimmer > span {
+    animation: none !important;
+  }
+
+  .ps-editor-loader {
+    transition: opacity 200ms ease;
+  }
+
+  .ps-editor-loader__orb {
+    transform: none;
+    opacity: 1;
   }
 }
 

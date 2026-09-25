@@ -20,6 +20,8 @@ import type { ToolCallAnnotation } from '~/types/context';
 import { FileDiffBadges, summarizeTouchedFiles } from './FileDiffBadges';
 import { hasSnapshotFor, restoreSnapshot } from '~/lib/chat/ai-undo';
 import { toast } from 'react-toastify';
+import { parseSiteImport } from './site-import-status';
+import { SiteImportStatus } from './SiteImportStatus';
 
 interface AssistantMessageProps {
   content: string;
@@ -81,6 +83,22 @@ export const AssistantMessage = memo(
     isStreaming,
     isLast,
   }: AssistantMessageProps) => {
+    /*
+     * The initial imported-site greeting ("I've built … The project files are: <list>"
+     * + its per-file "Create <path>" artifact) is replaced by a single live status card
+     * ("Loading N files…" → "Loaded N files"). Files still load — the message parser, not
+     * this render, drives file creation — so hiding the verbose UI has no side effects.
+     */
+    const siteImport = parseSiteImport(content);
+
+    if (siteImport.isSiteImport) {
+      return (
+        <div className="overflow-hidden w-full ps-msg ps-msg--ai" data-role="ai">
+          <SiteImportStatus expectedFileCount={siteImport.expectedFileCount} />
+        </div>
+      );
+    }
+
     const touched = summarizeTouchedFiles(content);
     const looksTruncated =
       !isStreaming &&
