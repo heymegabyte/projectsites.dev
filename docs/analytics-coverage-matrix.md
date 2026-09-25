@@ -4,11 +4,15 @@
 > Maintained by the analytics loop (`65648642`). Rule: never imply an unavailable metric is zero,
 > never present an estimate as exact. Verify display-vs-store, not just render-vs-endpoint.
 
-## ✅ VERIFIED-COMPLETE / PLATEAU (2026-09-25)
+## Existing-card plateau + first-party AUGMENT tier (updated 2026-09-25)
 
-A 4-agent parallel READ-ONLY scan (frontend cards · worker CF services · first-party pipeline · matrix/tests)
-returned ~24 "gaps" — **every top finding was verified against source to be already-shipped, honestly-blocked,
-or deliberately-dropped.** No buildable increment remains without a CF plan upgrade. Do NOT rebuild these
+The EXISTING analytics cards are verified-complete — a 4-agent scan's ~24 "gaps" were all already-shipped,
+honestly-blocked, or deliberately-dropped (verified against source; scans mis-report by not tracing the wrapper
+chain). **BUT the plateau is on the existing CARDS, not the metric space.** The prompt's "AUGMENT with advanced
+first-party metrics" clause still had genuine unbuilt metrics: **new-vs-returning shipped 2026-09-25** (row below)
+— the beacon had NO returning-visitor detection. Still-unbuilt first-party AUGMENTs (verified not-measured):
+**session duration** + **entry/exit pages** (both need a beacon session boundary), and the beacon `click`/`custom`
+event types. So existing cards are done, but the augment tier has runway. Do NOT rebuild the already-shipped set
 (the scans mis-report them because they don't trace the wrapper chain):
 
 - **First-party cards ARE wired** (WebVitals/Engagement/Scroll/Network/NavTiming/JS-errors/OutboundClicks/
@@ -23,11 +27,13 @@ or deliberately-dropped.** No buildable increment remains without a CF plan upgr
   cross-org → 404); `site_analytics_handlers.test.ts:78` proves "404 when the site belongs to another org".
 - **Honestly-blocked (never build)**: WAF/`firewallEventsAdaptiveGroups`, botScore, edge TTFB — no plan entitlement.
 
-**Doctrine (loop-arc-economics):** the analytics section has reached marginal-value saturation. Future analytics
-fires: VERIFY a scanned gap against the wrapper chain BEFORE building (agents over-report), and prefer
-REALLOCATING to the DATA loop's un-plateaued Editor resource adapters (R2/DO/Vectorize/Hyperdrive still PLANNED)
-over fabricating a marginal analytics card. Only genuinely-new, verified gaps (or a CF plan upgrade unlocking WAF)
-warrant a new analytics build.
+**Doctrine (corrected 2026-09-25):** "plateau on existing cards" is NOT "plateau on the metric space." Before
+declaring analytics done + reallocating, check the NOT-MEASURED first-party AUGMENT tier (session duration,
+entry/exit pages, click-through — new-vs-returning is now done) — the prompt explicitly invites these AND they
+need a beacon change, so a grep of the existing aggregators misses them (that's what caused 3 premature
+"plateau" fires this session). VERIFY a scanned gap against the wrapper chain before building (agents over-report
+already-shipped cards). Reallocate to the DATA loop's un-plateaued adapters (Hyperdrive/DO still PLANNED) only
+once the augment tier is genuinely exhausted. A CF plan upgrade is the only path to the WAF/botScore/TTFB datasets.
 
 ## Architecture (verified 2026-09-23, iteration 1)
 
@@ -85,6 +91,19 @@ warrant a new analytics build.
   NO dataset for. Tenant-scoped by the summary's owner gate + the `getJsErrorSummary` bound `site_id`.
   +14 tests (7 instrument: app.js contract + schema; 5 aggregate: group/total/top-8/fail-soft/tenant;
   4 card: rows/singular/clean/undefined-safe). Verified: worker tsc+jest, app tsc, Karma, build:prod.
+
+- **New vs returning visitors (✅ DONE end-to-end 2026-09-25):** the first genuinely-new AUGMENT metric after
+  the existing cards plateaued — CF has NO returning-visitor dataset. `app.js` sets a cookieless `localStorage`
+  `ps_v` first-seen marker and sends `nv` on the `page_engagement` beacon (1 = the browser's first-ever visit,
+  0 = seen before, omitted when storage is unavailable → "unknown"). Ingest mirrors `nv` into `page_engagement`
+  metadata (1/0 only) → **`getNewVsReturningSummary`** folds `GROUP BY json_extract(metadata,'$.nv')` into
+  `{newVisits, returningVisits, unknownVisits}` — **unknown is surfaced separately, NEVER folded into returning**
+  (a `Number(null)===0` trap the test guards) → owner-scoped route `GET /api/sites/:siteId/analytics/visitors`
+  (`requireOwnedSite` tenant gate) → **`VisitorTypeCardComponent`** ("New vs returning") shows the split
+  (denominator = new+returning), an "unknown" footnote when >0, and the HONEST disclaimer: browser-scoped — a new
+  device or cleared storage counts as new (no cookie, no PII, a single timestamp). +4 Jest (fold incl.
+  null→unknown · fail-soft · tenant 404 · 200 owned) + Karma card spec. Worker deployed (`eb2953b4`),
+  `/analytics/visitors` prod 401-gated, beacon `/app.js` carries the `nv` logic. Data accrues from first serve.
 - **CF GraphQL `httpRequestsAdaptiveGroups`** (`services/multi_url_analytics.ts`) is **fallback-only**
   now — the prior "no traffic" bug (reading empty CF-zone data for `*.projectsites.dev` subdomains
   instead of D1) is fixed. CF-zone per-host data is only meaningful for **custom domains in a CF zone**,
