@@ -91,6 +91,7 @@ interface PsMessage {
     | 'export'
     | 'explain'
     | 'profile'
+    | 'insights'
     | 'put'
     | 'delete';
   /** PS_R2_REQUEST: the R2 bucket binding name (required for the objects + object ops). */
@@ -685,6 +686,18 @@ export class BoltEmbedService {
               .get<
                 Record<string, unknown>
               >(`/admin/d1/${encodeURIComponent(msg.databaseId)}/tables`, undefined, { silent: true })
+              .subscribe({ next: onOk, error: onErr });
+          } else if (op === 'insights') {
+            // Overview insights — per-table row counts (one bounded round-trip) + structural counts.
+            // Read-only; the client derives the plain-language takeaways. Super-admin + flag-dark.
+            if (!msg.databaseId) {
+              reply({ ok: false, error: 'No database id' });
+              break;
+            }
+            this.api
+              .get<
+                Record<string, unknown>
+              >(`/admin/d1/${encodeURIComponent(msg.databaseId)}/insights`, undefined, { silent: true })
               .subscribe({ next: onOk, error: onErr });
           } else if (op === 'export') {
             // SQL-dump export — a read of the DB into a .sql dump (briefly makes the DB unavailable).

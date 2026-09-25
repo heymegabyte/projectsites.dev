@@ -19,6 +19,7 @@ import {
   parseIndexColumns,
   schemaCountsLabel,
   timeTravelInfo,
+  buildDataInsights,
 } from './d1-browser-logic';
 import type { D1SchemaObjectSummary } from '~/lib/embed/embedded-mode';
 
@@ -306,5 +307,58 @@ describe('incomingForeignKeys (reverse relationships — "referenced by")', () =
 
   it('empty when nothing references it', () => {
     expect(incomingForeignKeys(cat, 'orders')).toEqual([]);
+  });
+});
+
+describe('buildDataInsights (D1 overview takeaways — present-data-only, deterministic)', () => {
+  it('summarises tables + rows, largest, empty, and structure', () => {
+    const out = buildDataInsights({
+      tables: [
+        { name: 'visitor_events', rows: 12000 },
+        { name: 'sites', rows: 431 },
+        { name: 'form_submissions', rows: 0 },
+      ],
+      counts: { table: 3, view: 1, index: 8, trigger: 0 },
+      totalRows: 12431,
+      capped: false,
+    });
+    expect(out[0]).toBe('3 tables · 12,431 rows total');
+    expect(out).toContain('Largest: visitor_events (12,000 rows)');
+    expect(out).toContain('1 empty table (form_submissions)');
+    expect(out).toContain('1 view · 8 indexes');
+    expect(out.length).toBeLessThanOrEqual(5);
+  });
+
+  it('pluralises + counts multiple empty tables', () => {
+    const out = buildDataInsights({
+      tables: [
+        { name: 'a', rows: 0 },
+        { name: 'b', rows: 0 },
+        { name: 'c', rows: 5 },
+      ],
+      counts: { table: 3, view: 0, index: 0, trigger: 1 },
+      totalRows: 5,
+      capped: false,
+    });
+    expect(out[0]).toBe('3 tables · 5 rows total');
+    expect(out).toContain('2 empty tables');
+    expect(out).toContain('1 trigger');
+  });
+
+  it('never emits a largest/structure line for absent data (present-data-only)', () => {
+    const out = buildDataInsights({
+      tables: [{ name: 'x', rows: 0 }],
+      counts: { table: 1, view: 0, index: 0, trigger: 0 },
+      totalRows: 0,
+      capped: false,
+    });
+    expect(out).toEqual(['1 table · 0 rows total', '1 empty table (x)']);
+    expect(out.some((l) => l.startsWith('Largest'))).toBe(false); // no non-empty table → no "largest"
+  });
+
+  it('discloses the 40-table cap; returns [] for an empty/absent database', () => {
+    expect(buildDataInsights({ tables: [], counts: { table: 41, view: 0, index: 0, trigger: 0 }, totalRows: 999, capped: true })[0]).toContain('(first 40 tables)');
+    expect(buildDataInsights({ tables: [], counts: { table: 0, view: 0, index: 0, trigger: 0 }, totalRows: 0, capped: false })).toEqual([]);
+    expect(buildDataInsights(null)).toEqual([]);
   });
 });

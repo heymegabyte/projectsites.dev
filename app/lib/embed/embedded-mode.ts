@@ -542,9 +542,9 @@ export interface D1DatabaseSummary {
 export interface D1RequestMessage {
   type: 'PS_D1_REQUEST';
   correlationId: string;
-  op: 'databases' | 'overview' | 'tables' | 'export' | 'explain' | 'profile';
+  op: 'databases' | 'overview' | 'tables' | 'export' | 'explain' | 'profile' | 'insights';
 
-  /** Required for the `overview` / `tables` / `export` / `explain` / `profile` ops — the D1 database UUID. */
+  /** Required for the `overview` / `tables` / `export` / `explain` / `profile` / `insights` ops — the D1 database UUID. */
   databaseId?: string;
 
   /** `explain` + `profile` ops: the single table the server re-fetches its DDL by (name only). */
@@ -683,12 +683,30 @@ export interface D1ProfileData {
   capped: boolean;
 }
 
+/** Parent → Child (`insights` op): per-table row counts + structural counts → the overview strip. */
+export interface D1InsightsData {
+  found: boolean;
+  tables: Array<{ name: string; rows: number }>;
+  counts: { table: number; view: number; index: number; trigger: number };
+  totalRows: number;
+
+  /** True when the database has more tables than were row-counted (the rest are omitted). */
+  capped: boolean;
+}
+
 /** Parent → Child (D1 Overview): the admin's reply to {@link D1RequestMessage}. */
 export interface D1ResponseMessage {
   type: 'PS_D1_RESPONSE';
   correlationId: string;
   ok: boolean;
-  data?: D1DatabasesData | D1OverviewData | D1TablesData | D1ExportData | D1ExplainData | D1ProfileData;
+  data?:
+    | D1DatabasesData
+    | D1OverviewData
+    | D1TablesData
+    | D1ExportData
+    | D1ExplainData
+    | D1ProfileData
+    | D1InsightsData;
   error?: string;
 }
 

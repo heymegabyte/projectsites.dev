@@ -620,3 +620,70 @@ export function incomingForeignKeys(
 
   return out;
 }
+
+/** Facts for {@link buildDataInsights} — mirrors the worker's `D1InsightsData`. */
+export interface D1InsightsInput {
+  tables: Array<{ name: string; rows: number }>;
+  counts: { table: number; view: number; index: number; trigger: number };
+  totalRows: number;
+  capped: boolean;
+}
+
+/**
+ * Derive ≤5 plain-language overview takeaways from real database facts (per-table row counts +
+ * structural counts) — the D1 analogue of the analytics Highlights strip. PRESENT-DATA-ONLY: a
+ * takeaway is emitted only when its number exists, so it never says "0 of…". Pure + deterministic
+ * (no AI): every line embeds a real count. Returns `[]` for an empty/absent database (the strip hides).
+ *
+ * @example buildDataInsights({ tables:[{name:'u',rows:12}], counts:{table:1,view:0,index:2,trigger:0}, totalRows:12, capped:false })
+ *   // → ['1 table · 12 rows total', 'Largest: u (12 rows)', '2 indexes']
+ */
+export function buildDataInsights(d: D1InsightsInput | null | undefined): string[] {
+  if (!d || d.counts.table === 0) {
+    return [];
+  }
+
+  const out: string[] = [];
+  const n = (v: number): string => v.toLocaleString();
+  const nTables = d.counts.table;
+
+  out.push(
+    `${nTables} ${nTables === 1 ? 'table' : 'tables'} · ${n(d.totalRows)} ${d.totalRows === 1 ? 'row' : 'rows'} total${d.capped ? ' (first 40 tables)' : ''}`,
+  );
+
+  if (d.tables.length > 0) {
+    const largest = d.tables.reduce((a, b) => (b.rows > a.rows ? b : a), d.tables[0]);
+
+    if (largest.rows > 0) {
+      out.push(`Largest: ${largest.name} (${n(largest.rows)} ${largest.rows === 1 ? 'row' : 'rows'})`);
+    }
+  }
+
+  const empty = d.tables.filter((t) => t.rows === 0);
+
+  if (empty.length === 1) {
+    out.push(`1 empty table (${empty[0].name})`);
+  } else if (empty.length > 1) {
+    out.push(`${empty.length} empty tables`);
+  }
+
+  const struct: string[] = [];
+
+  if (d.counts.view > 0) {
+    struct.push(`${d.counts.view} ${d.counts.view === 1 ? 'view' : 'views'}`);
+  }
+
+  if (d.counts.index > 0) {
+    struct.push(`${d.counts.index} ${d.counts.index === 1 ? 'index' : 'indexes'}`);
+  }
+
+  if (d.counts.trigger > 0) {
+    struct.push(`${d.counts.trigger} ${d.counts.trigger === 1 ? 'trigger' : 'triggers'}`);
+  }
+
+  if (struct.length > 0) {
+    out.push(struct.join(' · '));
+  }
+
+  return out.slice(0, 5);
+}

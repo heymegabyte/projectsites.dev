@@ -44,6 +44,7 @@ import { isSuperAdmin } from '../../../src/services/sysadmin.js';
 import { resolveCfCredentials, cfAuthHeaders } from '../../../src/services/cf_credentials.js';
 import { D1DatabaseIdSchema, D1ExportRequestSchema, D1TableNameSchema } from './schemas.js';
 import { buildProfileQuery, parseProfileColumns, parseProfileResult } from './profile.js';
+import { buildRowCountQuery, parseRowCounts, INSIGHTS_TABLE_CAP } from './insights.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 
@@ -317,6 +318,69 @@ d1Manager.get('/api/admin/d1/:databaseId/tables', async (c) => {
     latency_ms: Date.now() - t0,
   });
   return c.json({ found: true, id, objects, counts, available: true });
+});
+
+// ─── GET /api/admin/d1/:databaseId/insights ──────────────────────────────────
+// Read-only overview takeaways: per-table ROW counts (one bounded round-trip) + structural counts
+// (views/indexes/triggers). The client derives ≤5 plain-language insights (largest table, empty
+// tables, totals) from these facts. Super-admin + flag-dark. Identifiers come from the SERVER catalog.
+d1Manager.get('/api/admin/d1/:databaseId/insights', async (c) => {
+  const block = await gate(c);
+  if (block) return block;
+
+  const parse = D1DatabaseIdSchema.safeParse(c.req.param('databaseId'));
+  if (!parse.success) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Unknown database' } }, 404);
+  }
+  const id = parse.data;
+
+  const t0 = Date.now();
+  const cat = await cfD1Query(c, id, SCHEMA_OBJECTS_SQL);
+  if (cat.status === 404) {
+    logD1(c, { route: 'd1/insights', outcome: 'miss', latency_ms: Date.now() - t0 });
+    return c.json({ found: false, id });
+  }
+  if (!cat.ok) {
+    logD1(c, { route: 'd1/insights', outcome: 'unavailable', status: cat.status, reason: cat.reason });
+    return c.json({ found: false, id, available: false, reason: cat.reason });
+  }
+
+  const counts = { table: 0, view: 0, index: 0, trigger: 0 };
+  const tableNames: string[] = [];
+  for (const row of cat.rows) {
+    const type = String(row.type ?? '');
+    const name = String(row.name ?? '');
+    if (type === 'table' || type === 'view' || type === 'index' || type === 'trigger') {
+      counts[type] += 1;
+      if (type === 'table' && name) tableNames.push(name);
+    }
+  }
+
+  // ONE bounded round-trip counts every table (each a scalar COUNT(*) subquery). Names are from the
+  // server catalog, quoted — never a client value; the table set is capped.
+  let tables: Array<{ name: string; rows: number }> = [];
+  const { sql, used } = buildRowCountQuery(tableNames);
+  if (sql) {
+    const rc = await cfD1Query(c, id, sql);
+    if (rc.ok) tables = parseRowCounts(rc.rows[0], used);
+  }
+  const totalRows = tables.reduce((s, t) => s + t.rows, 0);
+
+  logD1(c, {
+    route: 'd1/insights',
+    outcome: 'ok',
+    tables: tables.length,
+    total_rows: totalRows,
+    latency_ms: Date.now() - t0,
+  });
+  return c.json({
+    found: true,
+    id,
+    tables,
+    counts,
+    totalRows,
+    capped: tableNames.length > used.length,
+  });
 });
 
 // ─── POST /api/admin/d1/:databaseId/explain-table ────────────────────────────

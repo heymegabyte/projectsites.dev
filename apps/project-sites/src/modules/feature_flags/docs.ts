@@ -827,6 +827,24 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Disable the flag → every /api/admin/kv/* route 404s (not 403)',
     ],
   },
+  d1_manager: {
+    checklist: [
+      "Read-only super-admin D1 resource-discovery + Overview + data-insights for the account's D1 databases",
+      'GET /api/admin/d1/databases (list) · /:databaseId/overview (size/tables/region/read-replication/version) · /:databaseId/insights (per-table row counts + view/index/trigger counts in one bounded round-trip, ≤40 tables)',
+      'POST /api/admin/d1/:databaseId/export → CF async SQL-DUMP export (portable .sql text, scoped via dump_options, resumable bookmark) — never mislabelled a native SQLite file',
+      'CF credentials stay SERVER-side (resolveCfCredentials); account id = env.CF_ACCOUNT_ID; :databaseId a validated UUID (no REST-path injection)',
+      'Read-only (list/overview/insights/SQL-dump export — no DDL/DML/Time-Travel restore); super-admin only; flag off → 404 (never leaks existence)',
+      'Admin surface: Editor Data panel D1 Overview strip + /admin/data; honest "not available" (never a fabricated URL/empty) on creds/API failure',
+    ],
+    explanation:
+      'Read-only, super-admin D1 resource-discovery, Overview, and data-insights surface for the Cloudflare account\'s D1 databases. The worker (libs/features/d1_manager/handlers.ts) serves the database list, per-database Overview metadata (file size, table count, region, read-replication, version), a data-insights strip (per-table row counts + view/index/trigger structural counts computed in ONE bounded round-trip, capped at 40 tables), and an async SQL-DUMP export (a portable .sql text dump — never described as a native SQLite database file). Cloudflare credentials stay server-side (resolveCfCredentials); the account id is env.CF_ACCOUNT_ID and never client-supplied, and :databaseId is a validated UUID so no client string reaches the REST path. There is no DDL/DML mutation or Time-Travel restore here (the raw SQL console + restore are separate surfaces). Super-admin only; flag off → every route 404s (never a 403 that would leak existence); creds/API failure returns an honest "not available", never a fabricated result.',
+    smoke_test: [
+      'Enable + super-admin → GET /api/admin/d1/databases → 200 lists the account D1 databases',
+      'GET /api/admin/d1/<uuid>/insights → 200 returns per-table row counts + {table,view,index,trigger} counts + totalRows',
+      'GET /api/admin/d1/<not-a-uuid>/overview → 404 (databaseId fails UUID validation)',
+      'Disable the flag → every /api/admin/d1/* route 404s (not 403)',
+    ],
+  },
   r2_inspector: {
     checklist: [
       'Read-only super-admin inspector for the shared R2 bucket (SITES_BUCKET — generated site output + media)',

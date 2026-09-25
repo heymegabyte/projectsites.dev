@@ -30,6 +30,7 @@ import type {
   D1ExplainData,
   D1ExportData,
   D1ForeignKey,
+  D1InsightsData,
   D1OverviewData,
   D1ProfileData,
   D1RequestMessage,
@@ -45,6 +46,7 @@ import {
   filterSchemaObjects,
   formatBytes,
   formatCount,
+  buildDataInsights,
   incomingForeignKeys,
   isBrowsableObject,
   parseCreateTableColumns,
@@ -97,6 +99,7 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [overview, setOverview] = useState<D1OverviewData | null>(null);
+  const [insights, setInsights] = useState<D1InsightsData | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [exportStatus, setExportStatus] = useState<ExportUiStatus>('idle');
@@ -192,6 +195,7 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
     async (id: string): Promise<void> => {
       setSelectedId(id);
       setOverview(null);
+      setInsights(null);
       setDetailError(null);
       setDetailLoading(true);
 
@@ -210,9 +214,10 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
       setDdlOpen(false);
       setTablesLoading(true);
 
-      const [ovRes, tblRes] = await Promise.all([
+      const [ovRes, tblRes, insRes] = await Promise.all([
         request({ op: 'overview', databaseId: id }),
         request({ op: 'tables', databaseId: id }),
+        request({ op: 'insights', databaseId: id }),
       ]);
       setDetailLoading(false);
       setTablesLoading(false);
@@ -228,9 +233,17 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
       } else {
         setTables({ found: false, id, objects: [], available: false, reason: tblRes.error ?? 'Schema not available' });
       }
+
+      // Overview insights (per-table row counts + structure) — best-effort; the strip hides if absent.
+      if (insRes.ok && insRes.data && 'tables' in insRes.data) {
+        setInsights(insRes.data as D1InsightsData);
+      }
     },
     [request],
   );
+
+  /** ≤5 plain-language overview takeaways derived from the insights facts (present-data-only). */
+  const insightRows = useMemo(() => buildDataInsights(insights), [insights]);
 
   /**
    * Inspect one schema object. Columns are parsed synchronously from the object's CREATE SQL — the CF
@@ -482,6 +495,25 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
                     <dt className="text-bolt-elements-textTertiary">Database id</dt>
                     <dd className="font-mono text-bolt-elements-textTertiary break-all text-[10px]">{overview.id}</dd>
                   </dl>
+                )}
+                {overview && !detailLoading && overview.found && insightRows.length > 0 && (
+                  <div className="border-t border-bolt-elements-borderColor/30 p-3" data-testid="data-d1-insights">
+                    <div className="mb-1.5 flex items-center gap-1 text-[9px] font-medium uppercase tracking-wide text-bolt-elements-textTertiary">
+                      <div className="i-ph:lightbulb text-bolt-elements-item-contentAccent" aria-hidden />
+                      Insights
+                    </div>
+                    <ul className="flex flex-wrap gap-1.5">
+                      {insightRows.map((line, i) => (
+                        <li
+                          key={i}
+                          data-testid="data-d1-insight"
+                          className="rounded-full border border-bolt-elements-borderColor/40 bg-bolt-elements-background-depth-1 px-2 py-0.5 text-[10px] text-bolt-elements-textSecondary"
+                        >
+                          {line}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
                 {overview && !detailLoading && overview.found && (
                   <div className="border-t border-bolt-elements-borderColor/30 p-3" data-testid="data-d1-export">
