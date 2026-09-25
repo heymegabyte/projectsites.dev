@@ -37,6 +37,7 @@ import {
   explainQuery,
   explainPlanHint,
   isExpensiveScan,
+  sqlConsoleTarget,
 } from './data-panel-logic';
 import { classNames } from '~/utils/classNames';
 
@@ -47,12 +48,16 @@ const AUTO_REFRESH_MS = 30_000;
 
 /** localStorage key for the SQL-console query history (per-browser, best-effort). */
 const SQL_HISTORY_KEY = 'ps-data-sql-history';
+
 /** localStorage key for the NAMED saved queries (per-browser, best-effort). */
 const SQL_SAVED_KEY = 'ps-data-sql-saved';
 
 /** `sqlite_master` table/view listing — the D1 manager's "show me every table" query. */
 const LIST_TABLES_SQL =
   "SELECT name, type FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY type, name;";
+
+/** Honest write-target descriptor for the SQL console's safety banner (computed once). */
+const SQL_TARGET = sqlConsoleTarget();
 
 /** Outerbase-Studio-inspired one-click starters for the read-only console. */
 const SQL_STARTERS: ReadonlyArray<{ label: string; query: string }> = [
@@ -145,17 +150,17 @@ export const DataPanel = memo(() => {
   });
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  // Saved queries (NAMED, manual — the reusable-snippet companion to the auto-history).
-  // localStorage-backed per browser; dedup-by-name; recall loads into the editor (never auto-runs).
+  /*
+   * Saved queries (NAMED, manual — the reusable-snippet companion to the auto-history).
+   * localStorage-backed per browser; dedup-by-name; recall loads into the editor (never auto-runs).
+   */
   const [savedQueries, setSavedQueries] = useState<SavedQuery[]>(() => {
     try {
       const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SQL_SAVED_KEY) : null;
       const parsed = raw ? JSON.parse(raw) : [];
+
       return Array.isArray(parsed)
-        ? parsed.filter(
-            (s): s is SavedQuery =>
-              !!s && typeof s.name === 'string' && typeof s.query === 'string',
-          )
+        ? parsed.filter((s): s is SavedQuery => !!s && typeof s.name === 'string' && typeof s.query === 'string')
         : [];
     } catch {
       return [];
@@ -337,7 +342,12 @@ export const DataPanel = memo(() => {
         setSqlColumns(msg.columns ?? []);
         setSqlRows(msg.rows ?? []);
         setWriteResult(null);
-        setSqlMeta({ rows: (msg.rows ?? []).length, ms: msg.duration_ms, read: msg.rows_read, written: msg.rows_written });
+        setSqlMeta({
+          rows: (msg.rows ?? []).length,
+          ms: msg.duration_ms,
+          read: msg.rows_read,
+          written: msg.rows_written,
+        });
 
         return;
       }
@@ -496,12 +506,15 @@ export const DataPanel = memo(() => {
   /** Save the current editor buffer under the entered name (dedup-by-name; recall later). */
   const saveCurrentQuery = useCallback(() => {
     const name = saveName.trim();
+
     if (!name || !sql.trim()) {
       return;
     }
+
     setSavedQueries((prev) => {
       const next = addSavedQuery(prev, name, sql);
       persistSaved(next);
+
       return next;
     });
     setSaveName('');
@@ -514,6 +527,7 @@ export const DataPanel = memo(() => {
       setSavedQueries((prev) => {
         const next = removeSavedQuery(prev, name);
         persistSaved(next);
+
         return next;
       });
     },
@@ -870,6 +884,23 @@ export const DataPanel = memo(() => {
           a query editor (⌘/Ctrl+↵ to run), and a results grid; runs read-only SELECT/PRAGMA. */}
       {status === 'ready' && mode === 'sql' && (
         <div className="flex-1 flex flex-col min-h-0" data-testid="data-sql-console">
+          {/* Write-target safety banner — the prompt requires surfacing the account/env/database
+              PROMINENTLY before writes. This console runs against the SHARED, multi-tenant
+              platform D1, so make that impossible to miss. Facts come from sqlConsoleTarget() (SSOT). */}
+          <div
+            className="mx-3 mt-3 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-snug text-amber-200"
+            data-testid="data-sql-target"
+            role="note"
+          >
+            <div className="i-ph:warning-diamond-fill mt-0.5 shrink-0 text-amber-400" aria-hidden />
+            <span>
+              Target: <strong className="text-amber-100">{SQL_TARGET.environment}</strong>
+              {' · '}
+              <strong className="text-amber-100">{SQL_TARGET.database}</strong>
+              {' — '}
+              {SQL_TARGET.scope}
+            </span>
+          </div>
           <div className="p-3 border-b border-bolt-elements-borderColor/50 space-y-2">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary mr-1">

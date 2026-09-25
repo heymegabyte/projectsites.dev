@@ -28,6 +28,7 @@ import {
   explainPlanHint,
   isExpensiveScan,
   EXPENSIVE_SCAN_ROWS,
+  sqlConsoleTarget,
 } from './data-panel-logic';
 
 describe('iconForTable', () => {
@@ -439,10 +440,7 @@ describe('explainPlanHint', () => {
     expect(explainPlanHint([{ detail: 'SCAN t USING COVERING INDEX ix' }])?.level).toBe('good');
   });
   it('flags a temp B-tree sort as info when there is no scan', () => {
-    const h = explainPlanHint([
-      { detail: 'SEARCH t USING INDEX ix' },
-      { detail: 'USE TEMP B-TREE FOR ORDER BY' },
-    ]);
+    const h = explainPlanHint([{ detail: 'SEARCH t USING INDEX ix' }, { detail: 'USE TEMP B-TREE FOR ORDER BY' }]);
     expect(h?.level).toBe('info');
   });
   it('returns null when the rows are NOT a query plan (no detail column) — shows only after Explain', () => {
@@ -499,5 +497,23 @@ describe('addSavedQuery / removeSavedQuery', () => {
     ];
     expect(removeSavedQuery(start, 'a')).toEqual([{ name: 'b', query: 'Y' }]);
     expect(removeSavedQuery(start, 'zzz')).toEqual(start);
+  });
+});
+
+describe('sqlConsoleTarget', () => {
+  it('names the production environment + the SHARED multi-tenant D1 (honest write target)', () => {
+    const t = sqlConsoleTarget();
+    expect(t.environment).toBe('Production');
+    expect(t.database.toLowerCase()).toContain('shared');
+    expect(t.scope.toLowerCase()).toContain('affects all tenants');
+  });
+  it('spells out the guardrails that still apply (protected tables + destructive confirm)', () => {
+    const scope = sqlConsoleTarget().scope.toLowerCase();
+    expect(scope).toContain('protected');
+    expect(scope).toContain('confirm');
+  });
+  it('returns a fresh object each call (no shared singleton to mutate)', () => {
+    expect(sqlConsoleTarget()).not.toBe(sqlConsoleTarget());
+    expect(sqlConsoleTarget()).toEqual(sqlConsoleTarget());
   });
 });

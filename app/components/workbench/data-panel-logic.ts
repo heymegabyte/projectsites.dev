@@ -260,12 +260,7 @@ export interface SavedQuery {
  * @example addSavedQuery([{name:'a',query:'X'}], 'a', 'Y') // [{name:'a', query:'Y'}]  (overwrite + top)
  * @example addSavedQuery([{name:'a',query:'X'}], '  ', 'Y') // [{name:'a', query:'X'}]  (blank name = no-op)
  */
-export function addSavedQuery(
-  saved: readonly SavedQuery[],
-  name: string,
-  query: string,
-  max = 50,
-): SavedQuery[] {
+export function addSavedQuery(saved: readonly SavedQuery[], name: string, query: string, max = 50): SavedQuery[] {
   const n = (name ?? '').trim();
   const q = (query ?? '').trim();
 
@@ -701,9 +696,7 @@ export interface ExplainHint {
  * @example explainPlanHint([{ id: 1, name: 'x' }]) // null (not a plan)
  */
 export function explainPlanHint(rows: readonly Record<string, unknown>[]): ExplainHint | null {
-  const details = (rows ?? [])
-    .map((r) => (typeof r.detail === 'string' ? r.detail : ''))
-    .filter((d) => d.length > 0);
+  const details = (rows ?? []).map((r) => (typeof r.detail === 'string' ? r.detail : '')).filter((d) => d.length > 0);
 
   if (details.length === 0) {
     return null; // not a query plan → no hint
@@ -748,4 +741,40 @@ export const EXPENSIVE_SCAN_ROWS = 10_000;
  */
 export function isExpensiveScan(rowsRead: number | null | undefined): boolean {
   return typeof rowsRead === 'number' && rowsRead > EXPENSIVE_SCAN_ROWS;
+}
+
+/**
+ * The honest write-target descriptor for the D1 SQL console. This is the SSOT behind the
+ * console's safety banner so the facts it shows the user can never drift from a code
+ * comment. The console (super-admin only) runs against the SHARED, multi-tenant PLATFORM
+ * database — a write here affects EVERY tenant's data, which is exactly the fact the
+ * prompt requires we surface "prominently before writes".
+ */
+export interface SqlConsoleTarget {
+  /** Deploy environment the console mutates — always the live production D1. */
+  environment: string;
+
+  /** Human name of the database, stating plainly that it is shared across all tenants. */
+  database: string;
+
+  /** One-line scope warning: whom a write affects + the guardrails that still apply. */
+  scope: string;
+}
+
+/**
+ * Build the write-target descriptor rendered in the SQL console's safety banner. Static
+ * facts (the console always targets the shared production D1), returned as a fresh object
+ * so callers can't mutate a shared singleton.
+ *
+ * @returns the {@link SqlConsoleTarget} shown prominently above the console before writes
+ * @example
+ *   sqlConsoleTarget().database // 'Shared platform database (D1 · all tenants)'
+ */
+export function sqlConsoleTarget(): SqlConsoleTarget {
+  return {
+    environment: 'Production',
+    database: 'Shared platform database (D1 · all tenants)',
+    scope:
+      'Runs against the D1 shared by every site — a write affects all tenants. Protected platform tables are blocked and destructive statements confirm first.',
+  };
 }
