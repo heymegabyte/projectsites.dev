@@ -208,9 +208,13 @@ gated.
   NEW; the first-party report shows page-load but not TTFB); labelled "· Cloudflare" so sources never
   blur; omitted (never a fabricated 0/verdict) when absent. +3 Jest (host resolution slug/custom +
   fail-soft) + 2 Karma (tiles render + honest-omit). Worker `9cc0e6b4`; public chunk `chunk-N3FLJGID.js`
-  live; public route live (invalid token → 404). Full valid-token end-to-end not exercised in prod —
-  the share-mint route is flag-gated for the E2E test org (test-env limit, not a code issue); every
-  component independently verified + the underlying CF fetch proven live a prior fire.
+  live; public route live (invalid token → 404). **Wire-through gap CLOSED (2026-09-25):** a route-level
+  Hono `app.request` test now mints a real HMAC token → asserts the assembled `GET /api/public/analytics/:token`
+  envelope carries `{ summary, cloudflareRum, expiresAt }` — `cloudflareRum` is a SIBLING (never nested in the
+  Zod summary), populated for the owned host resolved SERVER-SIDE from the slug, µs→ms flowing through — AND a
+  bad/tampered token → 404 (tenant boundary). +2 Jest in `site_analytics_handlers.test.ts` (full site_analytics
+  suite 62/62). The prod valid-token path stays blocked only by the E2E org's flag-gated share-mint (test-env
+  limit); the wire-through + boundary are now guarded in CI so a future edit can't silently drop the field.
 - **Public report "Page speed" (CWV verdict) SHIPPED (2026-09-25):** the public
   `/shared/analytics/:token` report gains a recognizable **Page speed** tile (Good / Needs
   improvement / Poor) from real-user Core Web Vitals. Frontend-only (the endpoint already returns
