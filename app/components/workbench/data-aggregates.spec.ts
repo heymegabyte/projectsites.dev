@@ -39,7 +39,8 @@ describe('computeAggregates', () => {
     const r = computeAggregates(['2', '3.5', '4']);
     expect(r.numericCount).toBe(3);
     expect(r.sum).toBe(9.5);
-    expect(r.avg).toBe(9.5 / 3);
+    // avg is rounded to ≤6 decimals (roundAvg) — assert closeness, not full float precision.
+    expect(r.avg).toBeCloseTo(9.5 / 3, 5);
     expect(r.min).toBe(2);
     expect(r.max).toBe(4);
   });

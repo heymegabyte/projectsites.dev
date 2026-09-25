@@ -497,9 +497,16 @@ export interface D1DatabaseSummary {
 export interface D1RequestMessage {
   type: 'PS_D1_REQUEST';
   correlationId: string;
-  op: 'databases' | 'overview';
-  /** Required for the `overview` op — the D1 database UUID to describe. */
+  op: 'databases' | 'overview' | 'export';
+  /** Required for the `overview` + `export` ops — the D1 database UUID. */
   databaseId?: string;
+  /** `export` op: scope the SQL dump to specific tables (fewer ⇒ shorter DB-unavailability). */
+  tables?: string[];
+  /** `export` op: schema-only / data-only dump (mutually exclusive). */
+  schemaOnly?: boolean;
+  dataOnly?: boolean;
+  /** `export` op: resume an in-progress export (the `bookmark` from a prior `processing` response). */
+  currentBookmark?: string;
 }
 
 export interface D1DatabasesData {
@@ -522,12 +529,26 @@ export interface D1OverviewData {
   reason?: string;
 }
 
+/** The D1 SQL-dump export result (mirrors the worker's `d1_manager` export response). */
+export interface D1ExportData {
+  status: 'complete' | 'processing' | 'error' | 'unavailable';
+  /** Signed SQL-dump download URL — only when complete (valid ~1h). Never fabricated. */
+  signedUrl?: string;
+  filename?: string;
+  /** Resume token when processing; the export's `at_bookmark` when complete. */
+  bookmark?: string;
+  messages?: string[];
+  reason?: string;
+  /** Honest caveat: exporting briefly makes the DB unavailable to serve queries. */
+  note: string;
+}
+
 /** Parent → Child (D1 Overview): the admin's reply to {@link D1RequestMessage}. */
 export interface D1ResponseMessage {
   type: 'PS_D1_RESPONSE';
   correlationId: string;
   ok: boolean;
-  data?: D1DatabasesData | D1OverviewData;
+  data?: D1DatabasesData | D1OverviewData | D1ExportData;
   error?: string;
 }
 

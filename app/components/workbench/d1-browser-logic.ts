@@ -6,7 +6,7 @@
  * tested with Vitest without mocking. Sibling of the other resource-browser logic modules
  * (kv / r2 / vectorize / queues).
  */
-import type { D1DatabaseSummary } from '../../lib/embed/embedded-mode';
+import type { D1DatabaseSummary, D1ExportData, D1ResponseMessage } from '../../lib/embed/embedded-mode';
 
 // ── formatBytes ───────────────────────────────────────────────────────────────
 
@@ -74,4 +74,39 @@ export function formatCount(n: number | null | undefined): string {
 export function dbLabel(db: D1DatabaseSummary): string {
   const name = db.name?.trim();
   return name ? name : db.id;
+}
+
+// ── classifyExportResponse ────────────────────────────────────────────────────
+
+/** The next action for the export poll loop, derived purely from a bridge response. */
+export type ExportAction =
+  | { kind: 'done'; data: D1ExportData }
+  | { kind: 'processing'; bookmark?: string }
+  | { kind: 'error'; message: string };
+
+/**
+ * Classify an export `PS_D1_RESPONSE` into the next UI action — the pure core of the poll loop
+ * (the component just acts on the result). NEVER treats a `complete` without a `signedUrl`, or an
+ * `error`/`unavailable` status, as success — so a fabricated/absent URL can't leak into a download.
+ *
+ * @param res - a bridge response (`{ ok, data?, error? }`).
+ * @returns `done` (URL present), `processing` (resume with `bookmark`), or `error` (human message).
+ *
+ * @example classifyExportResponse({ ok: true, data: { status: 'complete', signedUrl: 'u', note: '' } })
+ *   // → { kind: 'done', data: {…} }
+ * @example classifyExportResponse({ ok: true, data: { status: 'processing', bookmark: 'b', note: '' } })
+ *   // → { kind: 'processing', bookmark: 'b' }
+ * @example classifyExportResponse({ ok: false, error: 'timed out' }) // → { kind: 'error', message: 'timed out' }
+ */
+export function classifyExportResponse(res: Pick<D1ResponseMessage, 'ok' | 'data' | 'error'>): ExportAction {
+  if (!res.ok || !res.data || typeof res.data !== 'object' || !('status' in res.data)) {
+    return { kind: 'error', message: res.error ?? 'Export failed' };
+  }
+  const data = res.data as D1ExportData;
+  if (data.status === 'complete' && data.signedUrl) return { kind: 'done', data };
+  if (data.status === 'processing') return { kind: 'processing', bookmark: data.bookmark };
+  return {
+    kind: 'error',
+    message: data.reason ?? (data.status === 'unavailable' ? 'D1 not available' : 'Export failed'),
+  };
 }

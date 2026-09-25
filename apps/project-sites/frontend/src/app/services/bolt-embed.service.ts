@@ -84,15 +84,23 @@ interface PsMessage {
     | 'queues'
     | 'queue'
     | 'databases'
-    | 'overview';
+    | 'overview'
+    | 'export';
   /** PS_R2_REQUEST: the R2 bucket binding name (required for the objects + object ops). */
   readonly bucket?: string;
   /** PS_VEC_REQUEST: the Vectorize index name (required for the `index` describe op). */
   readonly name?: string;
   /** PS_QUEUE_REQUEST: the queue id (required for the `queue` describe op). */
   readonly queueId?: string;
-  /** PS_D1_REQUEST: the D1 database UUID (required for the `overview` op). */
+  /** PS_D1_REQUEST: the D1 database UUID (required for the `overview` + `export` ops). */
   readonly databaseId?: string;
+  /** PS_D1_REQUEST (export op): scope the SQL dump to specific tables. */
+  readonly tables?: string[];
+  /** PS_D1_REQUEST (export op): schema-only / data-only dump. */
+  readonly schemaOnly?: boolean;
+  readonly dataOnly?: boolean;
+  /** PS_D1_REQUEST (export op): resume an in-progress export via a prior `bookmark`. */
+  readonly currentBookmark?: string;
   /** PS_KV_REQUEST: the KV binding name (required for the keys + value ops). */
   readonly binding?: string;
   /** PS_KV_REQUEST (keys op): key-name prefix filter. */
@@ -638,23 +646,43 @@ export class BoltEmbedService {
             );
           };
           const op = msg.op;
-          let dPath: string;
+          const onOk = (res: Record<string, unknown> | null): void =>
+            reply({ ok: true, data: res ?? {} });
+          const onErr = (): void => reply({ ok: false, error: 'D1 manager not available' });
           if (op === 'databases') {
-            dPath = '/admin/d1/databases';
+            this.api
+              .get<Record<string, unknown>>('/admin/d1/databases', undefined, { silent: true })
+              .subscribe({ next: onOk, error: onErr });
           } else if (op === 'overview') {
             if (!msg.databaseId) {
               reply({ ok: false, error: 'No database id' });
               break;
             }
-            dPath = `/admin/d1/${encodeURIComponent(msg.databaseId)}/overview`;
+            this.api
+              .get<
+                Record<string, unknown>
+              >(`/admin/d1/${encodeURIComponent(msg.databaseId)}/overview`, undefined, { silent: true })
+              .subscribe({ next: onOk, error: onErr });
+          } else if (op === 'export') {
+            // SQL-dump export — a read of the DB into a .sql dump (briefly makes the DB unavailable).
+            // POST the scope + resume bookmark; the endpoint is super-admin + flag-dark server-side.
+            if (!msg.databaseId) {
+              reply({ ok: false, error: 'No database id' });
+              break;
+            }
+            const body: Record<string, unknown> = {};
+            if (msg.tables?.length) body['tables'] = msg.tables;
+            if (msg.schemaOnly) body['schemaOnly'] = true;
+            if (msg.dataOnly) body['dataOnly'] = true;
+            if (msg.currentBookmark) body['currentBookmark'] = msg.currentBookmark;
+            this.api
+              .post<
+                Record<string, unknown>
+              >(`/admin/d1/${encodeURIComponent(msg.databaseId)}/export`, body, { silent: true })
+              .subscribe({ next: onOk, error: onErr });
           } else {
             reply({ ok: false, error: 'Unknown D1 op' });
-            break;
           }
-          this.api.get<Record<string, unknown>>(dPath, undefined, { silent: true }).subscribe({
-            next: (res) => reply({ ok: true, data: res ?? {} }),
-            error: () => reply({ ok: false, error: 'D1 manager not available' }),
-          });
           break;
         }
         case 'PS_VEC_REQUEST': {

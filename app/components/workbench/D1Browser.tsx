@@ -8,24 +8,27 @@
  *
  * The embedded editor has no cross-origin session, so — like the other Data tabs — it asks the
  * Angular admin parent to proxy the read via the postMessage bridge:
- *   child → parent  `PS_D1_REQUEST`  { op:'databases'|'overview', databaseId? }
- *   parent → child  `PS_D1_RESPONSE` { ok, data?, error? }   (parent calls GET /api/admin/d1/* )
+ *   child → parent  `PS_D1_REQUEST`  { op:'databases'|'overview'|'export', databaseId?, tables?, currentBookmark? }
+ *   parent → child  `PS_D1_RESPONSE` { ok, data?, error? }   (parent calls GET/POST /api/admin/d1/* )
  *
- * The worker enforces super-admin server-side and exposes ONLY list + Overview metadata (file size,
- * table count, region, read-replication, version) — no query / write / restore. `available:false` /
- * `found:false` distinguish a credential/API failure from a genuinely empty account, surfaced
- * honestly (never a fabricated 0 or empty list).
+ * The worker enforces super-admin server-side and exposes list + Overview metadata (file size, table
+ * count, region, read-replication, version) + a SQL-dump EXPORT (a read of the DB into a .sql dump —
+ * no data mutation, but it briefly makes the DB unavailable; the export UI warns + confirms before
+ * running, then the client polls the async job to a signed download URL). No query / write / restore.
+ * `available:false` / `found:false` distinguish a credential/API failure from a genuinely empty
+ * account, surfaced honestly (never a fabricated 0, empty list, or download URL).
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   D1DatabaseSummary,
   D1DatabasesData,
+  D1ExportData,
   D1OverviewData,
   D1RequestMessage,
   D1ResponseMessage,
 } from '../../lib/embed/embedded-mode';
-import { dbLabel, formatBytes, formatCount } from './d1-browser-logic';
+import { classifyExportResponse, dbLabel, formatBytes, formatCount } from './d1-browser-logic';
 
 export interface D1BrowserProps {
   /** Post a bridge request to the admin parent (DataPanel's existing helper). */
@@ -34,6 +37,11 @@ export interface D1BrowserProps {
 
 /** A pending bridge round-trip keyed by correlationId. */
 type Pending = (res: D1ResponseMessage) => void;
+
+/** Client-side export poll bounds — up to MAX × DELAY of waiting before surfacing "taking longer". */
+const MAX_EXPORT_POLLS = 12;
+const EXPORT_POLL_DELAY_MS = 1500;
+type ExportUiStatus = 'idle' | 'confirming' | 'running' | 'done' | 'error';
 
 /**
  * Read-only Cloudflare D1 browser: database list → Overview metadata (size, table count, region,
@@ -48,6 +56,9 @@ export const D1Browser = memo(function D1Browser({ postToParent }: D1BrowserProp
   const [overview, setOverview] = useState<D1OverviewData | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [exportStatus, setExportStatus] = useState<ExportUiStatus>('idle');
+  const [exportData, setExportData] = useState<D1ExportData | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   // Resolve pending bridge requests by correlationId.
   useEffect(() => {
@@ -109,6 +120,10 @@ export const D1Browser = memo(function D1Browser({ postToParent }: D1BrowserProp
       setOverview(null);
       setDetailError(null);
       setDetailLoading(true);
+      // Reset any export flow from the previously-selected database.
+      setExportStatus('idle');
+      setExportData(null);
+      setExportError(null);
       const res = await request({ op: 'overview', databaseId: id });
       setDetailLoading(false);
       if (res.ok && res.data && 'found' in res.data) {
@@ -119,6 +134,38 @@ export const D1Browser = memo(function D1Browser({ postToParent }: D1BrowserProp
     },
     [request],
   );
+
+  /**
+   * Run (or resume) the SQL-dump export for the selected database, driving the worker's async poll
+   * from the client: each round-trip returns complete / processing / error; on `processing` we resume
+   * with the bookmark after a short delay, bounded by MAX_EXPORT_POLLS. `classifyExportResponse` is the
+   * pure decision core (never treats a URL-less "complete" as success → no fabricated download).
+   */
+  const runExport = useCallback(async (): Promise<void> => {
+    if (!selectedId) return;
+    setExportStatus('running');
+    setExportData(null);
+    setExportError(null);
+    let bookmark: string | undefined;
+    for (let i = 0; i < MAX_EXPORT_POLLS; i++) {
+      const res = await request({ op: 'export', databaseId: selectedId, currentBookmark: bookmark });
+      const action = classifyExportResponse(res);
+      if (action.kind === 'done') {
+        setExportData(action.data);
+        setExportStatus('done');
+        return;
+      }
+      if (action.kind === 'error') {
+        setExportError(action.message);
+        setExportStatus('error');
+        return;
+      }
+      bookmark = action.bookmark; // processing → resume with the bookmark after a short delay
+      await new Promise((r) => setTimeout(r, EXPORT_POLL_DELAY_MS));
+    }
+    setExportError('Export is taking longer than expected — try again in a moment.');
+    setExportStatus('error');
+  }, [request, selectedId]);
 
   const isEmpty = useMemo(
     () => databases !== null && databases.length === 0 && !unavailableReason,
@@ -131,9 +178,9 @@ export const D1Browser = memo(function D1Browser({ postToParent }: D1BrowserProp
         <span className="text-[11px] font-medium text-bolt-elements-textSecondary">D1 databases</span>
         <span
           className="text-[10px] text-bolt-elements-textTertiary"
-          title="The worker exposes read-only D1 access — list + Overview metadata (size, table count, region, read-replication). No query, write, or restore."
+          title="The worker exposes list + Overview metadata (size, table count, region, read-replication) + a SQL-dump export (briefly makes the DB unavailable; warned + confirmed). No query, write, or restore."
         >
-          Read-only · overview
+          Overview + SQL export
         </span>
       </div>
 
@@ -222,6 +269,96 @@ export const D1Browser = memo(function D1Browser({ postToParent }: D1BrowserProp
                     <dt className="text-bolt-elements-textTertiary">Database id</dt>
                     <dd className="font-mono text-bolt-elements-textTertiary break-all text-[10px]">{overview.id}</dd>
                   </dl>
+                )}
+                {overview && !detailLoading && overview.found && (
+                  <div className="border-t border-bolt-elements-borderColor/30 p-3" data-testid="data-d1-export">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-medium text-bolt-elements-textSecondary">Export SQL</span>
+                      {exportStatus === 'idle' && (
+                        <button
+                          type="button"
+                          data-testid="data-d1-export-start"
+                          onClick={() => setExportStatus('confirming')}
+                          className="cursor-pointer rounded border border-bolt-elements-borderColor/50 px-2 py-1 text-[10px] text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-3"
+                        >
+                          Export SQL dump…
+                        </button>
+                      )}
+                    </div>
+
+                    {exportStatus === 'confirming' && (
+                      <div className="mt-2 flex flex-col gap-2" role="note">
+                        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[10px] leading-relaxed text-amber-300">
+                          Exporting produces a <strong>SQL text dump</strong> (not a .sqlite file) and briefly makes
+                          this database <strong>unavailable to serve queries</strong> while it runs — export at low
+                          traffic. The download link is valid ~1 hour.
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            data-testid="data-d1-export-confirm"
+                            onClick={() => void runExport()}
+                            className="cursor-pointer rounded border border-amber-500/40 bg-amber-500/20 px-2 py-1 text-[10px] text-amber-200 hover:bg-amber-500/30"
+                          >
+                            Start export
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setExportStatus('idle')}
+                            className="cursor-pointer rounded border border-bolt-elements-borderColor/50 px-2 py-1 text-[10px] text-bolt-elements-textTertiary hover:bg-bolt-elements-background-depth-3"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {exportStatus === 'running' && (
+                      <div
+                        className="mt-2 text-[10px] text-bolt-elements-textTertiary"
+                        data-testid="data-d1-export-running"
+                      >
+                        Exporting… the database is briefly unavailable while this runs.
+                      </div>
+                    )}
+
+                    {exportStatus === 'done' && exportData?.signedUrl && (
+                      <div className="mt-2 flex flex-col gap-1.5" data-testid="data-d1-export-done">
+                        <a
+                          href={exportData.signedUrl}
+                          download={exportData.filename || 'd1-export.sql'}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex w-fit cursor-pointer items-center gap-1 rounded border border-green-500/40 bg-green-500/15 px-2 py-1 text-[10px] text-green-300 hover:bg-green-500/25"
+                        >
+                          ↓ Download {exportData.filename || 'SQL dump'}
+                        </a>
+                        <span className="text-[9px] text-bolt-elements-textTertiary">
+                          Link valid ~1 hour. SQL text dump, not a native .sqlite file.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setExportStatus('idle')}
+                          className="w-fit cursor-pointer text-[9px] text-bolt-elements-textTertiary underline"
+                        >
+                          Export again
+                        </button>
+                      </div>
+                    )}
+
+                    {exportStatus === 'error' && (
+                      <div className="mt-2 flex flex-col gap-1.5" data-testid="data-d1-export-error">
+                        <span className="text-[10px] text-red-400">Export failed: {exportError}</span>
+                        <button
+                          type="button"
+                          onClick={() => setExportStatus('idle')}
+                          className="w-fit cursor-pointer text-[9px] text-bolt-elements-textTertiary underline"
+                        >
+                          Try again
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}
