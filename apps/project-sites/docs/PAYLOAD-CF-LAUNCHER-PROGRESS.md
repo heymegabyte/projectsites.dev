@@ -78,6 +78,31 @@
   `/admin` login → assert 200** (the acceptance milestone). Build env that worked: `PAYLOAD_SECRET`
   set + `NODE_OPTIONS=--max-old-space-size=8000` + D1 `remote:false`.
 
+## ⚠️ BLOCKED on an OPEN UPSTREAM BUG (Fire 3, 2026-09-25)
+
+The official template's OpenNext build fails at the final esbuild bundle on
+`Could not resolve "drizzle-kit-<hash>/api"`. Root cause = **[payloadcms/payload#16470](https://github.com/payloadcms/payload/issues/16470)** (open, May 2026): `@payloadcms/db-d1-sqlite`
+→ `@payloadcms/drizzle` pulls `drizzle-kit/api` (migration tooling) into the RUNTIME server
+graph; Turbopack hashes the import so `serverExternalPackages: ['drizzle-kit']` (tried,
+committed) does NOT reach OpenNext's esbuild pass. Next itself "Compiled successfully" — only
+OpenNext's final bundle fails. drizzle-kit IS installed + resolvable; the hashed name is the issue.
+
+**Options (pick one — the loop should not keep blind-guessing an upstream bug):**
+- **(A) esbuild-external workaround** — mark `/drizzle-kit/` external in OpenNext's esbuild via a
+  plugin (regex, hashed-name-tolerant) in `open-next.config.ts`. Needs the verified OpenNext
+  cloudflare config API for injecting an esbuild plugin (not just `serverExternalPackages`).
+  Safe: drizzle-kit is migration-only, never called at Worker runtime.
+- **(B) Cloudflare's official Payload-on-Workers path** — CF built their OWN D1 adapter
+  ([blog](https://blog.cloudflare.com/payload-cms-workers/)); their setup may sidestep #16470. Re-base the artifact on it.
+- **(C) patch-package** `@payloadcms/drizzle` to not import `requireDrizzleKit` in the runtime
+  graph — durable but a vendored patch to maintain.
+- **(D) wait for the upstream fix** on #16470.
+
+Recommendation: **(A)** next fire (verify the OpenNext esbuild-external API first via its docs);
+fall back to **(B)** if (A) stays fiddly. Everything else (provisioning + cascade-delete +
+WfP+assets deploy model) is proven/ready — this ONE upstream bundling bug is the sole gate to a
+running CMS + a 200 login.
+
 ## Remaining slices (in order)
 
 1. **Migration** — add `d1_database_id` + `worker_script_name` to `app_instances`
