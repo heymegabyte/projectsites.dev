@@ -28,6 +28,7 @@ import {
   Component,
   computed,
   DestroyRef,
+  ElementRef,
   inject,
   input,
   OnInit,
@@ -423,7 +424,7 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                   </tr>
                 </thead>
                 <tbody>
-                  @for (row of rows(); track $index) {
+                  @for (row of rows(); track $index; let rowIndex = $index) {
                     <tr [class.is-expanded]="expandedRow() === $index" data-testid="db-row">
                       @if (selected()?.deletable) {
                         <td class="db-sel-c">
@@ -440,8 +441,65 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                         </td>
                       }
                       @for (col of visibleColumns(); track col) {
-                        <td data-testid="db-cell">
-                          @if (row[col] === null || row[col] === undefined) {
+                        <td
+                          data-testid="db-cell"
+                          [class.db-cell-editable]="isCellEditable(col, row)"
+                        >
+                          @if (isEditingCell(rowIndex, col)) {
+                            <!-- Inline editor (in place) — enum → select, text → input. Commits
+                                 via the same confirmed, audited PATCH as the detail panel. -->
+                            @if (editableSpecFor(col)?.type === 'enum') {
+                              <select
+                                class="db-cell-editor"
+                                [attr.data-testid]="'db-cell-edit-' + rowIndex + '-' + col"
+                                [attr.aria-label]="'Edit ' + col"
+                                [value]="cellEdit()?.value"
+                                (change)="onCellSelectChange(row, $any($event.target).value)"
+                                (keydown.escape)="cancelCellEdit()"
+                                (blur)="onCellSelectBlur()"
+                              >
+                                @for (opt of editableSpecFor(col)!.options; track opt) {
+                                  <option [value]="opt" [selected]="cellEdit()?.value === opt">
+                                    {{ opt }}
+                                  </option>
+                                }
+                              </select>
+                            } @else {
+                              <input
+                                class="db-cell-editor"
+                                type="text"
+                                [attr.data-testid]="'db-cell-edit-' + rowIndex + '-' + col"
+                                [attr.aria-label]="'Edit ' + col"
+                                [value]="cellEdit()?.value"
+                                [attr.maxlength]="editableSpecFor(col)?.maxLength || null"
+                                (input)="setCellDraft($any($event.target).value)"
+                                (keydown.enter)="commitCellEdit(row)"
+                                (keydown.escape)="cancelCellEdit()"
+                                (blur)="commitCellEdit(row)"
+                              />
+                            }
+                          } @else if (isCellEditable(col, row)) {
+                            <!-- Editable cell: click / Enter / double-click opens the inline
+                                 editor. Keyboard-accessible (native button) + a11y label. -->
+                            <button
+                              type="button"
+                              class="db-cell-edit-trigger"
+                              (click)="startCellEdit(rowIndex, col, row)"
+                              (dblclick)="startCellEdit(rowIndex, col, row)"
+                              [attr.data-testid]="'db-cell-trigger-' + rowIndex + '-' + col"
+                              [attr.aria-label]="
+                                'Edit ' + col + ' (currently ' + formatCell(row[col]) + ')'
+                              "
+                              title="Click to edit"
+                            >
+                              @if (row[col] === null || row[col] === undefined) {
+                                <span class="db-null" aria-label="null">—</span>
+                              } @else {
+                                {{ formatCell(row[col]) }}
+                              }
+                              <span class="db-cell-pencil" aria-hidden="true">✎</span>
+                            </button>
+                          } @else if (row[col] === null || row[col] === undefined) {
                             <span class="db-null" title="NULL — no value stored" aria-label="null"
                               >—</span
                             >
@@ -1018,6 +1076,60 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
         outline-offset: 1px;
         border-radius: 3px;
       }
+      /* Inline-editable cell: an edit-trigger button that reveals a pencil on hover/focus. */
+      .db-cell-edit-trigger {
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: 0;
+        padding: 0.05rem 0.3rem;
+        margin: -0.05rem -0.15rem;
+        text-align: left;
+        cursor: text;
+        max-width: 22rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        border-radius: 4px;
+        vertical-align: bottom;
+      }
+      .db-cell-edit-trigger:hover {
+        background: color-mix(in oklch, var(--ps-accent, #00e5ff) 10%, transparent);
+        color: var(--ps-accent, #00e5ff);
+      }
+      .db-cell-edit-trigger:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 1px;
+      }
+      .db-cell-pencil {
+        opacity: 0;
+        font-size: 0.72em;
+        color: var(--ps-accent, #00e5ff);
+        transition: opacity 0.12s ease;
+      }
+      .db-cell-edit-trigger:hover .db-cell-pencil,
+      .db-cell-edit-trigger:focus-visible .db-cell-pencil {
+        opacity: 0.9;
+      }
+      /* Inline editor (select/input) shown in place of the value while editing a cell. */
+      .db-cell-editor {
+        font: inherit;
+        color: var(--ps-ink, #f4f4ff);
+        background: var(--ps-bg, #060610);
+        border: 1px solid var(--ps-accent, #00e5ff);
+        border-radius: 4px;
+        padding: 0.1rem 0.3rem;
+        max-width: 22rem;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .db-cell-editor:focus-visible {
+        outline: 2px solid var(--ps-accent, #00e5ff);
+        outline-offset: 1px;
+      }
       .db-detail-bar {
         display: flex;
         justify-content: flex-end;
@@ -1336,6 +1448,7 @@ export class SiteDataBrowserComponent implements OnInit {
   private readonly confirm = inject(ConfirmService);
   private readonly toast = inject(ToastService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
 
   /** The site whose data to browse. Bound by the parent site-detail tab. */
   readonly siteId = input<string>('');
@@ -1399,6 +1512,13 @@ export class SiteDataBrowserComponent implements OnInit {
   readonly editDraft = signal<Record<string, string>>({});
   /** True while a column edit is in flight (disables the Save button). */
   readonly savingEdit = signal(false);
+  /** The grid cell open for INLINE editing (row+column-keyed — distinct from the column-keyed
+   *  `editDraft` the detail panel uses, so double-clicking a cell edits THAT row, not the
+   *  expanded one): which row index + column, and its pending value. null = no inline edit. */
+  readonly cellEdit = signal<{ rowIndex: number; column: string; value: string } | null>(null);
+  /** Re-entrancy guard so an inline commit's own focus-loss (blur firing while the confirm
+   *  dialog is open) can't launch a second confirm/PATCH for the same cell. */
+  private cellCommitting = false;
   /** Recent data-management mutations (deletes/edits) the owner made here, newest first. */
   readonly activity = signal<DataActivityEvent[]>([]);
   /** The selected table's owner-editable columns as a render-ready list ([] = read-only).
@@ -2055,9 +2175,56 @@ export class SiteDataBrowserComponent implements OnInit {
   }
 
   /**
-   * Save one edited column of a row (editable tables only), with a confirmation showing
-   * the exact parameterized UPDATE. The server re-checks the allowlist + validates the
-   * value against the column's enum + double-scopes by site. Reverts the draft on cancel.
+   * The SINGLE authoritative save path for a one-column row update, shared by the detail-panel
+   * editor ({@link saveEdit}) and the inline grid-cell editor ({@link commitCellEdit}): confirm
+   * (showing the exact parameterized UPDATE) → PATCH (the server re-checks the allowlist + typed
+   * validation + double-scopes `WHERE id = ? AND site_id = ?`) → toast + refresh grid & activity.
+   * Returns the outcome so each caller manages its own draft/inline state; there is one
+   * confirmation UX and one audited mutation regardless of entry point.
+   */
+  private async performRowUpdate(
+    sel: DataOverviewTable,
+    id: string,
+    rowId: string,
+    column: string,
+    newValue: string,
+  ): Promise<'saved' | 'cancelled' | 'failed'> {
+    const ok = await this.confirm.confirm({
+      title: `Update ${column}?`,
+      message:
+        `Set “${column}” to “${newValue}” for this row.\n\n` +
+        `Runs: UPDATE ${sel.key} SET ${column} = ? WHERE id = ? AND site_id = ?  (1 row)`,
+      confirmLabel: 'Save change',
+    });
+    if (!ok) return 'cancelled';
+
+    this.savingEdit.set(true);
+    return new Promise<'saved' | 'failed'>((resolve) => {
+      this.api
+        .updateOverviewRow(id, sel.key, rowId, column, newValue)
+        .pipe(
+          catchError(() => of(null)),
+          takeUntilDestroyed(this.destroyRef),
+        )
+        .subscribe((res) => {
+          this.savingEdit.set(false);
+          if (!res) {
+            this.toast.error(`Could not save ${column} — please retry.`);
+            resolve('failed');
+            return;
+          }
+          this.toast.success(`Updated ${column}.`);
+          this.loadPage(); // re-fetch so the grid + detail reflect the saved value
+          this.loadActivity(id); // surface the edit in "Recent activity"
+          resolve('saved');
+        });
+    });
+  }
+
+  /**
+   * Save one edited column of a row from the DETAIL PANEL (editable tables only), with a
+   * confirmation showing the exact parameterized UPDATE. Reverts the draft on cancel, clears it
+   * on save, keeps it on a transient failure so the user can retry.
    */
   async saveEdit(row: Record<string, unknown>, column: string): Promise<void> {
     const sel = this.selected();
@@ -2067,14 +2234,8 @@ export class SiteDataBrowserComponent implements OnInit {
     if (!sel || !id || !editable || !this.isString(rowId) || !this.isEdited(row, column)) return;
     const newValue = this.editDraft()[column];
 
-    const ok = await this.confirm.confirm({
-      title: `Update ${column}?`,
-      message:
-        `Set “${column}” to “${newValue}” for this row.\n\n` +
-        `Runs: UPDATE ${sel.key} SET ${column} = ? WHERE id = ? AND site_id = ?  (1 row)`,
-      confirmLabel: 'Save change',
-    });
-    if (!ok) {
+    const outcome = await this.performRowUpdate(sel, id, rowId, column, newValue);
+    if (outcome === 'cancelled') {
       // Revert the draft so the select snaps back to the stored value.
       this.editDraft.update((d) => {
         const next = { ...d };
@@ -2083,25 +2244,96 @@ export class SiteDataBrowserComponent implements OnInit {
       });
       return;
     }
+    if (outcome === 'saved') this.editDraft.set({});
+    // 'failed' → leave the draft intact so the user can retry.
+  }
 
-    this.savingEdit.set(true);
-    this.api
-      .updateOverviewRow(id, sel.key, rowId, column, newValue)
-      .pipe(
-        catchError(() => of(null)),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((res) => {
-        this.savingEdit.set(false);
-        if (!res) {
-          this.toast.error(`Could not save ${column} — please retry.`);
-          return;
-        }
-        this.toast.success(`Updated ${column}.`);
-        this.editDraft.set({});
-        this.loadPage(); // re-fetch so the grid + detail reflect the saved value
-        this.loadActivity(id); // surface the edit in "Recent activity"
-      });
+  // ── Inline grid-cell editing (double-click / click / Enter a cell → edit in place) ──────
+  // The fast path for retriaging a lead's status (or jotting a note) WITHOUT expanding the row.
+  // Only owner-editable columns (form_submissions.status/notes) on rows with a stable id become
+  // editable cells; every read-only cell keeps its copy affordance. All commits funnel through
+  // the same confirmed, audited, double-scoped PATCH as the detail-panel editor.
+
+  /** The edit spec for a column IF it is owner-editable on the selected table, else null. */
+  editableSpecFor(
+    column: string,
+  ): { column: string; type: string; options: string[]; maxLength: number } | null {
+    return this.editableColumnsList().find((e) => e.column === column) ?? null;
+  }
+
+  /** True when a grid cell is an inline edit-trigger: the column is owner-editable AND the row
+   *  carries a stable string `id` to target safely (`WHERE id = ?`). */
+  isCellEditable(column: string, row: Record<string, unknown>): boolean {
+    return this.isString(row['id']) && this.editableSpecFor(column) !== null;
+  }
+
+  /** True when THIS grid cell (row index + column) is the one currently open for inline editing. */
+  isEditingCell(rowIndex: number, column: string): boolean {
+    const ce = this.cellEdit();
+    return ce !== null && ce.rowIndex === rowIndex && ce.column === column;
+  }
+
+  /** Open an inline editor on a grid cell, seeded with the row's stored value + focus it (a11y).
+   *  No-op for a read-only cell or a row without a stable id. */
+  startCellEdit(rowIndex: number, column: string, row: Record<string, unknown>): void {
+    if (!this.isCellEditable(column, row)) return;
+    this.cellEdit.set({ rowIndex, column, value: String(row[column] ?? '') });
+    // Focus the just-rendered editor so keyboard users can act immediately.
+    setTimeout(() => {
+      this.host.nativeElement.querySelector<HTMLElement>('.db-cell-editor')?.focus();
+    }, 0);
+  }
+
+  /** Update the in-flight inline draft value (bound to the inline select/input). */
+  setCellDraft(value: unknown): void {
+    this.cellEdit.update((ce) => (ce ? { ...ce, value: String(value ?? '') } : ce));
+  }
+
+  /** Close the inline editor without saving (Escape / blur-without-change / post-save). */
+  cancelCellEdit(): void {
+    this.cellEdit.set(null);
+  }
+
+  /** Enum inline edit: choosing an option is a deliberate change → set the draft AND commit
+   *  (routed through the same confirmed PATCH). */
+  onCellSelectChange(row: Record<string, unknown>, value: string): void {
+    this.setCellDraft(value);
+    void this.commitCellEdit(row);
+  }
+
+  /** Close the inline select on blur UNLESS a commit it triggered is still in flight (whose own
+   *  focus-loss fired this blur) — the guard keeps the confirmed PATCH from being cancelled. */
+  onCellSelectBlur(): void {
+    if (!this.cellCommitting) this.cancelCellEdit();
+  }
+
+  /**
+   * Commit the inline cell edit via the SAME confirmed, audited PATCH path as the detail panel.
+   * An unchanged value just closes the editor (no confirm). The re-entrancy guard prevents a
+   * blur-after-Enter (or blur-after-select) from launching a second confirm for the same cell.
+   * Stays open on a transient failure so the user can retry; closes on save or cancel.
+   */
+  async commitCellEdit(row: Record<string, unknown>): Promise<void> {
+    if (this.cellCommitting) return;
+    const ce = this.cellEdit();
+    const sel = this.selected();
+    const id = this.siteId();
+    const rowId = row['id'];
+    if (!ce || !sel || !id || !this.isString(rowId)) return;
+
+    const stored = String(row[ce.column] ?? '');
+    if (ce.value === stored) {
+      this.cancelCellEdit(); // no change → close silently, no confirm/PATCH
+      return;
+    }
+
+    this.cellCommitting = true;
+    try {
+      const outcome = await this.performRowUpdate(sel, id, rowId, ce.column, ce.value);
+      if (outcome !== 'failed') this.cancelCellEdit();
+    } finally {
+      this.cellCommitting = false;
+    }
   }
 
   /** Clipboard write, isolated so tests can spy it without a secure-context clipboard. */

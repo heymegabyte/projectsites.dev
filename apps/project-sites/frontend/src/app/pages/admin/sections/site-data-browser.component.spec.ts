@@ -338,20 +338,18 @@ describe('SiteDataBrowserComponent', () => {
       },
     };
     const getDataOverview = jasmine.createSpy('getDataOverview').and.returnValue(of(overview));
-    const browseDataTable = jasmine
-      .createSpy('browseDataTable')
-      .and.returnValue(
-        of({
-          data: {
-            table: 'form_submissions',
-            columns: ['form_name', 'status', 'email', 'created_at'],
-            rows: [],
-          },
-          total: 0,
-          limit: 25,
-          offset: 0,
-        }),
-      );
+    const browseDataTable = jasmine.createSpy('browseDataTable').and.returnValue(
+      of({
+        data: {
+          table: 'form_submissions',
+          columns: ['form_name', 'status', 'email', 'created_at'],
+          rows: [],
+        },
+        total: 0,
+        limit: 25,
+        offset: 0,
+      }),
+    );
     const { c } = setup({ getDataOverview, browseDataTable });
     c.loadTables('site-1');
     expect(c.rows()).toEqual([]);
@@ -1260,5 +1258,233 @@ describe('SiteDataBrowserComponent — recent activity', () => {
     expect(toast.success).toHaveBeenCalledWith(
       jasmine.stringMatching(/Deleted 1 of 3.*already gone/),
     );
+  });
+});
+
+describe('SiteDataBrowserComponent — inline grid cell edit (#7)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const formTable = (c: SiteDataBrowserComponent) =>
+    c.tables().find((t) => t.key === 'form_submissions')!;
+  const visitorTable = (c: SiteDataBrowserComponent) =>
+    c.tables().find((t) => t.key === 'visitor_events')!;
+
+  /** Seed the component on form_submissions with one browsable row (status='received', notes=null). */
+  function selectForm(c: SiteDataBrowserComponent): void {
+    c.selected.set(formTable(c));
+    c.columns.set(['form_name', 'status', 'notes', 'email', 'created_at']);
+    c.rows.set([
+      {
+        id: 'row-abc',
+        form_name: 'contact',
+        status: 'received',
+        notes: null,
+        email: 'a***@x.com',
+        created_at: 'x',
+      },
+    ]);
+  }
+
+  it('isCellEditable / editableSpecFor: only owner-editable columns on rows with a stable id', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    selectForm(c);
+    const row = c.rows()[0];
+    expect(c.isCellEditable('status', row)).withContext('enum column editable').toBeTrue();
+    expect(c.isCellEditable('notes', row)).withContext('text column editable').toBeTrue();
+    expect(c.isCellEditable('email', row)).withContext('PII column read-only').toBeFalse();
+    expect(c.isCellEditable('status', { status: 'received' }))
+      .withContext('no stable id → not editable')
+      .toBeFalse();
+    expect(c.editableSpecFor('status')?.type).toBe('enum');
+    expect(c.editableSpecFor('email')).toBeNull();
+    // A read-only table exposes NO editable cells.
+    c.selected.set(visitorTable(c));
+    expect(c.isCellEditable('path', { id: 'x', path: '/p' })).toBeFalse();
+  });
+
+  it('startCellEdit opens the editor for the exact row+column, seeded with the stored value', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    selectForm(c);
+    expect(c.isEditingCell(0, 'status')).toBeFalse();
+    c.startCellEdit(0, 'status', c.rows()[0]);
+    expect(c.isEditingCell(0, 'status')).toBeTrue();
+    expect(c.isEditingCell(0, 'notes')).withContext('only the opened column').toBeFalse();
+    expect(c.isEditingCell(1, 'status')).withContext('only the opened row').toBeFalse();
+    expect(c.cellEdit()?.value).toBe('received');
+  });
+
+  it('startCellEdit is a no-op on a read-only cell or an id-less row', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    selectForm(c);
+    c.startCellEdit(0, 'email', c.rows()[0]); // PII column
+    expect(c.cellEdit()).toBeNull();
+    c.startCellEdit(0, 'status', { status: 'received' }); // no id
+    expect(c.cellEdit()).toBeNull();
+  });
+
+  it('a NULL editable value seeds the inline editor with "" (never the string "null")', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    selectForm(c);
+    c.startCellEdit(0, 'notes', c.rows()[0]); // notes is null
+    expect(c.cellEdit()?.value).toBe('');
+  });
+
+  it('commitCellEdit with an UNCHANGED value closes without confirm or PATCH', async () => {
+    const updateOverviewRow = jasmine.createSpy('updateOverviewRow');
+    const { fixture, c, confirmSpy } = setup({ updateOverviewRow });
+    fixture.detectChanges();
+    selectForm(c);
+    const row = c.rows()[0];
+    c.startCellEdit(0, 'status', row); // value stays 'received'
+    await c.commitCellEdit(row);
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(updateOverviewRow).not.toHaveBeenCalled();
+    expect(c.cellEdit()).withContext('editor closed').toBeNull();
+  });
+
+  it('commitCellEdit (changed): confirms, PATCHes the scoped column, toasts, refreshes, closes', async () => {
+    const updateOverviewRow = jasmine
+      .createSpy('updateOverviewRow')
+      .and.returnValue(
+        of({ data: { id: 'row-abc', column: 'status', value: 'forwarded', updated: true } }),
+      );
+    const { fixture, c, confirmSpy, toast, browseDataTable } = setup({
+      updateOverviewRow,
+      confirmResult: true,
+    });
+    fixture.detectChanges();
+    selectForm(c);
+    const row = c.rows()[0];
+    c.startCellEdit(0, 'status', row);
+    c.setCellDraft('forwarded');
+    browseDataTable.calls.reset();
+
+    await c.commitCellEdit(row);
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(updateOverviewRow).toHaveBeenCalledWith(
+      'site-1',
+      'form_submissions',
+      'row-abc',
+      'status',
+      'forwarded',
+    );
+    expect(toast.success).toHaveBeenCalled();
+    expect(browseDataTable).withContext('grid refetched').toHaveBeenCalled();
+    expect(c.cellEdit()).withContext('editor closed after save').toBeNull();
+    expect(c.savingEdit()).toBeFalse();
+  });
+
+  it('commitCellEdit: cancelling the confirmation makes no PATCH and closes the editor', async () => {
+    const updateOverviewRow = jasmine.createSpy('updateOverviewRow');
+    const { fixture, c } = setup({ updateOverviewRow, confirmResult: false });
+    fixture.detectChanges();
+    selectForm(c);
+    const row = c.rows()[0];
+    c.startCellEdit(0, 'status', row);
+    c.setCellDraft('forwarded');
+    await c.commitCellEdit(row);
+    expect(updateOverviewRow).not.toHaveBeenCalled();
+    expect(c.cellEdit()).toBeNull();
+  });
+
+  it('commitCellEdit: a transient failure keeps the editor open to retry + toasts the error', async () => {
+    const updateOverviewRow = jasmine
+      .createSpy('updateOverviewRow')
+      .and.returnValue(throwError(() => new Error('network')));
+    const { fixture, c, toast } = setup({ updateOverviewRow, confirmResult: true });
+    fixture.detectChanges();
+    selectForm(c);
+    const row = c.rows()[0];
+    c.startCellEdit(0, 'status', row);
+    c.setCellDraft('forwarded');
+    await c.commitCellEdit(row);
+    expect(toast.error).toHaveBeenCalled();
+    expect(c.cellEdit()).withContext('editor stays open on failure').not.toBeNull();
+    expect(c.savingEdit()).toBeFalse();
+  });
+
+  it('onCellSelectChange sets the draft AND commits (enum select = deliberate change)', async () => {
+    const updateOverviewRow = jasmine
+      .createSpy('updateOverviewRow')
+      .and.returnValue(
+        of({ data: { id: 'row-abc', column: 'status', value: 'partial', updated: true } }),
+      );
+    const { fixture, c } = setup({ updateOverviewRow, confirmResult: true });
+    fixture.detectChanges();
+    selectForm(c);
+    const row = c.rows()[0];
+    c.startCellEdit(0, 'status', row);
+    c.onCellSelectChange(row, 'partial');
+    await new Promise((r) => setTimeout(r, 0)); // let the async confirm+PATCH settle
+    expect(updateOverviewRow).toHaveBeenCalledWith(
+      'site-1',
+      'form_submissions',
+      'row-abc',
+      'status',
+      'partial',
+    );
+  });
+
+  it('cancelCellEdit / onCellSelectBlur close the editor', () => {
+    const { fixture, c } = setup();
+    fixture.detectChanges();
+    selectForm(c);
+    c.startCellEdit(0, 'status', c.rows()[0]);
+    c.cancelCellEdit();
+    expect(c.cellEdit()).toBeNull();
+    c.startCellEdit(0, 'status', c.rows()[0]);
+    c.onCellSelectBlur();
+    expect(c.cellEdit()).withContext('blur closes when no commit in flight').toBeNull();
+  });
+
+  it('renders an edit-trigger for an editable cell + keeps copy for read-only; click opens the inline select', () => {
+    // Use the real selectTable→loadPage render path (the grid `@else` branch needs a genuine
+    // browse response to populate columns+rows the way the app does).
+    const browseForm = jasmine
+      .createSpy('browseDataTable')
+      .and.callFake((_id: string, table: string, opts: { limit?: number; offset?: number } = {}) =>
+        of({
+          data: {
+            table,
+            columns: ['form_name', 'status', 'email', 'created_at'],
+            rows: [
+              {
+                id: 'row-abc',
+                form_name: 'contact',
+                status: 'received',
+                email: 'a***@x.com',
+                created_at: 'x',
+              },
+            ],
+          },
+          total: 1,
+          limit: opts.limit ?? 25,
+          offset: opts.offset ?? 0,
+        }),
+      );
+    const { fixture, c } = setup({ browseDataTable: browseForm });
+    fixture.detectChanges();
+    c.selectTable(formTable(c));
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const trigger = host.querySelector(
+      '[data-testid="db-cell-trigger-0-status"]',
+    ) as HTMLButtonElement | null;
+    expect(trigger).withContext('status cell is an edit-trigger').toBeTruthy();
+    // email (PII) is NOT an edit-trigger — it keeps its copy affordance.
+    expect(host.querySelector('[data-testid="db-cell-trigger-0-email"]'))
+      .withContext('read-only cell has no edit-trigger')
+      .toBeNull();
+    trigger!.click();
+    fixture.detectChanges();
+    const editor = host.querySelector('[data-testid="db-cell-edit-0-status"]');
+    expect(editor).withContext('inline select renders after click').toBeTruthy();
+    expect(editor!.tagName.toLowerCase()).toBe('select');
+    expect(editor!.querySelectorAll('option').length).toBe(4);
   });
 });
