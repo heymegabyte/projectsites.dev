@@ -34,6 +34,8 @@ import {
   addQueryTab,
   closeQueryTab,
   updateQueryTabSql,
+  nextSort,
+  sortRows,
 } from './data-panel-logic';
 
 describe('iconForTable', () => {
@@ -574,5 +576,55 @@ describe('query tabs (multi-buffer SQL console)', () => {
     expect(out).not.toBe(tabs);
     expect(out.map((t) => t.sql)).toEqual(['X', 'Y2']);
     expect(updateQueryTabSql(tabs, 'zzz', 'Z').map((t) => t.sql)).toEqual(['X', 'Y']);
+  });
+});
+
+describe('nextSort (3-state column-header toggle)', () => {
+  it('cycles unsorted → asc → desc → unsorted for the same column', () => {
+    expect(nextSort(null, 'name')).toEqual({ col: 'name', dir: 'asc' });
+    expect(nextSort({ col: 'name', dir: 'asc' }, 'name')).toEqual({ col: 'name', dir: 'desc' });
+    expect(nextSort({ col: 'name', dir: 'desc' }, 'name')).toBeNull();
+  });
+  it('starts a different column fresh at asc', () => {
+    expect(nextSort({ col: 'name', dir: 'desc' }, 'age')).toEqual({ col: 'age', dir: 'asc' });
+  });
+});
+
+describe('sortRows (type-aware, stable, empties-last)', () => {
+  it('null sort → a copy in original order (never mutates)', () => {
+    const rows = [{ n: 2 }, { n: 1 }];
+    const out = sortRows(rows, null);
+    expect(out).toEqual(rows);
+    expect(out).not.toBe(rows);
+  });
+  it('sorts NUMERICALLY when both cells are numeric strings (10 after 2, not before)', () => {
+    const rows = [{ n: '10' }, { n: '2' }, { n: '1' }];
+    expect(sortRows(rows, { col: 'n', dir: 'asc' }).map((r) => r.n)).toEqual(['1', '2', '10']);
+    expect(sortRows(rows, { col: 'n', dir: 'desc' }).map((r) => r.n)).toEqual(['10', '2', '1']);
+  });
+  it('sorts strings case-insensitively', () => {
+    const rows = [{ s: 'Banana' }, { s: 'apple' }, { s: 'Cherry' }];
+    expect(sortRows(rows, { col: 's', dir: 'asc' }).map((r) => r.s)).toEqual(['apple', 'Banana', 'Cherry']);
+  });
+  it('always sorts null / undefined / empty LAST, regardless of direction', () => {
+    const rows = [{ v: 'x' }, { v: null }, { v: 'a' }, { v: '' }];
+    expect(sortRows(rows, { col: 'v', dir: 'asc' }).map((r) => r.v)).toEqual(['a', 'x', null, '']);
+
+    // desc reverses the real values but keeps empties last
+    expect(sortRows(rows, { col: 'v', dir: 'desc' }).map((r) => r.v)).toEqual(['x', 'a', null, '']);
+  });
+  it('is stable — equal keys keep their original relative order', () => {
+    const rows = [
+      { k: 1, id: 'a' },
+      { k: 1, id: 'b' },
+      { k: 1, id: 'c' },
+    ];
+    expect(sortRows(rows, { col: 'k', dir: 'asc' }).map((r) => r.id)).toEqual(['a', 'b', 'c']);
+  });
+  it('compares objects by their compact JSON (never throws / "[object Object]")', () => {
+    const rows = [{ o: { z: 1 } }, { o: { a: 1 } }];
+
+    // formatCellValue → '{"z":1}' vs '{"a":1}' → 'a' before 'z'
+    expect(sortRows(rows, { col: 'o', dir: 'asc' }).map((r) => JSON.stringify(r.o))).toEqual(['{"a":1}', '{"z":1}']);
   });
 });

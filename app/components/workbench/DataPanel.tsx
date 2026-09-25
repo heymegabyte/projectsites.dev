@@ -43,6 +43,9 @@ import {
   addQueryTab,
   closeQueryTab,
   updateQueryTabSql,
+  type GridSort,
+  nextSort,
+  sortRows,
 } from './data-panel-logic';
 import { classNames } from '~/utils/classNames';
 
@@ -163,6 +166,12 @@ export const DataPanel = memo(() => {
   const [autoRefresh, setAutoRefresh] = useState(false);
 
   /*
+   * Client-side column sort of the LOADED browse window (the grid honestly discloses it's
+   * showing the latest N). null = original (server) order; a header click cycles asc→desc→off.
+   */
+  const [browseSort, setBrowseSort] = useState<GridSort | null>(null);
+
+  /*
    * D1 manager — read-only SQL console (super-admin only; the sql/exec endpoint reads the shared
    * multi-tenant DB). `canRunSql` arrives on the overview reply; `mode` toggles the console view.
    */
@@ -251,6 +260,9 @@ export const DataPanel = memo(() => {
   );
   const [sqlRows, setSqlRows] = useState<Record<string, unknown>[]>([]);
   const [sqlColumns, setSqlColumns] = useState<string[]>([]);
+
+  // Client-side sort of the SQL result grid (honest — it reorders the full returned result).
+  const [sqlSort, setSqlSort] = useState<GridSort | null>(null);
   const [sqlError, setSqlError] = useState('');
   const [sqlRunning, setSqlRunning] = useState(false);
   const [sqlMeta, setSqlMeta] = useState<{
@@ -332,6 +344,7 @@ export const DataPanel = memo(() => {
     setBrowseError('');
     setSearch('');
     setDetailIdx(null);
+    setBrowseSort(null);
     setBrowseLoading(true);
 
     const cid = newCorrelationId(key);
@@ -384,6 +397,7 @@ export const DataPanel = memo(() => {
     setWriteResult(null);
     setSqlRunning(true);
     setSqlMeta(null);
+    setSqlSort(null); // a fresh result starts in its natural (query) order
 
     const cid = newCorrelationId('sql');
     sqlCid.current = cid;
@@ -579,7 +593,25 @@ export const DataPanel = memo(() => {
   const totalRows = useMemo(() => tables.reduce((s, t) => s + (t.row_count ?? 0), 0), [tables]);
   const sortedTables = useMemo(() => [...tables].sort((a, b) => (b.row_count ?? 0) - (a.row_count ?? 0)), [tables]);
   const activeTable = tables.find((t) => t.key === active) ?? null;
-  const visibleRows = useMemo(() => filterRows(rows, columns, search), [rows, columns, search]);
+  const visibleRows = useMemo(
+    () => sortRows(filterRows(rows, columns, search), browseSort),
+    [rows, columns, search, browseSort],
+  );
+
+  /**
+   * Toggle the browse sort for a column (asc→desc→off) + close any open row detail
+   *  (its index would otherwise point at a different row once the order changes).
+   */
+  const toggleBrowseSort = useCallback((col: string) => {
+    setBrowseSort((s) => nextSort(s, col));
+    setDetailIdx(null);
+  }, []);
+
+  /** The SQL result grid, client-sorted (honest — reorders the full returned result). */
+  const sqlVisibleRows = useMemo(() => sortRows(sqlRows, sqlSort), [sqlRows, sqlSort]);
+
+  /** Toggle the SQL result sort for a column (asc→desc→off). */
+  const toggleSqlSort = useCallback((col: string) => setSqlSort((s) => nextSort(s, col)), []);
 
   const exportCsv = useCallback(() => {
     if (typeof document === 'undefined' || !activeTable) {
@@ -604,7 +636,7 @@ export const DataPanel = memo(() => {
       return;
     }
 
-    const blob = new Blob([toCsv(sqlColumns, sqlRows)], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([toCsv(sqlColumns, sqlVisibleRows)], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -613,7 +645,7 @@ export const DataPanel = memo(() => {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-  }, [sqlColumns, sqlRows]);
+  }, [sqlColumns, sqlVisibleRows]);
 
   /** Index guidance when the current result is an EXPLAIN QUERY PLAN (null otherwise). */
   const sqlPlanHint = useMemo(() => explainPlanHint(sqlRows), [sqlRows]);
@@ -931,9 +963,32 @@ export const DataPanel = memo(() => {
                     {columns.map((c) => (
                       <th
                         key={c}
-                        className="text-left font-medium text-bolt-elements-textTertiary px-3 py-1.5 border-b border-bolt-elements-borderColor/50 whitespace-nowrap"
+                        aria-sort={
+                          browseSort?.col === c ? (browseSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'
+                        }
+                        className="text-left font-medium text-bolt-elements-textTertiary border-b border-bolt-elements-borderColor/50 whitespace-nowrap p-0"
                       >
-                        {columnLabel(c)}
+                        <button
+                          type="button"
+                          onClick={() => toggleBrowseSort(c)}
+                          data-testid="data-browse-sort"
+                          title={`Sort by ${columnLabel(c)}`}
+                          className="w-full flex items-center gap-1 px-3 py-1.5 text-left hover:text-bolt-elements-textPrimary cursor-pointer"
+                        >
+                          <span className="truncate">{columnLabel(c)}</span>
+                          <span
+                            aria-hidden="true"
+                            className={classNames(
+                              'shrink-0 text-[8px]',
+                              browseSort?.col === c
+                                ? 'text-bolt-elements-item-contentAccent'
+                                : 'text-bolt-elements-textTertiary/40',
+                              browseSort?.col === c && browseSort.dir === 'desc'
+                                ? 'i-ph:caret-down-bold'
+                                : 'i-ph:caret-up-bold',
+                            )}
+                          />
+                        </button>
                       </th>
                     ))}
                   </tr>
@@ -1385,16 +1440,37 @@ export const DataPanel = memo(() => {
                     {sqlColumns.map((c) => (
                       <th
                         key={c}
-                        className="text-left font-medium text-bolt-elements-textTertiary px-3 py-1.5 border-b border-bolt-elements-borderColor/50 whitespace-nowrap"
+                        aria-sort={sqlSort?.col === c ? (sqlSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                        className="text-left font-medium text-bolt-elements-textTertiary border-b border-bolt-elements-borderColor/50 whitespace-nowrap p-0"
                       >
-                        {c}
+                        <button
+                          type="button"
+                          onClick={() => toggleSqlSort(c)}
+                          data-testid="data-sql-sort"
+                          title={`Sort by ${c}`}
+                          className="w-full flex items-center gap-1 px-3 py-1.5 text-left hover:text-bolt-elements-textPrimary cursor-pointer"
+                        >
+                          <span className="truncate">{c}</span>
+                          <span
+                            aria-hidden="true"
+                            className={classNames(
+                              'shrink-0 text-[8px]',
+                              sqlSort?.col === c
+                                ? 'text-bolt-elements-item-contentAccent'
+                                : 'text-bolt-elements-textTertiary/40',
+                              sqlSort?.col === c && sqlSort.dir === 'desc'
+                                ? 'i-ph:caret-down-bold'
+                                : 'i-ph:caret-up-bold',
+                            )}
+                          />
+                        </button>
                       </th>
                     ))}
                     <th className="w-8 border-b border-bolt-elements-borderColor/50" />
                   </tr>
                 </thead>
                 <tbody>
-                  {sqlRows.map((r, i) => (
+                  {sqlVisibleRows.map((r, i) => (
                     <tr
                       key={i}
                       data-testid="data-sql-row"

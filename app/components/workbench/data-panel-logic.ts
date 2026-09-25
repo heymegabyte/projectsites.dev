@@ -894,3 +894,113 @@ export function closeQueryTab(
 export function updateQueryTabSql(tabs: readonly QueryTab[], id: string, sql: string): QueryTab[] {
   return tabs.map((t) => (t.id === id ? { ...t, sql } : t));
 }
+
+/** A grid column-sort direction. */
+export type SortDir = 'asc' | 'desc';
+
+/** The active grid sort — a column key + direction (null = unsorted / original order). */
+export interface GridSort {
+  col: string;
+  dir: SortDir;
+}
+
+/**
+ * Next sort state for a 3-state column-header toggle: unsorted → asc → desc → unsorted.
+ * Clicking a DIFFERENT column starts it at asc. Pure.
+ *
+ * @param current - the active sort (or null when unsorted)
+ * @param col - the clicked column key
+ * @returns the next {@link GridSort} or null (cleared)
+ * @example nextSort(null, 'name') // { col: 'name', dir: 'asc' }
+ * @example nextSort({ col: 'name', dir: 'asc' }, 'name') // { col: 'name', dir: 'desc' }
+ * @example nextSort({ col: 'name', dir: 'desc' }, 'name') // null
+ */
+export function nextSort(current: GridSort | null, col: string): GridSort | null {
+  if (!current || current.col !== col) {
+    return { col, dir: 'asc' };
+  }
+
+  if (current.dir === 'asc') {
+    return { col, dir: 'desc' };
+  }
+
+  return null;
+}
+
+/** Numeric value of a cell when it's a finite number or a numeric string, else null. */
+function cellAsNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) {
+    return Number(value);
+  }
+
+  return null;
+}
+
+/** Whether a cell has "no value" for sort purposes (always sorted LAST, both directions). */
+function cellIsEmpty(value: unknown): boolean {
+  return value === null || value === undefined || value === '';
+}
+
+/**
+ * Stable, type-aware sort of grid rows by one column. Both cells numeric (finite number or
+ * numeric string) → NUMERIC compare (so '10' sorts after '2', not before). Otherwise a
+ * case-insensitive string compare over {@link formatCellValue} (objects compare by their
+ * compact JSON). null / undefined / '' always sort LAST regardless of direction — they're
+ * "no value", not "smallest". Stable (original index breaks ties). Pure — returns a NEW
+ * array; a null sort returns a copy in original order.
+ *
+ * @param rows - the grid rows
+ * @param sort - the active sort, or null for original order
+ * @returns a new, sorted array
+ * @example sortRows([{ n: '10' }, { n: '2' }], { col: 'n', dir: 'asc' }) // [{n:'2'},{n:'10'}]
+ */
+export function sortRows(rows: readonly Record<string, unknown>[], sort: GridSort | null): Record<string, unknown>[] {
+  if (!sort) {
+    return rows.slice();
+  }
+
+  const { col, dir } = sort;
+  const factor = dir === 'asc' ? 1 : -1;
+
+  return rows
+    .map((row, i) => ({ row, i }))
+    .sort((a, b) => {
+      const va = a.row[col];
+      const vb = b.row[col];
+      const ea = cellIsEmpty(va);
+      const eb = cellIsEmpty(vb);
+
+      if (ea && eb) {
+        return a.i - b.i;
+      }
+
+      if (ea) {
+        return 1;
+      } // empties last, regardless of direction
+
+      if (eb) {
+        return -1;
+      }
+
+      const na = cellAsNumber(va);
+      const nb = cellAsNumber(vb);
+      let cmp: number;
+
+      if (na !== null && nb !== null) {
+        cmp = na - nb;
+      } else {
+        cmp = formatCellValue(va).toLowerCase().localeCompare(formatCellValue(vb).toLowerCase());
+      }
+
+      if (cmp === 0) {
+        return a.i - b.i;
+      } // stable
+
+      return cmp * factor;
+    })
+    .map((d) => d.row);
+}
