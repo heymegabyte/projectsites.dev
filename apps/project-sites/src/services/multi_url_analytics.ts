@@ -634,8 +634,14 @@ async function loadHostDelivery(
       const c = Number(row.count ?? 0);
       if (s > 0 && c > 0) {
         agg.by_status.set(s, (agg.by_status.get(s) ?? 0) + c);
-        agg.by_status_bytes.set(s, (agg.by_status_bytes.get(s) ?? 0) + Number(row.sum?.edgeResponseBytes ?? 0));
-        agg.by_status_visits.set(s, (agg.by_status_visits.get(s) ?? 0) + Number(row.sum?.visits ?? 0));
+        agg.by_status_bytes.set(
+          s,
+          (agg.by_status_bytes.get(s) ?? 0) + Number(row.sum?.edgeResponseBytes ?? 0),
+        );
+        agg.by_status_visits.set(
+          s,
+          (agg.by_status_visits.get(s) ?? 0) + Number(row.sum?.visits ?? 0),
+        );
       }
     }
     for (const row of zoneRow.cache ?? []) {
@@ -1011,8 +1017,10 @@ export async function loadMultiUrlAnalytics(
     let mergedBytes = 0;
     for (const dv of deliveries) {
       for (const [s, c] of dv.by_status) mergedStatus.set(s, (mergedStatus.get(s) ?? 0) + c);
-      for (const [s, b] of dv.by_status_bytes) mergedStatusBytes.set(s, (mergedStatusBytes.get(s) ?? 0) + b);
-      for (const [s, v] of dv.by_status_visits) mergedStatusVisits.set(s, (mergedStatusVisits.get(s) ?? 0) + v);
+      for (const [s, b] of dv.by_status_bytes)
+        mergedStatusBytes.set(s, (mergedStatusBytes.get(s) ?? 0) + b);
+      for (const [s, v] of dv.by_status_visits)
+        mergedStatusVisits.set(s, (mergedStatusVisits.get(s) ?? 0) + v);
       for (const [k, c] of dv.by_cache) mergedCache.set(k, (mergedCache.get(k) ?? 0) + c);
       mergeInto(mergedProtocol, dv.by_protocol);
       mergeInto(mergedTls, dv.by_tls);
