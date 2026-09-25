@@ -314,9 +314,9 @@ export interface KvKeyDescriptor {
 export interface KvRequestMessage {
   type: 'PS_KV_REQUEST';
   correlationId: string;
-  op: 'namespaces' | 'keys' | 'value';
+  op: 'namespaces' | 'keys' | 'value' | 'put' | 'delete';
 
-  /** Required for `keys` and `value` ops — the KV binding name (e.g. `"KV"`). */
+  /** Required for `keys` / `value` / `put` / `delete` ops — the KV binding name (e.g. `"KV"`). */
   binding?: string;
 
   /** For `keys` op — filter to keys starting with this string. */
@@ -325,8 +325,14 @@ export interface KvRequestMessage {
   /** For `keys` op — opaque pagination cursor from the previous page. */
   cursor?: string;
 
-  /** For `value` op — the exact key to fetch. */
+  /** For `value` / `put` / `delete` ops — the exact key. */
   key?: string;
+
+  /** For `put` op — the value to write (create/overwrite). Server-side size-capped. */
+  value?: string;
+
+  /** For `put` op — optional expiry in seconds (KV minimum 60); omitted ⇒ no expiry. */
+  expirationTtl?: number;
 }
 
 /** Data envelope variants keyed by op. */
@@ -343,6 +349,9 @@ export interface KvValueData {
   key: string;
   value: string | null;
   metadata?: unknown;
+
+  /** True when the value was size-capped by the reader — editing is disabled (can't round-trip). */
+  truncated?: boolean;
 }
 
 /**

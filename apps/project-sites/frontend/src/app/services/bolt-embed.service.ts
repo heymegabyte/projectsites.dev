@@ -90,7 +90,9 @@ interface PsMessage {
     | 'tables'
     | 'export'
     | 'explain'
-    | 'profile';
+    | 'profile'
+    | 'put'
+    | 'delete';
   /** PS_R2_REQUEST: the R2 bucket binding name (required for the objects + object ops). */
   readonly bucket?: string;
   /** PS_VEC_REQUEST: the Vectorize index name (required for the `index` describe op). */
@@ -112,8 +114,12 @@ interface PsMessage {
   readonly prefix?: string;
   /** PS_KV_REQUEST (keys op): opaque pagination cursor from the previous page. */
   readonly cursor?: string;
-  /** PS_KV_REQUEST (value op): the exact key to fetch. */
+  /** PS_KV_REQUEST (value / put / delete ops): the exact key. */
   readonly key?: string;
+  /** PS_KV_REQUEST (put op): the value to write. */
+  readonly value?: string;
+  /** PS_KV_REQUEST (put op): optional expiry in seconds (KV minimum 60). */
+  readonly expirationTtl?: number;
 }
 
 export interface BoltFileEntry {
@@ -840,6 +846,38 @@ export class BoltEmbedService {
             }
             kvPath = `/admin/kv/${encodeURIComponent(msg.binding)}/value`;
             kvParams['key'] = msg.key;
+          } else if (op === 'put') {
+            // WRITE a value (super-admin, size-capped, audited server-side). KV is eventually consistent.
+            if (!msg.binding || !msg.key || typeof msg.value !== 'string') {
+              reply({ ok: false, error: 'Missing binding, key, or value' });
+              break;
+            }
+            const body: Record<string, unknown> = { key: msg.key, value: msg.value };
+            if (typeof msg.expirationTtl === 'number') body['expirationTtl'] = msg.expirationTtl;
+            this.api
+              .put<
+                Record<string, unknown>
+              >(`/admin/kv/${encodeURIComponent(msg.binding)}/value`, body, { silent: true })
+              .subscribe({
+                next: (res) => reply({ ok: true, data: res ?? {} }),
+                error: () => reply({ ok: false, error: 'The write failed.' }),
+              });
+            break;
+          } else if (op === 'delete') {
+            // DELETE a key (super-admin, audited server-side). KV.delete is idempotent + eventually consistent.
+            if (!msg.binding || !msg.key) {
+              reply({ ok: false, error: 'Missing binding or key' });
+              break;
+            }
+            this.api
+              .delete<
+                Record<string, unknown>
+              >(`/admin/kv/${encodeURIComponent(msg.binding)}/value?key=${encodeURIComponent(msg.key)}`, { silent: true })
+              .subscribe({
+                next: (res) => reply({ ok: true, data: res ?? {} }),
+                error: () => reply({ ok: false, error: 'The delete failed.' }),
+              });
+            break;
           } else {
             reply({ ok: false, error: 'Unknown KV op' });
             break;

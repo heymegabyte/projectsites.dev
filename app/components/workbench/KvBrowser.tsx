@@ -1,17 +1,18 @@
 /**
  * @module components/workbench/KvBrowser
  *
- * KV resource browser for the Data panel — a read-only inspector for the platform's Cloudflare KV
- * namespaces, symmetric with the super-admin SQL console (both target shared platform resources).
+ * KV resource browser for the Data panel — inspect + MANAGE the platform's Cloudflare KV namespaces
+ * (super-admin), symmetric with the super-admin SQL console (both target shared platform resources).
  *
  * The embedded editor has no cross-origin session, so — exactly like the D1 Tables/SQL tabs — it
- * asks the Angular admin parent to proxy the read via the postMessage bridge:
- *   child → parent  `PS_KV_REQUEST`  { op:'namespaces'|'keys'|'value', binding?, prefix?, cursor?, key? }
- *   parent → child  `PS_KV_RESPONSE` { ok, data?, error? }   (parent calls GET /api/admin/kv/* )
+ * asks the Angular admin parent to proxy the call via the postMessage bridge:
+ *   child → parent  `PS_KV_REQUEST`  { op:'namespaces'|'keys'|'value'|'put'|'delete', binding?, key?, value?, … }
+ *   parent → child  `PS_KV_RESPONSE` { ok, data?, error? }   (parent calls GET/PUT/DELETE /api/admin/kv/* )
  *
- * The worker enforces super-admin + a binding allowlist server-side and exposes NO writes, so this
- * surface is deliberately read-only. Values are 64 KiB-capped by the worker; KV list() is eventually
- * consistent (a just-written key may not appear immediately) — both are surfaced honestly in the UI.
+ * The worker enforces super-admin + a binding allowlist server-side. Reads are 64 KiB-capped; WRITES
+ * are size-capped (edit is disabled for a truncated read) + logged with the actor/resource (never the
+ * value). KV is eventually consistent (a just-written/deleted key may take ~60s to propagate, and
+ * list() may lag) — surfaced honestly in the UI, never silently.
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -22,8 +23,9 @@ import type {
   KvRequestMessage,
   KvResponseMessage,
   KvValueData,
-} from '../../lib/embed/embedded-mode';
+} from '~/lib/embed/embedded-mode';
 import { formatKvExpiration, parseMaybeJson } from './kv-browser-logic';
+import { classNames } from '~/utils/classNames';
 
 export interface KvBrowserProps {
   /** Post a bridge request to the admin parent (DataPanel's existing helper). */
@@ -34,10 +36,11 @@ export interface KvBrowserProps {
 type Pending = (res: KvResponseMessage) => void;
 
 /**
- * Read-only Cloudflare KV browser: namespace picker → key list (prefix search + cursor paging) →
- * value viewer (JSON pretty-print, metadata, expiration). Self-manages the PS_KV_RESPONSE listener.
+ * Cloudflare KV browser: namespace picker → key list (prefix search + cursor paging) → value viewer
+ * (JSON pretty-print, metadata, expiration) with guarded EDIT + DELETE. Self-manages the
+ * PS_KV_RESPONSE listener.
  */
-export const KvBrowser = memo(function KvBrowser({ postToParent }: KvBrowserProps) {
+export const KvBrowser = memo(({ postToParent }: KvBrowserProps) => {
   const pending = useRef<Map<string, Pending>>(new Map());
 
   const [namespaces, setNamespaces] = useState<string[] | null>(null);
@@ -58,14 +61,20 @@ export const KvBrowser = memo(function KvBrowser({ postToParent }: KvBrowserProp
   useEffect(() => {
     const onMessage = (e: MessageEvent): void => {
       const data = e.data as Partial<KvResponseMessage> | undefined;
-      if (!data || data.type !== 'PS_KV_RESPONSE' || typeof data.correlationId !== 'string') return;
+
+      if (!data || data.type !== 'PS_KV_RESPONSE' || typeof data.correlationId !== 'string') {
+        return;
+      }
+
       const resolve = pending.current.get(data.correlationId);
+
       if (resolve) {
         pending.current.delete(data.correlationId);
         resolve(data as KvResponseMessage);
       }
     };
     window.addEventListener('message', onMessage);
+
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
@@ -93,16 +102,23 @@ export const KvBrowser = memo(function KvBrowser({ postToParent }: KvBrowserProp
   useEffect(() => {
     let live = true;
     void request({ op: 'namespaces' }).then((res) => {
-      if (!live) return;
+      if (!live) {
+        return;
+      }
+
       if (res.ok && res.data && 'namespaces' in res.data) {
         const list = (res.data as KvNamespacesData).namespaces;
         setNamespaces(list);
-        if (list.length > 0) setBinding((b) => b || list[0]);
+
+        if (list.length > 0) {
+          setBinding((b) => b || list[0]);
+        }
       } else {
         setNsError(res.error ?? 'KV inspector not available');
         setNamespaces([]);
       }
     });
+
     return () => {
       live = false;
     };
@@ -110,9 +126,13 @@ export const KvBrowser = memo(function KvBrowser({ postToParent }: KvBrowserProp
 
   const loadKeys = useCallback(
     async (reset: boolean): Promise<void> => {
-      if (!binding) return;
+      if (!binding) {
+        return;
+      }
+
       setKeysLoading(true);
       setKeysError(null);
+
       const res = await request({
         op: 'keys',
         binding,
@@ -120,13 +140,17 @@ export const KvBrowser = memo(function KvBrowser({ postToParent }: KvBrowserProp
         cursor: reset ? undefined : cursor,
       });
       setKeysLoading(false);
+
       if (res.ok && res.data && 'keys' in res.data) {
         const data = res.data as KvKeysData;
         setKeys((prev) => (reset ? data.keys : [...prev, ...data.keys]));
         setCursor(data.cursor);
       } else {
         setKeysError(res.error ?? 'Could not list keys');
-        if (reset) setKeys([]);
+
+        if (reset) {
+          setKeys([]);
+        }
       }
     },
     [binding, prefix, cursor, request],
@@ -134,7 +158,10 @@ export const KvBrowser = memo(function KvBrowser({ postToParent }: KvBrowserProp
 
   // (Re)load keys whenever the binding changes; reset paging + selection.
   useEffect(() => {
-    if (!binding) return;
+    if (!binding) {
+      return;
+    }
+
     setSelectedKey(null);
     setValue(null);
     setCursor(undefined);
@@ -148,8 +175,13 @@ export const KvBrowser = memo(function KvBrowser({ postToParent }: KvBrowserProp
       setValue(null);
       setValueError(null);
       setValueLoading(true);
+      setEditing(false);
+      setDelConfirm('');
+      setWriteError(null);
+
       const res = await request({ op: 'value', binding, key });
       setValueLoading(false);
+
       if (res.ok && res.data && 'value' in res.data) {
         setValue(res.data as KvValueData);
       } else {
@@ -158,6 +190,66 @@ export const KvBrowser = memo(function KvBrowser({ postToParent }: KvBrowserProp
     },
     [binding, request],
   );
+
+  /*
+   * Write path (super-admin, guarded server-side): edit a value, delete a key. KV is eventually
+   * consistent (≤~60s propagation) — surfaced to the user, never silently.
+   */
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState('');
+  const [writeBusy, setWriteBusy] = useState(false);
+  const [writeError, setWriteError] = useState<string | null>(null);
+  const [delConfirm, setDelConfirm] = useState('');
+
+  const beginEdit = useCallback((): void => {
+    setEditValue(value?.value ?? '');
+    setWriteError(null);
+    setEditing(true);
+  }, [value]);
+
+  const saveValue = useCallback(async (): Promise<void> => {
+    if (!selectedKey) {
+      return;
+    }
+
+    setWriteBusy(true);
+    setWriteError(null);
+
+    const res = await request({ op: 'put', binding, key: selectedKey, value: editValue });
+    setWriteBusy(false);
+
+    if (res.ok) {
+      setEditing(false);
+      void openKey(selectedKey); // re-read so the viewer shows the written value
+    } else {
+      setWriteError(res.error ?? 'The write failed.');
+    }
+  }, [binding, selectedKey, editValue, request, openKey]);
+
+  const deleteKey = useCallback(async (): Promise<void> => {
+    if (!selectedKey || delConfirm !== selectedKey) {
+      return;
+    }
+
+    setWriteBusy(true);
+    setWriteError(null);
+
+    const res = await request({ op: 'delete', binding, key: selectedKey });
+    setWriteBusy(false);
+
+    if (res.ok) {
+      /*
+       * Drop the deleted key from the list locally — instant + avoids a stale reload closure. (KV
+       * list() is eventually consistent, so an immediate re-list could still show the key anyway.)
+       */
+      setKeys((prev) => prev.filter((k) => k.name !== selectedKey));
+      setDelConfirm('');
+      setSelectedKey(null);
+      setValue(null);
+    } else {
+      setWriteError(res.error ?? 'The delete failed.');
+    }
+  }, [binding, selectedKey, delConfirm, request]);
 
   const parsed = useMemo(() => (value ? parseMaybeJson(value.value) : null), [value]);
   const nowSeconds = useMemo(() => Math.floor(Date.now() / 1000), [value]);
@@ -217,7 +309,9 @@ export const KvBrowser = memo(function KvBrowser({ postToParent }: KvBrowserProp
                 value={prefix}
                 onChange={(e) => setPrefix(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') void loadKeys(true);
+                  if (e.key === 'Enter') {
+                    void loadKeys(true);
+                  }
                 }}
                 placeholder="Prefix filter (press Enter)"
                 data-testid="data-kv-prefix"
@@ -264,9 +358,7 @@ export const KvBrowser = memo(function KvBrowser({ postToParent }: KvBrowserProp
               ))}
             </ul>
 
-            {keysLoading && (
-              <div className="px-3 py-2 text-[11px] text-bolt-elements-textTertiary">Loading keys…</div>
-            )}
+            {keysLoading && <div className="px-3 py-2 text-[11px] text-bolt-elements-textTertiary">Loading keys…</div>}
             {cursor && !keysLoading && (
               <button
                 type="button"
@@ -298,7 +390,7 @@ export const KvBrowser = memo(function KvBrowser({ postToParent }: KvBrowserProp
                 </div>
                 {valueLoading && <div className="px-3 py-3 text-[11px] text-bolt-elements-textTertiary">Loading…</div>}
                 {valueError && <div className="px-3 py-3 text-[11px] text-red-400">{valueError}</div>}
-                {value && !valueLoading && (
+                {value && !valueLoading && !editing && (
                   <div className="flex flex-col gap-2 p-3">
                     <pre
                       data-testid="data-kv-value"
@@ -316,6 +408,108 @@ export const KvBrowser = memo(function KvBrowser({ postToParent }: KvBrowserProp
                         </pre>
                       </div>
                     )}
+                    {writeError && (
+                      <div className="text-[10px] text-red-400" role="alert" data-testid="data-kv-write-error">
+                        {writeError}
+                      </div>
+                    )}
+                    {/* Write actions (super-admin, guarded server-side). Edit is disabled for a
+                        truncated read (can't safely round-trip). KV is eventually consistent. */}
+                    <div className="flex flex-wrap items-center gap-2 border-t border-bolt-elements-borderColor/30 pt-2">
+                      <button
+                        type="button"
+                        onClick={beginEdit}
+                        disabled={value.value === null || value.truncated === true}
+                        data-testid="data-kv-edit"
+                        title={
+                          value.truncated
+                            ? 'This value was truncated for display — it is too large to edit safely here.'
+                            : 'Edit this value'
+                        }
+                        className={classNames(
+                          'flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]',
+                          value.value === null || value.truncated === true
+                            ? 'cursor-not-allowed text-bolt-elements-textTertiary'
+                            : 'cursor-pointer text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10',
+                        )}
+                      >
+                        <div className="i-ph:pencil-simple" /> Edit
+                      </button>
+                      <span className="ml-auto flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={delConfirm}
+                          onChange={(e) => setDelConfirm(e.target.value)}
+                          placeholder="type key to delete"
+                          data-testid="data-kv-del-confirm"
+                          aria-label="Type the key name to confirm deletion"
+                          className="w-32 rounded bg-bolt-elements-background-depth-1 border border-bolt-elements-borderColor px-1.5 py-0.5 text-[10px] font-mono text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary"
+                        />
+                        <button
+                          type="button"
+                          onClick={deleteKey}
+                          disabled={writeBusy || delConfirm !== selectedKey}
+                          data-testid="data-kv-delete"
+                          title="Delete this key — type the exact key name to confirm"
+                          className={classNames(
+                            'flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]',
+                            writeBusy || delConfirm !== selectedKey
+                              ? 'cursor-not-allowed text-bolt-elements-textTertiary'
+                              : 'cursor-pointer text-red-400 hover:bg-red-500/10',
+                          )}
+                        >
+                          <div className="i-ph:trash" /> Delete key
+                        </button>
+                      </span>
+                    </div>
+                    <p className="text-[9px] italic text-bolt-elements-textTertiary">
+                      KV is eventually consistent — a write or delete can take up to ~60 seconds to propagate globally.
+                    </p>
+                  </div>
+                )}
+                {value && !valueLoading && editing && (
+                  <div className="flex flex-col gap-2 p-3" data-testid="data-kv-editor">
+                    <textarea
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      spellCheck={false}
+                      data-testid="data-kv-edit-value"
+                      aria-label="New value"
+                      className="h-48 w-full resize-y rounded bg-bolt-elements-background-depth-1 border border-bolt-elements-borderColor p-2 text-[11px] font-mono text-bolt-elements-textPrimary"
+                    />
+                    {writeError && (
+                      <div className="text-[10px] text-red-400" role="alert">
+                        {writeError}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={saveValue}
+                        disabled={writeBusy}
+                        data-testid="data-kv-save"
+                        className={classNames(
+                          'flex items-center gap-1 rounded px-2 py-0.5 text-[10px] border',
+                          writeBusy
+                            ? 'cursor-not-allowed border-bolt-elements-borderColor text-bolt-elements-textTertiary'
+                            : 'cursor-pointer border-bolt-elements-item-contentAccent/40 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10',
+                        )}
+                      >
+                        <div className={writeBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:check'} />
+                        {writeBusy ? 'Saving…' : 'Save'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditing(false)}
+                        data-testid="data-kv-cancel"
+                        className="cursor-pointer rounded px-2 py-0.5 text-[10px] text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary"
+                      >
+                        Cancel
+                      </button>
+                      <span className="ml-auto text-[9px] italic text-bolt-elements-textTertiary">
+                        overwrites the value · eventually consistent (~60s)
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>

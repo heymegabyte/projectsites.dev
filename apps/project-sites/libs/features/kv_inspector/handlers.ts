@@ -2,18 +2,21 @@
  * @module libs/features/kv_inspector/handlers
  * @description Hono routes for the KV Namespace Inspector feature (flag: `kv_inspector`).
  *
- * | Method | Path                                         | Auth        | Purpose              |
- * | ------ | -------------------------------------------- | ----------- | -------------------- |
- * | GET    | /api/admin/kv/namespaces                     | super-admin | List known bindings  |
- * | GET    | /api/admin/kv/:binding/keys                  | super-admin | Paginated key list   |
- * | GET    | /api/admin/kv/:binding/value                 | super-admin | Get value + metadata |
+ * | Method | Path                                         | Auth        | Purpose               |
+ * | ------ | -------------------------------------------- | ----------- | --------------------- |
+ * | GET    | /api/admin/kv/namespaces                     | super-admin | List known bindings   |
+ * | GET    | /api/admin/kv/:binding/keys                  | super-admin | Paginated key list    |
+ * | GET    | /api/admin/kv/:binding/value                 | super-admin | Get value + metadata  |
+ * | PUT    | /api/admin/kv/:binding/value                 | super-admin | Write (create/edit)   |
+ * | DELETE | /api/admin/kv/:binding/value                 | super-admin | Delete a key          |
  *
  * Security model:
  *   - All endpoints 404 when the `kv_inspector` flag is off (never 403 — don't leak existence).
  *   - All endpoints 404 when the caller is not a platform super-admin.
  *   - `:binding` is validated against a SERVER-SIDE allowlist — client-supplied names never
  *     reach the KV API. Unknown bindings → 404.
- *   - Read-only: no write/delete operations exposed.
+ *   - Writes are size-capped (never round-trip a truncated read back) and mutations are logged
+ *     with the actor + resource (never the value). KV is EVENTUALLY CONSISTENT (≤~60s propagation).
  *   - Value responses are size-capped at 64 KiB with a `truncated` flag.
  *
  * @packageDocumentation
@@ -29,6 +32,7 @@ import {
   KvBindingSchema,
   KvListQuerySchema,
   KvValueQuerySchema,
+  KvPutSchema,
   KV_VALUE_MAX_BYTES,
   type KvBinding,
 } from './schemas.js';
@@ -215,4 +219,93 @@ kvInspector.get('/api/admin/kv/:binding/value', async (c) => {
     truncated,
     ttl,
   });
+});
+
+// ─── PUT /api/admin/kv/:binding/value ─────────────────────────────────────────
+// Write (create/overwrite) a value. Super-admin + flag-dark; binding validated against the server
+// allowlist (client-supplied names never reach KV). The value is size-capped (never save a truncated
+// read back). KV is EVENTUALLY CONSISTENT — the write may take up to ~60s to propagate globally.
+kvInspector.put('/api/admin/kv/:binding/value', async (c) => {
+  const block = await gate(c);
+  if (block) return block;
+
+  const bindingParse = KvBindingSchema.safeParse(c.req.param('binding'));
+  if (!bindingParse.success) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Unknown KV binding' } }, 404);
+  }
+  const binding = bindingParse.data;
+
+  const bodyParse = KvPutSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!bodyParse.success) {
+    return c.json(
+      {
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `A key and a value ≤${KV_VALUE_MAX_BYTES} bytes are required (expirationTtl ≥ 60s if set).`,
+          details: bodyParse.error.flatten(),
+        },
+      },
+      400,
+    );
+  }
+  const { key, value, expirationTtl } = bodyParse.data;
+
+  const kv = resolveKv(c.env, binding);
+  const t0 = Date.now();
+  try {
+    await kv.put(key, value, expirationTtl ? { expirationTtl } : undefined);
+  } catch {
+    logKv(c, { route: 'kv/put', binding, outcome: 'error', latency_ms: Date.now() - t0 });
+    return c.json({ ok: false, error: 'The write failed.' }, 502);
+  }
+  // Audit the mutation: actor + resource + outcome, NEVER the value written.
+  logKv(c, {
+    route: 'kv/put',
+    binding,
+    key,
+    actor_id: c.get('userId') ?? null,
+    ttl: expirationTtl ?? null,
+    value_bytes: value.length,
+    outcome: 'ok',
+    latency_ms: Date.now() - t0,
+  });
+  return c.json({ ok: true, binding, key, eventualConsistency: true });
+});
+
+// ─── DELETE /api/admin/kv/:binding/value ──────────────────────────────────────
+// Delete a key. Super-admin + flag-dark; binding validated against the allowlist. KV.delete is
+// idempotent (deleting an absent key succeeds). Eventually consistent (≤~60s global propagation).
+kvInspector.delete('/api/admin/kv/:binding/value', async (c) => {
+  const block = await gate(c);
+  if (block) return block;
+
+  const bindingParse = KvBindingSchema.safeParse(c.req.param('binding'));
+  if (!bindingParse.success) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Unknown KV binding' } }, 404);
+  }
+  const binding = bindingParse.data;
+
+  const queryParse = KvValueQuerySchema.safeParse({ key: c.req.query('key') });
+  if (!queryParse.success) {
+    return c.json({ error: { code: 'VALIDATION_ERROR', message: '`key` query param is required' } }, 400);
+  }
+  const { key } = queryParse.data;
+
+  const kv = resolveKv(c.env, binding);
+  const t0 = Date.now();
+  try {
+    await kv.delete(key);
+  } catch {
+    logKv(c, { route: 'kv/delete', binding, outcome: 'error', latency_ms: Date.now() - t0 });
+    return c.json({ ok: false, error: 'The delete failed.' }, 502);
+  }
+  logKv(c, {
+    route: 'kv/delete',
+    binding,
+    key,
+    actor_id: c.get('userId') ?? null,
+    outcome: 'ok',
+    latency_ms: Date.now() - t0,
+  });
+  return c.json({ ok: true, binding, key, eventualConsistency: true });
 });

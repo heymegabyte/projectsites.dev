@@ -38,6 +38,8 @@ interface KvKey {
 interface MockKv {
   list: jest.Mock;
   getWithMetadata: jest.Mock;
+  put: jest.Mock;
+  delete: jest.Mock;
 }
 
 // ─── KV namespace mocks ───────────────────────────────────────────────────────
@@ -45,10 +47,14 @@ interface MockKv {
 const mockCacheKv: MockKv = {
   list: jest.fn(),
   getWithMetadata: jest.fn(),
+  put: jest.fn(),
+  delete: jest.fn(),
 };
 const mockPromptStore: MockKv = {
   list: jest.fn(),
   getWithMetadata: jest.fn(),
+  put: jest.fn(),
+  delete: jest.fn(),
 };
 
 // ─── Deferred import (after mocks) ───────────────────────────────────────────
@@ -86,6 +92,26 @@ function makeEnv(overrides: Partial<AppEnv> = {}): AppEnv {
 
 async function req(app: Hono, path: string, env: AppEnv = makeEnv()): Promise<Response> {
   return app.request(path, {}, env as never);
+}
+
+/** PUT/DELETE helper for the KV write endpoints. */
+async function reqMethod(
+  app: Hono,
+  method: 'PUT' | 'DELETE',
+  path: string,
+  body?: unknown,
+  env: AppEnv = makeEnv(),
+): Promise<Response> {
+  return app.request(
+    path,
+    {
+      method,
+      ...(body !== undefined
+        ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
+        : {}),
+    },
+    env as never,
+  );
 }
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
@@ -257,5 +283,66 @@ describe('GET /api/admin/kv/:binding/value', () => {
     const body = await res.json<{ value: string; truncated: boolean }>();
     expect(body.truncated).toBe(true);
     expect(body.value.length).toBeLessThanOrEqual(65_536 + 100); // capped
+  });
+});
+
+describe('PUT /api/admin/kv/:binding/value — write (create/edit)', () => {
+  it('404 when flag off / unauth / not super-admin (KV never written)', async () => {
+    mockIsFlagOn.mockResolvedValueOnce(false);
+    expect((await reqMethod(appWith('u'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'k', value: 'v' })).status).toBe(404);
+    expect((await reqMethod(appWith(), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'k', value: 'v' })).status).toBe(404);
+    mockDbQueryOne.mockResolvedValueOnce({ is_super_admin: 0 });
+    expect((await reqMethod(appWith('owner'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'k', value: 'v' })).status).toBe(404);
+    expect(mockCacheKv.put).not.toHaveBeenCalled();
+  });
+
+  it('404 for an unknown binding (client-supplied name never reaches KV)', async () => {
+    expect((await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/EVIL_KV/value', { key: 'k', value: 'v' })).status).toBe(404);
+    expect(mockCacheKv.put).not.toHaveBeenCalled();
+  });
+
+  it('400 on a missing key / oversized value / sub-60s TTL', async () => {
+    expect((await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { value: 'v' })).status).toBe(400);
+    expect((await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'k', value: 'x'.repeat(65_537) })).status).toBe(400);
+    expect((await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'k', value: 'v', expirationTtl: 30 })).status).toBe(400);
+    expect(mockCacheKv.put).not.toHaveBeenCalled();
+  });
+
+  it('200 writes the value via the resolved binding + surfaces eventual consistency', async () => {
+    const res = await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'host:acme', value: 'zone123', expirationTtl: 120 });
+    expect(res.status).toBe(200);
+    const body = await res.json<{ ok: boolean; key: string; eventualConsistency: boolean }>();
+    expect(body).toEqual({ ok: true, binding: 'CACHE_KV', key: 'host:acme', eventualConsistency: true });
+    expect(mockCacheKv.put).toHaveBeenCalledWith('host:acme', 'zone123', { expirationTtl: 120 });
+    expect(mockPromptStore.put).not.toHaveBeenCalled(); // only the resolved binding
+  });
+
+  it('502 when the KV write throws (honest failure, never a fake ok)', async () => {
+    mockCacheKv.put.mockRejectedValueOnce(new Error('kv down'));
+    const res = await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'k', value: 'v' });
+    expect(res.status).toBe(502);
+    expect((await res.json<{ ok: boolean }>()).ok).toBe(false);
+  });
+});
+
+describe('DELETE /api/admin/kv/:binding/value — delete a key', () => {
+  it('404 when not super-admin / unknown binding (KV never touched)', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ is_super_admin: 0 });
+    expect((await reqMethod(appWith('owner'), 'DELETE', '/api/admin/kv/CACHE_KV/value?key=k')).status).toBe(404);
+    expect((await reqMethod(appWith('super'), 'DELETE', '/api/admin/kv/EVIL/value?key=k')).status).toBe(404);
+    expect(mockCacheKv.delete).not.toHaveBeenCalled();
+  });
+
+  it('400 when no key is given', async () => {
+    expect((await reqMethod(appWith('super'), 'DELETE', '/api/admin/kv/CACHE_KV/value')).status).toBe(400);
+    expect(mockCacheKv.delete).not.toHaveBeenCalled();
+  });
+
+  it('200 deletes the key via the resolved binding', async () => {
+    const res = await reqMethod(appWith('super'), 'DELETE', '/api/admin/kv/PROMPT_STORE/value?key=draft:1');
+    expect(res.status).toBe(200);
+    expect((await res.json<{ ok: boolean }>()).ok).toBe(true);
+    expect(mockPromptStore.delete).toHaveBeenCalledWith('draft:1');
+    expect(mockCacheKv.delete).not.toHaveBeenCalled();
   });
 });
