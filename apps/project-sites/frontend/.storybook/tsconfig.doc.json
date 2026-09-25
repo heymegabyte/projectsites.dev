@@ -4,7 +4,11 @@
   "extends": "./tsconfig.json",
   // Exclude all files that are not needed for documentation generation.
   "exclude": ["../src/test.ts", "../src/**/*.spec.ts", "../src/**/*.stories.ts"],
-  // Please make sure to include all files from which Compodoc should generate documentation.
-  "include": ["../src/**/*"],
+  // Compodoc only needs to document the components that HAVE Storybook stories — all 26 live
+  // under src/app/site-kit/**. Scoping the include here (was ../src/**/* = the ENTIRE admin
+  // SPA) shrinks the emitted `documentation.json` from >25 MiB — which broke the Cloudflare
+  // Pages deploy (25 MiB/file cap) on every run — to just the storied site-kit components,
+  // while keeping their compodoc prop-table docs in the workshop. (storybook deploy fix.)
+  "include": ["../src/app/site-kit/**/*"],
   "files": ["./typings.d.ts"]
 }
