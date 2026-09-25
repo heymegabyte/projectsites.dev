@@ -151,6 +151,10 @@ describe('buildDeliverySummary', () => {
         ['html', 40],
       ]),
       new Map([['GET', 100]]),
+      new Map([
+        ['Search Engine Crawler', 42],
+        ['Monitoring & Site Analytics', 8],
+      ]),
     );
     expect(result.protocols).toEqual([
       { label: 'HTTP/3', count: 70 },
@@ -159,6 +163,10 @@ describe('buildDeliverySummary', () => {
     expect(result.tls[0]).toEqual({ label: 'TLSv1.3', count: 99 });
     expect(result.content_types.map((r) => r.label)).toEqual(['js', 'html']);
     expect(result.methods).toEqual([{ label: 'GET', count: 100 }]);
+    expect(result.verified_bots).toEqual([
+      { label: 'Search Engine Crawler', count: 42 },
+      { label: 'Monitoring & Site Analytics', count: 8 },
+    ]);
   });
 
   it('defaults the edge breakdowns to [] when the maps are not provided (back-compat)', () => {
@@ -167,6 +175,7 @@ describe('buildDeliverySummary', () => {
     expect(r.tls).toEqual([]);
     expect(r.content_types).toEqual([]);
     expect(r.methods).toEqual([]);
+    expect(r.verified_bots).toEqual([]);
   });
 });
 

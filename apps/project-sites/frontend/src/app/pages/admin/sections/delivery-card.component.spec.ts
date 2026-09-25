@@ -71,6 +71,27 @@ describe('DeliveryCardComponent', () => {
     expect(el.querySelector('[data-testid="an-dl-edge"]')).withContext('no edge block when every dim is empty').toBeNull();
   });
 
+  it('renders verified bots (search crawlers) by category with request counts', () => {
+    const { el } = setup({
+      ...REAL,
+      verified_bots: [
+        { label: 'Search Engine Crawler', count: 312 },
+        { label: 'Monitoring & Site Analytics', count: 40 },
+      ],
+    });
+    const bots = el.querySelector('[data-testid="an-dl-bots"]') as HTMLElement;
+    expect(bots).withContext('verified-bots section renders when present').toBeTruthy();
+    expect(bots.textContent).toContain('Search Engine Crawler');
+    expect(bots.textContent).toContain('312 requests');
+    // Honest framing: verified, not a bot-management score.
+    expect((el.querySelector('[data-testid="an-dl-bots-note"]') as HTMLElement).textContent).toContain('verified');
+  });
+
+  it('hides the verified-bots section when the site has seen none (never a fabricated 0)', () => {
+    const { el } = setup({ ...REAL, verified_bots: [] });
+    expect(el.querySelector('[data-testid="an-dl-bots"]')).toBeNull();
+  });
+
   it('shows the cache hit ratio + hit/miss/uncacheable counts + edge bandwidth', () => {
     const { el } = setup(REAL);
     expect((el.querySelector('[data-testid="an-dl-cache"]') as HTMLElement).textContent).toContain('32%');

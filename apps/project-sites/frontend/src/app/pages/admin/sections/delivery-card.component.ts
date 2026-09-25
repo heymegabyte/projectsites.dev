@@ -77,6 +77,7 @@ function formatBytes(n: number): string {
     .dl-edge-list li { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.72rem; }
     .dl-edge-lbl { color: var(--ps-ink, #f4f4ff); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .dl-edge-val { color: var(--text-secondary, #9aa0b4); font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0; }
+    .dl-bots { display: grid; gap: 0.15rem; }
     .dl-note { margin: 0; font-size: 0.62rem; color: var(--text-secondary, #9aa0b4); line-height: 1.4; }
     @media (max-width: 480px) { .dl-edge { grid-template-columns: 1fr; } }
     .dl-empty { margin: 0; font-size: 0.78rem; color: var(--text-secondary, #9aa0b4); line-height: 1.5; }
@@ -159,6 +160,21 @@ function formatBytes(n: number): string {
                   </ul>
                 </div>
               }
+            </div>
+          }
+
+          @if (verifiedBots().length) {
+            <div class="dl-bots" data-testid="an-dl-bots">
+              <div class="dl-stat-label">Verified bots · search crawlers &amp; monitors</div>
+              <ul class="dl-edge-list">
+                @for (b of verifiedBots(); track b.label) {
+                  <li>
+                    <span class="dl-edge-lbl" [attr.title]="b.label">{{ b.label }}</span>
+                    <span class="dl-edge-val">{{ fmt(b.count) }} requests</span>
+                  </li>
+                }
+              </ul>
+              <p class="dl-note" data-testid="an-dl-bots-note">Cloudflare-<strong>verified</strong> bot traffic (e.g. Googlebot under “Search Engine Crawler”) — confirms search engines are reaching your site. Distinct from your human audience above; only <strong>named, verified</strong> bots are shown (this isn't a bot-management score, which this plan doesn't include).</p>
             </div>
           }
 
@@ -250,6 +266,17 @@ export class DeliveryCardComponent {
       mk('content', 'Content served', d.content_types), // js, html, css, img
       mk('method', 'Methods', d.methods), // GET, POST
     ].filter((g) => g.rows.length > 0);
+  });
+
+  /**
+   * Cloudflare-verified bot traffic by category (top 6, raw request counts). The
+   * human/unverified bucket is excluded server-side, so an empty array means the site
+   * has genuinely seen no verified bots (the section then hides — never a fabricated 0).
+   */
+  readonly verifiedBots = computed(() => {
+    const d = this.delivery();
+    if (!d || !d.has_data) return [];
+    return (d.verified_bots ?? []).filter((b) => b.count > 0).slice(0, 6);
   });
 
   /** Thousands-separated integer. */

@@ -1627,6 +1627,13 @@ export interface DeliverySummary {
   tls?: { label: string; count: number }[];
   content_types?: { label: string; count: number }[];
   methods?: { label: string; count: number }[];
+  /**
+   * Cloudflare-VERIFIED bot traffic by category ("Search Engine Crawler", …) from the
+   * same query — the honest, plan-available crawler signal (NOT the gated bot-management
+   * score). Human/unverified traffic (the empty category) is excluded server-side, so
+   * this is ONLY named verified bots; `[]` when a site has seen none.
+   */
+  verified_bots?: { label: string; count: number }[];
 }
 
 export interface MultiUrlAnalyticsEnvelope {

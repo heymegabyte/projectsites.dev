@@ -86,6 +86,14 @@ export interface DeliverySummary {
   readonly tls: ReadonlyArray<{ label: string; count: number }>;
   readonly content_types: ReadonlyArray<{ label: string; count: number }>;
   readonly methods: ReadonlyArray<{ label: string; count: number }>;
+  /**
+   * Cloudflare-VERIFIED bot traffic by category (`verifiedBotCategory`: "Search Engine
+   * Crawler", "Monitoring & Site Analytics", …) — the honest, plan-available crawler
+   * signal (distinct from the gated Bot-Management score). The empty-string bucket
+   * (human/unverified traffic) is excluded, so this is ONLY named verified bots; `[]`
+   * when a site has seen none. Lets an owner confirm search engines are crawling them.
+   */
+  readonly verified_bots: ReadonlyArray<{ label: string; count: number }>;
 }
 
 export interface MultiUrlAnalytics {
@@ -265,6 +273,8 @@ interface CfGroup {
     clientSSLProtocol?: string;
     edgeResponseContentTypeName?: string;
     clientRequestHTTPMethodName?: string;
+    // CF-verified bot category (probe 2026-09-24: available; "" = human/unverified).
+    verifiedBotCategory?: string;
   };
 }
 interface CfGraphQlResponse {
@@ -485,6 +495,8 @@ interface HostDelivery {
   by_tls: Map<string, number>;
   by_content: Map<string, number>;
   by_method: Map<string, number>;
+  /** CF-verified bot traffic by category (empty-string human bucket excluded). */
+  by_verified_bot: Map<string, number>;
   response_bytes: number;
 }
 
@@ -525,6 +537,7 @@ async function loadHostDelivery(
     by_protocol: new Map(),
     by_status: new Map(),
     by_tls: new Map(),
+    by_verified_bot: new Map(),
     resolved: false,
     response_bytes: 0,
   };
@@ -545,6 +558,7 @@ async function loadHostDelivery(
           tls: httpRequestsAdaptiveGroups(limit: 10, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { clientSSLProtocol } }
           content: httpRequestsAdaptiveGroups(limit: 15, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { edgeResponseContentTypeName } }
           method: httpRequestsAdaptiveGroups(limit: 10, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { clientRequestHTTPMethodName } }
+          bots: httpRequestsAdaptiveGroups(limit: 12, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { verifiedBotCategory } }
         }
       }
     }
@@ -592,6 +606,7 @@ async function loadHostDelivery(
       by_protocol: new Map(),
       by_status: new Map(),
       by_tls: new Map(),
+      by_verified_bot: new Map(),
       resolved: true,
       response_bytes: 0,
     };
@@ -625,6 +640,9 @@ async function loadHostDelivery(
     foldDim(zoneRow.tls, agg.by_tls, 'clientSSLProtocol');
     foldDim(zoneRow.content, agg.by_content, 'edgeResponseContentTypeName');
     foldDim(zoneRow.method, agg.by_method, 'clientRequestHTTPMethodName');
+    // verifiedBotCategory: the empty-string bucket (human/unverified) is skipped by
+    // foldDim, so this yields ONLY named CF-verified bot categories.
+    foldDim(zoneRow.bots, agg.by_verified_bot, 'verifiedBotCategory');
     return agg;
   } catch (err) {
     console.warn(
@@ -961,6 +979,7 @@ export async function loadMultiUrlAnalytics(
     const mergedTls = new Map<string, number>();
     const mergedContent = new Map<string, number>();
     const mergedMethod = new Map<string, number>();
+    const mergedVerifiedBot = new Map<string, number>();
     const mergeInto = (into: Map<string, number>, from: Map<string, number>): void => {
       for (const [k, c] of from) into.set(k, (into.get(k) ?? 0) + c);
     };
@@ -972,6 +991,7 @@ export async function loadMultiUrlAnalytics(
       mergeInto(mergedTls, dv.by_tls);
       mergeInto(mergedContent, dv.by_content);
       mergeInto(mergedMethod, dv.by_method);
+      mergeInto(mergedVerifiedBot, dv.by_verified_bot);
       mergedBytes += dv.response_bytes;
     }
     const deliveryRangeDays = Math.min(Math.max(days, 1), CF_MAX_WINDOW_DAYS);
@@ -989,6 +1009,7 @@ export async function loadMultiUrlAnalytics(
         mergedTls,
         mergedContent,
         mergedMethod,
+        mergedVerifiedBot,
       ),
       pageviews: aggregates.reduce((sum, a) => sum + a.page_views, 0),
       // HONEST window: the CF path covers ≤CF_MAX_WINDOW_DAYS daily windows regardless of the
@@ -1092,6 +1113,7 @@ export function buildDeliverySummary(
   byTls: ReadonlyMap<string, number> = new Map(),
   byContent: ReadonlyMap<string, number> = new Map(),
   byMethod: ReadonlyMap<string, number> = new Map(),
+  byVerifiedBot: ReadonlyMap<string, number> = new Map(),
 ): DeliverySummary {
   /** A label→count map → its top-`n` rows, highest first, zero-counts dropped. */
   const topLabels = (
@@ -1145,6 +1167,7 @@ export function buildDeliverySummary(
     tls: topLabels(byTls),
     top_statuses: topStatuses.slice(0, 8),
     total_requests: total,
+    verified_bots: topLabels(byVerifiedBot),
     zone_resolved: zoneResolved,
   };
 }
