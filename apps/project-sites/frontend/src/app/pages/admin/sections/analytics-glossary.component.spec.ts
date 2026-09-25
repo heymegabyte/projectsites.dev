@@ -44,4 +44,20 @@ describe('AnalyticsGlossaryComponent', () => {
     expect(text).withContext('defines the Visits metric').toContain('Visits');
     expect(text).withContext('visits ≠ unique people (honest disambiguation)').toContain('unique people');
   });
+
+  it('confirms the RUM source is the first-party beacon, NOT the Cloudflare Web Analytics beacon', () => {
+    const { el } = setup();
+    const text = el.textContent ?? '';
+    // The prompt's explicit ask: a CNAME alone doesn't establish browser-measured metrics
+    // are collected — so the owner must know WHICH beacon measures their RUM.
+    expect(text).withContext('names our first-party beacon (app.js)').toContain('app.js');
+    expect(text)
+      .withContext('explicitly disclaims the Cloudflare Web Analytics beacon')
+      .toContain('Cloudflare Web Analytics beacon');
+    // The shipped page-load metrics (FCP/TTFB) are a distinct, every-browser entry.
+    expect(text).withContext('page-load speed entry present').toContain('Page load speed (FCP · TTFB)');
+    expect(text)
+      .withContext('page-load timing is every-browser, unlike Chromium-only CWV')
+      .toContain('Navigation Timing');
+  });
 });
