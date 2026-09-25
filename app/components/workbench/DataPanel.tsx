@@ -971,6 +971,15 @@ export const DataPanel = memo(() => {
   const totalRows = useMemo(() => tables.reduce((s, t) => s + (t.row_count ?? 0), 0), [tables]);
   const sortedTables = useMemo(() => [...tables].sort((a, b) => (b.row_count ?? 0) - (a.row_count ?? 0)), [tables]);
   const activeTable = tables.find((t) => t.key === active) ?? null;
+  // Schema-aware SQL completion feed — REAL table + column identifiers from the inspected schema
+  // (never fabricated). Table keys + the de-duplicated union of every table's columns.
+  const sqlSchema = useMemo(
+    () => ({
+      tables: tables.map((t) => t.key),
+      columns: [...new Set(tables.flatMap((t) => t.columns ?? []))],
+    }),
+    [tables],
+  );
   const visibleRows = useMemo(
     () => sortRows(filterRows(rows, columns, search), browseSort),
     [rows, columns, search, browseSort],
@@ -2414,7 +2423,8 @@ export const DataPanel = memo(() => {
               value={sql}
               onValueChange={updateSql}
               onRun={() => runSql(sql)}
-              placeholder="SELECT … · CREATE TABLE … · INSERT/UPDATE/DELETE …  (⌘↵ to run · destructive statements confirm first)"
+              schema={sqlSchema}
+              placeholder="SELECT … · CREATE TABLE … · INSERT/UPDATE/DELETE …  (⌘↵ to run · ↑↓/Tab complete · destructive statements confirm first)"
               testId="data-sql-input"
             />
             <div className="flex items-center gap-3">
