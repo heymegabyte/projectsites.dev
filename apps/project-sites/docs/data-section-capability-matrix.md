@@ -18,8 +18,9 @@
 1. ~~**AI SQL assistant (natural-language → SQL)**~~ ✅ **DONE 2026-09-25 (both halves)** — see
    "Recently shipped" below. Plain-English box → schema-grounded read-only SELECT dropped into the
    editor for REVIEW before Run (never auto-runs). THE highest-value owner-facing D1 feature.
-2. **"Explain this table" (plain-English)** [S] — Workers AI summarizes what a selected table stores +
-   its FK relationships in one paragraph, from the already-parsed columns + FKs. Owner-friendly.
+2. ~~**"Explain this table" (plain-English)**~~ ✅ **DONE 2026-09-25** — see "Recently shipped" below.
+   Workers-AI paragraph describing what a table stores + its relationships, grounded on the REAL
+   server-fetched CREATE SQL; read-only; in the D1Browser schema view.
 3. **Data insights strip** [M] — like the analytics Highlights strip: ≤5 plain-language takeaways from
    REAL data (largest table, fastest-growing via `last_activity` deltas, empty tables, an anomaly);
    present-data-only, never "0 of…".
@@ -54,6 +55,20 @@
     (create table / run a starter / import) per `embarrassingly-easy-to-use`.
 
 **Recently shipped from this backlog:**
+- ✅ **#2 "Explain this table" (plain-English) — DONE 2026-09-25** — the D1Browser schema view now
+  has an "✨ Explain" button beside each selected table/view: it asks the server (which re-fetches the
+  table's REAL DDL from `sqlite_master`, never a client-supplied schema) for a Workers-AI plain-English
+  paragraph describing what the table stores + its relationships. **Read-only** — it summarises the
+  SCHEMA (DDL), never row data, never a mutation. New worker route `POST /api/admin/d1/:databaseId/
+  explain-table` (super-admin + flag-dark `gate()`; table name is `D1TableNameSchema`-validated + BOUND
+  as `?1` to the `sqlite_master` lookup, never interpolated; unknown table → 404; AI failure → 502 —
+  never a fabricated summary). Pure `buildExplainTableMessages` (forbids inventing columns) +
+  `extractSummary` (strips fences, caps 1200 chars). Bridge: reuses `PS_D1_REQUEST` with a new
+  `op:'explain'` + `table` (embedded-mode.ts `D1ExplainData`) → Angular proxy case. Honest UI states
+  (busy/error/summary + model label + "verify against the columns below"). +10 Jest; editor tsc +
+  Vitest 432 + frontend tsc all green. **Stale-matrix note:** V1 (`?tab=data` deep-link bounce) and V4
+  (overview stat cards) were BOTH already fixed on origin/main by a concurrent session — verified
+  (`site-detail.component.ts:969-976` restores `?tab=`); the "V1 highest bug" claim was stale.
 - ✅ **#1 AI SQL assistant — COMPLETE (both halves) 2026-09-25** — the first-class differentiator,
   now end-to-end. **Worker half:** `POST /api/sites/:siteId/sql/nl2sql` (super-admin) grounds Workers
   AI (Llama 3.3 70B, free) on the REAL server-fetched `sqlite_master` DDL and returns ONE read-only

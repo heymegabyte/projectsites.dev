@@ -533,10 +533,13 @@ export interface D1DatabaseSummary {
 export interface D1RequestMessage {
   type: 'PS_D1_REQUEST';
   correlationId: string;
-  op: 'databases' | 'overview' | 'tables' | 'export';
+  op: 'databases' | 'overview' | 'tables' | 'export' | 'explain';
 
-  /** Required for the `overview` / `tables` / `export` ops — the D1 database UUID. */
+  /** Required for the `overview` / `tables` / `export` / `explain` ops — the D1 database UUID. */
   databaseId?: string;
+
+  /** `explain` op: the single table/view to summarise (the server re-fetches its DDL by this name). */
+  table?: string;
 
   /** `export` op: scope the SQL dump to specific tables (fewer ⇒ shorter DB-unavailability). */
   tables?: string[];
@@ -641,12 +644,18 @@ export interface D1ExportData {
   note: string;
 }
 
+/** Parent → Child (`explain` op): the plain-English table summary + the model that wrote it. */
+export interface D1ExplainData {
+  summary: string;
+  model: string;
+}
+
 /** Parent → Child (D1 Overview): the admin's reply to {@link D1RequestMessage}. */
 export interface D1ResponseMessage {
   type: 'PS_D1_RESPONSE';
   correlationId: string;
   ok: boolean;
-  data?: D1DatabasesData | D1OverviewData | D1TablesData | D1ExportData;
+  data?: D1DatabasesData | D1OverviewData | D1TablesData | D1ExportData | D1ExplainData;
   error?: string;
 }
 

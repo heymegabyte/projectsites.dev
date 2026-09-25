@@ -42,7 +42,7 @@ import type { Env, Variables } from '../../../src/types/env.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
 import { isSuperAdmin } from '../../../src/services/sysadmin.js';
 import { resolveCfCredentials, cfAuthHeaders } from '../../../src/services/cf_credentials.js';
-import { D1DatabaseIdSchema, D1ExportRequestSchema } from './schemas.js';
+import { D1DatabaseIdSchema, D1ExportRequestSchema, D1TableNameSchema } from './schemas.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 
@@ -316,6 +316,108 @@ d1Manager.get('/api/admin/d1/:databaseId/tables', async (c) => {
     latency_ms: Date.now() - t0,
   });
   return c.json({ found: true, id, objects, counts, available: true });
+});
+
+// ─── POST /api/admin/d1/:databaseId/explain-table ────────────────────────────
+// "Explain this table" — a Workers-AI plain-English paragraph describing what a table stores + its
+// relationships, grounded on the table's REAL server-fetched CREATE SQL (never a client-supplied
+// schema). Read-only: it summarises the DDL, never row data, never runs a mutation. Super-admin +
+// flag-dark (the account-wide manager). The AI-native "the AI does the work, the owner just reads".
+
+/** The Workers-AI model (free, FP8-fast) — same alias the NL→SQL assistant uses. */
+export const EXPLAIN_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+
+/**
+ * Build the chat messages that turn a table's CREATE SQL into a plain-English summary. Pure +
+ * exported for unit testing. The DDL is the ONLY grounding (server-fetched), and the prompt forbids
+ * inventing columns — so the summary can't claim structure the schema doesn't have.
+ *
+ * @param table - the table/view name (already schema-validated)
+ * @param ddl - the CREATE statement fetched from `sqlite_master` server-side
+ * @returns the `messages` array for `env.AI.run`
+ * @example buildExplainTableMessages('users', 'CREATE TABLE users(id INTEGER PRIMARY KEY)')
+ */
+export function buildExplainTableMessages(
+  table: string,
+  ddl: string,
+): Array<{ role: 'system' | 'user'; content: string }> {
+  return [
+    {
+      role: 'system',
+      content:
+        'You explain a SQLite database table to a NON-TECHNICAL website owner. Given the ' +
+        "table's CREATE statement, write 2-3 plain-English sentences describing what the table " +
+        'stores, its most important columns, and any relationships (FOREIGN KEY ... REFERENCES) to ' +
+        'other tables. Do NOT invent columns or tables not present in the DDL. Do NOT output SQL, ' +
+        'code, markdown, or a bulleted list — just the prose summary.',
+    },
+    { role: 'user', content: `Table: ${table}\n\nCREATE statement:\n${ddl}` },
+  ];
+}
+
+/** Clean the model's text into a bounded prose summary — strip code fences/markdown, cap length. */
+export function extractSummary(text: string): string {
+  return (text ?? '')
+    .replace(/```[a-z]*\n?/gi, '') // drop any stray code fences
+    .replace(/^\s*[-*]\s+/gm, '') // flatten accidental bullets
+    .trim()
+    .slice(0, 1200);
+}
+
+d1Manager.post('/api/admin/d1/:databaseId/explain-table', async (c) => {
+  const block = await gate(c);
+  if (block) return block;
+
+  const parse = D1DatabaseIdSchema.safeParse(c.req.param('databaseId'));
+  if (!parse.success) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Unknown database' } }, 404);
+  }
+  const id = parse.data;
+
+  let table: string;
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as { table?: unknown };
+    table = D1TableNameSchema.parse(body.table);
+  } catch {
+    return c.json({ ok: false, error: 'A valid table name is required.' }, 400);
+  }
+
+  const t0 = Date.now();
+  // Server-fetch the table's REAL DDL (bound `?1`, never interpolated). Never trusts a client schema.
+  const r = await cfD1Query(
+    c,
+    id,
+    "SELECT sql FROM sqlite_master WHERE name = ?1 AND type IN ('table','view') LIMIT 1",
+    [table],
+  );
+  if (!r.ok) {
+    logD1(c, { route: 'd1/explain', outcome: 'unavailable', status: r.status, reason: r.reason });
+    return c.json({ ok: false, error: 'The database is temporarily unavailable.' }, 503);
+  }
+  const ddl = typeof r.rows[0]?.sql === 'string' ? (r.rows[0].sql as string) : '';
+  if (!ddl) {
+    logD1(c, { route: 'd1/explain', outcome: 'miss' });
+    return c.json({ ok: false, error: 'No such table in this database.' }, 404);
+  }
+
+  let summary = '';
+  try {
+    const ai = c.env.AI as {
+      run: (model: string, inputs: unknown) => Promise<{ response?: string } | string>;
+    };
+    const out = await ai.run(EXPLAIN_MODEL, { messages: buildExplainTableMessages(table, ddl) });
+    summary = extractSummary(typeof out === 'string' ? out : String(out?.response ?? ''));
+  } catch {
+    logD1(c, { route: 'd1/explain', outcome: 'ai_error', latency_ms: Date.now() - t0 });
+    return c.json({ ok: false, error: 'The AI assistant is temporarily unavailable.' }, 502);
+  }
+  if (!summary) {
+    return c.json({ ok: false, error: 'Could not generate a summary — try again.' }, 502);
+  }
+
+  // Telemetry only — the table name + model, NEVER row data (the AI saw only the DDL).
+  logD1(c, { route: 'd1/explain', outcome: 'ok', table, model: EXPLAIN_MODEL, latency_ms: Date.now() - t0 });
+  return c.json({ ok: true, summary, model: EXPLAIN_MODEL });
 });
 
 /**

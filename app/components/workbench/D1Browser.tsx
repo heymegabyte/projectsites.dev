@@ -27,6 +27,7 @@ import type {
   D1ColumnInfo,
   D1DatabaseSummary,
   D1DatabasesData,
+  D1ExplainData,
   D1ExportData,
   D1ForeignKey,
   D1OverviewData,
@@ -51,6 +52,8 @@ import {
   schemaCountsLabel,
   timeTravelInfo,
 } from './d1-browser-logic';
+import { friendlyModelLabel } from './data-panel-logic';
+import { classNames } from '~/utils/classNames';
 
 /** One index of the selected table (from the catalog objects + its parsed CREATE SQL). */
 interface TableIndex {
@@ -108,6 +111,12 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
   const [foreignKeys, setForeignKeys] = useState<D1ForeignKey[]>([]);
   const [indexes, setIndexes] = useState<TableIndex[]>([]);
   const [ddlOpen, setDdlOpen] = useState(false);
+
+  // "Explain this table" — a Workers-AI plain-English summary of the selected table (read-only).
+  const [explainSummary, setExplainSummary] = useState<string | null>(null);
+  const [explainModel, setExplainModel] = useState<string | null>(null);
+  const [explainBusy, setExplainBusy] = useState(false);
+  const [explainError, setExplainError] = useState<string | null>(null);
 
   // Resolve pending bridge requests by correlationId.
   useEffect(() => {
@@ -227,6 +236,12 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
       setSelectedObject(obj);
       setDdlOpen(false);
 
+      // A fresh selection clears any prior AI summary (it described the previous table).
+      setExplainSummary(null);
+      setExplainModel(null);
+      setExplainError(null);
+      setExplainBusy(false);
+
       const browsable = isBrowsableObject(obj.type);
       setColumns(browsable ? parseCreateTableColumns(obj.sql) : []);
       setForeignKeys(browsable ? parseForeignKeys(obj.sql) : []);
@@ -248,6 +263,31 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
 
   /** Column names that are foreign keys — drives the inline "FK" badge in the columns grid. */
   const fkColumns = useMemo(() => new Set(foreignKeys.map((f) => f.column)), [foreignKeys]);
+
+  /**
+   * "Explain this table" — ask the server (which re-fetches the table's REAL DDL) for a Workers-AI
+   * plain-English summary. Read-only: it summarises the schema, never row data, never a mutation.
+   */
+  const explainTable = useCallback(async (): Promise<void> => {
+    if (!selectedObject || !selectedId) {
+      return;
+    }
+
+    setExplainBusy(true);
+    setExplainError(null);
+    setExplainSummary(null);
+
+    const res = await request({ op: 'explain', databaseId: selectedId, table: selectedObject.name });
+    setExplainBusy(false);
+
+    if (res.ok && res.data && 'summary' in res.data) {
+      const d = res.data as D1ExplainData;
+      setExplainSummary(d.summary);
+      setExplainModel(d.model);
+    } else {
+      setExplainError(res.error ?? 'Could not generate a summary.');
+    }
+  }, [selectedObject, selectedId, request]);
 
   /** Honest Backups & recovery facts for the selected database (retention + the CLI restore command). */
   const ttInfo = useMemo(() => timeTravelInfo(overview?.name ?? selectedId ?? ''), [overview?.name, selectedId]);
@@ -630,14 +670,79 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
                       <span className="truncate font-mono text-[11px] text-bolt-elements-textPrimary">
                         {selectedObject.name}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => copyText(selectedObject.name)}
-                        className="shrink-0 cursor-pointer text-[9px] text-bolt-elements-textTertiary underline hover:text-bolt-elements-textSecondary"
-                      >
-                        Copy name
-                      </button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {isBrowsableObject(selectedObject.type) && (
+                          <button
+                            type="button"
+                            onClick={explainTable}
+                            disabled={explainBusy}
+                            data-testid="data-d1-explain"
+                            title="Ask AI to describe what this table stores + its relationships, in plain English"
+                            className={classNames(
+                              'flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px]',
+                              explainBusy
+                                ? 'cursor-not-allowed text-bolt-elements-textTertiary'
+                                : 'cursor-pointer text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/10',
+                            )}
+                          >
+                            <div className={explainBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:sparkle'} />
+                            {explainBusy ? 'Explaining…' : 'Explain'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => copyText(selectedObject.name)}
+                          className="cursor-pointer text-[9px] text-bolt-elements-textTertiary underline hover:text-bolt-elements-textSecondary"
+                        >
+                          Copy name
+                        </button>
+                      </div>
                     </div>
+
+                    {/* AI plain-English summary — honest states (busy / error / result + model label).
+                        Read-only: it describes the SCHEMA (DDL), never row data. */}
+                    {(explainBusy || explainSummary || explainError) && (
+                      <div
+                        className="mb-3 rounded-md border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/5 p-2.5"
+                        data-testid="data-d1-explain-panel"
+                      >
+                        {explainBusy && (
+                          <div
+                            className="flex items-center gap-1.5 text-[10px] text-bolt-elements-textSecondary"
+                            aria-live="polite"
+                          >
+                            <div className="i-ph:circle-notch animate-spin" />
+                            Asking AI to explain this table…
+                          </div>
+                        )}
+                        {!explainBusy && explainError && (
+                          <div className="flex items-start gap-1 text-[10px] text-red-400" role="alert">
+                            <div className="i-ph:warning-circle mt-0.5 shrink-0" />
+                            <span>{explainError}</span>
+                          </div>
+                        )}
+                        {!explainBusy && explainSummary && (
+                          <>
+                            <p className="text-[11px] leading-relaxed text-bolt-elements-textPrimary">
+                              {explainSummary}
+                            </p>
+                            <div className="mt-1.5 flex items-center justify-between gap-2 text-[9px] text-bolt-elements-textTertiary">
+                              <span>
+                                {explainModel ? `${friendlyModelLabel(explainModel)} · ` : ''}AI summary of the schema —
+                                verify against the columns below.
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => explainSummary && copyText(explainSummary)}
+                                className="cursor-pointer underline hover:text-bolt-elements-textSecondary"
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
 
                     {isBrowsableObject(selectedObject.type) && (
                       <>
