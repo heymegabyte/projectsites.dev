@@ -14,9 +14,9 @@
   referrer, path)`) into the event `metadata` JSON, with bot-UA filtering (`BOT_UA_RE`). So the
   device / geo / channel / referrer breakdowns are **real**, not empty-pending-beacon.
 - **Client beacon (`POST /api/events`)** mirrors `conversion` / `form_start` / `form_submit` /
-  `web_vital` / `js_error` / **`page_engagement`** / **`scroll_depth`** into `visitor_events`
-  (`routes/analytics.ts`) — pageviews are intentionally NOT re-mirrored (server records them) to
-  avoid double-count.
+  `web_vital` / `js_error` / **`page_engagement`** / **`scroll_depth`** / **`network_quality`** into
+  `visitor_events` (`routes/analytics.ts`) — pageviews are intentionally NOT re-mirrored (server
+  records them) to avoid double-count.
 - **Time-on-page / engagement (✅ DONE end-to-end 2026-09-25):** `app.js` `initEngagement()`
   measures dwell (interactive → first hide) and beacons it once as a `page_engagement` event
   (`{duration_ms, href}`), client-bounded **1s–30min** (drops bounce/bot noise + abandoned open
@@ -121,11 +121,22 @@ gated.
 - **First-party scroll depth SHIPPED (2026-09-25):** `app.js` `initScrollDepth()` → `scroll_depth` beacon
   → `getScrollDepthSummary` (median max-depth + 25/50/75/100 reach funnel + per-page completion) →
   `ScrollDepthCard`. Content-consumption signal CF's plan has no dataset for. See the full bullet above.
-  **REMAINING advanced first-party (app.js lane, ranked):** (1) **network quality** —
-  `navigator.connection` (`effectiveType`/`downlink`/`rtt`/`saveData`) → a "Visitor connection" split
-  (LOW build, zero scaffolding); (2) **Navigation Timing phases** — DNS / TCP-connect / DOM-processing /
-  load-event breakdown beyond the shipped TTFB+FCP (extends the `web_vital` shape). Both are the
-  next fires. NOT the filter UI (owned by a concurrent session).
+- **First-party network quality SHIPPED (2026-09-25):** `app.js` `initNetworkQuality()` reads
+  `navigator.connection` once on load → `network_quality` beacon (`{effective_type, downlink, rtt,
+  save_data}`) → mirrored to `visitor_events` (server re-guarded: known effectiveType class + finite
+  non-negative downlink/rtt + boolean save_data) → **`getNetworkQualitySummary`** (distribution across
+  slow-2g/2g/3g/4g worst-first + MEDIAN downlink Mbps + MEDIAN rtt ms + save-data %) folded into BOTH
+  summary paths → **`NetworkQualityCard`** ("Visitor connection") on `/admin/analytics`. HONESTY:
+  `navigator.connection` is **Chromium-only** (Chrome/Edge/Android) — the beacon sends nothing on
+  Safari/Firefox (never a fabricated sample) and the card LABELS the split as a Chromium sample, not
+  "all visitors"; medians null → "measuring…", never a fake 0. Tenant-scoped by the summary owner gate
+  + `getNetworkQualitySummary`'s bound `site_id`. +11 tests (6 beacon-contract + 5 aggregate:
+  distribution+medians+save-data / drop-unknown-class+non-finite / empty / fail-soft / tenant + 4 card).
+  Verified: worker tsc+jest (46/46 custom_window), app tsc, card Karma 4/4.
+  **REMAINING advanced first-party (app.js lane, ranked):** (1) **Navigation Timing phases** — DNS /
+  TCP-connect / DOM-processing / load-event breakdown beyond the shipped TTFB+FCP (extends the
+  `web_vital` shape). Worker-dependent propagation still open: visitor-funnel scroll 5th stage +
+  public-report scroll/dwell/network cards. NOT the filter UI (owned by a concurrent session).
 
 ## Coverage matrix
 
