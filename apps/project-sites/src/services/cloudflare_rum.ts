@@ -219,3 +219,56 @@ export async function getCloudflareRumSummary(
     window: { since: sinceISO, until: untilISO },
   };
 }
+
+/**
+ * Cached wrapper over {@link getCloudflareRumSummary} — ONE CF GraphQL request per host per ~5-min
+ * window, instead of one per dashboard load / per public-share view (the epic's "batch/cache; one CF
+ * request per host, not per widget"). The cache key is the SERVER-RESOLVED owned host + day-window,
+ * so it never varies by the raw since/until timestamps (which would defeat the cache) and never keys
+ * on a client value. Caches SUCCESS only (a transient CF failure isn't cached → it retries next call).
+ *
+ * Env-mock-safe: when `CACHE_KV` is unbound (unit tests / a minimal env) it falls through to a direct
+ * fetch — the cache is an optimization, never a hard dependency. KV read/write failures never break
+ * the request.
+ *
+ * @param env - Worker env (CF creds + optional `CACHE_KV`)
+ * @param host - the OWNED host, resolved server-side by the caller (never a client value)
+ * @param days - the day window (clamped 1..30); the cache key + the since/until derive from it
+ * @returns the (possibly cached) summary, or null when CF errors / creds are absent
+ * @example const rum = await getCachedCloudflareRum(env, 'acme.projectsites.dev', 30)
+ */
+export async function getCachedCloudflareRum(
+  env: Env,
+  host: string,
+  days: number,
+): Promise<CloudflareRumSummary | null> {
+  const clamped = Math.min(30, Math.max(1, Math.floor(days)));
+  const key = `cf_rum:v1:${host}:${clamped}`;
+  const kv = env.CACHE_KV;
+
+  if (kv) {
+    try {
+      const cached = (await kv.get(key, 'json')) as CloudflareRumSummary | null;
+      if (cached) {
+        return cached;
+      }
+    } catch {
+      /* a cache read never breaks the live path */
+    }
+  }
+
+  const until = new Date();
+  const since = new Date(until.getTime() - clamped * 24 * 60 * 60 * 1000);
+  const summary = await getCloudflareRumSummary(env, host, since.toISOString(), until.toISOString());
+
+  // Cache success only (5 min) — a null (CF error / no creds) is left to retry on the next call.
+  if (summary && kv) {
+    try {
+      await kv.put(key, JSON.stringify(summary), { expirationTtl: 300 });
+    } catch {
+      /* best-effort — a cache write never breaks the request */
+    }
+  }
+
+  return summary;
+}

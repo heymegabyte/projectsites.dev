@@ -12,7 +12,7 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types/env.js';
 import { dbQueryOne } from '../services/db.js';
-import { getCloudflareRumSummary } from '../services/cloudflare_rum.js';
+import { getCachedCloudflareRum } from '../services/cloudflare_rum.js';
 
 const cloudflareRum = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -56,19 +56,15 @@ cloudflareRum.get('/api/sites/:siteId/cloudflare-rum', async (c) => {
   const host = (primary?.hostname || `${site.slug}.projectsites.dev`).toLowerCase();
 
   const days = clampDays(c.req.query('days'));
-  const until = new Date();
-  const since = new Date(until.getTime() - days * 24 * 60 * 60 * 1000);
-  const sinceISO = since.toISOString();
-  const untilISO = until.toISOString();
-
-  const summary = await getCloudflareRumSummary(c.env, host, sinceISO, untilISO);
+  // Cached per host per ~5-min window (one CF request per host, not per dashboard load).
+  const summary = await getCachedCloudflareRum(c.env, host, days);
 
   // Fail soft + honest: no data / no creds → available:false (never a 500, never a fabricated 0).
   if (!summary) {
     return c.json({
       available: false,
       host,
-      window: { since: sinceISO, until: untilISO },
+      days,
       reason:
         'Cloudflare RUM returned no data for this host, or analytics credentials are unavailable.',
     });

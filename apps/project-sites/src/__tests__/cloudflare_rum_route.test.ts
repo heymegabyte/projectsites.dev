@@ -4,16 +4,18 @@
  * resolution, and fail-soft behavior — not the CF network.
  */
 jest.mock('../services/db.js', () => ({ dbQueryOne: jest.fn() }));
-jest.mock('../services/cloudflare_rum.js', () => ({ getCloudflareRumSummary: jest.fn() }));
+jest.mock('../services/cloudflare_rum.js', () => ({ getCachedCloudflareRum: jest.fn() }));
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types/env.js';
 import { cloudflareRum } from '../routes/cloudflare_rum.js';
 import { dbQueryOne } from '../services/db.js';
-import { getCloudflareRumSummary } from '../services/cloudflare_rum.js';
+import { getCachedCloudflareRum } from '../services/cloudflare_rum.js';
 
 const mockDbQueryOne = dbQueryOne as unknown as jest.Mock;
-const mockGetRum = getCloudflareRumSummary as unknown as jest.Mock;
+// The route now calls the CACHED wrapper (getCachedCloudflareRum(env, host, days)) — same
+// (host at arg[1]) resolution contract, one CF request per host per window.
+const mockGetRum = getCachedCloudflareRum as unknown as jest.Mock;
 
 function makeEnv(): Env {
   return { ENVIRONMENT: 'test', DB: {} } as unknown as Env;

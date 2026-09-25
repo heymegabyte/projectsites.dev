@@ -16,7 +16,7 @@
 import type { Env } from '../../../src/types/env.js';
 import { dbQuery } from '../../../src/services/db.js';
 import {
-  getCloudflareRumSummary,
+  getCachedCloudflareRum,
   type CloudflareRumSummary,
 } from '../../../src/services/cloudflare_rum.js';
 import {
@@ -89,10 +89,8 @@ export async function getCloudflareRumForSite(
   if (!row?.slug) return null;
 
   const host = (row.hostname || `${row.slug}.projectsites.dev`).toLowerCase();
-  const clamped = Math.min(30, Math.max(1, Math.floor(days)));
-  const until = new Date();
-  const since = new Date(until.getTime() - clamped * 24 * 60 * 60 * 1000);
-  return getCloudflareRumSummary(env, host, since.toISOString(), until.toISOString());
+  // Cached per host per ~5-min window (one CF request per host, not per public-share view).
+  return getCachedCloudflareRum(env, host, days);
 }
 
 /** One day of the analytics_daily rollup series. */
