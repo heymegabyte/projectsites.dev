@@ -116,6 +116,13 @@ export interface DeliverySummary {
    * when a site has seen none. Lets an owner confirm search engines are crawling them.
    */
   readonly verified_bots: ReadonlyArray<{ label: string; count: number }>;
+  /**
+   * The count-weighted CF adaptive `sampleInterval` across the owner's hosts: ~1 ⇒ effectively
+   * FULL data (unsampled), N ⇒ ~1-in-N sampled (the counts are already scaled to the estimate;
+   * this quantifies the CONFIDENCE). `null` when CF omitted it. The UI turns this into an honest
+   * label ("≈ full data" vs "sampled ~1:N") instead of a blanket "sampled estimate".
+   */
+  readonly sample_interval: number | null;
 }
 
 export interface MultiUrlAnalytics {
@@ -290,6 +297,9 @@ export async function resolveZoneForHostname(
 interface CfGroup {
   count?: number;
   sum?: { visits?: number; edgeResponseBytes?: number };
+  /** CF adaptive sampling ratio for the group: ~1 = unsampled (full data), N = 1-in-N sampled
+   *  (the `count` is already scaled to the estimated total; this is the CONFIDENCE, surfaced honestly). */
+  avg?: { sampleInterval?: number };
   dimensions?: {
     clientRequestPath?: string;
     clientCountryName?: string;
@@ -542,6 +552,11 @@ interface HostDelivery {
   /** CF-verified bot traffic by category (empty-string human bucket excluded). */
   by_verified_bot: Map<string, number>;
   response_bytes: number;
+  /** Count-weighted CF adaptive `sampleInterval` for this host (~1 = full data, N = 1-in-N sampled),
+   *  and the request count it was averaged over (for a further weighted merge across hosts). null when
+   *  the CF response omits it. Surfaced honestly so we never imply a sampled estimate is exact. */
+  sample_interval: number | null;
+  sample_weight: number;
 }
 
 /**
@@ -588,6 +603,8 @@ async function loadHostDelivery(
     by_verified_bot: new Map(),
     resolved: false,
     response_bytes: 0,
+    sample_interval: null,
+    sample_weight: 0,
   };
   const zone = await resolveDeliveryZone(env, auth, hostname);
   if (!zone) return empty;
@@ -600,7 +617,7 @@ async function loadHostDelivery(
     query HostDelivery($zoneTag: String!, $host: String!) {
       viewer {
         zones(filter: { zoneTag: $zoneTag }) {
-          status: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { edgeResponseBytes visits } dimensions { edgeResponseStatus } }
+          status: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count avg { sampleInterval } sum { edgeResponseBytes visits } dimensions { edgeResponseStatus } }
           cache: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { edgeResponseBytes visits } dimensions { cacheStatus } }
           protocol: httpRequestsAdaptiveGroups(limit: 10, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { clientRequestHTTPProtocol } }
           tls: httpRequestsAdaptiveGroups(limit: 10, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { clientSSLProtocol } }
@@ -661,10 +678,20 @@ async function loadHostDelivery(
       by_verified_bot: new Map(),
       resolved: true,
       response_bytes: 0,
+      sample_interval: null,
+      sample_weight: 0,
     };
+    // Count-weighted CF adaptive sampleInterval across the status rows (the primary aggregate query).
+    let siNum = 0;
+    let siDen = 0;
     for (const row of zoneRow.status ?? []) {
       const s = Number(row.dimensions?.edgeResponseStatus ?? 0);
       const c = Number(row.count ?? 0);
+      const si = Number(row.avg?.sampleInterval ?? 0);
+      if (c > 0 && si > 0) {
+        siNum += c * si;
+        siDen += c;
+      }
       if (s > 0 && c > 0) {
         agg.by_status.set(s, (agg.by_status.get(s) ?? 0) + c);
         agg.by_status_bytes.set(
@@ -676,6 +703,10 @@ async function loadHostDelivery(
           (agg.by_status_visits.get(s) ?? 0) + Number(row.sum?.visits ?? 0),
         );
       }
+    }
+    if (siDen > 0) {
+      agg.sample_interval = siNum / siDen;
+      agg.sample_weight = siDen;
     }
     for (const row of zoneRow.cache ?? []) {
       const cs = String(row.dimensions?.cacheStatus ?? 'unknown');
@@ -1054,7 +1085,14 @@ export async function loadMultiUrlAnalytics(
       for (const [k, c] of from) into.set(k, (into.get(k) ?? 0) + c);
     };
     let mergedBytes = 0;
+    // Count-weighted CF sampleInterval across the owned hosts (a busier host dominates the estimate).
+    let siNum = 0;
+    let siDen = 0;
     for (const dv of deliveries) {
+      if (dv.sample_interval != null && dv.sample_weight > 0) {
+        siNum += dv.sample_interval * dv.sample_weight;
+        siDen += dv.sample_weight;
+      }
       for (const [s, c] of dv.by_status) mergedStatus.set(s, (mergedStatus.get(s) ?? 0) + c);
       for (const [s, b] of dv.by_status_bytes)
         mergedStatusBytes.set(s, (mergedStatusBytes.get(s) ?? 0) + b);
@@ -1074,6 +1112,7 @@ export async function loadMultiUrlAnalytics(
     }
     const deliveryRangeDays = Math.min(Math.max(days, 1), CF_MAX_WINDOW_DAYS);
     const deliveryZoneResolved = deliveries.some((dv) => dv.resolved);
+    const mergedSampleInterval = siDen > 0 ? siNum / siDen : null;
 
     envelope = {
       any_real_data: aggregates.some((a) => a.resolved && a.total_requests > 0),
@@ -1092,6 +1131,7 @@ export async function loadMultiUrlAnalytics(
         mergedStatusVisits,
         mergedCacheBytes,
         mergedCacheVisits,
+        mergedSampleInterval,
       ),
       pageviews: aggregates.reduce((sum, a) => sum + a.page_views, 0),
       // HONEST window: the CF path covers ≤CF_MAX_WINDOW_DAYS daily windows regardless of the
@@ -1200,6 +1240,7 @@ export function buildDeliverySummary(
   byStatusVisits: ReadonlyMap<number, number> = new Map(),
   byCacheBytes: ReadonlyMap<string, number> = new Map(),
   byCacheVisits: ReadonlyMap<string, number> = new Map(),
+  sampleInterval: number | null = null,
 ): DeliverySummary {
   /** A label→count map → its top-`n` rows, highest first, zero-counts dropped. */
   const topLabels = (
@@ -1285,6 +1326,10 @@ export function buildDeliverySummary(
     total_requests: total,
     verified_bots: topLabels(byVerifiedBot),
     zone_resolved: zoneResolved,
+    sample_interval:
+      typeof sampleInterval === 'number' && Number.isFinite(sampleInterval) && sampleInterval > 0
+        ? sampleInterval
+        : null,
   };
 }
 

@@ -20,6 +20,33 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
 
 import type { DeliverySummary } from '../../../services/api.service';
 
+/**
+ * Honest short label for the CF adaptive `sampleInterval`. CF only samples busy zones; our probe
+ * (2026-09-25) showed real intervals of ~1.9–3.6, so this is NOT always "sampled". `~1` ⇒ effectively
+ * full data; higher ⇒ 1-in-N sampled (the counts are already scaled to the estimate — this quantifies
+ * the confidence). `null`/absent ⇒ the previous generic "sampled estimate" (CF omitted the interval).
+ *
+ * @example describeSampling(1.1) // 'full data'
+ * @example describeSampling(3.3) // 'sampled ~1:3'
+ * @example describeSampling(null) // 'sampled estimate'
+ */
+export function describeSampling(interval: number | null | undefined): string {
+  if (typeof interval !== 'number' || !Number.isFinite(interval) || interval <= 0) {
+    return 'sampled estimate';
+  }
+  return interval < 1.5 ? 'full data' : `sampled ~1:${Math.round(interval)}`;
+}
+
+/** Longer tooltip explaining the sampling label — honest about what the interval means. */
+export function describeSamplingTitle(interval: number | null | undefined): string {
+  if (typeof interval !== 'number' || !Number.isFinite(interval) || interval <= 0) {
+    return 'Cloudflare adaptive-samples edge metrics on busy zones; the exact ratio was not reported for this window, so treat these as approximate.';
+  }
+  return interval < 1.5
+    ? 'Cloudflare reported little-to-no sampling for this window — these edge counts are effectively the full data.'
+    : `Cloudflare adaptive-sampled these edge metrics at about 1 in ${Math.round(interval)} requests; the counts are scaled to the estimate, so treat them as approximate.`;
+}
+
 /** Plain-language word per status class (meaning must not be colour-only). */
 const STATUS_WORD: Record<string, string> = {
   '2xx': 'success',
@@ -282,7 +309,7 @@ function formatBytes(n: number): string {
               (of {{ windowDays() }} requested — CF ~30-day edge cap)</span
             >
           }
-          · <span class="dl-est" data-testid="an-dl-sampled">sampled estimate</span></span
+          · <span class="dl-est" data-testid="an-dl-sampled" [title]="sampleTitle()">{{ sampleLabel() }}</span></span
         >
       </h3>
 
@@ -454,6 +481,15 @@ export class DeliveryCardComponent {
     const r = this.delivery()?.range_days;
     return typeof r === 'number' && r < this.windowDays();
   });
+
+  /** Honest sampling label from CF's reported `sampleInterval` ("full data" / "sampled ~1:N"). */
+  sampleLabel(): string {
+    return describeSampling(this.delivery()?.sample_interval);
+  }
+  /** Tooltip explaining the sampling label. */
+  sampleTitle(): string {
+    return describeSamplingTitle(this.delivery()?.sample_interval);
+  }
 
   /** Status classes with computed % of total + a plain-language word. */
   readonly statusRows = computed(() => {

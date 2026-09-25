@@ -1665,6 +1665,13 @@ export interface DeliverySummary {
    * this is ONLY named verified bots; `[]` when a site has seen none.
    */
   verified_bots?: { label: string; count: number }[];
+  /**
+   * Count-weighted CF adaptive `sampleInterval` across the site's hosts: ~1 ⇒ effectively FULL data
+   * (unsampled), N ⇒ ~1-in-N sampled (counts are already scaled to the estimate; this is the
+   * CONFIDENCE). `null` when CF omitted it. The card turns this into an honest label
+   * ("≈ full data" vs "sampled ~1:N") instead of a blanket "sampled estimate".
+   */
+  sample_interval?: number | null;
 }
 
 export interface MultiUrlAnalyticsEnvelope {

@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import type { DeliverySummary } from '../../../services/api.service';
-import { DeliveryCardComponent } from './delivery-card.component';
+import { DeliveryCardComponent, describeSampling } from './delivery-card.component';
 
 const REAL: DeliverySummary = {
   zone_resolved: true,
@@ -43,8 +43,39 @@ function setup(delivery: DeliverySummary | null, windowDays = 7) {
   return { fixture, el: fixture.nativeElement as HTMLElement };
 }
 
+describe('describeSampling (honest CF sampleInterval label)', () => {
+  it('quantifies real sampling as ~1:N', () => {
+    expect(describeSampling(3.3)).toBe('sampled ~1:3');
+    expect(describeSampling(1.9)).toBe('sampled ~1:2');
+  });
+  it('calls a near-1 interval "full data" (CF barely sampled — never imply an estimate it is not)', () => {
+    expect(describeSampling(1.1)).toBe('full data');
+    expect(describeSampling(1)).toBe('full data');
+  });
+  it('falls back to the generic "sampled estimate" when CF omits the interval / it is invalid', () => {
+    expect(describeSampling(null)).toBe('sampled estimate');
+    expect(describeSampling(undefined)).toBe('sampled estimate');
+    expect(describeSampling(0)).toBe('sampled estimate');
+    expect(describeSampling(Number.NaN)).toBe('sampled estimate');
+  });
+});
+
 describe('DeliveryCardComponent', () => {
   afterEach(() => TestBed.resetTestingModule());
+
+  it('renders the QUANTITATIVE sampling label from CF sampleInterval (≈1:3), not the generic one', () => {
+    const { el } = setup({ ...REAL, sample_interval: 3.3 });
+    const badge = el.querySelector('[data-testid="an-dl-sampled"]') as HTMLElement;
+    expect(badge.textContent).toContain('sampled ~1:3');
+    expect(badge.textContent).not.toContain('estimate'); // more precise than the blanket label
+  });
+
+  it('shows "full data" when CF reports little-to-no sampling (interval ≈ 1)', () => {
+    const { el } = setup({ ...REAL, sample_interval: 1.05 });
+    expect((el.querySelector('[data-testid="an-dl-sampled"]') as HTMLElement).textContent).toContain(
+      'full data',
+    );
+  });
 
   it('renders status classes with a plain-language word + percent (WCAG use-of-color)', () => {
     const { el } = setup(REAL);

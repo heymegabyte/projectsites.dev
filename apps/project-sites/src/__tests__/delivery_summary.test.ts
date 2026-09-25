@@ -14,6 +14,23 @@ import {
   resolveDeliveryZone,
 } from '../services/multi_url_analytics';
 
+describe('buildDeliverySummary — CF adaptive sampleInterval (honesty)', () => {
+  const st = new Map([[200, 100]]);
+  it('surfaces a valid sampleInterval (the confidence of the sampled estimate)', () => {
+    const r = buildDeliverySummary(st, new Map(), 0, 30, true, new Map(), new Map(), new Map(), new Map(), new Map(), new Map(), new Map(), new Map(), new Map(), 3.3);
+    expect(r.sample_interval).toBeCloseTo(3.3);
+  });
+  it('defaults to null when omitted, and null-guards 0 / negative / non-finite', () => {
+    expect(buildDeliverySummary(st, new Map(), 0, 30).sample_interval).toBeNull();
+    expect(
+      buildDeliverySummary(st, new Map(), 0, 30, true, new Map(), new Map(), new Map(), new Map(), new Map(), new Map(), new Map(), new Map(), new Map(), 0).sample_interval,
+    ).toBeNull();
+    expect(
+      buildDeliverySummary(st, new Map(), 0, 30, true, new Map(), new Map(), new Map(), new Map(), new Map(), new Map(), new Map(), new Map(), new Map(), -1).sample_interval,
+    ).toBeNull();
+  });
+});
+
 describe('buildDeliverySummary', () => {
   it('correctly buckets status codes and totals from real-world CF data', () => {
     const byStatus = new Map([
