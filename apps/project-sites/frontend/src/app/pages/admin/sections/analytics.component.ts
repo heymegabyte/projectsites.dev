@@ -31,6 +31,7 @@ import { RevealDirective } from '../../../directives/reveal.directive';
 import { WebVitalsCardComponent } from './web-vitals-card.component';
 import { CloudflareRumCardComponent } from './cloudflare-rum-card.component';
 import { HourlyBreakdownComponent, rotateToLocalHours } from './hourly-breakdown.component';
+import { WeekdayBreakdownComponent } from './weekday-breakdown.component';
 import { ConversionsCardComponent } from './conversions-card.component';
 import { OutboundLinksCardComponent } from './outbound-links-card.component';
 import { ScriptErrorsCardComponent } from './script-errors-card.component';
@@ -123,6 +124,7 @@ function sparklinePath(
     NetworkQualityCardComponent,
     NavTimingCardComponent,
     HourlyBreakdownComponent,
+    WeekdayBreakdownComponent,
     ConversionsCardComponent,
     OutboundLinksCardComponent,
     FormFunnelCardComponent,
@@ -1265,6 +1267,16 @@ function sparklinePath(
           appReveal
           [hours]="siteTraffic()?.byHour ?? []"
           [windowDays]="rangeDays()"
+        />
+
+        <!-- Busiest DAYS — day-of-week pageviews, bucketed in the owner's LOCAL tz server-side
+           (a weekday histogram can't be rotated client-side like hour-of-day). Self-fetching +
+           drilldown-aware; honest UTC-fallback label when no tz offset. -->
+        <app-weekday-breakdown
+          appReveal
+          [siteId]="state.selectedSite()?.id ?? null"
+          [windowDays]="rangeDays()"
+          [activeFilter]="filter()"
         />
 
         <!-- Campaigns & sources — utm_source / utm_campaign on TAGGED visits only (untagged

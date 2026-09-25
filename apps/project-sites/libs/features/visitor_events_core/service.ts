@@ -27,6 +27,7 @@ import {
   type FormFunnelEntry,
   type LabelCount,
   type HourCount,
+  type WeekdaySummary,
   type AnalyticsFilter,
   type AnalyticsFilterDimension,
 } from './schemas.js';
@@ -1445,6 +1446,56 @@ export async function getHourlyBreakdown(
   return data
     .filter((r) => r.hour != null && r.hour >= 0 && r.hour <= 23)
     .map((r) => ({ hour: Number(r.hour), count: Number(r.n) }));
+}
+
+/**
+ * Pageviews by day-of-week (0 = Sunday … 6 = Saturday) over the window — the "busiest
+ * days" insight, complementing {@link getHourlyBreakdown}. Unlike hour-of-day (a 24-bucket
+ * ring the frontend can rotate by a fixed offset), a weekday histogram CANNOT be shifted
+ * client-side — a late-night visit crosses into a different LOCAL weekday — so the bucketing
+ * is done tz-correct HERE in SQL. `tzOffsetMinutes` is east-positive (PST = -480); local =
+ * UTC + offset ⇒ `datetime(created_at, '+<offset> minutes')`. The offset is validated to an
+ * integer within ±14h, so it is a trusted numeric literal (never a user string); a 0 /
+ * invalid / absent offset falls back to the UTC weekday and reports `tzApplied:false`, so
+ * the UI never implies a local precision we didn't compute. Only real pageviews count
+ * (`event_type='pageview'`; bots dropped at ingest). Filter-aware (via `currentWindow`) and
+ * owner-scoped by `site_id`. Absent weekdays are omitted (UI renders them as 0). Fail-soft.
+ *
+ * @param tzOffsetMinutes - the viewer's UTC offset in minutes, east-positive (from `?tz`).
+ * @returns `{ byWeekday, tzApplied }` — `tzApplied` distinguishes local vs UTC bucketing.
+ */
+export async function getWeekdayBreakdown(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+  tzOffsetMinutes?: number,
+): Promise<WeekdaySummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const tzOk =
+    typeof tzOffsetMinutes === 'number' &&
+    Number.isInteger(tzOffsetMinutes) &&
+    tzOffsetMinutes !== 0 &&
+    tzOffsetMinutes >= -840 &&
+    tzOffsetMinutes <= 840;
+  // Validated integer → safe to inline (the ONLY interpolation is `<int> minutes`).
+  const dayExpr = tzOk
+    ? `strftime('%w', datetime(created_at, '${tzOffsetMinutes >= 0 ? '+' : ''}${tzOffsetMinutes} minutes'))`
+    : `strftime('%w', created_at)`;
+  const { data, error } = await dbQuery<{ wd: number | null; n: number }>(
+    env.DB,
+    `SELECT CAST(${dayExpr} AS INTEGER) AS wd, COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'pageview'
+      GROUP BY wd ORDER BY wd`,
+    params,
+  );
+  if (error) return { byWeekday: [], tzApplied: false };
+  const byWeekday = data
+    .filter((r) => r.wd != null && r.wd >= 0 && r.wd <= 6)
+    .map((r) => ({ weekday: Number(r.wd), count: Number(r.n) }));
+  return { byWeekday, tzApplied: tzOk };
 }
 
 /** UTM campaign parameters the campaign breakdown may GROUP BY — an allowlist so the

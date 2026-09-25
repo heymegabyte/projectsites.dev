@@ -87,6 +87,31 @@ export const HourCountSchema = z
   .strict();
 export type HourCount = z.infer<typeof HourCountSchema>;
 
+/** One `{ weekday, count }` row of the day-of-week breakdown. `weekday` is SQLite
+ *  `strftime('%w')` — 0 = Sunday … 6 = Saturday — computed in the OWNER's local timezone
+ *  (unlike {@link HourCountSchema}, a weekday histogram CANNOT be rotated client-side, so
+ *  the bucketing is done tz-correct in SQL). `count` = real pageviews on that weekday. */
+export const WeekdayCountSchema = z
+  .object({ weekday: z.number().int().min(0).max(6), count: z.number().int().min(0) })
+  .strict();
+export type WeekdayCount = z.infer<typeof WeekdayCountSchema>;
+
+/**
+ * Day-of-week breakdown envelope — the "busiest days" insight (complements hour-of-day).
+ * `byWeekday: []` = no pageviews in the window (an HONEST empty, never a fabricated 0 per
+ * day). `tzApplied` tells the UI whether buckets are the owner's LOCAL weekday (a real
+ * `tz` offset was supplied) or UTC (fallback) — surfaced so we never imply a local
+ * precision we didn't compute.
+ */
+export const WeekdaySummarySchema = z
+  .object({
+    byWeekday: z.array(WeekdayCountSchema).default([]),
+    tzApplied: z.boolean().default(false),
+  })
+  .strict()
+  .default({ byWeekday: [], tzApplied: false });
+export type WeekdaySummary = z.infer<typeof WeekdaySummarySchema>;
+
 /**
  * AN-FILTER — dimensions a traffic summary may be DRILLED DOWN / restricted to. This
  * enum IS the allowlist: the owner route validates a requested `filterDim` against it,

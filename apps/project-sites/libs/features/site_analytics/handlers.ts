@@ -42,6 +42,7 @@ import {
   getExitPagesSummary,
   getNewVsReturningSummary,
   getSessionDurationSummary,
+  getWeekdayBreakdown,
   shiftWindowToTz,
 } from '../visitor_events_core/service.js';
 // Drilldown-filter allowlist schema — validates ?filterDim against the trusted
@@ -230,6 +231,25 @@ siteAnalytics.get('/api/sites/:siteId/analytics/session-duration', async (c) => 
 
   const windowDays = parseWindowDays(c, 'windowDays');
   const summary = await getSessionDurationSummary(c.env, gate.siteId, windowDays);
+  return c.json(summary);
+});
+
+// AN — pageviews by day-of-week (0=Sun…6=Sat), bucketed in the OWNER's local tz (a weekday
+// histogram can't be rotated client-side). Drilldown-filter-aware; owner-scoped (404 non-owned,
+// 400 bad filter). `tzApplied` distinguishes local vs UTC-fallback bucketing (honest).
+siteAnalytics.get('/api/sites/:siteId/analytics/weekday', async (c) => {
+  const gate = await requireOwnedSite(c);
+  if (gate instanceof Response) return gate;
+
+  const cw = parseCustomWindow(c.req.query('start'), c.req.query('end'));
+  if (cw.error) return badWindow(c, cw.error);
+  const days = parseWindowDays(c, 'days');
+  const tzRaw = Number.parseInt(c.req.query('tz') ?? '', 10);
+  const tz = Number.isInteger(tzRaw) ? tzRaw : undefined;
+  const win = cw.window ? shiftWindowToTz(cw.window, tz) : undefined;
+  const filter = parseFilter(c);
+  if (filter instanceof Response) return filter;
+  const summary = await getWeekdayBreakdown(c.env, gate.siteId, days, win, filter, tz);
   return c.json(summary);
 });
 
