@@ -381,6 +381,41 @@ export const OutboundClicksSummarySchema = z
   .default({ total: 0, byLink: [] });
 export type OutboundClicksSummary = z.infer<typeof OutboundClicksSummarySchema>;
 
+/** One form's funnel over the window: its key + validated starts + confirmed submits. */
+export const FormFunnelEntrySchema = z
+  .object({
+    form: z.string(),
+    starts: z.number().int().min(0),
+    submits: z.number().int().min(0),
+    // submits/starts as a 0–100 integer; null when starts===0 (no attempts → no rate,
+    // never a fabricated 0%). Clamped to 100 when a submit's start fell outside the window.
+    completionRatePercent: z.number().int().min(0).max(100).nullable().default(null),
+  })
+  .strict();
+export type FormFunnelEntry = z.infer<typeof FormFunnelEntrySchema>;
+
+/**
+ * AN-FORM — the contact-form LEAD FUNNEL. `form_start` fires on a VALIDATED submit
+ * attempt (name+email present, message ≥10 chars); `form_submit` fires ONLY on a
+ * server-confirmed 200. So `starts` = serious attempts, `submits` = delivered leads,
+ * and `starts − submits` = abandons/failures — the owner's lost leads. Both events are
+ * beacon-emitted (app.js) and mirrored into `visitor_events` with `metadata.$.form` (the
+ * form's id/name, or 'contact'). `completionRatePercent` = submits/starts, null when
+ * there are no starts. Empty (`starts:0`) = no form activity yet — the card says so,
+ * never a fabricated 0%. Distinct from the `form` CONVERSION kind (which counts only
+ * successes): this funnel is the only view that surfaces ABANDONMENT.
+ */
+export const FormFunnelSummarySchema = z
+  .object({
+    starts: z.number().int().min(0),
+    submits: z.number().int().min(0),
+    completionRatePercent: z.number().int().min(0).max(100).nullable().default(null),
+    byForm: z.array(FormFunnelEntrySchema).default([]),
+  })
+  .strict()
+  .default({ starts: 0, submits: 0, completionRatePercent: null, byForm: [] });
+export type FormFunnelSummary = z.infer<typeof FormFunnelSummarySchema>;
+
 /** Aggregated traffic summary for one site over a window. */
 export const TrafficSummarySchema = z
   .object({
@@ -442,6 +477,10 @@ export const TrafficSummarySchema = z
     // AN-OUTBOUND — top clicked outbound/contact links (which links, by destination). Defaults
     // to an empty summary for back-compat with producers/fixtures that predate it.
     outboundClicks: OutboundClicksSummarySchema,
+    // AN-FORM — contact-form lead funnel (validated starts → confirmed submits →
+    // completion rate, per form). The only view that surfaces form ABANDONMENT.
+    // Defaults to an empty summary for back-compat with producers/fixtures that predate it.
+    formFunnel: FormFunnelSummarySchema,
     // AN15 — the immediately-preceding equal-length window's KPIs, for
     // period-over-period deltas. Defaults to zeros for back-compat.
     previous: z

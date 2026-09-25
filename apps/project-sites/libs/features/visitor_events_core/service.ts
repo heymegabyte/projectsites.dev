@@ -23,6 +23,8 @@ import {
   type NetworkQualitySummary,
   type NavTimingSummary,
   type OutboundClicksSummary,
+  type FormFunnelSummary,
+  type FormFunnelEntry,
   type LabelCount,
   type HourCount,
   type AnalyticsFilter,
@@ -599,6 +601,72 @@ export async function getOutboundClicksSummary(
 }
 
 /**
+ * AN-FORM — the contact-form LEAD FUNNEL over the window. Counts `form_start` (validated
+ * submit attempts) and `form_submit` (server-confirmed successes) from `visitor_events`,
+ * grouped by the form key (`json_extract(metadata,'$.form')`, set by the beacon to the
+ * form's id/name, or 'contact'). One tenant-scoped query (`currentWindow` supplies the
+ * `site_id = ?` + time-window + optional drilldown predicate — the SAME authz clause every
+ * sibling uses, so a non-owned site is never read). Reads `visitor_events` DIRECTLY, so it
+ * works in BOTH the live + rollup summary paths (like conversions/outbound; the daily
+ * rollup carries none of these funnel events).
+ *
+ * @remarks Fail-soft — a missing table / query error yields an empty summary (never throws
+ * into the summary assembly). `completionRatePercent` is null when there are no starts (no
+ * attempts → no rate, never a fabricated 0%); clamped to 100 when confirmed submits exceed
+ * validated starts (a submit whose start fell in a prior window — data anomaly, not >100%).
+ */
+export async function getFormFunnelSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<FormFunnelSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{
+    form: string | null;
+    starts: number;
+    submits: number;
+  }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.form') AS form,
+            SUM(CASE WHEN event_type = 'form_start' THEN 1 ELSE 0 END) AS starts,
+            SUM(CASE WHEN event_type = 'form_submit' THEN 1 ELSE 0 END) AS submits
+       FROM visitor_events
+      WHERE ${clause} AND event_type IN ('form_start', 'form_submit')
+      GROUP BY form ORDER BY starts DESC, submits DESC LIMIT 20`,
+    params,
+  );
+  if (error) return { starts: 0, submits: 0, completionRatePercent: null, byForm: [] };
+  // completion% = submits/starts, null when no starts, clamped ≤100 for the submit-without-
+  // start anomaly (a start beacon lost, or the start landed in a prior window).
+  const rate = (submits: number, starts: number): number | null =>
+    starts > 0 ? Math.min(100, Math.round((submits / starts) * 100)) : null;
+  let totalStarts = 0;
+  let totalSubmits = 0;
+  const byForm: FormFunnelEntry[] = [];
+  for (const r of data) {
+    const starts = Number(r.starts) || 0;
+    const submits = Number(r.submits) || 0;
+    if (starts === 0 && submits === 0) continue;
+    totalStarts += starts;
+    totalSubmits += submits;
+    byForm.push({
+      form: typeof r.form === 'string' && r.form ? r.form : 'contact',
+      starts,
+      submits,
+      completionRatePercent: rate(submits, starts),
+    });
+  }
+  return {
+    starts: totalStarts,
+    submits: totalSubmits,
+    completionRatePercent: rate(totalSubmits, totalStarts),
+    byForm,
+  };
+}
+
+/**
  * AN-JSERR — first-party JS-error site-health over the window: uncaught errors /
  * unhandled rejections from the `js_error` beacon (mirrored into `visitor_events`),
  * grouped by message (worst first, top 8 displayed) + a sample path each. Queried
@@ -1082,6 +1150,7 @@ export async function getTrafficSummary(
     networkQuality,
     navTiming,
     outboundClicks,
+    formFunnel,
   ] = await Promise.all([
     scalar(
       env,
@@ -1175,6 +1244,8 @@ export async function getTrafficSummary(
     getNavTimingSummary(env, siteId, windowDays, window, filter),
     // AN-OUTBOUND — top clicked outbound/contact links (queried directly; not in the rollup).
     getOutboundClicksSummary(env, siteId, windowDays, window, filter),
+    // AN-FORM — contact-form lead funnel (queried directly; the rollup has no funnel events).
+    getFormFunnelSummary(env, siteId, windowDays, window, filter),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -1218,6 +1289,7 @@ export async function getTrafficSummary(
     networkQuality,
     navTiming,
     outboundClicks,
+    formFunnel,
     byConversionKind,
     previous: {
       pageviews: prevPageviews,
@@ -1316,6 +1388,7 @@ export async function getTrafficSummaryFromRollup(
     networkQuality,
     navTiming,
     outboundClicks,
+    formFunnel,
   ] = await Promise.all([
     sumScalars(curStart, null),
     sumScalars(prevStart, prevEnd),
@@ -1346,6 +1419,8 @@ export async function getTrafficSummaryFromRollup(
     getNavTimingSummary(env, siteId, windowDays),
     // AN-OUTBOUND — top clicked outbound/contact links (queried live; not in the rollup).
     getOutboundClicksSummary(env, siteId, windowDays),
+    // AN-FORM — contact-form lead funnel (queried live; the rollup has no funnel events).
+    getFormFunnelSummary(env, siteId, windowDays),
   ]);
 
   return TrafficSummarySchema.parse({
@@ -1376,6 +1451,7 @@ export async function getTrafficSummaryFromRollup(
     networkQuality,
     navTiming,
     outboundClicks,
+    formFunnel,
     byConversionKind,
     previous: {
       pageviews: prev.pageviews,
