@@ -5,6 +5,36 @@
 > where **deleting the instance from the UI deletes the D1 + R2 + Worker with zero dangling
 > resources**. Started 2026-09-25. This doc lets any fresh context continue.
 
+## 🧱 B1 FOUNDATION — real Payload bundle staged in R2 (2026-09-25, fire 9)
+
+`/admin` today serves the **bootstrap placeholder**, not the real Payload login. B1 swaps it for
+the real OpenNext bundle. The blocker was "how" — proven this fire:
+
+- **The real Payload deploy MUST be pre-bundled.** `.open-next/worker.js` is a 2 KB entry that
+  imports **~1829 modules** — a Worker can't esbuild that at request time. `wrangler deploy
+  --dry-run --outdir` runs esbuild ONCE → a single **`worker.js` (14 MB raw / ~3.5 MB gzip, under
+  the WfP limit)** + 3 binary modules (`*-resvg.wasm` `application/wasm`, `*-yoga.wasm`
+  `application/wasm`, `*-Geist-Regular.ttf.bin` `application/octet-stream`) + **84 static assets**.
+- **Artifact built + stored + verified.** `scripts/build-payload-bundle.mjs` stages worker + modules
+  + assets + a `manifest.json` (compat_date `2025-08-15`, flags `[nodejs_compat,
+  global_fetch_strictly_public]`, module types, per-asset 32-hex hashes) into ONE **4.6 MB zip** →
+  stored at R2 **`project-sites-production/payload-bundle/v1.zip`**. Round-trip verified byte-identical
+  (4605444 == 4605444) with a correct manifest.
+
+### ▶ NEXT SLICE (B1 runtime uploader — fully specced now)
+Make `provisionPayloadStack` deploy the REAL bundle instead of `PAYLOAD_BOOTSTRAP_WORKER`:
+1. `env.SITES_BUCKET.get('payload-bundle/v1.zip')` → unzip in-Worker (add `fflate`).
+2. **assets-upload-session** (WfP): `POST .../scripts/{name}/assets-upload-session` with the
+   manifest `{ "/path": {hash,size} }` → returns `{jwt, buckets}`; `POST /workers/assets/upload?base64=true`
+   (Bearer jwt) each bucket → completion token.
+3. **Multipart script upload** into the dispatch namespace: `worker.js` (main_module) + the 3 modules
+   (exact hash-prefixed names, matching types) + metadata `{ main_module, compatibility_date,
+   compatibility_flags, bindings:[D1, R2, {type:'assets', name:'ASSETS'}, PAYLOAD_SECRET], assets:{jwt:<token>} }`.
+4. Pass the real module via the existing `provisionPayloadStack(ctx.workerModule)` seam; verify
+   `GET {url}/admin` returns the REAL Payload login (200 + Payload markers); delete → gone.
+Rebuild the artifact on Payload upgrades: `(cd infra/payload-d1 && npx wrangler deploy --dry-run
+--outdir /tmp/payload-bundle) && node scripts/build-payload-bundle.mjs && wrangler r2 object put …`.
+
 ## 🔷 WfP DISPATCH + `{slug}.app.projectsites.dev` ROUTING (2026-09-25, fire 8)
 
 Advanced the "using WfP where appropriate" + `payload-slug.app.projectsites.dev` slice:
