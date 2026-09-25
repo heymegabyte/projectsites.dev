@@ -46,6 +46,8 @@ import {
   type GridSort,
   nextSort,
   sortRows,
+  clipboardValue,
+  rowJson,
 } from './data-panel-logic';
 import { classNames } from '~/utils/classNames';
 
@@ -170,6 +172,13 @@ export const DataPanel = memo(() => {
    * showing the latest N). null = original (server) order; a header click cycles asc→desc→off.
    */
   const [browseSort, setBrowseSort] = useState<GridSort | null>(null);
+
+  /*
+   * Transient "✓ Copied …" flash for clipboard actions (announced via aria-live). A token
+   * guards the timeout so a rapid second copy doesn't get cleared by the first's timer.
+   */
+  const [copied, setCopied] = useState('');
+  const copyToken = useRef(0);
 
   /*
    * D1 manager — read-only SQL console (super-admin only; the sql/exec endpoint reads the shared
@@ -607,6 +616,53 @@ export const DataPanel = memo(() => {
     setDetailIdx(null);
   }, []);
 
+  /**
+   * Write `text` to the clipboard and flash a polite "✓ Copied {label}" confirmation. Fail-soft:
+   * a blocked/absent clipboard (insecure context, denied permission) is a no-op — never throws,
+   * never a scary error. `writeClipboard` is isolated so a unit/e2e test can spy on it.
+   */
+  const writeClipboard = useCallback((text: string): void => {
+    try {
+      void navigator.clipboard?.writeText(text);
+    } catch {
+      /* clipboard unavailable → no-op */
+    }
+  }, []);
+
+  const flashCopied = useCallback((label: string): void => {
+    const token = ++copyToken.current;
+    setCopied(`Copied ${label}`);
+    setTimeout(() => {
+      if (copyToken.current === token) {
+        setCopied('');
+      }
+    }, 1800);
+  }, []);
+
+  /** Copy one cell's RAW value (never the display em-dash); no-op + no flash for an empty cell. */
+  const copyValue = useCallback(
+    (value: unknown, label: string): void => {
+      const text = clipboardValue(value);
+
+      if (!text) {
+        return;
+      }
+
+      writeClipboard(text);
+      flashCopied(label);
+    },
+    [writeClipboard, flashCopied],
+  );
+
+  /** Copy a whole row as pretty JSON — the "grab this record" action. */
+  const copyRow = useCallback(
+    (row: Record<string, unknown>): void => {
+      writeClipboard(rowJson(row));
+      flashCopied('row as JSON');
+    },
+    [writeClipboard, flashCopied],
+  );
+
   /** The SQL result grid, client-sorted (honest — reorders the full returned result). */
   const sqlVisibleRows = useMemo(() => sortRows(sqlRows, sqlSort), [sqlRows, sqlSort]);
 
@@ -693,7 +749,20 @@ export const DataPanel = memo(() => {
   );
 
   return (
-    <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 overflow-y-auto modern-scrollbar">
+    <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 overflow-y-auto modern-scrollbar relative">
+      {/* Clipboard confirmation — a polite live-region toast; visually a small pill, and
+          announced to screen readers. Empty (no node rendered) when nothing was just copied. */}
+      <div aria-live="polite" className="sr-only" data-testid="data-copy-live">
+        {copied}
+      </div>
+      {copied && (
+        <div
+          className="absolute top-2 left-1/2 -translate-x-1/2 z-50 rounded-full bg-bolt-elements-item-contentAccent/90 text-bolt-elements-background-depth-1 text-[10px] font-semibold px-2.5 py-1 shadow"
+          data-testid="data-copy-toast"
+        >
+          ✓ {copied}
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-bolt-elements-borderColor">
         <div className="i-ph:database-duotone text-xl text-bolt-elements-textSecondary" />
@@ -1037,14 +1106,37 @@ export const DataPanel = memo(() => {
                       {detailIdx === i && (
                         <tr data-testid="data-row-detail">
                           <td colSpan={columns.length} className="bg-bolt-elements-background-depth-1 px-3 py-2">
+                            <div className="flex justify-end mb-1.5">
+                              <button
+                                type="button"
+                                onClick={() => copyRow(r)}
+                                data-testid="data-copy-row"
+                                title="Copy this row as JSON"
+                                className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-bolt-elements-item-contentAccent/40 cursor-pointer"
+                              >
+                                <div className="i-ph:copy text-[11px]" /> Copy row (JSON)
+                              </button>
+                            </div>
                             <dl className="grid grid-cols-[minmax(90px,auto)_1fr] gap-x-3 gap-y-1">
-                              {detailEntries(r, columns).map(([label, val]) => (
+                              {detailEntries(r, columns).map(([label, val], idx) => (
                                 <React.Fragment key={label}>
                                   <dt className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary pt-0.5">
                                     {label}
                                   </dt>
-                                  <dd className="text-[11px] text-bolt-elements-textPrimary font-mono whitespace-pre-wrap break-words">
-                                    {val}
+                                  <dd className="group text-[11px] text-bolt-elements-textPrimary font-mono whitespace-pre-wrap break-words flex items-start gap-1.5">
+                                    <span className="min-w-0 break-words">{val}</span>
+                                    {clipboardValue(r[columns[idx]]) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => copyValue(r[columns[idx]], label)}
+                                        data-testid="data-copy-cell"
+                                        title={`Copy ${label}`}
+                                        aria-label={`Copy ${label}`}
+                                        className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 focus:opacity-100 text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer transition-opacity"
+                                      >
+                                        <div className="i-ph:copy text-[11px]" />
+                                      </button>
+                                    )}
                                   </dd>
                                 </React.Fragment>
                               ))}
@@ -1479,10 +1571,23 @@ export const DataPanel = memo(() => {
                       {sqlColumns.map((c) => (
                         <td
                           key={c}
-                          className="px-3 py-1.5 text-bolt-elements-textSecondary align-top max-w-[280px] truncate font-mono"
-                          title={formatCellValue(r[c])}
+                          className="px-3 py-1.5 text-bolt-elements-textSecondary align-top max-w-[280px] font-mono"
                         >
-                          {formatCellValue(r[c])}
+                          {clipboardValue(r[c]) ? (
+                            <button
+                              type="button"
+                              onClick={() => copyValue(r[c], c)}
+                              data-testid="data-sql-copy-cell"
+                              title={`Click to copy · ${c}`}
+                              className="block max-w-full truncate text-left hover:text-bolt-elements-item-contentAccent cursor-pointer"
+                            >
+                              {formatCellValue(r[c])}
+                            </button>
+                          ) : (
+                            <span className="block truncate" title={formatCellValue(r[c])}>
+                              {formatCellValue(r[c])}
+                            </span>
+                          )}
                         </td>
                       ))}
                       <td className="px-1 py-1.5 text-right">

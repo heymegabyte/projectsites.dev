@@ -36,6 +36,8 @@ import {
   updateQueryTabSql,
   nextSort,
   sortRows,
+  clipboardValue,
+  rowJson,
 } from './data-panel-logic';
 
 describe('iconForTable', () => {
@@ -626,5 +628,39 @@ describe('sortRows (type-aware, stable, empties-last)', () => {
 
     // formatCellValue → '{"z":1}' vs '{"a":1}' → 'a' before 'z'
     expect(sortRows(rows, { col: 'o', dir: 'asc' }).map((r) => JSON.stringify(r.o))).toEqual(['{"a":1}', '{"z":1}']);
+  });
+});
+
+describe('clipboardValue (raw cell copy text, never the display em-dash)', () => {
+  it('copies scalars as their plain string', () => {
+    expect(clipboardValue('a@x.com')).toBe('a@x.com');
+    expect(clipboardValue(42)).toBe('42');
+    expect(clipboardValue(false)).toBe('false');
+    expect(clipboardValue(0)).toBe('0');
+  });
+  it('copies objects as compact JSON', () => {
+    expect(clipboardValue({ a: 1, b: 'x' })).toBe('{"a":1,"b":"x"}');
+  });
+  it('copies null / undefined / empty as an EMPTY string (never "—")', () => {
+    expect(clipboardValue(null)).toBe('');
+    expect(clipboardValue(undefined)).toBe('');
+    expect(clipboardValue('')).toBe('');
+  });
+  it('never throws on a cyclic object', () => {
+    const c: Record<string, unknown> = {};
+    c.self = c;
+    expect(typeof clipboardValue(c)).toBe('string');
+  });
+});
+
+describe('rowJson (whole-row pretty JSON for "Copy row")', () => {
+  it('pretty-prints the row with 2-space indent', () => {
+    expect(rowJson({ email: 'a@x.com', n: 2 })).toBe('{\n  "email": "a@x.com",\n  "n": 2\n}');
+  });
+  it('never throws on a cyclic row (falls back to a shallow string map)', () => {
+    const r: Record<string, unknown> = { a: 1 };
+    r.self = r;
+    expect(typeof rowJson(r)).toBe('string');
+    expect(rowJson(r)).toContain('"a"');
   });
 });

@@ -1004,3 +1004,53 @@ export function sortRows(rows: readonly Record<string, unknown>[], sort: GridSor
     })
     .map((d) => d.row);
 }
+
+/**
+ * The RAW text to place on the clipboard for a single cell — NOT the display form. Scalars
+ * copy as their plain string (`42`, `pageview`, `false`); objects as compact JSON; and
+ * null / undefined / '' copy as an EMPTY string (there's nothing meaningful to copy — never
+ * the display em-dash, which would paste a literal "—"). Never throws.
+ *
+ * @param value - the raw cell value
+ * @returns the clipboard text (may be empty)
+ * @example clipboardValue('a@x.com') // 'a@x.com'
+ * @example clipboardValue({ a: 1 })  // '{"a":1}'
+ * @example clipboardValue(null)      // ''
+ */
+export function clipboardValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  return String(value);
+}
+
+/**
+ * A whole row serialized as pretty (2-space) JSON for the "Copy row" action — the natural
+ * "grab this record" gesture. Never throws (a cyclic row falls back to a shallow string map).
+ *
+ * @param row - one browse/result row
+ * @returns pretty JSON text
+ * @example rowJson({ email: 'a@x.com', n: 2 }) // '{\n  "email": "a@x.com",\n  "n": 2\n}'
+ */
+export function rowJson(row: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(row, null, 2);
+  } catch {
+    const shallow: Record<string, string> = {};
+
+    for (const k of Object.keys(row)) {
+      shallow[k] = String(row[k]);
+    }
+
+    return JSON.stringify(shallow, null, 2);
+  }
+}
