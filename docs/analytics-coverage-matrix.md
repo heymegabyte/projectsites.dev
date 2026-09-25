@@ -496,7 +496,27 @@ latency percentiles — no entitlement) or need new plumbing/deps (see Next).
 
 ## Next increment (handoff)
 
-**Filtered daily-series — SHIPPED (2026-09-25, latest).** The last drilldown-consistency gap: the
+**CF adaptive-sampling honesty (sampleInterval) — SHIPPED (2026-09-25, latest).** The prompt's most-
+emphasized honesty requirement ("surface sampling, estimates … never imply an estimated metric is
+exact"). The delivery card said "sampled estimate" UNCONDITIONALLY, but CF only samples busy zones — a
+LIVE PROBE of our zone showed real `sampleInterval`s of **~1.9–3.6 per host** (franklin-barbecue=3.56,
+harborline=1.95), so the blanket label gave no ratio AND could mislabel near-full data. Now the worker
+captures CF's `avg { sampleInterval }` from the primary `httpRequestsAdaptiveGroups` status query
+(verified valid against the live CF API), count-weights it per host, merges count-weighted across the
+owner's hosts, and exposes `DeliverySummary.sample_interval` (null when CF omits it). The card renders
+an honest **quantitative** badge via pure `describeSampling`: **"full data"** (interval <1.5) ·
+**"sampled ~1:N"** · generic **"sampled estimate"** fallback (null). The `count` is already CF's scaled
+estimate — sampleInterval is the CONFIDENCE, never a re-scaling. +2 worker + 5 frontend tests; worker
+12656 · frontend Karma 2329 · tsc + 0 eslint errors. Deployed worker (2026-09-25 21:35Z, envelope
+prod-verified 401-gated) + frontend `chunk-E7WYR7SH.js` (live). **The CF integration is now honest AND
+complete (status · cache · bytes · geo · protocol · TLS · content-type · method · verified-bots · +
+sampling confidence). NEXT: a verify-against-source pass (reconcile a displayed metric vs prod D1 for
+the real account) OR reallocate to generated-site quality — the AUGMENT + CF tiers are feature-complete.**
+
+**⚠️ PRE-EXISTING (still unresolved, not this increment):** `feature_flags_docs.test.ts` remains RED on
+origin/main — 3 registry flags without `docs.ts` entries (a concurrent session's incomplete work).
+
+**Filtered daily-series — SHIPPED (2026-09-25, earlier).** The last drilldown-consistency gap: the
 `{dim,value}` filter re-scoped every card EXCEPT the daily line chart (`getDailySeries` + the
 `/analytics/daily` route + the frontend fetch ignored it), so a `country=US` drill filtered the KPIs +
 every breakdown but left the chart showing ALL traffic — a conflation. Fixed end-to-end: exported
