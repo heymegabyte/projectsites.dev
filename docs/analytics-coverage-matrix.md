@@ -197,6 +197,20 @@ gated.
   beside Conversions (the WHICH-LINKS companion to the by-category counts), scheme stripped for
   display, honest empty when none. These are the owner's OWN links, not visitor PII. +9 Jest
   (5 aggregate + 4 normalize) + 4 Karma. Worker tsc+jest; app tsc; card Karma 4/4.
+- **Public report Cloudflare RUM SHIPPED (2026-09-25):** the shared `/shared/analytics/:token`
+  report now also shows **Cloudflare-measured** performance — an INDEPENDENT second source beside the
+  first-party numbers. Server: `getCloudflareRumForSite(env, siteId, days)` (site_analytics service)
+  resolves the OWNED host from the site's OWN records (primary custom hostname → else
+  `{slug}.projectsites.dev`) from the site id in the verified HMAC share grant — never a client value;
+  fail-soft null on no-site/CF-error. The handler adds a sibling `cloudflareRum` field (NOT inside the
+  Zod summary → no schema churn). Frontend: two tiles when CF has real samples — **"Page speed ·
+  Cloudflare"** (independent `cwvOverallRating` verdict) + **"Server response · Cloudflare"** (TTFB —
+  NEW; the first-party report shows page-load but not TTFB); labelled "· Cloudflare" so sources never
+  blur; omitted (never a fabricated 0/verdict) when absent. +3 Jest (host resolution slug/custom +
+  fail-soft) + 2 Karma (tiles render + honest-omit). Worker `9cc0e6b4`; public chunk `chunk-N3FLJGID.js`
+  live; public route live (invalid token → 404). Full valid-token end-to-end not exercised in prod —
+  the share-mint route is flag-gated for the E2E test org (test-env limit, not a code issue); every
+  component independently verified + the underlying CF fetch proven live a prior fire.
 - **Public report "Page speed" (CWV verdict) SHIPPED (2026-09-25):** the public
   `/shared/analytics/:token` report gains a recognizable **Page speed** tile (Good / Needs
   improvement / Poor) from real-user Core Web Vitals. Frontend-only (the endpoint already returns
