@@ -14,8 +14,9 @@
   referrer, path)`) into the event `metadata` JSON, with bot-UA filtering (`BOT_UA_RE`). So the
   device / geo / channel / referrer breakdowns are **real**, not empty-pending-beacon.
 - **Client beacon (`POST /api/events`)** mirrors `conversion` / `form_start` / `form_submit` /
-  `web_vital` / `js_error` / **`page_engagement`** into `visitor_events` (`routes/analytics.ts`) —
-  pageviews are intentionally NOT re-mirrored (server records them) to avoid double-count.
+  `web_vital` / `js_error` / **`page_engagement`** / **`scroll_depth`** into `visitor_events`
+  (`routes/analytics.ts`) — pageviews are intentionally NOT re-mirrored (server records them) to
+  avoid double-count.
 - **Time-on-page / engagement (✅ DONE end-to-end 2026-09-25):** `app.js` `initEngagement()`
   measures dwell (interactive → first hide) and beacons it once as a `page_engagement` event
   (`{duration_ms, href}`), client-bounded **1s–30min** (drops bounce/bot noise + abandoned open
@@ -29,6 +30,23 @@
   + `getEngagementSummary`'s bound `site_id`. +17 tests (7 instrument + 5 aggregate:
   median/per-page/floor/fail-soft/tenant + 4 card + formatDwell). Verified: worker tsc+jest, app tsc,
   Karma, build:prod.
+- **Scroll depth / content consumption (✅ DONE end-to-end 2026-09-25):** `app.js` `initScrollDepth()`
+  tracks the **max % of page height** a visit reaches (initial above-the-fold coverage, then the
+  deepest scroll point) and beacons it once on `visibilitychange:hidden`/`pagehide` as a `scroll_depth`
+  event (`{percent, href}`, client-clamped **0–100**; a viewport-fitting page = 100 "fully seen"; an
+  unmeasurable page is skipped, never a fabricated sample) → ingest `EVENT_TYPES` + `VisitorEventTypeSchema`
+  + `VISITOR_MIRROR_TYPES` accept it → mirrored to `visitor_events` (server-re-guarded finite 0–100
+  `{percent}`) → **`getScrollDepthSummary`** computes the site-wide **MEDIAN** max-depth (median, not
+  mean — depth is bimodal bounce-vs-read), a **monotonic reach funnel** (count of visits reaching
+  ≥25/50/75/100%), and the deepest-read pages (per-page past the 5-sample floor, each with its completion
+  rate), fail-soft to a null-median empty, folded into BOTH traffic-summary paths (live + rollup) →
+  **`ScrollDepthCard`** ("Scroll depth") on `/admin/analytics` shows the median headline, the reach funnel
+  as bars, and most-read pages, or **"Measuring…"** when 0 samples (never a fabricated 0 — the beacon runs
+  on every scrollable page). First-party content-consumption signal CF's plan has NO dataset for.
+  Tenant-scoped by the summary owner gate + `getScrollDepthSummary`'s bound `site_id`. +16 tests (7
+  instrument beacon-contract + 6 aggregate: median+funnel/0–100-clamp/per-page-completion+floor/empty/
+  fail-soft/tenant + 3 card: funnel-rates+rows/measuring-null/undefined-safe). Verified: worker tsc+jest
+  (41/41 custom_window), app tsc, card Karma 3/3 (template AOT-compiled).
 - **JS-error site-health (✅ DONE end-to-end 2026-09-25):** `app.js` `initErrorBeacon()` turns an
   uncaught error / unhandled rejection into a `js_error` event (`{message, source, line}`, deduped
   once/session · capped ≤5 · message truncated 300 · resource-404s skipped · self-guarded) → ingest
@@ -100,6 +118,14 @@ gated.
   TTFB 800/1800), surfaced in a "Page load speed" section of the CWV card. Covers EVERY browser (unlike
   Chromium-only CWV). Beacon prod-verified live; `traffic.webVitals.{fcp,ttfb}` keys live (null until
   re-served sites accrue samples — honest, hides the section meanwhile). This is the app.js-augmentation lane.
+- **First-party scroll depth SHIPPED (2026-09-25):** `app.js` `initScrollDepth()` → `scroll_depth` beacon
+  → `getScrollDepthSummary` (median max-depth + 25/50/75/100 reach funnel + per-page completion) →
+  `ScrollDepthCard`. Content-consumption signal CF's plan has no dataset for. See the full bullet above.
+  **REMAINING advanced first-party (app.js lane, ranked):** (1) **network quality** —
+  `navigator.connection` (`effectiveType`/`downlink`/`rtt`/`saveData`) → a "Visitor connection" split
+  (LOW build, zero scaffolding); (2) **Navigation Timing phases** — DNS / TCP-connect / DOM-processing /
+  load-event breakdown beyond the shipped TTFB+FCP (extends the `web_vital` shape). Both are the
+  next fires. NOT the filter UI (owned by a concurrent session).
 
 ## Coverage matrix
 
