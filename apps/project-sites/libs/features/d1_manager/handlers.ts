@@ -6,16 +6,23 @@
  * | ------ | -------------------------------------- | ----------- | ---------------------------------------- |
  * | GET    | /api/admin/d1/databases                | super-admin | List the account's D1 databases          |
  * | GET    | /api/admin/d1/:databaseId/overview     | super-admin | One DB's metadata (size, table count, …) |
+ * | GET    | /api/admin/d1/:databaseId/tables       | super-admin | Schema catalog (tables/views/indexes/triggers + DDL) |
  * | POST   | /api/admin/d1/:databaseId/export       | super-admin | Full/scoped SQL-dump export (async poll) |
  *
  * Security model (mirrors kv_inspector / r2_inspector / vectorize_inspector):
  *   - 404 when the `d1_manager` flag is off OR the caller is not a platform super-admin
  *     (never leak existence).
- *   - Reads only — NO data mutation: list + overview + SQL-DUMP EXPORT (a read of the DB into a
- *     portable .sql text dump; it does NOT alter data). Export DOES briefly make the DB unavailable
- *     to serve queries while it runs (a CF platform behaviour, surfaced honestly in the response
- *     `note`), so it stays super-admin + flag-dark. No write / DDL / Time-Travel restore is exposed
- *     (the raw SQL console has its own super-admin gate; restore is destructive, intentionally absent).
+ *   - Reads only — NO data mutation: list + overview + SCHEMA CATALOG (tables/views/indexes/triggers +
+ *     each object's CREATE SQL, via a STATIC read-only `sqlite_master` SELECT over CF's REST `/query`
+ *     endpoint — a query does NOT make the DB unavailable) + SQL-DUMP EXPORT (a read of the DB into a
+ *     portable .sql text dump; it does NOT alter data, but DOES briefly make the DB unavailable to serve
+ *     queries while it runs — a CF platform behaviour, surfaced honestly in the response `note`). No
+ *     write / DDL / Time-Travel restore is exposed (the raw SQL console has its own super-admin gate).
+ *   - CF LIMITATION (verified against prod D1, 2026-09-25): the REST `/query` authorizer BLOCKS `PRAGMA`
+ *     + `pragma_table_info()` (`SQLITE_AUTH`). Column details are therefore parsed CLIENT-SIDE from each
+ *     table's CREATE SQL (already returned by the catalog), never via a PRAGMA the platform forbids — so
+ *     there is no always-failing "columns" endpoint. The catalog query is static read-only SQL (no
+ *     user-supplied token reaches it); export table scoping is Zod-validated against the identifier allowlist.
  *   - Cloudflare credentials stay SERVER-side (`resolveCfCredentials` → the worker global
  *     key / token); the browser never sees an account token. The account is `env.CF_ACCOUNT_ID`
  *     (server-derived), NEVER client-supplied.
@@ -115,7 +122,13 @@ d1Manager.get('/api/admin/d1/databases', async (c) => {
   const t0 = Date.now();
   const r = await cfD1(c, '');
   if (!r.ok) {
-    logD1(c, { route: 'd1/databases', outcome: 'unavailable', status: r.status, reason: r.reason, latency_ms: Date.now() - t0 });
+    logD1(c, {
+      route: 'd1/databases',
+      outcome: 'unavailable',
+      status: r.status,
+      reason: r.reason,
+      latency_ms: Date.now() - t0,
+    });
     // Honest "not available" — distinguishes a credential/API failure from a real empty account.
     return c.json({ databases: [], available: false, reason: r.reason ?? `cf_${r.status}` });
   }
@@ -128,7 +141,12 @@ d1Manager.get('/api/admin/d1/databases', async (c) => {
       version: d?.version ?? null,
     }))
     .filter((d) => d.id);
-  logD1(c, { route: 'd1/databases', outcome: 'ok', count: databases.length, latency_ms: Date.now() - t0 });
+  logD1(c, {
+    route: 'd1/databases',
+    outcome: 'ok',
+    count: databases.length,
+    latency_ms: Date.now() - t0,
+  });
   return c.json({ databases, available: true });
 });
 
@@ -150,7 +168,12 @@ d1Manager.get('/api/admin/d1/:databaseId/overview', async (c) => {
     return c.json({ found: false, id }); // honest — the database doesn't exist
   }
   if (!r.ok) {
-    logD1(c, { route: 'd1/overview', outcome: 'unavailable', status: r.status, latency_ms: Date.now() - t0 });
+    logD1(c, {
+      route: 'd1/overview',
+      outcome: 'unavailable',
+      status: r.status,
+      latency_ms: Date.now() - t0,
+    });
     return c.json({ found: false, id, available: false, reason: r.reason ?? `cf_${r.status}` });
   }
   const db = (r.result ?? {}) as CfD1Row;
@@ -195,6 +218,105 @@ async function cfD1Post(
     return { status: 0, ok: false, result: null, reason: 'fetch_error' };
   }
 }
+
+/**
+ * Run a READ-ONLY SQL statement against a D1 database via the CF REST `/query` endpoint (the schema
+ * browser reads `sqlite_master`). Unlike export, a query does NOT make the DB unavailable. `params`
+ * are BOUND by CF (never concatenated). Fail-soft — returns `{ ok:false, rows:[] }` on any
+ * credential/API failure (never throws, never a fabricated result).
+ *
+ * NOTE (verified against prod D1, 2026-09-25): the REST `/query` authorizer BLOCKS `PRAGMA` statements
+ * and the `pragma_table_info()` table-valued function (`SQLITE_AUTH`, code 7500). `sqlite_master`
+ * SELECTs ARE allowed — so column details are parsed client-side from each object's CREATE SQL (the
+ * DDL the catalog already returns), never via a PRAGMA the platform forbids.
+ *
+ * CF `/query` returns `result: [{ results, success, meta }]` (one entry per statement) — we read the
+ * first statement's `results` rows.
+ */
+async function cfD1Query(
+  c: Context<AppContext>,
+  id: string,
+  sql: string,
+  params?: Array<string | number | null>,
+): Promise<{ status: number; ok: boolean; rows: Record<string, unknown>[]; reason?: string }> {
+  const body: Record<string, unknown> = { sql };
+  if (params && params.length) body.params = params;
+  const r = await cfD1Post(c, `/${id}/query`, body);
+  if (!r.ok) return { status: r.status, ok: false, rows: [], reason: r.reason ?? `cf_${r.status}` };
+  const arr = Array.isArray(r.result) ? (r.result as Array<{ results?: unknown }>) : [];
+  const first = arr[0];
+  const rows =
+    first && Array.isArray(first.results) ? (first.results as Record<string, unknown>[]) : [];
+  return { status: r.status, ok: true, rows };
+}
+
+/** Static, read-only `sqlite_master` catalog query. Hides SQLite's internal `sqlite_%` objects. */
+const SCHEMA_OBJECTS_SQL =
+  'SELECT type, name, tbl_name, sql FROM sqlite_master ' +
+  "WHERE type IN ('table','view','index','trigger') AND name NOT LIKE 'sqlite_%' " +
+  "ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'view' THEN 1 WHEN 'index' THEN 2 ELSE 3 END, name";
+
+// ─── GET /api/admin/d1/:databaseId/tables ────────────────────────────────────
+// Read-only schema catalog: tables, views, indexes, triggers (+ each object's CREATE SQL). The DDL
+// text reveals composite keys, WITHOUT ROWID, generated columns, and virtual tables where present.
+d1Manager.get('/api/admin/d1/:databaseId/tables', async (c) => {
+  const block = await gate(c);
+  if (block) return block;
+
+  const parse = D1DatabaseIdSchema.safeParse(c.req.param('databaseId'));
+  if (!parse.success) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Unknown database' } }, 404);
+  }
+  const id = parse.data;
+
+  const t0 = Date.now();
+  const r = await cfD1Query(c, id, SCHEMA_OBJECTS_SQL);
+  if (r.status === 404) {
+    logD1(c, { route: 'd1/tables', outcome: 'miss', latency_ms: Date.now() - t0 });
+    return c.json({ found: false, id, objects: [] });
+  }
+  if (!r.ok) {
+    logD1(c, {
+      route: 'd1/tables',
+      outcome: 'unavailable',
+      status: r.status,
+      reason: r.reason,
+      latency_ms: Date.now() - t0,
+    });
+    return c.json({ found: false, id, objects: [], available: false, reason: r.reason });
+  }
+
+  const counts = { table: 0, view: 0, index: 0, trigger: 0 };
+  const objects = r.rows
+    .map((row) => ({
+      type: String(row.type ?? ''),
+      name: String(row.name ?? ''),
+      tableName: String(row.tbl_name ?? row.name ?? ''),
+      sql: typeof row.sql === 'string' ? row.sql : null,
+    }))
+    .filter(
+      (
+        o,
+      ): o is {
+        type: 'table' | 'view' | 'index' | 'trigger';
+        name: string;
+        tableName: string;
+        sql: string | null;
+      } =>
+        !!o.name &&
+        (o.type === 'table' || o.type === 'view' || o.type === 'index' || o.type === 'trigger'),
+    )
+    .slice(0, 1000); // bound the catalog size
+
+  for (const o of objects) counts[o.type] += 1;
+  logD1(c, {
+    route: 'd1/tables',
+    outcome: 'ok',
+    count: objects.length,
+    latency_ms: Date.now() - t0,
+  });
+  return c.json({ found: true, id, objects, counts, available: true });
+});
 
 /**
  * Back-to-back CF poll round-trips per request before returning `processing`. Bounds the Worker's
@@ -271,14 +393,29 @@ d1Manager.post('/api/admin/d1/:databaseId/export', async (c) => {
       return c.json({ status: 'error', reason: 'database_not_found', note: EXPORT_NOTE });
     }
     if (!r.ok) {
-      logD1(c, { route: 'd1/export', outcome: 'unavailable', status: r.status, reason: r.reason, latency_ms: Date.now() - t0 });
-      return c.json({ status: 'unavailable', reason: r.reason ?? `cf_${r.status}`, note: EXPORT_NOTE });
+      logD1(c, {
+        route: 'd1/export',
+        outcome: 'unavailable',
+        status: r.status,
+        reason: r.reason,
+        latency_ms: Date.now() - t0,
+      });
+      return c.json({
+        status: 'unavailable',
+        reason: r.reason ?? `cf_${r.status}`,
+        note: EXPORT_NOTE,
+      });
     }
     const out = (r.result ?? {}) as CfExportOuter;
     bookmark = out.at_bookmark ?? bookmark;
     const signedUrl = out.result?.signed_url;
     if (out.status === 'complete' && signedUrl) {
-      logD1(c, { route: 'd1/export', outcome: 'complete', polls: i + 1, latency_ms: Date.now() - t0 });
+      logD1(c, {
+        route: 'd1/export',
+        outcome: 'complete',
+        polls: i + 1,
+        latency_ms: Date.now() - t0,
+      });
       return c.json({
         status: 'complete',
         signedUrl,
@@ -290,10 +427,20 @@ d1Manager.post('/api/admin/d1/:databaseId/export', async (c) => {
     }
     if (out.status === 'error' || out.error) {
       logD1(c, { route: 'd1/export', outcome: 'error', latency_ms: Date.now() - t0 });
-      return c.json({ status: 'error', reason: out.error ?? 'export_failed', messages: messagesToStrings(out.messages), note: EXPORT_NOTE });
+      return c.json({
+        status: 'error',
+        reason: out.error ?? 'export_failed',
+        messages: messagesToStrings(out.messages),
+        note: EXPORT_NOTE,
+      });
     }
     // else: still processing → loop again with the fresh bookmark.
   }
-  logD1(c, { route: 'd1/export', outcome: 'processing', polls: MAX_EXPORT_POLLS, latency_ms: Date.now() - t0 });
+  logD1(c, {
+    route: 'd1/export',
+    outcome: 'processing',
+    polls: MAX_EXPORT_POLLS,
+    latency_ms: Date.now() - t0,
+  });
   return c.json({ status: 'processing', bookmark, note: EXPORT_NOTE });
 });

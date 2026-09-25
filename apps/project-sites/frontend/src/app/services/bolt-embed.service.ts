@@ -85,6 +85,7 @@ interface PsMessage {
     | 'queue'
     | 'databases'
     | 'overview'
+    | 'tables'
     | 'export';
   /** PS_R2_REQUEST: the R2 bucket binding name (required for the objects + object ops). */
   readonly bucket?: string;
@@ -92,7 +93,7 @@ interface PsMessage {
   readonly name?: string;
   /** PS_QUEUE_REQUEST: the queue id (required for the `queue` describe op). */
   readonly queueId?: string;
-  /** PS_D1_REQUEST: the D1 database UUID (required for the `overview` + `export` ops). */
+  /** PS_D1_REQUEST: the D1 database UUID (required for the `overview` / `tables` / `columns` / `export` ops). */
   readonly databaseId?: string;
   /** PS_D1_REQUEST (export op): scope the SQL dump to specific tables. */
   readonly tables?: string[];
@@ -662,6 +663,18 @@ export class BoltEmbedService {
               .get<
                 Record<string, unknown>
               >(`/admin/d1/${encodeURIComponent(msg.databaseId)}/overview`, undefined, { silent: true })
+              .subscribe({ next: onOk, error: onErr });
+          } else if (op === 'tables') {
+            // Read-only schema catalog (sqlite_master) — never makes the DB unavailable. Column details
+            // are parsed client-side from each object's CREATE SQL (CF's /query authorizer blocks PRAGMA).
+            if (!msg.databaseId) {
+              reply({ ok: false, error: 'No database id' });
+              break;
+            }
+            this.api
+              .get<
+                Record<string, unknown>
+              >(`/admin/d1/${encodeURIComponent(msg.databaseId)}/tables`, undefined, { silent: true })
               .subscribe({ next: onOk, error: onErr });
           } else if (op === 'export') {
             // SQL-dump export — a read of the DB into a .sql dump (briefly makes the DB unavailable).

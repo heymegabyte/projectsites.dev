@@ -8,12 +8,14 @@
  *
  * The embedded editor has no cross-origin session, so — like the other Data tabs — it asks the
  * Angular admin parent to proxy the read via the postMessage bridge:
- *   child → parent  `PS_D1_REQUEST`  { op:'databases'|'overview'|'export', databaseId?, tables?, currentBookmark? }
+ *   child → parent  `PS_D1_REQUEST`  { op:'databases'|'overview'|'tables'|'columns'|'export', databaseId?, table?, … }
  *   parent → child  `PS_D1_RESPONSE` { ok, data?, error? }   (parent calls GET/POST /api/admin/d1/* )
  *
  * The worker enforces super-admin server-side and exposes list + Overview metadata (file size, table
- * count, region, read-replication, version) + a SQL-dump EXPORT (a read of the DB into a .sql dump —
- * no data mutation, but it briefly makes the DB unavailable; the export UI warns + confirms before
+ * count, region, read-replication, version) + a SCHEMA BROWSER (tables/views/indexes/triggers catalog
+ * with CREATE SQL, and per-table columns via read-only `sqlite_master`/`PRAGMA table_info` — a query,
+ * so it never makes the DB unavailable) + a SQL-dump EXPORT (a read of the DB into a .sql dump — no
+ * data mutation, but it briefly makes the DB unavailable; the export UI warns + confirms before
  * running, then the client polls the async job to a signed download URL). No query / write / restore.
  * `available:false` / `found:false` distinguish a credential/API failure from a genuinely empty
  * account, surfaced honestly (never a fabricated 0, empty list, or download URL).
@@ -21,14 +23,28 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
+  D1ColumnInfo,
   D1DatabaseSummary,
   D1DatabasesData,
   D1ExportData,
   D1OverviewData,
   D1RequestMessage,
   D1ResponseMessage,
-} from '../../lib/embed/embedded-mode';
-import { classifyExportResponse, dbLabel, formatBytes, formatCount } from './d1-browser-logic';
+  D1SchemaObjectSummary,
+  D1TablesData,
+} from '~/lib/embed/embedded-mode';
+import {
+  classifyExportResponse,
+  columnNullLabel,
+  columnTypeLabel,
+  dbLabel,
+  filterSchemaObjects,
+  formatBytes,
+  formatCount,
+  isBrowsableObject,
+  parseCreateTableColumns,
+  schemaCountsLabel,
+} from './d1-browser-logic';
 
 export interface D1BrowserProps {
   /** Post a bridge request to the admin parent (DataPanel's existing helper). */
@@ -43,11 +59,20 @@ const MAX_EXPORT_POLLS = 12;
 const EXPORT_POLL_DELAY_MS = 1500;
 type ExportUiStatus = 'idle' | 'confirming' | 'running' | 'done' | 'error';
 
+/** Best-effort clipboard copy for identifiers/DDL — silently no-ops where the API is unavailable. */
+function copyText(text: string): void {
+  try {
+    void navigator.clipboard?.writeText(text);
+  } catch {
+    // clipboard unavailable (permissions / insecure context) — non-critical
+  }
+}
+
 /**
  * Read-only Cloudflare D1 browser: database list → Overview metadata (size, table count, region,
  * read-replication, version). Self-manages the PS_D1_RESPONSE listener.
  */
-export const D1Browser = memo(function D1Browser({ postToParent }: D1BrowserProps) {
+export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
   const pending = useRef<Map<string, Pending>>(new Map());
 
   const [databases, setDatabases] = useState<D1DatabaseSummary[] | null>(null);
@@ -60,18 +85,32 @@ export const D1Browser = memo(function D1Browser({ postToParent }: D1BrowserProp
   const [exportData, setExportData] = useState<D1ExportData | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  // Schema browser: object catalog + the currently-inspected object's columns.
+  const [tables, setTables] = useState<D1TablesData | null>(null);
+  const [tablesLoading, setTablesLoading] = useState(false);
+  const [tableFilter, setTableFilter] = useState('');
+  const [selectedObject, setSelectedObject] = useState<D1SchemaObjectSummary | null>(null);
+  const [columns, setColumns] = useState<D1ColumnInfo[]>([]);
+  const [ddlOpen, setDdlOpen] = useState(false);
+
   // Resolve pending bridge requests by correlationId.
   useEffect(() => {
     const onMessage = (e: MessageEvent): void => {
       const data = e.data as Partial<D1ResponseMessage> | undefined;
-      if (!data || data.type !== 'PS_D1_RESPONSE' || typeof data.correlationId !== 'string') return;
+
+      if (!data || data.type !== 'PS_D1_RESPONSE' || typeof data.correlationId !== 'string') {
+        return;
+      }
+
       const resolve = pending.current.get(data.correlationId);
+
       if (resolve) {
         pending.current.delete(data.correlationId);
         resolve(data as D1ResponseMessage);
       }
     };
     window.addEventListener('message', onMessage);
+
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
@@ -99,7 +138,10 @@ export const D1Browser = memo(function D1Browser({ postToParent }: D1BrowserProp
   useEffect(() => {
     let live = true;
     void request({ op: 'databases' }).then((res) => {
-      if (!live) return;
+      if (!live) {
+        return;
+      }
+
       if (res.ok && res.data && 'databases' in res.data) {
         const data = res.data as D1DatabasesData;
         setDatabases(data.databases);
@@ -109,6 +151,7 @@ export const D1Browser = memo(function D1Browser({ postToParent }: D1BrowserProp
         setUnavailableReason(res.error ?? 'D1 manager not available');
       }
     });
+
     return () => {
       live = false;
     };
@@ -120,20 +163,52 @@ export const D1Browser = memo(function D1Browser({ postToParent }: D1BrowserProp
       setOverview(null);
       setDetailError(null);
       setDetailLoading(true);
+
       // Reset any export flow from the previously-selected database.
       setExportStatus('idle');
       setExportData(null);
       setExportError(null);
-      const res = await request({ op: 'overview', databaseId: id });
+
+      // Reset the schema browser and load this database's catalog in parallel with the overview.
+      setTables(null);
+      setSelectedObject(null);
+      setColumns([]);
+      setTableFilter('');
+      setDdlOpen(false);
+      setTablesLoading(true);
+
+      const [ovRes, tblRes] = await Promise.all([
+        request({ op: 'overview', databaseId: id }),
+        request({ op: 'tables', databaseId: id }),
+      ]);
       setDetailLoading(false);
-      if (res.ok && res.data && 'found' in res.data) {
-        setOverview(res.data as D1OverviewData);
+      setTablesLoading(false);
+
+      if (ovRes.ok && ovRes.data && 'found' in ovRes.data) {
+        setOverview(ovRes.data as D1OverviewData);
       } else {
-        setDetailError(res.error ?? 'Could not load database overview');
+        setDetailError(ovRes.error ?? 'Could not load database overview');
+      }
+
+      if (tblRes.ok && tblRes.data && 'objects' in tblRes.data) {
+        setTables(tblRes.data as D1TablesData);
+      } else {
+        setTables({ found: false, id, objects: [], available: false, reason: tblRes.error ?? 'Schema not available' });
       }
     },
     [request],
   );
+
+  /**
+   * Inspect one schema object. Columns are parsed synchronously from the object's CREATE SQL — the CF
+   * D1 REST `/query` authorizer blocks `PRAGMA table_info`, so the DDL (already in the catalog) is the
+   * column source. A view/virtual/unparseable object yields `[]` → the UI shows its raw DDL instead.
+   */
+  const selectObject = useCallback((obj: D1SchemaObjectSummary): void => {
+    setSelectedObject(obj);
+    setDdlOpen(false);
+    setColumns(isBrowsableObject(obj.type) ? parseCreateTableColumns(obj.sql) : []);
+  }, []);
 
   /**
    * Run (or resume) the SQL-dump export for the selected database, driving the worker's async poll
@@ -142,24 +217,34 @@ export const D1Browser = memo(function D1Browser({ postToParent }: D1BrowserProp
    * pure decision core (never treats a URL-less "complete" as success → no fabricated download).
    */
   const runExport = useCallback(async (): Promise<void> => {
-    if (!selectedId) return;
+    if (!selectedId) {
+      return;
+    }
+
     setExportStatus('running');
     setExportData(null);
     setExportError(null);
+
     let bookmark: string | undefined;
+
     for (let i = 0; i < MAX_EXPORT_POLLS; i++) {
       const res = await request({ op: 'export', databaseId: selectedId, currentBookmark: bookmark });
       const action = classifyExportResponse(res);
+
       if (action.kind === 'done') {
         setExportData(action.data);
         setExportStatus('done');
+
         return;
       }
+
       if (action.kind === 'error') {
         setExportError(action.message);
         setExportStatus('error');
+
         return;
       }
+
       bookmark = action.bookmark; // processing → resume with the bookmark after a short delay
       await new Promise((r) => setTimeout(r, EXPORT_POLL_DELAY_MS));
     }
@@ -170,6 +255,11 @@ export const D1Browser = memo(function D1Browser({ postToParent }: D1BrowserProp
   const isEmpty = useMemo(
     () => databases !== null && databases.length === 0 && !unavailableReason,
     [databases, unavailableReason],
+  );
+
+  const filteredObjects = useMemo(
+    () => (tables?.objects ? filterSchemaObjects(tables.objects, tableFilter) : []),
+    [tables, tableFilter],
   );
 
   return (
@@ -363,6 +453,195 @@ export const D1Browser = memo(function D1Browser({ postToParent }: D1BrowserProp
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Schema browser — full-width catalog of tables/views/indexes/triggers + per-table columns + DDL */}
+      {selectedId && overview?.found && (
+        <div
+          className="rounded-md border border-bolt-elements-borderColor/40 bg-bolt-elements-background-depth-2"
+          data-testid="data-d1-schema"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-bolt-elements-borderColor/30 px-3 py-1.5">
+            <span className="text-[11px] font-medium text-bolt-elements-textSecondary">Schema</span>
+            {tables?.counts && (
+              <span className="text-[10px] text-bolt-elements-textTertiary">{schemaCountsLabel(tables.counts)}</span>
+            )}
+          </div>
+
+          {tablesLoading && (
+            <div className="px-3 py-3 text-[11px] text-bolt-elements-textTertiary">Loading schema…</div>
+          )}
+
+          {!tablesLoading && tables && !tables.available && tables.reason && (
+            <div
+              className="m-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[10px] text-amber-300"
+              role="note"
+            >
+              Schema not available ({tables.reason}).
+            </div>
+          )}
+
+          {!tablesLoading && tables?.available && tables.objects.length === 0 && (
+            <div className="px-3 py-6 text-center text-[11px] text-bolt-elements-textTertiary">
+              No tables in this database.
+            </div>
+          )}
+
+          {!tablesLoading && tables?.available && tables.objects.length > 0 && (
+            <div className="flex flex-col md:flex-row">
+              {/* Object list */}
+              <div className="min-w-0 border-b border-bolt-elements-borderColor/20 md:w-2/5 md:border-b-0 md:border-r">
+                <div className="p-2">
+                  <input
+                    type="text"
+                    value={tableFilter}
+                    onChange={(e) => setTableFilter(e.target.value)}
+                    placeholder="Search tables, views, indexes…"
+                    aria-label="Search schema objects"
+                    data-testid="data-d1-schema-search"
+                    className="w-full rounded border border-bolt-elements-borderColor/50 bg-bolt-elements-background-depth-3 px-2 py-1 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-item-contentAccent/40"
+                  />
+                </div>
+                <ul className="max-h-72 overflow-auto modern-scrollbar">
+                  {filteredObjects.length === 0 && (
+                    <li className="px-3 py-4 text-center text-[10px] text-bolt-elements-textTertiary">No matches.</li>
+                  )}
+                  {filteredObjects.map((o) => (
+                    <li key={`${o.type}:${o.name}`}>
+                      <button
+                        type="button"
+                        data-testid="data-d1-schema-object"
+                        onClick={() => selectObject(o)}
+                        className={
+                          'flex w-full items-center gap-2 border-b border-bolt-elements-borderColor/10 px-3 py-1 text-left text-[11px] cursor-pointer ' +
+                          (selectedObject?.name === o.name && selectedObject?.type === o.type
+                            ? 'bg-bolt-elements-item-contentAccent/15 text-bolt-elements-textPrimary'
+                            : 'text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-3')
+                        }
+                      >
+                        <span
+                          className="shrink-0 rounded border border-bolt-elements-borderColor/40 px-1 text-[8px] uppercase tracking-wide text-bolt-elements-textTertiary"
+                          title={o.type}
+                        >
+                          {o.type.slice(0, 3)}
+                        </span>
+                        <span className="truncate font-mono">{o.name}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Selected object: columns (tables/views) + DDL */}
+              <div className="min-w-0 md:w-3/5">
+                {!selectedObject && (
+                  <div className="px-3 py-6 text-center text-[11px] text-bolt-elements-textTertiary">
+                    Select a table to view its columns and DDL.
+                  </div>
+                )}
+                {selectedObject && (
+                  <div className="p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="truncate font-mono text-[11px] text-bolt-elements-textPrimary">
+                        {selectedObject.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => copyText(selectedObject.name)}
+                        className="shrink-0 cursor-pointer text-[9px] text-bolt-elements-textTertiary underline hover:text-bolt-elements-textSecondary"
+                      >
+                        Copy name
+                      </button>
+                    </div>
+
+                    {isBrowsableObject(selectedObject.type) && (
+                      <>
+                        {columns.length > 0 && (
+                          <div data-testid="data-d1-columns">
+                            <div className="overflow-auto rounded border border-bolt-elements-borderColor/30">
+                              <table className="w-full text-[10px]">
+                                <thead>
+                                  <tr className="text-bolt-elements-textTertiary">
+                                    <th className="px-2 py-1 text-left font-medium">Column</th>
+                                    <th className="px-2 py-1 text-left font-medium">Type</th>
+                                    <th className="px-2 py-1 text-left font-medium">Null</th>
+                                    <th className="px-2 py-1 text-left font-medium">Default</th>
+                                    <th className="px-2 py-1 text-left font-medium">Key</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {columns.map((col) => (
+                                    <tr key={col.cid} className="border-t border-bolt-elements-borderColor/20">
+                                      <td className="px-2 py-1 font-mono text-bolt-elements-textPrimary">{col.name}</td>
+                                      <td className="px-2 py-1 font-mono text-bolt-elements-textSecondary">
+                                        {columnTypeLabel(col.type)}
+                                      </td>
+                                      <td className="px-2 py-1 text-bolt-elements-textTertiary">
+                                        {columnNullLabel(col)}
+                                      </td>
+                                      <td className="px-2 py-1 font-mono text-bolt-elements-textTertiary">
+                                        {col.defaultValue ?? '—'}
+                                      </td>
+                                      <td className="px-2 py-1">
+                                        {col.pk > 0 && (
+                                          <span
+                                            className="rounded bg-bolt-elements-item-contentAccent/15 px-1 text-[8px] text-bolt-elements-item-contentAccent"
+                                            title={`Primary key (position ${col.pk})`}
+                                          >
+                                            PK
+                                          </span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            <div className="mt-1 text-[9px] text-bolt-elements-textTertiary">
+                              Parsed from CREATE SQL (Cloudflare&apos;s D1 API doesn&apos;t expose PRAGMA over REST).
+                            </div>
+                          </div>
+                        )}
+                        {columns.length === 0 && (
+                          <div className="text-[10px] text-bolt-elements-textTertiary">
+                            Column details unavailable — see the CREATE SQL below.
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {selectedObject.sql && (
+                      <div className="mt-2">
+                        <button
+                          type="button"
+                          onClick={() => setDdlOpen((v) => !v)}
+                          data-testid="data-d1-ddl-toggle"
+                          className="flex items-center gap-1 cursor-pointer text-[10px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
+                        >
+                          <span aria-hidden="true">{ddlOpen ? '▾' : '▸'}</span> CREATE SQL
+                        </button>
+                        {ddlOpen && (
+                          <div className="mt-1">
+                            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded border border-bolt-elements-borderColor/30 bg-bolt-elements-background-depth-3 p-2 font-mono text-[10px] text-bolt-elements-textSecondary">
+                              {selectedObject.sql}
+                            </pre>
+                            <button
+                              type="button"
+                              onClick={() => copyText(selectedObject.sql ?? '')}
+                              className="mt-1 cursor-pointer text-[9px] text-bolt-elements-textTertiary underline hover:text-bolt-elements-textSecondary"
+                            >
+                              Copy DDL
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -289,12 +289,16 @@ export interface KvRequestMessage {
   type: 'PS_KV_REQUEST';
   correlationId: string;
   op: 'namespaces' | 'keys' | 'value';
+
   /** Required for `keys` and `value` ops — the KV binding name (e.g. `"KV"`). */
   binding?: string;
+
   /** For `keys` op — filter to keys starting with this string. */
   prefix?: string;
+
   /** For `keys` op — opaque pagination cursor from the previous page. */
   cursor?: string;
+
   /** For `value` op — the exact key to fetch. */
   key?: string;
 }
@@ -347,12 +351,16 @@ export interface R2RequestMessage {
   type: 'PS_R2_REQUEST';
   correlationId: string;
   op: 'buckets' | 'objects' | 'object';
+
   /** Required for `objects` + `object` — the R2 bucket binding name. */
   bucket?: string;
+
   /** For `objects` — key prefix filter. */
   prefix?: string;
+
   /** For `objects` — opaque pagination cursor from the previous page. */
   cursor?: string;
+
   /** For `object` — the exact object key. */
   key?: string;
 }
@@ -398,6 +406,7 @@ export interface VectorizeRequestMessage {
   type: 'PS_VEC_REQUEST';
   correlationId: string;
   op: 'indexes' | 'index';
+
   /** Required for the `index` op — the index name to describe. */
   name?: string;
 }
@@ -450,6 +459,7 @@ export interface QueueRequestMessage {
   type: 'PS_QUEUE_REQUEST';
   correlationId: string;
   op: 'queues' | 'queue';
+
   /** Required for the `queue` op — the queue id to describe. */
   queueId?: string;
 }
@@ -497,14 +507,18 @@ export interface D1DatabaseSummary {
 export interface D1RequestMessage {
   type: 'PS_D1_REQUEST';
   correlationId: string;
-  op: 'databases' | 'overview' | 'export';
-  /** Required for the `overview` + `export` ops — the D1 database UUID. */
+  op: 'databases' | 'overview' | 'tables' | 'export';
+
+  /** Required for the `overview` / `tables` / `export` ops — the D1 database UUID. */
   databaseId?: string;
+
   /** `export` op: scope the SQL dump to specific tables (fewer ⇒ shorter DB-unavailability). */
   tables?: string[];
+
   /** `export` op: schema-only / data-only dump (mutually exclusive). */
   schemaOnly?: boolean;
   dataOnly?: boolean;
+
   /** `export` op: resume an in-progress export (the `bookmark` from a prior `processing` response). */
   currentBookmark?: string;
 }
@@ -519,6 +533,7 @@ export interface D1OverviewData {
   found: boolean;
   id: string;
   name?: string | null;
+
   /** On-disk size in bytes, or null when the CF API omits it (never a fabricated 0). */
   fileSize?: number | null;
   numTables?: number | null;
@@ -529,16 +544,57 @@ export interface D1OverviewData {
   reason?: string;
 }
 
+/** One schema object (table/view/index/trigger) from the D1 schema catalog, with its CREATE SQL. */
+export interface D1SchemaObjectSummary {
+  type: 'table' | 'view' | 'index' | 'trigger';
+  name: string;
+
+  /** The table this object belongs to (`tbl_name`) — equals `name` for tables/views. */
+  tableName: string;
+
+  /** The CREATE statement (DDL); null for auto-created objects. */
+  sql: string | null;
+}
+
+/** Reply to the `tables` op — the read-only schema catalog for one database. */
+export interface D1TablesData {
+  found: boolean;
+  id: string;
+  objects: D1SchemaObjectSummary[];
+  counts?: { table: number; view: number; index: number; trigger: number };
+  available?: boolean;
+  reason?: string;
+}
+
+/**
+ * One column, PARSED CLIENT-SIDE from a table's CREATE SQL (the CF D1 REST `/query` authorizer blocks
+ * `PRAGMA table_info`, so the DDL — returned by the catalog — is the column source). `pk` is the
+ * 1-based PK position (0 = not part of the PK); >1 on any column reveals a composite key.
+ */
+export interface D1ColumnInfo {
+  cid: number;
+  name: string;
+
+  /** Declared type as written in the DDL (may be '' for an untyped SQLite column). */
+  type: string;
+  notNull: boolean;
+  defaultValue: string | null;
+  pk: number;
+}
+
 /** The D1 SQL-dump export result (mirrors the worker's `d1_manager` export response). */
 export interface D1ExportData {
   status: 'complete' | 'processing' | 'error' | 'unavailable';
+
   /** Signed SQL-dump download URL — only when complete (valid ~1h). Never fabricated. */
   signedUrl?: string;
   filename?: string;
+
   /** Resume token when processing; the export's `at_bookmark` when complete. */
   bookmark?: string;
   messages?: string[];
   reason?: string;
+
   /** Honest caveat: exporting briefly makes the DB unavailable to serve queries. */
   note: string;
 }
@@ -548,7 +604,7 @@ export interface D1ResponseMessage {
   type: 'PS_D1_RESPONSE';
   correlationId: string;
   ok: boolean;
-  data?: D1DatabasesData | D1OverviewData | D1ExportData;
+  data?: D1DatabasesData | D1OverviewData | D1TablesData | D1ExportData;
   error?: string;
 }
 

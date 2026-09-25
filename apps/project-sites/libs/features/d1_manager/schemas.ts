@@ -120,3 +120,45 @@ export const D1ExportResponseSchema = z.object({
 });
 
 export type D1ExportResponse = z.infer<typeof D1ExportResponseSchema>;
+
+// ─── Schema browser (read-only catalog + per-table columns) ──────────────────
+
+/**
+ * One schema object from `sqlite_master` — a table, view, index, or trigger — carrying its
+ * CREATE SQL (the DDL). Read-only; sourced from the CF D1 REST `/query` endpoint (a query does
+ * NOT make the DB unavailable, unlike export).
+ */
+export const D1SchemaObjectSchema = z.object({
+  type: z.enum(['table', 'view', 'index', 'trigger']),
+  name: z.string(),
+  /** The table this object belongs to (`tbl_name`) — equals `name` for tables/views. */
+  tableName: z.string(),
+  /** The CREATE statement (`sqlite_master.sql`); null for auto-created objects (e.g. autoindexes). */
+  sql: z.string().nullable(),
+});
+
+export type D1SchemaObject = z.infer<typeof D1SchemaObjectSchema>;
+
+/**
+ * Response for GET /api/admin/d1/:databaseId/tables — the schema-object catalog.
+ * `found:false` on a CF 404 (unknown database); `available:false` on a credential/API failure
+ * (honest, never a fabricated empty catalog).
+ */
+export const D1TablesResponseSchema = z.object({
+  found: z.boolean(),
+  id: z.string(),
+  objects: z.array(D1SchemaObjectSchema),
+  /** Per-type counts derived server-side for the UI header. */
+  counts: z
+    .object({ table: z.number(), view: z.number(), index: z.number(), trigger: z.number() })
+    .optional(),
+  available: z.boolean().optional(),
+  reason: z.string().optional(),
+});
+
+export type D1TablesResponse = z.infer<typeof D1TablesResponseSchema>;
+
+// NOTE: there is deliberately NO worker "columns" schema/endpoint. The CF D1 REST `/query` authorizer
+// blocks `PRAGMA table_info` (`SQLITE_AUTH`, verified 2026-09-25), so column details are parsed
+// CLIENT-SIDE from each table's CREATE SQL (returned in D1SchemaObjectSchema.sql) — see the editor's
+// `d1-browser-logic.parseCreateTableColumns`. Shipping a PRAGMA endpoint here would be an always-failing button.
