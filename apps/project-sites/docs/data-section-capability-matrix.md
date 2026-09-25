@@ -25,6 +25,15 @@
 - **Editor DataPanel** (`app/components/workbench/DataPanel.tsx` + pure
   `data-panel-logic.ts`, Vitest-covered) talks to the Worker THROUGH the admin
   bridge (`PS_DATA_REQUEST` / `PS_SQL_REQUEST` postMessage). UnoCSS + bolt tokens.
+  Deploys to **Pages `bolt-diy`** (separate from the worker/R2 pipeline); tests are
+  **Vitest** (`npm test`), not Karma. **SQL-console parity with the admin console
+  reached (2026-09-25):** table browse + SQL run/history/starters (schema/structure/
+  indexes/FKs) + CSV import (`csvToInserts`)/export + CREATE TABLE + destructive-confirm
+  + **EXPLAIN QUERY PLAN + index guidance** (`explainQuery`/`explainPlanHint`) + **query
+  cost (rows read/written) + expensive-scan warning** (`isExpensiveScan` >10k; `rows_read`/
+  `rows_written` threaded `/sql/exec` → `bolt-embed.service` → `SqlResponseMessage` →
+  DataPanel; honest "—"/omitted when the runtime doesn't report them). Remaining toward a
+  full SQLite manager: inline typed row edit in the grid, multiple query tabs, saved queries.
 - **WfP** (`USER_DISPATCH` dispatch namespace) is **wired but DORMANT** — flag
   `user_worker_functions` default-off, zero per-site User Workers deployed,
   `resolveUserFunctionBindings` not implemented. "User Worker bindings" browsing is
