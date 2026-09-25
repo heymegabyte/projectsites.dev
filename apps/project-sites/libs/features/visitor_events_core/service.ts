@@ -811,6 +811,46 @@ export async function getNewVsReturningSummary(
   return out;
 }
 
+/** Result of {@link getEntryPagesSummary} — top entry (landing) pages by session-start count. */
+export interface EntryPagesSummary {
+  /** Top landing pages (session's first page) by count, descending, capped at 20. */
+  readonly pages: ReadonlyArray<{ path: string; count: number }>;
+}
+
+/**
+ * Top ENTRY (landing) pages over the window, from the first-party `page_engagement` beacon's
+ * session-scoped `ep` flag (1 = the tab-session's first page). Answers "where do visitors land?" —
+ * a metric CF's plan has no dataset for. Fail-soft: a query error yields the empty summary (the card
+ * shows "measuring…", never a fabricated 0).
+ */
+export async function getEntryPagesSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<EntryPagesSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ path: string | null; n: number }>(
+    env.DB,
+    `SELECT path, COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'page_engagement'
+        AND json_extract(metadata, '$.ep') = 1
+      GROUP BY path
+      ORDER BY n DESC
+      LIMIT 20`,
+    params,
+  );
+  if (error) return { pages: [] };
+  const pages: Array<{ path: string; count: number }> = [];
+  for (const r of data) {
+    const count = Number(r.n) || 0;
+    if (typeof r.path === 'string' && r.path && count > 0) pages.push({ path: r.path, count });
+  }
+  return { pages };
+}
+
 /** Empty scroll-depth summary — honest "measuring…" (null median), never a fabricated 0. */
 function emptyScrollDepth(): ScrollDepthSummary {
   return { samples: 0, medianPercent: null, reach: { p25: 0, p50: 0, p75: 0, p100: 0 }, byPage: [] };

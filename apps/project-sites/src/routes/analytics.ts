@@ -280,6 +280,7 @@ analyticsRoutes.post('/api/events', async (c) => {
               dom?: unknown;
               total?: unknown;
               nv?: unknown;
+              ep?: unknown;
             }
           | undefined;
         // web_vital carries {metric, value}: validate against the known CWV set + a
@@ -337,6 +338,9 @@ analyticsRoutes.post('/api/events', async (c) => {
                       // New-vs-returning: browser-scoped flag (1 = new / 0 = returning); anything
                       // else omitted → the aggregator counts it as "unknown", never new/returning.
                       nv: p?.nv === 0 || p?.nv === 1 ? p.nv : undefined,
+                      // Entry page: 1 = the session's first (landing) page; else omitted so only
+                      // entry pages carry the flag (the aggregator filters ep = 1).
+                      ep: p?.ep === 1 ? 1 : undefined,
                     }
                   : mirrorType === 'scroll_depth'
                     ? {

@@ -36,7 +36,7 @@ import { mintShareToken, verifyShareToken } from './share.js';
 import { parseCustomWindow } from '../analytics/handlers.js';
 // Shifts an absolute window's date bounds into the owner's timezone (UTC-equiv),
 // so the ?start&end filter matches the tz-aware daily buckets.
-import { getNewVsReturningSummary, shiftWindowToTz } from '../visitor_events_core/service.js';
+import { getEntryPagesSummary, getNewVsReturningSummary, shiftWindowToTz } from '../visitor_events_core/service.js';
 // Drilldown-filter allowlist schema — validates ?filterDim against the trusted
 // dimension enum so an unknown/injected dimension is rejected here, never in SQL.
 import { AnalyticsFilterSchema, type AnalyticsFilter } from '../visitor_events_core/schemas.js';
@@ -184,6 +184,16 @@ siteAnalytics.get('/api/sites/:siteId/analytics/visitors', async (c) => {
 
   const windowDays = parseWindowDays(c, 'windowDays');
   const summary = await getNewVsReturningSummary(c.env, gate.siteId, windowDays);
+  return c.json(summary);
+});
+
+// AN — top entry (landing) pages (first-party page_engagement `ep` session-start flag), owner-scoped.
+siteAnalytics.get('/api/sites/:siteId/analytics/entry-pages', async (c) => {
+  const gate = await requireOwnedSite(c);
+  if (gate instanceof Response) return gate;
+
+  const windowDays = parseWindowDays(c, 'windowDays');
+  const summary = await getEntryPagesSummary(c.env, gate.siteId, windowDays);
   return c.json(summary);
 });
 

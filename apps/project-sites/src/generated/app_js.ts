@@ -828,6 +828,18 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     if (NEW_VISITOR === 1) { localStorage.setItem('ps_v', String(Date.now())); }
   } catch (e) { NEW_VISITOR = undefined; }
 
+  // ── entry page (session-scoped, cookieless) ──────────────────────────
+  // 1 = the FIRST page of this tab-session (no sessionStorage marker yet). sessionStorage is
+  // per-tab and cleared on tab close, so it marks a session's landing page. Omitted when storage
+  // is unavailable so the server simply does not count that visit as an entry.
+  var IS_ENTRY = 0;
+  try {
+    if (!sessionStorage.getItem('ps_sess')) {
+      IS_ENTRY = 1;
+      sessionStorage.setItem('ps_sess', '1');
+    }
+  } catch (e) {}
+
   function initEngagement() {
     var start = Date.now();
     var sent = false;
@@ -836,7 +848,7 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
       sent = true;
       var dur = Date.now() - start;
       if (dur < 1000 || dur > 1800000) { return; }
-      track('page_engagement', { duration_ms: dur, href: location.pathname, nv: NEW_VISITOR });
+      track('page_engagement', { duration_ms: dur, href: location.pathname, nv: NEW_VISITOR, ep: IS_ENTRY });
     }
     try {
       window.addEventListener('visibilitychange', function () {
