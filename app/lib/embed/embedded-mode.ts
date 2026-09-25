@@ -328,6 +328,61 @@ export interface KvResponseMessage {
   error?: string;
 }
 
+/** A single R2 object descriptor from the `objects` op. */
+export interface R2ObjectDescriptor {
+  key: string;
+  size: number;
+  uploaded: string | null;
+  contentType: string | null;
+}
+
+/**
+ * Child → Parent (R2 Browser): ask the admin to proxy a Cloudflare R2 read on
+ * behalf of the editor (read-only object inspection — never object bodies).
+ *
+ * ops: `buckets` (list bucket bindings) · `objects` (prefix + cursor-paged list
+ * in `bucket`) · `object` (HEAD metadata for a single `key`).
+ */
+export interface R2RequestMessage {
+  type: 'PS_R2_REQUEST';
+  correlationId: string;
+  op: 'buckets' | 'objects' | 'object';
+  /** Required for `objects` + `object` — the R2 bucket binding name. */
+  bucket?: string;
+  /** For `objects` — key prefix filter. */
+  prefix?: string;
+  /** For `objects` — opaque pagination cursor from the previous page. */
+  cursor?: string;
+  /** For `object` — the exact object key. */
+  key?: string;
+}
+
+export interface R2BucketsData {
+  buckets: string[];
+}
+
+export interface R2ObjectsData {
+  objects: R2ObjectDescriptor[];
+  cursor?: string;
+}
+
+export interface R2ObjectData {
+  key: string;
+  size: number;
+  uploaded: string | null;
+  contentType: string | null;
+  metadata?: unknown;
+}
+
+/** Parent → Child (R2 Browser): the admin's reply to {@link R2RequestMessage}. */
+export interface R2ResponseMessage {
+  type: 'PS_R2_RESPONSE';
+  correlationId: string;
+  ok: boolean;
+  data?: R2BucketsData | R2ObjectsData | R2ObjectData;
+  error?: string;
+}
+
 export type ParentToChildMessage =
   | SubmitPromptMessage
   | ImportFilesMessage
@@ -339,6 +394,7 @@ export type ParentToChildMessage =
   | DataResponseMessage
   | SqlResponseMessage
   | KvResponseMessage
+  | R2ResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -349,6 +405,7 @@ export type ChildToParentMessage =
   | DataRequestMessage
   | SqlRequestMessage
   | KvRequestMessage
+  | R2RequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;

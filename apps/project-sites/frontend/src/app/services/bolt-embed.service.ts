@@ -72,7 +72,9 @@ interface PsMessage {
    */
   readonly params?: Array<string | number | boolean | null>;
   /** PS_KV_REQUEST (KV inspector): which read op to proxy to /api/admin/kv/*. */
-  readonly op?: 'namespaces' | 'keys' | 'value';
+  readonly op?: 'namespaces' | 'keys' | 'value' | 'buckets' | 'objects' | 'object';
+  /** PS_R2_REQUEST: the R2 bucket binding name (required for the objects + object ops). */
+  readonly bucket?: string;
   /** PS_KV_REQUEST: the KV binding name (required for the keys + value ops). */
   readonly binding?: string;
   /** PS_KV_REQUEST (keys op): key-name prefix filter. */
@@ -557,6 +559,52 @@ export class BoltEmbedService {
                 });
               },
               error: () => reply({ error: 'Failed to load data' }),
+            });
+          break;
+        }
+        case 'PS_R2_REQUEST': {
+          // R2 inspector — mirrors the PS_KV bridge. Proxies read-only object inspection to
+          // /api/admin/r2/* (super-admin, account-level; the worker enforces super-admin + a bucket
+          // allowlist and returns 404-dark when unavailable). Never fetches object bodies.
+          const iframe = this.iframeEl;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_R2_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          const op = msg.op;
+          let r2Path: string;
+          const r2Params: Record<string, string> = {};
+          if (op === 'buckets') {
+            r2Path = '/admin/r2/buckets';
+          } else if (op === 'objects') {
+            if (!msg.bucket) {
+              reply({ ok: false, error: 'No R2 bucket' });
+              break;
+            }
+            r2Path = `/admin/r2/${encodeURIComponent(msg.bucket)}/objects`;
+            if (msg.prefix) r2Params['prefix'] = msg.prefix;
+            if (msg.cursor) r2Params['cursor'] = msg.cursor;
+          } else if (op === 'object') {
+            if (!msg.bucket || !msg.key) {
+              reply({ ok: false, error: 'Missing bucket or key' });
+              break;
+            }
+            r2Path = `/admin/r2/${encodeURIComponent(msg.bucket)}/object`;
+            r2Params['key'] = msg.key;
+          } else {
+            reply({ ok: false, error: 'Unknown R2 op' });
+            break;
+          }
+          this.api
+            .get<Record<string, unknown>>(r2Path, Object.keys(r2Params).length ? r2Params : undefined, {
+              silent: true,
+            })
+            .subscribe({
+              next: (res) => reply({ ok: true, data: res ?? {} }),
+              error: () => reply({ ok: false, error: 'R2 inspector not available' }),
             });
           break;
         }

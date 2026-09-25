@@ -20,6 +20,7 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 import { isEmbedded, postToParent, onParentMessage } from '~/lib/embed/embedded-mode';
 import type { DataOverviewTable, ParentToChildMessage } from '~/lib/embed/embedded-mode';
 import { KvBrowser } from './KvBrowser';
+import { R2Browser } from './R2Browser';
 import {
   iconForTable,
   formatCellValue,
@@ -229,7 +230,7 @@ export const DataPanel = memo(() => {
    * multi-tenant DB). `canRunSql` arrives on the overview reply; `mode` toggles the console view.
    */
   const [canRunSql, setCanRunSql] = useState(false);
-  const [mode, setMode] = useState<'tables' | 'sql' | 'kv'>('tables');
+  const [mode, setMode] = useState<'tables' | 'sql' | 'kv' | 'r2'>('tables');
 
   /*
    * Add-row — a typed row editor that builds a PARAMETERIZED INSERT (values BOUND via ?N, never
@@ -1470,7 +1471,7 @@ export const DataPanel = memo(() => {
                 role="tablist"
                 aria-label="Data view"
               >
-                {(['tables', 'sql', 'kv'] as const).map((m) => (
+                {(['tables', 'sql', 'kv', 'r2'] as const).map((m) => (
                   <button
                     key={m}
                     type="button"
@@ -1493,10 +1494,16 @@ export const DataPanel = memo(() => {
                   >
                     <div
                       className={
-                        m === 'sql' ? 'i-ph:terminal-window' : m === 'kv' ? 'i-ph:key' : 'i-ph:table'
+                        m === 'sql'
+                          ? 'i-ph:terminal-window'
+                          : m === 'kv'
+                            ? 'i-ph:key'
+                            : m === 'r2'
+                              ? 'i-ph:hard-drives'
+                              : 'i-ph:table'
                       }
                     />
-                    {m === 'sql' ? 'SQL' : m === 'kv' ? 'KV' : 'Tables'}
+                    {m === 'sql' ? 'SQL' : m === 'kv' ? 'KV' : m === 'r2' ? 'R2' : 'Tables'}
                   </button>
                 ))}
               </div>
@@ -2328,6 +2335,11 @@ export const DataPanel = memo(() => {
       {mode === 'kv' && (
         <div className="flex-1 flex flex-col min-h-0 overflow-auto modern-scrollbar">
           <KvBrowser postToParent={postToParent} />
+        </div>
+      )}
+      {mode === 'r2' && (
+        <div className="flex-1 flex flex-col min-h-0 overflow-auto modern-scrollbar">
+          <R2Browser postToParent={postToParent} />
         </div>
       )}
       {status === 'ready' && mode === 'sql' && (
