@@ -156,9 +156,19 @@ gated.
   intentionally NOT on the public report (developer-facing / Chromium-only caveat). Tenant resolved
   from the HMAC share token server-side (unchanged — the token IS the capability). +2 Karma (renders
   when sampled / omits when 0 samples). Verified: app tsc, Karma 5/5, deployed chunk live on prod.
-  **REMAINING (ranked):** (1) a visitor-funnel scroll-depth "Deep engagement" 5th stage (worker
-  funnel-endpoint change); (2) surface CWV ratings on the public report too (optional). NOT the
-  filter UI (owned by a concurrent session).
+- **Visitor-funnel "Deeply engaged" stage SHIPPED (2026-09-25):** the per-site visitor funnel
+  (`getVisitorFunnel` → `/api/sites/:siteId/analytics/funnel`) now surfaces a **"Deeply engaged
+  (read 50%+)"** stage between Engaged and Converted, consuming the live `scroll_depth` data. The
+  per-session GROUP BY computes MAX scroll % + a has-scroll flag; deeply-engaged = an ENGAGED session
+  (2+ pages) that ALSO scrolled ≥50% — a guaranteed SUBSET of Engaged, so the funnel stays MONOTONIC
+  (the frontend's drop-off % never goes negative). HONESTY: the stage is OMITTED entirely when the
+  site has zero scroll_depth samples (a "0 deeply engaged" would misread as "nobody read deeply" vs
+  "not measured yet"). `FunnelStageSchema.key` gains `deeply_engaged`; the frontend renders it
+  automatically (generic stage list). +2 Jest (inserts-when-measured+monotonic / omits-when-no-samples);
+  the first-party metrics now propagate to BOTH the public report AND the funnel. Worker tsc+jest clean.
+  **REMAINING (ranked, all optional):** (1) surface CWV ratings on the public report too; (2) the
+  drilldown filter UI (owned by a concurrent session — not mine). The analytics section is at a
+  broad-coverage plateau: every AVAILABLE CF dataset + the full advanced-first-party set is shipped.
 
 ## Coverage matrix
 
