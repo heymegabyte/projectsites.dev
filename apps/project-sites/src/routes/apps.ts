@@ -307,6 +307,13 @@ async function launchCfNativeInstance(
       instanceId,
       slug: body.subdomain,
       payloadSecret,
+      // Deploy into the WfP dispatch namespace so it's served at
+      // {slug}.app.projectsites.dev via USER_DISPATCH — but ONLY once the
+      // *.app.projectsites.dev ACM cert is provisioned (PAYLOAD_APP_HOST_CERT_READY).
+      // Until then, fall back to the standalone workers.dev URL so /admin still 200s.
+      dispatchNamespace: c.env.WFP_NAMESPACE_NAME,
+      appHostCertReady:
+        (c.env as { PAYLOAD_APP_HOST_CERT_READY?: string }).PAYLOAD_APP_HOST_CERT_READY === 'true',
     });
   } catch (err) {
     if (err instanceof CfProvisionError) {
@@ -373,6 +380,18 @@ async function launchCfNativeInstance(
       subdomain: body.subdomain,
       url: `https://${stack.subdomain}`,
       admin_url: `https://${stack.subdomain}/admin`,
+      // The three CF resource handles this instance owns — surfaced so the owner
+      // (and verification) can see exactly what will be torn down on delete.
+      // dispatch_namespace is set ONLY when the Worker actually landed in the WfP
+      // namespace (i.e. served at .app.projectsites.dev), not merely configured.
+      resources: {
+        d1_database_id: stack.d1DatabaseId,
+        r2_bucket_name: stack.r2BucketName,
+        worker_script_name: stack.workerName,
+        dispatch_namespace: stack.subdomain.endsWith('.app.projectsites.dev')
+          ? (c.env.WFP_NAMESPACE_NAME ?? null)
+          : null,
+      },
     },
     201,
   );
@@ -394,6 +413,7 @@ async function destroyCfNativeInstance(
     workerName: row.worker_script_name,
     d1DatabaseId: row.d1_database_id,
     r2BucketName: row.r2_bucket_name,
+    dispatchNamespace: c.env.WFP_NAMESPACE_NAME,
   });
 
   if (!report.clean) {

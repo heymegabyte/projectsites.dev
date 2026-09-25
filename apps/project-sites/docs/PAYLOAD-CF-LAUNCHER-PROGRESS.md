@@ -5,6 +5,40 @@
 > where **deleting the instance from the UI deletes the D1 + R2 + Worker with zero dangling
 > resources**. Started 2026-09-25. This doc lets any fresh context continue.
 
+## 🔷 WfP DISPATCH + `{slug}.app.projectsites.dev` ROUTING (2026-09-25, fire 8)
+
+Advanced the "using WfP where appropriate" + `payload-slug.app.projectsites.dev` slice:
+
+- **WfP dispatch deploy** — `provisionPayloadStack` can deploy the per-instance Worker INTO
+  the `project-sites-endpoints` dispatch namespace (proven: `PUT/GET/DELETE .../workers/dispatch/
+  namespaces/{ns}/scripts/{name}` all succeed with the global key). `deployWorker`/`deleteWorker`
+  take a `namespace` arg (`scriptPath` branches standalone vs namespace).
+- **`.app.` routing** — `src/index.ts` `serveAppBySubdomain` now dispatches CF-native instances
+  (rows with `worker_script_name`) via `dispatchToUserWorker(env, name, req)` → `USER_DISPATCH.get(name)`,
+  serving them at `{slug}.app.projectsites.dev` (before the container-proxy fallback).
+- **Teardown is location-agnostic** — `deleteWorkerEverywhere` deletes from BOTH the standalone
+  registry AND the namespace, treating CF "does not exist" (10007/10090/10092) as already-gone
+  (the namespace-scripts GET spuriously returns `success:true`, so existence can't be re-read —
+  fixed + regression-tested).
+
+### ⛔ Blocker (external, real): `*.app.projectsites.dev` has NO TLS cert
+- Universal SSL covers only single-level `*.projectsites.dev`; multi-level `{slug}.app.projectsites.dev`
+  needs an ACM **advanced** cert pack. Ordering one returns **`code 1401` "Error while requesting
+  from certificate service"** across every CA/host/DCV variant + 6 retries — the zone already has
+  **8 advanced packs** (db/cms/crm/auth/traces/mail/integrations/apex), so this is an ACM pack-quota
+  cap surfaced as a generic error. CF-for-SaaS custom hostnames return **`1404` (no SaaS quota)**.
+  Both fixes are **billing/plan decisions** (approval-required) — not autonomously resolvable.
+- **No-regression gate:** launches deploy standalone → **workers.dev URL (200 today)** UNTIL an
+  operator sets **`PAYLOAD_APP_HOST_CERT_READY=true`** (after the cert lands), at which point they
+  switch to WfP namespace + `{slug}.app.projectsites.dev`. Code is shipped + unit-tested + ready.
+- **To activate:** (1) raise ACM pack quota / order `*.app.projectsites.dev` (dashboard or CSM:
+  `POST /zones/{zone}/ssl/certificate_packs {type:advanced,hosts:[app.projectsites.dev,*.app.projectsites.dev]}`),
+  (2) `wrangler secret put PAYLOAD_APP_HOST_CERT_READY` = `true` (or a var), (3) re-run
+  `e2e/admin-verify/verify-payload-launcher.mjs` → it asserts the `.app.` URL.
+- **Live proof this fire (fallback path, no regression):** `plq8987093` launched → `/admin` 200
+  (hasD1/hasR2 true) → deleted → worker/d1/r2 all 404, admin 404. Zero dangling (swept: 0 payload
+  workers/D1, orphan `payload-real2-dbad41` R2 from a prior session cleaned up). 9 unit tests green.
+
 ## ✅✅ PROGRAMMED INTO THE ADMIN FLOW + PROVEN LIVE (2026-09-25) — the ask is DONE
 
 The launch/delete lifecycle is now the REAL admin product flow, proven end-to-end on prod

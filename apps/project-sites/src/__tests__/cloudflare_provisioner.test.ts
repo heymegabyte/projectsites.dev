@@ -66,6 +66,61 @@ describe('provisionPayloadStack', () => {
     expect(stack.subdomain).toBe(`${stack.workerName}.manhattan.workers.dev`);
   });
 
+  it('deploys into the WfP dispatch namespace + routes at {slug}.app.projectsites.dev', async () => {
+    const puts: string[] = [];
+    let subdomainEnabled = false;
+    mockFetch((method, url) => {
+      if (url.includes('/d1/database') && method === 'POST') return { body: okD1 };
+      if (url.includes('/r2/buckets') && method === 'POST') return { body: okGeneric };
+      if (method === 'PUT') {
+        puts.push(url);
+        return { body: okGeneric };
+      }
+      if (url.includes('/subdomain') && method === 'POST') {
+        subdomainEnabled = true;
+        return { body: okGeneric };
+      }
+      return { body: okGeneric };
+    });
+    const stack = await provisionPayloadStack(ENV, {
+      instanceId: 'abcdef12-0000-0000-0000-000000000000',
+      slug: 'acme',
+      payloadSecret: 's',
+      dispatchNamespace: 'project-sites-endpoints',
+      appHostCertReady: true,
+    });
+    // Uploaded into the dispatch namespace, NOT as a standalone script.
+    expect(puts.some((u) => u.includes('/dispatch/namespaces/project-sites-endpoints/scripts/'))).toBe(
+      true,
+    );
+    // Routed at the platform host, and NO workers.dev subdomain enablement.
+    expect(stack.subdomain).toBe('acme.app.projectsites.dev');
+    expect(subdomainEnabled).toBe(false);
+  });
+
+  it('falls back to standalone workers.dev when the .app. cert is not ready', async () => {
+    const puts: string[] = [];
+    mockFetch((method, url) => {
+      if (url.includes('/d1/database') && method === 'POST') return { body: okD1 };
+      if (url.includes('/r2/buckets') && method === 'POST') return { body: okGeneric };
+      if (method === 'PUT') {
+        puts.push(url);
+        return { body: okGeneric };
+      }
+      if (url.endsWith('/workers/subdomain')) return { body: okSubdomain };
+      return { body: okGeneric };
+    });
+    const stack = await provisionPayloadStack(ENV, {
+      instanceId: 'abcdef12-0000-0000-0000-000000000000',
+      slug: 'acme',
+      payloadSecret: 's',
+      dispatchNamespace: 'project-sites-endpoints',
+      appHostCertReady: false, // cert not provisioned → no WfP, keep the working 200
+    });
+    expect(puts.every((u) => !u.includes('/dispatch/namespaces/'))).toBe(true);
+    expect(stack.subdomain).toBe(`${stack.workerName}.manhattan.workers.dev`);
+  });
+
   it('rolls back the D1 + R2 when the Worker deploy fails (no partial stack)', async () => {
     const deleted: string[] = [];
     mockFetch((method, url) => {
@@ -134,6 +189,29 @@ describe('deprovisionPayloadStack', () => {
     });
     expect(report.r2).toBe('error');
     expect(report.clean).toBe(false);
+  });
+
+  it('treats a namespace "does not exist" (10007) as deleted, not error', async () => {
+    // Reproduces the standalone-launched instance whose namespace copy never existed:
+    // the namespace DELETE 404s with code 10007 and its GET spuriously returns
+    // success:true — must NOT be mislabeled as a straggler.
+    mockFetch((method, url) => {
+      const inNs = url.includes('/dispatch/namespaces/');
+      if (method === 'DELETE' && inNs) {
+        return { status: 404, body: { success: false, errors: [{ code: 10007 }] } };
+      }
+      if (method === 'DELETE') return { body: okGeneric }; // standalone delete ok
+      if (inNs) return { body: { success: true, result: {} } }; // unreliable namespace GET
+      return { body: notFound }; // standalone/d1/r2 re-reads → gone
+    });
+    const report = await deprovisionPayloadStack(ENV, {
+      workerName: 'payload-acme-abcdef12',
+      d1DatabaseId: 'd1-123',
+      r2BucketName: 'payload-acme-abcdef12',
+      dispatchNamespace: 'project-sites-endpoints',
+    });
+    expect(report.worker).toBe('deleted');
+    expect(report.clean).toBe(true);
   });
 
   it('treats null ids as not_found (nothing to delete) and stays clean', async () => {

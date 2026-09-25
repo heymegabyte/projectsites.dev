@@ -52,8 +52,13 @@ const created = await createRes.json().catch(() => ({}));
 if (createRes.status !== 201 || !created.instance_id) {
   fail(`launch expected 201 + instance_id, got ${createRes.status} ${JSON.stringify(created)}`);
 }
-const { instance_id: iid, admin_url: adminUrl, url } = created;
+const { instance_id: iid, admin_url: adminUrl, url, resources = {} } = created;
 console.log(`   instance_id=${iid} admin_url=${adminUrl}`);
+console.log(`   resources=${JSON.stringify(resources)}`);
+// The prompt names payload-slug.app.projectsites.dev — assert WfP routing when configured.
+if (resources.dispatch_namespace && !String(url).includes('.app.projectsites.dev')) {
+  fail(`expected {slug}.app.projectsites.dev routing, got ${url}`);
+}
 
 console.log('2) GET /admin (retry ≤40s for workers.dev propagation)');
 let adminCode = 0;
@@ -82,22 +87,38 @@ const del = await delRes.json().catch(() => ({}));
 if (!del?.cleanup?.clean) fail(`delete expected cleanup.clean=true, got ${JSON.stringify(del)}`);
 console.log(`   cleanup=${JSON.stringify(del.cleanup)}`);
 
-console.log('4) independent CF-API confirm gone');
-const host = String(url).replace(/^https:\/\/([^.]+)\..*/, '$1');
-if (CF_KEY) {
-  const wCode = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${ACCT}/workers/scripts/${host}`,
-    { headers: cfHdr },
-  ).then((r) => r.status);
-  const rCode = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${ACCT}/r2/buckets/${host}`,
-    { headers: cfHdr },
-  ).then((r) => r.status);
-  console.log(`   worker=${wCode} r2=${rCode} (both expect 404)`);
+console.log('4) independent CF-API confirm gone (worker + D1 + R2)');
+if (CF_KEY && resources.worker_script_name) {
+  const ns = resources.dispatch_namespace;
+  const workerPath = ns
+    ? `/accounts/${ACCT}/workers/dispatch/namespaces/${ns}/scripts/${resources.worker_script_name}`
+    : `/accounts/${ACCT}/workers/scripts/${resources.worker_script_name}`;
+  const wCode = await fetch(`https://api.cloudflare.com/client/v4${workerPath}`, {
+    headers: cfHdr,
+  }).then((r) => r.status);
+  const dCode = resources.d1_database_id
+    ? await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${ACCT}/d1/database/${resources.d1_database_id}`,
+        { headers: cfHdr },
+      ).then((r) => r.status)
+    : 404;
+  const rCode = resources.r2_bucket_name
+    ? await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${ACCT}/r2/buckets/${resources.r2_bucket_name}`,
+        { headers: cfHdr },
+      ).then((r) => r.status)
+    : 404;
+  console.log(`   worker=${wCode} d1=${dCode} r2=${rCode} (all expect 404)`);
   if (wCode !== 404) fail(`worker still exists after delete (${wCode})`);
+  if (dCode !== 404) fail(`d1 still exists after delete (${dCode})`);
   if (rCode !== 404) fail(`r2 bucket still exists after delete (${rCode})`);
 } else {
-  console.log('   (CLOUDFLARE_API_KEY unset — skipped independent CF re-read; DELETE report is authoritative)');
+  console.log('   (no CF key or resource handles — DELETE cleanup report is authoritative)');
 }
+
+// Independent routing confirm: the instance is gone from the platform host.
+const postAdmin = await fetch(adminUrl).then((r) => r.status).catch(() => 0);
+console.log(`   admin after delete = ${postAdmin} (expect non-200)`);
+if (postAdmin === 200) fail('admin still 200 after delete — routing not torn down');
 
 console.log('PASS: launch → 200 → delete → zero dangling');

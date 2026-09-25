@@ -191,6 +191,7 @@ import { proxyToContainer } from './services/container_dispatcher.js';
 import { resolveAppHost } from './services/app_host_resolver.js';
 import { getContentType, resolveSite, serveSiteFromR2 } from './services/site_serving.js';
 import { maybeDispatchFunctions } from './services/functions_dispatch.js'; // Stage 3.1: child-host /api/* → site's WfP functions worker (ADR-0035 §30)
+import { dispatchToUserWorker } from './services/wfp_dispatch.js'; // CF-native app instances ({slug}.app.projectsites.dev → USER_DISPATCH user Worker)
 import { dbQueryOne, dbUpdate } from './services/db.js';
 import { writeAuditLog } from './services/audit.js';
 import { prepareBuildLogLines, detectBuildLlmDegraded } from './services/build_log.js';
@@ -1935,9 +1936,10 @@ app.all('*', async (c) => {
       do_instance_id: string | null;
       last_error: string | null;
       app_slug: string;
+      worker_script_name: string | null;
     }>(
       c.env.DB,
-      `SELECT id, status, do_instance_id, last_error, app_slug FROM app_instances
+      `SELECT id, status, do_instance_id, last_error, app_slug, worker_script_name FROM app_instances
          WHERE subdomain = ? AND deleted_at IS NULL`,
       [sub],
     );
@@ -1979,6 +1981,11 @@ app.all('*', async (c) => {
           headers: { 'Content-Type': 'text/html;charset=utf-8', 'Cache-Control': 'no-store' },
         },
       );
+    }
+    // CF-native apps (Payload on D1+R2+Worker) run as a user Worker in the WfP
+    // dispatch namespace — served here via USER_DISPATCH, not a container DO.
+    if (inst.worker_script_name) {
+      return dispatchToUserWorker(c.env, inst.worker_script_name, c.req.raw);
     }
     return proxyToContainer(c.env, inst.do_instance_id ?? inst.id, c.req.raw, inst.app_slug);
   };

@@ -157,12 +157,25 @@ async function deleteR2(c: CfCreds, name: string): Promise<'deleted' | 'not_foun
 }
 
 // ── Worker ──────────────────────────────────────────────────────────────────
+/**
+ * The script-upload path. When `namespace` is set the script is uploaded INTO the
+ * Workers-for-Platforms dispatch namespace (a user Worker, reachable ONLY via the
+ * platform's `USER_DISPATCH` binding + `{slug}.app.projectsites.dev` routing);
+ * otherwise it's a standalone Worker (reachable at `<name>.<account>.workers.dev`).
+ */
+function scriptPath(accountId: string, name: string, namespace?: string): string {
+  return namespace
+    ? `/accounts/${accountId}/workers/dispatch/namespaces/${namespace}/scripts/${name}`
+    : `/accounts/${accountId}/workers/scripts/${name}`;
+}
+
 /** Deploy an ESM Worker with D1 + R2 bindings via the CF multipart script-upload API. */
 async function deployWorker(
   c: CfCreds,
   name: string,
   moduleSource: string,
   bindings: { d1DatabaseId: string; r2BucketName: string; vars?: Record<string, string> },
+  namespace?: string,
 ): Promise<{ name: string }> {
   const metadata = {
     main_module: 'index.js',
@@ -185,7 +198,7 @@ async function deployWorker(
     new Blob([moduleSource], { type: 'application/javascript+module' }),
     'index.js',
   );
-  const r = await cfFetch(c, `/accounts/${c.accountId}/workers/scripts/${name}`, {
+  const r = await cfFetch(c, scriptPath(c.accountId, name, namespace), {
     method: 'PUT',
     body: form,
   });
@@ -194,13 +207,41 @@ async function deployWorker(
   }
   return { name };
 }
-async function deleteWorker(c: CfCreds, name: string): Promise<'deleted' | 'not_found' | 'error'> {
-  const del = await cfFetch(c, `/accounts/${c.accountId}/workers/scripts/${name}`, {
-    method: 'DELETE',
-  });
-  const check = await cfFetch(c, `/accounts/${c.accountId}/workers/scripts/${name}`);
+/** CF error codes meaning "this Worker/script isn't here" — i.e. already gone. */
+const WORKER_NOT_FOUND_CODES = new Set([10007, 10090, 10092]);
+
+async function deleteWorker(
+  c: CfCreds,
+  name: string,
+  namespace?: string,
+): Promise<'deleted' | 'not_found' | 'error'> {
+  const del = await cfFetch(c, scriptPath(c.accountId, name, namespace), { method: 'DELETE' });
+  if (del.json.success) return 'deleted';
+  // "does not exist" → already gone. Short-circuit BEFORE the GET re-read because the
+  // dispatch-namespace scripts GET returns success:true even for an absent script
+  // (unreliable for existence), which would otherwise mislabel absence as 'error'.
+  const errs = (del.json.errors as Array<{ code?: number }> | undefined) ?? [];
+  if (errs.some((e) => e.code != null && WORKER_NOT_FOUND_CODES.has(e.code))) return 'deleted';
+  // Standalone re-read is reliable (404 → gone). Namespace already handled above.
+  const check = await cfFetch(c, scriptPath(c.accountId, name, namespace));
   if (!check.json.success) return 'deleted';
-  return del.json.success ? 'deleted' : 'error';
+  return 'error';
+}
+
+/**
+ * Delete the Worker from BOTH the standalone registry AND the dispatch namespace,
+ * confirming it's gone from each. A CF-native instance may have launched either
+ * pre-cert (standalone) or post-cert (namespace); deleting both locations makes
+ * teardown correct regardless, with no per-instance "where did it live" state.
+ */
+async function deleteWorkerEverywhere(
+  c: CfCreds,
+  name: string,
+  namespace?: string,
+): Promise<'deleted' | 'error'> {
+  const standalone = await deleteWorker(c, name);
+  const inNs = namespace ? await deleteWorker(c, name, namespace) : 'deleted';
+  return standalone === 'error' || inNs === 'error' ? 'error' : 'deleted';
 }
 
 /** The account's workers.dev subdomain (e.g. `manhattan`) — the reachable-URL host. */
@@ -261,11 +302,34 @@ export const PAYLOAD_BOOTSTRAP_WORKER = `export default {
  */
 export async function provisionPayloadStack(
   env: Env,
-  ctx: { instanceId: string; slug: string; payloadSecret: string; workerModule?: string },
+  ctx: {
+    instanceId: string;
+    slug: string;
+    payloadSecret: string;
+    workerModule?: string;
+    /**
+     * When set AND `appHostCertReady`, deploy the Worker INTO this WfP dispatch
+     * namespace (a user Worker served at `{slug}.app.projectsites.dev` via the
+     * platform's USER_DISPATCH binding). Otherwise deploy a standalone Worker on
+     * workers.dev.
+     */
+    dispatchNamespace?: string;
+    /**
+     * `{slug}.app.projectsites.dev` only serves HTTPS once an ACM advanced cert
+     * pack for `*.app.projectsites.dev` is provisioned (blocked today by CF cert
+     * quota). Until an operator sets `PAYLOAD_APP_HOST_CERT_READY=true`, launches
+     * fall back to the standalone workers.dev URL so /admin still 200s — no
+     * regression. Flip the flag when the cert is active to switch to WfP + .app.
+     */
+    appHostCertReady?: boolean;
+  },
 ): Promise<PayloadStack> {
   const c = creds(env);
   const short = ctx.instanceId.slice(0, 8);
   const base = `payload-${ctx.slug}-${short}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 54);
+  // WfP dispatch (→ .app.projectsites.dev) only when a namespace is configured AND
+  // the wildcard cert is ready; else standalone workers.dev (the proven 200 path).
+  const ns = ctx.dispatchNamespace && ctx.appHostCertReady === true ? ctx.dispatchNamespace : undefined;
   const rollback: Array<() => Promise<unknown>> = [];
   try {
     const d1 = await createD1(c, base);
@@ -274,19 +338,26 @@ export async function provisionPayloadStack(
     const r2 = await createR2(c, base);
     rollback.push(() => deleteR2(c, r2.name));
 
-    const worker = await deployWorker(c, base, ctx.workerModule ?? PAYLOAD_BOOTSTRAP_WORKER, {
-      d1DatabaseId: d1.id,
-      r2BucketName: r2.name,
-      vars: { PAYLOAD_SECRET: ctx.payloadSecret },
-    });
-    rollback.push(() => deleteWorker(c, worker.name));
+    const worker = await deployWorker(
+      c,
+      base,
+      ctx.workerModule ?? PAYLOAD_BOOTSTRAP_WORKER,
+      { d1DatabaseId: d1.id, r2BucketName: r2.name, vars: { PAYLOAD_SECRET: ctx.payloadSecret } },
+      ns,
+    );
+    rollback.push(() => deleteWorker(c, worker.name, ns));
 
-    // Expose the script at <name>.<account>.workers.dev so /admin resolves 200.
-    // Best-effort: a subdomain failure leaves the stack intact (teardown still works);
-    // the caller records whatever URL we could resolve.
-    await enableScriptSubdomain(c, worker.name).catch(() => false);
-    const acct = await accountSubdomain(c).catch(() => null);
-    const reachable = acct ? `${worker.name}.${acct}.workers.dev` : `${base}.cms.projectsites.dev`;
+    let reachable: string;
+    if (ns) {
+      // WfP dispatch: routed at {slug}.app.projectsites.dev by the platform Worker's
+      // serveAppBySubdomain → USER_DISPATCH.get(worker.name). No workers.dev subdomain.
+      reachable = `${ctx.slug.toLowerCase()}.app.projectsites.dev`;
+    } else {
+      // Standalone fallback: expose at <name>.<account>.workers.dev so /admin 200s.
+      await enableScriptSubdomain(c, worker.name).catch(() => false);
+      const acct = await accountSubdomain(c).catch(() => null);
+      reachable = acct ? `${worker.name}.${acct}.workers.dev` : `${base}.cms.projectsites.dev`;
+    }
 
     return PayloadStackSchema.parse({
       d1DatabaseId: d1.id,
@@ -308,10 +379,18 @@ export async function provisionPayloadStack(
  */
 export async function deprovisionPayloadStack(
   env: Env,
-  ids: { workerName?: string | null; d1DatabaseId?: string | null; r2BucketName?: string | null },
+  ids: {
+    workerName?: string | null;
+    d1DatabaseId?: string | null;
+    r2BucketName?: string | null;
+    /** Delete the Worker from this WfP dispatch namespace (matches provision). */
+    dispatchNamespace?: string;
+  },
 ): Promise<DeprovisionReport> {
   const c = creds(env);
-  const worker = ids.workerName ? await deleteWorker(c, ids.workerName) : 'not_found';
+  const worker = ids.workerName
+    ? await deleteWorkerEverywhere(c, ids.workerName, ids.dispatchNamespace)
+    : 'not_found';
   const d1 = ids.d1DatabaseId ? await deleteD1(c, ids.d1DatabaseId) : 'not_found';
   const r2 = ids.r2BucketName ? await deleteR2(c, ids.r2BucketName) : 'not_found';
   const clean = [worker, d1, r2].every((v) => v === 'deleted' || v === 'not_found');
