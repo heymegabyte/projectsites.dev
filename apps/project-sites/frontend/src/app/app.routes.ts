@@ -256,6 +256,17 @@ export const routes: Routes = [
           ),
       },
       {
+        // Read-only super-admin Vectorize index inspector — the account's Cloudflare
+        // Vectorize indexes (RAG/embeddings). Backend GET /api/admin/vectorize/* is
+        // super-admin + `vectorize_inspector`-flag gated (404-dark); sysAdminGuard hides it.
+        path: 'vectorize-inspector',
+        canActivate: [sysAdminGuard],
+        loadComponent: () =>
+          import('./pages/admin/sections/vectorize-inspector.component').then(
+            (m) => m.VectorizeInspectorComponent,
+          ),
+      },
+      {
         // Super-Admin lead scanner (#9) — Places no-website scan → scored leads →
         // mint outreach claim links. Flag-dark (`lead_scanner`) + super-admin only;
         // the worker route 404s when the flag is off and 403s non-operators.
