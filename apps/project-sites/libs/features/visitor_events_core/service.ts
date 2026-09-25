@@ -22,6 +22,7 @@ import {
   type ScrollDepthSummary,
   type NetworkQualitySummary,
   type NavTimingSummary,
+  type OutboundClicksSummary,
   type LabelCount,
   type HourCount,
   type AnalyticsFilter,
@@ -555,6 +556,49 @@ export async function getConversionKinds(
 }
 
 /**
+ * AN-OUTBOUND — the WHICH-LINKS companion to {@link getConversionKinds} (which gives the
+ * by-CATEGORY counts). Groups `conversion` events by their stored click DESTINATION (`$.href`,
+ * the owner's own server-normalized outbound/contact link) → the top links visitors actually
+ * click, each with its kind (call / email / outbound / directions). Answers "are people tapping
+ * my phone number / booking link / Instagram?". Only conversions that CARRY an href are counted
+ * (CTA-button clicks with no href stay in the by-kind card). Fail-soft: a query error OR no rows
+ * yields `{ total: 0, byLink: [] }`. `total` is the count across ALL link-clicks (not just the
+ * top-8 shown), so the card can say "N link clicks · top 8".
+ */
+export async function getOutboundClicksSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<OutboundClicksSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ href: string | null; kind: string | null; n: number }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.href') AS href,
+            MAX(json_extract(metadata, '$.kind')) AS kind,
+            COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'conversion'
+        AND json_extract(metadata, '$.href') IS NOT NULL
+      GROUP BY href ORDER BY n DESC LIMIT 50`,
+    params,
+  );
+  if (error) return { total: 0, byLink: [] };
+  let total = 0;
+  const byLink = [];
+  for (const r of data) {
+    if (typeof r.href !== 'string' || !r.href) continue;
+    const count = Number(r.n) || 0;
+    total += count;
+    if (byLink.length < 8) {
+      byLink.push({ href: r.href, kind: typeof r.kind === 'string' ? r.kind : null, count });
+    }
+  }
+  return { total, byLink };
+}
+
+/**
  * AN-JSERR — first-party JS-error site-health over the window: uncaught errors /
  * unhandled rejections from the `js_error` beacon (mirrored into `visitor_events`),
  * grouped by message (worst first, top 8 displayed) + a sample path each. Queried
@@ -1037,6 +1081,7 @@ export async function getTrafficSummary(
     scrollDepth,
     networkQuality,
     navTiming,
+    outboundClicks,
   ] = await Promise.all([
     scalar(
       env,
@@ -1128,6 +1173,8 @@ export async function getTrafficSummary(
     getNetworkQualitySummary(env, siteId, windowDays, window, filter),
     // AN-NAV — first-party page-load waterfall (queried directly; not in the rollup).
     getNavTimingSummary(env, siteId, windowDays, window, filter),
+    // AN-OUTBOUND — top clicked outbound/contact links (queried directly; not in the rollup).
+    getOutboundClicksSummary(env, siteId, windowDays, window, filter),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -1170,6 +1217,7 @@ export async function getTrafficSummary(
     scrollDepth,
     networkQuality,
     navTiming,
+    outboundClicks,
     byConversionKind,
     previous: {
       pageviews: prevPageviews,
@@ -1267,6 +1315,7 @@ export async function getTrafficSummaryFromRollup(
     scrollDepth,
     networkQuality,
     navTiming,
+    outboundClicks,
   ] = await Promise.all([
     sumScalars(curStart, null),
     sumScalars(prevStart, prevEnd),
@@ -1295,6 +1344,8 @@ export async function getTrafficSummaryFromRollup(
     getNetworkQualitySummary(env, siteId, windowDays),
     // AN-NAV — first-party page-load waterfall (queried live; not in the rollup).
     getNavTimingSummary(env, siteId, windowDays),
+    // AN-OUTBOUND — top clicked outbound/contact links (queried live; not in the rollup).
+    getOutboundClicksSummary(env, siteId, windowDays),
   ]);
 
   return TrafficSummarySchema.parse({
@@ -1324,6 +1375,7 @@ export async function getTrafficSummaryFromRollup(
     scrollDepth,
     networkQuality,
     navTiming,
+    outboundClicks,
     byConversionKind,
     previous: {
       pageviews: prev.pageviews,

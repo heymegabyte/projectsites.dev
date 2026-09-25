@@ -355,6 +355,32 @@ export const NavTimingSummarySchema = z
   .default({ samples: 0, dns: null, connect: null, ttfb: null, transfer: null, dom: null, total: null });
 export type NavTimingSummary = z.infer<typeof NavTimingSummarySchema>;
 
+/** One clicked outbound/contact link: the destination, its kind, and the click count. */
+export const OutboundLinkSchema = z
+  .object({
+    href: z.string(),
+    kind: z.string().nullable().default(null),
+    count: z.number().int().min(1),
+  })
+  .strict();
+export type OutboundLink = z.infer<typeof OutboundLinkSchema>;
+
+/**
+ * AN-OUTBOUND — the WHICH-LINKS view of click conversions (the by-CATEGORY view is
+ * `byConversionKind`). `total` counts every conversion that carried a destination href; `byLink`
+ * is the top-8 destinations (the owner's own phone / email / social / booking links), each with
+ * its kind. Answers "are visitors tapping my phone number / booking link?". Empty (`total:0`,
+ * `byLink:[]`) = no link-clicks yet (the card shows "no link clicks tracked yet" — never a fake 0).
+ */
+export const OutboundClicksSummarySchema = z
+  .object({
+    total: z.number().int().min(0),
+    byLink: z.array(OutboundLinkSchema).default([]),
+  })
+  .strict()
+  .default({ total: 0, byLink: [] });
+export type OutboundClicksSummary = z.infer<typeof OutboundClicksSummarySchema>;
+
 /** Aggregated traffic summary for one site over a window. */
 export const TrafficSummarySchema = z
   .object({
@@ -413,6 +439,9 @@ export const TrafficSummarySchema = z
     // AN-NAV — first-party page-load waterfall (median dns/connect/ttfb/transfer/dom/total).
     // Defaults to an empty (null-median) summary for back-compat with producers/fixtures.
     navTiming: NavTimingSummarySchema,
+    // AN-OUTBOUND — top clicked outbound/contact links (which links, by destination). Defaults
+    // to an empty summary for back-compat with producers/fixtures that predate it.
+    outboundClicks: OutboundClicksSummarySchema,
     // AN15 — the immediately-preceding equal-length window's KPIs, for
     // period-over-period deltas. Defaults to zeros for back-compat.
     previous: z

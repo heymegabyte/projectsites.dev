@@ -56,6 +56,30 @@ function navPhase(v: unknown): number | undefined {
     : undefined;
 }
 
+/**
+ * Server-side normalize the DESTINATION of a click conversion into a clean, groupable link for
+ * the "top links clicked" report. These are the OWNER's own outbound targets (their phone /
+ * email / social / booking links) — NOT visitor PII. Kept: `tel:` / `mailto:` / `sms:` whole
+ * (short, the owner's contact) and `http(s)` normalized to `origin + pathname` (query + fragment
+ * STRIPPED so tracking params are never stored and same-page links group cleanly). Anything else
+ * (relative `#`, `javascript:`, a CTA button with no href) → undefined, so only real external /
+ * contact links are recorded. Length-capped defensively.
+ */
+export function normalizeClickHref(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || !raw) return undefined;
+  const href = raw.slice(0, 500);
+  if (/^(tel:|mailto:|sms:)/i.test(href)) return href.slice(0, 200);
+  if (/^https?:\/\//i.test(href)) {
+    try {
+      const u = new URL(href);
+      return `${u.origin}${u.pathname}`.slice(0, 200);
+    } catch {
+      return (href.split(/[?#]/)[0] ?? href).slice(0, 200);
+    }
+  }
+  return undefined;
+}
+
 export const analyticsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 type AnalyticsCtx = Context<{ Bindings: Env; Variables: Variables }>;
@@ -282,6 +306,9 @@ analyticsRoutes.post('/api/events', async (c) => {
                 kind: typeof p?.kind === 'string' ? p.kind : undefined,
                 section: typeof p?.section === 'string' ? p.section : undefined,
                 channel: typeof p?.channel === 'string' ? p.channel : undefined,
+                // AN-OUTBOUND — the click DESTINATION (owner's own outbound/contact link),
+                // server-normalized (query stripped, never a tracking param) for the top-links report.
+                href: normalizeClickHref(p?.href),
               }
             : mirrorType === 'web_vital'
               ? { metric: cwvMetric, value: cwvValue }

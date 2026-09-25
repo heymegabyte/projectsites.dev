@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 
-import { analyticsRoutes, persistAnalyticsEvent } from '../routes/analytics.js';
+import { analyticsRoutes, persistAnalyticsEvent, normalizeClickHref } from '../routes/analytics.js';
 import type { IncomingEvent } from '../services/analytics_events.js';
 
 /** Minimal Env stub — all optional/unknown bindings absent */
@@ -131,6 +131,30 @@ describe('GET /api/analytics-debug', () => {
       env,
     );
     expect(res.status).toBe(404);
+  });
+});
+
+describe('normalizeClickHref (outbound-click destination — privacy boundary)', () => {
+  it('keeps tel: / mailto: / sms: whole (the owner’s own contact)', () => {
+    expect(normalizeClickHref('tel:+15551234567')).toBe('tel:+15551234567');
+    expect(normalizeClickHref('mailto:hi@biz.com')).toBe('mailto:hi@biz.com');
+    expect(normalizeClickHref('sms:+15551234567')).toBe('sms:+15551234567');
+  });
+  it('STRIPS query + fragment from http(s) (never store tracking params)', () => {
+    expect(normalizeClickHref('https://instagram.com/biz?igsh=abc123&utm=x#top')).toBe('https://instagram.com/biz');
+    expect(normalizeClickHref('https://book.me/slot/')).toBe('https://book.me/slot/');
+  });
+  it('drops non-link hrefs (relative, #, javascript:, empty, non-string)', () => {
+    expect(normalizeClickHref('#section')).toBeUndefined();
+    expect(normalizeClickHref('/about')).toBeUndefined();
+    expect(normalizeClickHref('javascript:void(0)')).toBeUndefined();
+    expect(normalizeClickHref('')).toBeUndefined();
+    expect(normalizeClickHref(undefined)).toBeUndefined();
+    expect(normalizeClickHref(42)).toBeUndefined();
+  });
+  it('length-caps defensively', () => {
+    const out = normalizeClickHref(`https://x.test/${'a'.repeat(500)}`);
+    expect(out && out.length).toBeLessThanOrEqual(200);
   });
 });
 

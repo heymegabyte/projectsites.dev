@@ -24,6 +24,7 @@ import {
   getScrollDepthSummary,
   getNetworkQualitySummary,
   getNavTimingSummary,
+  getOutboundClicksSummary,
   getConversionKinds,
   getPreviousConversionKinds,
   getDimensionBreakdown,
@@ -798,5 +799,90 @@ describe('getNavTimingSummary — first-party page-load waterfall', () => {
     const q = calls.find((c) => c.sql.includes("event_type = 'nav_timing'"));
     expect(q?.sql).toContain('site_id = ?');
     expect(q?.params).toContain('site-NAV');
+  });
+});
+
+describe('getOutboundClicksSummary — top clicked outbound/contact links', () => {
+  /** D1 stub returning the given grouped-by-href rows for the outbound-clicks query. */
+  function obEnv(
+    rows: Array<{ href: string | null; kind: string | null; n: number }>,
+    opts: { error?: boolean } = {},
+  ): Env {
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...params: unknown[]) {
+            return {
+              all: async () => {
+                if (opts.error) throw new Error('no such table');
+                // the query groups conversion events by their stored href
+                return {
+                  results:
+                    sql.includes("event_type = 'conversion'") && sql.includes("json_extract(metadata, '$.href')")
+                      ? rows
+                      : [],
+                };
+              },
+              first: async () => null,
+              run: async () => ({ success: true }),
+              _params: params,
+            };
+          },
+        };
+      },
+    };
+    return { DB: db } as unknown as Env;
+  }
+
+  it('returns the top links (with kind) + a total across ALL link-clicks', async () => {
+    const rows = [
+      { href: 'tel:+15551234567', kind: 'call', n: 40 },
+      { href: 'https://instagram.com/biz', kind: 'outbound', n: 12 },
+      { href: 'mailto:hi@biz.com', kind: 'email', n: 5 },
+    ];
+    const s = await getOutboundClicksSummary(obEnv(rows), 'site_1', 30);
+    expect(s.total).toBe(57); // 40 + 12 + 5, across all links
+    expect(s.byLink[0]).toEqual({ href: 'tel:+15551234567', kind: 'call', count: 40 });
+    expect(s.byLink.map((l) => l.href)).toEqual([
+      'tel:+15551234567',
+      'https://instagram.com/biz',
+      'mailto:hi@biz.com',
+    ]);
+  });
+
+  it('caps byLink at the top 8 but total counts every link', async () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({ href: `https://x.test/${i}`, kind: 'outbound', n: 12 - i }));
+    const s = await getOutboundClicksSummary(obEnv(rows), 'site_1', 30);
+    expect(s.byLink).toHaveLength(8); // top 8 shown
+    expect(s.total).toBe(rows.reduce((a, r) => a + r.n, 0)); // total = all 12
+  });
+
+  it('no link-clicks → {total:0, byLink:[]} (never a fabricated 0)', async () => {
+    const s = await getOutboundClicksSummary(obEnv([]), 'site_1', 30);
+    expect(s).toEqual({ total: 0, byLink: [] });
+  });
+
+  it('fail-soft — a query error yields the empty summary, never throws', async () => {
+    const s = await getOutboundClicksSummary(obEnv([], { error: true }), 'site_1', 30);
+    expect(s).toEqual({ total: 0, byLink: [] });
+  });
+
+  it('scopes to the tenant — the site_id predicate is bound, never interpolated', async () => {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...params: unknown[]) {
+            calls.push({ sql, params });
+            return { all: async () => ({ results: [] }), first: async () => null, run: async () => ({}) };
+          },
+        };
+      },
+    };
+    await getOutboundClicksSummary({ DB: db } as unknown as Env, 'site-OB', 30);
+    const q = calls.find((c) => c.sql.includes("json_extract(metadata, '$.href')"));
+    expect(q?.sql).toContain('site_id = ?');
+    expect(q?.sql).toContain("event_type = 'conversion'");
+    expect(q?.params).toContain('site-OB');
   });
 });
