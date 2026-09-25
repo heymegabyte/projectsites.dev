@@ -43,7 +43,13 @@
   both cells are numbers/numeric-strings, else case-insensitive; null/''/undefined always last;
   stable). HONEST: the browse grid sorts the LOADED window (it already discloses "showing latest
   N"); the SQL grid sorts the FULL returned result (reorders exactly what's shown) + the CSV
-  export follows the sorted view. Remaining toward a full SQLite manager: **inline typed row edit
+  export follows the sorted view. **Copy-to-clipboard — DONE (2026-09-25):** the Editor DataPanel
+  (the admin browser already had this — now the Editor surface reaches parity) gets cell/row copy
+  via pure `clipboardValue` (raw scalar / compact-JSON object / EMPTY for null — never the display
+  em-dash) + `rowJson` (pretty whole-row JSON). Browse row-detail: a "Copy row (JSON)" button + a
+  per-field copy icon; SQL result grid: every non-empty cell is a click-to-copy `<button>`. A
+  polite `aria-live` + toast confirms each copy (token-guarded); `writeClipboard` fail-soft (blocked
+  context → no-op). +6 Vitest. Remaining toward a full SQLite manager: **inline typed row edit
   in the grid** (grid cell → parameterized UPDATE preview) + **server-side full-table sort** (a
   worker sort param on the browse endpoint, validated against the column allowlist).
 - **WfP** (`USER_DISPATCH` dispatch namespace) is **wired but DORMANT** — flag
