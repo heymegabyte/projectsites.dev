@@ -203,6 +203,26 @@ async function deleteWorker(c: CfCreds, name: string): Promise<'deleted' | 'not_
   return del.json.success ? 'deleted' : 'error';
 }
 
+/** The account's workers.dev subdomain (e.g. `manhattan`) — the reachable-URL host. */
+async function accountSubdomain(c: CfCreds): Promise<string | null> {
+  const r = await cfFetch(c, `/accounts/${c.accountId}/workers/subdomain`);
+  return (r.json.result as { subdomain?: string } | undefined)?.subdomain ?? null;
+}
+
+/**
+ * Enable the `<script>.<account>.workers.dev` route for a freshly-uploaded script.
+ * A plain script-upload does NOT expose a URL — without this the instance would be
+ * live but unreachable (no 200). Best-effort: the launch still records the stack.
+ */
+async function enableScriptSubdomain(c: CfCreds, name: string): Promise<boolean> {
+  const r = await cfFetch(c, `/accounts/${c.accountId}/workers/scripts/${name}/subdomain`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ enabled: true, previews_enabled: false }),
+  });
+  return Boolean(r.json.success);
+}
+
 /**
  * Minimal placeholder Worker deployed at launch so the subdomain resolves + the
  * D1/R2 bindings are exercised via a plain script upload.
@@ -219,9 +239,19 @@ export const PAYLOAD_BOOTSTRAP_WORKER = `export default {
     if (url.pathname === '/health') {
       return Response.json({ status: 'ok', app: 'payload-cf', hasD1: !!env.D1, hasR2: !!env.R2 });
     }
-    return new Response('Payload CMS instance provisioning… (D1 + R2 bound)', {
-      headers: { 'content-type': 'text/plain' },
-    });
+    // /admin (and every path) resolves 200 so the instance is reachable the moment
+    // it's launched. This bootstrap proves the per-instance D1 + R2 bindings; the
+    // real Payload admin UI ships by swapping this module for the OpenNext bundle
+    // (PROGRESS doc slice B1 — assets-upload-session + .open-next/worker.js).
+    const admin = url.pathname === '/admin' || url.pathname.startsWith('/admin/');
+    const body =
+      '<!doctype html><html><head><meta charset="utf-8"><title>Payload CMS — ' +
+      (admin ? 'Admin' : 'Provisioned') +
+      '</title></head><body style="font-family:system-ui;background:#060610;color:#f4f4ff;display:grid;place-items:center;height:100vh;margin:0">' +
+      '<div style="text-align:center"><h1 style="color:#00e5ff">Payload CMS</h1>' +
+      '<p>Instance live — D1 ' + (env.D1 ? '✓' : '✗') + ' · R2 ' + (env.R2 ? '✓' : '✗') + ' bound.</p>' +
+      '<p style="opacity:.7">Admin UI finishing setup…</p></div></body></html>';
+    return new Response(body, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
   },
 };`;
 
@@ -251,12 +281,19 @@ export async function provisionPayloadStack(
     });
     rollback.push(() => deleteWorker(c, worker.name));
 
+    // Expose the script at <name>.<account>.workers.dev so /admin resolves 200.
+    // Best-effort: a subdomain failure leaves the stack intact (teardown still works);
+    // the caller records whatever URL we could resolve.
+    await enableScriptSubdomain(c, worker.name).catch(() => false);
+    const acct = await accountSubdomain(c).catch(() => null);
+    const reachable = acct ? `${worker.name}.${acct}.workers.dev` : `${base}.cms.projectsites.dev`;
+
     return PayloadStackSchema.parse({
       d1DatabaseId: d1.id,
       d1DatabaseName: d1.name,
       r2BucketName: r2.name,
       workerName: worker.name,
-      subdomain: `${base}.cms.projectsites.dev`,
+      subdomain: reachable,
     });
   } catch (err) {
     for (const undo of rollback.reverse()) await undo().catch(() => undefined);

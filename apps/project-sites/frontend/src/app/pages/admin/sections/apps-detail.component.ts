@@ -1041,9 +1041,13 @@ export class AppDetailComponent implements OnInit {
     // resources will be created + the monthly estimate, and require an explicit
     // confirm before the POST. `danger:false` → cyan (creating, not destroying).
     const managed = this.provisioning().filter((p) => p.managed);
+    // CF-native apps (empty `infra`) provision a dedicated D1 + R2 + Worker stack,
+    // not a container — say so exactly so the confirm copy never lies.
     const infraSummary = managed.length
       ? managed.map((p) => p.provider).join(', ')
-      : 'a managed container';
+      : a.infra.length === 0
+        ? 'a dedicated Cloudflare D1 database, R2 bucket & Worker'
+        : 'a managed container';
     const ok = await this.confirm.confirm({
       title: `Deploy ${a.name}?`,
       message: `This provisions ${infraSummary} on your account at an estimated ~$${this.totalCost()}/mo (estimate, not exact billing). You can destroy it anytime.`,

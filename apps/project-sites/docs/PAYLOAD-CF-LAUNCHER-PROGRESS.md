@@ -5,6 +5,35 @@
 > where **deleting the instance from the UI deletes the D1 + R2 + Worker with zero dangling
 > resources**. Started 2026-09-25. This doc lets any fresh context continue.
 
+## ✅✅ PROGRAMMED INTO THE ADMIN FLOW + PROVEN LIVE (2026-09-25) — the ask is DONE
+
+The launch/delete lifecycle is now the REAL admin product flow, proven end-to-end on prod
+through the ACTUAL admin endpoints (not a script):
+
+1. **Launch** — `/admin/apps` Launch button → `POST /api/apps/instances {app_id:'payload'}` →
+   `launchCfNativeInstance` (`src/routes/apps.ts`) → `provisionPayloadStack` creates the
+   per-instance **D1 + R2 + Worker**, enables the `workers.dev` subdomain, and records
+   `d1_database_id` / `worker_script_name` / `r2_bucket_name` / `site_id` on `app_instances`.
+   → **201** with `admin_url`. **`GET /admin` → 200** (health: `hasD1:true, hasR2:true`).
+2. **Delete** — Delete button → `DELETE /api/apps/instances/:id` → `destroyCfNativeInstance` →
+   `deprovisionPayloadStack` (Worker→D1→R2 + re-read confirm). Row marked `destroyed` ONLY on
+   `clean:true`; a straggler leaves it live with `last_error` + a 502 (never a lying "destroyed").
+3. **Zero dangling — independently confirmed via CF API after delete:** worker `404` · r2 `404` ·
+   admin `404`. Live run 2026-09-25: `pl023e789b` launched → admin 200 → deleted →
+   `{worker:deleted, d1:deleted, r2:deleted, clean:true}` → all three 404.
+4. **Runtime creds already in prod** — `CLOUDFLARE_API_KEY` + `CLOUDFLARE_EMAIL` (secrets) +
+   `CF_ACCOUNT_ID` (var) → the platform Worker provisions/deprovisions via the global-key fallback.
+5. **Migration** `0633_payload_launcher_columns.sql` applied to prod D1. **Max 3 per site**
+   (`MAX_CF_NATIVE_PER_SITE`, per-org fallback). Catalog re-tagged **D1 · R2 · CF-Worker**
+   (backend + frontend). **Regression guards:** `src/__tests__/cloudflare_provisioner.test.ts`
+   (6 unit) + `e2e/admin-verify/verify-payload-launcher.mjs` (live cycle).
+
+**ONE slice remains — B1, the admin CONTENT swap:** `/admin` 200 is the `PAYLOAD_BOOTSTRAP_WORKER`
+placeholder, not yet the real Payload UI. `provisionPayloadStack(ctx.workerModule)` already accepts
+a custom module — swap the bootstrap for the OpenNext bundle (build `infra/payload-d1/.open-next/`
+once → store in R2 → per-instance upload via the CF **assets-upload-session** API). The LIFECYCLE
+is done; only the admin CONTENT is the placeholder.
+
 ## ✅ DONE + PROVEN this session (real evidence, live CF API)
 
 1. **All 3 provisioning primitives proven** — create → delete → **confirm-gone** against the
