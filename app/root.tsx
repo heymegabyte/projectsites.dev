@@ -15,6 +15,7 @@ import reactToastifyStyles from 'react-toastify/dist/ReactToastify.css?url';
 import globalStyles from './styles/index.scss?url';
 import xtermStyles from '@xterm/xterm/css/xterm.css?url';
 import { EditorLoadingScreen } from './components/chat/EditorLoadingScreen';
+import { editorFilesReady } from './lib/stores/editor-boot';
 
 import 'virtual:uno.css';
 
@@ -171,12 +172,34 @@ export default function App() {
      * - PS_BOLT_CHAT_READY: post once when the chat input placeholder
      *   "Build a professional website for" has painted, so the admin
      *   can dismiss its loading overlay.
+     * - PS_BOLT_FILES_LOADED: post once when every project file is in the
+     *   editor, so the admin veil dismisses in sync with the in-iframe loader
+     *   (accurate — as soon as files are in — instead of a blind timeout).
      */
     if (typeof window === 'undefined' || window.parent === window) {
       return;
     }
 
     const PARENT_ORIGIN = 'https://projectsites.dev';
+
+    /*
+     * Fire PS_BOLT_FILES_LOADED once the editor holds every project file (the
+     * same signal that fades the in-iframe EditorLoadingScreen). Files are
+     * parser-driven, so this can fire before or around the chat-ready probe
+     * below. The subscription unsubscribes itself after the single emit.
+     */
+    const unsubscribeFilesLoaded = editorFilesReady.subscribe((filesLoaded) => {
+      if (!filesLoaded) {
+        return;
+      }
+
+      unsubscribeFilesLoaded();
+      window.parent.postMessage({ type: 'PS_BOLT_FILES_LOADED' }, PARENT_ORIGIN);
+      window.parent.postMessage(
+        { type: 'PS_TELEMETRY', event: 'editor.files_loaded', props: { embedded: true } },
+        PARENT_ORIGIN,
+      );
+    });
     const INTERACTIVE = 'a, button, input, textarea, select, [role="button"], [data-tooltip]';
     let pendingFrame = 0;
     let lastX = 0;

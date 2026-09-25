@@ -231,6 +231,21 @@ describe('BoltEmbedService (veil dismiss → editorReady)', () => {
     expect(ready(svc)).toBeTrue();
   });
 
+  it('PS_BOLT_FILES_LOADED dismisses the veil the instant files are in — synced with the in-iframe loader, not the blind chat-grace', () => {
+    const { svc, fire } = setup();
+    // The in-iframe editor loader fades on files-loaded; the parent veil must
+    // dismiss on the SAME signal (accurate) instead of a fixed 10s guess, so the
+    // hand-off is seamless.
+    fire(TRUSTED, { type: 'PS_BOLT_FILES_LOADED' });
+    expect(ready(svc)).withContext('all files loaded → editor is usable → reveal it now').toBeTrue();
+  });
+
+  it('a PS_BOLT_FILES_LOADED from an UNTRUSTED origin must NOT dismiss the veil (injection guard)', () => {
+    const { svc, fire } = setup();
+    fire('https://evil.example.com', { type: 'PS_BOLT_FILES_LOADED' });
+    expect(ready(svc)).withContext('an untrusted frame cannot force the veil away').toBeFalse();
+  });
+
   it('a veil-dismiss message from an UNTRUSTED origin must NOT force the editor ready (injection guard)', () => {
     const { svc, fire } = setup();
     fire('https://evil.example.com', { type: 'PS_APP_RUNNING' });
