@@ -21,6 +21,7 @@ import {
   getWebVitalsSummary,
   getJsErrorSummary,
   getEngagementSummary,
+  getScrollDepthSummary,
   getConversionKinds,
   getPreviousConversionKinds,
   getDimensionBreakdown,
@@ -520,5 +521,89 @@ describe('getEngagementSummary — first-party time-on-page (median dwell)', () 
     const q = calls.find((c) => c.sql.includes("event_type = 'page_engagement'"));
     expect(q?.sql).toContain('site_id = ?');
     expect(q?.params).toContain('site-ABC');
+  });
+});
+
+describe('getScrollDepthSummary — first-party scroll depth (reach funnel + median)', () => {
+  /** D1 stub returning the given {path, pct} rows for the scroll_depth query. */
+  function scrollEnv(
+    rows: Array<{ path: string | null; pct: number }>,
+    opts: { error?: boolean } = {},
+  ): Env {
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...params: unknown[]) {
+            return {
+              all: async () => {
+                if (opts.error) throw new Error('no such table');
+                return { results: sql.includes("event_type = 'scroll_depth'") ? rows : [] };
+              },
+              first: async () => null,
+              run: async () => ({ success: true }),
+              _params: params,
+            };
+          },
+        };
+      },
+    };
+    return { DB: db } as unknown as Env;
+  }
+
+  it('computes the site-wide MEDIAN max-depth + a monotonic reach funnel', async () => {
+    // depths: 10,30,50,80,100 → median 50; reach ≥25:4, ≥50:3, ≥75:2, ≥100:1
+    const rows = [10, 30, 50, 80, 100].map((p) => ({ path: '/', pct: p }));
+    const s = await getScrollDepthSummary(scrollEnv(rows), 'site_1', 30);
+    expect(s.medianPercent).toBe(50);
+    expect(s.samples).toBe(5);
+    expect(s.reach).toEqual({ p25: 4, p50: 3, p75: 2, p100: 1 });
+  });
+
+  it('clamps out-of-range percents 0–100 defensively (never a >100 sample)', async () => {
+    const rows = [{ path: '/', pct: 150 }, { path: '/', pct: -20 }];
+    const s = await getScrollDepthSummary(scrollEnv(rows), 'site_1', 30);
+    // 150 clamps to 100, -20 clamps to 0 — so exactly one sample counts as complete (≥100)
+    expect(s.reach.p100).toBe(1);
+    expect(s.samples).toBe(2);
+  });
+
+  it('reports per-page median + completion, deepest first, past the 5-sample floor', async () => {
+    const rows = [
+      ...Array.from({ length: 5 }, () => ({ path: '/long-read', pct: 90 })), // deep, 0% complete
+      ...Array.from({ length: 5 }, () => ({ path: '/', pct: 100 })), // shallow list but all complete
+      ...Array.from({ length: 2 }, () => ({ path: '/thin', pct: 100 })), // below floor → dropped
+    ];
+    const s = await getScrollDepthSummary(scrollEnv(rows), 'site_1', 30);
+    expect(s.byPage.map((p) => p.path)).toEqual(['/', '/long-read']); // 100 median first, /thin dropped
+    expect(s.byPage[0]).toEqual({ path: '/', medianPercent: 100, samples: 5, completionPercent: 100 });
+    expect(s.byPage[1].completionPercent).toBe(0); // /long-read: median 90, nobody hit 100
+  });
+
+  it('no samples → {samples:0, medianPercent:null, reach all-0, byPage:[]} (measuring…, never a fabricated 0)', async () => {
+    const s = await getScrollDepthSummary(scrollEnv([]), 'site_1', 30);
+    expect(s).toEqual({ samples: 0, medianPercent: null, reach: { p25: 0, p50: 0, p75: 0, p100: 0 }, byPage: [] });
+  });
+
+  it('fail-soft — a query error yields the empty summary, never throws', async () => {
+    const s = await getScrollDepthSummary(scrollEnv([], { error: true }), 'site_1', 30);
+    expect(s).toEqual({ samples: 0, medianPercent: null, reach: { p25: 0, p50: 0, p75: 0, p100: 0 }, byPage: [] });
+  });
+
+  it('scopes to the tenant — the site_id predicate is bound, never interpolated', async () => {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...params: unknown[]) {
+            calls.push({ sql, params });
+            return { all: async () => ({ results: [] }), first: async () => null, run: async () => ({}) };
+          },
+        };
+      },
+    };
+    await getScrollDepthSummary({ DB: db } as unknown as Env, 'site-XYZ', 30);
+    const q = calls.find((c) => c.sql.includes("event_type = 'scroll_depth'"));
+    expect(q?.sql).toContain('site_id = ?');
+    expect(q?.params).toContain('site-XYZ');
   });
 });

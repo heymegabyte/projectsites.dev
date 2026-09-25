@@ -19,6 +19,7 @@ import {
   type WebVitals,
   type JsErrorSummary,
   type EngagementSummary,
+  type ScrollDepthSummary,
   type LabelCount,
   type HourCount,
   type AnalyticsFilter,
@@ -643,6 +644,71 @@ export async function getEngagementSummary(
   return { medianMs: Math.round(percentile(all, 50)), samples: all.length, byPage };
 }
 
+/** Empty scroll-depth summary — honest "measuring…" (null median), never a fabricated 0. */
+function emptyScrollDepth(): ScrollDepthSummary {
+  return { samples: 0, medianPercent: null, reach: { p25: 0, p50: 0, p75: 0, p100: 0 }, byPage: [] };
+}
+
+/**
+ * AN-SCROLL — first-party scroll depth over the window, from the `scroll_depth` beacon
+ * (mirrored into `visitor_events`). Each row is ONE pageview's MAX depth reached (0–100).
+ * Returns the site-wide MEDIAN max-depth, a monotonic reach funnel (how many samples got
+ * ≥25/50/75/100% deep), and the deepest-read pages (past {@link MIN_PATH_SAMPLES}) with each
+ * page's completion rate. Fail-soft: a query error OR no samples yields the empty summary
+ * (null median) — the card shows "measuring…", NEVER a fabricated 0. Median (not mean) because
+ * depth is bimodal (bounce-at-top vs read-to-bottom). Percent is clamped 0–100 defensively.
+ */
+export async function getScrollDepthSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<ScrollDepthSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ path: string | null; pct: number }>(
+    env.DB,
+    `SELECT path, CAST(json_extract(metadata, '$.percent') AS INTEGER) AS pct
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'scroll_depth'
+        AND json_extract(metadata, '$.percent') IS NOT NULL
+      LIMIT 50000`,
+    params,
+  );
+  if (error) return emptyScrollDepth();
+  const all: number[] = [];
+  const byPath = new Map<string, number[]>();
+  for (const r of data) {
+    let p = Number(r.pct);
+    if (!Number.isFinite(p)) continue;
+    p = p < 0 ? 0 : p > 100 ? 100 : p;
+    all.push(p);
+    if (typeof r.path === 'string' && r.path) {
+      const arr = byPath.get(r.path);
+      if (arr) arr.push(p);
+      else byPath.set(r.path, [p]);
+    }
+  }
+  if (all.length === 0) return emptyScrollDepth();
+  const reach = {
+    p25: all.filter((p) => p >= 25).length,
+    p50: all.filter((p) => p >= 50).length,
+    p75: all.filter((p) => p >= 75).length,
+    p100: all.filter((p) => p >= 100).length,
+  };
+  const byPage = [...byPath.entries()]
+    .filter(([, vals]) => vals.length >= MIN_PATH_SAMPLES)
+    .map(([path, vals]) => ({
+      path,
+      medianPercent: Math.round(percentile(vals, 50)),
+      samples: vals.length,
+      completionPercent: Math.round((100 * vals.filter((p) => p >= 100).length) / vals.length),
+    }))
+    .sort((a, b) => b.medianPercent - a.medianPercent)
+    .slice(0, 8);
+  return { samples: all.length, medianPercent: Math.round(percentile(all, 50)), reach, byPage };
+}
+
 /**
  * Conversions by kind over the equal-length window immediately BEFORE the current one —
  * the prior-period baseline for the per-kind delta badges. Same SQL as
@@ -817,6 +883,7 @@ export async function getTrafficSummary(
     byHour,
     jsErrors,
     engagement,
+    scrollDepth,
   ] = await Promise.all([
     scalar(
       env,
@@ -902,6 +969,8 @@ export async function getTrafficSummary(
     getJsErrorSummary(env, siteId, windowDays, window, filter),
     // AN-ENGAGE — first-party time-on-page median (queried directly; not in the rollup).
     getEngagementSummary(env, siteId, windowDays, window, filter),
+    // AN-SCROLL — first-party scroll depth (queried directly; not in the rollup).
+    getScrollDepthSummary(env, siteId, windowDays, window, filter),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -941,6 +1010,7 @@ export async function getTrafficSummary(
     webVitals,
     jsErrors,
     engagement,
+    scrollDepth,
     byConversionKind,
     previous: {
       pageviews: prevPageviews,
@@ -1035,6 +1105,7 @@ export async function getTrafficSummaryFromRollup(
     byHour,
     jsErrors,
     engagement,
+    scrollDepth,
   ] = await Promise.all([
     sumScalars(curStart, null),
     sumScalars(prevStart, prevEnd),
@@ -1057,6 +1128,8 @@ export async function getTrafficSummaryFromRollup(
     getJsErrorSummary(env, siteId, windowDays),
     // AN-ENGAGE — first-party time-on-page median (queried live; not in the rollup).
     getEngagementSummary(env, siteId, windowDays),
+    // AN-SCROLL — first-party scroll depth (queried live; not in the rollup).
+    getScrollDepthSummary(env, siteId, windowDays),
   ]);
 
   return TrafficSummarySchema.parse({
@@ -1083,6 +1156,7 @@ export async function getTrafficSummaryFromRollup(
     webVitals,
     jsErrors,
     engagement,
+    scrollDepth,
     byConversionKind,
     previous: {
       pageviews: prev.pageviews,

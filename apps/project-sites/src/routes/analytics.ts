@@ -29,7 +29,7 @@ import { recordVisitorEvent } from '../../libs/features/visitor_events_core/serv
  * (adds `error`/`scroll`), so the guard both filters AND narrows to a valid
  * `VisitorEventType` before we call `recordVisitorEvent`.
  */
-const VISITOR_MIRROR_TYPES = ['conversion', 'form_start', 'form_submit', 'web_vital', 'js_error', 'page_engagement'] as const;
+const VISITOR_MIRROR_TYPES = ['conversion', 'form_start', 'form_submit', 'web_vital', 'js_error', 'page_engagement', 'scroll_depth'] as const;
 type VisitorMirrorType = (typeof VISITOR_MIRROR_TYPES)[number];
 const isVisitorMirrorType = (t: string): t is VisitorMirrorType =>
   (VISITOR_MIRROR_TYPES as readonly string[]).includes(t);
@@ -222,6 +222,7 @@ analyticsRoutes.post('/api/events', async (c) => {
               source?: unknown;
               line?: unknown;
               duration_ms?: unknown;
+              percent?: unknown;
             }
           | undefined;
         // web_vital carries {metric, value}: validate against the known CWV set + a
@@ -273,7 +274,20 @@ analyticsRoutes.post('/api/events', async (c) => {
                           ? Math.round(p.duration_ms)
                           : undefined,
                     }
-                  : { form: typeof p?.form === 'string' ? p.form : undefined };
+                  : mirrorType === 'scroll_depth'
+                    ? {
+                        // Server-side re-guard: max scroll depth is a finite 0–100 percent (the
+                        // client already clamps); anything else is dropped so the funnel + median
+                        // never see a fabricated or out-of-range sample.
+                        percent:
+                          typeof p?.percent === 'number' &&
+                          Number.isFinite(p.percent) &&
+                          p.percent >= 0 &&
+                          p.percent <= 100
+                            ? Math.round(p.percent)
+                            : undefined,
+                      }
+                    : { form: typeof p?.form === 'string' ? p.form : undefined };
         await recordVisitorEvent(
           env,
           { orgId: site.org_id, siteId: site.id },

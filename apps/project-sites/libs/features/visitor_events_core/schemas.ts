@@ -29,6 +29,10 @@ export const VisitorEventTypeSchema = z.enum([
   // Page engagement / dwell time (metadata: {duration_ms}) — first-party time-on-page,
   // beaconed once on pagehide, client-bounded 1s–30min. CF's plan has no dwell dataset.
   'page_engagement',
+  // Scroll depth (metadata: {percent}) — the max % of page height a visit reached, beaconed
+  // once on pagehide (client-clamped 0–100). First-party content-consumption signal; CF's
+  // plan has no scroll-depth dataset.
+  'scroll_depth',
 ]);
 export type VisitorEventType = z.infer<typeof VisitorEventTypeSchema>;
 
@@ -234,6 +238,52 @@ export const EngagementSummarySchema = z
   .default({ medianMs: null, samples: 0, byPage: [] });
 export type EngagementSummary = z.infer<typeof EngagementSummarySchema>;
 
+/** One page's scroll-depth story — how far visitors typically get, and how many finish. */
+export const ScrollPageSchema = z
+  .object({
+    path: z.string(),
+    medianPercent: z.number().int().min(0).max(100),
+    samples: z.number().int().min(1),
+    // % of this page's samples that reached the very bottom (100%).
+    completionPercent: z.number().int().min(0).max(100),
+  })
+  .strict();
+export type ScrollPage = z.infer<typeof ScrollPageSchema>;
+
+/**
+ * AN-SCROLL — first-party scroll depth over the window, from the `scroll_depth` beacon (the
+ * max % of page height a visit reached, ONE sample per pageview, mirrored into
+ * `visitor_events`). `medianPercent` is the site-wide MEDIAN max-depth; `reach` counts how
+ * many samples got at least 25/50/75/100% deep (a monotonic non-increasing funnel — the
+ * card divides by `samples` for reach rates); `byPage` the deepest-read pages past a sample
+ * floor, each with its completion rate. `medianPercent` is `null` when there are no samples
+ * yet — the card shows "measuring…", never a fabricated 0 (the beacon fires on every
+ * scrollable page, so 0 isn't "no data", and CF's plan exposes no scroll-depth dataset).
+ */
+export const ScrollDepthSummarySchema = z
+  .object({
+    samples: z.number().int().min(0),
+    medianPercent: z.number().int().min(0).max(100).nullable().default(null),
+    reach: z
+      .object({
+        p25: z.number().int().min(0),
+        p50: z.number().int().min(0),
+        p75: z.number().int().min(0),
+        p100: z.number().int().min(0),
+      })
+      .strict()
+      .default({ p25: 0, p50: 0, p75: 0, p100: 0 }),
+    byPage: z.array(ScrollPageSchema).default([]),
+  })
+  .strict()
+  .default({
+    samples: 0,
+    medianPercent: null,
+    reach: { p25: 0, p50: 0, p75: 0, p100: 0 },
+    byPage: [],
+  });
+export type ScrollDepthSummary = z.infer<typeof ScrollDepthSummarySchema>;
+
 /** Aggregated traffic summary for one site over a window. */
 export const TrafficSummarySchema = z
   .object({
@@ -281,6 +331,10 @@ export const TrafficSummarySchema = z
     // AN-ENGAGE — first-party time-on-page (median dwell + per-page). Defaults to an empty
     // (null-median) summary for back-compat with producers/fixtures that predate it.
     engagement: EngagementSummarySchema,
+    // AN-SCROLL — first-party scroll depth (median max-depth + reach funnel + per-page).
+    // Defaults to an empty (null-median) summary for back-compat with producers/fixtures
+    // that predate it.
+    scrollDepth: ScrollDepthSummarySchema,
     // AN15 — the immediately-preceding equal-length window's KPIs, for
     // period-over-period deltas. Defaults to zeros for back-compat.
     previous: z

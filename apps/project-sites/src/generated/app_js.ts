@@ -836,6 +836,50 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     } catch (e) {}
   }
 
+  /* ─────────────────── Scroll-depth beacon ─────────────────── */
+  // Max % of page height a visit reached (initial above-the-fold coverage, then the deepest
+  // point scrolled to), beaconed once on the first visibilitychange:hidden / pagehide as a
+  // 'scroll_depth' event ({percent, href}). First-party content-consumption signal — how far
+  // visitors actually get — which Cloudflare's plan has no dataset for. A page that fits the
+  // viewport (not scrollable) reports 100 (they saw all of it). HONESTY: percent is clamped
+  // 0–100; a page with no measurable height is SKIPPED (never a fabricated sample).
+  function initScrollDepth() {
+    var maxPct = 0;
+    var sent = false;
+    function depthNow() {
+      var doc = document.documentElement || {};
+      var body = document.body || {};
+      var sh = Math.max(doc.scrollHeight || 0, body.scrollHeight || 0);
+      var ch = doc.clientHeight || window.innerHeight || 0;
+      if (sh <= 0 || ch <= 0) { return -1; }
+      if (sh <= ch) { return 100; } // fits the viewport → fully seen, no scroll needed
+      var st = window.pageYOffset || doc.scrollTop || body.scrollTop || 0;
+      var pct = Math.round(((st + ch) / sh) * 100);
+      if (sh - (st + ch) <= 2) { pct = 100; } // 2px bottom tolerance → treat as complete
+      return pct < 0 ? 0 : (pct > 100 ? 100 : pct);
+    }
+    function sample() {
+      var d = depthNow();
+      if (d > maxPct) { maxPct = d; }
+    }
+    function beacon() {
+      if (sent) { return; }
+      sent = true;
+      sample();
+      if (maxPct <= 0) { return; } // nothing measurable → no fabricated sample
+      track('scroll_depth', { percent: maxPct, href: location.pathname });
+    }
+    try {
+      sample(); // initial above-the-fold coverage
+      window.addEventListener('scroll', sample, { passive: true });
+      window.addEventListener('resize', sample, { passive: true });
+      window.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') { beacon(); }
+      }, { capture: true });
+      window.addEventListener('pagehide', beacon, { capture: true });
+    } catch (e) {}
+  }
+
   /* ───────────────────────── Boot ───────────────────────── */
   onReady(function () {
     try {
@@ -849,6 +893,9 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     } catch (e) {}
     try {
       initEngagement();
+    } catch (e) {}
+    try {
+      initScrollDepth();
     } catch (e) {}
     try {
       document.addEventListener('click', onClick, true);

@@ -45,6 +45,10 @@ export const EVENT_TYPES = [
   // pagehide. Payload carries {duration_ms, href} (client-bounded 1s–30min). Mirrored to
   // visitor_events for a future median-time-on-page metric.
   'page_engagement',
+  // First-party scroll depth: the max % of page height a visit reached, beaconed once on
+  // pagehide. Payload carries {percent, href} (client-clamped 0–100). Mirrored to
+  // visitor_events for the scroll-depth reach funnel + per-page completion metric.
+  'scroll_depth',
 ] as const;
 
 /**
