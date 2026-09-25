@@ -47,9 +47,14 @@ const DEFS: readonly MetricDef[] = [
     term: 'Top pages · referrers · geography · device · channel',
   },
   {
-    def: 'Real page-load experience measured in visitors’ own browsers. p75 is the value 75% of samples are at or below. These are Chromium-only browser APIs, so samples come from Chrome/Edge visitors — shown only when real field samples exist, never a fabricated 0.',
+    def: 'Real page-load experience measured in each visitor’s own browser by the ProjectSites beacon (app.js) that runs on every published page — NOT the Cloudflare Web Analytics beacon. p75 is the value 75% of samples are at or below. LCP/INP/CLS use Chromium-only browser APIs, so those samples come from Chrome/Edge visitors — shown only when real field samples exist, never a fabricated 0.',
     source: 'Real-user (browser)',
     term: 'Core Web Vitals (LCP · INP · CLS)',
+  },
+  {
+    def: 'How fast the page starts — TTFB (server response) and FCP (first paint) — measured first-party in EVERY visitor’s browser via Navigation Timing (not Chromium-only, unlike the Core Web Vitals above). p75 is shown, per page once enough real samples exist; this fills the edge page-timing gap our Cloudflare plan doesn’t expose.',
+    source: 'Real-user (browser)',
+    term: 'Page load speed (FCP · TTFB)',
   },
   {
     def: 'HTTP requests served at Cloudflare’s edge — status-code mix, cache hit ratio (over cacheable requests), and bytes served. Cloudflare adaptive-sampled with ~30-day retention.',
@@ -98,7 +103,9 @@ const DEFS: readonly MetricDef[] = [
       <p class="ag-note">
         Times are shown in your browser’s local zone; daily buckets are aggregated by UTC day.
         &ldquo;First-party&rdquo; means ProjectSites measured it on your site; &ldquo;Cloudflare edge&rdquo;
-        is sampled request data available for custom domains.
+        is sampled request data available for custom domains. Real-user speed metrics come from the
+        ProjectSites beacon on every page — we don’t rely on the Cloudflare Web Analytics beacon, so
+        they’re collected on every domain with no extra setup.
       </p>
     </details>
   `,
