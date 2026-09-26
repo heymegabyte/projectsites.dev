@@ -1506,6 +1506,43 @@ export function visibleColumns(all: readonly string[], hidden: readonly string[]
   return all.filter((c) => !h.has(c));
 }
 
+/** How the browse rows are rendered: the dense spreadsheet grid, or Airtable-style cards. */
+export type ViewMode = 'grid' | 'gallery';
+
+/** Coerce a raw value to a known {@link ViewMode}, defaulting to `grid`. Pure. */
+export function normalizeViewMode(raw: string | null | undefined): ViewMode {
+  return raw === 'gallery' ? 'gallery' : 'grid';
+}
+
+/**
+ * The card-title column for the gallery: the configured field when it's a real column, else a sensible
+ * default — the first column that isn't an id/`*_id` (a more meaningful title than a raw id), falling
+ * back to the first column. Returns null only for an empty column set. Pure.
+ *
+ * @example galleryTitleField(['id','name','email'])            // 'name'
+ * @example galleryTitleField(['id','name'], 'email')           // 'name' (configured not a column → default)
+ * @example galleryTitleField(['id','name'], 'email' , )        // see above
+ * @example galleryTitleField(['id'])                           // 'id'  (only an id column)
+ */
+export function galleryTitleField(columns: readonly string[], configured?: string | null): string | null {
+  if (columns.length === 0) {
+    return null;
+  }
+
+  if (configured && columns.includes(configured)) {
+    return configured;
+  }
+
+  const nonId = columns.find((c) => !/^id$|_id$/i.test(c));
+
+  return nonId ?? columns[0];
+}
+
+/** The body columns shown under the title on a gallery card — every column except the title, in order. Pure. */
+export function galleryBodyFields(columns: readonly string[], titleField: string | null): string[] {
+  return columns.filter((c) => c !== titleField);
+}
+
 /**
  * Toggle a column's visibility. Showing a column is always allowed; HIDING is refused when it
  * would leave zero visible columns (never a dead-end empty grid). Returns the new hidden set,

@@ -528,11 +528,25 @@ emits the WHOLE current query (search + AND/OR filter group + sort), bounded + h
 - Verified: worker Jest **12754/12754** + tsc 0; editor Vitest **297/297** + tsc 0 + eslint 0 + build ✓; admin tsc 0 +
   `ng build --configuration production` ✓. Editor → CF Pages, worker+admin → Worker CI.
 
-**NEXT slice (per delivery order): rich non-grid VIEWS read from the saved-view metadata** — the store + export now
-exist, so add a **view type** to `editor_grid_views` (`grid`|`gallery`|`kanban`|`calendar`|`chart`, default `grid`; a
-nullable `config_json` for group-by / kanban-column / calendar-date / chart x·y field) and render a **gallery** first
-(cards over the SAME rows, no record duplication, honest "page-only" labels on any summary), reusing the browse
-endpoint + saved-view apply. Alternatively, saved-views POLISH: **rename/update** an existing view (PUT) + a
-"modified — update view?" affordance when the live query drifts + default-view-per-table. Deferred: async export JOBS
-for >10k rows (current export is bounded + honestly capped); nested filter-tree; `field-types.ts` richer INPUT
-widgets; grid eval (RevoGrid vs Tabulator) — the hand-rolled `<table>` stays until a large-dataset need forces it.
+### ✅ Shipped next fire (2026-09-26 #17) — GALLERY view mode (first Airtable-style non-grid view)
+The browse grid gained a **Grid ⇄ Gallery** toggle — the first non-grid view (success-standard #4). Gallery renders
+the SAME page of rows as Airtable-style **cards**, honestly page-parity with the grid (no extra fetch, no record
+duplication, same pagination + "N of total" count — per the page-vs-whole-query honesty note):
+- **Editor-only (`data-panel-logic.ts` + `DataPanel.tsx`)** — pure `ViewMode`/`normalizeViewMode`/`galleryTitleField`
+  (default = first non-id column) / `galleryBodyFields` (+8 Vitest). A view-mode segmented toggle + a "Title" field
+  dropdown (gallery only) in the grid toolbar; a responsive card grid (1/2/3-col) over `visibleRows`, each card a
+  configurable **title** + the remaining columns as label:value — **reusing `classifyCell`** so typed display
+  (dates/url/email/JSON/number) + safe links match the grid exactly, and **respecting hidden columns** (`visibleCols`).
+  The grid `<table>` is gated on `viewMode === 'grid'`; both share the toolbar + pagination + empty state. Resets to
+  grid on table open. NO migration/worker/bridge change → deploys via CF Pages only.
+- **Grid choice unchanged** — the hand-rolled `<table>` + a hand-rolled card grid; zero new deps/licenses.
+- Verified: editor Vitest **222/222** + tsc 0 + eslint 0 + build ✓; worker Jest **12754/12754** + tsc 0 (unchanged —
+  the matrix-doc commit still triggers Worker CI, which stays green). Editor → CF Pages.
+
+**NEXT slice: PERSIST the gallery as a saved-view TYPE** — the gallery is a display toggle today (resets on table
+open); make it a real per-view type by adding `type TEXT DEFAULT 'grid'` + nullable `config_json` (`{titleField}`) to
+`editor_grid_views` (migration → apply to prod), threading `type`+`config` through the grid-views POST/serialize +
+`PS_VIEW_REQUEST` save + apply (restore view-mode + title field). Then the next non-grid view (**kanban** — group by a
+status-like column; group counts MUST be whole-query or labelled page-only per the honesty note) or **charts**. Also
+open: saved-views rename/update (PUT) + "modified — update view?"; async export JOBS >10k; nested filter-tree;
+`field-types.ts` richer INPUT widgets; grid eval (RevoGrid vs Tabulator) — deferred until a large-dataset need forces it.

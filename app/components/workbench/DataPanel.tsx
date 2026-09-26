@@ -96,6 +96,9 @@ import {
   removeCondition,
   updateCondition,
   activeConditions,
+  type ViewMode,
+  galleryTitleField,
+  galleryBodyFields,
 } from './data-panel-logic';
 import { SqlEditor } from './SqlEditor';
 import { classNames } from '~/utils/classNames';
@@ -371,6 +374,14 @@ export const DataPanel = memo(() => {
   const [exportNote, setExportNote] = useState('');
   const exportCid = useRef<string | null>(null);
   const exportFormat = useRef<'csv' | 'json'>('csv');
+
+  /**
+   * Browse render mode: the dense spreadsheet `grid` (default) or Airtable-style `gallery` cards over
+   * the SAME page of rows (honest page-parity with the grid — no extra fetch, no record duplication).
+   * `galleryTitleCol` picks the card-title field (null → a sensible default via {@link galleryTitleField}).
+   */
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [galleryTitleCol, setGalleryTitleCol] = useState<string | null>(null);
 
   /*
    * The current open table, mirrored into a ref so the mount-only message listener (deps []) reads the
@@ -650,6 +661,8 @@ export const DataPanel = memo(() => {
       setBrowseTotal(null); // until the first page lands, pageInfo falls back to the overview count
       setFilterConditions([]); // clear the prior table's column filter group
       setFilterCombinator('AND'); // reset the join to the default
+      setViewMode('grid'); // a fresh table opens in the dense grid
+      setGalleryTitleCol(null); // and with the default card-title field
 
       if (searchTimer.current) {
         clearTimeout(searchTimer.current);
@@ -2591,6 +2604,67 @@ export const DataPanel = memo(() => {
             </span>
             {(canRunSql || rows.length > 0) && (
               <div className="ml-auto flex items-center gap-3">
+                {/* View mode — dense grid or Airtable-style gallery cards over the SAME page of rows
+                    (no extra fetch, no duplication; the gallery is honest page-parity with the grid). */}
+                {active && activeTable && activeTable.browsable !== false && rows.length > 0 && (
+                  <div
+                    className="flex items-center gap-0.5"
+                    role="group"
+                    aria-label="View mode"
+                    data-testid="data-view-mode"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('grid')}
+                      aria-pressed={viewMode === 'grid'}
+                      data-testid="data-view-grid"
+                      title="Grid view"
+                      className={classNames(
+                        'rounded p-1 text-xs transition-colors',
+                        viewMode === 'grid'
+                          ? 'bg-[#00e5ff]/15 text-[#00e5ff]'
+                          : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
+                      )}
+                    >
+                      <div className="i-ph:table" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('gallery')}
+                      aria-pressed={viewMode === 'gallery'}
+                      data-testid="data-view-gallery"
+                      title="Gallery (card) view"
+                      className={classNames(
+                        'rounded p-1 text-xs transition-colors',
+                        viewMode === 'gallery'
+                          ? 'bg-[#00e5ff]/15 text-[#00e5ff]'
+                          : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
+                      )}
+                    >
+                      <div className="i-ph:squares-four" />
+                    </button>
+                  </div>
+                )}
+                {viewMode === 'gallery' && active && rows.length > 0 && columns.length > 0 && (
+                  <label
+                    className="flex items-center gap-1 text-[10px] text-bolt-elements-textTertiary"
+                    data-testid="data-gallery-title-field"
+                  >
+                    Title
+                    <select
+                      value={galleryTitleField(columns, galleryTitleCol) ?? ''}
+                      onChange={(e) => setGalleryTitleCol(e.target.value || null)}
+                      aria-label="Gallery card title field"
+                      className="rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none"
+                    >
+                      {columns.map((c) => (
+                        <option key={c} value={c}>
+                          {columnLabel(c)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 {/* Saved views — name the current query (search + filter group + sort) and re-apply it in
                     a click. Stored in the isolated ProjectSites.dev metadata store, NEVER in the
                     customer's tables. Hidden for non-browsable tables/views (no query to save). */}
@@ -3253,7 +3327,7 @@ export const DataPanel = memo(() => {
             </div>
           )}
 
-          {!browseLoading && !browseError && visibleRows.length > 0 && (
+          {!browseLoading && !browseError && visibleRows.length > 0 && viewMode === 'grid' && (
             <div className="flex-1 overflow-auto modern-scrollbar">
               <table className="w-full text-[11px] border-collapse">
                 <thead className="sticky top-0 bg-bolt-elements-background-depth-2 z-10">
@@ -3680,6 +3754,78 @@ export const DataPanel = memo(() => {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* Gallery (card) view — the SAME page of rows the grid shows (honest page-parity: same
+              pagination + "N of total" count, no extra fetch, no record duplication), rendered as
+              Airtable-style cards. Respects hidden columns; reuses classifyCell for typed display. */}
+          {!browseLoading && !browseError && visibleRows.length > 0 && viewMode === 'gallery' && (
+            <div className="flex-1 overflow-auto modern-scrollbar p-3" data-testid="data-gallery">
+              {(() => {
+                const galTitle = galleryTitleField(visibleCols, galleryTitleCol);
+                const galBody = galleryBodyFields(visibleCols, galTitle);
+
+                return (
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                    {visibleRows.map((r, i) => {
+                      const titleCell = galTitle ? classifyCell(r[galTitle]) : null;
+
+                      return (
+                        <div
+                          key={rowPkKey(r, browsePkCols) ?? `row-${i}`}
+                          data-testid="data-gallery-card"
+                          className="flex flex-col gap-1.5 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-3"
+                        >
+                          <div
+                            className="truncate text-xs font-semibold text-bolt-elements-textPrimary"
+                            title={titleCell?.title ?? titleCell?.display ?? ''}
+                          >
+                            {titleCell?.display ? (
+                              <span className={titleCell.className}>{titleCell.display}</span>
+                            ) : (
+                              <span className="italic text-bolt-elements-textTertiary">(untitled)</span>
+                            )}
+                          </div>
+                          <dl className="flex flex-col gap-0.5">
+                            {galBody.map((c) => {
+                              const cell = classifyCell(r[c]);
+
+                              return (
+                                <div key={c} className="flex items-baseline gap-2 text-[10px]">
+                                  <dt
+                                    className="w-24 shrink-0 truncate text-bolt-elements-textTertiary"
+                                    title={columnLabel(c)}
+                                  >
+                                    {columnLabel(c)}
+                                  </dt>
+                                  <dd
+                                    className="min-w-0 flex-1 truncate text-bolt-elements-textSecondary"
+                                    title={cell.title ?? cell.display}
+                                  >
+                                    {cell.href ? (
+                                      <a
+                                        href={cell.href}
+                                        target="_blank"
+                                        rel="noopener noreferrer nofollow"
+                                        className={cell.className}
+                                      >
+                                        {cell.display}
+                                      </a>
+                                    ) : (
+                                      <span className={cell.className}>{cell.display}</span>
+                                    )}
+                                  </dd>
+                                </div>
+                              );
+                            })}
+                          </dl>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>

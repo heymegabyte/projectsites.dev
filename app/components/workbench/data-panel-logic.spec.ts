@@ -42,6 +42,9 @@ import {
   activeConditions,
   filterGroupIsActive,
   type FilterCondition,
+  normalizeViewMode,
+  galleryTitleField,
+  galleryBodyFields,
   clampPageSize,
   PAGE_SIZE_OPTIONS,
   insertableColumns,
@@ -960,6 +963,52 @@ describe('normalizeCombinator (raw → AND/OR, default AND)', () => {
     expect(normalizeCombinator('xor')).toBe('AND');
     expect(normalizeCombinator('')).toBe('AND');
     expect(normalizeCombinator(undefined)).toBe('AND');
+  });
+});
+
+describe('normalizeViewMode (grid | gallery, default grid)', () => {
+  it('passes gallery, defaults everything else to grid', () => {
+    expect(normalizeViewMode('gallery')).toBe('gallery');
+    expect(normalizeViewMode('grid')).toBe('grid');
+    expect(normalizeViewMode('kanban')).toBe('grid');
+    expect(normalizeViewMode('')).toBe('grid');
+    expect(normalizeViewMode(undefined)).toBe('grid');
+    expect(normalizeViewMode(null)).toBe('grid');
+  });
+});
+
+describe('galleryTitleField (card title column)', () => {
+  it('prefers the first non-id column as a meaningful default title', () => {
+    expect(galleryTitleField(['id', 'name', 'email'])).toBe('name');
+    expect(galleryTitleField(['event_type', 'path'])).toBe('event_type');
+  });
+
+  it('skips *_id columns too when picking the default', () => {
+    expect(galleryTitleField(['id', 'site_id', 'status'])).toBe('status');
+  });
+
+  it('honors a configured field when it is a real column', () => {
+    expect(galleryTitleField(['id', 'name', 'email'], 'email')).toBe('email');
+  });
+
+  it('ignores a configured field that is not a column (falls back to the default)', () => {
+    expect(galleryTitleField(['id', 'name'], 'bogus')).toBe('name');
+  });
+
+  it('falls back to the first column when everything looks like an id, and null when empty', () => {
+    expect(galleryTitleField(['id'])).toBe('id');
+    expect(galleryTitleField(['user_id', 'org_id'])).toBe('user_id');
+    expect(galleryTitleField([])).toBeNull();
+  });
+});
+
+describe('galleryBodyFields (card body = everything but the title)', () => {
+  it('returns the non-title columns in order', () => {
+    expect(galleryBodyFields(['id', 'name', 'email'], 'name')).toEqual(['id', 'email']);
+  });
+
+  it('returns all columns when the title is null', () => {
+    expect(galleryBodyFields(['a', 'b'], null)).toEqual(['a', 'b']);
   });
 });
 
