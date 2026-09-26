@@ -319,7 +319,9 @@ describe('GET /api/sites/:siteId/data-overview/:table/group-counts (kanban whole
 
   it('400 when groupBy is missing or not an allowlisted column (injection boundary)', async () => {
     const DB = makeD1({});
-    const missing = await makeApp(DB).request(gcReq('site-1', 'form_submissions'), {}, { DB } as unknown as Env);
+    const missing = await makeApp(DB).request(gcReq('site-1', 'form_submissions'), {}, {
+      DB,
+    } as unknown as Env);
     expect(missing.status).toBe(400);
     const hostile = await makeApp(DB).request(
       gcReq('site-1', 'form_submissions', { groupBy: 'status; DROP TABLE x--' }),
@@ -343,7 +345,11 @@ describe('GET /api/sites/:siteId/data-overview/:table/group-counts (kanban whole
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      data: { groupBy: string; groups: Array<{ value: unknown; count: number }>; truncated: boolean };
+      data: {
+        groupBy: string;
+        groups: Array<{ value: unknown; count: number }>;
+        truncated: boolean;
+      };
     };
     expect(body.data.groupBy).toBe('status');
     expect(body.data.groups).toEqual([
