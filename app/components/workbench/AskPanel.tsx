@@ -15,13 +15,18 @@
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { AskRequestMessage, AskResponseMessage } from '~/lib/embed/embedded-mode';
+import type {
+  AskRequestMessage,
+  AskResponseMessage,
+  ViewRequestMessage,
+  ViewResponseMessage,
+} from '~/lib/embed/embedded-mode';
 import { classNames } from '~/utils/classNames';
-import { describeIntent, formatCellValue } from './data-panel-logic';
+import { askIntentToSavedView, describeIntent, formatCellValue } from './data-panel-logic';
 
 export interface AskPanelProps {
-  /** Post a bridge request to the admin parent (DataPanel's existing helper). */
-  readonly postToParent: (msg: AskRequestMessage) => void;
+  /** Post a bridge request to the admin parent — an ask query OR a save-as-view (DataPanel's helper). */
+  readonly postToParent: (msg: AskRequestMessage | ViewRequestMessage) => void;
 
   /** The active overview table the question is scoped to. */
   readonly table: string;
@@ -38,26 +43,78 @@ export const AskPanel = memo(({ postToParent, table }: AskPanelProps) => {
   const [result, setResult] = useState<NonNullable<AskResponseMessage['data']> | null>(null);
   const [showSql, setShowSql] = useState(false);
 
-  // Resolve pending bridge requests by correlationId.
+  // Save-as-view round-trip: its own correlationId + a small status note ("Saved to Views ✓" / error).
+  const saveCid = useRef<string | null>(null);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+
+  // Resolve pending ASK requests by correlationId + catch the save-as-view PS_VIEW_RESPONSE ack.
   useEffect(() => {
     const onMessage = (e: MessageEvent): void => {
-      const data = e.data as Partial<AskResponseMessage> | undefined;
+      const data = e.data as { type?: string; correlationId?: string } | undefined;
 
-      if (!data || data.type !== 'PS_ASK_RESPONSE' || typeof data.correlationId !== 'string') {
+      if (!data || typeof data.correlationId !== 'string') {
         return;
       }
 
-      const resolve = pending.current.get(data.correlationId);
+      if (data.type === 'PS_ASK_RESPONSE') {
+        const resolve = pending.current.get(data.correlationId);
 
-      if (resolve) {
-        pending.current.delete(data.correlationId);
-        resolve(data as AskResponseMessage);
+        if (resolve) {
+          pending.current.delete(data.correlationId);
+          resolve(data as AskResponseMessage);
+        }
+
+        return;
+      }
+
+      /*
+       * The save-as-view ack (a PS_VIEW_RESPONSE matching our save cid; DataPanel's own view
+       * round-trips carry different cids, so this never crosses wires).
+       */
+      if (data.type === 'PS_VIEW_RESPONSE' && data.correlationId === saveCid.current) {
+        saveCid.current = null;
+
+        const err = (data as ViewResponseMessage).error;
+
+        if (err) {
+          setSaveState('error');
+          setSaveMsg(err);
+        } else {
+          setSaveState('saved');
+          setSaveMsg('Saved to Views ✓');
+        }
       }
     };
     window.addEventListener('message', onMessage);
 
     return () => window.removeEventListener('message', onMessage);
   }, []);
+
+  const saveAsView = useCallback((): void => {
+    if (!result || saveState === 'saving') {
+      return;
+    }
+
+    setSaveState('saving');
+    setSaveMsg(null);
+
+    const cid = crypto.randomUUID();
+    saveCid.current = cid;
+
+    /*
+     * Reuse the EXISTING grid-views store: the answer becomes a real grid/chart view (reopens via the
+     * grid's saved-views list). The worker re-validates every filter leaf + the type.
+     */
+    postToParent({
+      type: 'PS_VIEW_REQUEST',
+      action: 'save',
+      table,
+      correlationId: cid,
+      search: '',
+      ...askIntentToSavedView(result.intent, result.question),
+    });
+  }, [result, saveState, postToParent, table]);
 
   const ask = useCallback(async (): Promise<void> => {
     const q = question.trim();
@@ -70,6 +127,8 @@ export const AskPanel = memo(({ postToParent, table }: AskPanelProps) => {
     setError(null);
     setResult(null);
     setShowSql(false);
+    setSaveState('idle');
+    setSaveMsg(null);
 
     const correlationId = crypto.randomUUID();
     const res = await new Promise<AskResponseMessage>((resolve) => {
@@ -195,15 +254,45 @@ export const AskPanel = memo(({ postToParent, table }: AskPanelProps) => {
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => setShowSql((v) => !v)}
-            data-testid="data-ask-show-sql"
-            aria-expanded={showSql}
-            className="self-start text-[10px] text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary"
-          >
-            {showSql ? '▾ Hide SQL' : '▸ Show the exact SQL'}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowSql((v) => !v)}
+              data-testid="data-ask-show-sql"
+              aria-expanded={showSql}
+              className="text-[10px] text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary"
+            >
+              {showSql ? '▾ Hide SQL' : '▸ Show the exact SQL'}
+            </button>
+            <button
+              type="button"
+              onClick={saveAsView}
+              disabled={saveState === 'saving' || saveState === 'saved'}
+              data-testid="data-ask-save-view"
+              title="Save this answer as a reusable view (appears under Views)"
+              className={classNames(
+                'flex items-center gap-1 text-[10px]',
+                saveState === 'saving' || saveState === 'saved'
+                  ? 'cursor-default text-bolt-elements-textTertiary'
+                  : 'cursor-pointer text-bolt-elements-item-contentAccent hover:underline',
+              )}
+            >
+              <div className="i-ph:bookmark-simple" />
+              {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : 'Save as view'}
+            </button>
+            {saveMsg && (
+              <span
+                className={classNames(
+                  'text-[10px]',
+                  saveState === 'error' ? 'text-red-400' : 'text-bolt-elements-textTertiary',
+                )}
+                role={saveState === 'error' ? 'alert' : undefined}
+                data-testid="data-ask-save-msg"
+              >
+                {saveMsg}
+              </span>
+            )}
+          </div>
           {showSql && (
             <pre
               className="overflow-x-auto rounded bg-bolt-elements-background-depth-2 px-2 py-1 text-[10px] font-mono text-bolt-elements-textTertiary"

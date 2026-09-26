@@ -2693,6 +2693,71 @@ export function describeIntent(intent: {
   return parts.join(' · ');
 }
 
+/**
+ * Map an "Ask your data" intent → a SAVED-VIEW payload so a computed answer becomes a reusable view
+ * (SUCCESS-STANDARD item 5). Reuses the EXISTING grid-views store + reopen machinery — no new view type,
+ * no contamination: an aggregate-by-column answer saves as a **chart** view grouped by that column; a
+ * projection/filter answer saves as a **grid** view carrying the filters + sort. The returned fields are
+ * exactly the `PS_VIEW_REQUEST` save payload (`filters` is a JSON string; `viewConfig` is the display
+ * config the worker shape-hardens). Pure.
+ *
+ * @example askIntentToSavedView({ select:[{agg:'count'}], groupBy:'status' }, 'count by status')
+ *   // { name:'count by status', viewType:'chart', filters:'[]', combinator:'AND', sortCol:null, sortDir:null, viewConfig:{ groupField:'status' } }
+ */
+export function askIntentToSavedView(
+  intent: {
+    select?: Array<{ col?: string; agg?: string }>;
+    filters?: Array<{ col: string; op: string; val: string }>;
+    combinator?: string;
+    groupBy?: string;
+    orderBy?: Array<{ col?: string; dir?: string }>;
+  },
+  question: string,
+): {
+  name: string;
+  viewType: 'grid' | 'chart';
+  filters: string;
+  combinator: 'AND' | 'OR';
+  sortCol: string | null;
+  sortDir: 'asc' | 'desc' | null;
+  viewConfig: { groupField?: string; sorts?: string };
+} {
+  const name = (question.trim() || 'Saved question').slice(0, 80);
+  const combinator = (intent.combinator ?? 'AND').toUpperCase() === 'OR' ? 'OR' : 'AND';
+  const filters = JSON.stringify((intent.filters ?? []).map((f) => ({ col: f.col, op: f.op, val: f.val })));
+  const hasAgg = (intent.select ?? []).some((f) => !!f?.agg);
+
+  // Aggregate-by-column → a CHART view grouped by that column (the chart view counts per group).
+  if (hasAgg && intent.groupBy) {
+    return {
+      name,
+      viewType: 'chart',
+      filters,
+      combinator,
+      sortCol: null,
+      sortDir: null,
+      viewConfig: { groupField: intent.groupBy },
+    };
+  }
+
+  // Projection / filter → a GRID view; carry the sort (primary in sortCol/Dir, full multi in config.sorts).
+  const ob = (intent.orderBy ?? []).filter(
+    (o): o is { col: string; dir?: string } => typeof o?.col === 'string' && o.col.length > 0,
+  );
+  const primary = ob[0];
+  const sorts = ob.map((o) => `${o.col}:${o.dir === 'desc' ? 'desc' : 'asc'}`).join(',');
+
+  return {
+    name,
+    viewType: 'grid',
+    filters,
+    combinator,
+    sortCol: primary?.col ?? null,
+    sortDir: primary ? (primary.dir === 'desc' ? 'desc' : 'asc') : null,
+    viewConfig: sorts ? { sorts } : {},
+  };
+}
+
 /** A parameterized statement: `?1..?N` placeholders in `sql`, values in `params` (bind order). */
 export interface ParameterizedStatement {
   /** The SQL with quoted identifiers and `?1..?N` placeholders — safe to log/preview. */

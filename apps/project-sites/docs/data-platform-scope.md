@@ -1285,10 +1285,38 @@ multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 
 pipeline is now eval-proven end-to-end; only the live model's question→intent QUALITY is unmeasured). **A dedicated
 real-browser + live-model eval fire remains the highest-value out-of-loop step.**
 
-**NEXT slice: "save this answer as a view/chart" — persist an Ask result as a saved grid view (SUCCESS-STANDARD item 5 tail).**
-The Ask panel returns `{question, intent, sql, rows}`; add a "Save as view" action that stores the intent (+ the
-question as the view name/description) in the existing `editor_grid_views` metadata store — so a computed answer becomes
-a reusable, shareable view (the grounded-query analog of a saved grid view). Reuses the saved-view CRUD + the
-`config_json` blob (carry the ask intent alongside the grid config; NO schema change). Pure mapping (intent→view config)
-tested + bridge/editor plumbing. Alternatives: a UI intent query-builder (no AI); nested AND/OR filter-tree; extend NULL
-affordance + datalist to the Add-row; a live-model eval RUN.
+### ✅ Shipped next fire (2026-09-26 #55) — "Ask your data" slice 6: save an Ask answer as a saved view (SUCCESS-STANDARD item 5 tail)
+The grounded-query analog of a saved grid view: a **"Save as view"** action in `<AskPanel>` turns a computed answer into
+a reusable entry under the grid's **Views** list — so an owner who asked "how many rows by status?" can pin that as a
+one-click view. **Editor-only fire** — reuses the EXISTING `editor_grid_views` store + the `PS_VIEW_REQUEST` save path
+(NO worker / bridge / admin / schema change): the ask intent is MAPPED onto a real grid/chart view, so it reopens via
+the existing `applyView` with zero contamination of the saved-views list.
+- **Pure mapping (`data-panel-logic.ts` · `askIntentToSavedView(intent, question)`, +4 Vitest):** aggregate + `groupBy`
+  → a **`chart`** view (`viewConfig.groupField`); otherwise a **`grid`** view carrying the filters (JSON), combinator,
+  primary sort (`sortCol`/`sortDir`) + a `viewConfig.sorts` string for multi-sort; the question (≤80 chars) becomes the
+  view name (blank → "Saved question"). Deterministic + fully unit-tested — the security-relevant fields (filters, type)
+  are re-validated server-side by the existing `/views` save (unchanged).
+- **Editor (`AskPanel.tsx`):** widened the `postToParent` prop to `AskRequestMessage | ViewRequestMessage`; a second
+  branch in the message listener resolves the save ack (`PS_VIEW_RESPONSE` matched by a dedicated `saveCid` ref — never
+  crosses wires with DataPanel's own view round-trips); a **"Save as view"** button (idle → "Saving…" → "Saved ✓" /
+  honest error) beside the "Show SQL" disclosure; resets on each new ask.
+- Verified: editor Vitest **963/963** (+4) + tsc 0 + eslint 0 + build 0; admin tsc 0. Verify-by-build for the button
+  (deep lazy chunk); the mapping is unit-proven. **No deploy skew** — the reused `PS_VIEW_REQUEST` save handler already
+  ships in the admin; only the editor changed (CF Pages ~2min).
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize · #34 footer · #35 whole-query · #36 pins · #37 view · #40
+multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 NULL toggle · #46 BLOB · #47–#48 KV meta/TTL ·
+#49 R2 folders · #52–#55 the live NL→answer + save-as-view path (a real authed browser Ask + a LIVE-model quality run —
+the deterministic pipeline + the intent→view mapping are eval/unit-proven; only the live model's question→intent QUALITY
+and the in-browser save round-trip are unmeasured). **A dedicated real-browser + live-model eval fire remains the
+highest-value out-of-loop step.**
+
+**NEXT slice: reopen a saved Ask/chart view as a live answer — OR a live-model eval RUN.** Two candidates:
+(a) **Chart rendering for the `chart` views** `askIntentToSavedView` now produces — a saved grouped-count view currently
+reopens as a grid of `{grp, n}` rows; render it as a compact bar/column chart (a small pure `intentToChartSeries` mapper
++ an SVG/CSS bar list, ZERO chart deps, unit-tested) so "count by status" saved as a chart shows bars, not a table.
+(b) **The live-model eval RUN** (the standing out-of-loop step): drive the real `@cf/meta/llama-3.3-70b` binding over the
+golden `{question, intent}` fixtures on prod, score question→intent QUALITY (does the model propose the expected typed
+intent?), and record a `PROMPT_VERSION`-tagged baseline — the one remaining unmeasured link in the Ask pipeline.
+Recommend (a): it's a self-contained, fully-verifiable editor slice that makes the just-shipped `chart` view type
+actually render as a chart (closing a "saved but renders as a table" gap), whereas (b) needs a real prod/browser run.

@@ -110,6 +110,7 @@ import {
   distinctCacheKey,
   nullabilityHint,
   describeIntent,
+  askIntentToSavedView,
   CELL_INPUT_KIND_OPTIONS,
   buildInsertStatement,
   buildDeleteByPk,
@@ -2058,6 +2059,58 @@ describe('describeIntent (human summary of the AI query intent — falsifiable, 
   it('falls back to "rows" for an empty/odd select', () => {
     expect(describeIntent({ select: [] })).toBe('rows');
     expect(describeIntent({})).toBe('rows');
+  });
+});
+
+describe('askIntentToSavedView (Ask answer → reusable saved-view payload; reuses the grid-views store)', () => {
+  it('aggregate + groupBy → a CHART view grouped by that column', () => {
+    expect(askIntentToSavedView({ select: [{ agg: 'count' }], groupBy: 'status' }, 'count by status')).toEqual({
+      name: 'count by status',
+      viewType: 'chart',
+      filters: '[]',
+      combinator: 'AND',
+      sortCol: null,
+      sortDir: null,
+      viewConfig: { groupField: 'status' },
+    });
+  });
+
+  it('projection + filter → a GRID view carrying the filters (as a JSON string) + combinator', () => {
+    const out = askIntentToSavedView(
+      {
+        select: [{ col: 'status' }],
+        filters: [{ col: 'status', op: 'eq', val: 'open' }],
+        combinator: 'OR',
+      },
+      'open ones',
+    );
+    expect(out.viewType).toBe('grid');
+    expect(out.combinator).toBe('OR');
+    expect(JSON.parse(out.filters)).toEqual([{ col: 'status', op: 'eq', val: 'open' }]);
+  });
+
+  it('carries the sort — primary in sortCol/Dir, the full multi-sort in config.sorts', () => {
+    const out = askIntentToSavedView(
+      {
+        select: [{ col: 'status' }],
+        orderBy: [
+          { col: 'created_at', dir: 'desc' },
+          { col: 'status', dir: 'asc' },
+        ],
+      },
+      'newest',
+    );
+    expect(out.sortCol).toBe('created_at');
+    expect(out.sortDir).toBe('desc');
+    expect(out.viewConfig.sorts).toBe('created_at:desc,status:asc');
+  });
+
+  it('defaults the name + AND combinator; blank question → "Saved question"', () => {
+    const out = askIntentToSavedView({ select: [{ col: 'status' }] }, '   ');
+    expect(out.name).toBe('Saved question');
+    expect(out.combinator).toBe('AND');
+    expect(out.filters).toBe('[]');
+    expect(out.sortCol).toBeNull();
   });
 });
 
