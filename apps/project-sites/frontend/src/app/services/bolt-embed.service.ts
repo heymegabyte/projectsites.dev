@@ -36,7 +36,17 @@ const ALLOWED_ORIGINS = ['https://editor.projectsites.dev', 'http://localhost:51
 
 // PS_DATA_REQUEST browse-filter operators — mirrors the worker's FILTER_OPS. We only forward an op
 // the worker recognizes (it defaults anything else to `eq`); null/notnull carry no value.
-const PS_FILTER_OPS = new Set(['eq', 'ne', 'contains', 'gt', 'lt', 'gte', 'lte', 'null', 'notnull']);
+const PS_FILTER_OPS = new Set([
+  'eq',
+  'ne',
+  'contains',
+  'gt',
+  'lt',
+  'gte',
+  'lte',
+  'null',
+  'notnull',
+]);
 const PS_FILTER_VALUE_FREE_OPS = new Set(['null', 'notnull']);
 
 export interface BoltEmbedSite {
@@ -102,6 +112,8 @@ interface PsMessage {
   /** PS_DATA_REQUEST (chart aggregate): numeric measure column + agg fn (sum|avg|min|max) alongside groupBy. */
   readonly measure?: string;
   readonly agg?: string;
+  /** PS_DATA_REQUEST (footer summaries): comma-list of columns → routes to /data-overview/:table/column-aggregates. */
+  readonly columnsAgg?: string;
   /** PS_VIEW_REQUEST (saved grid views): `list` | `save` | `delete`. */
   readonly action?: string;
   /** PS_VIEW_REQUEST delete: the view id. */
@@ -692,7 +704,9 @@ export class BoltEmbedService {
             typeof msg.filterOp === 'string' && PS_FILTER_OPS.has(msg.filterOp.trim().toLowerCase())
               ? msg.filterOp.trim().toLowerCase()
               : undefined;
-          const browseFilterValueFree = browseFilterOp ? PS_FILTER_VALUE_FREE_OPS.has(browseFilterOp) : false;
+          const browseFilterValueFree = browseFilterOp
+            ? PS_FILTER_VALUE_FREE_OPS.has(browseFilterOp)
+            : false;
           // Multi-condition filter group — a JSON array of {col,op,val}. Forwarded (taking precedence
           // over the single-column filter below) when it parses to a NON-EMPTY array within a sane size;
           // the WORKER re-validates every leaf against the table allowlist, bounds the count, and joins
@@ -731,14 +745,26 @@ export class BoltEmbedService {
           // Export + group-counts drop pagination/count; all three share the sort/search/filter params.
           const isExport = msg.exportAll === true && !!table;
           const browseGroupBy =
-            typeof msg.groupBy === 'string' && msg.groupBy.trim() ? msg.groupBy.trim().slice(0, 64) : undefined;
+            typeof msg.groupBy === 'string' && msg.groupBy.trim()
+              ? msg.groupBy.trim().slice(0, 64)
+              : undefined;
           const isGroupCounts = !!browseGroupBy && !!table && !isExport;
           // Chart aggregate (optional, paired): a numeric measure column + agg fn. Forwarded to
           // /group-counts only when BOTH are present; the worker re-validates + falls back to COUNT.
           const browseMeasure =
-            typeof msg.measure === 'string' && msg.measure.trim() ? msg.measure.trim().slice(0, 64) : undefined;
+            typeof msg.measure === 'string' && msg.measure.trim()
+              ? msg.measure.trim().slice(0, 64)
+              : undefined;
           const browseAgg =
-            typeof msg.agg === 'string' && msg.agg.trim() ? msg.agg.trim().slice(0, 8).toLowerCase() : undefined;
+            typeof msg.agg === 'string' && msg.agg.trim()
+              ? msg.agg.trim().slice(0, 8).toLowerCase()
+              : undefined;
+          // Whole-query column summaries (grid footer): a comma-list of columns → /column-aggregates.
+          const browseColumnsAgg =
+            typeof msg.columnsAgg === 'string' && msg.columnsAgg.trim()
+              ? msg.columnsAgg.trim().slice(0, 2000)
+              : undefined;
+          const isColumnAgg = !!browseColumnsAgg && !!table && !isExport && !isGroupCounts;
           // The search + filter query params (shared by all three modes).
           const filterParams: Record<string, string> = {
             ...(browseSearch ? { search: browseSearch } : {}),
@@ -755,7 +781,13 @@ export class BoltEmbedService {
                   }
                 : {}),
           };
-          const suffix = isExport ? '/export' : isGroupCounts ? '/group-counts' : '';
+          const suffix = isExport
+            ? '/export'
+            : isGroupCounts
+              ? '/group-counts'
+              : isColumnAgg
+                ? '/column-aggregates'
+                : '';
           const path = table
             ? `/sites/${site.id}/data-overview/${encodeURIComponent(table)}${suffix}`
             : `/sites/${site.id}/data-overview`;
@@ -766,16 +798,22 @@ export class BoltEmbedService {
                 ? isGroupCounts
                   ? {
                       groupBy: browseGroupBy as string,
-                      ...(browseMeasure && browseAgg ? { measure: browseMeasure, agg: browseAgg } : {}),
+                      ...(browseMeasure && browseAgg
+                        ? { measure: browseMeasure, agg: browseAgg }
+                        : {}),
                       ...filterParams,
                     }
-                  : {
-                      ...(isExport ? {} : { limit: String(browseLimit), offset: String(browseOffset) }),
-                      ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),
-                      ...(browseOrderBy && browseDir ? { dir: browseDir } : {}),
-                      ...filterParams,
-                      ...(browseSkipCount && !isExport ? { count: '0' } : {}),
-                    }
+                  : isColumnAgg
+                    ? { columns: browseColumnsAgg as string, ...filterParams }
+                    : {
+                        ...(isExport
+                          ? {}
+                          : { limit: String(browseLimit), offset: String(browseOffset) }),
+                        ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),
+                        ...(browseOrderBy && browseDir ? { dir: browseDir } : {}),
+                        ...filterParams,
+                        ...(browseSkipCount && !isExport ? { count: '0' } : {}),
+                      }
                 : undefined,
               { silent: true },
             )
@@ -817,9 +855,13 @@ export class BoltEmbedService {
           const base = `/sites/${site.id}/grid-views`;
           if (action === 'list') {
             this.api
-              .get<{ data?: { views?: unknown[] } }>(base, viewTable ? { table: viewTable } : undefined, {
-                silent: true,
-              })
+              .get<{ data?: { views?: unknown[] } }>(
+                base,
+                viewTable ? { table: viewTable } : undefined,
+                {
+                  silent: true,
+                },
+              )
               .subscribe({
                 next: (res) => reply({ views: res?.data?.views ?? [] }),
                 error: () => reply({ error: 'Failed to load views' }),
@@ -878,10 +920,12 @@ export class BoltEmbedService {
               reply({ error: 'No view id' });
               break;
             }
-            this.api.delete<unknown>(`${base}/${encodeURIComponent(msg.viewId)}`, { silent: true }).subscribe({
-              next: () => reply({ deleted: true }),
-              error: () => reply({ error: 'Failed to delete view' }),
-            });
+            this.api
+              .delete<unknown>(`${base}/${encodeURIComponent(msg.viewId)}`, { silent: true })
+              .subscribe({
+                next: () => reply({ deleted: true }),
+                error: () => reply({ error: 'Failed to delete view' }),
+              });
           } else {
             reply({ error: 'Unknown view action' });
           }
@@ -1280,11 +1324,12 @@ export class BoltEmbedService {
             break;
           }
           this.api
-            .post<{ ok?: boolean; sql?: string; model?: string; error?: string }>(
-              `/sites/${site.id}/sql/nl2sql`,
-              { question },
-              { silent: true },
-            )
+            .post<{
+              ok?: boolean;
+              sql?: string;
+              model?: string;
+              error?: string;
+            }>(`/sites/${site.id}/sql/nl2sql`, { question }, { silent: true })
             .subscribe({
               next: (res) =>
                 reply({

@@ -22,6 +22,7 @@ import {
   parseGridViewConfig,
   buildGroupCountSql,
   buildGroupAggregateSql,
+  buildColumnAggregatesSql,
   normalizeGroupAgg,
   MAX_KANBAN_GROUPS,
   MAX_GRID_VIEWS_PER_TABLE,
@@ -75,7 +76,9 @@ describe('data-overview registry', () => {
       expect(t.lastActivitySql).toContain('AS ts');
       expect(t.lastActivitySql).toContain('WHERE site_id = ?');
       // A table whose browse hides soft-deleted rows must exclude them from freshness too.
-      expect(t.lastActivitySql.includes('deleted_at IS NULL')).toBe(t.browseSql.includes('deleted_at IS NULL'));
+      expect(t.lastActivitySql.includes('deleted_at IS NULL')).toBe(
+        t.browseSql.includes('deleted_at IS NULL'),
+      );
     }
   });
 
@@ -101,7 +104,16 @@ describe('deletableTableName (owner-delete allowlist — the killswitch boundary
     expect(deletableTableName('form_submissions')).toBe('form_submissions');
   });
   it('returns undefined (read-only) for every other / unknown / hostile key', () => {
-    for (const key of ['visitor_events', 'site_snapshots', 'mcp_connections', 'site_data', 'users', 'sqlite_master', '', 'form_submissions; DROP TABLE sites']) {
+    for (const key of [
+      'visitor_events',
+      'site_snapshots',
+      'mcp_connections',
+      'site_data',
+      'users',
+      'sqlite_master',
+      '',
+      'form_submissions; DROP TABLE sites',
+    ]) {
       expect(deletableTableName(key)).toBeUndefined();
     }
   });
@@ -115,7 +127,14 @@ describe('deletableTableName (owner-delete allowlist — the killswitch boundary
 describe('editable-column allowlist (owner edit boundary — the killswitch)', () => {
   it('resolves ONLY form_submissions as an editable table', () => {
     expect(editableTableName('form_submissions')).toBe('form_submissions');
-    for (const key of ['visitor_events', 'site_snapshots', 'mcp_connections', 'site_data', 'users', '']) {
+    for (const key of [
+      'visitor_events',
+      'site_snapshots',
+      'mcp_connections',
+      'site_data',
+      'users',
+      '',
+    ]) {
       expect(editableTableName(key)).toBeUndefined();
     }
   });
@@ -123,7 +142,15 @@ describe('editable-column allowlist (owner edit boundary — the killswitch)', (
   it('exposes ONLY form_submissions.status (an enum) as editable; PII/structural columns are not', () => {
     expect(editableColumn('form_submissions', 'status')?.type).toBe('enum');
     // PII + structural + unknown columns are read-only (undefined → caller 400s).
-    for (const col of ['email', 'payload', 'id', 'site_id', 'form_name', 'created_at', 'DROP TABLE sites']) {
+    for (const col of [
+      'email',
+      'payload',
+      'id',
+      'site_id',
+      'form_name',
+      'created_at',
+      'DROP TABLE sites',
+    ]) {
       expect(editableColumn('form_submissions', col)).toBeUndefined();
     }
     // Non-editable table → every column undefined.
@@ -247,7 +274,10 @@ describe('buildColumnFilter (browse per-column exact-match filter)', () => {
 
   it('REJECTS a column outside the allowlist (the injection boundary) — no clause', () => {
     expect(buildColumnFilter(cols, 'password', 'x')).toEqual({ clause: '', params: [] });
-    expect(buildColumnFilter(cols, 'status; DROP TABLE sites', 'x')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilter(cols, 'status; DROP TABLE sites', 'x')).toEqual({
+      clause: '',
+      params: [],
+    });
     expect(buildColumnFilter(cols, '"status"', 'x')).toEqual({ clause: '', params: [] });
   });
 
@@ -267,12 +297,30 @@ describe('buildColumnFilter (browse per-column exact-match filter)', () => {
   });
 
   it('maps each comparison operator to a fixed, parameterized clause (operators are never user text)', () => {
-    expect(buildColumnFilter(cols, 'status', 'new', 'eq')).toEqual({ clause: ' AND "status" = ?', params: ['new'] });
-    expect(buildColumnFilter(cols, 'status', 'new', 'ne')).toEqual({ clause: ' AND "status" != ?', params: ['new'] });
-    expect(buildColumnFilter(cols, 'status', '5', 'gt')).toEqual({ clause: ' AND "status" > ?', params: ['5'] });
-    expect(buildColumnFilter(cols, 'status', '5', 'lt')).toEqual({ clause: ' AND "status" < ?', params: ['5'] });
-    expect(buildColumnFilter(cols, 'status', '5', 'gte')).toEqual({ clause: ' AND "status" >= ?', params: ['5'] });
-    expect(buildColumnFilter(cols, 'status', '5', 'lte')).toEqual({ clause: ' AND "status" <= ?', params: ['5'] });
+    expect(buildColumnFilter(cols, 'status', 'new', 'eq')).toEqual({
+      clause: ' AND "status" = ?',
+      params: ['new'],
+    });
+    expect(buildColumnFilter(cols, 'status', 'new', 'ne')).toEqual({
+      clause: ' AND "status" != ?',
+      params: ['new'],
+    });
+    expect(buildColumnFilter(cols, 'status', '5', 'gt')).toEqual({
+      clause: ' AND "status" > ?',
+      params: ['5'],
+    });
+    expect(buildColumnFilter(cols, 'status', '5', 'lt')).toEqual({
+      clause: ' AND "status" < ?',
+      params: ['5'],
+    });
+    expect(buildColumnFilter(cols, 'status', '5', 'gte')).toEqual({
+      clause: ' AND "status" >= ?',
+      params: ['5'],
+    });
+    expect(buildColumnFilter(cols, 'status', '5', 'lte')).toEqual({
+      clause: ' AND "status" <= ?',
+      params: ['5'],
+    });
   });
 
   it('contains → LIKE %needle% with wildcards STRIPPED from user input (% / _ never metacharacters)', () => {
@@ -282,11 +330,17 @@ describe('buildColumnFilter (browse per-column exact-match filter)', () => {
     });
     expect(buildColumnFilter(cols, 'status', 'a%b_c', 'contains').params).toEqual(['%abc%']);
     // a value that is ENTIRELY wildcards collapses to empty → no clause (never a bare LIKE %%)
-    expect(buildColumnFilter(cols, 'status', '%_%', 'contains')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilter(cols, 'status', '%_%', 'contains')).toEqual({
+      clause: '',
+      params: [],
+    });
   });
 
   it('null / notnull are value-free IS [NOT] NULL clauses (no bound params, value ignored)', () => {
-    expect(buildColumnFilter(cols, 'status', '', 'null')).toEqual({ clause: ' AND "status" IS NULL', params: [] });
+    expect(buildColumnFilter(cols, 'status', '', 'null')).toEqual({
+      clause: ' AND "status" IS NULL',
+      params: [],
+    });
     expect(buildColumnFilter(cols, 'status', 'ignored', 'notnull')).toEqual({
       clause: ' AND "status" IS NOT NULL',
       params: [],
@@ -294,9 +348,18 @@ describe('buildColumnFilter (browse per-column exact-match filter)', () => {
   });
 
   it('defaults an absent / unknown / mixed-case operator to `eq` (backward-compatible, injection-safe)', () => {
-    expect(buildColumnFilter(cols, 'status', 'new', undefined)).toEqual({ clause: ' AND "status" = ?', params: ['new'] });
-    expect(buildColumnFilter(cols, 'status', 'new', 'sqlgibberish')).toEqual({ clause: ' AND "status" = ?', params: ['new'] });
-    expect(buildColumnFilter(cols, 'status', 'new', 'EQ')).toEqual({ clause: ' AND "status" = ?', params: ['new'] });
+    expect(buildColumnFilter(cols, 'status', 'new', undefined)).toEqual({
+      clause: ' AND "status" = ?',
+      params: ['new'],
+    });
+    expect(buildColumnFilter(cols, 'status', 'new', 'sqlgibberish')).toEqual({
+      clause: ' AND "status" = ?',
+      params: ['new'],
+    });
+    expect(buildColumnFilter(cols, 'status', 'new', 'EQ')).toEqual({
+      clause: ' AND "status" = ?',
+      params: ['new'],
+    });
     expect(buildColumnFilter(cols, 'status', 'new', '; DROP TABLE sites')).toEqual({
       clause: ' AND "status" = ?',
       params: ['new'],
@@ -305,7 +368,10 @@ describe('buildColumnFilter (browse per-column exact-match filter)', () => {
 
   it('still enforces the column allowlist for every operator (the injection boundary is the column)', () => {
     expect(buildColumnFilter(cols, 'password', '', 'notnull')).toEqual({ clause: '', params: [] });
-    expect(buildColumnFilter(cols, 'password', 'x', 'contains')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilter(cols, 'password', 'x', 'contains')).toEqual({
+      clause: '',
+      params: [],
+    });
   });
 
   it('a value-requiring operator with a blank value yields no clause (null/notnull are the only value-free ops)', () => {
@@ -351,7 +417,9 @@ describe('buildColumnFilters (multi-condition AND/OR filter group)', () => {
     expect(buildColumnFilters(cols, twoConds, 'XOR); DROP TABLE x--').clause).toBe(
       ' AND ("status" = ? AND "event_type" = ?)',
     );
-    expect(buildColumnFilters(cols, twoConds, undefined).clause).toBe(' AND ("status" = ? AND "event_type" = ?)');
+    expect(buildColumnFilters(cols, twoConds, undefined).clause).toBe(
+      ' AND ("status" = ? AND "event_type" = ?)',
+    );
   });
 
   it('a single active condition emits NO needless parens (identical to buildColumnFilter)', () => {
@@ -410,7 +478,11 @@ describe('buildColumnFilters (multi-condition AND/OR filter group)', () => {
 
 describe('parseFilterConditions (?filters= JSON → shape-hardened conditions, never throws)', () => {
   it('parses a valid JSON array of {col,op,val}', () => {
-    expect(parseFilterConditions('[{"col":"status","op":"eq","val":"new"},{"col":"age","op":"gt","val":"18"}]')).toEqual([
+    expect(
+      parseFilterConditions(
+        '[{"col":"status","op":"eq","val":"new"},{"col":"age","op":"gt","val":"18"}]',
+      ),
+    ).toEqual([
       { col: 'status', op: 'eq', val: 'new' },
       { col: 'age', op: 'gt', val: '18' },
     ]);
@@ -434,7 +506,11 @@ describe('parseFilterConditions (?filters= JSON → shape-hardened conditions, n
 
   it('drops non-object items and bounds to MAX_FILTER_CONDITIONS', () => {
     const arr = JSON.stringify([
-      ...Array.from({ length: MAX_FILTER_CONDITIONS + 5 }, () => ({ col: 'status', op: 'eq', val: 'x' })),
+      ...Array.from({ length: MAX_FILTER_CONDITIONS + 5 }, () => ({
+        col: 'status',
+        op: 'eq',
+        val: 'x',
+      })),
     ]);
     expect(parseFilterConditions(arr).length).toBe(MAX_FILTER_CONDITIONS);
     expect(parseFilterConditions('[1,"two",null,{"col":"status","op":"eq","val":"x"}]')).toEqual([
@@ -444,7 +520,9 @@ describe('parseFilterConditions (?filters= JSON → shape-hardened conditions, n
 
   it('round-trips through buildColumnFilters to a safe parameterized clause', () => {
     const cols = ['status', 'age'];
-    const conds = parseFilterConditions('[{"col":"status","op":"eq","val":"new"},{"col":"age","op":"gte","val":"21"}]');
+    const conds = parseFilterConditions(
+      '[{"col":"status","op":"eq","val":"new"},{"col":"age","op":"gte","val":"21"}]',
+    );
     expect(buildColumnFilters(cols, conds, 'AND')).toEqual({
       clause: ' AND ("status" = ? AND "age" >= ?)',
       params: ['new', '21'],
@@ -567,8 +645,12 @@ describe('normalizeGridViewType (grid | gallery | kanban | chart | calendar, def
 describe('parseGridViewConfig (view display config; string OR object; never throws)', () => {
   it('parses a stored JSON string, keeping only a bounded titleField', () => {
     expect(parseGridViewConfig('{"titleField":"email"}')).toEqual({ titleField: 'email' });
-    expect(parseGridViewConfig('{"titleField":"  name  ","junk":1}')).toEqual({ titleField: 'name' });
-    expect(parseGridViewConfig(`{"titleField":"${'x'.repeat(200)}"}`).titleField).toBe('x'.repeat(64));
+    expect(parseGridViewConfig('{"titleField":"  name  ","junk":1}')).toEqual({
+      titleField: 'name',
+    });
+    expect(parseGridViewConfig(`{"titleField":"${'x'.repeat(200)}"}`).titleField).toBe(
+      'x'.repeat(64),
+    );
   });
 
   it('accepts an incoming config OBJECT (the POST body), not just a stored string', () => {
@@ -582,7 +664,9 @@ describe('parseGridViewConfig (view display config; string OR object; never thro
       groupField: 'status',
     });
     expect(parseGridViewConfig({ groupField: '  status  ' })).toEqual({ groupField: 'status' });
-    expect(parseGridViewConfig(`{"groupField":"${'g'.repeat(200)}"}`).groupField).toBe('g'.repeat(64));
+    expect(parseGridViewConfig(`{"groupField":"${'g'.repeat(200)}"}`).groupField).toBe(
+      'g'.repeat(64),
+    );
     expect(parseGridViewConfig({ groupField: 7 })).toEqual({}); // non-string dropped
   });
 
@@ -592,7 +676,9 @@ describe('parseGridViewConfig (view display config; string OR object; never thro
       titleField: 'name',
       dateField: 'due_on',
     });
-    expect(parseGridViewConfig(`{"dateField":"${'d'.repeat(200)}"}`).dateField).toBe('d'.repeat(64));
+    expect(parseGridViewConfig(`{"dateField":"${'d'.repeat(200)}"}`).dateField).toBe(
+      'd'.repeat(64),
+    );
     expect(parseGridViewConfig({ dateField: 9 })).toEqual({}); // non-string dropped
   });
 
@@ -635,14 +721,18 @@ describe('composeBrowseFilter (shared browse+export WHERE-suffix)', () => {
   });
 
   it('falls back to the single-column filter when no `filters` JSON is present', () => {
-    expect(composeBrowseFilter(spec, q({ filterCol: 'status', filterVal: 'live', filterOp: 'ne' }))).toEqual({
+    expect(
+      composeBrowseFilter(spec, q({ filterCol: 'status', filterVal: 'live', filterOp: 'ne' })),
+    ).toEqual({
       clause: ' AND "status" != ?',
       params: ['live'],
     });
   });
 
   it('drops a non-allowlisted column (the injection boundary holds through the shared path)', () => {
-    expect(composeBrowseFilter(spec, q({ filters: '[{"col":"password","op":"eq","val":"x"}]' }))).toEqual({
+    expect(
+      composeBrowseFilter(spec, q({ filters: '[{"col":"password","op":"eq","val":"x"}]' })),
+    ).toEqual({
       clause: '',
       params: [],
     });
@@ -658,7 +748,9 @@ describe('buildGroupCountSql (whole-query kanban lane counts)', () => {
   });
 
   it('preserves a soft-delete filter (extra clause is injected AFTER `WHERE site_id = ?`)', () => {
-    const spec = { countSql: 'SELECT COUNT(*) AS n FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL' };
+    const spec = {
+      countSql: 'SELECT COUNT(*) AS n FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL',
+    };
     expect(buildGroupCountSql(spec, 'build_version', '')).toBe(
       'SELECT "build_version" AS value, COUNT(*) AS n FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL GROUP BY "build_version" ORDER BY n DESC LIMIT ?',
     );
@@ -701,9 +793,40 @@ describe('buildGroupAggregateSql (whole-query chart measure: SUM/AVG/MIN/MAX per
   });
 
   it('preserves a soft-delete filter (extra clause injected AFTER `WHERE site_id = ?`)', () => {
-    const spec = { countSql: 'SELECT COUNT(*) AS n FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL' };
+    const spec = {
+      countSql: 'SELECT COUNT(*) AS n FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL',
+    };
     expect(buildGroupAggregateSql(spec, 'build_version', 'sum', 'bytes', '')).toBe(
       'SELECT "build_version" AS value, COUNT(*) AS n, SUM("bytes") AS agg FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL GROUP BY "build_version" ORDER BY agg DESC, n DESC LIMIT ?',
+    );
+  });
+});
+
+describe('buildColumnAggregatesSql (whole-query per-column footer summaries; one ungrouped row)', () => {
+  it('emits COUNT(*) + per-column filled/sum/avg/min/max with positional aliases', () => {
+    const spec = { countSql: 'SELECT COUNT(*) AS n FROM orders WHERE site_id = ?' };
+    expect(buildColumnAggregatesSql(spec, ['amount', 'qty'], '')).toBe(
+      'SELECT COUNT(*) AS n, ' +
+        'COUNT("amount") AS c0, SUM("amount") AS s0, AVG("amount") AS v0, MIN("amount") AS mn0, MAX("amount") AS mx0, ' +
+        'COUNT("qty") AS c1, SUM("qty") AS s1, AVG("qty") AS v1, MIN("qty") AS mn1, MAX("qty") AS mx1 ' +
+        'FROM orders WHERE site_id = ?',
+    );
+  });
+
+  it('with no columns → just COUNT(*) (a bare whole-query count)', () => {
+    const spec = { countSql: 'SELECT COUNT(*) AS n FROM orders WHERE site_id = ?' };
+    expect(buildColumnAggregatesSql(spec, [], '')).toBe(
+      'SELECT COUNT(*) AS n FROM orders WHERE site_id = ?',
+    );
+  });
+
+  it('injects the search/filter clause AFTER `WHERE site_id = ?` (preserving soft-delete)', () => {
+    const spec = {
+      countSql: 'SELECT COUNT(*) AS n FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL',
+    };
+    expect(buildColumnAggregatesSql(spec, ['bytes'], ' AND "status" = ?')).toBe(
+      'SELECT COUNT(*) AS n, COUNT("bytes") AS c0, SUM("bytes") AS s0, AVG("bytes") AS v0, MIN("bytes") AS mn0, MAX("bytes") AS mx0 ' +
+        'FROM site_snapshots WHERE site_id = ? AND "status" = ? AND deleted_at IS NULL',
     );
   });
 });

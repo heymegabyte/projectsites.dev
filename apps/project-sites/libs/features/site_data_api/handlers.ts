@@ -398,7 +398,9 @@ function buildFilterLeaf(
   if (op === 'null') return { pred: `"${col}" IS NULL`, params: [] };
   if (op === 'notnull') return { pred: `"${col}" IS NOT NULL`, params: [] };
 
-  const val = String(rawVal ?? '').trim().slice(0, 200);
+  const val = String(rawVal ?? '')
+    .trim()
+    .slice(0, 200);
   if (!val) return { pred: '', params: [] };
 
   if (op === 'contains') {
@@ -565,7 +567,11 @@ export function normalizeGridViewType(raw: unknown): GridViewType {
  * editor re-validates each against the live columns at render (a stale field falls back to a default) —
  * this is shape-hardening, not authorization.
  */
-export function parseGridViewConfig(raw: unknown): { titleField?: string; groupField?: string; dateField?: string } {
+export function parseGridViewConfig(raw: unknown): {
+  titleField?: string;
+  groupField?: string;
+  dateField?: string;
+} {
   let obj: unknown = raw;
   if (typeof raw === 'string') {
     if (!raw) return {};
@@ -607,7 +613,9 @@ export function serializeGridView(row: Record<string, unknown>): {
     id: String(row.id ?? ''),
     table: String(row.table_key ?? ''),
     name: String(row.name ?? ''),
-    conditions: parseFilterConditions(typeof row.filters_json === 'string' ? row.filters_json : '[]'),
+    conditions: parseFilterConditions(
+      typeof row.filters_json === 'string' ? row.filters_json : '[]',
+    ),
     combinator: normalizeCombinator(typeof row.combinator === 'string' ? row.combinator : 'AND'),
     sortCol: typeof row.sort_col === 'string' && row.sort_col ? row.sort_col : null,
     sortDir: normalizeSortDir(row.sort_dir),
@@ -863,7 +871,10 @@ export function composeBrowseFilter(
   spec: { columns: readonly string[] },
   query: (key: string) => string | undefined | null,
 ): { clause: string; params: string[] } {
-  const { clause: searchClause, params: searchParams } = buildDataSearch(spec.columns, query('search'));
+  const { clause: searchClause, params: searchParams } = buildDataSearch(
+    spec.columns,
+    query('search'),
+  );
   const parsed = parseFilterConditions(query('filters'));
   const { clause: filterClause, params: filterParams } =
     parsed.length > 0
@@ -884,12 +895,18 @@ export const MAX_KANBAN_GROUPS = 50;
  * exactly like the browse `orderBy`); the value is quoted, never a bound param (SQLite can't bind an
  * identifier). Pure.
  */
-export function buildGroupCountSql(spec: { countSql: string }, groupBy: string, extraClause: string): string {
+export function buildGroupCountSql(
+  spec: { countSql: string },
+  groupBy: string,
+  extraClause: string,
+): string {
   const base = spec.countSql.replace(
     /SELECT\s+COUNT\(\*\)\s+AS\s+n/i,
     `SELECT "${groupBy}" AS value, COUNT(*) AS n`,
   );
-  const withExtra = extraClause ? base.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`) : base;
+  const withExtra = extraClause
+    ? base.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`)
+    : base;
   return `${withExtra} GROUP BY "${groupBy}" ORDER BY n DESC LIMIT ?`;
 }
 
@@ -927,8 +944,43 @@ export function buildGroupAggregateSql(
     /SELECT\s+COUNT\(\*\)\s+AS\s+n/i,
     `SELECT "${groupBy}" AS value, COUNT(*) AS n, ${fn}("${measure}") AS agg`,
   );
-  const withExtra = extraClause ? base.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`) : base;
+  const withExtra = extraClause
+    ? base.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`)
+    : base;
   return `${withExtra} GROUP BY "${groupBy}" ORDER BY agg DESC, n DESC LIMIT ?`;
+}
+
+/**
+ * Build the WHOLE-QUERY column-aggregate SQL: ONE ungrouped row computing `COUNT(*) AS n` plus, per
+ * requested column `i`, `COUNT("col") AS c<i>` (non-null count = "filled"), `SUM`/`AVG`/`MIN`/`MAX AS
+ * s/v/mn/mx<i>` — so the grid footer can show a summary over the ENTIRE filtered table, not just the
+ * loaded page. Positional aliases (`c0`,`s0`,…) map back to `columns[i]`, avoiding any quoting of the
+ * alias. Every `columns` entry MUST be pre-validated against `spec.columns` by the caller (the allowlist
+ * is the injection boundary — identifiers are quoted, never bound). The shared search/filter
+ * `extraClause` is injected so the aggregate reflects the SAME set the grid shows. Pure.
+ */
+export function buildColumnAggregatesSql(
+  spec: { countSql: string },
+  columns: readonly string[],
+  extraClause: string,
+): string {
+  const parts = ['COUNT(*) AS n'];
+  columns.forEach((col, i) => {
+    parts.push(
+      `COUNT("${col}") AS c${i}`,
+      `SUM("${col}") AS s${i}`,
+      `AVG("${col}") AS v${i}`,
+      `MIN("${col}") AS mn${i}`,
+      `MAX("${col}") AS mx${i}`,
+    );
+  });
+  const base = spec.countSql.replace(
+    /SELECT\s+COUNT\(\*\)\s+AS\s+n/i,
+    `SELECT ${parts.join(', ')}`,
+  );
+  return extraClause
+    ? base.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`)
+    : base;
 }
 
 /**
@@ -959,7 +1011,9 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
   // Parameterized text search (OR-of-LIKE) + the AND/OR column-filter group, injected after
   // `WHERE site_id = ?` on BOTH the browse AND count queries so `total` reflects the filtered set.
   // Shared with the export route via composeBrowseFilter (allowlist-validated columns; bound values).
-  const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) => c.req.query(k));
+  const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) =>
+    c.req.query(k),
+  );
   const withSearch = (sql: string): string =>
     extraClause ? sql.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`) : sql;
 
@@ -979,8 +1033,12 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
   try {
     if (wantCount) {
       const [browseRes, countRes] = await Promise.all([
-        c.env.DB.prepare(browseSql).bind(siteId, ...extraParams, limit, offset).all(),
-        c.env.DB.prepare(withSearch(spec.countSql)).bind(siteId, ...extraParams).first<{ n: number }>(),
+        c.env.DB.prepare(browseSql)
+          .bind(siteId, ...extraParams, limit, offset)
+          .all(),
+        c.env.DB.prepare(withSearch(spec.countSql))
+          .bind(siteId, ...extraParams)
+          .first<{ n: number }>(),
       ]);
       rows = (browseRes.results || []) as Record<string, unknown>[];
       total = countRes?.n ?? 0;
@@ -1026,7 +1084,9 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table/export', async (c) => {
 
   const orderBy = c.req.query('orderBy');
   const dir = String(c.req.query('dir') ?? '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
-  const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) => c.req.query(k));
+  const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) =>
+    c.req.query(k),
+  );
   const withSearch = (sql: string): string =>
     extraClause ? sql.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`) : sql;
   const base = withSearch(spec.browseSql);
@@ -1054,7 +1114,9 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table/export', async (c) => {
     rows = rows.map((r) => ('email' in r ? { ...r, email: maskEmailValue(r['email']) } : r));
   }
 
-  return c.json({ data: { table: spec.key, columns: spec.columns, rows, truncated, cap: MAX_EXPORT_ROWS } });
+  return c.json({
+    data: { table: spec.key, columns: spec.columns, rows, truncated, cap: MAX_EXPORT_ROWS },
+  });
 });
 
 /**
@@ -1079,7 +1141,10 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table/group-counts', async (c
 
   const groupBy = String(c.req.query('groupBy') ?? '').trim();
   if (!groupBy || !spec.columns.includes(groupBy)) {
-    return c.json({ error: { code: 'BAD_REQUEST', message: 'A valid groupBy column is required' } }, 400);
+    return c.json(
+      { error: { code: 'BAD_REQUEST', message: 'A valid groupBy column is required' } },
+      400,
+    );
   }
 
   // Optional chart MEASURE + AGG (sum/avg/min/max over an allowlisted numeric column). Both must
@@ -1090,7 +1155,9 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table/group-counts', async (c
   const agg = normalizeGroupAgg(c.req.query('agg'));
   const measure = agg && measureRaw && spec.columns.includes(measureRaw) ? measureRaw : null;
 
-  const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) => c.req.query(k));
+  const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) =>
+    c.req.query(k),
+  );
   const sql =
     agg && measure
       ? buildGroupAggregateSql(spec, groupBy, agg, measure, extraClause)
@@ -1105,7 +1172,9 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table/group-counts', async (c
       value: r.value ?? null,
       count: Number(r.n ?? 0),
       // Only when aggregating: the numeric aggregate (null when the group's measure was all-NULL).
-      ...(agg && measure ? { aggregate: r.agg === null || r.agg === undefined ? null : Number(r.agg) } : {}),
+      ...(agg && measure
+        ? { aggregate: r.agg === null || r.agg === undefined ? null : Number(r.agg) }
+        : {}),
     }));
   } catch {
     groups = []; // fail-soft: missing/renamed table → no groups, never 500
@@ -1125,6 +1194,77 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table/group-counts', async (c
       ...(agg && measure ? { agg, measure } : {}),
     },
   });
+});
+
+/**
+ * WHOLE-QUERY per-column aggregates for the grid summary footer: `{ aggregates: { col: { count, filled,
+ * sum, avg, min, max } } }` over the SAME filtered set the grid shows (search + filter group), NOT just
+ * the loaded page — so a footer "Sum" is the whole-table total, honestly labelled. `?columns=a,b,c` are
+ * each re-validated against the allowlist (the injection boundary); unknown columns are dropped, and the
+ * empty set → `{}` (no query). ONE ungrouped SELECT. Same auth + fail-soft as the browse.
+ */
+siteDataApi.get('/api/sites/:siteId/data-overview/:table/column-aggregates', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+  const spec = overviewTable(table);
+  if (!spec) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Unknown table' } }, 400);
+  }
+
+  // Allowlist-validate every requested column (the injection boundary), de-duped, bounded to the table's
+  // column count. An empty/all-invalid set returns no aggregates (never an unbounded or hostile query).
+  const requested = String(c.req.query('columns') ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  const cols = [...new Set(requested)]
+    .filter((col) => spec.columns.includes(col))
+    .slice(0, spec.columns.length);
+
+  const aggregates: Record<
+    string,
+    {
+      count: number;
+      filled: number;
+      sum: number | null;
+      avg: number | null;
+      min: number | null;
+      max: number | null;
+    }
+  > = {};
+
+  if (cols.length > 0) {
+    const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) =>
+      c.req.query(k),
+    );
+    const sql = buildColumnAggregatesSql(spec, cols, extraClause);
+
+    try {
+      const row = (await c.env.DB.prepare(sql)
+        .bind(siteId, ...extraParams)
+        .first()) as Record<string, unknown> | null;
+      const n = Number(row?.n ?? 0);
+      const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+      cols.forEach((col, i) => {
+        aggregates[col] = {
+          count: n,
+          filled: Number(row?.[`c${i}`] ?? 0),
+          sum: num(row?.[`s${i}`]),
+          avg: num(row?.[`v${i}`]),
+          min: num(row?.[`mn${i}`]),
+          max: num(row?.[`mx${i}`]),
+        };
+      });
+    } catch {
+      // fail-soft: missing/renamed table → no aggregates (the editor falls back to the page summary)
+    }
+  }
+
+  return c.json({ data: { table: spec.key, aggregates } });
 });
 
 /**
@@ -1151,7 +1291,12 @@ siteDataApi.delete('/api/sites/:siteId/data-overview/:table/:rowId', async (c) =
   const realTable = deletableTableName(table);
   if (!realTable) {
     return c.json(
-      { error: { code: 'BAD_REQUEST', message: 'This table is read-only and cannot be edited here' } },
+      {
+        error: {
+          code: 'BAD_REQUEST',
+          message: 'This table is read-only and cannot be edited here',
+        },
+      },
       400,
     );
   }
@@ -1209,7 +1354,12 @@ siteDataApi.post('/api/sites/:siteId/data-overview/:table/bulk-delete', async (c
   const realTable = deletableTableName(table);
   if (!realTable) {
     return c.json(
-      { error: { code: 'BAD_REQUEST', message: 'This table is read-only and cannot be edited here' } },
+      {
+        error: {
+          code: 'BAD_REQUEST',
+          message: 'This table is read-only and cannot be edited here',
+        },
+      },
       400,
     );
   }
@@ -1223,7 +1373,9 @@ siteDataApi.post('/api/sites/:siteId/data-overview/:table/bulk-delete', async (c
     );
   }
   // Dedupe + keep only non-empty strings (a hostile/blank id is dropped, never bound).
-  const ids = [...new Set(rawIds.filter((x): x is string => typeof x === 'string' && x.length > 0))];
+  const ids = [
+    ...new Set(rawIds.filter((x): x is string => typeof x === 'string' && x.length > 0)),
+  ];
   if (ids.length === 0) {
     return c.json({ error: { code: 'BAD_REQUEST', message: 'No valid row ids provided' } }, 400);
   }
@@ -1287,12 +1439,20 @@ siteDataApi.patch('/api/sites/:siteId/data-overview/:table/:rowId', async (c) =>
   const realTable = editableTableName(table);
   if (!realTable) {
     return c.json(
-      { error: { code: 'BAD_REQUEST', message: 'This table is read-only and cannot be edited here' } },
+      {
+        error: {
+          code: 'BAD_REQUEST',
+          message: 'This table is read-only and cannot be edited here',
+        },
+      },
       400,
     );
   }
 
-  const body = (await c.req.json().catch(() => null)) as { column?: unknown; value?: unknown } | null;
+  const body = (await c.req.json().catch(() => null)) as {
+    column?: unknown;
+    value?: unknown;
+  } | null;
   const column = typeof body?.column === 'string' ? body.column : '';
   const spec = editableColumn(table, column);
   if (!spec) {
@@ -1338,7 +1498,8 @@ siteDataApi.patch('/api/sites/:siteId/data-overview/:table/:rowId', async (c) =>
  */
 siteDataApi.get('/api/sites/:siteId/grid-views', async (c) => {
   const orgId = c.get('orgId');
-  if (!orgId) return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
   const siteId = c.req.param('siteId');
   if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
     return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
@@ -1374,23 +1535,34 @@ siteDataApi.get('/api/sites/:siteId/grid-views', async (c) => {
  */
 siteDataApi.post('/api/sites/:siteId/grid-views', async (c) => {
   const orgId = c.get('orgId');
-  if (!orgId) return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
   const siteId = c.req.param('siteId');
   if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
     return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
 
-  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+  const body = await c.req
+    .json<Record<string, unknown>>()
+    .catch(() => ({}) as Record<string, unknown>);
   const name = validateViewName(body.name);
   const table = String(body.table ?? '').trim();
   if (!name || !table)
-    return c.json({ error: { code: 'BAD_REQUEST', message: 'A view name and table are required' } }, 400);
+    return c.json(
+      { error: { code: 'BAD_REQUEST', message: 'A view name and table are required' } },
+      400,
+    );
 
   // Shape-harden the filter group (drops non-string fields, bounds the count); combinator + sort re-normalized.
   const filtersJson = JSON.stringify(
     parseFilterConditions(JSON.stringify(Array.isArray(body.filters) ? body.filters : [])),
   );
-  const combinator = normalizeCombinator(typeof body.combinator === 'string' ? body.combinator : 'AND');
-  const sortCol = typeof body.sortCol === 'string' && body.sortCol.trim() ? body.sortCol.trim().slice(0, 64) : null;
+  const combinator = normalizeCombinator(
+    typeof body.combinator === 'string' ? body.combinator : 'AND',
+  );
+  const sortCol =
+    typeof body.sortCol === 'string' && body.sortCol.trim()
+      ? body.sortCol.trim().slice(0, 64)
+      : null;
   const sortDir = normalizeSortDir(body.sortDir);
   const search = typeof body.search === 'string' ? body.search.trim().slice(0, 128) : '';
   // View render type + display config (gallery: {titleField}). Both re-validated server-side: type is
@@ -1406,7 +1578,12 @@ siteDataApi.post('/api/sites/:siteId/grid-views', async (c) => {
       .first<{ n: number }>();
     if ((countRow?.n ?? 0) >= MAX_GRID_VIEWS_PER_TABLE)
       return c.json(
-        { error: { code: 'LIMIT', message: `At most ${MAX_GRID_VIEWS_PER_TABLE} saved views per table` } },
+        {
+          error: {
+            code: 'LIMIT',
+            message: `At most ${MAX_GRID_VIEWS_PER_TABLE} saved views per table`,
+          },
+        },
         400,
       );
 
@@ -1414,7 +1591,21 @@ siteDataApi.post('/api/sites/:siteId/grid-views', async (c) => {
     await c.env.DB.prepare(
       'INSERT INTO editor_grid_views (id, site_id, org_id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, type, config_json, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
-      .bind(id, siteId, orgId, table, name, filtersJson, combinator, sortCol, sortDir, search, viewType, configJson, orgId)
+      .bind(
+        id,
+        siteId,
+        orgId,
+        table,
+        name,
+        filtersJson,
+        combinator,
+        sortCol,
+        sortDir,
+        search,
+        viewType,
+        configJson,
+        orgId,
+      )
       .run();
 
     const row = await c.env.DB.prepare(
@@ -1436,21 +1627,30 @@ siteDataApi.post('/api/sites/:siteId/grid-views', async (c) => {
  */
 siteDataApi.put('/api/sites/:siteId/grid-views/:viewId', async (c) => {
   const orgId = c.get('orgId');
-  if (!orgId) return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
   const siteId = c.req.param('siteId');
   if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
     return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
 
   const viewId = c.req.param('viewId');
-  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+  const body = await c.req
+    .json<Record<string, unknown>>()
+    .catch(() => ({}) as Record<string, unknown>);
   const name = validateViewName(body.name);
-  if (!name) return c.json({ error: { code: 'BAD_REQUEST', message: 'A view name is required' } }, 400);
+  if (!name)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'A view name is required' } }, 400);
 
   const filtersJson = JSON.stringify(
     parseFilterConditions(JSON.stringify(Array.isArray(body.filters) ? body.filters : [])),
   );
-  const combinator = normalizeCombinator(typeof body.combinator === 'string' ? body.combinator : 'AND');
-  const sortCol = typeof body.sortCol === 'string' && body.sortCol.trim() ? body.sortCol.trim().slice(0, 64) : null;
+  const combinator = normalizeCombinator(
+    typeof body.combinator === 'string' ? body.combinator : 'AND',
+  );
+  const sortCol =
+    typeof body.sortCol === 'string' && body.sortCol.trim()
+      ? body.sortCol.trim().slice(0, 64)
+      : null;
   const sortDir = normalizeSortDir(body.sortDir);
   const search = typeof body.search === 'string' ? body.search.trim().slice(0, 128) : '';
   const viewType = normalizeGridViewType(body.type);
@@ -1460,7 +1660,19 @@ siteDataApi.put('/api/sites/:siteId/grid-views/:viewId', async (c) => {
     const result = await c.env.DB.prepare(
       `UPDATE editor_grid_views SET name = ?, filters_json = ?, combinator = ?, sort_col = ?, sort_dir = ?, search = ?, type = ?, config_json = ?, updated_at = datetime('now') WHERE id = ? AND site_id = ? AND org_id = ?`,
     )
-      .bind(name, filtersJson, combinator, sortCol, sortDir, search, viewType, configJson, viewId, siteId, orgId)
+      .bind(
+        name,
+        filtersJson,
+        combinator,
+        sortCol,
+        sortDir,
+        search,
+        viewType,
+        configJson,
+        viewId,
+        siteId,
+        orgId,
+      )
       .run();
     if (Number(result.meta?.changes ?? 0) === 0)
       return c.json({ error: { code: 'NOT_FOUND', message: 'View not found' } }, 404);
@@ -1479,14 +1691,17 @@ siteDataApi.put('/api/sites/:siteId/grid-views/:viewId', async (c) => {
 /** Delete a saved view by id (double-scoped by site_id + org_id — a foreign id deletes nothing). */
 siteDataApi.delete('/api/sites/:siteId/grid-views/:viewId', async (c) => {
   const orgId = c.get('orgId');
-  if (!orgId) return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
   const siteId = c.req.param('siteId');
   if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
     return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
 
   const viewId = c.req.param('viewId');
   try {
-    await c.env.DB.prepare('DELETE FROM editor_grid_views WHERE id = ? AND site_id = ? AND org_id = ?')
+    await c.env.DB.prepare(
+      'DELETE FROM editor_grid_views WHERE id = ? AND site_id = ? AND org_id = ?',
+    )
       .bind(viewId, siteId, orgId)
       .run();
     return c.json({ data: { deleted: true } });
@@ -1517,7 +1732,13 @@ siteDataApi.get('/api/sites/:siteId/data-activity', async (c) => {
   if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
     return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
 
-  let events: Array<{ action: string; table: string; message: string; actor: string | null; at: string }> = [];
+  let events: Array<{
+    action: string;
+    table: string;
+    message: string;
+    actor: string | null;
+    at: string;
+  }> = [];
   try {
     // `org_id` is indexed (idx_audit_logs_org); the action allowlist + LIMIT bound the scan.
     // `json_extract($.site_id)` scopes to THIS site (the delete/edit handlers set it); siteId

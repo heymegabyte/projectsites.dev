@@ -858,10 +858,34 @@ interaction). Directly in the AIRTABLE VIEWS mandate ("summaries").
 real-browser pass on `editor.projectsites.dev` (authed admin session) — logic is unit-tested, the interactions ship
 verify-by-build (per `interaction≠build`).
 
-**NEXT slice: whole-query column summaries (opt-in) — OR pinned column.** The footer is page-only; add a per-summary
-"whole table" toggle that fetches a bounded server aggregate for that column (a small ungrouped `SUM/AVG/MIN/MAX/
-COUNT(col)` endpoint — reuse the `group-aggregate` SQL discipline minus the GROUP BY; allowlist-validate the column;
-honest "· whole table" vs "· page" label). Self-contained alt: **pinned identifying column(s)** (`position:sticky;
-left:0` + pin toggle + per-table persist + cumulative left-offsets). Then: **async export JOBS >10k** (multi-fire);
-**multi-column sort** (ripples into saved-view sort persistence); nested AND/OR filter-tree. Foundations still inert:
-`field-types.ts`, `schema-ddl.ts`.
+### ✅ Shipped next fire (2026-09-26 #35) — WHOLE-QUERY column summaries (footer "· all" vs "· page")
+The footer summaries now reflect the **entire filtered table**, not just the loaded page — a footer Sum is the
+real total. Additive over #34: the whole-query value is fetched + shown when fresh ("· all"); otherwise it
+gracefully falls back to the page aggregate ("· page") — never a mock (the page footer already works).
+- **Worker (`handlers.ts`, fully jest-tested):** `buildColumnAggregatesSql(spec, columns, extraClause)` — ONE
+  ungrouped SELECT computing `COUNT(*)` + per-column `COUNT/SUM/AVG/MIN/MAX` with positional aliases (`c0/s0/…`);
+  new route `GET /data-overview/:table/column-aggregates?columns=a,b,c` (+ search/filter params) → `{ aggregates:
+  { col: {count, filled, sum, avg, min, max} } }`. Columns re-validated against the allowlist (injection boundary),
+  de-duped, bounded to the table's column count; empty/all-invalid → `{}` (no query); org-gated + ownsSiteData +
+  fail-soft. 3 SQL-builder tests + full worker Jest **12777/12777**.
+- **Bridge/admin:** `DataRequestMessage.columnsAgg` (comma-list) + response `data.aggregates`; `bolt-embed.service.ts`
+  routes it to `/column-aggregates` (a 4th mode beside export/group-counts/browse) + `PsMessage.columnsAgg`.
+- **Editor (`DataPanel.tsx`):** `columnAggs` + `columnAggKey` (the query fingerprint they're valid for) +
+  `columnAggCid`; a `columnAggQueryKey` memo (search + filters + summarized-col set); `loadColumnAggregates`
+  (one batched request, key set optimistically to prevent refire) + an effect refetching on fingerprint drift; the
+  footer maps the server shape → `CellAggregates` and shows `summaryValue` with a **"·all"** (whole-table) vs
+  **"·page"** suffix + honest tooltip. Falls back to the page aggregate whenever the server value isn't fresh.
+- Verified: editor Vitest **898/898** + tsc 0 + eslint 0 + build 0; admin tsc 0; worker Jest **12777/12777** + tsc 0.
+  *Honest residual:* the worker aggregate SQL/endpoint is fully tested (server-computed values are trustworthy);
+  the editor fetch/cache wiring ships verify-by-build (WebContainer + authed session) per the DataPanel pattern.
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize DRAG + the footer picker/whole-query fetch need a
+real-browser pass (authed admin session) — logic/SQL tested; the interactions + live fetch ship verify-by-build.
+
+**NEXT slice: pinned/frozen identifying column(s).** Self-contained, client-only: `position:sticky; left:<offset>`
+on the first column(s) (+ the select checkbox) so they stay visible on horizontal scroll; a pin toggle in the
+column menu; persisted per table; a pure `pinnedLeftOffsets(cols, pinnedSet, widths, selWidth)` (cumulative offsets
+— pinned cols get an explicit width so offsets are known) — unit-test the offset math; the sticky CSS ships
+verify-by-build (flag the visual follow-up per `interaction≠build`). Then: **async export JOBS >10k** (multi-fire);
+**multi-column sort** (ripples into saved-view sort persistence); nested AND/OR filter-tree; SQL-workspace polish.
+Foundations still inert: `field-types.ts`, `schema-ddl.ts`.

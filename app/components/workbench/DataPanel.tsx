@@ -366,6 +366,20 @@ export const DataPanel = memo(() => {
   const [density, setDensity] = useState<GridDensity>(readDensity); // global grid row-density pref
 
   /*
+   * Whole-query footer summaries: server-computed per-column aggregates over the CURRENT filtered query
+   * (not just the page), keyed by the query fingerprint they're valid for. Present + fresh → the footer
+   * shows "· all" (whole table); otherwise it falls back to the page aggregate ("· page").
+   */
+  const [columnAggs, setColumnAggs] = useState<
+    Record<
+      string,
+      { count: number; filled: number; sum: number | null; avg: number | null; min: number | null; max: number | null }
+    >
+  >({});
+  const [columnAggKey, setColumnAggKey] = useState<string | null>(null);
+  const columnAggCid = useRef<string | null>(null);
+
+  /*
    * Transient "✓ Copied …" flash for clipboard actions (announced via aria-live). A token
    * guards the timeout so a rapid second copy doesn't get cleared by the first's timer.
    */
@@ -1489,6 +1503,18 @@ export const DataPanel = memo(() => {
         return;
       }
 
+      // Whole-query column summaries → fills `columnAggs` for the footer (matched on its own cid).
+      if (msg.correlationId === columnAggCid.current) {
+        columnAggCid.current = null;
+
+        if (!msg.error) {
+          const aggs = msg.data?.aggregates;
+          setColumnAggs(aggs && typeof aggs === 'object' ? aggs : {});
+        }
+
+        return;
+      }
+
       if (msg.correlationId === exportCid.current) {
         exportCid.current = null;
         setExportBusy(false);
@@ -1712,6 +1738,26 @@ export const DataPanel = memo(() => {
 
     return m;
   }, [visibleCols, visibleRows, colSummaries]);
+
+  /* The visible columns that currently have a footer summary — what we ask the server to aggregate. */
+  const summarizedCols = useMemo(() => visibleCols.filter((c) => colSummaries[c]), [visibleCols, colSummaries]);
+
+  /*
+   * The whole-query fingerprint the server aggregates are valid for: the same filtered query the grid
+   * shows (search + filter group) + the exact summarized-column set. When it changes, we refetch; when
+   * `columnAggKey` matches it, the footer trusts `columnAggs` (whole-table); otherwise it shows the page.
+   */
+  const columnAggQueryKey = useMemo(
+    () =>
+      JSON.stringify({
+        active,
+        search,
+        conditions: filterConditions,
+        combinator: filterCombinator,
+        cols: [...summarizedCols].sort(),
+      }),
+    [active, search, filterConditions, filterCombinator, summarizedCols],
+  );
 
   /*
    * Calendar derivations (only meaningful in the calendar view): the effective date column (owner pick,
@@ -2415,6 +2461,43 @@ export const DataPanel = memo(() => {
       setKanbanGroupsTruncated(false);
     }
   }, [viewMode, kanbanGroupCol, active, loadKanbanGroups]);
+
+  /**
+   * Fetch WHOLE-QUERY per-column aggregates for the summarized footer columns (one batched request over
+   * the current filtered query). `columnAggKey` is set OPTIMISTICALLY to the query fingerprint so the
+   * effect won't refire while in-flight; the response fills `columnAggs`. A failed/absent fetch leaves
+   * `columnAggs` without that column → the footer falls back to the page aggregate (graceful, honest).
+   */
+  const loadColumnAggregates = useCallback((): void => {
+    if (!isEmbedded || !active || summarizedCols.length === 0) {
+      return;
+    }
+
+    const cid = newCorrelationId('col-agg');
+    columnAggCid.current = cid;
+    setColumnAggKey(columnAggQueryKey); // optimistic — prevents refire for the same query
+
+    const params = filtersToParams({ search, conditions: filterConditions, combinator: filterCombinator });
+    postToParent({
+      type: 'PS_DATA_REQUEST',
+      table: active,
+      columnsAgg: summarizedCols.join(','),
+      ...(params.search ? { search: params.search } : {}),
+      ...(params.filters ? { filters: params.filters } : {}),
+      ...(params.filterCombinator ? { filterCombinator: params.filterCombinator } : {}),
+      correlationId: cid,
+    });
+  }, [active, summarizedCols, search, filterConditions, filterCombinator, columnAggQueryKey]);
+
+  /*
+   * Re-fetch whole-query column summaries whenever the grid is shown with ≥1 summarized column and the
+   * query fingerprint drifts from what `columnAggs` was fetched for (a filter/search/summary change).
+   */
+  useEffect(() => {
+    if (viewMode === 'grid' && active && summarizedCols.length > 0 && columnAggKey !== columnAggQueryKey) {
+      loadColumnAggregates();
+    }
+  }, [viewMode, active, summarizedCols, columnAggKey, columnAggQueryKey, loadColumnAggregates]);
 
   /*
    * Record-drawer keyboard: Escape closes; ←/→ step to the prev/next record on this page. Arrow-nav is
@@ -4457,7 +4540,25 @@ export const DataPanel = memo(() => {
                     {selectable && <td className="w-8" />}
                     {visibleCols.map((c) => {
                       const kind = colSummaries[c] ?? 'none';
-                      const agg = colAggregates[c];
+
+                      /*
+                       * Prefer the whole-query server aggregate when it's FRESH for this exact query; else
+                       * fall back to the page aggregate. Map the server shape → the CellAggregates summaryValue wants.
+                       */
+                      const serverRaw = columnAggKey === columnAggQueryKey ? columnAggs[c] : undefined;
+                      const serverAgg = serverRaw
+                        ? {
+                            count: serverRaw.count,
+                            numericCount: serverRaw.filled,
+                            sum: serverRaw.sum,
+                            avg: serverRaw.avg,
+                            min: serverRaw.min,
+                            max: serverRaw.max,
+                            nullCount: serverRaw.count - serverRaw.filled,
+                          }
+                        : undefined;
+                      const agg = serverAgg ?? colAggregates[c];
+                      const scope = serverAgg ? 'all' : 'page';
                       const val = kind !== 'none' && agg ? summaryValue(kind, agg) : null;
 
                       return (
@@ -4466,7 +4567,7 @@ export const DataPanel = memo(() => {
                             {kind !== 'none' && (
                               <span
                                 className="truncate font-medium tabular-nums text-bolt-elements-textSecondary"
-                                title={`${summaryLabel(kind)} · this page`}
+                                title={`${summaryLabel(kind)} · ${scope === 'all' ? 'whole table' : 'this page'}`}
                               >
                                 <span className="text-bolt-elements-textTertiary/70">{summaryLabel(kind)} </span>
                                 {val === null
@@ -4474,6 +4575,9 @@ export const DataPanel = memo(() => {
                                   : Number.isInteger(val)
                                     ? val.toLocaleString()
                                     : val.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                <span className="ml-0.5 text-[8px] text-bolt-elements-textTertiary/60">
+                                  {scope === 'all' ? '·all' : '·page'}
+                                </span>
                               </span>
                             )}
                             <select

@@ -241,6 +241,14 @@ export interface DataRequestMessage {
   agg?: string;
 
   /**
+   * Whole-query column summaries: a comma-separated list of allowlisted columns → routes to
+   * `/data-overview/:table/column-aggregates`, and the response `data.aggregates` carries `{ col: {count,
+   * filled, sum, avg, min, max} }` over the SAME filtered set (search + filters apply). Powers the grid
+   * footer's "· all" (whole-table) summaries vs the page-only fallback. Omit for a normal browse.
+   */
+  columnsAgg?: string;
+
+  /**
    * `0` = skip the server COUNT(*) (paging/sorting doesn't change the total, so the client reuses its
    * cached total — avoids an expensive exact count on every nav). Omitted / `1` = the worker counts
    * (table open, search/filter change, post-mutation). Then `total` on the response is `null`.
@@ -305,6 +313,15 @@ export interface DataResponseMessage {
     /** group-counts only (aggregate mode): the echoed measure column + aggregate function, for honest labels. */
     measure?: string;
     agg?: string;
+
+    /**
+     * column-aggregates only: whole-query per-column stats for the grid footer, keyed by column —
+     * `{ col: { count, filled, sum, avg, min, max } }` over the current filtered set (not just the page).
+     */
+    aggregates?: Record<
+      string,
+      { count: number; filled: number; sum: number | null; avg: number | null; min: number | null; max: number | null }
+    >;
   } | null;
 
   /**
