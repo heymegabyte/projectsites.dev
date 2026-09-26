@@ -226,17 +226,20 @@ kvInspector.get('/api/admin/kv/:binding/value', async (c) => {
  * expiration "unless explicitly changed" (the KV epic's mandate) — because CF KV `put()` REPLACES the
  * whole entry: omitting `metadata` wipes it, and omitting expiration makes a TTL'd key permanent.
  *
- * Rules: an explicit `expirationTtl` from the caller WINS (a deliberate TTL change). Otherwise the
- * existing absolute `expiration` is re-applied — but only when it's still ≥60s in the future (KV rejects
- * an expiration in the past / under the 60s floor; a near-expired key is left to expire as scheduled).
- * Existing metadata is always re-attached (there is no metadata-edit path yet, so it's never
- * "explicitly changed"). Returns `undefined` when there's nothing to set (a plain create). Pure.
+ * Rules (in precedence): an explicit `expirationTtl` WINS (a deliberate new TTL). Else `clearExpiration`
+ * makes the key PERMANENT (the explicit opt-in to drop a TTL — do NOT re-apply the existing one). Else
+ * the existing absolute `expiration` is re-applied — but only when it's still ≥60s in the future (KV
+ * rejects an expiration in the past / under the 60s floor; a near-expired key is left to expire as
+ * scheduled). Existing metadata is always re-attached (no metadata-edit path yet → never "explicitly
+ * changed"). Returns `undefined` when there's nothing to set (a plain create / cleared + no metadata). Pure.
  *
  * @example buildKvPutOptions({ existingExpiration: 9_999_999_999, nowSec: 1_000 }) // { expiration: 9999999999 }
  * @example buildKvPutOptions({ expirationTtl: 300, existingExpiration: 9e9, nowSec: 1 }) // { expirationTtl: 300 }
+ * @example buildKvPutOptions({ clearExpiration: true, existingExpiration: 9e9, nowSec: 1 }) // undefined (permanent)
  */
 export function buildKvPutOptions(args: {
   expirationTtl?: number;
+  clearExpiration?: boolean;
   existingMetadata?: unknown;
   existingExpiration?: number;
   nowSec: number;
@@ -245,6 +248,8 @@ export function buildKvPutOptions(args: {
 
   if (args.expirationTtl) {
     opts.expirationTtl = args.expirationTtl; // caller deliberately set a new TTL → honor it
+  } else if (args.clearExpiration) {
+    // Explicit "make permanent" — deliberately do NOT re-apply the existing expiration.
   } else if (typeof args.existingExpiration === 'number' && args.existingExpiration > args.nowSec + 60) {
     opts.expiration = args.existingExpiration; // preserve the existing absolute expiration (KV floor +60s)
   }
@@ -320,7 +325,7 @@ kvInspector.put('/api/admin/kv/:binding/value', async (c) => {
       400,
     );
   }
-  const { key, value, expirationTtl } = bodyParse.data;
+  const { key, value, expirationTtl, clearExpiration } = bodyParse.data;
 
   const kv = resolveKv(c.env, binding);
   const t0 = Date.now();
@@ -331,6 +336,7 @@ kvInspector.put('/api/admin/kv/:binding/value', async (c) => {
     const { metadata: existingMetadata, expiration: existingExpiration } = await readKvEntryMeta(kv, key);
     const putOptions = buildKvPutOptions({
       expirationTtl,
+      clearExpiration,
       existingMetadata,
       existingExpiration,
       nowSec: Math.floor(Date.now() / 1000),

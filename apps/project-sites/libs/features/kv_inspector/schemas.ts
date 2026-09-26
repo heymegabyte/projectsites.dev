@@ -77,12 +77,16 @@ export const KV_VALUE_MAX_BYTES = 65_536; // 64 KiB
  * Body for PUT /api/admin/kv/:binding/value — write (create/overwrite) a value. The value is capped
  * at {@link KV_VALUE_MAX_BYTES} (the same size the reader returns un-truncated) so the editor can only
  * round-trip a value it actually showed in full — it can never silently save a truncated value back
- * and drop data. `expirationTtl` is optional (KV's minimum is 60s); omitted ⇒ no expiry.
+ * and drop data. `expirationTtl` is optional (KV's minimum is 60s); omitted ⇒ the key's EXISTING
+ * expiration is preserved (a value edit never silently clears a TTL — see `buildKvPutOptions`).
+ * `clearExpiration` is the EXPLICIT opt-in to remove the expiration (make the key permanent); it's
+ * the only way to drop a TTL now that a bare edit preserves it. `expirationTtl` wins if both are set.
  */
 export const KvPutSchema = z.object({
   key: z.string().min(1).max(512),
   value: z.string().max(KV_VALUE_MAX_BYTES),
   expirationTtl: z.number().int().min(60).optional(),
+  clearExpiration: z.boolean().optional(),
 });
 
 export type KvPut = z.infer<typeof KvPutSchema>;

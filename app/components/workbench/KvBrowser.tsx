@@ -24,7 +24,7 @@ import type {
   KvResponseMessage,
   KvValueData,
 } from '~/lib/embed/embedded-mode';
-import { formatKvExpiration, parseMaybeJson } from './kv-browser-logic';
+import { formatKvExpiration, parseMaybeJson, decideKvExpiry } from './kv-browser-logic';
 import { classNames } from '~/utils/classNames';
 
 export interface KvBrowserProps {
@@ -201,8 +201,26 @@ export const KvBrowser = memo(({ postToParent }: KvBrowserProps) => {
   const [writeError, setWriteError] = useState<string | null>(null);
   const [delConfirm, setDelConfirm] = useState('');
 
+  /*
+   * Expiration controls for a value edit: a new TTL (seconds, ≥60) OR "make permanent" (clear). Blank +
+   * unchecked ⇒ the server PRESERVES the key's existing expiration (never silently cleared).
+   */
+  const [editTtl, setEditTtl] = useState('');
+  const [editClearExpiry, setEditClearExpiry] = useState(false);
+
+  /*
+   * The selected key's current expiration (from the already-fetched key list — KV has no exact-key
+   * expiration getter, so the value endpoint can't return it). Drives the "Expires …" line + edit hint.
+   */
+  const selectedExpiration = useMemo(
+    () => (selectedKey ? keys.find((k) => k.name === selectedKey)?.expiration : undefined),
+    [keys, selectedKey],
+  );
+
   const beginEdit = useCallback((): void => {
     setEditValue(value?.value ?? '');
+    setEditTtl('');
+    setEditClearExpiry(false);
     setWriteError(null);
     setEditing(true);
   }, [value]);
@@ -212,10 +230,29 @@ export const KvBrowser = memo(({ postToParent }: KvBrowserProps) => {
       return;
     }
 
+    /*
+     * Resolve the expiration intent (clear / new-TTL / preserve / invalid). Invalid → block + explain,
+     * never a silent no-op that would mislead about what got stored.
+     */
+    const expiry = decideKvExpiry({ clearExpiration: editClearExpiry, ttlInput: editTtl });
+
+    if (expiry.kind === 'invalid') {
+      setWriteError(expiry.message);
+
+      return;
+    }
+
     setWriteBusy(true);
     setWriteError(null);
 
-    const res = await request({ op: 'put', binding, key: selectedKey, value: editValue });
+    const res = await request({
+      op: 'put',
+      binding,
+      key: selectedKey,
+      value: editValue,
+      ...(expiry.kind === 'ttl' ? { expirationTtl: expiry.expirationTtl } : {}),
+      ...(expiry.kind === 'clear' ? { clearExpiration: true } : {}),
+    });
     setWriteBusy(false);
 
     if (res.ok) {
@@ -224,7 +261,7 @@ export const KvBrowser = memo(({ postToParent }: KvBrowserProps) => {
     } else {
       setWriteError(res.error ?? 'The write failed.');
     }
-  }, [binding, selectedKey, editValue, request, openKey]);
+  }, [binding, selectedKey, editValue, editTtl, editClearExpiry, request, openKey]);
 
   const deleteKey = useCallback(async (): Promise<void> => {
     if (!selectedKey || delConfirm !== selectedKey) {
@@ -398,6 +435,11 @@ export const KvBrowser = memo(({ postToParent }: KvBrowserProps) => {
                     >
                       {parsed?.pretty}
                     </pre>
+                    <div className="text-[10px] text-bolt-elements-textTertiary" data-testid="data-kv-expiration">
+                      {selectedExpiration === undefined
+                        ? 'No expiration (permanent)'
+                        : `Expires ${formatKvExpiration(selectedExpiration, nowSeconds)}`}
+                    </div>
                     {value.metadata != null && (
                       <div>
                         <div className="mb-1 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
@@ -477,6 +519,38 @@ export const KvBrowser = memo(({ postToParent }: KvBrowserProps) => {
                       aria-label="New value"
                       className="h-48 w-full resize-y rounded bg-bolt-elements-background-depth-1 border border-bolt-elements-borderColor p-2 text-[11px] font-mono text-bolt-elements-textPrimary"
                     />
+                    {/* Expiration controls: blank + unchecked PRESERVES the existing TTL (edits never
+                        silently clear it); "make permanent" is the explicit opt-in to remove it. */}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-bolt-elements-textSecondary">
+                      <span className="text-bolt-elements-textTertiary">
+                        {selectedExpiration === undefined
+                          ? 'Currently: no expiry'
+                          : `Currently expires ${formatKvExpiration(selectedExpiration, nowSeconds)}`}
+                      </span>
+                      <label className="flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={editClearExpiry}
+                          onChange={(e) => setEditClearExpiry(e.target.checked)}
+                          data-testid="data-kv-clear-expiry"
+                          className="h-3 w-3 accent-[#00e5ff]"
+                        />
+                        Remove expiration (make permanent)
+                      </label>
+                      <label className={classNames('flex items-center gap-1', editClearExpiry ? 'opacity-40' : '')}>
+                        Set new expiry (s)
+                        <input
+                          type="number"
+                          min={60}
+                          value={editTtl}
+                          disabled={editClearExpiry}
+                          onChange={(e) => setEditTtl(e.target.value)}
+                          placeholder="≥60 · blank keeps"
+                          data-testid="data-kv-ttl"
+                          className="w-28 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-1.5 py-0.5 font-mono text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary disabled:opacity-40"
+                        />
+                      </label>
+                    </div>
                     {writeError && (
                       <div className="text-[10px] text-red-400" role="alert">
                         {writeError}

@@ -70,6 +70,7 @@ export function formatKvExpiration(expiration: number | undefined, now: number):
 export interface ParsedValue {
   /** The display string — pretty-printed JSON or the raw string. */
   pretty: string;
+
   /** Whether the input parsed as valid JSON (object or array). */
   isJson: boolean;
 }
@@ -154,4 +155,43 @@ export function kvKeyMatchesPrefix(key: string, prefix: string): boolean {
   }
 
   return key.startsWith(prefix);
+}
+
+/** The expiry intent of a KV value edit, resolved from the edit form's controls. */
+export type KvExpiryDecision =
+  | { kind: 'preserve' }
+  | { kind: 'clear' }
+  | { kind: 'ttl'; expirationTtl: number }
+  | { kind: 'invalid'; message: string };
+
+/**
+ * Decide what a value edit should do with the key's expiration, from the edit form's two controls: a
+ * "make permanent" checkbox and an optional new-TTL input. Precedence: the checkbox (clear) WINS; else a
+ * blank TTL input means "no change" (the server preserves the existing expiration); else the TTL must be
+ * a whole number ≥60 (KV's floor) — anything else is `invalid` (blocked with a message, NEVER silently
+ * dropped, so the user is never misled about what will be stored). Pure.
+ *
+ * @example decideKvExpiry({ clearExpiration: true, ttlInput: '3600' }) // { kind: 'clear' }
+ * @example decideKvExpiry({ clearExpiration: false, ttlInput: '' })    // { kind: 'preserve' }
+ * @example decideKvExpiry({ clearExpiration: false, ttlInput: '3600' })// { kind: 'ttl', expirationTtl: 3600 }
+ * @example decideKvExpiry({ clearExpiration: false, ttlInput: '30' })  // { kind: 'invalid', message: … }
+ */
+export function decideKvExpiry(opts: { clearExpiration: boolean; ttlInput: string }): KvExpiryDecision {
+  if (opts.clearExpiration) {
+    return { kind: 'clear' };
+  }
+
+  const t = (opts.ttlInput ?? '').trim();
+
+  if (t === '') {
+    return { kind: 'preserve' };
+  }
+
+  const n = Number(t);
+
+  if (!Number.isInteger(n) || n < 60) {
+    return { kind: 'invalid', message: 'Expiry must be a whole number of seconds ≥ 60 (KV minimum).' };
+  }
+
+  return { kind: 'ttl', expirationTtl: n };
 }

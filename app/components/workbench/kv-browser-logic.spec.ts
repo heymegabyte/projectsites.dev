@@ -3,7 +3,7 @@
  * Run with Vitest (same runner as the rest of app/).
  */
 import { describe, it, expect } from 'vitest';
-import { formatKvExpiration, parseMaybeJson, kvKeyMatchesPrefix } from './kv-browser-logic.js';
+import { formatKvExpiration, parseMaybeJson, kvKeyMatchesPrefix, decideKvExpiry } from './kv-browser-logic.js';
 
 // ── formatKvExpiration ───────────────────────────────────────────────────────
 
@@ -78,6 +78,7 @@ describe('parseMaybeJson', () => {
 
   it('handles a JSON number at root level', () => {
     const { pretty, isJson } = parseMaybeJson('42');
+
     // numbers are valid JSON but we treat bare primitives as raw
     expect(typeof isJson).toBe('boolean');
     expect(typeof pretty).toBe('string');
@@ -111,5 +112,30 @@ describe('kvKeyMatchesPrefix', () => {
 
   it('returns true for exact match (key === prefix)', () => {
     expect(kvKeyMatchesPrefix('exact', 'exact')).toBe(true);
+  });
+});
+
+// ── decideKvExpiry ───────────────────────────────────────────────────────────
+
+describe('decideKvExpiry (KV value-edit expiration intent)', () => {
+  it('the "make permanent" checkbox WINS over any typed TTL', () => {
+    expect(decideKvExpiry({ clearExpiration: true, ttlInput: '3600' })).toEqual({ kind: 'clear' });
+    expect(decideKvExpiry({ clearExpiration: true, ttlInput: '' })).toEqual({ kind: 'clear' });
+  });
+
+  it('a blank TTL input preserves the existing expiration (never a silent clear)', () => {
+    expect(decideKvExpiry({ clearExpiration: false, ttlInput: '' })).toEqual({ kind: 'preserve' });
+    expect(decideKvExpiry({ clearExpiration: false, ttlInput: '   ' })).toEqual({ kind: 'preserve' });
+  });
+
+  it('a valid whole-second TTL ≥60 becomes a new expirationTtl', () => {
+    expect(decideKvExpiry({ clearExpiration: false, ttlInput: '60' })).toEqual({ kind: 'ttl', expirationTtl: 60 });
+    expect(decideKvExpiry({ clearExpiration: false, ttlInput: '3600' })).toEqual({ kind: 'ttl', expirationTtl: 3600 });
+  });
+
+  it('an invalid / sub-60 / non-integer TTL is BLOCKED with a message (never silently dropped)', () => {
+    expect(decideKvExpiry({ clearExpiration: false, ttlInput: '30' }).kind).toBe('invalid');
+    expect(decideKvExpiry({ clearExpiration: false, ttlInput: '10.5' }).kind).toBe('invalid');
+    expect(decideKvExpiry({ clearExpiration: false, ttlInput: 'abc' }).kind).toBe('invalid');
   });
 });

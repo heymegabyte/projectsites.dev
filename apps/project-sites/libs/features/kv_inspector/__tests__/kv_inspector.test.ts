@@ -356,6 +356,23 @@ describe('PUT /api/admin/kv/:binding/value — write (create/edit)', () => {
       metadata: { tenant: 'acme' },
     });
   });
+
+  it('clearExpiration makes the key PERMANENT — drops the existing expiration, keeps metadata', async () => {
+    mockCacheKv.getWithMetadata.mockResolvedValueOnce({ value: 'old', metadata: { tenant: 'acme' } });
+    mockCacheKv.list.mockResolvedValueOnce({
+      keys: [{ name: 'host:acme', expiration: 9_999_999_999 }],
+      list_complete: true,
+      cursor: undefined,
+    });
+    const res = await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', {
+      key: 'host:acme',
+      value: 'new',
+      clearExpiration: true,
+    });
+    expect(res.status).toBe(200);
+    // No `expiration`/`expirationTtl` → the key becomes permanent; metadata still preserved.
+    expect(mockCacheKv.put).toHaveBeenCalledWith('host:acme', 'new', { metadata: { tenant: 'acme' } });
+  });
 });
 
 describe('buildKvPutOptions (preserve metadata + expiration unless explicitly changed) — pure', () => {
@@ -371,6 +388,20 @@ describe('buildKvPutOptions (preserve metadata + expiration unless explicitly ch
     expect(buildKvPutOptions({ existingExpiration: NOW + 3600, nowSec: NOW })).toEqual({
       expiration: NOW + 3600,
     });
+  });
+
+  it('clearExpiration makes the key permanent — does NOT re-apply the existing expiration', () => {
+    expect(buildKvPutOptions({ clearExpiration: true, existingExpiration: NOW + 3600, nowSec: NOW })).toBeUndefined();
+    // metadata is still preserved even when the expiration is cleared
+    expect(
+      buildKvPutOptions({ clearExpiration: true, existingMetadata: { a: 1 }, existingExpiration: NOW + 3600, nowSec: NOW }),
+    ).toEqual({ metadata: { a: 1 } });
+  });
+
+  it('an explicit new TTL wins over clearExpiration (both set → the concrete TTL)', () => {
+    expect(
+      buildKvPutOptions({ expirationTtl: 120, clearExpiration: true, existingExpiration: NOW + 3600, nowSec: NOW }),
+    ).toEqual({ expirationTtl: 120 });
   });
 
   it('does NOT re-apply a past / sub-60s existing expiration (KV floor) — key left permanent', () => {

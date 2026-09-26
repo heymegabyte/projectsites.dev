@@ -211,6 +211,8 @@ interface PsMessage {
   readonly value?: string;
   /** PS_KV_REQUEST (put op): optional expiry in seconds (KV minimum 60). */
   readonly expirationTtl?: number;
+  /** PS_KV_REQUEST (put op): explicitly remove the expiration (make the key permanent). */
+  readonly clearExpiration?: boolean;
 }
 
 export interface BoltFileEntry {
@@ -1222,6 +1224,7 @@ export class BoltEmbedService {
             }
             const body: Record<string, unknown> = { key: msg.key, value: msg.value };
             if (typeof msg.expirationTtl === 'number') body['expirationTtl'] = msg.expirationTtl;
+            if (msg.clearExpiration === true) body['clearExpiration'] = true;
             this.api
               .put<
                 Record<string, unknown>

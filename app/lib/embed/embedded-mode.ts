@@ -484,8 +484,14 @@ export interface KvRequestMessage {
   /** For `put` op — the value to write (create/overwrite). Server-side size-capped. */
   value?: string;
 
-  /** For `put` op — optional expiry in seconds (KV minimum 60); omitted ⇒ no expiry. */
+  /** For `put` op — optional expiry in seconds (KV minimum 60); omitted ⇒ the EXISTING expiry is kept. */
   expirationTtl?: number;
+
+  /**
+   * For `put` op — explicitly REMOVE the key's expiration (make it permanent). The only way to drop a
+   * TTL, since a bare edit now preserves it. Ignored when {@link expirationTtl} is also set (that wins).
+   */
+  clearExpiration?: boolean;
 }
 
 /** Data envelope variants keyed by op. */

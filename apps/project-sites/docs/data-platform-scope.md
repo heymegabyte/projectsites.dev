@@ -1117,15 +1117,32 @@ list, value viewer, edit/delete — the 2026-09-25 "read-only" memory was stale)
 - Verified: worker Jest **12800/12800** (+7: 5 pure `buildKvPutOptions` + 2 route preservation/TTL-wins) + tsc 0.
   Worker-only (the `<KvBrowser>` edit flow already calls PUT — the fix makes it honest). No editor/bridge change.
 
+### ✅ Shipped next fire (2026-09-26 #48) — KV value-editor TTL controls: set new expiry + explicit "make permanent"
+Completes #47. The `<KvBrowser>` value editor gains real expiration controls, and the viewer now SHOWS the selected
+key's expiration. Full-stack (worker schema + logic + bridge + admin + editor).
+- **Worker (`kv_inspector`, +3 jest):** `KvPutSchema` gains `clearExpiration?: boolean`; `buildKvPutOptions` honors it
+  (precedence: explicit `expirationTtl` WINS → else `clearExpiration` makes the key permanent, deliberately NOT
+  re-applying the existing expiration → else preserve). The only way to drop a TTL now that a bare edit preserves it.
+- **Bridge + admin:** `KvRequestMessage`/`PsMessage` put op gains `clearExpiration?`; the admin PUT-proxy forwards it
+  (`expirationTtl` was already forwarded).
+- **Editor (`kv-browser-logic.ts` +4 Vitest · `KvBrowser.tsx`):** pure `decideKvExpiry({clearExpiration, ttlInput})` →
+  `preserve | clear | ttl | invalid` (the checkbox WINS; blank = preserve; a TTL must be a whole number ≥60 else
+  **blocked with a message, never a silent no-op**). The edit form adds a "Remove expiration (make permanent)" checkbox
+  + a "Set new expiry (s)" input (mutually exclusive); both the viewer and the editor show the selected key's current
+  expiration (from the already-fetched key list — KV has no exact-key expiration getter, so the value endpoint can't
+  return it). `saveValue` blocks an invalid TTL with the message before any write.
+- Verified: worker Jest **12803/12803** (+3) + tsc 0; editor Vitest **949/949** (+4) + tsc 0 + eslint 0* + build 0;
+  admin tsc 0. (*one PRE-EXISTING `react-hooks/exhaustive-deps` "rule not found" in KvBrowser — the editor eslint
+  config lacks that plugin, repo-wide + not mine.) Decision logic + put-options fully unit-tested; the form is verify-by-build.
+
 **STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
 sticky-pin render · #37 view round-trip · #40 multi-sort · #41 date/datetime picker · #42 boolean checkbox + JSON
-textarea · #43–#44 value datalist · #45 NULL toggle + hint · #46 BLOB chip · #47 KV edit keeps metadata/TTL — one
-real-browser pass (authed admin session). **A dedicated real-browser QA fire remains the highest-value out-of-loop step.**
+textarea · #43–#44 value datalist · #45 NULL toggle + hint · #46 BLOB chip · #47–#48 KV metadata/TTL preserve + set/clear
+— one real-browser pass (authed admin session). **A dedicated real-browser QA fire remains the highest-value out-of-loop step.**
 
-**NEXT slice: KV value-editor honesty — surface metadata + expiration in the `<KvBrowser>` value viewer + an explicit
-"clear TTL / make permanent" control (contained, super-admin).** Now that edits PRESERVE metadata + TTL, the viewer
-should SHOW them clearly (metadata JSON + a human "expires in Nd" / "no expiry" line) and — since preservation removed
-the only way to clear a TTL — add an explicit "remove expiration" affordance (a new `clearExpiration` flag on the PUT
-schema → `buildKvPutOptions` honors it as an explicit change). Pure schema+options change (tested) + a verify-by-build
-viewer tweak. Alternatives: audit R2/Vectorize/Queues browsers for the same replace-semantics class of bug; extend
-NULL affordance + datalist to the Add-row; nested AND/OR filter-tree; async export JOBS >10k (bigger).
+**NEXT slice: audit R2 / Vectorize / Queues browsers for the same replace-semantics / doomed-control class the KV audit
+surfaced (correctness pass).** Phase-0 (#47) found `<R2Browser>`/`<VectorizeBrowser>`/`<QueuesBrowser>` all exist — do
+their write paths (if any) have the KV "put replaces the whole entry → silently drops metadata" bug, or show controls
+their backend doesn't support (doomed buttons)? Trace each browser + its worker endpoints; fix the first real defect
+found (else document them clean). Alternatives: extend NULL affordance + datalist to the Add-row; nested AND/OR
+filter-tree; async export JOBS >10k (bigger); grounded "Ask your data" (slice 5, the big unbuilt frontier).
