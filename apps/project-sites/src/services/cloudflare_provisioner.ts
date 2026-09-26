@@ -26,6 +26,7 @@
  *
  * @packageDocumentation
  */
+import { strFromU8, unzipSync } from 'fflate';
 import { z } from 'zod';
 import type { Env } from '../types/env.js';
 
@@ -370,6 +371,164 @@ export async function provisionPayloadStack(
     for (const undo of rollback.reverse()) await undo().catch(() => undefined);
     throw err;
   }
+}
+
+// ── Real Payload OpenNext bundle deploy (B1) ─────────────────────────────────
+// Swaps the bootstrap for the actual Payload admin. The bundle (worker.js + 3 binary
+// modules + 84 static assets + manifest) is pre-built by scripts/build-payload-bundle.mjs
+// and stored at R2 `payload-bundle/v1.zip` (a Worker can't esbuild ~1829 modules at
+// request time). This is the PROVEN raw-API path (deploy-payload-instance.mjs): live
+// test → /admin 200 + CSS asset 200 (styled login). Ported to run in-Worker.
+
+const PAYLOAD_BUNDLE_KEY = 'payload-bundle/v1.zip';
+
+interface PayloadBundleManifest {
+  main_module: string;
+  compatibility_date: string;
+  compatibility_flags: string[];
+  modules: Array<{ name: string; type: string }>;
+  assets: Record<string, { hash: string; size: number }>;
+}
+
+/** Chunked base64 (btoa can't take a huge string via spread) for asset upload. */
+function u8ToBase64(u8: Uint8Array): string {
+  let s = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < u8.length; i += chunk) {
+    s += String.fromCharCode(...u8.subarray(i, i + chunk));
+  }
+  return btoa(s);
+}
+
+function assetContentType(path: string): string {
+  if (path.endsWith('.js')) return 'application/javascript';
+  if (path.endsWith('.css')) return 'text/css';
+  if (path.endsWith('.json')) return 'application/json';
+  if (path.endsWith('.svg')) return 'image/svg+xml';
+  if (path.endsWith('.woff2')) return 'font/woff2';
+  return 'application/octet-stream';
+}
+
+/** Read + unzip the pre-built Payload bundle from R2. Null when it isn't staged yet. */
+async function readPayloadBundle(
+  env: Env,
+): Promise<{ files: Record<string, Uint8Array>; manifest: PayloadBundleManifest } | null> {
+  const bucket = (env as unknown as { SITES_BUCKET?: R2Bucket }).SITES_BUCKET;
+  if (!bucket) return null;
+  const obj = await bucket.get(PAYLOAD_BUNDLE_KEY);
+  if (!obj) return null;
+  const files = unzipSync(new Uint8Array(await obj.arrayBuffer()));
+  const raw = files['manifest.json'];
+  if (!raw) return null;
+  return { files, manifest: JSON.parse(strFromU8(raw)) as PayloadBundleManifest };
+}
+
+/** assets-upload-session → upload every static asset → return the completion JWT. */
+async function uploadPayloadAssets(
+  c: CfCreds,
+  scriptPathStr: string,
+  files: Record<string, Uint8Array>,
+  manifest: PayloadBundleManifest,
+): Promise<string | null> {
+  const start = await cfFetch(c, `${scriptPathStr}/assets-upload-session`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ manifest: manifest.assets }),
+  });
+  if (!start.json.success) {
+    throw new CfProvisionError('WORKER_DEPLOY_FAILED', `assets-upload-session failed`, start.status);
+  }
+  const result = start.json.result as { jwt?: string; buckets?: string[][] } | undefined;
+  let jwt = result?.jwt ?? null;
+  const buckets = result?.buckets ?? [];
+  // hash → { content, path } from the manifest (paths) + the zip (bytes under assets/).
+  const byHash: Record<string, { content: Uint8Array; path: string }> = {};
+  for (const [path, meta] of Object.entries(manifest.assets)) {
+    const content = files[`assets${path}`];
+    if (content) byHash[meta.hash] = { content, path };
+  }
+  for (const bucket of buckets) {
+    const form = new FormData();
+    for (const hash of bucket) {
+      const a = byHash[hash];
+      if (!a) continue;
+      form.append(hash, new Blob([u8ToBase64(a.content)], { type: assetContentType(a.path) }), hash);
+    }
+    const up = await fetch(`${CF_BASE}/accounts/${c.accountId}/workers/assets/upload?base64=true`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${jwt}` },
+      body: form,
+    });
+    const upJson = (await up.json().catch(() => ({}))) as { success?: boolean; result?: { jwt?: string } };
+    if (!upJson.success) throw new CfProvisionError('WORKER_DEPLOY_FAILED', 'asset bucket upload failed', up.status);
+    if (upJson.result?.jwt) jwt = upJson.result.jwt;
+  }
+  return jwt;
+}
+
+/**
+ * Deploy the REAL Payload worker (overwriting the bootstrap under the same name):
+ * assets-upload-session, then a multipart script upload with the main module + the
+ * binary modules + D1/R2/ASSETS/PAYLOAD_SECRET bindings. Idempotent per name.
+ */
+export async function deployRealPayloadWorker(
+  env: Env,
+  ctx: {
+    name: string;
+    d1DatabaseId: string;
+    r2BucketName: string;
+    payloadSecret: string;
+    namespace?: string;
+  },
+): Promise<{ ok: boolean; error?: string }> {
+  const bundle = await readPayloadBundle(env);
+  if (!bundle) return { ok: false, error: 'payload bundle not staged in R2 (payload-bundle/v1.zip)' };
+  const { files, manifest } = bundle;
+  const c = creds(env);
+  const scriptPathStr = scriptPath(c.accountId, ctx.name, ctx.namespace);
+
+  let assetsJwt: string | null = null;
+  try {
+    assetsJwt = await uploadPayloadAssets(c, scriptPathStr, files, manifest);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  const bindings: Array<Record<string, string>> = [
+    { type: 'd1', name: 'D1', id: ctx.d1DatabaseId },
+    { type: 'r2_bucket', name: 'R2', bucket_name: ctx.r2BucketName },
+    { type: 'plain_text', name: 'PAYLOAD_SECRET', text: ctx.payloadSecret },
+  ];
+  const metadata: Record<string, unknown> = {
+    main_module: manifest.main_module,
+    compatibility_date: manifest.compatibility_date,
+    compatibility_flags: manifest.compatibility_flags,
+    bindings,
+  };
+  if (assetsJwt) {
+    bindings.push({ type: 'assets', name: 'ASSETS' });
+    metadata.assets = { jwt: assetsJwt, config: { html_handling: 'auto-trailing-slash', not_found_handling: 'none' } };
+  }
+
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+  const main = files[manifest.main_module];
+  if (!main) return { ok: false, error: `bundle missing ${manifest.main_module}` };
+  form.append(
+    manifest.main_module,
+    new Blob([main], { type: 'application/javascript+module' }),
+    manifest.main_module,
+  );
+  for (const m of manifest.modules) {
+    const content = files[`modules/${m.name}`];
+    if (!content) return { ok: false, error: `bundle missing module ${m.name}` };
+    form.append(m.name, new Blob([content], { type: m.type }), m.name);
+  }
+  const res = await cfFetch(c, scriptPathStr, { method: 'PUT', body: form });
+  if (!res.json.success) {
+    return { ok: false, error: `script upload failed: ${JSON.stringify(res.json.errors)}` };
+  }
+  return { ok: true };
 }
 
 /**

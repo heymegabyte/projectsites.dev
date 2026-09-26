@@ -5,6 +5,37 @@
 > where **deleting the instance from the UI deletes the D1 + R2 + Worker with zero dangling
 > resources**. Started 2026-09-25. This doc lets any fresh context continue.
 
+## ✅✅✅ B1 DONE — REAL Payload login live via the admin flow (2026-09-25, fire 10)
+
+A customer launch now deploys the **actual Payload admin** (styled login), not the bootstrap.
+Proven live E2E through the real admin API:
+
+- **The raw-API deploy path WORKS** (de-risked with `scripts/deploy-payload-instance.mjs`, fire-6
+  pattern): experiment v1 → `/admin` 200 with real Next/Payload markers (even unmigrated, no assets);
+  experiment v2 → assets-upload-session (84 files, 3 buckets) + `/admin` 200 + **CSS asset 200**
+  (styled). Both worker-script upload AND assets-upload-session succeed via the raw CF API.
+- **Ported into the Worker** — `cloudflare_provisioner.deployRealPayloadWorker(env, {...})`: reads
+  `payload-bundle/v1.zip` from `SITES_BUCKET`, unzips in-Worker (`fflate`), runs assets-upload-session,
+  then a multipart script upload (worker.js main_module + 3 binary modules + D1/R2/ASSETS/PAYLOAD_SECRET
+  bindings + compat). Wired into `launchCfNativeInstance` via `waitUntil` — the launch returns fast on
+  the bootstrap (instant 200), then the REAL Payload overwrites the same worker name (~15s), flipping
+  `last_error` on any failure (bootstrap stays serving = graceful degrade).
+- **Live proof (`verify-payload-launcher.mjs`, fire 10):** `plq1006974` launched via `POST
+  /api/apps/instances` → polled `/admin` → **realPayload=true, CSS asset=200** (real styled login) →
+  `DELETE` → cleanup `{worker,d1,r2}` all deleted → CF-API worker/d1/r2 = 404 → `/admin` = 404 after
+  edge propagation. **Zero dangling** (swept: 0 payload workers/D1/R2). 9 unit tests green.
+
+**The full ask is delivered** — launch (D1+R2+Worker, WfP-dispatch-ready) → **200 from the REAL
+Payload login** → delete removes D1+R2+Worker — EXCEPT the branded `{slug}.app.projectsites.dev`
+host, which needs the `*.app` ACM cert (billing-blocked, free plan; `PAYLOAD_APP_HOST_CERT_READY`
+flips it on). Today the instance serves at the cert-covered `<name>.<acct>.workers.dev`.
+
+### Remaining (small, optional)
+- **Migration on launch** — `/admin` login *renders* 200 unmigrated; to make login SUBMIT work,
+  apply the Payload init DDL to the fresh D1 via D1 REST at provision time (extract from
+  `infra/payload-d1/src/migrations/*.ts`). Login page 200 (the literal ask) is already met.
+- **Branded `.app.` host** — one ACM cert-pack (billing) + set `PAYLOAD_APP_HOST_CERT_READY=true`.
+
 ## 🧱 B1 FOUNDATION — real Payload bundle staged in R2 (2026-09-25, fire 9)
 
 `/admin` today serves the **bootstrap placeholder**, not the real Payload login. B1 swaps it for

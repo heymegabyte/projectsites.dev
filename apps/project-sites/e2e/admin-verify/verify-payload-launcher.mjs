@@ -60,23 +60,40 @@ if (resources.dispatch_namespace && !String(url).includes('.app.projectsites.dev
   fail(`expected {slug}.app.projectsites.dev routing, got ${url}`);
 }
 
-console.log('2) GET /admin (retry ≤40s for workers.dev propagation)');
+console.log('2) GET /admin — poll for the REAL Payload upgrade (bootstrap → OpenNext, ≤90s)');
 let adminCode = 0;
-for (let i = 0; i < 20; i++) {
-  adminCode = (await fetch(adminUrl).then((r) => r.status).catch(() => 0)) || 0;
-  if (adminCode === 200) break;
+let realPayload = false;
+let cssCode = 0;
+for (let i = 0; i < 45; i++) {
+  const res = await fetch(adminUrl).catch(() => null);
+  adminCode = res?.status ?? 0;
+  const body = res ? await res.text().catch(() => '') : '';
+  // The bootstrap HTML says "Instance live"; the REAL Payload/Next admin references /_next/.
+  realPayload = /\/_next\/(static|image)/.test(body);
+  if (realPayload) {
+    const css = body.match(/\/_next\/static\/css\/[a-f0-9]+\.css/);
+    if (css) cssCode = await fetch(`${url}${css[0]}`).then((r) => r.status).catch(() => 0);
+    break;
+  }
+  if (i === 0 && adminCode !== 200) {
+    // even the bootstrap should 200 immediately; if not, propagation still settling
+  }
   await sleep(2000);
 }
+console.log(`   admin=${adminCode} realPayload=${realPayload} cssAsset=${cssCode}`);
 if (adminCode !== 200) {
-  // tear down before failing so we never strand a stack
-  await fetch(`${WORKER}/api/apps/instances/${iid}`, { method: 'DELETE', headers: authed }).catch(
-    () => {},
-  );
+  await fetch(`${WORKER}/api/apps/instances/${iid}`, { method: 'DELETE', headers: authed }).catch(() => {});
   fail(`admin page expected 200, got ${adminCode}`);
 }
-const health = await fetch(`${url}/health`).then((r) => r.json()).catch(() => ({}));
-console.log(`   admin=200 health=${JSON.stringify(health)}`);
-if (!health.hasD1 || !health.hasR2) fail('instance is missing its D1 or R2 binding');
+if (!realPayload) {
+  await fetch(`${WORKER}/api/apps/instances/${iid}`, { method: 'DELETE', headers: authed }).catch(() => {});
+  fail('real Payload admin never appeared (still bootstrap after 90s) — bundle deploy failed');
+}
+if (cssCode !== 200) {
+  await fetch(`${WORKER}/api/apps/instances/${iid}`, { method: 'DELETE', headers: authed }).catch(() => {});
+  fail(`Payload admin CSS asset expected 200, got ${cssCode} (assets-upload-session failed)`);
+}
+console.log('   ✓ REAL Payload login page live + assets served (200)');
 
 console.log('3) DELETE (cascade D1 + R2 + Worker)');
 const delRes = await fetch(`${WORKER}/api/apps/instances/${iid}`, {
@@ -117,8 +134,15 @@ if (CF_KEY && resources.worker_script_name) {
 }
 
 // Independent routing confirm: the instance is gone from the platform host.
-const postAdmin = await fetch(adminUrl).then((r) => r.status).catch(() => 0);
-console.log(`   admin after delete = ${postAdmin} (expect non-200)`);
-if (postAdmin === 200) fail('admin still 200 after delete — routing not torn down');
+// workers.dev edge keeps serving the last response for ~10-30s after a script delete,
+// so poll for the drop (the CF-API 404s above already prove the resources are gone).
+let postAdmin = 200;
+for (let i = 0; i < 12; i++) {
+  postAdmin = await fetch(adminUrl).then((r) => r.status).catch(() => 0);
+  if (postAdmin !== 200) break;
+  await sleep(5000);
+}
+console.log(`   admin after delete = ${postAdmin} (expect non-200, allowing edge propagation)`);
+if (postAdmin === 200) fail('admin still 200 after delete + 60s — routing not torn down');
 
 console.log('PASS: launch → 200 → delete → zero dangling');

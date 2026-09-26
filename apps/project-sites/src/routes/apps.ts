@@ -31,6 +31,7 @@ import { clearAppHost, defaultAppHostname, setAppHost } from '../services/app_ho
 import { isSupportedSlug } from '../durable_objects/app_runtime_subclasses.js';
 import {
   CfProvisionError,
+  deployRealPayloadWorker,
   deprovisionPayloadStack,
   provisionPayloadStack,
 } from '../services/cloudflare_provisioner.js';
@@ -355,6 +356,43 @@ async function launchCfNativeInstance(
     }).catch(() => undefined);
     throw badRequest(insertErr);
   }
+
+  // Upgrade the bootstrap → the REAL Payload OpenNext bundle in the background so the
+  // launch returns fast. The bootstrap already 200s; deployRealPayloadWorker overwrites
+  // the SAME worker name with the real admin (assets + script upload). A failure leaves
+  // the bootstrap serving (degraded, still 200) + records last_error.
+  const realDeployNamespace = stack.subdomain.endsWith('.app.projectsites.dev')
+    ? c.env.WFP_NAMESPACE_NAME
+    : undefined;
+  c.executionCtx.waitUntil(
+    deployRealPayloadWorker(c.env, {
+      name: stack.workerName,
+      d1DatabaseId: stack.d1DatabaseId,
+      r2BucketName: stack.r2BucketName,
+      payloadSecret,
+      namespace: realDeployNamespace,
+    })
+      .then(async (r) => {
+        await dbUpdate(
+          c.env.DB,
+          'app_instances',
+          r.ok
+            ? { status: 'running', last_error: null }
+            : { status: 'running', last_error: `payload_bundle: ${r.error ?? 'deploy failed'}` },
+          'id = ?',
+          [instanceId],
+        );
+      })
+      .catch(async (err) => {
+        await dbUpdate(
+          c.env.DB,
+          'app_instances',
+          { status: 'running', last_error: `payload_bundle_throw: ${String(err)}` },
+          'id = ?',
+          [instanceId],
+        ).catch(() => undefined);
+      }),
+  );
 
   await auditService.writeAuditLog(c.env.DB, {
     org_id: orgId,
