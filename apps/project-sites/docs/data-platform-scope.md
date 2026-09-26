@@ -30,8 +30,16 @@ generic, brilliant data platform each site owns.
 
 ### Rollout — greenfield reset (⚠️ GATED destructive step, Phase 0)
 - **Remove ALL existing sites + all traces → clean slate.** No migration of old tenant data.
+- ⚠️ **BLAST-RADIUS CAVEAT (must be precisely scoped + confirmed before ANY delete):** the shared prod D1
+  has **hundreds of tables**, most of which are PLATFORM tables (users, orgs, billing/subscriptions,
+  feature_flags, affiliates, agencies, api_tokens, audit_logs, wallets…) — NOT per-site data. "All traces
+  of sites" must be defined as **the site-scoped rows/resources ONLY** (site_id-scoped D1 rows across the
+  tenant tables + each site's R2 objects + KV keys + deployed WfP worker + hostnames/DNS), and must
+  **preserve** the platform tables (auth/billing/flags/agencies) — else the reset wipes the whole product.
+  Requires: (1) a full D1 export backup + R2/KV inventory (reversible), (2) an explicit enumerated
+  delete-list, (3) a final human "execute" confirm. **Never run from a loop re-prompt.**
 - **`brian@megabyte.space`** = the test account + **admin privileges** + **payment bypass** (test paid
-  features without paying).
+  features without paying). This part is non-destructive (auth/entitlement config).
 - New sites → per-site D1 (+KV+R2) provisioned in parallel on create.
 - ⚠️ "Remove all sites" is destructive/prod: execute **deliberately** — take a backup, confirm the exact
   blast radius, keep it reversible, behind a one-time gated action. First thing in Phase 0. **Never run blind.**
@@ -64,7 +72,13 @@ generic, brilliant data platform each site owns.
   detection + AI-generated formulas & columns + conversational chat over the data + AI data-cleaning/dedup.
 - **AI-first onboarding:** "what do you want to track?" → AI generates the tables/fields/sample rows.
   Templates as fallback.
+- **AI-made changes apply IMMEDIATELY + undo** (matching the immediate-save model) — NOT preview-confirm.
+  The undo (and the audit log + row history) is the safety net for a wrong NL interpretation.
 - The raw SQL console is **retired from the owner UI**; the existing `nl2sql` powers NL→query under the hood.
+
+### Mobile
+- **Full responsive touch grid — first-class editing on phones/tablets**, not desktop-only. The spreadsheet,
+  inline editors, and core flows work on touch (owners updating data on the go).
 
 ### Views, forms, automations, API — CF-native
 - **View types:** Grid (default) + Kanban (group-by column) + Calendar (date column) + Gallery (cards) +
