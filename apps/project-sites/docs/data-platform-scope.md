@@ -653,11 +653,25 @@ and **Reset** (re-apply the saved view). Editor-only:
 - Verified: editor Vitest **234/234** + tsc 0 + eslint 0 + build ✓; worker Jest **12769/12769** + tsc 0 (unchanged);
   admin `ng build --prod` ✓. Editor → CF Pages. Saved views are now fully round-trip: apply · detect drift · Update/Reset.
 
-**NEXT slice (per delivery order): UNIFY the detail surface — make the record drawer EDITABLE, then route grid rows to
-it.** IMPORTANT finding this fire: the grid's inline row-detail carries not just copy/delete but **inline cell editing**
-(`editCol`/`editPreview`/save) + duplicate — a full unify must PORT that edit machinery into the drawer, so it's a
-2-step slice, not a one-shot "move the detail": **(1)** add typed inline editing (reuse `inferCellEditor`/`coerceCellInput`/
-`buildUpdateByPk`) + copy-variants/duplicate/delete (pk+canRunSql-gated; `deleteRow`/`duplicateRow` are already
-row-based) to the drawer; **(2)** grid rows open the drawer (`setDrawerRow`) + remove the inline `<tr>` + retire
-`detailIdx`. Do step 1 first (drawer reaches parity), then step 2 (consolidate). Alternatives: chart **sum/avg**
-aggregates (needs numeric columns — defer); async export JOBS >10k; nested filter-tree; grid eval (RevoGrid vs Tabulator).
+### ✅ Shipped next fire (2026-09-26 #24) — record-drawer ACTION toolbar (unify step 1a: copy-as-SQL + delete parity)
+The card record drawer (#22) went from read-only + Copy-JSON to full **record-action parity** with the grid's inline
+detail — a site owner reviewing a gallery/kanban card can now act on the record:
+- **Editor-only (`DataPanel.tsx`)** — a footer action bar in the drawer: **Copy INSERT** + **Copy UPDATE** (pk-gated) +
+  **Copy Markdown** + **Delete** (super-admin + pk-gated; "No primary key — read-only" note otherwise), all reusing
+  the SAME row-based handlers as the grid detail (`rowToInsert`/`rowToUpdateByPk`/`rowsToMarkdown`/`writeClipboard`/
+  `flashStatus`/`deleteRow`). Delete → confirm → parameterized DELETE-by-PK → the table refreshes → the drawer closes.
+  No duplicated logic (handlers shared); no new endpoint/bridge/migration.
+- Verified: editor Vitest **234/234** + tsc 0 + eslint 0 + build ✓; worker Jest **12769/12769** + tsc 0 (unchanged);
+  admin `ng build --prod` ✓. Editor → CF Pages.
+- **Why split:** the grid's inline detail also has typed inline CELL EDITING (a ~70-line editor: kind-select + value +
+  SQL preview + Save/Cancel, using `editCol`/`editKind`/`editValue`/`startEdit`/`submitEdit`). Porting that verbatim
+  would DUPLICATE it; the right move is to extract a shared `<CellEditor>` — done next (1b), not rushed here.
+
+**NEXT slice (unify step 1b): make the drawer's fields EDITABLE via a shared `<CellEditor>`** — extract the grid inline
+detail's per-field editor (kind-select + value input + `editPreview` + Save/Cancel; state `editCol`/`editKind`/
+`editValue`; handlers `startEdit`/`submitEdit`/`cancelEdit`, all already row-based) into a small reusable component,
+and render it in BOTH the grid detail AND the drawer field list (drawer edits target `drawerRow`; `editPreview` must
+take the row, not `visibleRows[detailIdx]`). Editable only when canRunSql + resolvable pk + not-generated. THEN step 2:
+grid rows open the drawer (`setDrawerRow`) + remove the inline `<tr>` + retire `detailIdx` — one detail surface for
+every view. Alternatives: chart **sum/avg** aggregates (needs numeric columns — defer); async export JOBS >10k; nested
+filter-tree; grid eval (RevoGrid vs Tabulator).

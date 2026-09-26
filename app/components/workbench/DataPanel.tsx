@@ -4512,6 +4512,70 @@ export const DataPanel = memo(() => {
                 })}
               </dl>
             </div>
+            {/* Record actions — parity with the grid's inline detail (copy-as-SQL/Markdown + delete),
+                reusing the SAME row-based handlers. Copy is always available; UPDATE/Delete need a
+                resolvable primary key; Delete needs super-admin. Delete refreshes → the drawer closes. */}
+            <div className="flex flex-wrap items-center gap-2 border-t border-bolt-elements-borderColor px-3 py-2">
+              {active && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    writeClipboard(rowToInsert(active, drawerRow));
+                    flashStatus('Copied INSERT');
+                  }}
+                  data-testid="data-drawer-insert"
+                  title="Copy this record as an INSERT statement"
+                  className="flex items-center gap-1 rounded border border-bolt-elements-borderColor px-1.5 py-0.5 text-[10px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
+                >
+                  <div className="i-ph:code text-[11px]" /> INSERT
+                </button>
+              )}
+              {active && browsePkCols.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    writeClipboard(rowToUpdateByPk(active, drawerRow, browsePkCols));
+                    flashStatus('Copied UPDATE');
+                  }}
+                  data-testid="data-drawer-update"
+                  title="Copy this record as an UPDATE statement"
+                  className="flex items-center gap-1 rounded border border-bolt-elements-borderColor px-1.5 py-0.5 text-[10px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
+                >
+                  <div className="i-ph:pencil-line text-[11px]" /> UPDATE
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  writeClipboard(rowsToMarkdown(columns, [drawerRow]));
+                  flashStatus('Copied Markdown');
+                }}
+                data-testid="data-drawer-markdown"
+                title="Copy this record as a Markdown table row"
+                className="flex items-center gap-1 rounded border border-bolt-elements-borderColor px-1.5 py-0.5 text-[10px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
+              >
+                <div className="i-ph:table text-[11px]" /> Markdown
+              </button>
+              {canRunSql && browsePkCols.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => deleteRow(drawerRow)}
+                  data-testid="data-drawer-delete"
+                  title="Permanently delete this record (parameterized DELETE by primary key)"
+                  className="ml-auto flex items-center gap-1 rounded border border-red-500/40 px-1.5 py-0.5 text-[10px] text-red-400 hover:bg-red-500/10"
+                >
+                  <div className="i-ph:trash text-[11px]" /> Delete
+                </button>
+              )}
+              {canRunSql && browsePkCols.length === 0 && (
+                <span
+                  className="ml-auto text-[10px] text-bolt-elements-textTertiary"
+                  title="This table has no primary key, so a single record can't be safely targeted for update/delete."
+                >
+                  No primary key — read-only
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}
