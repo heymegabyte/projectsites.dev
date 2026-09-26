@@ -134,10 +134,15 @@ generic, brilliant data platform each site owns.
     `kv_namespace_id`/`kv_namespace_name`/`r2_bucket_name`; `src/services/kv_provisioner.ts` `provisionSiteKv()`
     (`POST …/storage/kv/namespaces`) + `src/services/r2_provisioner.ts` `provisionSiteR2()` (`POST …/r2/buckets`,
     bucket names lowercase ≤63). Same safety/idempotency/honest-failure contract as D1. +10 Jest (real-SQLite +
-    mocked CF). All three provisioners INERT until 0c.2 wiring.
-  - **NEXT 0c.2:** register the `per_site_data` flag (registry + docs) + wire `provisionSiteD1/Kv/R2` into the
-    site-create pipeline IN PARALLEL (flag-dark, `Promise.all`).
-- 0d. Re-point ingestion (`form_submissions`, `visitor_events`) to write to the site's own D1.
+    mocked CF).
+  - **✅ 0c.2 DONE (2026-09-25):** the three provisioners are now **wired live but DARK**. New `per_site_data`
+    feature flag (registry + docs, `default_enabled:false, rollout:0, stage:'experimental'`); `createSite()`
+    calls `provisionSiteD1/Kv/R2` **IN PARALLEL (`Promise.all`)** from a `waitUntil`'d, flag-gated, fail-soft
+    block (mirrors the `github_repo_sync` pattern) — so a CF/provisioning hiccup NEVER blocks site creation and
+    NO real Cloudflare resource is created until the flag is promoted. +5 Jest (flag ON→all three called with
+    `{orgId,siteId,tenantId}` · flag OFF→none · no-execCtx→none · provisioner-throw→creation still returns ·
+    anon create→`orgId:null`). Full worker suite 792/12706 green, tsc 0, eslint 0-err.
+- 0d. **NEXT** — Re-point ingestion (`form_submissions`, `visitor_events`) to write to the site's own D1.
 
 > **Multi-agent fan-out (2026-09-25)** also landed the PURE FOUNDATIONS for later phases (built by parallel
 > agents, folded + verified foreground): **Phase 2** `app/components/workbench/field-types.ts` (Airtable field-type

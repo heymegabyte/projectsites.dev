@@ -73,6 +73,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  per_site_data: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Per-site data-resource provisioning (Data Platform re-arch, Phase 0c — docs/data-platform-scope.md).\n\n• On site-create (services/site_create.ts) provisions a DEDICATED Cloudflare D1 + KV namespace + R2 bucket for the site IN PARALLEL (Promise.all), each recorded in site_database_allocations. Uses the server-side global key (resolveCfCredentials) + env.CF_ACCOUNT_ID; each provisioner is idempotent (reuses an existing allocation — never a duplicate on retry) + fails soft (never blocks site creation).\n• Off (default, DARK) → no per-site resources are created; sites stay on the shared platform D1/KV/R2. On → new sites get their own resources.\n• Backend-only wiring; the spreadsheet Data UI over per-site resources is later phases.',
+    key: 'per_site_data',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   research_cache: {
     default_enabled: false,
     default_rollout_percent: 0,

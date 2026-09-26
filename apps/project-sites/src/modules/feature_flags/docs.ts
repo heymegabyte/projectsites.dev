@@ -104,6 +104,21 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'POST /api/sites/:id/rollback restores a prior commit; Off → rollback 404s',
     ],
   },
+  per_site_data: {
+    checklist: [
+      'On site-create, provision a dedicated D1 + KV + R2 per site (in parallel)',
+      'Each resource recorded in site_database_allocations; provisioners idempotent (no dup on retry)',
+      'Server-side creds (resolveCfCredentials) + env.CF_ACCOUNT_ID — never client-supplied',
+      'Fail-soft: a provisioning / CF hiccup never blocks site creation',
+      'Off (default, DARK) → no per-site resources; sites stay on the shared platform D1/KV/R2',
+    ],
+    explanation:
+      'Per-site data-resource provisioning (Data Platform re-architecture, Phase 0c): every site is provisioned on-create with its OWN Cloudflare D1 + KV namespace + R2 bucket (in parallel via Promise.all), each recorded in site_database_allocations, instead of the shared platform D1 with site_id scoping. The provisioners keep credentials server-side, are idempotent, and fail soft so a CF outage never blocks site creation. Off → sites use the shared resources; dark until promoted.',
+    smoke_test: [
+      'Enable + create a site → site_database_allocations gets d1_database_id + kv_namespace_id + r2_bucket_name for it',
+      'Off → creating a site provisions no per-site resources (shared model)',
+    ],
+  },
   research_cache: {
     checklist: [
       'Per-business research cache (margin + latency lever)',
