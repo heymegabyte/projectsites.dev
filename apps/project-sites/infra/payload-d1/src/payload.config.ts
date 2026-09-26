@@ -58,7 +58,15 @@ export default buildConfig({
   },
   db: sqliteD1Adapter({ binding: cloudflare.env.D1 }),
   logger: isProduction ? cloudflareLogger : undefined,
-  storage: [
+  // r2Storage is a PLUGIN — it MUST live under `plugins`, not a `storage` key.
+  // Payload's Config has no `storage` key, so `storage: [r2Storage(...)]` never
+  // EXECUTES the plugin (the adapter is silently dropped — uploads never reach R2)
+  // AND the stray plugin function is left in the config object, where it leaks into
+  // the serialized RSC client config and crashes EVERY authed admin page with
+  // "Functions cannot be passed directly to Client Components". This matches the
+  // official templates/with-cloudflare-d1 fix. (clientUploads omitted — it's broken
+  // for R2, payload#15910; server-side uploads are correct on Workers Paid.)
+  plugins: [
     r2Storage({
       bucket: cloudflare.env.R2,
       collections: { media: true },
