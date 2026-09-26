@@ -801,13 +801,27 @@ pattern; **no worker/bridge/migration** (exports keep canonical `columns` order,
 - Verified: editor Vitest **887/887** + tsc 0 + eslint 0 + build 0; worker **untouched** (0 files under
   `apps/project-sites`). *Honest residual:* verify-by-build (WebContainer + authed session) per the DataPanel pattern.
 
-**NEXT slice: async export JOBS for >10k rows.** The export caps at `MAX_EXPORT_ROWS` (10k) client-side. For larger
-tables, add a server-side async export job — a `data_export_jobs` metadata table (id, site, org, table, filter
-snapshot, status, row count, R2 key, created/finished), an enqueue endpoint (Workflow or chunked cursor) streaming
-to R2 in bounded chunks, a poll/progress endpoint, and an editor "Export all N (background)" affordance with
-progress + a download link — honest about async + restartability. NOTE: this is a MULTI-fire slice (needs a
-migration applied manually to prod D1 + Workflow wiring + async prod-verify); split it (fire A: migration + job
-table + enqueue/poll endpoints + tests; fire B: R2 streaming worker; fire C: editor UI) so each fire stays
-complete + green. Alternatives if a self-contained fire is wanted: **column resize** (drag handles + persisted
-widths, client-only, mirrors reorder); **multi-column sort** (bigger — ripples into saved-view sort persistence);
-nested AND/OR filter-tree; SQL-workspace polish. Foundations still inert: `field-types.ts`, `schema-ddl.ts`.
+### ✅ Shipped next fire (2026-09-26 #32) — grid row DENSITY toggle (compact · cozy · comfortable)
+The browse grid now has a 3-way density control — **compact** fits ~2× the rows for scanning wide/tall tables,
+**comfortable** loosens for touch, **cozy** is the historical default. A global personal pref (not per-table).
+Chosen over column-resize this fire because density is fully **verify-by-build + unit-testable** (pure class
+mapping), whereas resize needs a mouse-drag interaction I can't browser-test in the loop.
+- **New pure logic (TDD-first, tested):** `data-panel-logic.ts` `GridDensity`/`GRID_DENSITIES`/`normalizeDensity`
+  (unknown → `cozy`) + `densityCellClass` (cozy = the historical `px-3 py-1.5`; compact `px-2 py-0.5`; comfortable
+  `px-3 py-3`) + `densitySelectCellClass` (checkbox cell tracks row height). 4 cases incl. distinctness.
+- **`DataPanel.tsx` (editor-only):** `density` state (lazy-init from `readDensity()`; global `ps-data-density`
+  localStorage) + `changeDensity` (persists); a toolbar segmented toggle (`data-density-{compact,cozy,comfortable}`,
+  grid-view only). The header sort button + data `<td>` + both checkbox cells now compose `densityCellClass`/
+  `densitySelectCellClass`. Scoped to the browse grid (the SQL-results grid is untouched).
+- Verified: editor Vitest **891/891** + tsc 0 + eslint 0 + build 0; worker **untouched** (0 files under
+  `apps/project-sites`). *Honest residual:* verify-by-build (WebContainer + authed session) per the DataPanel pattern.
+
+**NEXT slice: column RESIZE (drag handles + persisted widths).** Mirrors reorder/density persistence. Per-column
+width map (`ps-data-cols-width-<table>`), a drag handle on each `<th>` right edge (mousedown → window
+mousemove/mouseup, `stopPropagation` so it doesn't fire the sort button; ref-based to avoid stale closure), apply
+`width`/`maxWidth` to the `<th>` + matching `<td>`s, clamp `clampColWidth` (60–600px), double-click-to-reset.
+CAVEAT: the drag is a mouse interaction not browser-testable in this loop — unit-test `clampColWidth` + the width
+math, and do a REAL-browser drag check before calling it done (or accept verify-by-build + a follow-up visual pass).
+Then: **async export JOBS >10k** (multi-fire: migration + `data_export_jobs` + enqueue/poll + R2 streaming + UI);
+**multi-column sort** (ripples into saved-view sort persistence); nested AND/OR filter-tree; SQL-workspace polish.
+Foundations still inert: `field-types.ts`, `schema-ddl.ts`.

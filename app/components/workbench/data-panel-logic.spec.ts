@@ -78,6 +78,10 @@ import {
   clipboardValue,
   rowJson,
   visibleColumns,
+  normalizeDensity,
+  densityCellClass,
+  densitySelectCellClass,
+  GRID_DENSITIES,
   orderColumns,
   moveColumn,
   toggleHiddenColumn,
@@ -1499,6 +1503,36 @@ describe('visibleColumns (grid column selection — view-only)', () => {
   });
   it('ignores a stale hidden entry no longer in the table', () => {
     expect(visibleColumns(['a', 'b'], ['zzz'])).toEqual(['a', 'b']);
+  });
+});
+
+describe('normalizeDensity + densityCellClass (grid row density)', () => {
+  it('accepts compact/cozy/comfortable, defaults unknown → cozy', () => {
+    expect(normalizeDensity('compact')).toBe('compact');
+    expect(normalizeDensity('comfortable')).toBe('comfortable');
+    expect(normalizeDensity('cozy')).toBe('cozy');
+    expect(normalizeDensity('dense')).toBe('cozy');
+    expect(normalizeDensity('')).toBe('cozy');
+    expect(normalizeDensity(undefined)).toBe('cozy');
+    expect(normalizeDensity(null)).toBe('cozy');
+  });
+
+  it('cozy reproduces the historical px-3 py-1.5; compact tightens; comfortable loosens', () => {
+    expect(densityCellClass('cozy')).toBe('px-3 py-1.5');
+    expect(densityCellClass('compact')).toBe('px-2 py-0.5');
+    expect(densityCellClass('comfortable')).toBe('px-3 py-3');
+  });
+
+  it('the select-cell padding tracks the row density', () => {
+    expect(densitySelectCellClass('cozy')).toBe('px-2 py-1.5');
+    expect(densitySelectCellClass('compact')).toBe('px-2 py-0.5');
+    expect(densitySelectCellClass('comfortable')).toBe('px-2 py-3');
+  });
+
+  it('every density is a real, distinct option (no accidental collision)', () => {
+    expect(GRID_DENSITIES).toEqual(['compact', 'cozy', 'comfortable']);
+    const classes = GRID_DENSITIES.map(densityCellClass);
+    expect(new Set(classes).size).toBe(3);
   });
 });
 

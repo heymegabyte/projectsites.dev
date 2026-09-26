@@ -57,6 +57,11 @@ import {
   visibleColumns,
   orderColumns,
   moveColumn,
+  normalizeDensity,
+  densityCellClass,
+  densitySelectCellClass,
+  GRID_DENSITIES,
+  type GridDensity,
   toggleHiddenColumn,
   coerceCellInput,
   inferCellEditor,
@@ -166,6 +171,18 @@ function readColOrder(tableKey: string): string[] {
     return Array.isArray(parsed) ? parsed.filter((c): c is string => typeof c === 'string') : [];
   } catch {
     return [];
+  }
+}
+
+/** localStorage key for the GLOBAL grid row-density pref (not per-table — a personal scan preference). */
+const DATA_DENSITY_KEY = 'ps-data-density';
+
+/** Read the persisted grid density (best-effort; junk/private-mode → the `cozy` default). */
+function readDensity(): GridDensity {
+  try {
+    return normalizeDensity(typeof localStorage !== 'undefined' ? localStorage.getItem(DATA_DENSITY_KEY) : null);
+  } catch {
+    return 'cozy';
   }
 }
 
@@ -309,6 +326,7 @@ export const DataPanel = memo(() => {
   const [hiddenCols, setHiddenCols] = useState<string[]>([]);
   const [colOrder, setColOrder] = useState<string[]>([]); // persisted per-table column display order
   const [colMenuOpen, setColMenuOpen] = useState(false);
+  const [density, setDensity] = useState<GridDensity>(readDensity); // global grid row-density pref
 
   /*
    * Transient "✓ Copied …" flash for clipboard actions (announced via aria-live). A token
@@ -1713,6 +1731,19 @@ export const DataPanel = memo(() => {
     },
     [columns, active],
   );
+
+  /** Change the global grid row density + persist (best-effort). */
+  const changeDensity = useCallback((d: GridDensity): void => {
+    setDensity(d);
+
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(DATA_DENSITY_KEY, d);
+      }
+    } catch {
+      /* private mode / quota — density is a convenience, never load-bearing */
+    }
+  }, []);
 
   /** Move a browse column one step left/right in the display order + persist per table. */
   const moveCol = useCallback(
@@ -3492,6 +3523,37 @@ export const DataPanel = memo(() => {
                     <div className="i-ph:upload-simple" /> Import CSV
                   </button>
                 )}
+                {viewMode === 'grid' && rows.length > 0 && (
+                  <div
+                    className="flex items-center rounded-md border border-bolt-elements-borderColor p-0.5"
+                    data-testid="data-density-toggle"
+                    role="group"
+                    aria-label="Row density"
+                  >
+                    {GRID_DENSITIES.map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => changeDensity(d)}
+                        aria-pressed={density === d}
+                        data-testid={`data-density-${d}`}
+                        title={`${d[0].toUpperCase()}${d.slice(1)} rows`}
+                        className={classNames(
+                          'rounded p-1 text-xs transition-colors',
+                          density === d
+                            ? 'bg-[#00e5ff]/15 text-[#00e5ff]'
+                            : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
+                        )}
+                      >
+                        <div
+                          className={
+                            d === 'compact' ? 'i-ph:rows' : d === 'comfortable' ? 'i-ph:list-dashes' : 'i-ph:list'
+                          }
+                        />
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {rows.length > 0 && columns.length > 1 && (
                   <div className="relative">
                     <button
@@ -4073,7 +4135,12 @@ export const DataPanel = memo(() => {
                 <thead className="sticky top-0 bg-bolt-elements-background-depth-2 z-10">
                   <tr>
                     {selectable && (
-                      <th className="w-8 border-b border-bolt-elements-borderColor/50 px-2 py-1.5 align-middle">
+                      <th
+                        className={classNames(
+                          'w-8 border-b border-bolt-elements-borderColor/50 align-middle',
+                          densitySelectCellClass(density),
+                        )}
+                      >
                         <input
                           type="checkbox"
                           checked={allVisibleSelected}
@@ -4099,7 +4166,10 @@ export const DataPanel = memo(() => {
                           onClick={() => toggleBrowseSort(c)}
                           data-testid="data-browse-sort"
                           title={`Sort by ${columnLabel(c)}`}
-                          className="w-full flex items-center gap-1 px-3 py-1.5 text-left hover:text-bolt-elements-textPrimary cursor-pointer"
+                          className={classNames(
+                            'w-full flex items-center gap-1 text-left hover:text-bolt-elements-textPrimary cursor-pointer',
+                            densityCellClass(density),
+                          )}
                         >
                           <span className="truncate">{columnLabel(c)}</span>
                           {(() => {
@@ -4155,7 +4225,7 @@ export const DataPanel = memo(() => {
                     >
                       {selectable && (
                         <td
-                          className="w-8 px-2 py-1.5 align-top"
+                          className={classNames('w-8 align-top', densitySelectCellClass(density))}
                           onClick={(e) => e.stopPropagation()} // the checkbox toggles selection, not the row detail
                         >
                           <input
@@ -4182,7 +4252,7 @@ export const DataPanel = memo(() => {
                         return (
                           <td
                             key={c}
-                            className="px-3 py-1.5 align-top max-w-[220px] truncate"
+                            className={classNames(densityCellClass(density), 'align-top max-w-[220px] truncate')}
                             title={cell.title ?? cell.display}
                           >
                             {cell.href ? (

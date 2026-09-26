@@ -1480,6 +1480,31 @@ export function visibleColumns(all: readonly string[], hidden: readonly string[]
   return all.filter((c) => !h.has(c));
 }
 
+/** Grid row density — how much vertical padding each row gets (a scan-density pref, like DBeaver/Airtable). */
+export type GridDensity = 'compact' | 'cozy' | 'comfortable';
+export const GRID_DENSITIES: readonly GridDensity[] = ['compact', 'cozy', 'comfortable'];
+
+/** Coerce a raw value to a known {@link GridDensity}; unknown/absent → `cozy` (the historical default). Pure. */
+export function normalizeDensity(raw: string | null | undefined): GridDensity {
+  return raw === 'compact' || raw === 'comfortable' ? raw : 'cozy';
+}
+
+/**
+ * Tailwind padding classes for a grid CELL (`<td>`/header button) at the given density — `cozy` reproduces
+ * the historical `px-3 py-1.5`, `compact` tightens to fit ~2× the rows, `comfortable` loosens for touch.
+ * Pure (returns a stable class string; the caller composes it with truncation/alignment classes).
+ *
+ * @example densityCellClass('compact') // 'px-2 py-0.5'
+ */
+export function densityCellClass(d: GridDensity): string {
+  return d === 'compact' ? 'px-2 py-0.5' : d === 'comfortable' ? 'px-3 py-3' : 'px-3 py-1.5';
+}
+
+/** Padding classes for the narrow checkbox/select CELL at the given density (matches row height). Pure. */
+export function densitySelectCellClass(d: GridDensity): string {
+  return d === 'compact' ? 'px-2 py-0.5' : d === 'comfortable' ? 'px-2 py-3' : 'px-2 py-1.5';
+}
+
 /**
  * Apply a persisted column ORDER to the live column set — the display order for the grid + card views.
  * Robust to schema drift: columns named in `order` that still exist come first (in the saved order),
