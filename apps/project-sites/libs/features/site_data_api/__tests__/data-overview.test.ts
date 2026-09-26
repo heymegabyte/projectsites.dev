@@ -29,6 +29,10 @@ import {
   MAX_DISTINCT_VALUES,
   buildOrderByClause,
   MAX_SORT_KEYS,
+  compileQueryIntent,
+  clampIntentLimit,
+  MAX_INTENT_LIMIT,
+  INTENT_DEFAULT_LIMIT,
   normalizeGroupAgg,
   MAX_KANBAN_GROUPS,
   MAX_GRID_VIEWS_PER_TABLE,
@@ -932,6 +936,120 @@ describe('buildColumnAggregatesSql (whole-query per-column footer summaries; one
       'SELECT COUNT(*) AS n, COUNT("bytes") AS c0, SUM("bytes") AS s0, AVG("bytes") AS v0, MIN("bytes") AS mn0, MAX("bytes") AS mx0 ' +
         'FROM site_snapshots WHERE site_id = ? AND "status" = ? AND deleted_at IS NULL',
     );
+  });
+});
+
+describe('clampIntentLimit (bounded intent result cap)', () => {
+  it('defaults when absent/invalid, clamps to [1, MAX]', () => {
+    expect(clampIntentLimit(undefined)).toBe(INTENT_DEFAULT_LIMIT);
+    expect(clampIntentLimit(0)).toBe(INTENT_DEFAULT_LIMIT);
+    expect(clampIntentLimit(-5)).toBe(INTENT_DEFAULT_LIMIT);
+    expect(clampIntentLimit(NaN)).toBe(INTENT_DEFAULT_LIMIT);
+    expect(clampIntentLimit(50)).toBe(50);
+    expect(clampIntentLimit(999_999)).toBe(MAX_INTENT_LIMIT);
+  });
+});
+
+describe('compileQueryIntent (grounded intent → parameterized SQLite; the AI/UI → SQL boundary)', () => {
+  const fs = overviewTable('form_submissions')!; // cols: form_name/status/notes/email/created_at (no soft-delete)
+  const sd = overviewTable('site_data')!; // cols: table_name/data_json/created_at (soft-delete)
+
+  it('projection: quotes allowlisted columns, site-scoped, LIMIT bound', () => {
+    const r = compileQueryIntent({ select: [{ col: 'status' }, { col: 'created_at' }] }, fs);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sql).toBe('SELECT "status", "created_at" FROM form_submissions WHERE site_id = ? LIMIT ?');
+    expect(r.params).toEqual([INTENT_DEFAULT_LIMIT]);
+  });
+
+  it('aggregate count + groupBy → grp alias + GROUP BY + ORDER BY n DESC (top-N)', () => {
+    const r = compileQueryIntent({ select: [{ agg: 'count' }], groupBy: 'status' }, fs);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sql).toBe(
+      'SELECT "status" AS grp, COUNT(*) AS n FROM form_submissions WHERE site_id = ? GROUP BY "status" ORDER BY n DESC LIMIT ?',
+    );
+  });
+
+  it('aggregate sum orders by its own alias DESC', () => {
+    const r = compileQueryIntent({ select: [{ agg: 'sum', col: 'created_at' }] }, fs);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sql).toContain('SUM("created_at") AS sum_created_at');
+    expect(r.sql).toContain('ORDER BY sum_created_at DESC');
+  });
+
+  it('filters: values are BOUND (never concatenated); clause injected after site_id', () => {
+    const r = compileQueryIntent(
+      { select: [{ col: 'status' }], filters: [{ col: 'status', op: 'eq', val: "x'; DROP TABLE t;--" }] },
+      fs,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sql).toBe('SELECT "status" FROM form_submissions WHERE site_id = ? AND "status" = ? LIMIT ?');
+    expect(r.params).toEqual(["x'; DROP TABLE t;--", INTENT_DEFAULT_LIMIT]); // injection rides as a bound param
+  });
+
+  it('soft-delete table: the filter is injected BEFORE `AND deleted_at IS NULL`', () => {
+    const r = compileQueryIntent(
+      { select: [{ col: 'table_name' }], filters: [{ col: 'table_name', op: 'eq', val: 'x' }] },
+      sd,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sql).toBe(
+      'SELECT "table_name" FROM site_data WHERE site_id = ? AND "table_name" = ? AND deleted_at IS NULL LIMIT ?',
+    );
+  });
+
+  it('clamps an over-cap limit into params', () => {
+    const r = compileQueryIntent({ select: [{ col: 'status' }], limit: 999_999 }, fs);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.params).toEqual([MAX_INTENT_LIMIT]);
+  });
+
+  it('projection ORDER BY honors only allowlisted columns (drops the rest)', () => {
+    const r = compileQueryIntent(
+      { select: [{ col: 'status' }], orderBy: [{ col: 'created_at', dir: 'desc' }, { col: 'evil', dir: 'asc' }] },
+      fs,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sql).toContain('ORDER BY "created_at" DESC');
+    expect(r.sql).not.toContain('evil');
+  });
+
+  it('REJECTS an unknown column (the injection boundary) — nothing reaches the SQL', () => {
+    expect(compileQueryIntent({ select: [{ col: 'evil; DROP' }] }, fs)).toEqual({
+      ok: false,
+      error: 'unknown column: evil; DROP',
+    });
+    expect(compileQueryIntent({ select: [{ col: 'nope' }] }, fs).ok).toBe(false);
+  });
+
+  it('REJECTS an unknown aggregate', () => {
+    // @ts-expect-error — deliberately invalid aggregate to prove the whitelist rejects it
+    expect(compileQueryIntent({ select: [{ agg: 'evil', col: 'status' }] }, fs).ok).toBe(false);
+  });
+
+  it('REJECTS mixing aggregates + plain columns', () => {
+    expect(compileQueryIntent({ select: [{ agg: 'count' }, { col: 'status' }] }, fs)).toEqual({
+      ok: false,
+      error: 'cannot mix aggregates and plain columns in one query',
+    });
+  });
+
+  it('REJECTS groupBy without an aggregate, and an unknown groupBy column', () => {
+    expect(compileQueryIntent({ select: [{ col: 'status' }], groupBy: 'status' }, fs).ok).toBe(false);
+    expect(compileQueryIntent({ select: [{ agg: 'count' }], groupBy: 'nope' }, fs).ok).toBe(false);
+  });
+
+  it('REJECTS an empty select', () => {
+    expect(compileQueryIntent({ select: [] }, fs)).toEqual({
+      ok: false,
+      error: 'select must specify at least one column or aggregate',
+    });
   });
 });
 

@@ -1124,6 +1124,175 @@ export function buildOrderByClause(columns: readonly string[], sortParam: string
   return terms.length ? `ORDER BY ${terms.join(', ')}` : '';
 }
 
+/* ───────────────────────── Grounded "Ask your data" — deterministic intent compiler ─────────────────
+ * The SECURITY-CRITICAL core of slice 5: a strict typed query intent (which an AI proposes, or a UI
+ * builds) is compiled DETERMINISTICALLY into parameterized SQLite over an ALLOWLISTED overview table.
+ * The model never emits SQL — it emits an intent that this pure function validates + compiles. Every
+ * identifier is re-validated against `spec.columns` (the injection boundary) + quoted, every value is
+ * BOUND (via the reused `buildColumnFilters`), the result is site-scoped + LIMIT-bounded. Pure. */
+
+/** Default + hard-max row cap for a compiled intent (bounded results — never an unbounded scan). */
+export const INTENT_DEFAULT_LIMIT = 100;
+export const MAX_INTENT_LIMIT = 1000;
+
+/** Aggregate functions an intent may request (a fixed whitelist — never raw input). */
+export const INTENT_AGGS = ['count', 'sum', 'avg', 'min', 'max'] as const;
+export type IntentAgg = (typeof INTENT_AGGS)[number];
+
+/** One SELECT field: a plain column (projection) OR an aggregate (`count` may omit `col` → COUNT(*)). */
+export interface QueryIntentField {
+  col?: string;
+  agg?: IntentAgg;
+}
+
+/** A strict, typed query intent over ONE allowlisted overview table (the AI/UI → SQL contract). */
+export interface QueryIntent {
+  select: QueryIntentField[];
+  filters?: FilterConditionInput[];
+  combinator?: string | null;
+  groupBy?: string;
+  orderBy?: Array<{ col?: string; dir?: string }>;
+  limit?: number;
+}
+
+/** Compile result: a parameterized statement to run as `.bind(siteId, ...params)`, or a typed refusal. */
+export type CompiledQuery =
+  | { ok: true; sql: string; params: Array<string | number> }
+  | { ok: false; error: string };
+
+/** Clamp an intent's requested row limit to `[1, MAX_INTENT_LIMIT]`, defaulting when absent/invalid. Pure. */
+export function clampIntentLimit(limit: number | undefined | null): number {
+  if (typeof limit !== 'number' || !Number.isFinite(limit) || limit < 1) {
+    return INTENT_DEFAULT_LIMIT;
+  }
+
+  return Math.min(Math.floor(limit), MAX_INTENT_LIMIT);
+}
+
+/**
+ * Compile a typed {@link QueryIntent} into parameterized SQLite over `spec` (an allowlisted overview
+ * table). Two modes, never mixed: PROJECTION (plain columns) or AGGREGATE (count/sum/avg/min/max, with an
+ * optional single `groupBy`). Every column is re-validated against `spec.columns` + quoted (never bound);
+ * every aggregate against {@link INTENT_AGGS}; filter VALUES are bound via {@link buildColumnFilters}; the
+ * query is always site-scoped (`WHERE site_id = ?` first, from `spec.countSql`) + LIMIT-bounded. Returns
+ * `{ sql, params }` — run as `.bind(siteId, ...params)` — or `{ ok:false, error }` for an invalid intent.
+ * Pure; performs NO I/O and never executes.
+ *
+ * @example compileQueryIntent({ select:[{agg:'count'}], groupBy:'status' }, spec)
+ *   // SELECT "status" AS grp, COUNT(*) AS n FROM form_submissions WHERE site_id = ? GROUP BY "status" ORDER BY n DESC LIMIT ?
+ */
+export function compileQueryIntent(
+  intent: QueryIntent,
+  spec: { columns: readonly string[]; countSql: string },
+): CompiledQuery {
+  const cols = spec.columns;
+  const select = Array.isArray(intent.select) ? intent.select : [];
+
+  if (select.length === 0) {
+    return { ok: false, error: 'select must specify at least one column or aggregate' };
+  }
+
+  const hasAgg = select.some((f) => !!f?.agg);
+  const hasPlain = select.some((f) => f && !f.agg);
+
+  if (hasAgg && hasPlain) {
+    return { ok: false, error: 'cannot mix aggregates and plain columns in one query' };
+  }
+
+  const selectExprs: string[] = [];
+  let firstAggAlias = '';
+
+  for (const f of select) {
+    if (f?.agg) {
+      if (!INTENT_AGGS.includes(f.agg)) {
+        return { ok: false, error: `unknown aggregate: ${String(f.agg)}` };
+      }
+
+      if (f.col !== undefined && !cols.includes(f.col)) {
+        return { ok: false, error: `unknown column: ${String(f.col)}` };
+      }
+
+      let expr: string;
+
+      if (f.agg === 'count') {
+        expr = f.col ? `COUNT("${f.col}") AS count_${f.col}` : 'COUNT(*) AS n';
+      } else {
+        if (!f.col) {
+          return { ok: false, error: `aggregate ${f.agg} requires a column` };
+        }
+
+        expr = `${f.agg.toUpperCase()}("${f.col}") AS ${f.agg}_${f.col}`;
+      }
+
+      selectExprs.push(expr);
+
+      if (!firstAggAlias) {
+        firstAggAlias = expr.slice(expr.lastIndexOf(' AS ') + 4);
+      }
+    } else {
+      if (!f?.col) {
+        return { ok: false, error: 'a projection field requires a column' };
+      }
+
+      if (!cols.includes(f.col)) {
+        return { ok: false, error: `unknown column: ${String(f.col)}` };
+      }
+
+      selectExprs.push(`"${f.col}"`);
+    }
+  }
+
+  let groupByClause = '';
+
+  if (intent.groupBy) {
+    if (!hasAgg) {
+      return { ok: false, error: 'groupBy requires an aggregate select' };
+    }
+
+    if (!cols.includes(intent.groupBy)) {
+      return { ok: false, error: `unknown groupBy column: ${String(intent.groupBy)}` };
+    }
+
+    selectExprs.unshift(`"${intent.groupBy}" AS grp`);
+    groupByClause = ` GROUP BY "${intent.groupBy}"`;
+  }
+
+  // Filters — reuse the tested compiler (allowlist-validated columns, fixed comparators, BOUND values).
+  const { clause: filterClause, params: filterParams } = buildColumnFilters(
+    cols,
+    intent.filters,
+    intent.combinator,
+  );
+
+  let sql = spec.countSql.replace(/SELECT\s+COUNT\(\*\)\s+AS\s+n/i, `SELECT ${selectExprs.join(', ')}`);
+
+  if (filterClause) {
+    sql = sql.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${filterClause}`);
+  }
+
+  sql += groupByClause;
+
+  // ORDER BY: aggregate → the primary aggregate alias DESC (top-N); projection → the intent's sort keys.
+  if (hasAgg) {
+    if (firstAggAlias) {
+      sql += ` ORDER BY ${firstAggAlias} DESC`;
+    }
+  } else if (Array.isArray(intent.orderBy) && intent.orderBy.length > 0) {
+    const sortParam = intent.orderBy
+      .map((o) => `${(o?.col ?? '').trim()}:${(o?.dir ?? 'asc').trim()}`)
+      .join(',');
+    const orderBy = buildOrderByClause(cols, sortParam);
+
+    if (orderBy) {
+      sql += ` ${orderBy}`;
+    }
+  }
+
+  sql += ' LIMIT ?';
+
+  return { ok: true, sql, params: [...filterParams, clampIntentLimit(intent.limit)] };
+}
+
 /**
  * Browse the most-recent rows of one overview table. Read-only; only the table's
  * safe-column allowlist is selected (never PII payloads or encrypted tokens);

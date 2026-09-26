@@ -1165,11 +1165,34 @@ sticky-pin render · #37 view round-trip · #40 multi-sort · #41 date/datetime 
 textarea · #43–#44 value datalist · #45 NULL toggle + hint · #46 BLOB chip · #47–#48 KV metadata/TTL · #49 R2 folder
 nav — one real-browser pass (authed admin session). **A dedicated real-browser QA fire remains the highest-value out-of-loop step.**
 
-**NEXT slice: BEGIN grounded "Ask your data" (delivery-order slice 5, the big unbuilt frontier) — a scoped FIRST slice.**
-The SQL console (super-admin) + rich views exist, but there's no NL→typed-intent→parameterized-SQL pipeline for
-ordinary owners. First slice (worker + tests, fully verifiable, no UI yet): a PURE deterministic compiler
-`compileQueryIntent(intent, spec)` — a strict typed intent (`{table, select[], filters[], groupBy?, orderBy?, limit}`)
-→ parameterized SQLite over the ALLOWLISTED overview tables (every field re-validated against `spec.columns`, values
-bound, LIMIT enforced) → `{sql, params}` or a typed rejection. This is the deterministic core the AI pipeline compiles
-INTO (the model proposes an intent; the server validates+compiles+executes) — build + test it before any model call.
-Alternatives: extend NULL affordance + datalist to the Add-row; nested AND/OR filter-tree; async export JOBS >10k.
+### ✅ Shipped next fire (2026-09-26 #50) — grounded "Ask your data" slice 1: deterministic `compileQueryIntent` (the AI→SQL core)
+The SECURITY-CRITICAL deterministic core of delivery-order slice 5: a strict typed intent (which an AI proposes, or a
+UI builds) → parameterized SQLite over an ALLOWLISTED overview table. The model NEVER emits SQL — it emits an intent
+that this PURE function validates + compiles. Worker-only, no UI/model yet (the executor endpoint + AI pipeline are
+later fires); fully unit-tested first.
+- **`compileQueryIntent(intent, spec)` (`handlers.ts`, +13 jest):** two modes, never mixed — PROJECTION (plain columns)
+  or AGGREGATE (count/sum/avg/min/max + optional single `groupBy`). Every column is re-validated against `spec.columns`
+  + quoted (the injection boundary, NEVER bound); every aggregate against a fixed `INTENT_AGGS` whitelist; filter VALUES
+  are bound via the REUSED `buildColumnFilters` (composes the existing tested boundary); the query is always site-scoped
+  (`WHERE site_id = ?` first, derived from `spec.countSql` — so soft-delete tables keep `AND deleted_at IS NULL`) and
+  LIMIT-bounded (`clampIntentLimit` → `[1, MAX_INTENT_LIMIT=1000]`). Returns `{ ok, sql, params }` (run as
+  `.bind(siteId, ...params)`) or a TYPED refusal (`unknown column/aggregate`, `cannot mix`, `groupBy requires an
+  aggregate`, empty select). Aggregate mode auto-orders by the primary aggregate alias DESC (top-N); projection honors
+  the intent's `orderBy` via `buildOrderByClause` (allowlist-validated). Pure — no I/O, never executes.
+- **Security proof (tests):** an injection-shaped filter value rides as a bound param (SQL unchanged); an unknown/
+  injection-shaped column is REJECTED before reaching SQL; a bad aggregate is rejected by the whitelist; the site scope
+  + soft-delete predicate are always present; the limit is clamped into params.
+- Verified: worker Jest **12818/12818** (+13) + tsc 0 + 0 eslint errors. Worker-only — no editor/bridge/admin change;
+  this is the deterministic compiler the AI pipeline will target. FULLY verifiable (pure fn, no verify-by-build debt).
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize · #34 footer · #35 whole-query · #36 pins · #37 view · #40
+multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 NULL toggle · #46 BLOB · #47–#48 KV meta/TTL ·
+#49 R2 folders — one real-browser pass (authed admin). **A dedicated real-browser QA fire remains the highest-value out-of-loop step.**
+
+**NEXT slice: "Ask your data" slice 2 — the authorized EXECUTOR endpoint for a compiled intent (worker + tests).**
+Wire `compileQueryIntent` into a real gated route: `POST /api/sites/:siteId/data-overview/:table/query` — resolve the
+spec via `overviewTable` (404 unknown), `ownsSiteData` IDOR guard, Zod-validate the intent body, `compileQueryIntent`
+→ on `ok:false` return 400 with the typed error; on ok, `DB.prepare(sql).bind(siteId, ...params).all()` (bounded) and
+return `{ sql (echoed for transparency), rows, rowsRead }`. Fully verifiable (route jest with a mock DB asserting the
+bound query + the refusal path). Then slice 3 = the NL→intent model call (AI Gateway) that FEEDS this executor.
+Alternatives: extend NULL affordance + datalist to the Add-row; nested AND/OR filter-tree.
