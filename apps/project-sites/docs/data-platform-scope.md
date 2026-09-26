@@ -124,6 +124,14 @@ generic, brilliant data platform each site owns.
 - 0b. `brian@megabyte.space` → admin + payment bypass + test account.
 - 0c. **Per-site provisioning service** — on site-create, provision D1 (+ KV + R2) IN PARALLEL; record in
   `site_database_allocations`; bind to the site's WfP dispatch worker. Feature-flagged, dark by default.
+  - **✅ 0c.1 DONE (2026-09-25):** the **D1 provisioner** — migration `0633` adds `d1_database_id`/`d1_database_name`
+    to `site_database_allocations`; `src/services/d1_provisioner.ts` `provisionSiteD1()` creates a dedicated
+    D1 via CF REST (`POST /accounts/{CF_ACCOUNT_ID}/d1/database`), server-side creds (`resolveCfCredentials`),
+    idempotent (reuse existing active allocation — never a duplicate on retry), honest typed failures
+    (no-creds / cf-fail) that record NOTHING. +5 Jest (real-SQLite + mocked CF → zero real resources). INERT
+    until 0c.2.
+  - **NEXT 0c.2:** register the `per_site_d1` flag (registry + docs) + wire `provisionSiteD1` into the
+    site-create pipeline IN PARALLEL (flag-dark). Then 0c.3 = KV + R2 provisioners (same pattern).
 - 0d. Re-point ingestion (`form_submissions`, `visitor_events`) to write to the site's own D1.
 
 **Phase 1 — Spreadsheet core** (over per-site D1)
