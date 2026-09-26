@@ -5,6 +5,26 @@
 > where **deleting the instance from the UI deletes the D1 + R2 + Worker with zero dangling
 > resources**. Started 2026-09-25. This doc lets any fresh context continue.
 
+## 🔬 fire 12 — branded `.cms.` groundwork + the WfP-dispatch STATIC-ASSETS wall (2026-09-25)
+
+Chased the branded host again. `.app.` is billing-blocked (free-plan ACM), so tried the cert-ready
+`{slug}.cms.projectsites.dev` (existing `*.cms` ACM pack; epic = "replace cms.projectsites.dev").
+Built + shipped the groundwork: `*.cms` proxied DNS record, `serveAppBySubdomain` routes `.cms.`
+(bare `cms.` = old container on its own worker route, untouched), provisioner host = cms via WfP
+dispatch. Real Payload login served 200 on `plq2503024.cms.projectsites.dev` — **branded host works.**
+
+**⛔ Hard finding: a WfP dispatch worker (`USER_DISPATCH.get().fetch()`) BYPASSES the edge Static-
+Assets layer → `/_next/static/*` 404 (unstyled admin).** `run_worker_first` does NOT fix it (and it
+BROKE standalone CSS, which relies on the edge serving assets in front). `.app.` would hit the same
+wall (also dispatch). So a branded STYLED admin needs one of: (a) the platform worker serves the
+shared `/_next/static/*` from R2 (assets are identical across instances) before dispatching dynamic
+routes; (b) per-instance standalone worker + a `{slug}.cms` worker route (edge assets, no dispatch).
+
+**Shipped this fire (no regression):** dispatch/branded host gated behind `PAYLOAD_BRANDED_HOST=true`
+(default OFF) → launches use the **standalone workers.dev** path whose edge layer serves assets →
+**STYLED functional Payload** (real login + CSS 200 + migrated D1 + clean delete), re-verified green.
+The `.cms.` DNS + routing + provisioner path stay in place, ready to flip once (a)/(b) lands.
+
 ## ✅✅✅ B1 DONE — REAL Payload login live via the admin flow (2026-09-25, fire 10)
 
 A customer launch now deploys the **actual Payload admin** (styled login), not the bootstrap.

@@ -82,23 +82,26 @@ describe('provisionPayloadStack', () => {
       }
       return { body: okGeneric };
     });
-    const stack = await provisionPayloadStack(ENV, {
-      instanceId: 'abcdef12-0000-0000-0000-000000000000',
-      slug: 'acme',
-      payloadSecret: 's',
-      dispatchNamespace: 'project-sites-endpoints',
-      appHostCertReady: true,
-    });
+    const stack = await provisionPayloadStack(
+      { ...ENV, PAYLOAD_BRANDED_HOST: 'true' } as unknown as Env,
+      {
+        instanceId: 'abcdef12-0000-0000-0000-000000000000',
+        slug: 'acme',
+        payloadSecret: 's',
+        dispatchNamespace: 'project-sites-endpoints',
+      },
+    );
     // Uploaded into the dispatch namespace, NOT as a standalone script.
     expect(puts.some((u) => u.includes('/dispatch/namespaces/project-sites-endpoints/scripts/'))).toBe(
       true,
     );
-    // Routed at the platform host, and NO workers.dev subdomain enablement.
-    expect(stack.subdomain).toBe('acme.app.projectsites.dev');
+    // Routed at the cert-ready platform host, and NO workers.dev subdomain enablement.
+    expect(stack.subdomain).toBe('acme.cms.projectsites.dev');
+    expect(stack.dispatchNamespace).toBe('project-sites-endpoints');
     expect(subdomainEnabled).toBe(false);
   });
 
-  it('falls back to standalone workers.dev when the .app. cert is not ready', async () => {
+  it('falls back to standalone workers.dev when no dispatch namespace is configured', async () => {
     const puts: string[] = [];
     mockFetch((method, url) => {
       if (url.includes('/d1/database') && method === 'POST') return { body: okD1 };
@@ -114,11 +117,11 @@ describe('provisionPayloadStack', () => {
       instanceId: 'abcdef12-0000-0000-0000-000000000000',
       slug: 'acme',
       payloadSecret: 's',
-      dispatchNamespace: 'project-sites-endpoints',
-      appHostCertReady: false, // cert not provisioned → no WfP, keep the working 200
+      // no dispatchNamespace (e.g. local dev / WfP not set up) → standalone workers.dev
     });
     expect(puts.every((u) => !u.includes('/dispatch/namespaces/'))).toBe(true);
     expect(stack.subdomain).toBe(`${stack.workerName}.manhattan.workers.dev`);
+    expect(stack.dispatchNamespace).toBeNull();
   });
 
   it('rolls back the D1 + R2 when the Worker deploy fails (no partial stack)', async () => {

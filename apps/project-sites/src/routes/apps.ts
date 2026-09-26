@@ -308,13 +308,9 @@ async function launchCfNativeInstance(
       instanceId,
       slug: body.subdomain,
       payloadSecret,
-      // Deploy into the WfP dispatch namespace so it's served at
-      // {slug}.app.projectsites.dev via USER_DISPATCH — but ONLY once the
-      // *.app.projectsites.dev ACM cert is provisioned (PAYLOAD_APP_HOST_CERT_READY).
-      // Until then, fall back to the standalone workers.dev URL so /admin still 200s.
+      // Deploy into the WfP dispatch namespace → served at {slug}.cms.projectsites.dev
+      // (cert-ready). Falls back to standalone workers.dev only when WfP isn't configured.
       dispatchNamespace: c.env.WFP_NAMESPACE_NAME,
-      appHostCertReady:
-        (c.env as { PAYLOAD_APP_HOST_CERT_READY?: string }).PAYLOAD_APP_HOST_CERT_READY === 'true',
     });
   } catch (err) {
     if (err instanceof CfProvisionError) {
@@ -359,18 +355,15 @@ async function launchCfNativeInstance(
 
   // Upgrade the bootstrap → the REAL Payload OpenNext bundle in the background so the
   // launch returns fast. The bootstrap already 200s; deployRealPayloadWorker overwrites
-  // the SAME worker name with the real admin (assets + script upload). A failure leaves
-  // the bootstrap serving (degraded, still 200) + records last_error.
-  const realDeployNamespace = stack.subdomain.endsWith('.app.projectsites.dev')
-    ? c.env.WFP_NAMESPACE_NAME
-    : undefined;
+  // the SAME worker name with the real admin (migrate D1 + assets + script upload). A
+  // failure leaves the bootstrap serving (degraded, still 200) + records last_error.
   c.executionCtx.waitUntil(
     deployRealPayloadWorker(c.env, {
       name: stack.workerName,
       d1DatabaseId: stack.d1DatabaseId,
       r2BucketName: stack.r2BucketName,
       payloadSecret,
-      namespace: realDeployNamespace,
+      namespace: stack.dispatchNamespace ?? undefined,
     })
       .then(async (r) => {
         await dbUpdate(
@@ -420,15 +413,11 @@ async function launchCfNativeInstance(
       admin_url: `https://${stack.subdomain}/admin`,
       // The three CF resource handles this instance owns — surfaced so the owner
       // (and verification) can see exactly what will be torn down on delete.
-      // dispatch_namespace is set ONLY when the Worker actually landed in the WfP
-      // namespace (i.e. served at .app.projectsites.dev), not merely configured.
       resources: {
         d1_database_id: stack.d1DatabaseId,
         r2_bucket_name: stack.r2BucketName,
         worker_script_name: stack.workerName,
-        dispatch_namespace: stack.subdomain.endsWith('.app.projectsites.dev')
-          ? (c.env.WFP_NAMESPACE_NAME ?? null)
-          : null,
+        dispatch_namespace: stack.dispatchNamespace,
       },
     },
     201,

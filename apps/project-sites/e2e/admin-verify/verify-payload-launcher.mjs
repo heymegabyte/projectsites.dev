@@ -55,9 +55,9 @@ if (createRes.status !== 201 || !created.instance_id) {
 const { instance_id: iid, admin_url: adminUrl, url, resources = {} } = created;
 console.log(`   instance_id=${iid} admin_url=${adminUrl}`);
 console.log(`   resources=${JSON.stringify(resources)}`);
-// The prompt names payload-slug.app.projectsites.dev — assert WfP routing when configured.
-if (resources.dispatch_namespace && !String(url).includes('.app.projectsites.dev')) {
-  fail(`expected {slug}.app.projectsites.dev routing, got ${url}`);
+// WfP dispatch → a branded {slug}.(cms|app).projectsites.dev host when configured.
+if (resources.dispatch_namespace && !/\.(cms|app)\.projectsites\.dev/.test(String(url))) {
+  fail(`expected branded {slug}.(cms|app).projectsites.dev routing, got ${url}`);
 }
 
 console.log('2) GET /admin — poll for the REAL Payload upgrade (bootstrap → OpenNext, ≤90s)');
@@ -131,12 +131,22 @@ console.log(`   cleanup=${JSON.stringify(del.cleanup)}`);
 console.log('4) independent CF-API confirm gone (worker + D1 + R2)');
 if (CF_KEY && resources.worker_script_name) {
   const ns = resources.dispatch_namespace;
-  const workerPath = ns
-    ? `/accounts/${ACCT}/workers/dispatch/namespaces/${ns}/scripts/${resources.worker_script_name}`
-    : `/accounts/${ACCT}/workers/scripts/${resources.worker_script_name}`;
-  const wCode = await fetch(`https://api.cloudflare.com/client/v4${workerPath}`, {
-    headers: cfHdr,
-  }).then((r) => r.status);
+  // Namespace scripts GET-by-name spuriously returns 200 even when absent (fire-8 finding),
+  // so confirm via the LIST endpoint (reliable). Standalone GET-by-name 404s correctly.
+  let wCode;
+  if (ns) {
+    const list = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${ACCT}/workers/dispatch/namespaces/${ns}/scripts`,
+      { headers: cfHdr },
+    ).then((r) => r.json()).catch(() => ({}));
+    const present = (list?.result ?? []).some((s) => s.id === resources.worker_script_name);
+    wCode = present ? 200 : 404;
+  } else {
+    wCode = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${ACCT}/workers/scripts/${resources.worker_script_name}`,
+      { headers: cfHdr },
+    ).then((r) => r.status);
+  }
   const dCode = resources.d1_database_id
     ? await fetch(
         `https://api.cloudflare.com/client/v4/accounts/${ACCT}/d1/database/${resources.d1_database_id}`,

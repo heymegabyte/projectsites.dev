@@ -55,7 +55,17 @@ export const PayloadStackSchema = z.object({
   r2BucketName: z.string().min(1),
   workerName: z.string().min(1),
   subdomain: z.string().min(1),
+  /** The WfP dispatch namespace the worker landed in (null = standalone workers.dev). */
+  dispatchNamespace: z.string().nullable(),
 });
+
+/**
+ * Base host for CF-native Payload instances → `{slug}.cms.projectsites.dev`. The
+ * `*.cms.projectsites.dev` ACM pack is already active (cert-ready today), and per the
+ * epic this per-instance Payload replaces the old `cms.projectsites.dev` container.
+ * `app.projectsites.dev` is the apps-system home but needs its own ACM pack (billing).
+ */
+const PAYLOAD_INSTANCE_HOST = 'cms.projectsites.dev';
 export type PayloadStack = z.infer<typeof PayloadStackSchema>;
 
 /** Per-resource teardown verdict — the honest "is it actually gone?" report. */
@@ -315,22 +325,20 @@ export async function provisionPayloadStack(
      * workers.dev.
      */
     dispatchNamespace?: string;
-    /**
-     * `{slug}.app.projectsites.dev` only serves HTTPS once an ACM advanced cert
-     * pack for `*.app.projectsites.dev` is provisioned (blocked today by CF cert
-     * quota). Until an operator sets `PAYLOAD_APP_HOST_CERT_READY=true`, launches
-     * fall back to the standalone workers.dev URL so /admin still 200s — no
-     * regression. Flip the flag when the cert is active to switch to WfP + .app.
-     */
-    appHostCertReady?: boolean;
   },
 ): Promise<PayloadStack> {
   const c = creds(env);
   const short = ctx.instanceId.slice(0, 8);
   const base = `payload-${ctx.slug}-${short}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 54);
-  // WfP dispatch (→ .app.projectsites.dev) only when a namespace is configured AND
-  // the wildcard cert is ready; else standalone workers.dev (the proven 200 path).
-  const ns = ctx.dispatchNamespace && ctx.appHostCertReady === true ? ctx.dispatchNamespace : undefined;
+  // Host selection. DEFAULT = standalone workers.dev, whose edge asset layer serves
+  // /_next/static → STYLED Payload (verified). WfP dispatch → {slug}.cms.projectsites.dev
+  // is branded BUT a dispatched worker (USER_DISPATCH.get().fetch()) bypasses the edge
+  // asset layer → static assets 404 (unstyled). Gate dispatch on PAYLOAD_BRANDED_HOST=true
+  // so we never ship an unstyled admin by default; flip it once assets-over-dispatch is
+  // solved (platform serves shared /_next/static from R2, or per-instance worker routes).
+  const brandedReady =
+    (env as unknown as { PAYLOAD_BRANDED_HOST?: string }).PAYLOAD_BRANDED_HOST === 'true';
+  const ns = brandedReady ? ctx.dispatchNamespace : undefined;
   const rollback: Array<() => Promise<unknown>> = [];
   try {
     const d1 = await createD1(c, base);
@@ -350,14 +358,14 @@ export async function provisionPayloadStack(
 
     let reachable: string;
     if (ns) {
-      // WfP dispatch: routed at {slug}.app.projectsites.dev by the platform Worker's
+      // WfP dispatch: routed at {slug}.cms.projectsites.dev by the platform Worker's
       // serveAppBySubdomain → USER_DISPATCH.get(worker.name). No workers.dev subdomain.
-      reachable = `${ctx.slug.toLowerCase()}.app.projectsites.dev`;
+      reachable = `${ctx.slug.toLowerCase()}.${PAYLOAD_INSTANCE_HOST}`;
     } else {
-      // Standalone fallback: expose at <name>.<account>.workers.dev so /admin 200s.
+      // Standalone fallback (local dev / WfP not configured): expose at workers.dev.
       await enableScriptSubdomain(c, worker.name).catch(() => false);
       const acct = await accountSubdomain(c).catch(() => null);
-      reachable = acct ? `${worker.name}.${acct}.workers.dev` : `${base}.cms.projectsites.dev`;
+      reachable = acct ? `${worker.name}.${acct}.workers.dev` : `${base}.${PAYLOAD_INSTANCE_HOST}`;
     }
 
     return PayloadStackSchema.parse({
@@ -366,6 +374,7 @@ export async function provisionPayloadStack(
       r2BucketName: r2.name,
       workerName: worker.name,
       subdomain: reachable,
+      dispatchNamespace: ns ?? null,
     });
   } catch (err) {
     for (const undo of rollback.reverse()) await undo().catch(() => undefined);
@@ -546,7 +555,15 @@ export async function deployRealPayloadWorker(
   };
   if (assetsJwt) {
     bindings.push({ type: 'assets', name: 'ASSETS' });
-    metadata.assets = { jwt: assetsJwt, config: { html_handling: 'auto-trailing-slash', not_found_handling: 'none' } };
+    // NO run_worker_first — on the standalone path the edge asset layer serves
+    // /_next/static in FRONT of the worker (styled admin, verified fire 10). Setting
+    // run_worker_first makes the worker run first + 404 the static paths (OpenNext relies
+    // on the edge for them), which broke standalone CSS. (Dispatch can't serve assets
+    // either way — that's why the branded host is gated off; see provisionPayloadStack.)
+    metadata.assets = {
+      jwt: assetsJwt,
+      config: { html_handling: 'auto-trailing-slash', not_found_handling: 'none' },
+    };
   }
 
   const form = new FormData();

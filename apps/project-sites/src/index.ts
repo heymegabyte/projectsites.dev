@@ -1990,8 +1990,14 @@ app.all('*', async (c) => {
     return proxyToContainer(c.env, inst.do_instance_id ?? inst.id, c.req.raw, inst.app_slug);
   };
 
-  if (hostname.endsWith('.app.projectsites.dev') && hostname !== '.app.projectsites.dev') {
-    return serveAppBySubdomain(hostname.slice(0, -'.app.projectsites.dev'.length));
+  // CF-native app instances resolve on `{slug}.app.` (apps system) AND `{slug}.cms.`
+  // (Payload's cert-ready home — `*.cms` ACM pack is active; `.app.` awaits ACM). The
+  // BARE host of each root is excluded: `app.projectsites.dev` has no service, and
+  // `cms.projectsites.dev` is the old container on its own worker route (never reaches here).
+  for (const appRoot of ['.app.projectsites.dev', '.cms.projectsites.dev']) {
+    if (hostname.endsWith(appRoot) && hostname !== appRoot.slice(1)) {
+      return serveAppBySubdomain(hostname.slice(0, -appRoot.length));
+    }
   }
 
   // Resolve the site from hostname using D1
