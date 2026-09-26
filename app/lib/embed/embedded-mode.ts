@@ -171,6 +171,16 @@ export interface DataRequestMessage {
 
   /** Page size for the paginated browse grid (the worker clamps to 1–100; default 25). */
   limit?: number;
+
+  /**
+   * Server-side sort column for the browse grid. The worker ONLY honours it when it's in the table's
+   * column allowlist (else it keeps the default sort) — so this is a display request, never trusted
+   * as SQL. Omit for the table's default order.
+   */
+  orderBy?: string;
+
+  /** Server-side sort direction for {@link orderBy} (default `desc`). */
+  dir?: 'asc' | 'desc';
   correlationId: string;
 }
 

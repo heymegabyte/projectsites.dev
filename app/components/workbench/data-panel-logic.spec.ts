@@ -23,6 +23,7 @@ import {
   pkFromTableInfo,
   generatedFromTableXinfo,
   browsePageInfo,
+  sortToParams,
   stripSqlCommentsAndStrings,
   classifySqlStatement,
   classifySql,
@@ -785,6 +786,20 @@ describe('nextSort (3-state column-header toggle)', () => {
   });
   it('starts a different column fresh at asc', () => {
     expect(nextSort({ col: 'name', dir: 'desc' }, 'age')).toEqual({ col: 'age', dir: 'asc' });
+  });
+});
+
+describe('sortToParams (GridSort → server-sort request params)', () => {
+  it('maps an active sort to orderBy + dir (both directions)', () => {
+    expect(sortToParams({ col: 'created_at', dir: 'desc' })).toEqual({
+      orderBy: 'created_at',
+      dir: 'desc',
+    });
+    expect(sortToParams({ col: 'email', dir: 'asc' })).toEqual({ orderBy: 'email', dir: 'asc' });
+  });
+
+  it('maps a null sort to {} (the table default server order — no orderBy sent)', () => {
+    expect(sortToParams(null)).toEqual({});
   });
 });
 

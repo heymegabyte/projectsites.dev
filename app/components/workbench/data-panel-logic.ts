@@ -1134,6 +1134,19 @@ export function nextSort(current: GridSort | null, col: string): GridSort | null
   return null;
 }
 
+/**
+ * Map the grid's {@link GridSort} to the `PS_DATA_REQUEST` server-sort params (`orderBy`/`dir`). A
+ * null sort → `{}` (the table's DEFAULT server order). The column is a display request only — the
+ * WORKER allowlist-validates it against the table's columns before it can reach SQL — so nothing is
+ * sanitised here. Pure.
+ *
+ * @example sortToParams({ col: 'created_at', dir: 'desc' }) // { orderBy: 'created_at', dir: 'desc' }
+ * @example sortToParams(null) // {}
+ */
+export function sortToParams(sort: GridSort | null): { orderBy?: string; dir?: SortDir } {
+  return sort ? { orderBy: sort.col, dir: sort.dir } : {};
+}
+
 /** Numeric value of a cell when it's a finite number or a numeric string, else null. */
 function cellAsNumber(value: unknown): number | null {
   if (typeof value === 'number') {

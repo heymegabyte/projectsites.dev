@@ -64,6 +64,10 @@ interface PsMessage {
   readonly offset?: number;
   /** PS_DATA_REQUEST: page size for the paginated browse grid (worker clamps to 1–100; default 25). */
   readonly limit?: number;
+  /** PS_DATA_REQUEST: server-side sort column (worker allowlist-validates it; else default sort). */
+  readonly orderBy?: string;
+  /** PS_DATA_REQUEST: server-side sort direction for `orderBy` (worker clamps to asc/desc). */
+  readonly dir?: string;
   /** PS_SQL_REQUEST (D1 manager): the SQL to forward — /sql/exec (read) or /sql/exec-write (write). */
   readonly query?: string;
   /** PS_SQL_REQUEST: route to the WRITE endpoint (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE). */
@@ -613,6 +617,11 @@ export class BoltEmbedService {
             typeof msg.offset === 'number' && Number.isFinite(msg.offset)
               ? Math.max(0, Math.trunc(msg.offset))
               : 0;
+          // Server-side sort — forwarded when present; the WORKER allowlist-validates orderBy against
+          // the table's columns (and clamps dir to asc/desc), so an unknown column is safely ignored.
+          const browseOrderBy =
+            typeof msg.orderBy === 'string' && msg.orderBy ? msg.orderBy.slice(0, 64) : undefined;
+          const browseDir = msg.dir === 'asc' ? 'asc' : msg.dir === 'desc' ? 'desc' : undefined;
           const reply = (payload: Record<string, unknown>): void => {
             iframe?.contentWindow?.postMessage(
               { type: 'PS_DATA_RESPONSE', correlationId: cid, table, ...payload },
@@ -629,7 +638,14 @@ export class BoltEmbedService {
           this.api
             .get<{ data?: unknown }>(
               path,
-              table ? { limit: String(browseLimit), offset: String(browseOffset) } : undefined,
+              table
+                ? {
+                    limit: String(browseLimit),
+                    offset: String(browseOffset),
+                    ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),
+                    ...(browseOrderBy && browseDir ? { dir: browseDir } : {}),
+                  }
+                : undefined,
               { silent: true },
             )
             .subscribe({

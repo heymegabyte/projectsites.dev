@@ -70,6 +70,7 @@ import {
   generatedFromTableXinfo,
   browsePageInfo,
   BROWSE_PAGE_SIZE,
+  sortToParams,
   RowMutationError,
   friendlyModelLabel,
   canAskAi,
@@ -499,7 +500,7 @@ export const DataPanel = memo(() => {
    * `data-overview/:table` endpoint (server-side LIMIT/OFFSET — the browser never loads the whole table).
    */
   const requestRows = useCallback(
-    (key: string, offset: number): void => {
+    (key: string, offset: number, sort: GridSort | null): void => {
       const cid = newCorrelationId(key);
       browseCid.current = cid;
 
@@ -513,11 +514,18 @@ export const DataPanel = memo(() => {
           setBrowseLoading(false);
         }
       }, REQUEST_TIMEOUT_MS);
+
+      /*
+       * `orderBy`/`dir` sort the WHOLE table server-side (the worker allowlist-validates the column,
+       * else keeps the default order); omitted → the table's default sort. Sort is a display request,
+       * never trusted as SQL.
+       */
       postToParent({
         type: 'PS_DATA_REQUEST',
         table: key,
         offset,
         limit: BROWSE_PAGE_SIZE,
+        ...sortToParams(sort),
         correlationId: cid,
       });
     },
@@ -542,7 +550,7 @@ export const DataPanel = memo(() => {
       setBrowseOffset(0); // a fresh table opens at the first page
       setSelectedKeys(new Set()); // never carry a bulk selection across a table switch / re-fetch
 
-      requestRows(key, 0);
+      requestRows(key, 0, null); // a fresh table opens at page 0 in its default (server) sort
 
       /*
        * Super-admins get row DELETE — resolve the PK via PRAGMA table_info on its OWN correlation id
@@ -585,9 +593,9 @@ export const DataPanel = memo(() => {
       setBrowseError('');
       setDetailIdx(null);
       setSelectedKeys(new Set());
-      requestRows(active, nextOffset);
+      requestRows(active, nextOffset, browseSort); // keep the active sort across page nav
     },
-    [active, requestRows],
+    [active, browseSort, requestRows],
   );
 
   /*
@@ -1232,10 +1240,13 @@ export const DataPanel = memo(() => {
     }),
     [tables],
   );
-  const visibleRows = useMemo(
-    () => sortRows(filterRows(rows, columns, search), browseSort),
-    [rows, columns, search, browseSort],
-  );
+
+  /*
+   * Rows arrive ALREADY sorted by the server (browseSort → orderBy/dir), so we do NOT re-sort them
+   * client-side — a client re-sort (different NULL/collation ordering) would diverge from the
+   * server's page boundaries. `search` still filters THIS page only ("find on this page").
+   */
+  const visibleRows = useMemo(() => filterRows(rows, columns, search), [rows, columns, search]);
 
   /**
    * Columns the GRID renders — the full set minus the user's hidden selection (view-only;
@@ -1273,10 +1284,29 @@ export const DataPanel = memo(() => {
    * Toggle the browse sort for a column (asc→desc→off) + close any open row detail
    *  (its index would otherwise point at a different row once the order changes).
    */
-  const toggleBrowseSort = useCallback((col: string) => {
-    setBrowseSort((s) => nextSort(s, col));
-    setDetailIdx(null);
-  }, []);
+  const toggleBrowseSort = useCallback(
+    (col: string) => {
+      /*
+       * Server-side sort: cycle asc→desc→default, then re-fetch PAGE 0 in the new order (a new sort
+       * re-pages the WHOLE table, so the current offset is meaningless). Close the row detail (its
+       * index would point at a different row) + clear selection. browseSort still drives the header
+       * ▲/▼ indicator; the WORKER allowlist-validates the column before it touches SQL.
+       */
+      const next = nextSort(browseSort, col);
+      setBrowseSort(next);
+      setDetailIdx(null);
+
+      if (active) {
+        setBrowseOffset(0);
+        setRows([]);
+        setBrowseLoading(true);
+        setBrowseError('');
+        setSelectedKeys(new Set());
+        requestRows(active, 0, next);
+      }
+    },
+    [browseSort, active, requestRows],
+  );
 
   /**
    * Write `text` to the clipboard and flash a polite "✓ Copied {label}" confirmation. Fail-soft:

@@ -293,8 +293,30 @@ the grid was stuck on page 1 ("showing latest 25 of N", no way forward). Now it'
   eslint 0 / `ng build` prod ✓ (8.4s). BOTH surfaces deploy on push (editor→Pages, admin→R2 via worker pipeline).
   Storage: unchanged — rows come live from the worker's paginated D1 read; no UI state in customer tables.
 
-**NEXT slice (per delivery order): server-side SORT wired to the grid header** (the worker already accepts
-`orderBy`+`dir`; today the grid sorts only the loaded page client-side — send `orderBy`/`dir` from a column-header
-click so sort spans the whole table, reset to page 0). Then the grid eval (RevoGrid Core vs Tabulator against a
-real paginated D1, license-checked) + a page-size selector (25/50/100). Cheaper adjacent win: wire `field-types.ts`
-typed EDITORS (date/select/url) into the row-edit path; or extend the add-row form to also omit generated columns.
+### ✅ Shipped next fire (2026-09-26 #5) — server-side SORT wired to the column headers (slice 2/3)
+The column-header click already cycled a sort (asc→desc→off) but `sortRows` only sorted the LOADED PAGE
+client-side — so "sort by name" sorted 25 rows, not the table. The worker's `data-overview/:table` already
+accepted `orderBy`+`dir` (allowlist-validated: `spec.columns.includes(orderBy)` is the injection boundary; `dir`
+clamped asc/desc). Now the header click sorts the WHOLE table server-side:
+- **Editor** (`DataPanel.tsx`) — `PS_DATA_REQUEST` gains `orderBy`/`dir`; `requestRows(key, offset, sort)` sends
+  them via the new pure `sortToParams(sort)`. `toggleBrowseSort` now cycles the sort, **resets to page 0** (a new
+  order re-pages the whole table), closes the row-detail + clears selection, and re-fetches. `goToPage` preserves
+  the active sort across page nav. Crucially, `visibleRows` **no longer client re-sorts** — the page arrives
+  server-sorted, and a client re-sort (different NULL/collation ordering) would diverge from the server's page
+  boundaries; `search` still filters THIS page only ("find on this page"). The header ▲/▼ + `aria-sort` still
+  reflect `browseSort`. (`sortRows` stays — the SQL-console result grid still uses it.)
+- **Admin bridge** (`bolt-embed.service.ts`) — `PsMessage` gains `orderBy?`/`dir?`; forwarded (length-capped /
+  asc-desc-only) to the query, only when present. The worker remains the validation boundary.
+- **Pure helper** `sortToParams(GridSort|null)` → `{orderBy?,dir?}` (null → `{}` = default order). +2 Vitest
+  (`nextSort` cycle already covered). Verified: Vitest 186/186 (data-panel-logic), editor tsc 0 / eslint 0 /
+  build ✓ (12.70s); admin tsc 0 / eslint 0 / `ng build` prod ✓ (8.4s). Both deploy on push. Storage unchanged.
+- **Security:** the editor/admin never trust the sort column — the worker's `spec.columns.includes(orderBy)`
+  allowlist is the sole injection boundary; a hostile `orderBy` is silently ignored (default sort kept).
+
+**NEXT slice (per delivery order): server-side SEARCH wired to the grid** (the worker ALSO already supports
+`search` = OR-of-LIKE + `filterCol`/`filterVal` exact-match, both allowlist-validated + affecting `total`; today
+the editor only filters the loaded page client-side — debounce the search box → send `search`, reset to page 0,
+show "N matches across the table" from the filtered `total`, keep the honest "whole-table vs this-page" distinction).
+Then the grid eval (RevoGrid vs Tabulator, license-checked) + a page-size selector (25/50/100). Cheaper adjacent
+win: wire `field-types.ts` typed EDITORS (date/select/url) into the row-edit path; or the add-row form omitting
+generated columns.
