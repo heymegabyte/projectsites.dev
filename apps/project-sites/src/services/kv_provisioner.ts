@@ -66,7 +66,10 @@ export function kvNamespaceName(siteId: string): string {
  * @param input - the site + tenant (+ optional org for stored creds)
  * @returns the namespace id/name (reused or freshly created), or a typed failure reason
  */
-export async function provisionSiteKv(env: Env, input: ProvisionKvInput): Promise<ProvisionKvResult> {
+export async function provisionSiteKv(
+  env: Env,
+  input: ProvisionKvInput,
+): Promise<ProvisionKvResult> {
   const { orgId = null, siteId, tenantId } = input;
 
   // 1. Idempotency — reuse an existing KV allocation (never a duplicate on retry).

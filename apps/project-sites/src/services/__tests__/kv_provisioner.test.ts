@@ -47,7 +47,9 @@ describe('kvNamespaceName', () => {
   it('prefixes + sanitizes to CF-safe chars, bounded', () => {
     expect(kvNamespaceName('abc-123')).toBe('ps-site-abc-123-kv');
     expect(kvNamespaceName('a/b c!')).toBe('ps-site-a-b-c--kv');
-    expect(kvNamespaceName('x'.repeat(80)).length).toBeLessThanOrEqual('ps-site-'.length + 48 + '-kv'.length);
+    expect(kvNamespaceName('x'.repeat(80)).length).toBeLessThanOrEqual(
+      'ps-site-'.length + 48 + '-kv'.length,
+    );
   });
 });
 
