@@ -2647,6 +2647,52 @@ export function nullabilityHint(kind: CellInputKind, value: string): string {
   return '';
 }
 
+/**
+ * Render the AI's proposed query intent as a short human sentence for the "Ask your data" answer — so the
+ * owner can SEE how their question was interpreted (falsifiable, alongside the exact SQL). Display-only;
+ * never re-validates (the server compiler already did). Pure.
+ *
+ * @example describeIntent({ select: [{ agg: 'count' }], groupBy: 'status' }) // 'count · grouped by status'
+ * @example describeIntent({ select: [{ col: 'status' }], filters: [{ col: 'status', op: 'eq', val: 'open' }] })
+ *   // 'status · where status eq open'
+ */
+export function describeIntent(intent: {
+  select?: Array<{ col?: string; agg?: string }>;
+  filters?: Array<{ col: string; op: string; val: string }>;
+  combinator?: string;
+  groupBy?: string;
+  orderBy?: Array<{ col?: string; dir?: string }>;
+  limit?: number;
+}): string {
+  const sel = (intent.select ?? [])
+    .map((f) => (f.agg ? `${f.agg}${f.col ? `(${f.col})` : ''}` : f.col))
+    .filter((s): s is string => typeof s === 'string' && s.length > 0);
+  const parts: string[] = [sel.length ? sel.join(', ') : 'rows'];
+
+  if (intent.groupBy) {
+    parts.push(`grouped by ${intent.groupBy}`);
+  }
+
+  if (intent.filters && intent.filters.length > 0) {
+    const joiner = (intent.combinator ?? 'AND').toUpperCase() === 'OR' ? ' OR ' : ' AND ';
+    parts.push(`where ${intent.filters.map((c) => `${c.col} ${c.op} ${c.val}`.trim()).join(joiner)}`);
+  }
+
+  if (intent.orderBy && intent.orderBy.length > 0) {
+    const terms = intent.orderBy.map((o) => `${o.col ?? ''} ${o.dir ?? 'asc'}`.trim()).filter(Boolean);
+
+    if (terms.length > 0) {
+      parts.push(`sorted by ${terms.join(', ')}`);
+    }
+  }
+
+  if (typeof intent.limit === 'number') {
+    parts.push(`limit ${intent.limit}`);
+  }
+
+  return parts.join(' · ');
+}
+
 /** A parameterized statement: `?1..?N` placeholders in `sql`, values in `params` (bind order). */
 export interface ParameterizedStatement {
   /** The SQL with quoted identifiers and `?1..?N` placeholders — safe to log/preview. */

@@ -1238,9 +1238,34 @@ multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 
 model quality/eval RUN with golden fixtures is the remaining out-of-loop step). **A dedicated real-browser + live-model
 eval fire remains the highest-value out-of-loop step.**
 
-**NEXT slice: "Ask your data" slice 4 — the editor UI (an "Ask" box in the Data tab) that calls `/ask` + renders the
-answer transparently.** A small panel: a question input → POST `/ask` via the bridge (new `PS_DATA_REQUEST` mode or a
-dedicated `PS_ASK_REQUEST`) → render the computed rows in the existing grid/chart + SHOW the AI's interpretation (the
-intent) + the exact SQL (falsifiable, per the AI mandate) + honest error states (unparseable/unavailable). Pure
-request-shape helper + bridge/admin plumbing (tested) + a verify-by-build panel. Alternatives: a live-model eval
-harness (golden Q→executed-answer fixtures + regression log); a UI intent query-builder (no AI); nested AND/OR filter-tree.
+### ✅ Shipped next fire (2026-09-26 #53) — "Ask your data" slice 4: the editor "Ask this table" panel (falsifiable UI)
+The owner-facing UI for the #52 `/ask` route: a compact **`<AskPanel>`** at the top of the active-table view — a
+plain-English question box that returns a COMPUTED answer AND shows how it was computed (the AI's interpretation + the
+exact SQL). Full-stack UI (editor + bridge + admin); no worker change (the `/ask` route + all worker logic shipped #52).
+- **Bridge (`embedded-mode.ts`):** `PS_ASK_REQUEST` `{table, question}` + `PS_ASK_RESPONSE` `{ok, data:{question,
+  intent, sql, rows, rowsRead}, error}` — distinct from `PS_NL2SQL_REQUEST` (super-admin "draft SQL", not executed).
+- **Admin (`bolt-embed.service.ts`):** a `PS_ASK_REQUEST` handler proxies to `POST /sites/:id/data-overview/:table/ask`
+  (owner session) + maps the worker's typed errors to friendly, status-specific messages (404/422/400-compiler-reason/502).
+- **Editor (`AskPanel.tsx`, NEW · `data-panel-logic.ts` +5 Vitest):** self-contained (own `PS_ASK_RESPONSE` listener +
+  30s timeout, mirrors `<KvBrowser>`); question → answer as a compact rows table + an **"Interpreted as: …"** summary
+  (pure `describeIntent` — tested) + a **"Show the exact SQL"** disclosure (falsifiable, per the AI mandate) + honest
+  loading/error/empty states. A prominent one-line note: "The AI proposes a query; the server validates + runs it — the
+  exact SQL is shown, nothing is hidden." Wired into the browsable active-table view.
+- Verified: editor Vitest **959/959** (+5) + tsc 0 + eslint 0 + build 0; admin tsc 0. `describeIntent` unit-tested; the
+  panel is verify-by-build. **Deploy-skew note:** the editor (CF Pages ~2min) ships the panel before the admin
+  (worker/frontend CI ~14min) ships the `PS_ASK` handler → in the gap the panel's 30s timeout yields an honest error
+  (never a crash); the feature works once the admin deploys.
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize · #34 footer · #35 whole-query · #36 pins · #37 view · #40
+multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 NULL toggle · #46 BLOB · #47–#48 KV meta/TTL ·
+#49 R2 folders · #52–#53 the live-model NL→answer path (a real authed browser Ask + a live-model golden-fixture eval RUN
+— the mocked pipeline + the panel are proven; the live model quality is the remaining out-of-loop step). **A dedicated
+real-browser + live-model eval fire remains the highest-value out-of-loop step.**
+
+**NEXT slice: live-model eval harness for "Ask your data" (golden Q→executed-answer fixtures + regression log).** Per
+the AI mandate ("compare EXECUTED answers vs expected, not plausible SQL"): a worker test/script that seeds a fixture
+overview dataset, runs a set of golden questions through the REAL parse→compile pipeline (with recorded/mocked model
+intents to stay deterministic in CI, + an opt-in live-model mode), asserts the EXECUTED rows match expected, and logs
+pass/fail by model+prompt version. Covers joins/NULLs/dates/synonyms/ambiguity/prompt-injection/cross-tenant. Fully
+verifiable. Alternatives: "save this answer as a view/chart" (persist the intent as a saved view); a UI intent
+query-builder (no AI); nested AND/OR filter-tree; extend NULL affordance + datalist to the Add-row.

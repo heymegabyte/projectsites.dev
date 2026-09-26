@@ -140,6 +140,7 @@ import {
 import { bucketRowsByDate } from './view-models';
 import { CellEditor } from './CellEditor';
 import { TypedValueField } from './TypedValueField';
+import { AskPanel } from './AskPanel';
 import { SqlEditor } from './SqlEditor';
 import { classNames } from '~/utils/classNames';
 import { classifyCell, columnTypeBadge } from './data-cell-format';
@@ -3518,6 +3519,13 @@ export const DataPanel = memo(() => {
       {/* Browse — one table's recent rows */}
       {status === 'ready' && mode === 'tables' && active && activeTable && (
         <div className="flex-1 flex flex-col min-h-0">
+          {/* Grounded "Ask your data" — a plain-English question about THIS table (AI proposes a typed
+              intent, the server validates + runs it; the exact SQL is shown). Owner-facing, read-only. */}
+          {activeTable.browsable !== false && (
+            <div className="shrink-0 px-3 pt-2">
+              <AskPanel postToParent={postToParent} table={active} />
+            </div>
+          )}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor/50">
             <button
               type="button"

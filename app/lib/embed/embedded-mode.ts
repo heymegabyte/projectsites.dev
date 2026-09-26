@@ -442,6 +442,45 @@ export interface Nl2SqlResponseMessage {
   error?: string;
 }
 
+/**
+ * Child → Parent (grounded "Ask your data"): a natural-language question about ONE overview table the
+ * admin forwards to `POST /sites/:id/data-overview/:table/ask`. The worker asks a model for a TYPED
+ * INTENT (never SQL), re-validates it with the server-side compiler, EXECUTES the parameterized query,
+ * and returns the computed rows + the AI's intent + the exact SQL (falsifiable). OWNER-gated
+ * (ownsSiteData). Distinct from {@link Nl2SqlRequestMessage} (super-admin "draft SQL", NOT executed).
+ */
+export interface AskRequestMessage {
+  type: 'PS_ASK_REQUEST';
+  table: string;
+  question: string;
+  correlationId: string;
+}
+
+/** The AI's proposed query intent (editor mirror of the worker's `QueryIntent` — for display only). */
+export interface AskQueryIntent {
+  select: Array<{ col?: string; agg?: string }>;
+  filters?: Array<{ col: string; op: string; val: string }>;
+  combinator?: string;
+  groupBy?: string;
+  orderBy?: Array<{ col?: string; dir?: string }>;
+  limit?: number;
+}
+
+/** Parent → Child: the admin's reply to {@link AskRequestMessage} (mirrors the worker `/ask` envelope). */
+export interface AskResponseMessage {
+  type: 'PS_ASK_RESPONSE';
+  correlationId?: string;
+  ok?: boolean;
+  data?: {
+    question: string;
+    intent: AskQueryIntent;
+    sql: string;
+    rows: Record<string, unknown>[];
+    rowsRead: number | null;
+  };
+  error?: string;
+}
+
 // ── KV Browser bridge messages ────────────────────────────────────────────────
 
 /** KV namespace entry returned by the `namespaces` op. */
@@ -1001,6 +1040,7 @@ export type ParentToChildMessage =
   | DataResponseMessage
   | SqlResponseMessage
   | Nl2SqlResponseMessage
+  | AskResponseMessage
   | KvResponseMessage
   | R2ResponseMessage
   | VectorizeResponseMessage
@@ -1017,6 +1057,7 @@ export type ChildToParentMessage =
   | DataRequestMessage
   | SqlRequestMessage
   | Nl2SqlRequestMessage
+  | AskRequestMessage
   | KvRequestMessage
   | R2RequestMessage
   | VectorizeRequestMessage

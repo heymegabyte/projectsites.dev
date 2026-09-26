@@ -1402,6 +1402,58 @@ export class BoltEmbedService {
             });
           break;
         }
+        case 'PS_ASK_REQUEST': {
+          // Grounded "Ask your data" — the editor asks US to answer an NL question about ONE overview
+          // table. Forward to POST /sites/:id/data-overview/:table/ask; the worker asks a model for a
+          // TYPED intent, re-validates + compiles it server-side, EXECUTES the parameterized query, and
+          // returns { question, intent, sql, rows, rowsRead }. Owner-gated (ownsSiteData). Reply
+          // PS_ASK_RESPONSE with { ok, data } or a friendly, status-mapped error.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const table = typeof msg.table === 'string' ? msg.table.trim().slice(0, 64) : '';
+          const question = typeof msg.question === 'string' ? msg.question : '';
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_ASK_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!table) {
+            reply({ ok: false, error: 'No table selected' });
+            break;
+          }
+          this.api
+            .post<{
+              data?: unknown;
+            }>(`/sites/${site.id}/data-overview/${encodeURIComponent(table)}/ask`, { question }, { silent: true })
+            .subscribe({
+              next: (res) => reply({ ok: true, data: res?.data ?? null }),
+              error: (e: unknown) => {
+                const status = (e as { status?: number })?.status;
+                // The worker returns typed errors; a 400 (compiler reject) carries a useful message.
+                const typed = (e as { error?: { error?: { message?: string } } })?.error?.error?.message;
+                reply({
+                  ok: false,
+                  error:
+                    status === 404
+                      ? 'Site or table not found.'
+                      : status === 422
+                        ? 'Could not turn that into a query — try rephrasing.'
+                        : status === 400
+                          ? typed || 'That question could not be answered over this table.'
+                          : status === 502
+                            ? 'The assistant is temporarily unavailable — try again in a moment.'
+                            : 'Could not answer that question.',
+                });
+              },
+            });
+          break;
+        }
         case 'PS_TOAST': {
           // Item 44 — editor toast surfaces in the admin toast layer too.
           // suppressMirror prevents the mirror effect from echoing it back.

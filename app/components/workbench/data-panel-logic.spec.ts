@@ -109,6 +109,7 @@ import {
   distinctSuggestions,
   distinctCacheKey,
   nullabilityHint,
+  describeIntent,
   CELL_INPUT_KIND_OPTIONS,
   buildInsertStatement,
   buildDeleteByPk,
@@ -2018,6 +2019,45 @@ describe('nullabilityHint (resolves the NULL vs empty-string "" ambiguity of a b
     expect(nullabilityHint('boolean', '')).toBe('');
     expect(nullabilityHint('date', '')).toBe('');
     expect(nullabilityHint('json', '')).toBe('');
+  });
+});
+
+describe('describeIntent (human summary of the AI query intent — falsifiable, display-only)', () => {
+  it('summarizes an aggregate + groupBy', () => {
+    expect(describeIntent({ select: [{ agg: 'count' }], groupBy: 'status' })).toBe('count · grouped by status');
+  });
+
+  it('summarizes an aggregate over a column', () => {
+    expect(describeIntent({ select: [{ agg: 'sum', col: 'amount' }] })).toBe('sum(amount)');
+  });
+
+  it('summarizes a projection with a filter group', () => {
+    expect(
+      describeIntent({
+        select: [{ col: 'status' }, { col: 'created_at' }],
+        filters: [{ col: 'status', op: 'eq', val: 'open' }],
+      }),
+    ).toBe('status, created_at · where status eq open');
+  });
+
+  it('joins multiple filters by the combinator + appends sort + limit', () => {
+    expect(
+      describeIntent({
+        select: [{ col: 'status' }],
+        filters: [
+          { col: 'status', op: 'eq', val: 'open' },
+          { col: 'created_at', op: 'gt', val: '2026' },
+        ],
+        combinator: 'OR',
+        orderBy: [{ col: 'created_at', dir: 'desc' }],
+        limit: 25,
+      }),
+    ).toBe('status · where status eq open OR created_at gt 2026 · sorted by created_at desc · limit 25');
+  });
+
+  it('falls back to "rows" for an empty/odd select', () => {
+    expect(describeIntent({ select: [] })).toBe('rows');
+    expect(describeIntent({})).toBe('rows');
   });
 });
 
