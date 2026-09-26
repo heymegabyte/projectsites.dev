@@ -619,10 +619,27 @@ set, never the loaded page). Reuses the #20 group-counts endpoint + pipeline alm
   `data-panel-logic.ts` (a tooling quirk), which looked like the file had been clobbered; the **Read tool** confirmed
   it was fully intact (tsc=0 all along). Verify file contents with Read, never trust an empty grep as "absent".
 
-**NEXT slice (per delivery order): a click-to-open RECORD DRAWER shared by grid + gallery + kanban** — cards/rows are
-display-only today (only the grid's inline row-detail expands). Extract the existing row-detail into a shared
-right-side drawer (all fields, pretty-JSON, super-admin delete) that grid rows, gallery cards, and kanban cards all
-open — one detail surface for every view. Alternatives: a **drift-aware "modified — update view?"** badge (Update
-exists since #19 — detect live-query divergence from the applied view); chart **sum/avg** aggregates (needs numeric
-columns — the curated tables mostly lack them, so defer until arbitrary-table support); async export JOBS >10k; nested
-filter-tree; grid eval (RevoGrid vs Tabulator).
+### ✅ Shipped next fire (2026-09-26 #22) — record DRAWER for gallery + kanban cards (cards no longer display-only)
+Gallery + kanban cards were display-only; clicking one now opens a right-side **record drawer** showing ALL fields
+(one detail surface for the card views). Editor-only, self-contained (no worker/bridge change):
+- **Editor (`data-panel-logic.ts`)** — pure `recordTitle(row, columns, titleField?)` → the drawer heading (resolved
+  title-field value; `(untitled)` for empty; `(record)` for no columns). +3 Vitest (230 total).
+- **Editor (`DataPanel.tsx`)** — a `drawerRow` state; gallery + kanban cards are now keyboard-accessible clickable
+  (`role=button`, Enter/Space) that open the drawer; inner url/email links `stopPropagation` so a link click doesn't
+  also open it. The drawer is a `fixed` right-side panel (backdrop / ✕ / **Escape** close): a title header, a
+  **Copy-JSON** action (reuses `copyRow`), and every column as label→value via `classifyCell` — JSON values render as
+  an expandable `JsonTree`, url/email as safe links. Closes on table switch.
+- Verified: editor Vitest **230/230** + tsc 0 + eslint 0 + build ✓; worker Jest **12769/12769** + tsc 0 (unchanged —
+  the matrix-doc commit still triggers Worker CI, stays green); admin `ng build --prod` ✓. Editor → CF Pages.
+- **Scope note:** the drawer is READ-ONLY (+ Copy-JSON) and wired to the CARD views; the grid keeps its richer inline
+  row-detail (copy/INSERT/UPDATE/Markdown/delete). Unifying all three onto ONE drawer (moving the grid's inline detail
+  into it) is the follow-up — deferred deliberately (the grid detail is a large `<tr>`-coupled, index-based, delete-
+  bearing block; a careful extraction, not a rushed one).
+
+**NEXT slice (per delivery order): UNIFY the detail surface** — extract the grid's inline row-detail (copy/INSERT/
+UPDATE/Markdown + super-admin delete) into the shared record drawer so grid rows open the SAME drawer as gallery/kanban
+cards (remove the inline `<tr>`; keep the delete/copy actions in the drawer, gated by pk + canRunSql). One detail
+surface for every view. Alternatives: a **drift-aware "modified — update view?"** badge (Update exists since #19 —
+detect live-query divergence from the applied view via a query fingerprint); chart **sum/avg** aggregates (needs
+numeric columns — defer until arbitrary-table support); async export JOBS >10k; nested filter-tree; grid eval
+(RevoGrid vs Tabulator).

@@ -1598,6 +1598,27 @@ export function galleryBodyFields(columns: readonly string[], titleField: string
 }
 
 /**
+ * A human title for the record drawer: the value of the resolved title field (see
+ * {@link galleryTitleField}), or `(untitled)` when it's empty/null, or `(record)` when there are no
+ * columns at all. Pure.
+ */
+export function recordTitle(
+  row: Record<string, unknown>,
+  columns: readonly string[],
+  configuredTitleField?: string | null,
+): string {
+  const field = galleryTitleField(columns, configuredTitleField);
+
+  if (!field) {
+    return '(record)';
+  }
+
+  const v = row[field];
+
+  return v === null || v === undefined || v === '' ? '(untitled)' : String(v);
+}
+
+/**
  * Toggle a column's visibility. Showing a column is always allowed; HIDING is refused when it
  * would leave zero visible columns (never a dead-end empty grid). Returns the new hidden set,
  * ordered by `all` for stable persistence, immutable (never mutates the input).

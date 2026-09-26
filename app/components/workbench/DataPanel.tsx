@@ -102,6 +102,7 @@ import {
   kanbanGroupKey,
   groupPageRows,
   buildChartBars,
+  recordTitle,
 } from './data-panel-logic';
 import { SqlEditor } from './SqlEditor';
 import { classNames } from '~/utils/classNames';
@@ -259,6 +260,13 @@ export const DataPanel = memo(() => {
   const [browseError, setBrowseError] = useState('');
   const [search, setSearch] = useState('');
   const [detailIdx, setDetailIdx] = useState<number | null>(null);
+
+  /**
+   * Record drawer — a right-side panel showing ALL fields of one row, opened by clicking a gallery or
+   * kanban CARD (the grid keeps its inline row-detail). Read-only + copy; one detail surface for the
+   * card views. `null` → closed.
+   */
+  const [drawerRow, setDrawerRow] = useState<Record<string, unknown> | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
   /*
@@ -680,6 +688,7 @@ export const DataPanel = memo(() => {
       setFilterCombinator('AND'); // reset the join to the default
       setViewMode('grid'); // a fresh table opens in the dense grid
       setGalleryTitleCol(null); // and with the default card-title field
+      setDrawerRow(null); // close any open record drawer on table switch
       setKanbanGroupCol(null); // no kanban group chosen yet
       setKanbanGroups([]);
       setKanbanGroupsTruncated(false);
@@ -2017,6 +2026,22 @@ export const DataPanel = memo(() => {
       setKanbanGroupsTruncated(false);
     }
   }, [viewMode, kanbanGroupCol, active, loadKanbanGroups]);
+
+  // Close the record drawer on Escape (only while it's open).
+  useEffect(() => {
+    if (!drawerRow) {
+      return undefined;
+    }
+
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        setDrawerRow(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+
+    return () => window.removeEventListener('keydown', onKey);
+  }, [drawerRow]);
 
   /**
    * Rows-per-page change: update the ref (so `requestRows` uses the new size THIS tick) + state, then
@@ -4065,7 +4090,17 @@ export const DataPanel = memo(() => {
                         <div
                           key={rowPkKey(r, browsePkCols) ?? `row-${i}`}
                           data-testid="data-gallery-card"
-                          className="flex flex-col gap-1.5 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-3"
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setDrawerRow(r)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setDrawerRow(r);
+                            }
+                          }}
+                          title="Open record"
+                          className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-3 text-left hover:border-[#00e5ff]/40"
                         >
                           <div
                             className="truncate text-xs font-semibold text-bolt-elements-textPrimary"
@@ -4098,6 +4133,7 @@ export const DataPanel = memo(() => {
                                         href={cell.href}
                                         target="_blank"
                                         rel="noopener noreferrer nofollow"
+                                        onClick={(e) => e.stopPropagation()}
                                         className={cell.className}
                                       >
                                         {cell.display}
@@ -4179,7 +4215,17 @@ export const DataPanel = memo(() => {
                                     <div
                                       key={rowPkKey(r, browsePkCols) ?? `row-${i}`}
                                       data-testid="data-kanban-card"
-                                      className="rounded-md border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-2 p-2"
+                                      role="button"
+                                      tabIndex={0}
+                                      onClick={() => setDrawerRow(r)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault();
+                                          setDrawerRow(r);
+                                        }
+                                      }}
+                                      title="Open record"
+                                      className="cursor-pointer rounded-md border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-2 p-2 text-left hover:border-[#00e5ff]/40"
                                     >
                                       <div
                                         className="truncate text-[11px] font-medium text-bolt-elements-textPrimary"
@@ -4209,6 +4255,7 @@ export const DataPanel = memo(() => {
                                                     href={cell.href}
                                                     target="_blank"
                                                     rel="noopener noreferrer nofollow"
+                                                    onClick={(e) => e.stopPropagation()}
                                                     className={cell.className}
                                                   >
                                                     {cell.display}
@@ -4298,6 +4345,84 @@ export const DataPanel = memo(() => {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Record drawer — a right-side panel showing ALL fields of a row, opened by clicking a gallery or
+          kanban card (one detail surface for the card views). Read-only + Copy-JSON; JSON values render
+          as an expandable tree. Backdrop / ✕ / Escape close it. */}
+      {drawerRow && (
+        <div
+          className="fixed inset-0 z-[60] flex justify-end"
+          data-testid="data-record-drawer"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Record detail"
+        >
+          <div className="absolute inset-0 bg-black/40" onClick={() => setDrawerRow(null)} aria-hidden="true" />
+          <div className="relative z-10 flex h-full w-full max-w-sm flex-col border-l border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 shadow-2xl">
+            <div className="flex items-center justify-between gap-2 border-b border-bolt-elements-borderColor px-3 py-2">
+              <span
+                className="truncate text-xs font-semibold text-bolt-elements-textPrimary"
+                title={recordTitle(drawerRow, columns, galleryTitleCol)}
+              >
+                {recordTitle(drawerRow, columns, galleryTitleCol)}
+              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => copyRow(drawerRow)}
+                  data-testid="data-drawer-copy"
+                  title="Copy this record as JSON"
+                  className="flex items-center gap-1 rounded border border-bolt-elements-borderColor px-1.5 py-0.5 text-[10px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
+                >
+                  <div className="i-ph:copy text-[11px]" /> JSON
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDrawerRow(null)}
+                  data-testid="data-drawer-close"
+                  aria-label="Close record detail"
+                  title="Close"
+                  className="i-ph:x cursor-pointer text-sm text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary"
+                />
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto p-3">
+              <dl className="flex flex-col gap-2.5">
+                {columns.map((c) => {
+                  const cell = classifyCell(drawerRow[c]);
+
+                  return (
+                    <div key={c} className="flex flex-col gap-0.5">
+                      <dt className="text-[10px] uppercase tracking-wide text-bolt-elements-textTertiary">
+                        {columnLabel(c)}
+                      </dt>
+                      <dd
+                        className="break-words text-[11px] text-bolt-elements-textPrimary"
+                        title={cell.title ?? cell.display}
+                      >
+                        {cell.isJson ? (
+                          <JsonTree value={drawerRow[c]} />
+                        ) : cell.href ? (
+                          <a
+                            href={cell.href}
+                            target="_blank"
+                            rel="noopener noreferrer nofollow"
+                            className={cell.className}
+                          >
+                            {cell.display}
+                          </a>
+                        ) : (
+                          <span className={cell.className}>{cell.display}</span>
+                        )}
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            </div>
+          </div>
         </div>
       )}
 

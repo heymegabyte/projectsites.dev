@@ -48,6 +48,7 @@ import {
   buildChartBars,
   galleryTitleField,
   galleryBodyFields,
+  recordTitle,
   clampPageSize,
   PAGE_SIZE_OPTIONS,
   insertableColumns,
@@ -1063,6 +1064,23 @@ describe('galleryBodyFields (card body = everything but the title)', () => {
 
   it('returns all columns when the title is null', () => {
     expect(galleryBodyFields(['a', 'b'], null)).toEqual(['a', 'b']);
+  });
+});
+
+describe('recordTitle (record-drawer heading)', () => {
+  it('uses the resolved title field value', () => {
+    expect(recordTitle({ id: 1, name: 'Ada', email: 'a@x.com' }, ['id', 'name', 'email'])).toBe('Ada');
+    expect(recordTitle({ id: 1, name: 'Ada', email: 'a@x.com' }, ['id', 'name', 'email'], 'email')).toBe('a@x.com');
+  });
+
+  it('coerces non-string values to a string', () => {
+    expect(recordTitle({ id: 1, status: 5 }, ['id', 'status'])).toBe('5');
+  });
+
+  it('falls back to (untitled) for null/empty and (record) for no columns', () => {
+    expect(recordTitle({ id: 1, name: null }, ['id', 'name'])).toBe('(untitled)');
+    expect(recordTitle({ id: 1, name: '' }, ['id', 'name'])).toBe('(untitled)');
+    expect(recordTitle({}, [])).toBe('(record)');
   });
 });
 
