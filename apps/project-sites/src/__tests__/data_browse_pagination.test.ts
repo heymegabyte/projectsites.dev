@@ -192,11 +192,9 @@ describe('GET /api/sites/:siteId/data-overview/:table pagination', () => {
 
   it('count=0 SKIPS the COUNT(*) and returns total null (client reuses its cached total on page-nav)', async () => {
     const DB = makeD1({ rows: [{ id: 'r1' }], total: 10 });
-    const res = await makeApp(DB).request(
-      req('site-1', 'visitor_events', { count: '0' }),
-      {},
-      { DB } as unknown as Env,
-    );
+    const res = await makeApp(DB).request(req('site-1', 'visitor_events', { count: '0' }), {}, {
+      DB,
+    } as unknown as Env);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { total: number | null };
     expect(body.total).toBeNull(); // not counted this request
