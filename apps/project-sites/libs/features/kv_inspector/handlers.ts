@@ -221,10 +221,82 @@ kvInspector.get('/api/admin/kv/:binding/value', async (c) => {
   });
 });
 
+/**
+ * Compute the `KVNamespace.put` options for a value EDIT that PRESERVES the key's existing metadata +
+ * expiration "unless explicitly changed" (the KV epic's mandate) — because CF KV `put()` REPLACES the
+ * whole entry: omitting `metadata` wipes it, and omitting expiration makes a TTL'd key permanent.
+ *
+ * Rules: an explicit `expirationTtl` from the caller WINS (a deliberate TTL change). Otherwise the
+ * existing absolute `expiration` is re-applied — but only when it's still ≥60s in the future (KV rejects
+ * an expiration in the past / under the 60s floor; a near-expired key is left to expire as scheduled).
+ * Existing metadata is always re-attached (there is no metadata-edit path yet, so it's never
+ * "explicitly changed"). Returns `undefined` when there's nothing to set (a plain create). Pure.
+ *
+ * @example buildKvPutOptions({ existingExpiration: 9_999_999_999, nowSec: 1_000 }) // { expiration: 9999999999 }
+ * @example buildKvPutOptions({ expirationTtl: 300, existingExpiration: 9e9, nowSec: 1 }) // { expirationTtl: 300 }
+ */
+export function buildKvPutOptions(args: {
+  expirationTtl?: number;
+  existingMetadata?: unknown;
+  existingExpiration?: number;
+  nowSec: number;
+}): { expiration?: number; expirationTtl?: number; metadata?: unknown } | undefined {
+  const opts: { expiration?: number; expirationTtl?: number; metadata?: unknown } = {};
+
+  if (args.expirationTtl) {
+    opts.expirationTtl = args.expirationTtl; // caller deliberately set a new TTL → honor it
+  } else if (typeof args.existingExpiration === 'number' && args.existingExpiration > args.nowSec + 60) {
+    opts.expiration = args.existingExpiration; // preserve the existing absolute expiration (KV floor +60s)
+  }
+
+  if (args.existingMetadata !== undefined && args.existingMetadata !== null) {
+    opts.metadata = args.existingMetadata; // preserve existing metadata (no metadata-edit UI yet)
+  }
+
+  return Object.keys(opts).length > 0 ? opts : undefined;
+}
+
+/**
+ * Read a single key's existing metadata + absolute expiration so a value edit can PRESERVE them. KV has
+ * no exact-key expiration getter, so expiration comes from `list({prefix:key})` matched on the exact
+ * name; metadata comes from `getWithMetadata` (exact). Fail-soft (either read failing → that field is
+ * left undefined → not preserved, never a thrown write). Eventually consistent, like all KV reads.
+ */
+async function readKvEntryMeta(
+  kv: KVNamespace,
+  key: string,
+): Promise<{ metadata?: unknown; expiration?: number }> {
+  let metadata: unknown;
+  let expiration: number | undefined;
+
+  try {
+    const gm = await kv.getWithMetadata(key);
+    metadata = gm?.metadata ?? undefined;
+  } catch {
+    /* fail-soft: no metadata preserved */
+  }
+
+  try {
+    const listed = await kv.list({ prefix: key, limit: 100 });
+    const match = listed.keys.find((k) => k.name === key);
+    expiration = match?.expiration;
+
+    if ((metadata === undefined || metadata === null) && match?.metadata !== undefined) {
+      metadata = match.metadata;
+    }
+  } catch {
+    /* fail-soft: no expiration preserved */
+  }
+
+  return { metadata, expiration };
+}
+
 // ─── PUT /api/admin/kv/:binding/value ─────────────────────────────────────────
 // Write (create/overwrite) a value. Super-admin + flag-dark; binding validated against the server
 // allowlist (client-supplied names never reach KV). The value is size-capped (never save a truncated
 // read back). KV is EVENTUALLY CONSISTENT — the write may take up to ~60s to propagate globally.
+// Preserves the key's existing metadata + expiration unless the caller explicitly sets a new TTL
+// (CF KV put() REPLACES the whole entry, so a naive put would silently wipe metadata + clear the TTL).
 kvInspector.put('/api/admin/kv/:binding/value', async (c) => {
   const block = await gate(c);
   if (block) return block;
@@ -253,7 +325,17 @@ kvInspector.put('/api/admin/kv/:binding/value', async (c) => {
   const kv = resolveKv(c.env, binding);
   const t0 = Date.now();
   try {
-    await kv.put(key, value, expirationTtl ? { expirationTtl } : undefined);
+    // Preserve the key's existing metadata + expiration unless the caller explicitly set a new TTL —
+    // a bare put() would wipe metadata + clear the TTL (KV replaces the whole entry). Reads are
+    // fail-soft (a missing read just means that attribute isn't preserved, never a failed write).
+    const { metadata: existingMetadata, expiration: existingExpiration } = await readKvEntryMeta(kv, key);
+    const putOptions = buildKvPutOptions({
+      expirationTtl,
+      existingMetadata,
+      existingExpiration,
+      nowSec: Math.floor(Date.now() / 1000),
+    });
+    await kv.put(key, value, putOptions);
   } catch {
     logKv(c, { route: 'kv/put', binding, outcome: 'error', latency_ms: Date.now() - t0 });
     return c.json({ ok: false, error: 'The write failed.' }, 502);

@@ -59,7 +59,7 @@ const mockPromptStore: MockKv = {
 
 // ─── Deferred import (after mocks) ───────────────────────────────────────────
 
-import { kvInspector } from '../handlers.js';
+import { kvInspector, buildKvPutOptions } from '../handlers.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -322,6 +322,72 @@ describe('PUT /api/admin/kv/:binding/value — write (create/edit)', () => {
     const res = await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'k', value: 'v' });
     expect(res.status).toBe(502);
     expect((await res.json<{ ok: boolean }>()).ok).toBe(false);
+  });
+
+  it('PRESERVES existing metadata + expiration on a value edit (no TTL passed)', async () => {
+    // The key already has metadata + a far-future expiration; editing only the value must keep both
+    // (a bare put would wipe metadata + clear the TTL — the epic's "preserve unless explicitly changed").
+    mockCacheKv.getWithMetadata.mockResolvedValueOnce({ value: 'old', metadata: { tenant: 'acme' } });
+    mockCacheKv.list.mockResolvedValueOnce({
+      keys: [{ name: 'host:acme', expiration: 9_999_999_999, metadata: { tenant: 'acme' } }],
+      list_complete: true,
+      cursor: undefined,
+    });
+    const res = await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'host:acme', value: 'new' });
+    expect(res.status).toBe(200);
+    expect(mockCacheKv.put).toHaveBeenCalledWith('host:acme', 'new', {
+      expiration: 9_999_999_999,
+      metadata: { tenant: 'acme' },
+    });
+  });
+
+  it('an explicit new TTL WINS over the preserved expiration (deliberate change)', async () => {
+    mockCacheKv.getWithMetadata.mockResolvedValueOnce({ value: 'old', metadata: { tenant: 'acme' } });
+    mockCacheKv.list.mockResolvedValueOnce({
+      keys: [{ name: 'host:acme', expiration: 9_999_999_999 }],
+      list_complete: true,
+      cursor: undefined,
+    });
+    const res = await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'host:acme', value: 'new', expirationTtl: 300 });
+    expect(res.status).toBe(200);
+    // TTL replaces the old expiration; metadata is still preserved.
+    expect(mockCacheKv.put).toHaveBeenCalledWith('host:acme', 'new', {
+      expirationTtl: 300,
+      metadata: { tenant: 'acme' },
+    });
+  });
+});
+
+describe('buildKvPutOptions (preserve metadata + expiration unless explicitly changed) — pure', () => {
+  const NOW = 1_000_000;
+
+  it('explicit expirationTtl wins (a deliberate TTL change)', () => {
+    expect(buildKvPutOptions({ expirationTtl: 300, existingExpiration: 9e9, nowSec: NOW })).toEqual({
+      expirationTtl: 300,
+    });
+  });
+
+  it('preserves a future existing expiration when no TTL is passed', () => {
+    expect(buildKvPutOptions({ existingExpiration: NOW + 3600, nowSec: NOW })).toEqual({
+      expiration: NOW + 3600,
+    });
+  });
+
+  it('does NOT re-apply a past / sub-60s existing expiration (KV floor) — key left permanent', () => {
+    expect(buildKvPutOptions({ existingExpiration: NOW - 10, nowSec: NOW })).toBeUndefined();
+    expect(buildKvPutOptions({ existingExpiration: NOW + 30, nowSec: NOW })).toBeUndefined(); // under +60
+  });
+
+  it('always preserves existing metadata (there is no metadata-edit path)', () => {
+    expect(buildKvPutOptions({ existingMetadata: { a: 1 }, nowSec: NOW })).toEqual({ metadata: { a: 1 } });
+    expect(
+      buildKvPutOptions({ expirationTtl: 120, existingMetadata: { a: 1 }, nowSec: NOW }),
+    ).toEqual({ expirationTtl: 120, metadata: { a: 1 } });
+  });
+
+  it('returns undefined for a plain create (no TTL, no existing meta/expiration)', () => {
+    expect(buildKvPutOptions({ nowSec: NOW })).toBeUndefined();
+    expect(buildKvPutOptions({ existingMetadata: null, nowSec: NOW })).toBeUndefined();
   });
 });
 

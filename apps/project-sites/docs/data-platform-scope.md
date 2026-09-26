@@ -1099,15 +1099,33 @@ applied defensively across every cell renderer. Full-stack (worker serialization
 - Verified: worker Jest **12793/12793** + tsc 0; editor Vitest **945/945** + tsc 0 + eslint 0 + build 0. Serialization +
   classification fully unit-tested; the chip RENDERING is verify-by-build (deep lazy chunk).
 
+### ✅ Shipped next fire (2026-09-26 #47) — KV value-edit PRESERVES metadata + expiration (real worker bug)
+Phase-0 audit finding: much of the matrix is MORE built than the per-fire framing assumed — **EXPLAIN QUERY PLAN is
+already fully wired** (button + `explainQuery`/`explainPlanHint`/`isExpensiveScan`, #46's proposed NEXT was redundant),
+Schema (DDL/indexes/FKs via `/sql/schema` + console quick-queries + completion) is present, and **KV is fully built
+end-to-end** (`kv_inspector` read+write endpoints + admin proxy + a 522-line `<KvBrowser>` with namespace picker, key
+list, value viewer, edit/delete — the 2026-09-25 "read-only" memory was stale). The real gap was a **correctness bug**:
+- **Bug:** `PUT /api/admin/kv/:binding/value` did `kv.put(key, value, expirationTtl ? {expirationTtl} : undefined)`.
+  CF KV `put()` REPLACES the whole entry, so editing a value **silently wiped the key's metadata** and **cleared its
+  TTL** (key became permanent) — a direct violation of the epic's "preserve metadata+expiry unless explicitly changed."
+  User-visible: the value viewer shows metadata + expiration, which vanished on the next read after an edit.
+- **Fix (`kv_inspector/handlers.ts`, +7 jest):** before the put, `readKvEntryMeta` reads existing metadata
+  (`getWithMetadata`) + absolute expiration (`list({prefix:key})` matched on the exact name; fail-soft). Pure
+  `buildKvPutOptions({expirationTtl, existingMetadata, existingExpiration, nowSec})` decides the put opts: an explicit
+  new TTL WINS; else the existing expiration is re-applied **only when still ≥60s out** (KV's floor — never re-apply a
+  past/near expiry); metadata is always preserved (no metadata-edit path). Returns `undefined` for a plain create.
+- Verified: worker Jest **12800/12800** (+7: 5 pure `buildKvPutOptions` + 2 route preservation/TTL-wins) + tsc 0.
+  Worker-only (the `<KvBrowser>` edit flow already calls PUT — the fix makes it honest). No editor/bridge change.
+
 **STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
 sticky-pin render · #37 view round-trip · #40 multi-sort · #41 date/datetime picker · #42 boolean checkbox + JSON
-textarea · #43–#44 value datalist · #45 NULL toggle + hint · #46 BLOB chip (super-admin SQL console) — one real-browser
-pass (authed admin session). **A dedicated real-browser QA fire remains the highest-value out-of-loop step.**
+textarea · #43–#44 value datalist · #45 NULL toggle + hint · #46 BLOB chip · #47 KV edit keeps metadata/TTL — one
+real-browser pass (authed admin session). **A dedicated real-browser QA fire remains the highest-value out-of-loop step.**
 
-**NEXT slice: BEGIN the SQL-console EXPLAIN QUERY PLAN affordance (contained, super-admin, real-today).** The SQL
-workspace exists (super-admin `/sql/exec`) but has no one-click "explain this query" — the delivery-order slice-4
-workspace calls for `EXPLAIN QUERY PLAN` + cost surfacing. Add a pure `toExplainQuery(sql)` (wrap a SELECT/WITH as
-`EXPLAIN QUERY PLAN <sql>`; reject non-SELECT) + an "Explain" button that runs it through the existing `/sql/exec`
-(already allowlists EXPLAIN) and renders the plan rows, flagging `SCAN` (vs `SEARCH`) as a potential full-scan cost.
-Pure query-builder + scan-detector (tested); the button/plan panel is verify-by-build. Alternatives: extend NULL
-affordance + datalist to the Add-row; async export JOBS >10k (bigger); nested AND/OR filter-tree.
+**NEXT slice: KV value-editor honesty — surface metadata + expiration in the `<KvBrowser>` value viewer + an explicit
+"clear TTL / make permanent" control (contained, super-admin).** Now that edits PRESERVE metadata + TTL, the viewer
+should SHOW them clearly (metadata JSON + a human "expires in Nd" / "no expiry" line) and — since preservation removed
+the only way to clear a TTL — add an explicit "remove expiration" affordance (a new `clearExpiration` flag on the PUT
+schema → `buildKvPutOptions` honors it as an explicit change). Pure schema+options change (tested) + a verify-by-build
+viewer tweak. Alternatives: audit R2/Vectorize/Queues browsers for the same replace-semantics class of bug; extend
+NULL affordance + datalist to the Add-row; nested AND/OR filter-tree; async export JOBS >10k (bigger).
