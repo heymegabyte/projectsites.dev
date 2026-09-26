@@ -112,6 +112,8 @@ import {
   describeIntent,
   askIntentToSavedView,
   planCreateTable,
+  planCreateIndex,
+  suggestIndexName,
   CELL_INPUT_KIND_OPTIONS,
   buildInsertStatement,
   buildDeleteByPk,
@@ -2595,5 +2597,62 @@ describe('planCreateTable (guided New-table form → reviewable CREATE TABLE DDL
     const r = planCreateTable('_private', [{ name: '_id', type: 'INTEGER', pk: true }]);
     expect(r.error).toBeNull();
     expect(r.ddl).toBe('CREATE TABLE "_private" (\n  "_id" INTEGER PRIMARY KEY\n)');
+  });
+});
+
+describe('suggestIndexName (conventional default index name)', () => {
+  it('builds idx_<table>_<cols>', () => {
+    expect(suggestIndexName('orders', ['user_id', 'created_at'])).toBe('idx_orders_user_id_created_at');
+  });
+
+  it('sanitises non-identifier characters to underscores', () => {
+    expect(suggestIndexName('my table', ['a-b'])).toBe('idx_my_table_a_b');
+  });
+
+  it('always starts with a letter/underscore (legal bare identifier)', () => {
+    expect(suggestIndexName('123', ['9'])).toMatch(/^[A-Za-z_]/);
+  });
+
+  it('caps the length', () => {
+    expect(suggestIndexName('t', ['x'.repeat(200)]).length).toBeLessThanOrEqual(60);
+  });
+});
+
+describe('planCreateIndex (guided Add-index form → reviewable CREATE INDEX DDL)', () => {
+  it('builds a single-column index (name auto-derived when blank)', () => {
+    const r = planCreateIndex('users', '', ['email'], false);
+    expect(r.error).toBeNull();
+    expect(r.ddl).toBe('CREATE INDEX "idx_users_email" ON "users" ("email")');
+  });
+
+  it('honours an explicit index name', () => {
+    const r = planCreateIndex('users', 'ix_email', ['email'], false);
+    expect(r.ddl).toBe('CREATE INDEX "ix_email" ON "users" ("email")');
+  });
+
+  it('builds a composite UNIQUE index', () => {
+    const r = planCreateIndex('memberships', 'uq_user_org', ['user_id', 'org_id'], true);
+    expect(r.ddl).toBe('CREATE UNIQUE INDEX "uq_user_org" ON "memberships" ("user_id", "org_id")');
+  });
+
+  it('drops blank column entries before compiling', () => {
+    const r = planCreateIndex('t', 'ix', ['a', '  ', ''], false);
+    expect(r.ddl).toBe('CREATE INDEX "ix" ON "t" ("a")');
+  });
+
+  it('rejects when no table is selected', () => {
+    expect(planCreateIndex('', 'ix', ['a'], false)).toEqual({ ddl: null, error: 'No table selected.' });
+  });
+
+  it('rejects when no columns are selected', () => {
+    const r = planCreateIndex('t', 'ix', ['   '], false);
+    expect(r.ddl).toBeNull();
+    expect(r.error).toMatch(/at least one column/i);
+  });
+
+  it('surfaces the DDL builder error for an injection-shaped column name (never throws)', () => {
+    const r = planCreateIndex('t', 'ix', ['a"); DROP TABLE users;--'], false);
+    expect(r.ddl).toBeNull();
+    expect(r.error).toMatch(/not allowed in a SQLite identifier/i);
   });
 });

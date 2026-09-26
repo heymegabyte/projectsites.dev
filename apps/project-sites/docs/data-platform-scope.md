@@ -1343,12 +1343,37 @@ multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 
 (the DDL compiler + refusals are unit-proven; the form + write-rail apply are verify-by-build).** **A dedicated
 real-browser + live-model eval fire remains the highest-value out-of-loop step.**
 
-**NEXT slice: guided "Add index" builder (schema workflow slice 2) — OR the live-model eval RUN.**
-(a) **Add index** — the natural companion to New-table: a super-admin "Add index" affordance on an OPEN table → pick
-columns + a name + UNIQUE → a pure `planCreateIndex` (wires `schema-ddl.ts`'s `buildCreateIndex`, already tested) → live
-DDL preview → apply via the same `/sql/exec-write` rail → the new index surfaces in the SQL "Indexes" canned query. Adding
-an index is non-destructive (pure perf; the directive: "warn before unindexed scans", "FTS5 search only when an index
-exists", "make index costs visible"). Target EXISTS + is browsable → fully coherent. Fully-verifiable pure planner + a
-smaller form than New-table. Recommend (a) — it completes the tables/indexes pair of the schema builder with the same
-safe pattern. (b) The standing **live-model eval RUN** (real `@cf/meta/llama-3.3-70b` over the golden fixtures on prod,
-score question→intent QUALITY, record a `PROMPT_VERSION` baseline) remains the top out-of-loop step (needs a prod run).
+### ✅ Shipped next fire (2026-09-26 #57) — schema workflow slice 2: guided "Add index" builder (wires `schema-ddl.ts`'s `buildCreateIndex`)
+Completes the tables/indexes pair of the schema builder, reusing the exact #56 pattern (CREATE = non-destructive new
+object · super-admin `canRunSql` · existing `/sql/exec-write` rail · unit-proven pure planner + verify-by-build UI). A
+super-admin **"Add index"** affordance on the OPEN table → pick columns (pick-order = index order) + optional name +
+UNIQUE → reviewable `CREATE [UNIQUE] INDEX` → runs on the write rail → the index surfaces in the SQL "Indexes" canned
+query. Serves the perf story ("warn before unindexed scans" / "FTS5 search only when an index exists" / "make index
+costs visible"). Non-destructive → no scary confirm; target EXISTS + is browsable → fully coherent.
+- **Pure core (`data-panel-logic.ts`, +11 Vitest):** `planCreateIndex(table, name, columns, unique)` → `{ ddl, error }`
+  via `buildCreateIndex` (drops blank cols; human error not a throw; injection-shaped column name → the `DdlError`
+  message). `suggestIndexName(table, cols)` → a sanitised `idx_<table>_<cols>` legal-identifier default so a blank name
+  auto-derives (pick columns → create). Single/composite/UNIQUE + injection refusal + name-sanitisation all proven.
+- **UI (`DataPanel.tsx`):** an "Add index" toolbar button (beside Add row / Import CSV, super-admin) → a builder panel:
+  name input (placeholder = the live suggestion), column chips with pick-order badges, a UNIQUE toggle (with an honest
+  "fails if existing rows already collide" note), live DDL `<pre>` preview, apply via `runSql(ddl)`. A dedicated
+  `createIndexPending` ref routes the reply for INLINE success/error; the flash message avoids the stale-closure trap
+  (uses a constant, not `indexUnique` state — the message effect has empty deps, per the #56 lesson).
+- Verified: editor Vitest **984/984** (+11) + tsc 0 + eslint 0 + build 0. **No worker/bridge/admin change** (reuses the
+  `PS_SQL_REQUEST` write path — zero deploy skew). Verify-by-build for the form; the compiler + refusals are unit-proven.
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize · #34 footer · #35 whole-query · #36 pins · #37 view · #40
+multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 NULL toggle · #46 BLOB · #47–#48 KV meta/TTL ·
+#49 R2 folders · #52–#55 live NL→answer + save-as-view · **#56–#57 the New-table + Add-index builder round-trips in a
+real authed browser (the DDL compilers + refusals are unit-proven; the forms + write-rail apply are verify-by-build).**
+**A dedicated real-browser + live-model eval fire remains the highest-value out-of-loop step.**
+
+**NEXT slice: schema builder — "Drop index" + an indexes list on the open table (schema slice 3) — OR the live-model eval RUN.**
+(a) **Manage indexes** — the read+drop companion to Add-index: show the OPEN table's existing indexes (query
+`PRAGMA index_list('<table>')` / `sqlite_master WHERE type='index'`), each with its columns + UNIQUE flag + a "Drop"
+action (`DROP INDEX "<name>"` via the write rail — DROP IS destructive, so it keeps the existing type-to-confirm). Makes
+the index surface a full round-trip (create→see→drop) instead of "created, now go find it in the SQL tab". Pure
+`planDropIndex(name)` (wires `schema-ddl.ts` — needs a small `buildDropIndex` added there) + a list fetch. Coherent, and
+the drop is scoped to indexes (never a table/column), so the destructive-confirm suffices. (b) The standing **live-model
+eval RUN** (real `@cf/meta/llama-3.3-70b` over the golden fixtures on prod, score question→intent QUALITY, record a
+`PROMPT_VERSION` baseline) remains the top out-of-loop step (needs a prod run). Recommend (a) — completes the index CRUD.

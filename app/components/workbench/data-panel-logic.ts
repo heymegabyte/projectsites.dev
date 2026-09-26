@@ -6,7 +6,7 @@
 import type { DataOverviewTable } from '~/lib/embed/embedded-mode';
 import { isoDayKey, blobCellInfo, humanBytes } from './data-cell-format';
 import type { CellAggregates } from './data-aggregates';
-import { buildCreateTable, DdlError } from './schema-ddl';
+import { buildCreateTable, buildCreateIndex, DdlError } from './schema-ddl';
 
 /** Phosphor icon per known table key; a sensible default for anything new. */
 const TABLE_ICONS: Record<string, string> = {
@@ -2822,6 +2822,62 @@ export function planCreateTable(
       ddl: null,
       error: e instanceof DdlError ? e.message : 'Could not build the CREATE TABLE statement.',
       warning: null,
+    };
+  }
+}
+
+/**
+ * Suggest a conventional index name for `table` + `columns` (`idx_<table>_<col1>_<col2>`), sanitised to a
+ * safe SQLite identifier (non-`[A-Za-z0-9_]` → `_`, leading digit prefixed with `_`) and length-capped.
+ * Used as the default when the owner leaves the name blank — so indexing is one action (pick columns → create).
+ */
+export function suggestIndexName(table: string, columns: readonly string[]): string {
+  const safe = (s: string): string => s.trim().replace(/[^A-Za-z0-9_]/g, '_');
+  const parts = [table, ...columns].map(safe).filter((s) => s !== '');
+  let name = `idx_${parts.join('_')}`.slice(0, 60);
+
+  // A generated name must be a legal bare identifier (letter/underscore start) for buildCreateIndex.
+  if (!/^[A-Za-z_]/.test(name)) {
+    name = `_${name}`;
+  }
+
+  return name;
+}
+
+/**
+ * Compile a guided "Add index" form into a reviewable `CREATE [UNIQUE] INDEX` — the pure, testable core of
+ * the index builder (schema slice 2, sibling of {@link planCreateTable}). Drops blank column entries, then
+ * {@link buildCreateIndex} validates + quotes every identifier (the injection boundary). Returns a human
+ * error instead of throwing so the form surfaces it inline. Adding an index is NON-destructive (pure perf,
+ * droppable); the DDL is shown BEFORE it runs, then executed via the authorized super-admin write rail.
+ */
+export function planCreateIndex(
+  table: string,
+  name: string,
+  columns: readonly string[],
+  unique: boolean,
+): { ddl: string | null; error: string | null } {
+  if (!table.trim()) {
+    return { ddl: null, error: 'No table selected.' };
+  }
+
+  const cols = columns.filter((c) => c.trim() !== '');
+
+  if (cols.length === 0) {
+    return { ddl: null, error: 'Select at least one column to index.' };
+  }
+
+  // Blank name → the conventional suggestion (so the owner can just pick columns and create).
+  const effectiveName = name.trim() || suggestIndexName(table, cols);
+
+  try {
+    const ddl = buildCreateIndex({ name: effectiveName, table: table.trim(), columns: cols, unique });
+
+    return { ddl, error: null };
+  } catch (e) {
+    return {
+      ddl: null,
+      error: e instanceof DdlError ? e.message : 'Could not build the CREATE INDEX statement.',
     };
   }
 }

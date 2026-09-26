@@ -137,6 +137,8 @@ import {
   monthFromDayKey,
   viewQueryFingerprint,
   planCreateTable,
+  planCreateIndex,
+  suggestIndexName,
   type NewColumnDraft,
 } from './data-panel-logic';
 import { bucketRowsByDate } from './view-models';
@@ -459,6 +461,18 @@ export const DataPanel = memo(() => {
   const [createError, setCreateError] = useState<string | null>(null);
   const createTablePending = useRef(false); // a CREATE TABLE is in flight → route the next PS_SQL_RESPONSE
   const createNameRef = useRef<string>(''); // the new table's name, captured at submit (effect has stale deps)
+
+  /*
+   * Guided "Add index" builder (super-admin schema workflow slice 2): pick columns of the OPEN table +
+   * an optional name + UNIQUE → a reviewable CREATE INDEX (non-destructive) that runs on the write rail.
+   */
+  const [addingIndex, setAddingIndex] = useState(false);
+  const [indexName, setIndexName] = useState('');
+  const [indexCols, setIndexCols] = useState<string[]>([]);
+  const [indexUnique, setIndexUnique] = useState(false);
+  const [indexBusy, setIndexBusy] = useState(false);
+  const [indexError, setIndexError] = useState<string | null>(null);
+  const createIndexPending = useRef(false); // a CREATE INDEX is in flight → route the next PS_SQL_RESPONSE
 
   /*
    * Row DELETE — the open table's primary-key column(s) (fetched via PRAGMA table_info when the
@@ -1171,6 +1185,53 @@ export const DataPanel = memo(() => {
     runSql(createPlan.ddl);
   }, [createPlan, createBusy, runSql, newTableName]);
 
+  /** The reviewable CREATE INDEX plan for the open table (pure — identifier validation + quoting). */
+  const indexPlan = useMemo(
+    () => planCreateIndex(active ?? '', indexName, indexCols, indexUnique),
+    [active, indexName, indexCols, indexUnique],
+  );
+
+  /** Open the Add-index builder (no columns picked yet; name auto-derives from the picks). */
+  const openIndexBuilder = useCallback(() => {
+    setIndexName('');
+    setIndexCols([]);
+    setIndexUnique(false);
+    setIndexError(null);
+    setAddingIndex(true);
+    setAddingRow(false);
+    setImportingCsv(false);
+  }, []);
+
+  const cancelIndexBuilder = useCallback(() => {
+    setAddingIndex(false);
+    setIndexError(null);
+    setIndexName('');
+    setIndexCols([]);
+    setIndexUnique(false);
+  }, []);
+
+  /** Toggle a column into/out of the index (order of selection = index column order). */
+  const toggleIndexCol = useCallback(
+    (col: string) => setIndexCols((cs) => (cs.includes(col) ? cs.filter((c) => c !== col) : [...cs, col])),
+    [],
+  );
+
+  /**
+   * Apply the CREATE INDEX — routes through the SAME super-admin write rail as New-table/Add-row
+   * ({@link runSql} → POST /sql/exec-write, re-guarded server-side). CREATE is non-destructive, so no
+   * type-to-confirm; the DDL was shown for review. The reply is caught by the createIndexPending branch.
+   */
+  const submitCreateIndex = useCallback(() => {
+    if (!indexPlan.ddl || indexBusy) {
+      return;
+    }
+
+    createIndexPending.current = true;
+    setIndexBusy(true);
+    setIndexError(null);
+    runSql(indexPlan.ddl);
+  }, [indexPlan, indexBusy, runSql]);
+
   const cancelAddRow = useCallback(() => {
     setAddingRow(false);
     setAddError('');
@@ -1427,6 +1488,18 @@ export const DataPanel = memo(() => {
           }
 
           /*
+           * A CREATE INDEX failed (e.g. a UNIQUE index over duplicate rows) → surface it IN the builder
+           * and keep it open so the user can drop UNIQUE / adjust columns; never a silent failure.
+           */
+          if (createIndexPending.current) {
+            createIndexPending.current = false;
+            setIndexBusy(false);
+            setIndexError(msg.error);
+
+            return;
+          }
+
+          /*
            * A row DELETE failed (e.g. FK constraint) → surface it visibly (the user is in tables
            * mode) and keep the row; never a silent failure.
            */
@@ -1494,6 +1567,29 @@ export const DataPanel = memo(() => {
             }
           }, 2400);
           requestOverview();
+
+          return;
+        }
+
+        /*
+         * A CREATE INDEX succeeded → close + reset the builder and flash. The index surfaces in the SQL
+         * "Indexes" canned query. Handled BEFORE the rows_affected gate (a DDL reply may carry no count).
+         */
+        if (createIndexPending.current) {
+          createIndexPending.current = false;
+          setIndexBusy(false);
+          setAddingIndex(false);
+          setIndexName('');
+          setIndexCols([]);
+          setIndexUnique(false);
+
+          const tok = ++copyToken.current;
+          setCopied('Index created');
+          setTimeout(() => {
+            if (copyToken.current === tok) {
+              setCopied('');
+            }
+          }, 2400);
 
           return;
         }
@@ -4292,6 +4388,20 @@ export const DataPanel = memo(() => {
                     <div className="i-ph:upload-simple" /> Import CSV
                   </button>
                 )}
+                {/* Add index — super-admin only; a non-destructive CREATE INDEX over the current table's
+                    columns (pure perf; surfaces in the SQL "Indexes" query). */}
+                {canRunSql && columns.length > 0 && activeTable.browsable !== false && (
+                  <button
+                    type="button"
+                    onClick={openIndexBuilder}
+                    data-testid="data-add-index-toggle"
+                    aria-expanded={addingIndex}
+                    className="text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer flex items-center gap-1"
+                    title="Create an index on this table (super-admin · improves query performance)"
+                  >
+                    <div className="i-ph:lightning" /> Add index
+                  </button>
+                )}
                 {/* Clear sort — visible only when a header-click sort is active; a multi-key sort
                     shows its count so the user knows how many columns drive the order. */}
                 {viewMode === 'grid' && browseSort.length > 0 && (
@@ -4671,6 +4781,111 @@ export const DataPanel = memo(() => {
                     setImportCsvText('');
                   }}
                   data-testid="data-import-cancel"
+                  className="cursor-pointer text-[11px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Add index → the current table (non-destructive CREATE INDEX via the super-admin write rail). */}
+          {addingIndex && (
+            <div
+              className="border-b border-bolt-elements-borderColor/50 bg-bolt-elements-background-depth-1 px-3 py-2"
+              data-testid="data-add-index-form"
+            >
+              <div className="mb-2 flex items-center gap-2">
+                <div className="i-ph:lightning text-bolt-elements-item-contentAccent" />
+                <span className="text-xs font-medium text-bolt-elements-textPrimary">Index on {activeTable.label}</span>
+                <span className="text-[10px] text-bolt-elements-textTertiary">
+                  developer · super-admin · non-destructive (improves query performance)
+                </span>
+              </div>
+
+              <input
+                value={indexName}
+                onChange={(e) => setIndexName(e.target.value)}
+                placeholder={active && indexCols.length ? suggestIndexName(active, indexCols) : 'index_name (auto)'}
+                data-testid="data-add-index-name"
+                spellCheck={false}
+                aria-label="Index name (blank = auto)"
+                className="mb-2 w-full rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1 font-mono text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-[#00e5ff]/50"
+              />
+
+              <div className="mb-2 text-[10px] text-bolt-elements-textTertiary">
+                Columns to index (pick order = index order):
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {columns.map((col, i) => {
+                  const pos = indexCols.indexOf(col);
+
+                  return (
+                    <button
+                      key={col}
+                      type="button"
+                      onClick={() => toggleIndexCol(col)}
+                      data-testid={`data-index-col-${i}`}
+                      aria-pressed={pos >= 0}
+                      className={classNames(
+                        'flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[11px] cursor-pointer',
+                        pos >= 0
+                          ? 'border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
+                          : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:border-bolt-elements-item-contentAccent/40',
+                      )}
+                    >
+                      {pos >= 0 && <span className="tabular-nums text-[9px] opacity-80">{pos + 1}</span>}
+                      {col}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <label className="mt-2 flex items-center gap-1.5 text-[11px] text-bolt-elements-textSecondary">
+                <input
+                  type="checkbox"
+                  checked={indexUnique}
+                  onChange={(e) => setIndexUnique(e.target.checked)}
+                  data-testid="data-add-index-unique"
+                  className="h-3.5 w-3.5 cursor-pointer"
+                />
+                UNIQUE (rejects duplicate values — fails if existing rows already collide)
+              </label>
+
+              {indexPlan.ddl && (
+                <pre
+                  className="mt-2 overflow-x-auto rounded bg-bolt-elements-background-depth-2 px-2 py-1 text-[10px] font-mono text-bolt-elements-textSecondary"
+                  data-testid="data-add-index-ddl"
+                >
+                  {indexPlan.ddl}
+                </pre>
+              )}
+
+              {(indexPlan.error || indexError) && (
+                <p className="mt-1.5 text-[11px] text-red-400" role="alert" data-testid="data-add-index-error">
+                  {indexError ?? indexPlan.error}
+                </p>
+              )}
+
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={submitCreateIndex}
+                  disabled={!indexPlan.ddl || indexBusy}
+                  data-testid="data-add-index-submit"
+                  className={classNames(
+                    'rounded px-2.5 py-1 text-[11px] font-medium',
+                    !indexPlan.ddl || indexBusy
+                      ? 'cursor-not-allowed bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary'
+                      : 'cursor-pointer bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:opacity-90',
+                  )}
+                >
+                  {indexBusy ? 'Creating…' : 'Create index'}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelIndexBuilder}
+                  data-testid="data-add-index-cancel"
                   className="cursor-pointer text-[11px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
                 >
                   Cancel
