@@ -6762,15 +6762,15 @@ export const DataPanel = memo(() => {
                 disabled={sqlRunning || !sql.trim()}
                 data-testid="data-sql-run"
                 className={classNames(
-                  'text-xs rounded-md px-3 py-1.5 flex items-center gap-1.5 transition-colors',
+                  'text-xs rounded-md px-3 py-1.5 flex items-center gap-1.5 font-semibold transition-colors',
                   sqlRunning || !sql.trim()
                     ? 'bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary cursor-not-allowed'
-                    : 'bg-bolt-elements-item-contentAccent/15 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-contentAccent/25 border border-bolt-elements-item-contentAccent/30 cursor-pointer',
+                    : 'bg-[#00E5FF] text-[#050510] hover:bg-[#4dedff] shadow-[0_0_18px_rgba(0,229,255,0.25)] cursor-pointer',
                 )}
               >
-                <div className={sqlRunning ? 'i-ph:circle-notch animate-spin' : 'i-ph:play'} />
+                <div className={sqlRunning ? 'i-ph:circle-notch animate-spin' : 'i-ph:play-fill'} />
                 {sqlRunning ? 'Running…' : 'Run'}
-                <kbd className="text-[9px] opacity-60 ml-0.5">⌘↵</kbd>
+                <kbd className="text-[9px] opacity-70 ml-0.5">⌘↵</kbd>
               </button>
               <button
                 type="button"
