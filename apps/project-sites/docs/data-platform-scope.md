@@ -447,12 +447,15 @@ deployed (their editor-only parts did, via the independent CF Pages pipeline). R
 `NODE_VERSION: '20.19.0'`, but Node 20 has **no built-in `node:sqlite`**; the 7 real-SQLite reconcile/provisioner
 suites (`helpers/d1_sqlite` → `node:sqlite`, the `verify-against-source-of-truth` guards) **threw at COLLECTION**
 on CI (`Object.<anonymous>` top-level) → 7 suites failed → deploy skipped. Local runs passed (Node 26 has sqlite
-stable), hiding it — a collect-time-throw-disables-the-gate class. Fix: bump `NODE_VERSION` **20.19.0 → 22.11.0**
-(the documented stack floor — global stack is "Node 22") + add **`--experimental-sqlite`** to the test-unit job's
-`NODE_OPTIONS` (Node 22 gates `node:sqlite` behind it; jest workers inherit `NODE_OPTIONS`). Validated in Docker on
-the exact `node:22.11.0` image: `node:sqlite` loads via that precise `NODE_OPTIONS` string (harmless
-ExperimentalWarning only); the 7 suites pass locally with the flag (27 tests). Unblocks the worker+admin deploy for
-#12 and every future worker fire. `.github/workflows/project-sites.yaml`.
+stable), hiding it — a collect-time-throw-disables-the-gate class. Fix: bump `NODE_VERSION` **20.19.0 → 22.20.0**
++ add **`--experimental-sqlite`** to the test-unit job's `NODE_OPTIONS` (Node 22 gates `node:sqlite` behind it;
+jest workers inherit `NODE_OPTIONS`). **Second latent failure unmasked once the test gate passed:** the Angular
+production build (`Deploy to Staging`) exited 3 because the **Angular CLI requires Node ≥ 22.12** — so the first
+attempt at 22.11.0 cleared node:sqlite but tripped Angular's engine floor. 22.20.0 (latest 22 LTS) clears BOTH the
+node:sqlite (≥22.5) and Angular (≥22.12) constraints while staying on the documented "Node 22" line. Validated in
+Docker on `node:22.20.0` with the exact CI `NODE_OPTIONS`: `node:sqlite` loads (harmless ExperimentalWarning only)
+and the version satisfies Angular's floor; the 7 suites pass locally with the flag (27 tests). Unblocks the
+worker+admin deploy for #12 and every future worker fire. `.github/workflows/project-sites.yaml`.
 
 **NEXT slice (per delivery order): the AND/OR filter-group builder** (fuller slice-3 — multiple conditions, not one
 column). The single-column operators just shipped are the deliberate stepping-stone: the builder needs a validated

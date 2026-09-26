@@ -32,12 +32,13 @@ on:
         type: boolean
 
 env:
-  # Node 22 LTS — the documented runtime floor (global stack: "Node 22"). Node 20 lacked the
-  # built-in `node:sqlite` module, so the 7 real-SQLite reconcile/provisioner test suites
-  # (helpers/d1_sqlite → node:sqlite) threw at COLLECTION on CI and silently skipped the
-  # Deploy-to-Production job. 22 ships node:sqlite (behind --experimental-sqlite, set in the
-  # test-unit job's NODE_OPTIONS below). See docs/data-platform-scope.md #13.
-  NODE_VERSION: '22.11.0'
+  # Node 22.20 LTS — the documented runtime floor (global stack: "Node 22"), chosen to satisfy
+  # TWO constraints at once: (1) node:sqlite (added 22.5, flag-gated) — Node 20 lacked it, so the
+  # 7 real-SQLite reconcile/provisioner suites (helpers/d1_sqlite) threw at COLLECTION and silently
+  # skipped Deploy-to-Production; (2) the Angular CLI's engine floor of **>= 22.12** (22.11 is
+  # rejected with exit 3 in the frontend build). 22.20 clears both. node:sqlite stays behind
+  # --experimental-sqlite (set in the test-unit job's NODE_OPTIONS below). See data-platform-scope.md #13.
+  NODE_VERSION: '22.20.0'
 
 jobs:
   # ─── Stage 1: Auto-fix + Lint + Typecheck ──────────────────
