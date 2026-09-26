@@ -43,6 +43,8 @@ import {
   filterGroupIsActive,
   type FilterCondition,
   normalizeViewMode,
+  kanbanGroupKey,
+  groupPageRows,
   galleryTitleField,
   galleryBodyFields,
   clampPageSize,
@@ -966,14 +968,39 @@ describe('normalizeCombinator (raw → AND/OR, default AND)', () => {
   });
 });
 
-describe('normalizeViewMode (grid | gallery, default grid)', () => {
-  it('passes gallery, defaults everything else to grid', () => {
+describe('normalizeViewMode (grid | gallery | kanban, default grid)', () => {
+  it('passes gallery + kanban, defaults everything else to grid', () => {
     expect(normalizeViewMode('gallery')).toBe('gallery');
+    expect(normalizeViewMode('kanban')).toBe('kanban');
     expect(normalizeViewMode('grid')).toBe('grid');
-    expect(normalizeViewMode('kanban')).toBe('grid');
+    expect(normalizeViewMode('calendar')).toBe('grid');
     expect(normalizeViewMode('')).toBe('grid');
     expect(normalizeViewMode(undefined)).toBe('grid');
     expect(normalizeViewMode(null)).toBe('grid');
+  });
+});
+
+describe('kanbanGroupKey + groupPageRows (bucket page rows for a kanban board)', () => {
+  it('kanbanGroupKey maps null/undefined to a sentinel distinct from the literal "null" string', () => {
+    expect(kanbanGroupKey('new')).toBe('new');
+    expect(kanbanGroupKey(5)).toBe('5');
+    expect(kanbanGroupKey(null)).toBe(kanbanGroupKey(undefined)); // null + undefined share the sentinel
+    expect(kanbanGroupKey('null')).not.toBe(kanbanGroupKey(null)); // sentinel ≠ the literal "null" string
+    expect(kanbanGroupKey('')).not.toBe(kanbanGroupKey(null)); // sentinel ≠ empty string
+  });
+
+  it('groupPageRows buckets rows by field value (null grouped under the sentinel)', () => {
+    const rows = [
+      { id: 1, status: 'new' },
+      { id: 2, status: 'new' },
+      { id: 3, status: 'done' },
+      { id: 4, status: null },
+    ];
+    const g = groupPageRows(rows, 'status');
+    expect(g.get('new')).toHaveLength(2);
+    expect(g.get('done')).toHaveLength(1);
+    expect(g.get(kanbanGroupKey(null))).toHaveLength(1);
+    expect(g.get('new')!.map((r) => r.id)).toEqual([1, 2]); // preserves order
   });
 });
 

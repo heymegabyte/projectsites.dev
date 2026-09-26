@@ -224,6 +224,14 @@ export interface DataRequestMessage {
   exportAll?: boolean;
 
   /**
+   * Kanban whole-query lane counts: when set (an allowlisted column), routes to
+   * `/data-overview/:table/group-counts` and the response `data` carries `groups: [{value,count}]` over
+   * the SAME filtered set (search + filters apply; pagination ignored). Lane totals are honest
+   * (whole-table); the CARDS remain the current page. Omit for a normal browse.
+   */
+  groupBy?: string;
+
+  /**
    * `0` = skip the server COUNT(*) (paging/sorting doesn't change the total, so the client reuses its
    * cached total — avoids an expensive exact count on every nav). Omitted / `1` = the worker counts
    * (table open, search/filter change, post-mutation). Then `total` on the response is `null`.
@@ -267,13 +275,19 @@ export interface DataResponseMessage {
     canRunSql?: boolean;
 
     /**
-     * Export only: `true` when the match set exceeded the server cap and the returned rows were sliced.
-     * The editor tells the owner the export is partial (+ suggests narrowing) rather than silently drop.
+     * `true` when a bounded result was sliced to the server cap: EXPORT (rows > row cap) OR kanban
+     * group-counts (distinct groups > group cap). The editor labels the partial result honestly.
      */
     truncated?: boolean;
 
     /** Export only: the server row cap ({@link MAX_EXPORT_ROWS}), for an honest "first N rows" message. */
     cap?: number;
+
+    /** Kanban group-counts only: whole-query lane totals for `groupBy`, ordered by count desc. */
+    groups?: Array<{ value: unknown; count: number }>;
+
+    /** Kanban group-counts only: the column the {@link groups} were grouped by. */
+    groupBy?: string;
   } | null;
 
   /**
@@ -810,10 +824,10 @@ export interface SavedGridView {
   search: string;
 
   /** Render type — the grid restores this view mode on apply. */
-  type: 'grid' | 'gallery';
+  type: 'grid' | 'gallery' | 'kanban';
 
-  /** View-type display config (gallery: the card-title column). */
-  config: { titleField?: string };
+  /** View-type display config (gallery/kanban card-title column; kanban group-by column). */
+  config: { titleField?: string; groupField?: string };
   updatedAt: string | null;
 }
 

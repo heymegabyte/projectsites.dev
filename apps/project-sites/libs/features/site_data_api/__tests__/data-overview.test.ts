@@ -20,6 +20,8 @@ import {
   serializeGridView,
   normalizeGridViewType,
   parseGridViewConfig,
+  buildGroupCountSql,
+  MAX_KANBAN_GROUPS,
   MAX_GRID_VIEWS_PER_TABLE,
   deletableTableName,
   DELETABLE_OVERVIEW_TABLES,
@@ -542,12 +544,14 @@ describe('serializeGridView (stored row → client view; hardens filters, hides 
   });
 });
 
-describe('normalizeGridViewType (grid | gallery, default grid)', () => {
-  it('whitelists grid/gallery (case-insensitive), defaults everything else to grid', () => {
+describe('normalizeGridViewType (grid | gallery | kanban, default grid)', () => {
+  it('whitelists grid/gallery/kanban (case-insensitive), defaults everything else to grid', () => {
     expect(normalizeGridViewType('gallery')).toBe('gallery');
     expect(normalizeGridViewType('GRID')).toBe('grid');
     expect(normalizeGridViewType(' Gallery ')).toBe('gallery');
-    expect(normalizeGridViewType('kanban')).toBe('grid');
+    expect(normalizeGridViewType('kanban')).toBe('kanban');
+    expect(normalizeGridViewType(' KANBAN ')).toBe('kanban');
+    expect(normalizeGridViewType('calendar')).toBe('grid'); // not yet supported → default
     expect(normalizeGridViewType('')).toBe('grid');
     expect(normalizeGridViewType(undefined)).toBe('grid');
     expect(normalizeGridViewType(null)).toBe('grid');
@@ -565,6 +569,16 @@ describe('parseGridViewConfig (view display config; string OR object; never thro
   it('accepts an incoming config OBJECT (the POST body), not just a stored string', () => {
     expect(parseGridViewConfig({ titleField: 'status' })).toEqual({ titleField: 'status' });
     expect(parseGridViewConfig({ titleField: 5 })).toEqual({}); // non-string dropped
+  });
+
+  it('honors a bounded kanban groupField alongside titleField', () => {
+    expect(parseGridViewConfig('{"titleField":"email","groupField":"status"}')).toEqual({
+      titleField: 'email',
+      groupField: 'status',
+    });
+    expect(parseGridViewConfig({ groupField: '  status  ' })).toEqual({ groupField: 'status' });
+    expect(parseGridViewConfig(`{"groupField":"${'g'.repeat(200)}"}`).groupField).toBe('g'.repeat(64));
+    expect(parseGridViewConfig({ groupField: 7 })).toEqual({}); // non-string dropped
   });
 
   it('returns {} for malformed / empty / non-object / array (never throws)', () => {
@@ -617,6 +631,27 @@ describe('composeBrowseFilter (shared browse+export WHERE-suffix)', () => {
       clause: '',
       params: [],
     });
+  });
+});
+
+describe('buildGroupCountSql (whole-query kanban lane counts)', () => {
+  it('derives a GROUP BY count from countSql, injecting the filter clause + a LIMIT', () => {
+    const spec = { countSql: 'SELECT COUNT(*) AS n FROM form_submissions WHERE site_id = ?' };
+    expect(buildGroupCountSql(spec, 'status', ' AND "status" = ?')).toBe(
+      'SELECT "status" AS value, COUNT(*) AS n FROM form_submissions WHERE site_id = ? AND "status" = ? GROUP BY "status" ORDER BY n DESC LIMIT ?',
+    );
+  });
+
+  it('preserves a soft-delete filter (extra clause is injected AFTER `WHERE site_id = ?`)', () => {
+    const spec = { countSql: 'SELECT COUNT(*) AS n FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL' };
+    expect(buildGroupCountSql(spec, 'build_version', '')).toBe(
+      'SELECT "build_version" AS value, COUNT(*) AS n FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL GROUP BY "build_version" ORDER BY n DESC LIMIT ?',
+    );
+  });
+
+  it('exposes a sane group cap', () => {
+    expect(MAX_KANBAN_GROUPS).toBeGreaterThan(0);
+    expect(MAX_KANBAN_GROUPS).toBeLessThanOrEqual(200);
   });
 });
 

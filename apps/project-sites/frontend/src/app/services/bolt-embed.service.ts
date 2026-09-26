@@ -97,6 +97,8 @@ interface PsMessage {
   readonly count?: number;
   /** PS_DATA_REQUEST: export the WHOLE current query (routes to /data-overview/:table/export). */
   readonly exportAll?: boolean;
+  /** PS_DATA_REQUEST: kanban whole-query lane counts — routes to /data-overview/:table/group-counts. */
+  readonly groupBy?: string;
   /** PS_VIEW_REQUEST (saved grid views): `list` | `save` | `delete`. */
   readonly action?: string;
   /** PS_VIEW_REQUEST delete: the view id. */
@@ -721,35 +723,46 @@ export class BoltEmbedService {
             reply({ error: 'No site selected' });
             break;
           }
-          // Whole-query export routes to the /export endpoint (bounded, all matching rows) and drops
-          // the pagination/count params; sort + search + filters still apply so the file matches the grid.
+          // Three routing modes off /data-overview/:table: whole-query EXPORT (/export, all rows),
+          // kanban GROUP-COUNTS (/group-counts, whole-query lane totals), or the paginated browse.
+          // Export + group-counts drop pagination/count; all three share the sort/search/filter params.
           const isExport = msg.exportAll === true && !!table;
+          const browseGroupBy =
+            typeof msg.groupBy === 'string' && msg.groupBy.trim() ? msg.groupBy.trim().slice(0, 64) : undefined;
+          const isGroupCounts = !!browseGroupBy && !!table && !isExport;
+          // The search + filter query params (shared by all three modes).
+          const filterParams: Record<string, string> = {
+            ...(browseSearch ? { search: browseSearch } : {}),
+            ...(browseFilters
+              ? {
+                  filters: browseFilters,
+                  ...(browseFilterCombinator ? { filterCombinator: browseFilterCombinator } : {}),
+                }
+              : browseFilterCol && (browseFilterValueFree || browseFilterVal)
+                ? {
+                    filterCol: browseFilterCol,
+                    ...(browseFilterOp ? { filterOp: browseFilterOp } : {}),
+                    ...(browseFilterValueFree ? {} : { filterVal: browseFilterVal as string }),
+                  }
+                : {}),
+          };
+          const suffix = isExport ? '/export' : isGroupCounts ? '/group-counts' : '';
           const path = table
-            ? `/sites/${site.id}/data-overview/${encodeURIComponent(table)}${isExport ? '/export' : ''}`
+            ? `/sites/${site.id}/data-overview/${encodeURIComponent(table)}${suffix}`
             : `/sites/${site.id}/data-overview`;
           this.api
             .get<{ data?: unknown; total?: number }>(
               path,
               table
-                ? {
-                    ...(isExport ? {} : { limit: String(browseLimit), offset: String(browseOffset) }),
-                    ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),
-                    ...(browseOrderBy && browseDir ? { dir: browseDir } : {}),
-                    ...(browseSearch ? { search: browseSearch } : {}),
-                    ...(browseFilters
-                      ? {
-                          filters: browseFilters,
-                          ...(browseFilterCombinator ? { filterCombinator: browseFilterCombinator } : {}),
-                        }
-                      : browseFilterCol && (browseFilterValueFree || browseFilterVal)
-                        ? {
-                            filterCol: browseFilterCol,
-                            ...(browseFilterOp ? { filterOp: browseFilterOp } : {}),
-                            ...(browseFilterValueFree ? {} : { filterVal: browseFilterVal as string }),
-                          }
-                        : {}),
-                    ...(browseSkipCount && !isExport ? { count: '0' } : {}),
-                  }
+                ? isGroupCounts
+                  ? { groupBy: browseGroupBy as string, ...filterParams }
+                  : {
+                      ...(isExport ? {} : { limit: String(browseLimit), offset: String(browseOffset) }),
+                      ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),
+                      ...(browseOrderBy && browseDir ? { dir: browseDir } : {}),
+                      ...filterParams,
+                      ...(browseSkipCount && !isExport ? { count: '0' } : {}),
+                    }
                 : undefined,
               { silent: true },
             )

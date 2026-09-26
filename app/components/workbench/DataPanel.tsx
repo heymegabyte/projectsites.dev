@@ -99,6 +99,8 @@ import {
   type ViewMode,
   galleryTitleField,
   galleryBodyFields,
+  kanbanGroupKey,
+  groupPageRows,
 } from './data-panel-logic';
 import { SqlEditor } from './SqlEditor';
 import { classNames } from '~/utils/classNames';
@@ -386,6 +388,17 @@ export const DataPanel = memo(() => {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [galleryTitleCol, setGalleryTitleCol] = useState<string | null>(null);
 
+  /**
+   * Kanban board: the group-by column (null → pick one first) + the WHOLE-QUERY lane counts fetched from
+   * the group-counts endpoint (honest totals; the cards in each lane are the current page's rows). No
+   * client-side auto-detect — the owner chooses a status-like column.
+   */
+  const [kanbanGroupCol, setKanbanGroupCol] = useState<string | null>(null);
+  const [kanbanGroups, setKanbanGroups] = useState<Array<{ value: unknown; count: number }>>([]);
+  const [kanbanGroupsTruncated, setKanbanGroupsTruncated] = useState(false);
+  const [kanbanBusy, setKanbanBusy] = useState(false);
+  const kanbanGroupsCid = useRef<string | null>(null);
+
   /*
    * The current open table, mirrored into a ref so the mount-only message listener (deps []) reads the
    * LATEST value instead of the stale mount-time closure (the []-deps stale-ref gotcha).
@@ -666,6 +679,9 @@ export const DataPanel = memo(() => {
       setFilterCombinator('AND'); // reset the join to the default
       setViewMode('grid'); // a fresh table opens in the dense grid
       setGalleryTitleCol(null); // and with the default card-title field
+      setKanbanGroupCol(null); // no kanban group chosen yet
+      setKanbanGroups([]);
+      setKanbanGroupsTruncated(false);
 
       if (searchTimer.current) {
         clearTimeout(searchTimer.current);
@@ -1329,6 +1345,19 @@ export const DataPanel = memo(() => {
        * Whole-query export reply — matched on the export cid BEFORE the browse handling so it downloads
        * a file instead of replacing the grid. Uses refs only (mount-only listener → no stale closure).
        */
+      // Kanban whole-query lane counts — matched on its own cid (refs only → no stale closure).
+      if (msg.correlationId === kanbanGroupsCid.current) {
+        kanbanGroupsCid.current = null;
+        setKanbanBusy(false);
+
+        if (!msg.error) {
+          setKanbanGroups(Array.isArray(msg.data?.groups) ? msg.data.groups : []);
+          setKanbanGroupsTruncated(!!msg.data?.truncated);
+        }
+
+        return;
+      }
+
       if (msg.correlationId === exportCid.current) {
         exportCid.current = null;
         setExportBusy(false);
@@ -1784,10 +1813,23 @@ export const DataPanel = memo(() => {
 
       // Persist the render type + gallery card-title so applying the view restores the whole layout.
       viewType: viewMode,
-      viewConfig: viewMode === 'gallery' && galleryTitleCol ? { titleField: galleryTitleCol } : {},
+      viewConfig: {
+        ...(galleryTitleCol ? { titleField: galleryTitleCol } : {}),
+        ...(viewMode === 'kanban' && kanbanGroupCol ? { groupField: kanbanGroupCol } : {}),
+      },
       correlationId: cid,
     });
-  }, [active, saveViewName, search, filterConditions, filterCombinator, browseSort, viewMode, galleryTitleCol]);
+  }, [
+    active,
+    saveViewName,
+    search,
+    filterConditions,
+    filterCombinator,
+    browseSort,
+    viewMode,
+    galleryTitleCol,
+    kanbanGroupCol,
+  ]);
 
   /** Delete a saved view (optimistic removal; the list reloads on error). */
   const deleteView = useCallback(
@@ -1855,10 +1897,13 @@ export const DataPanel = memo(() => {
         sortDir: browseSort?.dir ?? null,
         search,
         viewType: viewMode,
-        viewConfig: viewMode === 'gallery' && galleryTitleCol ? { titleField: galleryTitleCol } : {},
+        viewConfig: {
+          ...(galleryTitleCol ? { titleField: galleryTitleCol } : {}),
+          ...(viewMode === 'kanban' && kanbanGroupCol ? { groupField: kanbanGroupCol } : {}),
+        },
       });
     },
-    [search, filterConditions, filterCombinator, browseSort, viewMode, galleryTitleCol, sendViewUpdate],
+    [search, filterConditions, filterCombinator, browseSort, viewMode, galleryTitleCol, kanbanGroupCol, sendViewUpdate],
   );
 
   /** Rename a saved view — new name, but PRESERVE its stored query (rename must not rewrite the query). */
@@ -1906,6 +1951,7 @@ export const DataPanel = memo(() => {
       // Restore the saved render type + gallery card-title (config may be absent on legacy views).
       setViewMode(view.type === 'gallery' ? 'gallery' : 'grid');
       setGalleryTitleCol(view.config?.titleField ?? null);
+      setKanbanGroupCol(view.config?.groupField ?? null);
       setViewsMenuOpen(false);
       setBrowseOffset(0);
       setRows([]);
@@ -1934,6 +1980,41 @@ export const DataPanel = memo(() => {
       setSavedViews([]);
     }
   }, [active, loadViews]);
+
+  /** Fetch the kanban board's WHOLE-QUERY lane counts (honest totals over the current search+filters). */
+  const loadKanbanGroups = useCallback((): void => {
+    if (!isEmbedded || !active || !kanbanGroupCol) {
+      return;
+    }
+
+    const cid = newCorrelationId('kanban-groups');
+    kanbanGroupsCid.current = cid;
+    setKanbanBusy(true);
+
+    const params = filtersToParams({ search, conditions: filterConditions, combinator: filterCombinator });
+    postToParent({
+      type: 'PS_DATA_REQUEST',
+      table: active,
+      groupBy: kanbanGroupCol,
+      ...(params.search ? { search: params.search } : {}),
+      ...(params.filters ? { filters: params.filters } : {}),
+      ...(params.filterCombinator ? { filterCombinator: params.filterCombinator } : {}),
+      correlationId: cid,
+    });
+  }, [active, kanbanGroupCol, search, filterConditions, filterCombinator]);
+
+  /*
+   * Re-fetch lane counts whenever the board is shown, the group column changes, or the filters change
+   * (so lane totals stay honest to the current query); clear them when not in kanban / no column chosen.
+   */
+  useEffect(() => {
+    if (viewMode === 'kanban' && kanbanGroupCol && active) {
+      loadKanbanGroups();
+    } else {
+      setKanbanGroups([]);
+      setKanbanGroupsTruncated(false);
+    }
+  }, [viewMode, kanbanGroupCol, active, loadKanbanGroups]);
 
   /**
    * Rows-per-page change: update the ref (so `requestRows` uses the new size THIS tick) + state, then
@@ -2749,7 +2830,43 @@ export const DataPanel = memo(() => {
                     >
                       <div className="i-ph:squares-four" />
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('kanban')}
+                      aria-pressed={viewMode === 'kanban'}
+                      data-testid="data-view-kanban"
+                      title="Kanban (board) view — group by a column"
+                      className={classNames(
+                        'rounded p-1 text-xs transition-colors',
+                        viewMode === 'kanban'
+                          ? 'bg-[#00e5ff]/15 text-[#00e5ff]'
+                          : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
+                      )}
+                    >
+                      <div className="i-ph:kanban" />
+                    </button>
                   </div>
+                )}
+                {viewMode === 'kanban' && active && rows.length > 0 && columns.length > 0 && (
+                  <label
+                    className="flex items-center gap-1 text-[10px] text-bolt-elements-textTertiary"
+                    data-testid="data-kanban-group-field"
+                  >
+                    Group by
+                    <select
+                      value={kanbanGroupCol ?? ''}
+                      onChange={(e) => setKanbanGroupCol(e.target.value || null)}
+                      aria-label="Kanban group-by field"
+                      className="rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none"
+                    >
+                      <option value="">Choose column…</option>
+                      {columns.map((c) => (
+                        <option key={c} value={c}>
+                          {columnLabel(c)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 )}
                 {viewMode === 'gallery' && active && rows.length > 0 && columns.length > 0 && (
                   <label
@@ -3982,6 +4099,132 @@ export const DataPanel = memo(() => {
                   </div>
                 );
               })()}
+            </div>
+          )}
+
+          {/* Kanban board — lanes = the WHOLE-QUERY group counts (honest totals from the group-counts
+              endpoint); the CARDS in each lane are the current page's rows for that group (labeled
+              "N of <count> shown"). Cards reuse the gallery card render + classifyCell. */}
+          {!browseLoading && !browseError && visibleRows.length > 0 && viewMode === 'kanban' && (
+            <div className="flex-1 overflow-auto modern-scrollbar p-3" data-testid="data-kanban">
+              {!kanbanGroupCol ? (
+                <div className="p-4 text-center text-[11px] text-bolt-elements-textTertiary">
+                  Choose a column to group by (top right) to build the board.
+                </div>
+              ) : (
+                (() => {
+                  const galTitle = galleryTitleField(visibleCols, galleryTitleCol);
+                  const galBody = galleryBodyFields(visibleCols, galTitle).filter((c) => c !== kanbanGroupCol);
+                  const pageBuckets = groupPageRows(visibleRows, kanbanGroupCol);
+
+                  return (
+                    <>
+                      {kanbanGroupsTruncated && (
+                        <div
+                          className="mb-2 text-[10px] text-bolt-elements-textTertiary"
+                          data-testid="data-kanban-truncated"
+                        >
+                          Showing the top {kanbanGroups.length} groups by size.
+                        </div>
+                      )}
+                      <div className="flex items-start gap-3">
+                        {kanbanGroups.map((lane) => {
+                          const key = kanbanGroupKey(lane.value);
+                          const laneRows = pageBuckets.get(key) ?? [];
+                          const label =
+                            lane.value === null || lane.value === undefined ? '(empty)' : String(lane.value);
+
+                          return (
+                            <div
+                              key={key}
+                              data-testid="data-kanban-lane"
+                              className="w-64 shrink-0 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1"
+                            >
+                              <div className="flex items-baseline justify-between gap-2 border-b border-bolt-elements-borderColor/50 bg-bolt-elements-background-depth-2 px-2.5 py-1.5">
+                                <span
+                                  className="truncate text-[11px] font-semibold text-bolt-elements-textPrimary"
+                                  title={label}
+                                >
+                                  {label}
+                                </span>
+                                <span
+                                  className="shrink-0 text-[10px] text-[#00e5ff]"
+                                  title="Whole-table count for this group"
+                                >
+                                  {lane.count.toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="flex flex-col gap-2 p-2">
+                                {laneRows.map((r, i) => {
+                                  const titleCell = galTitle ? classifyCell(r[galTitle]) : null;
+
+                                  return (
+                                    <div
+                                      key={rowPkKey(r, browsePkCols) ?? `row-${i}`}
+                                      data-testid="data-kanban-card"
+                                      className="rounded-md border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-2 p-2"
+                                    >
+                                      <div
+                                        className="truncate text-[11px] font-medium text-bolt-elements-textPrimary"
+                                        title={titleCell?.title ?? titleCell?.display ?? ''}
+                                      >
+                                        {titleCell?.display ? (
+                                          <span className={titleCell.className}>{titleCell.display}</span>
+                                        ) : (
+                                          <span className="italic text-bolt-elements-textTertiary">(untitled)</span>
+                                        )}
+                                      </div>
+                                      <dl className="mt-1 flex flex-col gap-0.5">
+                                        {galBody.slice(0, 4).map((c) => {
+                                          const cell = classifyCell(r[c]);
+
+                                          return (
+                                            <div key={c} className="flex items-baseline gap-1.5 text-[10px]">
+                                              <dt className="shrink-0 text-bolt-elements-textTertiary">
+                                                {columnLabel(c)}
+                                              </dt>
+                                              <dd
+                                                className="min-w-0 flex-1 truncate text-bolt-elements-textSecondary"
+                                                title={cell.title ?? cell.display}
+                                              >
+                                                {cell.href ? (
+                                                  <a
+                                                    href={cell.href}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer nofollow"
+                                                    className={cell.className}
+                                                  >
+                                                    {cell.display}
+                                                  </a>
+                                                ) : (
+                                                  <span className={cell.className}>{cell.display}</span>
+                                                )}
+                                              </dd>
+                                            </div>
+                                          );
+                                        })}
+                                      </dl>
+                                    </div>
+                                  );
+                                })}
+                                <div
+                                  className="text-[9px] text-bolt-elements-textTertiary"
+                                  data-testid="data-kanban-lane-note"
+                                >
+                                  {laneRows.length} of {lane.count.toLocaleString()} shown (current page)
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {kanbanGroups.length === 0 && !kanbanBusy && (
+                          <div className="p-4 text-[11px] text-bolt-elements-textTertiary">No groups found.</div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()
+              )}
             </div>
           )}
         </div>

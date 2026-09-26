@@ -29,12 +29,14 @@ function makeD1(opts: {
   siteOwned?: boolean;
   rows?: Record<string, unknown>[];
   total?: number;
+  groupRows?: Array<{ value: unknown; n: number }>;
 }): D1Database {
   const siteOwned = opts.siteOwned !== false;
   const rows = opts.rows ?? [
     { id: 'r1', event_type: 'pageview', url: '/foo', created_at: '2024-01-01' },
   ];
   const total = opts.total ?? rows.length;
+  const groupRows = opts.groupRows ?? [];
 
   const prepare = jest.fn().mockImplementation((sql: string) => {
     const upper = sql.trim().toUpperCase();
@@ -43,6 +45,14 @@ function makeD1(opts: {
     if (upper.startsWith('SELECT 1') && upper.includes('FROM SITES')) {
       return {
         bind: () => ({ first: () => Promise.resolve(siteOwned ? { ok: 1 } : null) }),
+      };
+    }
+
+    // kanban group-count query (COUNT(*) WITH a GROUP BY) — checked BEFORE the plain COUNT(*) branch,
+    // since it returns MANY rows via .all() rather than a single .first() total.
+    if (upper.includes('GROUP BY')) {
+      return {
+        bind: () => ({ all: () => Promise.resolve({ results: groupRows }) }),
       };
     }
 
@@ -286,5 +296,60 @@ describe('GET /api/sites/:siteId/data-overview/:table/export (whole-query export
     const body = (await res.json()) as { data: { rows: unknown[]; truncated: boolean } };
     expect(body.data.truncated).toBe(true);
     expect(body.data.rows).toHaveLength(MAX_EXPORT_ROWS); // sliced to the cap, not MAX+1
+  });
+});
+
+describe('GET /api/sites/:siteId/data-overview/:table/group-counts (kanban whole-query lane counts)', () => {
+  function gcReq(siteId: string, table: string, params: Record<string, string> = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return new Request(
+      `http://localhost/api/sites/${siteId}/data-overview/${table}/group-counts${qs ? `?${qs}` : ''}`,
+    );
+  }
+
+  it('404 when the site belongs to a different org (IDOR guard)', async () => {
+    const DB = makeD1({ siteOwned: false });
+    const res = await makeApp(DB).request(
+      gcReq('site-1', 'form_submissions', { groupBy: 'status' }),
+      {},
+      { DB } as unknown as Env,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('400 when groupBy is missing or not an allowlisted column (injection boundary)', async () => {
+    const DB = makeD1({});
+    const missing = await makeApp(DB).request(gcReq('site-1', 'form_submissions'), {}, { DB } as unknown as Env);
+    expect(missing.status).toBe(400);
+    const hostile = await makeApp(DB).request(
+      gcReq('site-1', 'form_submissions', { groupBy: 'status; DROP TABLE x--' }),
+      {},
+      { DB } as unknown as Env,
+    );
+    expect(hostile.status).toBe(400);
+  });
+
+  it('returns whole-query {value,count} groups for an allowlisted column', async () => {
+    const DB = makeD1({
+      groupRows: [
+        { value: 'new', n: 247 },
+        { value: 'contacted', n: 88 },
+      ],
+    });
+    const res = await makeApp(DB).request(
+      gcReq('site-1', 'form_submissions', { groupBy: 'status' }),
+      {},
+      { DB } as unknown as Env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { groupBy: string; groups: Array<{ value: unknown; count: number }>; truncated: boolean };
+    };
+    expect(body.data.groupBy).toBe('status');
+    expect(body.data.groups).toEqual([
+      { value: 'new', count: 247 },
+      { value: 'contacted', count: 88 },
+    ]);
+    expect(body.data.truncated).toBe(false);
   });
 });

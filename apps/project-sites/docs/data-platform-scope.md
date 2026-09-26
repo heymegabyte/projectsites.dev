@@ -579,12 +579,31 @@ delete + re-create. Added the missing verb end-to-end (no migration — reuses t
   admin tsc 0 + `ng build --configuration production` ✓. Editor → CF Pages, worker+admin → Worker CI. Saved-views CRUD
   is now complete (create/read/apply/**update**/**rename**/delete).
 
-**NEXT slice (per delivery order): the next non-grid VIEW — KANBAN** (group cards by a status-like column). Reuse the
-gallery card render + the saved-view `type`/`config` (add `kanban` to `GRID_VIEW_TYPES` + `normalizeGridViewType`/
-editor `ViewMode`; config `{groupField, titleField}`). CRITICAL honesty gate (per `data-tab-page-vs-whole-query-honesty`):
-per-column group counts MUST reflect the whole filtered query or be explicitly labelled "on this page" — a grouped
-board over one page of rows silently under-counts. Prefer a bounded whole-query group-count endpoint (reuse
-`composeBrowseFilter` + a `GROUP BY` with a fixed column allowlist) OR label the board page-only. Alternatives: **charts**
-(same honesty gate on aggregates); a drift-aware "modified — update view?" badge (now that Update exists, detect when
-the live query diverges from the applied view); a click-to-open record drawer shared by grid+gallery+kanban; async
-export JOBS >10k; nested filter-tree; grid eval (RevoGrid vs Tabulator).
+### ✅ Shipped next fire (2026-09-26 #20) — KANBAN board with HONEST whole-query lane counts
+The third non-grid view: a Grid⇄Gallery⇄**Kanban** toggle that groups the browse rows into lanes by a status-like
+column, with lane totals computed over the WHOLE filtered query (not the loaded page — the honesty gate).
+- **Worker (`site_data_api/handlers.ts`)** — new `GET /data-overview/:table/group-counts?groupBy=&…filters` returns
+  `[{value,count}]` per distinct group over the SAME filtered set (reuses `composeBrowseFilter`), bounded to
+  **`MAX_KANBAN_GROUPS=50`** via `LIMIT MAX+1` → `truncated`. `groupBy` MUST be an allowlisted column (else 400 — the
+  injection boundary; the identifier is quoted, never bound). Pure `buildGroupCountSql` derives the `GROUP BY` count
+  from the table's `countSql` (keeps the soft-delete filter). `kanban` added to `GRID_VIEW_TYPES`; `parseGridViewConfig`
+  gains a bounded `groupField`. +9 Jest (buildGroupCountSql shape, group-counts route via D1 mock, config/type).
+- **Bridge** — `PS_DATA_REQUEST.groupBy` routes to `/group-counts` (drops pagination); response `data.groups` +
+  `truncated`. `SavedGridView.config` gains `groupField`.
+- **Editor (`DataPanel.tsx` + `data-panel-logic.ts`)** — `ViewMode` gains `kanban`; pure `kanbanGroupKey` +
+  `groupPageRows` (bucket the page's rows; null → collision-proof sentinel). A kanban toggle + a "Group by" picker;
+  lanes render from the whole-query `kanbanGroups` (**lane header = honest whole-table count**, cyan), cards are the
+  current page's rows for that group (**labeled "N of <count> shown (current page)"** — the honesty gate satisfied),
+  reusing `classifyCell` + the gallery card fields. Group-counts re-fetch on filter/search/group-field change. Persists
+  as a saved-view type (`kanban` + `{groupField, titleField}`); apply restores mode + group + title. +2 Vitest.
+- Verified: worker Jest **12769/12769** (795 suites) + tsc 0; editor Vitest **224/224** + tsc 0 + eslint 0 + build ✓;
+  admin tsc 0 + `ng build --configuration production` ✓. NO migration (reuses #18 `type`/`config_json`). Editor → CF
+  Pages, worker+admin → Worker CI. Three views now: grid · gallery · kanban.
+
+**NEXT slice (per delivery order): CHARTS** (the remaining rich view) — a bar/line chart over a whole-query aggregate
+(reuse the group-counts endpoint for a categorical bar chart: value → count; extend it with an optional numeric
+`agg=sum|avg` over a second column for value charts). SAME honesty gate: chart totals are whole-query, never
+page-only. Persist as a `chart` view type + config `{groupField, aggField, aggFn, chartType}`. Alternatives: a
+**drift-aware "modified — update view?"** badge (Update exists since #19 — detect live-query divergence from the applied
+view); a click-to-open record drawer shared by grid+gallery+kanban (cards are display-only today); async export JOBS
+>10k; nested filter-tree; grid eval (RevoGrid vs Tabulator).

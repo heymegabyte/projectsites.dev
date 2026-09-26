@@ -546,7 +546,7 @@ export function normalizeSortDir(raw: unknown): 'asc' | 'desc' | null {
  * client already scopes by session; they're server-side bookkeeping).
  */
 /** The render types a saved view can carry — mirrors the editor's `ViewMode`. */
-export const GRID_VIEW_TYPES = ['grid', 'gallery'] as const;
+export const GRID_VIEW_TYPES = ['grid', 'gallery', 'kanban'] as const;
 export type GridViewType = (typeof GRID_VIEW_TYPES)[number];
 
 /** Coerce a raw view type to a whitelisted {@link GridViewType}; unknown/absent → `grid`. */
@@ -560,11 +560,12 @@ export function normalizeGridViewType(raw: unknown): GridViewType {
 /**
  * Parse a saved view's display config into a bounded, shape-hardened object — accepts EITHER the stored
  * `config_json` string OR an incoming config object (the POST body). NEVER throws (malformed → `{}`).
- * Only `titleField` (the gallery card-title column, ≤64 chars) is honored today; unknown keys are
- * dropped. The editor re-validates `titleField` against the live columns at render (a stale field just
- * falls back to the default) — this is shape-hardening, not authorization.
+ * Honored keys: `titleField` (gallery/kanban card-title column) + `groupField` (kanban group-by
+ * column), each a string ≤64 chars; unknown keys are dropped. The editor re-validates both against the
+ * live columns at render (a stale field falls back to a default) — this is shape-hardening, not
+ * authorization.
  */
-export function parseGridViewConfig(raw: unknown): { titleField?: string } {
+export function parseGridViewConfig(raw: unknown): { titleField?: string; groupField?: string } {
   let obj: unknown = raw;
   if (typeof raw === 'string') {
     if (!raw) return {};
@@ -576,9 +577,12 @@ export function parseGridViewConfig(raw: unknown): { titleField?: string } {
   }
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
   const rec = obj as Record<string, unknown>;
-  const out: { titleField?: string } = {};
+  const out: { titleField?: string; groupField?: string } = {};
   if (typeof rec.titleField === 'string' && rec.titleField.trim()) {
     out.titleField = rec.titleField.trim().slice(0, 64);
+  }
+  if (typeof rec.groupField === 'string' && rec.groupField.trim()) {
+    out.groupField = rec.groupField.trim().slice(0, 64);
   }
   return out;
 }
@@ -593,7 +597,7 @@ export function serializeGridView(row: Record<string, unknown>): {
   sortDir: 'asc' | 'desc' | null;
   search: string;
   type: GridViewType;
-  config: { titleField?: string };
+  config: { titleField?: string; groupField?: string };
   updatedAt: string | null;
 } {
   return {
@@ -865,6 +869,27 @@ export function composeBrowseFilter(
   return { clause: `${searchClause}${filterClause}`, params: [...searchParams, ...filterParams] };
 }
 
+/** Max distinct groups a kanban group-count returns — bounded; `LIMIT MAX+1` detects overflow. */
+export const MAX_KANBAN_GROUPS = 50;
+
+/**
+ * Build the WHOLE-QUERY group-count SQL for a kanban board: derive `SELECT "<groupBy>" AS value,
+ * COUNT(*) AS n … GROUP BY "<groupBy>" ORDER BY n DESC LIMIT ?` from the table's `countSql` (which
+ * already carries the right FROM + `WHERE site_id = ?` + soft-delete filter), injecting the shared
+ * search/filter `extraClause` so the counts reflect the SAME filtered set the grid shows. `groupBy`
+ * MUST be pre-validated against `spec.columns` by the caller (the allowlist is the injection boundary,
+ * exactly like the browse `orderBy`); the value is quoted, never a bound param (SQLite can't bind an
+ * identifier). Pure.
+ */
+export function buildGroupCountSql(spec: { countSql: string }, groupBy: string, extraClause: string): string {
+  const base = spec.countSql.replace(
+    /SELECT\s+COUNT\(\*\)\s+AS\s+n/i,
+    `SELECT "${groupBy}" AS value, COUNT(*) AS n`,
+  );
+  const withExtra = extraClause ? base.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`) : base;
+  return `${withExtra} GROUP BY "${groupBy}" ORDER BY n DESC LIMIT ?`;
+}
+
 /**
  * Browse the most-recent rows of one overview table. Read-only; only the table's
  * safe-column allowlist is selected (never PII payloads or encrypted tokens);
@@ -989,6 +1014,54 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table/export', async (c) => {
   }
 
   return c.json({ data: { table: spec.key, columns: spec.columns, rows, truncated, cap: MAX_EXPORT_ROWS } });
+});
+
+/**
+ * WHOLE-QUERY group counts for a kanban board: `[{ value, count }]` per distinct value of `?groupBy=`
+ * over the SAME filtered set the grid shows (search + filter group via composeBrowseFilter) — NOT just
+ * the loaded page, so lane totals are HONEST (per the page-vs-whole-query rule). `groupBy` MUST be an
+ * allowlisted column (else 400 — the injection boundary). Bounded to {@link MAX_KANBAN_GROUPS} via a
+ * `LIMIT MAX+1` fetch → `truncated` when there are more distinct groups than the cap. Same auth + safe
+ * columns as the browse; fail-soft (missing/renamed table → empty groups, never 500).
+ */
+siteDataApi.get('/api/sites/:siteId/data-overview/:table/group-counts', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+  const spec = overviewTable(table);
+  if (!spec) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Unknown table' } }, 400);
+  }
+
+  const groupBy = String(c.req.query('groupBy') ?? '').trim();
+  if (!groupBy || !spec.columns.includes(groupBy)) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'A valid groupBy column is required' } }, 400);
+  }
+
+  const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) => c.req.query(k));
+  const sql = buildGroupCountSql(spec, groupBy, extraClause);
+
+  let groups: Array<{ value: unknown; count: number }> = [];
+  try {
+    const res = await c.env.DB.prepare(sql)
+      .bind(siteId, ...extraParams, MAX_KANBAN_GROUPS + 1)
+      .all();
+    groups = ((res.results || []) as Record<string, unknown>[]).map((r) => ({
+      value: r.value ?? null,
+      count: Number(r.n ?? 0),
+    }));
+  } catch {
+    groups = []; // fail-soft: missing/renamed table → no groups, never 500
+  }
+  const truncated = groups.length > MAX_KANBAN_GROUPS;
+  if (truncated) {
+    groups = groups.slice(0, MAX_KANBAN_GROUPS);
+  }
+
+  return c.json({ data: { table: spec.key, groupBy, groups, truncated, cap: MAX_KANBAN_GROUPS } });
 });
 
 /**

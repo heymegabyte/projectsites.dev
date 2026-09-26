@@ -1506,12 +1506,45 @@ export function visibleColumns(all: readonly string[], hidden: readonly string[]
   return all.filter((c) => !h.has(c));
 }
 
-/** How the browse rows are rendered: the dense spreadsheet grid, or Airtable-style cards. */
-export type ViewMode = 'grid' | 'gallery';
+/** How the browse rows are rendered: dense spreadsheet grid, Airtable-style cards, or a grouped board. */
+export type ViewMode = 'grid' | 'gallery' | 'kanban';
 
 /** Coerce a raw value to a known {@link ViewMode}, defaulting to `grid`. Pure. */
 export function normalizeViewMode(raw: string | null | undefined): ViewMode {
-  return raw === 'gallery' ? 'gallery' : 'grid';
+  return raw === 'gallery' || raw === 'kanban' ? raw : 'grid';
+}
+
+/**
+ * Stable string key for a kanban group value — null/undefined map to a sentinel so an empty-group lane
+ * matches its (null) rows without colliding with a literal "null" string value. Pure.
+ */
+export function kanbanGroupKey(value: unknown): string {
+  return value === null || value === undefined ? ' ∅' : String(value);
+}
+
+/**
+ * Bucket the CURRENT PAGE's rows by a group field into `key → rows[]` (key via {@link kanbanGroupKey}).
+ * These are the page-subset cards each lane shows; the lane's HONEST total comes from the worker's
+ * whole-query group-count, not from this map. Pure.
+ */
+export function groupPageRows(
+  rows: readonly Record<string, unknown>[],
+  field: string,
+): Map<string, Record<string, unknown>[]> {
+  const m = new Map<string, Record<string, unknown>[]>();
+
+  for (const r of rows) {
+    const k = kanbanGroupKey(r[field]);
+    const bucket = m.get(k);
+
+    if (bucket) {
+      bucket.push(r);
+    } else {
+      m.set(k, [r]);
+    }
+  }
+
+  return m;
 }
 
 /**
