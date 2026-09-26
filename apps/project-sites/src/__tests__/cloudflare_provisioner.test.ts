@@ -101,6 +101,24 @@ describe('provisionPayloadStack', () => {
     expect(subdomainEnabled).toBe(false);
   });
 
+  it('honors PAYLOAD_INSTANCE_HOST — .app. activation is one env flip', async () => {
+    mockFetch((method, url) => {
+      if (url.includes('/d1/database') && method === 'POST') return { body: okD1 };
+      if (url.includes('/r2/buckets') && method === 'POST') return { body: okGeneric };
+      return { body: okGeneric };
+    });
+    const stack = await provisionPayloadStack(
+      { ...ENV, PAYLOAD_BRANDED_HOST: 'true', PAYLOAD_INSTANCE_HOST: 'app.projectsites.dev' } as unknown as Env,
+      {
+        instanceId: 'abcdef12-0000-0000-0000-000000000000',
+        slug: 'acme',
+        payloadSecret: 's',
+        dispatchNamespace: 'project-sites-endpoints',
+      },
+    );
+    expect(stack.subdomain).toBe('acme.app.projectsites.dev');
+  });
+
   it('falls back to standalone workers.dev when no dispatch namespace is configured', async () => {
     const puts: string[] = [];
     mockFetch((method, url) => {

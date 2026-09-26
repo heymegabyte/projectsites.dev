@@ -65,7 +65,19 @@ export const PayloadStackSchema = z.object({
  * epic this per-instance Payload replaces the old `cms.projectsites.dev` container.
  * `app.projectsites.dev` is the apps-system home but needs its own ACM pack (billing).
  */
-const PAYLOAD_INSTANCE_HOST = 'cms.projectsites.dev';
+const PAYLOAD_INSTANCE_HOST_DEFAULT = 'cms.projectsites.dev';
+
+/**
+ * The base host for Payload instances, env-overridable so `.app.` activation is a
+ * single flip once its ACM cert is ordered: set `PAYLOAD_INSTANCE_HOST=app.projectsites.dev`.
+ * Defaults to the cert-ready `cms.projectsites.dev`.
+ */
+export function payloadInstanceHost(env: Env): string {
+  return (
+    (env as unknown as { PAYLOAD_INSTANCE_HOST?: string }).PAYLOAD_INSTANCE_HOST ||
+    PAYLOAD_INSTANCE_HOST_DEFAULT
+  );
+}
 export type PayloadStack = z.infer<typeof PayloadStackSchema>;
 
 /** Per-resource teardown verdict — the honest "is it actually gone?" report. */
@@ -366,16 +378,17 @@ export async function provisionPayloadStack(
     );
     rollback.push(() => deleteWorker(c, worker.name, ns));
 
+    const instanceHost = payloadInstanceHost(env);
     let reachable: string;
     if (ns) {
-      // WfP dispatch: routed at {slug}.cms.projectsites.dev by the platform Worker's
+      // WfP dispatch: routed at {slug}.<host> by the platform Worker's
       // serveAppBySubdomain → USER_DISPATCH.get(worker.name). No workers.dev subdomain.
-      reachable = `${ctx.slug.toLowerCase()}.${PAYLOAD_INSTANCE_HOST}`;
+      reachable = `${ctx.slug.toLowerCase()}.${instanceHost}`;
     } else {
       // Standalone fallback (local dev / WfP not configured): expose at workers.dev.
       await enableScriptSubdomain(c, worker.name).catch(() => false);
       const acct = await accountSubdomain(c).catch(() => null);
-      reachable = acct ? `${worker.name}.${acct}.workers.dev` : `${base}.${PAYLOAD_INSTANCE_HOST}`;
+      reachable = acct ? `${worker.name}.${acct}.workers.dev` : `${base}.${instanceHost}`;
     }
 
     return PayloadStackSchema.parse({

@@ -33,6 +33,7 @@ import {
   CfProvisionError,
   deployRealPayloadWorker,
   deprovisionPayloadStack,
+  payloadInstanceHost,
   provisionPayloadStack,
 } from '../services/cloudflare_provisioner.js';
 
@@ -136,13 +137,16 @@ async function loadInstance(env: Env, orgId: string, id: string): Promise<AppIns
  * `{slug}.app.projectsites.dev`. The admin uses THIS for the "Open" link so it never
  * points at a dead/cert-broken host.
  */
-function instancePublicHost(row: AppInstanceRow): string {
+function instancePublicHost(row: AppInstanceRow, cfNativeHost: string): string {
   return isCfNativeApp(row.app_slug)
-    ? `${row.subdomain}.cms.projectsites.dev`
+    ? `${row.subdomain}.${cfNativeHost}`
     : `${row.subdomain}.app.projectsites.dev`;
 }
 
-function sanitizeInstance(row: AppInstanceRow): Omit<AppInstanceRow, 'env_encrypted' | 'env_iv'> & {
+function sanitizeInstance(
+  row: AppInstanceRow,
+  cfNativeHost: string,
+): Omit<AppInstanceRow, 'env_encrypted' | 'env_iv'> & {
   env: null;
   public_host: string;
   costEstimate: InstanceCostEstimate;
@@ -154,7 +158,7 @@ function sanitizeInstance(row: AppInstanceRow): Omit<AppInstanceRow, 'env_encryp
   return {
     ...rest,
     env: null,
-    public_host: instancePublicHost(row),
+    public_host: instancePublicHost(row, cfNativeHost),
     costEstimate: estimateInstanceCost(row),
   };
 }
@@ -255,7 +259,8 @@ apps.get('/api/apps/instances', async (c) => {
     [orgId],
   );
   if (error) throw badRequest(error);
-  return c.json({ instances: data.map(sanitizeInstance) });
+  const cfHost = payloadInstanceHost(c.env);
+  return c.json({ instances: data.map((r) => sanitizeInstance(r, cfHost)) });
 });
 
 // ─── CF-native lifecycle (Payload CMS on D1 + R2 + Worker) ───
@@ -710,7 +715,9 @@ apps.get('/api/apps/instances/:id', async (c) => {
   const row = await loadInstance(c.env, orgId, c.req.param('id'));
   if (!row) throw notFound('app_instance not found');
   const decryptedEnv = await decryptEnv(c.env, row);
-  return c.json({ instance: { ...sanitizeInstance(row), env: decryptedEnv } });
+  return c.json({
+    instance: { ...sanitizeInstance(row, payloadInstanceHost(c.env)), env: decryptedEnv },
+  });
 });
 
 // ─── Instance lifecycle ─────────────────────────────────────

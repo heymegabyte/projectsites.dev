@@ -5,6 +5,17 @@
 > where **deleting the instance from the UI deletes the D1 + R2 + Worker with zero dangling
 > resources**. Started 2026-09-25. This doc lets any fresh context continue.
 
+## 🔧 fire 15 — `.app.` activation is now truly one env-flip (2026-09-25)
+
+The documented `.app.` switch was NOT actually wired (host was a hardcoded const). Fixed:
+`payloadInstanceHost(env)` reads `PAYLOAD_INSTANCE_HOST` (default `cms.projectsites.dev`) and is used
+by BOTH the provisioner (the served host) AND `sanitizeInstance`'s `public_host` (the admin "Open"
+link). `serveAppBySubdomain` already routes `.app.`. So once the `*.app.projectsites.dev` ACM pack is
+ordered, `.app.` activation = set one env var (`PAYLOAD_INSTANCE_HOST=app.projectsites.dev`), no code
+change. Unit-tested (`honors PAYLOAD_INSTANCE_HOST — .app. activation is one env flip`). Prod default
+unchanged (`.cms.`): re-verified green — launch → branded styled real login + CSS 200 + migrated D1 →
+delete → all 404, zero dangling. 10 unit tests.
+
 ## 🔧 fire 14 — admin shows the working URL + harden launch against CF-API flakiness (2026-09-25)
 
 - **`sanitizeInstance` now returns `public_host`** (CF-native Payload → `{slug}.cms.projectsites.dev`,
