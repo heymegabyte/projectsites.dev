@@ -81,7 +81,8 @@ import {
   type GridDensity,
   toggleHiddenColumn,
   coerceCellInput,
-  inferCellEditor,
+  editorKindForColumn,
+  CELL_INPUT_KIND_OPTIONS,
   buildInsertStatement,
   insertableColumns,
   buildDeleteByPk,
@@ -2964,7 +2965,11 @@ export const DataPanel = memo(() => {
     runSql(stmt.sql, stmt.params);
   }, [active, selectedKeys, visibleRows, browsePkCols, runSql, flashStatus]);
 
-  /** Open the inline editor for one cell — infer the initial type from the current value, prefill it. */
+  /**
+   * Open the inline editor for one cell — pick the initial type from the column's DECLARED SQLite type
+   * (so a DATE column opens a date picker, a numeric column a number input) and prefill it, falling back
+   * to value-inference for TEXT/unknown columns. See {@link editorKindForColumn}.
+   */
   const startEdit = useCallback(
     (col: string, rawValue: unknown): void => {
       // A generated (computed) column is not writable — never open an editor on it (no doomed edit).
@@ -2975,11 +2980,11 @@ export const DataPanel = memo(() => {
       setEditError('');
       setEditCol(col);
 
-      const { kind, value } = inferCellEditor(rawValue);
+      const { kind, value } = editorKindForColumn(browseColTypes[col], rawValue);
       setEditKind(kind);
       setEditValue(value);
     },
-    [browseGeneratedCols],
+    [browseGeneratedCols, browseColTypes],
   );
 
   /**
@@ -3003,7 +3008,7 @@ export const DataPanel = memo(() => {
           continue;
         }
 
-        const { kind, value } = inferCellEditor(row[col]);
+        const { kind, value } = editorKindForColumn(browseColTypes[col], row[col]);
         kinds[col] = kind;
         values[col] = value;
       }
@@ -3014,7 +3019,7 @@ export const DataPanel = memo(() => {
       setAddingRow(true);
       setDrawerRow(null); // close the record drawer; the prefilled Add-row form is at the top
     },
-    [columns, browsePkCols, browseGeneratedCols],
+    [columns, browsePkCols, browseGeneratedCols, browseColTypes],
   );
 
   const cancelEdit = useCallback((): void => {
@@ -4169,13 +4174,15 @@ export const DataPanel = memo(() => {
                         className="shrink-0 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[10px] text-bolt-elements-textPrimary focus:outline-none"
                       >
                         <option value="default">default</option>
-                        <option value="text">text</option>
-                        <option value="number">number</option>
-                        <option value="boolean">boolean</option>
-                        <option value="null">NULL</option>
-                        <option value="json">JSON</option>
+                        {CELL_INPUT_KIND_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
                       </select>
                       <input
+                        type={kind === 'date' ? 'date' : kind === 'datetime' ? 'datetime-local' : 'text'}
+                        step={kind === 'datetime' ? 1 : undefined}
                         value={addValues[c] ?? ''}
                         onChange={(e) => setAddValue(c, e.target.value)}
                         disabled={disabled}

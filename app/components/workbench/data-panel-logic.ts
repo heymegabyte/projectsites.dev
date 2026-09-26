@@ -2235,7 +2235,23 @@ export class RowMutationError extends Error {
 }
 
 /** Which typed editor a cell uses — maps to how the raw text input is coerced before binding. */
-export type CellInputKind = 'text' | 'number' | 'boolean' | 'null' | 'json';
+export type CellInputKind = 'text' | 'number' | 'boolean' | 'date' | 'datetime' | 'null' | 'json';
+
+/**
+ * The selectable cell-input kinds, in display order, as `{ value, label }` — the SINGLE source both the
+ * grid/drawer `<CellEditor>` and the Add-row form render their type `<select>` from (the Add-row form
+ * prepends its own `default` = "omit, use column default" option). One list so the two selects can never
+ * drift apart as kinds are added (a real prior bug class: two hardcoded option lists that diverge).
+ */
+export const CELL_INPUT_KIND_OPTIONS: ReadonlyArray<{ value: CellInputKind; label: string }> = [
+  { value: 'text', label: 'text' },
+  { value: 'number', label: 'number' },
+  { value: 'boolean', label: 'boolean' },
+  { value: 'date', label: 'date' },
+  { value: 'datetime', label: 'datetime' },
+  { value: 'null', label: 'NULL' },
+  { value: 'json', label: 'JSON' },
+];
 
 /** A value ready to bind as a positional SQL param (SQLite storage classes we support from the UI). */
 export type BoundValue = string | number | boolean | null;
@@ -2281,10 +2297,178 @@ export function inferCellEditor(value: unknown): { kind: CellInputKind; value: s
 }
 
 /**
+ * Reformat a stored value for a native `<input type="date">` (which requires `YYYY-MM-DD`). Returns the
+ * value ONLY when it is EXACTLY a `YYYY-MM-DD` calendar date (and a real date) — never truncates a
+ * datetime down to its date part (that would silently drop the time on the next save). Anything else
+ * (a datetime, a number, junk) → `''`, so the caller falls back to a plain text editor (lossless). Pure.
+ *
+ * @example toDateInputValue('2024-01-31')            // '2024-01-31'
+ * @example toDateInputValue('2024-01-31T12:00:00Z')  // ''  (has a time → not a date input)
+ */
+export function toDateInputValue(raw: string): string {
+  const t = (raw ?? '').trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+    return '';
+  }
+
+  const d = new Date(t); // bare ISO date → UTC midnight; NaN for an impossible date (2024-13-45)
+
+  return Number.isNaN(d.getTime()) ? '' : t;
+}
+
+/**
+ * Reformat a stored value for a native `<input type="datetime-local" step="1">` (which wants
+ * `YYYY-MM-DDTHH:MM` or `…:SS`). Accepts a ZONE-LESS datetime with either a `T` or space separator and
+ * normalises the separator to `T`, preserving seconds when present. A ZONE-MARKED value (`Z` / `±HH:MM`)
+ * → `''` (a datetime-local input has no zone; storing it back would silently DROP the zone) so the
+ * caller falls back to a plain text editor — the same "don't guess the zone" honesty as the grid
+ * date formatter. Pure.
+ *
+ * @example toDatetimeLocalValue('2024-01-31 12:30:00')       // '2024-01-31T12:30:00'
+ * @example toDatetimeLocalValue('2024-01-31T12:30')          // '2024-01-31T12:30'
+ * @example toDatetimeLocalValue('2024-01-31T12:30:00Z')      // ''  (zone-marked → text fallback)
+ */
+export function toDatetimeLocalValue(raw: string): string {
+  const t = (raw ?? '').trim();
+  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)$/.exec(t);
+
+  return m ? `${m[1]}T${m[2]}` : '';
+}
+
+/**
+ * Map a SQLite DECLARED column type to the editor kind its values should default to — SQLite type
+ * affinity plus the conventional date/datetime/boolean/json declarations people write even though
+ * SQLite gives them NUMERIC/TEXT storage. Returns `undefined` for TEXT/CHAR/BLOB/unknown (→ value-
+ * inferred). NOTE: the returned kind is a UI INTERPRETATION — SQLite has no date/bool/json storage
+ * class; a date/checkbox widget is an affordance, not a schema guarantee (mirrored in the grid badge).
+ */
+function declaredKindFromType(declaredType: string | undefined): CellInputKind | undefined {
+  if (!declaredType) {
+    return undefined;
+  }
+
+  const t = declaredType.toUpperCase();
+
+  // Order matters: DATETIME/TIMESTAMP before the DATE substring; BOOLEAN before the generic INT rule.
+  if (t.includes('DATETIME') || t.includes('TIMESTAMP')) {
+    return 'datetime';
+  }
+
+  if (t.includes('DATE')) {
+    return 'date';
+  }
+
+  if (t.includes('BOOL')) {
+    return 'boolean';
+  }
+
+  if (t.includes('JSON')) {
+    return 'json';
+  }
+
+  if (
+    t.includes('INT') ||
+    t.includes('REAL') ||
+    t.includes('FLOA') ||
+    t.includes('DOUB') ||
+    t.includes('NUMERIC') ||
+    t.includes('DECIMAL') ||
+    t.includes('NUMBER')
+  ) {
+    return 'number';
+  }
+
+  return undefined;
+}
+
+/**
+ * Choose the `{ kind, value }` to PREFILL a cell editor with, DECLARED-TYPE-FIRST — the type-aware
+ * upgrade of {@link inferCellEditor} (which sees only the value). A `DATE`/`DATETIME` column opens a
+ * native date/datetime picker, a numeric column a number input, etc. — even when the current cell is
+ * NULL (so entering the first value needs no manual type switch; the NULL option stays one click away).
+ *
+ * HONESTY: when a stored value can't be represented in the typed widget without LOSS (a zone-marked
+ * datetime, a non-numeric value in a numeric-typed column, unparseable JSON), it falls back to a plain
+ * text editor rather than silently truncating. When the declared type is absent/TEXT, behaviour is
+ * exactly {@link inferCellEditor}. Pure.
+ *
+ * @param declaredType - the column's declared SQLite type (from `PRAGMA table_xinfo`), or undefined
+ * @param value - the raw cell value from the browsed row
+ * @example editorKindForColumn('DATE', null)                 // { kind: 'date', value: '' }
+ * @example editorKindForColumn('DATETIME', '2024-01-01 09:00:00') // { kind: 'datetime', value: '2024-01-01T09:00:00' }
+ * @example editorKindForColumn('INTEGER', 42)                // { kind: 'number', value: '42' }
+ * @example editorKindForColumn('TEXT', 'hi')                 // { kind: 'text', value: 'hi' }  (== inferCellEditor)
+ */
+export function editorKindForColumn(
+  declaredType: string | undefined,
+  value: unknown,
+): { kind: CellInputKind; value: string } {
+  const declared = declaredKindFromType(declaredType);
+
+  /*
+   * NULL/undefined cell → offer the typed affordance for a known typed column; else the honest `null`
+   * editor. Either way NULL remains selectable, and an empty typed input won't overwrite NULL on save.
+   */
+  if (value === null || value === undefined) {
+    return { kind: declared ?? 'null', value: '' };
+  }
+
+  switch (declared) {
+    case 'date': {
+      const v = toDateInputValue(String(value));
+
+      return v ? { kind: 'date', value: v } : { kind: 'text', value: String(value) };
+    }
+    case 'datetime': {
+      const v = toDatetimeLocalValue(String(value));
+
+      return v ? { kind: 'datetime', value: v } : { kind: 'text', value: String(value) };
+    }
+    case 'number': {
+      if (typeof value === 'number') {
+        return { kind: 'number', value: String(value) };
+      }
+
+      const s = String(value).trim();
+
+      return s !== '' && Number.isFinite(Number(s)) ? { kind: 'number', value: s } : inferCellEditor(value);
+    }
+    case 'boolean': {
+      const s = String(value).trim().toLowerCase();
+
+      if (value === true || s === '1' || s === 'true') {
+        return { kind: 'boolean', value: 'true' };
+      }
+
+      if (value === false || s === '0' || s === 'false') {
+        return { kind: 'boolean', value: 'false' };
+      }
+
+      return inferCellEditor(value);
+    }
+    case 'json': {
+      const s = String(value);
+
+      try {
+        JSON.parse(s);
+
+        return { kind: 'json', value: s };
+      } catch {
+        return inferCellEditor(value);
+      }
+    }
+    default:
+      return inferCellEditor(value);
+  }
+}
+
+/**
  * Coerce a typed row-editor input into a value ready to BIND (never string-interpolated).
  * `null` ignores the raw text; `number` rejects blank/NaN; `boolean` accepts true/false/1/0/yes/no;
  * `json` validates the text parses and binds the ORIGINAL text (SQLite has no JSON type — JSON is
- * stored as TEXT); `text` binds the raw string verbatim. Impure only in that it throws on bad input.
+ * stored as TEXT); `date`/`datetime` validate the shape and bind the string (SQLite has no date type —
+ * stored as TEXT, zone-less as entered); `text` binds the raw string verbatim. Throws on bad input.
  *
  * @param kind - the typed editor the cell used
  * @param raw - the raw text the user typed
@@ -2341,6 +2525,32 @@ export function coerceCellInput(kind: CellInputKind, raw: string): BoundValue {
       }
 
       return t; // store validated JSON as TEXT
+    }
+    case 'date': {
+      const t = (raw ?? '').trim();
+
+      if (t === '') {
+        throw new RowMutationError('Pick a date, or switch the cell type to NULL.');
+      }
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+        throw new RowMutationError(`"${raw}" is not a YYYY-MM-DD date.`);
+      }
+
+      return t; // SQLite has no DATE type — a calendar date is stored as TEXT
+    }
+    case 'datetime': {
+      const t = (raw ?? '').trim();
+
+      if (t === '') {
+        throw new RowMutationError('Pick a date and time, or switch the cell type to NULL.');
+      }
+
+      if (!/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(t)) {
+        throw new RowMutationError(`"${raw}" is not a YYYY-MM-DDTHH:MM date-time.`);
+      }
+
+      return t; // SQLite has no DATETIME type — stored as TEXT, zone-less exactly as entered
     }
     case 'text':
     default:

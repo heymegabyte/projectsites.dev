@@ -102,6 +102,10 @@ import {
   toggleHiddenColumn,
   coerceCellInput,
   inferCellEditor,
+  editorKindForColumn,
+  toDateInputValue,
+  toDatetimeLocalValue,
+  CELL_INPUT_KIND_OPTIONS,
   buildInsertStatement,
   buildDeleteByPk,
   buildBulkDeleteByPk,
@@ -1899,6 +1903,120 @@ describe('coerceCellInput (typed row-editor value coercion)', () => {
     expect(coerceCellInput('json', '[1,2,3]')).toBe('[1,2,3]');
     expect(() => coerceCellInput('json', '{a:1}')).toThrow(RowMutationError);
     expect(() => coerceCellInput('json', '')).toThrow(RowMutationError);
+  });
+
+  it('date validates YYYY-MM-DD and binds the string (SQLite has no date type — TEXT)', () => {
+    expect(coerceCellInput('date', '2024-01-31')).toBe('2024-01-31');
+    expect(coerceCellInput('date', '  2024-01-31  ')).toBe('2024-01-31'); // trimmed
+    expect(() => coerceCellInput('date', '')).toThrow(RowMutationError); // blank → prompt NULL
+    expect(() => coerceCellInput('date', '01/31/2024')).toThrow(RowMutationError); // wrong shape
+    expect(() => coerceCellInput('date', '2024-01-31T12:00')).toThrow(RowMutationError); // has time
+  });
+
+  it('datetime validates a zone-less YYYY-MM-DDTHH:MM(:SS) and binds the string (TEXT)', () => {
+    expect(coerceCellInput('datetime', '2024-01-31T12:30')).toBe('2024-01-31T12:30');
+    expect(coerceCellInput('datetime', '2024-01-31T12:30:45')).toBe('2024-01-31T12:30:45'); // seconds ok
+    expect(coerceCellInput('datetime', '2024-01-31 12:30')).toBe('2024-01-31 12:30'); // space ok
+    expect(() => coerceCellInput('datetime', '')).toThrow(RowMutationError); // blank → prompt NULL
+    expect(() => coerceCellInput('datetime', '2024-01-31')).toThrow(RowMutationError); // date only
+  });
+});
+
+describe('toDateInputValue / toDatetimeLocalValue (stored value → native input format, lossless)', () => {
+  it('toDateInputValue returns a bare YYYY-MM-DD, else "" (never truncates a datetime)', () => {
+    expect(toDateInputValue('2024-01-31')).toBe('2024-01-31');
+    expect(toDateInputValue('  2024-01-31 ')).toBe('2024-01-31');
+    expect(toDateInputValue('2024-01-31T12:00:00Z')).toBe(''); // has a time → no silent truncation
+    expect(toDateInputValue('2024-13-45')).toBe(''); // shape ok but impossible date
+    expect(toDateInputValue('not a date')).toBe('');
+  });
+
+  it('toDatetimeLocalValue normalizes a zone-LESS datetime to T-separated; rejects zone-marked', () => {
+    expect(toDatetimeLocalValue('2024-01-31 12:30:00')).toBe('2024-01-31T12:30:00');
+    expect(toDatetimeLocalValue('2024-01-31T12:30')).toBe('2024-01-31T12:30');
+    expect(toDatetimeLocalValue('2024-01-31T12:30:00Z')).toBe(''); // zone-marked → don't drop the zone
+    expect(toDatetimeLocalValue('2024-01-31T12:30:00-05:00')).toBe(''); // offset → text fallback
+    expect(toDatetimeLocalValue('2024-01-31')).toBe(''); // date only
+  });
+});
+
+describe('CELL_INPUT_KIND_OPTIONS (single source for both type <select>s)', () => {
+  it('lists every editable kind (text/number/boolean/date/datetime/null/json) without "default"', () => {
+    const values = CELL_INPUT_KIND_OPTIONS.map((o) => o.value);
+    expect(values).toEqual(['text', 'number', 'boolean', 'date', 'datetime', 'null', 'json']);
+
+    // 'default' (omit → column default) is an Add-row-only concern, never in the shared list.
+    expect(values).not.toContain('default');
+  });
+
+  it('every kind option round-trips through coerceCellInput or is a UI-only kind', () => {
+    // Each shared kind is a real CellInputKind that coerceCellInput handles.
+    expect(() => coerceCellInput('null', '')).not.toThrow();
+    expect(() => coerceCellInput('text', 'x')).not.toThrow();
+  });
+});
+
+describe('editorKindForColumn (declared-type-first editor prefill; honest lossless fallbacks)', () => {
+  it('opens the typed affordance for a NULL cell of a known typed column (NULL stays selectable)', () => {
+    expect(editorKindForColumn('DATE', null)).toEqual({ kind: 'date', value: '' });
+    expect(editorKindForColumn('DATETIME', null)).toEqual({ kind: 'datetime', value: '' });
+    expect(editorKindForColumn('INTEGER', null)).toEqual({ kind: 'number', value: '' });
+    expect(editorKindForColumn('BOOLEAN', undefined)).toEqual({ kind: 'boolean', value: '' });
+  });
+
+  it('keeps the honest NULL editor for a NULL cell of a TEXT/unknown column', () => {
+    expect(editorKindForColumn('TEXT', null)).toEqual({ kind: 'null', value: '' });
+    expect(editorKindForColumn(undefined, null)).toEqual({ kind: 'null', value: '' });
+    expect(editorKindForColumn('VARCHAR(255)', null)).toEqual({ kind: 'null', value: '' });
+  });
+
+  it('maps SQLite affinity: INT/REAL/NUMERIC families → number', () => {
+    expect(editorKindForColumn('INTEGER', 42)).toEqual({ kind: 'number', value: '42' });
+    expect(editorKindForColumn('BIGINT', '7')).toEqual({ kind: 'number', value: '7' });
+    expect(editorKindForColumn('REAL', 3.5)).toEqual({ kind: 'number', value: '3.5' });
+    expect(editorKindForColumn('DECIMAL(10,2)', '9.99')).toEqual({ kind: 'number', value: '9.99' });
+  });
+
+  it('DATETIME/TIMESTAMP win over the DATE substring; a bare DATE → date', () => {
+    expect(editorKindForColumn('DATETIME', '2024-01-01 09:00:00')).toEqual({
+      kind: 'datetime',
+      value: '2024-01-01T09:00:00',
+    });
+    expect(editorKindForColumn('TIMESTAMP', '2024-01-01 09:00')).toEqual({
+      kind: 'datetime',
+      value: '2024-01-01T09:00',
+    });
+    expect(editorKindForColumn('DATE', '2024-01-01')).toEqual({ kind: 'date', value: '2024-01-01' });
+  });
+
+  it('falls back to a plain text editor rather than LOSING data (zone-marked datetime, non-numeric)', () => {
+    // A zone-marked datetime in a DATETIME column can't be represented in datetime-local → text (no zone drop).
+    expect(editorKindForColumn('DATETIME', '2024-01-01T09:00:00Z')).toEqual({
+      kind: 'text',
+      value: '2024-01-01T09:00:00Z',
+    });
+
+    // A non-numeric value in a numeric column → value-inferred (never a broken number input).
+    expect(editorKindForColumn('INTEGER', 'N/A')).toEqual({ kind: 'text', value: 'N/A' });
+
+    // A DATE column holding a full datetime → text (don't truncate the time on the next save).
+    expect(editorKindForColumn('DATE', '2024-01-01 09:00:00')).toEqual({
+      kind: 'text',
+      value: '2024-01-01 09:00:00',
+    });
+  });
+
+  it('BOOLEAN maps 1/0/true/false; JSON maps parseable text; both fall back honestly', () => {
+    expect(editorKindForColumn('BOOLEAN', 1)).toEqual({ kind: 'boolean', value: 'true' });
+    expect(editorKindForColumn('BOOL', '0')).toEqual({ kind: 'boolean', value: 'false' });
+    expect(editorKindForColumn('JSON', '{"a":1}')).toEqual({ kind: 'json', value: '{"a":1}' });
+    expect(editorKindForColumn('JSON', 'not json')).toEqual({ kind: 'text', value: 'not json' }); // unparseable → text
+  });
+
+  it('a TEXT/unknown column with a value behaves exactly like inferCellEditor', () => {
+    expect(editorKindForColumn('TEXT', 'hello')).toEqual(inferCellEditor('hello'));
+    expect(editorKindForColumn(undefined, 'hello')).toEqual(inferCellEditor('hello'));
+    expect(editorKindForColumn('CLOB', 12)).toEqual(inferCellEditor(12));
   });
 });
 

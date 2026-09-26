@@ -980,15 +980,42 @@ table's natural order. Persisted in the saved-view `config.sorts` string — **N
   Logic + server-computed order fully verifiable; the header-click cycle + priority badge + Clear-sort chip are
   verify-by-build (deep lazy chunk, not headless-reachable) → added to the standing real-browser QA list.
 
-**STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
-sticky-pin render · #37 view round-trip · #40 multi-sort header-click + priority badges — one real-browser pass
-(authed admin session). **A dedicated real-browser QA fire remains the highest-value out-of-loop step** to convert
-this verify-by-build debt to verified.
+### ✅ Shipped next fire (2026-09-26 #41) — SQLite-AFFINITY-aware typed cell editors + native DATE/DATETIME pickers
+The cell editor stops guessing the type from the VALUE and instead chooses it from the column's DECLARED SQLite type:
+a `DATE` column opens a native `<input type="date">`, a `DATETIME`/`TIMESTAMP` column a `datetime-local` picker
+(`step="1"`, seconds preserved), a numeric column a number input — **even when the cell is NULL** (so entering the
+first value needs no manual type switch; the NULL option stays one click away). Wired into BOTH the inline/drawer
+edit path (`startEdit`) AND the Add-row + Duplicate prefill (`duplicateRow`). Editor-only — values still bind as `?`
+through the existing gated `coerceCellInput → buildUpdateByPk → runSql` path, so **no worker/bridge/admin change**.
+- **Editor logic (`data-panel-logic.ts`, pure+tested, +13 Vitest):** `editorKindForColumn(declaredType, value)` —
+  declared-type-first with **honest LOSSLESS fallbacks**: a zone-marked datetime, a non-numeric value in a numeric
+  column, or a DATE column holding a full datetime all fall back to a plain TEXT editor rather than silently
+  truncating. `CellInputKind` gains `'date'`/`'datetime'`; `coerceCellInput` validates their shape + binds as TEXT
+  (SQLite has no date type — stored zone-less exactly as entered). `toDateInputValue`/`toDatetimeLocalValue` reformat
+  a stored value into the native-input format (or `''` → text fallback). `declaredKindFromType` applies SQLite
+  affinity (INT/REAL/NUMERIC→number) + the conventional DATE/DATETIME/BOOL/JSON declarations.
+- **DRY (`CELL_INPUT_KIND_OPTIONS`):** ONE shared `{value,label}[]` now renders BOTH the `<CellEditor>` type select
+  AND the Add-row select (Add-row prepends its own `default`) — the two hardcoded 5-option lists that would have
+  drifted as kinds were added are gone (the exact drift class the loop keeps hitting).
+- **Honesty:** a date/checkbox widget is a UI INTERPRETATION over TEXT/NUMERIC storage, not a schema guarantee — the
+  grid type badge (`columnTypeBadge`) still shows the real declared type; the picker is only an input affordance.
+- **Architectural call:** did NOT wire the inert `field-types.ts` verbatim — that's a richer Airtable *field-kind*
+  registry (singleSelect/multiSelect/rating/attachment) for a FUTURE per-column "field configuration" feature. The
+  raw D1 cell editor needed a SQLite-affinity→`CellInputKind` mapper that integrates the EXISTING coerce/CellEditor
+  machinery; `field-types.ts` stays inert until the field-config feature lands.
+- Verified: editor Vitest **926/926** + tsc 0 + eslint 0 + build 0. No worker/admin files touched (worker Jest
+  **12786/12786** unchanged from #40). The affinity/coerce/reformat logic is fully unit-tested; the native date/
+  datetime picker RENDERING is verify-by-build (DataPanel is a deep lazy chunk, not headless-reachable).
 
-**NEXT slice: wire the inert `field-types.ts` foundation → TYPED cell editors (contained, mostly verifiable).** The
-grid's `<CellEditor>` is one text input regardless of column type; the tested-but-inert `field-types.ts` already
-classifies SQLite affinity → an editor kind (integer/real/boolean/date/datetime/text/json). Wire it so the drawer +
-inline editor render the RIGHT control (number input with step, checkbox for 0/1, date/datetime picker, JSON textarea
-with parse-validate) — values still bound as `?` on the gated write path. Logic (affinity→kind, coerce+validate) is
-pure+tested; the control swap is verify-by-build. Alternatives: async export JOBS >10k (bigger multi-fire); nested
-AND/OR filter-tree; `schema-ddl.ts` guided DDL builder → review in the SQL console.
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
+sticky-pin render · #37 view round-trip · #40 multi-sort header-click + priority badges · #41 date/datetime picker
+render — one real-browser pass (authed admin session). **A dedicated real-browser QA fire remains the highest-value
+out-of-loop step** to convert this verify-by-build debt to verified.
+
+**NEXT slice: finish the typed-editor control set — BOOLEAN checkbox + JSON multi-line textarea (contained).** The
+`boolean` kind still renders a text input ("true / false") and `json` a single-line input; upgrade `<CellEditor>` (+
+the Add-row value input) so `boolean` renders a real checkbox/segmented 0-1 toggle and `json` a multi-line `<textarea>`
+with live parse-validate (reuse `coerceCellInput('json')`). Pure-logic core already exists; the widget swap is
+verify-by-build. Then: `singleSelect`-style editor seeded from a column's DISTINCT values (a light whole-query
+`SELECT DISTINCT … LIMIT n`); async export JOBS >10k (bigger multi-fire); nested AND/OR filter-tree; the inert
+`field-types.ts` registry as a per-column field-configuration feature.

@@ -7,7 +7,7 @@
  */
 
 import { classNames } from '~/utils/classNames';
-import type { CellInputKind } from './data-panel-logic';
+import { CELL_INPUT_KIND_OPTIONS, type CellInputKind } from './data-panel-logic';
 
 export interface CellEditorProps {
   /** Column label (for aria-labels only). */
@@ -56,13 +56,15 @@ export function CellEditor({
           aria-label={`Type for ${label}`}
           className="shrink-0 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[10px] text-bolt-elements-textPrimary focus:outline-none"
         >
-          <option value="text">text</option>
-          <option value="number">number</option>
-          <option value="boolean">boolean</option>
-          <option value="null">NULL</option>
-          <option value="json">JSON</option>
+          {CELL_INPUT_KIND_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
         </select>
         <input
+          type={editKind === 'date' ? 'date' : editKind === 'datetime' ? 'datetime-local' : 'text'}
+          step={editKind === 'datetime' ? 1 : undefined}
           value={editValue}
           onChange={(e) => onValueChange(e.target.value)}
           disabled={editKind === 'null'}
