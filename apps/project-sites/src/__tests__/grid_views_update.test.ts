@@ -13,7 +13,11 @@ import { Hono } from 'hono';
 import { siteDataApi } from '../../libs/features/site_data_api/handlers.js';
 import type { Env, Variables } from '../types/env.js';
 
-function makeD1(opts: { siteOwned?: boolean; changes?: number; row?: Record<string, unknown> | null }): D1Database {
+function makeD1(opts: {
+  siteOwned?: boolean;
+  changes?: number;
+  row?: Record<string, unknown> | null;
+}): D1Database {
   const siteOwned = opts.siteOwned !== false;
   const changes = opts.changes ?? 1;
   const row =
@@ -78,13 +82,17 @@ function putReq(siteId: string, viewId: string, body: unknown) {
 describe('PUT /api/sites/:siteId/grid-views/:viewId', () => {
   it('404 when the site belongs to a different org (IDOR guard)', async () => {
     const DB = makeD1({ siteOwned: false });
-    const res = await makeApp(DB).request(putReq('site-1', 'v1', { name: 'x' }), {}, { DB } as unknown as Env);
+    const res = await makeApp(DB).request(putReq('site-1', 'v1', { name: 'x' }), {}, {
+      DB,
+    } as unknown as Env);
     expect(res.status).toBe(404);
   });
 
   it('400 when the name is missing/blank', async () => {
     const DB = makeD1({});
-    const res = await makeApp(DB).request(putReq('site-1', 'v1', { name: '   ' }), {}, { DB } as unknown as Env);
+    const res = await makeApp(DB).request(putReq('site-1', 'v1', { name: '   ' }), {}, {
+      DB,
+    } as unknown as Env);
     expect(res.status).toBe(400);
   });
 
@@ -114,7 +122,9 @@ describe('PUT /api/sites/:siteId/grid-views/:viewId', () => {
       { DB } as unknown as Env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: { view: { name: string; type: string; config: { titleField?: string } } } };
+    const body = (await res.json()) as {
+      data: { view: { name: string; type: string; config: { titleField?: string } } };
+    };
     expect(body.data.view.name).toBe('Renamed');
     expect(body.data.view.type).toBe('gallery');
     expect(body.data.view.config).toEqual({ titleField: 'email' });
