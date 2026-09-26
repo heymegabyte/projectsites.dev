@@ -482,13 +482,36 @@ end-to-end and injection-safe:
 - Verified: worker Jest **12739/12739** + tsc 0; editor Vitest **297/297** + tsc 0 + eslint 0 + build ✓; admin tsc 0 +
   `ng build --configuration production` ✓. Editor → CF Pages, worker+admin → Worker CI (now green on Node 22.20).
 
-**NEXT slice (per delivery order): saved grid views** — the first slice needing the isolated ProjectSites.dev
-**metadata store** (saved views/filters/sort/field-config/colors live there, NEVER in customer tables). Design it now:
-an `editor_grid_views` D1 table in the PLATFORM db (`id, site_id, org_id, table_key, name, filters_json,
-combinator, sort_json, search, created_by, created_at, updated_at`) + org-gated CRUD endpoints (assert site ownership;
-reuse `parseFilterConditions` to store a validated group) + a `PS_VIEW_*` bridge msg + a views dropdown in the grid
-header (save current filters+sort+search as a named view; apply reloads them). Then rich non-grid views
-(gallery/kanban/calendar/charts) read the SAME saved-view metadata. Alternatives if deferred: a **nested** filter-tree
-(groups within groups — this fire is deliberately a FLAT single-combinator group, the 80% case) or `field-types.ts`
-richer INPUT widgets. Grid eval (RevoGrid vs Tabulator, license-checked) still pending — the hand-rolled `<table>`
-remains the chosen grid until a saved-view/large-dataset need forces the decision.
+### ✅ Shipped next fire (2026-09-26 #15) — SAVED GRID VIEWS + the isolated metadata store (slice 3 complete)
+The first slice of the **isolated ProjectSites.dev metadata store**: a saved view names a table's whole-table query
+(search + AND/OR filter group + single-column sort) so an owner re-applies it in one click. Stored in the PLATFORM
+db — **NEVER** in the customer's own tables — end-to-end and org-gated:
+- **Migration (`0641_editor_grid_views.sql`, APPLIED to prod)** — `editor_grid_views (id, site_id, org_id, table_key,
+  name, filters_json, combinator, sort_col, sort_dir, search, created_by, created_at, updated_at)` + a
+  `(site_id, table_key, name)` index. Applied to `project-sites-db-production` via `wrangler d1 execute --remote`
+  (verified: table present, `num_tables` 561). Additive + isolated (two-way door).
+- **Worker (`site_data_api/handlers.ts`)** — three org-gated routes on the existing `siteDataApi` app (distinct
+  `grid-views` segment → no `:table` shadow): `GET /api/sites/:siteId/grid-views?table=`, `POST …/grid-views`,
+  `DELETE …/grid-views/:viewId`. Every route re-checks `ownsSiteData` (404 on foreign) + double-scopes rows by
+  `site_id AND org_id`. Pure helpers `validateViewName` (1–80), `normalizeSortDir`, `serializeGridView` (parses
+  `filters_json` back through `parseFilterConditions` — corrupt → `[]`, never throws; hides `org_id`/`created_by`),
+  `MAX_GRID_VIEWS_PER_TABLE=50`. Save re-hardens filters + re-whitelists combinator/sort server-side; reads fail-soft
+  (missing table → `{views:[]}`, never 500). +7 Jest.
+- **Bridge** — `PS_VIEW_REQUEST` (`list`/`save`/`delete`) + `PS_VIEW_RESPONSE` + a `SavedGridView` type; the admin
+  (`bolt-embed.service.ts`) proxies to the grid-views endpoints with the held session (worker re-authorizes).
+- **Editor (`DataPanel.tsx`)** — a **Views** dropdown in the grid toolbar: lists this table's saved views (fetched on
+  open via an `active`-keyed effect), **apply** loads a view's search+filters+combinator+sort and re-fetches page 0,
+  **delete** is optimistic (reloads on error), and a "Save current view as…" input persists the CURRENT query
+  (reusing `filtersToParams` so the stored `filters` JSON is byte-identical to what the grid sends). A new `activeRef`
+  fixes the mount-only listener's stale-closure on `active`. Save JSON stored server-side, never in customer tables.
+- Verified: worker Jest **12746/12746** + tsc 0; editor Vitest **297/297** + tsc 0 + eslint 0 + build ✓; admin tsc 0 +
+  `ng build --configuration production` ✓; migration live in prod D1. Editor → CF Pages, worker+admin → Worker CI.
+
+**NEXT slice (per delivery order): rich non-grid VIEWS read from the saved-view metadata** — the store now exists, so
+add a **view type** to `editor_grid_views` (`grid`|`gallery`|`kanban`|`calendar`|`chart`, default `grid`; a nullable
+`config_json` for group-by field / kanban column field / calendar date field / chart x·y) and render a **gallery**
+first (cards over the SAME rows, no record duplication, honest "page-only" labels on any summary). Reuse the existing
+browse endpoint + saved-view apply. Alternatively, round out saved-views POLISH first: **rename/update** an existing
+view (PUT), a "modified — update view?" affordance when the live query drifts from the applied view, and default-view
+per table. Deferred: nested filter-tree (groups-within-groups); `field-types.ts` richer INPUT widgets; grid eval
+(RevoGrid vs Tabulator) — the hand-rolled `<table>` stays until a large-dataset need forces it.

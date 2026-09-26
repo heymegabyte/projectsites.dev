@@ -95,6 +95,15 @@ interface PsMessage {
   readonly filterCombinator?: string;
   /** PS_DATA_REQUEST: 0 = skip the COUNT(*) (paging/sorting → reuse cached total); else the worker counts. */
   readonly count?: number;
+  /** PS_VIEW_REQUEST (saved grid views): `list` | `save` | `delete`. */
+  readonly action?: string;
+  /** PS_VIEW_REQUEST delete: the view id. */
+  readonly viewId?: string;
+  /** PS_VIEW_REQUEST save: how to join the filter group — `AND` | `OR`. */
+  readonly combinator?: string;
+  /** PS_VIEW_REQUEST save: the single-column sort (worker re-normalizes). */
+  readonly sortCol?: string | null;
+  readonly sortDir?: string | null;
   /** PS_SQL_REQUEST (D1 manager): the SQL to forward — /sql/exec (read) or /sql/exec-write (write). */
   readonly query?: string;
   /** PS_SQL_REQUEST: route to the WRITE endpoint (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE). */
@@ -750,6 +759,72 @@ export class BoltEmbedService {
               },
               error: () => reply({ error: 'Failed to load data' }),
             });
+          break;
+        }
+        case 'PS_VIEW_REQUEST': {
+          // Saved grid views (Data tab) — the editor has no cross-origin session, so we proxy to the
+          // org-gated /api/sites/:id/grid-views endpoints (list/save/delete) and reply PS_VIEW_RESPONSE.
+          // The WORKER re-validates ownership + every filter leaf; we just forward the current session.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const action = msg.action;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_VIEW_RESPONSE', correlationId: cid, action, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ error: 'No site selected' });
+            break;
+          }
+          const viewTable = typeof msg.table === 'string' ? msg.table.trim().slice(0, 64) : '';
+          const base = `/sites/${site.id}/grid-views`;
+          if (action === 'list') {
+            this.api
+              .get<{ data?: { views?: unknown[] } }>(base, viewTable ? { table: viewTable } : undefined, {
+                silent: true,
+              })
+              .subscribe({
+                next: (res) => reply({ views: res?.data?.views ?? [] }),
+                error: () => reply({ error: 'Failed to load views' }),
+              });
+          } else if (action === 'save') {
+            if (!viewTable || typeof msg.name !== 'string' || !msg.name.trim()) {
+              reply({ error: 'A view name and table are required' });
+              break;
+            }
+            this.api
+              .post<{ data?: { view?: unknown } }>(
+                base,
+                {
+                  table: viewTable,
+                  name: msg.name.trim().slice(0, 80),
+                  filters: typeof msg.filters === 'string' ? msg.filters : '[]',
+                  combinator: msg.combinator ?? 'AND',
+                  sortCol: msg.sortCol ?? null,
+                  sortDir: msg.sortDir ?? null,
+                  search: msg.search ?? '',
+                },
+                { silent: true },
+              )
+              .subscribe({
+                next: (res) => reply({ view: res?.data?.view ?? null }),
+                error: () => reply({ error: 'Failed to save view' }),
+              });
+          } else if (action === 'delete') {
+            if (!msg.viewId) {
+              reply({ error: 'No view id' });
+              break;
+            }
+            this.api.delete<unknown>(`${base}/${encodeURIComponent(msg.viewId)}`, { silent: true }).subscribe({
+              next: () => reply({ deleted: true }),
+              error: () => reply({ error: 'Failed to delete view' }),
+            });
+          } else {
+            reply({ error: 'Unknown view action' });
+          }
           break;
         }
         case 'PS_QUEUE_REQUEST': {

@@ -782,6 +782,67 @@ export interface D1ResponseMessage {
   error?: string;
 }
 
+/** A saved grid view (the isolated ProjectSites.dev metadata store) — mirrors the worker's `serializeGridView`. */
+export interface SavedGridView {
+  id: string;
+  table: string;
+  name: string;
+  conditions: Array<{ col: string; op: string; val: string }>;
+  combinator: 'AND' | 'OR';
+  sortCol: string | null;
+  sortDir: 'asc' | 'desc' | null;
+  search: string;
+  updatedAt: string | null;
+}
+
+/**
+ * Child → Parent (Data tab): manage saved grid views. `list` fetches this table's views; `save`
+ * persists the current query as a named view; `delete` removes one by id. The admin forwards to the
+ * org-gated `/api/sites/:siteId/grid-views` endpoints and replies with {@link ViewResponseMessage}.
+ */
+export interface ViewRequestMessage {
+  type: 'PS_VIEW_REQUEST';
+  action: 'list' | 'save' | 'delete';
+  table: string;
+  correlationId: string;
+
+  /** save: the view name. */
+  name?: string;
+
+  /** save: JSON array of `{col,op,val}` (the worker re-validates every leaf). */
+  filters?: string;
+
+  /** save: `AND` | `OR`. */
+  combinator?: string;
+
+  /** save: the single-column sort. */
+  sortCol?: string | null;
+  sortDir?: string | null;
+
+  /** save: the OR-of-LIKE search needle. */
+  search?: string;
+
+  /** delete: the view id. */
+  viewId?: string;
+}
+
+/** Parent → Child (Data tab): reply to {@link ViewRequestMessage}. */
+export interface ViewResponseMessage {
+  type: 'PS_VIEW_RESPONSE';
+  correlationId: string;
+  action: 'list' | 'save' | 'delete';
+
+  /** list. */
+  views?: SavedGridView[];
+
+  /** save. */
+  view?: SavedGridView | null;
+
+  /** delete. */
+  deleted?: boolean;
+  error?: string;
+}
+
 export type ParentToChildMessage =
   | SubmitPromptMessage
   | ImportFilesMessage
@@ -798,6 +859,7 @@ export type ParentToChildMessage =
   | VectorizeResponseMessage
   | QueueResponseMessage
   | D1ResponseMessage
+  | ViewResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -813,6 +875,7 @@ export type ChildToParentMessage =
   | VectorizeRequestMessage
   | QueueRequestMessage
   | D1RequestMessage
+  | ViewRequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;

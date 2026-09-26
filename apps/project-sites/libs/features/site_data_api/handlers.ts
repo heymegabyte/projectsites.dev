@@ -521,6 +521,54 @@ export function parseFilterConditions(
   return out;
 }
 
+/** Max saved views per (site, table) — bounds the metadata store + the views dropdown. */
+export const MAX_GRID_VIEWS_PER_TABLE = 50;
+
+/** A saved-view name: trimmed, 1–80 chars. Returns the clean name, or null when invalid. */
+export function validateViewName(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const name = raw.trim().slice(0, 80);
+  return name.length > 0 ? name : null;
+}
+
+/** Normalize a saved-view sort direction to `asc`/`desc`, or null (no sort). */
+export function normalizeSortDir(raw: unknown): 'asc' | 'desc' | null {
+  const d = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  return d === 'asc' || d === 'desc' ? d : null;
+}
+
+/**
+ * Shape a stored `editor_grid_views` row into the client view object: `filters_json` is parsed back
+ * through {@link parseFilterConditions} (so a corrupt stored value degrades to `[]`, never throws), the
+ * combinator is re-whitelisted, and sort is re-normalized. `org_id`/`created_by` are NOT returned (the
+ * client already scopes by session; they're server-side bookkeeping).
+ */
+export function serializeGridView(row: Record<string, unknown>): {
+  id: string;
+  table: string;
+  name: string;
+  conditions: Array<{ col: string; val: string; op: string }>;
+  combinator: FilterCombinator;
+  sortCol: string | null;
+  sortDir: 'asc' | 'desc' | null;
+  search: string;
+  updatedAt: string | null;
+} {
+  return {
+    id: String(row.id ?? ''),
+    table: String(row.table_key ?? ''),
+    name: String(row.name ?? ''),
+    conditions: parseFilterConditions(typeof row.filters_json === 'string' ? row.filters_json : '[]'),
+    combinator: normalizeCombinator(typeof row.combinator === 'string' ? row.combinator : 'AND'),
+    sortCol: typeof row.sort_col === 'string' && row.sort_col ? row.sort_col : null,
+    sortDir: normalizeSortDir(row.sort_dir),
+    search: typeof row.search === 'string' ? row.search : '',
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null,
+  };
+}
+
 /**
  * Mask an email local part for display: `brian@x.com` → `b***@x.com`.
  * Non-string / malformed values return '' so a browse row never leaks a raw
@@ -1042,6 +1090,119 @@ siteDataApi.patch('/api/sites/:siteId/data-overview/:table/:rowId', async (c) =>
   });
 
   return c.json({ data: { id: rowId, column, value: validated.value, updated: true } });
+});
+
+/**
+ * Saved GRID VIEWS — the isolated ProjectSites.dev metadata store for the Data tab. A saved view names
+ * a table's whole-table query (search + AND/OR filter group + single-column sort). Stored in the
+ * PLATFORM `editor_grid_views` table — NEVER in the customer's own tables — scoped by BOTH site_id AND
+ * org_id (`ownsSiteData` → 404 on foreign). Reads fail-soft (missing table → empty list) so a
+ * not-yet-migrated environment degrades to "no saved views", never a 500.
+ */
+siteDataApi.get('/api/sites/:siteId/grid-views', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const siteId = c.req.param('siteId');
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+  const table = String(c.req.query('table') ?? '').trim();
+  const cols = 'id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, updated_at';
+  try {
+    const res = table
+      ? await c.env.DB.prepare(
+          `SELECT ${cols} FROM editor_grid_views WHERE site_id = ? AND org_id = ? AND table_key = ? ORDER BY name COLLATE NOCASE ASC`,
+        )
+          .bind(siteId, orgId, table)
+          .all()
+      : await c.env.DB.prepare(
+          `SELECT ${cols} FROM editor_grid_views WHERE site_id = ? AND org_id = ? ORDER BY table_key, name COLLATE NOCASE ASC`,
+        )
+          .bind(siteId, orgId)
+          .all();
+    const views = ((res.results ?? []) as Record<string, unknown>[]).map(serializeGridView);
+    return c.json({ data: { views } });
+  } catch {
+    return c.json({ data: { views: [] } }); // not-yet-migrated / transient → honest empty, never 500
+  }
+});
+
+/**
+ * Save a new grid view. Body: `{ table, name, filters, combinator, sortCol, sortDir, search }`. The
+ * server re-validates everything: name 1–80 chars, table non-empty, filters shape-hardened via
+ * `parseFilterConditions` (stored as JSON — the browse endpoint re-validates each column against the
+ * table allowlist at query time, so a stale column just drops), combinator whitelisted, sort
+ * re-normalized. Bounded to {@link MAX_GRID_VIEWS_PER_TABLE} per (site, table). Returns the created view.
+ */
+siteDataApi.post('/api/sites/:siteId/grid-views', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const siteId = c.req.param('siteId');
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+  const name = validateViewName(body.name);
+  const table = String(body.table ?? '').trim();
+  if (!name || !table)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'A view name and table are required' } }, 400);
+
+  // Shape-harden the filter group (drops non-string fields, bounds the count); combinator + sort re-normalized.
+  const filtersJson = JSON.stringify(
+    parseFilterConditions(JSON.stringify(Array.isArray(body.filters) ? body.filters : [])),
+  );
+  const combinator = normalizeCombinator(typeof body.combinator === 'string' ? body.combinator : 'AND');
+  const sortCol = typeof body.sortCol === 'string' && body.sortCol.trim() ? body.sortCol.trim().slice(0, 64) : null;
+  const sortDir = normalizeSortDir(body.sortDir);
+  const search = typeof body.search === 'string' ? body.search.trim().slice(0, 128) : '';
+
+  try {
+    const countRow = await c.env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM editor_grid_views WHERE site_id = ? AND org_id = ? AND table_key = ?',
+    )
+      .bind(siteId, orgId, table)
+      .first<{ n: number }>();
+    if ((countRow?.n ?? 0) >= MAX_GRID_VIEWS_PER_TABLE)
+      return c.json(
+        { error: { code: 'LIMIT', message: `At most ${MAX_GRID_VIEWS_PER_TABLE} saved views per table` } },
+        400,
+      );
+
+    const id = crypto.randomUUID();
+    await c.env.DB.prepare(
+      'INSERT INTO editor_grid_views (id, site_id, org_id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    )
+      .bind(id, siteId, orgId, table, name, filtersJson, combinator, sortCol, sortDir, search, orgId)
+      .run();
+
+    const row = await c.env.DB.prepare(
+      'SELECT id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, updated_at FROM editor_grid_views WHERE id = ?',
+    )
+      .bind(id)
+      .first<Record<string, unknown>>();
+    return c.json({ data: { view: row ? serializeGridView(row) : null } }, 201);
+  } catch {
+    return c.json({ error: { code: 'SAVE_FAILED', message: 'Could not save the view' } }, 500);
+  }
+});
+
+/** Delete a saved view by id (double-scoped by site_id + org_id — a foreign id deletes nothing). */
+siteDataApi.delete('/api/sites/:siteId/grid-views/:viewId', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const siteId = c.req.param('siteId');
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+  const viewId = c.req.param('viewId');
+  try {
+    await c.env.DB.prepare('DELETE FROM editor_grid_views WHERE id = ? AND site_id = ? AND org_id = ?')
+      .bind(viewId, siteId, orgId)
+      .run();
+    return c.json({ data: { deleted: true } });
+  } catch {
+    return c.json({ error: { code: 'DELETE_FAILED', message: 'Could not delete the view' } }, 500);
+  }
 });
 
 /**

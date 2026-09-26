@@ -18,7 +18,7 @@
  */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isEmbedded, postToParent, onParentMessage } from '~/lib/embed/embedded-mode';
-import type { DataOverviewTable, ParentToChildMessage } from '~/lib/embed/embedded-mode';
+import type { DataOverviewTable, ParentToChildMessage, SavedGridView } from '~/lib/embed/embedded-mode';
 import { KvBrowser } from './KvBrowser';
 import { R2Browser } from './R2Browser';
 import { VectorizeBrowser } from './VectorizeBrowser';
@@ -331,6 +331,26 @@ export const DataPanel = memo(() => {
    */
   const [filterConditions, setFilterConditions] = useState<FilterCondition[]>([]);
   const [filterCombinator, setFilterCombinator] = useState<FilterCombinator>('AND');
+
+  /**
+   * Saved grid views for the OPEN table (the isolated ProjectSites.dev metadata store, fetched via
+   * PS_VIEW_REQUEST). A view names the whole-table query (search + filter group + sort); applying one
+   * reloads that query in a click. Stored server-side — NEVER in the customer's tables.
+   */
+  const [savedViews, setSavedViews] = useState<SavedGridView[]>([]);
+  const [viewsMenuOpen, setViewsMenuOpen] = useState(false);
+  const [viewsBusy, setViewsBusy] = useState(false);
+  const [saveViewName, setSaveViewName] = useState('');
+  const [savingView, setSavingView] = useState(false);
+  const viewListCid = useRef<string | null>(null);
+  const viewSaveCid = useRef<string | null>(null);
+  const viewDeleteCid = useRef<string | null>(null);
+
+  /*
+   * The current open table, mirrored into a ref so the mount-only message listener (deps []) reads the
+   * LATEST value instead of the stale mount-time closure (the []-deps stale-ref gotcha).
+   */
+  const activeRef = useRef<string | null>(null);
 
   /** Debounce timer for the exact-column filter value input. */
   const filterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -930,6 +950,48 @@ export const DataPanel = memo(() => {
     }
 
     const off = onParentMessage((msg: ParentToChildMessage) => {
+      // Saved grid views (metadata store) — match on the list/save/delete correlation ids.
+      if (msg.type === 'PS_VIEW_RESPONSE') {
+        if (msg.correlationId === viewListCid.current) {
+          viewListCid.current = null;
+          setViewsBusy(false);
+
+          if (!msg.error && Array.isArray(msg.views)) {
+            setSavedViews(msg.views);
+          }
+
+          return;
+        }
+
+        if (msg.correlationId === viewSaveCid.current) {
+          viewSaveCid.current = null;
+          setSavingView(false);
+
+          if (!msg.error && msg.view) {
+            const saved = msg.view;
+            setSaveViewName('');
+            setSavedViews((prev) =>
+              [...prev.filter((v) => v.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name)),
+            );
+          }
+
+          return;
+        }
+
+        if (msg.correlationId === viewDeleteCid.current) {
+          viewDeleteCid.current = null;
+
+          // On a delete error, reload to undo the optimistic removal; success needs no action.
+          if (msg.error && activeRef.current) {
+            loadViews(activeRef.current);
+          }
+
+          return;
+        }
+
+        return;
+      }
+
       // AI SQL assistant reply — drop the generated SQL into the editor for REVIEW (never auto-run).
       if (msg.type === 'PS_NL2SQL_RESPONSE') {
         if (msg.correlationId !== aiCid.current) {
@@ -1594,6 +1656,106 @@ export const DataPanel = memo(() => {
 
     runFilterGroup([], 'AND');
   }, [runFilterGroup]);
+
+  // ── Saved grid views (metadata store via PS_VIEW_REQUEST) ──────────────────────────────
+  /** Fetch this table's saved views from the org-gated metadata store. */
+  const loadViews = useCallback((tableKey: string): void => {
+    if (!isEmbedded || !tableKey) {
+      return;
+    }
+
+    const cid = newCorrelationId('view-list');
+    viewListCid.current = cid;
+    setViewsBusy(true);
+    postToParent({ type: 'PS_VIEW_REQUEST', action: 'list', table: tableKey, correlationId: cid });
+  }, []);
+
+  /** Save the CURRENT query (search + filter group + sort) as a named view. */
+  const saveCurrentView = useCallback((): void => {
+    const name = saveViewName.trim();
+
+    if (!active || !name) {
+      return;
+    }
+
+    const cid = newCorrelationId('view-save');
+    viewSaveCid.current = cid;
+    setSavingView(true);
+
+    // Reuse filtersToParams so the persisted `filters` JSON is byte-identical to what the grid sends.
+    const params = filtersToParams({ search, conditions: filterConditions, combinator: filterCombinator });
+    postToParent({
+      type: 'PS_VIEW_REQUEST',
+      action: 'save',
+      table: active,
+      name,
+      filters: params.filters ?? '[]',
+      combinator: filterCombinator,
+      sortCol: browseSort?.col ?? null,
+      sortDir: browseSort?.dir ?? null,
+      search,
+      correlationId: cid,
+    });
+  }, [active, saveViewName, search, filterConditions, filterCombinator, browseSort]);
+
+  /** Delete a saved view (optimistic removal; the list reloads on error). */
+  const deleteView = useCallback(
+    (id: string): void => {
+      if (!active) {
+        return;
+      }
+
+      const cid = newCorrelationId('view-del');
+      viewDeleteCid.current = cid;
+      setSavedViews((prev) => prev.filter((v) => v.id !== id));
+      postToParent({ type: 'PS_VIEW_REQUEST', action: 'delete', table: active, viewId: id, correlationId: cid });
+    },
+    [active],
+  );
+
+  /** Apply a saved view — load its search + filter group + sort and re-fetch page 0. */
+  const applyView = useCallback(
+    (view: SavedGridView): void => {
+      if (!active) {
+        return;
+      }
+
+      const conditions: FilterCondition[] = view.conditions.map((cnd) => ({
+        col: cnd.col || null,
+        op: cnd.op,
+        val: cnd.val,
+      }));
+      const sort: GridSort | null = view.sortCol ? { col: view.sortCol, dir: view.sortDir ?? 'desc' } : null;
+      setSearch(view.search);
+      setFilterConditions(conditions);
+      setFilterCombinator(view.combinator);
+      setBrowseSort(sort);
+      setViewsMenuOpen(false);
+      setBrowseOffset(0);
+      setRows([]);
+      setBrowseLoading(true);
+      setBrowseError('');
+      setDetailIdx(null);
+      setSelectedKeys(new Set());
+      requestRows(active, 0, sort, { search: view.search, conditions, combinator: view.combinator }, true);
+    },
+    [active, requestRows],
+  );
+
+  /*
+   * Load the open table's saved views (and close the menu + clear a stale list on table switch).
+   * Also mirror `active` into activeRef for the mount-only message listener.
+   */
+  useEffect(() => {
+    activeRef.current = active;
+    setViewsMenuOpen(false);
+
+    if (active) {
+      loadViews(active);
+    } else {
+      setSavedViews([]);
+    }
+  }, [active, loadViews]);
 
   /**
    * Rows-per-page change: update the ref (so `requestRows` uses the new size THIS tick) + state, then
@@ -2341,6 +2503,91 @@ export const DataPanel = memo(() => {
             </span>
             {(canRunSql || rows.length > 0) && (
               <div className="ml-auto flex items-center gap-3">
+                {/* Saved views — name the current query (search + filter group + sort) and re-apply it in
+                    a click. Stored in the isolated ProjectSites.dev metadata store, NEVER in the
+                    customer's tables. Hidden for non-browsable tables/views (no query to save). */}
+                {active && activeTable && activeTable.browsable !== false && (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setViewsMenuOpen((o) => !o)}
+                      data-testid="data-views-toggle"
+                      aria-expanded={viewsMenuOpen}
+                      aria-haspopup="menu"
+                      className="flex cursor-pointer items-center gap-1 text-[10px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
+                      title="Saved views for this table"
+                    >
+                      <div className="i-ph:bookmarks-simple" />
+                      Views{savedViews.length > 0 ? ` (${savedViews.length})` : ''}
+                      <div className="i-ph:caret-down text-[8px]" />
+                    </button>
+                    {viewsMenuOpen && (
+                      <div
+                        className="absolute right-0 z-20 mt-1 w-64 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2 shadow-lg"
+                        data-testid="data-views-menu"
+                        role="menu"
+                      >
+                        {viewsBusy ? (
+                          <div className="px-1 py-1 text-[11px] text-bolt-elements-textTertiary">Loading…</div>
+                        ) : savedViews.length === 0 ? (
+                          <div className="px-1 py-1 text-[11px] text-bolt-elements-textTertiary">
+                            No saved views yet.
+                          </div>
+                        ) : (
+                          <ul className="mb-2 max-h-48 overflow-auto">
+                            {savedViews.map((v) => (
+                              <li key={v.id} className="group flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => applyView(v)}
+                                  data-testid={`data-view-apply-${v.id}`}
+                                  className="min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-[11px] text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-2"
+                                  title={`Apply “${v.name}”`}
+                                >
+                                  {v.name}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteView(v.id)}
+                                  data-testid={`data-view-delete-${v.id}`}
+                                  aria-label={`Delete view ${v.name}`}
+                                  title="Delete this view"
+                                  className="i-ph:trash shrink-0 cursor-pointer text-xs text-bolt-elements-textTertiary hover:text-red-400"
+                                />
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <div className="flex items-center gap-1 border-t border-bolt-elements-borderColor/40 pt-2">
+                          <input
+                            value={saveViewName}
+                            onChange={(e) => setSaveViewName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                saveCurrentView();
+                              }
+                            }}
+                            placeholder="Save current view as…"
+                            data-testid="data-view-save-name"
+                            aria-label="Name for the new saved view"
+                            maxLength={80}
+                            spellCheck={false}
+                            className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={saveCurrentView}
+                            disabled={!saveViewName.trim() || savingView}
+                            data-testid="data-view-save"
+                            className="shrink-0 rounded bg-[#00e5ff]/15 px-2 py-1 text-[11px] font-semibold text-[#00e5ff] hover:bg-[#00e5ff]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {savingView ? 'Saving…' : 'Save'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {/* Add row — super-admin only (writes go through the gated /sql/exec-write path);
                     hidden for non-browsable tables/views so we never show a doomed control. */}
                 {canRunSql && columns.length > 0 && activeTable.browsable !== false && (

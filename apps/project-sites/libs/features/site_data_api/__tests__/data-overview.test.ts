@@ -13,6 +13,10 @@ import {
   buildColumnFilters,
   parseFilterConditions,
   MAX_FILTER_CONDITIONS,
+  validateViewName,
+  normalizeSortDir,
+  serializeGridView,
+  MAX_GRID_VIEWS_PER_TABLE,
   deletableTableName,
   DELETABLE_OVERVIEW_TABLES,
   editableTableName,
@@ -437,5 +441,93 @@ describe('parseFilterConditions (?filters= JSON → shape-hardened conditions, n
       clause: ' AND ("status" = ? AND "age" >= ?)',
       params: ['new', '21'],
     });
+  });
+});
+
+describe('validateViewName (saved-view name boundary)', () => {
+  it('trims + accepts a 1–80 char name', () => {
+    expect(validateViewName('  Active leads ')).toBe('Active leads');
+    expect(validateViewName('x')).toBe('x');
+  });
+
+  it('bounds to 80 chars', () => {
+    expect(validateViewName('y'.repeat(200))).toBe('y'.repeat(80));
+  });
+
+  it('rejects blank / non-string → null', () => {
+    expect(validateViewName('   ')).toBeNull();
+    expect(validateViewName('')).toBeNull();
+    expect(validateViewName(undefined)).toBeNull();
+    expect(validateViewName(42)).toBeNull();
+    expect(validateViewName(null)).toBeNull();
+  });
+});
+
+describe('normalizeSortDir (saved-view sort direction)', () => {
+  it('accepts asc/desc case-insensitively, else null', () => {
+    expect(normalizeSortDir('asc')).toBe('asc');
+    expect(normalizeSortDir('DESC')).toBe('desc');
+    expect(normalizeSortDir(' Asc ')).toBe('asc');
+    expect(normalizeSortDir('sideways')).toBeNull();
+    expect(normalizeSortDir('')).toBeNull();
+    expect(normalizeSortDir(undefined)).toBeNull();
+  });
+});
+
+describe('serializeGridView (stored row → client view; hardens filters, hides bookkeeping)', () => {
+  it('parses filters_json back through the shape-hardener + re-whitelists combinator/sort', () => {
+    const view = serializeGridView({
+      id: 'v1',
+      table_key: 'form_submissions',
+      name: 'New this week',
+      filters_json: '[{"col":"status","op":"eq","val":"new"},{"bad":1}]',
+      combinator: 'or',
+      sort_col: 'created_at',
+      sort_dir: 'DESC',
+      search: 'ada',
+      updated_at: '2026-09-26T00:00:00Z',
+      org_id: 'org_secret', // must NOT surface
+      created_by: 'org_secret',
+    });
+    expect(view).toEqual({
+      id: 'v1',
+      table: 'form_submissions',
+      name: 'New this week',
+      conditions: [
+        { col: 'status', op: 'eq', val: 'new' },
+        { col: '', op: 'eq', val: '' }, // the malformed leaf is hardened, not dropped, by parseFilterConditions
+      ],
+      combinator: 'OR',
+      sortCol: 'created_at',
+      sortDir: 'desc',
+      search: 'ada',
+      updatedAt: '2026-09-26T00:00:00Z',
+    });
+    // bookkeeping columns never leak into the client object
+    expect(view).not.toHaveProperty('org_id');
+    expect(view).not.toHaveProperty('created_by');
+  });
+
+  it('degrades a corrupt filters_json to [] (never throws) + defaults combinator/sort', () => {
+    const view = serializeGridView({
+      id: 'v2',
+      table_key: 'visitor_events',
+      name: 'All',
+      filters_json: '{not json',
+      combinator: 'bogus',
+      sort_col: null,
+      sort_dir: 'nonsense',
+      search: null,
+    });
+    expect(view.conditions).toEqual([]);
+    expect(view.combinator).toBe('AND');
+    expect(view.sortCol).toBeNull();
+    expect(view.sortDir).toBeNull();
+    expect(view.search).toBe('');
+  });
+
+  it('exposes a sane per-table cap constant', () => {
+    expect(MAX_GRID_VIEWS_PER_TABLE).toBeGreaterThan(0);
+    expect(MAX_GRID_VIEWS_PER_TABLE).toBeLessThanOrEqual(200);
   });
 });
