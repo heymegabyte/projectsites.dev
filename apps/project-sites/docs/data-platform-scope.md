@@ -1473,3 +1473,33 @@ verify the worker `/ask` route is live on prod (the loop has been editor-only si
 parse + the cross-table open (moderate). (c) **`field-types.ts` semantic layer** (needs the per-column metadata-config
 arc) + per-customer D1 discovery (slice 1, unlocks ALTER-existing/Rename). Recommend (a) as the next dedicated
 real-browser/prod fire — it closes the Ask arc's last unmeasured link; (b) is the best remaining in-loop editor slice.
+
+### ✅ Shipped next fire (2026-09-26 #62) — SCOPE CUT (Brian directive): Data tab = Tables + SQL + KV only; removed D1/R2/Vectors/Queues tabs
+**Brian, 2026-09-26:** "SQL and Tables look good… remove all the other non-used tabs like D1, R2, Vectors, Queues and their
+related code" + "it doesn't seem like you built out KV yet." Root cause of the KV confusion: KV **is** built (`KvBrowser.tsx`,
+596 lines — full browse/prefix/edit/TTL) but was **buried** among 7 tabs; and the whole surface is super-admin-gated (see
+`editor-data-tab-features-are-superadmin-gated-and-deep-lazy-verify-in-browser` memory). Refocused the Data tab to its
+actual mission (authorized **D1 + KV**), removing the account-wide resource browsers that were scope-creep.
+- **Removed (editor side, this fire):** the `d1`, `r2`, `vec`, `queues` tabs from `MODE_META` + the tab-bar array + the
+  `mode` union + the 4 render branches in `DataPanel.tsx`; deleted the components + their pure-logic + specs —
+  `D1Browser.tsx` (1257 lines — a real resource-discovery/schema/SQL-dump-export surface; git-recoverable if wanted back),
+  `R2Browser`+`r2-browser-logic`(+spec), `QueuesBrowser`+`queues-browser-logic`(+spec), `VectorizeBrowser`+
+  `vectorize-browser-logic`(+spec), `d1-browser-logic`(+spec); removed their bridge message types (`PS_R2_*` `PS_VEC_*`
+  `PS_QUEUE_*` `PS_D1_*` + interfaces) from `embedded-mode.ts` (carefully preserving `SavedGridView`/`SavedGridViewLayout`,
+  which had been interleaved in the deleted range and are used by the KEPT View messages).
+- **KV is now 1 of 3 tabs (Tables · SQL · KV)** → discoverable. No KV code change needed (it was already complete).
+- Verified: editor Vitest **934/934** (32→28 files as the 4 deleted specs' ~79 tests go with them) + tsc 0 + eslint 0 +
+  build 0. Editor-only (CF Pages ~2min). **Verify-by-hash on deploy:** confirm `data-mode-kv` present + `data-mode-d1`/
+  `-r2`/`-vec`/`-queues` ABSENT in the live chunk.
+- **DEFERRED to the next (worker/frontend) fire — "their related code" on the platform side:** the admin
+  `bolt-embed.service.ts` `PS_D1_/PS_R2_/PS_VEC_/PS_QUEUE_` handlers + proxy fields, and the worker feature-modules
+  `libs/features/{d1_inspector?,r2_inspector,vectorize_inspector,queues_inspector}/` (+ their routes in `index.ts` +
+  feature-flag registry entries). These are now DEAD (the editor no longer sends those messages) but harmless; removing
+  them needs the ~14min worker/frontend CI + the `validate:features` drift gate, so it's its own fire.
+
+**NEXT slice: remove the platform-side D1/R2/Vectors/Queues dead code (worker + admin) — completes Brian's "remove their
+related code."** Delete the admin `bolt-embed.service.ts` handlers/fields for `PS_D1_/PS_R2_/PS_VEC_/PS_QUEUE_`; delete the
+worker `libs/features/{r2_inspector,vectorize_inspector,queues_inspector}` + any `d1_inspector` module + unregister their
+routes/flags; keep `kv_inspector` + the D1 SQL/table routes (`site_detail_tabs.ts`). Worker `tsc`+`jest` + `validate:features`
++ frontend `tsc`; deploy `--env production` + prod-verify. (Then the standing live-model eval RUN + the owner-visibility
+work — much of Tables/KV value is owner-relevant, currently super-admin-gated.)

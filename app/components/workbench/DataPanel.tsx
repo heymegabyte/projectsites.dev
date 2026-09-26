@@ -25,10 +25,6 @@ import type {
   SavedGridViewLayout,
 } from '~/lib/embed/embedded-mode';
 import { KvBrowser } from './KvBrowser';
-import { R2Browser } from './R2Browser';
-import { VectorizeBrowser } from './VectorizeBrowser';
-import { QueuesBrowser } from './QueuesBrowser';
-import { D1Browser } from './D1Browser';
 import {
   iconForTable,
   formatCellValue,
@@ -437,7 +433,7 @@ export const DataPanel = memo(() => {
    * multi-tenant DB). `canRunSql` arrives on the overview reply; `mode` toggles the console view.
    */
   const [canRunSql, setCanRunSql] = useState(false);
-  const [mode, setMode] = useState<'tables' | 'sql' | 'd1' | 'kv' | 'r2' | 'vec' | 'queues'>('tables');
+  const [mode, setMode] = useState<'tables' | 'sql' | 'kv'>('tables');
 
   /*
    * Add-row — a typed row editor that builds a PARAMETERIZED INSERT (values BOUND via ?N, never
@@ -3692,11 +3688,7 @@ export const DataPanel = memo(() => {
   const MODE_META = {
     tables: { icon: 'i-ph:table', label: 'Tables' },
     sql: { icon: 'i-ph:terminal-window', label: 'SQL' },
-    d1: { icon: 'i-ph:database', label: 'D1' },
     kv: { icon: 'i-ph:key', label: 'KV' },
-    r2: { icon: 'i-ph:hard-drives', label: 'R2' },
-    vec: { icon: 'i-ph:graph', label: 'Vectors' },
-    queues: { icon: 'i-ph:stack', label: 'Queues' },
   } as const;
   const renderModeTab = (m: keyof typeof MODE_META) => (
     <button
@@ -3784,7 +3776,7 @@ export const DataPanel = memo(() => {
                     Platform
                   </span>
                   <div className="flex items-center overflow-hidden rounded-md border border-bolt-elements-borderColor">
-                    {(['sql', 'd1', 'kv', 'r2', 'vec', 'queues'] as const).map(renderModeTab)}
+                    {(['sql', 'kv'] as const).map(renderModeTab)}
                   </div>
                 </div>
               </div>
@@ -6447,26 +6439,6 @@ export const DataPanel = memo(() => {
       {mode === 'kv' && (
         <div className="flex-1 flex flex-col min-h-0 overflow-auto modern-scrollbar">
           <KvBrowser postToParent={postToParent} />
-        </div>
-      )}
-      {mode === 'r2' && (
-        <div className="flex-1 flex flex-col min-h-0 overflow-auto modern-scrollbar">
-          <R2Browser postToParent={postToParent} />
-        </div>
-      )}
-      {mode === 'vec' && (
-        <div className="flex-1 flex flex-col min-h-0 overflow-auto modern-scrollbar">
-          <VectorizeBrowser postToParent={postToParent} />
-        </div>
-      )}
-      {mode === 'queues' && (
-        <div className="flex-1 flex flex-col min-h-0 overflow-auto modern-scrollbar">
-          <QueuesBrowser postToParent={postToParent} />
-        </div>
-      )}
-      {mode === 'd1' && (
-        <div className="flex-1 flex flex-col min-h-0 overflow-auto modern-scrollbar">
-          <D1Browser postToParent={postToParent} />
         </div>
       )}
       {status === 'ready' && mode === 'sql' && (
