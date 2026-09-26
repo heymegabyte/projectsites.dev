@@ -1546,6 +1546,22 @@ export interface ParameterizedStatement {
  * @example buildInsertStatement('todos', ['title', 'done'], ['Buy milk', 0])
  *   // { sql: 'INSERT INTO "todos" ("title", "done") VALUES (?1, ?2)', params: ['Buy milk', 0] }
  */
+/**
+ * The columns that go into an Add-row INSERT, in table-column order: the ones the user opted to set (a
+ * kind other than `'default'`, which means "omit → use the column default") AND that are NOT generated
+ * (SQLite REJECTS inserting a value into a generated column). Pure — used by both the live preview and
+ * the submit path so they can never diverge.
+ *
+ * @example insertableColumns(['id','name','total'], {name:'text'}, new Set(['total'])) // ['name']
+ */
+export function insertableColumns(
+  columns: readonly string[],
+  kinds: Record<string, CellInputKind | 'default'>,
+  generated: ReadonlySet<string>,
+): string[] {
+  return columns.filter((c) => kinds[c] && kinds[c] !== 'default' && !generated.has(c));
+}
+
 export function buildInsertStatement(
   table: string,
   columns: readonly string[],

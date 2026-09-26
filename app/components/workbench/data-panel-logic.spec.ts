@@ -28,6 +28,7 @@ import {
   filtersToParams,
   clampPageSize,
   PAGE_SIZE_OPTIONS,
+  insertableColumns,
   stripSqlCommentsAndStrings,
   classifySqlStatement,
   classifySql,
@@ -867,6 +868,26 @@ describe('clampPageSize (rows-per-page selector guard)', () => {
     expect(clampPageSize(0)).toBe(25);
     expect(clampPageSize(999)).toBe(25);
     expect(clampPageSize(Number.NaN)).toBe(25);
+  });
+});
+
+describe('insertableColumns (Add-row INSERT column set)', () => {
+  it('keeps opted-in columns (kind ≠ default), in table order', () => {
+    expect(insertableColumns(['id', 'name', 'note'], { name: 'text', note: 'text' }, new Set())).toEqual([
+      'name',
+      'note',
+    ]);
+  });
+
+  it("omits columns left at 'default' (use the column default) and unset columns", () => {
+    expect(insertableColumns(['id', 'name'], { id: 'default', name: 'text' }, new Set())).toEqual(['name']);
+    expect(insertableColumns(['id', 'name'], {}, new Set())).toEqual([]);
+  });
+
+  it('ALWAYS omits generated columns even if a stale kind is set (SQLite rejects inserting one)', () => {
+    expect(insertableColumns(['id', 'name', 'total'], { name: 'text', total: 'number' }, new Set(['total']))).toEqual([
+      'name',
+    ]);
   });
 });
 

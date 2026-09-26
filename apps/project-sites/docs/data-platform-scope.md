@@ -367,10 +367,23 @@ selector sits beside Prev/Next:
 - Verified: Vitest 194/194 (data-panel-logic), editor tsc 0 / eslint 0 / build ✓ (13.31s). Editor-only → CF Pages
   deploy on push. **The read-only grid is now fully server-driven: pagination (+ page size) + sort + search + filter.**
 
-**NEXT slice (per delivery order): the add-row form omits GENERATED columns** (a small correctness/safety
-completion — `duplicateRow` already omits them, but the Add-row form still renders inputs for a generated column →
-a doomed INSERT that SQLite rejects; reuse `browseGeneratedCols` to skip them, matching the edit-path fix). Then
-the AND/OR **filter-group builder** (fuller slice-3; needs a validated filter-tree worker endpoint — scope
-deliberately), or wire `field-types.ts` typed EDITORS (date/select/url) into the row-edit path. Then the grid eval
-(RevoGrid vs Tabulator, license-checked) + **saved grid views** (needs an isolated ProjectSites.dev metadata store
-per the architecture note — views/filters/sort/field-config live there, NEVER in customer tables).
+### ✅ Shipped next fire (2026-09-26 #9) — Add-row form omits GENERATED columns (edit + add paths now both safe)
+Completing the generated-column safety started in the edit path: the Add-row form rendered an opt-in type+value
+input for EVERY column, so a user could set a value for a generated (computed) column → a doomed INSERT that
+SQLite rejects. Now (editor-only):
+- The Add-row form renders a generated column as a read-only **"computed — set automatically by SQLite, not
+  insertable"** row (amber chip, matching the edit-path indicator) instead of an editable select+input — never a
+  doomed control.
+- New pure `insertableColumns(columns, kinds, generated)` → the INSERT column set (opted-in kind ≠ 'default' AND
+  not generated), used by BOTH the live SQL preview and the submit so they can't diverge — a defensive guard even
+  if a stale `addKinds` entry names a generated column. +3 Vitest.
+- Verified: Vitest 197/197 (data-panel-logic), editor tsc 0 / eslint 0 / build ✓ (12.89s). Editor-only → CF Pages.
+  **Generated columns are now non-writable across BOTH edit + add + duplicate paths** (SQLite's schema-enforced
+  non-writability is honored end-to-end).
+
+**NEXT slice (per delivery order): wire `field-types.ts` typed EDITORS into the row-edit path** (the INERT
+foundation — date picker / single-select / URL-email presentation editors keyed off the column's declared SQLite
+affinity, honest UI-interpretation over storage). OR the AND/OR **filter-group builder** (fuller slice-3; needs a
+validated filter-tree worker endpoint — scope deliberately). Then the grid eval (RevoGrid vs Tabulator,
+license-checked) + **saved grid views** (needs the isolated ProjectSites.dev metadata store — views/filters/sort/
+field-config live there, NEVER in customer tables — the first metadata-store slice; a good moment to design that store).

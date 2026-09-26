@@ -60,6 +60,7 @@ import {
   coerceCellInput,
   inferCellEditor,
   buildInsertStatement,
+  insertableColumns,
   buildDeleteByPk,
   buildBulkDeleteByPk,
   rowPkKey,
@@ -824,10 +825,14 @@ export const DataPanel = memo(() => {
     setAddValues((prev) => ({ ...prev, [col]: value }));
   }, []);
 
-  // Columns the user opted to set (kind !== 'default'), in table-column order.
+  /*
+   * Columns the user opted to set (kind !== 'default'), in table-column order. Generated columns are
+   * excluded defensively — the form no longer offers them, but SQLite rejects inserting one, so never
+   * let a stale addKinds entry put a generated column into the INSERT.
+   */
   const addActiveCols = useMemo(
-    () => columns.filter((c) => addKinds[c] && addKinds[c] !== 'default'),
-    [columns, addKinds],
+    () => insertableColumns(columns, addKinds, browseGeneratedCols),
+    [columns, addKinds, browseGeneratedCols],
   );
 
   /*
@@ -860,7 +865,7 @@ export const DataPanel = memo(() => {
 
     setAddError('');
 
-    const cols = columns.filter((c) => addKinds[c] && addKinds[c] !== 'default');
+    const cols = insertableColumns(columns, addKinds, browseGeneratedCols);
 
     if (cols.length === 0) {
       setAddError('Set at least one column value to add a row.');
@@ -892,7 +897,7 @@ export const DataPanel = memo(() => {
     addTargetRef.current = active;
     setAddBusy(true);
     runSql(stmt.sql, stmt.params);
-  }, [active, columns, addKinds, addValues, runSql]);
+  }, [active, columns, addKinds, addValues, browseGeneratedCols, runSql]);
 
   // Subscribe to PS_DATA_RESPONSE from the admin parent.
   useEffect(() => {
@@ -2332,6 +2337,27 @@ export const DataPanel = memo(() => {
                 {columns.map((c) => {
                   const kind = addKinds[c] ?? 'default';
                   const disabled = kind === 'default' || kind === 'null';
+
+                  /*
+                   * A generated (computed) column can't be inserted — SQLite sets it automatically.
+                   * Show it read-only + explained (never a doomed input) instead of an editable row.
+                   */
+                  if (browseGeneratedCols.has(c)) {
+                    return (
+                      <div key={c} className="flex items-center gap-2" data-testid="data-add-generated">
+                        <span
+                          className="w-32 shrink-0 truncate font-mono text-[10px] text-bolt-elements-textSecondary"
+                          title={c}
+                        >
+                          {c}
+                        </span>
+                        <span className="flex items-center gap-1 text-[10px] text-amber-300">
+                          <span className="rounded bg-amber-500/15 px-1 text-[8px]">computed</span>
+                          set automatically by SQLite — not insertable
+                        </span>
+                      </div>
+                    );
+                  }
 
                   return (
                     <div key={c} className="flex items-center gap-2">
