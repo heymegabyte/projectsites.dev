@@ -130,9 +130,20 @@ generic, brilliant data platform each site owns.
     idempotent (reuse existing active allocation — never a duplicate on retry), honest typed failures
     (no-creds / cf-fail) that record NOTHING. +5 Jest (real-SQLite + mocked CF → zero real resources). INERT
     until 0c.2.
-  - **NEXT 0c.2:** register the `per_site_d1` flag (registry + docs) + wire `provisionSiteD1` into the
-    site-create pipeline IN PARALLEL (flag-dark). Then 0c.3 = KV + R2 provisioners (same pattern).
+  - **✅ 0c.3 DONE (2026-09-25, multi-agent fan-out):** the **KV + R2 provisioners** — migration `0634` adds
+    `kv_namespace_id`/`kv_namespace_name`/`r2_bucket_name`; `src/services/kv_provisioner.ts` `provisionSiteKv()`
+    (`POST …/storage/kv/namespaces`) + `src/services/r2_provisioner.ts` `provisionSiteR2()` (`POST …/r2/buckets`,
+    bucket names lowercase ≤63). Same safety/idempotency/honest-failure contract as D1. +10 Jest (real-SQLite +
+    mocked CF). All three provisioners INERT until 0c.2 wiring.
+  - **NEXT 0c.2:** register the `per_site_data` flag (registry + docs) + wire `provisionSiteD1/Kv/R2` into the
+    site-create pipeline IN PARALLEL (flag-dark, `Promise.all`).
 - 0d. Re-point ingestion (`form_submissions`, `visitor_events`) to write to the site's own D1.
+
+> **Multi-agent fan-out (2026-09-25)** also landed the PURE FOUNDATIONS for later phases (built by parallel
+> agents, folded + verified foreground): **Phase 2** `app/components/workbench/field-types.ts` (Airtable field-type
+> registry — 10 kinds, coerce/format, +63 Vitest) + `schema-ddl.ts` (pure DDL generators for create/alter table+
+> column+index, identifier-safe, +32 Vitest); **Phase 4** `view-models.ts` (Kanban `groupRowsByColumn` / Calendar
+> `bucketRowsByDate` / Gallery `galleryPages`, +22 Vitest). All pure + tested + INERT (wired when those phases' UI ships).
 
 **Phase 1 — Spreadsheet core** (over per-site D1)
 - Resource-aware Data shell: **Platform DB (read-only, super-admin)** · **My Site's Data (read/edit)** · **KV**.
