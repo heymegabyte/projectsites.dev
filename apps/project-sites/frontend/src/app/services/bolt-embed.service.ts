@@ -70,6 +70,10 @@ interface PsMessage {
   readonly dir?: string;
   /** PS_DATA_REQUEST: whole-table search (worker: OR-of-LIKE over allowlisted columns; affects `total`). */
   readonly search?: string;
+  /** PS_DATA_REQUEST: exact-match filter column (worker allowlist-validates it; else no filter). */
+  readonly filterCol?: string;
+  /** PS_DATA_REQUEST: exact-match value for `filterCol` (worker parameterizes it: `"col" = ?`). */
+  readonly filterVal?: string;
   /** PS_SQL_REQUEST (D1 manager): the SQL to forward — /sql/exec (read) or /sql/exec-write (write). */
   readonly query?: string;
   /** PS_SQL_REQUEST: route to the WRITE endpoint (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE). */
@@ -630,6 +634,16 @@ export class BoltEmbedService {
             typeof msg.search === 'string' && msg.search.trim()
               ? msg.search.trim().slice(0, 128)
               : undefined;
+          // Exact-column filter — the WORKER allowlist-validates filterCol against the table's columns
+          // and parameterizes filterVal; we forward the trimmed, length-capped pair only when both set.
+          const browseFilterCol =
+            typeof msg.filterCol === 'string' && msg.filterCol.trim()
+              ? msg.filterCol.trim().slice(0, 64)
+              : undefined;
+          const browseFilterVal =
+            typeof msg.filterVal === 'string' && msg.filterVal.trim()
+              ? msg.filterVal.trim().slice(0, 200)
+              : undefined;
           const reply = (payload: Record<string, unknown>): void => {
             iframe?.contentWindow?.postMessage(
               { type: 'PS_DATA_RESPONSE', correlationId: cid, table, ...payload },
@@ -653,6 +667,9 @@ export class BoltEmbedService {
                     ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),
                     ...(browseOrderBy && browseDir ? { dir: browseDir } : {}),
                     ...(browseSearch ? { search: browseSearch } : {}),
+                    ...(browseFilterCol && browseFilterVal
+                      ? { filterCol: browseFilterCol, filterVal: browseFilterVal }
+                      : {}),
                   }
                 : undefined,
               { silent: true },

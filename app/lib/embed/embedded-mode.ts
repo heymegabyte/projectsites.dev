@@ -188,6 +188,15 @@ export interface DataRequestMessage {
    * loaded page. Omit / empty → no search.
    */
   search?: string;
+
+  /**
+   * Exact-match filter column (a table column). The worker allowlist-validates it (else no filter) and
+   * only applies the filter when {@link filterVal} is non-empty. Composes with {@link search} + sort.
+   */
+  filterCol?: string;
+
+  /** Exact-match value for {@link filterCol} (parameterized by the worker: `"col" = ?`). */
+  filterVal?: string;
   correlationId: string;
 }
 

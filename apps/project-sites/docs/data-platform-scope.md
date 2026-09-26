@@ -336,9 +336,27 @@ The search box previously filtered only the LOADED 25-row page client-side (`fil
   wants "warn before expensive unindexed scans / FTS5 when an index exists" — a future refinement once table sizes
   or FTS5 indexes are known (surface a subtle "scans all N rows" hint / prefer FTS5 `MATCH` where a virtual table exists).
 
-**NEXT slice (per delivery order): the exact-column FILTER UI** (the worker already supports `filterCol`/`filterVal`
-exact-match, allowlist-validated + affecting `total`) — a per-column filter chip (pick a column + value) that sends
-`filterCol`/`filterVal`, resets to page 0, and composes with search+sort; the honest AND/OR filter-group builder is
-the fuller slice-3 goal. Then the grid eval (RevoGrid vs Tabulator, license-checked) + a page-size selector (25/50/100).
-Cheaper adjacent win: wire `field-types.ts` typed EDITORS (date/select/url) into the row-edit path; or the add-row
-form omitting generated columns.
+### ✅ Shipped next fire (2026-09-26 #7) — exact-column FILTER UI (slice 3 filters; server filter/sort/search all wired)
+The worker already ran `buildColumnFilter` (exact `"col" = ?`, allowlist-validated, blank value ignored,
+reflected in `total`) but no UI drove it. Now a per-column filter composes with search + sort + pagination:
+- **Editor** (`DataPanel.tsx`) — a compact filter row under the search box: a **column `<select>`** (all table
+  columns) + a **value input** (shown once a column is chosen) + a clear `×`. Value edits are debounced (300 ms);
+  choosing/clearing the column re-applies immediately. Any change **resets to page 0** and re-fetches with the
+  current sort+search. The disclosure shows `where <col> = "<val>"` (honest whole-table filter), and the box
+  persists on a 0-result filter so it's changeable. `filterCol`/`filterVal` state resets per table.
+- **Consolidation** — the growing browse query is now a single `BrowseFilters` bundle `{search, filterCol,
+  filterVal}`; `requestRows(key, offset, sort, filters)` sends it via the new pure `filtersToParams` (subsumes
+  `browseSearchParam`, sends `filterCol`/`filterVal` only when BOTH set — matching the worker). +4 Vitest.
+- **Response envelope + admin** — `PS_DATA_REQUEST`/`PsMessage` gain `filterCol`/`filterVal`; the admin forwards
+  the trimmed, length-capped pair only when both present. Worker stays the validation boundary.
+- Verified: Vitest 192/192 (data-panel-logic), editor tsc 0 / eslint 0 / build ✓ (12.85s); admin tsc 0 / eslint 0 /
+  `ng build` prod ✓ (8.6s). Both deploy on push. **Server-side pagination + sort + search + exact-column filter are
+  now ALL wired** — the read-only paginated grid (delivery #2) + its filter/sort/search (delivery #3) are complete.
+- **Security:** the editor/admin never build SQL — the worker's `buildColumnFilter` + `spec.columns` allowlist +
+  parameterized `?` value are the sole boundary; a hostile column is ignored, a hostile value is just a bound string.
+
+**NEXT slice (per delivery order): a page-size selector (25/50/100)** — small win completing the pagination UX
+(send `limit`, reset to page 0; the worker already clamps 1–100). OR the AND/OR **filter-group builder** (the fuller
+slice-3 goal beyond one exact-match column — needs a worker extension to accept a validated filter tree, so scope
+it deliberately). Then the grid eval (RevoGrid vs Tabulator, license-checked). Cheaper adjacent win: wire
+`field-types.ts` typed EDITORS (date/select/url) into the row-edit path; or the add-row form omitting generated columns.

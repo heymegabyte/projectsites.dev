@@ -25,6 +25,7 @@ import {
   browsePageInfo,
   sortToParams,
   browseSearchParam,
+  filtersToParams,
   stripSqlCommentsAndStrings,
   classifySqlStatement,
   classifySql,
@@ -815,6 +816,40 @@ describe('browseSearchParam (search box → server-search request param)', () =>
     expect(browseSearchParam('   ')).toEqual({});
     expect(browseSearchParam(null)).toEqual({});
     expect(browseSearchParam(undefined)).toEqual({});
+  });
+});
+
+describe('filtersToParams (search + exact-column filter → request params)', () => {
+  it('sends search + filterCol + filterVal together when all present', () => {
+    expect(filtersToParams({ search: 'ada', filterCol: 'status', filterVal: 'active' })).toEqual({
+      search: 'ada',
+      filterCol: 'status',
+      filterVal: 'active',
+    });
+  });
+
+  it('sends only what is set (search alone / filter alone)', () => {
+    expect(filtersToParams({ search: 'x', filterCol: null, filterVal: '' })).toEqual({ search: 'x' });
+    expect(filtersToParams({ search: '', filterCol: 'status', filterVal: 'active' })).toEqual({
+      filterCol: 'status',
+      filterVal: 'active',
+    });
+  });
+
+  it('omits the column filter when the value is blank (matches the worker) or no column chosen', () => {
+    // column chosen but blank value → no filter (the worker ignores a blank value)
+    expect(filtersToParams({ search: '', filterCol: 'status', filterVal: '   ' })).toEqual({});
+
+    // value but no column → no filter
+    expect(filtersToParams({ search: '', filterCol: null, filterVal: 'active' })).toEqual({});
+  });
+
+  it('trims search + filter value', () => {
+    expect(filtersToParams({ search: '  a ', filterCol: 'c', filterVal: '  v ' })).toEqual({
+      search: 'a',
+      filterCol: 'c',
+      filterVal: 'v',
+    });
   });
 });
 

@@ -1160,6 +1160,48 @@ export function browseSearchParam(search: string | null | undefined): { search?:
   return q ? { search: q } : {};
 }
 
+/** The whole-table filter state of the browse grid: a text search + an exact single-column filter. */
+export interface BrowseFilters {
+  /** Whole-table OR-of-LIKE needle (see {@link browseSearchParam}). */
+  search: string;
+
+  /** Exact-match filter column (a table column name), or null when no column filter is active. */
+  filterCol: string | null;
+
+  /** Exact-match filter value. Only applied when {@link filterCol} is set AND this is non-empty. */
+  filterVal: string;
+}
+
+/**
+ * Map the browse {@link BrowseFilters} to the `PS_DATA_REQUEST` filter params. `search` is trimmed +
+ * omitted when blank; `filterCol`/`filterVal` are sent together ONLY when a column is chosen AND the
+ * value is non-empty (matching the worker's `buildColumnFilter`, which ignores a blank value). Both are
+ * display requests — the WORKER allowlist-validates `filterCol` + parameterizes every value — so nothing
+ * is escaped here. Pure.
+ *
+ * @example filtersToParams({ search: 'ada', filterCol: 'status', filterVal: 'active' })
+ *   // { search: 'ada', filterCol: 'status', filterVal: 'active' }
+ * @example filtersToParams({ search: '', filterCol: 'status', filterVal: '' }) // {}  (blank value → no filter)
+ */
+export function filtersToParams(f: BrowseFilters): {
+  search?: string;
+  filterCol?: string;
+  filterVal?: string;
+} {
+  const out: { search?: string; filterCol?: string; filterVal?: string } = {
+    ...browseSearchParam(f.search),
+  };
+  const col = (f.filterCol ?? '').trim();
+  const val = (f.filterVal ?? '').trim();
+
+  if (col && val) {
+    out.filterCol = col;
+    out.filterVal = val;
+  }
+
+  return out;
+}
+
 /** Numeric value of a cell when it's a finite number or a numeric string, else null. */
 function cellAsNumber(value: unknown): number | null {
   if (typeof value === 'number') {

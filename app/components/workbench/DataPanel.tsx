@@ -70,7 +70,7 @@ import {
   browsePageInfo,
   BROWSE_PAGE_SIZE,
   sortToParams,
-  browseSearchParam,
+  filtersToParams,
   RowMutationError,
   friendlyModelLabel,
   canAskAi,
@@ -80,6 +80,7 @@ import {
   type CsvImportPlan,
   type CellInputKind,
   type BoundValue,
+  type BrowseFilters,
 } from './data-panel-logic';
 import { SqlEditor } from './SqlEditor';
 import { classNames } from '~/utils/classNames';
@@ -298,6 +299,16 @@ export const DataPanel = memo(() => {
 
   /** Debounce timer for the whole-table (server-side) search box. */
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Exact-match single-column filter (worker `filterCol`/`filterVal`) — composes with search + sort.
+   * `filterCol` null → no column filter; a filter is only APPLIED when both are set (value non-empty).
+   */
+  const [filterCol, setFilterCol] = useState<string | null>(null);
+  const [filterVal, setFilterVal] = useState('');
+
+  /** Debounce timer for the exact-column filter value input. */
+  const filterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pkCid = useRef<string | null>(null); // PRAGMA table_info round-trip id (distinct from the SQL console)
   const deletePending = useRef(false); // a row delete is in flight → route the next PS_SQL_RESPONSE
   const deleteTargetRef = useRef<string | null>(null); // the table to re-open after a delete
@@ -513,7 +524,7 @@ export const DataPanel = memo(() => {
    * `data-overview/:table` endpoint (server-side LIMIT/OFFSET — the browser never loads the whole table).
    */
   const requestRows = useCallback(
-    (key: string, offset: number, sort: GridSort | null, search: string): void => {
+    (key: string, offset: number, sort: GridSort | null, filters: BrowseFilters): void => {
       const cid = newCorrelationId(key);
       browseCid.current = cid;
 
@@ -529,9 +540,10 @@ export const DataPanel = memo(() => {
       }, REQUEST_TIMEOUT_MS);
 
       /*
-       * `orderBy`/`dir` sort + `search` filter the WHOLE table server-side (the worker allowlist-
-       * validates the sort column + runs a parameterized OR-of-LIKE for search, and reflects both in
-       * `total`); omitted → the table's default order + no filter. Both are display requests, never SQL.
+       * `orderBy`/`dir` (sort) + `search` (OR-of-LIKE) + `filterCol`/`filterVal` (exact-column) all
+       * apply WHOLE-table server-side — the worker allowlist-validates the sort + filter columns,
+       * parameterizes every value, and reflects the result in `total`. Omitted → default order + no
+       * filter. All are display requests, never SQL.
        */
       postToParent({
         type: 'PS_DATA_REQUEST',
@@ -539,7 +551,7 @@ export const DataPanel = memo(() => {
         offset,
         limit: BROWSE_PAGE_SIZE,
         ...sortToParams(sort),
-        ...browseSearchParam(search),
+        ...filtersToParams(filters),
         correlationId: cid,
       });
     },
@@ -563,14 +575,20 @@ export const DataPanel = memo(() => {
       setBrowseColTypes({});
       setBrowseOffset(0); // a fresh table opens at the first page
       setBrowseTotal(null); // until the first page lands, pageInfo falls back to the overview count
+      setFilterCol(null); // clear the prior table's column filter
+      setFilterVal('');
 
       if (searchTimer.current) {
         clearTimeout(searchTimer.current);
       } // drop a pending search from the prior table
 
+      if (filterTimer.current) {
+        clearTimeout(filterTimer.current);
+      } // drop a pending column-filter apply
+
       setSelectedKeys(new Set()); // never carry a bulk selection across a table switch / re-fetch
 
-      requestRows(key, 0, null, ''); // a fresh table opens at page 0, default sort, no search
+      requestRows(key, 0, null, { search: '', filterCol: null, filterVal: '' }); // fresh: page 0, no sort/filter
 
       /*
        * Super-admins get row DELETE — resolve the PK via PRAGMA table_info on its OWN correlation id
@@ -613,9 +631,9 @@ export const DataPanel = memo(() => {
       setBrowseError('');
       setDetailIdx(null);
       setSelectedKeys(new Set());
-      requestRows(active, nextOffset, browseSort, search); // keep the active sort + search across page nav
+      requestRows(active, nextOffset, browseSort, { search, filterCol, filterVal }); // keep sort+search+filter across pages
     },
-    [active, browseSort, search, requestRows],
+    [active, browseSort, search, filterCol, filterVal, requestRows],
   );
 
   /*
@@ -1338,10 +1356,10 @@ export const DataPanel = memo(() => {
         setBrowseLoading(true);
         setBrowseError('');
         setSelectedKeys(new Set());
-        requestRows(active, 0, next, search); // keep the active search when the sort changes
+        requestRows(active, 0, next, { search, filterCol, filterVal }); // keep search+filter when sort changes
       }
     },
-    [browseSort, active, search, requestRows],
+    [browseSort, active, search, filterCol, filterVal, requestRows],
   );
 
   /**
@@ -1361,9 +1379,9 @@ export const DataPanel = memo(() => {
       setBrowseError('');
       setDetailIdx(null);
       setSelectedKeys(new Set());
-      requestRows(active, 0, browseSort, value);
+      requestRows(active, 0, browseSort, { search: value, filterCol, filterVal });
     },
-    [active, browseSort, requestRows],
+    [active, browseSort, filterCol, filterVal, requestRows],
   );
 
   /** Search-box change: update the input immediately, debounce the whole-table server search. */
@@ -1380,6 +1398,75 @@ export const DataPanel = memo(() => {
     },
     [runServerSearch],
   );
+
+  /**
+   * Run the exact-column filter (worker `filterCol`/`filterVal`) → reset to page 0 in the current sort
+   * + search and re-fetch. Only meaningful when col+val are both set (filtersToParams drops a partial
+   * filter). The worker allowlist-validates the column + parameterizes the value.
+   */
+  const runServerFilter = useCallback(
+    (col: string | null, val: string): void => {
+      if (!active) {
+        return;
+      }
+
+      setBrowseOffset(0);
+      setRows([]);
+      setBrowseLoading(true);
+      setBrowseError('');
+      setDetailIdx(null);
+      setSelectedKeys(new Set());
+      requestRows(active, 0, browseSort, { search, filterCol: col, filterVal: val });
+    },
+    [active, browseSort, search, requestRows],
+  );
+
+  /** Filter-column select: choosing a column re-applies if a value is typed; clearing it drops the filter. */
+  const onFilterColChange = useCallback(
+    (col: string): void => {
+      const next = col || null;
+      setFilterCol(next);
+
+      if (filterTimer.current) {
+        clearTimeout(filterTimer.current);
+      }
+
+      if (!next) {
+        setFilterVal('');
+        runServerFilter(null, ''); // column cleared → drop the filter
+      } else if (filterVal.trim()) {
+        runServerFilter(next, filterVal); // switched column with a value already typed → re-apply
+      }
+    },
+    [filterVal, runServerFilter],
+  );
+
+  /** Filter-value input: update immediately, debounce the server filter (only fires with a column chosen). */
+  const onFilterValChange = useCallback(
+    (val: string): void => {
+      setFilterVal(val);
+      setDetailIdx(null);
+
+      if (filterTimer.current) {
+        clearTimeout(filterTimer.current);
+      }
+
+      filterTimer.current = setTimeout(() => runServerFilter(filterCol, val), SEARCH_DEBOUNCE_MS);
+    },
+    [filterCol, runServerFilter],
+  );
+
+  /** Clear the exact-column filter entirely (instant, no debounce). */
+  const clearFilter = useCallback((): void => {
+    setFilterCol(null);
+    setFilterVal('');
+
+    if (filterTimer.current) {
+      clearTimeout(filterTimer.current);
+    }
+
+    runServerFilter(null, '');
+  }, [runServerFilter]);
 
   /**
    * Write `text` to the clipboard and flash a polite "✓ Copied {label}" confirmation. Fail-soft:
@@ -2073,6 +2160,15 @@ export const DataPanel = memo(() => {
                   · matching “{search}”
                 </span>
               ) : null}
+              {filterCol && filterVal.trim() ? (
+                <span
+                  className="truncate max-w-[180px]"
+                  data-testid="data-filter-note"
+                  title={`Filtering the whole table where ${filterCol} = “${filterVal}”`}
+                >
+                  · where {filterCol} = “{filterVal}”
+                </span>
+              ) : null}
             </span>
             {(canRunSql || rows.length > 0) && (
               <div className="ml-auto flex items-center gap-3">
@@ -2400,6 +2496,52 @@ export const DataPanel = memo(() => {
                     className="i-ph:x text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary text-xs cursor-pointer"
                     title="Clear search"
                   />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Exact-column filter — worker filterCol/filterVal (allowlist-validated, exact `"col" = ?`).
+              Composes with search + sort; applied only when a column + a non-empty value are both set.
+              Stays visible while a column is chosen so a 0-result filter can be changed/cleared. */}
+          {columns.length > 0 && (rows.length > 0 || filterCol) && (
+            <div className="px-3 py-1.5 border-b border-bolt-elements-borderColor/30">
+              <div className="flex items-center gap-1.5">
+                <div className="i-ph:funnel text-bolt-elements-textTertiary text-xs shrink-0" />
+                <select
+                  value={filterCol ?? ''}
+                  onChange={(e) => onFilterColChange(e.target.value)}
+                  data-testid="data-filter-col"
+                  aria-label="Filter column (exact match)"
+                  className="shrink-0 max-w-[45%] truncate rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none"
+                >
+                  <option value="">Filter column…</option>
+                  {columns.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+                {filterCol && (
+                  <>
+                    <span className="shrink-0 text-[11px] text-bolt-elements-textTertiary">=</span>
+                    <input
+                      value={filterVal}
+                      onChange={(e) => onFilterValChange(e.target.value)}
+                      placeholder={`exact ${filterCol} value…`}
+                      data-testid="data-filter-val"
+                      aria-label={`Exact value for ${filterCol}`}
+                      spellCheck={false}
+                      className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-0.5 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={clearFilter}
+                      data-testid="data-filter-clear"
+                      className="i-ph:x shrink-0 cursor-pointer text-xs text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary"
+                      title="Clear filter"
+                    />
+                  </>
                 )}
               </div>
             </div>
