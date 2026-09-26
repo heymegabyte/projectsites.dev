@@ -102,6 +102,7 @@ import {
   kanbanGroupKey,
   groupPageRows,
   buildChartBars,
+  numericColumns,
   recordTitle,
   recordNavigation,
   calendarDateField,
@@ -418,10 +419,21 @@ export const DataPanel = memo(() => {
    * client-side auto-detect — the owner chooses a status-like column.
    */
   const [kanbanGroupCol, setKanbanGroupCol] = useState<string | null>(null);
-  const [kanbanGroups, setKanbanGroups] = useState<Array<{ value: unknown; count: number }>>([]);
+  const [kanbanGroups, setKanbanGroups] = useState<Array<{ value: unknown; count: number; aggregate?: number | null }>>(
+    [],
+  );
   const [kanbanGroupsTruncated, setKanbanGroupsTruncated] = useState(false);
   const [kanbanBusy, setKanbanBusy] = useState(false);
   const kanbanGroupsCid = useRef<string | null>(null);
+
+  /*
+   * Chart MEASURE (a numeric column) + AGG (sum|avg|min|max). Null agg = COUNT bars (the default). When
+   * both are set, the group-counts fetch also returns each group's aggregate → bars show SUM(col) etc.
+   * The measure picker offers only numeric-looking page columns (numericColumns) — SQLite would silently
+   * coerce a text column to 0 under SUM/AVG.
+   */
+  const [chartMeasureCol, setChartMeasureCol] = useState<string | null>(null);
+  const [chartAgg, setChartAgg] = useState<'sum' | 'avg' | 'min' | 'max' | null>(null);
 
   /*
    * Calendar view: the date column to place records on (null → auto-detect the first ISO-date column
@@ -717,6 +729,8 @@ export const DataPanel = memo(() => {
       setKanbanGroupCol(null); // no kanban group chosen yet
       setKanbanGroups([]);
       setKanbanGroupsTruncated(false);
+      setChartMeasureCol(null); // reset chart measure/agg → COUNT bars for the new table
+      setChartAgg(null);
       setCalendarDateCol(null); // re-auto-detect the date column for the new table
       setCalendarMonth(null); // re-derive the visible month from the new table's data
 
@@ -2127,17 +2141,24 @@ export const DataPanel = memo(() => {
     kanbanGroupsCid.current = cid;
     setKanbanBusy(true);
 
+    /*
+     * Chart-only: request a numeric aggregate (SUM/AVG/MIN/MAX of the measure) instead of plain COUNT.
+     * Kanban always uses COUNT (no measure). Both must be set, else the worker falls back to COUNT.
+     */
+    const wantAgg = viewMode === 'chart' && chartAgg && chartMeasureCol;
+
     const params = filtersToParams({ search, conditions: filterConditions, combinator: filterCombinator });
     postToParent({
       type: 'PS_DATA_REQUEST',
       table: active,
       groupBy: kanbanGroupCol,
+      ...(wantAgg ? { measure: chartMeasureCol as string, agg: chartAgg as string } : {}),
       ...(params.search ? { search: params.search } : {}),
       ...(params.filters ? { filters: params.filters } : {}),
       ...(params.filterCombinator ? { filterCombinator: params.filterCombinator } : {}),
       correlationId: cid,
     });
-  }, [active, kanbanGroupCol, search, filterConditions, filterCombinator]);
+  }, [active, kanbanGroupCol, search, filterConditions, filterCombinator, viewMode, chartAgg, chartMeasureCol]);
 
   /*
    * Re-fetch whole-query group counts whenever a grouped view (kanban board OR chart) is shown, the
@@ -3075,6 +3096,47 @@ export const DataPanel = memo(() => {
                       ))}
                     </select>
                   </label>
+                )}
+                {viewMode === 'chart' && active && rows.length > 0 && columns.length > 0 && (
+                  <div className="flex items-center gap-2" data-testid="data-chart-measure-controls">
+                    <label className="flex items-center gap-1 text-[10px] text-bolt-elements-textTertiary">
+                      Measure
+                      <select
+                        value={chartMeasureCol ?? ''}
+                        onChange={(e) => {
+                          const col = e.target.value || null;
+                          setChartMeasureCol(col);
+
+                          // Choosing a measure defaults the agg to Sum; "Count of records" clears it → COUNT bars.
+                          setChartAgg(col ? (chartAgg ?? 'sum') : null);
+                        }}
+                        aria-label="Chart measure column"
+                        data-testid="data-chart-measure-field"
+                        className="rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none"
+                      >
+                        <option value="">Count of records</option>
+                        {numericColumns(visibleCols, visibleRows, kanbanGroupCol).map((c) => (
+                          <option key={c} value={c}>
+                            {columnLabel(c)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {chartMeasureCol && (
+                      <select
+                        value={chartAgg ?? 'sum'}
+                        onChange={(e) => setChartAgg(e.target.value as 'sum' | 'avg' | 'min' | 'max')}
+                        aria-label="Chart aggregate function"
+                        data-testid="data-chart-agg-field"
+                        className="rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none"
+                      >
+                        <option value="sum">Sum</option>
+                        <option value="avg">Avg</option>
+                        <option value="min">Min</option>
+                        <option value="max">Max</option>
+                      </select>
+                    )}
+                  </div>
                 )}
                 {viewMode === 'gallery' && active && rows.length > 0 && columns.length > 0 && (
                   <label
@@ -4284,14 +4346,32 @@ export const DataPanel = memo(() => {
                 </div>
               ) : (
                 (() => {
-                  const { bars, total } = buildChartBars(kanbanGroups);
+                  // Aggregate mode when a measure + agg are both chosen; else plain COUNT bars.
+                  const aggregating = !!(chartAgg && chartMeasureCol);
+                  const { bars, total } = buildChartBars(kanbanGroups, aggregating ? 'aggregate' : 'count');
+                  const metricLabel = aggregating
+                    ? `${(chartAgg as string).toUpperCase()}(${columnLabel(chartMeasureCol as string)})`
+                    : 'Count';
+
+                  /*
+                   * A grand total across groups is only meaningful for COUNT + SUM (adding per-group AVG/
+                   * MIN/MAX is nonsense) — so only show it then; otherwise just the group count.
+                   */
+                  const showTotal = !aggregating || chartAgg === 'sum';
+                  const fmt = (n: number): string =>
+                    Number.isInteger(n)
+                      ? n.toLocaleString()
+                      : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
                   return (
                     <div className="mx-auto max-w-2xl">
                       <div className="mb-3 flex items-baseline justify-between gap-2 text-[10px] text-bolt-elements-textTertiary">
-                        <span className="truncate">Count by {columnLabel(kanbanGroupCol)} — whole table</span>
+                        <span className="truncate">
+                          {metricLabel} by {columnLabel(kanbanGroupCol)} — whole table
+                        </span>
                         <span className="shrink-0">
-                          {total.toLocaleString()} across {bars.length} group{bars.length === 1 ? '' : 's'}
+                          {showTotal ? `${fmt(total)} · ` : ''}
+                          {bars.length} group{bars.length === 1 ? '' : 's'}
                           {kanbanGroupsTruncated ? ' (top 50)' : ''}
                         </span>
                       </div>
@@ -4313,8 +4393,18 @@ export const DataPanel = memo(() => {
                                   style={{ width: `${Math.max(b.pct, 2)}%` }}
                                 />
                               </div>
-                              <span className="w-14 shrink-0 text-right text-[10px] tabular-nums text-bolt-elements-textPrimary">
-                                {b.count.toLocaleString()}
+                              <span
+                                className="w-20 shrink-0 text-right text-[10px] tabular-nums text-bolt-elements-textPrimary"
+                                title={
+                                  aggregating ? `${metricLabel} = ${fmt(b.value)} · ${b.count} rows` : `${b.count} rows`
+                                }
+                              >
+                                {fmt(b.value)}
+                                {aggregating && (
+                                  <span className="ml-1 text-bolt-elements-textTertiary">
+                                    n={b.count.toLocaleString()}
+                                  </span>
+                                )}
                               </span>
                             </div>
                           ))}

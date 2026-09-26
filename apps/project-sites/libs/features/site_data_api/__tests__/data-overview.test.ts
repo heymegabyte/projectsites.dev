@@ -21,6 +21,8 @@ import {
   normalizeGridViewType,
   parseGridViewConfig,
   buildGroupCountSql,
+  buildGroupAggregateSql,
+  normalizeGroupAgg,
   MAX_KANBAN_GROUPS,
   MAX_GRID_VIEWS_PER_TABLE,
   deletableTableName,
@@ -665,6 +667,44 @@ describe('buildGroupCountSql (whole-query kanban lane counts)', () => {
   it('exposes a sane group cap', () => {
     expect(MAX_KANBAN_GROUPS).toBeGreaterThan(0);
     expect(MAX_KANBAN_GROUPS).toBeLessThanOrEqual(200);
+  });
+});
+
+describe('normalizeGroupAgg (chart measure aggregate whitelist)', () => {
+  it('accepts sum/avg/min/max case-insensitively, rejects everything else', () => {
+    expect(normalizeGroupAgg('sum')).toBe('sum');
+    expect(normalizeGroupAgg(' AVG ')).toBe('avg');
+    expect(normalizeGroupAgg('MIN')).toBe('min');
+    expect(normalizeGroupAgg('max')).toBe('max');
+    expect(normalizeGroupAgg('count')).toBeNull(); // count is the default path, not an agg here
+    expect(normalizeGroupAgg('median')).toBeNull(); // not a SQLite core aggregate we allow
+    expect(normalizeGroupAgg('sum(x)')).toBeNull(); // no raw SQL smuggling
+    expect(normalizeGroupAgg('')).toBeNull();
+    expect(normalizeGroupAgg(undefined)).toBeNull();
+    expect(normalizeGroupAgg(null)).toBeNull();
+  });
+});
+
+describe('buildGroupAggregateSql (whole-query chart measure: SUM/AVG/MIN/MAX per group)', () => {
+  it('adds <AGG>("measure") AS agg + orders by the aggregate desc, then count', () => {
+    const spec = { countSql: 'SELECT COUNT(*) AS n FROM orders WHERE site_id = ?' };
+    expect(buildGroupAggregateSql(spec, 'status', 'sum', 'amount', ' AND "status" = ?')).toBe(
+      'SELECT "status" AS value, COUNT(*) AS n, SUM("amount") AS agg FROM orders WHERE site_id = ? AND "status" = ? GROUP BY "status" ORDER BY agg DESC, n DESC LIMIT ?',
+    );
+  });
+
+  it('maps each whitelisted agg to its uppercase SQL keyword (never raw input)', () => {
+    const spec = { countSql: 'SELECT COUNT(*) AS n FROM orders WHERE site_id = ?' };
+    expect(buildGroupAggregateSql(spec, 'g', 'avg', 'm', '')).toContain('AVG("m") AS agg');
+    expect(buildGroupAggregateSql(spec, 'g', 'min', 'm', '')).toContain('MIN("m") AS agg');
+    expect(buildGroupAggregateSql(spec, 'g', 'max', 'm', '')).toContain('MAX("m") AS agg');
+  });
+
+  it('preserves a soft-delete filter (extra clause injected AFTER `WHERE site_id = ?`)', () => {
+    const spec = { countSql: 'SELECT COUNT(*) AS n FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL' };
+    expect(buildGroupAggregateSql(spec, 'build_version', 'sum', 'bytes', '')).toBe(
+      'SELECT "build_version" AS value, COUNT(*) AS n, SUM("bytes") AS agg FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL GROUP BY "build_version" ORDER BY agg DESC, n DESC LIMIT ?',
+    );
   });
 });
 

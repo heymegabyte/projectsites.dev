@@ -893,6 +893,44 @@ export function buildGroupCountSql(spec: { countSql: string }, groupBy: string, 
   return `${withExtra} GROUP BY "${groupBy}" ORDER BY n DESC LIMIT ?`;
 }
 
+/** The whole-query aggregate functions a chart measure can use (fixed whitelist → SQL keyword). */
+export const GROUP_AGGS = ['sum', 'avg', 'min', 'max'] as const;
+export type GroupAgg = (typeof GROUP_AGGS)[number];
+
+/** Coerce a raw `?agg=` to a whitelisted {@link GroupAgg}, or null (→ the endpoint falls back to COUNT). */
+export function normalizeGroupAgg(raw: unknown): GroupAgg | null {
+  const a = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  return (GROUP_AGGS as readonly string[]).includes(a) ? (a as GroupAgg) : null;
+}
+
+/**
+ * Build the WHOLE-QUERY group-AGGREGATE SQL for a chart measure: like {@link buildGroupCountSql} but also
+ * computes `<AGG>("<measure>") AS agg` per group and orders by that aggregate (desc), so a bar can be
+ * "SUM(amount) by status", not just row counts. BOTH `groupBy` and `measure` MUST be pre-validated
+ * against `spec.columns` (the allowlist is the injection boundary — identifiers are quoted, never bound);
+ * `agg` MUST be a {@link GroupAgg} (mapped to a fixed uppercase SQL keyword, never interpolated raw).
+ * SQLite is loosely typed: SUM/AVG over a non-numeric column coerce text→0, so the CLIENT only offers
+ * numeric-looking columns as measures — this builder assumes the measure is a sensible numeric column.
+ * Pure.
+ */
+export function buildGroupAggregateSql(
+  spec: { countSql: string },
+  groupBy: string,
+  agg: GroupAgg,
+  measure: string,
+  extraClause: string,
+): string {
+  const fn = agg.toUpperCase(); // SUM | AVG | MIN | MAX (from the fixed whitelist, never raw input)
+  const base = spec.countSql.replace(
+    /SELECT\s+COUNT\(\*\)\s+AS\s+n/i,
+    `SELECT "${groupBy}" AS value, COUNT(*) AS n, ${fn}("${measure}") AS agg`,
+  );
+  const withExtra = extraClause ? base.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`) : base;
+  return `${withExtra} GROUP BY "${groupBy}" ORDER BY agg DESC, n DESC LIMIT ?`;
+}
+
 /**
  * Browse the most-recent rows of one overview table. Read-only; only the table's
  * safe-column allowlist is selected (never PII payloads or encrypted tokens);
@@ -1044,10 +1082,21 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table/group-counts', async (c
     return c.json({ error: { code: 'BAD_REQUEST', message: 'A valid groupBy column is required' } }, 400);
   }
 
-  const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) => c.req.query(k));
-  const sql = buildGroupCountSql(spec, groupBy, extraClause);
+  // Optional chart MEASURE + AGG (sum/avg/min/max over an allowlisted numeric column). Both must
+  // validate together, else we fall back to the COUNT-only path (kanban + count-mode charts). The
+  // measure column is allowlist-checked exactly like groupBy (the injection boundary); a bad measure
+  // or a missing/unknown agg silently degrades to COUNT rather than erroring.
+  const measureRaw = String(c.req.query('measure') ?? '').trim();
+  const agg = normalizeGroupAgg(c.req.query('agg'));
+  const measure = agg && measureRaw && spec.columns.includes(measureRaw) ? measureRaw : null;
 
-  let groups: Array<{ value: unknown; count: number }> = [];
+  const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) => c.req.query(k));
+  const sql =
+    agg && measure
+      ? buildGroupAggregateSql(spec, groupBy, agg, measure, extraClause)
+      : buildGroupCountSql(spec, groupBy, extraClause);
+
+  let groups: Array<{ value: unknown; count: number; aggregate?: number | null }> = [];
   try {
     const res = await c.env.DB.prepare(sql)
       .bind(siteId, ...extraParams, MAX_KANBAN_GROUPS + 1)
@@ -1055,6 +1104,8 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table/group-counts', async (c
     groups = ((res.results || []) as Record<string, unknown>[]).map((r) => ({
       value: r.value ?? null,
       count: Number(r.n ?? 0),
+      // Only when aggregating: the numeric aggregate (null when the group's measure was all-NULL).
+      ...(agg && measure ? { aggregate: r.agg === null || r.agg === undefined ? null : Number(r.agg) } : {}),
     }));
   } catch {
     groups = []; // fail-soft: missing/renamed table → no groups, never 500
@@ -1064,7 +1115,16 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table/group-counts', async (c
     groups = groups.slice(0, MAX_KANBAN_GROUPS);
   }
 
-  return c.json({ data: { table: spec.key, groupBy, groups, truncated, cap: MAX_KANBAN_GROUPS } });
+  return c.json({
+    data: {
+      table: spec.key,
+      groupBy,
+      groups,
+      truncated,
+      cap: MAX_KANBAN_GROUPS,
+      ...(agg && measure ? { agg, measure } : {}),
+    },
+  });
 });
 
 /**

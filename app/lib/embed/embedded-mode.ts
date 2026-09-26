@@ -232,6 +232,15 @@ export interface DataRequestMessage {
   groupBy?: string;
 
   /**
+   * Chart measure aggregate (paired with {@link groupBy}): when both `measure` (an allowlisted numeric
+   * column) and `agg` (`sum`|`avg`|`min`|`max`) are set, group-counts ALSO returns each group's
+   * `aggregate` so a bar can be "SUM(amount) by status", not just row counts. Omit for COUNT (kanban +
+   * count-mode charts). The worker re-validates the column against the allowlist + the agg whitelist.
+   */
+  measure?: string;
+  agg?: string;
+
+  /**
    * `0` = skip the server COUNT(*) (paging/sorting doesn't change the total, so the client reuses its
    * cached total — avoids an expensive exact count on every nav). Omitted / `1` = the worker counts
    * (table open, search/filter change, post-mutation). Then `total` on the response is `null`.
@@ -283,11 +292,19 @@ export interface DataResponseMessage {
     /** Export only: the server row cap ({@link MAX_EXPORT_ROWS}), for an honest "first N rows" message. */
     cap?: number;
 
-    /** Kanban group-counts only: whole-query lane totals for `groupBy`, ordered by count desc. */
-    groups?: Array<{ value: unknown; count: number }>;
+    /**
+     * group-counts only: whole-query lane/bar totals for `groupBy`. Each group carries `count` always,
+     * plus a numeric `aggregate` (SUM/AVG/MIN/MAX of the measure column; null when all-NULL) when a
+     * chart measure+agg was requested. Ordered by the aggregate (desc) when aggregating, else by count.
+     */
+    groups?: Array<{ value: unknown; count: number; aggregate?: number | null }>;
 
-    /** Kanban group-counts only: the column the {@link groups} were grouped by. */
+    /** group-counts only: the column the {@link groups} were grouped by. */
     groupBy?: string;
+
+    /** group-counts only (aggregate mode): the echoed measure column + aggregate function, for honest labels. */
+    measure?: string;
+    agg?: string;
   } | null;
 
   /**

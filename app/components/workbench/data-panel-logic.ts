@@ -1493,20 +1493,65 @@ export function normalizeViewMode(raw: string | null | undefined): ViewMode {
  * a display `label` (null/undefined → "(empty)"), the `count`, and `pct` = count/max×100 for the bar
  * width. Returns `total` (sum of the returned groups) for an honest "N across M groups" caption. Pure.
  */
-export function buildChartBars(groups: ReadonlyArray<{ value: unknown; count: number }>): {
-  bars: Array<{ label: string; count: number; pct: number }>;
+export function buildChartBars(
+  groups: ReadonlyArray<{ value: unknown; count: number; aggregate?: number | null }>,
+  metric: 'count' | 'aggregate' = 'count',
+): {
+  bars: Array<{ label: string; count: number; value: number; pct: number }>;
   total: number;
   max: number;
 } {
-  const max = groups.reduce((m, g) => Math.max(m, g.count), 0);
-  const total = groups.reduce((s, g) => s + g.count, 0);
-  const bars = groups.map((g) => ({
-    label: g.value === null || g.value === undefined ? '(empty)' : String(g.value),
-    count: g.count,
-    pct: max > 0 ? Math.round((g.count / max) * 100) : 0,
-  }));
+  /*
+   * `value` is the bar's magnitude: the row COUNT, or the numeric AGGREGATE (SUM/AVG/MIN/MAX) when a
+   * measure is selected (null aggregate → 0). `count` is always the row count (shown alongside).
+   */
+  const magnitude = (g: { count: number; aggregate?: number | null }): number =>
+    metric === 'aggregate' ? Number(g.aggregate ?? 0) : g.count;
+  const max = groups.reduce((m, g) => Math.max(m, magnitude(g)), 0);
+  const total = groups.reduce((s, g) => s + magnitude(g), 0);
+  const bars = groups.map((g) => {
+    const value = magnitude(g);
+
+    return {
+      label: g.value === null || g.value === undefined ? '(empty)' : String(g.value),
+      count: g.count,
+      value,
+
+      // Bar width is relative to the max; clamp ≥0 so a negative agg (e.g. MIN of negatives) never inverts.
+      pct: max > 0 ? Math.max(0, Math.round((value / max) * 100)) : 0,
+    };
+  });
 
   return { bars, total, max };
+}
+
+/**
+ * Columns whose values on the CURRENT PAGE look NUMERIC (every non-null value is a finite number or a
+ * numeric string) — the candidate MEASURE columns for a chart SUM/AVG/MIN/MAX. A column that's all-null
+ * on the page doesn't qualify (nothing to measure). Excludes the group-by column (a measure grouped by
+ * itself is meaningless). Pure; mirrors {@link calendarDateField}'s page-detection discipline so a
+ * non-numeric column is never offered as a measure (SQLite would silently coerce text→0).
+ *
+ * @example numericColumns(['status','amount'], [{status:'a',amount:'12.5'}]) // ['amount']
+ * @example numericColumns(['id','amount'], rows, 'amount')                   // excludes 'amount' (the group)
+ */
+export function numericColumns(
+  columns: readonly string[],
+  rows: readonly Record<string, unknown>[],
+  exclude?: string | null,
+): string[] {
+  const isNum = (v: unknown): boolean =>
+    typeof v === 'number' ? Number.isFinite(v) : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v));
+
+  return columns.filter((c) => {
+    if (c === exclude) {
+      return false;
+    }
+
+    const vals = rows.map((r) => r[c]).filter((v) => v !== null && v !== undefined && v !== '');
+
+    return vals.length > 0 && vals.every(isNum);
+  });
 }
 
 /**

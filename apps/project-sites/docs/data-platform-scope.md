@@ -747,10 +747,31 @@ gesture. Works from every view (grid · gallery · kanban · calendar) since the
   `apps/project-sites` — worker tsc/jest unchanged from `ce181ec0f`). Editor → CF Pages on push. *Honest
   residual:* verify-by-build (WebContainer + authed admin session) per the established DataPanel pattern.
 
-**NEXT slice: chart SUM/AVG aggregates (beyond COUNT).** The chart view only bars whole-query COUNT per group;
-add an optional numeric measure column + aggregate (sum/avg/min/max) so a bar can be "revenue by status", not
-just row counts. Needs: a numeric-column detector (reuse `classifyCell`/affinity), a measure+agg picker beside
-the group-by, a worker `group-counts`→`group-aggregate` endpoint variant (SUM/AVG over an allowlisted numeric
-column, still whole-query + bounded), and honest labeling (COUNT vs SUM(col)). Then: calendar day-cell "+N more"
-→ a day popover; async export JOBS >10k; nested filter-tree; grid eval (RevoGrid vs Tabulator). Foundations
-still inert: `field-types.ts`, `schema-ddl.ts` (wire as the typed-editor + schema-builder phases ship).
+### ✅ Shipped next fire (2026-09-26 #29) — chart SUM/AVG/MIN/MAX aggregates (beyond COUNT)
+A chart bar can now be **"SUM(amount) by status"**, not just row counts — a whole-query numeric aggregate over
+an allowlisted measure column, per group. Extends the existing `/group-counts` endpoint (backward-compatible).
+- **Worker (`handlers.ts`):** `GROUP_AGGS = [sum,avg,min,max]` + `normalizeGroupAgg` + `buildGroupAggregateSql`
+  (adds `<AGG>("measure") AS agg`, orders by the aggregate desc). The `/group-counts` route takes optional
+  `measure`+`agg`; **both** must validate (measure ∈ `spec.columns` = the injection boundary, agg ∈ whitelist
+  → uppercase SQL keyword, never raw) or it **silently falls back to COUNT**. Each group gains a numeric
+  `aggregate` (null when all-NULL); response echoes `agg`/`measure`. Still bounded to `MAX_KANBAN_GROUPS`,
+  whole-query (search+filters apply), fail-soft.
+- **Editor:** `buildChartBars(groups, metric)` gains a `metric:'count'|'aggregate'` mode + per-bar `value`
+  (clamps negatives so a MIN-of-negatives bar never inverts); new `numericColumns(cols, rows, exclude)` offers
+  only numeric-looking page columns as measures (SQLite would silently coerce a text column to 0). Chart gets a
+  **Measure** picker ("Count of records" + numeric cols) + an **Agg** picker (Sum/Avg/Min/Max); `loadKanbanGroups`
+  forwards measure+agg only in chart mode. Kanban stays COUNT-only.
+- **HONEST labeling:** header shows `SUM(amount) by status` (or `Count`); a grand total is shown ONLY for
+  COUNT+SUM (summing per-group AVG/MIN/MAX is nonsense → just the group count); each bar shows the aggregate
+  value + `n=<rows>`.
+- **Bridge/admin:** `DataRequestMessage` + `PsMessage` gain `measure`/`agg`; `DataResponseMessage.data.groups`
+  gains `aggregate?` + `agg`/`measure` echo; `bolt-embed.service.ts` forwards the pair to `/group-counts`.
+- Verified: editor Vitest **881/881** + tsc 0 + eslint 0 + build 0; admin tsc 0; worker Jest **12774/12774** +
+  tsc 0. *Honest residual:* verify-by-build (WebContainer + authed session) per the established DataPanel pattern;
+  the aggregate over a genuinely numeric D1 column wasn't exercised in a live browser this fire.
+
+**NEXT slice: calendar day-cell "+N more" → a day popover.** The calendar caps 3 events/cell + shows "+N more"
+as a dead count; make it open a small popover (or expand the cell) listing ALL that day's page rows, each →
+`setDrawerRow`. Reuse the drawer + `classifyCell` title. Then: async export JOBS >10k; nested/grouped filter-tree
+(AND/OR nesting); SQL-workspace polish; grid eval (RevoGrid vs Tabulator). Foundations still inert:
+`field-types.ts`, `schema-ddl.ts` (wire as the typed-editor + schema-builder phases ship).

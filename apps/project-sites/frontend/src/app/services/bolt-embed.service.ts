@@ -99,6 +99,9 @@ interface PsMessage {
   readonly exportAll?: boolean;
   /** PS_DATA_REQUEST: kanban whole-query lane counts — routes to /data-overview/:table/group-counts. */
   readonly groupBy?: string;
+  /** PS_DATA_REQUEST (chart aggregate): numeric measure column + agg fn (sum|avg|min|max) alongside groupBy. */
+  readonly measure?: string;
+  readonly agg?: string;
   /** PS_VIEW_REQUEST (saved grid views): `list` | `save` | `delete`. */
   readonly action?: string;
   /** PS_VIEW_REQUEST delete: the view id. */
@@ -730,6 +733,12 @@ export class BoltEmbedService {
           const browseGroupBy =
             typeof msg.groupBy === 'string' && msg.groupBy.trim() ? msg.groupBy.trim().slice(0, 64) : undefined;
           const isGroupCounts = !!browseGroupBy && !!table && !isExport;
+          // Chart aggregate (optional, paired): a numeric measure column + agg fn. Forwarded to
+          // /group-counts only when BOTH are present; the worker re-validates + falls back to COUNT.
+          const browseMeasure =
+            typeof msg.measure === 'string' && msg.measure.trim() ? msg.measure.trim().slice(0, 64) : undefined;
+          const browseAgg =
+            typeof msg.agg === 'string' && msg.agg.trim() ? msg.agg.trim().slice(0, 8).toLowerCase() : undefined;
           // The search + filter query params (shared by all three modes).
           const filterParams: Record<string, string> = {
             ...(browseSearch ? { search: browseSearch } : {}),
@@ -755,7 +764,11 @@ export class BoltEmbedService {
               path,
               table
                 ? isGroupCounts
-                  ? { groupBy: browseGroupBy as string, ...filterParams }
+                  ? {
+                      groupBy: browseGroupBy as string,
+                      ...(browseMeasure && browseAgg ? { measure: browseMeasure, agg: browseAgg } : {}),
+                      ...filterParams,
+                    }
                   : {
                       ...(isExport ? {} : { limit: String(browseLimit), offset: String(browseOffset) }),
                       ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),

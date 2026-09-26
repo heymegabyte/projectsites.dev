@@ -45,6 +45,7 @@ import {
   kanbanGroupKey,
   groupPageRows,
   buildChartBars,
+  numericColumns,
   galleryTitleField,
   galleryBodyFields,
   recordTitle,
@@ -1059,7 +1060,7 @@ describe('monthMatrix (42-cell Sunday-first UTC month grid)', () => {
 });
 
 describe('buildChartBars (whole-query group counts → bar-chart rows)', () => {
-  it('computes label/count/pct (relative to the max) + total, preserving order', () => {
+  it('computes label/count/value/pct (relative to the max) + total, preserving order [count metric]', () => {
     const { bars, total, max } = buildChartBars([
       { value: 'new', count: 200 },
       { value: 'done', count: 50 },
@@ -1068,10 +1069,37 @@ describe('buildChartBars (whole-query group counts → bar-chart rows)', () => {
     expect(total).toBe(260);
     expect(max).toBe(200);
     expect(bars).toEqual([
-      { label: 'new', count: 200, pct: 100 },
-      { label: 'done', count: 50, pct: 25 },
-      { label: '(empty)', count: 10, pct: 5 }, // null → "(empty)"
+      { label: 'new', count: 200, value: 200, pct: 100 },
+      { label: 'done', count: 50, value: 50, pct: 25 },
+      { label: '(empty)', count: 10, value: 10, pct: 5 }, // null → "(empty)"
     ]);
+  });
+
+  it('bars by the AGGREGATE when metric="aggregate" (value = agg, count still carried)', () => {
+    const { bars, total, max } = buildChartBars(
+      [
+        { value: 'new', count: 3, aggregate: 900 },
+        { value: 'done', count: 10, aggregate: 300 },
+      ],
+      'aggregate',
+    );
+    expect(total).toBe(1200); // sum of aggregates, not counts
+    expect(max).toBe(900);
+    expect(bars[0]).toEqual({ label: 'new', count: 3, value: 900, pct: 100 });
+    expect(bars[1]).toEqual({ label: 'done', count: 10, value: 300, pct: 33 });
+  });
+
+  it('treats a null aggregate as 0 and clamps a negative agg bar to 0%', () => {
+    const { bars } = buildChartBars(
+      [
+        { value: 'a', count: 1, aggregate: 100 },
+        { value: 'b', count: 1, aggregate: null },
+        { value: 'c', count: 1, aggregate: -50 },
+      ],
+      'aggregate',
+    );
+    expect(bars[1].value).toBe(0);
+    expect(bars[2].pct).toBe(0); // negative magnitude never inverts the bar
   });
 
   it('handles an empty group set (no divide-by-zero)', () => {
@@ -1080,6 +1108,34 @@ describe('buildChartBars (whole-query group counts → bar-chart rows)', () => {
 
   it('coerces non-string group values to a display label', () => {
     expect(buildChartBars([{ value: 5, count: 1 }]).bars[0].label).toBe('5');
+  });
+});
+
+describe('numericColumns (candidate chart measure columns from the page)', () => {
+  it('keeps columns whose non-null page values are all numeric (number or numeric string)', () => {
+    const rows = [
+      { status: 'new', amount: '12.5', qty: 3 },
+      { status: 'done', amount: '40', qty: 1 },
+    ];
+    expect(numericColumns(['status', 'amount', 'qty'], rows)).toEqual(['amount', 'qty']);
+  });
+
+  it('rejects a column with any non-numeric value, and an all-null/empty column', () => {
+    const rows = [
+      { a: '10', b: 'x', c: null },
+      { a: '20', b: '5', c: null },
+    ];
+    expect(numericColumns(['a', 'b', 'c'], rows)).toEqual(['a']); // b has 'x'; c is all-null
+  });
+
+  it('excludes the group-by column (a measure grouped by itself is meaningless)', () => {
+    const rows = [{ amount: 5 }, { amount: 9 }];
+    expect(numericColumns(['amount'], rows, 'amount')).toEqual([]);
+  });
+
+  it('ignores null/empty cells when judging numericness', () => {
+    const rows = [{ n: 5 }, { n: null }, { n: '' }, { n: '7' }];
+    expect(numericColumns(['n'], rows)).toEqual(['n']);
   });
 });
 
