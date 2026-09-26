@@ -79,10 +79,10 @@ export const Artifact = memo(({ artifactId }: ArtifactProps) => {
 
   return (
     <>
-      <div className="artifact border border-bolt-elements-borderColor flex flex-col overflow-hidden rounded-lg w-full transition-border duration-150">
+      <div className="artifact bg-[#101022] border border-bolt-elements-borderColor flex flex-col overflow-hidden rounded-lg w-full transition-border duration-150">
         <div className="flex">
           <button
-            className="flex items-stretch bg-bolt-elements-artifacts-background hover:bg-bolt-elements-artifacts-backgroundHover w-full overflow-hidden"
+            className="flex items-stretch bg-transparent hover:bg-[rgba(0,229,255,0.08)] w-full overflow-hidden"
             onClick={() => {
               // Only ever SHOW the Workbench — never toggle it off-screen.
               workbenchStore.showWorkbench.set(true);
@@ -106,7 +106,7 @@ export const Artifact = memo(({ artifactId }: ArtifactProps) => {
                 animate={{ width: 'auto' }}
                 exit={{ width: 0 }}
                 transition={{ duration: 0.15, ease: cubicEasingFn }}
-                className="bg-bolt-elements-artifacts-background hover:bg-bolt-elements-artifacts-backgroundHover"
+                className="bg-transparent hover:bg-[rgba(0,229,255,0.08)]"
                 onClick={toggleActions}
               >
                 <div className="p-4">

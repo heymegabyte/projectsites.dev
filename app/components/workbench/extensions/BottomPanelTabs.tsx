@@ -1,18 +1,15 @@
 /**
- * @file Unified bottom-panel tab router for the bolt.diy editor.
+ * @file Bottom-panel tab router for the bolt.diy editor.
  *
  * @remarks
- * Icon-only tab strip with hover/focus tooltips. Tab order:
- * Terminal | Problems | Logs.
- *
- * Each non-terminal tab is lazy-imported so the editor LCP stays
- * unaffected — the chunk only ships when the user clicks the tab.
+ * Icon-only tab strip with hover/focus tooltips. Shows the Terminal(s) only —
+ * the "Problems" and "Logs" extension tabs (and their machinery) were removed.
  *
  * @example
  * <BottomPanelTabs />
  */
 import { useStore } from '@nanostores/react';
-import React, { memo, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Panel, type ImperativePanelHandle } from 'react-resizable-panels';
 import { shortcutEventEmitter } from '~/lib/hooks';
 import { themeStore } from '~/lib/stores/theme';
@@ -21,7 +18,6 @@ import { classNames } from '~/utils/classNames';
 import { createScopedLogger } from '~/utils/logger';
 import { Terminal, type TerminalRef } from '~/components/workbench/terminal/Terminal';
 import { TerminalManager } from '~/components/workbench/terminal/TerminalManager';
-import type { ExtensionTabDescriptor } from './types';
 import * as Tooltip from '@radix-ui/react-tooltip';
 
 const logger = createScopedLogger('BottomPanelTabs');
@@ -29,15 +25,7 @@ const logger = createScopedLogger('BottomPanelTabs');
 const MAX_TERMINALS = 3;
 export const DEFAULT_BOTTOM_PANEL_SIZE = 30;
 
-/**
- * Extension tabs shown after the Terminal slot. "Problems" and "Logs" were
- * removed from the bottom-panel tab strip per product decision — the strip now
- * shows only the Terminal(s). To restore them, re-add their descriptors here
- * (the tab components remain under ./tabs/ and can be lazy-imported again).
- */
-const EXTENSION_TABS: readonly ExtensionTabDescriptor[] = [];
-
-type ActiveTab = { kind: 'terminal'; index: number } | { kind: 'extension'; id: string };
+type ActiveTab = { kind: 'terminal'; index: number };
 
 export const BottomPanelTabs = memo(() => {
   const showTerminal = useStore(workbenchStore.showTerminal);
@@ -271,42 +259,6 @@ export const BottomPanelTabs = memo(() => {
             </Tooltip.Root>
           ) : null}
 
-          {/* Extension tabs — icon-only with tooltips (empty by default: Problems
-              + Logs were removed from the strip). */}
-          {EXTENSION_TABS.map((tab) => {
-            const active = activeTab.kind === 'extension' && activeTab.id === tab.id;
-            return (
-              <Tooltip.Root key={tab.id} delayDuration={400}>
-                <Tooltip.Trigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab({ kind: 'extension', id: tab.id })}
-                    aria-label={tab.label}
-                    className={classNames(
-                      'flex items-center justify-center cursor-pointer w-7 h-7 rounded-md transition-colors',
-                      active
-                        ? 'bg-bolt-elements-terminals-buttonBackground text-bolt-elements-textPrimary'
-                        : 'bg-transparent text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3',
-                    )}
-                  >
-                    <div className={classNames(tab.icon, 'text-base')} />
-                  </button>
-                </Tooltip.Trigger>
-                <Tooltip.Portal>
-                  <Tooltip.Content
-                    side="top"
-                    align="center"
-                    className="z-50 px-2 py-1 text-xs rounded bg-bolt-elements-background-depth-3 text-bolt-elements-textPrimary border border-bolt-elements-borderColor shadow-lg"
-                    sideOffset={4}
-                  >
-                    {tab.label}
-                    <Tooltip.Arrow className="fill-bolt-elements-borderColor" />
-                  </Tooltip.Content>
-                </Tooltip.Portal>
-              </Tooltip.Root>
-            );
-          })}
-
           {/* Close panel button */}
           <Tooltip.Root delayDuration={400}>
             <Tooltip.Trigger asChild>
@@ -376,33 +328,6 @@ export const BottomPanelTabs = memo(() => {
               );
             })}
           </div>
-
-          {/* Lazy-mount the active extension tab. Suspense fallback is a
-              quiet skeleton so the chunk swap is invisible. */}
-          {EXTENSION_TABS.map((tab) => {
-            const active = activeTab.kind === 'extension' && activeTab.id === tab.id;
-
-            if (!active) {
-              return null;
-            }
-
-            const TabBody = tab.component;
-
-            return (
-              <div key={tab.id} className="h-full">
-                <Suspense
-                  fallback={
-                    <div className="h-full flex items-center justify-center text-bolt-elements-textTertiary text-sm">
-                      <div className="i-svg-spinners:3-dots-fade text-2xl" />
-                      <span className="ml-2">Loading {tab.label}…</span>
-                    </div>
-                  }
-                >
-                  <TabBody />
-                </Suspense>
-              </div>
-            );
-          })}
         </div>
       </div>
     </Panel>
