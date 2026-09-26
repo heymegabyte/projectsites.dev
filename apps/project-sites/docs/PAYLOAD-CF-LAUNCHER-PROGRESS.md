@@ -1,5 +1,37 @@
 # Payload CMS on CF (D1 + R2 + Worker) — per-site launcher · PROGRESS
 
+## 🐞→✅ fire 19 — FIX: authed admin 500 (r2Storage under `storage:` not `plugins:`) (2026-09-26)
+
+**Brian:** "I couldn't sign in… can you confirm that you can login." Diagnosed live: login +
+first-register + login + `/api/users/me` + `/api/media` ALL 200, but **EVERY authenticated admin
+PAGE 500'd** (`/admin`, `/admin/collections/*`, `/admin/account`) — Next SSR `Error: Functions
+cannot be passed directly to Client Components` at React flight stringify. Unauth `/admin/login` +
+`/admin/create-first-user` rendered 200. So you log in, then the dashboard crashes.
+
+**Root cause:** `infra/payload-d1/src/payload.config.ts` had `storage: [r2Storage({...})]`. Payload's
+Config has **no `storage` key** → the plugin never ran (R2 adapter silently dropped — uploads never
+wired, a 2nd latent bug) AND the stray plugin FUNCTION leaked into the serialized RSC client config →
+500 on every authed page. **Fix: move r2Storage to `plugins:`** (matches official
+`templates/with-cloudflare-d1`); dropped `clientUploads:true` (broken for R2, payload#15910).
+
+**Bisection (all reproduced the 500, ruling them OUT):** Next 15.4.11 AND 16.3.3; turbopack AND
+webpack; `clientUploads:true`; payload 3.82.1 AND 3.90.2. Disable r2Storage → 200; the `storage:`→
+`plugins:` key was the ONLY fix. Verified locally (webpack, 3.82.1): authed `/admin` +
+`/admin/collections/{users,media}` all 200, dashboard renders, zero RSC errors.
+
+**Shipped:** config fix committed + pushed (`612323df3`). Fixed bundle rebuilt (next build --webpack →
+opennext → dry-run → zip) + uploaded to R2 `payload-bundle/v1.zip`. Guard hardened — added **step 2d**
+to `verify-payload-launcher.mjs`: login → `payload-token` cookie → `GET <admin_url>` → assert 200
+(render-200 on the UNAUTH login page is NOT enough). See memory `payload-storage-plugin-key-rsc-leak`.
+
+**⏭ REMAINING (not yet live-verified end-to-end):**
+- A manual `deploy-payload-instance.mjs` redeploy of the existing `pl2861594` worker MISROUTED (→ platform
+  404 — reference-script metadata drift vs the provisioner). **Prefer delete+relaunch over manual
+  redeploy of an existing instance.** pl2861594 needs clean re-provision or deletion.
+- Fresh `POST /api/apps/instances` launches are **500ing in `provisionPayloadStack`** (CF-API resource
+  creation, sync path — the known transient/infra 5xx, NOT the bundle; platform health 200; 136
+  dispatch-ns scripts may be near a cap). When CF cooperates: launch fresh → confirm authed `/admin` 200.
+
 ## 🐞→✅ fire 18 — FIX: instance `/api/*` was pre-empted by the platform `/api` router (2026-09-26)
 
 **Real bug report from Brian:** `https://pl2861594.cms.projectsites.dev/admin/create-first-user`

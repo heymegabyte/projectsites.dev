@@ -152,6 +152,30 @@ if (CF_KEY && resources.d1_database_id) {
     fail(`login after first-register expected 200 + token, got ${login.status} ${JSON.stringify(loginBody)}`);
   }
   console.log('   ✓ create-first-user + login work (instance /api/* dispatches, not platform 404)');
+
+  // 2d) AUTHED admin dashboard render. Catches the class where login + APIs work but
+  // EVERY authenticated admin page 500s — e.g. r2Storage under `storage:` instead of
+  // `plugins:` leaks a plugin function into the RSC client config (see memory
+  // `payload-storage-plugin-key-rsc-leak`). A render-200 on the UNAUTH login page is
+  // NOT enough; the AUTHENTICATED dashboard must actually render.
+  const loginForCookie = await fetch(`${url}/api/users/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin },
+    body: JSON.stringify({ email, password }),
+  });
+  const token = (String(loginForCookie.headers.get('set-cookie') || '').match(/payload-token=[^;]+/) || [])[0];
+  if (!token) {
+    await fetch(`${WORKER}/api/apps/instances/${iid}`, { method: 'DELETE', headers: authed }).catch(() => {});
+    fail('no payload-token cookie from login — cannot verify the authed admin dashboard');
+  }
+  const dash = await fetch(adminUrl, { headers: { cookie: token } });
+  if (dash.status !== 200) {
+    await fetch(`${WORKER}/api/apps/instances/${iid}`, { method: 'DELETE', headers: authed }).catch(() => {});
+    fail(
+      `authed admin dashboard expected 200, got ${dash.status} — RSC/config leak? (r2Storage MUST be under plugins:, not storage:)`,
+    );
+  }
+  console.log('   ✓ authed admin dashboard renders 200 (no RSC/storage-config leak)');
 }
 
 console.log('3) DELETE (cascade D1 + R2 + Worker)');
