@@ -189,4 +189,36 @@ describe('GET /api/sites/:siteId/data-overview/:table pagination', () => {
     } as unknown as Env);
     expect(res.status).toBe(400);
   });
+
+  it('count=0 SKIPS the COUNT(*) and returns total null (client reuses its cached total on page-nav)', async () => {
+    const DB = makeD1({ rows: [{ id: 'r1' }], total: 10 });
+    const res = await makeApp(DB).request(
+      req('site-1', 'visitor_events', { count: '0' }),
+      {},
+      { DB } as unknown as Env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { total: number | null };
+    expect(body.total).toBeNull(); // not counted this request
+    // the COUNT(*) query must NOT have been prepared — that's the whole point (no expensive count/nav)
+    const prepareMock = (DB as unknown as { prepare: jest.Mock }).prepare;
+    const countPrepared = prepareMock.mock.calls.some((call: unknown[]) =>
+      String(call[0]).toUpperCase().includes('COUNT(*)'),
+    );
+    expect(countPrepared).toBe(false);
+  });
+
+  it('default (no count param) STILL runs COUNT(*) → numeric total (backward-compatible)', async () => {
+    const DB = makeD1({ rows: [{ id: 'r1' }], total: 7 });
+    const res = await makeApp(DB).request(req('site-1', 'visitor_events'), {}, {
+      DB,
+    } as unknown as Env);
+    const body = (await res.json()) as { total: number | null };
+    expect(body.total).toBe(7);
+    const prepareMock = (DB as unknown as { prepare: jest.Mock }).prepare;
+    const countPrepared = prepareMock.mock.calls.some((call: unknown[]) =>
+      String(call[0]).toUpperCase().includes('COUNT(*)'),
+    );
+    expect(countPrepared).toBe(true);
+  });
 });

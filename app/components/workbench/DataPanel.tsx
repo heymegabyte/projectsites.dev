@@ -535,7 +535,7 @@ export const DataPanel = memo(() => {
    * `data-overview/:table` endpoint (server-side LIMIT/OFFSET — the browser never loads the whole table).
    */
   const requestRows = useCallback(
-    (key: string, offset: number, sort: GridSort | null, filters: BrowseFilters): void => {
+    (key: string, offset: number, sort: GridSort | null, filters: BrowseFilters, withCount: boolean): void => {
       const cid = newCorrelationId(key);
       browseCid.current = cid;
 
@@ -553,14 +553,16 @@ export const DataPanel = memo(() => {
       /*
        * `orderBy`/`dir` (sort) + `search` (OR-of-LIKE) + `filterCol`/`filterVal` (exact-column) all
        * apply WHOLE-table server-side — the worker allowlist-validates the sort + filter columns,
-       * parameterizes every value, and reflects the result in `total`. Omitted → default order + no
-       * filter. All are display requests, never SQL.
+       * parameterizes every value, and reflects the result in `total`. `count:0` SKIPS the server
+       * COUNT(*) when only paging/sorting (the total is unchanged → the client reuses its cached
+       * total), avoiding an expensive exact count on every nav. All are display requests, never SQL.
        */
       postToParent({
         type: 'PS_DATA_REQUEST',
         table: key,
         offset,
         limit: pageSizeRef.current, // the current rows-per-page (ref → always fresh, no stale closure)
+        count: withCount ? 1 : 0,
         ...sortToParams(sort),
         ...filtersToParams(filters),
         correlationId: cid,
@@ -599,7 +601,7 @@ export const DataPanel = memo(() => {
 
       setSelectedKeys(new Set()); // never carry a bulk selection across a table switch / re-fetch
 
-      requestRows(key, 0, null, { search: '', filterCol: null, filterVal: '' }); // fresh: page 0, no sort/filter
+      requestRows(key, 0, null, { search: '', filterCol: null, filterVal: '' }, true); // fresh: page 0, count
 
       /*
        * Super-admins get row DELETE — resolve the PK via PRAGMA table_info on its OWN correlation id
@@ -642,7 +644,9 @@ export const DataPanel = memo(() => {
       setBrowseError('');
       setDetailIdx(null);
       setSelectedKeys(new Set());
-      requestRows(active, nextOffset, browseSort, { search, filterCol, filterVal }); // keep sort+search+filter across pages
+
+      // Page-nav: keep sort+search+filter, and SKIP the count (the total is unchanged → reuse cache).
+      requestRows(active, nextOffset, browseSort, { search, filterCol, filterVal }, false);
     },
     [active, browseSort, search, filterCol, filterVal, requestRows],
   );
@@ -1224,10 +1228,11 @@ export const DataPanel = memo(() => {
         setRows(msg.data?.rows ?? []);
 
         /*
-         * The worker's total for THIS query (reflects the search filter) → drives pagination + the
-         * "N matches" count. Absent → null → pageInfo falls back to the overview row_count.
+         * The worker's total for THIS query (reflects search/filter) → drives pagination + the "N
+         * matches" count. A NUMBER updates it; `null` means the count was SKIPPED for a page-nav/sort
+         * request (the total is unchanged), so we KEEP the cached value rather than clobber it.
          */
-        setBrowseTotal(typeof msg.total === 'number' ? msg.total : null);
+        setBrowseTotal((prev) => (typeof msg.total === 'number' ? msg.total : prev));
       }
     });
 
@@ -1371,7 +1376,9 @@ export const DataPanel = memo(() => {
         setBrowseLoading(true);
         setBrowseError('');
         setSelectedKeys(new Set());
-        requestRows(active, 0, next, { search, filterCol, filterVal }); // keep search+filter when sort changes
+
+        // Sort change: keep search+filter, SKIP the count (sorting doesn't change the total).
+        requestRows(active, 0, next, { search, filterCol, filterVal }, false);
       }
     },
     [browseSort, active, search, filterCol, filterVal, requestRows],
@@ -1394,7 +1401,7 @@ export const DataPanel = memo(() => {
       setBrowseError('');
       setDetailIdx(null);
       setSelectedKeys(new Set());
-      requestRows(active, 0, browseSort, { search: value, filterCol, filterVal });
+      requestRows(active, 0, browseSort, { search: value, filterCol, filterVal }, true); // search → re-count
     },
     [active, browseSort, filterCol, filterVal, requestRows],
   );
@@ -1431,7 +1438,7 @@ export const DataPanel = memo(() => {
       setBrowseError('');
       setDetailIdx(null);
       setSelectedKeys(new Set());
-      requestRows(active, 0, browseSort, { search, filterCol: col, filterVal: val });
+      requestRows(active, 0, browseSort, { search, filterCol: col, filterVal: val }, true); // filter → re-count
     },
     [active, browseSort, search, requestRows],
   );
@@ -1503,7 +1510,9 @@ export const DataPanel = memo(() => {
       setBrowseError('');
       setDetailIdx(null);
       setSelectedKeys(new Set());
-      requestRows(active, 0, browseSort, { search, filterCol, filterVal });
+
+      // Page-size change: same query, SKIP the count (page size doesn't change the total).
+      requestRows(active, 0, browseSort, { search, filterCol, filterVal }, false);
     },
     [active, browseSort, search, filterCol, filterVal, requestRows],
   );

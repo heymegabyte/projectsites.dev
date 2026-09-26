@@ -74,6 +74,8 @@ interface PsMessage {
   readonly filterCol?: string;
   /** PS_DATA_REQUEST: exact-match value for `filterCol` (worker parameterizes it: `"col" = ?`). */
   readonly filterVal?: string;
+  /** PS_DATA_REQUEST: 0 = skip the COUNT(*) (paging/sorting → reuse cached total); else the worker counts. */
+  readonly count?: number;
   /** PS_SQL_REQUEST (D1 manager): the SQL to forward — /sql/exec (read) or /sql/exec-write (write). */
   readonly query?: string;
   /** PS_SQL_REQUEST: route to the WRITE endpoint (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE). */
@@ -644,6 +646,9 @@ export class BoltEmbedService {
             typeof msg.filterVal === 'string' && msg.filterVal.trim()
               ? msg.filterVal.trim().slice(0, 200)
               : undefined;
+          // count=0 → the editor is paging/sorting and reuses its cached total; forward the skip so the
+          // worker doesn't run an expensive COUNT(*) on every nav. Any other value → the worker counts.
+          const browseSkipCount = msg.count === 0;
           const reply = (payload: Record<string, unknown>): void => {
             iframe?.contentWindow?.postMessage(
               { type: 'PS_DATA_RESPONSE', correlationId: cid, table, ...payload },
@@ -670,6 +675,7 @@ export class BoltEmbedService {
                     ...(browseFilterCol && browseFilterVal
                       ? { filterCol: browseFilterCol, filterVal: browseFilterVal }
                       : {}),
+                    ...(browseSkipCount ? { count: '0' } : {}),
                   }
                 : undefined,
               { silent: true },

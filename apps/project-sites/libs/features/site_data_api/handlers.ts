@@ -609,6 +609,10 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
   const offset = Math.max(0, Number.parseInt(String(c.req.query('offset') ?? '0'), 10) || 0);
   const orderBy = c.req.query('orderBy');
   const dir = String(c.req.query('dir') ?? '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  // `count=0` skips the COUNT(*) — the client reuses its cached total when only paging/sorting (the
+  // query, hence the count, is unchanged). Avoids an expensive exact count on EVERY nav (grid spec).
+  // Default (any other value / absent) still counts, so existing callers are unchanged.
+  const wantCount = c.req.query('count') !== '0';
 
   // Optional parameterized text search (OR-of-LIKE) + a precise single-column
   // exact-match filter, both injected after `WHERE site_id = ?` on BOTH the browse
@@ -636,24 +640,33 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
       : base.replace(/\s+LIMIT\s+\?\s*$/i, ' LIMIT ? OFFSET ?');
 
   let rows: Record<string, unknown>[] = [];
-  let total = 0;
+  // `null` = not counted this request (client reuses its cached total). A number = the exact count.
+  let total: number | null = wantCount ? 0 : null;
   try {
-    const [browseRes, countRes] = await Promise.all([
-      c.env.DB.prepare(browseSql).bind(siteId, ...extraParams, limit, offset).all(),
-      c.env.DB.prepare(withSearch(spec.countSql)).bind(siteId, ...extraParams).first<{ n: number }>(),
-    ]);
-    rows = (browseRes.results || []) as Record<string, unknown>[];
-    total = countRes?.n ?? 0;
+    if (wantCount) {
+      const [browseRes, countRes] = await Promise.all([
+        c.env.DB.prepare(browseSql).bind(siteId, ...extraParams, limit, offset).all(),
+        c.env.DB.prepare(withSearch(spec.countSql)).bind(siteId, ...extraParams).first<{ n: number }>(),
+      ]);
+      rows = (browseRes.results || []) as Record<string, unknown>[];
+      total = countRes?.n ?? 0;
+    } else {
+      // Paging/sorting only — skip the COUNT(*); the client keeps its cached total.
+      const browseRes = await c.env.DB.prepare(browseSql)
+        .bind(siteId, ...extraParams, limit, offset)
+        .all();
+      rows = (browseRes.results || []) as Record<string, unknown>[];
+    }
   } catch {
     rows = []; // fail-soft: a missing/renamed table returns empty, never 500
-    total = 0;
+    total = wantCount ? 0 : null;
   }
   if (spec.maskEmail) {
     rows = rows.map((r) => ('email' in r ? { ...r, email: maskEmailValue(r['email']) } : r));
   }
 
-  // `data.{table,columns,rows}` is preserved for the existing consumer; `total`,
-  // `limit`, `offset` are additive for the paginated grid.
+  // `data.{table,columns,rows}` is preserved for the existing consumer; `total` (null when the count
+  // was skipped), `limit`, `offset` are additive for the paginated grid.
   return c.json({ data: { table: spec.key, columns: spec.columns, rows }, total, limit, offset });
 });
 

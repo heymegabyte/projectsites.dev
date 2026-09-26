@@ -381,9 +381,30 @@ SQLite rejects. Now (editor-only):
   **Generated columns are now non-writable across BOTH edit + add + duplicate paths** (SQLite's schema-enforced
   non-writability is honored end-to-end).
 
+### ✅ Shipped next fire (2026-09-26 #10) — skip COUNT(*) on page-nav/sort (no expensive count on every nav)
+The spec: "avoid expensive exact counts on every nav." The worker ran `COUNT(*)` on EVERY browse (a
+`Promise.all([browse, count])`), yet the total only changes when the QUERY (search/filter/mutation) changes —
+NOT when you page or sort. Now the count is conditional (worker + admin + editor, backward-compatible):
+- **Worker** (`site_data_api/handlers.ts`) — `count=0` skips the `COUNT(*)` and returns `total: null`; any other
+  value / absent still counts (existing callers unchanged). +2 Jest (asserts the COUNT query is NOT prepared when
+  `count=0` → `total` null; default still prepares it → numeric total).
+- **Editor** — `requestRows(…, withCount)` sends `count: withCount ? 1 : 0`. Table-open / search / filter /
+  post-mutation re-open request the count (`true`); page-nav / sort / page-size skip it (`false`). The browse
+  reply now KEEPS the cached `browseTotal` on a `null` total (`setBrowseTotal(prev => …)`) instead of clobbering
+  it — correct because paging/sorting don't change the count. `PS_DATA_REQUEST` gains `count`;
+  `DataResponseMessage.total` is now `number | null`.
+- **Admin bridge** — forwards `count=0` (the skip signal) to the worker query; the existing `typeof total ===
+  'number'` reply-guard already drops a null total, so the editor keeps its cache.
+- Verified: worker Jest 10/10 (data_browse_pagination) + tsc 0; editor tsc 0 / Vitest 197 / eslint 0 / build ✓
+  (12.94s); admin tsc 0 / eslint 0 / `ng build` prod ✓ (8.4s). Worker deploys via CI on push; editor→Pages, admin→R2.
+- **Honesty:** the cached total is EXACT for page-nav/sort (those don't change the row count) — not an estimate;
+  it refreshes on any query change or the editor's own add/delete (which re-open the table with a fresh count). A
+  concurrent external write is the only staleness window, corrected on the next query change (acceptable per spec).
+
 **NEXT slice (per delivery order): wire `field-types.ts` typed EDITORS into the row-edit path** (the INERT
-foundation — date picker / single-select / URL-email presentation editors keyed off the column's declared SQLite
-affinity, honest UI-interpretation over storage). OR the AND/OR **filter-group builder** (fuller slice-3; needs a
-validated filter-tree worker endpoint — scope deliberately). Then the grid eval (RevoGrid vs Tabulator,
-license-checked) + **saved grid views** (needs the isolated ProjectSites.dev metadata store — views/filters/sort/
-field-config live there, NEVER in customer tables — the first metadata-store slice; a good moment to design that store).
+foundation — date-time / single-select / URL-email editors keyed off the column's declared SQLite affinity, honest
+UI-interpretation over storage; NOTE the current value-based `inferCellEditor` is already type-safe — this is about
+richer INPUT widgets, not fixing a bug). OR the AND/OR **filter-group builder** (fuller slice-3; needs a validated
+filter-tree worker endpoint — scope deliberately). Then the grid eval (RevoGrid vs Tabulator, license-checked) +
+**saved grid views** (needs the isolated ProjectSites.dev metadata store — views/filters/sort/field-config live
+there, NEVER in customer tables — the first metadata-store slice; a good moment to design that store).

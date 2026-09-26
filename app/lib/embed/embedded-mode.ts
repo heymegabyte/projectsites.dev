@@ -197,6 +197,13 @@ export interface DataRequestMessage {
 
   /** Exact-match value for {@link filterCol} (parameterized by the worker: `"col" = ?`). */
   filterVal?: string;
+
+  /**
+   * `0` = skip the server COUNT(*) (paging/sorting doesn't change the total, so the client reuses its
+   * cached total — avoids an expensive exact count on every nav). Omitted / `1` = the worker counts
+   * (table open, search/filter change, post-mutation). Then `total` on the response is `null`.
+   */
+  count?: number;
   correlationId: string;
 }
 
@@ -236,10 +243,12 @@ export interface DataResponseMessage {
   } | null;
 
   /**
-   * Browse only: the worker's total row count for the CURRENT query (reflects any `search` filter), so
-   * the grid pages through the matches + shows an honest "N of <total>". Absent for the table overview.
+   * Browse only: the worker's total row count for the CURRENT query (reflects any `search`/filter), so
+   * the grid pages through the matches + shows an honest "N of <total>". `null` when the count was
+   * SKIPPED (a `count=0` page-nav/sort request) → the client keeps its cached total. Absent for the
+   * table overview.
    */
-  total?: number;
+  total?: number | null;
   error?: string;
 }
 
