@@ -9,7 +9,6 @@ import {
   type OnChangeCallback as OnEditorChange,
   type OnScrollCallback as OnEditorScroll,
 } from '~/components/editor/codemirror/CodeMirrorEditor';
-import { IconButton } from '~/components/ui/IconButton';
 import { workbenchStore, type WorkbenchViewType } from '~/lib/stores/workbench';
 import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
@@ -19,7 +18,7 @@ import { CreateMenu } from './CreateMenu';
 import { EditorPanel } from './EditorPanel';
 import { Preview } from './Preview';
 import { StatusBar } from './StatusBar.client';
-import { QuickJumpPalette, ShortcutsOverlay, openInStackBlitz, useEditorHotkeys } from './EditorOverlays.client';
+import { openInStackBlitz } from './EditorOverlays.client';
 import useViewport from '~/lib/hooks';
 
 import { usePreviewStore } from '~/lib/stores/previews';
@@ -60,6 +59,20 @@ const TOP_TABS: TopTab[] = [
   { value: 'preview', text: 'Preview', icon: 'i-ph:eye-duotone' },
   { value: 'data', text: 'Data', icon: 'i-ph:chart-bar-duotone' },
 ];
+
+/**
+ * Shared style for the toolbar's icon controls (Open in StackBlitz + the ⋯
+ * editor-actions menu). Mirrors the CreateMenu trigger — h-7 (same height as the
+ * tabs + Create so the strip never changes height / jumps), rounded-md, accent
+ * border, subtle accent fill — so the whole top strip reads as one cohesive set.
+ */
+const TOOLBAR_BTN = classNames(
+  'flex items-center justify-center h-7 px-2 rounded-md text-sm',
+  'text-bolt-elements-item-contentAccent',
+  'bg-bolt-elements-item-backgroundAccent/10 hover:bg-bolt-elements-item-backgroundAccent/20',
+  'border border-bolt-elements-item-contentAccent/25',
+  'transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent/50',
+);
 
 const workbenchVariants = {
   closed: {
@@ -107,9 +120,6 @@ export const Workbench = memo(
     const streaming = useStore(streamingState);
     const { exportChat } = useChatHistory();
     const [isSyncing, setIsSyncing] = useState(false);
-
-    // Global editor hotkeys — Cmd+P quick-jump + ? shortcuts overlay
-    const { paletteOpen, shortcutsOpen, setPaletteOpen, setShortcutsOpen } = useEditorHotkeys();
 
     const setSelectedView = (view: WorkbenchViewType) => {
       /*
@@ -178,13 +188,41 @@ export const Workbench = memo(
     }, []);
 
     const handleSyncFiles = useCallback(async () => {
+      /*
+       * showDirectoryPicker is unavailable in Safari/Firefox and BLOCKED in a
+       * cross-origin iframe — the admin embeds the editor at editor.projectsites.dev,
+       * where it throws a SecurityError. In those cases fall back to a zip download
+       * so the user still gets their files instead of a hard "Failed to sync".
+       */
+      if (typeof window.showDirectoryPicker !== 'function') {
+        toast.info('Folder sync needs a Chromium browser — downloading a zip instead.');
+        await workbenchStore.downloadZip();
+
+        return;
+      }
+
       setIsSyncing(true);
 
       try {
         const directoryHandle = await window.showDirectoryPicker();
         await workbenchStore.syncFiles(directoryHandle);
-        toast.success('Files synced successfully');
+        toast.success('Files synced to your folder');
       } catch (error) {
+        const name = (error as { name?: string } | null)?.name;
+
+        // User dismissed the folder picker — not an error, say nothing.
+        if (name === 'AbortError') {
+          return;
+        }
+
+        // Cross-origin iframe / policy blocks the picker → give them the zip instead.
+        if (name === 'SecurityError' || name === 'NotAllowedError') {
+          toast.info('Folder sync is blocked in the embedded editor — downloading a zip instead.');
+          await workbenchStore.downloadZip();
+
+          return;
+        }
+
         console.error('Error syncing files:', error);
         toast.error('Failed to sync files');
       } finally {
@@ -262,8 +300,6 @@ export const Workbench = memo(
     return (
       chatStarted && (
         <>
-          <QuickJumpPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-          <ShortcutsOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
           <motion.div
             initial="closed"
             animate={showWorkbench ? 'open' : 'closed'}
@@ -353,26 +389,15 @@ export const Workbench = memo(
                     </div>
                     <div className="ml-auto flex items-center gap-1">
                       {selectedView === 'code' && (
-                        <>
-                          <IconButton
-                            icon="i-ph:magnifying-glass"
-                            size="xl"
-                            title="Quick-jump to file (Cmd+P / Ctrl+P)"
-                            onClick={() => setPaletteOpen(true)}
-                          />
-                          <IconButton
-                            icon="i-ph:lightning"
-                            size="xl"
-                            title="Open in StackBlitz"
-                            onClick={openInStackBlitz}
-                          />
-                          <IconButton
-                            icon="i-ph:keyboard"
-                            size="xl"
-                            title="Keyboard shortcuts (?)"
-                            onClick={() => setShortcutsOpen(true)}
-                          />
-                        </>
+                        <button
+                          type="button"
+                          title="Open in StackBlitz"
+                          aria-label="Open in StackBlitz"
+                          onClick={openInStackBlitz}
+                          className={TOOLBAR_BTN}
+                        >
+                          <div className="i-ph:lightning text-sm" aria-hidden />
+                        </button>
                       )}
                       {selectedView === 'code' && (
                         <div className="ps-more-wrap">
@@ -388,7 +413,7 @@ export const Workbench = memo(
                             <DropdownMenu.Trigger
                               aria-label="Editor actions"
                               title="Editor actions — download code, export chat, sync to disk"
-                              className="ps-more-trigger"
+                              className={TOOLBAR_BTN}
                             >
                               <svg
                                 width="16"
