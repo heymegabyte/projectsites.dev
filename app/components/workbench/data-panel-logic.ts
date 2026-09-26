@@ -2019,6 +2019,44 @@ export function recordNavigation(
  * SAME string, so an applied saved view can be compared to the live state to detect "modified" (the
  * live query has drifted from the view). Mirrors the normalization `filtersToParams` sends. Pure.
  */
+/** The column-layout shape a view can carry (mirrors the saved-view config layout). */
+export interface ViewLayoutSig {
+  hidden?: string[];
+  order?: string[];
+  widths?: Record<string, number>;
+  pinned?: string[];
+  summaries?: Record<string, string>;
+  density?: string;
+}
+
+/**
+ * A CANONICAL signature of a column layout for the drift fingerprint — arrays kept in order (order is
+ * meaningful for hidden/order/pinned), maps flattened to key-sorted entry pairs (map key order is NOT
+ * meaningful), empties normalized (`[]` / `cozy`). So a sparse live layout `{density:'cozy'}` and an
+ * equivalent saved layout compare equal, but any real rearrangement differs. `null`/absent → null. Pure.
+ */
+export function layoutSignature(l: ViewLayoutSig | null | undefined): unknown {
+  if (!l) {
+    return null;
+  }
+
+  const sortedEntries = (m: Record<string, unknown> | undefined): Array<[string, unknown]> =>
+    m
+      ? Object.keys(m)
+          .sort()
+          .map((k) => [k, m[k]])
+      : [];
+
+  return {
+    hidden: l.hidden ?? [],
+    order: l.order ?? [],
+    pinned: l.pinned ?? [],
+    widths: sortedEntries(l.widths),
+    summaries: sortedEntries(l.summaries),
+    density: l.density ?? 'cozy',
+  };
+}
+
 export function viewQueryFingerprint(q: {
   search: string;
   conditions: ReadonlyArray<{ col: string | null; op: string; val: string }>;
@@ -2029,6 +2067,7 @@ export function viewQueryFingerprint(q: {
   titleField: string | null;
   groupField: string | null;
   dateField?: string | null;
+  layout?: ViewLayoutSig | null;
 }): string {
   const conds = q.conditions
     .filter((c) => filterIsActive(c.col, c.op, c.val))
@@ -2055,6 +2094,12 @@ export function viewQueryFingerprint(q: {
     titleField: type === 'grid' ? null : q.titleField || null,
     groupField: type === 'kanban' || type === 'chart' ? q.groupField || null : null,
     dateField: type === 'calendar' ? q.dateField || null : null,
+
+    /*
+     * Column LAYOUT (visibility/order/widths/pins/summaries/density) — so rearranging a view's columns
+     * honestly flags it "modified" (the badge previously ignored layout). Callers that omit it → null.
+     */
+    layout: layoutSignature(q.layout),
   });
 }
 

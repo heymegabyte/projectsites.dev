@@ -50,6 +50,7 @@ import {
   galleryBodyFields,
   recordTitle,
   recordNavigation,
+  layoutSignature,
   calendarDateField,
   monthFromDayKey,
   addCalendarMonth,
@@ -1338,6 +1339,61 @@ describe('viewQueryFingerprint (detect a saved view drifting from the live query
     expect(viewQueryFingerprint({ ...base, type: 'calendar', dateField: 'created_at' })).not.toBe(
       viewQueryFingerprint({ ...base, type: 'calendar' }),
     );
+  });
+
+  it('detects column-LAYOUT drift (hidden/order/widths/pins/summaries/density) — the previously-ignored badge gap', () => {
+    const noLayout = viewQueryFingerprint(base); // callers that omit layout → unchanged from before (null)
+    expect(viewQueryFingerprint({ ...base, layout: undefined })).toBe(noLayout);
+
+    const bare = viewQueryFingerprint({ ...base, layout: { density: 'cozy' } });
+    // each layout facet changing flips the fingerprint
+    expect(viewQueryFingerprint({ ...base, layout: { density: 'compact' } })).not.toBe(bare);
+    expect(viewQueryFingerprint({ ...base, layout: { density: 'cozy', hidden: ['x'] } })).not.toBe(bare);
+    expect(viewQueryFingerprint({ ...base, layout: { density: 'cozy', order: ['b', 'a'] } })).not.toBe(bare);
+    expect(viewQueryFingerprint({ ...base, layout: { density: 'cozy', pinned: ['id'] } })).not.toBe(bare);
+    expect(viewQueryFingerprint({ ...base, layout: { density: 'cozy', widths: { a: 200 } } })).not.toBe(bare);
+    expect(viewQueryFingerprint({ ...base, layout: { density: 'cozy', summaries: { a: 'sum' } } })).not.toBe(bare);
+  });
+
+  it('layout signature is map-key-order-insensitive but array-order-sensitive (no false / no missed drift)', () => {
+    // widths/summaries maps: same entries, different key order → SAME fingerprint (no false "modified")
+    const w1 = viewQueryFingerprint({ ...base, layout: { widths: { a: 100, b: 200 } } });
+    const w2 = viewQueryFingerprint({ ...base, layout: { widths: { b: 200, a: 100 } } });
+    expect(w1).toBe(w2);
+    // order array: different order → DIFFERENT fingerprint (a real rearrangement)
+    const o1 = viewQueryFingerprint({ ...base, layout: { order: ['a', 'b'] } });
+    const o2 = viewQueryFingerprint({ ...base, layout: { order: ['b', 'a'] } });
+    expect(o1).not.toBe(o2);
+    // a sparse {density:'cozy'} equals an all-empty-normalized layout (the apply-baseline case)
+    expect(viewQueryFingerprint({ ...base, layout: { density: 'cozy' } })).toBe(
+      viewQueryFingerprint({ ...base, layout: { density: 'cozy', hidden: [], order: [], pinned: [] } }),
+    );
+  });
+});
+
+describe('layoutSignature (canonical column-layout signature)', () => {
+  it('null/undefined → null; sparse layout normalizes empties + sorts map keys', () => {
+    expect(layoutSignature(null)).toBeNull();
+    expect(layoutSignature(undefined)).toBeNull();
+    expect(layoutSignature({ density: 'cozy' })).toEqual({
+      hidden: [],
+      order: [],
+      pinned: [],
+      widths: [],
+      summaries: [],
+      density: 'cozy',
+    });
+    expect(layoutSignature({ widths: { b: 2, a: 1 } })).toEqual({
+      hidden: [],
+      order: [],
+      pinned: [],
+      widths: [
+        ['a', 1],
+        ['b', 2],
+      ],
+      summaries: [],
+      density: 'cozy',
+    });
   });
 });
 

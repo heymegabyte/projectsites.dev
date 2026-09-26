@@ -920,17 +920,32 @@ serialization, no new interaction, **no migration** (rides the existing `config_
   *Honest residual:* worker layout-parse fully tested; the save/apply round-trip ships verify-by-build (WebContainer
   + authed session). Deploy-skew is graceful (old worker drops the unknown `layout` key → views persist query-only
   until the worker lands; apply's `if (layout)` guard → no breakage), per `editor-worker-deploy-skew`.
-- KNOWN follow-up: layout drift isn't yet in the "modified" fingerprint (rearranging columns after applying a view
-  doesn't flag it modified) — a refinement, not a gap; the save+restore core is complete.
+### ✅ Shipped next fire (2026-09-26 #38) — "modified" badge now tracks column-LAYOUT drift (honesty fix)
+Closes #37's known gap + fixes a subtle **lying badge**: after applying a saved view then rearranging columns
+(hide/reorder/resize/pin/summary/density), the view read "saved" when it wasn't. Now any layout change flags it
+"modified" (prompting re-save). Small, complete, **fully verify-by-build + unit-tested** (pure fingerprint logic;
+fingerprints are ephemeral — recomputed each session, never persisted — so extending the shape is safe).
+- **New pure logic (TDD-first, tested):** `data-panel-logic.ts` `layoutSignature(l)` — a CANONICAL layout key:
+  arrays (hidden/order/pinned) kept in order (order is meaningful), maps (widths/summaries) flattened to
+  key-SORTED entry pairs (map key order is NOT meaningful), empties normalized (`[]`/`cozy`). `viewQueryFingerprint`
+  gains an optional `layout` → included in the hash. 3 cases incl. map-order-insensitive / array-order-sensitive /
+  sparse-vs-empty equivalence.
+- **`DataPanel.tsx` (editor-only):** `currentLayout` moved above `liveFingerprint` (which now passes it); applyView's
+  appliedFingerprint baselines against `view.config?.layout ?? currentLayout` — a view WITH a layout baselines on
+  it, a LEGACY view (no layout) baselines on the untouched current arrangement, so **neither wrongly shows
+  "modified"** on apply. `currentLayout` added to applyView deps (no stale baseline).
+- Verified: editor Vitest **907/907** + tsc 0 + eslint 0 + build 0; worker **untouched** (0 files under
+  `apps/project-sites`). Fully verifiable (pure logic + tested); no new interaction/visual.
 
 **STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
 sticky-pin render · #37 view save/apply round-trip — all need one real-browser pass (authed admin session). Logic/
-SQL fully tested; the interactions/visuals/round-trips ship verify-by-build (per `interaction≠build`).
+SQL fully tested; the interactions/visuals/round-trips ship verify-by-build (per `interaction≠build`). **A dedicated
+real-browser QA fire is the highest-value next step** to convert this debt to verified.
 
-**NEXT slice: multi-column sort — OR async export JOBS >10k.** Multi-sort: `browseSort` (single `{col,dir}`) →
-an ordered `{col,dir}[]`; shift-click a header to add a secondary sort (priority badge); worker `orderBy`/`dir` →
-a `sort=col:dir,…` list building a multi-col ORDER BY (each allowlist-validated); persist in the saved-view
-`config.layout`-style blob (now that config carries rich layout, add `sorts` there — NO schema change needed).
-RIPPLES through the browseSort type + threading + header UI + fingerprint — scope carefully. Async export JOBS is
-the bigger multi-fire alternative. Then: nested AND/OR filter-tree; wire the last inert foundations
-`field-types.ts` (richer typed editors) + `schema-ddl.ts` (guided DDL builder → review in the SQL console).
+**NEXT slice: multi-column sort (dedicated — it's wide).** `browseSort` (single `{col,dir}`) → an ordered
+`{col,dir}[]`; a Sort PANEL (mirror the filter builder — add/remove sort rows, normal form controls, more
+verifiable than shift-click) + header-click sets the primary; worker `orderBy`/`dir` → a `sort=col:dir,…` list
+building a multi-col ORDER BY (each allowlist-validated, pure+tested); persist in the view `config` as `sorts`
+(NO schema change — config already carries rich layout). RIPPLES through the browseSort type + threading +
+fingerprint — give it a full fire. Async export JOBS >10k is the bigger multi-fire alternative. Then: nested
+AND/OR filter-tree; wire the last inert foundations `field-types.ts` + `schema-ddl.ts`.

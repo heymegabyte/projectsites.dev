@@ -1701,6 +1701,38 @@ export const DataPanel = memo(() => {
 
   // The applied saved view + whether the live query has DRIFTED from it (→ show the "modified" badge).
   const appliedView = appliedViewId ? (savedViews.find((v) => v.id === appliedViewId) ?? null) : null;
+
+  /*
+   * The current column LAYOUT (visibility/order/widths/pins/summaries/density) — saved with a view AND
+   * fed to the drift fingerprint so rearranging columns honestly flags the view "modified". Only non-empty
+   * parts (density always carried; it has a meaningful default). Empty overall → undefined.
+   */
+  const currentLayout = useMemo((): SavedGridViewLayout | undefined => {
+    const l: SavedGridViewLayout = { density };
+
+    if (hiddenCols.length) {
+      l.hidden = hiddenCols;
+    }
+
+    if (colOrder.length) {
+      l.order = colOrder;
+    }
+
+    if (Object.keys(colWidths).length) {
+      l.widths = colWidths;
+    }
+
+    if (colPinned.length) {
+      l.pinned = colPinned;
+    }
+
+    if (Object.keys(colSummaries).length) {
+      l.summaries = colSummaries;
+    }
+
+    return l;
+  }, [density, hiddenCols, colOrder, colWidths, colPinned, colSummaries]);
+
   const liveFingerprint = viewQueryFingerprint({
     search,
     conditions: filterConditions,
@@ -1711,6 +1743,7 @@ export const DataPanel = memo(() => {
     titleField: galleryTitleCol,
     groupField: kanbanGroupCol,
     dateField: calendarDateCol,
+    layout: currentLayout,
   });
   const viewModified = !!appliedView && appliedFingerprint !== null && appliedFingerprint !== liveFingerprint;
 
@@ -2246,37 +2279,6 @@ export const DataPanel = memo(() => {
   }, []);
 
   /** Save the CURRENT query (search + filter group + sort) as a named view. */
-  /*
-   * The current column LAYOUT (visibility/order/widths/pins/summaries/density), included when saving a
-   * view so applying it later restores the whole arrangement. Only non-empty parts are sent (a lean
-   * config); density is always carried (it has a meaningful default). Empty overall → undefined.
-   */
-  const currentLayout = useMemo((): SavedGridViewLayout | undefined => {
-    const l: SavedGridViewLayout = { density };
-
-    if (hiddenCols.length) {
-      l.hidden = hiddenCols;
-    }
-
-    if (colOrder.length) {
-      l.order = colOrder;
-    }
-
-    if (Object.keys(colWidths).length) {
-      l.widths = colWidths;
-    }
-
-    if (colPinned.length) {
-      l.pinned = colPinned;
-    }
-
-    if (Object.keys(colSummaries).length) {
-      l.summaries = colSummaries;
-    }
-
-    return l;
-  }, [density, hiddenCols, colOrder, colWidths, colPinned, colSummaries]);
-
   const saveCurrentView = useCallback((): void => {
     const name = saveViewName.trim();
 
@@ -2499,6 +2501,12 @@ export const DataPanel = memo(() => {
           titleField: view.config?.titleField ?? null,
           groupField: view.config?.groupField ?? null,
           dateField: view.config?.dateField ?? null,
+
+          /*
+           * A view WITH a saved layout baselines against it; a LEGACY view (no layout) baselines against
+           * the current arrangement (apply leaves it untouched) — so neither wrongly shows "modified".
+           */
+          layout: view.config?.layout ?? currentLayout,
         }),
       );
       setViewsMenuOpen(false);
@@ -2510,7 +2518,7 @@ export const DataPanel = memo(() => {
       setSelectedKeys(new Set());
       requestRows(active, 0, sort, { search: view.search, conditions, combinator: view.combinator }, true);
     },
-    [active, requestRows],
+    [active, requestRows, currentLayout],
   );
 
   /*
