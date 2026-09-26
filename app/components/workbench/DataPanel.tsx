@@ -103,7 +103,8 @@ import {
   friendlyModelLabel,
   canAskAi,
   MAX_AI_QUESTION_LEN,
-  buildCsvImportPlan,
+  buildImportPlan,
+  detectImportFormat,
   CsvImportError,
   type CsvImportPlan,
   type CellInputKind,
@@ -1119,20 +1120,25 @@ export const DataPanel = memo(() => {
   }, []);
 
   /**
-   * The parameterized import plan for the pasted CSV → the CURRENT table, or a human error. The plan
-   * is chunked (each batch ≤ the exec-write param cap); this UI runs the FIRST batch and honestly
-   * discloses when more rows remain (a promise-based bridge for auto-sequencing all batches is a
-   * follow-up — see the coverage matrix). Recomputed as the CSV / target table changes.
+   * The parameterized import plan for the pasted CSV **or JSON** → the CURRENT table, or a human error.
+   * The format is auto-detected ({@link detectImportFormat}); the plan is chunked (each batch ≤ the
+   * exec-write param cap); this UI runs the FIRST batch and honestly discloses when more rows remain (a
+   * promise-based bridge for auto-sequencing all batches is a follow-up — see the coverage matrix).
    */
+  const importFormat = useMemo(() => detectImportFormat(importCsvText), [importCsvText]);
+
   const importPlan = useMemo<{ plan: CsvImportPlan | null; error: string | null }>(() => {
     if (!importCsvText.trim() || !active) {
       return { plan: null, error: null };
     }
 
     try {
-      return { plan: buildCsvImportPlan(importCsvText, active), error: null };
+      return { plan: buildImportPlan(importCsvText, active), error: null };
     } catch (e) {
-      return { plan: null, error: e instanceof CsvImportError ? e.message : 'Could not parse the CSV.' };
+      return {
+        plan: null,
+        error: e instanceof CsvImportError ? e.message : 'Could not parse the paste (CSV or JSON array).',
+      };
     }
   }, [importCsvText, active]);
 
@@ -4502,7 +4508,7 @@ export const DataPanel = memo(() => {
                     <div className="i-ph:plus" /> Add row
                   </button>
                 )}
-                {/* Import CSV — super-admin only; parameterized bulk INSERT into the current table. */}
+                {/* Import CSV or JSON — super-admin only; parameterized bulk INSERT into the current table. */}
                 {canRunSql && columns.length > 0 && activeTable.browsable !== false && (
                   <button
                     type="button"
@@ -4510,9 +4516,9 @@ export const DataPanel = memo(() => {
                     data-testid="data-import-csv-toggle"
                     aria-expanded={importingCsv}
                     className="text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer flex items-center gap-1"
-                    title="Import rows from CSV (parameterized — values are bound, never concatenated)"
+                    title="Import rows from CSV or a JSON array (parameterized — values are bound, never concatenated)"
                   >
-                    <div className="i-ph:upload-simple" /> Import CSV
+                    <div className="i-ph:upload-simple" /> Import
                   </button>
                 )}
                 {/* Add index — super-admin only; a non-destructive CREATE INDEX over the current table's
@@ -4828,7 +4834,8 @@ export const DataPanel = memo(() => {
             </div>
           )}
 
-          {/* Import CSV → the current table (parameterized bulk INSERT via the super-admin write rail). */}
+          {/* Import CSV or JSON → the current table (parameterized bulk INSERT via the super-admin write
+              rail). Format is auto-detected: a leading "[" ⇒ JSON array of objects, else CSV. */}
           {importingCsv && (
             <div
               className="border-b border-bolt-elements-borderColor/50 bg-bolt-elements-background-depth-1 px-3 py-2"
@@ -4837,17 +4844,25 @@ export const DataPanel = memo(() => {
               <div className="mb-2 flex items-center gap-2">
                 <div className="i-ph:upload-simple text-bolt-elements-item-contentAccent" />
                 <span className="text-xs font-medium text-bolt-elements-textPrimary">
-                  Import CSV into {activeTable.label}
+                  Import into {activeTable.label}
                 </span>
+                {importCsvText.trim() && (
+                  <span
+                    className="rounded-full border border-bolt-elements-item-contentAccent/30 px-1.5 text-[9px] font-medium uppercase text-bolt-elements-item-contentAccent"
+                    data-testid="data-import-format"
+                  >
+                    {importFormat}
+                  </span>
+                )}
                 <span className="text-[10px] text-bolt-elements-textTertiary">
-                  header row = column names · values bound as parameters, never concatenated
+                  paste CSV (header row) or a JSON array of objects · values bound as parameters, never concatenated
                 </span>
               </div>
 
               <textarea
                 value={importCsvText}
                 onChange={(e) => setImportCsvText(e.target.value)}
-                placeholder={`${columns.slice(0, 3).join(',') || 'col_a,col_b'}\nvalue,value,…`}
+                placeholder={`${columns.slice(0, 3).join(',') || 'col_a,col_b'}\nvalue,value,…\n\n— or —\n\n[{ "${columns[0] ?? 'col_a'}": "value" }, …]`}
                 data-testid="data-import-csv-input"
                 rows={5}
                 spellCheck={false}

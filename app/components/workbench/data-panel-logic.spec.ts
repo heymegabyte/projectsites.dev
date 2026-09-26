@@ -18,6 +18,9 @@ import {
   removeSavedQuery,
   parseCsv,
   buildCsvImportPlan,
+  buildJsonImportPlan,
+  buildImportPlan,
+  detectImportFormat,
   CsvImportError,
   pkFromTableInfo,
   generatedFromTableXinfo,
@@ -374,6 +377,69 @@ describe('buildCsvImportPlan (parameterized + chunked CSV → table import)', ()
   });
   it('rejects a table too wide to import within one parameterized write', () => {
     expect(() => buildCsvImportPlan('a,b,c\n1,2,3', 't', 2)).toThrow(CsvImportError);
+  });
+});
+
+describe('buildJsonImportPlan (parameterized JSON array-of-objects → table import)', () => {
+  it('builds a bound multi-row INSERT, binding primitives directly (numbers stay numbers)', () => {
+    const plan = buildJsonImportPlan('[{"a":1,"b":"x"},{"a":2,"b":"y"}]', 't');
+    expect(plan.columns).toEqual(['a', 'b']);
+    expect(plan.rowCount).toBe(2);
+    expect(plan.batches[0]).toEqual({
+      statement: 'INSERT INTO "t" ("a", "b") VALUES (?, ?), (?, ?)',
+      params: [1, 'x', 2, 'y'],
+      rowCount: 2,
+    });
+  });
+
+  it('unions keys in first-seen order; a missing key binds null (ragged objects)', () => {
+    const plan = buildJsonImportPlan('[{"a":1},{"b":2}]', 't');
+    expect(plan.columns).toEqual(['a', 'b']);
+    expect(plan.batches[0].params).toEqual([1, null, null, 2]);
+  });
+
+  it('stringifies a nested object/array value to JSON text; null stays SQL NULL; booleans bind', () => {
+    const plan = buildJsonImportPlan('[{"a":{"x":1},"b":[1,2],"c":null,"d":true}]', 't');
+    expect(plan.batches[0].params).toEqual(['{"x":1}', '[1,2]', null, true]);
+  });
+
+  it('binds an injection-shaped string value as an inert param (never concatenated)', () => {
+    const plan = buildJsonImportPlan('[{"name":"\'); DROP TABLE users;--"}]', 't');
+    expect(plan.batches[0].statement).toBe('INSERT INTO "t" ("name") VALUES (?)');
+    expect(plan.batches[0].params).toEqual(["'); DROP TABLE users;--"]);
+  });
+
+  it('chunks rows to stay within the parameter cap', () => {
+    const plan = buildJsonImportPlan('[{"a":1},{"a":2},{"a":3}]', 't', 2);
+    expect(plan.batches).toHaveLength(2); // 2 params/row cap, 1 col → 2 rows then 1 row
+    expect(plan.batches.map((b) => b.rowCount)).toEqual([2, 1]);
+  });
+
+  it('rejects invalid JSON, a non-array root, an empty array, and a non-object element', () => {
+    expect(() => buildJsonImportPlan('not json', 't')).toThrow(CsvImportError);
+    expect(() => buildJsonImportPlan('{"a":1}', 't')).toThrow(CsvImportError);
+    expect(() => buildJsonImportPlan('[]', 't')).toThrow(CsvImportError);
+    expect(() => buildJsonImportPlan('[1,2]', 't')).toThrow(CsvImportError);
+  });
+
+  it('rejects a bad field identifier + a bad table name', () => {
+    expect(() => buildJsonImportPlan('[{"bad col":1}]', 't')).toThrow(CsvImportError);
+    expect(() => buildJsonImportPlan('[{"a":1}]', '1t')).toThrow(CsvImportError);
+  });
+});
+
+describe('detectImportFormat + buildImportPlan (auto-dispatch)', () => {
+  it('detects a leading [ as JSON, else CSV', () => {
+    expect(detectImportFormat('  [{"a":1}]')).toBe('json');
+    expect(detectImportFormat('a,b\n1,2')).toBe('csv');
+  });
+
+  it('dispatches to the JSON builder for a JSON paste', () => {
+    expect(buildImportPlan('[{"a":1}]', 't').batches[0].params).toEqual([1]);
+  });
+
+  it('dispatches to the CSV builder for a CSV paste', () => {
+    expect(buildImportPlan('a\n1', 't').batches[0].params).toEqual(['1']);
   });
 });
 

@@ -444,6 +444,143 @@ export function buildCsvImportPlan(
 }
 
 /**
+ * Build a PARAMETERIZED, chunked INSERT plan from a JSON ARRAY OF OBJECTS for `table` — the JSON sibling
+ * of {@link buildCsvImportPlan} (same {@link CsvImportPlan} shape, so the import preview + `/sql/exec-write`
+ * rail are reused unchanged). Columns are the union of object keys in first-seen order (ragged objects are
+ * fine — a missing key binds `null`). Every value is BOUND, never concatenated: strings/numbers/booleans
+ * bind directly, `null`/`undefined` → `null`, and a nested object/array → its `JSON.stringify` text (SQLite
+ * has no JSON type). Field names are `IDENT_RE`-gated (a hostile key is rejected, never quoted-in). Pure.
+ *
+ * @throws {CsvImportError} invalid JSON, a non-array root, an empty array, a non-object element, no fields,
+ *   a bad field identifier, or more fields than fit one parameterized write.
+ * @example buildJsonImportPlan('[{"a":1},{"a":2}]', 't').batches[0]
+ *   // → { statement: 'INSERT INTO "t" ("a") VALUES (?), (?)', params: [1, 2], rowCount: 2 }
+ */
+export function buildJsonImportPlan(
+  jsonText: string,
+  table: string,
+  maxParams: number = CSV_IMPORT_MAX_PARAMS,
+): CsvImportPlan {
+  const t = String(table ?? '').trim();
+
+  if (!IDENT_RE.test(t)) {
+    throw new CsvImportError('Enter a valid table name (letters, digits, underscore; not starting with a digit).');
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    throw new CsvImportError('Not valid JSON. Paste a JSON array of objects, e.g. [{"a":1},{"a":2}].');
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new CsvImportError('JSON import expects an array of row objects, e.g. [{"name":"Ada"}].');
+  }
+
+  if (parsed.length === 0) {
+    throw new CsvImportError('The JSON array has no rows.');
+  }
+
+  const objs: Record<string, unknown>[] = [];
+  parsed.forEach((el, i) => {
+    if (el === null || typeof el !== 'object' || Array.isArray(el)) {
+      throw new CsvImportError(`Row ${i + 1} is not an object — every array element must be a JSON object.`);
+    }
+
+    objs.push(el as Record<string, unknown>);
+  });
+
+  // Columns = union of keys in first-seen order (ragged objects → missing keys bind null).
+  const columns: string[] = [];
+  const seen = new Set<string>();
+
+  for (const o of objs) {
+    for (const k of Object.keys(o)) {
+      if (!seen.has(k)) {
+        seen.add(k);
+        columns.push(k);
+      }
+    }
+  }
+
+  if (columns.length === 0) {
+    throw new CsvImportError('The JSON objects have no fields to import.');
+  }
+
+  if (columns.some((c) => !IDENT_RE.test(c))) {
+    throw new CsvImportError(
+      'Every field name must be a valid identifier (letters, digits, underscore; not starting with a digit).',
+    );
+  }
+
+  if (columns.length > maxParams) {
+    throw new CsvImportError(
+      `Too many fields (${columns.length}) to import within one parameterized write (max ${maxParams}).`,
+    );
+  }
+
+  // Bind primitives directly; a nested object/array → JSON text; null/undefined → SQL NULL.
+  const toBound = (v: unknown): BoundValue => {
+    if (v === null || v === undefined) {
+      return null;
+    }
+
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+      return v;
+    }
+
+    return JSON.stringify(v);
+  };
+
+  const colList = columns.map((c) => `"${c}"`).join(', ');
+  const placeholderRow = `(${columns.map(() => '?').join(', ')})`;
+  const rowsPerBatch = Math.max(1, Math.floor(maxParams / columns.length));
+  const batches: CsvImportBatch[] = [];
+
+  for (let i = 0; i < objs.length; i += rowsPerBatch) {
+    const chunk = objs.slice(i, i + rowsPerBatch);
+    const params: BoundValue[] = [];
+
+    for (const o of chunk) {
+      for (const c of columns) {
+        params.push(toBound(o[c]));
+      }
+    }
+
+    batches.push({
+      statement: `INSERT INTO "${t}" (${colList}) VALUES ${chunk.map(() => placeholderRow).join(', ')}`,
+      params,
+      rowCount: chunk.length,
+    });
+  }
+
+  // Preview cells are strings (nested values shown as JSON) to match CsvImportPlan.preview: string[][].
+  const previewCell = (v: unknown): string =>
+    v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+  const preview = objs.slice(0, CSV_IMPORT_PREVIEW_ROWS).map((o) => columns.map((c) => previewCell(o[c])));
+
+  return { table: t, columns, rowCount: objs.length, batches, preview };
+}
+
+/** Detect the paste format for the import wizard: a leading `[` ⇒ JSON array, else CSV. */
+export function detectImportFormat(text: string): 'json' | 'csv' {
+  return text.trim().startsWith('[') ? 'json' : 'csv';
+}
+
+/**
+ * Dispatch an import paste to the right parameterized-plan builder by {@link detectImportFormat} — so the
+ * one import panel accepts BOTH a CSV paste and a JSON array of objects with no mode toggle. Same
+ * {@link CsvImportPlan} shape either way (identical preview + `/sql/exec-write` execution path).
+ */
+export function buildImportPlan(text: string, table: string, maxParams: number = CSV_IMPORT_MAX_PARAMS): CsvImportPlan {
+  return detectImportFormat(text) === 'json'
+    ? buildJsonImportPlan(text, table, maxParams)
+    : buildCsvImportPlan(text, table, maxParams);
+}
+
+/**
  * Extract the primary-key column name(s) from a `pragma_table_info` result — the prerequisite for
  * a SAFE inline row edit/delete (you need the PK to build a precise `WHERE pk = value`, never a
  * whole-table mutation). Accepts either the raw `name` column or the `"column"` alias our

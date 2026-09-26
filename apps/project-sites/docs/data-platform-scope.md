@@ -1396,14 +1396,39 @@ round-trips in a real authed browser (the DDL compilers + parse + refusals are u
 apply + the sqlite_master index fetch are verify-by-build).** **A dedicated real-browser + live-model eval fire remains
 the highest-value out-of-loop step.**
 
-**NEXT slice: the live-model eval RUN (top out-of-loop step) — OR "Rename table/column" guided builder (schema slice 4).**
-(a) **Live-model eval RUN** — the one remaining unmeasured link in the Ask pipeline: drive the real
-`@cf/meta/llama-3.3-70b` binding over the golden `{question,intent}` fixtures on prod, score question→intent QUALITY
-(does the model propose the EXPECTED typed intent?), record a `PROMPT_VERSION`-tagged baseline + log regressions. Needs
-a real prod run (worker/browser), so it's the natural "dedicated real-browser fire" — highest-value now that the
-deterministic pipeline + schema builder are unit-complete. (b) **Rename table/column** (schema slice 4) — wires
-`schema-ddl.ts`'s already-tested `buildRenameColumn` (+ a `buildRenameTable`) via `ALTER TABLE … RENAME`. NOTE this is
-ALTER of an EXISTING (platform) table — per the standing "prefer CREATE over ALTER on the shared platform D1" memory,
-defer until per-customer D1 discovery (slice 1) surfaces customer-owned tables, OR scope it to super-admin with a loud
-"this alters shared platform schema + drifts vs migration files" caveat. Recommend (a): it closes the Ask arc's last
-gap and is the highest-value verifiable-on-prod step; (b) is real but carries the platform-ALTER caveat.
+### ✅ Shipped next fire (2026-09-26 #59) — import wizard slice: JSON-array import (auto-detected) alongside CSV
+The import panel was CSV-only; the directive mandates a "CSV/TSV/**JSON** wizard." Now the ONE import panel accepts a
+CSV paste OR a JSON array of objects — auto-detected, same preview + the same parameterized `/sql/exec-write` rail, no
+mode toggle. Chosen because it's a meaty, fully-verifiable, editor-only slice (the live-model eval RUN is genuinely
+out-of-loop — it needs a dedicated authed-prod session + a verified worker `/ask` deploy — so it stays the standing
+out-of-loop step, not forced into a 12-min in-loop fire).
+- **Pure core (`data-panel-logic.ts`, +10 Vitest):** `buildJsonImportPlan(jsonText, table)` → the SAME `CsvImportPlan`
+  shape (columns = union of object keys in first-seen order; ragged objects → missing key binds `null`; primitives bind
+  directly so numbers stay numbers; nested object/array → `JSON.stringify` text; injection-shaped value rides as an
+  inert bound param; chunked to the exec-write param cap). `detectImportFormat(text)` (leading `[` ⇒ json) +
+  `buildImportPlan(text, table)` dispatcher. All refusals proven (bad JSON / non-array / empty / non-object element /
+  bad field or table identifier / too-wide).
+- **UI (`DataPanel.tsx`):** the `importPlan` memo now calls `buildImportPlan` (auto-dispatch); the panel shows a live
+  **format badge** (CSV/JSON), a dual-format hint + placeholder, and the toolbar button is relabeled "Import". The
+  existing preview (columns/rowCount/first-batch statement) + submit + partial-batch disclosure are reused unchanged.
+- Verified: editor Vitest **1004/1004** (+10) + tsc 0 + eslint 0 + build 0. **No worker/bridge/admin change** (reuses
+  the CSV import's `PS_SQL_REQUEST` write path — zero deploy skew). Verify-by-build for the panel; the plan builders +
+  refusals are unit-proven.
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize · #34 footer · #35 whole-query · #36 pins · #37 view · #40
+multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 NULL toggle · #46 BLOB · #47–#48 KV meta/TTL ·
+#49 R2 folders · #52–#55 live NL→answer + save-as-view · #56–#58 schema builder (table/index create + index drop) ·
+**#59 the JSON-import round-trip in a real authed browser (the plan builders + refusals are unit-proven; the panel +
+write-rail apply are verify-by-build).** **A dedicated real-browser + live-model eval fire remains the highest-value
+out-of-loop step.**
+
+**NEXT slice: the live-model eval RUN (top out-of-loop step) — OR "Copy result as JSON" SQL-workspace export parity.**
+(a) **Live-model eval RUN** (standing out-of-loop): drive the real `@cf/meta/llama-3.3-70b` binding over the golden
+`{question,intent}` fixtures on prod, score question→intent QUALITY, record a `PROMPT_VERSION` baseline. Needs a
+dedicated authed-prod session + a verified worker `/ask` deploy — the natural "dedicated real-browser fire". (b)
+**SQL-result JSON export + copy** — the SQL console result grid exports CSV only (`exportSqlCsv`); the browse grid has
+CSV+JSON. Add JSON export + a "Copy as CSV/JSON" to the SQL result (pure serialize of already-fetched rows via `toCsv`
+/ a new `toJsonRows`, unit-tested; client-side, read-only, editor-verifiable). Small but completes the SQL-workspace
+export parity the directive lists ("CSV/JSON export"). Recommend (b) for an in-loop fire (fully verifiable), (a) for the
+next dedicated real-browser/prod fire. Also open: `field-types.ts` semantic layer (needs the per-column metadata-config
+arc); per-customer D1 discovery (slice 1) to unlock ALTER-existing (Rename) safely.
