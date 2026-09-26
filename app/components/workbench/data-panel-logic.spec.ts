@@ -22,6 +22,7 @@ import {
   CsvImportError,
   pkFromTableInfo,
   generatedFromTableXinfo,
+  browsePageInfo,
   stripSqlCommentsAndStrings,
   classifySqlStatement,
   classifySql,
@@ -365,6 +366,65 @@ describe('generatedFromTableXinfo', () => {
   it('treats a row with no `hidden` field as ordinary (empty set), never throws on []', () => {
     expect(generatedFromTableXinfo([{ name: 'a', pk: 1 }]).size).toBe(0);
     expect(generatedFromTableXinfo([]).size).toBe(0);
+  });
+});
+
+describe('browsePageInfo (server-side pagination display + prev/next)', () => {
+  it('first full page: 1-based range, no prev, has next', () => {
+    expect(browsePageInfo(0, 25, 1234)).toEqual({
+      from: 1,
+      to: 25,
+      hasPrev: false,
+      hasNext: true,
+      label: '1–25 of 1,234',
+    });
+  });
+
+  it('a middle page has both prev and next', () => {
+    expect(browsePageInfo(25, 25, 1234)).toEqual({
+      from: 26,
+      to: 50,
+      hasPrev: true,
+      hasNext: true,
+      label: '26–50 of 1,234',
+    });
+  });
+
+  it('the last (partial) page has prev but NOT next', () => {
+    expect(browsePageInfo(1225, 9, 1234)).toEqual({
+      from: 1226,
+      to: 1234,
+      hasPrev: true,
+      hasNext: false,
+      label: '1,226–1,234 of 1,234',
+    });
+  });
+
+  it('hasNext is false exactly at the boundary (offset + shown === total)', () => {
+    expect(browsePageInfo(75, 25, 100).hasNext).toBe(false);
+    expect(browsePageInfo(50, 25, 100).hasNext).toBe(true);
+  });
+
+  it('an empty table → "No rows", no prev/next, zero range', () => {
+    expect(browsePageInfo(0, 0, 0)).toEqual({
+      from: 0,
+      to: 0,
+      hasPrev: false,
+      hasNext: false,
+      label: 'No rows',
+    });
+  });
+
+  it('an empty PAGE with a non-zero total is labelled honestly ("0 of N")', () => {
+    expect(browsePageInfo(0, 0, 5).label).toBe('0 of 5');
+  });
+
+  it('clamps a negative / NaN offset to 0 and never yields a negative range', () => {
+    expect(browsePageInfo(-5, 25, 100).from).toBe(1);
+    expect(browsePageInfo(-5, 25, 100).hasPrev).toBe(false);
+
+    const nan = browsePageInfo(Number.NaN, Number.NaN, Number.NaN);
+    expect(nan).toEqual({ from: 0, to: 0, hasPrev: false, hasNext: false, label: 'No rows' });
   });
 });
 

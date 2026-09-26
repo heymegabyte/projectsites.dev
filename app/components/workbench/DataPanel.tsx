@@ -68,6 +68,8 @@ import {
   buildUpdateByPk,
   pkFromTableInfo,
   generatedFromTableXinfo,
+  browsePageInfo,
+  BROWSE_PAGE_SIZE,
   RowMutationError,
   friendlyModelLabel,
   canAskAi,
@@ -279,6 +281,9 @@ export const DataPanel = memo(() => {
    * grid presents them read-only (never a doomed edit) and omits them from INSERT (add/duplicate).
    */
   const [browseGeneratedCols, setBrowseGeneratedCols] = useState<ReadonlySet<string>>(() => new Set<string>());
+
+  /** 0-based row offset of the current browse page (server-side pagination; page size BROWSE_PAGE_SIZE). */
+  const [browseOffset, setBrowseOffset] = useState(0);
   const pkCid = useRef<string | null>(null); // PRAGMA table_info round-trip id (distinct from the SQL console)
   const deletePending = useRef(false); // a row delete is in flight → route the next PS_SQL_RESPONSE
   const deleteTargetRef = useRef<string | null>(null); // the table to re-open after a delete
@@ -487,6 +492,38 @@ export const DataPanel = memo(() => {
     postToParent({ type: 'PS_DATA_REQUEST', correlationId: cid });
   }, []);
 
+  /**
+   * Fire the paginated browse request for `key` at a 0-based `offset` (page size {@link BROWSE_PAGE_SIZE}).
+   * Shared by {@link openTable} (offset 0) and {@link goToPage} (page nav) so the correlation-id + timeout
+   * handling lives in one place. The admin bridge forwards `offset`/`limit` to the worker's paginated
+   * `data-overview/:table` endpoint (server-side LIMIT/OFFSET — the browser never loads the whole table).
+   */
+  const requestRows = useCallback(
+    (key: string, offset: number): void => {
+      const cid = newCorrelationId(key);
+      browseCid.current = cid;
+
+      if (browseTimer.current) {
+        clearTimeout(browseTimer.current);
+      }
+
+      browseTimer.current = setTimeout(() => {
+        if (browseCid.current === cid) {
+          setBrowseError('Timed out loading rows.');
+          setBrowseLoading(false);
+        }
+      }, REQUEST_TIMEOUT_MS);
+      postToParent({
+        type: 'PS_DATA_REQUEST',
+        table: key,
+        offset,
+        limit: BROWSE_PAGE_SIZE,
+        correlationId: cid,
+      });
+    },
+    [postToParent],
+  );
+
   const openTable = useCallback(
     (key: string) => {
       setActive(key);
@@ -502,22 +539,10 @@ export const DataPanel = memo(() => {
       setBrowsePkCols([]); // clear the prior table's PK until this one's PRAGMA returns
       setBrowseGeneratedCols(new Set<string>()); // clear the prior table's generated-column set
       setBrowseColTypes({});
+      setBrowseOffset(0); // a fresh table opens at the first page
       setSelectedKeys(new Set()); // never carry a bulk selection across a table switch / re-fetch
 
-      const cid = newCorrelationId(key);
-      browseCid.current = cid;
-
-      if (browseTimer.current) {
-        clearTimeout(browseTimer.current);
-      }
-
-      browseTimer.current = setTimeout(() => {
-        if (browseCid.current === cid) {
-          setBrowseError('Timed out loading rows.');
-          setBrowseLoading(false);
-        }
-      }, REQUEST_TIMEOUT_MS);
-      postToParent({ type: 'PS_DATA_REQUEST', table: key, correlationId: cid });
+      requestRows(key, 0);
 
       /*
        * Super-admins get row DELETE — resolve the PK via PRAGMA table_info on its OWN correlation id
@@ -540,7 +565,29 @@ export const DataPanel = memo(() => {
         });
       }
     },
-    [canRunSql],
+    [canRunSql, requestRows],
+  );
+
+  /**
+   * Load a different PAGE of the open table (server-side offset) WITHOUT the full table reset —
+   * keeps the column selection / sort / PK + generated sets (same table), only the rows change.
+   * Clears the row selection + detail so a stale index can't point past the new page.
+   */
+  const goToPage = useCallback(
+    (nextOffset: number): void => {
+      if (!active || nextOffset < 0) {
+        return;
+      }
+
+      setBrowseOffset(nextOffset);
+      setRows([]);
+      setBrowseLoading(true);
+      setBrowseError('');
+      setDetailIdx(null);
+      setSelectedKeys(new Set());
+      requestRows(active, nextOffset);
+    },
+    [active, requestRows],
   );
 
   /*
@@ -1195,6 +1242,12 @@ export const DataPanel = memo(() => {
    *  row-detail + exports still use `columns`).
    */
   const visibleCols = useMemo(() => visibleColumns(columns, hiddenCols), [columns, hiddenCols]);
+
+  /** Server-side pagination display (range label) + prev/next availability for the open page. */
+  const pageInfo = useMemo(
+    () => browsePageInfo(browseOffset, rows.length, activeTable?.row_count ?? 0),
+    [browseOffset, rows.length, activeTable],
+  );
 
   /** Toggle a browse column's visibility (last-column-guarded) + persist per table. */
   const toggleCol = useCallback(
@@ -1879,11 +1932,39 @@ export const DataPanel = memo(() => {
               <div className="i-ph:arrow-left" /> Tables
             </button>
             <span className="text-sm font-medium text-bolt-elements-textPrimary">{activeTable.label}</span>
-            {/* HONEST disclosure — never imply the window is the whole table (silent-cap lesson). */}
-            <span className="text-[10px] text-bolt-elements-textTertiary" data-testid="data-window-note">
-              {activeTable.row_count.toLocaleString()} total · showing latest{' '}
-              {Math.min(activeTable.row_count, rows.length || 0).toLocaleString()}
-              {search && rows.length > 0 ? ` · ${visibleRows.length} match` : ''}
+            {/* HONEST paginated disclosure — an explicit "X–Y of N" range with Prev/Next (server-side
+                LIMIT/OFFSET); never implies the page is the whole table (silent-cap lesson). Search
+                filters THIS page only ("match on page"), distinct from a whole-table query. */}
+            <span
+              className="flex items-center gap-1 text-[10px] text-bolt-elements-textTertiary"
+              data-testid="data-window-note"
+            >
+              <button
+                type="button"
+                onClick={() => goToPage(Math.max(0, browseOffset - BROWSE_PAGE_SIZE))}
+                disabled={!pageInfo.hasPrev || browseLoading}
+                data-testid="data-page-prev"
+                title="Previous page"
+                aria-label="Previous page"
+                className="rounded px-0.5 py-0.5 hover:text-bolt-elements-textPrimary disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer"
+              >
+                <div className="i-ph:caret-left text-[11px]" />
+              </button>
+              <span data-testid="data-page-range" className="tabular-nums">
+                {pageInfo.label}
+              </span>
+              <button
+                type="button"
+                onClick={() => goToPage(browseOffset + BROWSE_PAGE_SIZE)}
+                disabled={!pageInfo.hasNext || browseLoading}
+                data-testid="data-page-next"
+                title="Next page"
+                aria-label="Next page"
+                className="rounded px-0.5 py-0.5 hover:text-bolt-elements-textPrimary disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer"
+              >
+                <div className="i-ph:caret-right text-[11px]" />
+              </button>
+              {search && rows.length > 0 ? <span>· {visibleRows.length} match on page</span> : null}
             </span>
             {(canRunSql || rows.length > 0) && (
               <div className="ml-auto flex items-center gap-3">

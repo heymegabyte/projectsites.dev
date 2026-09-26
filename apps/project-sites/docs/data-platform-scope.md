@@ -273,9 +273,28 @@ one. Now DataPanel detects them and presents them read-only + labelled ("never a
   `npm run build` ✓ (13.86s). Honest: a checkbox/date is still just a UI interpretation; only generated-ness is
   schema-enforced (from `hidden`), and that's exactly what we gate on.
 
-**NEXT slice (per delivery order): server-side pagination/keyset for the read-only grid** (slice 2 completion —
-today the browse grid loads a table's rows without an explicit keyset bound; the spec requires "avoid loading the
-DB into browser memory" + "avoid expensive exact counts on every nav"). Then the grid eval (RevoGrid Core vs
-Tabulator against a real paginated D1, license-checked). Cheaper adjacent win: wire `field-types.ts` typed
-EDITORS (date/select/url) into the row-edit path; or extend the add-row form to also omit generated columns
-(the duplicate path already does).
+### ✅ Shipped next fire (2026-09-26 #4) — server-side pagination wired into the browse grid (slice 2 complete)
+The worker's `GET /api/sites/:id/data-overview/:table` ALREADY paginated (clamped `limit` 1–100, `offset`,
+server `orderBy`, returns `total` — `data_browse_pagination.test.ts`), but the editor never sent the params:
+the admin bridge **hardcoded `{limit:'25'}` with no offset**, and `PS_DATA_REQUEST` carried no pagination — so
+the grid was stuck on page 1 ("showing latest 25 of N", no way forward). Now it's real pagination end-to-end:
+- **Admin bridge** (`bolt-embed.service.ts`) — `PsMessage` gains `offset?`/`limit?`; the `PS_DATA_REQUEST`
+  handler forwards them to the query (re-clamped 1–100 / ≥0; defaults preserve the old first-page-of-25 behaviour).
+- **Editor** (`DataPanel.tsx`) — `PS_DATA_REQUEST` message gains `offset`/`limit`; a shared `requestRows(key,
+  offset)` (page size `BROWSE_PAGE_SIZE=25`) is used by `openTable` (offset 0, full reset) + a new `goToPage`
+  (page nav, light reset — keeps columns/sort/PK/generated, clears rows+selection+detail). `browseOffset` state
+  resets per table. The honest disclosure became **Prev · "26–50 of 1,234" · Next** (an explicit range, buttons
+  disabled at the ends + while loading), and search is now labelled "match **on page**" (distinct from a
+  whole-table query, per the spec). The browser never loads the whole table — one bounded page per request.
+- **Pure helper** `browsePageInfo(offset, loadedCount, total)` → `{from,to,hasPrev,hasNext,label}` (1-based
+  range, `hasNext` from `total` not a fetched extra row, floors/clamps hostile/NaN input, honest "No rows" /
+  "0 of N"). +7 Vitest.
+- Verified: Vitest 184/184 (data-panel-logic) editor tsc 0 / eslint 0 / build ✓ (12.68s); admin (Angular) tsc 0 /
+  eslint 0 / `ng build` prod ✓ (8.4s). BOTH surfaces deploy on push (editor→Pages, admin→R2 via worker pipeline).
+  Storage: unchanged — rows come live from the worker's paginated D1 read; no UI state in customer tables.
+
+**NEXT slice (per delivery order): server-side SORT wired to the grid header** (the worker already accepts
+`orderBy`+`dir`; today the grid sorts only the loaded page client-side — send `orderBy`/`dir` from a column-header
+click so sort spans the whole table, reset to page 0). Then the grid eval (RevoGrid Core vs Tabulator against a
+real paginated D1, license-checked) + a page-size selector (25/50/100). Cheaper adjacent win: wire `field-types.ts`
+typed EDITORS (date/select/url) into the row-edit path; or extend the add-row form to also omit generated columns.

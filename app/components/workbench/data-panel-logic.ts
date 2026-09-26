@@ -510,6 +510,58 @@ export function generatedFromTableXinfo(rows: readonly Record<string, unknown>[]
   return out;
 }
 
+/** Default browse page size (rows per request). Matches the worker's `data-overview` default. */
+export const BROWSE_PAGE_SIZE = 25;
+
+/** Derived display + control state for the paginated browse grid. */
+export interface BrowsePageInfo {
+  /** 1-based index of the first shown row (0 when the page is empty). */
+  from: number;
+
+  /** 1-based index of the last shown row (0 when the page is empty). */
+  to: number;
+
+  /** True when there is a previous page (offset > 0). */
+  hasPrev: boolean;
+
+  /** True when more rows exist beyond this page (offset + shown < total). */
+  hasNext: boolean;
+
+  /** Human range label, e.g. `"26–50 of 1,234"`, `"0 of 1,234"`, or `"No rows"`. */
+  label: string;
+}
+
+/**
+ * Pure pagination math for the browse grid — turns the current `offset`, the number of rows actually
+ * loaded on this page, and the table's `total` row count into a 1-based range + prev/next availability
+ * + an honest label. `hasNext` is derived from `total` (not a fetched "one extra" row), and the label
+ * NEVER implies the page is the whole table (the silent-cap lesson). All inputs are floored/clamped so
+ * a hostile/NaN value can't produce a negative or misleading range. Pure.
+ *
+ * @param offset - 0-based offset of the first row on this page
+ * @param loadedCount - number of rows returned for this page (may be < page size on the last page)
+ * @param total - the table's total row count (from the overview / browse `total`)
+ * @example browsePageInfo(25, 25, 1234) // { from:26, to:50, hasPrev:true, hasNext:true, label:'26–50 of 1,234' }
+ * @example browsePageInfo(0, 0, 0)      // { from:0, to:0, hasPrev:false, hasNext:false, label:'No rows' }
+ */
+export function browsePageInfo(offset: number, loadedCount: number, total: number): BrowsePageInfo {
+  const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+  const count = Math.max(0, Math.floor(Number(loadedCount) || 0));
+  const safeTotal = Math.max(0, Math.floor(Number(total) || 0));
+  const from = count > 0 ? safeOffset + 1 : 0;
+  const to = count > 0 ? safeOffset + count : 0;
+  const hasPrev = safeOffset > 0;
+  const hasNext = safeOffset + count < safeTotal;
+  const label =
+    count > 0
+      ? `${from.toLocaleString()}–${to.toLocaleString()} of ${safeTotal.toLocaleString()}`
+      : safeTotal > 0
+        ? `0 of ${safeTotal.toLocaleString()}`
+        : 'No rows';
+
+  return { from, to, hasPrev, hasNext, label };
+}
+
 /** Statement category for the Data console — drives the run affordance + which result view shows. */
 export type SqlKind = 'read' | 'write' | 'ddl' | 'transaction' | 'other';
 

@@ -60,6 +60,10 @@ interface PsMessage {
   readonly level?: 'info' | 'success' | 'warning' | 'error';
   /** PS_DATA_REQUEST (AL-004): omit for the table overview, set to browse one table. */
   readonly table?: string;
+  /** PS_DATA_REQUEST: 0-based row offset for the paginated browse grid (default 0). */
+  readonly offset?: number;
+  /** PS_DATA_REQUEST: page size for the paginated browse grid (worker clamps to 1–100; default 25). */
+  readonly limit?: number;
   /** PS_SQL_REQUEST (D1 manager): the SQL to forward — /sql/exec (read) or /sql/exec-write (write). */
   readonly query?: string;
   /** PS_SQL_REQUEST: route to the WRITE endpoint (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE). */
@@ -599,6 +603,16 @@ export class BoltEmbedService {
           const site = this.currentSite;
           const cid = msg.correlationId;
           const table = typeof msg.table === 'string' && msg.table ? msg.table : undefined;
+          // Pagination — forwarded to the worker (which clamps limit 1–100, offset ≥ 0). Defaults
+          // preserve the prior behaviour (first page of 25) when the editor omits them.
+          const browseLimit =
+            typeof msg.limit === 'number' && Number.isFinite(msg.limit)
+              ? Math.max(1, Math.min(100, Math.trunc(msg.limit)))
+              : 25;
+          const browseOffset =
+            typeof msg.offset === 'number' && Number.isFinite(msg.offset)
+              ? Math.max(0, Math.trunc(msg.offset))
+              : 0;
           const reply = (payload: Record<string, unknown>): void => {
             iframe?.contentWindow?.postMessage(
               { type: 'PS_DATA_RESPONSE', correlationId: cid, table, ...payload },
@@ -613,7 +627,11 @@ export class BoltEmbedService {
             ? `/sites/${site.id}/data-overview/${encodeURIComponent(table)}`
             : `/sites/${site.id}/data-overview`;
           this.api
-            .get<{ data?: unknown }>(path, table ? { limit: '25' } : undefined, { silent: true })
+            .get<{ data?: unknown }>(
+              path,
+              table ? { limit: String(browseLimit), offset: String(browseOffset) } : undefined,
+              { silent: true },
+            )
             .subscribe({
               // Tell the editor whether the D1-manager SQL console is available (super-admin only) —
               // merged into the OVERVIEW reply so it never renders a console that would only 403.

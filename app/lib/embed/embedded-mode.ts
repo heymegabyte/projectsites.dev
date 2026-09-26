@@ -165,6 +165,12 @@ export interface DeployRequestMessage {
 export interface DataRequestMessage {
   type: 'PS_DATA_REQUEST';
   table?: string;
+
+  /** 0-based row offset for the paginated browse grid (default 0). Ignored for the table overview. */
+  offset?: number;
+
+  /** Page size for the paginated browse grid (the worker clamps to 1–100; default 25). */
+  limit?: number;
   correlationId: string;
 }
 
