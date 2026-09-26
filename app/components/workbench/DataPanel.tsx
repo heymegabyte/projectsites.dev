@@ -57,6 +57,8 @@ import {
   visibleColumns,
   orderColumns,
   moveColumn,
+  applyPins,
+  pinnedLeftOffsets,
   clampColWidth,
   parseColWidths,
   SUMMARY_KINDS,
@@ -221,6 +223,27 @@ function readColSummaries(tableKey: string): Record<string, SummaryKind> {
   }
 }
 
+/** localStorage key PREFIX for a table's pinned (frozen-left) columns (`…-<tableKey>`, per-browser). */
+const DATA_COLPINNED_KEY = 'ps-data-cols-pinned';
+
+/** Read a table's persisted pinned-column list (best-effort; junk / private-mode → []). */
+function readColPinned(tableKey: string): string[] {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(`${DATA_COLPINNED_KEY}-${tableKey}`) : null;
+    const parsed = raw ? JSON.parse(raw) : [];
+
+    return Array.isArray(parsed) ? parsed.filter((c): c is string => typeof c === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** A pinned column with no explicit resized width renders at this width (so its sticky-left offset is exact). */
+const DEFAULT_PIN_WIDTH = 180;
+
+/** The leftmost select-checkbox column's width (`w-8` = 2rem) — the lead offset for the first pinned column. */
+const SELECT_COL_WIDTH = 32;
+
 /**
  * Rehydrate the SQL console's query tabs from localStorage, falling back to a single
  * default tab seeded with the "list tables" query. Best-effort + defensive: a malformed
@@ -362,6 +385,7 @@ export const DataPanel = memo(() => {
   const [colOrder, setColOrder] = useState<string[]>([]); // persisted per-table column display order
   const [colWidths, setColWidths] = useState<Record<string, number>>({}); // persisted per-table resized widths
   const [colSummaries, setColSummaries] = useState<Record<string, SummaryKind>>({}); // per-table footer summaries
+  const [colPinned, setColPinned] = useState<string[]>([]); // per-table frozen-left columns
   const [colMenuOpen, setColMenuOpen] = useState(false);
   const [density, setDensity] = useState<GridDensity>(readDensity); // global grid row-density pref
 
@@ -805,6 +829,7 @@ export const DataPanel = memo(() => {
       setColOrder(readColOrder(key)); // restore this table's column order
       setColWidths(readColWidths(key)); // restore this table's resized column widths
       setColSummaries(readColSummaries(key)); // restore this table's footer summaries
+      setColPinned(readColPinned(key)); // restore this table's pinned columns
       setColMenuOpen(false);
       setBrowseLoading(true);
       setBrowsePkCols([]); // clear the prior table's PK until this one's PRAGMA returns
@@ -1719,7 +1744,12 @@ export const DataPanel = memo(() => {
    * canonical `columns` (raw-table order) — the arrangement is a display pref, per the column-menu note.
    */
   const orderedColumns = useMemo(() => orderColumns(columns, colOrder), [columns, colOrder]);
-  const visibleCols = useMemo(() => visibleColumns(orderedColumns, hiddenCols), [orderedColumns, hiddenCols]);
+
+  // Visible columns: order applied → hidden dropped → PINNED moved to the frozen-left prefix (applyPins).
+  const visibleCols = useMemo(
+    () => applyPins(visibleColumns(orderedColumns, hiddenCols), colPinned),
+    [orderedColumns, hiddenCols, colPinned],
+  );
 
   /*
    * Footer summaries: aggregates over the CURRENT PAGE for each column that has a summary configured
@@ -1963,14 +1993,38 @@ export const DataPanel = memo(() => {
     [active],
   );
 
-  /** Inline width style for a column (min=max=width forces an exact width in auto layout); undefined = auto. */
+  /** Toggle a column's pinned (frozen-left) state + persist per table. */
+  const togglePin = useCallback(
+    (col: string): void => {
+      setColPinned((prev) => {
+        const next = prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col];
+
+        try {
+          if (active && typeof localStorage !== 'undefined') {
+            localStorage.setItem(`${DATA_COLPINNED_KEY}-${active}`, JSON.stringify(next));
+          }
+        } catch {
+          /* private mode / quota — pinning is a convenience, never load-bearing */
+        }
+
+        return next;
+      });
+    },
+    [active],
+  );
+
+  /**
+   * Inline width style for a column (min=max=width forces an exact width in auto layout). A PINNED column
+   * always gets a definite width (its resized width, else {@link DEFAULT_PIN_WIDTH}) so its sticky-left
+   * offset is exact; an unpinned, unresized column stays auto (undefined).
+   */
   const colStyle = useCallback(
     (col: string): { width: number; minWidth: number; maxWidth: number } | undefined => {
-      const w = colWidths[col];
+      const w = colWidths[col] ?? (colPinned.includes(col) ? DEFAULT_PIN_WIDTH : undefined);
 
       return w ? { width: w, minWidth: w, maxWidth: w } : undefined;
     },
-    [colWidths],
+    [colWidths, colPinned],
   );
 
   /**
@@ -2671,6 +2725,29 @@ export const DataPanel = memo(() => {
 
   // Bulk selection is available only to a super-admin on a table with a resolvable PK.
   const selectable = canRunSql && browsePkCols.length > 0;
+
+  /*
+   * Sticky-left px offsets for the pinned (frozen) leading columns — cumulative from the select-checkbox
+   * column's width (when selectable). Each pinned column renders at a definite width (colStyle), so the
+   * offsets are exact. Empty when nothing is pinned → the whole grid scrolls normally.
+   */
+  const pinOffsets = useMemo(
+    () => pinnedLeftOffsets(visibleCols, colPinned, colWidths, selectable ? SELECT_COL_WIDTH : 0, DEFAULT_PIN_WIDTH),
+    [visibleCols, colPinned, colWidths, selectable],
+  );
+
+  /** Sticky-left CSS for a pinned column cell (z: header above body); undefined for unpinned. */
+  const stickyPinStyle = useCallback(
+    (col: string, z: number): { position: 'sticky'; left: number; zIndex: number } | undefined => {
+      const off = pinOffsets[col];
+
+      return off === undefined ? undefined : { position: 'sticky', left: off, zIndex: z };
+    },
+    [pinOffsets],
+  );
+
+  /** True when ≥1 column is pinned — the select-checkbox column then also freezes at left:0. */
+  const hasPins = Object.keys(pinOffsets).length > 0;
 
   /** The stable PK keys of the rows currently on screen that CAN be selected (have a usable PK). */
   const selectableVisibleKeys = useMemo(
@@ -3844,6 +3921,21 @@ export const DataPanel = memo(() => {
                                 />
                                 <span className="truncate">{columnLabel(c)}</span>
                               </label>
+                              {/* Pin — freeze this column at the left edge (persisted). Shown lit when pinned,
+                                  hover-revealed when not, so the pinned state is always visible at a glance. */}
+                              <button
+                                type="button"
+                                onClick={() => togglePin(c)}
+                                aria-pressed={colPinned.includes(c)}
+                                data-testid="data-col-pin"
+                                title={colPinned.includes(c) ? 'Unpin (unfreeze) column' : 'Pin column to the left'}
+                                className={classNames(
+                                  'i-ph:push-pin shrink-0 cursor-pointer p-0.5 text-[10px] transition-opacity',
+                                  colPinned.includes(c)
+                                    ? 'text-bolt-elements-item-contentAccent opacity-100'
+                                    : 'text-bolt-elements-textTertiary opacity-0 hover:text-bolt-elements-item-contentAccent focus:opacity-100 group-hover:opacity-100',
+                                )}
+                              />
                               {/* Reorder — move this column earlier/later in the grid + card views (persisted). */}
                               <div className="flex shrink-0 items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
                                 <button
@@ -4381,9 +4473,11 @@ export const DataPanel = memo(() => {
                   <tr>
                     {selectable && (
                       <th
+                        style={hasPins ? { position: 'sticky', left: 0, zIndex: 31 } : undefined}
                         className={classNames(
                           'w-8 border-b border-bolt-elements-borderColor/50 align-middle',
                           densitySelectCellClass(density),
+                          hasPins && 'bg-bolt-elements-background-depth-2',
                         )}
                       >
                         <input
@@ -4404,8 +4498,11 @@ export const DataPanel = memo(() => {
                         aria-sort={
                           browseSort?.col === c ? (browseSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'
                         }
-                        style={colStyle(c)}
-                        className="relative text-left font-medium text-bolt-elements-textTertiary border-b border-bolt-elements-borderColor/50 whitespace-nowrap p-0"
+                        style={{ ...colStyle(c), ...stickyPinStyle(c, 30) }}
+                        className={classNames(
+                          'relative text-left font-medium text-bolt-elements-textTertiary border-b border-bolt-elements-borderColor/50 whitespace-nowrap p-0',
+                          pinOffsets[c] !== undefined && 'bg-bolt-elements-background-depth-2',
+                        )}
                       >
                         <button
                           type="button"
@@ -4482,7 +4579,12 @@ export const DataPanel = memo(() => {
                     >
                       {selectable && (
                         <td
-                          className={classNames('w-8 align-top', densitySelectCellClass(density))}
+                          style={hasPins ? { position: 'sticky', left: 0, zIndex: 21 } : undefined}
+                          className={classNames(
+                            'w-8 align-top',
+                            densitySelectCellClass(density),
+                            hasPins && 'bg-bolt-elements-background-depth-1',
+                          )}
                           onClick={(e) => e.stopPropagation()} // the checkbox toggles selection, not the row detail
                         >
                           <input
@@ -4509,8 +4611,12 @@ export const DataPanel = memo(() => {
                         return (
                           <td
                             key={c}
-                            style={colStyle(c)}
-                            className={classNames(densityCellClass(density), 'align-top max-w-[220px] truncate')}
+                            style={{ ...colStyle(c), ...stickyPinStyle(c, 20) }}
+                            className={classNames(
+                              densityCellClass(density),
+                              'align-top max-w-[220px] truncate',
+                              pinOffsets[c] !== undefined && 'bg-bolt-elements-background-depth-1',
+                            )}
                             title={cell.title ?? cell.display}
                           >
                             {cell.href ? (
@@ -4537,7 +4643,12 @@ export const DataPanel = memo(() => {
                     hovered when unset; sum/avg/min/max on a non-numeric column honestly show "–". */}
                 <tfoot className="sticky bottom-0 z-10 bg-bolt-elements-background-depth-2">
                   <tr className="border-t border-bolt-elements-borderColor/50">
-                    {selectable && <td className="w-8" />}
+                    {selectable && (
+                      <td
+                        className={classNames('w-8', hasPins && 'bg-bolt-elements-background-depth-2')}
+                        style={hasPins ? { position: 'sticky', left: 0, zIndex: 21 } : undefined}
+                      />
+                    )}
                     {visibleCols.map((c) => {
                       const kind = colSummaries[c] ?? 'none';
 
@@ -4562,7 +4673,14 @@ export const DataPanel = memo(() => {
                       const val = kind !== 'none' && agg ? summaryValue(kind, agg) : null;
 
                       return (
-                        <td key={c} style={colStyle(c)} className="group max-w-[220px] px-2 py-1 align-middle">
+                        <td
+                          key={c}
+                          style={{ ...colStyle(c), ...stickyPinStyle(c, 20) }}
+                          className={classNames(
+                            'group max-w-[220px] px-2 py-1 align-middle',
+                            pinOffsets[c] !== undefined && 'bg-bolt-elements-background-depth-2',
+                          )}
+                        >
                           <div className="flex items-center justify-end gap-1 text-[10px]">
                             {kind !== 'none' && (
                               <span

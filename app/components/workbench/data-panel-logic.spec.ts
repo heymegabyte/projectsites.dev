@@ -78,6 +78,8 @@ import {
   clipboardValue,
   rowJson,
   visibleColumns,
+  applyPins,
+  pinnedLeftOffsets,
   clampColWidth,
   parseColWidths,
   SUMMARY_KINDS,
@@ -1641,6 +1643,34 @@ describe('moveColumn (reorder one step, clamped, always a full order)', () => {
     // saved order ['c'] → normalized ['c','a','b']; move 'a' left → ['a','c','b']
     expect(moveColumn(['a', 'b', 'c'], ['c'], 'a', -1)).toEqual(['a', 'c', 'b']);
     expect(moveColumn(['a', 'b', 'c'], [], 'zzz', -1)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('applyPins (pinned columns to the front, stable)', () => {
+  it('moves pinned columns to the front, preserving each partition’s order', () => {
+    expect(applyPins(['a', 'b', 'c', 'd'], ['c', 'a'])).toEqual(['a', 'c', 'b', 'd']); // front keeps a-before-c
+    expect(applyPins(['a', 'b', 'c'], ['b'])).toEqual(['b', 'a', 'c']);
+  });
+  it('no pins → unchanged; all pinned → unchanged order; unknown pin ignored', () => {
+    expect(applyPins(['a', 'b', 'c'], [])).toEqual(['a', 'b', 'c']);
+    expect(applyPins(['a', 'b', 'c'], ['a', 'b', 'c'])).toEqual(['a', 'b', 'c']);
+    expect(applyPins(['a', 'b'], ['zzz'])).toEqual(['a', 'b']);
+  });
+  it('accepts a Set as well as an array', () => {
+    expect(applyPins(['a', 'b', 'c'], new Set(['c']))).toEqual(['c', 'a', 'b']);
+  });
+});
+
+describe('pinnedLeftOffsets (cumulative sticky-left px for the pinned prefix)', () => {
+  it('offsets the pinned prefix cumulatively from leadOffset, using widths else the default', () => {
+    // a pinned (w 100) → 32; b pinned (default 160) → 132; c unpinned → omitted
+    expect(pinnedLeftOffsets(['a', 'b', 'c'], ['a', 'b'], { a: 100 }, 32, 160)).toEqual({ a: 32, b: 132 });
+  });
+  it('stops at the first unpinned column (only the leading frozen prefix gets offsets)', () => {
+    expect(pinnedLeftOffsets(['a', 'b', 'c'], ['a', 'c'], {}, 0, 150)).toEqual({ a: 0 }); // b unpinned → stop
+  });
+  it('no pins → {}', () => {
+    expect(pinnedLeftOffsets(['a', 'b'], [], {}, 32, 160)).toEqual({});
   });
 });
 

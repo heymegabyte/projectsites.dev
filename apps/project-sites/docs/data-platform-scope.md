@@ -882,10 +882,34 @@ gracefully falls back to the page aggregate ("· page") — never a mock (the pa
 **STILL-OPEN manual QA (not loop-actionable):** #33 resize DRAG + the footer picker/whole-query fetch need a
 real-browser pass (authed admin session) — logic/SQL tested; the interactions + live fetch ship verify-by-build.
 
-**NEXT slice: pinned/frozen identifying column(s).** Self-contained, client-only: `position:sticky; left:<offset>`
-on the first column(s) (+ the select checkbox) so they stay visible on horizontal scroll; a pin toggle in the
-column menu; persisted per table; a pure `pinnedLeftOffsets(cols, pinnedSet, widths, selWidth)` (cumulative offsets
-— pinned cols get an explicit width so offsets are known) — unit-test the offset math; the sticky CSS ships
-verify-by-build (flag the visual follow-up per `interaction≠build`). Then: **async export JOBS >10k** (multi-fire);
-**multi-column sort** (ripples into saved-view sort persistence); nested AND/OR filter-tree; SQL-workspace polish.
-Foundations still inert: `field-types.ts`, `schema-ddl.ts`.
+### ✅ Shipped next fire (2026-09-26 #36) — pinned/frozen identifying columns
+Pin any column(s) to the left so they stay visible while scrolling wide tables horizontally — the DBeaver/
+Airtable frozen-column. Per-table, persisted; a pin toggle in the column menu (lit when pinned, hover-revealed
+when not). Completes the grid-mandate "Pinned identifying columns".
+- **New pure logic (TDD-first, tested):** `data-panel-logic.ts` `applyPins(cols, pinned)` (pinned → a stable
+  leading prefix — the frozen region must be contiguous at the left) + `pinnedLeftOffsets(cols, pinned, widths,
+  leadOffset, defaultWidth)` (cumulative sticky-left px over the pinned prefix; a pinned column renders at a
+  definite width so offsets are exact; stops at the first unpinned). 6 cases.
+- **`DataPanel.tsx` (editor-only):** `colPinned` state + `readColPinned`/`DATA_COLPINNED_KEY` localStorage (per
+  table) + `togglePin`; `visibleCols` now `applyPins(visibleColumns(...))`; a `pinOffsets` memo + `stickyPinStyle`
+  (z-tiers: pinned header 30 > checkbox 31/21 > pinned body 20) applied to the `<th>`/`<td>`/`<tfoot>` cells + the
+  select-checkbox column (freezes at left:0 when any pin exists); `colStyle` gives pinned columns a definite width
+  (resized, else `DEFAULT_PIN_WIDTH` 180) so the offsets are exact; pinned cells get an opaque bg so scrolled
+  content doesn't bleed through. Column-menu pin button (`data-col-pin`).
+- Verified: editor Vitest **904/904** + tsc 0 + eslint 0 + build 0; worker **untouched** (0 files under
+  `apps/project-sites`). **⚠ Honest residual (visual QA):** the offset MATH + pin/order/width logic are unit-tested,
+  but the sticky-left CSS + z-index layering + opaque-bg (does the frozen region actually stay put + not bleed on
+  horizontal scroll?) ship **verify-by-build** — a real-browser pass is required (per `interaction≠build`).
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize drag, #34 footer picker, #35 whole-query fetch, #36
+sticky-pin rendering — all need a real-browser pass (authed admin session). Logic/SQL tested; interactions +
+sticky CSS ship verify-by-build.
+
+**NEXT slice: multi-column sort — OR async export JOBS >10k.** Multi-sort: `browseSort` (single `{col,dir}`) →
+an ordered `{col,dir}[]`; shift-click a header to add a secondary sort (badge shows priority); worker `orderBy`/
+`dir` → a `sort=col:dir,col2:dir2` list building a multi-col ORDER BY (each allowlist-validated); persist through
+saved views (`sortCol`/`sortDir` singular → a JSON sort array in `config_json`, or a new column) — RIPPLES into
+saved-view schema + the SavedGridView type + serializeGridView + fingerprint, so scope it carefully. Async export
+JOBS is the bigger multi-fire alternative (migration + `data_export_jobs` + enqueue/poll + R2 streaming + UI).
+Then: nested AND/OR filter-tree; SQL-workspace polish; wire the last inert foundations `field-types.ts` (richer
+typed cell editors — date/select/rating) + `schema-ddl.ts` (guided DDL builder → review in the SQL console).

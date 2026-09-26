@@ -1668,6 +1668,60 @@ export function moveColumn(all: readonly string[], order: readonly string[], col
   return next;
 }
 
+/**
+ * Move pinned columns to the FRONT (stable — each partition keeps its relative order), producing the
+ * frozen-left arrangement: `[...pinned-in-order, ...rest-in-order]`. A pinned name not present in `cols`
+ * is simply absent. Pure. This makes the pinned columns a contiguous LEADING prefix, which is what
+ * {@link pinnedLeftOffsets} + `position:sticky;left` require (a pinned column in the middle can't stick
+ * left without overlapping the columns before it).
+ *
+ * @example applyPins(['a','b','c'], ['c']) // ['c','a','b']
+ */
+export function applyPins(cols: readonly string[], pinned: readonly string[] | ReadonlySet<string>): string[] {
+  const set = pinned instanceof Set ? pinned : new Set(pinned);
+  const front: string[] = [];
+  const rest: string[] = [];
+
+  for (const c of cols) {
+    (set.has(c) ? front : rest).push(c);
+  }
+
+  return [...front, ...rest];
+}
+
+/**
+ * Cumulative left px-offsets for the leading PINNED prefix of `cols` (assumes {@link applyPins} order),
+ * for `position:sticky; left:<offset>`. The first pinned column sits at `leadOffset` (the width of the
+ * select-checkbox column, or 0); each subsequent pinned column adds the previous pinned column's width
+ * (`widths[col]` or `defaultWidth` when it has no explicit width — a pinned column always renders at a
+ * definite width so the offsets are exact). Stops at the first UNPINNED column; non-pinned columns are
+ * omitted (they scroll normally). Pure.
+ *
+ * @example pinnedLeftOffsets(['a','b','c'], new Set(['a','b']), { a: 100 }, 32, 160) // { a: 32, b: 132 }
+ */
+export function pinnedLeftOffsets(
+  cols: readonly string[],
+  pinned: readonly string[] | ReadonlySet<string>,
+  widths: Readonly<Record<string, number>>,
+  leadOffset: number,
+  defaultWidth: number,
+): Record<string, number> {
+  const set = pinned instanceof Set ? pinned : new Set(pinned);
+  const out: Record<string, number> = {};
+  let left = leadOffset;
+
+  for (const c of cols) {
+    if (!set.has(c)) {
+      break; // pinned are the leading prefix — the first unpinned ends the frozen region
+    }
+
+    out[c] = left;
+    left += widths[c] ?? defaultWidth;
+  }
+
+  return out;
+}
+
 /** How the browse rows are rendered: dense grid, Airtable-style cards, a grouped board, or a bar chart. */
 export type ViewMode = 'grid' | 'gallery' | 'kanban' | 'chart' | 'calendar';
 
