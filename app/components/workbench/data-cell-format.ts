@@ -198,6 +198,48 @@ function formatIsoForDisplay(raw: string): string | null {
   return null;
 }
 
+/**
+ * The UTC calendar day (`YYYY-MM-DD`) of an UNAMBIGUOUS ISO-8601 value — a bare date (kept as-is,
+ * SQLite stores it UTC-neutral) or a zone-marked datetime (converted to its UTC day). Anything else —
+ * a zone-LESS datetime (ambiguous: we won't guess UTC-vs-local), a number, a non-ISO string, null —
+ * returns `null`. Deliberately STRICT (regex-gated, not `new Date()` coercion) so it can safely drive
+ * calendar date-column AUTO-DETECTION without a numeric id like `20240101` — which `new Date(n)` would
+ * happily parse as a 1970 millisecond timestamp — being mistaken for a date column.
+ *
+ * @param value - a raw SQLite/D1 cell value
+ * @returns the UTC `YYYY-MM-DD` day key, or `null` when the value isn't an unambiguous ISO date
+ * @example isoDayKey('2024-01-01')                 // '2024-01-01'
+ * @example isoDayKey('2024-01-01T23:30:00-05:00')  // '2024-01-02'  (04:30 UTC next day)
+ * @example isoDayKey('2024-01-01T12:00:00')        // null          (zone-less → ambiguous)
+ * @example isoDayKey(20240101)                     // null          (a number is not a date)
+ */
+export function isoDayKey(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  if (ISO_DATE_RE.test(value)) {
+    /*
+     * Shape-matched, but the regex doesn't range-check — reject an impossible date (e.g. 2024-13-45)
+     * so a column full of junk that merely LOOKS date-shaped isn't auto-picked as a calendar date.
+     */
+    const d = new Date(value); // a bare ISO date parses as UTC midnight
+    return Number.isNaN(d.getTime()) ? null : value; // valid → the string IS its own UTC calendar day
+  }
+
+  if (ISO_DATETIME_RE.test(value)) {
+    const d = new Date(value); // has an explicit zone → an unambiguous instant
+
+    if (Number.isNaN(d.getTime())) {
+      return null;
+    }
+
+    return d.toISOString().slice(0, 10); // its UTC calendar day
+  }
+
+  return null;
+}
+
 /*
  * ---------------------------------------------------------------------------
  * Primary export: classifyCell

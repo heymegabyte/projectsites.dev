@@ -546,7 +546,7 @@ export function normalizeSortDir(raw: unknown): 'asc' | 'desc' | null {
  * client already scopes by session; they're server-side bookkeeping).
  */
 /** The render types a saved view can carry — mirrors the editor's `ViewMode`. */
-export const GRID_VIEW_TYPES = ['grid', 'gallery', 'kanban', 'chart'] as const;
+export const GRID_VIEW_TYPES = ['grid', 'gallery', 'kanban', 'chart', 'calendar'] as const;
 export type GridViewType = (typeof GRID_VIEW_TYPES)[number];
 
 /** Coerce a raw view type to a whitelisted {@link GridViewType}; unknown/absent → `grid`. */
@@ -560,12 +560,12 @@ export function normalizeGridViewType(raw: unknown): GridViewType {
 /**
  * Parse a saved view's display config into a bounded, shape-hardened object — accepts EITHER the stored
  * `config_json` string OR an incoming config object (the POST body). NEVER throws (malformed → `{}`).
- * Honored keys: `titleField` (gallery/kanban card-title column) + `groupField` (kanban group-by
- * column), each a string ≤64 chars; unknown keys are dropped. The editor re-validates both against the
- * live columns at render (a stale field falls back to a default) — this is shape-hardening, not
- * authorization.
+ * Honored keys: `titleField` (gallery/kanban card-title column), `groupField` (kanban/chart group-by
+ * column), `dateField` (calendar date column), each a string ≤64 chars; unknown keys are dropped. The
+ * editor re-validates each against the live columns at render (a stale field falls back to a default) —
+ * this is shape-hardening, not authorization.
  */
-export function parseGridViewConfig(raw: unknown): { titleField?: string; groupField?: string } {
+export function parseGridViewConfig(raw: unknown): { titleField?: string; groupField?: string; dateField?: string } {
   let obj: unknown = raw;
   if (typeof raw === 'string') {
     if (!raw) return {};
@@ -577,12 +577,15 @@ export function parseGridViewConfig(raw: unknown): { titleField?: string; groupF
   }
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
   const rec = obj as Record<string, unknown>;
-  const out: { titleField?: string; groupField?: string } = {};
+  const out: { titleField?: string; groupField?: string; dateField?: string } = {};
   if (typeof rec.titleField === 'string' && rec.titleField.trim()) {
     out.titleField = rec.titleField.trim().slice(0, 64);
   }
   if (typeof rec.groupField === 'string' && rec.groupField.trim()) {
     out.groupField = rec.groupField.trim().slice(0, 64);
+  }
+  if (typeof rec.dateField === 'string' && rec.dateField.trim()) {
+    out.dateField = rec.dateField.trim().slice(0, 64);
   }
   return out;
 }
@@ -597,7 +600,7 @@ export function serializeGridView(row: Record<string, unknown>): {
   sortDir: 'asc' | 'desc' | null;
   search: string;
   type: GridViewType;
-  config: { titleField?: string; groupField?: string };
+  config: { titleField?: string; groupField?: string; dateField?: string };
   updatedAt: string | null;
 } {
   return {

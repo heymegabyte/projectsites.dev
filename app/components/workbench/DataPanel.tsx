@@ -103,8 +103,13 @@ import {
   groupPageRows,
   buildChartBars,
   recordTitle,
+  calendarDateField,
+  monthMatrix,
+  addCalendarMonth,
+  monthFromDayKey,
   viewQueryFingerprint,
 } from './data-panel-logic';
+import { bucketRowsByDate } from './view-models';
 import { CellEditor } from './CellEditor';
 import { SqlEditor } from './SqlEditor';
 import { classNames } from '~/utils/classNames';
@@ -418,6 +423,15 @@ export const DataPanel = memo(() => {
   const kanbanGroupsCid = useRef<string | null>(null);
 
   /*
+   * Calendar view: the date column to place records on (null → auto-detect the first ISO-date column
+   * via {@link calendarDateField}) + the visible month `{year, month}` (0-based; null → derive from the
+   * page's latest dated row, else the current month). Records are placed by their UTC day — honest
+   * page-parity like kanban cards (only the current page's rows, not a whole-table month query).
+   */
+  const [calendarDateCol, setCalendarDateCol] = useState<string | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState<{ year: number; month: number } | null>(null);
+
+  /*
    * The current open table, mirrored into a ref so the mount-only message listener (deps []) reads the
    * LATEST value instead of the stale mount-time closure (the []-deps stale-ref gotcha).
    */
@@ -702,6 +716,8 @@ export const DataPanel = memo(() => {
       setKanbanGroupCol(null); // no kanban group chosen yet
       setKanbanGroups([]);
       setKanbanGroupsTruncated(false);
+      setCalendarDateCol(null); // re-auto-detect the date column for the new table
+      setCalendarMonth(null); // re-derive the visible month from the new table's data
 
       if (searchTimer.current) {
         clearTimeout(searchTimer.current);
@@ -1543,6 +1559,7 @@ export const DataPanel = memo(() => {
     type: viewMode,
     titleField: galleryTitleCol,
     groupField: kanbanGroupCol,
+    dateField: calendarDateCol,
   });
   const viewModified = !!appliedView && appliedFingerprint !== null && appliedFingerprint !== liveFingerprint;
 
@@ -1576,6 +1593,45 @@ export const DataPanel = memo(() => {
    *  row-detail + exports still use `columns`).
    */
   const visibleCols = useMemo(() => visibleColumns(columns, hiddenCols), [columns, hiddenCols]);
+
+  /*
+   * Calendar derivations (only meaningful in the calendar view): the effective date column (owner pick,
+   * else auto-detected first ISO-date column), the current page's rows bucketed by UTC day (wiring the
+   * tested `bucketRowsByDate` foundation), and the visible month — owner nav state, else the latest
+   * dated row's month, else the current month. Page-parity: only the current page's rows are placed.
+   */
+  const calendarCol = useMemo(
+    () => calendarDateField(visibleCols, visibleRows, calendarDateCol),
+    [visibleCols, visibleRows, calendarDateCol],
+  );
+  const calendarDayMap = useMemo(() => {
+    const map = new Map<string, Record<string, unknown>[]>();
+
+    if (calendarCol) {
+      for (const b of bucketRowsByDate(visibleRows, calendarCol, 'day')) {
+        map.set(b.bucket, b.rows as Record<string, unknown>[]);
+      }
+    }
+
+    return map;
+  }, [visibleRows, calendarCol]);
+  const calendarView = useMemo(() => {
+    if (calendarMonth) {
+      return calendarMonth;
+    }
+
+    // Seed from the latest dated row on the page (bucket keys sort ascending → last is newest).
+    const keys = [...calendarDayMap.keys()];
+    const fromData = keys.length ? monthFromDayKey(keys[keys.length - 1]) : null;
+
+    if (fromData) {
+      return fromData;
+    }
+
+    const now = new Date();
+
+    return { year: now.getUTCFullYear(), month: now.getUTCMonth() };
+  }, [calendarMonth, calendarDayMap]);
 
   /**
    * Server-side pagination display (range label) + prev/next availability. Uses the worker's
@@ -1850,6 +1906,7 @@ export const DataPanel = memo(() => {
       viewConfig: {
         ...(galleryTitleCol ? { titleField: galleryTitleCol } : {}),
         ...((viewMode === 'kanban' || viewMode === 'chart') && kanbanGroupCol ? { groupField: kanbanGroupCol } : {}),
+        ...(viewMode === 'calendar' && calendarDateCol ? { dateField: calendarDateCol } : {}),
       },
       correlationId: cid,
     });
@@ -1863,6 +1920,7 @@ export const DataPanel = memo(() => {
     viewMode,
     galleryTitleCol,
     kanbanGroupCol,
+    calendarDateCol,
   ]);
 
   /** Delete a saved view (optimistic removal; the list reloads on error). */
@@ -1895,7 +1953,7 @@ export const DataPanel = memo(() => {
         sortDir: string | null;
         search: string;
         viewType: string;
-        viewConfig: { titleField?: string };
+        viewConfig: { titleField?: string; groupField?: string; dateField?: string };
       },
     ): void => {
       if (!active) {
@@ -1937,10 +1995,21 @@ export const DataPanel = memo(() => {
         viewConfig: {
           ...(galleryTitleCol ? { titleField: galleryTitleCol } : {}),
           ...((viewMode === 'kanban' || viewMode === 'chart') && kanbanGroupCol ? { groupField: kanbanGroupCol } : {}),
+          ...(viewMode === 'calendar' && calendarDateCol ? { dateField: calendarDateCol } : {}),
         },
       });
     },
-    [search, filterConditions, filterCombinator, browseSort, viewMode, galleryTitleCol, kanbanGroupCol, sendViewUpdate],
+    [
+      search,
+      filterConditions,
+      filterCombinator,
+      browseSort,
+      viewMode,
+      galleryTitleCol,
+      kanbanGroupCol,
+      calendarDateCol,
+      sendViewUpdate,
+    ],
   );
 
   /** Rename a saved view — new name, but PRESERVE its stored query (rename must not rewrite the query). */
@@ -1986,12 +2055,15 @@ export const DataPanel = memo(() => {
       setBrowseSort(sort);
 
       /*
-       * Restore the saved render type (grid | gallery | kanban | chart) + gallery/kanban config
-       * (config may be absent on legacy views). normalizeViewMode guards a stale/unknown stored value.
+       * Restore the saved render type (grid | gallery | kanban | chart | calendar) + gallery/kanban/
+       * calendar config (config may be absent on legacy views). normalizeViewMode guards a stale value.
+       * A saved calendar view also resets the visible month (null → re-derive from the restored data).
        */
       setViewMode(normalizeViewMode(view.type));
       setGalleryTitleCol(view.config?.titleField ?? null);
       setKanbanGroupCol(view.config?.groupField ?? null);
+      setCalendarDateCol(view.config?.dateField ?? null);
+      setCalendarMonth(null);
 
       // Remember which view is applied + its query fingerprint so a later drift shows a "modified" badge.
       setAppliedViewId(view.id);
@@ -2005,6 +2077,7 @@ export const DataPanel = memo(() => {
           type: view.type,
           titleField: view.config?.titleField ?? null,
           groupField: view.config?.groupField ?? null,
+          dateField: view.config?.dateField ?? null,
         }),
       );
       setViewsMenuOpen(false);
@@ -2938,6 +3011,21 @@ export const DataPanel = memo(() => {
                     >
                       <div className="i-ph:chart-bar" />
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('calendar')}
+                      aria-pressed={viewMode === 'calendar'}
+                      data-testid="data-view-calendar"
+                      title="Calendar view — place the current page's records on a month grid by a date column"
+                      className={classNames(
+                        'rounded p-1 text-xs transition-colors',
+                        viewMode === 'calendar'
+                          ? 'bg-[#00e5ff]/15 text-[#00e5ff]'
+                          : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
+                      )}
+                    >
+                      <div className="i-ph:calendar-blank" />
+                    </button>
                   </div>
                 )}
                 {(viewMode === 'kanban' || viewMode === 'chart') && active && rows.length > 0 && columns.length > 0 && (
@@ -2980,6 +3068,67 @@ export const DataPanel = memo(() => {
                       ))}
                     </select>
                   </label>
+                )}
+                {viewMode === 'calendar' && active && rows.length > 0 && columns.length > 0 && (
+                  <div className="flex items-center gap-2" data-testid="data-calendar-controls">
+                    <label className="flex items-center gap-1 text-[10px] text-bolt-elements-textTertiary">
+                      Date
+                      <select
+                        value={calendarCol ?? ''}
+                        onChange={(e) => {
+                          setCalendarDateCol(e.target.value || null);
+                          setCalendarMonth(null); // re-seed the visible month from the new column's data
+                        }}
+                        aria-label="Calendar date field"
+                        data-testid="data-calendar-date-field"
+                        className="rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none"
+                      >
+                        <option value="">Choose column…</option>
+                        {columns.map((c) => (
+                          <option key={c} value={c}>
+                            {columnLabel(c)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setCalendarMonth(addCalendarMonth(calendarView.year, calendarView.month, -1))}
+                        data-testid="data-calendar-prev"
+                        aria-label="Previous month"
+                        title="Previous month"
+                        className="i-ph:caret-left cursor-pointer rounded p-0.5 text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary"
+                      />
+                      <span
+                        className="min-w-[7.5rem] text-center text-[11px] font-medium text-bolt-elements-textPrimary"
+                        data-testid="data-calendar-month-label"
+                      >
+                        {new Date(Date.UTC(calendarView.year, calendarView.month, 1)).toLocaleDateString(undefined, {
+                          month: 'long',
+                          year: 'numeric',
+                          timeZone: 'UTC',
+                        })}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCalendarMonth(addCalendarMonth(calendarView.year, calendarView.month, 1))}
+                        data-testid="data-calendar-next"
+                        aria-label="Next month"
+                        title="Next month"
+                        className="i-ph:caret-right cursor-pointer rounded p-0.5 text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setCalendarMonth(null)}
+                        data-testid="data-calendar-today"
+                        title="Jump to the latest dated records (or the current month)"
+                        className="rounded border border-bolt-elements-borderColor px-1.5 py-0.5 text-[10px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
                 )}
                 {/* Applied-view drift badge — when a saved view is applied and the live query has drifted,
                     surface "modified" + one-click Update (discoverable) / Reset (re-apply the saved view). */}
@@ -4150,12 +4299,97 @@ export const DataPanel = memo(() => {
               )}
             </div>
           )}
+
+          {/* Calendar view — the current page's records placed on a Sunday-first month grid by a date
+              column (auto-detected or chosen). HONEST page-parity like the kanban cards: only this page's
+              rows are placed, by their UTC day (never a whole-table month query); undated rows aren't
+              shown. Each event opens the SAME record drawer. Wires the tested bucketRowsByDate foundation. */}
+          {!browseLoading && !browseError && visibleRows.length > 0 && viewMode === 'calendar' && (
+            <div className="flex-1 overflow-auto modern-scrollbar p-3" data-testid="data-calendar">
+              {!calendarCol ? (
+                <div className="p-4 text-center text-[11px] text-bolt-elements-textTertiary">
+                  No date column detected on this page. Pick a date column (top right) to build the calendar.
+                </div>
+              ) : (
+                (() => {
+                  const cells = monthMatrix(calendarView.year, calendarView.month);
+                  const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                  const placed = [...calendarDayMap.values()].reduce((n, rs) => n + rs.length, 0);
+                  const galTitle = galleryTitleField(visibleCols, galleryTitleCol);
+
+                  return (
+                    <>
+                      <div
+                        className="mb-2 text-[10px] text-bolt-elements-textTertiary"
+                        data-testid="data-calendar-caption"
+                      >
+                        {placed.toLocaleString()} of {visibleRows.length.toLocaleString()} rows on this page placed by{' '}
+                        <span className="text-bolt-elements-textSecondary">{columnLabel(calendarCol)}</span> (UTC day) —
+                        the current page only, not a whole-table month query; undated rows aren’t shown.
+                      </div>
+                      <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-borderColor/40">
+                        {weekdays.map((w) => (
+                          <div
+                            key={w}
+                            className="bg-bolt-elements-background-depth-2 px-2 py-1 text-center text-[10px] font-semibold text-bolt-elements-textTertiary"
+                          >
+                            {w}
+                          </div>
+                        ))}
+                        {cells.map((cell) => {
+                          const dayRows = calendarDayMap.get(cell.dayKey) ?? [];
+
+                          return (
+                            <div
+                              key={cell.dayKey}
+                              data-testid="data-calendar-day"
+                              className={classNames(
+                                'min-h-[76px] bg-bolt-elements-background-depth-1 p-1 align-top',
+                                cell.inMonth ? '' : 'opacity-40',
+                              )}
+                            >
+                              <div className="mb-0.5 text-right text-[10px] text-bolt-elements-textTertiary">
+                                {cell.dayOfMonth}
+                              </div>
+                              <div className="flex flex-col gap-0.5">
+                                {dayRows.slice(0, 3).map((r, i) => {
+                                  const titleCell = galTitle ? classifyCell(r[galTitle]) : null;
+
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={rowPkKey(r, browsePkCols) ?? `${cell.dayKey}-${i}`}
+                                      onClick={() => setDrawerRow(r)}
+                                      data-testid="data-calendar-event"
+                                      title="Open record"
+                                      className="truncate rounded bg-[#00e5ff]/10 px-1 py-0.5 text-left text-[10px] text-bolt-elements-textPrimary hover:bg-[#00e5ff]/20"
+                                    >
+                                      {titleCell?.display || '(untitled)'}
+                                    </button>
+                                  );
+                                })}
+                                {dayRows.length > 3 && (
+                                  <span className="px-1 text-[9px] text-bolt-elements-textTertiary">
+                                    +{dayRows.length - 3} more
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Record drawer — a right-side panel showing ALL fields of a row, opened by clicking a gallery or
-          kanban card (one detail surface for the card views). Read-only + Copy-JSON; JSON values render
-          as an expandable tree. Backdrop / ✕ / Escape close it. */}
+      {/* Record drawer — a right-side panel showing ALL fields of a row, opened by clicking a gallery,
+          kanban, or calendar record (one detail surface for every non-grid view). View · edit · copy ·
+          delete. JSON values render as an expandable tree. Backdrop / ✕ / Escape close it. */}
       {drawerRow && (
         <div
           className="fixed inset-0 z-[60] flex justify-end"

@@ -824,10 +824,13 @@ export interface SavedGridView {
   search: string;
 
   /** Render type — the grid restores this view mode on apply. */
-  type: 'grid' | 'gallery' | 'kanban';
+  type: 'grid' | 'gallery' | 'kanban' | 'chart' | 'calendar';
 
-  /** View-type display config (gallery/kanban card-title column; kanban group-by column). */
-  config: { titleField?: string; groupField?: string };
+  /**
+   * View-type display config: gallery/kanban card-title column (`titleField`); kanban/chart group-by
+   * column (`groupField`); calendar date column (`dateField`). All optional; worker shape-hardens.
+   */
+  config: { titleField?: string; groupField?: string; dateField?: string };
   updatedAt: string | null;
 }
 
@@ -858,11 +861,11 @@ export interface ViewRequestMessage {
   /** save: the OR-of-LIKE search needle. */
   search?: string;
 
-  /** save: the render type — `grid` | `gallery` (worker whitelists, default grid). */
+  /** save: the render type — `grid` | `gallery` | `kanban` | `chart` | `calendar` (worker whitelists, default grid). */
   viewType?: string;
 
-  /** save: view-type display config (gallery: `{ titleField }`; worker shape-hardens). */
-  viewConfig?: { titleField?: string };
+  /** save: view-type display config (gallery/kanban `titleField`; kanban/chart `groupField`; calendar `dateField`; worker shape-hardens). */
+  viewConfig?: { titleField?: string; groupField?: string; dateField?: string };
 
   /** delete: the view id. */
   viewId?: string;

@@ -4,6 +4,7 @@
  * (`DataPanel.tsx`) is a thin view over these helpers + the PS_ admin bridge.
  */
 import type { DataOverviewTable } from '~/lib/embed/embedded-mode';
+import { isoDayKey } from './data-cell-format';
 
 /** Phosphor icon per known table key; a sensible default for anything new. */
 const TABLE_ICONS: Record<string, string> = {
@@ -1480,11 +1481,11 @@ export function visibleColumns(all: readonly string[], hidden: readonly string[]
 }
 
 /** How the browse rows are rendered: dense grid, Airtable-style cards, a grouped board, or a bar chart. */
-export type ViewMode = 'grid' | 'gallery' | 'kanban' | 'chart';
+export type ViewMode = 'grid' | 'gallery' | 'kanban' | 'chart' | 'calendar';
 
 /** Coerce a raw value to a known {@link ViewMode}, defaulting to `grid`. Pure. */
 export function normalizeViewMode(raw: string | null | undefined): ViewMode {
-  return raw === 'gallery' || raw === 'kanban' || raw === 'chart' ? raw : 'grid';
+  return raw === 'gallery' || raw === 'kanban' || raw === 'chart' || raw === 'calendar' ? raw : 'grid';
 }
 
 /**
@@ -1539,6 +1540,108 @@ export function groupPageRows(
   }
 
   return m;
+}
+
+/**
+ * The date column driving the calendar view: the configured field when it's a real column (the owner's
+ * explicit pick wins, even if some values aren't dates → those rows just don't place), else AUTO-DETECT
+ * the first column whose page has ≥1 UNAMBIGUOUS ISO date/datetime value (via {@link isoDayKey}, so a
+ * numeric id column is never mistaken for a date). Returns null when nothing qualifies. Pure.
+ *
+ * @example calendarDateField(['id','created_at'], [{id:1,created_at:'2024-01-01'}]) // 'created_at'
+ * @example calendarDateField(['id','name'], [{id:1,name:'x'}])                      // null (no date col)
+ * @example calendarDateField(['id','created_at'], rows, 'name')                     // 'name' (configured wins)
+ */
+export function calendarDateField(
+  columns: readonly string[],
+  rows: readonly Record<string, unknown>[],
+  configured?: string | null,
+): string | null {
+  if (configured && columns.includes(configured)) {
+    return configured;
+  }
+
+  for (const c of columns) {
+    if (rows.some((r) => isoDayKey(r[c]) !== null)) {
+      return c;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Parse a `YYYY-MM-DD` (or `YYYY-MM`) day/month key into a 0-based `{ year, month }`, or null when it
+ * doesn't match. Used to seed the visible month from the data (e.g. the latest bucket's day). Pure.
+ *
+ * @example monthFromDayKey('2024-03-15') // { year: 2024, month: 2 }
+ * @example monthFromDayKey('2024-03')    // { year: 2024, month: 2 }
+ * @example monthFromDayKey('nope')       // null
+ */
+export function monthFromDayKey(key: string | null | undefined): { year: number; month: number } | null {
+  if (typeof key !== 'string') {
+    return null;
+  }
+
+  const m = /^(\d{4})-(\d{2})/.exec(key);
+
+  if (!m) {
+    return null;
+  }
+
+  const year = Number(m[1]);
+  const month = Number(m[2]) - 1; // 0-based
+
+  return month >= 0 && month <= 11 ? { year, month } : null;
+}
+
+/**
+ * Shift a 0-based `{ year, month }` by `delta` months, normalizing year/month rollover in UTC. Pure.
+ *
+ * @example addCalendarMonth(2024, 0, -1)  // { year: 2023, month: 11 }
+ * @example addCalendarMonth(2024, 11, 1)  // { year: 2025, month: 0 }
+ */
+export function addCalendarMonth(year: number, month: number, delta: number): { year: number; month: number } {
+  const d = new Date(Date.UTC(year, month + delta, 1));
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() };
+}
+
+/** One day cell of a calendar month grid. */
+export interface CalendarCell {
+  /** UTC `YYYY-MM-DD` key (matches {@link isoDayKey} + `bucketRowsByDate(..,'day')`). */
+  dayKey: string;
+
+  /** Day-of-month number (1–31). */
+  dayOfMonth: number;
+
+  /** True when this cell belongs to the requested month (false = leading/trailing spill day). */
+  inMonth: boolean;
+}
+
+/**
+ * Build the 42-cell (6 weeks × 7 days, Sunday-first) UTC grid for a 0-based `{year, month}`. The grid
+ * starts on the Sunday on/before the 1st and always has 42 cells so the layout never reflows between
+ * months. All arithmetic is UTC (matches the honest UTC day-keys from {@link isoDayKey} /
+ * `bucketRowsByDate`), so a cell never shifts a day by the viewer's timezone. Pure + deterministic.
+ *
+ * @example monthMatrix(2024, 0)[0].dayKey  // '2023-12-31' (Sunday before Mon Jan 1 2024)
+ * @example monthMatrix(2024, 0)[1]         // { dayKey:'2024-01-01', dayOfMonth:1, inMonth:true }
+ */
+export function monthMatrix(year: number, month: number): CalendarCell[] {
+  const first = new Date(Date.UTC(year, month, 1));
+  const startOffset = first.getUTCDay(); // 0=Sun … 6=Sat
+  const cells: CalendarCell[] = [];
+
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(Date.UTC(year, month, 1 - startOffset + i));
+    cells.push({
+      dayKey: d.toISOString().slice(0, 10),
+      dayOfMonth: d.getUTCDate(),
+      inMonth: d.getUTCMonth() === ((month % 12) + 12) % 12,
+    });
+  }
+
+  return cells;
 }
 
 /**
@@ -1607,6 +1710,7 @@ export function viewQueryFingerprint(q: {
   type: string;
   titleField: string | null;
   groupField: string | null;
+  dateField?: string | null;
 }): string {
   const conds = q.conditions
     .filter((c) => filterIsActive(c.col, c.op, c.val))
@@ -1626,9 +1730,13 @@ export function viewQueryFingerprint(q: {
     sortDir: q.sortCol ? (q.sortDir === 'asc' ? 'asc' : 'desc') : null,
     type,
 
-    // titleField only matters for gallery/kanban; groupField only for kanban/chart
+    /*
+     * titleField only matters for gallery/kanban/calendar; groupField only for kanban/chart;
+     * dateField only for calendar — each nulled elsewhere so an irrelevant field never marks "modified".
+     */
     titleField: type === 'grid' ? null : q.titleField || null,
     groupField: type === 'kanban' || type === 'chart' ? q.groupField || null : null,
+    dateField: type === 'calendar' ? q.dateField || null : null,
   });
 }
 

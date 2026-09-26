@@ -48,6 +48,10 @@ import {
   galleryTitleField,
   galleryBodyFields,
   recordTitle,
+  calendarDateField,
+  monthFromDayKey,
+  addCalendarMonth,
+  monthMatrix,
   viewQueryFingerprint,
   clampPageSize,
   PAGE_SIZE_OPTIONS,
@@ -958,16 +962,98 @@ describe('normalizeCombinator (raw → AND/OR, default AND)', () => {
   });
 });
 
-describe('normalizeViewMode (grid | gallery | kanban | chart, default grid)', () => {
-  it('passes gallery + kanban + chart, defaults everything else to grid', () => {
+describe('normalizeViewMode (grid | gallery | kanban | chart | calendar, default grid)', () => {
+  it('passes gallery + kanban + chart + calendar, defaults everything else to grid', () => {
     expect(normalizeViewMode('gallery')).toBe('gallery');
     expect(normalizeViewMode('kanban')).toBe('kanban');
     expect(normalizeViewMode('chart')).toBe('chart');
+    expect(normalizeViewMode('calendar')).toBe('calendar');
     expect(normalizeViewMode('grid')).toBe('grid');
-    expect(normalizeViewMode('calendar')).toBe('grid');
+    expect(normalizeViewMode('timeline')).toBe('grid');
     expect(normalizeViewMode('')).toBe('grid');
     expect(normalizeViewMode(undefined)).toBe('grid');
     expect(normalizeViewMode(null)).toBe('grid');
+  });
+});
+
+describe('calendarDateField (date column driving the calendar view)', () => {
+  it('auto-detects the first column with an unambiguous ISO date value on the page', () => {
+    const rows = [{ id: 1, created_at: '2024-01-01', name: 'x' }];
+    expect(calendarDateField(['id', 'created_at', 'name'], rows)).toBe('created_at');
+  });
+
+  it('does NOT pick a numeric id column that merely looks date-ish', () => {
+    const rows = [{ id: 20240101, label: 'x' }];
+    expect(calendarDateField(['id', 'label'], rows)).toBeNull();
+  });
+
+  it('respects a configured field when it is a real column (owner pick wins)', () => {
+    const rows = [{ id: 1, created_at: '2024-01-01', name: 'x' }];
+    expect(calendarDateField(['id', 'created_at', 'name'], rows, 'name')).toBe('name');
+  });
+
+  it('falls back to auto-detect when the configured field is not a column', () => {
+    const rows = [{ id: 1, created_at: '2024-01-01' }];
+    expect(calendarDateField(['id', 'created_at'], rows, 'nope')).toBe('created_at');
+  });
+
+  it('returns null when no column qualifies and none is configured', () => {
+    expect(calendarDateField(['id', 'name'], [{ id: 1, name: 'x' }])).toBeNull();
+    expect(calendarDateField([], [])).toBeNull();
+  });
+});
+
+describe('monthFromDayKey (seed the visible month from a data day-key)', () => {
+  it('parses a YYYY-MM-DD day key into 0-based { year, month }', () => {
+    expect(monthFromDayKey('2024-03-15')).toEqual({ year: 2024, month: 2 });
+  });
+  it('parses a YYYY-MM month key', () => {
+    expect(monthFromDayKey('2024-12')).toEqual({ year: 2024, month: 11 });
+  });
+  it('returns null for a non-key / out-of-range month / non-string', () => {
+    expect(monthFromDayKey('nope')).toBeNull();
+    expect(monthFromDayKey('2024-13-01')).toBeNull();
+    expect(monthFromDayKey(null)).toBeNull();
+    expect(monthFromDayKey(undefined)).toBeNull();
+  });
+});
+
+describe('addCalendarMonth (prev/next month nav with year rollover, UTC)', () => {
+  it('steps back across a year boundary', () => {
+    expect(addCalendarMonth(2024, 0, -1)).toEqual({ year: 2023, month: 11 });
+  });
+  it('steps forward across a year boundary', () => {
+    expect(addCalendarMonth(2024, 11, 1)).toEqual({ year: 2025, month: 0 });
+  });
+  it('handles multi-month jumps', () => {
+    expect(addCalendarMonth(2024, 5, 12)).toEqual({ year: 2025, month: 5 });
+    expect(addCalendarMonth(2024, 5, -6)).toEqual({ year: 2023, month: 11 });
+  });
+});
+
+describe('monthMatrix (42-cell Sunday-first UTC month grid)', () => {
+  it('always returns exactly 42 cells (6 weeks × 7 days)', () => {
+    expect(monthMatrix(2024, 0)).toHaveLength(42);
+    expect(monthMatrix(2026, 1)).toHaveLength(42);
+  });
+
+  it('starts on the Sunday on/before the 1st and marks spill days', () => {
+    const cells = monthMatrix(2024, 0); // Jan 2024 — the 1st is a Monday
+    expect(cells[0]).toEqual({ dayKey: '2023-12-31', dayOfMonth: 31, inMonth: false });
+    expect(cells[1]).toEqual({ dayKey: '2024-01-01', dayOfMonth: 1, inMonth: true });
+  });
+
+  it('contains every day of the requested month exactly once, all inMonth', () => {
+    const cells = monthMatrix(2024, 1); // Feb 2024 — leap year, 29 days
+    const inMonth = cells.filter((c) => c.inMonth);
+    expect(inMonth).toHaveLength(29);
+    expect(inMonth[0].dayKey).toBe('2024-02-01');
+    expect(inMonth[28].dayKey).toBe('2024-02-29');
+  });
+
+  it('day-keys are contiguous and match isoDayKey/bucketRowsByDate day format', () => {
+    const cells = monthMatrix(2024, 0);
+    expect(cells.every((c) => /^\d{4}-\d{2}-\d{2}$/.test(c.dayKey))).toBe(true);
   });
 });
 
@@ -1136,6 +1222,16 @@ describe('viewQueryFingerprint (detect a saved view drifting from the live query
     // group only matters in kanban/chart
     expect(viewQueryFingerprint({ ...base, type: 'kanban', groupField: 'status' })).not.toBe(
       viewQueryFingerprint({ ...base, type: 'kanban' }),
+    );
+  });
+
+  it('dateField only matters in the calendar view', () => {
+    const ref = viewQueryFingerprint(base);
+    // grid → dateField ignored (no false "modified")
+    expect(viewQueryFingerprint({ ...base, dateField: 'created_at' })).toBe(ref);
+    // calendar → changing the date column IS a drift
+    expect(viewQueryFingerprint({ ...base, type: 'calendar', dateField: 'created_at' })).not.toBe(
+      viewQueryFingerprint({ ...base, type: 'calendar' }),
     );
   });
 });

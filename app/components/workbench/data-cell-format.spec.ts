@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { classifyCell, columnTypeBadge, type CellKind, type ClassifiedCell } from './data-cell-format.js';
+import { classifyCell, columnTypeBadge, isoDayKey, type CellKind, type ClassifiedCell } from './data-cell-format.js';
 
 /*
  * ---------------------------------------------------------------------------
@@ -535,5 +535,44 @@ describe('classifyCell — ISO date/datetime presentation (honest reformatting)'
     expect(classifyCell('https://a.com').kind).toBe('url');
     expect(classifyCell('2024-01-01').title).toBe('2024-01-01');
     expect(classifyCell('hello').title).toBeUndefined();
+  });
+});
+
+describe('isoDayKey — strict UTC day-key for calendar date-column detection', () => {
+  it('returns a bare ISO date unchanged (UTC-neutral calendar day)', () => {
+    expect(isoDayKey('2024-01-01')).toBe('2024-01-01');
+    expect(isoDayKey('2026-12-31')).toBe('2026-12-31');
+  });
+
+  it('converts a Z-marked datetime to its UTC day', () => {
+    expect(isoDayKey('2024-01-01T23:30:00Z')).toBe('2024-01-01');
+    expect(isoDayKey('2024-01-01T00:00:00.500Z')).toBe('2024-01-01');
+  });
+
+  it('converts an ±offset datetime to the correct UTC day (can cross midnight)', () => {
+    // 23:30 at -05:00 = 04:30Z the NEXT day
+    expect(isoDayKey('2024-01-01T23:30:00-05:00')).toBe('2024-01-02');
+    // 00:30 at +05:00 = 19:30Z the PREVIOUS day
+    expect(isoDayKey('2024-01-02T00:30:00+05:00')).toBe('2024-01-01');
+  });
+
+  it('returns null for a zone-LESS datetime (ambiguous — never guessed)', () => {
+    expect(isoDayKey('2024-01-01T12:00:00')).toBeNull();
+    expect(isoDayKey('2024-01-01 12:00:00')).toBeNull();
+  });
+
+  it('returns null for a number — a numeric id like 20240101 is NOT a date', () => {
+    expect(isoDayKey(20240101)).toBeNull();
+    expect(isoDayKey(0)).toBeNull();
+    expect(isoDayKey(1_717_000_000_000)).toBeNull();
+  });
+
+  it('returns null for non-ISO strings, null, undefined, objects', () => {
+    expect(isoDayKey('hello')).toBeNull();
+    expect(isoDayKey('2024')).toBeNull();
+    expect(isoDayKey('2024-13-45')).toBeNull(); // date-shaped but an impossible date → rejected
+    expect(isoDayKey(null)).toBeNull();
+    expect(isoDayKey(undefined)).toBeNull();
+    expect(isoDayKey({ d: '2024-01-01' })).toBeNull();
   });
 });

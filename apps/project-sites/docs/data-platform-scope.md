@@ -705,11 +705,34 @@ opens `drawerRow`; the 213-line inline `<tr data-testid="data-row-detail">` bloc
   interactive open→drawer path runs in a WebContainer behind an authed admin session (verify-by-build per the established
   DataPanel pattern); the click-through wasn't exercised in a live browser.
 
-**NEXT slice: CALENDAR view (completes the Airtable rich-view set — delivery order 6).** Grid · gallery · kanban · chart
-ship; calendar is the last enumerated view. Add `viewMode='calendar'` + a date-column picker (auto-pick the first
-date/datetime-affinity column), a month grid that buckets the CURRENT PAGE's rows by day (honest page-parity label, same as
-kanban cards — "N of <count>"), click a day-cell record → the SAME `drawerRow`. Reuse `classifyCell`'s date detection +
-`groupPageRows`-style bucketing; persist `type:'calendar'` + `config.dateField` through the saved-views schema (already
-supports `titleField`/`groupField` — add `dateField`). Smaller alternatives: **drawer prev/next** record navigation (←/→
-step through the page's rows without closing — now trivial since the drawer is universal); chart **sum/avg** aggregates
-(needs numeric-column detect); async export JOBS >10k; nested filter-tree; grid eval (RevoGrid vs Tabulator).
+### ✅ Shipped next fire (2026-09-26 #27) — CALENDAR view (Airtable rich-view set COMPLETE: grid · gallery · kanban · chart · calendar)
+The current page's records place on a Sunday-first month grid by a date column; each event opens the SAME record drawer.
+The last enumerated Airtable view now ships. Wires the INERT tested `view-models.ts` foundation (`bucketRowsByDate`).
+- **New pure logic (TDD-first, all tested):** `data-cell-format.ts` `isoDayKey(v)` — STRICT UTC `YYYY-MM-DD` for a bare
+  ISO date or a zone-marked datetime, else null (regex-gated, so a numeric id like `20240101` — which `new Date(n)` parses
+  as a 1970 ms timestamp — is NEVER mistaken for a date, the classic auto-detect trap). `data-panel-logic.ts`
+  `calendarDateField` (owner pick, else auto-detect first `isoDayKey`-able column), `monthMatrix(y,m)` (42-cell UTC grid),
+  `addCalendarMonth` (prev/next w/ rollover), `monthFromDayKey` (seed month from data). `ViewMode`/`normalizeViewMode` +
+  `viewQueryFingerprint` extended with `calendar`/`dateField`.
+- **Wired the foundation:** day-bucketing uses `view-models.ts` `bucketRowsByDate(rows, col, 'day')` (UTC, tested) — the
+  first INERT foundation brought into the live UI per the directive.
+- **`DataPanel.tsx`** — Calendar toggle + a date-field picker + month ‹/›/Reset nav; a 7×6 month grid whose day cells list
+  up to 3 events (click → `setDrawerRow(r)`), "+N more" beyond. HONEST caption: "N of M rows on this page placed by
+  <field> (UTC day) — the current page only, not a whole-table month query; undated rows aren't shown" (page-parity, same
+  discipline as kanban cards). No group-counts fetch (calendar is page-local).
+- **Saved views + worker** — `type:'calendar'` + `config.dateField` persist through the whole path: worker
+  `GRID_VIEW_TYPES`/`parseGridViewConfig`/`serializeGridView` + editor `SavedGridView`/`viewConfig`/save/apply/fingerprint.
+  Also fixed two LATENT type gaps found en route: `SavedGridView.type` was missing `'chart'`, and `viewConfig`/the save
+  payload type was missing `groupField` (both worked at runtime; the TS types under-declared them). **No migration** —
+  `editor_grid_views.type` is `TEXT` with no CHECK; the worker whitelist governs.
+- Verified: editor Vitest **870/870** + tsc 0 + eslint 0 + build 0; worker Jest **12770/12770** + tsc 0. Editor → CF Pages
+  on push. *Honest residual:* the interactive calendar (open→place→drawer) runs in a WebContainer behind an authed admin
+  session — verify-by-build per the established DataPanel pattern; not click-through-tested in a live browser. Day cells cap
+  at 3 visible events (+N more is a count, not yet an expander) — page-parity keeps most days ≤3 at the default page size.
+
+**NEXT slice: DRAWER prev/next record navigation (‹ ›).** Now that the drawer is the universal detail surface for every
+view AND calendar ships, add ←/→ (+ on-screen ‹ › buttons) to step through the CURRENT PAGE's `visibleRows` without closing
+the drawer — track the open row's index, guard both ends, preserve edit-cancel on move. Small, high-value, leverages the
+consolidation. Then: chart **sum/avg** aggregates (needs numeric-column detect); calendar day-cell "+N more" → a day popover;
+async export JOBS >10k; nested filter-tree; grid eval (RevoGrid vs Tabulator). Foundations still inert: `field-types.ts`,
+`schema-ddl.ts` (wire as the typed-editor + schema-builder phases ship).

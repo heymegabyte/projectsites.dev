@@ -544,15 +544,17 @@ describe('serializeGridView (stored row → client view; hardens filters, hides 
   });
 });
 
-describe('normalizeGridViewType (grid | gallery | kanban, default grid)', () => {
-  it('whitelists grid/gallery/kanban (case-insensitive), defaults everything else to grid', () => {
+describe('normalizeGridViewType (grid | gallery | kanban | chart | calendar, default grid)', () => {
+  it('whitelists grid/gallery/kanban/chart/calendar (case-insensitive), defaults everything else to grid', () => {
     expect(normalizeGridViewType('gallery')).toBe('gallery');
     expect(normalizeGridViewType('GRID')).toBe('grid');
     expect(normalizeGridViewType(' Gallery ')).toBe('gallery');
     expect(normalizeGridViewType('kanban')).toBe('kanban');
     expect(normalizeGridViewType('chart')).toBe('chart');
     expect(normalizeGridViewType(' KANBAN ')).toBe('kanban');
-    expect(normalizeGridViewType('calendar')).toBe('grid'); // not yet supported → default
+    expect(normalizeGridViewType('calendar')).toBe('calendar');
+    expect(normalizeGridViewType(' Calendar ')).toBe('calendar');
+    expect(normalizeGridViewType('timeline')).toBe('grid'); // unknown → default
     expect(normalizeGridViewType('')).toBe('grid');
     expect(normalizeGridViewType(undefined)).toBe('grid');
     expect(normalizeGridViewType(null)).toBe('grid');
@@ -580,6 +582,16 @@ describe('parseGridViewConfig (view display config; string OR object; never thro
     expect(parseGridViewConfig({ groupField: '  status  ' })).toEqual({ groupField: 'status' });
     expect(parseGridViewConfig(`{"groupField":"${'g'.repeat(200)}"}`).groupField).toBe('g'.repeat(64));
     expect(parseGridViewConfig({ groupField: 7 })).toEqual({}); // non-string dropped
+  });
+
+  it('honors a bounded calendar dateField alongside title/group', () => {
+    expect(parseGridViewConfig('{"dateField":"created_at"}')).toEqual({ dateField: 'created_at' });
+    expect(parseGridViewConfig({ titleField: 'name', dateField: '  due_on  ' })).toEqual({
+      titleField: 'name',
+      dateField: 'due_on',
+    });
+    expect(parseGridViewConfig(`{"dateField":"${'d'.repeat(200)}"}`).dateField).toBe('d'.repeat(64));
+    expect(parseGridViewConfig({ dateField: 9 })).toEqual({}); // non-string dropped
   });
 
   it('returns {} for malformed / empty / non-object / array (never throws)', () => {
