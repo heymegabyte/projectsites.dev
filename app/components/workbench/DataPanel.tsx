@@ -16,7 +16,7 @@
  * column, pretty-JSON for objects), and an auto-refresh toggle. Pure logic
  * (csv/filter/detail/summary) lives in `data-panel-logic.ts` (unit-tested).
  */
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isEmbedded, postToParent, onParentMessage } from '~/lib/embed/embedded-mode';
 import type { DataOverviewTable, ParentToChildMessage, SavedGridView } from '~/lib/embed/embedded-mode';
 import { KvBrowser } from './KvBrowser';
@@ -31,7 +31,6 @@ import {
   newCorrelationId,
   columnLabel,
   toCsv,
-  detailEntries,
   isRowActivationKey,
   isDismissKey,
   addToSqlHistory,
@@ -262,7 +261,6 @@ export const DataPanel = memo(() => {
   const [browseLoading, setBrowseLoading] = useState(false);
   const [browseError, setBrowseError] = useState('');
   const [search, setSearch] = useState('');
-  const [detailIdx, setDetailIdx] = useState<number | null>(null);
 
   /**
    * Record drawer — a right-side panel showing ALL fields of one row, opened by clicking a gallery or
@@ -685,7 +683,6 @@ export const DataPanel = memo(() => {
       setColumns([]);
       setBrowseError('');
       setSearch('');
-      setDetailIdx(null);
       setBrowseSort(null);
       setHiddenCols(readHiddenCols(key)); // restore this table's column selection
       setColMenuOpen(false);
@@ -757,7 +754,7 @@ export const DataPanel = memo(() => {
       setRows([]);
       setBrowseLoading(true);
       setBrowseError('');
-      setDetailIdx(null);
+      setDrawerRow(null);
       setSelectedKeys(new Set());
 
       // Page-nav: keep sort+search+filter, and SKIP the count (the total is unchanged → reuse cache).
@@ -1257,7 +1254,7 @@ export const DataPanel = memo(() => {
            */
           if (deletePending.current) {
             deletePending.current = false;
-            setDetailIdx(null);
+            setDrawerRow(null);
 
             const tok = ++copyToken.current;
             setCopied('Row deleted');
@@ -1283,7 +1280,7 @@ export const DataPanel = memo(() => {
            */
           if (bulkPending.current) {
             bulkPending.current = false;
-            setDetailIdx(null);
+            setDrawerRow(null);
             setSelectedKeys(new Set());
 
             const affected = typeof msg.rows_affected === 'number' ? msg.rows_affected : 0;
@@ -1318,7 +1315,7 @@ export const DataPanel = memo(() => {
             updatePending.current = false;
             setEditBusy(false);
             setEditCol(null);
-            setDetailIdx(null);
+            setDrawerRow(null);
 
             const tok = ++copyToken.current;
             setCopied('Row updated');
@@ -1624,7 +1621,7 @@ export const DataPanel = memo(() => {
        */
       const next = nextSort(browseSort, col);
       setBrowseSort(next);
-      setDetailIdx(null);
+      setDrawerRow(null);
 
       if (active) {
         setBrowseOffset(0);
@@ -1655,7 +1652,7 @@ export const DataPanel = memo(() => {
       setRows([]);
       setBrowseLoading(true);
       setBrowseError('');
-      setDetailIdx(null);
+      setDrawerRow(null);
       setSelectedKeys(new Set());
       requestRows(
         active,
@@ -1672,7 +1669,7 @@ export const DataPanel = memo(() => {
   const onSearchChange = useCallback(
     (value: string): void => {
       setSearch(value);
-      setDetailIdx(null);
+      setDrawerRow(null);
 
       if (searchTimer.current) {
         clearTimeout(searchTimer.current);
@@ -1700,7 +1697,7 @@ export const DataPanel = memo(() => {
       setRows([]);
       setBrowseLoading(true);
       setBrowseError('');
-      setDetailIdx(null);
+      setDrawerRow(null);
       setSelectedKeys(new Set());
       requestRows(active, 0, browseSort, { search, conditions, combinator }, true); // filter → re-count
     },
@@ -1715,7 +1712,7 @@ export const DataPanel = memo(() => {
   /** Remove the condition at `index` and re-fetch (dropping a condition can change the result set). */
   const removeFilterCondition = useCallback(
     (index: number): void => {
-      setDetailIdx(null);
+      setDrawerRow(null);
 
       if (filterTimer.current) {
         clearTimeout(filterTimer.current);
@@ -1731,7 +1728,7 @@ export const DataPanel = memo(() => {
   /** Condition column select: set (or clear) the row's column and re-apply immediately (a discrete change). */
   const onConditionColChange = useCallback(
     (index: number, col: string): void => {
-      setDetailIdx(null);
+      setDrawerRow(null);
 
       if (filterTimer.current) {
         clearTimeout(filterTimer.current);
@@ -1747,7 +1744,7 @@ export const DataPanel = memo(() => {
   /** Condition operator select: value-free ops apply instantly; value-ops re-run with the current value. */
   const onConditionOpChange = useCallback(
     (index: number, rawOp: string): void => {
-      setDetailIdx(null);
+      setDrawerRow(null);
 
       if (filterTimer.current) {
         clearTimeout(filterTimer.current);
@@ -1767,7 +1764,7 @@ export const DataPanel = memo(() => {
   /** Condition value input: update immediately, debounce the re-fetch. */
   const onConditionValChange = useCallback(
     (index: number, val: string): void => {
-      setDetailIdx(null);
+      setDrawerRow(null);
 
       const next = updateCondition(filterConditions, index, { val });
       setFilterConditions(next);
@@ -1786,7 +1783,7 @@ export const DataPanel = memo(() => {
     (raw: string): void => {
       const combinator = normalizeCombinator(raw);
       setFilterCombinator(combinator);
-      setDetailIdx(null);
+      setDrawerRow(null);
 
       if (filterTimer.current) {
         clearTimeout(filterTimer.current);
@@ -1801,7 +1798,7 @@ export const DataPanel = memo(() => {
   const clearFilter = useCallback((): void => {
     setFilterConditions([]);
     setFilterCombinator('AND');
-    setDetailIdx(null);
+    setDrawerRow(null);
 
     if (filterTimer.current) {
       clearTimeout(filterTimer.current);
@@ -2015,7 +2012,7 @@ export const DataPanel = memo(() => {
       setRows([]);
       setBrowseLoading(true);
       setBrowseError('');
-      setDetailIdx(null);
+      setDrawerRow(null);
       setSelectedKeys(new Set());
       requestRows(active, 0, sort, { search: view.search, conditions, combinator: view.combinator }, true);
     },
@@ -2082,7 +2079,7 @@ export const DataPanel = memo(() => {
     }
 
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
+      if (isDismissKey(e.key)) {
         setDrawerRow(null);
         setEditCol(null);
       }
@@ -2110,7 +2107,7 @@ export const DataPanel = memo(() => {
       setRows([]);
       setBrowseLoading(true);
       setBrowseError('');
-      setDetailIdx(null);
+      setDrawerRow(null);
       setSelectedKeys(new Set());
 
       // Page-size change: same query, SKIP the count (page size doesn't change the total).
@@ -2377,7 +2374,7 @@ export const DataPanel = memo(() => {
       setAddKinds(kinds);
       setAddValues(values);
       setAddingRow(true);
-      setDetailIdx(null); // collapse the source row-detail; the prefilled form is at the top
+      setDrawerRow(null); // close the record drawer; the prefilled Add-row form is at the top
     },
     [columns, browsePkCols, browseGeneratedCols],
   );
@@ -3805,298 +3802,75 @@ export const DataPanel = memo(() => {
                 </thead>
                 <tbody>
                   {visibleRows.map((r, i) => (
-                    <React.Fragment key={i}>
-                      <tr
-                        onClick={() => setDetailIdx(detailIdx === i ? null : i)}
-                        onKeyDown={(e) => {
-                          /*
-                           * Keyboard parity with the click toggle (WCAG 2.1.1). Space would
-                           * otherwise scroll the table body — prevent that before toggling.
-                           */
-                          if (isRowActivationKey(e.key)) {
-                            e.preventDefault();
-                            setDetailIdx(detailIdx === i ? null : i);
-                          } else if (isDismissKey(e.key) && detailIdx === i) {
-                            /* Escape collapses the open detail — the natural "close this" gesture. */
-                            e.preventDefault();
-                            setDetailIdx(null);
-                          }
-                        }}
-                        tabIndex={0}
-                        aria-expanded={detailIdx === i}
-                        aria-label={`Row ${i + 1} of ${visibleRows.length} — ${detailIdx === i ? 'hide' : 'show'} detail`}
-                        data-testid="data-row"
-                        className={classNames(
-                          'border-b border-bolt-elements-borderColor/20 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
-                          detailIdx === i
-                            ? 'bg-bolt-elements-item-backgroundActive'
-                            : 'hover:bg-bolt-elements-background-depth-2/50',
-                        )}
-                      >
-                        {selectable && (
-                          <td
-                            className="w-8 px-2 py-1.5 align-top"
-                            onClick={(e) => e.stopPropagation()} // the checkbox toggles selection, not the row detail
-                          >
-                            <input
-                              type="checkbox"
-                              checked={
-                                rowPkKey(r, browsePkCols) !== null && selectedKeys.has(rowPkKey(r, browsePkCols)!)
-                              }
-                              disabled={rowPkKey(r, browsePkCols) === null}
-                              onChange={() => toggleRowSelect(r)}
-                              data-testid="data-bulk-select-row"
-                              aria-label={`Select row ${i + 1}`}
-                              className="h-3.5 w-3.5 cursor-pointer align-middle disabled:opacity-30 disabled:cursor-not-allowed"
-                              style={{ accentColor: '#00E5FF' }}
-                            />
-                          </td>
-                        )}
-                        {visibleCols.map((c) => {
-                          const cell = classifyCell(r[c]);
-
-                          /*
-                           * url/email cells render as a safe link. classifyCell only ever emits an
-                           * http(s)/mailto href (never javascript:/data:), so this can't be an XSS
-                           * vector; stopPropagation keeps a link click from triggering a parent
-                           * row/cell handler. Honest: the stored value is still text.
-                           */
-                          return (
-                            <td
-                              key={c}
-                              className="px-3 py-1.5 align-top max-w-[220px] truncate"
-                              title={cell.title ?? cell.display}
-                            >
-                              {cell.href ? (
-                                <a
-                                  href={cell.href}
-                                  target="_blank"
-                                  rel="noopener noreferrer nofollow"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className={cell.className}
-                                >
-                                  {cell.display}
-                                </a>
-                              ) : (
-                                <span className={cell.className}>{cell.display}</span>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                      {/* Row detail drill-down — every column, pretty-JSON for objects. */}
-                      {detailIdx === i && (
-                        <tr data-testid="data-row-detail">
-                          <td
-                            colSpan={visibleCols.length + (selectable ? 1 : 0)}
-                            className="bg-bolt-elements-background-depth-1 px-3 py-2"
-                          >
-                            <div className="flex items-center justify-end gap-2 mb-1.5">
-                              {/* No primary key → can't target this row safely; explain, never a doomed Delete. */}
-                              {canRunSql && browsePkCols.length === 0 && (
-                                <span
-                                  className="text-[10px] text-bolt-elements-textTertiary"
-                                  data-testid="data-no-pk-note"
-                                  title="This table has no primary key, so a single row can't be safely targeted for delete."
-                                >
-                                  No primary key — read-only
-                                </span>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => copyRow(r)}
-                                data-testid="data-copy-row"
-                                title="Copy this row as JSON"
-                                className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-bolt-elements-item-contentAccent/40 cursor-pointer"
-                              >
-                                <div className="i-ph:copy text-[11px]" /> Copy row (JSON)
-                              </button>
-                              {active && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    writeClipboard(rowToInsert(active, r));
-                                    flashStatus('Copied INSERT');
-                                  }}
-                                  data-testid="data-copy-insert"
-                                  title="Copy this row as an INSERT statement"
-                                  className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-bolt-elements-item-contentAccent/40 cursor-pointer"
-                                >
-                                  <div className="i-ph:code text-[11px]" /> INSERT
-                                </button>
-                              )}
-                              {active && (
-                                <button
-                                  type="button"
-                                  disabled={browsePkCols.length === 0}
-                                  onClick={() => {
-                                    if (browsePkCols.length === 0) {
-                                      return;
-                                    }
-
-                                    writeClipboard(rowToUpdateByPk(active, r, browsePkCols));
-                                    flashStatus('Copied UPDATE');
-                                  }}
-                                  data-testid="data-copy-update"
-                                  title={
-                                    browsePkCols.length === 0
-                                      ? 'UPDATE not available — no primary key'
-                                      : 'Copy this row as an UPDATE statement'
-                                  }
-                                  className={classNames(
-                                    'flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 border cursor-pointer',
-                                    browsePkCols.length === 0
-                                      ? 'border-bolt-elements-borderColor/30 text-bolt-elements-textTertiary opacity-40 cursor-not-allowed'
-                                      : 'border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-bolt-elements-item-contentAccent/40',
-                                  )}
-                                >
-                                  <div className="i-ph:pencil-line text-[11px]" /> UPDATE
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  writeClipboard(rowsToMarkdown(columns, [r]));
-                                  flashStatus('Copied Markdown');
-                                }}
-                                data-testid="data-copy-markdown"
-                                title="Copy this row as a Markdown table"
-                                className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-bolt-elements-item-contentAccent/40 cursor-pointer"
-                              >
-                                <div className="i-ph:table text-[11px]" /> Markdown
-                              </button>
-                              {/* Duplicate row — super-admin only; opens the Add-row form prefilled
-                                  from this row, with the PK omitted (DB assigns a fresh key). */}
-                              {canRunSql && (
-                                <button
-                                  type="button"
-                                  onClick={() => duplicateRow(r)}
-                                  data-testid="data-duplicate-row"
-                                  title="Duplicate this row — opens the Add-row form prefilled (primary key omitted so a new one is generated)"
-                                  className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-bolt-elements-item-contentAccent/40 cursor-pointer"
-                                >
-                                  <div className="i-ph:copy-simple text-[11px]" /> Duplicate
-                                </button>
-                              )}
-                              {/* Delete row — super-admin only (gated /sql/exec-write) + a resolvable PK. */}
-                              {canRunSql && browsePkCols.length > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() => deleteRow(r)}
-                                  data-testid="data-delete-row"
-                                  title="Permanently delete this row (parameterized, keyed by primary key)"
-                                  className="flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5 border border-red-500/40 text-red-400 hover:bg-red-500/10 hover:border-red-500/70 cursor-pointer"
-                                >
-                                  <div className="i-ph:trash text-[11px]" /> Delete row
-                                </button>
-                              )}
-                            </div>
-                            <dl className="grid grid-cols-[minmax(90px,auto)_1fr] gap-x-3 gap-y-1">
-                              {detailEntries(r, columns).map(([label, val], idx) => {
-                                const col = columns[idx];
-
-                                /*
-                                 * Editable = super-admin + a resolvable PK + this column is NOT part of the
-                                 * key AND NOT a generated (computed, non-writable) column.
-                                 */
-                                const isGenerated = browseGeneratedCols.has(col);
-                                const editable =
-                                  canRunSql && browsePkCols.length > 0 && !browsePkCols.includes(col) && !isGenerated;
-                                const editing = editCol === col;
-
-                                return (
-                                  <React.Fragment key={label}>
-                                    <dt className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary pt-0.5">
-                                      {label}
-                                    </dt>
-                                    <dd className="group text-[11px] text-bolt-elements-textPrimary font-mono whitespace-pre-wrap break-words flex items-start gap-1.5">
-                                      {editing ? (
-                                        <CellEditor
-                                          label={label}
-                                          editKind={editKind}
-                                          onKindChange={(k) => {
-                                            setEditError('');
-                                            setEditKind(k);
-                                          }}
-                                          editValue={editValue}
-                                          onValueChange={(v) => {
-                                            setEditError('');
-                                            setEditValue(v);
-                                          }}
-                                          previewSql={editPreviewFor(r)}
-                                          editError={editError}
-                                          editBusy={editBusy}
-                                          onSave={() => submitEdit(r)}
-                                          onCancel={cancelEdit}
-                                        />
-                                      ) : (
-                                        <>
-                                          {classifyCell(r[col]).isJson ? (
-                                            <div className="min-w-0 w-full" data-testid="data-json-tree">
-                                              <JsonTree
-                                                value={
-                                                  typeof r[col] === 'object'
-                                                    ? (r[col] as Record<string, unknown> | unknown[])
-                                                    : (() => {
-                                                        try {
-                                                          return JSON.parse(r[col] as string) as
-                                                            | Record<string, unknown>
-                                                            | unknown[];
-                                                        } catch {
-                                                          return {};
-                                                        }
-                                                      })()
-                                                }
-                                                rootLabel={col}
-                                              />
-                                            </div>
-                                          ) : (
-                                            <span className="min-w-0 break-words">{val}</span>
-                                          )}
-                                          {clipboardValue(r[col]) && (
-                                            <button
-                                              type="button"
-                                              onClick={() => copyValue(r[col], label)}
-                                              data-testid="data-copy-cell"
-                                              title={`Copy ${label}`}
-                                              aria-label={`Copy ${label}`}
-                                              className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 focus:opacity-100 text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer transition-opacity"
-                                            >
-                                              <div className="i-ph:copy text-[11px]" />
-                                            </button>
-                                          )}
-                                          {editable && (
-                                            <button
-                                              type="button"
-                                              onClick={() => startEdit(col, r[col])}
-                                              data-testid="data-edit-cell-open"
-                                              title={`Edit ${label}`}
-                                              aria-label={`Edit ${label}`}
-                                              className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 focus:opacity-100 text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent cursor-pointer transition-opacity"
-                                            >
-                                              <div className="i-ph:pencil-simple text-[11px]" />
-                                            </button>
-                                          )}
-                                          {isGenerated && (
-                                            <span
-                                              data-testid="data-cell-generated"
-                                              title="Generated (computed) column — SQLite derives its value; it can't be edited."
-                                              className="shrink-0 rounded bg-amber-500/15 px-1 text-[8px] text-amber-300"
-                                            >
-                                              computed
-                                            </span>
-                                          )}
-                                        </>
-                                      )}
-                                    </dd>
-                                  </React.Fragment>
-                                );
-                              })}
-                            </dl>
-                          </td>
-                        </tr>
+                    <tr
+                      key={i}
+                      onClick={() => setDrawerRow(r)}
+                      onKeyDown={(e) => {
+                        /*
+                         * Enter/Space opens this row in the record drawer (WCAG 2.1.1 parity with the
+                         * click). Space would otherwise scroll the table body — prevent that. Escape is
+                         * owned by the drawer's own handler once it's open, so the row needs none.
+                         */
+                        if (isRowActivationKey(e.key)) {
+                          e.preventDefault();
+                          setDrawerRow(r);
+                        }
+                      }}
+                      tabIndex={0}
+                      aria-haspopup="dialog"
+                      aria-label={`Open record ${i + 1} of ${visibleRows.length}`}
+                      data-testid="data-row"
+                      className="border-b border-bolt-elements-borderColor/20 cursor-pointer hover:bg-bolt-elements-background-depth-2/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent"
+                    >
+                      {selectable && (
+                        <td
+                          className="w-8 px-2 py-1.5 align-top"
+                          onClick={(e) => e.stopPropagation()} // the checkbox toggles selection, not the row detail
+                        >
+                          <input
+                            type="checkbox"
+                            checked={rowPkKey(r, browsePkCols) !== null && selectedKeys.has(rowPkKey(r, browsePkCols)!)}
+                            disabled={rowPkKey(r, browsePkCols) === null}
+                            onChange={() => toggleRowSelect(r)}
+                            data-testid="data-bulk-select-row"
+                            aria-label={`Select row ${i + 1}`}
+                            className="h-3.5 w-3.5 cursor-pointer align-middle disabled:opacity-30 disabled:cursor-not-allowed"
+                            style={{ accentColor: '#00E5FF' }}
+                          />
+                        </td>
                       )}
-                    </React.Fragment>
+                      {visibleCols.map((c) => {
+                        const cell = classifyCell(r[c]);
+
+                        /*
+                         * url/email cells render as a safe link. classifyCell only ever emits an
+                         * http(s)/mailto href (never javascript:/data:), so this can't be an XSS
+                         * vector; stopPropagation keeps a link click from triggering a parent
+                         * row/cell handler. Honest: the stored value is still text.
+                         */
+                        return (
+                          <td
+                            key={c}
+                            className="px-3 py-1.5 align-top max-w-[220px] truncate"
+                            title={cell.title ?? cell.display}
+                          >
+                            {cell.href ? (
+                              <a
+                                href={cell.href}
+                                target="_blank"
+                                rel="noopener noreferrer nofollow"
+                                onClick={(e) => e.stopPropagation()}
+                                className={cell.className}
+                              >
+                                {cell.display}
+                              </a>
+                            ) : (
+                              <span className={cell.className}>{cell.display}</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
                   ))}
                 </tbody>
               </table>
@@ -4485,6 +4259,18 @@ export const DataPanel = memo(() => {
                                 <span className={cell.className}>{cell.display}</span>
                               )}
                             </div>
+                            {clipboardValue(drawerRow[c]) && (
+                              <button
+                                type="button"
+                                onClick={() => copyValue(drawerRow[c], columnLabel(c))}
+                                data-testid="data-drawer-copy-cell"
+                                title={`Copy ${columnLabel(c)}`}
+                                aria-label={`Copy ${columnLabel(c)}`}
+                                className="shrink-0 cursor-pointer text-bolt-elements-textTertiary opacity-0 transition-opacity hover:!opacity-100 hover:text-bolt-elements-item-contentAccent focus:opacity-100 group-hover:opacity-60"
+                              >
+                                <div className="i-ph:copy text-[11px]" />
+                              </button>
+                            )}
                             {editable && (
                               <button
                                 type="button"
@@ -4496,6 +4282,15 @@ export const DataPanel = memo(() => {
                               >
                                 <div className="i-ph:pencil-simple text-[11px]" />
                               </button>
+                            )}
+                            {browseGeneratedCols.has(c) && (
+                              <span
+                                data-testid="data-drawer-cell-generated"
+                                title="Generated (computed) column — SQLite derives its value; it can't be edited."
+                                className="shrink-0 rounded bg-amber-500/15 px-1 text-[8px] text-amber-300"
+                              >
+                                computed
+                              </span>
                             )}
                           </>
                         )}
@@ -4549,6 +4344,19 @@ export const DataPanel = memo(() => {
               >
                 <div className="i-ph:table text-[11px]" /> Markdown
               </button>
+              {/* Duplicate — super-admin only; opens the Add-row form prefilled from this record
+                  (primary key + generated columns omitted so the DB assigns fresh values). */}
+              {canRunSql && (
+                <button
+                  type="button"
+                  onClick={() => duplicateRow(drawerRow)}
+                  data-testid="data-drawer-duplicate"
+                  title="Duplicate this record — opens the Add-row form prefilled (primary key omitted so a new one is generated)"
+                  className="flex items-center gap-1 rounded border border-bolt-elements-borderColor px-1.5 py-0.5 text-[10px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
+                >
+                  <div className="i-ph:copy-simple text-[11px]" /> Duplicate
+                </button>
+              )}
               {canRunSql && browsePkCols.length > 0 && (
                 <button
                   type="button"

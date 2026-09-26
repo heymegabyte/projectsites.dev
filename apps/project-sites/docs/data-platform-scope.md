@@ -683,10 +683,33 @@ detail AND the drawer — no duplicated editor JSX (the ~70-line editor now live
   admin `ng build --prod` ✓. Editor → CF Pages. The drawer now has full parity with the grid detail: view · edit ·
   copy-as-SQL · delete — one editor component, two surfaces.
 
-**NEXT slice (unify step 2): grid rows open the DRAWER; retire the inline `<tr>` detail** — now that the drawer edits +
-acts at full parity, make a grid row click `setDrawerRow(r)` (instead of the inline `detailIdx` expand), delete the
-inline `<tr data-testid="data-row-detail">` block + its copy/edit/delete/duplicate JSX (all now in the drawer), and
-retire `detailIdx` (~10 usages: openTable reset, `setDetailIdx(null)` sites, `duplicateRow`'s collapse → use
-`setDrawerRow(null)`). One detail surface for every view (grid · gallery · kanban). Watch: the grid's per-row keyboard
-open/`aria-expanded` moves to "open drawer"; preserve focus/scroll. Alternatives: chart **sum/avg** aggregates (needs
-numeric columns — defer); async export JOBS >10k; nested filter-tree; grid eval (RevoGrid vs Tabulator).
+### ✅ Shipped next fire (2026-09-26 #26) — grid rows open the DRAWER; inline `<tr>` detail RETIRED (unify step 2 — arc complete)
+The record drawer is now the SINGLE detail surface for every view (grid · gallery · kanban). A grid row click/Enter/Space
+opens `drawerRow`; the 213-line inline `<tr data-testid="data-row-detail">` block is gone and `detailIdx` is fully retired:
+- **Drawer grown to full parity FIRST (so retiring the inline detail loses nothing)** — before this fire the drawer lacked
+  three things the inline detail had; all added: **per-cell copy** (`data-drawer-copy-cell`, gated on `clipboardValue`),
+  the **computed** badge for generated columns (`data-drawer-cell-generated`), and **Duplicate** (`data-drawer-duplicate`,
+  super-admin → opens the prefilled Add-row form). Drawer surface = view · edit · per-cell copy · copy-JSON · INSERT ·
+  UPDATE · Markdown · Duplicate · Delete.
+- **`DataPanel.tsx`** — the grid `<tr>` is now a drawer-opener: `onClick`/Enter+Space → `setDrawerRow(r)`; `aria-expanded`
+  → **`aria-haspopup="dialog"`**, label "Open record N of M". Escape is owned by the drawer's own handler (now via
+  `isDismissKey` → both `Escape` **and** `Esc` close it). The inline detail block + its copy/INSERT/UPDATE/Markdown/
+  duplicate/delete/per-cell/edit JSX (all now in the drawer) deleted; `detailIdx` state removed; the 17 `setDetailIdx(null)`
+  reset sites → `setDrawerRow(null)` (deduped in `openTable`, which already closed the drawer); `duplicateRow`'s collapse →
+  `setDrawerRow(null)`.
+- **Obsolete code removed** — `detailEntries` (superseded by the drawer's own richer field render) deleted from
+  `data-panel-logic.ts` + its 2 unit tests; the `React` default import dropped (no more `React.Fragment` — automatic JSX
+  runtime). No worker/bridge/migration change. **Net −232 lines** (118+/350−) across 3 editor files.
+- Verified: editor Vitest **848/848** + tsc 0 + eslint 0 + build 0; worker **untouched** (0 files under `apps/project-sites`
+  → worker tsc/jest unchanged from the last green fire `574f3487e`). Editor → CF Pages on push. *Honest residual:* the
+  interactive open→drawer path runs in a WebContainer behind an authed admin session (verify-by-build per the established
+  DataPanel pattern); the click-through wasn't exercised in a live browser.
+
+**NEXT slice: CALENDAR view (completes the Airtable rich-view set — delivery order 6).** Grid · gallery · kanban · chart
+ship; calendar is the last enumerated view. Add `viewMode='calendar'` + a date-column picker (auto-pick the first
+date/datetime-affinity column), a month grid that buckets the CURRENT PAGE's rows by day (honest page-parity label, same as
+kanban cards — "N of <count>"), click a day-cell record → the SAME `drawerRow`. Reuse `classifyCell`'s date detection +
+`groupPageRows`-style bucketing; persist `type:'calendar'` + `config.dateField` through the saved-views schema (already
+supports `titleField`/`groupField` — add `dateField`). Smaller alternatives: **drawer prev/next** record navigation (←/→
+step through the page's rows without closing — now trivial since the drawer is universal); chart **sum/avg** aggregates
+(needs numeric-column detect); async export JOBS >10k; nested filter-tree; grid eval (RevoGrid vs Tabulator).

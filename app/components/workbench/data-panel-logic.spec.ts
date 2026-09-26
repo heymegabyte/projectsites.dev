@@ -11,7 +11,6 @@ import {
   columnLabel,
   toCsv,
   filterRows,
-  detailEntries,
   isRowActivationKey,
   isDismissKey,
   addToSqlHistory,
@@ -189,18 +188,6 @@ describe('filterRows', () => {
   });
   it('returns [] when nothing matches', () => {
     expect(filterRows(rows, ['email'], 'zzz')).toEqual([]);
-  });
-});
-
-describe('detailEntries', () => {
-  it('returns [label, value] pairs in column order with pretty JSON for objects', () => {
-    const out = detailEntries({ event_type: 'pageview', meta: { ref: 'x' } }, ['event_type', 'meta']);
-    expect(out[0]).toEqual(['Event Type', 'pageview']);
-    expect(out[1][0]).toBe('Meta');
-    expect(out[1][1]).toBe('{\n  "ref": "x"\n}'); // 2-space pretty
-  });
-  it('em-dashes null/empty scalars', () => {
-    expect(detailEntries({ a: null }, ['a'])).toEqual([['A', '—']]);
   });
 });
 

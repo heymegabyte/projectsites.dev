@@ -153,33 +153,6 @@ export function filterRows(
 }
 
 /**
- * Ordered `[label, displayValue]` pairs for a single row's detail drill-down —
- * pretty (2-space) JSON for objects, `formatCellValue` for scalars.
- *
- * @param row - one browse row
- * @param columns - columns in display order
- * @returns label/value pairs for a definition-list detail view
- * @example detailEntries({ path: '/' }, ['path']) // [['Path', '/']]
- */
-export function detailEntries(row: Record<string, unknown>, columns: readonly string[]): Array<[string, string]> {
-  return columns.map((c) => {
-    const v = row[c];
-    const val =
-      v !== null && v !== undefined && typeof v === 'object'
-        ? (() => {
-            try {
-              return JSON.stringify(v, null, 2);
-            } catch {
-              return String(v);
-            }
-          })()
-        : formatCellValue(v);
-
-    return [columnLabel(c), val];
-  });
-}
-
-/**
  * Whether a KeyboardEvent key should ACTIVATE a clickable row (toggle its detail
  * drill-down). Enter and Space are the ARIA activation keys for a widget with
  * `role`/`aria-expanded`; a browse row is click-toggleable, so it must be
