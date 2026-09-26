@@ -54,7 +54,7 @@ describe('app.js generic-click beacon (onClick interaction path)', () => {
 
   it('targets only the interaction surface: button / role=button / summary / opt-in [data-ps-track]', () => {
     const body = clickBody();
-    expect(body).toContain("t.closest('button,[role=\"button\"],summary,[data-ps-track]')");
+    expect(body).toContain('t.closest(\'button,[role="button"],summary,[data-ps-track]\')');
   });
 
   it('HONESTY: an unlabelled element is skipped (never a blank/fabricated row)', () => {

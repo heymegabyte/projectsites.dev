@@ -418,7 +418,9 @@ analyticsRoutes.post('/api/events', async (c) => {
                                     ? p.label.trim().slice(0, 80)
                                     : undefined,
                                 section:
-                                  typeof p?.section === 'string' ? p.section.slice(0, 80) : undefined,
+                                  typeof p?.section === 'string'
+                                    ? p.section.slice(0, 80)
+                                    : undefined,
                               }
                             : { form: typeof p?.form === 'string' ? p.form : undefined };
         await recordVisitorEvent(
