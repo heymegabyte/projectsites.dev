@@ -55,11 +55,15 @@ interface LogLine {
 function adaptInstance(row: Record<string, unknown>): AppInstance {
   const subdomain = String(row['subdomain'] ?? '');
   const env = row['env'];
+  // Prefer the worker's authoritative public_host (CF-native Payload → .cms., container
+  // apps → .app.) so the "Open" link never points at a dead/cert-broken host. Fall back
+  // to the legacy .app. derivation for older rows that predate public_host.
+  const publicHost = String(row['public_host'] ?? '');
   return {
     id: String(row['id'] ?? ''),
     app_id: String(row['app_slug'] ?? row['app_id'] ?? ''),
     subdomain,
-    hostname: subdomain ? `${subdomain}.app.projectsites.dev` : '',
+    hostname: publicHost || (subdomain ? `${subdomain}.app.projectsites.dev` : ''),
     status: (row['status'] as InstanceStatus) ?? 'provisioning',
     created_at: String(row['created_at'] ?? ''),
     last_activity_at: (row['last_started_at'] ?? row['last_activity_at'] ?? null) as string | null,

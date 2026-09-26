@@ -6,7 +6,7 @@
  *
  * @packageDocumentation
  */
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import {
   badRequest,
@@ -29,6 +29,13 @@ import * as dispatcher from '../services/container_dispatcher.js';
 import * as auditService from '../services/audit.js';
 import { clearAppHost, defaultAppHostname, setAppHost } from '../services/app_host_resolver.js';
 import { isSupportedSlug } from '../durable_objects/app_runtime_subclasses.js';
+import {
+  CfProvisionError,
+  deployRealPayloadWorker,
+  deprovisionPayloadStack,
+  payloadInstanceHost,
+  provisionPayloadStack,
+} from '../services/cloudflare_provisioner.js';
 
 export const apps = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -47,6 +54,8 @@ const createInstanceBody = z.object({
       'subdomain must be lowercase alphanumeric + hyphen, not starting/ending with hyphen',
     ),
   env_overrides: z.record(z.string().max(8_000)).optional(),
+  // Optional owning site — CF-native apps (Payload) cap at MAX_CF_NATIVE_PER_SITE per site.
+  site_id: z.string().min(1).max(64).optional(),
 });
 
 const patchEnvBody = z.object({
@@ -68,6 +77,10 @@ interface AppInstanceRow {
   upstash_database_id: string | null;
   r2_bucket_name: string | null;
   do_instance_id: string | null;
+  // CF-native launcher (Payload on D1 + R2 + Worker) — 0633 migration.
+  d1_database_id: string | null;
+  worker_script_name: string | null;
+  site_id: string | null;
   last_started_at: string | null;
   last_error: string | null;
   created_at: string;
@@ -92,6 +105,24 @@ function catalogById(id: string): CatalogApp | undefined {
   return APPS_CATALOG.find((a) => a.id === id);
 }
 
+/**
+ * CF-native apps launch as a per-instance Cloudflare stack (own D1 + R2 + Worker)
+ * instead of a container. They bypass the Neon/Upstash `provisionInfra` +
+ * container-dispatch path and use {@link provisionPayloadStack} /
+ * {@link deprovisionPayloadStack}. `isSupportedSlug` gates CONTAINER subclasses, so
+ * CF-native slugs are tracked separately + are ALSO "supported" for the UI.
+ */
+const CF_NATIVE_SLUGS = new Set<string>(['payload']);
+function isCfNativeApp(id: string): boolean {
+  return CF_NATIVE_SLUGS.has(id);
+}
+/** Combined support signal for the catalog UI: container subclass OR CF-native. */
+function isLaunchableApp(id: string): boolean {
+  return isSupportedSlug(id) || isCfNativeApp(id);
+}
+/** Per-site (or per-org when unscoped) cap on CF-native instances. */
+const MAX_CF_NATIVE_PER_SITE = 3;
+
 async function loadInstance(env: Env, orgId: string, id: string): Promise<AppInstanceRow | null> {
   return dbQueryOne<AppInstanceRow>(
     env.DB,
@@ -100,15 +131,36 @@ async function loadInstance(env: Env, orgId: string, id: string): Promise<AppIns
   );
 }
 
-function sanitizeInstance(row: AppInstanceRow): Omit<AppInstanceRow, 'env_encrypted' | 'env_iv'> & {
+/**
+ * The public host an instance actually serves on. CF-native Payload instances live at
+ * `{slug}.cms.projectsites.dev` (WfP dispatch, cert-ready *.cms pack); container apps at
+ * `{slug}.app.projectsites.dev`. The admin uses THIS for the "Open" link so it never
+ * points at a dead/cert-broken host.
+ */
+function instancePublicHost(row: AppInstanceRow, cfNativeHost: string): string {
+  return isCfNativeApp(row.app_slug)
+    ? `${row.subdomain}.${cfNativeHost}`
+    : `${row.subdomain}.app.projectsites.dev`;
+}
+
+function sanitizeInstance(
+  row: AppInstanceRow,
+  cfNativeHost: string,
+): Omit<AppInstanceRow, 'env_encrypted' | 'env_iv'> & {
   env: null;
+  public_host: string;
   costEstimate: InstanceCostEstimate;
 } {
   // env is NEVER included on list/get — the decrypted-env detail route requires
   // admin role. costEstimate is a live metered monthly estimate (running-state
   // compute + provisioned infra), replacing the static catalog `estCostMonthly`.
   const { env_encrypted: _ee, env_iv: _ev, ...rest } = row;
-  return { ...rest, env: null, costEstimate: estimateInstanceCost(row) };
+  return {
+    ...rest,
+    env: null,
+    public_host: instancePublicHost(row, cfNativeHost),
+    costEstimate: estimateInstanceCost(row),
+  };
 }
 
 async function decryptEnv(env: Env, row: AppInstanceRow): Promise<Record<string, string>> {
@@ -144,8 +196,8 @@ apps.get('/api/apps/catalog', (c) => {
   // "Coming soon" pill in the catalog UI. No flag returns the full curated set.
   const supportedFilter = c.req.query('supported');
   const items =
-    supportedFilter === 'true' ? APPS_CATALOG.filter((a) => isSupportedSlug(a.id)) : APPS_CATALOG;
-  const decorated = items.map((a) => ({ ...a, supported: isSupportedSlug(a.id) }));
+    supportedFilter === 'true' ? APPS_CATALOG.filter((a) => isLaunchableApp(a.id)) : APPS_CATALOG;
+  const decorated = items.map((a) => ({ ...a, supported: isLaunchableApp(a.id) }));
   return c.json(
     {
       apps: decorated,
@@ -164,7 +216,7 @@ apps.get('/api/apps/catalog', (c) => {
 apps.get('/api/apps/catalog/:id', (c) => {
   const app = catalogById(c.req.param('id'));
   if (!app) throw notFound(`No app with id '${c.req.param('id')}' in catalog`);
-  return c.json({ app: { ...app, supported: isSupportedSlug(app.id) } }, 200, {
+  return c.json({ app: { ...app, supported: isLaunchableApp(app.id) } }, 200, {
     'Cache-Control': 'public, max-age=300, s-maxage=300',
   });
 });
@@ -207,8 +259,249 @@ apps.get('/api/apps/instances', async (c) => {
     [orgId],
   );
   if (error) throw badRequest(error);
-  return c.json({ instances: data.map(sanitizeInstance) });
+  const cfHost = payloadInstanceHost(c.env);
+  return c.json({ instances: data.map((r) => sanitizeInstance(r, cfHost)) });
 });
+
+// ─── CF-native lifecycle (Payload CMS on D1 + R2 + Worker) ───
+
+type AppsContext = Context<{ Bindings: Env; Variables: Variables }>;
+
+/**
+ * Launch a CF-native app as a per-instance Cloudflare stack: create D1 → R2 →
+ * Worker (proven in {@link provisionPayloadStack}, with rollback on any failure),
+ * persist the three resource handles on `app_instances`, and return the live URL.
+ *
+ * @remarks Runs INSTEAD of the container path for {@link isCfNativeApp} slugs — no
+ * Neon/Upstash, no container DO. The recorded `d1_database_id` / `worker_script_name`
+ * / `r2_bucket_name` are what the DELETE flow cascade-deletes.
+ * @throws 409 when the subdomain is taken or the per-site cap is reached.
+ * @throws 501 when CF provisioning credentials are unset; 502 on a CF API failure.
+ */
+async function launchCfNativeInstance(
+  c: AppsContext,
+  app: CatalogApp,
+  body: z.infer<typeof createInstanceBody>,
+  userId: string,
+  orgId: string,
+): Promise<Response> {
+  // Subdomain uniqueness — global namespace (mirrors the container path).
+  const existing = await dbQueryOne<{ id: string }>(
+    c.env.DB,
+    `SELECT id FROM app_instances WHERE subdomain = ? AND deleted_at IS NULL`,
+    [body.subdomain],
+  );
+  if (existing) throw conflict(`Subdomain '${body.subdomain}' is already taken.`);
+
+  // Per-site cap (falls back to per-org when the launch isn't site-scoped).
+  const countRow = body.site_id
+    ? await dbQueryOne<{ n: number }>(
+        c.env.DB,
+        `SELECT COUNT(*) AS n FROM app_instances WHERE app_slug = ? AND site_id = ? AND deleted_at IS NULL`,
+        [app.id, body.site_id],
+      )
+    : await dbQueryOne<{ n: number }>(
+        c.env.DB,
+        `SELECT COUNT(*) AS n FROM app_instances WHERE app_slug = ? AND org_id = ? AND deleted_at IS NULL`,
+        [app.id, orgId],
+      );
+  if ((countRow?.n ?? 0) >= MAX_CF_NATIVE_PER_SITE) {
+    return c.json(
+      {
+        error: 'instance_limit_reached',
+        app_id: app.id,
+        limit: MAX_CF_NATIVE_PER_SITE,
+        message: `Maximum ${MAX_CF_NATIVE_PER_SITE} ${app.name} instances per ${
+          body.site_id ? 'site' : 'org'
+        }.`,
+      },
+      409,
+    );
+  }
+
+  const instanceId = crypto.randomUUID();
+  // 48-hex-char (24-byte) PAYLOAD_SECRET — self-generated per always.md § Secrets.
+  const payloadSecret = Array.from(crypto.getRandomValues(new Uint8Array(24)))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  let stack;
+  try {
+    stack = await provisionPayloadStack(c.env, {
+      instanceId,
+      slug: body.subdomain,
+      payloadSecret,
+      // Deploy into the WfP dispatch namespace → served at {slug}.cms.projectsites.dev
+      // (cert-ready). Falls back to standalone workers.dev only when WfP isn't configured.
+      dispatchNamespace: c.env.WFP_NAMESPACE_NAME,
+    });
+  } catch (err) {
+    if (err instanceof CfProvisionError) {
+      const status = err.code === 'NO_CREDENTIALS' || err.code === 'NO_ACCOUNT' ? 501 : 502;
+      return c.json({ error: err.code, message: err.message }, status);
+    }
+    throw err;
+  }
+
+  const encrypted = await encrypt(c.env, JSON.stringify({ PAYLOAD_SECRET: payloadSecret }));
+  const now = new Date().toISOString();
+  const { error: insertErr } = await dbInsert(c.env.DB, 'app_instances', {
+    id: instanceId,
+    org_id: orgId,
+    created_by: userId,
+    app_slug: app.id,
+    subdomain: body.subdomain,
+    status: 'running',
+    env_encrypted: encrypted,
+    env_iv: 'inline',
+    neon_project_id: null,
+    upstash_database_id: null,
+    r2_bucket_name: stack.r2BucketName,
+    do_instance_id: null,
+    d1_database_id: stack.d1DatabaseId,
+    worker_script_name: stack.workerName,
+    site_id: body.site_id ?? null,
+    last_started_at: now,
+    last_error: null,
+    created_at: now,
+    updated_at: now,
+  });
+  if (insertErr) {
+    // Never strand a stack on a failed insert — tear the just-created CF resources down.
+    await deprovisionPayloadStack(c.env, {
+      workerName: stack.workerName,
+      d1DatabaseId: stack.d1DatabaseId,
+      r2BucketName: stack.r2BucketName,
+    }).catch(() => undefined);
+    throw badRequest(insertErr);
+  }
+
+  // Upgrade the bootstrap → the REAL Payload OpenNext bundle in the background so the
+  // launch returns fast. The bootstrap already 200s; deployRealPayloadWorker overwrites
+  // the SAME worker name with the real admin (migrate D1 + assets + script upload). A
+  // failure leaves the bootstrap serving (degraded, still 200) + records last_error.
+  c.executionCtx.waitUntil(
+    deployRealPayloadWorker(c.env, {
+      name: stack.workerName,
+      d1DatabaseId: stack.d1DatabaseId,
+      r2BucketName: stack.r2BucketName,
+      payloadSecret,
+      namespace: stack.dispatchNamespace ?? undefined,
+    })
+      .then(async (r) => {
+        await dbUpdate(
+          c.env.DB,
+          'app_instances',
+          r.ok
+            ? { status: 'running', last_error: null }
+            : { status: 'running', last_error: `payload_bundle: ${r.error ?? 'deploy failed'}` },
+          'id = ?',
+          [instanceId],
+        );
+      })
+      .catch(async (err) => {
+        await dbUpdate(
+          c.env.DB,
+          'app_instances',
+          { status: 'running', last_error: `payload_bundle_throw: ${String(err)}` },
+          'id = ?',
+          [instanceId],
+        ).catch(() => undefined);
+      }),
+  );
+
+  await auditService.writeAuditLog(c.env.DB, {
+    org_id: orgId,
+    actor_id: userId,
+    action: 'apps.instance.created',
+    target_type: 'app_instance',
+    target_id: instanceId,
+    metadata_json: {
+      app_slug: app.id,
+      subdomain: body.subdomain,
+      kind: 'cf-native',
+      d1_database_id: stack.d1DatabaseId,
+      r2_bucket_name: stack.r2BucketName,
+      worker_script_name: stack.workerName,
+    },
+    request_id: c.get('requestId'),
+  });
+
+  return c.json(
+    {
+      instance_id: instanceId,
+      status: 'running',
+      subdomain: body.subdomain,
+      url: `https://${stack.subdomain}`,
+      admin_url: `https://${stack.subdomain}/admin`,
+      // The three CF resource handles this instance owns — surfaced so the owner
+      // (and verification) can see exactly what will be torn down on delete.
+      resources: {
+        d1_database_id: stack.d1DatabaseId,
+        r2_bucket_name: stack.r2BucketName,
+        worker_script_name: stack.workerName,
+        dispatch_namespace: stack.dispatchNamespace,
+      },
+    },
+    201,
+  );
+}
+
+/**
+ * Destroy a CF-native instance: cascade-delete its Worker → D1 → R2 and CONFIRM
+ * each is gone (via {@link deprovisionPayloadStack}) BEFORE marking the row
+ * destroyed. On any straggler the row is left live with `last_error` set + a 502 —
+ * the honest "teardown incomplete" signal, never a lying "destroyed".
+ */
+async function destroyCfNativeInstance(
+  c: AppsContext,
+  row: AppInstanceRow,
+  userId: string,
+  orgId: string,
+): Promise<Response> {
+  const report = await deprovisionPayloadStack(c.env, {
+    workerName: row.worker_script_name,
+    d1DatabaseId: row.d1_database_id,
+    r2BucketName: row.r2_bucket_name,
+    dispatchNamespace: c.env.WFP_NAMESPACE_NAME,
+  });
+
+  if (!report.clean) {
+    await dbExecute(
+      c.env.DB,
+      `UPDATE app_instances SET last_error = ?, updated_at = ? WHERE id = ?`,
+      [`teardown_incomplete: ${JSON.stringify(report)}`, new Date().toISOString(), row.id],
+    );
+    return c.json({ ok: false, error: 'teardown_incomplete', cleanup: report }, 502);
+  }
+
+  const { error: destroyErr } = await dbExecute(
+    c.env.DB,
+    `UPDATE app_instances SET status = 'destroyed', deleted_at = ?, updated_at = ? WHERE id = ?`,
+    [new Date().toISOString(), new Date().toISOString(), row.id],
+  );
+  if (destroyErr) throw internalError(`Failed to record instance destroy: ${destroyErr}`);
+
+  try {
+    await clearAppHost(c.env, defaultAppHostname(row.subdomain));
+  } catch (err) {
+    console.warn(
+      JSON.stringify({ level: 'warn', event: 'apphost_clear_failed', id: row.id, err: String(err) }),
+    );
+  }
+
+  await auditService.writeAuditLog(c.env.DB, {
+    org_id: orgId,
+    actor_id: userId,
+    action: 'apps.instance.destroyed',
+    target_type: 'app_instance',
+    target_id: row.id,
+    metadata_json: { kind: 'cf-native', worker: report.worker, d1: report.d1, r2: report.r2 },
+    request_id: c.get('requestId'),
+  });
+
+  return c.json({ ok: true, cleanup: report });
+}
 
 // ─── Instance create ─────────────────────────────────────────
 
@@ -232,6 +525,12 @@ apps.post('/api/apps/instances', async (c) => {
   const body = createInstanceBody.parse(await c.req.json().catch(() => ({})));
   const app = catalogById(body.app_id);
   if (!app) throw badRequest(`Unknown app id '${body.app_id}'`);
+
+  // CF-native apps (Payload CMS) launch a per-instance D1 + R2 + Worker stack — no
+  // container, no Neon/Upstash. Fully cascade-deletable on DELETE.
+  if (isCfNativeApp(app.id)) {
+    return launchCfNativeInstance(c, app, body, userId, orgId);
+  }
 
   // Preflight: only apps with a per-image DO subclass + matching `[[containers]]`
   // block in wrangler.toml can boot. Everything else 424s so the UI surfaces a
@@ -416,7 +715,9 @@ apps.get('/api/apps/instances/:id', async (c) => {
   const row = await loadInstance(c.env, orgId, c.req.param('id'));
   if (!row) throw notFound('app_instance not found');
   const decryptedEnv = await decryptEnv(c.env, row);
-  return c.json({ instance: { ...sanitizeInstance(row), env: decryptedEnv } });
+  return c.json({
+    instance: { ...sanitizeInstance(row, payloadInstanceHost(c.env)), env: decryptedEnv },
+  });
 });
 
 // ─── Instance lifecycle ─────────────────────────────────────
@@ -581,6 +882,12 @@ apps.delete('/api/apps/instances/:id', async (c) => {
   const { userId, orgId } = requireAuth(c);
   const row = await loadInstance(c.env, orgId, c.req.param('id'));
   if (!row) throw notFound('app_instance not found');
+
+  // CF-native (Payload): cascade-delete the per-instance D1 + R2 + Worker and CONFIRM
+  // each is gone before marking destroyed — the "no dangling CF resources" guarantee.
+  if (isCfNativeApp(row.app_slug)) {
+    return destroyCfNativeInstance(c, row, userId, orgId);
+  }
 
   // Destroy the container layer first so volume + DO state are freed.
   await dispatcher.destroyContainer(c.env, row.id, row.app_slug);
