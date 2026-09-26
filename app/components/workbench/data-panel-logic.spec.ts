@@ -78,6 +78,10 @@ import {
   clipboardValue,
   rowJson,
   visibleColumns,
+  clampColWidth,
+  parseColWidths,
+  MIN_COL_WIDTH,
+  MAX_COL_WIDTH,
   normalizeDensity,
   densityCellClass,
   densitySelectCellClass,
@@ -1533,6 +1537,28 @@ describe('normalizeDensity + densityCellClass (grid row density)', () => {
     expect(GRID_DENSITIES).toEqual(['compact', 'cozy', 'comfortable']);
     const classes = GRID_DENSITIES.map(densityCellClass);
     expect(new Set(classes).size).toBe(3);
+  });
+});
+
+describe('clampColWidth + parseColWidths (column resize bounds + persisted-width parse)', () => {
+  it('clamps to the min/max and rounds; non-finite → min', () => {
+    expect(clampColWidth(200)).toBe(200);
+    expect(clampColWidth(10)).toBe(MIN_COL_WIDTH);
+    expect(clampColWidth(9999)).toBe(MAX_COL_WIDTH);
+    expect(clampColWidth(120.7)).toBe(121);
+    expect(clampColWidth(Number.NaN)).toBe(MIN_COL_WIDTH);
+    expect(clampColWidth(Infinity)).toBe(MIN_COL_WIDTH); // non-finite guard → min
+  });
+
+  it('parseColWidths keeps positive finite widths (clamped), drops junk, non-object → {}', () => {
+    expect(parseColWidths({ a: 200, b: '5', c: -3, d: 9000, e: 0, f: Number.NaN })).toEqual({
+      a: 200,
+      d: MAX_COL_WIDTH,
+    });
+    expect(parseColWidths(null)).toEqual({});
+    expect(parseColWidths([1, 2])).toEqual({});
+    expect(parseColWidths('x')).toEqual({});
+    expect(parseColWidths({})).toEqual({});
   });
 });
 

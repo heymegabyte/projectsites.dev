@@ -16,7 +16,7 @@
  * column, pretty-JSON for objects), and an auto-refresh toggle. Pure logic
  * (csv/filter/detail/summary) lives in `data-panel-logic.ts` (unit-tested).
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { isEmbedded, postToParent, onParentMessage } from '~/lib/embed/embedded-mode';
 import type { DataOverviewTable, ParentToChildMessage, SavedGridView } from '~/lib/embed/embedded-mode';
 import { KvBrowser } from './KvBrowser';
@@ -57,6 +57,8 @@ import {
   visibleColumns,
   orderColumns,
   moveColumn,
+  clampColWidth,
+  parseColWidths,
   normalizeDensity,
   densityCellClass,
   densitySelectCellClass,
@@ -183,6 +185,20 @@ function readDensity(): GridDensity {
     return normalizeDensity(typeof localStorage !== 'undefined' ? localStorage.getItem(DATA_DENSITY_KEY) : null);
   } catch {
     return 'cozy';
+  }
+}
+
+/** localStorage key PREFIX for a table's per-column widths (`…-<tableKey>`, per-browser). */
+const DATA_COLWIDTH_KEY = 'ps-data-cols-width';
+
+/** Read a table's persisted `{ column: widthPx }` map (best-effort; junk / private-mode → {}). */
+function readColWidths(tableKey: string): Record<string, number> {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(`${DATA_COLWIDTH_KEY}-${tableKey}`) : null;
+
+    return parseColWidths(raw ? JSON.parse(raw) : null);
+  } catch {
+    return {};
   }
 }
 
@@ -325,6 +341,7 @@ export const DataPanel = memo(() => {
    */
   const [hiddenCols, setHiddenCols] = useState<string[]>([]);
   const [colOrder, setColOrder] = useState<string[]>([]); // persisted per-table column display order
+  const [colWidths, setColWidths] = useState<Record<string, number>>({}); // persisted per-table resized widths
   const [colMenuOpen, setColMenuOpen] = useState(false);
   const [density, setDensity] = useState<GridDensity>(readDensity); // global grid row-density pref
 
@@ -752,6 +769,7 @@ export const DataPanel = memo(() => {
       setBrowseSort(null);
       setHiddenCols(readHiddenCols(key)); // restore this table's column selection
       setColOrder(readColOrder(key)); // restore this table's column order
+      setColWidths(readColWidths(key)); // restore this table's resized column widths
       setColMenuOpen(false);
       setBrowseLoading(true);
       setBrowsePkCols([]); // clear the prior table's PK until this one's PRAGMA returns
@@ -1763,6 +1781,85 @@ export const DataPanel = memo(() => {
       });
     },
     [columns, active],
+  );
+
+  /** Persist the per-table column-width map (best-effort). */
+  const persistColWidths = useCallback(
+    (map: Record<string, number>): void => {
+      try {
+        if (active && typeof localStorage !== 'undefined') {
+          localStorage.setItem(`${DATA_COLWIDTH_KEY}-${active}`, JSON.stringify(map));
+        }
+      } catch {
+        /* private mode / quota — column widths are a convenience, never load-bearing */
+      }
+    },
+    [active],
+  );
+
+  /**
+   * Begin a column-resize drag from the `<th>`'s right-edge handle. Captures the start X + the column's
+   * current width (explicit, else the measured `<th>` width), then tracks window mousemove → live width
+   * (clamped) and mouseup → persist. `stopPropagation` on mousedown so the drag never triggers the header
+   * sort button. The move/up handlers are drag-local (paired add/remove), so there's no stale closure.
+   */
+  const startResize = useCallback(
+    (e: ReactMouseEvent, col: string): void => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const th = (e.currentTarget as HTMLElement).parentElement;
+      const startWidth = colWidths[col] ?? (th?.offsetWidth || 160);
+      const startX = e.clientX;
+      const drag = { latest: colWidths as Record<string, number> };
+
+      const onMove = (ev: MouseEvent): void => {
+        const w = clampColWidth(startWidth + (ev.clientX - startX));
+        setColWidths((prev) => {
+          const next = { ...prev, [col]: w };
+          drag.latest = next;
+
+          return next;
+        });
+      };
+      const onUp = (): void => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        persistColWidths(drag.latest);
+      };
+
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [colWidths, persistColWidths],
+  );
+
+  /** Double-click the resize handle → clear this column's explicit width (back to auto) + persist. */
+  const resetColWidth = useCallback(
+    (col: string): void => {
+      setColWidths((prev) => {
+        if (!(col in prev)) {
+          return prev;
+        }
+
+        const next = { ...prev };
+        delete next[col];
+        persistColWidths(next);
+
+        return next;
+      });
+    },
+    [persistColWidths],
+  );
+
+  /** Inline width style for a column (min=max=width forces an exact width in auto layout); undefined = auto. */
+  const colStyle = useCallback(
+    (col: string): { width: number; minWidth: number; maxWidth: number } | undefined => {
+      const w = colWidths[col];
+
+      return w ? { width: w, minWidth: w, maxWidth: w } : undefined;
+    },
+    [colWidths],
   );
 
   /**
@@ -4159,7 +4256,8 @@ export const DataPanel = memo(() => {
                         aria-sort={
                           browseSort?.col === c ? (browseSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'
                         }
-                        className="text-left font-medium text-bolt-elements-textTertiary border-b border-bolt-elements-borderColor/50 whitespace-nowrap p-0"
+                        style={colStyle(c)}
+                        className="relative text-left font-medium text-bolt-elements-textTertiary border-b border-bolt-elements-borderColor/50 whitespace-nowrap p-0"
                       >
                         <button
                           type="button"
@@ -4197,6 +4295,17 @@ export const DataPanel = memo(() => {
                             )}
                           />
                         </button>
+                        {/* Resize handle — drag the right edge to set an exact width; double-click resets to
+                            auto. stopPropagation keeps the drag from triggering the sort button. */}
+                        <div
+                          role="separator"
+                          aria-orientation="vertical"
+                          onMouseDown={(e) => startResize(e, c)}
+                          onDoubleClick={() => resetColWidth(c)}
+                          data-testid="data-col-resize"
+                          title="Drag to resize · double-click to reset"
+                          className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize select-none hover:bg-[#00e5ff]/40"
+                        />
                       </th>
                     ))}
                   </tr>
@@ -4252,6 +4361,7 @@ export const DataPanel = memo(() => {
                         return (
                           <td
                             key={c}
+                            style={colStyle(c)}
                             className={classNames(densityCellClass(density), 'align-top max-w-[220px] truncate')}
                             title={cell.title ?? cell.display}
                           >

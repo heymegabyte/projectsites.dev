@@ -816,12 +816,30 @@ mapping), whereas resize needs a mouse-drag interaction I can't browser-test in 
 - Verified: editor Vitest **891/891** + tsc 0 + eslint 0 + build 0; worker **untouched** (0 files under
   `apps/project-sites`). *Honest residual:* verify-by-build (WebContainer + authed session) per the DataPanel pattern.
 
-**NEXT slice: column RESIZE (drag handles + persisted widths).** Mirrors reorder/density persistence. Per-column
-width map (`ps-data-cols-width-<table>`), a drag handle on each `<th>` right edge (mousedown → window
-mousemove/mouseup, `stopPropagation` so it doesn't fire the sort button; ref-based to avoid stale closure), apply
-`width`/`maxWidth` to the `<th>` + matching `<td>`s, clamp `clampColWidth` (60–600px), double-click-to-reset.
-CAVEAT: the drag is a mouse interaction not browser-testable in this loop — unit-test `clampColWidth` + the width
-math, and do a REAL-browser drag check before calling it done (or accept verify-by-build + a follow-up visual pass).
-Then: **async export JOBS >10k** (multi-fire: migration + `data_export_jobs` + enqueue/poll + R2 streaming + UI);
-**multi-column sort** (ripples into saved-view sort persistence); nested AND/OR filter-tree; SQL-workspace polish.
-Foundations still inert: `field-types.ts`, `schema-ddl.ts`.
+### ✅ Shipped next fire (2026-09-26 #33) — column RESIZE (drag handles + persisted widths)
+Drag any column's right edge to set an exact width; double-click the handle resets it to auto. Per-table,
+persisted, mirroring the reorder/density prefs. Completes the grid-mandate "resize/reorder/hide" trio.
+- **New pure logic (TDD-first, tested):** `data-panel-logic.ts` `MIN_COL_WIDTH`/`MAX_COL_WIDTH` (60–600) +
+  `clampColWidth(px)` (clamp+round; non-finite → min) + `parseColWidths(raw)` (defensive `{col:px}` parse — keeps
+  positive finite widths clamped, drops junk, non-object → {}). 2 describes.
+- **`DataPanel.tsx` (editor-only):** `colWidths` state + `readColWidths`/`DATA_COLWIDTH_KEY` localStorage (per table,
+  mirrors reorder); `startResize` (mousedown on a right-edge handle → window mousemove/mouseup; `stopPropagation` so
+  it never fires the sort button; drag-local move/up handlers → no stale closure), `resetColWidth` (double-click →
+  delete the width), `persistColWidths`, `colStyle(c)` (min=max=width forces an exact width in auto-layout). Applied
+  to the browse-grid `<th>` (+`relative`) + data `<td>`; SQL-results grid untouched. `openTable` restores widths.
+- Verified: editor Vitest **893/893** + tsc 0 + eslint 0 + build 0; worker **untouched** (0 files under
+  `apps/project-sites`). **⚠ Honest residual (must-verify):** the width MATH + clamp + persistence parse are
+  unit-tested, but the actual mouse-**drag** interaction (mousedown→move→up→persist, handle-vs-sort click
+  separation, width application to `<th>`+`<td>`) is NOT browser-testable in this loop — it ships verify-by-build.
+  A REAL-browser drag check on `editor.projectsites.dev` (drag a column, confirm width sticks on reload, confirm the
+  handle doesn't trigger a sort) is a REQUIRED follow-up before calling resize fully done.
+
+**NEXT slice: real-browser verify the resize drag (above) — OR pinned/frozen first column.** If verifying resize:
+open the editor Data grid via an authed admin session, drag a header edge, confirm the column resizes + the sort
+doesn't fire + the width persists across reload; fix any drag/CSS issue found. Otherwise the next self-contained
+grid feature is **pinned identifying column(s)** — `position:sticky; left:0` on the first column(s) (+ the select
+checkbox) so they stay visible on horizontal scroll; a pin toggle in the column menu; persisted per table; compute
+cumulative left-offsets for multiple pinned cols. Then: **async export JOBS >10k** (multi-fire: migration +
+`data_export_jobs` + enqueue/poll + R2 streaming + UI); **multi-column sort** (ripples into saved-view sort
+persistence); nested AND/OR filter-tree; SQL-workspace polish. Foundations still inert: `field-types.ts`,
+`schema-ddl.ts`.

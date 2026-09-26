@@ -1505,6 +1505,42 @@ export function densitySelectCellClass(d: GridDensity): string {
   return d === 'compact' ? 'px-2 py-0.5' : d === 'comfortable' ? 'px-2 py-3' : 'px-2 py-1.5';
 }
 
+/** Column resize bounds (px): a resized column is clamped to this range so a drag can't hide or balloon it. */
+export const MIN_COL_WIDTH = 60;
+export const MAX_COL_WIDTH = 600;
+
+/** Clamp a drag-derived column width to {@link MIN_COL_WIDTH}..{@link MAX_COL_WIDTH}, rounded; junk → MIN. Pure. */
+export function clampColWidth(px: number): number {
+  if (!Number.isFinite(px)) {
+    return MIN_COL_WIDTH;
+  }
+
+  return Math.max(MIN_COL_WIDTH, Math.min(MAX_COL_WIDTH, Math.round(px)));
+}
+
+/**
+ * Defensive parse of a persisted `{ column: widthPx }` map (from localStorage) → a clean map keeping only
+ * positive finite numeric widths, each clamped via {@link clampColWidth}. Non-object / array / junk → `{}`.
+ * Pure — mirrors the hidden-cols / order defensive-read discipline.
+ *
+ * @example parseColWidths({ a: 200, b: '5', c: -3, d: 9000 }) // { a: 200, d: 600 }  (b/c dropped, d clamped)
+ */
+export function parseColWidths(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+
+  const out: Record<string, number> = {};
+
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+      out[k] = clampColWidth(v);
+    }
+  }
+
+  return out;
+}
+
 /**
  * Apply a persisted column ORDER to the live column set — the display order for the grid + card views.
  * Robust to schema drift: columns named in `order` that still exist come first (in the saved order),
