@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
-import { AdminStateService } from '../admin-state.service';
+
 import { BoltEmbedService } from '../../../services/bolt-embed.service';
+import { AdminStateService } from '../admin-state.service';
 import { OnboardingChecklistComponent } from '../onboarding-checklist.component';
 
 /**
@@ -15,57 +16,9 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
  *    indicator shows ONCE and fills — never the old show/hide/show flicker.
  */
 @Component({
+  imports: [OnboardingChecklistComponent],
   selector: 'app-admin-editor',
   standalone: true,
-  imports: [OnboardingChecklistComponent],
-  template: `
-    <h1 class="sr-only">Site editor</h1>
-    @if (!state.selectedSite()) {
-      <div class="p-7 max-w-[820px] mx-auto space-y-6">
-        <app-onboarding-checklist />
-        <div class="empty-state-pretty">
-          <div class="empty-glyph">
-            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="1.4">
-              <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
-            </svg>
-          </div>
-          <h3 class="glow-h-grad text-2xl font-semibold m-0">Welcome to your admin</h3>
-          <p class="text-[0.92rem] text-text-secondary max-w-[480px] mx-auto m-0 leading-relaxed">
-            Pick a site from the top-left selector to open it in the AI editor — or follow the checklist above to get fully set up in two minutes.
-          </p>
-          <div class="flex gap-2 justify-center mt-1">
-            <button class="btn-primary" (click)="state.newSite()">+ Create a new site</button>
-            <button class="btn-ghost" (click)="openPalette()">⌘K Quick find</button>
-          </div>
-        </div>
-      </div>
-    } @else if (!bolt.editorReady()) {
-      <div class="ed-veil" role="status" aria-live="polite" aria-busy="true">
-        <div class="ed-aurora" aria-hidden="true"></div>
-        <div class="ed-veil-card">
-          <div class="ed-mark" aria-hidden="true">
-            <span class="ed-ring"></span>
-            <span class="ed-core"></span>
-            <svg class="ed-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M13 2 4.5 13.2a.6.6 0 0 0 .48.96H11l-1 7.84 8.5-11.2a.6.6 0 0 0-.48-.96H12l1-7.84Z"/>
-            </svg>
-          </div>
-          <div class="ed-headline">Booting your AI editor</div>
-          <div class="ed-sub">{{ bolt.loadingStage() }}<span class="ed-dots"><i></i><i></i><i></i></span></div>
-          <div class="ed-steps" aria-hidden="true">
-            @for (s of steps; track s.n) {
-              <span
-                class="ed-step"
-                [class.done]="bolt.loadingPhase() >= s.n"
-                [class.active]="bolt.loadingPhase() === s.n - 1"
-              ></span>
-            }
-          </div>
-          <div class="ed-footnote">First visit only — subsequent opens are instant.</div>
-        </div>
-      </div>
-    }
-  `,
   styles: [`
     :host { --ease-cinematic: cubic-bezier(0.4, 0, 0.2, 1); display: block; }
 
@@ -96,7 +49,18 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
       z-index: 2;
       overflow: hidden;
       background: #060610;
+      opacity: 1;
       animation: edFade 260ms var(--ease-cinematic);
+      /* Drives the fade-OUT: Angular's animate.leave adds .ed-veil--leaving when
+         the workspace is ready and holds the element in the DOM until this
+         transition settles, so the veil fades away (never a hard cut) and stops
+         intercepting clicks the instant it starts leaving. */
+      transition: opacity 420ms var(--ease-cinematic);
+    }
+    /* Fade out + go click-through the moment the veil begins leaving. */
+    .ed-veil--leaving {
+      opacity: 0;
+      pointer-events: none;
     }
     /* Slowly drifting aurora mesh — cinematic depth behind the card. */
     .ed-aurora {
@@ -191,6 +155,54 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
       .ed-ring { animation-duration: 4s; }
     }
   `],
+  template: `
+    <h1 class="sr-only">Site editor</h1>
+    @if (!state.selectedSite()) {
+      <div class="p-7 max-w-[820px] mx-auto space-y-6">
+        <app-onboarding-checklist />
+        <div class="empty-state-pretty">
+          <div class="empty-glyph">
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="1.4">
+              <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+            </svg>
+          </div>
+          <h3 class="glow-h-grad text-2xl font-semibold m-0">Welcome to your admin</h3>
+          <p class="text-[0.92rem] text-text-secondary max-w-[480px] mx-auto m-0 leading-relaxed">
+            Pick a site from the top-left selector to open it in the AI editor — or follow the checklist above to get fully set up in two minutes.
+          </p>
+          <div class="flex gap-2 justify-center mt-1">
+            <button class="btn-primary" (click)="state.newSite()">+ Create a new site</button>
+            <button class="btn-ghost" (click)="openPalette()">⌘K Quick find</button>
+          </div>
+        </div>
+      </div>
+    } @else if (!bolt.editorReady()) {
+      <div class="ed-veil" animate.leave="ed-veil--leaving" role="status" aria-live="polite" aria-busy="true">
+        <div class="ed-aurora" aria-hidden="true"></div>
+        <div class="ed-veil-card">
+          <div class="ed-mark" aria-hidden="true">
+            <span class="ed-ring"></span>
+            <span class="ed-core"></span>
+            <svg class="ed-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2 4.5 13.2a.6.6 0 0 0 .48.96H11l-1 7.84 8.5-11.2a.6.6 0 0 0-.48-.96H12l1-7.84Z"/>
+            </svg>
+          </div>
+          <div class="ed-headline">Booting your AI editor</div>
+          <div class="ed-sub">{{ bolt.loadingStage() }}<span class="ed-dots"><i></i><i></i><i></i></span></div>
+          <div class="ed-steps" aria-hidden="true">
+            @for (s of steps; track s.n) {
+              <span
+                class="ed-step"
+                [class.done]="bolt.loadingPhase() >= s.n"
+                [class.active]="bolt.loadingPhase() === s.n - 1"
+              ></span>
+            }
+          </div>
+          <div class="ed-footnote">First visit only — subsequent opens are instant.</div>
+        </div>
+      </div>
+    }
+  `,
 })
 export class AdminEditorComponent {
   state = inject(AdminStateService);
@@ -200,6 +212,6 @@ export class AdminEditorComponent {
   readonly steps = [{ n: 1 }, { n: 2 }, { n: 3 }] as const;
 
   openPalette(): void {
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'k', metaKey: true }));
   }
 }

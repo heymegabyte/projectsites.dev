@@ -247,6 +247,30 @@ app-admin router-outlet ~ * {
   }
 }
 
+// ── 4d. Editor iframe — graceful fade-in on a cached SECOND-visit open ─────────
+// The persistent bolt.diy iframe hides off-screen (1px) between visits and snaps
+// back to full size the next time /admin/editor opens. On a second visit it is
+// already booted, so that snap read as a "flash". Fade it in instead: it stays at
+// opacity 0 while it snaps to size + the cached editor re-layouts (the ~240ms
+// delay → no FOUC), THEN reveals smoothly. These live GLOBALLY (not in the
+// component-scoped `.bolt-frame` rule, which did not reliably land in the bundle);
+// `.bolt-frame.bolt-frame--visible` (two classes) carries the delayed reveal.
+.bolt-frame {
+  opacity: 0;
+  transition: opacity 260ms ease;
+}
+.bolt-frame.bolt-frame--visible {
+  opacity: 1;
+  transition: opacity 360ms ease 240ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bolt-frame,
+  .bolt-frame.bolt-frame--visible {
+    transition-duration: 1ms;
+    transition-delay: 0ms;
+  }
+}
+
 // Loading spinner — brand-accent conic gradient (replaces 2px border).
 .loading-spinner,
 .loading-spinner-sm {
