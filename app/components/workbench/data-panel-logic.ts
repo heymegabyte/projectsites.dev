@@ -1234,56 +1234,127 @@ export function filterIsActive(
 }
 
 /** The whole-table filter state of the browse grid: a text search + a single-column comparison filter. */
+/** The two combinators that join a multi-condition filter group — mirrors the worker's `FILTER_COMBINATORS`. */
+export const FILTER_COMBINATORS = ['AND', 'OR'] as const;
+export type FilterCombinator = (typeof FILTER_COMBINATORS)[number];
+
+/** Query-cost guard: at most this many conditions per browse (mirrors the worker's `MAX_FILTER_CONDITIONS`). */
+export const MAX_FILTER_CONDITIONS = 20;
+
+/** Normalize a raw combinator to `AND`/`OR`, defaulting blank/unknown to `AND`. Pure. */
+export function normalizeCombinator(raw: string | null | undefined): FilterCombinator {
+  const c = String(raw ?? '')
+    .trim()
+    .toUpperCase();
+  return (FILTER_COMBINATORS as readonly string[]).includes(c) ? (c as FilterCombinator) : 'AND';
+}
+
+/** One condition of the browse filter group: a column, a comparison operator, and a value. */
+export interface FilterCondition {
+  /** Filter column (a table column name), or null when this row has no column chosen yet. */
+  col: string | null;
+
+  /** Comparison operator (see {@link FilterOp}); blank/unknown → `eq`. */
+  op: string;
+
+  /** Value. Applied for value-ops when non-empty; ignored for the value-free `null`/`notnull`. */
+  val: string;
+}
+
+/** A fresh, empty filter condition (column not yet chosen, default `eq` operator). */
+export function blankCondition(): FilterCondition {
+  return { col: null, op: 'eq', val: '' };
+}
+
+/** Append a fresh condition (capped at {@link MAX_FILTER_CONDITIONS}). Pure — returns a new array. */
+export function addCondition(conditions: readonly FilterCondition[]): FilterCondition[] {
+  if (conditions.length >= MAX_FILTER_CONDITIONS) {
+    return [...conditions];
+  }
+
+  return [...conditions, blankCondition()];
+}
+
+/** Remove the condition at {@link index}. Pure — returns a new array. */
+export function removeCondition(conditions: readonly FilterCondition[], index: number): FilterCondition[] {
+  return conditions.filter((_, i) => i !== index);
+}
+
+/** Patch the condition at {@link index} (col/op/val). Pure — returns a new array. */
+export function updateCondition(
+  conditions: readonly FilterCondition[],
+  index: number,
+  patch: Partial<FilterCondition>,
+): FilterCondition[] {
+  return conditions.map((c, i) => (i === index ? { ...c, ...patch } : c));
+}
+
+/**
+ * The subset of conditions that will ACTUALLY filter — a column is chosen AND (the op is value-free OR
+ * the value is non-empty), per {@link filterIsActive} — bounded to {@link MAX_FILTER_CONDITIONS}. Pure.
+ */
+export function activeConditions(conditions: readonly FilterCondition[]): FilterCondition[] {
+  return conditions.filter((c) => filterIsActive(c.col, c.op, c.val)).slice(0, MAX_FILTER_CONDITIONS);
+}
+
+/** Whether the filter group has at least one condition that would actually filter. Pure. */
+export function filterGroupIsActive(conditions: readonly FilterCondition[]): boolean {
+  return conditions.some((c) => filterIsActive(c.col, c.op, c.val));
+}
+
+/** The whole-table filter state of the browse grid: a text search + a multi-condition AND/OR group. */
 export interface BrowseFilters {
   /** Whole-table OR-of-LIKE needle (see {@link browseSearchParam}). */
   search: string;
 
-  /** Filter column (a table column name), or null when no column filter is active. */
-  filterCol: string | null;
+  /** The AND/OR group of column conditions (0..{@link MAX_FILTER_CONDITIONS}). */
+  conditions: FilterCondition[];
 
-  /** Filter value. Applied for value-ops when non-empty; ignored for the value-free `null`/`notnull`. */
-  filterVal: string;
-
-  /** Comparison operator (see {@link FilterOp}); blank/unknown/absent → `eq`. */
-  filterOp?: string;
+  /** How the {@link conditions} are joined — `AND` | `OR` (default `AND`). */
+  combinator: FilterCombinator;
 }
 
 /**
  * Map the browse {@link BrowseFilters} to the `PS_DATA_REQUEST` filter params. `search` is trimmed +
- * omitted when blank. A column filter is sent only when {@link filterIsActive} — a column is chosen AND
- * (the op is value-free OR the value is non-empty), matching the worker's `buildColumnFilter`. The
- * default `eq` op is OMITTED (the worker defaults to it) so existing exact-match requests serialize
- * byte-identically; value-free ops (`null`/`notnull`) send NO `filterVal`. The WORKER allowlist-validates
- * `filterCol`, maps the op to a fixed clause, and parameterizes the value — nothing is escaped here. Pure.
+ * omitted when blank. The column filter is serialized as a `filters` JSON array of `{col,op,val}` — ONE
+ * source for one-or-many conditions — containing only the {@link activeConditions} (column chosen AND
+ * (value-free op OR non-empty value), matching the worker's `buildColumnFilters`). Each leaf's op is
+ * normalized; value-free ops (`null`/`notnull`) carry an empty `val`. `filterCombinator` is sent only
+ * when it matters (>1 condition AND not the default `AND`). The WORKER re-validates every column against
+ * the allowlist, maps each op to a fixed clause, bounds the count, and parameterizes values — nothing is
+ * escaped here. Pure.
  *
- * @example filtersToParams({ search: 'ada', filterCol: 'status', filterVal: 'active' })
- *   // { search: 'ada', filterCol: 'status', filterVal: 'active' }   (eq default omitted)
- * @example filtersToParams({ search: '', filterCol: 'status', filterVal: '', filterOp: 'notnull' })
- *   // { filterCol: 'status', filterOp: 'notnull' }                  (value-free → no filterVal)
- * @example filtersToParams({ search: '', filterCol: 'status', filterVal: '' }) // {}  (blank value → no filter)
+ * @example filtersToParams({ search: 'ada', conditions: [{col:'status',op:'eq',val:'active'}], combinator: 'AND' })
+ *   // { search: 'ada', filters: '[{"col":"status","op":"eq","val":"active"}]' }
+ * @example filtersToParams({ search: '', conditions: [{col:'a',op:'gt',val:'1'},{col:'b',op:'null',val:''}], combinator: 'OR' })
+ *   // { filters: '[{"col":"a","op":"gt","val":"1"},{"col":"b","op":"null","val":""}]', filterCombinator: 'OR' }
+ * @example filtersToParams({ search: '', conditions: [{col:'status',op:'eq',val:''}], combinator: 'AND' }) // {} (blank → no filter)
  */
 export function filtersToParams(f: BrowseFilters): {
   search?: string;
-  filterCol?: string;
-  filterVal?: string;
-  filterOp?: string;
+  filters?: string;
+  filterCombinator?: string;
 } {
-  const out: { search?: string; filterCol?: string; filterVal?: string; filterOp?: string } = {
+  const out: { search?: string; filters?: string; filterCombinator?: string } = {
     ...browseSearchParam(f.search),
   };
-  const col = (f.filterCol ?? '').trim();
-  const op = normalizeFilterOp(f.filterOp);
-  const val = (f.filterVal ?? '').trim();
+  const active = activeConditions(f.conditions ?? []);
 
-  if (filterIsActive(col, op, val)) {
-    out.filterCol = col;
+  if (active.length > 0) {
+    const payload = active.map((c) => {
+      const op = normalizeFilterOp(c.op);
+      return {
+        col: (c.col ?? '').trim(),
+        op,
+        val: filterOpIsValueFree(op) ? '' : (c.val ?? '').trim(),
+      };
+    });
+    out.filters = JSON.stringify(payload);
 
-    if (op !== 'eq') {
-      out.filterOp = op;
-    }
+    const combinator = normalizeCombinator(f.combinator);
 
-    if (!filterOpIsValueFree(op)) {
-      out.filterVal = val;
+    if (payload.length > 1 && combinator !== 'AND') {
+      out.filterCombinator = combinator;
     }
   }
 

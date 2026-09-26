@@ -377,46 +377,148 @@ function normalizeFilterOp(raw: string | undefined | null): FilterOp {
   return (FILTER_OPS as readonly string[]).includes(op) ? (op as FilterOp) : 'eq';
 }
 
+/**
+ * The bare SQL predicate for ONE filter condition (e.g. `"col" = ?`, `"col" IS NULL`) with NO leading
+ * `AND` — or `''` when the condition is inactive (column not allowlisted, or a value-op with no value).
+ * This is the shared leaf used by both the single-column {@link buildColumnFilter} and the multi-condition
+ * {@link buildColumnFilters}. Injection-safe: the column MUST be in the allowlist (the boundary), the
+ * comparator comes from a fixed switch (never user text), and every value is a bound `?` param.
+ */
+function buildFilterLeaf(
+  columns: readonly string[],
+  rawCol: string | undefined | null,
+  rawVal: string | undefined | null,
+  rawOp?: string | undefined | null,
+): { pred: string; params: string[] } {
+  const col = String(rawCol ?? '').trim();
+  if (!col || !columns.includes(col)) return { pred: '', params: [] };
+  const op = normalizeFilterOp(rawOp);
+
+  // Value-free operators — never look at rawVal.
+  if (op === 'null') return { pred: `"${col}" IS NULL`, params: [] };
+  if (op === 'notnull') return { pred: `"${col}" IS NOT NULL`, params: [] };
+
+  const val = String(rawVal ?? '').trim().slice(0, 200);
+  if (!val) return { pred: '', params: [] };
+
+  if (op === 'contains') {
+    // Strip LIKE wildcards from the needle (matching buildDataSearch) → a literal substring match.
+    const needle = val.replace(/[%_]/g, '');
+    if (!needle) return { pred: '', params: [] };
+    return { pred: `"${col}" LIKE ?`, params: [`%${needle}%`] };
+  }
+
+  // Comparison operators — the comparator string comes from a fixed switch, never from user text.
+  switch (op) {
+    case 'ne':
+      return { pred: `"${col}" != ?`, params: [val] };
+    case 'gt':
+      return { pred: `"${col}" > ?`, params: [val] };
+    case 'lt':
+      return { pred: `"${col}" < ?`, params: [val] };
+    case 'gte':
+      return { pred: `"${col}" >= ?`, params: [val] };
+    case 'lte':
+      return { pred: `"${col}" <= ?`, params: [val] };
+    case 'eq':
+    default:
+      return { pred: `"${col}" = ?`, params: [val] };
+  }
+}
+
 export function buildColumnFilter(
   columns: readonly string[],
   rawCol: string | undefined | null,
   rawVal: string | undefined | null,
   rawOp?: string | undefined | null,
 ): { clause: string; params: string[] } {
-  const col = String(rawCol ?? '').trim();
-  if (!col || !columns.includes(col)) return { clause: '', params: [] };
-  const op = normalizeFilterOp(rawOp);
+  const { pred, params } = buildFilterLeaf(columns, rawCol, rawVal, rawOp);
+  return pred ? { clause: ` AND ${pred}`, params } : { clause: '', params: [] };
+}
 
-  // Value-free operators — never look at rawVal.
-  if (op === 'null') return { clause: ` AND "${col}" IS NULL`, params: [] };
-  if (op === 'notnull') return { clause: ` AND "${col}" IS NOT NULL`, params: [] };
+/** The two combinators that join a multi-condition filter group. Chosen by KEY — never user text. */
+export const FILTER_COMBINATORS = ['AND', 'OR'] as const;
+export type FilterCombinator = (typeof FILTER_COMBINATORS)[number];
 
-  const val = String(rawVal ?? '').trim().slice(0, 200);
-  if (!val) return { clause: '', params: [] };
+/** Map a raw `?filterCombinator=` string to a whitelisted {@link FilterCombinator}; unknown/absent → `AND`. */
+function normalizeCombinator(raw: string | undefined | null): FilterCombinator {
+  const c = String(raw ?? '')
+    .trim()
+    .toUpperCase();
+  return (FILTER_COMBINATORS as readonly string[]).includes(c) ? (c as FilterCombinator) : 'AND';
+}
 
-  if (op === 'contains') {
-    // Strip LIKE wildcards from the needle (matching buildDataSearch) → a literal substring match.
-    const needle = val.replace(/[%_]/g, '');
-    if (!needle) return { clause: '', params: [] };
-    return { clause: ` AND "${col}" LIKE ?`, params: [`%${needle}%`] };
+/** Query-cost guard: at most this many conditions per browse (the grid UI caps the builder to match). */
+export const MAX_FILTER_CONDITIONS = 20;
+
+/** One condition of a multi-condition filter group. */
+export interface FilterConditionInput {
+  col?: string | null;
+  val?: string | null;
+  op?: string | null;
+}
+
+/**
+ * Compile a flat list of filter conditions into ONE parameterized clause joined by a single
+ * `combinator` (`(a AND b AND c)` or `(a OR b OR c)`), ANDed onto the base `WHERE site_id = ?` — so
+ * `total` still reflects the filtered set. Inactive conditions (bad column / value-op with no value)
+ * are dropped; an all-inactive / empty list yields no clause. A single active condition emits no
+ * needless parens. Bounded to {@link MAX_FILTER_CONDITIONS}. Every leaf goes through
+ * {@link buildFilterLeaf} (allowlist + fixed comparator + bound params) so it is injection-safe.
+ *
+ * @example buildColumnFilters(['a','b'], [{col:'a',op:'gt',val:'1'},{col:'b',op:'null'}], 'OR')
+ *   // { clause: ' AND ("a" > ? OR "b" IS NULL)', params: ['1'] }
+ */
+export function buildColumnFilters(
+  columns: readonly string[],
+  conditions: ReadonlyArray<FilterConditionInput> | null | undefined,
+  rawCombinator?: string | undefined | null,
+): { clause: string; params: string[] } {
+  if (!Array.isArray(conditions) || conditions.length === 0) return { clause: '', params: [] };
+  const combinator = normalizeCombinator(rawCombinator);
+  const preds: string[] = [];
+  const params: string[] = [];
+  for (const cond of conditions.slice(0, MAX_FILTER_CONDITIONS)) {
+    const leaf = buildFilterLeaf(columns, cond?.col, cond?.val, cond?.op);
+    if (leaf.pred) {
+      preds.push(leaf.pred);
+      params.push(...leaf.params);
+    }
   }
+  if (preds.length === 0) return { clause: '', params: [] };
+  if (preds.length === 1) return { clause: ` AND ${preds[0]}`, params };
+  return { clause: ` AND (${preds.join(` ${combinator} `)})`, params };
+}
 
-  // Comparison operators — the comparator string comes from a fixed switch, never from user text.
-  switch (op) {
-    case 'ne':
-      return { clause: ` AND "${col}" != ?`, params: [val] };
-    case 'gt':
-      return { clause: ` AND "${col}" > ?`, params: [val] };
-    case 'lt':
-      return { clause: ` AND "${col}" < ?`, params: [val] };
-    case 'gte':
-      return { clause: ` AND "${col}" >= ?`, params: [val] };
-    case 'lte':
-      return { clause: ` AND "${col}" <= ?`, params: [val] };
-    case 'eq':
-    default:
-      return { clause: ` AND "${col}" = ?`, params: [val] };
+/**
+ * Parse the `?filters=` JSON query param into a bounded, shape-validated condition array. NEVER throws
+ * (a malformed value yields `[]` → no filter). Only string `col`/`val`/`op` are kept; everything else is
+ * coerced away. The server re-validates each `col` against the table allowlist + each `op` against the
+ * operator whitelist downstream (this is shape-hardening, not authorization).
+ */
+export function parseFilterConditions(
+  raw: string | undefined | null,
+): Array<{ col: string; val: string; op: string }> {
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
   }
+  if (!Array.isArray(parsed)) return [];
+  const out: Array<{ col: string; val: string; op: string }> = [];
+  for (const item of parsed.slice(0, MAX_FILTER_CONDITIONS)) {
+    if (item && typeof item === 'object') {
+      const rec = item as Record<string, unknown>;
+      out.push({
+        col: typeof rec.col === 'string' ? rec.col : '',
+        val: typeof rec.val === 'string' ? rec.val : '',
+        op: typeof rec.op === 'string' ? rec.op : 'eq',
+      });
+    }
+  }
+  return out;
 }
 
 /**
@@ -680,12 +782,20 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
   // AND count queries so `total` reflects the filtered set. Columns are allowlist-
   // validated (the injection boundary); values are parameterized + bounded.
   const { clause: searchClause, params: searchParams } = buildDataSearch(spec.columns, c.req.query('search'));
-  const { clause: filterClause, params: filterParams } = buildColumnFilter(
-    spec.columns,
-    c.req.query('filterCol'),
-    c.req.query('filterVal'),
-    c.req.query('filterOp'),
-  );
+  // Column filter: the multi-condition builder (`?filters=` JSON + `?filterCombinator=`) takes
+  // precedence; otherwise fall back to the single-column `?filterCol/Op/Val` (backward-compatible so an
+  // older Editor bundle keeps working during the deploy window). Both paths share the same
+  // allowlist-validated, parameterized leaf logic.
+  const parsedConditions = parseFilterConditions(c.req.query('filters'));
+  const { clause: filterClause, params: filterParams } =
+    parsedConditions.length > 0
+      ? buildColumnFilters(spec.columns, parsedConditions, c.req.query('filterCombinator'))
+      : buildColumnFilter(
+          spec.columns,
+          c.req.query('filterCol'),
+          c.req.query('filterVal'),
+          c.req.query('filterOp'),
+        );
   const extraClause = `${searchClause}${filterClause}`;
   const extraParams = [...searchParams, ...filterParams];
   const withSearch = (sql: string): string =>

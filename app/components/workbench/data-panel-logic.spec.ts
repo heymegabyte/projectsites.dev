@@ -32,6 +32,16 @@ import {
   FILTER_OPS,
   FILTER_OP_OPTIONS,
   FILTER_VALUE_FREE_OPS,
+  normalizeCombinator,
+  FILTER_COMBINATORS,
+  MAX_FILTER_CONDITIONS,
+  blankCondition,
+  addCondition,
+  removeCondition,
+  updateCondition,
+  activeConditions,
+  filterGroupIsActive,
+  type FilterCondition,
   clampPageSize,
   PAGE_SIZE_OPTIONS,
   insertableColumns,
@@ -828,83 +838,128 @@ describe('browseSearchParam (search box → server-search request param)', () =>
   });
 });
 
-describe('filtersToParams (search + exact-column filter → request params)', () => {
-  it('sends search + filterCol + filterVal together when all present', () => {
-    expect(filtersToParams({ search: 'ada', filterCol: 'status', filterVal: 'active' })).toEqual({
-      search: 'ada',
-      filterCol: 'status',
-      filterVal: 'active',
+describe('filtersToParams (search + AND/OR condition group → request params)', () => {
+  const cond = (col: string | null, op: string, val: string): FilterCondition => ({ col, op, val });
+
+  it('serializes ONE active condition as a filters JSON array (no combinator for a single condition)', () => {
+    expect(filtersToParams({ search: 'ada', conditions: [cond('status', 'eq', 'active')], combinator: 'AND' })).toEqual(
+      {
+        search: 'ada',
+        filters: '[{"col":"status","op":"eq","val":"active"}]',
+      },
+    );
+  });
+
+  it('sends search alone when no condition is active', () => {
+    expect(filtersToParams({ search: 'x', conditions: [], combinator: 'AND' })).toEqual({ search: 'x' });
+    expect(filtersToParams({ search: 'x', conditions: [cond(null, 'eq', 'v')], combinator: 'AND' })).toEqual({
+      search: 'x',
     });
   });
 
-  it('sends only what is set (search alone / filter alone)', () => {
-    expect(filtersToParams({ search: 'x', filterCol: null, filterVal: '' })).toEqual({ search: 'x' });
-    expect(filtersToParams({ search: '', filterCol: 'status', filterVal: 'active' })).toEqual({
-      filterCol: 'status',
-      filterVal: 'active',
+  it('joins multiple active conditions and only sends filterCombinator when >1 AND not the default AND', () => {
+    // two conditions, OR → combinator sent
+    expect(
+      filtersToParams({
+        search: '',
+        conditions: [cond('a', 'gt', '1'), cond('b', 'null', '')],
+        combinator: 'OR',
+      }),
+    ).toEqual({
+      filters: '[{"col":"a","op":"gt","val":"1"},{"col":"b","op":"null","val":""}]',
+      filterCombinator: 'OR',
     });
+
+    // two conditions, AND (default) → combinator OMITTED
+    expect(
+      filtersToParams({
+        search: '',
+        conditions: [cond('a', 'eq', '1'), cond('b', 'eq', '2')],
+        combinator: 'AND',
+      }),
+    ).not.toHaveProperty('filterCombinator');
   });
 
-  it('omits the column filter when the value is blank (matches the worker) or no column chosen', () => {
-    // column chosen but blank value → no filter (the worker ignores a blank value)
-    expect(filtersToParams({ search: '', filterCol: 'status', filterVal: '   ' })).toEqual({});
-
-    // value but no column → no filter
-    expect(filtersToParams({ search: '', filterCol: null, filterVal: 'active' })).toEqual({});
+  it('drops inactive conditions (no column / value-op with blank value) and trims values', () => {
+    expect(
+      filtersToParams({
+        search: '',
+        conditions: [cond(null, 'eq', 'x'), cond('age', 'gt', '  '), cond('name', 'contains', '  ada ')],
+        combinator: 'AND',
+      }),
+    ).toEqual({ filters: '[{"col":"name","op":"contains","val":"ada"}]' });
   });
 
-  it('trims search + filter value', () => {
-    expect(filtersToParams({ search: '  a ', filterCol: 'c', filterVal: '  v ' })).toEqual({
-      search: 'a',
-      filterCol: 'c',
-      filterVal: 'v',
-    });
+  it('value-free ops (null/notnull) serialize with an empty val even if a value lingers', () => {
+    expect(
+      filtersToParams({ search: '', conditions: [cond('deleted_at', 'notnull', 'stale')], combinator: 'AND' }),
+    ).toEqual({ filters: '[{"col":"deleted_at","op":"notnull","val":""}]' });
   });
 
-  it('OMITS the default `eq` op so existing exact-match requests serialize byte-identically', () => {
-    // explicit eq and absent op both produce NO filterOp key (the worker defaults to eq)
-    expect(filtersToParams({ search: '', filterCol: 'status', filterVal: 'active', filterOp: 'eq' })).toEqual({
-      filterCol: 'status',
-      filterVal: 'active',
-    });
-    expect(filtersToParams({ search: '', filterCol: 'status', filterVal: 'active' })).not.toHaveProperty('filterOp');
+  it('normalizes an unknown op to eq in the serialized leaf', () => {
+    expect(filtersToParams({ search: '', conditions: [cond('status', 'bogus', 'active')], combinator: 'AND' })).toEqual(
+      { filters: '[{"col":"status","op":"eq","val":"active"}]' },
+    );
   });
 
-  it('forwards a non-default value-op as filterCol + filterOp + filterVal', () => {
-    expect(filtersToParams({ search: '', filterCol: 'age', filterVal: '18', filterOp: 'gte' })).toEqual({
-      filterCol: 'age',
-      filterOp: 'gte',
-      filterVal: '18',
-    });
-    expect(filtersToParams({ search: '', filterCol: 'name', filterVal: 'ada', filterOp: 'contains' })).toEqual({
-      filterCol: 'name',
-      filterOp: 'contains',
-      filterVal: 'ada',
-    });
+  it('caps the serialized group at MAX_FILTER_CONDITIONS', () => {
+    const many = Array.from({ length: MAX_FILTER_CONDITIONS + 5 }, () => cond('status', 'eq', 'x'));
+    const parsed = JSON.parse(filtersToParams({ search: '', conditions: many, combinator: 'AND' }).filters!);
+    expect(parsed.length).toBe(MAX_FILTER_CONDITIONS);
+  });
+});
+
+describe('condition-group helpers (pure array editors for the filter builder)', () => {
+  const c = (col: string | null, op: string, val: string): FilterCondition => ({ col, op, val });
+
+  it('blankCondition is an empty eq row', () => {
+    expect(blankCondition()).toEqual({ col: null, op: 'eq', val: '' });
   });
 
-  it('value-free ops (null/notnull) send filterCol + filterOp and NO filterVal (even if a value lingers)', () => {
-    expect(filtersToParams({ search: '', filterCol: 'deleted_at', filterVal: '', filterOp: 'null' })).toEqual({
-      filterCol: 'deleted_at',
-      filterOp: 'null',
-    });
+  it('addCondition appends a blank row, capped at MAX_FILTER_CONDITIONS', () => {
+    expect(addCondition([]).length).toBe(1);
+    expect(addCondition([c('a', 'eq', '1')])).toEqual([c('a', 'eq', '1'), blankCondition()]);
 
-    // a stale value in the box is ignored for a value-free op
-    expect(filtersToParams({ search: '', filterCol: 'deleted_at', filterVal: 'x', filterOp: 'notnull' })).toEqual({
-      filterCol: 'deleted_at',
-      filterOp: 'notnull',
-    });
+    const full = Array.from({ length: MAX_FILTER_CONDITIONS }, () => blankCondition());
+    expect(addCondition(full).length).toBe(MAX_FILTER_CONDITIONS); // no growth past the cap
   });
 
-  it('a value-requiring op with a blank value sends no filter (only null/notnull are value-free)', () => {
-    expect(filtersToParams({ search: '', filterCol: 'age', filterVal: '  ', filterOp: 'gt' })).toEqual({});
+  it('removeCondition drops the row at the index (returns a new array)', () => {
+    const arr = [c('a', 'eq', '1'), c('b', 'gt', '2'), c('c', 'lt', '3')];
+    expect(removeCondition(arr, 1)).toEqual([c('a', 'eq', '1'), c('c', 'lt', '3')]);
+    expect(arr.length).toBe(3); // original untouched
   });
 
-  it('an unknown op falls back to eq (value still required)', () => {
-    expect(filtersToParams({ search: '', filterCol: 'status', filterVal: 'active', filterOp: 'bogus' })).toEqual({
-      filterCol: 'status',
-      filterVal: 'active', // eq → no filterOp key
-    });
+  it('updateCondition patches only the target row', () => {
+    const arr = [c('a', 'eq', '1'), c('b', 'eq', '2')];
+    expect(updateCondition(arr, 0, { op: 'gt', val: '9' })).toEqual([c('a', 'gt', '9'), c('b', 'eq', '2')]);
+    expect(updateCondition(arr, 1, { col: 'z' })).toEqual([c('a', 'eq', '1'), c('z', 'eq', '2')]);
+  });
+
+  it('activeConditions keeps only the ones that would filter, bounded', () => {
+    expect(activeConditions([c(null, 'eq', 'x'), c('a', 'eq', ''), c('b', 'null', ''), c('d', 'gt', '5')])).toEqual([
+      c('b', 'null', ''),
+      c('d', 'gt', '5'),
+    ]);
+  });
+
+  it('filterGroupIsActive is true iff at least one condition would filter', () => {
+    expect(filterGroupIsActive([])).toBe(false);
+    expect(filterGroupIsActive([c('a', 'eq', '')])).toBe(false);
+    expect(filterGroupIsActive([c('a', 'eq', ''), c('b', 'notnull', '')])).toBe(true);
+  });
+});
+
+describe('normalizeCombinator (raw → AND/OR, default AND)', () => {
+  it('passes AND/OR (case-insensitive) and defaults everything else to AND', () => {
+    for (const k of FILTER_COMBINATORS) {
+      expect(normalizeCombinator(k)).toBe(k);
+    }
+    expect(normalizeCombinator('or')).toBe('OR');
+    expect(normalizeCombinator('  And ')).toBe('AND');
+    expect(normalizeCombinator('xor')).toBe('AND');
+    expect(normalizeCombinator('')).toBe('AND');
+    expect(normalizeCombinator(undefined)).toBe('AND');
   });
 });
 

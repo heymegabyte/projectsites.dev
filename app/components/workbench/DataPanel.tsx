@@ -84,11 +84,18 @@ import {
   type CellInputKind,
   type BoundValue,
   type BrowseFilters,
-  type FilterOp,
+  type FilterCondition,
+  type FilterCombinator,
   FILTER_OP_OPTIONS,
+  FILTER_COMBINATORS,
+  MAX_FILTER_CONDITIONS,
   filterOpIsValueFree,
-  filterIsActive,
   normalizeFilterOp,
+  normalizeCombinator,
+  addCondition,
+  removeCondition,
+  updateCondition,
+  activeConditions,
 } from './data-panel-logic';
 import { SqlEditor } from './SqlEditor';
 import { classNames } from '~/utils/classNames';
@@ -317,13 +324,13 @@ export const DataPanel = memo(() => {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
-   * Single-column comparison filter (worker `filterCol`/`filterOp`/`filterVal`) — composes with search +
-   * sort. `filterCol` null → no column filter; a value-op filter APPLIES only when a value is present,
-   * while the value-free `null`/`notnull` ops apply on the column alone (see {@link filterIsActive}).
+   * Multi-condition column filter (worker `filters` JSON + `filterCombinator`) — an AND/OR group of
+   * `{col,op,val}` conditions. Empty → no column filter; each condition APPLIES only when its column is
+   * chosen AND (its op is value-free OR its value is non-empty) (see {@link activeConditions}). Composes
+   * with search + sort.
    */
-  const [filterCol, setFilterCol] = useState<string | null>(null);
-  const [filterVal, setFilterVal] = useState('');
-  const [filterOp, setFilterOp] = useState<FilterOp>('eq');
+  const [filterConditions, setFilterConditions] = useState<FilterCondition[]>([]);
+  const [filterCombinator, setFilterCombinator] = useState<FilterCombinator>('AND');
 
   /** Debounce timer for the exact-column filter value input. */
   const filterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -595,9 +602,8 @@ export const DataPanel = memo(() => {
       setBrowseColTypes({});
       setBrowseOffset(0); // a fresh table opens at the first page
       setBrowseTotal(null); // until the first page lands, pageInfo falls back to the overview count
-      setFilterCol(null); // clear the prior table's column filter
-      setFilterVal('');
-      setFilterOp('eq'); // reset the operator to the default exact-match
+      setFilterConditions([]); // clear the prior table's column filter group
+      setFilterCombinator('AND'); // reset the join to the default
 
       if (searchTimer.current) {
         clearTimeout(searchTimer.current);
@@ -609,7 +615,7 @@ export const DataPanel = memo(() => {
 
       setSelectedKeys(new Set()); // never carry a bulk selection across a table switch / re-fetch
 
-      requestRows(key, 0, null, { search: '', filterCol: null, filterVal: '', filterOp: 'eq' }, true); // fresh: page 0, count
+      requestRows(key, 0, null, { search: '', conditions: [], combinator: 'AND' }, true); // fresh: page 0, count
 
       /*
        * Super-admins get row DELETE — resolve the PK via PRAGMA table_info on its OWN correlation id
@@ -654,9 +660,15 @@ export const DataPanel = memo(() => {
       setSelectedKeys(new Set());
 
       // Page-nav: keep sort+search+filter, and SKIP the count (the total is unchanged → reuse cache).
-      requestRows(active, nextOffset, browseSort, { search, filterCol, filterVal, filterOp }, false);
+      requestRows(
+        active,
+        nextOffset,
+        browseSort,
+        { search, conditions: filterConditions, combinator: filterCombinator },
+        false,
+      );
     },
-    [active, browseSort, search, filterCol, filterVal, filterOp, requestRows],
+    [active, browseSort, search, filterConditions, filterCombinator, requestRows],
   );
 
   /*
@@ -1302,11 +1314,25 @@ export const DataPanel = memo(() => {
   const activeTable = tables.find((t) => t.key === active) ?? null;
 
   /*
-   * The human label for the current filter operator (=, ≠, contains, is null, …) + whether a column
-   * filter is actually applied — shared by the "· where …" note and the filter control's a11y text.
+   * The conditions that actually filter (the summary count/label in the "· where …" note reflects the
+   * WHOLE-TABLE filtered set the worker applies), and a one-line human summary of the group.
    */
-  const filterOpLabel = FILTER_OP_OPTIONS.find((o) => o.value === filterOp)?.label ?? '=';
-  const filterApplied = filterIsActive(filterCol, filterOp, filterVal);
+  const activeFilterConds = activeConditions(filterConditions);
+  const filterApplied = activeFilterConds.length > 0;
+  const filterSummary = ((): string => {
+    if (activeFilterConds.length === 0) {
+      return '';
+    }
+
+    if (activeFilterConds.length === 1) {
+      const c = activeFilterConds[0];
+      const label = FILTER_OP_OPTIONS.find((o) => o.value === normalizeFilterOp(c.op))?.label ?? '=';
+
+      return filterOpIsValueFree(c.op) ? `where ${c.col} ${label}` : `where ${c.col} ${label} “${c.val.trim()}”`;
+    }
+
+    return `${activeFilterConds.length} filters (${filterCombinator})`;
+  })();
 
   /*
    * Schema-aware SQL completion feed — REAL table + column identifiers from the inspected schema
@@ -1393,10 +1419,10 @@ export const DataPanel = memo(() => {
         setSelectedKeys(new Set());
 
         // Sort change: keep search+filter, SKIP the count (sorting doesn't change the total).
-        requestRows(active, 0, next, { search, filterCol, filterVal, filterOp }, false);
+        requestRows(active, 0, next, { search, conditions: filterConditions, combinator: filterCombinator }, false);
       }
     },
-    [browseSort, active, search, filterCol, filterVal, filterOp, requestRows],
+    [browseSort, active, search, filterConditions, filterCombinator, requestRows],
   );
 
   /**
@@ -1416,9 +1442,15 @@ export const DataPanel = memo(() => {
       setBrowseError('');
       setDetailIdx(null);
       setSelectedKeys(new Set());
-      requestRows(active, 0, browseSort, { search: value, filterCol, filterVal, filterOp }, true); // search → re-count
+      requestRows(
+        active,
+        0,
+        browseSort,
+        { search: value, conditions: filterConditions, combinator: filterCombinator },
+        true,
+      ); // search → re-count
     },
-    [active, browseSort, filterCol, filterVal, filterOp, requestRows],
+    [active, browseSort, filterConditions, filterCombinator, requestRows],
   );
 
   /** Search-box change: update the input immediately, debounce the whole-table server search. */
@@ -1437,13 +1469,14 @@ export const DataPanel = memo(() => {
   );
 
   /**
-   * Run the single-column comparison filter (worker `filterCol`/`filterOp`/`filterVal`) → reset to
-   * page 0 in the current sort + search and re-fetch. `filtersToParams` drops an inactive filter (a
-   * value-op with no value), and the value-free `null`/`notnull` ops apply on the column alone. The
-   * worker allowlist-validates the column, maps the op to a fixed clause, and parameterizes the value.
+   * Re-run the browse with a specific filter group → reset to page 0 in the current sort + search and
+   * re-fetch (re-count). `filtersToParams` serializes only the ACTIVE conditions and joins them by
+   * `combinator`; the worker re-validates every column against the allowlist, maps each op to a fixed
+   * clause, bounds the count, and parameterizes all values. Callers pass the NEXT group explicitly
+   * (computed from the latest state) so a re-fetch never races React's async setState.
    */
-  const runServerFilter = useCallback(
-    (col: string | null, op: FilterOp, val: string): void => {
+  const runFilterGroup = useCallback(
+    (conditions: FilterCondition[], combinator: FilterCombinator): void => {
       if (!active) {
         return;
       }
@@ -1454,81 +1487,113 @@ export const DataPanel = memo(() => {
       setBrowseError('');
       setDetailIdx(null);
       setSelectedKeys(new Set());
-      requestRows(active, 0, browseSort, { search, filterCol: col, filterVal: val, filterOp: op }, true); // filter → re-count
+      requestRows(active, 0, browseSort, { search, conditions, combinator }, true); // filter → re-count
     },
     [active, browseSort, search, requestRows],
   );
 
-  /** Filter-column select: choosing a column re-applies when it would filter; clearing it drops the filter. */
-  const onFilterColChange = useCallback(
-    (col: string): void => {
-      const next = col || null;
-      setFilterCol(next);
+  /** Add a fresh (empty) condition row — no fetch (a blank row filters nothing yet). */
+  const addFilterCondition = useCallback((): void => {
+    setFilterConditions((prev) => addCondition(prev));
+  }, []);
+
+  /** Remove the condition at `index` and re-fetch (dropping a condition can change the result set). */
+  const removeFilterCondition = useCallback(
+    (index: number): void => {
+      setDetailIdx(null);
 
       if (filterTimer.current) {
         clearTimeout(filterTimer.current);
       }
 
-      if (!next) {
-        setFilterVal('');
-        setFilterOp('eq'); // cleared column → back to the default operator
-        runServerFilter(null, 'eq', ''); // column cleared → drop the filter
-      } else if (filterIsActive(next, filterOp, filterVal)) {
-        // switched column while the filter would apply (value present, or a value-free op) → re-apply
-        runServerFilter(next, filterOp, filterVal);
-      }
+      const next = removeCondition(filterConditions, index);
+      setFilterConditions(next);
+      runFilterGroup(next, filterCombinator);
     },
-    [filterVal, filterOp, runServerFilter],
+    [filterConditions, filterCombinator, runFilterGroup],
   );
 
-  /** Filter-operator select: value-free ops apply instantly; value-ops re-run with the current value (or drop it if blank). */
-  const onFilterOpChange = useCallback(
+  /** Condition column select: set (or clear) the row's column and re-apply immediately (a discrete change). */
+  const onConditionColChange = useCallback(
+    (index: number, col: string): void => {
+      setDetailIdx(null);
+
+      if (filterTimer.current) {
+        clearTimeout(filterTimer.current);
+      }
+
+      const next = updateCondition(filterConditions, index, { col: col || null });
+      setFilterConditions(next);
+      runFilterGroup(next, filterCombinator);
+    },
+    [filterConditions, filterCombinator, runFilterGroup],
+  );
+
+  /** Condition operator select: value-free ops apply instantly; value-ops re-run with the current value. */
+  const onConditionOpChange = useCallback(
+    (index: number, rawOp: string): void => {
+      setDetailIdx(null);
+
+      if (filterTimer.current) {
+        clearTimeout(filterTimer.current);
+      }
+
+      const op = normalizeFilterOp(rawOp);
+
+      // clear the value when switching to a value-free op so a stale value can't linger in state
+      const patch = filterOpIsValueFree(op) ? { op, val: '' } : { op };
+      const next = updateCondition(filterConditions, index, patch);
+      setFilterConditions(next);
+      runFilterGroup(next, filterCombinator);
+    },
+    [filterConditions, filterCombinator, runFilterGroup],
+  );
+
+  /** Condition value input: update immediately, debounce the re-fetch. */
+  const onConditionValChange = useCallback(
+    (index: number, val: string): void => {
+      setDetailIdx(null);
+
+      const next = updateCondition(filterConditions, index, { val });
+      setFilterConditions(next);
+
+      if (filterTimer.current) {
+        clearTimeout(filterTimer.current);
+      }
+
+      filterTimer.current = setTimeout(() => runFilterGroup(next, filterCombinator), SEARCH_DEBOUNCE_MS);
+    },
+    [filterConditions, filterCombinator, runFilterGroup],
+  );
+
+  /** Combinator toggle (AND/OR): re-fetch (only changes results when ≥2 conditions are active). */
+  const onCombinatorChange = useCallback(
     (raw: string): void => {
-      const op = normalizeFilterOp(raw);
-      setFilterOp(op);
+      const combinator = normalizeCombinator(raw);
+      setFilterCombinator(combinator);
       setDetailIdx(null);
 
       if (filterTimer.current) {
         clearTimeout(filterTimer.current);
       }
 
-      if (!filterCol) {
-        return; // no column chosen yet → nothing to fetch; the op is staged for when one is
-      }
-
-      // value-free ops need no value; value-ops carry the current value (blank → filtersToParams drops it)
-      runServerFilter(filterCol, op, filterOpIsValueFree(op) ? '' : filterVal);
+      runFilterGroup(filterConditions, combinator);
     },
-    [filterCol, filterVal, runServerFilter],
+    [filterConditions, runFilterGroup],
   );
 
-  /** Filter-value input: update immediately, debounce the server filter (only fires with a column chosen). */
-  const onFilterValChange = useCallback(
-    (val: string): void => {
-      setFilterVal(val);
-      setDetailIdx(null);
-
-      if (filterTimer.current) {
-        clearTimeout(filterTimer.current);
-      }
-
-      filterTimer.current = setTimeout(() => runServerFilter(filterCol, filterOp, val), SEARCH_DEBOUNCE_MS);
-    },
-    [filterCol, filterOp, runServerFilter],
-  );
-
-  /** Clear the column filter entirely (instant, no debounce) — column, operator, and value all reset. */
+  /** Clear the whole filter group (instant, no debounce) — conditions + combinator reset, unfiltered re-fetch. */
   const clearFilter = useCallback((): void => {
-    setFilterCol(null);
-    setFilterVal('');
-    setFilterOp('eq');
+    setFilterConditions([]);
+    setFilterCombinator('AND');
+    setDetailIdx(null);
 
     if (filterTimer.current) {
       clearTimeout(filterTimer.current);
     }
 
-    runServerFilter(null, 'eq', '');
-  }, [runServerFilter]);
+    runFilterGroup([], 'AND');
+  }, [runFilterGroup]);
 
   /**
    * Rows-per-page change: update the ref (so `requestRows` uses the new size THIS tick) + state, then
@@ -1552,9 +1617,9 @@ export const DataPanel = memo(() => {
       setSelectedKeys(new Set());
 
       // Page-size change: same query, SKIP the count (page size doesn't change the total).
-      requestRows(active, 0, browseSort, { search, filterCol, filterVal, filterOp }, false);
+      requestRows(active, 0, browseSort, { search, conditions: filterConditions, combinator: filterCombinator }, false);
     },
-    [active, browseSort, search, filterCol, filterVal, filterOp, requestRows],
+    [active, browseSort, search, filterConditions, filterCombinator, requestRows],
   );
 
   /**
@@ -2266,16 +2331,11 @@ export const DataPanel = memo(() => {
               ) : null}
               {filterApplied ? (
                 <span
-                  className="truncate max-w-[200px]"
+                  className="truncate max-w-[220px]"
                   data-testid="data-filter-note"
-                  title={
-                    filterOpIsValueFree(filterOp)
-                      ? `Filtering the whole table where ${filterCol} ${filterOpLabel}`
-                      : `Filtering the whole table where ${filterCol} ${filterOpLabel} “${filterVal}”`
-                  }
+                  title={`Filtering the whole table — ${filterSummary}`}
                 >
-                  · where {filterCol} {filterOpLabel}
-                  {filterOpIsValueFree(filterOp) ? null : <> “{filterVal}”</>}
+                  · {filterSummary}
                 </span>
               ) : null}
             </span>
@@ -2631,73 +2691,129 @@ export const DataPanel = memo(() => {
             </div>
           )}
 
-          {/* Single-column comparison filter — worker filterCol/filterOp/filterVal (allowlist-validated
-              column, fixed operator clause, parameterized value). Composes with search + sort. Value-ops
-              apply when a value is present; the value-free is-null / is-not-null ops apply on the column
-              alone (the value box is hidden). Stays visible while a column is chosen so a 0-result filter
-              can be changed/cleared. */}
-          {columns.length > 0 && (rows.length > 0 || filterCol) && (
-            <div className="px-3 py-1.5 border-b border-bolt-elements-borderColor/30">
+          {/* Multi-condition column filter — worker `filters` JSON + `filterCombinator` (each leaf:
+              allowlist-validated column, fixed operator clause, parameterized value). An AND/OR group of
+              conditions composing with search + sort. Value-ops apply when a value is present; the
+              value-free is-null / is-not-null ops apply on the column alone (the value box is hidden).
+              Stays visible while any condition exists so a 0-result filter can be changed/cleared. */}
+          {columns.length > 0 && (rows.length > 0 || filterConditions.length > 0) && (
+            <div className="px-3 py-1.5 border-b border-bolt-elements-borderColor/30 space-y-1.5">
               <div className="flex items-center gap-1.5">
                 <div className="i-ph:funnel text-bolt-elements-textTertiary text-xs shrink-0" />
-                <select
-                  value={filterCol ?? ''}
-                  onChange={(e) => onFilterColChange(e.target.value)}
-                  data-testid="data-filter-col"
-                  aria-label="Filter column"
-                  className="shrink-0 max-w-[38%] truncate rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none"
-                >
-                  <option value="">Filter column…</option>
-                  {columns.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-                {filterCol && (
-                  <>
-                    <select
-                      value={filterOp}
-                      onChange={(e) => onFilterOpChange(e.target.value)}
-                      data-testid="data-filter-op"
-                      aria-label={`Comparison operator for ${filterCol}`}
-                      title={`Comparison operator for ${filterCol}`}
-                      className="shrink-0 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none"
-                    >
-                      {FILTER_OP_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                    {filterOpIsValueFree(filterOp) ? (
-                      <span
-                        className="min-w-0 flex-1 truncate text-[11px] italic text-bolt-elements-textTertiary"
-                        data-testid="data-filter-valuefree"
+                <span className="text-[11px] text-bolt-elements-textTertiary">Filter</span>
+                {filterConditions.length >= 2 && (
+                  <div
+                    className="ml-1 flex items-center gap-0.5"
+                    data-testid="data-filter-combinator"
+                    role="group"
+                    aria-label="Join conditions with AND or OR"
+                  >
+                    {FILTER_COMBINATORS.map((comb) => (
+                      <button
+                        key={comb}
+                        type="button"
+                        onClick={() => onCombinatorChange(comb)}
+                        aria-pressed={filterCombinator === comb}
+                        className={classNames(
+                          'rounded px-1.5 py-0.5 text-[10px] font-semibold transition-colors',
+                          filterCombinator === comb
+                            ? 'bg-[#00e5ff]/15 text-[#00e5ff]'
+                            : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
+                        )}
                       >
-                        no value needed
-                      </span>
-                    ) : (
-                      <input
-                        value={filterVal}
-                        onChange={(e) => onFilterValChange(e.target.value)}
-                        placeholder={`${filterCol} ${filterOpLabel}…`}
-                        data-testid="data-filter-val"
-                        aria-label={`Value for ${filterCol} ${filterOpLabel}`}
-                        spellCheck={false}
-                        className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-0.5 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none"
-                      />
-                    )}
-                    <button
-                      type="button"
-                      onClick={clearFilter}
-                      data-testid="data-filter-clear"
-                      className="i-ph:x shrink-0 cursor-pointer text-xs text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary"
-                      title="Clear filter"
-                    />
-                  </>
+                        {comb}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {filterApplied && (
+                  <button
+                    type="button"
+                    onClick={clearFilter}
+                    data-testid="data-filter-clear"
+                    className="ml-auto text-[10px] text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary"
+                  >
+                    Clear all
+                  </button>
                 )}
               </div>
+
+              {filterConditions.map((cond, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <span className="w-9 shrink-0 text-right text-[10px] lowercase text-bolt-elements-textTertiary">
+                    {i === 0 ? 'where' : filterCombinator}
+                  </span>
+                  <select
+                    value={cond.col ?? ''}
+                    onChange={(e) => onConditionColChange(i, e.target.value)}
+                    data-testid={`data-filter-col-${i}`}
+                    aria-label={`Filter ${i + 1} column`}
+                    className="shrink-0 max-w-[34%] truncate rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none"
+                  >
+                    <option value="">Column…</option>
+                    {columns.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                  {cond.col && (
+                    <>
+                      <select
+                        value={normalizeFilterOp(cond.op)}
+                        onChange={(e) => onConditionOpChange(i, e.target.value)}
+                        data-testid={`data-filter-op-${i}`}
+                        aria-label={`Filter ${i + 1} operator`}
+                        className="shrink-0 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none"
+                      >
+                        {FILTER_OP_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                      {filterOpIsValueFree(cond.op) ? (
+                        <span
+                          className="min-w-0 flex-1 truncate text-[11px] italic text-bolt-elements-textTertiary"
+                          data-testid={`data-filter-valuefree-${i}`}
+                        >
+                          no value needed
+                        </span>
+                      ) : (
+                        <input
+                          value={cond.val}
+                          onChange={(e) => onConditionValChange(i, e.target.value)}
+                          placeholder="value…"
+                          data-testid={`data-filter-val-${i}`}
+                          aria-label={`Filter ${i + 1} value`}
+                          spellCheck={false}
+                          className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-0.5 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none"
+                        />
+                      )}
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeFilterCondition(i)}
+                    data-testid={`data-filter-remove-${i}`}
+                    aria-label={`Remove filter ${i + 1}`}
+                    title="Remove this condition"
+                    className="i-ph:x shrink-0 cursor-pointer text-xs text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary"
+                  />
+                </div>
+              ))}
+
+              {filterConditions.length < MAX_FILTER_CONDITIONS && (
+                <button
+                  type="button"
+                  onClick={addFilterCondition}
+                  data-testid="data-filter-add"
+                  className="flex items-center gap-1 text-[11px] text-[#00e5ff]/80 hover:text-[#00e5ff]"
+                >
+                  <span className="i-ph:plus text-[10px]" />
+                  {filterConditions.length === 0 ? 'Add filter' : 'Add condition'}
+                </button>
+              )}
             </div>
           )}
 

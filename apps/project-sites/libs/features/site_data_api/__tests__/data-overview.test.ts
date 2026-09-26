@@ -10,6 +10,9 @@ import {
   maskEmailValue,
   buildDataSearch,
   buildColumnFilter,
+  buildColumnFilters,
+  parseFilterConditions,
+  MAX_FILTER_CONDITIONS,
   deletableTableName,
   DELETABLE_OVERVIEW_TABLES,
   editableTableName,
@@ -296,5 +299,143 @@ describe('buildColumnFilter (browse per-column exact-match filter)', () => {
   it('a value-requiring operator with a blank value yields no clause (null/notnull are the only value-free ops)', () => {
     expect(buildColumnFilter(cols, 'status', '   ', 'gt')).toEqual({ clause: '', params: [] });
     expect(buildColumnFilter(cols, 'status', '', 'contains')).toEqual({ clause: '', params: [] });
+  });
+});
+
+describe('buildColumnFilters (multi-condition AND/OR filter group)', () => {
+  const cols = ['event_type', 'status', 'age', 'note', 'created_at'];
+
+  it('joins multiple active conditions with AND, wrapped in parens, ANDed onto the base WHERE', () => {
+    expect(
+      buildColumnFilters(
+        cols,
+        [
+          { col: 'status', op: 'eq', val: 'new' },
+          { col: 'age', op: 'gte', val: '18' },
+        ],
+        'AND',
+      ),
+    ).toEqual({ clause: ' AND ("status" = ? AND "age" >= ?)', params: ['new', '18'] });
+  });
+
+  it('joins with OR when the combinator is OR (chosen by key, case-insensitive)', () => {
+    expect(
+      buildColumnFilters(
+        cols,
+        [
+          { col: 'status', op: 'eq', val: 'new' },
+          { col: 'note', op: 'null' },
+        ],
+        'or',
+      ),
+    ).toEqual({ clause: ' AND ("status" = ? OR "note" IS NULL)', params: ['new'] });
+  });
+
+  it('defaults an unknown/absent combinator to AND (never interpolates user text)', () => {
+    const twoConds = [
+      { col: 'status', op: 'eq', val: 'a' },
+      { col: 'event_type', op: 'eq', val: 'b' },
+    ];
+    expect(buildColumnFilters(cols, twoConds, 'XOR); DROP TABLE x--').clause).toBe(
+      ' AND ("status" = ? AND "event_type" = ?)',
+    );
+    expect(buildColumnFilters(cols, twoConds, undefined).clause).toBe(' AND ("status" = ? AND "event_type" = ?)');
+  });
+
+  it('a single active condition emits NO needless parens (identical to buildColumnFilter)', () => {
+    expect(buildColumnFilters(cols, [{ col: 'status', op: 'eq', val: 'new' }], 'AND')).toEqual({
+      clause: ' AND "status" = ?',
+      params: ['new'],
+    });
+  });
+
+  it('drops inactive conditions (bad column, value-op with no value) but keeps the active ones', () => {
+    expect(
+      buildColumnFilters(
+        cols,
+        [
+          { col: 'password', op: 'eq', val: 'x' }, // not allowlisted → dropped
+          { col: 'status', op: 'gt', val: '' }, // value-op, blank → dropped
+          { col: 'age', op: 'lt', val: '65' }, // kept
+        ],
+        'AND',
+      ),
+    ).toEqual({ clause: ' AND "age" < ?', params: ['65'] });
+  });
+
+  it('an empty / all-inactive list yields no clause', () => {
+    expect(buildColumnFilters(cols, [], 'AND')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilters(cols, null, 'AND')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilters(cols, [{ col: 'nope', op: 'eq', val: 'x' }], 'OR')).toEqual({
+      clause: '',
+      params: [],
+    });
+  });
+
+  it('every leaf stays allowlist-gated + parameterized + wildcard-stripped (injection boundary holds per condition)', () => {
+    const { clause, params } = buildColumnFilters(
+      cols,
+      [
+        { col: 'note', op: 'contains', val: "a%_b' OR 1=1" },
+        { col: 'status; DROP TABLE sites', op: 'eq', val: 'x' }, // hostile column → dropped
+      ],
+      'OR',
+    );
+    expect(clause).toBe(' AND "note" LIKE ?'); // hostile column gone; single survivor → no parens
+    expect(params).toEqual(["%ab' OR 1=1%"]); // % and _ stripped; value bound, never interpolated
+  });
+
+  it('bounds the number of conditions to MAX_FILTER_CONDITIONS (query-cost guard)', () => {
+    const many = Array.from({ length: MAX_FILTER_CONDITIONS + 10 }, () => ({
+      col: 'status',
+      op: 'eq' as const,
+      val: 'x',
+    }));
+    const { params } = buildColumnFilters(cols, many, 'AND');
+    expect(params.length).toBe(MAX_FILTER_CONDITIONS);
+  });
+});
+
+describe('parseFilterConditions (?filters= JSON → shape-hardened conditions, never throws)', () => {
+  it('parses a valid JSON array of {col,op,val}', () => {
+    expect(parseFilterConditions('[{"col":"status","op":"eq","val":"new"},{"col":"age","op":"gt","val":"18"}]')).toEqual([
+      { col: 'status', op: 'eq', val: 'new' },
+      { col: 'age', op: 'gt', val: '18' },
+    ]);
+  });
+
+  it('returns [] for absent / malformed / non-array JSON (fail-soft → no filter, never a throw)', () => {
+    expect(parseFilterConditions(undefined)).toEqual([]);
+    expect(parseFilterConditions('')).toEqual([]);
+    expect(parseFilterConditions('{not json')).toEqual([]);
+    expect(parseFilterConditions('{"col":"status"}')).toEqual([]); // object, not array
+    expect(parseFilterConditions('"just a string"')).toEqual([]);
+  });
+
+  it('coerces missing/non-string fields to safe defaults (col/val → "", op → "eq")', () => {
+    expect(parseFilterConditions('[{"col":"status"},{"op":"gt","val":5},{"foo":1}]')).toEqual([
+      { col: 'status', val: '', op: 'eq' },
+      { col: '', val: '', op: 'gt' }, // numeric val dropped to ''
+      { col: '', val: '', op: 'eq' },
+    ]);
+  });
+
+  it('drops non-object items and bounds to MAX_FILTER_CONDITIONS', () => {
+    const arr = JSON.stringify([
+      ...Array.from({ length: MAX_FILTER_CONDITIONS + 5 }, () => ({ col: 'status', op: 'eq', val: 'x' })),
+    ]);
+    expect(parseFilterConditions(arr).length).toBe(MAX_FILTER_CONDITIONS);
+    expect(parseFilterConditions('[1,"two",null,{"col":"status","op":"eq","val":"x"}]')).toEqual([
+      { col: 'status', op: 'eq', val: 'x' },
+    ]);
+  });
+
+  it('round-trips through buildColumnFilters to a safe parameterized clause', () => {
+    const cols = ['status', 'age'];
+    const conds = parseFilterConditions('[{"col":"status","op":"eq","val":"new"},{"col":"age","op":"gte","val":"21"}]');
+    expect(buildColumnFilters(cols, conds, 'AND')).toEqual({
+      clause: ' AND ("status" = ? AND "age" >= ?)',
+      params: ['new', '21'],
+    });
   });
 });

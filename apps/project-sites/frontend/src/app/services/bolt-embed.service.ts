@@ -85,6 +85,14 @@ interface PsMessage {
    * user text — and defaults an absent/unknown op to `eq`. null/notnull are value-free.
    */
   readonly filterOp?: string;
+  /**
+   * PS_DATA_REQUEST: a multi-condition filter group as a JSON array of `{col,op,val}` (the worker
+   * shape-hardens + re-validates every leaf against the table allowlist, bounds the count, and joins by
+   * {@link filterCombinator}). When present it takes precedence over the single `filterCol/Op/Val`.
+   */
+  readonly filters?: string;
+  /** PS_DATA_REQUEST: how to join the {@link filters} conditions — `AND` | `OR` (worker default `AND`). */
+  readonly filterCombinator?: string;
   /** PS_DATA_REQUEST: 0 = skip the COUNT(*) (paging/sorting → reuse cached total); else the worker counts. */
   readonly count?: number;
   /** PS_SQL_REQUEST (D1 manager): the SQL to forward — /sql/exec (read) or /sql/exec-write (write). */
@@ -665,6 +673,26 @@ export class BoltEmbedService {
               ? msg.filterOp.trim().toLowerCase()
               : undefined;
           const browseFilterValueFree = browseFilterOp ? PS_FILTER_VALUE_FREE_OPS.has(browseFilterOp) : false;
+          // Multi-condition filter group — a JSON array of {col,op,val}. Forwarded (taking precedence
+          // over the single-column filter below) when it parses to a NON-EMPTY array within a sane size;
+          // the WORKER re-validates every leaf against the table allowlist, bounds the count, and joins
+          // by filterCombinator. Admin does a cheap sanity check only — the worker is the authority.
+          let browseFilters: string | undefined;
+          if (typeof msg.filters === 'string' && msg.filters.length <= 4000) {
+            try {
+              const parsed: unknown = JSON.parse(msg.filters);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                browseFilters = msg.filters;
+              }
+            } catch {
+              browseFilters = undefined;
+            }
+          }
+          const browseFilterCombinator =
+            typeof msg.filterCombinator === 'string' &&
+            ['and', 'or'].includes(msg.filterCombinator.trim().toLowerCase())
+              ? msg.filterCombinator.trim().toUpperCase()
+              : undefined;
           // count=0 → the editor is paging/sorting and reuses its cached total; forward the skip so the
           // worker doesn't run an expensive COUNT(*) on every nav. Any other value → the worker counts.
           const browseSkipCount = msg.count === 0;
@@ -691,13 +719,18 @@ export class BoltEmbedService {
                     ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),
                     ...(browseOrderBy && browseDir ? { dir: browseDir } : {}),
                     ...(browseSearch ? { search: browseSearch } : {}),
-                    ...(browseFilterCol && (browseFilterValueFree || browseFilterVal)
+                    ...(browseFilters
                       ? {
-                          filterCol: browseFilterCol,
-                          ...(browseFilterOp ? { filterOp: browseFilterOp } : {}),
-                          ...(browseFilterValueFree ? {} : { filterVal: browseFilterVal as string }),
+                          filters: browseFilters,
+                          ...(browseFilterCombinator ? { filterCombinator: browseFilterCombinator } : {}),
                         }
-                      : {}),
+                      : browseFilterCol && (browseFilterValueFree || browseFilterVal)
+                        ? {
+                            filterCol: browseFilterCol,
+                            ...(browseFilterOp ? { filterOp: browseFilterOp } : {}),
+                            ...(browseFilterValueFree ? {} : { filterVal: browseFilterVal as string }),
+                          }
+                        : {}),
                     ...(browseSkipCount ? { count: '0' } : {}),
                   }
                 : undefined,

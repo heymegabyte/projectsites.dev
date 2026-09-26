@@ -206,6 +206,17 @@ export interface DataRequestMessage {
   filterOp?: string;
 
   /**
+   * A multi-condition filter group as a JSON array of `{col,op,val}`. When present it takes precedence
+   * over the single {@link filterCol}/{@link filterOp}/{@link filterVal}. The worker shape-hardens +
+   * re-validates every leaf against the table's column allowlist, bounds the count, and joins the
+   * conditions by {@link filterCombinator}. Composes with {@link search} + sort.
+   */
+  filters?: string;
+
+  /** How to join the {@link filters} conditions — `AND` | `OR` (worker default `AND`). */
+  filterCombinator?: string;
+
+  /**
    * `0` = skip the server COUNT(*) (paging/sorting doesn't change the total, so the client reuses its
    * cached total — avoids an expensive exact count on every nav). Omitted / `1` = the worker counts
    * (table open, search/filter change, post-mutation). Then `total` on the response is `null`.

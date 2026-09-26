@@ -457,12 +457,38 @@ Docker on `node:22.20.0` with the exact CI `NODE_OPTIONS`: `node:sqlite` loads (
 and the version satisfies Angular's floor; the 7 suites pass locally with the flag (27 tests). Unblocks the
 worker+admin deploy for #12 and every future worker fire. `.github/workflows/project-sites.yaml`.
 
-**NEXT slice (per delivery order): the AND/OR filter-group builder** (fuller slice-3 — multiple conditions, not one
-column). The single-column operators just shipped are the deliberate stepping-stone: the builder needs a validated
-filter-TREE worker endpoint that compiles a typed AND/OR tree of `{col, op, val}` leaves (REUSING this fire's
-`FILTER_OPS` + `buildColumnFilter` clause logic) to parameterized SQL under the same `spec.columns` allowlist; scope
-the worker side deliberately. OR wire `field-types.ts` richer INPUT widgets (single-select needs a field-config
-metadata store; a date INPUT could reuse the ISO presentation + the new `null`/`notnull` ops). Then the grid eval
-(RevoGrid vs Tabulator, license-checked) + **saved grid views** — the first slice needing the isolated
-ProjectSites.dev metadata store (views/filters/sort/field-config live there, NEVER in customer tables; a good moment
-to design that store: an `editor_grid_views` D1 table in the PLATFORM db + org-gated CRUD + a bridge msg).
+### ✅ Shipped next fire (2026-09-26 #14) — AND/OR multi-condition filter builder (slice 3 filters complete)
+The single-column operator filter became a full **AND/OR condition group** — an Airtable-style filter builder —
+end-to-end and injection-safe:
+- **Worker (`site_data_api/handlers.ts`)** — extracted the per-condition predicate into `buildFilterLeaf` (shared by
+  the single + multi paths) and added **`buildColumnFilters(columns, conditions[], combinator)`** — joins the ACTIVE
+  leaves with a single `AND`/`OR` (`(a AND b AND c)`), ANDed onto the base `WHERE`, single condition → no parens,
+  bounded to **`MAX_FILTER_CONDITIONS=20`**. `combinator` is whitelisted (`normalizeCombinator`, default `AND`, never
+  user text); every leaf stays `spec.columns`-allowlisted + parameterized. **`parseFilterConditions`** shape-hardens
+  the `?filters=` JSON (never throws → `[]` on malformed). Handler: `?filters=` (JSON) + `?filterCombinator=` takes
+  precedence; the single `?filterCol/Op/Val` stays as a backward-compatible fallback. +13 Jest.
+- **Bridge** — `PS_DATA_REQUEST.filters` (JSON) + `filterCombinator`; the admin forwards them (sanity-parses to a
+  non-empty array ≤4000 chars, whitelists the combinator) taking precedence over the single-column path.
+- **Editor (`data-panel-logic.ts`)** — `BrowseFilters` is now `{ search, conditions: FilterCondition[], combinator }`;
+  `filtersToParams` serializes the active conditions to `filters` JSON (value-free ops → empty `val`; combinator sent
+  only when >1 AND not the default). Pure `FilterCondition`/`FilterCombinator`/`normalizeCombinator`/`blankCondition`/
+  `addCondition`/`removeCondition`/`updateCondition`/`activeConditions`/`filterGroupIsActive` + `MAX_FILTER_CONDITIONS`.
+  +25 Vitest (214 total in that spec).
+- **Grid UI (`DataPanel.tsx`)** — the single filter row is REPLACED by a condition builder: N rows (`where`/`and`/`or`
+  prefix, column select, operator select, value input or "no value needed", per-row remove), an **AND/OR segmented
+  toggle** shown when ≥2 conditions, an **＋ Add filter/condition** button (capped at 20), and **Clear all**. The
+  "· where …" note summarizes the group (`where age ≥ "18"` for one, `3 filters (OR)` for many). Empty state = a
+  single "Add filter" launchpad. `filterConditions`/`filterCombinator` thread through every `requestRows`.
+- Verified: worker Jest **12739/12739** + tsc 0; editor Vitest **297/297** + tsc 0 + eslint 0 + build ✓; admin tsc 0 +
+  `ng build --configuration production` ✓. Editor → CF Pages, worker+admin → Worker CI (now green on Node 22.20).
+
+**NEXT slice (per delivery order): saved grid views** — the first slice needing the isolated ProjectSites.dev
+**metadata store** (saved views/filters/sort/field-config/colors live there, NEVER in customer tables). Design it now:
+an `editor_grid_views` D1 table in the PLATFORM db (`id, site_id, org_id, table_key, name, filters_json,
+combinator, sort_json, search, created_by, created_at, updated_at`) + org-gated CRUD endpoints (assert site ownership;
+reuse `parseFilterConditions` to store a validated group) + a `PS_VIEW_*` bridge msg + a views dropdown in the grid
+header (save current filters+sort+search as a named view; apply reloads them). Then rich non-grid views
+(gallery/kanban/calendar/charts) read the SAME saved-view metadata. Alternatives if deferred: a **nested** filter-tree
+(groups within groups — this fire is deliberately a FLAT single-combinator group, the 80% case) or `field-types.ts`
+richer INPUT widgets. Grid eval (RevoGrid vs Tabulator, license-checked) still pending — the hand-rolled `<table>`
+remains the chosen grid until a saved-view/large-dataset need forces the decision.
