@@ -192,6 +192,19 @@ import { resolveAppHost } from './services/app_host_resolver.js';
 import { getContentType, resolveSite, serveSiteFromR2 } from './services/site_serving.js';
 import { maybeDispatchFunctions } from './services/functions_dispatch.js'; // Stage 3.1: child-host /api/* → site's WfP functions worker (ADR-0035 §30)
 import { dispatchToUserWorker } from './services/wfp_dispatch.js'; // CF-native app instances ({slug}.app.projectsites.dev → USER_DISPATCH user Worker)
+
+/** Content-type for a shared Payload static asset served from R2 (by extension). */
+function payloadAssetContentType(path: string): string {
+  if (path.endsWith('.js')) return 'application/javascript; charset=utf-8';
+  if (path.endsWith('.css')) return 'text/css; charset=utf-8';
+  if (path.endsWith('.svg')) return 'image/svg+xml';
+  if (path.endsWith('.woff2')) return 'font/woff2';
+  if (path.endsWith('.json')) return 'application/json';
+  if (path.endsWith('.png')) return 'image/png';
+  if (path.endsWith('.ico')) return 'image/x-icon';
+  if (path.endsWith('.map')) return 'application/json';
+  return 'application/octet-stream';
+}
 import { dbQueryOne, dbUpdate } from './services/db.js';
 import { writeAuditLog } from './services/audit.js';
 import { prepareBuildLogLines, detectBuildLlmDegraded } from './services/build_log.js';
@@ -1985,6 +1998,22 @@ app.all('*', async (c) => {
     // CF-native apps (Payload on D1+R2+Worker) run as a user Worker in the WfP
     // dispatch namespace — served here via USER_DISPATCH, not a container DO.
     if (inst.worker_script_name) {
+      const p = new URL(c.req.url).pathname;
+      // Static assets are IDENTICAL across all Payload instances (same bundle) and a
+      // dispatched worker can't serve them (dispatch bypasses the edge asset layer), so
+      // the platform serves /_next/* + favicon from the SHARED R2 bundle → the branded
+      // {slug}.cms host is STYLED. Dynamic routes (/admin, /api) dispatch to the instance.
+      if (p.startsWith('/_next/') || p === '/favicon.ico' || p === '/favicon.svg' || p === '/BUILD_ID') {
+        const obj = await c.env.SITES_BUCKET.get(`payload-bundle/assets${p}`);
+        if (obj) {
+          return new Response(obj.body, {
+            headers: {
+              'content-type': payloadAssetContentType(p),
+              'cache-control': 'public, max-age=31536000, immutable',
+            },
+          });
+        }
+      }
       return dispatchToUserWorker(c.env, inst.worker_script_name, c.req.raw);
     }
     return proxyToContainer(c.env, inst.do_instance_id ?? inst.id, c.req.raw, inst.app_slug);

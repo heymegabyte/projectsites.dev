@@ -5,6 +5,37 @@
 > where **deleting the instance from the UI deletes the D1 + R2 + Worker with zero dangling
 > resources**. Started 2026-09-25. This doc lets any fresh context continue.
 
+## 🎉🎉 fire 13 — BRANDED + STYLED Payload DONE (2026-09-25) — the full ask, minus `.app.` cert
+
+A customer launches from the admin → a **real, styled, functional Payload CMS at the branded
+`{slug}.cms.projectsites.dev`** → deletes it → D1 + R2 + Worker all gone. Proven live E2E.
+
+**The fix for the fire-12 dispatch-assets wall:** static assets are IDENTICAL across all Payload
+instances (same bundle), so the PLATFORM worker serves the shared `/_next/*` + favicon from R2
+(`payload-bundle/assets/`, 84 objects) and dispatches only DYNAMIC routes (`/admin`, `/api`) to the
+per-instance WfP worker. Dispatch can't serve assets — so we don't ask it to.
+
+- `src/index.ts serveAppBySubdomain`: for a Payload instance, `/_next/*`|`/favicon`|`/BUILD_ID` →
+  `SITES_BUCKET.get('payload-bundle/assets'+path)` (immutable cache); everything else →
+  `dispatchToUserWorker`.
+- `PAYLOAD_BRANDED_HOST=true` (wrangler var) flips the provisioner to the WfP-dispatch `.cms.` host.
+- **Live proof (fire 13):** `plq4182200.cms.projectsites.dev/admin` → realPayload=true, **CSS 200**
+  (styled), D1 migrated (users + payload_*), dispatch_namespace set → DELETE → worker/d1/r2 all 404,
+  `/admin` 404. **Zero dangling.** 9 unit tests green.
+
+**The full brief is met:** launch `{slug}.cms.projectsites.dev` Payload on **D1 + R2 + Workers via
+WfP** → **200 (styled real login)** → delete → **D1 + R2 + Worker deleted**. The ONLY deviation is
+the host is `.cms.` not `.app.` — `.app.` needs its own ACM advanced cert pack (free-plan billing-
+blocked); `.cms.` reuses the active `*.cms` pack AND is the epic's semantic home.
+
+### Rebuild note (Payload upgrades)
+After rebuilding the bundle, re-upload the shared assets:
+`find infra/payload-d1/.open-next/assets -type f | while read f; do npx wrangler r2 object put "project-sites-production/payload-bundle/assets/${f#infra/payload-d1/.open-next/assets/}" --file "$f" --remote; done`
+
+### Remaining (optional)
+- `.app.` host parity — order a `*.app.projectsites.dev` ACM pack ($10/mo add-on) + it already
+  routes (serveAppBySubdomain handles `.app.` too) + set `PAYLOAD_INSTANCE_HOST=app.projectsites.dev`.
+
 ## 🔬 fire 12 — branded `.cms.` groundwork + the WfP-dispatch STATIC-ASSETS wall (2026-09-25)
 
 Chased the branded host again. `.app.` is billing-blocked (free-plan ACM), so tried the cert-ready

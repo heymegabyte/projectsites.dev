@@ -209,6 +209,11 @@ INTERNAL_CALLBACK_URL = "https://project-sites.manhattan.workers.dev/api/interna
 # they're not sensitive and the dispatch binding below pins this namespace.
 CF_ACCOUNT_ID = "84fa0d1b16ff8086dd958c468ce7fd59"
 WFP_NAMESPACE_NAME = "project-sites-endpoints"
+# Payload CMS instances serve at the branded {slug}.cms.projectsites.dev via WfP dispatch
+# (cert-ready *.cms ACM pack). The platform serves the SHARED /_next/* static assets from
+# R2 (payload-bundle/assets/) so the dispatched, styled admin works. Flip to "false" to fall
+# back to the standalone workers.dev host. See docs/PAYLOAD-CF-LAUNCHER-PROGRESS.md.
+PAYLOAD_BRANDED_HOST = "true"
 # Shared KV namespace for user Functions (Stage 4.1(b) env.KV). The generated
 # worker gets a `kv_namespace` binding to THIS id; the runtime shim prefixes
 # every key `site:<siteId>:` so a site can only reach its OWN keys (tenant
