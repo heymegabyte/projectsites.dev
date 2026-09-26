@@ -495,3 +495,45 @@ describe('classifyCell — url + email link affordances', () => {
     expect(classifyCell('hello').href).toBeUndefined();
   });
 });
+
+describe('classifyCell — ISO date/datetime presentation (honest reformatting)', () => {
+  it('reformats an ISO calendar date and KEEPS the raw as `title` (the tooltip)', () => {
+    const c = classifyCell('2024-01-01');
+    expect(c.kind).toBe('date');
+    expect(c.title).toBe('2024-01-01'); // the raw is always one hover away
+    expect(c.display).not.toBe('2024-01-01'); // display is reformatted (locale-readable)
+    expect(c.display.length).toBeGreaterThan(0);
+    expect(c.display).toContain('2024'); // the year survives every locale
+  });
+
+  it('reformats a zone-marked ISO datetime (Z and ±offset are unambiguous instants)', () => {
+    for (const raw of ['2024-01-01T12:34:56Z', '2024-06-01T08:00:00+02:00']) {
+      const c = classifyCell(raw);
+      expect(c.kind).toBe('date');
+      expect(c.title).toBe(raw);
+      expect(c.display).not.toBe(raw);
+    }
+  });
+
+  it('does NOT reformat a ZONE-LESS datetime — we never guess UTC-vs-local (stays text, no title)', () => {
+    expect(classifyCell('2024-01-01T12:34:56').kind).toBe('text'); // no Z / offset
+    expect(classifyCell('2024-01-01 12:34:56').kind).toBe('text'); // space form
+    expect(classifyCell('2024-01-01T12:34:56').title).toBeUndefined();
+  });
+
+  it('a date-SHAPED but invalid value (2024-13-45) stays text (Date validates, not just the regex)', () => {
+    expect(classifyCell('2024-13-45').kind).toBe('text');
+  });
+
+  it('prose that merely CONTAINS a date stays text (anchored)', () => {
+    expect(classifyCell('meeting on 2024-01-01').kind).toBe('text');
+  });
+
+  it('non-date values are unaffected (year-only number, plain text, url)', () => {
+    expect(classifyCell('2024').kind).toBe('number'); // not a full YYYY-MM-DD
+    expect(classifyCell('hello').kind).toBe('text');
+    expect(classifyCell('https://a.com').kind).toBe('url');
+    expect(classifyCell('2024-01-01').title).toBe('2024-01-01');
+    expect(classifyCell('hello').title).toBeUndefined();
+  });
+});

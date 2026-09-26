@@ -401,10 +401,28 @@ NOT when you page or sort. Now the count is conditional (worker + admin + editor
   it refreshes on any query change or the editor's own add/delete (which re-open the table with a fresh count). A
   concurrent external write is the only staleness window, corrected on the next query change (acceptable per spec).
 
-**NEXT slice (per delivery order): wire `field-types.ts` typed EDITORS into the row-edit path** (the INERT
-foundation — date-time / single-select / URL-email editors keyed off the column's declared SQLite affinity, honest
-UI-interpretation over storage; NOTE the current value-based `inferCellEditor` is already type-safe — this is about
-richer INPUT widgets, not fixing a bug). OR the AND/OR **filter-group builder** (fuller slice-3; needs a validated
-filter-tree worker endpoint — scope deliberately). Then the grid eval (RevoGrid vs Tabulator, license-checked) +
-**saved grid views** (needs the isolated ProjectSites.dev metadata store — views/filters/sort/field-config live
-there, NEVER in customer tables — the first metadata-store slice; a good moment to design that store).
+### ✅ Shipped next fire (2026-09-26 #11) — honest ISO date/datetime presentation in grid cells
+The grid showed timestamps as raw ISO (`2024-01-01T15:45:00Z`); the spec wants "date-time presentation" but
+warns "a date widget is a UI INTERPRETATION unless the schema enforces it." Now `classifyCell`
+(`data-cell-format.ts`, the pure grid chokepoint) reformats **unambiguous** ISO-8601 values readably while keeping
+the raw one hover away (honest, never lossy):
+- New `date` `CellKind` + a `title?` on `ClassifiedCell` (the RAW value → the cell's `title` tooltip). The grid
+  `<td>` now uses `title={cell.title ?? cell.display}` so a date shows the readable form (`Jan 1, 2024`) with the
+  exact stored value on hover. Soft-blue class so it reads as a date.
+- **Only unambiguous ISO:** a bare `YYYY-MM-DD` (formatted in UTC → never shifts a day) and a datetime with an
+  EXPLICIT `Z`/`±HH:MM` (an instant → shown in the viewer's local zone). A **zone-LESS** datetime
+  (`2024-01-01T12:00:00` / space form) is deliberately NOT reformatted — we won't GUESS UTC-vs-local (that would
+  be a dishonest display) — it stays plain text. Anchored regex + `Date` validation → prose-with-a-date and
+  `2024-13-45` stay text; `2024` stays number.
+- Display-only: CSV export + copy-as-JSON/INSERT/UPDATE keep the RAW value (they use the raw, not `classifyCell`);
+  only the browse cell display is reformatted. +6 Vitest (date/zone-marked/zone-less-stays-text/invalid/prose/
+  non-date). Verified: Vitest 83/83 (data-cell-format) + 337 across 3 workbench specs, editor tsc 0 / eslint 0 /
+  build ✓ (13.13s). Editor-only → CF Pages.
+
+**NEXT slice (per delivery order): the AND/OR filter-group builder** (fuller slice-3 beyond one exact-match column
+— needs a validated filter-tree worker endpoint that compiles a typed AND/OR tree to parameterized SQL with the
+same `spec.columns` allowlist; scope the worker side deliberately). OR wire `field-types.ts` richer INPUT widgets
+(single-select needs a field-config metadata store; date INPUT could reuse the new ISO presentation). Then the grid
+eval (RevoGrid vs Tabulator, license-checked) + **saved grid views** — the first slice needing the isolated
+ProjectSites.dev metadata store (views/filters/sort/field-config live there, NEVER in customer tables; a good
+moment to design that store: a `editor_grid_views` D1 table in the PLATFORM db + org-gated CRUD + a bridge msg).

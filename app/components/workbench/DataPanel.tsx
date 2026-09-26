@@ -2834,7 +2834,11 @@ export const DataPanel = memo(() => {
                            * row/cell handler. Honest: the stored value is still text.
                            */
                           return (
-                            <td key={c} className="px-3 py-1.5 align-top max-w-[220px] truncate" title={cell.display}>
+                            <td
+                              key={c}
+                              className="px-3 py-1.5 align-top max-w-[220px] truncate"
+                              title={cell.title ?? cell.display}
+                            >
                               {cell.href ? (
                                 <a
                                   href={cell.href}

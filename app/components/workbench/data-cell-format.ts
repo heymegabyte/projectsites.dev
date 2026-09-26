@@ -14,7 +14,7 @@
  */
 
 /** Semantic kind for a single grid cell value. */
-export type CellKind = 'null' | 'empty' | 'number' | 'boolean' | 'json' | 'url' | 'email' | 'text';
+export type CellKind = 'null' | 'empty' | 'number' | 'boolean' | 'json' | 'url' | 'email' | 'date' | 'text';
 
 /**
  * Result of classifying a raw SQLite cell value for the dark-theme DataPanel.
@@ -62,6 +62,14 @@ export interface ClassifiedCell {
    * text value: SQLite stores text, and the grid presents a link affordance.
    */
   href?: string;
+
+  /**
+   * The RAW stored value when {@link display} is a reformatted interpretation (currently: a `date` —
+   * an ISO-8601 value shown human-readably). Rendered as the cell's tooltip so the exact stored value
+   * is always one hover away — the reformatting is honest, never lossy. `undefined` when display IS
+   * the raw value.
+   */
+  title?: string;
 }
 
 /*
@@ -133,6 +141,62 @@ const URL_RE = /^https?:\/\/[^\s]+$/i;
  * `http://user@host.tld/…` userinfo URL is read as a URL, not an email.
  */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// date renders in a soft blue so a reformatted timestamp reads as a date, distinct from plain text.
+const CLASS_DATE = 'text-[#8ab4f8]';
+
+/** Whole-string ISO-8601 calendar DATE (`YYYY-MM-DD`) — no time, so no timezone ambiguity. */
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Whole-string ISO-8601 DATETIME with an EXPLICIT zone (`Z` or `±HH:MM`) — an unambiguous instant. A
+ * zone-LESS datetime (`2024-01-01T12:00:00` / `2024-01-01 12:00:00`) is deliberately NOT matched: we
+ * won't GUESS whether it's UTC or local (SQLite stores it as-is) — that would be a dishonest display.
+ */
+const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * Reformat an unambiguous ISO-8601 value for HONEST display (the raw value is kept as the cell tooltip):
+ * a bare date → a readable calendar date in UTC (so `2024-01-01` never shifts a day); a zone-marked
+ * datetime → a readable local date+time (an absolute instant shown in the viewer's zone). Anything else
+ * (incl. a zone-less datetime, or an unparseable value) → `null` (the caller keeps it as plain text).
+ * Uses the runtime's locale + zone (the viewer's), so the exact string is environment-dependent — hence
+ * the raw is always preserved in the tooltip.
+ */
+function formatIsoForDisplay(raw: string): string | null {
+  if (ISO_DATE_RE.test(raw)) {
+    const d = new Date(raw); // parsed as UTC midnight
+
+    if (Number.isNaN(d.getTime())) {
+      return null;
+    }
+
+    return d.toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'UTC',
+    });
+  }
+
+  if (ISO_DATETIME_RE.test(raw)) {
+    const d = new Date(raw);
+
+    if (Number.isNaN(d.getTime())) {
+      return null;
+    }
+
+    return d.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }
+
+  return null;
+}
 
 /*
  * ---------------------------------------------------------------------------
@@ -260,6 +324,17 @@ export function classifyCell(value: unknown): ClassifiedCell {
       className: CLASS_JSON,
       isJson: true,
     };
+  }
+
+  /*
+   * 8b. Unambiguous ISO-8601 date / zone-marked datetime → readable display, RAW kept as `title`
+   *     (the tooltip) so the reformatting is honest + never lossy. A zone-less datetime stays text
+   *     (we don't guess its timezone). See {@link formatIsoForDisplay}.
+   */
+  const isoDisplay = formatIsoForDisplay(str);
+
+  if (isoDisplay !== null) {
+    return { kind: 'date', display: isoDisplay, className: CLASS_DATE, isJson: false, title: str };
   }
 
   /*
