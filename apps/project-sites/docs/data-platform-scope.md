@@ -786,10 +786,28 @@ is now reachable from the calendar (was: only the first 3).
   `apps/project-sites` — unchanged from `20d2aabd2`). *Honest residual:* verify-by-build (WebContainer + authed
   session) per the established DataPanel pattern.
 
-**NEXT slice: async export JOBS for >10k rows.** The export currently caps at `MAX_EXPORT_ROWS` (10k) client-side.
-For larger tables, add a server-side async export job: a `data-export-jobs` metadata table (id, site, org, table,
-filter snapshot, status, row count, R2 key, created/finished), a worker endpoint to enqueue (Workflow or
-chunked cursor) that streams to R2 in bounded chunks, a progress/poll endpoint, and an editor "Export all N rows
-(background)" affordance with progress + a download link when ready — honest about async + restartability. Then:
-nested/grouped AND/OR filter-tree; SQL-workspace polish; grid eval (RevoGrid vs Tabulator). Foundations still
-inert: `field-types.ts`, `schema-ddl.ts` (wire as the typed-editor + schema-builder phases ship).
+### ✅ Shipped next fire (2026-09-26 #31) — column REORDER (persisted per table; grid mandate "reorder")
+Columns can now be arranged left/right and the order sticks — applied to the grid, gallery, kanban, calendar,
+AND the record drawer (one consistent arrangement). Client-only display pref, mirroring the existing hide-column
+pattern; **no worker/bridge/migration** (exports keep canonical `columns` order, per the column-menu note).
+- **New pure logic (TDD-first, tested):** `data-panel-logic.ts` `orderColumns(all, order)` (schema-drift robust —
+  new columns append, stale order entries drop, always a permutation of `all`) + `moveColumn(all, order, col, dir)`
+  (one step left/right, clamped, normalizes a partial saved order first). 6 cases.
+- **`DataPanel.tsx` (editor-only):** `colOrder` state + `readColOrder`/`DATA_COLORDER_KEY` localStorage (per table,
+  mirrors `readHiddenCols`); `orderedColumns = orderColumns(columns, colOrder)` → `visibleCols =
+  visibleColumns(orderedColumns, hiddenCols)` so the order flows to every view; the drawer renders
+  `orderedColumns`; the Columns menu lists `orderedColumns` with per-row ▲/▼ (`data-col-move-up/down`, end-clamped)
+  → `moveCol` persists. `openTable` restores the saved order.
+- Verified: editor Vitest **887/887** + tsc 0 + eslint 0 + build 0; worker **untouched** (0 files under
+  `apps/project-sites`). *Honest residual:* verify-by-build (WebContainer + authed session) per the DataPanel pattern.
+
+**NEXT slice: async export JOBS for >10k rows.** The export caps at `MAX_EXPORT_ROWS` (10k) client-side. For larger
+tables, add a server-side async export job — a `data_export_jobs` metadata table (id, site, org, table, filter
+snapshot, status, row count, R2 key, created/finished), an enqueue endpoint (Workflow or chunked cursor) streaming
+to R2 in bounded chunks, a poll/progress endpoint, and an editor "Export all N (background)" affordance with
+progress + a download link — honest about async + restartability. NOTE: this is a MULTI-fire slice (needs a
+migration applied manually to prod D1 + Workflow wiring + async prod-verify); split it (fire A: migration + job
+table + enqueue/poll endpoints + tests; fire B: R2 streaming worker; fire C: editor UI) so each fire stays
+complete + green. Alternatives if a self-contained fire is wanted: **column resize** (drag handles + persisted
+widths, client-only, mirrors reorder); **multi-column sort** (bigger — ripples into saved-view sort persistence);
+nested AND/OR filter-tree; SQL-workspace polish. Foundations still inert: `field-types.ts`, `schema-ddl.ts`.

@@ -55,6 +55,8 @@ import {
   clipboardValue,
   rowJson,
   visibleColumns,
+  orderColumns,
+  moveColumn,
   toggleHiddenColumn,
   coerceCellInput,
   inferCellEditor,
@@ -144,6 +146,21 @@ const DATA_COLS_KEY = 'ps-data-cols-hidden';
 function readHiddenCols(tableKey: string): string[] {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(`${DATA_COLS_KEY}-${tableKey}`) : null;
+    const parsed = raw ? JSON.parse(raw) : [];
+
+    return Array.isArray(parsed) ? parsed.filter((c): c is string => typeof c === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** localStorage key PREFIX for a table's browse column ORDER (`…-<tableKey>`, per-browser). */
+const DATA_COLORDER_KEY = 'ps-data-cols-order';
+
+/** Read a table's persisted column order (best-effort; private-mode / junk → []). Same shape as hidden. */
+function readColOrder(tableKey: string): string[] {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(`${DATA_COLORDER_KEY}-${tableKey}`) : null;
     const parsed = raw ? JSON.parse(raw) : [];
 
     return Array.isArray(parsed) ? parsed.filter((c): c is string => typeof c === 'string') : [];
@@ -290,6 +307,7 @@ export const DataPanel = memo(() => {
    * the "Columns" checklist dropdown.
    */
   const [hiddenCols, setHiddenCols] = useState<string[]>([]);
+  const [colOrder, setColOrder] = useState<string[]>([]); // persisted per-table column display order
   const [colMenuOpen, setColMenuOpen] = useState(false);
 
   /*
@@ -715,6 +733,7 @@ export const DataPanel = memo(() => {
       setSearch('');
       setBrowseSort(null);
       setHiddenCols(readHiddenCols(key)); // restore this table's column selection
+      setColOrder(readColOrder(key)); // restore this table's column order
       setColMenuOpen(false);
       setBrowseLoading(true);
       setBrowsePkCols([]); // clear the prior table's PK until this one's PRAGMA returns
@@ -1611,7 +1630,13 @@ export const DataPanel = memo(() => {
    * Columns the GRID renders — the full set minus the user's hidden selection (view-only;
    *  row-detail + exports still use `columns`).
    */
-  const visibleCols = useMemo(() => visibleColumns(columns, hiddenCols), [columns, hiddenCols]);
+  /*
+   * Columns in the user's arranged order (persisted per table); the grid + card views + drawer + column
+   * menu all render from this. `visibleCols` then drops the hidden set (order preserved). Exports keep the
+   * canonical `columns` (raw-table order) — the arrangement is a display pref, per the column-menu note.
+   */
+  const orderedColumns = useMemo(() => orderColumns(columns, colOrder), [columns, colOrder]);
+  const visibleCols = useMemo(() => visibleColumns(orderedColumns, hiddenCols), [orderedColumns, hiddenCols]);
 
   /*
    * Calendar derivations (only meaningful in the calendar view): the effective date column (owner pick,
@@ -1681,6 +1706,26 @@ export const DataPanel = memo(() => {
           }
         } catch {
           /* private mode / quota — hiding is a convenience, never load-bearing */
+        }
+
+        return next;
+      });
+    },
+    [columns, active],
+  );
+
+  /** Move a browse column one step left/right in the display order + persist per table. */
+  const moveCol = useCallback(
+    (col: string, dir: -1 | 1) => {
+      setColOrder((prev) => {
+        const next = moveColumn(columns, prev, col, dir);
+
+        try {
+          if (active && typeof localStorage !== 'undefined') {
+            localStorage.setItem(`${DATA_COLORDER_KEY}-${active}`, JSON.stringify(next));
+          }
+        } catch {
+          /* private mode / quota — column order is a convenience, never load-bearing */
         }
 
         return next;
@@ -3462,33 +3507,58 @@ export const DataPanel = memo(() => {
                     </button>
                     {colMenuOpen && (
                       <div
-                        className="absolute right-0 top-full mt-1 z-20 min-w-[160px] max-h-64 overflow-auto rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-lg p-1"
+                        className="absolute right-0 top-full mt-1 z-20 min-w-[210px] max-h-64 overflow-auto rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-lg p-1"
                         data-testid="data-cols-menu"
                       >
-                        {columns.map((c) => {
+                        {orderedColumns.map((c, idx) => {
                           const visible = !hiddenCols.includes(c);
                           const isLastVisible = visible && visibleCols.length <= 1;
 
                           return (
-                            <label
+                            <div
                               key={c}
-                              title={isLastVisible ? 'At least one column must stay visible' : undefined}
-                              className={classNames(
-                                'flex items-center gap-2 px-2 py-1 text-[11px] rounded hover:bg-bolt-elements-background-depth-1',
-                                isLastVisible ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
-                              )}
+                              className="group flex items-center gap-1 rounded px-1 py-0.5 hover:bg-bolt-elements-background-depth-1"
                             >
-                              <input
-                                type="checkbox"
-                                checked={visible}
-                                disabled={isLastVisible}
-                                onChange={() => toggleCol(c)}
-                                data-testid="data-cols-checkbox"
-                                className="h-3.5 w-3.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                style={{ accentColor: '#00E5FF' }}
-                              />
-                              <span className="truncate">{columnLabel(c)}</span>
-                            </label>
+                              <label
+                                title={isLastVisible ? 'At least one column must stay visible' : undefined}
+                                className={classNames(
+                                  'flex min-w-0 flex-1 items-center gap-2 px-1 py-0.5 text-[11px]',
+                                  isLastVisible ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+                                )}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={visible}
+                                  disabled={isLastVisible}
+                                  onChange={() => toggleCol(c)}
+                                  data-testid="data-cols-checkbox"
+                                  className="h-3.5 w-3.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                                  style={{ accentColor: '#00E5FF' }}
+                                />
+                                <span className="truncate">{columnLabel(c)}</span>
+                              </label>
+                              {/* Reorder — move this column earlier/later in the grid + card views (persisted). */}
+                              <div className="flex shrink-0 items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                                <button
+                                  type="button"
+                                  onClick={() => moveCol(c, -1)}
+                                  disabled={idx === 0}
+                                  data-testid="data-col-move-up"
+                                  aria-label={`Move ${columnLabel(c)} left`}
+                                  title="Move left"
+                                  className="i-ph:caret-up cursor-pointer p-0.5 text-[10px] text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent disabled:cursor-not-allowed disabled:opacity-30"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => moveCol(c, 1)}
+                                  disabled={idx === orderedColumns.length - 1}
+                                  data-testid="data-col-move-down"
+                                  aria-label={`Move ${columnLabel(c)} right`}
+                                  title="Move right"
+                                  className="i-ph:caret-down cursor-pointer p-0.5 text-[10px] text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent disabled:cursor-not-allowed disabled:opacity-30"
+                                />
+                              </div>
+                            </div>
                           );
                         })}
                       </div>
@@ -4722,7 +4792,7 @@ export const DataPanel = memo(() => {
             )}
             <div className="min-h-0 flex-1 overflow-auto p-3">
               <dl className="flex flex-col gap-2.5">
-                {columns.map((c) => {
+                {orderedColumns.map((c) => {
                   const cell = classifyCell(drawerRow[c]);
                   const editingThisField = editCol === c;
 

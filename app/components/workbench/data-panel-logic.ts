@@ -1480,6 +1480,63 @@ export function visibleColumns(all: readonly string[], hidden: readonly string[]
   return all.filter((c) => !h.has(c));
 }
 
+/**
+ * Apply a persisted column ORDER to the live column set — the display order for the grid + card views.
+ * Robust to schema drift: columns named in `order` that still exist come first (in the saved order),
+ * then any remaining live columns in their original order (so a NEWLY-added column appears at the end,
+ * never hidden), and any `order` entry that no longer exists is dropped. Always returns a permutation of
+ * `all` (same members, reordered). Pure.
+ *
+ * @example orderColumns(['a','b','c'], ['c','a']) // ['c','a','b']  (b unordered → appended)
+ * @example orderColumns(['a','b'], ['x','b'])     // ['b','a']       (x dropped, a appended)
+ * @example orderColumns(['a','b','c'], [])        // ['a','b','c']   (no order → original)
+ */
+export function orderColumns(all: readonly string[], order: readonly string[]): string[] {
+  const allSet = new Set(all);
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const c of order) {
+    if (allSet.has(c) && !seen.has(c)) {
+      out.push(c);
+      seen.add(c);
+    }
+  }
+
+  for (const c of all) {
+    if (!seen.has(c)) {
+      out.push(c);
+      seen.add(c);
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Move `col` one step left (`dir === -1`) or right (`dir === 1`) within the current column order,
+ * clamped at the ends. Normalizes the (possibly partial/stale) saved `order` to a full permutation of
+ * `all` via {@link orderColumns} first, so the result is always a complete, persistable order. An
+ * unknown `col` or a move off either end returns the normalized order unchanged. Pure.
+ *
+ * @example moveColumn(['a','b','c'], [], 'b', -1) // ['b','a','c']
+ * @example moveColumn(['a','b','c'], [], 'a', -1) // ['a','b','c'] (already first → unchanged)
+ */
+export function moveColumn(all: readonly string[], order: readonly string[], col: string, dir: -1 | 1): string[] {
+  const cur = orderColumns(all, order);
+  const i = cur.indexOf(col);
+  const j = i + dir;
+
+  if (i < 0 || j < 0 || j >= cur.length) {
+    return cur;
+  }
+
+  const next = cur.slice();
+  [next[i], next[j]] = [next[j], next[i]];
+
+  return next;
+}
+
 /** How the browse rows are rendered: dense grid, Airtable-style cards, a grouped board, or a bar chart. */
 export type ViewMode = 'grid' | 'gallery' | 'kanban' | 'chart' | 'calendar';
 

@@ -78,6 +78,8 @@ import {
   clipboardValue,
   rowJson,
   visibleColumns,
+  orderColumns,
+  moveColumn,
   toggleHiddenColumn,
   coerceCellInput,
   inferCellEditor,
@@ -1497,6 +1499,36 @@ describe('visibleColumns (grid column selection — view-only)', () => {
   });
   it('ignores a stale hidden entry no longer in the table', () => {
     expect(visibleColumns(['a', 'b'], ['zzz'])).toEqual(['a', 'b']);
+  });
+});
+
+describe('orderColumns (persisted column display order, schema-drift robust)', () => {
+  it('applies the saved order, appending unordered columns in their original order', () => {
+    expect(orderColumns(['a', 'b', 'c'], ['c', 'a'])).toEqual(['c', 'a', 'b']);
+  });
+  it('drops a stale order entry no longer in the table + appends new columns at the end', () => {
+    expect(orderColumns(['a', 'b'], ['x', 'b'])).toEqual(['b', 'a']);
+    expect(orderColumns(['a', 'b', 'new'], ['b', 'a'])).toEqual(['b', 'a', 'new']);
+  });
+  it('empty / full order → a permutation of all (never drops or dupes a live column)', () => {
+    expect(orderColumns(['a', 'b', 'c'], [])).toEqual(['a', 'b', 'c']);
+    expect(orderColumns(['a', 'b', 'c'], ['a', 'a', 'b'])).toEqual(['a', 'b', 'c']); // dupe in order ignored
+  });
+});
+
+describe('moveColumn (reorder one step, clamped, always a full order)', () => {
+  it('moves a column left/right', () => {
+    expect(moveColumn(['a', 'b', 'c'], [], 'b', -1)).toEqual(['b', 'a', 'c']);
+    expect(moveColumn(['a', 'b', 'c'], [], 'b', 1)).toEqual(['a', 'c', 'b']);
+  });
+  it('clamps at both ends (no wrap)', () => {
+    expect(moveColumn(['a', 'b', 'c'], [], 'a', -1)).toEqual(['a', 'b', 'c']);
+    expect(moveColumn(['a', 'b', 'c'], [], 'c', 1)).toEqual(['a', 'b', 'c']);
+  });
+  it('normalizes a partial/stale saved order first, and ignores an unknown column', () => {
+    // saved order ['c'] → normalized ['c','a','b']; move 'a' left → ['a','c','b']
+    expect(moveColumn(['a', 'b', 'c'], ['c'], 'a', -1)).toEqual(['a', 'c', 'b']);
+    expect(moveColumn(['a', 'b', 'c'], [], 'zzz', -1)).toEqual(['a', 'b', 'c']);
   });
 });
 
