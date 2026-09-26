@@ -19,9 +19,12 @@ resolvable:**
   `payloadInstanceHost(env)` already route + serve `.app.` (unit-tested). Then re-run
   `e2e/admin-verify/verify-payload-launcher.mjs`.
 
-**Loop status:** feature is functionally complete; fires 10-16 were polish/hardening. The remaining
-`.app.` work auto-activates the moment the ACM cert exists + `PAYLOAD_INSTANCE_HOST` is flipped — a
-future fire (or manual re-run of the verify script) will confirm `.app.` once you order the cert.
+**Loop status:** the 15-min `/loop` cron (`c5c9b839`) was **cancelled fire 16** — it had been firing on
+a completed feature (fires 10-16 = polish/hardening) with the only gap human-gated. `.app.` is fully
+prepped (DNS `*.app` added, `payloadInstanceHost(env)` wired + unit-tested, `serveAppBySubdomain`
+routes `.app.`, verify script auto-adapts). To finish `.app.`: order the `*.app` ACM pack →
+`wrangler secret put PAYLOAD_INSTANCE_HOST` = `app.projectsites.dev` → run
+`e2e/admin-verify/verify-payload-launcher.mjs`. Re-arm the loop with `/loop 15m …` if desired.
 
 
 
