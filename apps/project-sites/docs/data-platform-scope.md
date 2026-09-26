@@ -543,10 +543,31 @@ duplication, same pagination + "N of total" count — per the page-vs-whole-quer
 - Verified: editor Vitest **222/222** + tsc 0 + eslint 0 + build ✓; worker Jest **12754/12754** + tsc 0 (unchanged —
   the matrix-doc commit still triggers Worker CI, which stays green). Editor → CF Pages.
 
-**NEXT slice: PERSIST the gallery as a saved-view TYPE** — the gallery is a display toggle today (resets on table
-open); make it a real per-view type by adding `type TEXT DEFAULT 'grid'` + nullable `config_json` (`{titleField}`) to
-`editor_grid_views` (migration → apply to prod), threading `type`+`config` through the grid-views POST/serialize +
-`PS_VIEW_REQUEST` save + apply (restore view-mode + title field). Then the next non-grid view (**kanban** — group by a
-status-like column; group counts MUST be whole-query or labelled page-only per the honesty note) or **charts**. Also
-open: saved-views rename/update (PUT) + "modified — update view?"; async export JOBS >10k; nested filter-tree;
-`field-types.ts` richer INPUT widgets; grid eval (RevoGrid vs Tabulator) — deferred until a large-dataset need forces it.
+### ✅ Shipped next fire (2026-09-26 #18) — persist the gallery as a saved-view TYPE (view-type + config)
+The gallery (#17) went from an ephemeral display toggle to a real, persisted per-view **type** — saving a view now
+captures whether it's a `grid` or `gallery` (+ the gallery card-title field), and applying it restores the whole
+layout. Extends the metadata store (#15) end-to-end:
+- **Migration (`0642_editor_grid_views_type.sql`, APPLIED to prod)** — `editor_grid_views` gains `type TEXT NOT NULL
+  DEFAULT 'grid'` + nullable `config_json`. Additive + two-way-door (existing rows → `grid`, config NULL). Applied via
+  `wrangler d1 execute --remote`; both columns verified present in `project-sites-db-production`.
+- **Worker (`site_data_api/handlers.ts`)** — pure `normalizeGridViewType` (whitelist grid|gallery, default grid) +
+  `parseGridViewConfig` (accepts the stored string OR the incoming object; keeps only a bounded `titleField` ≤64;
+  never throws → `{}`). `serializeGridView` returns `type`+`config`; the POST re-whitelists `type` + re-stringifies the
+  shape-hardened `config` (never the raw client blob); GET/single-row selects include the new columns. +4 Jest (+ the
+  serialize test now asserts type/config).
+- **Bridge** — `SavedGridView` gains `type`+`config`; `PS_VIEW_REQUEST` save carries `viewType`+`viewConfig`; the admin
+  forwards them as `type`+`config` (worker re-validates).
+- **Editor (`DataPanel.tsx`)** — save sends the current `viewMode` + `{titleField}`; **apply restores** `viewMode` +
+  `galleryTitleCol` (legacy views with no type default to grid). The saved-views list shows a grid/gallery icon per
+  view. NO change to the browse/export paths.
+- Verified: worker Jest **12758/12758** + tsc 0; editor Vitest **222/222** + tsc 0 + eslint 0 + build ✓; admin tsc 0 +
+  `ng build --configuration production` ✓; migration live in prod. Editor → CF Pages, worker+admin → Worker CI.
+
+**NEXT slice (per delivery order): the next non-grid VIEW — KANBAN** (group cards by a status-like column). Reuse the
+gallery card render + the saved-view `type`/`config` (add `kanban` to `GRID_VIEW_TYPES` + `normalizeGridViewType`/
+editor `ViewMode`; config `{groupField, titleField}`). CRITICAL honesty gate (per `data-tab-page-vs-whole-query-honesty`):
+per-column group counts MUST reflect the whole filtered query or be explicitly labelled "on this page" — a grouped
+board over one page of rows silently under-counts. Prefer a bounded whole-query group-count endpoint (reuse
+`composeBrowseFilter` + a `GROUP BY` with a fixed column allowlist) OR label the board page-only. Alternatives: **charts**
+(same honesty gate on aggregates); saved-views rename/update (PUT) + "modified — update view?"; a click-to-open record
+drawer shared by grid+gallery+kanban; async export JOBS >10k; nested filter-tree; grid eval (RevoGrid vs Tabulator).

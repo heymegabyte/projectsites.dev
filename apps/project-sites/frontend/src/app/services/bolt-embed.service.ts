@@ -101,6 +101,10 @@ interface PsMessage {
   readonly action?: string;
   /** PS_VIEW_REQUEST delete: the view id. */
   readonly viewId?: string;
+  /** PS_VIEW_REQUEST save: the render type — `grid` | `gallery`. */
+  readonly viewType?: string;
+  /** PS_VIEW_REQUEST save: view-type display config (gallery: `{ titleField }`). */
+  readonly viewConfig?: { titleField?: string };
   /** PS_VIEW_REQUEST save: how to join the filter group — `AND` | `OR`. */
   readonly combinator?: string;
   /** PS_VIEW_REQUEST save: the single-column sort (worker re-normalizes). */
@@ -810,6 +814,8 @@ export class BoltEmbedService {
                   sortCol: msg.sortCol ?? null,
                   sortDir: msg.sortDir ?? null,
                   search: msg.search ?? '',
+                  type: msg.viewType ?? 'grid',
+                  config: msg.viewConfig ?? {},
                 },
                 { silent: true },
               )

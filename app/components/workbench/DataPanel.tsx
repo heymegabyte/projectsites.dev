@@ -1765,9 +1765,13 @@ export const DataPanel = memo(() => {
       sortCol: browseSort?.col ?? null,
       sortDir: browseSort?.dir ?? null,
       search,
+
+      // Persist the render type + gallery card-title so applying the view restores the whole layout.
+      viewType: viewMode,
+      viewConfig: viewMode === 'gallery' && galleryTitleCol ? { titleField: galleryTitleCol } : {},
       correlationId: cid,
     });
-  }, [active, saveViewName, search, filterConditions, filterCombinator, browseSort]);
+  }, [active, saveViewName, search, filterConditions, filterCombinator, browseSort, viewMode, galleryTitleCol]);
 
   /** Delete a saved view (optimistic removal; the list reloads on error). */
   const deleteView = useCallback(
@@ -1801,6 +1805,10 @@ export const DataPanel = memo(() => {
       setFilterConditions(conditions);
       setFilterCombinator(view.combinator);
       setBrowseSort(sort);
+
+      // Restore the saved render type + gallery card-title (config may be absent on legacy views).
+      setViewMode(view.type === 'gallery' ? 'gallery' : 'grid');
+      setGalleryTitleCol(view.config?.titleField ?? null);
       setViewsMenuOpen(false);
       setBrowseOffset(0);
       setRows([]);
@@ -2703,10 +2711,16 @@ export const DataPanel = memo(() => {
                                   type="button"
                                   onClick={() => applyView(v)}
                                   data-testid={`data-view-apply-${v.id}`}
-                                  className="min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-[11px] text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-2"
-                                  title={`Apply “${v.name}”`}
+                                  className="flex min-w-0 flex-1 items-center gap-1.5 truncate rounded px-1.5 py-1 text-left text-[11px] text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-2"
+                                  title={`Apply “${v.name}” (${v.type === 'gallery' ? 'gallery' : 'grid'} view)`}
                                 >
-                                  {v.name}
+                                  <div
+                                    className={classNames(
+                                      'shrink-0 text-bolt-elements-textTertiary',
+                                      v.type === 'gallery' ? 'i-ph:squares-four' : 'i-ph:table',
+                                    )}
+                                  />
+                                  <span className="min-w-0 flex-1 truncate">{v.name}</span>
                                 </button>
                                 <button
                                   type="button"

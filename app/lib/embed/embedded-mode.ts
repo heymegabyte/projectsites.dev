@@ -808,6 +808,12 @@ export interface SavedGridView {
   sortCol: string | null;
   sortDir: 'asc' | 'desc' | null;
   search: string;
+
+  /** Render type — the grid restores this view mode on apply. */
+  type: 'grid' | 'gallery';
+
+  /** View-type display config (gallery: the card-title column). */
+  config: { titleField?: string };
   updatedAt: string | null;
 }
 
@@ -837,6 +843,12 @@ export interface ViewRequestMessage {
 
   /** save: the OR-of-LIKE search needle. */
   search?: string;
+
+  /** save: the render type — `grid` | `gallery` (worker whitelists, default grid). */
+  viewType?: string;
+
+  /** save: view-type display config (gallery: `{ titleField }`; worker shape-hardens). */
+  viewConfig?: { titleField?: string };
 
   /** delete: the view id. */
   viewId?: string;

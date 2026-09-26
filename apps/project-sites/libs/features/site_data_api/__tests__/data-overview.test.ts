@@ -18,6 +18,8 @@ import {
   validateViewName,
   normalizeSortDir,
   serializeGridView,
+  normalizeGridViewType,
+  parseGridViewConfig,
   MAX_GRID_VIEWS_PER_TABLE,
   deletableTableName,
   DELETABLE_OVERVIEW_TABLES,
@@ -487,6 +489,8 @@ describe('serializeGridView (stored row → client view; hardens filters, hides 
       sort_col: 'created_at',
       sort_dir: 'DESC',
       search: 'ada',
+      type: 'gallery',
+      config_json: '{"titleField":"email","junk":1}',
       updated_at: '2026-09-26T00:00:00Z',
       org_id: 'org_secret', // must NOT surface
       created_by: 'org_secret',
@@ -503,6 +507,8 @@ describe('serializeGridView (stored row → client view; hardens filters, hides 
       sortCol: 'created_at',
       sortDir: 'desc',
       search: 'ada',
+      type: 'gallery', // whitelisted
+      config: { titleField: 'email' }, // shape-hardened (junk key dropped)
       updatedAt: '2026-09-26T00:00:00Z',
     });
     // bookkeeping columns never leak into the client object
@@ -526,11 +532,49 @@ describe('serializeGridView (stored row → client view; hardens filters, hides 
     expect(view.sortCol).toBeNull();
     expect(view.sortDir).toBeNull();
     expect(view.search).toBe('');
+    expect(view.type).toBe('grid'); // absent type → default grid
+    expect(view.config).toEqual({}); // absent config → {}
   });
 
   it('exposes a sane per-table cap constant', () => {
     expect(MAX_GRID_VIEWS_PER_TABLE).toBeGreaterThan(0);
     expect(MAX_GRID_VIEWS_PER_TABLE).toBeLessThanOrEqual(200);
+  });
+});
+
+describe('normalizeGridViewType (grid | gallery, default grid)', () => {
+  it('whitelists grid/gallery (case-insensitive), defaults everything else to grid', () => {
+    expect(normalizeGridViewType('gallery')).toBe('gallery');
+    expect(normalizeGridViewType('GRID')).toBe('grid');
+    expect(normalizeGridViewType(' Gallery ')).toBe('gallery');
+    expect(normalizeGridViewType('kanban')).toBe('grid');
+    expect(normalizeGridViewType('')).toBe('grid');
+    expect(normalizeGridViewType(undefined)).toBe('grid');
+    expect(normalizeGridViewType(null)).toBe('grid');
+    expect(normalizeGridViewType(42)).toBe('grid');
+  });
+});
+
+describe('parseGridViewConfig (view display config; string OR object; never throws)', () => {
+  it('parses a stored JSON string, keeping only a bounded titleField', () => {
+    expect(parseGridViewConfig('{"titleField":"email"}')).toEqual({ titleField: 'email' });
+    expect(parseGridViewConfig('{"titleField":"  name  ","junk":1}')).toEqual({ titleField: 'name' });
+    expect(parseGridViewConfig(`{"titleField":"${'x'.repeat(200)}"}`).titleField).toBe('x'.repeat(64));
+  });
+
+  it('accepts an incoming config OBJECT (the POST body), not just a stored string', () => {
+    expect(parseGridViewConfig({ titleField: 'status' })).toEqual({ titleField: 'status' });
+    expect(parseGridViewConfig({ titleField: 5 })).toEqual({}); // non-string dropped
+  });
+
+  it('returns {} for malformed / empty / non-object / array (never throws)', () => {
+    expect(parseGridViewConfig('{not json')).toEqual({});
+    expect(parseGridViewConfig('')).toEqual({});
+    expect(parseGridViewConfig(undefined)).toEqual({});
+    expect(parseGridViewConfig(null)).toEqual({});
+    expect(parseGridViewConfig('[1,2,3]')).toEqual({});
+    expect(parseGridViewConfig('"a string"')).toEqual({});
+    expect(parseGridViewConfig({ titleField: '   ' })).toEqual({}); // blank → dropped
   });
 });
 

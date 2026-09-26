@@ -545,6 +545,44 @@ export function normalizeSortDir(raw: unknown): 'asc' | 'desc' | null {
  * combinator is re-whitelisted, and sort is re-normalized. `org_id`/`created_by` are NOT returned (the
  * client already scopes by session; they're server-side bookkeeping).
  */
+/** The render types a saved view can carry — mirrors the editor's `ViewMode`. */
+export const GRID_VIEW_TYPES = ['grid', 'gallery'] as const;
+export type GridViewType = (typeof GRID_VIEW_TYPES)[number];
+
+/** Coerce a raw view type to a whitelisted {@link GridViewType}; unknown/absent → `grid`. */
+export function normalizeGridViewType(raw: unknown): GridViewType {
+  const t = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  return (GRID_VIEW_TYPES as readonly string[]).includes(t) ? (t as GridViewType) : 'grid';
+}
+
+/**
+ * Parse a saved view's display config into a bounded, shape-hardened object — accepts EITHER the stored
+ * `config_json` string OR an incoming config object (the POST body). NEVER throws (malformed → `{}`).
+ * Only `titleField` (the gallery card-title column, ≤64 chars) is honored today; unknown keys are
+ * dropped. The editor re-validates `titleField` against the live columns at render (a stale field just
+ * falls back to the default) — this is shape-hardening, not authorization.
+ */
+export function parseGridViewConfig(raw: unknown): { titleField?: string } {
+  let obj: unknown = raw;
+  if (typeof raw === 'string') {
+    if (!raw) return {};
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
+  const rec = obj as Record<string, unknown>;
+  const out: { titleField?: string } = {};
+  if (typeof rec.titleField === 'string' && rec.titleField.trim()) {
+    out.titleField = rec.titleField.trim().slice(0, 64);
+  }
+  return out;
+}
+
 export function serializeGridView(row: Record<string, unknown>): {
   id: string;
   table: string;
@@ -554,6 +592,8 @@ export function serializeGridView(row: Record<string, unknown>): {
   sortCol: string | null;
   sortDir: 'asc' | 'desc' | null;
   search: string;
+  type: GridViewType;
+  config: { titleField?: string };
   updatedAt: string | null;
 } {
   return {
@@ -565,6 +605,8 @@ export function serializeGridView(row: Record<string, unknown>): {
     sortCol: typeof row.sort_col === 'string' && row.sort_col ? row.sort_col : null,
     sortDir: normalizeSortDir(row.sort_dir),
     search: typeof row.search === 'string' ? row.search : '',
+    type: normalizeGridViewType(row.type),
+    config: parseGridViewConfig(row.config_json),
     updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null,
   };
 }
@@ -1166,7 +1208,8 @@ siteDataApi.get('/api/sites/:siteId/grid-views', async (c) => {
     return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
 
   const table = String(c.req.query('table') ?? '').trim();
-  const cols = 'id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, updated_at';
+  const cols =
+    'id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, type, config_json, updated_at';
   try {
     const res = table
       ? await c.env.DB.prepare(
@@ -1214,6 +1257,10 @@ siteDataApi.post('/api/sites/:siteId/grid-views', async (c) => {
   const sortCol = typeof body.sortCol === 'string' && body.sortCol.trim() ? body.sortCol.trim().slice(0, 64) : null;
   const sortDir = normalizeSortDir(body.sortDir);
   const search = typeof body.search === 'string' ? body.search.trim().slice(0, 128) : '';
+  // View render type + display config (gallery: {titleField}). Both re-validated server-side: type is
+  // whitelisted (default grid), config is shape-hardened + re-stringified (never the raw client blob).
+  const viewType = normalizeGridViewType(body.type);
+  const configJson = JSON.stringify(parseGridViewConfig(body.config));
 
   try {
     const countRow = await c.env.DB.prepare(
@@ -1229,13 +1276,13 @@ siteDataApi.post('/api/sites/:siteId/grid-views', async (c) => {
 
     const id = crypto.randomUUID();
     await c.env.DB.prepare(
-      'INSERT INTO editor_grid_views (id, site_id, org_id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO editor_grid_views (id, site_id, org_id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, type, config_json, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
-      .bind(id, siteId, orgId, table, name, filtersJson, combinator, sortCol, sortDir, search, orgId)
+      .bind(id, siteId, orgId, table, name, filtersJson, combinator, sortCol, sortDir, search, viewType, configJson, orgId)
       .run();
 
     const row = await c.env.DB.prepare(
-      'SELECT id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, updated_at FROM editor_grid_views WHERE id = ?',
+      'SELECT id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, type, config_json, updated_at FROM editor_grid_views WHERE id = ?',
     )
       .bind(id)
       .first<Record<string, unknown>>();
