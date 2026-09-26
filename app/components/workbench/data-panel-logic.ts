@@ -1695,6 +1695,37 @@ export function recordTitle(
 }
 
 /**
+ * Position + neighbors of the open record within the CURRENT PAGE (`visibleRows`), for the record
+ * drawer's prev/next navigation. `current` is a reference into `rows` (the drawer holds the exact row
+ * object a grid/gallery/kanban/calendar surface passed), so `indexOf` locates it by identity. Returns
+ * `index` (0-based, -1 if absent), `total`, and the `prev`/`next` row objects (null at each end) — so
+ * the caller never steps past the page boundary (crossing pages would need a separate fetch). Pure.
+ *
+ * @example recordNavigation([a, b, c], b) // { index: 1, total: 3, prev: a, next: c }
+ * @example recordNavigation([a, b, c], a) // { index: 0, total: 3, prev: null, next: b }
+ * @example recordNavigation([a, b, c], null) // { index: -1, total: 3, prev: null, next: null }
+ */
+export function recordNavigation(
+  rows: readonly Record<string, unknown>[],
+  current: Record<string, unknown> | null,
+): {
+  index: number;
+  total: number;
+  prev: Record<string, unknown> | null;
+  next: Record<string, unknown> | null;
+} {
+  const total = rows.length;
+  const index = current ? rows.indexOf(current) : -1;
+
+  return {
+    index,
+    total,
+    prev: index > 0 ? rows[index - 1] : null,
+    next: index >= 0 && index < total - 1 ? rows[index + 1] : null,
+  };
+}
+
+/**
  * A stable fingerprint of a browse view's whole query — search + the ACTIVE filter conditions
  * (op-normalized, value-free ops blanked) + combinator (only meaningful with >1 condition) + sort +
  * render type + gallery/kanban config. Two queries that would fetch + render identically produce the

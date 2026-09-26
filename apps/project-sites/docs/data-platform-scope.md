@@ -730,9 +730,27 @@ The last enumerated Airtable view now ships. Wires the INERT tested `view-models
   session — verify-by-build per the established DataPanel pattern; not click-through-tested in a live browser. Day cells cap
   at 3 visible events (+N more is a count, not yet an expander) — page-parity keeps most days ≤3 at the default page size.
 
-**NEXT slice: DRAWER prev/next record navigation (‹ ›).** Now that the drawer is the universal detail surface for every
-view AND calendar ships, add ←/→ (+ on-screen ‹ › buttons) to step through the CURRENT PAGE's `visibleRows` without closing
-the drawer — track the open row's index, guard both ends, preserve edit-cancel on move. Small, high-value, leverages the
-consolidation. Then: chart **sum/avg** aggregates (needs numeric-column detect); calendar day-cell "+N more" → a day popover;
-async export JOBS >10k; nested filter-tree; grid eval (RevoGrid vs Tabulator). Foundations still inert: `field-types.ts`,
-`schema-ddl.ts` (wire as the typed-editor + schema-builder phases ship).
+### ✅ Shipped next fire (2026-09-26 #28) — record-drawer prev/next navigation (‹ › + ←/→)
+Step through the CURRENT PAGE's records inside the drawer without closing it — the Airtable record-modal
+gesture. Works from every view (grid · gallery · kanban · calendar) since the drawer is the universal surface.
+- **New pure logic (TDD-first, tested):** `data-panel-logic.ts` `recordNavigation(rows, current)` →
+  `{ index, total, prev, next }`, locating the open row by **reference identity** (`indexOf` — `drawerRow`
+  is the exact object a surface passed) and returning the neighbor row objects (null at each end). 5 cases
+  incl. single-row page, current-null/off-page (index -1), and reference-vs-value identity.
+- **`DataPanel.tsx`** — a `drawerNav` memo; a nav strip under the drawer header with **‹ Prev / Record N of M
+  (this page) / Next ›** (buttons disabled at the ends); **←/→ keys** mirror them (extended the drawer keydown
+  effect, deps `[drawerRow, editCol, visibleRows]` — no stale closure). Arrow-nav is **suppressed while a cell
+  is being edited** (`editCol` set) so arrows move the input caret; stepping cancels any open editor.
+- **HONEST page-boundary:** prev/next never cross to the next page (label says "(this page)"; crossing would
+  need a fetch) — same page-parity discipline as kanban cards + the calendar. Hidden for a single-row page.
+- Verified: editor Vitest **875/875** + tsc 0 + eslint 0 + build 0; worker **untouched** (0 files under
+  `apps/project-sites` — worker tsc/jest unchanged from `ce181ec0f`). Editor → CF Pages on push. *Honest
+  residual:* verify-by-build (WebContainer + authed admin session) per the established DataPanel pattern.
+
+**NEXT slice: chart SUM/AVG aggregates (beyond COUNT).** The chart view only bars whole-query COUNT per group;
+add an optional numeric measure column + aggregate (sum/avg/min/max) so a bar can be "revenue by status", not
+just row counts. Needs: a numeric-column detector (reuse `classifyCell`/affinity), a measure+agg picker beside
+the group-by, a worker `group-counts`→`group-aggregate` endpoint variant (SUM/AVG over an allowlisted numeric
+column, still whole-query + bounded), and honest labeling (COUNT vs SUM(col)). Then: calendar day-cell "+N more"
+→ a day popover; async export JOBS >10k; nested filter-tree; grid eval (RevoGrid vs Tabulator). Foundations
+still inert: `field-types.ts`, `schema-ddl.ts` (wire as the typed-editor + schema-builder phases ship).

@@ -103,6 +103,7 @@ import {
   groupPageRows,
   buildChartBars,
   recordTitle,
+  recordNavigation,
   calendarDateField,
   monthMatrix,
   addCalendarMonth,
@@ -1633,6 +1634,13 @@ export const DataPanel = memo(() => {
     return { year: now.getUTCFullYear(), month: now.getUTCMonth() };
   }, [calendarMonth, calendarDayMap]);
 
+  /*
+   * Record-drawer prev/next: the open row's position + neighbors WITHIN the current page (`visibleRows`).
+   * `drawerRow` is a reference into `visibleRows`, so recordNavigation locates it by identity. Stepping
+   * never crosses the page boundary (prev/next are null at the ends — that would need a separate fetch).
+   */
+  const drawerNav = useMemo(() => recordNavigation(visibleRows, drawerRow), [visibleRows, drawerRow]);
+
   /**
    * Server-side pagination display (range label) + prev/next availability. Uses the worker's
    * `browseTotal` for THIS query (reflects the search filter) once a page has landed; before that it
@@ -2145,7 +2153,12 @@ export const DataPanel = memo(() => {
     }
   }, [viewMode, kanbanGroupCol, active, loadKanbanGroups]);
 
-  // Close the record drawer on Escape (only while it's open).
+  /*
+   * Record-drawer keyboard: Escape closes; ←/→ step to the prev/next record on this page. Arrow-nav is
+   * suppressed while a cell is being edited (editCol set) so the arrows move the input caret instead,
+   * and re-computes neighbors fresh each keypress (deps include drawerRow/editCol/visibleRows — no stale
+   * closure). Stepping cancels any open editor and never crosses the page boundary.
+   */
   useEffect(() => {
     if (!drawerRow) {
       return undefined;
@@ -2155,12 +2168,26 @@ export const DataPanel = memo(() => {
       if (isDismissKey(e.key)) {
         setDrawerRow(null);
         setEditCol(null);
+
+        return;
+      }
+
+      if (editCol || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) {
+        return;
+      }
+
+      const nav = recordNavigation(visibleRows, drawerRow);
+      const target = e.key === 'ArrowLeft' ? nav.prev : nav.next;
+
+      if (target) {
+        e.preventDefault();
+        setDrawerRow(target);
       }
     };
     window.addEventListener('keydown', onKey);
 
     return () => window.removeEventListener('keydown', onKey);
-  }, [drawerRow]);
+  }, [drawerRow, editCol, visibleRows]);
 
   /**
    * Rows-per-page change: update the ref (so `requestRows` uses the new size THIS tick) + state, then
@@ -4437,6 +4464,61 @@ export const DataPanel = memo(() => {
                 />
               </div>
             </div>
+            {/* Prev/next within THIS PAGE (honest — stepping never crosses to the next page; that would
+                need a fetch). ←/→ keys mirror these buttons. Hidden for a single-row page. */}
+            {drawerNav.index >= 0 && drawerNav.total > 1 && (
+              <div
+                className="flex items-center justify-between gap-2 border-b border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-2 px-3 py-1"
+                data-testid="data-drawer-nav"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (drawerNav.prev) {
+                      setDrawerRow(drawerNav.prev);
+                      setEditCol(null);
+                    }
+                  }}
+                  disabled={!drawerNav.prev}
+                  data-testid="data-drawer-prev"
+                  aria-label="Previous record"
+                  title="Previous record (←)"
+                  className={classNames(
+                    'flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]',
+                    drawerNav.prev
+                      ? 'cursor-pointer text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary'
+                      : 'cursor-not-allowed text-bolt-elements-textTertiary opacity-40',
+                  )}
+                >
+                  <div className="i-ph:caret-left text-[11px]" /> Prev
+                </button>
+                <span className="text-[10px] text-bolt-elements-textTertiary" data-testid="data-drawer-position">
+                  Record {drawerNav.index + 1} of {drawerNav.total.toLocaleString()}{' '}
+                  <span className="opacity-60">(this page)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (drawerNav.next) {
+                      setDrawerRow(drawerNav.next);
+                      setEditCol(null);
+                    }
+                  }}
+                  disabled={!drawerNav.next}
+                  data-testid="data-drawer-next"
+                  aria-label="Next record"
+                  title="Next record (→)"
+                  className={classNames(
+                    'flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]',
+                    drawerNav.next
+                      ? 'cursor-pointer text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary'
+                      : 'cursor-not-allowed text-bolt-elements-textTertiary opacity-40',
+                  )}
+                >
+                  Next <div className="i-ph:caret-right text-[11px]" />
+                </button>
+              </div>
+            )}
             <div className="min-h-0 flex-1 overflow-auto p-3">
               <dl className="flex flex-col gap-2.5">
                 {columns.map((c) => {

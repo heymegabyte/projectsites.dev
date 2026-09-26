@@ -48,6 +48,7 @@ import {
   galleryTitleField,
   galleryBodyFields,
   recordTitle,
+  recordNavigation,
   calendarDateField,
   monthFromDayKey,
   addCalendarMonth,
@@ -1155,6 +1156,37 @@ describe('recordTitle (record-drawer heading)', () => {
     expect(recordTitle({ id: 1, name: null }, ['id', 'name'])).toBe('(untitled)');
     expect(recordTitle({ id: 1, name: '' }, ['id', 'name'])).toBe('(untitled)');
     expect(recordTitle({}, [])).toBe('(record)');
+  });
+});
+
+describe('recordNavigation (drawer prev/next within the current page)', () => {
+  const a = { id: 1 };
+  const b = { id: 2 };
+  const c = { id: 3 };
+
+  it('locates the current row by identity and exposes both neighbors', () => {
+    expect(recordNavigation([a, b, c], b)).toEqual({ index: 1, total: 3, prev: a, next: c });
+  });
+
+  it('has no prev at the first row, no next at the last row (never crosses the page boundary)', () => {
+    expect(recordNavigation([a, b, c], a)).toEqual({ index: 0, total: 3, prev: null, next: b });
+    expect(recordNavigation([a, b, c], c)).toEqual({ index: 2, total: 3, prev: b, next: null });
+  });
+
+  it('a single-row page has neither neighbor', () => {
+    expect(recordNavigation([a], a)).toEqual({ index: 0, total: 1, prev: null, next: null });
+  });
+
+  it('returns index -1 with no neighbors when current is null or not on the page', () => {
+    expect(recordNavigation([a, b, c], null)).toEqual({ index: -1, total: 3, prev: null, next: null });
+    expect(recordNavigation([a, b, c], { id: 99 })).toEqual({ index: -1, total: 3, prev: null, next: null });
+    expect(recordNavigation([], null)).toEqual({ index: -1, total: 0, prev: null, next: null });
+  });
+
+  it('matches by reference identity, not value equality (duplicate-looking rows are distinct)', () => {
+    const d1 = { id: 1 };
+    const d2 = { id: 1 }; // same shape, different object
+    expect(recordNavigation([d1, d2], d2)).toEqual({ index: 1, total: 2, prev: d1, next: null });
   });
 });
 
