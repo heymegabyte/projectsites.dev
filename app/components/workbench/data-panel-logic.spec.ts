@@ -26,6 +26,8 @@ import {
   sortToParams,
   browseSearchParam,
   filtersToParams,
+  clampPageSize,
+  PAGE_SIZE_OPTIONS,
   stripSqlCommentsAndStrings,
   classifySqlStatement,
   classifySql,
@@ -850,6 +852,21 @@ describe('filtersToParams (search + exact-column filter → request params)', ()
       filterCol: 'c',
       filterVal: 'v',
     });
+  });
+});
+
+describe('clampPageSize (rows-per-page selector guard)', () => {
+  it('passes an offered page size through', () => {
+    for (const n of PAGE_SIZE_OPTIONS) {
+      expect(clampPageSize(n)).toBe(n);
+    }
+  });
+
+  it('falls back to the default (25) for any non-offered / NaN value', () => {
+    expect(clampPageSize(10)).toBe(25);
+    expect(clampPageSize(0)).toBe(25);
+    expect(clampPageSize(999)).toBe(25);
+    expect(clampPageSize(Number.NaN)).toBe(25);
   });
 });
 

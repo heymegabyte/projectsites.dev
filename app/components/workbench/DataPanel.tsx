@@ -69,6 +69,8 @@ import {
   generatedFromTableXinfo,
   browsePageInfo,
   BROWSE_PAGE_SIZE,
+  PAGE_SIZE_OPTIONS,
+  clampPageSize,
   sortToParams,
   filtersToParams,
   RowMutationError,
@@ -287,8 +289,16 @@ export const DataPanel = memo(() => {
    */
   const [browseGeneratedCols, setBrowseGeneratedCols] = useState<ReadonlySet<string>>(() => new Set<string>());
 
-  /** 0-based row offset of the current browse page (server-side pagination; page size BROWSE_PAGE_SIZE). */
+  /** 0-based row offset of the current browse page (server-side pagination). */
   const [browseOffset, setBrowseOffset] = useState(0);
+
+  /**
+   * Rows-per-page (the selector). A ref mirrors it so `requestRows` always reads the CURRENT size even
+   * when a size change fires the re-fetch in the same tick (avoids a stale-closure). Persists across
+   * tables (a user preference), so a fresh table opens at the chosen size.
+   */
+  const [browsePageSize, setBrowsePageSize] = useState<number>(BROWSE_PAGE_SIZE);
+  const pageSizeRef = useRef<number>(BROWSE_PAGE_SIZE);
 
   /**
    * Total rows for the CURRENT browse query from the worker (reflects any active `search` filter) — the
@@ -549,7 +559,7 @@ export const DataPanel = memo(() => {
         type: 'PS_DATA_REQUEST',
         table: key,
         offset,
-        limit: BROWSE_PAGE_SIZE,
+        limit: pageSizeRef.current, // the current rows-per-page (ref → always fresh, no stale closure)
         ...sortToParams(sort),
         ...filtersToParams(filters),
         correlationId: cid,
@@ -1469,6 +1479,31 @@ export const DataPanel = memo(() => {
   }, [runServerFilter]);
 
   /**
+   * Rows-per-page change: update the ref (so `requestRows` uses the new size THIS tick) + state, then
+   * reset to page 0 (page boundaries shift) and re-fetch keeping the current sort + search + filter.
+   */
+  const onPageSizeChange = useCallback(
+    (size: number): void => {
+      const clamped = clampPageSize(size);
+      pageSizeRef.current = clamped;
+      setBrowsePageSize(clamped);
+
+      if (!active) {
+        return;
+      }
+
+      setBrowseOffset(0);
+      setRows([]);
+      setBrowseLoading(true);
+      setBrowseError('');
+      setDetailIdx(null);
+      setSelectedKeys(new Set());
+      requestRows(active, 0, browseSort, { search, filterCol, filterVal });
+    },
+    [active, browseSort, search, filterCol, filterVal, requestRows],
+  );
+
+  /**
    * Write `text` to the clipboard and flash a polite "✓ Copied {label}" confirmation. Fail-soft:
    * a blocked/absent clipboard (insecure context, denied permission) is a no-op — never throws,
    * never a scary error. `writeClipboard` is isolated so a unit/e2e test can spy on it.
@@ -2132,7 +2167,7 @@ export const DataPanel = memo(() => {
             >
               <button
                 type="button"
-                onClick={() => goToPage(Math.max(0, browseOffset - BROWSE_PAGE_SIZE))}
+                onClick={() => goToPage(Math.max(0, browseOffset - browsePageSize))}
                 disabled={!pageInfo.hasPrev || browseLoading}
                 data-testid="data-page-prev"
                 title="Previous page"
@@ -2146,7 +2181,7 @@ export const DataPanel = memo(() => {
               </span>
               <button
                 type="button"
-                onClick={() => goToPage(browseOffset + BROWSE_PAGE_SIZE)}
+                onClick={() => goToPage(browseOffset + browsePageSize)}
                 disabled={!pageInfo.hasNext || browseLoading}
                 data-testid="data-page-next"
                 title="Next page"
@@ -2155,6 +2190,21 @@ export const DataPanel = memo(() => {
               >
                 <div className="i-ph:caret-right text-[11px]" />
               </button>
+              <select
+                value={browsePageSize}
+                onChange={(e) => onPageSizeChange(Number(e.target.value))}
+                disabled={browseLoading}
+                data-testid="data-page-size"
+                aria-label="Rows per page"
+                title="Rows per page"
+                className="ml-0.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[10px] text-bolt-elements-textPrimary focus:outline-none disabled:opacity-40"
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}/page
+                  </option>
+                ))}
+              </select>
               {search ? (
                 <span className="truncate max-w-[160px]" title={`Searching the whole table for “${search}”`}>
                   · matching “{search}”

@@ -355,8 +355,22 @@ reflected in `total`) but no UI drove it. Now a per-column filter composes with 
 - **Security:** the editor/admin never build SQL — the worker's `buildColumnFilter` + `spec.columns` allowlist +
   parameterized `?` value are the sole boundary; a hostile column is ignored, a hostile value is just a bound string.
 
-**NEXT slice (per delivery order): a page-size selector (25/50/100)** — small win completing the pagination UX
-(send `limit`, reset to page 0; the worker already clamps 1–100). OR the AND/OR **filter-group builder** (the fuller
-slice-3 goal beyond one exact-match column — needs a worker extension to accept a validated filter tree, so scope
-it deliberately). Then the grid eval (RevoGrid vs Tabulator, license-checked). Cheaper adjacent win: wire
-`field-types.ts` typed EDITORS (date/select/url) into the row-edit path; or the add-row form omitting generated columns.
+### ✅ Shipped next fire (2026-09-26 #8) — rows-per-page selector (25/50/100); pagination UX complete
+An **editor-only** slice (the admin already forwarded `limit`; the worker already clamps 1–100). The grid was
+fixed at 25 rows/page; a big table (e.g. thousands of `visitor_events`) meant tedious paging. Now a `25/50/100`
+selector sits beside Prev/Next:
+- `browsePageSize` state + a `pageSizeRef` mirror so `requestRows` reads the CURRENT size even when the change
+  fires the re-fetch the same tick (avoids a stale-closure — the size change resets to page 0 + re-fetches keeping
+  sort+search+filter). Prev/Next step by the chosen size. Page size PERSISTS across tables (a user preference).
+- Pure `clampPageSize(n)` → an offered `PAGE_SIZE_OPTIONS` size (else the 25 default) guards the request path;
+  the worker's 1–100 clamp is the real boundary. +2 Vitest.
+- Verified: Vitest 194/194 (data-panel-logic), editor tsc 0 / eslint 0 / build ✓ (13.31s). Editor-only → CF Pages
+  deploy on push. **The read-only grid is now fully server-driven: pagination (+ page size) + sort + search + filter.**
+
+**NEXT slice (per delivery order): the add-row form omits GENERATED columns** (a small correctness/safety
+completion — `duplicateRow` already omits them, but the Add-row form still renders inputs for a generated column →
+a doomed INSERT that SQLite rejects; reuse `browseGeneratedCols` to skip them, matching the edit-path fix). Then
+the AND/OR **filter-group builder** (fuller slice-3; needs a validated filter-tree worker endpoint — scope
+deliberately), or wire `field-types.ts` typed EDITORS (date/select/url) into the row-edit path. Then the grid eval
+(RevoGrid vs Tabulator, license-checked) + **saved grid views** (needs an isolated ProjectSites.dev metadata store
+per the architecture note — views/filters/sort/field-config live there, NEVER in customer tables).

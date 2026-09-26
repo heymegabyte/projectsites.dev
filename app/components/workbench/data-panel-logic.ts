@@ -513,6 +513,22 @@ export function generatedFromTableXinfo(rows: readonly Record<string, unknown>[]
 /** Default browse page size (rows per request). Matches the worker's `data-overview` default. */
 export const BROWSE_PAGE_SIZE = 25;
 
+/** The page sizes offered by the grid's rows-per-page selector (all within the worker's 1–100 clamp). */
+export const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+
+/**
+ * Clamp a rows-per-page value to an offered {@link PAGE_SIZE_OPTIONS} size — defends the request path
+ * against a stale/garbage value (the worker also clamps 1–100, but the grid should only ever request a
+ * size it can render as a selected option). Unknown / NaN → {@link BROWSE_PAGE_SIZE}. Pure.
+ *
+ * @example clampPageSize(50)  // 50
+ * @example clampPageSize(999) // 25
+ * @example clampPageSize(NaN) // 25
+ */
+export function clampPageSize(n: number): number {
+  return (PAGE_SIZE_OPTIONS as readonly number[]).includes(n) ? n : BROWSE_PAGE_SIZE;
+}
+
 /** Derived display + control state for the paginated browse grid. */
 export interface BrowsePageInfo {
   /** 1-based index of the first shown row (0 when the page is empty). */
