@@ -1506,12 +1506,33 @@ export function visibleColumns(all: readonly string[], hidden: readonly string[]
   return all.filter((c) => !h.has(c));
 }
 
-/** How the browse rows are rendered: dense spreadsheet grid, Airtable-style cards, or a grouped board. */
-export type ViewMode = 'grid' | 'gallery' | 'kanban';
+/** How the browse rows are rendered: dense grid, Airtable-style cards, a grouped board, or a bar chart. */
+export type ViewMode = 'grid' | 'gallery' | 'kanban' | 'chart';
 
 /** Coerce a raw value to a known {@link ViewMode}, defaulting to `grid`. Pure. */
 export function normalizeViewMode(raw: string | null | undefined): ViewMode {
-  return raw === 'gallery' || raw === 'kanban' ? raw : 'grid';
+  return raw === 'gallery' || raw === 'kanban' || raw === 'chart' ? raw : 'grid';
+}
+
+/**
+ * Turn whole-query group counts (from the group-counts endpoint, ordered desc) into bar-chart rows:
+ * a display `label` (null/undefined → "(empty)"), the `count`, and `pct` = count/max×100 for the bar
+ * width. Returns `total` (sum of the returned groups) for an honest "N across M groups" caption. Pure.
+ */
+export function buildChartBars(groups: ReadonlyArray<{ value: unknown; count: number }>): {
+  bars: Array<{ label: string; count: number; pct: number }>;
+  total: number;
+  max: number;
+} {
+  const max = groups.reduce((m, g) => Math.max(m, g.count), 0);
+  const total = groups.reduce((s, g) => s + g.count, 0);
+  const bars = groups.map((g) => ({
+    label: g.value === null || g.value === undefined ? '(empty)' : String(g.value),
+    count: g.count,
+    pct: max > 0 ? Math.round((g.count / max) * 100) : 0,
+  }));
+
+  return { bars, total, max };
 }
 
 /**

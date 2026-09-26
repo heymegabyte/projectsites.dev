@@ -600,10 +600,29 @@ column, with lane totals computed over the WHOLE filtered query (not the loaded 
   admin tsc 0 + `ng build --configuration production` ✓. NO migration (reuses #18 `type`/`config_json`). Editor → CF
   Pages, worker+admin → Worker CI. Three views now: grid · gallery · kanban.
 
-**NEXT slice (per delivery order): CHARTS** (the remaining rich view) — a bar/line chart over a whole-query aggregate
-(reuse the group-counts endpoint for a categorical bar chart: value → count; extend it with an optional numeric
-`agg=sum|avg` over a second column for value charts). SAME honesty gate: chart totals are whole-query, never
-page-only. Persist as a `chart` view type + config `{groupField, aggField, aggFn, chartType}`. Alternatives: a
-**drift-aware "modified — update view?"** badge (Update exists since #19 — detect live-query divergence from the applied
-view); a click-to-open record drawer shared by grid+gallery+kanban (cards are display-only today); async export JOBS
->10k; nested filter-tree; grid eval (RevoGrid vs Tabulator).
+### ✅ Shipped next fire (2026-09-26 #21) — CHART view (whole-query bar chart), completes the rich-views set
+The fourth view: a Grid⇄Gallery⇄Kanban⇄**Chart** toggle rendering a horizontal **bar chart of whole-query counts by
+a column** — honest by construction (the bars are the SAME group-counts the kanban lanes use, over the full filtered
+set, never the loaded page). Reuses the #20 group-counts endpoint + pipeline almost entirely:
+- **Worker** — one line: `chart` added to `GRID_VIEW_TYPES` (so `normalizeGridViewType` persists it). No new endpoint
+  (reuses `/data-overview/:table/group-counts` from #20). +1 Jest assertion.
+- **Editor (`data-panel-logic.ts`)** — `ViewMode` gains `chart`; pure **`buildChartBars`** (group counts → `{label,
+  count, pct}` bars with max/total; null → "(empty)"; no divide-by-zero). +3 Vitest.
+- **Editor (`DataPanel.tsx`)** — a chart toggle; the group-counts effect + "Group by" picker + saved-view `groupField`
+  config now fire for `kanban OR chart` (shared group pipeline — zero new fetch/bridge code); a bar-chart render from
+  `kanbanGroups` with an honest caption ("Count by ‹col› — whole table · N across M groups (top 50)"). Persists as a
+  `chart` view type; apply restores mode + group. No admin/bridge change (reuses #20's `groupBy` routing).
+- Verified: worker Jest **12769/12769** (795 suites) + tsc 0; editor Vitest **227/227** + tsc 0 + eslint 0 + build ✓;
+  admin tsc 0 + `ng build --configuration production` ✓. NO migration. **Rich-views set COMPLETE: grid · gallery ·
+  kanban · chart.** Editor → CF Pages, worker → Worker CI.
+- *Note:* a false-alarm cost time this fire — `grep`/`sed` silently returned nothing on the large
+  `data-panel-logic.ts` (a tooling quirk), which looked like the file had been clobbered; the **Read tool** confirmed
+  it was fully intact (tsc=0 all along). Verify file contents with Read, never trust an empty grep as "absent".
+
+**NEXT slice (per delivery order): a click-to-open RECORD DRAWER shared by grid + gallery + kanban** — cards/rows are
+display-only today (only the grid's inline row-detail expands). Extract the existing row-detail into a shared
+right-side drawer (all fields, pretty-JSON, super-admin delete) that grid rows, gallery cards, and kanban cards all
+open — one detail surface for every view. Alternatives: a **drift-aware "modified — update view?"** badge (Update
+exists since #19 — detect live-query divergence from the applied view); chart **sum/avg** aggregates (needs numeric
+columns — the curated tables mostly lack them, so defer until arbitrary-table support); async export JOBS >10k; nested
+filter-tree; grid eval (RevoGrid vs Tabulator).

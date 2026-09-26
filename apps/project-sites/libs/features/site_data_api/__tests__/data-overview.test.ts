@@ -550,6 +550,7 @@ describe('normalizeGridViewType (grid | gallery | kanban, default grid)', () => 
     expect(normalizeGridViewType('GRID')).toBe('grid');
     expect(normalizeGridViewType(' Gallery ')).toBe('gallery');
     expect(normalizeGridViewType('kanban')).toBe('kanban');
+    expect(normalizeGridViewType('chart')).toBe('chart');
     expect(normalizeGridViewType(' KANBAN ')).toBe('kanban');
     expect(normalizeGridViewType('calendar')).toBe('grid'); // not yet supported → default
     expect(normalizeGridViewType('')).toBe('grid');

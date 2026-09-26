@@ -101,6 +101,7 @@ import {
   galleryBodyFields,
   kanbanGroupKey,
   groupPageRows,
+  buildChartBars,
 } from './data-panel-logic';
 import { SqlEditor } from './SqlEditor';
 import { classNames } from '~/utils/classNames';
@@ -1815,7 +1816,7 @@ export const DataPanel = memo(() => {
       viewType: viewMode,
       viewConfig: {
         ...(galleryTitleCol ? { titleField: galleryTitleCol } : {}),
-        ...(viewMode === 'kanban' && kanbanGroupCol ? { groupField: kanbanGroupCol } : {}),
+        ...((viewMode === 'kanban' || viewMode === 'chart') && kanbanGroupCol ? { groupField: kanbanGroupCol } : {}),
       },
       correlationId: cid,
     });
@@ -1899,7 +1900,7 @@ export const DataPanel = memo(() => {
         viewType: viewMode,
         viewConfig: {
           ...(galleryTitleCol ? { titleField: galleryTitleCol } : {}),
-          ...(viewMode === 'kanban' && kanbanGroupCol ? { groupField: kanbanGroupCol } : {}),
+          ...((viewMode === 'kanban' || viewMode === 'chart') && kanbanGroupCol ? { groupField: kanbanGroupCol } : {}),
         },
       });
     },
@@ -2004,11 +2005,12 @@ export const DataPanel = memo(() => {
   }, [active, kanbanGroupCol, search, filterConditions, filterCombinator]);
 
   /*
-   * Re-fetch lane counts whenever the board is shown, the group column changes, or the filters change
-   * (so lane totals stay honest to the current query); clear them when not in kanban / no column chosen.
+   * Re-fetch whole-query group counts whenever a grouped view (kanban board OR chart) is shown, the
+   * group column changes, or the filters change (so lane/bar totals stay honest to the current query);
+   * clear them otherwise. Both views share the same group-counts data + endpoint.
    */
   useEffect(() => {
-    if (viewMode === 'kanban' && kanbanGroupCol && active) {
+    if ((viewMode === 'kanban' || viewMode === 'chart') && kanbanGroupCol && active) {
       loadKanbanGroups();
     } else {
       setKanbanGroups([]);
@@ -2845,9 +2847,24 @@ export const DataPanel = memo(() => {
                     >
                       <div className="i-ph:kanban" />
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('chart')}
+                      aria-pressed={viewMode === 'chart'}
+                      data-testid="data-view-chart"
+                      title="Chart view — bar chart of whole-table counts by a column"
+                      className={classNames(
+                        'rounded p-1 text-xs transition-colors',
+                        viewMode === 'chart'
+                          ? 'bg-[#00e5ff]/15 text-[#00e5ff]'
+                          : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
+                      )}
+                    >
+                      <div className="i-ph:chart-bar" />
+                    </button>
                   </div>
                 )}
-                {viewMode === 'kanban' && active && rows.length > 0 && columns.length > 0 && (
+                {(viewMode === 'kanban' || viewMode === 'chart') && active && rows.length > 0 && columns.length > 0 && (
                   <label
                     className="flex items-center gap-1 text-[10px] text-bolt-elements-textTertiary"
                     data-testid="data-kanban-group-field"
@@ -4222,6 +4239,60 @@ export const DataPanel = memo(() => {
                         )}
                       </div>
                     </>
+                  );
+                })()
+              )}
+            </div>
+          )}
+
+          {/* Chart view — a horizontal bar chart of WHOLE-QUERY counts by the group column (honest by
+              construction: the bars are the same group-counts the kanban lanes use, over the full
+              filtered set, never the loaded page). Pick a column to build it. */}
+          {!browseLoading && !browseError && visibleRows.length > 0 && viewMode === 'chart' && (
+            <div className="flex-1 overflow-auto modern-scrollbar p-4" data-testid="data-chart">
+              {!kanbanGroupCol ? (
+                <div className="p-4 text-center text-[11px] text-bolt-elements-textTertiary">
+                  Choose a column to group by (top right) to build the chart.
+                </div>
+              ) : (
+                (() => {
+                  const { bars, total } = buildChartBars(kanbanGroups);
+
+                  return (
+                    <div className="mx-auto max-w-2xl">
+                      <div className="mb-3 flex items-baseline justify-between gap-2 text-[10px] text-bolt-elements-textTertiary">
+                        <span className="truncate">Count by {columnLabel(kanbanGroupCol)} — whole table</span>
+                        <span className="shrink-0">
+                          {total.toLocaleString()} across {bars.length} group{bars.length === 1 ? '' : 's'}
+                          {kanbanGroupsTruncated ? ' (top 50)' : ''}
+                        </span>
+                      </div>
+                      {bars.length === 0 && !kanbanBusy ? (
+                        <div className="p-4 text-[11px] text-bolt-elements-textTertiary">No data.</div>
+                      ) : (
+                        <div className="flex flex-col gap-1.5">
+                          {bars.map((b) => (
+                            <div key={b.label} className="flex items-center gap-2" data-testid="data-chart-bar">
+                              <span
+                                className="w-32 shrink-0 truncate text-right text-[11px] text-bolt-elements-textSecondary"
+                                title={b.label}
+                              >
+                                {b.label}
+                              </span>
+                              <div className="relative h-4 flex-1 rounded bg-bolt-elements-background-depth-2">
+                                <div
+                                  className="absolute inset-y-0 left-0 rounded bg-[#00e5ff]/60"
+                                  style={{ width: `${Math.max(b.pct, 2)}%` }}
+                                />
+                              </div>
+                              <span className="w-14 shrink-0 text-right text-[10px] tabular-nums text-bolt-elements-textPrimary">
+                                {b.count.toLocaleString()}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   );
                 })()
               )}

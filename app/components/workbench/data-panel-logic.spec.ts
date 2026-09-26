@@ -45,6 +45,7 @@ import {
   normalizeViewMode,
   kanbanGroupKey,
   groupPageRows,
+  buildChartBars,
   galleryTitleField,
   galleryBodyFields,
   clampPageSize,
@@ -968,15 +969,41 @@ describe('normalizeCombinator (raw → AND/OR, default AND)', () => {
   });
 });
 
-describe('normalizeViewMode (grid | gallery | kanban, default grid)', () => {
-  it('passes gallery + kanban, defaults everything else to grid', () => {
+describe('normalizeViewMode (grid | gallery | kanban | chart, default grid)', () => {
+  it('passes gallery + kanban + chart, defaults everything else to grid', () => {
     expect(normalizeViewMode('gallery')).toBe('gallery');
     expect(normalizeViewMode('kanban')).toBe('kanban');
+    expect(normalizeViewMode('chart')).toBe('chart');
     expect(normalizeViewMode('grid')).toBe('grid');
     expect(normalizeViewMode('calendar')).toBe('grid');
     expect(normalizeViewMode('')).toBe('grid');
     expect(normalizeViewMode(undefined)).toBe('grid');
     expect(normalizeViewMode(null)).toBe('grid');
+  });
+});
+
+describe('buildChartBars (whole-query group counts → bar-chart rows)', () => {
+  it('computes label/count/pct (relative to the max) + total, preserving order', () => {
+    const { bars, total, max } = buildChartBars([
+      { value: 'new', count: 200 },
+      { value: 'done', count: 50 },
+      { value: null, count: 10 },
+    ]);
+    expect(total).toBe(260);
+    expect(max).toBe(200);
+    expect(bars).toEqual([
+      { label: 'new', count: 200, pct: 100 },
+      { label: 'done', count: 50, pct: 25 },
+      { label: '(empty)', count: 10, pct: 5 }, // null → "(empty)"
+    ]);
+  });
+
+  it('handles an empty group set (no divide-by-zero)', () => {
+    expect(buildChartBars([])).toEqual({ bars: [], total: 0, max: 0 });
+  });
+
+  it('coerces non-string group values to a display label', () => {
+    expect(buildChartBars([{ value: 5, count: 1 }]).bars[0].label).toBe('5');
   });
 });
 

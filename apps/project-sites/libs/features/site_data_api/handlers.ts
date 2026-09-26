@@ -546,7 +546,7 @@ export function normalizeSortDir(raw: unknown): 'asc' | 'desc' | null {
  * client already scopes by session; they're server-side bookkeeping).
  */
 /** The render types a saved view can carry — mirrors the editor's `ViewMode`. */
-export const GRID_VIEW_TYPES = ['grid', 'gallery', 'kanban'] as const;
+export const GRID_VIEW_TYPES = ['grid', 'gallery', 'kanban', 'chart'] as const;
 export type GridViewType = (typeof GRID_VIEW_TYPES)[number];
 
 /** Coerce a raw view type to a whitelisted {@link GridViewType}; unknown/absent → `grid`. */
