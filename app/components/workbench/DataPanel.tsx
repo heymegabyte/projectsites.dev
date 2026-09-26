@@ -31,7 +31,6 @@ import {
   newCorrelationId,
   columnLabel,
   toCsv,
-  filterRows,
   detailEntries,
   isRowActivationKey,
   isDismissKey,
@@ -71,6 +70,7 @@ import {
   browsePageInfo,
   BROWSE_PAGE_SIZE,
   sortToParams,
+  browseSearchParam,
   RowMutationError,
   friendlyModelLabel,
   canAskAi,
@@ -92,6 +92,9 @@ type Status = 'loading' | 'ready' | 'error' | 'standalone';
 
 const REQUEST_TIMEOUT_MS = 12_000;
 const AUTO_REFRESH_MS = 30_000;
+
+/** Debounce before a search box keystroke fires the whole-table (server-side) search. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 /** localStorage key for the SQL-console query history (per-browser, best-effort). */
 const SQL_HISTORY_KEY = 'ps-data-sql-history';
@@ -285,6 +288,16 @@ export const DataPanel = memo(() => {
 
   /** 0-based row offset of the current browse page (server-side pagination; page size BROWSE_PAGE_SIZE). */
   const [browseOffset, setBrowseOffset] = useState(0);
+
+  /**
+   * Total rows for the CURRENT browse query from the worker (reflects any active `search` filter) — the
+   * authoritative denominator for pagination + the "N matches" count. `null` until the first page lands
+   * (pageInfo falls back to the overview `row_count`).
+   */
+  const [browseTotal, setBrowseTotal] = useState<number | null>(null);
+
+  /** Debounce timer for the whole-table (server-side) search box. */
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pkCid = useRef<string | null>(null); // PRAGMA table_info round-trip id (distinct from the SQL console)
   const deletePending = useRef(false); // a row delete is in flight → route the next PS_SQL_RESPONSE
   const deleteTargetRef = useRef<string | null>(null); // the table to re-open after a delete
@@ -500,7 +513,7 @@ export const DataPanel = memo(() => {
    * `data-overview/:table` endpoint (server-side LIMIT/OFFSET — the browser never loads the whole table).
    */
   const requestRows = useCallback(
-    (key: string, offset: number, sort: GridSort | null): void => {
+    (key: string, offset: number, sort: GridSort | null, search: string): void => {
       const cid = newCorrelationId(key);
       browseCid.current = cid;
 
@@ -516,9 +529,9 @@ export const DataPanel = memo(() => {
       }, REQUEST_TIMEOUT_MS);
 
       /*
-       * `orderBy`/`dir` sort the WHOLE table server-side (the worker allowlist-validates the column,
-       * else keeps the default order); omitted → the table's default sort. Sort is a display request,
-       * never trusted as SQL.
+       * `orderBy`/`dir` sort + `search` filter the WHOLE table server-side (the worker allowlist-
+       * validates the sort column + runs a parameterized OR-of-LIKE for search, and reflects both in
+       * `total`); omitted → the table's default order + no filter. Both are display requests, never SQL.
        */
       postToParent({
         type: 'PS_DATA_REQUEST',
@@ -526,6 +539,7 @@ export const DataPanel = memo(() => {
         offset,
         limit: BROWSE_PAGE_SIZE,
         ...sortToParams(sort),
+        ...browseSearchParam(search),
         correlationId: cid,
       });
     },
@@ -548,9 +562,15 @@ export const DataPanel = memo(() => {
       setBrowseGeneratedCols(new Set<string>()); // clear the prior table's generated-column set
       setBrowseColTypes({});
       setBrowseOffset(0); // a fresh table opens at the first page
+      setBrowseTotal(null); // until the first page lands, pageInfo falls back to the overview count
+
+      if (searchTimer.current) {
+        clearTimeout(searchTimer.current);
+      } // drop a pending search from the prior table
+
       setSelectedKeys(new Set()); // never carry a bulk selection across a table switch / re-fetch
 
-      requestRows(key, 0, null); // a fresh table opens at page 0 in its default (server) sort
+      requestRows(key, 0, null, ''); // a fresh table opens at page 0, default sort, no search
 
       /*
        * Super-admins get row DELETE — resolve the PK via PRAGMA table_info on its OWN correlation id
@@ -593,9 +613,9 @@ export const DataPanel = memo(() => {
       setBrowseError('');
       setDetailIdx(null);
       setSelectedKeys(new Set());
-      requestRows(active, nextOffset, browseSort); // keep the active sort across page nav
+      requestRows(active, nextOffset, browseSort, search); // keep the active sort + search across page nav
     },
-    [active, browseSort, requestRows],
+    [active, browseSort, search, requestRows],
   );
 
   /*
@@ -1169,6 +1189,12 @@ export const DataPanel = memo(() => {
 
         setColumns(msg.data?.columns ?? []);
         setRows(msg.data?.rows ?? []);
+
+        /*
+         * The worker's total for THIS query (reflects the search filter) → drives pagination + the
+         * "N matches" count. Absent → null → pageInfo falls back to the overview row_count.
+         */
+        setBrowseTotal(typeof msg.total === 'number' ? msg.total : null);
       }
     });
 
@@ -1246,7 +1272,13 @@ export const DataPanel = memo(() => {
    * client-side — a client re-sort (different NULL/collation ordering) would diverge from the
    * server's page boundaries. `search` still filters THIS page only ("find on this page").
    */
-  const visibleRows = useMemo(() => filterRows(rows, columns, search), [rows, columns, search]);
+  /*
+   * Rows arrive already server-SORTED and server-FILTERED (search runs a whole-table OR-of-LIKE on the
+   * worker), so we render them as-is — a client re-filter/re-sort would diverge from the server's page
+   * boundaries + match `total`. `search` now drives that server query (see onSearchChange), not a
+   * client filter.
+   */
+  const visibleRows = rows;
 
   /**
    * Columns the GRID renders — the full set minus the user's hidden selection (view-only;
@@ -1254,10 +1286,14 @@ export const DataPanel = memo(() => {
    */
   const visibleCols = useMemo(() => visibleColumns(columns, hiddenCols), [columns, hiddenCols]);
 
-  /** Server-side pagination display (range label) + prev/next availability for the open page. */
+  /**
+   * Server-side pagination display (range label) + prev/next availability. Uses the worker's
+   * `browseTotal` for THIS query (reflects the search filter) once a page has landed; before that it
+   * falls back to the overview `row_count` so the first paint isn't blank.
+   */
   const pageInfo = useMemo(
-    () => browsePageInfo(browseOffset, rows.length, activeTable?.row_count ?? 0),
-    [browseOffset, rows.length, activeTable],
+    () => browsePageInfo(browseOffset, rows.length, browseTotal ?? activeTable?.row_count ?? 0),
+    [browseOffset, rows.length, browseTotal, activeTable],
   );
 
   /** Toggle a browse column's visibility (last-column-guarded) + persist per table. */
@@ -1302,10 +1338,47 @@ export const DataPanel = memo(() => {
         setBrowseLoading(true);
         setBrowseError('');
         setSelectedKeys(new Set());
-        requestRows(active, 0, next);
+        requestRows(active, 0, next, search); // keep the active search when the sort changes
       }
     },
-    [browseSort, active, requestRows],
+    [browseSort, active, search, requestRows],
+  );
+
+  /**
+   * Run the WHOLE-TABLE (server-side) search: reset to page 0 in the current sort with the new needle
+   * and re-fetch. The worker runs the parameterized OR-of-LIKE over its allowlisted columns + returns
+   * the match `total`. Called debounced from the search box (immediately from Clear).
+   */
+  const runServerSearch = useCallback(
+    (value: string): void => {
+      if (!active) {
+        return;
+      }
+
+      setBrowseOffset(0);
+      setRows([]);
+      setBrowseLoading(true);
+      setBrowseError('');
+      setDetailIdx(null);
+      setSelectedKeys(new Set());
+      requestRows(active, 0, browseSort, value);
+    },
+    [active, browseSort, requestRows],
+  );
+
+  /** Search-box change: update the input immediately, debounce the whole-table server search. */
+  const onSearchChange = useCallback(
+    (value: string): void => {
+      setSearch(value);
+      setDetailIdx(null);
+
+      if (searchTimer.current) {
+        clearTimeout(searchTimer.current);
+      }
+
+      searchTimer.current = setTimeout(() => runServerSearch(value), SEARCH_DEBOUNCE_MS);
+    },
+    [runServerSearch],
   );
 
   /**
@@ -1963,8 +2036,9 @@ export const DataPanel = memo(() => {
             </button>
             <span className="text-sm font-medium text-bolt-elements-textPrimary">{activeTable.label}</span>
             {/* HONEST paginated disclosure — an explicit "X–Y of N" range with Prev/Next (server-side
-                LIMIT/OFFSET); never implies the page is the whole table (silent-cap lesson). Search
-                filters THIS page only ("match on page"), distinct from a whole-table query. */}
+                LIMIT/OFFSET); never implies the page is the whole table (silent-cap lesson). When a
+                search is active, N is the WHOLE-TABLE match count (server OR-of-LIKE), and the range
+                pages through the matches — labelled `matching "<q>"` so it's clearly a table-wide query. */}
             <span
               className="flex items-center gap-1 text-[10px] text-bolt-elements-textTertiary"
               data-testid="data-window-note"
@@ -1994,7 +2068,11 @@ export const DataPanel = memo(() => {
               >
                 <div className="i-ph:caret-right text-[11px]" />
               </button>
-              {search && rows.length > 0 ? <span>· {visibleRows.length} match on page</span> : null}
+              {search ? (
+                <span className="truncate max-w-[160px]" title={`Searching the whole table for “${search}”`}>
+                  · matching “{search}”
+                </span>
+              ) : null}
             </span>
             {(canRunSql || rows.length > 0) && (
               <div className="ml-auto flex items-center gap-3">
@@ -2293,18 +2371,16 @@ export const DataPanel = memo(() => {
             </div>
           )}
 
-          {/* In-table search */}
-          {rows.length > 0 && (
+          {/* Whole-table search — server-side OR-of-LIKE (debounced); stays visible when a search
+              returns 0 rows so it can be refined/cleared. */}
+          {(rows.length > 0 || search) && (
             <div className="px-3 py-1.5 border-b border-bolt-elements-borderColor/30">
               <div className="flex items-center gap-2 rounded-md bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor px-2 py-1">
                 <div className="i-ph:magnifying-glass text-bolt-elements-textTertiary text-xs" />
                 <input
                   value={search}
-                  onChange={(e) => {
-                    setSearch(e.target.value);
-                    setDetailIdx(null);
-                  }}
-                  placeholder={`Filter ${activeTable.label.toLowerCase()}…`}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                  placeholder={`Search all ${activeTable.label.toLowerCase()}…`}
                   data-testid="data-search"
                   spellCheck={false}
                   className="flex-1 min-w-0 bg-transparent text-xs text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none"
@@ -2312,9 +2388,17 @@ export const DataPanel = memo(() => {
                 {search && (
                   <button
                     type="button"
-                    onClick={() => setSearch('')}
+                    onClick={() => {
+                      setSearch('');
+
+                      if (searchTimer.current) {
+                        clearTimeout(searchTimer.current);
+                      }
+
+                      runServerSearch(''); // clear is instant — no debounce
+                    }}
                     className="i-ph:x text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary text-xs cursor-pointer"
-                    title="Clear"
+                    title="Clear search"
                   />
                 )}
               </div>

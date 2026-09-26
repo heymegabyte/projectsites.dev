@@ -181,6 +181,13 @@ export interface DataRequestMessage {
 
   /** Server-side sort direction for {@link orderBy} (default `desc`). */
   dir?: 'asc' | 'desc';
+
+  /**
+   * Whole-table search needle. The worker runs a parameterized OR-of-LIKE over the table's allowlisted
+   * columns and reflects the match count in `total` — so this searches the WHOLE table, not just the
+   * loaded page. Omit / empty → no search.
+   */
+  search?: string;
   correlationId: string;
 }
 
@@ -218,6 +225,12 @@ export interface DataResponseMessage {
      */
     canRunSql?: boolean;
   } | null;
+
+  /**
+   * Browse only: the worker's total row count for the CURRENT query (reflects any `search` filter), so
+   * the grid pages through the matches + shows an honest "N of <total>". Absent for the table overview.
+   */
+  total?: number;
   error?: string;
 }
 

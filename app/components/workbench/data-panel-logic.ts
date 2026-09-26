@@ -1147,6 +1147,19 @@ export function sortToParams(sort: GridSort | null): { orderBy?: string; dir?: S
   return sort ? { orderBy: sort.col, dir: sort.dir } : {};
 }
 
+/**
+ * Map a search box value to the `PS_DATA_REQUEST` `search` param — trimmed, and OMITTED when blank so
+ * an empty box means "no filter" (the default order + full `total`). The worker runs the actual
+ * parameterized OR-of-LIKE over its allowlisted columns, so nothing is escaped here. Pure.
+ *
+ * @example browseSearchParam('  ada ') // { search: 'ada' }
+ * @example browseSearchParam('')       // {}
+ */
+export function browseSearchParam(search: string | null | undefined): { search?: string } {
+  const q = (search ?? '').trim();
+  return q ? { search: q } : {};
+}
+
 /** Numeric value of a cell when it's a finite number or a numeric string, else null. */
 function cellAsNumber(value: unknown): number | null {
   if (typeof value === 'number') {

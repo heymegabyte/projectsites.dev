@@ -313,10 +313,32 @@ clamped asc/desc). Now the header click sorts the WHOLE table server-side:
 - **Security:** the editor/admin never trust the sort column — the worker's `spec.columns.includes(orderBy)`
   allowlist is the sole injection boundary; a hostile `orderBy` is silently ignored (default sort kept).
 
-**NEXT slice (per delivery order): server-side SEARCH wired to the grid** (the worker ALSO already supports
-`search` = OR-of-LIKE + `filterCol`/`filterVal` exact-match, both allowlist-validated + affecting `total`; today
-the editor only filters the loaded page client-side — debounce the search box → send `search`, reset to page 0,
-show "N matches across the table" from the filtered `total`, keep the honest "whole-table vs this-page" distinction).
-Then the grid eval (RevoGrid vs Tabulator, license-checked) + a page-size selector (25/50/100). Cheaper adjacent
-win: wire `field-types.ts` typed EDITORS (date/select/url) into the row-edit path; or the add-row form omitting
-generated columns.
+### ✅ Shipped next fire (2026-09-26 #6) — whole-table server-side SEARCH (slice 2/3; server filter/sort/search now complete)
+The search box previously filtered only the LOADED 25-row page client-side (`filterRows`). The worker's
+`data-overview/:table` already ran a parameterized OR-of-LIKE over allowlisted columns and reflected it in
+`total`, but the editor never sent `search` nor read the filtered `total`. Now the box searches the WHOLE table:
+- **Editor** (`DataPanel.tsx`) — `PS_DATA_REQUEST` gains `search`; a **debounced** (300 ms) `onSearchChange`
+  runs `runServerSearch` → **reset to page 0** + re-fetch with the needle (Clear is instant). `requestRows(key,
+  offset, sort, search)` sends it via the new pure `browseSearchParam`. The client `filterRows` is **removed** —
+  the page arrives already server-filtered+sorted, so a client re-filter would diverge from the server's page
+  boundaries + match `total`. The response `total` (filtered) is captured into `browseTotal` and drives
+  `pageInfo` (falls back to the overview `row_count` before the first page lands), so the range pages through the
+  MATCHES; the disclosure shows `matching "<q>"` (honest: a whole-table query, not "on this page"). The search
+  box now **persists when a search returns 0 rows** (was gated on `rows.length>0` → became un-clearable).
+- **Response envelope** — the admin bridge now forwards the worker's `total` (was dropped); `DataResponseMessage`
+  gains `total?`; `PsMessage`/admin forward `search` (trimmed, length-capped). Worker stays the validation boundary.
+- **Pure helper** `browseSearchParam(search)` → `{search?}` (trims, omits blank). +2 Vitest.
+- Verified: Vitest 188/188 (data-panel-logic), editor tsc 0 / eslint 0 / build ✓ (13.12s); admin tsc 0 / eslint 0 /
+  `ng build` prod ✓ (8.5s). Both deploy on push. **Server filter/sort/search + pagination are now all wired.**
+- **Security:** the editor/admin never build SQL — the worker's `buildDataSearch`/`buildColumnFilter` +
+  `spec.columns` allowlist + parameterized values are the sole injection boundary; a hostile needle is just a LIKE value.
+- **Cost note (follow-on):** the OR-of-LIKE is an UNINDEXED scan. Fine for the curated tables today, but the spec
+  wants "warn before expensive unindexed scans / FTS5 when an index exists" — a future refinement once table sizes
+  or FTS5 indexes are known (surface a subtle "scans all N rows" hint / prefer FTS5 `MATCH` where a virtual table exists).
+
+**NEXT slice (per delivery order): the exact-column FILTER UI** (the worker already supports `filterCol`/`filterVal`
+exact-match, allowlist-validated + affecting `total`) — a per-column filter chip (pick a column + value) that sends
+`filterCol`/`filterVal`, resets to page 0, and composes with search+sort; the honest AND/OR filter-group builder is
+the fuller slice-3 goal. Then the grid eval (RevoGrid vs Tabulator, license-checked) + a page-size selector (25/50/100).
+Cheaper adjacent win: wire `field-types.ts` typed EDITORS (date/select/url) into the row-edit path; or the add-row
+form omitting generated columns.

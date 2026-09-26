@@ -24,6 +24,7 @@ import {
   generatedFromTableXinfo,
   browsePageInfo,
   sortToParams,
+  browseSearchParam,
   stripSqlCommentsAndStrings,
   classifySqlStatement,
   classifySql,
@@ -800,6 +801,20 @@ describe('sortToParams (GridSort → server-sort request params)', () => {
 
   it('maps a null sort to {} (the table default server order — no orderBy sent)', () => {
     expect(sortToParams(null)).toEqual({});
+  });
+});
+
+describe('browseSearchParam (search box → server-search request param)', () => {
+  it('trims a non-empty needle into { search }', () => {
+    expect(browseSearchParam('ada')).toEqual({ search: 'ada' });
+    expect(browseSearchParam('  ada lovelace  ')).toEqual({ search: 'ada lovelace' });
+  });
+
+  it('omits search for blank / whitespace / null / undefined (no filter)', () => {
+    expect(browseSearchParam('')).toEqual({});
+    expect(browseSearchParam('   ')).toEqual({});
+    expect(browseSearchParam(null)).toEqual({});
+    expect(browseSearchParam(undefined)).toEqual({});
   });
 });
 

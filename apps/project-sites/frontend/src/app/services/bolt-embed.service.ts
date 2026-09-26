@@ -68,6 +68,8 @@ interface PsMessage {
   readonly orderBy?: string;
   /** PS_DATA_REQUEST: server-side sort direction for `orderBy` (worker clamps to asc/desc). */
   readonly dir?: string;
+  /** PS_DATA_REQUEST: whole-table search (worker: OR-of-LIKE over allowlisted columns; affects `total`). */
+  readonly search?: string;
   /** PS_SQL_REQUEST (D1 manager): the SQL to forward — /sql/exec (read) or /sql/exec-write (write). */
   readonly query?: string;
   /** PS_SQL_REQUEST: route to the WRITE endpoint (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE). */
@@ -622,6 +624,12 @@ export class BoltEmbedService {
           const browseOrderBy =
             typeof msg.orderBy === 'string' && msg.orderBy ? msg.orderBy.slice(0, 64) : undefined;
           const browseDir = msg.dir === 'asc' ? 'asc' : msg.dir === 'desc' ? 'desc' : undefined;
+          // Whole-table search — the WORKER runs the OR-of-LIKE over allowlisted columns (parameterized)
+          // and reflects it in `total`; we just forward the trimmed, length-capped needle.
+          const browseSearch =
+            typeof msg.search === 'string' && msg.search.trim()
+              ? msg.search.trim().slice(0, 128)
+              : undefined;
           const reply = (payload: Record<string, unknown>): void => {
             iframe?.contentWindow?.postMessage(
               { type: 'PS_DATA_RESPONSE', correlationId: cid, table, ...payload },
@@ -636,7 +644,7 @@ export class BoltEmbedService {
             ? `/sites/${site.id}/data-overview/${encodeURIComponent(table)}`
             : `/sites/${site.id}/data-overview`;
           this.api
-            .get<{ data?: unknown }>(
+            .get<{ data?: unknown; total?: number }>(
               path,
               table
                 ? {
@@ -644,6 +652,7 @@ export class BoltEmbedService {
                     offset: String(browseOffset),
                     ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),
                     ...(browseOrderBy && browseDir ? { dir: browseDir } : {}),
+                    ...(browseSearch ? { search: browseSearch } : {}),
                   }
                 : undefined,
               { silent: true },
@@ -651,10 +660,13 @@ export class BoltEmbedService {
             .subscribe({
               // Tell the editor whether the D1-manager SQL console is available (super-admin only) —
               // merged into the OVERVIEW reply so it never renders a console that would only 403.
+              // For a browse, forward the worker's `total` (reflects the search filter) so the grid
+              // can page through the MATCHES + show an honest match count.
               next: (res) => {
                 const data = (res?.data ?? null) as Record<string, unknown> | null;
                 reply({
                   data: data && !table ? { ...data, canRunSql: this.superAdmin() } : data,
+                  ...(table && typeof res?.total === 'number' ? { total: res.total } : {}),
                 });
               },
               error: () => reply({ error: 'Failed to load data' }),
