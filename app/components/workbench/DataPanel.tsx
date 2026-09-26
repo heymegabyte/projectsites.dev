@@ -2368,9 +2368,28 @@ export const DataPanel = memo(() => {
                         )}
                         {visibleCols.map((c) => {
                           const cell = classifyCell(r[c]);
+
+                          /*
+                           * url/email cells render as a safe link. classifyCell only ever emits an
+                           * http(s)/mailto href (never javascript:/data:), so this can't be an XSS
+                           * vector; stopPropagation keeps a link click from triggering a parent
+                           * row/cell handler. Honest: the stored value is still text.
+                           */
                           return (
                             <td key={c} className="px-3 py-1.5 align-top max-w-[220px] truncate" title={cell.display}>
-                              <span className={cell.className}>{cell.display}</span>
+                              {cell.href ? (
+                                <a
+                                  href={cell.href}
+                                  target="_blank"
+                                  rel="noopener noreferrer nofollow"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className={cell.className}
+                                >
+                                  {cell.display}
+                                </a>
+                              ) : (
+                                <span className={cell.className}>{cell.display}</span>
+                              )}
                             </td>
                           );
                         })}

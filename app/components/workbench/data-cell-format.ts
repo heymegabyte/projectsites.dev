@@ -7,18 +7,14 @@
  * are all visually and semantically distinct.
  */
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * Public types
+ * ---------------------------------------------------------------------------
+ */
 
 /** Semantic kind for a single grid cell value. */
-export type CellKind =
-  | 'null'
-  | 'empty'
-  | 'number'
-  | 'boolean'
-  | 'json'
-  | 'text';
+export type CellKind = 'null' | 'empty' | 'number' | 'boolean' | 'json' | 'url' | 'email' | 'text';
 
 /**
  * Result of classifying a raw SQLite cell value for the dark-theme DataPanel.
@@ -30,6 +26,7 @@ export type CellKind =
 export interface ClassifiedCell {
   /** Semantic type of the value. */
   kind: CellKind;
+
   /**
    * Human-readable display string:
    * - null/undefined → `'NULL'`
@@ -38,6 +35,7 @@ export interface ClassifiedCell {
    * - everything else → `String(value)`
    */
   display: string;
+
   /**
    * Tailwind / UnoCSS utility classes for the cell text element.
    * Uses bolt-elements-* design tokens plus brand accents where appropriate:
@@ -48,31 +46,53 @@ export interface ClassifiedCell {
    * - text       : default ink   (`bolt-elements-textPrimary`)
    */
   className: string;
+
   /**
    * `true` when the value IS an object/array or is a string that
    * JSON.parses to a non-primitive (object or array).
    */
   isJson: boolean;
+
+  /**
+   * A SAFE, clickable target when the value is a whole-string `http(s)` URL
+   * (`href` = the URL) or a single email address (`href` = `mailto:<addr>`).
+   * `undefined` for every other kind. Only `http:`/`https:`/`mailto:` are ever
+   * produced — a `javascript:` / `data:` / `vbscript:` value never matches, so it
+   * can never become a clickable link (no XSS). This is a UI INTERPRETATION of a
+   * text value: SQLite stores text, and the grid presents a link affordance.
+   */
+  href?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * Internal helpers
+ * ---------------------------------------------------------------------------
+ */
 
 /**
  * Attempt to JSON-parse a string; return the parsed value on success or
  * `undefined` when the string is not valid JSON or parses to a primitive.
  */
 function tryParseJson(s: string): object | unknown[] | undefined {
-  if (s.length < 2) return undefined;
+  if (s.length < 2) {
+    return undefined;
+  }
+
   const first = s.charCodeAt(0);
+
   // Fast-exit: only attempt strings that start with { or [
-  if (first !== 123 /* { */ && first !== 91 /* [ */) return undefined;
+  if (first !== 123 /* { */ && first !== 91 /* [ */) {
+    return undefined;
+  }
+
   try {
     const parsed: unknown = JSON.parse(s);
+
     if (parsed !== null && typeof parsed === 'object') {
       return parsed as object | unknown[];
     }
+
     return undefined;
   } catch {
     return undefined;
@@ -84,9 +104,11 @@ function toCompactJson(value: object | unknown[]): string {
   return JSON.stringify(value);
 }
 
-// ---------------------------------------------------------------------------
-// Class-name constants (dark theme, bolt-elements-* + brand tokens)
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * Class-name constants (dark theme, bolt-elements-* + brand tokens)
+ * ---------------------------------------------------------------------------
+ */
 const CLASS_NULL = 'bolt-elements-textTertiary italic opacity-60 select-none';
 const CLASS_EMPTY = 'bolt-elements-textTertiary italic opacity-50 select-none';
 const CLASS_NUMBER = 'text-[#f5c451] tabular-nums';
@@ -94,9 +116,29 @@ const CLASS_BOOLEAN = 'text-[#00E5FF] font-medium';
 const CLASS_JSON = 'bolt-elements-textTertiary font-mono text-xs break-all';
 const CLASS_TEXT = 'bolt-elements-textPrimary';
 
-// ---------------------------------------------------------------------------
-// Primary export: classifyCell
-// ---------------------------------------------------------------------------
+// url / email render as a brand-cyan link affordance (dotted → solid on hover).
+const CLASS_LINK = 'text-[#00E5FF] underline decoration-dotted underline-offset-2 hover:decoration-solid break-all';
+
+/**
+ * Whole-string `http(s)` URL. SAFE WEB SCHEMES ONLY — `javascript:` / `data:` /
+ * `vbscript:` / `file:` never match, so such a value can never be emitted as an
+ * `<a href>` (XSS guard). Anchored start+end so prose that merely CONTAINS a URL
+ * stays plain text.
+ */
+const URL_RE = /^https?:\/\/[^\s]+$/i;
+
+/**
+ * Whole-string single email address (tight, anchored) → prose that merely
+ * contains an `@` is NOT classified as email. Checked AFTER {@link URL_RE} so an
+ * `http://user@host.tld/…` userinfo URL is read as a URL, not an email.
+ */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/*
+ * ---------------------------------------------------------------------------
+ * Primary export: classifyCell
+ * ---------------------------------------------------------------------------
+ */
 
 /**
  * Classify a raw SQLite / D1 cell value into a `ClassifiedCell` descriptor.
@@ -109,21 +151,24 @@ const CLASS_TEXT = 'bolt-elements-textPrimary';
  *    a string that coerces to a finite number via `Number()`
  * 5. Plain `object` / `Array`           → kind `'json'`  (isJson = true)
  * 6. String that JSON.parses to obj/arr → kind `'json'`  (isJson = true)
- * 7. All other strings                  → kind `'text'`
+ * 7. Whole-string http(s) URL           → kind `'url'`   (href = the URL)
+ * 8. Whole-string email address         → kind `'email'` (href = `mailto:<addr>`)
+ * 9. All other strings                  → kind `'text'`
  *
  * @param value - Raw value as returned by a SQLite / D1 query row.
  * @returns A fully-populated {@link ClassifiedCell}.
  *
  * @example
- * classifyCell(null)       // kind:'null',  display:'NULL'
- * classifyCell('')         // kind:'empty', display:'""'
- * classifyCell(0)          // kind:'number', display:'0'
- * classifyCell('42')       // kind:'number', display:'42'
- * classifyCell(false)      // kind:'boolean', display:'false'
- * classifyCell('true')     // kind:'boolean', display:'true'
- * classifyCell({a:1})      // kind:'json', display:'{"a":1}', isJson:true
- * classifyCell('[1,2]')    // kind:'json', display:'[1,2]',   isJson:true
- * classifyCell('hello')    // kind:'text', display:'hello'
+ * classifyCell(null)                 // kind:'null',  display:'NULL'
+ * classifyCell('')                   // kind:'empty', display:'""'
+ * classifyCell(0)                    // kind:'number', display:'0'
+ * classifyCell('42')                 // kind:'number', display:'42'
+ * classifyCell(false)                // kind:'boolean', display:'false'
+ * classifyCell({a:1})                // kind:'json', display:'{"a":1}', isJson:true
+ * classifyCell('https://a.com/x')    // kind:'url',   href:'https://a.com/x'
+ * classifyCell('me@a.com')           // kind:'email', href:'mailto:me@a.com'
+ * classifyCell('javascript:alert(1)')// kind:'text'  (unsafe scheme → never a link)
+ * classifyCell('hello')              // kind:'text', display:'hello'
  */
 export function classifyCell(value: unknown): ClassifiedCell {
   // 1. null / undefined
@@ -190,9 +235,12 @@ export function classifyCell(value: unknown): ClassifiedCell {
     };
   }
 
-  // 7. Numeric string: Number(str) is finite and not whitespace-only
-  //    (Number('') is 0 — but '' already handled above; Number(' ') is 0 too — guard with trim)
+  /*
+   * 7. Numeric string: Number(str) is finite and not whitespace-only
+   *    (Number('') is 0 — but '' already handled above; Number(' ') is 0 too — guard with trim)
+   */
   const trimmed = str.trim();
+
   if (trimmed.length > 0 && Number.isFinite(Number(trimmed))) {
     return {
       kind: 'number',
@@ -204,6 +252,7 @@ export function classifyCell(value: unknown): ClassifiedCell {
 
   // 8. JSON-parseable string → object or array
   const parsed = tryParseJson(str);
+
   if (parsed !== undefined) {
     return {
       kind: 'json',
@@ -213,7 +262,27 @@ export function classifyCell(value: unknown): ClassifiedCell {
     };
   }
 
-  // 9. Plain text
+  /*
+   * 9. http(s) URL (whole string) → external-link affordance. Checked BEFORE
+   *    email so a userinfo URL (http://user@host.tld) is a URL, not an email.
+   *    Only http/https reach here as an href → javascript:/data: can't be linked.
+   */
+  if (URL_RE.test(str)) {
+    return { kind: 'url', display: str, className: CLASS_LINK, isJson: false, href: str };
+  }
+
+  // 10. Single email address (whole string) → mailto affordance.
+  if (EMAIL_RE.test(str)) {
+    return {
+      kind: 'email',
+      display: str,
+      className: CLASS_LINK,
+      isJson: false,
+      href: `mailto:${str}`,
+    };
+  }
+
+  // 11. Plain text
   return {
     kind: 'text',
     display: str,
@@ -222,9 +291,11 @@ export function classifyCell(value: unknown): ClassifiedCell {
   };
 }
 
-// ---------------------------------------------------------------------------
-// SQLite affinity mapping
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * SQLite affinity mapping
+ * ---------------------------------------------------------------------------
+ */
 
 /**
  * SQLite type affinity rules (§3.1 of the SQLite docs).
@@ -251,12 +322,16 @@ export function classifyCell(value: unknown): ClassifiedCell {
  * columnTypeBadge(null)             // null
  * columnTypeBadge('')               // null
  */
-export function columnTypeBadge(
-  declaredType: string | null | undefined,
-): { label: string; title: string } | null {
-  if (declaredType === null || declaredType === undefined) return null;
+export function columnTypeBadge(declaredType: string | null | undefined): { label: string; title: string } | null {
+  if (declaredType === null || declaredType === undefined) {
+    return null;
+  }
+
   const t = declaredType.trim();
-  if (t === '') return null;
+
+  if (t === '') {
+    return null;
+  }
 
   const upper = t.toUpperCase();
 
@@ -264,18 +339,22 @@ export function columnTypeBadge(
   if (upper.includes('INT')) {
     return { label: 'INT', title: t };
   }
+
   // SQLite affinity rule 2: CHAR, CLOB, TEXT
   if (upper.includes('CHAR') || upper.includes('CLOB') || upper.includes('TEXT')) {
     return { label: 'TEXT', title: t };
   }
+
   // SQLite affinity rule 3: BLOB (or no type — but no-type already returned null above)
   if (upper.includes('BLOB')) {
     return { label: 'BLOB', title: t };
   }
+
   // SQLite affinity rule 4: REAL, FLOA, DOUB
   if (upper.includes('REAL') || upper.includes('FLOA') || upper.includes('DOUB')) {
     return { label: 'REAL', title: t };
   }
+
   // Rule 5: everything else → NUMERIC affinity
   return { label: 'NUM', title: t };
 }

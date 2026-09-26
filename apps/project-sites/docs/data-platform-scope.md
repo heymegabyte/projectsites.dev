@@ -185,3 +185,54 @@ generic, brilliant data platform each site owns.
 ## Supersession
 - This doc is the north star. `data-section-capability-matrix.md` keeps tracking shipped increments; new
   work is PLANNED here and reflected there as it lands. When in doubt, this doc wins on direction.
+
+## Combined spec + loop (2026-09-26)
+Brian merged the two Data loops into ONE 12-min loop (`347f0e04`) carrying the full "best-possible Data tab"
+spec (Airtable record editing × DB-Browser/Beekeeper/DBeaver SQLite tooling × an AI assistant that helps at
+every step; D1 = source of truth for schema+records, KV = keys+values). Delivery order (complete slices,
+in order): (1) authorized resource discovery + binding reconciliation + empty state + resource creation;
+(2) real D1 schema explorer + fast read-only paginated grid; (3) safe single-row + bulk editing + clipboard
++ filters + saved grid views; (4) SQL workspace + schema/migration workflow; (5) grounded "Ask your data"
+(typed intent → deterministic parameterized SQL → visible SQL + evidence + eval fixtures); (6) import/export/
+recovery + rich non-grid views; (7) KV browser/editor; (8) AI fields + copilots + budgets + optional
+semantic search. Governance throughout: one server-side authz check per read/mutation/export/AI-tool-call;
+never trust a client D1 id/namespace/binding as authz; parameterized values + quoted schema-validated
+identifiers; CF + model creds server-side; AI via CF AI Gateway (current endpoints, not the deprecated
+Universal Endpoint), task-aware model routing, per-tenant budget ledger; treat customer data/results/imports
+as UNTRUSTED (test cross-tenant + prompt injection).
+
+### Current-state audit (2026-09-26, two read-only scans — what EXISTS today)
+- **Editor UI (`app/components/workbench/`):** `DataPanel.tsx` (3316 lines) + `D1Browser.tsx` (read-only
+  resource inspector: db list / overview / schema / async SQL-dump export / AI explain / column profile,
+  super-admin `PS_D1_REQUEST` → `/api/admin/d1/*`) + `KvBrowser.tsx`. Row CRUD lives in DataPanel's Tables
+  tab via `PS_DATA_REQUEST`→`/api/sites/:id/data-overview` + `PS_SQL_REQUEST`→`/api/sites/:id/sql/{exec,
+  exec-write,nl2sql,schema,migrations}`. Cell editors: text/number/boolean/null/json only (NO date/select/
+  url/email/BLOB). No schema-builder (CREATE/ALTER) UI. **No mock buttons found** — all wired to real APIs.
+- **Worker API:** D1 Manager (`libs/features/d1_manager/handlers.ts`) super-admin-gated (404 on fail, account
+  from `env.CF_ACCOUNT_ID`, creds via `resolveCfCredentials` — never client). Site data (`libs/features/
+  site_data_api` + `src/routes/site_detail_tabs.ts`): `ownsSiteData(db,siteId,orgId)` IDOR guard (org-scoped,
+  404 on mismatch), parameterized `.bind()`, identifiers validated `SAFE_IDENT` before PRAGMA interpolation,
+  SQL read-allowlist `^(SELECT|EXPLAIN|WITH|PRAGMA)` + write path with PROTECTED_TABLES denylist + destructive
+  confirm. KV inspector: server allowlist `['CACHE_KV','PROMPT_STORE']`, super-admin, cursor pagination.
+- **Inert tested foundations** (wire as their slice ships): `field-types.ts` (10 Airtable kinds), `schema-ddl.ts`
+  (create/alter DDL generators), `view-models.ts` (Kanban/Calendar/Gallery). Per-site D1/KV/R2 provisioners
+  (`d1_provisioner.ts` etc.) wired DARK behind `per_site_data` (Phase 0c) — no per-site resources in prod yet.
+- **Grid decision (OPEN):** the spec wants RevoGrid Core vs Tabulator evaluated against a real paginated D1
+  dev DB (license-checked, no Enterprise-only features). NOT yet done — the current grid is a hand-rolled
+  `<table>` in DataPanel. **Next grid fire must run that eval + record the license boundary here BEFORE adopting.**
+
+### ✅ Shipped this fire (2026-09-26) — honest URL/email cell presentation (slice 3, "typed presentation")
+`classifyCell` (`data-cell-format.ts`, the pure grid chokepoint) gained `url` + `email` kinds: a whole-string
+`http(s)` URL or single email becomes a SAFE clickable link (`href` = the URL / `mailto:<addr>`). XSS-guarded —
+only http(s)/mailto are ever emitted; `javascript:`/`data:`/`vbscript:`/`ftp:`/`file:` never match → stay plain
+text with no href. Anchored regexes (whole-string only) so prose that merely contains a URL/@ stays text; URL
+checked before email so a userinfo URL isn't mis-read. DataPanel grid renders `href` cells as
+`<a target=_blank rel="noopener noreferrer nofollow" onClick=stopPropagation>` (never triggers a parent
+row/cell handler), else a plain span. HONEST: SQLite stores text; this is a UI interpretation (link affordance),
+not a schema-enforced type. +10 Vitest (url/http/email/userinfo-url/XSS-guards ×3/false-positive-guards ×2/
+regression). Verified: Vitest 77/77 (data-cell-format) + 369/369 (6 workbench specs), editor tsc 0, eslint 0,
+`npm run build` ✓ (client 16.9s + server). Editor auto-deploys via CF Pages on push.
+**NEXT slice (per delivery order): the grid eval (RevoGrid Core vs Tabulator against a real paginated D1) + a
+server-side keyset-paginated read-only grid path** — the foundation for slices 3-4; record the license boundary
+here before adopting. Cheaper adjacent win if grid eval is deferred: wire `field-types.ts` typed EDITORS
+(date/select/url) into the row-edit path.

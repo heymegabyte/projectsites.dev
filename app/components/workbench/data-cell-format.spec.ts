@@ -7,20 +7,14 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  classifyCell,
-  columnTypeBadge,
-  type CellKind,
-  type ClassifiedCell,
-} from './data-cell-format.js';
+import { classifyCell, columnTypeBadge, type CellKind, type ClassifiedCell } from './data-cell-format.js';
 
-// ---------------------------------------------------------------------------
-// Helper: assert shape without repeating all fields each time
-// ---------------------------------------------------------------------------
-function expectCell(
-  value: unknown,
-  expected: { kind: CellKind; display: string; isJson: boolean },
-) {
+/*
+ * ---------------------------------------------------------------------------
+ * Helper: assert shape without repeating all fields each time
+ * ---------------------------------------------------------------------------
+ */
+function expectCell(value: unknown, expected: { kind: CellKind; display: string; isJson: boolean }) {
   const cell: ClassifiedCell = classifyCell(value);
   expect(cell.kind).toBe(expected.kind);
   expect(cell.display).toBe(expected.display);
@@ -29,9 +23,11 @@ function expectCell(
   expect(cell.className.length).toBeGreaterThan(0);
 }
 
-// ---------------------------------------------------------------------------
-// classifyCell — null / undefined
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * classifyCell — null / undefined
+ * ---------------------------------------------------------------------------
+ */
 describe('classifyCell — null/undefined', () => {
   it('classifies null as null kind with display NULL', () => {
     expectCell(null, { kind: 'null', display: 'NULL', isJson: false });
@@ -46,9 +42,11 @@ describe('classifyCell — null/undefined', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// classifyCell — empty string
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * classifyCell — empty string
+ * ---------------------------------------------------------------------------
+ */
 describe('classifyCell — empty string', () => {
   it('classifies empty string as empty kind with display ""', () => {
     expectCell('', { kind: 'empty', display: '""', isJson: false });
@@ -63,9 +61,11 @@ describe('classifyCell — empty string', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// classifyCell — numbers
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * classifyCell — numbers
+ * ---------------------------------------------------------------------------
+ */
 describe('classifyCell — numbers', () => {
   it('classifies integer 0 as number', () => {
     expectCell(0, { kind: 'number', display: '0', isJson: false });
@@ -104,9 +104,11 @@ describe('classifyCell — numbers', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// classifyCell — booleans
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * classifyCell — booleans
+ * ---------------------------------------------------------------------------
+ */
 describe('classifyCell — booleans', () => {
   it('classifies native false as boolean', () => {
     expectCell(false, { kind: 'boolean', display: 'false', isJson: false });
@@ -133,9 +135,11 @@ describe('classifyCell — booleans', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// classifyCell — JSON (objects and JSON-parseable strings)
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * classifyCell — JSON (objects and JSON-parseable strings)
+ * ---------------------------------------------------------------------------
+ */
 describe('classifyCell — json', () => {
   it('classifies plain object {a:1} as json with isJson true', () => {
     const cell = classifyCell({ a: 1 });
@@ -181,9 +185,11 @@ describe('classifyCell — json', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// classifyCell — text (plain strings)
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * classifyCell — text (plain strings)
+ * ---------------------------------------------------------------------------
+ */
 describe('classifyCell — text', () => {
   it('classifies plain string "plain" as text', () => {
     expectCell('plain', { kind: 'text', display: 'plain', isJson: false });
@@ -194,8 +200,10 @@ describe('classifyCell — text', () => {
   });
 
   it('string that looks like number but has whitespace padding is text', () => {
-    // ' 42 ' trims to '42' → actually numeric — this is by design (SQLite stores trimmed)
-    // ' 42a' is NOT numeric → text
+    /*
+     * ' 42 ' trims to '42' → actually numeric — this is by design (SQLite stores trimmed)
+     * ' 42a' is NOT numeric → text
+     */
     expectCell(' 42a', { kind: 'text', display: ' 42a', isJson: false });
   });
 
@@ -208,9 +216,11 @@ describe('classifyCell — text', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// classifyCell — visual distinction: null vs empty vs 0 vs false
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * classifyCell — visual distinction: null vs empty vs 0 vs false
+ * ---------------------------------------------------------------------------
+ */
 describe('classifyCell — visual distinction invariants', () => {
   it('null and empty have different display strings', () => {
     expect(classifyCell(null).display).not.toBe(classifyCell('').display);
@@ -232,9 +242,11 @@ describe('classifyCell — visual distinction invariants', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// columnTypeBadge — null / undefined / empty → null
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * columnTypeBadge — null / undefined / empty → null
+ * ---------------------------------------------------------------------------
+ */
 describe('columnTypeBadge — no-badge cases', () => {
   it('returns null for null declaredType', () => {
     expect(columnTypeBadge(null)).toBeNull();
@@ -253,9 +265,11 @@ describe('columnTypeBadge — no-badge cases', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// columnTypeBadge — INTEGER affinity (contains INT)
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * columnTypeBadge — INTEGER affinity (contains INT)
+ * ---------------------------------------------------------------------------
+ */
 describe('columnTypeBadge — INT affinity', () => {
   it('maps INTEGER → INT label', () => {
     expect(columnTypeBadge('INTEGER')).toEqual({ label: 'INT', title: 'INTEGER' });
@@ -286,9 +300,11 @@ describe('columnTypeBadge — INT affinity', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// columnTypeBadge — TEXT affinity (CHAR, CLOB, TEXT)
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * columnTypeBadge — TEXT affinity (CHAR, CLOB, TEXT)
+ * ---------------------------------------------------------------------------
+ */
 describe('columnTypeBadge — TEXT affinity', () => {
   it('maps TEXT → TEXT label', () => {
     expect(columnTypeBadge('TEXT')).toEqual({ label: 'TEXT', title: 'TEXT' });
@@ -331,9 +347,11 @@ describe('columnTypeBadge — TEXT affinity', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// columnTypeBadge — REAL affinity (REAL, FLOA, DOUB)
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * columnTypeBadge — REAL affinity (REAL, FLOA, DOUB)
+ * ---------------------------------------------------------------------------
+ */
 describe('columnTypeBadge — REAL affinity', () => {
   it('maps REAL → REAL label', () => {
     expect(columnTypeBadge('REAL')).toEqual({ label: 'REAL', title: 'REAL' });
@@ -359,9 +377,11 @@ describe('columnTypeBadge — REAL affinity', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// columnTypeBadge — BLOB affinity
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * columnTypeBadge — BLOB affinity
+ * ---------------------------------------------------------------------------
+ */
 describe('columnTypeBadge — BLOB affinity', () => {
   it('maps BLOB → BLOB label', () => {
     expect(columnTypeBadge('BLOB')).toEqual({ label: 'BLOB', title: 'BLOB' });
@@ -372,9 +392,11 @@ describe('columnTypeBadge — BLOB affinity', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// columnTypeBadge — NUMERIC affinity (everything else)
-// ---------------------------------------------------------------------------
+/*
+ * ---------------------------------------------------------------------------
+ * columnTypeBadge — NUMERIC affinity (everything else)
+ * ---------------------------------------------------------------------------
+ */
 describe('columnTypeBadge — NUMERIC affinity (everything else)', () => {
   it('maps NUMERIC → NUM label', () => {
     expect(columnTypeBadge('NUMERIC')).toEqual({ label: 'NUM', title: 'NUMERIC' });
@@ -401,5 +423,75 @@ describe('columnTypeBadge — NUMERIC affinity (everything else)', () => {
 
   it('maps unknown type "MONEY" → NUM label', () => {
     expect(columnTypeBadge('MONEY')).toEqual({ label: 'NUM', title: 'MONEY' });
+  });
+});
+
+/*
+ * ---------------------------------------------------------------------------
+ * url / email presentation (clickable-link affordance over a text value)
+ * ---------------------------------------------------------------------------
+ */
+describe('classifyCell — url + email link affordances', () => {
+  it('classifies a whole-string https URL as url with href = the URL', () => {
+    const c = classifyCell('https://example.com/path?q=1');
+    expect(c.kind).toBe('url');
+    expect(c.href).toBe('https://example.com/path?q=1');
+    expect(c.display).toBe('https://example.com/path?q=1'); // display stays the raw value (honest)
+    expect(c.isJson).toBe(false);
+  });
+
+  it('classifies a plain http URL as url', () => {
+    expect(classifyCell('http://a.co').kind).toBe('url');
+  });
+
+  it('classifies a whole-string email as email with a mailto href', () => {
+    const c = classifyCell('me@example.com');
+    expect(c.kind).toBe('email');
+    expect(c.href).toBe('mailto:me@example.com');
+    expect(c.display).toBe('me@example.com');
+  });
+
+  it('reads a userinfo URL (http://user@host.tld/x) as a URL, NOT an email', () => {
+    const c = classifyCell('http://user@host.tld/x');
+    expect(c.kind).toBe('url');
+    expect(c.href).toBe('http://user@host.tld/x');
+  });
+
+  // --- XSS guard: only http(s)/mailto ever become an href ---
+  it('does NOT linkify a javascript: scheme (XSS guard → plain text, no href)', () => {
+    const c = classifyCell('javascript:alert(1)');
+    expect(c.kind).toBe('text');
+    expect(c.href).toBeUndefined();
+  });
+
+  it('does NOT linkify a data: URL (→ plain text, no href)', () => {
+    const c = classifyCell('data:text/html,<script>alert(1)</script>');
+    expect(c.kind).toBe('text');
+    expect(c.href).toBeUndefined();
+  });
+
+  it('does NOT linkify non-web schemes (ftp:, file:) → plain text', () => {
+    expect(classifyCell('ftp://a.co/f').kind).toBe('text');
+    expect(classifyCell('file:///etc/passwd').kind).toBe('text');
+  });
+
+  // --- false-positive guards: only WHOLE-string matches ---
+  it('does NOT classify prose that merely contains a URL', () => {
+    expect(classifyCell('see https://a.com for more').kind).toBe('text');
+  });
+
+  it('does NOT classify prose that merely contains an @', () => {
+    expect(classifyCell('ping me @handle sometime').kind).toBe('text');
+    expect(classifyCell('a@b').kind).toBe('text'); // no dot after @ → not an email
+  });
+
+  // --- regression: url/email must not disturb existing classifications ---
+  it('leaves numbers, JSON, booleans, null unaffected (no stray href)', () => {
+    expect(classifyCell('42').kind).toBe('number');
+    expect(classifyCell('42').href).toBeUndefined();
+    expect(classifyCell('{"a":1}').kind).toBe('json');
+    expect(classifyCell('true').kind).toBe('boolean');
+    expect(classifyCell(null).href).toBeUndefined();
+    expect(classifyCell('hello').href).toBeUndefined();
   });
 });
