@@ -667,11 +667,26 @@ detail — a site owner reviewing a gallery/kanban card can now act on the recor
   SQL preview + Save/Cancel, using `editCol`/`editKind`/`editValue`/`startEdit`/`submitEdit`). Porting that verbatim
   would DUPLICATE it; the right move is to extract a shared `<CellEditor>` — done next (1b), not rushed here.
 
-**NEXT slice (unify step 1b): make the drawer's fields EDITABLE via a shared `<CellEditor>`** — extract the grid inline
-detail's per-field editor (kind-select + value input + `editPreview` + Save/Cancel; state `editCol`/`editKind`/
-`editValue`; handlers `startEdit`/`submitEdit`/`cancelEdit`, all already row-based) into a small reusable component,
-and render it in BOTH the grid detail AND the drawer field list (drawer edits target `drawerRow`; `editPreview` must
-take the row, not `visibleRows[detailIdx]`). Editable only when canRunSql + resolvable pk + not-generated. THEN step 2:
-grid rows open the drawer (`setDrawerRow`) + remove the inline `<tr>` + retire `detailIdx` — one detail surface for
-every view. Alternatives: chart **sum/avg** aggregates (needs numeric columns — defer); async export JOBS >10k; nested
-filter-tree; grid eval (RevoGrid vs Tabulator).
+### ✅ Shipped next fire (2026-09-26 #25) — editable drawer via shared `<CellEditor>` (unify step 1b)
+The record drawer's fields are now EDITABLE, via a new **shared `<CellEditor>`** component used by BOTH the grid inline
+detail AND the drawer — no duplicated editor JSX (the ~70-line editor now lives in one place):
+- **New `app/components/workbench/CellEditor.tsx`** — presentational typed cell editor (kind-select text/number/boolean/
+  NULL/JSON + value input + live parameterized-UPDATE SQL preview + error + Save/Cancel). State stays in DataPanel;
+  the parent passes `onSave`/`previewSql` so it can target the grid detail row OR `drawerRow`.
+- **`DataPanel.tsx`** — the grid inline detail's inline editor block was REPLACED by `<CellEditor>` (behavior-preserving);
+  the drawer field list gained a per-field edit affordance (pencil, hover-revealed) that opens `<CellEditor>` targeting
+  `drawerRow`. `editPreview()` → **`editPreviewFor(row)`** (row-parameterized so both surfaces preview the right record).
+  Editable gate identical to the grid: canRunSql + resolvable PK + not-a-key + not-generated. Save reuses the SAME
+  `submitEdit`/`buildUpdateByPk`/`runSql` path (parameterized UPDATE-by-PK); closing the drawer (✕/backdrop/Escape)
+  cancels any open edit. No worker/bridge/migration change.
+- Verified: editor Vitest **234/234** + tsc 0 + eslint 0 + build ✓; worker Jest **12769/12769** + tsc 0 (unchanged);
+  admin `ng build --prod` ✓. Editor → CF Pages. The drawer now has full parity with the grid detail: view · edit ·
+  copy-as-SQL · delete — one editor component, two surfaces.
+
+**NEXT slice (unify step 2): grid rows open the DRAWER; retire the inline `<tr>` detail** — now that the drawer edits +
+acts at full parity, make a grid row click `setDrawerRow(r)` (instead of the inline `detailIdx` expand), delete the
+inline `<tr data-testid="data-row-detail">` block + its copy/edit/delete/duplicate JSX (all now in the drawer), and
+retire `detailIdx` (~10 usages: openTable reset, `setDetailIdx(null)` sites, `duplicateRow`'s collapse → use
+`setDrawerRow(null)`). One detail surface for every view (grid · gallery · kanban). Watch: the grid's per-row keyboard
+open/`aria-expanded` moves to "open drawer"; preserve focus/scroll. Alternatives: chart **sum/avg** aggregates (needs
+numeric columns — defer); async export JOBS >10k; nested filter-tree; grid eval (RevoGrid vs Tabulator).

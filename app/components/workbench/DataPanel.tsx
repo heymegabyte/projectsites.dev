@@ -106,6 +106,7 @@ import {
   recordTitle,
   viewQueryFingerprint,
 } from './data-panel-logic';
+import { CellEditor } from './CellEditor';
 import { SqlEditor } from './SqlEditor';
 import { classNames } from '~/utils/classNames';
 import { classifyCell, columnTypeBadge } from './data-cell-format';
@@ -2083,6 +2084,7 @@ export const DataPanel = memo(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         setDrawerRow(null);
+        setEditCol(null);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -2385,20 +2387,25 @@ export const DataPanel = memo(() => {
     setEditError('');
   }, []);
 
-  /** Live preview of the exact parameterized UPDATE (SQL shape only — value is bound as ?1). */
-  const editPreview = useCallback((): string | null => {
-    const r = detailIdx != null ? visibleRows[detailIdx] : null;
+  /**
+   * Live preview of the exact parameterized UPDATE for a specific row (SQL shape only — value binds as
+   * ?1). Row-parameterized so BOTH the grid detail (its detail row) and the record drawer (`drawerRow`)
+   * can preview against the correct record.
+   */
+  const editPreviewFor = useCallback(
+    (row: Record<string, unknown> | null): string | null => {
+      if (!active || !editCol || !row) {
+        return null;
+      }
 
-    if (!active || !editCol || !r) {
-      return null;
-    }
-
-    try {
-      return buildUpdateByPk(active, browsePkCols, r, editCol, null).sql;
-    } catch {
-      return null;
-    }
-  }, [active, editCol, browsePkCols, detailIdx, visibleRows]);
+      try {
+        return buildUpdateByPk(active, browsePkCols, row, editCol, null).sql;
+      } catch {
+        return null;
+      }
+    },
+    [active, editCol, browsePkCols],
+  );
 
   const submitEdit = useCallback(
     (row: Record<string, unknown>): void => {
@@ -4004,90 +4011,24 @@ export const DataPanel = memo(() => {
                                     </dt>
                                     <dd className="group text-[11px] text-bolt-elements-textPrimary font-mono whitespace-pre-wrap break-words flex items-start gap-1.5">
                                       {editing ? (
-                                        <div className="flex w-full flex-col gap-1" data-testid="data-edit-cell">
-                                          <div className="flex items-center gap-1.5">
-                                            <select
-                                              value={editKind}
-                                              onChange={(e) => {
-                                                setEditError('');
-                                                setEditKind(e.target.value as CellInputKind);
-                                              }}
-                                              data-testid="data-edit-kind"
-                                              aria-label={`Type for ${label}`}
-                                              className="shrink-0 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[10px] text-bolt-elements-textPrimary focus:outline-none"
-                                            >
-                                              <option value="text">text</option>
-                                              <option value="number">number</option>
-                                              <option value="boolean">boolean</option>
-                                              <option value="null">NULL</option>
-                                              <option value="json">JSON</option>
-                                            </select>
-                                            <input
-                                              value={editValue}
-                                              onChange={(e) => {
-                                                setEditError('');
-                                                setEditValue(e.target.value);
-                                              }}
-                                              disabled={editKind === 'null'}
-                                              data-testid="data-edit-value"
-                                              aria-label={`New value for ${label}`}
-                                              placeholder={
-                                                editKind === 'null'
-                                                  ? 'NULL'
-                                                  : editKind === 'boolean'
-                                                    ? 'true / false'
-                                                    : ''
-                                              }
-                                              spellCheck={false}
-                                              className={classNames(
-                                                'min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-0.5 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none',
-                                                editKind === 'null' ? 'opacity-40' : '',
-                                              )}
-                                            />
-                                          </div>
-                                          {editPreview() && (
-                                            <div
-                                              className="overflow-x-auto rounded bg-bolt-elements-background-depth-2 px-2 py-1 text-[10px] text-bolt-elements-textTertiary"
-                                              data-testid="data-edit-preview"
-                                            >
-                                              {editPreview()}
-                                            </div>
-                                          )}
-                                          {editError && (
-                                            <p
-                                              className="text-[10px] text-red-400"
-                                              role="alert"
-                                              data-testid="data-edit-error"
-                                            >
-                                              {editError}
-                                            </p>
-                                          )}
-                                          <div className="flex items-center gap-2">
-                                            <button
-                                              type="button"
-                                              onClick={() => submitEdit(r)}
-                                              disabled={editBusy}
-                                              data-testid="data-edit-save"
-                                              className={classNames(
-                                                'rounded px-2 py-0.5 text-[10px] font-medium',
-                                                editBusy
-                                                  ? 'cursor-not-allowed bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary'
-                                                  : 'cursor-pointer bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:opacity-90',
-                                              )}
-                                            >
-                                              {editBusy ? 'Saving…' : 'Save'}
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={cancelEdit}
-                                              disabled={editBusy}
-                                              data-testid="data-edit-cancel"
-                                              className="cursor-pointer text-[10px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
-                                            >
-                                              Cancel
-                                            </button>
-                                          </div>
-                                        </div>
+                                        <CellEditor
+                                          label={label}
+                                          editKind={editKind}
+                                          onKindChange={(k) => {
+                                            setEditError('');
+                                            setEditKind(k);
+                                          }}
+                                          editValue={editValue}
+                                          onValueChange={(v) => {
+                                            setEditError('');
+                                            setEditValue(v);
+                                          }}
+                                          previewSql={editPreviewFor(r)}
+                                          editError={editError}
+                                          editBusy={editBusy}
+                                          onSave={() => submitEdit(r)}
+                                          onCancel={cancelEdit}
+                                        />
                                       ) : (
                                         <>
                                           {classifyCell(r[col]).isJson ? (
@@ -4449,7 +4390,14 @@ export const DataPanel = memo(() => {
           aria-modal="true"
           aria-label="Record detail"
         >
-          <div className="absolute inset-0 bg-black/40" onClick={() => setDrawerRow(null)} aria-hidden="true" />
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => {
+              setDrawerRow(null);
+              setEditCol(null);
+            }}
+            aria-hidden="true"
+          />
           <div className="relative z-10 flex h-full w-full max-w-sm flex-col border-l border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 shadow-2xl">
             <div className="flex items-center justify-between gap-2 border-b border-bolt-elements-borderColor px-3 py-2">
               <span
@@ -4470,7 +4418,10 @@ export const DataPanel = memo(() => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setDrawerRow(null)}
+                  onClick={() => {
+                    setDrawerRow(null);
+                    setEditCol(null);
+                  }}
                   data-testid="data-drawer-close"
                   aria-label="Close record detail"
                   title="Close"
@@ -4482,29 +4433,71 @@ export const DataPanel = memo(() => {
               <dl className="flex flex-col gap-2.5">
                 {columns.map((c) => {
                   const cell = classifyCell(drawerRow[c]);
+                  const editingThisField = editCol === c;
+
+                  // Editable = super-admin + resolvable PK + not part of the key + not a generated column.
+                  const editable =
+                    canRunSql && browsePkCols.length > 0 && !browsePkCols.includes(c) && !browseGeneratedCols.has(c);
 
                   return (
-                    <div key={c} className="flex flex-col gap-0.5">
+                    <div key={c} className="group flex flex-col gap-0.5">
                       <dt className="text-[10px] uppercase tracking-wide text-bolt-elements-textTertiary">
                         {columnLabel(c)}
                       </dt>
                       <dd
-                        className="break-words text-[11px] text-bolt-elements-textPrimary"
+                        className="flex items-start gap-1.5 break-words text-[11px] text-bolt-elements-textPrimary"
                         title={cell.title ?? cell.display}
                       >
-                        {cell.isJson ? (
-                          <JsonTree value={drawerRow[c]} />
-                        ) : cell.href ? (
-                          <a
-                            href={cell.href}
-                            target="_blank"
-                            rel="noopener noreferrer nofollow"
-                            className={cell.className}
-                          >
-                            {cell.display}
-                          </a>
+                        {editingThisField ? (
+                          <CellEditor
+                            label={columnLabel(c)}
+                            editKind={editKind}
+                            onKindChange={(k) => {
+                              setEditError('');
+                              setEditKind(k);
+                            }}
+                            editValue={editValue}
+                            onValueChange={(v) => {
+                              setEditError('');
+                              setEditValue(v);
+                            }}
+                            previewSql={editPreviewFor(drawerRow)}
+                            editError={editError}
+                            editBusy={editBusy}
+                            onSave={() => submitEdit(drawerRow)}
+                            onCancel={cancelEdit}
+                          />
                         ) : (
-                          <span className={cell.className}>{cell.display}</span>
+                          <>
+                            <div className="min-w-0 flex-1">
+                              {cell.isJson ? (
+                                <JsonTree value={drawerRow[c]} />
+                              ) : cell.href ? (
+                                <a
+                                  href={cell.href}
+                                  target="_blank"
+                                  rel="noopener noreferrer nofollow"
+                                  className={cell.className}
+                                >
+                                  {cell.display}
+                                </a>
+                              ) : (
+                                <span className={cell.className}>{cell.display}</span>
+                              )}
+                            </div>
+                            {editable && (
+                              <button
+                                type="button"
+                                onClick={() => startEdit(c, drawerRow[c])}
+                                data-testid="data-drawer-edit-open"
+                                title={`Edit ${columnLabel(c)}`}
+                                aria-label={`Edit ${columnLabel(c)}`}
+                                className="shrink-0 cursor-pointer text-bolt-elements-textTertiary opacity-0 transition-opacity hover:!opacity-100 hover:text-bolt-elements-item-contentAccent focus:opacity-100 group-hover:opacity-60"
+                              >
+                                <div className="i-ph:pencil-simple text-[11px]" />
+                              </button>
+                            )}
+                          </>
                         )}
                       </dd>
                     </div>
