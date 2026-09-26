@@ -231,7 +231,9 @@ describe('GET /api/sites/:siteId/data-overview/:table/export (whole-query export
 
   it('404 when the site belongs to a different org (IDOR guard)', async () => {
     const DB = makeD1({ siteOwned: false });
-    const res = await makeApp(DB).request(exportReq('site-1', 'visitor_events'), {}, { DB } as unknown as Env);
+    const res = await makeApp(DB).request(exportReq('site-1', 'visitor_events'), {}, {
+      DB,
+    } as unknown as Env);
     expect(res.status).toBe(404);
   });
 
@@ -241,7 +243,9 @@ describe('GET /api/sites/:siteId/data-overview/:table/export (whole-query export
       { id: 'r2', event_type: 'pageview', path: '/b', created_at: '2024-01-02' },
     ];
     const DB = makeD1({ rows });
-    const res = await makeApp(DB).request(exportReq('site-1', 'visitor_events'), {}, { DB } as unknown as Env);
+    const res = await makeApp(DB).request(exportReq('site-1', 'visitor_events'), {}, {
+      DB,
+    } as unknown as Env);
     expect(res.status).toBe(200);
 
     interface ExportBody {
@@ -256,7 +260,12 @@ describe('GET /api/sites/:siteId/data-overview/:table/export (whole-query export
     const prepareMock = (DB as unknown as { prepare: jest.Mock }).prepare;
     const exportCall = prepareMock.mock.calls.find((call: unknown[]) => {
       const s = String(call[0]).toUpperCase();
-      return s.startsWith('SELECT') && s.includes('LIMIT ?') && !s.includes('OFFSET') && !s.includes('COUNT(*)');
+      return (
+        s.startsWith('SELECT') &&
+        s.includes('LIMIT ?') &&
+        !s.includes('OFFSET') &&
+        !s.includes('COUNT(*)')
+      );
     });
     expect(exportCall).toBeTruthy();
   });
@@ -270,7 +279,9 @@ describe('GET /api/sites/:siteId/data-overview/:table/export (whole-query export
       created_at: '2024-01-01',
     }));
     const DB = makeD1({ rows: many });
-    const res = await makeApp(DB).request(exportReq('site-1', 'visitor_events'), {}, { DB } as unknown as Env);
+    const res = await makeApp(DB).request(exportReq('site-1', 'visitor_events'), {}, {
+      DB,
+    } as unknown as Env);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: { rows: unknown[]; truncated: boolean } };
     expect(body.data.truncated).toBe(true);
