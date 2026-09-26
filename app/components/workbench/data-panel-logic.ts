@@ -5,6 +5,7 @@
  */
 import type { DataOverviewTable } from '~/lib/embed/embedded-mode';
 import { isoDayKey } from './data-cell-format';
+import type { CellAggregates } from './data-aggregates';
 
 /** Phosphor icon per known table key; a sensible default for anything new. */
 const TABLE_ICONS: Record<string, string> = {
@@ -1535,6 +1536,75 @@ export function parseColWidths(raw: unknown): Record<string, number> {
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
       out[k] = clampColWidth(v);
+    }
+  }
+
+  return out;
+}
+
+/** Per-column footer summary kinds (Airtable-style). `none` = no summary shown for that column. */
+export type SummaryKind = 'none' | 'count' | 'filled' | 'empty' | 'sum' | 'avg' | 'min' | 'max';
+export const SUMMARY_KINDS: readonly SummaryKind[] = ['none', 'count', 'filled', 'empty', 'sum', 'avg', 'min', 'max'];
+
+/** Coerce a raw value to a known {@link SummaryKind}; unknown/absent → `none`. Pure. */
+export function normalizeSummaryKind(raw: unknown): SummaryKind {
+  const k = String(raw ?? '').trim();
+  return (SUMMARY_KINDS as readonly string[]).includes(k) ? (k as SummaryKind) : 'none';
+}
+
+/** Short display label for a summary kind (e.g. `sum` → `Sum`); `none` → `''`. Pure. */
+export function summaryLabel(kind: SummaryKind): string {
+  return kind === 'none' ? '' : kind[0].toUpperCase() + kind.slice(1);
+}
+
+/**
+ * The numeric value of a column summary given its kind + the column's {@link CellAggregates}: `count` =
+ * all cells, `filled` = non-null cells, `empty` = null cells, `sum`/`avg`/`min`/`max` = the numeric stat
+ * (null when the column has no numeric values — the caller then shows an honest "–", never a fake 0).
+ * `none` → null. Pure.
+ *
+ * @example summaryValue('filled', { count: 5, nullCount: 2, ... }) // 3
+ * @example summaryValue('sum', { numericCount: 0, sum: null, ... }) // null (nothing numeric → no sum)
+ */
+export function summaryValue(kind: SummaryKind, agg: CellAggregates): number | null {
+  switch (kind) {
+    case 'count':
+      return agg.count;
+    case 'filled':
+      return agg.count - agg.nullCount;
+    case 'empty':
+      return agg.nullCount;
+    case 'sum':
+      return agg.sum;
+    case 'avg':
+      return agg.avg;
+    case 'min':
+      return agg.min;
+    case 'max':
+      return agg.max;
+    default:
+      return null; // 'none'
+  }
+}
+
+/**
+ * Defensive parse of a persisted `{ column: summaryKind }` map (from localStorage) → a clean map keeping
+ * only real, non-`none` kinds. Non-object / array / junk → `{}`. Pure — mirrors the col-width parse.
+ *
+ * @example parseColSummaries({ amount: 'sum', x: 'bogus', y: 'none' }) // { amount: 'sum' }
+ */
+export function parseColSummaries(raw: unknown): Record<string, SummaryKind> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+
+  const out: Record<string, SummaryKind> = {};
+
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const kind = normalizeSummaryKind(v);
+
+    if (kind !== 'none') {
+      out[k] = kind;
     }
   }
 

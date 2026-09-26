@@ -80,6 +80,11 @@ import {
   visibleColumns,
   clampColWidth,
   parseColWidths,
+  SUMMARY_KINDS,
+  normalizeSummaryKind,
+  summaryLabel,
+  summaryValue,
+  parseColSummaries,
   MIN_COL_WIDTH,
   MAX_COL_WIDTH,
   normalizeDensity,
@@ -1559,6 +1564,53 @@ describe('clampColWidth + parseColWidths (column resize bounds + persisted-width
     expect(parseColWidths([1, 2])).toEqual({});
     expect(parseColWidths('x')).toEqual({});
     expect(parseColWidths({})).toEqual({});
+  });
+});
+
+describe('column summaries (normalize + value + persist parse)', () => {
+  const agg = { count: 5, numericCount: 3, sum: 60, avg: 20, min: 10, max: 30, nullCount: 2 };
+
+  it('normalizeSummaryKind accepts the known kinds, else none', () => {
+    for (const k of SUMMARY_KINDS) {
+      expect(normalizeSummaryKind(k)).toBe(k);
+    }
+    expect(normalizeSummaryKind('median')).toBe('none');
+    expect(normalizeSummaryKind('')).toBe('none');
+    expect(normalizeSummaryKind(null)).toBe('none');
+  });
+
+  it('summaryLabel capitalizes (none → empty string)', () => {
+    expect(summaryLabel('sum')).toBe('Sum');
+    expect(summaryLabel('filled')).toBe('Filled');
+    expect(summaryLabel('none')).toBe('');
+  });
+
+  it('summaryValue maps each kind against the aggregates', () => {
+    expect(summaryValue('count', agg)).toBe(5);
+    expect(summaryValue('filled', agg)).toBe(3); // count - nullCount
+    expect(summaryValue('empty', agg)).toBe(2); // nullCount
+    expect(summaryValue('sum', agg)).toBe(60);
+    expect(summaryValue('avg', agg)).toBe(20);
+    expect(summaryValue('min', agg)).toBe(10);
+    expect(summaryValue('max', agg)).toBe(30);
+    expect(summaryValue('none', agg)).toBeNull();
+  });
+
+  it('summaryValue returns null for numeric stats on a non-numeric column (honest "–", never fake 0)', () => {
+    const textAgg = { count: 4, numericCount: 0, sum: null, avg: null, min: null, max: null, nullCount: 1 };
+    expect(summaryValue('sum', textAgg)).toBeNull();
+    expect(summaryValue('avg', textAgg)).toBeNull();
+    expect(summaryValue('filled', textAgg)).toBe(3); // count/filled/empty still work on any column
+    expect(summaryValue('count', textAgg)).toBe(4);
+  });
+
+  it('parseColSummaries keeps real kinds, drops none/junk, non-object → {}', () => {
+    expect(parseColSummaries({ amount: 'sum', x: 'bogus', y: 'none', qty: 'avg' })).toEqual({
+      amount: 'sum',
+      qty: 'avg',
+    });
+    expect(parseColSummaries(null)).toEqual({});
+    expect(parseColSummaries(['sum'])).toEqual({});
   });
 });
 

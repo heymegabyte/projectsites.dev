@@ -59,6 +59,11 @@ import {
   moveColumn,
   clampColWidth,
   parseColWidths,
+  SUMMARY_KINDS,
+  summaryLabel,
+  summaryValue,
+  parseColSummaries,
+  type SummaryKind,
   normalizeDensity,
   densityCellClass,
   densitySelectCellClass,
@@ -197,6 +202,20 @@ function readColWidths(tableKey: string): Record<string, number> {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(`${DATA_COLWIDTH_KEY}-${tableKey}`) : null;
 
     return parseColWidths(raw ? JSON.parse(raw) : null);
+  } catch {
+    return {};
+  }
+}
+
+/** localStorage key PREFIX for a table's per-column footer summaries (`…-<tableKey>`, per-browser). */
+const DATA_COLSUMMARY_KEY = 'ps-data-cols-summary';
+
+/** Read a table's persisted `{ column: summaryKind }` map (best-effort; junk / private-mode → {}). */
+function readColSummaries(tableKey: string): Record<string, SummaryKind> {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(`${DATA_COLSUMMARY_KEY}-${tableKey}`) : null;
+
+    return parseColSummaries(raw ? JSON.parse(raw) : null);
   } catch {
     return {};
   }
@@ -342,6 +361,7 @@ export const DataPanel = memo(() => {
   const [hiddenCols, setHiddenCols] = useState<string[]>([]);
   const [colOrder, setColOrder] = useState<string[]>([]); // persisted per-table column display order
   const [colWidths, setColWidths] = useState<Record<string, number>>({}); // persisted per-table resized widths
+  const [colSummaries, setColSummaries] = useState<Record<string, SummaryKind>>({}); // per-table footer summaries
   const [colMenuOpen, setColMenuOpen] = useState(false);
   const [density, setDensity] = useState<GridDensity>(readDensity); // global grid row-density pref
 
@@ -770,6 +790,7 @@ export const DataPanel = memo(() => {
       setHiddenCols(readHiddenCols(key)); // restore this table's column selection
       setColOrder(readColOrder(key)); // restore this table's column order
       setColWidths(readColWidths(key)); // restore this table's resized column widths
+      setColSummaries(readColSummaries(key)); // restore this table's footer summaries
       setColMenuOpen(false);
       setBrowseLoading(true);
       setBrowsePkCols([]); // clear the prior table's PK until this one's PRAGMA returns
@@ -1675,6 +1696,24 @@ export const DataPanel = memo(() => {
   const visibleCols = useMemo(() => visibleColumns(orderedColumns, hiddenCols), [orderedColumns, hiddenCols]);
 
   /*
+   * Footer summaries: aggregates over the CURRENT PAGE for each column that has a summary configured
+   * (computed lazily — only for summarized columns, so a wide table pays nothing until a summary is set).
+   * Page-parity like the selection footer + kanban cards — the summary reflects the loaded page, not a
+   * whole-table aggregate (that would need a server round-trip; labelled "· page" in the footer).
+   */
+  const colAggregates = useMemo(() => {
+    const m: Record<string, ReturnType<typeof computeAggregates>> = {};
+
+    for (const c of visibleCols) {
+      if (colSummaries[c]) {
+        m[c] = computeAggregates(visibleRows.map((r) => r[c]));
+      }
+    }
+
+    return m;
+  }, [visibleCols, visibleRows, colSummaries]);
+
+  /*
    * Calendar derivations (only meaningful in the calendar view): the effective date column (owner pick,
    * else auto-detected first ISO-date column), the current page's rows bucketed by UTC day (wiring the
    * tested `bucketRowsByDate` foundation), and the visible month — owner nav state, else the latest
@@ -1850,6 +1889,32 @@ export const DataPanel = memo(() => {
       });
     },
     [persistColWidths],
+  );
+
+  /** Set (or clear, via `none`) a column's footer summary + persist per table. */
+  const setSummary = useCallback(
+    (col: string, kind: SummaryKind): void => {
+      setColSummaries((prev) => {
+        const next = { ...prev };
+
+        if (kind === 'none') {
+          delete next[col];
+        } else {
+          next[col] = kind;
+        }
+
+        try {
+          if (active && typeof localStorage !== 'undefined') {
+            localStorage.setItem(`${DATA_COLSUMMARY_KEY}-${active}`, JSON.stringify(next));
+          }
+        } catch {
+          /* private mode / quota — summaries are a convenience, never load-bearing */
+        }
+
+        return next;
+      });
+    },
+    [active],
   );
 
   /** Inline width style for a column (min=max=width forces an exact width in auto layout); undefined = auto. */
@@ -4384,6 +4449,58 @@ export const DataPanel = memo(() => {
                     </tr>
                   ))}
                 </tbody>
+                {/* Per-column summary footer (Airtable-style) — a compact per-column stat over THIS PAGE
+                    (page-parity, like the selection footer; labelled "· page"). The picker is faint until
+                    hovered when unset; sum/avg/min/max on a non-numeric column honestly show "–". */}
+                <tfoot className="sticky bottom-0 z-10 bg-bolt-elements-background-depth-2">
+                  <tr className="border-t border-bolt-elements-borderColor/50">
+                    {selectable && <td className="w-8" />}
+                    {visibleCols.map((c) => {
+                      const kind = colSummaries[c] ?? 'none';
+                      const agg = colAggregates[c];
+                      const val = kind !== 'none' && agg ? summaryValue(kind, agg) : null;
+
+                      return (
+                        <td key={c} style={colStyle(c)} className="group max-w-[220px] px-2 py-1 align-middle">
+                          <div className="flex items-center justify-end gap-1 text-[10px]">
+                            {kind !== 'none' && (
+                              <span
+                                className="truncate font-medium tabular-nums text-bolt-elements-textSecondary"
+                                title={`${summaryLabel(kind)} · this page`}
+                              >
+                                <span className="text-bolt-elements-textTertiary/70">{summaryLabel(kind)} </span>
+                                {val === null
+                                  ? '–'
+                                  : Number.isInteger(val)
+                                    ? val.toLocaleString()
+                                    : val.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                              </span>
+                            )}
+                            <select
+                              value={kind}
+                              onChange={(e) => setSummary(c, e.target.value as SummaryKind)}
+                              data-testid="data-col-summary"
+                              aria-label={`Summary for ${columnLabel(c)}`}
+                              title="Column summary (this page)"
+                              className={classNames(
+                                'shrink-0 cursor-pointer rounded border-none bg-transparent text-[9px] focus:outline-none',
+                                kind === 'none'
+                                  ? 'text-bolt-elements-textTertiary/40 opacity-0 focus:opacity-100 group-hover:opacity-100'
+                                  : 'text-bolt-elements-textTertiary',
+                              )}
+                            >
+                              {SUMMARY_KINDS.map((k) => (
+                                <option key={k} value={k}>
+                                  {k === 'none' ? 'Summary…' : summaryLabel(k)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}

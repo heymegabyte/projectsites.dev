@@ -834,12 +834,34 @@ persisted, mirroring the reorder/density prefs. Completes the grid-mandate "resi
   A REAL-browser drag check on `editor.projectsites.dev` (drag a column, confirm width sticks on reload, confirm the
   handle doesn't trigger a sort) is a REQUIRED follow-up before calling resize fully done.
 
-**NEXT slice: real-browser verify the resize drag (above) — OR pinned/frozen first column.** If verifying resize:
-open the editor Data grid via an authed admin session, drag a header edge, confirm the column resizes + the sort
-doesn't fire + the width persists across reload; fix any drag/CSS issue found. Otherwise the next self-contained
-grid feature is **pinned identifying column(s)** — `position:sticky; left:0` on the first column(s) (+ the select
-checkbox) so they stay visible on horizontal scroll; a pin toggle in the column menu; persisted per table; compute
-cumulative left-offsets for multiple pinned cols. Then: **async export JOBS >10k** (multi-fire: migration +
-`data_export_jobs` + enqueue/poll + R2 streaming + UI); **multi-column sort** (ripples into saved-view sort
-persistence); nested AND/OR filter-tree; SQL-workspace polish. Foundations still inert: `field-types.ts`,
-`schema-ddl.ts`.
+### ✅ Shipped next fire (2026-09-26 #34) — per-column summary footer (Airtable "summaries")
+The browse grid gains a sticky footer where each column can show a summary — **Count / Filled / Empty / Sum / Avg
+/ Min / Max** — over the current page. Configurable per column, persisted per table. Chosen over the two matrix
+options (resize real-browser verify = not loop-actionable; pinned column = has an unverifiable sticky-CSS visual)
+because summaries are **fully verify-by-build + unit-testable** (pure aggregation + deterministic render, no
+interaction). Directly in the AIRTABLE VIEWS mandate ("summaries").
+- **New pure logic (TDD-first, tested):** `data-panel-logic.ts` `SummaryKind`/`SUMMARY_KINDS`/`normalizeSummaryKind`
+  + `summaryLabel` + `summaryValue(kind, agg)` (count/filled=count−null/empty=null/sum/avg/min/max; **numeric stats
+  return null → footer shows "–"** on a non-numeric column, never a fake 0) + `parseColSummaries` (defensive persist
+  parse). Reuses the tested `computeAggregates` from `data-aggregates.ts`. 5 cases.
+- **`DataPanel.tsx` (editor-only):** `colSummaries` state + `readColSummaries`/`DATA_COLSUMMARY_KEY` localStorage
+  (per table) + `setSummary` (persist/clear); a `colAggregates` memo computing `computeAggregates` **only for
+  summarized columns** (a wide table pays nothing until a summary is set); a `<tfoot className="sticky bottom-0">`
+  with a per-column value + a compact picker (`data-col-summary`, faint until hover when unset). Grid-view only;
+  SQL-results grid untouched.
+- **HONEST:** page-parity — the summary is over the loaded page (labelled "· this page"), like the selection
+  footer + kanban cards; a whole-table summary would need a server aggregate (see NEXT).
+- Verified: editor Vitest **898/898** + tsc 0 + eslint 0 + build 0; worker **untouched** (0 files under
+  `apps/project-sites`). *Honest residual:* verify-by-build (WebContainer + authed session) per the DataPanel pattern.
+
+**STILL-OPEN manual QA (not loop-actionable):** the #33 column-resize DRAG + this footer's picker need a
+real-browser pass on `editor.projectsites.dev` (authed admin session) — logic is unit-tested, the interactions ship
+verify-by-build (per `interaction≠build`).
+
+**NEXT slice: whole-query column summaries (opt-in) — OR pinned column.** The footer is page-only; add a per-summary
+"whole table" toggle that fetches a bounded server aggregate for that column (a small ungrouped `SUM/AVG/MIN/MAX/
+COUNT(col)` endpoint — reuse the `group-aggregate` SQL discipline minus the GROUP BY; allowlist-validate the column;
+honest "· whole table" vs "· page" label). Self-contained alt: **pinned identifying column(s)** (`position:sticky;
+left:0` + pin toggle + per-table persist + cumulative left-offsets). Then: **async export JOBS >10k** (multi-fire);
+**multi-column sort** (ripples into saved-view sort persistence); nested AND/OR filter-tree. Foundations still inert:
+`field-types.ts`, `schema-ddl.ts`.
