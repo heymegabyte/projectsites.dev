@@ -824,7 +824,7 @@ export interface SavedGridView {
  */
 export interface ViewRequestMessage {
   type: 'PS_VIEW_REQUEST';
-  action: 'list' | 'save' | 'delete';
+  action: 'list' | 'save' | 'delete' | 'update';
   table: string;
   correlationId: string;
 
@@ -858,7 +858,7 @@ export interface ViewRequestMessage {
 export interface ViewResponseMessage {
   type: 'PS_VIEW_RESPONSE';
   correlationId: string;
-  action: 'list' | 'save' | 'delete';
+  action: 'list' | 'save' | 'delete' | 'update';
 
   /** list. */
   views?: SavedGridView[];

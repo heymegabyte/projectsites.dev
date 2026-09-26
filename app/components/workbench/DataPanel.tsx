@@ -362,9 +362,12 @@ export const DataPanel = memo(() => {
   const [viewsBusy, setViewsBusy] = useState(false);
   const [saveViewName, setSaveViewName] = useState('');
   const [savingView, setSavingView] = useState(false);
+  const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const viewListCid = useRef<string | null>(null);
   const viewSaveCid = useRef<string | null>(null);
   const viewDeleteCid = useRef<string | null>(null);
+  const viewUpdateCid = useRef<string | null>(null);
 
   /**
    * Whole-query export (CSV/JSON) of ALL rows matching the current search + filter group + sort — NOT
@@ -1011,6 +1014,19 @@ export const DataPanel = memo(() => {
             setSaveViewName('');
             setSavedViews((prev) =>
               [...prev.filter((v) => v.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name)),
+            );
+          }
+
+          return;
+        }
+
+        if (msg.correlationId === viewUpdateCid.current) {
+          viewUpdateCid.current = null;
+
+          if (!msg.error && msg.view) {
+            const updated = msg.view;
+            setSavedViews((prev) =>
+              prev.map((v) => (v.id === updated.id ? updated : v)).sort((a, b) => a.name.localeCompare(b.name)),
             );
           }
 
@@ -1788,6 +1804,87 @@ export const DataPanel = memo(() => {
     [active],
   );
 
+  /** Overwrite view `id` with a full query payload (used by both "update to current" and "rename"). */
+  const sendViewUpdate = useCallback(
+    (
+      id: string,
+      name: string,
+      q: {
+        filters: string;
+        combinator: string;
+        sortCol: string | null;
+        sortDir: string | null;
+        search: string;
+        viewType: string;
+        viewConfig: { titleField?: string };
+      },
+    ): void => {
+      if (!active) {
+        return;
+      }
+
+      const cid = newCorrelationId('view-upd');
+      viewUpdateCid.current = cid;
+      postToParent({
+        type: 'PS_VIEW_REQUEST',
+        action: 'update',
+        table: active,
+        viewId: id,
+        name,
+        filters: q.filters,
+        combinator: q.combinator,
+        sortCol: q.sortCol,
+        sortDir: q.sortDir,
+        search: q.search,
+        viewType: q.viewType,
+        viewConfig: q.viewConfig,
+        correlationId: cid,
+      });
+    },
+    [active],
+  );
+
+  /** Update a saved view to match the CURRENT on-screen query (keeps the view's name). */
+  const updateViewToCurrent = useCallback(
+    (view: SavedGridView): void => {
+      const params = filtersToParams({ search, conditions: filterConditions, combinator: filterCombinator });
+      sendViewUpdate(view.id, view.name, {
+        filters: params.filters ?? '[]',
+        combinator: filterCombinator,
+        sortCol: browseSort?.col ?? null,
+        sortDir: browseSort?.dir ?? null,
+        search,
+        viewType: viewMode,
+        viewConfig: viewMode === 'gallery' && galleryTitleCol ? { titleField: galleryTitleCol } : {},
+      });
+    },
+    [search, filterConditions, filterCombinator, browseSort, viewMode, galleryTitleCol, sendViewUpdate],
+  );
+
+  /** Rename a saved view — new name, but PRESERVE its stored query (rename must not rewrite the query). */
+  const commitRename = useCallback(
+    (view: SavedGridView): void => {
+      const name = renameValue.trim();
+
+      if (!name) {
+        setRenamingViewId(null);
+        return;
+      }
+
+      sendViewUpdate(view.id, name, {
+        filters: JSON.stringify(view.conditions),
+        combinator: view.combinator,
+        sortCol: view.sortCol,
+        sortDir: view.sortDir,
+        search: view.search,
+        viewType: view.type,
+        viewConfig: view.config ?? {},
+      });
+      setRenamingViewId(null);
+    },
+    [renameValue, sendViewUpdate],
+  );
+
   /** Apply a saved view — load its search + filter group + sort and re-fetch page 0. */
   const applyView = useCallback(
     (view: SavedGridView): void => {
@@ -1829,6 +1926,7 @@ export const DataPanel = memo(() => {
     activeRef.current = active;
     setViewsMenuOpen(false);
     setExportNote('');
+    setRenamingViewId(null);
 
     if (active) {
       loadViews(active);
@@ -2707,29 +2805,73 @@ export const DataPanel = memo(() => {
                           <ul className="mb-2 max-h-48 overflow-auto">
                             {savedViews.map((v) => (
                               <li key={v.id} className="group flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => applyView(v)}
-                                  data-testid={`data-view-apply-${v.id}`}
-                                  className="flex min-w-0 flex-1 items-center gap-1.5 truncate rounded px-1.5 py-1 text-left text-[11px] text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-2"
-                                  title={`Apply “${v.name}” (${v.type === 'gallery' ? 'gallery' : 'grid'} view)`}
-                                >
-                                  <div
-                                    className={classNames(
-                                      'shrink-0 text-bolt-elements-textTertiary',
-                                      v.type === 'gallery' ? 'i-ph:squares-four' : 'i-ph:table',
-                                    )}
+                                {renamingViewId === v.id ? (
+                                  <input
+                                    autoFocus
+                                    value={renameValue}
+                                    onChange={(e) => setRenameValue(e.target.value)}
+                                    onBlur={() => commitRename(v)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        commitRename(v);
+                                      } else if (e.key === 'Escape') {
+                                        setRenamingViewId(null);
+                                      }
+                                    }}
+                                    data-testid={`data-view-rename-input-${v.id}`}
+                                    aria-label={`Rename view ${v.name}`}
+                                    maxLength={80}
+                                    spellCheck={false}
+                                    className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-1 text-[11px] text-bolt-elements-textPrimary focus:outline-none"
                                   />
-                                  <span className="min-w-0 flex-1 truncate">{v.name}</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => deleteView(v.id)}
-                                  data-testid={`data-view-delete-${v.id}`}
-                                  aria-label={`Delete view ${v.name}`}
-                                  title="Delete this view"
-                                  className="i-ph:trash shrink-0 cursor-pointer text-xs text-bolt-elements-textTertiary hover:text-red-400"
-                                />
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => applyView(v)}
+                                    data-testid={`data-view-apply-${v.id}`}
+                                    className="flex min-w-0 flex-1 items-center gap-1.5 truncate rounded px-1.5 py-1 text-left text-[11px] text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-2"
+                                    title={`Apply “${v.name}” (${v.type === 'gallery' ? 'gallery' : 'grid'} view)`}
+                                  >
+                                    <div
+                                      className={classNames(
+                                        'shrink-0 text-bolt-elements-textTertiary',
+                                        v.type === 'gallery' ? 'i-ph:squares-four' : 'i-ph:table',
+                                      )}
+                                    />
+                                    <span className="min-w-0 flex-1 truncate">{v.name}</span>
+                                  </button>
+                                )}
+                                {renamingViewId !== v.id && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateViewToCurrent(v)}
+                                      data-testid={`data-view-update-${v.id}`}
+                                      aria-label={`Update view ${v.name} to the current query`}
+                                      title="Update this view to the current filters, sort, search + view mode"
+                                      className="i-ph:arrows-clockwise shrink-0 cursor-pointer text-xs text-bolt-elements-textTertiary hover:text-[#00e5ff]"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setRenameValue(v.name);
+                                        setRenamingViewId(v.id);
+                                      }}
+                                      data-testid={`data-view-rename-${v.id}`}
+                                      aria-label={`Rename view ${v.name}`}
+                                      title="Rename this view"
+                                      className="i-ph:pencil-simple shrink-0 cursor-pointer text-xs text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => deleteView(v.id)}
+                                      data-testid={`data-view-delete-${v.id}`}
+                                      aria-label={`Delete view ${v.name}`}
+                                      title="Delete this view"
+                                      className="i-ph:trash shrink-0 cursor-pointer text-xs text-bolt-elements-textTertiary hover:text-red-400"
+                                    />
+                                  </>
+                                )}
                               </li>
                             ))}
                           </ul>

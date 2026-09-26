@@ -563,11 +563,28 @@ layout. Extends the metadata store (#15) end-to-end:
 - Verified: worker Jest **12758/12758** + tsc 0; editor Vitest **222/222** + tsc 0 + eslint 0 + build ✓; admin tsc 0 +
   `ng build --configuration production` ✓; migration live in prod. Editor → CF Pages, worker+admin → Worker CI.
 
+### ✅ Shipped next fire (2026-09-26 #19) — saved-views UPDATE + RENAME (completes the metadata-store CRUD)
+Saved views had create/read/apply/delete but no way to EDIT one — tweak a view's filters and you had to
+delete + re-create. Added the missing verb end-to-end (no migration — reuses the #18 columns):
+- **Worker (`site_data_api/handlers.ts`)** — `PUT /api/sites/:siteId/grid-views/:viewId` updates a view IN PLACE
+  (name + whole query + type/config), re-validating with the SAME helpers as create; the bound `table` is immutable
+  (`body.table` ignored). Double-scoped `WHERE id=? AND site_id=? AND org_id=?` → `meta.changes===0` ⇒ **404** (a
+  foreign/unknown id updates nothing, never a silent success); sets `updated_at`. +4 Jest (the FIRST grid-views
+  route-level test suite: cross-org 404 / missing-name 400 / 0-changes 404 / success round-trips type+config+filters).
+- **Bridge** — `PS_VIEW_REQUEST` action `'update'`; the admin routes it to the PUT with the same body shape as save.
+- **Editor (`DataPanel.tsx`)** — each saved-view row gains **Update-to-current** (⟳: overwrite the view with the
+  on-screen filters/sort/search + view mode, keeping its name) and **Rename** (✎ → inline input, Enter/blur commit,
+  Esc cancel — preserves the stored query). `sendViewUpdate` shared by both; the response replaces the row in the list.
+- Verified: worker Jest **12762/12762** (795 suites) + tsc 0; editor Vitest **222/222** + tsc 0 + eslint 0 + build ✓;
+  admin tsc 0 + `ng build --configuration production` ✓. Editor → CF Pages, worker+admin → Worker CI. Saved-views CRUD
+  is now complete (create/read/apply/**update**/**rename**/delete).
+
 **NEXT slice (per delivery order): the next non-grid VIEW — KANBAN** (group cards by a status-like column). Reuse the
 gallery card render + the saved-view `type`/`config` (add `kanban` to `GRID_VIEW_TYPES` + `normalizeGridViewType`/
 editor `ViewMode`; config `{groupField, titleField}`). CRITICAL honesty gate (per `data-tab-page-vs-whole-query-honesty`):
 per-column group counts MUST reflect the whole filtered query or be explicitly labelled "on this page" — a grouped
 board over one page of rows silently under-counts. Prefer a bounded whole-query group-count endpoint (reuse
 `composeBrowseFilter` + a `GROUP BY` with a fixed column allowlist) OR label the board page-only. Alternatives: **charts**
-(same honesty gate on aggregates); saved-views rename/update (PUT) + "modified — update view?"; a click-to-open record
-drawer shared by grid+gallery+kanban; async export JOBS >10k; nested filter-tree; grid eval (RevoGrid vs Tabulator).
+(same honesty gate on aggregates); a drift-aware "modified — update view?" badge (now that Update exists, detect when
+the live query diverges from the applied view); a click-to-open record drawer shared by grid+gallery+kanban; async
+export JOBS >10k; nested filter-tree; grid eval (RevoGrid vs Tabulator).

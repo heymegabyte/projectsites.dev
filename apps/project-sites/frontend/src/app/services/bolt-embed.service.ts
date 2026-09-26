@@ -823,6 +823,30 @@ export class BoltEmbedService {
                 next: (res) => reply({ view: res?.data?.view ?? null }),
                 error: () => reply({ error: 'Failed to save view' }),
               });
+          } else if (action === 'update') {
+            if (!msg.viewId || typeof msg.name !== 'string' || !msg.name.trim()) {
+              reply({ error: 'A view id and name are required' });
+              break;
+            }
+            this.api
+              .put<{ data?: { view?: unknown } }>(
+                `${base}/${encodeURIComponent(msg.viewId)}`,
+                {
+                  name: msg.name.trim().slice(0, 80),
+                  filters: typeof msg.filters === 'string' ? msg.filters : '[]',
+                  combinator: msg.combinator ?? 'AND',
+                  sortCol: msg.sortCol ?? null,
+                  sortDir: msg.sortDir ?? null,
+                  search: msg.search ?? '',
+                  type: msg.viewType ?? 'grid',
+                  config: msg.viewConfig ?? {},
+                },
+                { silent: true },
+              )
+              .subscribe({
+                next: (res) => reply({ view: res?.data?.view ?? null }),
+                error: () => reply({ error: 'Failed to update view' }),
+              });
           } else if (action === 'delete') {
             if (!msg.viewId) {
               reply({ error: 'No view id' });

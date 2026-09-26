@@ -1292,6 +1292,54 @@ siteDataApi.post('/api/sites/:siteId/grid-views', async (c) => {
   }
 });
 
+/**
+ * Update an existing saved view IN PLACE — its name + whole query (filters / combinator / sort /
+ * search) + render type/config. The bound TABLE is immutable (a view belongs to its `table_key`, so
+ * `body.table` is ignored). Double-scoped by site_id + org_id — a foreign/unknown id updates nothing
+ * → 404 (never a silent success). Same server-side re-validation as the create path.
+ */
+siteDataApi.put('/api/sites/:siteId/grid-views/:viewId', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const siteId = c.req.param('siteId');
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+  const viewId = c.req.param('viewId');
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
+  const name = validateViewName(body.name);
+  if (!name) return c.json({ error: { code: 'BAD_REQUEST', message: 'A view name is required' } }, 400);
+
+  const filtersJson = JSON.stringify(
+    parseFilterConditions(JSON.stringify(Array.isArray(body.filters) ? body.filters : [])),
+  );
+  const combinator = normalizeCombinator(typeof body.combinator === 'string' ? body.combinator : 'AND');
+  const sortCol = typeof body.sortCol === 'string' && body.sortCol.trim() ? body.sortCol.trim().slice(0, 64) : null;
+  const sortDir = normalizeSortDir(body.sortDir);
+  const search = typeof body.search === 'string' ? body.search.trim().slice(0, 128) : '';
+  const viewType = normalizeGridViewType(body.type);
+  const configJson = JSON.stringify(parseGridViewConfig(body.config));
+
+  try {
+    const result = await c.env.DB.prepare(
+      `UPDATE editor_grid_views SET name = ?, filters_json = ?, combinator = ?, sort_col = ?, sort_dir = ?, search = ?, type = ?, config_json = ?, updated_at = datetime('now') WHERE id = ? AND site_id = ? AND org_id = ?`,
+    )
+      .bind(name, filtersJson, combinator, sortCol, sortDir, search, viewType, configJson, viewId, siteId, orgId)
+      .run();
+    if (Number(result.meta?.changes ?? 0) === 0)
+      return c.json({ error: { code: 'NOT_FOUND', message: 'View not found' } }, 404);
+
+    const row = await c.env.DB.prepare(
+      'SELECT id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, type, config_json, updated_at FROM editor_grid_views WHERE id = ?',
+    )
+      .bind(viewId)
+      .first<Record<string, unknown>>();
+    return c.json({ data: { view: row ? serializeGridView(row) : null } });
+  } catch {
+    return c.json({ error: { code: 'UPDATE_FAILED', message: 'Could not update the view' } }, 500);
+  }
+});
+
 /** Delete a saved view by id (double-scoped by site_id + org_id — a foreign id deletes nothing). */
 siteDataApi.delete('/api/sites/:siteId/grid-views/:viewId', async (c) => {
   const orgId = c.get('orgId');
