@@ -1,5 +1,32 @@
 # Payload CMS on CF (D1 + R2 + Worker) — per-site launcher · PROGRESS
 
+## 🐞→✅ fire 18 — FIX: instance `/api/*` was pre-empted by the platform `/api` router (2026-09-26)
+
+**Real bug report from Brian:** `https://pl2861594.cms.projectsites.dev/admin/create-first-user`
+"didn't work." Root cause (confirmed by live probe): `/admin/*` rendered **200** (fell through to the
+catch-all host-dispatch), but the Payload create-first-user form POSTs to `/api/users/first-register`,
+and **every `/api/*` on a `.cms.`/`.app.` host was intercepted by the platform's own `/api` router**
+(mounted early in `index.ts`) → it returned `{"error":{"code":"NOT_FOUND","message":"Unknown API
+route"}}` before the host-dispatch (which lived in the LAST `app.all('*')` handler) ever ran. The page
+loaded; the API behind it was dead.
+
+**Fix (`src/index.ts`):** extracted the app-instance serving closure to a module-level
+`serveAppInstance(c, sub)` (hoisted) and **hoisted the `.cms.`/`.app.` host-dispatch to an early
+`app.use('*')` middleware placed BEFORE the `/api` route mount** — mirroring the editor + storybook
+proxies. Now ALL paths (including `/api/*`) on an instance host dispatch to the instance worker; the
+dead in-handler loop was removed. Platform `/api` for `projectsites.dev` is unaffected (host-gated).
+
+**Verified live (real evidence, not just render):** `POST /api/users/first-register` → **200
+"Successfully registered first user"** + JWT + `user.id:1`; `POST /api/users/login` → **200
+"Authentication Passed"**; ground truth `GET /api/users` → `totalDocs=1`. Platform `projectsites.dev/api/health`
+→ 200 (no regression).
+
+**Guard hardened (the gap that let this ship):** `verify-payload-launcher.mjs` checked render-200 +
+tables-exist but NEVER exercised the API. Added **step 2c — functional create-first-user + login** to
+the always-on guard; full cycle (launch → styled 200 → migrated D1 → **create-first-user + login** →
+delete → zero-dangling) passes end-to-end. Lesson: a render-200 admin page is not a working feature —
+test the actual API flow. See memory `payload-instance-api-preempted-by-platform-api-router`.
+
 ## ✅ FEATURE COMPLETE (fire 16, 2026-09-25) — loop paused; `.app.` is the one human-gated item
 
 Re-verified green AGAIN this fire: launch → **branded styled real Payload login (200 + CSS 200)** at

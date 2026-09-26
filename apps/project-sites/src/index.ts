@@ -27,7 +27,7 @@
  * @packageDocumentation
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import type { Env, Variables } from './types/env.js';
 import { requestIdMiddleware } from './middleware/request_id.js';
@@ -423,6 +423,24 @@ app.use('*', async (c, next) => {
     },
   );
   return new Response(pagesRes.body, { status: pagesRes.status, headers: pagesRes.headers });
+});
+
+// {slug}.cms.projectsites.dev / {slug}.app.projectsites.dev → installed app
+// instance (Payload on D1+R2+Worker via WfP dispatch). MUST run before the /api
+// route mounts below, else the platform's own /api router pre-empts the
+// instance's /api/* (Payload create-first-user, login, REST) and returns the
+// worker's "Unknown API route" 404 — the /admin page renders but every form
+// submit/API call from it fails. Same host-gated pattern as the editor +
+// storybook proxies above: non-app hosts fall straight through untouched. The
+// BARE host of each root is excluded (`app.`/`cms.` themselves aren't instances).
+app.use('*', async (c, next) => {
+  const hostname = new URL(c.req.url).hostname;
+  for (const appRoot of ['.app.projectsites.dev', '.cms.projectsites.dev']) {
+    if (hostname.endsWith(appRoot) && hostname !== appRoot.slice(1)) {
+      return serveAppInstance(c, hostname.slice(0, -appRoot.length));
+    }
+  }
+  return next();
 });
 
 // Request ID on every request
@@ -1727,6 +1745,93 @@ app.all('/api/*', async (c) => {
   );
 });
 
+// Serve an installed app instance by its subdomain. Module-level (function
+// declaration = hoisted) so it's callable from BOTH the early host-dispatch
+// middleware near the top of the pipeline (so a Payload instance's /api/*
+// dispatches to the instance worker instead of hitting the platform /api
+// router) AND the catch-all site handler's custom-CNAME path.
+async function serveAppInstance(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  sub: string,
+): Promise<Response> {
+  const inst = await dbQueryOne<{
+    id: string;
+    status: string;
+    do_instance_id: string | null;
+    last_error: string | null;
+    app_slug: string;
+    worker_script_name: string | null;
+  }>(
+    c.env.DB,
+    `SELECT id, status, do_instance_id, last_error, app_slug, worker_script_name FROM app_instances
+       WHERE subdomain = ? AND deleted_at IS NULL`,
+    [sub],
+  );
+  if (!inst) {
+    return new Response(renderAppShellHtml('not-found', { sub }), {
+      status: 404,
+      headers: { 'Content-Type': 'text/html;charset=utf-8' },
+    });
+  }
+  if (inst.status === 'provisioning' || inst.status === 'starting') {
+    return new Response(renderAppShellHtml('booting', { sub, slug: inst.app_slug }), {
+      status: 202,
+      headers: {
+        'Content-Type': 'text/html;charset=utf-8',
+        'Cache-Control': 'no-store',
+        Refresh: '3',
+      },
+    });
+  }
+  if (inst.status === 'error' || inst.status === 'crashed') {
+    return new Response(
+      renderAppShellHtml('crashed', {
+        sub,
+        slug: inst.app_slug,
+        err: inst.last_error ?? 'unknown',
+        id: inst.id,
+      }),
+      {
+        status: 502,
+        headers: { 'Content-Type': 'text/html;charset=utf-8', 'Cache-Control': 'no-store' },
+      },
+    );
+  }
+  if (inst.status === 'stopped' || inst.status === 'destroyed') {
+    return new Response(renderAppShellHtml('stopped', { sub, slug: inst.app_slug, id: inst.id }), {
+      status: 503,
+      headers: { 'Content-Type': 'text/html;charset=utf-8', 'Cache-Control': 'no-store' },
+    });
+  }
+  // CF-native apps (Payload on D1+R2+Worker) run as a user Worker in the WfP
+  // dispatch namespace — served here via USER_DISPATCH, not a container DO.
+  if (inst.worker_script_name) {
+    const p = new URL(c.req.url).pathname;
+    // Static assets are IDENTICAL across all Payload instances (same bundle) and a
+    // dispatched worker can't serve them (dispatch bypasses the edge asset layer), so
+    // the platform serves /_next/* + favicon from the SHARED R2 bundle → the branded
+    // {slug}.cms host is STYLED. Dynamic routes (/admin, /api) dispatch to the instance.
+    if (
+      p.startsWith('/_next/') ||
+      p === '/favicon.ico' ||
+      p === '/favicon.svg' ||
+      p === '/BUILD_ID'
+    ) {
+      const obj = await c.env.SITES_BUCKET.get(`payload-bundle/assets${p}`);
+      if (obj) {
+        return new Response(obj.body, {
+          headers: {
+            'content-type': payloadAssetContentType(p),
+            'cache-control': 'public, max-age=31536000, immutable',
+          },
+        });
+      }
+    }
+    return dispatchToUserWorker(c.env, inst.worker_script_name, c.req.raw);
+  }
+  return proxyToContainer(c.env, inst.do_instance_id ?? inst.id, c.req.raw, inst.app_slug);
+}
+
 // ─── Site Serving (catch-all for subdomain routing) ──────────
 
 app.all('*', async (c) => {
@@ -1939,95 +2044,16 @@ app.all('*', async (c) => {
   // must be provisioned via CF Advanced Certificate Manager (or a custom-
   // hostname rule) since the existing Universal SSL only covers the
   // single-level `*.projectsites.dev`. Track via RECS.md.
-  // Serve an app instance by its subdomain. Used by BOTH the platform suffix
-  // (`{sub}.app.projectsites.dev`) AND a custom CNAME resolved via the Phase-1
-  // host-map (`app.theirdomain.com` → instance), so the two paths share one body.
-  const serveAppBySubdomain = async (sub: string): Promise<Response> => {
-    const inst = await dbQueryOne<{
-      id: string;
-      status: string;
-      do_instance_id: string | null;
-      last_error: string | null;
-      app_slug: string;
-      worker_script_name: string | null;
-    }>(
-      c.env.DB,
-      `SELECT id, status, do_instance_id, last_error, app_slug, worker_script_name FROM app_instances
-         WHERE subdomain = ? AND deleted_at IS NULL`,
-      [sub],
-    );
-    if (!inst) {
-      return new Response(renderAppShellHtml('not-found', { sub }), {
-        status: 404,
-        headers: { 'Content-Type': 'text/html;charset=utf-8' },
-      });
-    }
-    if (inst.status === 'provisioning' || inst.status === 'starting') {
-      return new Response(renderAppShellHtml('booting', { sub, slug: inst.app_slug }), {
-        status: 202,
-        headers: {
-          'Content-Type': 'text/html;charset=utf-8',
-          'Cache-Control': 'no-store',
-          Refresh: '3',
-        },
-      });
-    }
-    if (inst.status === 'error' || inst.status === 'crashed') {
-      return new Response(
-        renderAppShellHtml('crashed', {
-          sub,
-          slug: inst.app_slug,
-          err: inst.last_error ?? 'unknown',
-          id: inst.id,
-        }),
-        {
-          status: 502,
-          headers: { 'Content-Type': 'text/html;charset=utf-8', 'Cache-Control': 'no-store' },
-        },
-      );
-    }
-    if (inst.status === 'stopped' || inst.status === 'destroyed') {
-      return new Response(
-        renderAppShellHtml('stopped', { sub, slug: inst.app_slug, id: inst.id }),
-        {
-          status: 503,
-          headers: { 'Content-Type': 'text/html;charset=utf-8', 'Cache-Control': 'no-store' },
-        },
-      );
-    }
-    // CF-native apps (Payload on D1+R2+Worker) run as a user Worker in the WfP
-    // dispatch namespace — served here via USER_DISPATCH, not a container DO.
-    if (inst.worker_script_name) {
-      const p = new URL(c.req.url).pathname;
-      // Static assets are IDENTICAL across all Payload instances (same bundle) and a
-      // dispatched worker can't serve them (dispatch bypasses the edge asset layer), so
-      // the platform serves /_next/* + favicon from the SHARED R2 bundle → the branded
-      // {slug}.cms host is STYLED. Dynamic routes (/admin, /api) dispatch to the instance.
-      if (p.startsWith('/_next/') || p === '/favicon.ico' || p === '/favicon.svg' || p === '/BUILD_ID') {
-        const obj = await c.env.SITES_BUCKET.get(`payload-bundle/assets${p}`);
-        if (obj) {
-          return new Response(obj.body, {
-            headers: {
-              'content-type': payloadAssetContentType(p),
-              'cache-control': 'public, max-age=31536000, immutable',
-            },
-          });
-        }
-      }
-      return dispatchToUserWorker(c.env, inst.worker_script_name, c.req.raw);
-    }
-    return proxyToContainer(c.env, inst.do_instance_id ?? inst.id, c.req.raw, inst.app_slug);
-  };
+  // Serve an app instance by its subdomain via the module-level serveAppInstance.
+  // The platform-suffix hosts (`{sub}.app.` / `{sub}.cms.`) are dispatched earlier
+  // (see the top-of-pipeline `app.use('*')` host-dispatch); this local delegate
+  // remains for the custom-CNAME path below (`app.theirdomain.com` → instance).
+  const serveAppBySubdomain = (sub: string): Promise<Response> => serveAppInstance(c, sub);
 
-  // CF-native app instances resolve on `{slug}.app.` (apps system) AND `{slug}.cms.`
-  // (Payload's cert-ready home — `*.cms` ACM pack is active; `.app.` awaits ACM). The
-  // BARE host of each root is excluded: `app.projectsites.dev` has no service, and
-  // `cms.projectsites.dev` is the old container on its own worker route (never reaches here).
-  for (const appRoot of ['.app.projectsites.dev', '.cms.projectsites.dev']) {
-    if (hostname.endsWith(appRoot) && hostname !== appRoot.slice(1)) {
-      return serveAppBySubdomain(hostname.slice(0, -appRoot.length));
-    }
-  }
+  // ({slug}.app. / {slug}.cms. host-dispatch hoisted to an early `app.use('*')`
+  // middleware near the top of the pipeline — so an instance's /api/* dispatches
+  // to the instance worker instead of being pre-empted by the platform /api router.
+  // Only the custom-CNAME path below still resolves an instance here.)
 
   // Resolve the site from hostname using D1
   const site = await resolveSite(c.env, c.env.DB, hostname);

@@ -119,6 +119,41 @@ if (CF_KEY && resources.d1_database_id) {
   console.log('   ✓ D1 migrated (users + payload_* tables present) — login submit works');
 }
 
+// 2c) FUNCTIONAL /api/* dispatch — the exact create-first-user → login flow the
+// admin drives. This is the guard that would have caught the routing regression:
+// a dispatched instance's /api/* MUST reach the instance worker, not the platform
+// /api router (which returns {"error":{"code":"NOT_FOUND","message":"Unknown API
+// route"}} — see memory `payload-instance-api-preempted-by-platform-api-router`).
+// A render-200 on /admin is NOT sufficient; the API must actually work.
+{
+  const email = `admin@${sub}.test`;
+  const password = `Verify-${sub}-2026!`;
+  const origin = new URL(url).origin;
+  const reg = await fetch(`${url}/api/users/first-register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin },
+    body: JSON.stringify({ email, password, 'confirm-password': password }),
+  });
+  const regBody = await reg.json().catch(() => ({}));
+  if (reg.status !== 200 || !regBody.token || !regBody.user) {
+    await fetch(`${WORKER}/api/apps/instances/${iid}`, { method: 'DELETE', headers: authed }).catch(() => {});
+    fail(
+      `create-first-user expected 200 + token (was the platform /api router pre-empting the instance /api/*?), got ${reg.status} ${JSON.stringify(regBody)}`,
+    );
+  }
+  const login = await fetch(`${url}/api/users/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin },
+    body: JSON.stringify({ email, password }),
+  });
+  const loginBody = await login.json().catch(() => ({}));
+  if (login.status !== 200 || !loginBody.token) {
+    await fetch(`${WORKER}/api/apps/instances/${iid}`, { method: 'DELETE', headers: authed }).catch(() => {});
+    fail(`login after first-register expected 200 + token, got ${login.status} ${JSON.stringify(loginBody)}`);
+  }
+  console.log('   ✓ create-first-user + login work (instance /api/* dispatches, not platform 404)');
+}
+
 console.log('3) DELETE (cascade D1 + R2 + Worker)');
 const delRes = await fetch(`${WORKER}/api/apps/instances/${iid}`, {
   method: 'DELETE',
