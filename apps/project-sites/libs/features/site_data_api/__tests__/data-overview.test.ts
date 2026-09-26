@@ -34,6 +34,8 @@ import {
   MAX_INTENT_LIMIT,
   INTENT_DEFAULT_LIMIT,
   MAX_SELECT_FIELDS,
+  askSystemPrompt,
+  parseProposedIntent,
   normalizeGroupAgg,
   MAX_KANBAN_GROUPS,
   MAX_GRID_VIEWS_PER_TABLE,
@@ -1072,6 +1074,70 @@ describe('compileQueryIntent (grounded intent → parameterized SQLite; the AI/U
   it('bounds the select field count (MAX_SELECT_FIELDS)', () => {
     const many = Array.from({ length: MAX_SELECT_FIELDS + 1 }, () => ({ col: 'status' }));
     expect(compileQueryIntent({ select: many }, fs).ok).toBe(false);
+  });
+});
+
+describe('askSystemPrompt (NL→intent guidance; not the security boundary)', () => {
+  it('names the table + lists the columns + flags masked columns as filter-only', () => {
+    const p = askSystemPrompt({ key: 'form_submissions', columns: ['status', 'email'], maskedColumns: ['email'] });
+    expect(p).toContain('form_submissions');
+    expect(p).toContain('status, email');
+    expect(p).toMatch(/FILTER on but must NOT select or group by: email/);
+    expect(p).toContain('ONLY the JSON');
+  });
+
+  it('omits the masked-column note when there are none', () => {
+    const p = askSystemPrompt({ key: 'visitor_events', columns: ['path'] });
+    expect(p).not.toMatch(/must NOT select/);
+  });
+});
+
+describe('parseProposedIntent (UNTRUSTED model output → shape-hardened intent; compiler authorizes)', () => {
+  it('parses a well-formed object intent', () => {
+    expect(parseProposedIntent({ select: [{ agg: 'count' }], groupBy: 'status' })).toEqual({
+      select: [{ agg: 'count' }],
+      groupBy: 'status',
+    });
+  });
+
+  it('parses a JSON STRING (some models return .response as text even with json_object)', () => {
+    expect(parseProposedIntent('{"select":[{"col":"status"}]}')).toEqual({ select: [{ col: 'status' }] });
+  });
+
+  it('shape-hardens filters/orderBy/combinator/limit; drops junk fields', () => {
+    const out = parseProposedIntent({
+      select: [{ col: 'status' }],
+      filters: [{ col: 'status', op: 'eq', val: 'open' }, 'garbage', { nope: 1 }],
+      combinator: 'OR',
+      orderBy: [{ col: 'created_at', dir: 'desc' }],
+      limit: 25,
+      evil: 'ignored',
+    });
+    expect(out).toEqual({
+      select: [{ col: 'status' }],
+      filters: [{ col: 'status', op: 'eq', val: 'open' }, { col: '', op: 'eq', val: '' }],
+      combinator: 'OR',
+      orderBy: [{ col: 'created_at', dir: 'desc' }],
+      limit: 25,
+    });
+    expect(out).not.toHaveProperty('evil');
+  });
+
+  it('returns null for garbage / no usable select (the model failed)', () => {
+    expect(parseProposedIntent(null)).toBeNull();
+    expect(parseProposedIntent('not json')).toBeNull();
+    expect(parseProposedIntent(42)).toBeNull();
+    expect(parseProposedIntent({ select: [] })).toBeNull();
+    expect(parseProposedIntent({ select: ['x'] })).toBeNull(); // no usable field objects
+    expect(parseProposedIntent({ notASelect: 1 })).toBeNull();
+  });
+
+  it('a hostile proposal parses but is REJECTED downstream by compileQueryIntent (defense-in-depth)', () => {
+    const spec = overviewTable('form_submissions')!;
+    const intent = parseProposedIntent({ select: [{ col: 'email' }] });
+    expect(intent).toEqual({ select: [{ col: 'email' }] }); // shape-hardening lets it through
+    const masked = { columns: spec.columns, countSql: spec.countSql, maskedColumns: ['email'] };
+    expect(compileQueryIntent(intent!, masked).ok).toBe(false); // the compiler is the boundary
   });
 });
 

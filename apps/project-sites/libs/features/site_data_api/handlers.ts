@@ -35,6 +35,7 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../../src/types/env.js';
 import { writeAuditLog } from '../../../src/services/audit.js';
+import { runObservedWorkersAI } from '../../../src/lib/workers_ai.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 
@@ -1316,6 +1317,127 @@ export function compileQueryIntent(
   return { ok: true, sql, params: [...filterParams, clampIntentLimit(intent.limit)] };
 }
 
+/** Model + question bound for the NL "Ask your data" step (hard schema reasoning → the stronger model). */
+export const DATA_ASK_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+export const MAX_ASK_QUESTION_LEN = 500;
+
+/**
+ * The system prompt for the NL→intent step: tells the model to emit ONLY a JSON {@link QueryIntent} for
+ * this table, using ONLY the authorized columns, and that masked columns may be FILTERED but never
+ * SELECTed/grouped. This is GUIDANCE, not the security boundary — the model output is re-validated by
+ * {@link compileQueryIntent} server-side, so a disobedient/attacked model can never widen access. Pure.
+ */
+export function askSystemPrompt(spec: {
+  key: string;
+  columns: readonly string[];
+  maskedColumns?: readonly string[];
+}): string {
+  const masked = spec.maskedColumns ?? [];
+
+  return [
+    `You convert a question about the "${spec.key}" table into a STRICT JSON query intent. Output ONLY the JSON object — no prose, no code fences.`,
+    `Available columns: ${spec.columns.join(', ')}.`,
+    masked.length
+      ? `Sensitive columns you may FILTER on but must NOT select or group by: ${masked.join(', ')}.`
+      : '',
+    'Shape: {"select":[{"col"?:string,"agg"?:"count"|"sum"|"avg"|"min"|"max"}],"filters"?:[{"col":string,"op":"eq"|"ne"|"contains"|"gt"|"lt"|"gte"|"lte"|"null"|"notnull","val":string}],"combinator"?:"AND"|"OR","groupBy"?:string,"orderBy"?:[{"col":string,"dir":"asc"|"desc"}],"limit"?:number}.',
+    'Rules: use ONLY the listed columns. For "count by X" use select [{"agg":"count"}] + groupBy:"X". For a list use plain columns in select. NEVER mix aggregates with plain columns.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * Shape-harden an UNTRUSTED model output into a {@link QueryIntent} (or `null` when there's no usable
+ * query). Accepts a parsed object OR a JSON string (some models return `.response` as text even with
+ * `json_object`). This ONLY hardens the shape — {@link compileQueryIntent} performs the AUTHORIZATION
+ * (allowlist columns, aggregate whitelist, masked-column + limit enforcement), so nothing here needs to
+ * trust the model. Bounded to the same field/condition/sort caps as the compiler. Pure, never throws.
+ */
+export function parseProposedIntent(raw: unknown): QueryIntent | null {
+  let obj: unknown = raw;
+
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  if (!obj || typeof obj !== 'object') {
+    return null;
+  }
+
+  const rec = obj as Record<string, unknown>;
+  const select: QueryIntentField[] = [];
+
+  for (const f of (Array.isArray(rec.select) ? rec.select : []).slice(0, MAX_SELECT_FIELDS)) {
+    if (f && typeof f === 'object') {
+      const fr = f as Record<string, unknown>;
+      const field: QueryIntentField = {};
+
+      if (typeof fr.col === 'string') {
+        field.col = fr.col;
+      }
+
+      if (typeof fr.agg === 'string') {
+        field.agg = fr.agg as IntentAgg; // the compiler validates against INTENT_AGGS
+      }
+
+      if (field.col !== undefined || field.agg !== undefined) {
+        select.push(field);
+      }
+    }
+  }
+
+  if (select.length === 0) {
+    return null; // no usable select → the model did not produce a query
+  }
+
+  const intent: QueryIntent = { select };
+
+  if (Array.isArray(rec.filters)) {
+    intent.filters = rec.filters
+      .slice(0, MAX_FILTER_CONDITIONS)
+      .filter((x) => x && typeof x === 'object')
+      .map((x) => {
+        const xr = x as Record<string, unknown>;
+
+        return {
+          col: typeof xr.col === 'string' ? xr.col : '',
+          op: typeof xr.op === 'string' ? xr.op : 'eq',
+          val: typeof xr.val === 'string' ? xr.val : '',
+        };
+      });
+  }
+
+  if (typeof rec.combinator === 'string') {
+    intent.combinator = rec.combinator;
+  }
+
+  if (typeof rec.groupBy === 'string') {
+    intent.groupBy = rec.groupBy;
+  }
+
+  if (Array.isArray(rec.orderBy)) {
+    intent.orderBy = rec.orderBy
+      .slice(0, MAX_SORT_KEYS)
+      .filter((x) => x && typeof x === 'object')
+      .map((x) => {
+        const xr = x as Record<string, unknown>;
+
+        return { col: typeof xr.col === 'string' ? xr.col : '', dir: typeof xr.dir === 'string' ? xr.dir : 'asc' };
+      });
+  }
+
+  if (typeof rec.limit === 'number') {
+    intent.limit = rec.limit;
+  }
+
+  return intent;
+}
+
 /**
  * Browse the most-recent rows of one overview table. Read-only; only the table's
  * safe-column allowlist is selected (never PII payloads or encrypted tokens);
@@ -1700,6 +1822,98 @@ siteDataApi.post('/api/sites/:siteId/data-overview/:table/query', async (c) => {
   }
 
   return c.json({ data: { table: spec.key, sql: compiled.sql, rows, rowsRead } });
+});
+
+/**
+ * Grounded "Ask your data" — NL question → typed intent → SQL → answer. Same safety chain as `/query`,
+ * PLUS an AI step in the middle: the question + the table's AUTHORIZED schema (masked columns noted as
+ * filter-only) go to a CF-hosted model via {@link runObservedWorkersAI} (observed + cost-ledgered) with
+ * `response_format: json_object`; the model proposes a {@link QueryIntent} (NEVER SQL). Its output is
+ * UNTRUSTED — {@link parseProposedIntent} shape-hardens it, then {@link compileQueryIntent} AUTHORIZES it
+ * (allowlist columns, whitelist aggregates, masked-column + LIMIT enforcement) exactly as the manual
+ * `/query` path does, so an attacked/disobedient model can never widen access. FALSIFIABLE: the response
+ * returns the question, the AI's proposed intent, the exact executed SQL, and the computed rows. Failure
+ * modes are honest + typed: model down → 502, unparseable → 422, unauthorized intent → 400 (with the
+ * rejected intent echoed), runtime SQL error → 502. Read-only, LIMIT-bounded.
+ */
+siteDataApi.post('/api/sites/:siteId/data-overview/:table/ask', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+  const spec = overviewTable(table);
+  if (!spec) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Unknown table' } }, 400);
+  }
+
+  const body = (await c.req.json().catch(() => null)) as { question?: unknown } | null;
+  const question = body && typeof body.question === 'string' ? body.question.trim() : '';
+  if (!question) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'A question is required' } }, 400);
+  }
+  if (question.length > MAX_ASK_QUESTION_LEN) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: `Question must be ≤ ${MAX_ASK_QUESTION_LEN} chars` } }, 400);
+  }
+
+  const maskedColumns = spec.maskEmail ? ['email'] : [];
+
+  // AI step: propose an intent (never SQL). Observed + cost-ledgered; the customer question is untrusted
+  // input, and the schema we send excludes nothing but flags masked columns as filter-only.
+  let proposed: unknown;
+  try {
+    const result = await runObservedWorkersAI(
+      c.env,
+      DATA_ASK_MODEL,
+      {
+        messages: [
+          { role: 'system', content: askSystemPrompt({ key: spec.key, columns: spec.columns, maskedColumns }) },
+          { role: 'user', content: question },
+        ],
+        response_format: { type: 'json_object' },
+        max_tokens: 512,
+        temperature: 0.1,
+      },
+      { distinctId: orgId, promptId: 'data_ask', traceId: c.get('requestId') ?? undefined },
+    );
+    proposed = (result as { response?: unknown } | null)?.response;
+  } catch {
+    return c.json({ error: { code: 'AI_UNAVAILABLE', message: 'The assistant is unavailable right now.' } }, 502);
+  }
+
+  const intent = parseProposedIntent(proposed);
+  if (!intent) {
+    return c.json(
+      { error: { code: 'UNPARSEABLE', message: 'Could not turn that into a query — try rephrasing.' } },
+      422,
+    );
+  }
+
+  // Re-validate the model's proposal exactly like a manual intent — the security boundary is HERE, not
+  // the model. An unauthorized/hostile proposal (e.g. selecting a masked column) is rejected before SQL.
+  const compiled = compileQueryIntent(intent, {
+    columns: spec.columns,
+    countSql: spec.countSql,
+    maskedColumns,
+  });
+  if (!compiled.ok) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: compiled.error }, data: { question, intent } }, 400);
+  }
+
+  let rows: Record<string, unknown>[] = [];
+  let rowsRead: number | null = null;
+  try {
+    const res = await c.env.DB.prepare(compiled.sql)
+      .bind(siteId, ...compiled.params)
+      .all();
+    rows = (res.results ?? []) as Record<string, unknown>[];
+    rowsRead = (res.meta as { rows_read?: number } | undefined)?.rows_read ?? null;
+  } catch {
+    return c.json({ error: { code: 'QUERY_FAILED', message: 'The query could not be executed.' } }, 502);
+  }
+
+  return c.json({ data: { question, intent, sql: compiled.sql, rows, rowsRead } });
 });
 
 /**

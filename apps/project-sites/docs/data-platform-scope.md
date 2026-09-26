@@ -1212,11 +1212,35 @@ Read-only, LIMIT-bounded, fail-soft (a runtime SQL error → 502, never a fabric
 multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 NULL toggle · #46 BLOB · #47–#48 KV meta/TTL ·
 #49 R2 folders — one real-browser pass (authed admin). **A dedicated real-browser QA fire remains the highest-value out-of-loop step.**
 
-**NEXT slice: "Ask your data" slice 3 — NL→intent via AI Gateway, feeding the #51 executor (worker + eval fixtures).**
-A `POST .../ask` route: take a natural-language question + the table's authorized schema (columns + types, minus masked
-cols) → call a CF-hosted model through the AI Gateway with STRUCTURED OUTPUT constrained to the `QueryIntent` shape (the
-model proposes an INTENT, never SQL) → validate + `compileQueryIntent` (the #50/#51 boundary re-runs server-side) →
-execute via the #51 path → return `{ question, intent, sql, rows }`. Start with the eval harness + a couple golden
-Q→intent fixtures (compare the EXECUTED result, not the SQL string) + a hard per-request budget; treat the model output
-as untrusted (re-validated by the compiler). Alternatives: a UI query-builder that POSTs intents to #51 (editor-side);
-extend NULL affordance + datalist to the Add-row; nested AND/OR filter-tree.
+### ✅ Shipped next fire (2026-09-26 #52) — "Ask your data" slice 3: NL→intent via AI Gateway (grounded, model-untrusted)
+The `POST /api/sites/:siteId/data-overview/:table/ask` route completes the NL→answer pipeline: question + the table's
+authorized schema → a CF-hosted model (via the observed, cost-ledgered `runObservedWorkersAI` rail) with
+`response_format: json_object` proposes a `QueryIntent` (NEVER SQL) → shape-harden → **re-validate with the #50/#51
+`compileQueryIntent` boundary server-side** → execute via the #51 path → return `{ question, intent, sql, rows, rowsRead }`.
+The model is UNTRUSTED: a disobedient/attacked proposal can never widen access (the compiler is the boundary, not the prompt).
+- **Pure NL helpers (`handlers.ts`, +7 jest):** `askSystemPrompt(spec)` (JSON-only guidance; lists authorized columns +
+  flags masked columns as filter-only) + `parseProposedIntent(raw)` (untrusted model output — object OR JSON string —
+  → shape-hardened intent or `null`; bounded to the compiler's field/condition/sort caps; NO authorization, that's the
+  compiler's job).
+- **Route (`ask.test.ts`, NEW, 9 jest):** the full pipeline with a MOCKED AI binding + mock DB. **Security proof:** a
+  hostile proposal selecting a MASKED column (`email`) or an UNKNOWN column is REJECTED (400) with NO SQL executed
+  (proves the model can't widen access); unparseable → 422; AI down → 502; runtime SQL error → 502; auth chain (401 →
+  404 tenant → 400 unknown table → 400 empty question). Falsifiable response echoes question + intent + exact SQL + rows.
+- **AI cost/observability:** the call goes through `runObservedWorkersAI` → PostHog `$ai_generation` + Langfuse + the
+  cost ledger (`promptId: 'data_ask'`, per-org `distinctId`) — per-tenant AI accounting for free. `temperature: 0.1`,
+  `max_tokens: 512`, model `@cf/meta/llama-3.3-70b-instruct-fp8-fast` (hard schema reasoning → the stronger CF model).
+- Verified: worker Jest **12846/12846** (+17, +1 suite) + tsc 0 + 0 eslint errors. Worker-only. The AI call is real code
+  (mocked in tests, live in prod); the deterministic pipeline (parse + compile + execute) is fully unit-tested.
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize · #34 footer · #35 whole-query · #36 pins · #37 view · #40
+multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 NULL toggle · #46 BLOB · #47–#48 KV meta/TTL ·
+#49 R2 folders · #52 the live-model NL→answer path (a real browser/authed call — the mocked pipeline is proven; a live
+model quality/eval RUN with golden fixtures is the remaining out-of-loop step). **A dedicated real-browser + live-model
+eval fire remains the highest-value out-of-loop step.**
+
+**NEXT slice: "Ask your data" slice 4 — the editor UI (an "Ask" box in the Data tab) that calls `/ask` + renders the
+answer transparently.** A small panel: a question input → POST `/ask` via the bridge (new `PS_DATA_REQUEST` mode or a
+dedicated `PS_ASK_REQUEST`) → render the computed rows in the existing grid/chart + SHOW the AI's interpretation (the
+intent) + the exact SQL (falsifiable, per the AI mandate) + honest error states (unparseable/unavailable). Pure
+request-shape helper + bridge/admin plumbing (tested) + a verify-by-build panel. Alternatives: a live-model eval
+harness (golden Q→executed-answer fixtures + regression log); a UI intent query-builder (no AI); nested AND/OR filter-tree.
