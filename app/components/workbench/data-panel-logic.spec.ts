@@ -11,6 +11,7 @@ import {
   columnLabel,
   toCsv,
   toTsv,
+  toJsonRows,
   filterRows,
   isRowActivationKey,
   isDismissKey,
@@ -239,6 +240,39 @@ describe('toTsv (clipboard → spreadsheet-native tab block)', () => {
   });
   it('header-only when there are no rows', () => {
     expect(toTsv(['a'], [])).toBe('A');
+  });
+});
+
+describe('toJsonRows (developer-facing JSON array; raw keys, preserved types)', () => {
+  it('projects each row to the given columns with RAW keys, preserving value types', () => {
+    expect(
+      JSON.parse(
+        toJsonRows(
+          ['a', 'b'],
+          [
+            { a: 1, b: 'x' },
+            { a: 2, b: 'y' },
+          ],
+        ),
+      ),
+    ).toEqual([
+      { a: 1, b: 'x' },
+      { a: 2, b: 'y' },
+    ]);
+  });
+  it('keeps a nested object/array STRUCTURED (not stringified), unlike CSV/TSV', () => {
+    expect(JSON.parse(toJsonRows(['a'], [{ a: { x: [1, 2] } }]))).toEqual([{ a: { x: [1, 2] } }]);
+  });
+  it('a present null stays null; a MISSING key binds null', () => {
+    expect(JSON.parse(toJsonRows(['a', 'b'], [{ a: null }]))).toEqual([{ a: null, b: null }]);
+  });
+  it('ignores columns not requested (projection), and pretty-prints', () => {
+    const out = toJsonRows(['a'], [{ a: 1, secret: 'x' }]);
+    expect(JSON.parse(out)).toEqual([{ a: 1 }]);
+    expect(out).toContain('\n'); // pretty-printed (2-space)
+  });
+  it('empty rows → []', () => {
+    expect(toJsonRows(['a'], [])).toBe('[]');
   });
 });
 

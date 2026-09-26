@@ -1442,13 +1442,34 @@ multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 
 Copy-selected clipboard write in a real authed browser (a secure-context clipboard call; `toTsv` is unit-proven).**
 **A dedicated real-browser + live-model eval fire remains the highest-value out-of-loop step.**
 
-**NEXT slice: SQL-result JSON export + copy (in-loop) — OR the live-model eval RUN (dedicated prod fire).**
-(a) **SQL-result export parity** — the SQL console result grid exports CSV only (`exportSqlCsv`); the browse grid has
-CSV+JSON, and the grid now has clipboard-copy (#60). Add a JSON export + a "Copy" (TSV) to the SQL result grid — reuse
-`toTsv` (just shipped) + a small `toJsonRows` (pure `JSON.stringify` of the row objects, unit-tested); client-side,
-read-only, fully editor-verifiable. Completes the SQL-workspace "CSV/JSON export" the directive lists + brings the
-copy affordance the browse grid now has to the SQL results. (b) **Live-model eval RUN** (standing out-of-loop): real
-`@cf/meta/llama-3.3-70b` over the golden `{question,intent}` fixtures on prod; score question→intent QUALITY; record a
-`PROMPT_VERSION` baseline. Needs a dedicated authed-prod session + a verified worker `/ask` deploy. Recommend (a)
-in-loop (fully verifiable, reuses `toTsv`); (b) for the next dedicated real-browser/prod fire. Also open: `field-types.ts`
-semantic layer (per-column metadata-config arc); per-customer D1 discovery (slice 1) to unlock ALTER-existing (Rename).
+### ✅ Shipped next fire (2026-09-26 #61) — SQL workspace: JSON export + clipboard copy (result-grid export parity)
+The SQL console result grid exported CSV only; the browse grid has CSV+JSON+copy (#60). Now the SQL result grid has
+**JSON export** + a **"Copy"** (TSV → clipboard) beside the CSV button — completing the directive's SQL-workspace
+"CSV/JSON export" + bringing the browse grid's copy affordance to query results. All client-side, read-only.
+- **Pure core (`data-panel-logic.ts` · `toJsonRows(columns, rows)`, +5 Vitest):** pretty-printed JSON array, each row
+  projected to the columns using the **raw keys** (round-trip fidelity, not human labels) and **preserving value types**
+  (a number stays a number; a nested object/array stays STRUCTURED, not stringified — unlike CSV/TSV); a missing key
+  binds `null`; empty rows → `[]`. The developer-facing sibling of `toCsv`/`toTsv`.
+- **UI (`DataPanel.tsx`):** `exportSqlJson` (downloads `query-result.json`) + `copySqlResult`
+  (`writeClipboard(toTsv(sqlColumns, sqlVisibleRows))` + a "Copied N rows" flash, reusing #60's `toTsv`); a **JSON** +
+  **Copy** button added to the SQL result toolbar (`data-sql-export-json` / `data-sql-copy`), same gating as the CSV button.
+- Verified: editor Vitest **1013/1013** (+5) + tsc 0 + eslint 0 + build 0. **No worker/bridge/admin change** (client-side
+  serialize/clipboard/blob-download — zero deploy skew). Verify-by-build for the buttons; `toJsonRows` unit-proven.
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize · #34 footer · #35 whole-query · #36 pins · #37 view · #40
+multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 NULL toggle · #46 BLOB · #47–#48 KV meta/TTL ·
+#49 R2 folders · #52–#55 live NL→answer + save-as-view · #56–#58 schema builder · #59 JSON import · #60 grid copy ·
+**#61 SQL-result JSON export + copy in a real authed browser (blob-download + secure-context clipboard; `toJsonRows`
+unit-proven).** **A dedicated real-browser + live-model eval fire remains the highest-value out-of-loop step.**
+
+**NEXT slice: the live-model eval RUN (dedicated prod fire) — OR "save SQL result as a grid view" / a performance copilot.**
+The in-loop export/copy/schema-builder surfaces are now broad + mature; the highest-value remaining work is increasingly
+prod/AI-side. Candidates: (a) **Live-model eval RUN** (standing out-of-loop): real `@cf/meta/llama-3.3-70b` over the
+golden `{question,intent}` fixtures on prod; score question→intent QUALITY; record a `PROMPT_VERSION` baseline. FIRST
+verify the worker `/ask` route is live on prod (the loop has been editor-only since #52; a worker deploy needs Docker +
+~14min CI). (b) **Performance copilot — actionable EXPLAIN**: the SQL console already runs EXPLAIN QUERY PLAN +
+`explainPlanHint`; make the hint actionable — when the plan shows a full-table SCAN, offer a one-click "Add index on
+<table>" that opens the index manager (#57–58) pre-scoped. Ties EXPLAIN → the index builder; needs the scanned-table
+parse + the cross-table open (moderate). (c) **`field-types.ts` semantic layer** (needs the per-column metadata-config
+arc) + per-customer D1 discovery (slice 1, unlocks ALTER-existing/Rename). Recommend (a) as the next dedicated
+real-browser/prod fire — it closes the Ask arc's last unmeasured link; (b) is the best remaining in-loop editor slice.

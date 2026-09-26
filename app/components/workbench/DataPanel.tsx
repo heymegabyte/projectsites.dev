@@ -37,6 +37,7 @@ import {
   columnLabel,
   toCsv,
   toTsv,
+  toJsonRows,
   isRowActivationKey,
   isDismissKey,
   addToSqlHistory,
@@ -3608,6 +3609,33 @@ export const DataPanel = memo(() => {
     URL.revokeObjectURL(url);
   }, [sqlColumns, sqlVisibleRows]);
 
+  /** Export the SQL-console result grid to JSON (dev-facing: raw keys + preserved value types). */
+  const exportSqlJson = useCallback(() => {
+    if (typeof document === 'undefined' || sqlColumns.length === 0) {
+      return;
+    }
+
+    const blob = new Blob([toJsonRows(sqlColumns, sqlVisibleRows)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'query-result.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [sqlColumns, sqlVisibleRows]);
+
+  /** Copy the SQL result to the clipboard as TSV — pastes straight into Sheets/Excel (parity with the grid). */
+  const copySqlResult = useCallback(() => {
+    if (sqlColumns.length === 0) {
+      return;
+    }
+
+    writeClipboard(toTsv(sqlColumns, sqlVisibleRows));
+    flashStatus(`Copied ${sqlVisibleRows.length} row${sqlVisibleRows.length === 1 ? '' : 's'}`);
+  }, [sqlColumns, sqlVisibleRows, writeClipboard, flashStatus]);
+
   /** Index guidance when the current result is an EXPLAIN QUERY PLAN (null otherwise). */
   const sqlPlanHint = useMemo(() => explainPlanHint(sqlRows), [sqlRows]);
 
@@ -6827,6 +6855,28 @@ export const DataPanel = memo(() => {
                   title="Export the query result to CSV"
                 >
                   <div className="i-ph:download-simple" /> CSV
+                </button>
+              )}
+              {!sqlError && sqlColumns.length > 0 && (
+                <button
+                  type="button"
+                  onClick={exportSqlJson}
+                  data-testid="data-sql-export-json"
+                  className="text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer flex items-center gap-1"
+                  title="Export the query result to JSON (raw keys, preserved types)"
+                >
+                  <div className="i-ph:download-simple" /> JSON
+                </button>
+              )}
+              {!sqlError && sqlColumns.length > 0 && (
+                <button
+                  type="button"
+                  onClick={copySqlResult}
+                  data-testid="data-sql-copy"
+                  className="text-[10px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary cursor-pointer flex items-center gap-1"
+                  title="Copy the query result to the clipboard as tab-separated values — pastes into Sheets/Excel"
+                >
+                  <div className="i-ph:copy" /> Copy
                 </button>
               )}
               {!sqlError && chartSpec && (

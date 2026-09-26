@@ -165,6 +165,30 @@ export function toTsv(columns: readonly string[], rows: readonly Record<string, 
 }
 
 /**
+ * Serialize rows to a pretty-printed JSON array of objects, each projected to `columns` in order. Uses the
+ * RAW column keys (not human labels) for round-trip fidelity, and preserves value TYPES as stored (a number
+ * stays a number, an object/array stays structured — not stringified). A missing key binds JSON `null`.
+ * Empty rows → `[]`. Pure. The developer-facing counterpart to {@link toCsv} / {@link toTsv}.
+ *
+ * @example toJsonRows(['a', 'b'], [{ a: 1, b: 'x' }]) // '[\n  {\n    "a": 1,\n    "b": "x"\n  }\n]'
+ */
+export function toJsonRows(columns: readonly string[], rows: readonly Record<string, unknown>[]): string {
+  return JSON.stringify(
+    rows.map((r) => {
+      const o: Record<string, unknown> = {};
+
+      for (const c of columns) {
+        o[c] = c in r ? r[c] : null;
+      }
+
+      return o;
+    }),
+    null,
+    2,
+  );
+}
+
+/**
  * Filter browse rows by a case-insensitive substring matched across ALL columns.
  * A blank query returns every row (a fresh copy). Pure — never mutates input.
  *
