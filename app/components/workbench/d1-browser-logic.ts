@@ -328,6 +328,14 @@ const IDENT_RE = /"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|[A-Za-z_][\w$]*/.sour
 const COL_TYPE_TERMINATOR = /\b(NOT\s+NULL|NULL|PRIMARY\s+KEY|DEFAULT|UNIQUE|CHECK|REFERENCES|COLLATE|GENERATED|AS)\b/i;
 
 /**
+ * Generated (computed) column clause: `[GENERATED ALWAYS] AS (expr) [STORED|VIRTUAL]`. Within a column
+ * definition, `AS (` reliably signals a generated column (a `CAST(x AS INT)` in a DEFAULT/CHECK is
+ * `AS <type>`, never `AS (`), so this stays precise. Generated columns are NOT writable — SQLite
+ * rejects an INSERT/UPDATE of their value — so the grid must present them read-only.
+ */
+const GENERATED_COL_RE = /\b(?:GENERATED\s+ALWAYS\s+)?AS\s*\(/i;
+
+/**
  * Parse a `CREATE TABLE` statement's columns from its DDL — name, declared type, nullability, default,
  * and PRIMARY-KEY position (inline `PRIMARY KEY` ⇒ pk 1; a table-level `PRIMARY KEY (a,b)` ⇒ 1-based
  * composite positions). Returns `[]` for anything that is not a `CREATE TABLE` (views, virtual/FTS
@@ -426,6 +434,7 @@ export function parseCreateTableColumns(sql: string | null): D1ColumnInfo[] {
       notNull: /\bNOT\s+NULL\b/i.test(rest) || inlinePk,
       defaultValue: def ? def[1].trim() : null,
       pk: inlinePk ? 1 : 0,
+      generated: GENERATED_COL_RE.test(rest),
     });
     cid += 1;
   }
@@ -439,6 +448,84 @@ export function parseCreateTableColumns(sql: string | null): D1ColumnInfo[] {
   });
 
   return columns;
+}
+
+/** The DDL text AFTER a CREATE TABLE's balanced column-list `(...)` — where table options live. */
+function afterColumnList(sql: string): string {
+  const open = sql.indexOf('(');
+
+  if (open < 0) {
+    return '';
+  }
+
+  let depth = 0;
+
+  for (let i = open; i < sql.length; i += 1) {
+    if (sql[i] === '(') {
+      depth += 1;
+    } else if (sql[i] === ')') {
+      depth -= 1;
+
+      if (depth === 0) {
+        return sql.slice(i + 1);
+      }
+    }
+  }
+
+  return '';
+}
+
+/** Table-option modifiers that change a table's storage/semantics (surfaced as honest badges). */
+export interface TableModifiers {
+  /** `WITHOUT ROWID` — a clustered-PK table with no implicit rowid (the PK IS the row key). */
+  withoutRowid: boolean;
+
+  /** `STRICT` — SQLite enforces the declared column types (rejects a type mismatch on write). */
+  strict: boolean;
+}
+
+/**
+ * Parse a `CREATE TABLE`'s trailing options for `WITHOUT ROWID` and `STRICT`. Only the text AFTER the
+ * balanced column-list `(...)` is inspected, so a column NAMED `strict` or a `CHECK` expression that
+ * mentions the word can never produce a false positive. Non-tables (views, virtual tables) → both
+ * false. Best-effort; never throws.
+ *
+ * @example parseTableModifiers('CREATE TABLE t (id TEXT PRIMARY KEY) WITHOUT ROWID, STRICT')
+ *   // → { withoutRowid: true, strict: true }
+ */
+export function parseTableModifiers(sql: string | null): TableModifiers {
+  if (!sql || !/^\s*CREATE\s+TABLE\b/i.test(sql)) {
+    return { withoutRowid: false, strict: false };
+  }
+
+  const tail = afterColumnList(sql);
+
+  return {
+    withoutRowid: /\bWITHOUT\s+ROWID\b/i.test(tail),
+    strict: /\bSTRICT\b/i.test(tail),
+  };
+}
+
+/**
+ * The virtual-table MODULE name for a `CREATE VIRTUAL TABLE … USING <module>` DDL (e.g. `fts5`, `fts4`,
+ * `rtree`), lower-cased — or `null` for an ordinary table/view. Virtual tables have no ordinary column
+ * catalog (their columns come from the module), and a full SQL export of an FTS table is a documented
+ * Cloudflare D1 limitation — so the UI labels them honestly instead of pretending they're normal tables.
+ *
+ * @example virtualTableModule("CREATE VIRTUAL TABLE docs USING fts5(title, body)") // → 'fts5'
+ * @example virtualTableModule("CREATE TABLE t (id TEXT)")                          // → null
+ */
+export function virtualTableModule(sql: string | null): string | null {
+  if (!sql) {
+    return null;
+  }
+
+  const m =
+    /^\s*CREATE\s+VIRTUAL\s+TABLE\b[\s\S]*?\bUSING\s+("(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|[A-Za-z_][\w$]*)/i.exec(
+      sql,
+    );
+
+  return m ? unquoteIdent(m[1]).toLowerCase() : null;
 }
 
 /** Leading-identifier matcher — a column name at the START of a clause (built once from `IDENT_RE`). */

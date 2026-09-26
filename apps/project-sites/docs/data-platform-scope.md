@@ -232,7 +232,28 @@ row/cell handler), else a plain span. HONEST: SQLite stores text; this is a UI i
 not a schema-enforced type. +10 Vitest (url/http/email/userinfo-url/XSS-guards ×3/false-positive-guards ×2/
 regression). Verified: Vitest 77/77 (data-cell-format) + 369/369 (6 workbench specs), editor tsc 0, eslint 0,
 `npm run build` ✓ (client 16.9s + server). Editor auto-deploys via CF Pages on push.
-**NEXT slice (per delivery order): the grid eval (RevoGrid Core vs Tabulator against a real paginated D1) + a
-server-side keyset-paginated read-only grid path** — the foundation for slices 3-4; record the license boundary
-here before adopting. Cheaper adjacent win if grid eval is deferred: wire `field-types.ts` typed EDITORS
-(date/select/url) into the row-edit path.
+### ✅ Shipped next fire (2026-09-26 #2) — SQLite-accurate schema explorer (slice 2)
+The D1 schema explorer (`D1Browser.tsx`, columns parsed client-side from CREATE SQL because D1's REST `/query`
+blocks PRAGMA) now reflects REAL SQLite semantics the parser previously ignored — the DB-Browser/DBeaver-grade
+accuracy the spec demands ("handle WITHOUT ROWID, STRICT tables, FTS5, generated columns"; "prevent editing
+generated/non-writable fields"):
+- **Generated (computed) columns** — `parseCreateTableColumns` now sets `generated` per column (detects
+  `[GENERATED ALWAYS] AS (expr)`; precise — a `CAST(x AS INT)` in a DEFAULT is `AS <type>`, never `AS (`, so no
+  false positive). `D1ColumnInfo.generated?: boolean`. A **GEN** badge renders beside PK/FK with a read-only
+  tooltip (SQLite rejects writing a generated column — this is the foundation for the grid's future
+  prevent-edit-generated safety).
+- **Table modifiers** — new pure `parseTableModifiers(sql)` → `{withoutRowid, strict}` (inspects ONLY the tail
+  after the balanced column-list `)`, so a column named `strict` or a CHECK mentioning the phrase can't
+  false-positive). **WITHOUT ROWID** / **STRICT** badges above the columns grid.
+- **Virtual/FTS5 tables** — new pure `virtualTableModule(sql)` → `'fts5'`/`'rtree'`/… (or null). A **VIRTUAL ·
+  fts5** badge + an honest empty-columns note ("its columns are defined by the module … a full SQL export of an
+  FTS table is a documented Cloudflare D1 limitation") instead of the generic "unavailable" message.
+- +14 Vitest (generated ×4 incl. CAST false-positive guard; modifiers ×5 incl. column-named-strict guard +
+  view/null; virtual-module ×3 + null). Verified: Vitest 57/57 (d1-browser-logic) + 134 with siblings, editor
+  tsc 0, eslint 0, `npm run build` ✓ (12.97s). All pure + honest (parsed from real DDL, never fabricated).
+
+**NEXT slice (per delivery order): wire generated/non-writable → the grid EDIT path** (DataPanel row-edit must
+present generated columns read-only + explain why — "never a doomed control") — the natural slice-3 follow-on to
+this schema work; then the grid eval (RevoGrid Core vs Tabulator against a real paginated D1, license-checked) +
+a server-side keyset-paginated read-only grid path (foundation for slices 3-4). Cheaper adjacent win: wire
+`field-types.ts` typed EDITORS (date/select) into the row-edit path.

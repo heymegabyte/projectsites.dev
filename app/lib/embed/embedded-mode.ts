@@ -618,6 +618,13 @@ export interface D1ColumnInfo {
   notNull: boolean;
   defaultValue: string | null;
   pk: number;
+
+  /**
+   * `true` when the column is a GENERATED (computed) column (`… AS (expr) [STORED|VIRTUAL]`). SQLite
+   * rejects writing a value to a generated column, so the grid must present it read-only. Optional /
+   * defaults to `false` for a plain column.
+   */
+  generated?: boolean;
 }
 
 /**

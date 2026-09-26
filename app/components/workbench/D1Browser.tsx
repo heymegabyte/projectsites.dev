@@ -53,6 +53,8 @@ import {
   parseCreateTableColumns,
   parseForeignKeys,
   parseIndexColumns,
+  parseTableModifiers,
+  virtualTableModule,
   schemaCountsLabel,
   timeTravelInfo,
 } from './d1-browser-logic';
@@ -287,6 +289,14 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
 
   /** Column names that are foreign keys — drives the inline "FK" badge in the columns grid. */
   const fkColumns = useMemo(() => new Set(foreignKeys.map((f) => f.column)), [foreignKeys]);
+
+  /**
+   * SQLite table-storage modifiers (`WITHOUT ROWID`, `STRICT`) + the virtual-table module (`fts5`, …),
+   * parsed from the selected object's CREATE SQL — surfaced as honest badges so the schema explorer
+   * reflects the REAL table semantics (not every "table" is an ordinary rowid table).
+   */
+  const tableModifiers = useMemo(() => parseTableModifiers(selectedObject?.sql ?? null), [selectedObject]);
+  const virtualModule = useMemo(() => virtualTableModule(selectedObject?.sql ?? null), [selectedObject]);
 
   /**
    * "Explain this table" — ask the server (which re-fetches the table's REAL DDL) for a Workers-AI
@@ -1032,6 +1042,37 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
 
                     {isBrowsableObject(selectedObject.type) && (
                       <>
+                        {(tableModifiers.withoutRowid || tableModifiers.strict || virtualModule) && (
+                          <div
+                            className="mb-1.5 flex flex-wrap items-center gap-1"
+                            data-testid="data-d1-table-modifiers"
+                          >
+                            {virtualModule && (
+                              <span
+                                className="rounded bg-cyan-500/15 px-1.5 py-0.5 text-[9px] font-medium text-[#00E5FF]"
+                                title={`Virtual table (module: ${virtualModule}). Its columns are defined by the module; a full SQL export of an FTS table is a documented Cloudflare D1 limitation.`}
+                              >
+                                VIRTUAL · {virtualModule}
+                              </span>
+                            )}
+                            {tableModifiers.withoutRowid && (
+                              <span
+                                className="rounded bg-bolt-elements-item-contentAccent/15 px-1.5 py-0.5 text-[9px] text-bolt-elements-item-contentAccent"
+                                title="WITHOUT ROWID — the PRIMARY KEY is the row key; there is no implicit rowid column."
+                              >
+                                WITHOUT ROWID
+                              </span>
+                            )}
+                            {tableModifiers.strict && (
+                              <span
+                                className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] text-emerald-300"
+                                title="STRICT — SQLite enforces the declared column types on every write."
+                              >
+                                STRICT
+                              </span>
+                            )}
+                          </div>
+                        )}
                         {columns.length > 0 && (
                           <div data-testid="data-d1-columns">
                             <div className="overflow-auto rounded border border-bolt-elements-borderColor/30">
@@ -1076,6 +1117,14 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
                                               FK
                                             </span>
                                           )}
+                                          {col.generated && (
+                                            <span
+                                              className="rounded bg-amber-500/20 px-1 text-[8px] text-amber-300"
+                                              title="Generated (computed) column — read-only; SQLite rejects writing its value"
+                                            >
+                                              GEN
+                                            </span>
+                                          )}
                                         </span>
                                       </td>
                                     </tr>
@@ -1090,7 +1139,9 @@ export const D1Browser = memo(({ postToParent }: D1BrowserProps) => {
                         )}
                         {columns.length === 0 && (
                           <div className="text-[10px] text-bolt-elements-textTertiary">
-                            Column details unavailable — see the CREATE SQL below.
+                            {virtualModule
+                              ? `Virtual table (${virtualModule}) — its columns are defined by the module, not an ordinary schema. See the CREATE SQL below.`
+                              : 'Column details unavailable — see the CREATE SQL below.'}
                           </div>
                         )}
                       </>

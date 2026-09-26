@@ -23,6 +23,8 @@ import {
   parseCreateTableColumns,
   parseForeignKeys,
   parseIndexColumns,
+  parseTableModifiers,
+  virtualTableModule,
   schemaCountsLabel,
   timeTravelInfo,
   buildDataInsights,
@@ -168,10 +170,10 @@ describe('parseCreateTableColumns (DDL parse — CF /query blocks PRAGMA)', () =
       "CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL, status TEXT DEFAULT 'active', created_at INTEGER)",
     );
     expect(cols).toEqual([
-      { cid: 0, name: 'id', type: 'TEXT', notNull: true, defaultValue: null, pk: 1 },
-      { cid: 1, name: 'email', type: 'TEXT', notNull: true, defaultValue: null, pk: 0 },
-      { cid: 2, name: 'status', type: 'TEXT', notNull: false, defaultValue: "'active'", pk: 0 },
-      { cid: 3, name: 'created_at', type: 'INTEGER', notNull: false, defaultValue: null, pk: 0 },
+      { cid: 0, name: 'id', type: 'TEXT', notNull: true, defaultValue: null, pk: 1, generated: false },
+      { cid: 1, name: 'email', type: 'TEXT', notNull: true, defaultValue: null, pk: 0, generated: false },
+      { cid: 2, name: 'status', type: 'TEXT', notNull: false, defaultValue: "'active'", pk: 0, generated: false },
+      { cid: 3, name: 'created_at', type: 'INTEGER', notNull: false, defaultValue: null, pk: 0, generated: false },
     ]);
   });
 
@@ -191,9 +193,9 @@ describe('parseCreateTableColumns (DDL parse — CF /query blocks PRAGMA)', () =
       'CREATE TABLE "my tbl" (\n  "first name" TEXT NOT NULL,\n  [id] INTEGER PRIMARY KEY,\n  amount NUMERIC(10, 2) DEFAULT 0\n)',
     );
     expect(cols).toEqual([
-      { cid: 0, name: 'first name', type: 'TEXT', notNull: true, defaultValue: null, pk: 0 },
-      { cid: 1, name: 'id', type: 'INTEGER', notNull: true, defaultValue: null, pk: 1 },
-      { cid: 2, name: 'amount', type: 'NUMERIC(10, 2)', notNull: false, defaultValue: '0', pk: 0 },
+      { cid: 0, name: 'first name', type: 'TEXT', notNull: true, defaultValue: null, pk: 0, generated: false },
+      { cid: 1, name: 'id', type: 'INTEGER', notNull: true, defaultValue: null, pk: 1, generated: false },
+      { cid: 2, name: 'amount', type: 'NUMERIC(10, 2)', notNull: false, defaultValue: '0', pk: 0, generated: false },
     ]);
   });
 
@@ -206,7 +208,15 @@ describe('parseCreateTableColumns (DDL parse — CF /query blocks PRAGMA)', () =
 
   it('tolerates an untyped column (renders empty type — never crashes)', () => {
     const cols = parseCreateTableColumns('CREATE TABLE t (anything, id INTEGER PRIMARY KEY)');
-    expect(cols[0]).toEqual({ cid: 0, name: 'anything', type: '', notNull: false, defaultValue: null, pk: 0 });
+    expect(cols[0]).toEqual({
+      cid: 0,
+      name: 'anything',
+      type: '',
+      notNull: false,
+      defaultValue: null,
+      pk: 0,
+      generated: false,
+    });
     expect(cols[1].pk).toBe(1);
   });
 });
@@ -454,5 +464,87 @@ describe('buildDataInsights (D1 overview takeaways — present-data-only, determ
       }),
     ).toEqual([]);
     expect(buildDataInsights(null)).toEqual([]);
+  });
+});
+
+describe('parseCreateTableColumns — generated (computed) columns', () => {
+  it('flags a GENERATED ALWAYS AS (…) STORED column as generated', () => {
+    const cols = parseCreateTableColumns('CREATE TABLE t (a INT, b INT, total INT GENERATED ALWAYS AS (a + b) STORED)');
+    expect(cols.map((c) => c.name)).toEqual(['a', 'b', 'total']);
+    expect(cols.find((c) => c.name === 'total')?.generated).toBe(true);
+    expect(cols.find((c) => c.name === 'a')?.generated).toBe(false);
+    expect(cols.find((c) => c.name === 'b')?.generated).toBe(false);
+  });
+
+  it('flags the shorthand `col AS (expr)` (no GENERATED ALWAYS keyword) as generated', () => {
+    const cols = parseCreateTableColumns('CREATE TABLE t (a INT, doubled AS (a * 2) VIRTUAL)');
+    expect(cols.find((c) => c.name === 'doubled')?.generated).toBe(true);
+    expect(cols.find((c) => c.name === 'a')?.generated).toBe(false);
+  });
+
+  it('does NOT false-positive on a CAST(x AS INT) inside a DEFAULT (AS <type>, not AS ()', () => {
+    const cols = parseCreateTableColumns('CREATE TABLE t (a TEXT DEFAULT (CAST(1 AS INT)))');
+    expect(cols.find((c) => c.name === 'a')?.generated).toBe(false);
+  });
+
+  it('leaves generated false for a plain column set', () => {
+    const cols = parseCreateTableColumns('CREATE TABLE t (id TEXT PRIMARY KEY, n INT NOT NULL)');
+    expect(cols.every((c) => c.generated === false)).toBe(true);
+  });
+});
+
+describe('parseTableModifiers — WITHOUT ROWID / STRICT', () => {
+  it('detects WITHOUT ROWID', () => {
+    expect(parseTableModifiers('CREATE TABLE t (id TEXT PRIMARY KEY) WITHOUT ROWID')).toEqual({
+      withoutRowid: true,
+      strict: false,
+    });
+  });
+
+  it('detects STRICT', () => {
+    expect(parseTableModifiers('CREATE TABLE t (id INTEGER PRIMARY KEY) STRICT')).toEqual({
+      withoutRowid: false,
+      strict: true,
+    });
+  });
+
+  it('detects both together', () => {
+    expect(parseTableModifiers('CREATE TABLE t (id TEXT PRIMARY KEY) WITHOUT ROWID, STRICT')).toEqual({
+      withoutRowid: true,
+      strict: true,
+    });
+  });
+
+  it('does NOT false-positive on a column named `strict` or the words inside the column list', () => {
+    /*
+     * Only the tail AFTER the column-list ) is inspected — a column named strict + a CHECK that
+     * mentions the phrase must NOT trigger a modifier.
+     */
+    const mods = parseTableModifiers("CREATE TABLE t (strict TEXT, note TEXT CHECK (note <> 'WITHOUT ROWID'))");
+    expect(mods).toEqual({ withoutRowid: false, strict: false });
+  });
+
+  it('returns both false for a non-table (view) and for null', () => {
+    expect(parseTableModifiers('CREATE VIEW v AS SELECT 1')).toEqual({
+      withoutRowid: false,
+      strict: false,
+    });
+    expect(parseTableModifiers(null)).toEqual({ withoutRowid: false, strict: false });
+  });
+});
+
+describe('virtualTableModule — CREATE VIRTUAL TABLE … USING <module>', () => {
+  it('returns the FTS5 module (lower-cased)', () => {
+    expect(virtualTableModule('CREATE VIRTUAL TABLE docs USING FTS5(title, body)')).toBe('fts5');
+  });
+
+  it('returns other modules (rtree)', () => {
+    expect(virtualTableModule('CREATE VIRTUAL TABLE geo USING rtree(id, minX, maxX)')).toBe('rtree');
+  });
+
+  it('returns null for an ordinary table, a view, and null input', () => {
+    expect(virtualTableModule('CREATE TABLE t (id TEXT)')).toBeNull();
+    expect(virtualTableModule('CREATE VIEW v AS SELECT 1')).toBeNull();
+    expect(virtualTableModule(null)).toBeNull();
   });
 });
