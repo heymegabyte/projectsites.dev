@@ -1,5 +1,12 @@
 # Editor Data Section — Capability Matrix (implementation checklist)
 
+> ⭐ **RE-ARCHITECTURE IN EFFECT (2026-09-25, Brian).** The Data section is being rebuilt into a per-site
+> **Cloudflare-D1 data platform with Airtable-class features + an auxiliary KV manager** (spreadsheet-first,
+> AI-native, SQL hidden). **The authoritative PLAN + phased roadmap is [`data-platform-scope.md`](./data-platform-scope.md)
+> — the Data loop executes against THAT, top-down, starting Phase 0.** This matrix keeps tracking SHIPPED
+> increments; DIRECTION is set by the scope doc. Do not keep extending the OLD shared-D1 / SQL-console
+> surface where the new plan supersedes it.
+
 > Honest source of truth for the "Data" section epic (Editor workbench + admin).
 > **Never present an unsupported operation as a working feature.** Every row's
 > status is one of: **DONE** (shipped + verified), **SLICE** (in-flight this arc),
