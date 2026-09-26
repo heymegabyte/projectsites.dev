@@ -19,6 +19,19 @@ resolvable:**
   `payloadInstanceHost(env)` already route + serve `.app.` (unit-tested). Then re-run
   `e2e/admin-verify/verify-payload-launcher.mjs`.
 
+## 🔓 fire 17 — freed the ACM pack cap for `.app.` (2026-09-25)
+
+The `.app.` cert was blocked by the advanced-pack COUNT cap (not billing — ACM sub is active). Freed it:
+**deleted 7 redundant advanced packs** (db, integrations, auth, traces, crm, mail, apex-only) — each
+verified via DNS to have NO multi-level `*.sub` usage, so Universal SSL (`*.projectsites.dev`) already
+covers its single-level host. **KEPT `*.cms`** (Payload instances use `{slug}.cms`). Post-delete, ALL
+live hosts (projectsites.dev, auth, traces, crm, mail, cms) still serve **200 ssl_verify=0** — Universal
+took over, zero TLS gap. Slots freed → the `*.app` order now clears the cap (`1401`→`1414`).
+**`*.app` cert:** order it in the **dashboard** (`app.projectsites.dev` + `*.app.projectsites.dev`) —
+the API hits `1414` because the zone uses DCV delegation (the dashboard managed flow auto-DCVs; no
+charge, active sub). Then `PAYLOAD_INSTANCE_HOST=app.projectsites.dev` + run the verify script.
+See memory `acm-cert-pack-hygiene`.
+
 **Loop status:** the 15-min `/loop` cron (`c5c9b839`) was **cancelled fire 16** — it had been firing on
 a completed feature (fires 10-16 = polish/hardening) with the only gap human-gated. `.app.` is fully
 prepped (DNS `*.app` added, `payloadInstanceHost(env)` wired + unit-tested, `serveAppBySubdomain`
