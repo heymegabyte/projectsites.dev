@@ -444,6 +444,9 @@ export const DataPanel = memo(() => {
   const [calendarDateCol, setCalendarDateCol] = useState<string | null>(null);
   const [calendarMonth, setCalendarMonth] = useState<{ year: number; month: number } | null>(null);
 
+  /** Calendar: the day whose "all records" popover is open (a `YYYY-MM-DD` key), or null. */
+  const [openDayKey, setOpenDayKey] = useState<string | null>(null);
+
   /*
    * The current open table, mirrored into a ref so the mount-only message listener (deps []) reads the
    * LATEST value instead of the stale mount-time closure (the []-deps stale-ref gotcha).
@@ -732,6 +735,7 @@ export const DataPanel = memo(() => {
       setChartMeasureCol(null); // reset chart measure/agg → COUNT bars for the new table
       setChartAgg(null);
       setCalendarDateCol(null); // re-auto-detect the date column for the new table
+      setOpenDayKey(null); // close any open calendar day popover
       setCalendarMonth(null); // re-derive the visible month from the new table's data
 
       if (searchTimer.current) {
@@ -2209,6 +2213,25 @@ export const DataPanel = memo(() => {
 
     return () => window.removeEventListener('keydown', onKey);
   }, [drawerRow, editCol, visibleRows]);
+
+  /*
+   * Close the calendar day popover on Escape (only while it's open + the drawer isn't — the drawer owns
+   * Escape when both would match, but opening a record from the popover closes the popover first).
+   */
+  useEffect(() => {
+    if (!openDayKey || drawerRow) {
+      return undefined;
+    }
+
+    const onKey = (e: KeyboardEvent): void => {
+      if (isDismissKey(e.key)) {
+        setOpenDayKey(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+
+    return () => window.removeEventListener('keydown', onKey);
+  }, [openDayKey, drawerRow]);
 
   /**
    * Rows-per-page change: update the ref (so `requestRows` uses the new size THIS tick) + state, then
@@ -4486,9 +4509,15 @@ export const DataPanel = memo(() => {
                                   );
                                 })}
                                 {dayRows.length > 3 && (
-                                  <span className="px-1 text-[9px] text-bolt-elements-textTertiary">
+                                  <button
+                                    type="button"
+                                    onClick={() => setOpenDayKey(cell.dayKey)}
+                                    data-testid="data-calendar-more"
+                                    title={`Show all ${dayRows.length} records on this day`}
+                                    className="rounded px-1 text-left text-[9px] text-bolt-elements-textTertiary hover:text-[#00e5ff] hover:underline"
+                                  >
                                     +{dayRows.length - 3} more
-                                  </span>
+                                  </button>
                                 )}
                               </div>
                             </div>
@@ -4503,6 +4532,88 @@ export const DataPanel = memo(() => {
           )}
         </div>
       )}
+
+      {/* Calendar day popover — ALL of a day's records (the current page), opened from "+N more" when a
+          day has >3 events. Each record opens the shared drawer. Backdrop / ✕ / Escape close it; it
+          auto-closes if a filter change empties the day (page-parity — same rows the calendar placed). */}
+      {openDayKey &&
+        (() => {
+          const dayRows = calendarDayMap.get(openDayKey) ?? [];
+
+          if (dayRows.length === 0) {
+            return null;
+          }
+
+          const galTitle = galleryTitleField(visibleCols, galleryTitleCol);
+          const galBody = galleryBodyFields(visibleCols, galTitle).slice(0, 3);
+          const dayLabel = new Date(`${openDayKey}T00:00:00Z`).toLocaleDateString(undefined, {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric',
+            timeZone: 'UTC',
+          });
+
+          return (
+            <div
+              className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+              data-testid="data-calendar-day-popover"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Records on ${dayLabel}`}
+            >
+              <div className="absolute inset-0 bg-black/40" onClick={() => setOpenDayKey(null)} aria-hidden="true" />
+              <div className="relative z-10 flex max-h-[70vh] w-full max-w-sm flex-col rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 shadow-2xl">
+                <div className="flex items-center justify-between gap-2 border-b border-bolt-elements-borderColor px-3 py-2">
+                  <span className="truncate text-xs font-semibold text-bolt-elements-textPrimary" title={dayLabel}>
+                    {dayLabel}
+                    <span className="ml-1 font-normal text-bolt-elements-textTertiary">
+                      · {dayRows.length} on this page
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setOpenDayKey(null)}
+                    data-testid="data-calendar-day-popover-close"
+                    aria-label="Close day records"
+                    title="Close"
+                    className="i-ph:x shrink-0 cursor-pointer text-sm text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary"
+                  />
+                </div>
+                <div className="min-h-0 flex-1 overflow-auto p-2">
+                  <div className="flex flex-col gap-1.5">
+                    {dayRows.map((r, i) => {
+                      const titleCell = galTitle ? classifyCell(r[galTitle]) : null;
+                      const body = galBody
+                        .map((c) => classifyCell(r[c]).display)
+                        .filter(Boolean)
+                        .join(' · ');
+
+                      return (
+                        <button
+                          type="button"
+                          key={rowPkKey(r, browsePkCols) ?? `${openDayKey}-${i}`}
+                          onClick={() => {
+                            setDrawerRow(r);
+                            setOpenDayKey(null);
+                          }}
+                          data-testid="data-calendar-day-record"
+                          title="Open record"
+                          className="flex flex-col gap-0.5 rounded-md border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-2 p-2 text-left hover:border-[#00e5ff]/40"
+                        >
+                          <span className="truncate text-[11px] font-medium text-bolt-elements-textPrimary">
+                            {titleCell?.display || '(untitled)'}
+                          </span>
+                          {body && <span className="truncate text-[10px] text-bolt-elements-textTertiary">{body}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
       {/* Record drawer — a right-side panel showing ALL fields of a row, opened by clicking a gallery,
           kanban, or calendar record (one detail surface for every non-grid view). View · edit · copy ·

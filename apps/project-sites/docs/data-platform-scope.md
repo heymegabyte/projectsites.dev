@@ -770,8 +770,26 @@ an allowlisted measure column, per group. Extends the existing `/group-counts` e
   tsc 0. *Honest residual:* verify-by-build (WebContainer + authed session) per the established DataPanel pattern;
   the aggregate over a genuinely numeric D1 column wasn't exercised in a live browser this fire.
 
-**NEXT slice: calendar day-cell "+N more" → a day popover.** The calendar caps 3 events/cell + shows "+N more"
-as a dead count; make it open a small popover (or expand the cell) listing ALL that day's page rows, each →
-`setDrawerRow`. Reuse the drawer + `classifyCell` title. Then: async export JOBS >10k; nested/grouped filter-tree
-(AND/OR nesting); SQL-workspace polish; grid eval (RevoGrid vs Tabulator). Foundations still inert:
-`field-types.ts`, `schema-ddl.ts` (wire as the typed-editor + schema-builder phases ship).
+### ✅ Shipped next fire (2026-09-26 #30) — calendar day-cell "+N more" → a day popover
+The calendar caps 3 events/cell; "+N more" was a dead count. It's now a button opening a **day popover**
+that lists ALL of that day's page records — each opens the shared record drawer. Every record on a busy day
+is now reachable from the calendar (was: only the first 3).
+- **`DataPanel.tsx` (editor-only):** `openDayKey` state (a `YYYY-MM-DD`); the "+N more" span → a
+  `data-calendar-more` button (`setOpenDayKey(cell.dayKey)`); a centered modal popover
+  (`data-calendar-day-popover`, backdrop / ✕ / Escape) listing every row from `calendarDayMap.get(openDayKey)`
+  as a title+body card (reuses `galleryTitleField`/`galleryBodyFields`/`classifyCell`) → `setDrawerRow` + close.
+  Escape effect gated to not fight the drawer; `openDayKey` reset in `openTable`; the popover **auto-closes**
+  if a filter change empties the day (renders null when the day has 0 rows).
+- **HONEST:** header says "· N on this page" (page-parity — the same rows the calendar placed, not a
+  whole-table day query). No worker/bridge change; pure reuse of the existing page data.
+- Verified: editor Vitest **881/881** + tsc 0 + eslint 0 + build 0; worker **untouched** (0 files under
+  `apps/project-sites` — unchanged from `20d2aabd2`). *Honest residual:* verify-by-build (WebContainer + authed
+  session) per the established DataPanel pattern.
+
+**NEXT slice: async export JOBS for >10k rows.** The export currently caps at `MAX_EXPORT_ROWS` (10k) client-side.
+For larger tables, add a server-side async export job: a `data-export-jobs` metadata table (id, site, org, table,
+filter snapshot, status, row count, R2 key, created/finished), a worker endpoint to enqueue (Workflow or
+chunked cursor) that streams to R2 in bounded chunks, a progress/poll endpoint, and an editor "Export all N rows
+(background)" affordance with progress + a download link when ready — honest about async + restartability. Then:
+nested/grouped AND/OR filter-tree; SQL-workspace polish; grid eval (RevoGrid vs Tabulator). Foundations still
+inert: `field-types.ts`, `schema-ddl.ts` (wire as the typed-editor + schema-builder phases ship).
