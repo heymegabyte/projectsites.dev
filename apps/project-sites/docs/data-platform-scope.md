@@ -255,11 +255,14 @@ generated/non-writable fields"):
 ### ✅ Shipped next fire (2026-09-26 #3) — generated columns are read-only in the grid EDIT path (slice 3)
 SQLite REJECTS writing a generated (computed) column, so the row grid previously offered a **doomed edit** on
 one. Now DataPanel detects them and presents them read-only + labelled ("never a doomed/dead control"):
-- **Detection** — the per-table PK probe switched from a **bare** `PRAGMA table_info("t")` to the
-  table-valued-FUNCTION form `SELECT cid,name,type,"notnull",dflt_value,pk,hidden FROM pragma_table_xinfo('t')`.
-  Two wins: (a) it's a **SELECT**, so it survives the CF D1 REST authorizer's PRAGMA block (a bare `PRAGMA` can
-  return SQLITE_AUTH — so the PK/Delete affordance is now MORE robust too), and (b) `hidden` (2 = VIRTUAL,
-  3 = STORED) reveals generated columns. Same cid/name/type/pk fields → the existing PK + type parse is unchanged.
+- **Detection** — the per-table PK probe switched from `PRAGMA table_info("t")` to
+  `SELECT cid,name,type,"notnull",dflt_value,pk,hidden FROM pragma_table_xinfo('t')` to also read `hidden`
+  (2 = VIRTUAL, 3 = STORED generated). This runs on the **site SQL path** (`/api/sites/:id/sql/exec` →
+  `c.env.DB.prepare`, the Worker BINDING), where PRAGMA + the `pragma_*` table-valued functions ARE allowed —
+  UNLIKE the CF REST `/query` account path, which blocks them (see the `d1-rest-query-blocks-pragma` memory).
+  So bare `PRAGMA table_xinfo` would work here too; the TVF SELECT form is chosen only for consistency with the
+  bulk schema query. Same cid/name/type/pk fields → the existing PK + type parse is unchanged (no regression).
+  `t` is a validated bare identifier, so the quoted arg is injection-free.
 - **Pure helper** `generatedFromTableXinfo(rows)` → `Set<string>` (mirrors `pkFromTableInfo`; `hidden≥2`; accepts
   the `"column"` alias + string `hidden`; empty on `[]`/absent field). +4 Vitest.
 - **Enforcement** — `browseGeneratedCols` state (reset per table): the row-detail `editable` gate excludes
