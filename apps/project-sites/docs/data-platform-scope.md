@@ -1262,10 +1262,33 @@ multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 
 — the mocked pipeline + the panel are proven; the live model quality is the remaining out-of-loop step). **A dedicated
 real-browser + live-model eval fire remains the highest-value out-of-loop step.**
 
-**NEXT slice: live-model eval harness for "Ask your data" (golden Q→executed-answer fixtures + regression log).** Per
-the AI mandate ("compare EXECUTED answers vs expected, not plausible SQL"): a worker test/script that seeds a fixture
-overview dataset, runs a set of golden questions through the REAL parse→compile pipeline (with recorded/mocked model
-intents to stay deterministic in CI, + an opt-in live-model mode), asserts the EXECUTED rows match expected, and logs
-pass/fail by model+prompt version. Covers joins/NULLs/dates/synonyms/ambiguity/prompt-injection/cross-tenant. Fully
-verifiable. Alternatives: "save this answer as a view/chart" (persist the intent as a saved view); a UI intent
-query-builder (no AI); nested AND/OR filter-tree; extend NULL affordance + datalist to the Add-row.
+### ✅ Shipped next fire (2026-09-26 #54) — "Ask your data" slice 5: executed-answer EVAL harness (real SQLite)
+The AI mandate's eval suite — "compare EXECUTED answers vs expected, not plausible-looking SQL." `ask-eval.test.ts`
+seeds a **two-tenant** `form_submissions` fixture in a REAL SQLite (`node:sqlite` via the `d1_sqlite` facade) and runs
+golden `{question, intent}` fixtures through the REAL pipeline — `parseProposedIntent → compileQueryIntent → EXECUTE` —
+asserting the COMPUTED rows (not the SQL string). Deterministic + CI-safe (recorded golden intents; the live model
+call is exercised separately in `ask.test.ts` with a mocked binding; a live-model quality run stays opt-in/out-of-loop).
+`PROMPT_VERSION = 'ask-v1'` tags the run so a regression is attributable.
+- **7 golden fixtures, executed against real SQLite:** count-by-status (grouped counts, `ORDER BY n DESC`) · filter
+  (open only) · NULLs (`notes IS NULL` matches only the genuine null) · dates/order (newest-first) · **tenant isolation**
+  (a broad projection returns ONLY site-A's 3 rows — site-B's 2 excluded by the `site_id` scope; the site-B-only `spam`
+  status never leaks) · **prompt-injection** (a proposal to select/group the MASKED `email` is REJECTED by the compiler,
+  never executed) · **injection-shaped value** (a `'; DROP TABLE …` filter value is BOUND → 0 rows, and the 5-row table
+  survives intact — proves binding safety at EXECUTION, not just in the SQL string).
+- Verified: worker Jest **12853/12853** (+7, +1 suite) + tsc 0 + 0 eslint errors. Worker/test-only (no prod code
+  change) — the eval is pure regression protection for slices #50–#53 (the compiler + executor + parse boundary),
+  FULLY verifiable (real SQL execution, no mock-double blind spots).
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize · #34 footer · #35 whole-query · #36 pins · #37 view · #40
+multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 NULL toggle · #46 BLOB · #47–#48 KV meta/TTL ·
+#49 R2 folders · #52–#53 live-model NL→answer path (real authed browser Ask + a LIVE-model quality run — the deterministic
+pipeline is now eval-proven end-to-end; only the live model's question→intent QUALITY is unmeasured). **A dedicated
+real-browser + live-model eval fire remains the highest-value out-of-loop step.**
+
+**NEXT slice: "save this answer as a view/chart" — persist an Ask result as a saved grid view (SUCCESS-STANDARD item 5 tail).**
+The Ask panel returns `{question, intent, sql, rows}`; add a "Save as view" action that stores the intent (+ the
+question as the view name/description) in the existing `editor_grid_views` metadata store — so a computed answer becomes
+a reusable, shareable view (the grounded-query analog of a saved grid view). Reuses the saved-view CRUD + the
+`config_json` blob (carry the ask intent alongside the grid config; NO schema change). Pure mapping (intent→view config)
+tested + bridge/editor plumbing. Alternatives: a UI intent query-builder (no AI); nested AND/OR filter-tree; extend NULL
+affordance + datalist to the Add-row; a live-model eval RUN.
