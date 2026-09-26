@@ -65,11 +65,17 @@ export function siteD1Name(siteId: string): string {
  * @param input - the site + tenant (+ optional org for stored creds)
  * @returns the database id/name (reused or freshly created), or a typed failure reason
  */
-export async function provisionSiteD1(env: Env, input: ProvisionD1Input): Promise<ProvisionD1Result> {
+export async function provisionSiteD1(
+  env: Env,
+  input: ProvisionD1Input,
+): Promise<ProvisionD1Result> {
   const { orgId = null, siteId, tenantId } = input;
 
   // 1. Idempotency — reuse an existing ACTIVE per-site D1 allocation (never a duplicate on retry).
-  const existing = await dbQueryOne<{ d1_database_id: string | null; d1_database_name: string | null }>(
+  const existing = await dbQueryOne<{
+    d1_database_id: string | null;
+    d1_database_name: string | null;
+  }>(
     env.DB,
     `SELECT d1_database_id, d1_database_name FROM site_database_allocations
        WHERE site_id = ? AND db_plan = 'd1_tenant_db' AND status = 'active' AND d1_database_id IS NOT NULL`,
@@ -106,9 +112,10 @@ export async function provisionSiteD1(env: Env, input: ProvisionD1Input): Promis
   } catch {
     return { ok: false, reason: 'cf_request_failed' };
   }
-  const json = (await res.json().catch(() => null)) as
-    | { success?: boolean; result?: { uuid?: string } }
-    | null;
+  const json = (await res.json().catch(() => null)) as {
+    success?: boolean;
+    result?: { uuid?: string };
+  } | null;
   const databaseId = json?.result?.uuid;
   if (!res.ok || !json?.success || !databaseId) {
     return { ok: false, reason: 'cf_create_failed', status: res.status };

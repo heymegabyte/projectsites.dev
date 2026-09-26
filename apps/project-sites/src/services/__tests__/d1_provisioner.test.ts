@@ -58,7 +58,12 @@ describe('provisionSiteD1', () => {
       mockFetch.mockReturnValueOnce(cfCreated('uuid-abc'));
 
       const r = await provisionSiteD1(envWithCreds(h), { siteId: 'site1', tenantId: 'org1' });
-      expect(r).toEqual({ ok: true, databaseId: 'uuid-abc', databaseName: 'ps-site-site1', reused: false });
+      expect(r).toEqual({
+        ok: true,
+        databaseId: 'uuid-abc',
+        databaseName: 'ps-site-site1',
+        reused: false,
+      });
 
       // CF called with a POST to the D1 create endpoint carrying the deterministic name.
       const [url, opts] = mockFetch.mock.calls[0] as [string, { method: string; body: string }];
@@ -87,7 +92,12 @@ describe('provisionSiteD1', () => {
       await provisionSiteD1(envWithCreds(h), { siteId: 'site1', tenantId: 'org1' });
 
       const r2 = await provisionSiteD1(envWithCreds(h), { siteId: 'site1', tenantId: 'org1' });
-      expect(r2).toEqual({ ok: true, databaseId: 'uuid-abc', databaseName: 'ps-site-site1', reused: true });
+      expect(r2).toEqual({
+        ok: true,
+        databaseId: 'uuid-abc',
+        databaseName: 'ps-site-site1',
+        reused: true,
+      });
       expect(mockFetch).toHaveBeenCalledTimes(1); // no duplicate database on retry
       expect(allocCount(h)).toBe(1);
     } finally {
