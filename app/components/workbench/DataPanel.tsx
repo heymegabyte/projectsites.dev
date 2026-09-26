@@ -139,6 +139,9 @@ import {
   planCreateTable,
   planCreateIndex,
   suggestIndexName,
+  planDropIndex,
+  summarizeIndexRow,
+  type IndexSummary,
   type NewColumnDraft,
 } from './data-panel-logic';
 import { bucketRowsByDate } from './view-models';
@@ -473,6 +476,17 @@ export const DataPanel = memo(() => {
   const [indexBusy, setIndexBusy] = useState(false);
   const [indexError, setIndexError] = useState<string | null>(null);
   const createIndexPending = useRef(false); // a CREATE INDEX is in flight → route the next PS_SQL_RESPONSE
+
+  /*
+   * Existing indexes on the OPEN table (loaded when the index panel opens) + drop plumbing. The list
+   * fetch + the DROP both ride the sql-console cid/timer (one sql op at a time), on their own pending refs.
+   */
+  const [openTableIndexes, setOpenTableIndexes] = useState<IndexSummary[]>([]);
+  const [indexesLoading, setIndexesLoading] = useState(false);
+  const [indexesError, setIndexesError] = useState<string | null>(null);
+  const indexListCid = useRef<string | null>(null); // the index-list fetch round-trip id
+  const dropIndexPending = useRef(false); // a DROP INDEX is in flight → route the next PS_SQL_RESPONSE
+  const dropIndexNameRef = useRef<string>(''); // the dropped index's name (effect has stale deps)
 
   /*
    * Row DELETE — the open table's primary-key column(s) (fetched via PRAGMA table_info when the
@@ -1191,7 +1205,30 @@ export const DataPanel = memo(() => {
     [active, indexName, indexCols, indexUnique],
   );
 
-  /** Open the Add-index builder (no columns picked yet; name auto-derives from the picks). */
+  /**
+   * Load the OPEN table's existing indexes (name + CREATE SQL) from sqlite_master on its own cid — a
+   * quiet read (mirrors the PK PRAGMA fetch). `active` is guarded to a bare identifier so the injected
+   * arg is injection-free; super-admin only (the shared DB's schema is admin-readable).
+   */
+  const fetchOpenTableIndexes = useCallback(() => {
+    setOpenTableIndexes([]);
+    setIndexesError(null);
+
+    if (!isEmbedded || !canRunSql || !active || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(active)) {
+      return;
+    }
+
+    const cid = newCorrelationId('index-list');
+    indexListCid.current = cid;
+    setIndexesLoading(true);
+    postToParent({
+      type: 'PS_SQL_REQUEST',
+      query: `SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='${active}' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
+      correlationId: cid,
+    });
+  }, [isEmbedded, canRunSql, active]);
+
+  /** Open the index manager: load existing indexes + reset the create form (name auto-derives from picks). */
   const openIndexBuilder = useCallback(() => {
     setIndexName('');
     setIndexCols([]);
@@ -1200,7 +1237,8 @@ export const DataPanel = memo(() => {
     setAddingIndex(true);
     setAddingRow(false);
     setImportingCsv(false);
-  }, []);
+    fetchOpenTableIndexes();
+  }, [fetchOpenTableIndexes]);
 
   const cancelIndexBuilder = useCallback(() => {
     setAddingIndex(false);
@@ -1231,6 +1269,46 @@ export const DataPanel = memo(() => {
     setIndexError(null);
     runSql(indexPlan.ddl);
   }, [indexPlan, indexBusy, runSql]);
+
+  /**
+   * Drop an existing index. DROP is destructive DDL → type-to-confirm (it removes no data + is reversible
+   * by recreating, but query cost changes). Posts on the sql cid/timer with confirm:true (the worker
+   * exec-write re-guards super-admin + confirm + protected-table denylist); reply → dropIndexPending.
+   */
+  const dropIndex = useCallback((name: string) => {
+    const plan = planDropIndex(name);
+
+    if (!plan.ddl || dropIndexPending.current) {
+      return;
+    }
+
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(
+        `Drop index "${name}"?\n\nThe index is removed — matching queries may get slower. You can recreate it anytime.`,
+      )
+    ) {
+      return;
+    }
+
+    const cid = newCorrelationId('drop-index');
+    dropIndexPending.current = true;
+    dropIndexNameRef.current = name;
+    sqlCid.current = cid;
+    setIndexesError(null);
+
+    if (sqlTimer.current) {
+      clearTimeout(sqlTimer.current);
+    }
+
+    sqlTimer.current = setTimeout(() => {
+      if (sqlCid.current === cid) {
+        dropIndexPending.current = false;
+        setIndexesError('The editor bridge did not respond.');
+      }
+    }, REQUEST_TIMEOUT_MS);
+    postToParent({ type: 'PS_SQL_REQUEST', query: plan.ddl, correlationId: cid, write: true, confirm: true });
+  }, []);
 
   const cancelAddRow = useCallback(() => {
     setAddingRow(false);
@@ -1451,6 +1529,23 @@ export const DataPanel = memo(() => {
           return;
         }
 
+        /*
+         * The open table's index-list fetch (sqlite_master read on its OWN cid) → summarise each row for
+         * the index manager. Handled before the sql-console id check so it never touches the console grid.
+         */
+        if (msg.correlationId === indexListCid.current) {
+          indexListCid.current = null;
+          setIndexesLoading(false);
+
+          if (msg.error) {
+            setIndexesError(msg.error);
+          } else if (Array.isArray(msg.rows)) {
+            setOpenTableIndexes((msg.rows as Array<Record<string, unknown>>).map(summarizeIndexRow));
+          }
+
+          return;
+        }
+
         if (msg.correlationId !== sqlCid.current) {
           return;
         }
@@ -1495,6 +1590,17 @@ export const DataPanel = memo(() => {
             createIndexPending.current = false;
             setIndexBusy(false);
             setIndexError(msg.error);
+
+            return;
+          }
+
+          /*
+           * A DROP INDEX failed → surface it in the index manager (the user is in tables mode); the index
+           * list is unchanged, so nothing to refresh.
+           */
+          if (dropIndexPending.current) {
+            dropIndexPending.current = false;
+            setIndexesError(msg.error);
 
             return;
           }
@@ -1585,6 +1691,27 @@ export const DataPanel = memo(() => {
 
           const tok = ++copyToken.current;
           setCopied('Index created');
+          setTimeout(() => {
+            if (copyToken.current === tok) {
+              setCopied('');
+            }
+          }, 2400);
+
+          return;
+        }
+
+        /*
+         * A DROP INDEX succeeded → optimistically remove it from the list (the drop is confirmed) + flash.
+         * Functional update, so no stale-closure re-fetch is needed. Handled before the rows_affected gate.
+         */
+        if (dropIndexPending.current) {
+          dropIndexPending.current = false;
+
+          const dropped = dropIndexNameRef.current;
+          setOpenTableIndexes((prev) => prev.filter((ix) => ix.name !== dropped));
+
+          const tok = ++copyToken.current;
+          setCopied('Index dropped');
           setTimeout(() => {
             if (copyToken.current === tok) {
               setCopied('');
@@ -4397,9 +4524,9 @@ export const DataPanel = memo(() => {
                     data-testid="data-add-index-toggle"
                     aria-expanded={addingIndex}
                     className="text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer flex items-center gap-1"
-                    title="Create an index on this table (super-admin · improves query performance)"
+                    title="Manage indexes on this table (super-admin · improves query performance)"
                   >
-                    <div className="i-ph:lightning" /> Add index
+                    <div className="i-ph:lightning" /> Indexes
                   </button>
                 )}
                 {/* Clear sort — visible only when a header-click sort is active; a multi-key sort
@@ -4801,6 +4928,78 @@ export const DataPanel = memo(() => {
                 <span className="text-[10px] text-bolt-elements-textTertiary">
                   developer · super-admin · non-destructive (improves query performance)
                 </span>
+              </div>
+
+              {/* Existing indexes on this table — Drop is offered only for user-created indexes (a
+                  constraint-backing auto-index is managed by its table, not droppable via DROP INDEX). */}
+              <div className="mb-3">
+                <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-bolt-elements-textTertiary">
+                  Existing indexes
+                </div>
+                {indexesLoading ? (
+                  <div className="text-[11px] text-bolt-elements-textTertiary" data-testid="data-indexes-loading">
+                    Loading…
+                  </div>
+                ) : indexesError ? (
+                  <div className="text-[11px] text-red-400" role="alert" data-testid="data-indexes-error">
+                    {indexesError}
+                  </div>
+                ) : openTableIndexes.length === 0 ? (
+                  <div className="text-[11px] text-bolt-elements-textTertiary" data-testid="data-indexes-empty">
+                    No indexes on this table yet.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1" data-testid="data-indexes-list">
+                    {openTableIndexes.map((ix) => (
+                      <div
+                        key={ix.name}
+                        className="flex items-center gap-2 rounded border border-bolt-elements-borderColor/50 bg-bolt-elements-background-depth-2 px-2 py-1"
+                        data-testid={`data-index-row-${ix.name}`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate font-mono text-[11px] text-bolt-elements-textPrimary">
+                              {ix.name}
+                            </span>
+                            {ix.unique && (
+                              <span className="shrink-0 rounded-full border border-bolt-elements-item-contentAccent/30 px-1 text-[9px] text-bolt-elements-item-contentAccent">
+                                UNIQUE
+                              </span>
+                            )}
+                            {!ix.droppable && (
+                              <span
+                                className="shrink-0 text-[9px] text-bolt-elements-textTertiary"
+                                title="Backs a UNIQUE/PK constraint — managed by the table, not droppable here"
+                              >
+                                system
+                              </span>
+                            )}
+                          </div>
+                          {ix.columns && (
+                            <div className="truncate font-mono text-[10px] text-bolt-elements-textTertiary">
+                              ({ix.columns})
+                            </div>
+                          )}
+                        </div>
+                        {ix.droppable && (
+                          <button
+                            type="button"
+                            onClick={() => dropIndex(ix.name)}
+                            data-testid={`data-index-drop-${ix.name}`}
+                            title="Drop this index"
+                            className="shrink-0 cursor-pointer text-[10px] text-red-400/80 hover:text-red-400 hover:underline"
+                          >
+                            Drop
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-bolt-elements-textTertiary">
+                Create index
               </div>
 
               <input

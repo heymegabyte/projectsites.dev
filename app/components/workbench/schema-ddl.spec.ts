@@ -16,6 +16,7 @@ import {
   buildRenameColumn,
   buildDropColumn,
   buildCreateIndex,
+  buildDropIndex,
 } from './schema-ddl';
 import type { ColumnSpec } from './schema-ddl';
 
@@ -274,5 +275,21 @@ describe('buildCreateIndex', () => {
 
   it('throws DdlError for invalid index name', () => {
     expect(() => buildCreateIndex({ name: 'bad index', table: 'orders', columns: ['id'] })).toThrow(DdlError);
+  });
+});
+
+// ── buildDropIndex ──────────────────────────────────────────────────────────
+
+describe('buildDropIndex', () => {
+  it('drops an index by name', () => {
+    expect(buildDropIndex('idx_users_email')).toBe('DROP INDEX "idx_users_email"');
+  });
+
+  it('escapes an embedded double-quote in the index name (real-object quoting, not validation)', () => {
+    expect(buildDropIndex('weird"name')).toBe('DROP INDEX "weird""name"');
+  });
+
+  it('throws DdlError on a blank name', () => {
+    expect(() => buildDropIndex('   ')).toThrow(DdlError);
   });
 });

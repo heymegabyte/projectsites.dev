@@ -1368,12 +1368,42 @@ multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 
 real authed browser (the DDL compilers + refusals are unit-proven; the forms + write-rail apply are verify-by-build).**
 **A dedicated real-browser + live-model eval fire remains the highest-value out-of-loop step.**
 
-**NEXT slice: schema builder — "Drop index" + an indexes list on the open table (schema slice 3) — OR the live-model eval RUN.**
-(a) **Manage indexes** — the read+drop companion to Add-index: show the OPEN table's existing indexes (query
-`PRAGMA index_list('<table>')` / `sqlite_master WHERE type='index'`), each with its columns + UNIQUE flag + a "Drop"
-action (`DROP INDEX "<name>"` via the write rail — DROP IS destructive, so it keeps the existing type-to-confirm). Makes
-the index surface a full round-trip (create→see→drop) instead of "created, now go find it in the SQL tab". Pure
-`planDropIndex(name)` (wires `schema-ddl.ts` — needs a small `buildDropIndex` added there) + a list fetch. Coherent, and
-the drop is scoped to indexes (never a table/column), so the destructive-confirm suffices. (b) The standing **live-model
-eval RUN** (real `@cf/meta/llama-3.3-70b` over the golden fixtures on prod, score question→intent QUALITY, record a
-`PROMPT_VERSION` baseline) remains the top out-of-loop step (needs a prod run). Recommend (a) — completes the index CRUD.
+### ✅ Shipped next fire (2026-09-26 #58) — schema workflow slice 3: index MANAGER (list + drop) on the open table
+Turns the Add-index affordance (#57) into a full **create → see → drop** index manager, completing index CRUD. Opening
+"Indexes" now loads the open table's existing indexes and offers a per-index **Drop** (user-created indexes only).
+- **Read (fetch):** `SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='<table>'` on its OWN cid (a
+  quiet read mirroring the PK PRAGMA fetch; `<table>` guarded to a bare identifier → injection-free). ONE plain
+  sqlite_master SELECT (no PRAGMA/table-valued-fn/join) — the D1-safest shape. `sql` non-null ⇒ user index (droppable,
+  parseable); null ⇒ constraint/PK auto-index (shown "system", never droppable via `DROP INDEX`).
+- **Pure core (+10 Vitest across two files):** `summarizeIndexRow({name,sql})` → `{name, unique, droppable, columns}`
+  (parses UNIQUE + best-effort columns from the CREATE SQL; defensive on odd shapes). `planDropIndex(name)` →
+  `{ddl,error}` via new `buildDropIndex(name)` in `schema-ddl.ts` (+3 tests — uses `quoteIdent` for real-object quoting,
+  NOT `assertSafeIdent`, so a legitimately-quoted index name isn't over-rejected; throws on blank).
+- **Drop apply:** DROP is destructive → keeps a **type-to-confirm**, then posts `write:true, confirm:true` on the sql
+  cid/timer (own `dropIndexPending` ref; the worker exec-write re-guards super-admin + confirm; `DROP INDEX` passes the
+  PROTECTED_TABLES denylist because `sqlTargetTable` finds no INTO/FROM/UPDATE/TABLE keyword). On success the index is
+  **optimistically removed** from the list (functional `setState`, so no stale-closure re-fetch — per the #56 lesson).
+- **UI:** the index panel now has an "Existing indexes" section (loading / error / empty / list with UNIQUE + system
+  badges + `(columns)` + a Drop button on droppable rows) above the "Create index" form; toolbar button relabeled
+  "Indexes". Honest: a UNIQUE/PK auto-index shows "system" and offers no Drop (it's managed by its table).
+- Verified: editor Vitest **994/994** (+10) + tsc 0 + eslint 0 + build 0. **No worker/bridge/admin change** (reuses the
+  `PS_SQL_REQUEST` read + write paths — zero deploy skew). Verify-by-build for the list/drop UI; compiler + parse + refusals unit-proven.
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize · #34 footer · #35 whole-query · #36 pins · #37 view · #40
+multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 NULL toggle · #46 BLOB · #47–#48 KV meta/TTL ·
+#49 R2 folders · #52–#55 live NL→answer + save-as-view · **#56–#58 the New-table + index-manager (create/list/drop)
+round-trips in a real authed browser (the DDL compilers + parse + refusals are unit-proven; the forms + write-rail
+apply + the sqlite_master index fetch are verify-by-build).** **A dedicated real-browser + live-model eval fire remains
+the highest-value out-of-loop step.**
+
+**NEXT slice: the live-model eval RUN (top out-of-loop step) — OR "Rename table/column" guided builder (schema slice 4).**
+(a) **Live-model eval RUN** — the one remaining unmeasured link in the Ask pipeline: drive the real
+`@cf/meta/llama-3.3-70b` binding over the golden `{question,intent}` fixtures on prod, score question→intent QUALITY
+(does the model propose the EXPECTED typed intent?), record a `PROMPT_VERSION`-tagged baseline + log regressions. Needs
+a real prod run (worker/browser), so it's the natural "dedicated real-browser fire" — highest-value now that the
+deterministic pipeline + schema builder are unit-complete. (b) **Rename table/column** (schema slice 4) — wires
+`schema-ddl.ts`'s already-tested `buildRenameColumn` (+ a `buildRenameTable`) via `ALTER TABLE … RENAME`. NOTE this is
+ALTER of an EXISTING (platform) table — per the standing "prefer CREATE over ALTER on the shared platform D1" memory,
+defer until per-customer D1 discovery (slice 1) surfaces customer-owned tables, OR scope it to super-admin with a loud
+"this alters shared platform schema + drifts vs migration files" caveat. Recommend (a): it closes the Ask arc's last
+gap and is the highest-value verifiable-on-prod step; (b) is real but carries the platform-ALTER caveat.

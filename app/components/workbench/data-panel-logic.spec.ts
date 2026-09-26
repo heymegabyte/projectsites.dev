@@ -114,6 +114,8 @@ import {
   planCreateTable,
   planCreateIndex,
   suggestIndexName,
+  planDropIndex,
+  summarizeIndexRow,
   CELL_INPUT_KIND_OPTIONS,
   buildInsertStatement,
   buildDeleteByPk,
@@ -2654,5 +2656,57 @@ describe('planCreateIndex (guided Add-index form → reviewable CREATE INDEX DDL
     const r = planCreateIndex('t', 'ix', ['a"); DROP TABLE users;--'], false);
     expect(r.ddl).toBeNull();
     expect(r.error).toMatch(/not allowed in a SQLite identifier/i);
+  });
+});
+
+describe('summarizeIndexRow (sqlite_master index row → display summary)', () => {
+  it('marks a user CREATE INDEX droppable, parses columns', () => {
+    expect(
+      summarizeIndexRow({ name: 'idx_o_uc', sql: 'CREATE INDEX "idx_o_uc" ON "orders" ("user_id", "created_at")' }),
+    ).toEqual({
+      name: 'idx_o_uc',
+      unique: false,
+      droppable: true,
+      columns: 'user_id, created_at',
+    });
+  });
+
+  it('detects UNIQUE', () => {
+    const s = summarizeIndexRow({ name: 'uq', sql: 'CREATE UNIQUE INDEX "uq" ON "t" ("email")' });
+    expect(s.unique).toBe(true);
+    expect(s.droppable).toBe(true);
+    expect(s.columns).toBe('email');
+  });
+
+  it('a constraint-backing auto-index (null sql) is NOT droppable', () => {
+    expect(summarizeIndexRow({ name: 'sqlite_autoindex_t_1', sql: null })).toEqual({
+      name: 'sqlite_autoindex_t_1',
+      unique: false,
+      droppable: false,
+      columns: null,
+    });
+  });
+
+  it('is defensive about odd shapes', () => {
+    const s = summarizeIndexRow({ name: 123, sql: undefined });
+    expect(s.name).toBe('123');
+    expect(s.droppable).toBe(false);
+    expect(s.columns).toBeNull();
+  });
+});
+
+describe('planDropIndex (existing index → DROP INDEX DDL)', () => {
+  it('builds a DROP INDEX by name', () => {
+    expect(planDropIndex('idx_users_email')).toEqual({ ddl: 'DROP INDEX "idx_users_email"', error: null });
+  });
+
+  it('quotes/escapes a real object name rather than rejecting it', () => {
+    expect(planDropIndex('weird"name').ddl).toBe('DROP INDEX "weird""name"');
+  });
+
+  it('surfaces a human error for a blank name (never throws)', () => {
+    const r = planDropIndex('   ');
+    expect(r.ddl).toBeNull();
+    expect(r.error).toMatch(/must not be empty/i);
   });
 });

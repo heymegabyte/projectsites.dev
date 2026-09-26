@@ -373,3 +373,24 @@ export function buildCreateIndex(spec: { name: string; table: string; columns: s
 
   return `CREATE ${uniqueClause}INDEX ${quoteIdent(spec.name)} ON ${quoteIdent(spec.table)} (${colList})`;
 }
+
+// ── buildDropIndex ────────────────────────────────────────────────────────────
+
+/**
+ * Generate a `DROP INDEX` statement for an EXISTING index (by its real name).
+ *
+ * @remarks
+ * Unlike the builders above (which validate user-typed identifiers with `assertSafeIdent`),
+ * a drop targets a name that already exists in `sqlite_master`, so it only needs correct
+ * quoting — `quoteIdent` escapes any embedded `"` and throws {@link DdlError} on a blank name.
+ * This never drops a table or column — only the named index.
+ *
+ * @param name - The index name to drop.
+ * @returns `DROP INDEX "name"`
+ * @throws {DdlError} When `name` is empty or blank.
+ *
+ * @example buildDropIndex('idx_users_email')  // → 'DROP INDEX "idx_users_email"'
+ */
+export function buildDropIndex(name: string): string {
+  return `DROP INDEX ${quoteIdent(name)}`;
+}

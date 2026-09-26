@@ -6,7 +6,7 @@
 import type { DataOverviewTable } from '~/lib/embed/embedded-mode';
 import { isoDayKey, blobCellInfo, humanBytes } from './data-cell-format';
 import type { CellAggregates } from './data-aggregates';
-import { buildCreateTable, buildCreateIndex, DdlError } from './schema-ddl';
+import { buildCreateTable, buildCreateIndex, buildDropIndex, DdlError } from './schema-ddl';
 
 /** Phosphor icon per known table key; a sensible default for anything new. */
 const TABLE_ICONS: Record<string, string> = {
@@ -2878,6 +2878,67 @@ export function planCreateIndex(
     return {
       ddl: null,
       error: e instanceof DdlError ? e.message : 'Could not build the CREATE INDEX statement.',
+    };
+  }
+}
+
+/** A displayable summary of one `sqlite_master` index row for the open-table index manager. */
+export interface IndexSummary {
+  /** The index name (as stored in sqlite_master). */
+  readonly name: string;
+
+  /** True when the index enforces uniqueness (parsed from the CREATE SQL). */
+  readonly unique: boolean;
+
+  /**
+   * True only for user-created indexes (a non-null `sqlite_master.sql`) — the ONLY ones droppable via
+   * `DROP INDEX`. Auto-indexes backing a UNIQUE/PK constraint have `sql = NULL` and are managed by their
+   * table (dropping them needs an ALTER, not DROP INDEX), so we never offer a drop for those.
+   */
+  readonly droppable: boolean;
+
+  /** Best-effort comma-joined column list parsed from the CREATE SQL (null when unavailable). */
+  readonly columns: string | null;
+}
+
+/**
+ * Summarise one `SELECT name, sql FROM sqlite_master WHERE type='index'` row for the index manager.
+ * `sql` is the full `CREATE [UNIQUE] INDEX …` for user indexes (→ droppable, parseable) and NULL for
+ * constraint-backing auto-indexes (→ not droppable). Pure + defensive (unknown shapes → safe defaults).
+ */
+export function summarizeIndexRow(row: { name?: unknown; sql?: unknown }): IndexSummary {
+  const name = typeof row.name === 'string' ? row.name : String(row.name ?? '');
+  const sql = typeof row.sql === 'string' && row.sql.trim() !== '' ? row.sql : null;
+  const unique = sql !== null && /\bCREATE\s+UNIQUE\s+INDEX\b/i.test(sql);
+
+  // Best-effort columns: the last parenthesised group of the CREATE SQL (`… ON "t" (col, col)`).
+  let columns: string | null = null;
+
+  if (sql) {
+    const m = sql.match(/\(([^()]*)\)\s*$/);
+
+    if (m) {
+      const inner = m[1].replace(/"/g, '').trim();
+      columns = inner === '' ? null : inner;
+    }
+  }
+
+  return { name, unique, droppable: sql !== null, columns };
+}
+
+/**
+ * Compile a `DROP INDEX` for an EXISTING index (schema slice 3, sibling of {@link planCreateIndex}).
+ * The name comes from sqlite_master (a real object), so {@link buildDropIndex} only quotes it (throws
+ * on blank). Returns a human error instead of throwing. Dropping an index is reversible (recreate) and
+ * removes no data — but it IS destructive DDL, so the UI still gates it behind a type-to-confirm.
+ */
+export function planDropIndex(name: string): { ddl: string | null; error: string | null } {
+  try {
+    return { ddl: buildDropIndex(name), error: null };
+  } catch (e) {
+    return {
+      ddl: null,
+      error: e instanceof DdlError ? e.message : 'Could not build the DROP INDEX statement.',
     };
   }
 }
