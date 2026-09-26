@@ -6,6 +6,7 @@ import { PortDropdown } from './PortDropdown';
 import { ScreenshotSelector } from './ScreenshotSelector';
 import { expoUrlAtom } from '~/lib/stores/qrCodeStore';
 import { ExpoQrModal } from '~/components/workbench/ExpoQrModal';
+import { primarySiteUrl, siteSlugAtom } from '~/lib/stores/site-context';
 import type { ElementInfo } from './Inspector';
 
 type ResizeSide = 'left' | 'right' | null;
@@ -66,7 +67,14 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
   const [iframeUrl, setIframeUrl] = useState<string | undefined>();
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [isInspectorMode, setIsInspectorMode] = useState(false);
-  const [isDeviceModeOn, setIsDeviceModeOn] = useState(false);
+
+  /*
+   * The "Switch to Device Mode" responsive-frame preview was removed from the
+   * toolbar per product decision. Kept as an always-off flag (typed `boolean`,
+   * not the `false` literal, so the frame render branches below stay valid code
+   * rather than type-narrowed dead ends) — the device-frame markup never renders.
+   */
+  const isDeviceModeOn: boolean = false;
 
   /*
    * Msg-3b: while the WebContainer boots the dev server (~30-60s cold), no preview URL exists yet.
@@ -109,6 +117,34 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
   const [showDeviceFrameInPreview, setShowDeviceFrameInPreview] = useState(false);
   const expoUrl = useStore(expoUrlAtom);
   const [isExpoQrModalOpen, setIsExpoQrModalOpen] = useState(false);
+
+  /*
+   * The site's real public URL (e.g. russ-and-daughters.projectsites.dev) shown
+   * read-only BEFORE the editable path, so the address bar reads like the URL the
+   * finished site is actually served at — not the throwaway WebContainer origin.
+   */
+  const siteSlug = useStore(siteSlugAtom);
+  const primaryUrl = primarySiteUrl(siteSlug);
+  const primaryHost = primaryUrl?.replace(/^https?:\/\//, '');
+
+  /*
+   * Keep the address bar's path in sync when the user navigates INSIDE the
+   * preview (clicking a link). Same-origin previews expose `location`; the
+   * cross-origin WebContainer origin throws on read, so we fail soft and leave
+   * the last path in place (typed navigation + reloads still update it).
+   */
+  const handleIframeLoad = useCallback(() => {
+    try {
+      const loc = iframeRef.current?.contentWindow?.location;
+
+      if (loc && loc.href && loc.href !== 'about:blank') {
+        const nextPath = `${loc.pathname}${loc.search}${loc.hash}` || '/';
+        setDisplayPath(nextPath);
+      }
+    } catch {
+      // Cross-origin preview — location is unreadable; keep the current path.
+    }
+  }, []);
 
   useEffect(() => {
     if (!activePreview) {
@@ -162,10 +198,6 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
   }, []);
-
-  const toggleDeviceMode = () => {
-    setIsDeviceModeOn((prev) => !prev);
-  };
 
   const startResizing = (e: React.PointerEvent, side: ResizeSide) => {
     if (!isDeviceModeOn) {
@@ -704,6 +736,14 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
             setIsDropdownOpen={setIsPortDropdownOpen}
             previews={previews}
           />
+          {primaryHost && (
+            <span
+              className="shrink-0 max-w-[48%] truncate pl-1.5 pr-0.5 text-bolt-elements-textTertiary select-none"
+              title={`Your site's live URL — ${primaryUrl}`}
+            >
+              {primaryHost}
+            </span>
+          )}
           <input
             title="URL Path"
             ref={inputRef}
@@ -743,30 +783,10 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
         </div>
 
         <div className="flex items-center gap-2">
-          <IconButton
-            icon="i-ph:devices"
-            onClick={toggleDeviceMode}
-            title={isDeviceModeOn ? 'Switch to Responsive Mode' : 'Switch to Device Mode'}
-          />
-
           {expoUrl && <IconButton icon="i-ph:qr-code" onClick={() => setIsExpoQrModalOpen(true)} title="Show QR" />}
 
           <ExpoQrModal open={isExpoQrModalOpen} onClose={() => setIsExpoQrModalOpen(false)} />
 
-          {isDeviceModeOn && (
-            <>
-              <IconButton
-                icon="i-ph:device-rotate"
-                onClick={() => setIsLandscape(!isLandscape)}
-                title={isLandscape ? 'Switch to Portrait' : 'Switch to Landscape'}
-              />
-              <IconButton
-                icon={showDeviceFrameInPreview ? 'i-ph:device-mobile' : 'i-ph:device-mobile-slash'}
-                onClick={() => setShowDeviceFrameInPreview(!showDeviceFrameInPreview)}
-                title={showDeviceFrameInPreview ? 'Hide Device Frame' : 'Show Device Frame'}
-              />
-            </>
-          )}
           <IconButton
             icon="i-ph:cursor-click"
             onClick={toggleInspectorMode}
@@ -1017,6 +1037,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
                         display: 'block',
                       }}
                       src={iframeUrl}
+                      onLoad={handleIframeLoad}
                       sandbox="allow-scripts allow-forms allow-popups allow-modals allow-storage-access-by-user-activation allow-same-origin"
                       allow="cross-origin-isolated"
                     />
@@ -1028,6 +1049,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
                   title="preview"
                   className="border-none w-full h-full bg-bolt-elements-background-depth-1"
                   src={iframeUrl}
+                  onLoad={handleIframeLoad}
                   sandbox="allow-scripts allow-forms allow-popups allow-modals allow-storage-access-by-user-activation allow-same-origin"
                   allow="geolocation; ch-ua-full-version-list; cross-origin-isolated; screen-wake-lock; publickey-credentials-get; shared-storage-select-url; ch-ua-arch; bluetooth; compute-pressure; ch-prefers-reduced-transparency; deferred-fetch; usb; ch-save-data; publickey-credentials-create; shared-storage; deferred-fetch-minimal; run-ad-auction; ch-ua-form-factors; ch-downlink; otp-credentials; payment; ch-ua; ch-ua-model; ch-ect; autoplay; camera; private-state-token-issuance; accelerometer; ch-ua-platform-version; idle-detection; private-aggregation; interest-cohort; ch-viewport-height; local-fonts; ch-ua-platform; midi; ch-ua-full-version; xr-spatial-tracking; clipboard-read; gamepad; display-capture; keyboard-map; join-ad-interest-group; ch-width; ch-prefers-reduced-motion; browsing-topics; encrypted-media; gyroscope; serial; ch-rtt; ch-ua-mobile; window-management; unload; ch-dpr; ch-prefers-color-scheme; ch-ua-wow64; attribution-reporting; fullscreen; identity-credentials-get; private-state-token-redemption; hid; ch-ua-bitness; storage-access; sync-xhr; ch-device-memory; ch-viewport-width; picture-in-picture; magnetometer; clipboard-write; microphone"
                 />

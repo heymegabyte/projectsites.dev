@@ -8,6 +8,7 @@ import { useMessageParser, usePromptEnhancer, useShortcuts } from '~/lib/hooks';
 import { description, useChatHistory } from '~/lib/persistence';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
+import { setSiteSlug } from '~/lib/stores/site-context';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROMPT_COOKIE_KEY, PROVIDER_LIST } from '~/utils/constants';
 import { cubicEasingFn } from '~/utils/easings';
 import { createScopedLogger, renderLogger } from '~/utils/logger';
@@ -337,6 +338,11 @@ export const ChatImpl = memo(
       }
 
       const unsub = onParentMessage((msg: ParentToChildMessage) => {
+        // Publish the site slug so the Preview address bar can show the real URL.
+        if ('slug' in msg && msg.slug) {
+          setSiteSlug(msg.slug);
+        }
+
         if (msg.type === 'PS_SUBMIT_PROMPT') {
           // Auto-submit prompt from parent frame
           postToParent({
@@ -604,6 +610,12 @@ export const ChatImpl = memo(
     useEffect(() => {
       const slug = searchParams.get('slug');
       const explicitUrl = searchParams.get('importChatFrom');
+
+      // Publish the slug so the Preview address bar shows the site's real URL.
+      if (slug) {
+        setSiteSlug(slug);
+      }
+
       const importUrl =
         explicitUrl || (slug ? `https://projectsites.dev/api/sites/by-slug/${encodeURIComponent(slug)}/chat` : null);
 

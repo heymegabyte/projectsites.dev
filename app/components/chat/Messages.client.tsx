@@ -3,6 +3,7 @@ import { Fragment, useEffect } from 'react';
 import { classNames } from '~/utils/classNames';
 import { AssistantMessage } from './AssistantMessage';
 import { UserMessage } from './UserMessage';
+import { isSeedSitePrompt } from './site-import-status';
 import { useLocation } from '@remix-run/react';
 import { db, chatId } from '~/lib/persistence/useChatHistory';
 import { forkChat } from '~/lib/persistence/db';
@@ -73,7 +74,16 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(
               const isFirst = index === 0;
               const isHidden = annotations?.includes('hidden');
 
-              if (isHidden) {
+              /*
+               * On an imported site's first open, hide the echoed seed prompt
+               * ("Build a professional website for X") — the site is already
+               * built, so the prompt is noise. Gated on `isFirst` so a later
+               * real "build …" prompt is never hidden; mirrors the assistant
+               * "I've built…" turn collapsing to the status card.
+               */
+              const isSeedPrompt = isFirst && isUserMessage && isSeedSitePrompt(content);
+
+              if (isHidden || isSeedPrompt) {
                 return <Fragment key={index} />;
               }
 
