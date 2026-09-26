@@ -778,6 +778,9 @@ aside::before {
      view-transition-name throws "Unexpected duplicate view-transition-name"
      in Chrome and breaks the section crossfade. */
   view-transition-name: bolt-frame;
+  /* The graceful cached-second-visit fade-in lives in the GLOBAL _admin-polish.scss
+     (`.bolt-frame` opacity + transition) — a scoped rule here did not reliably land
+     in the built bundle, so the opacity/transition is applied globally instead. */
 }
 .bolt-frame--visible {
   /* Size the editor as EXACTLY viewport-minus-bars. `100dvh` (not `100%`) is
