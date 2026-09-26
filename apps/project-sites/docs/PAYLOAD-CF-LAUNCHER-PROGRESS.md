@@ -30,11 +30,23 @@ Payload login** → delete removes D1+R2+Worker — EXCEPT the branded `{slug}.a
 host, which needs the `*.app` ACM cert (billing-blocked, free plan; `PAYLOAD_APP_HOST_CERT_READY`
 flips it on). Today the instance serves at the cert-covered `<name>.<acct>.workers.dev`.
 
-### Remaining (small, optional)
-- **Migration on launch** — `/admin` login *renders* 200 unmigrated; to make login SUBMIT work,
-  apply the Payload init DDL to the fresh D1 via D1 REST at provision time (extract from
-  `infra/payload-d1/src/migrations/*.ts`). Login page 200 (the literal ask) is already met.
-- **Branded `.app.` host** — one ACM cert-pack (billing) + set `PAYLOAD_APP_HOST_CERT_READY=true`.
+### ✅ Migration-on-launch DONE (fire 11, 2026-09-25)
+The fresh D1 is now migrated at launch, so login SUBMIT / create-first-user work — a FUNCTIONAL
+Payload, not just a 200 page.
+- `scripts/build-payload-bundle.mjs` extracts the DDL from `infra/payload-d1/src/migrations/*.ts`
+  (both, in `index.ts` order; unescapes the template-literal backticks) → `migration.sql` in the
+  bundle (5.1 KB, 9 tables: `users`, `users_sessions`, `media`, `payload_preferences(+_rels)`,
+  `payload_locked_documents(+_rels)`, `payload_migrations`, `payload_kv`).
+- `cloudflare_provisioner.applyD1Migration` runs it statement-by-statement via the D1 REST
+  `/query` API (single-statement endpoint; tolerates "already exists"); called FIRST in
+  `deployRealPayloadWorker`, before the worker goes live.
+- **Live proof (fire 11):** `plq1440417` → real login + CSS 200 → **D1 tables present** (users +
+  payload_* verified via `SELECT … sqlite_master`) → delete → worker/d1/r2 404. Zero dangling.
+
+### Remaining (one item — billing-gated)
+- **Branded `{slug}.app.projectsites.dev` host** — one ACM advanced cert-pack for `*.app.projectsites.dev`
+  (free plan blocks it: `1401`) + set `PAYLOAD_APP_HOST_CERT_READY=true`. Today the instance serves
+  the full functional Payload at the cert-covered `<name>.<acct>.workers.dev`.
 
 ## 🧱 B1 FOUNDATION — real Payload bundle staged in R2 (2026-09-25, fire 9)
 

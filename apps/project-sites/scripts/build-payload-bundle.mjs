@@ -44,7 +44,37 @@ function arg(name, def) {
 const OUTDIR = arg('outdir', '/tmp/payload-bundle');
 const ASSETS = arg('assets', 'infra/payload-d1/.open-next/assets');
 const WRANGLER = arg('wrangler', 'infra/payload-d1/wrangler.jsonc');
+const MIGRATIONS = arg('migrations', 'infra/payload-d1/src/migrations');
 const OUT = arg('out', '/tmp/payload-bundle-v1.zip');
+
+/**
+ * Extract the raw DDL from Payload's `.ts` migrations (each statement is a
+ * `db.run(sql`…`)` in `up()`). Template-literal backticks are escaped as \` — mask
+ * them, match the sql template, restore. Concatenated in `index.ts` order so a fresh
+ * D1 can be migrated via the D1 REST API at launch (no `payload migrate` CLI at runtime).
+ */
+function extractMigrationSql(dir) {
+  const BT = '@@BT@@';
+  const order = readFileSync(join(dir, 'index.ts'), 'utf8');
+  // migration names in array order
+  const names = [...order.matchAll(/name:\s*'([^']+)'/g)].map((m) => m[1]);
+  const stmts = [];
+  for (const name of names) {
+    const raw = readFileSync(join(dir, `${name}.ts`), 'utf8');
+    const up = raw.slice(
+      raw.indexOf('export async function up'),
+      raw.indexOf('export async function down'),
+    );
+    const masked = up.split('\\`').join(BT);
+    const re = /sql`([\s\S]*?)`/g;
+    let m;
+    while ((m = re.exec(masked)) !== null) {
+      const sql = m[1].split(BT).join('`').trim().replace(/;\s*$/, '');
+      if (sql) stmts.push(sql);
+    }
+  }
+  return stmts.join(';\n') + ';\n';
+}
 
 /** Parse compat_date + flags out of the JSONC (strip // and block comments). */
 function readCompat(path) {
@@ -108,7 +138,11 @@ for (const f of assetFiles) {
   assetManifest[rel] = { hash: assetHash(buf), size: buf.length };
 }
 
-// 3. Manifest — everything the runtime uploader needs, no re-derivation.
+// 3. Migration DDL — applied to each fresh D1 via D1 REST at launch (login-submit needs the tables).
+const migrationSql = extractMigrationSql(MIGRATIONS);
+writeFileSync(join(stage, 'migration.sql'), migrationSql);
+
+// 4. Manifest — everything the runtime uploader needs, no re-derivation.
 const manifest = {
   version: 'v1',
   main_module: 'worker.js',
@@ -117,6 +151,7 @@ const manifest = {
   modules,
   assets: assetManifest,
   asset_count: assetFiles.length,
+  has_migration: migrationSql.length > 0,
   built_from: 'infra/payload-d1 (Next 16 + OpenNext + Payload 3.82, webpack bundle)',
 };
 writeFileSync(join(stage, 'manifest.json'), JSON.stringify(manifest, null, 2));

@@ -388,6 +388,38 @@ interface PayloadBundleManifest {
   compatibility_flags: string[];
   modules: Array<{ name: string; type: string }>;
   assets: Record<string, { hash: string; size: number }>;
+  has_migration?: boolean;
+}
+
+/**
+ * Apply the Payload schema DDL to a fresh D1 via the D1 REST query API — so
+ * login-submit / create-first-user work (a Worker can't run `payload migrate`).
+ * Statements run one-per-call (the D1 REST /query endpoint is single-statement).
+ */
+async function applyD1Migration(
+  c: CfCreds,
+  d1DatabaseId: string,
+  migrationSql: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const statements = migrationSql
+    .split(';\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const sql of statements) {
+    const r = await cfFetch(c, `/accounts/${c.accountId}/d1/database/${d1DatabaseId}/query`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sql }),
+    });
+    if (!r.json.success) {
+      const msg = JSON.stringify(r.json.errors);
+      // A fresh D1 shouldn't already have the tables; tolerate "already exists" on re-run.
+      if (!/already exists/i.test(msg)) {
+        return { ok: false, error: `stmt failed (${sql.slice(0, 40)}…): ${msg}` };
+      }
+    }
+  }
+  return { ok: true };
 }
 
 /** Chunked base64 (btoa can't take a huge string via spread) for asset upload. */
@@ -486,6 +518,13 @@ export async function deployRealPayloadWorker(
   const { files, manifest } = bundle;
   const c = creds(env);
   const scriptPathStr = scriptPath(c.accountId, ctx.name, ctx.namespace);
+
+  // Migrate the fresh D1 FIRST so login-submit works the moment the worker goes live.
+  const migrationRaw = files['migration.sql'];
+  if (migrationRaw) {
+    const mig = await applyD1Migration(c, ctx.d1DatabaseId, strFromU8(migrationRaw));
+    if (!mig.ok) return { ok: false, error: `migration: ${mig.error}` };
+  }
 
   let assetsJwt: string | null = null;
   try {

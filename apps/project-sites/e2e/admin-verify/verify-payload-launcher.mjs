@@ -95,6 +95,30 @@ if (cssCode !== 200) {
 }
 console.log('   ✓ REAL Payload login page live + assets served (200)');
 
+// 2b) migration ground-truth: the instance's D1 must have the Payload tables.
+if (CF_KEY && resources.d1_database_id) {
+  let tables = [];
+  for (let i = 0; i < 20; i++) {
+    const q = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${ACCT}/d1/database/${resources.d1_database_id}/query`,
+      {
+        method: 'POST',
+        headers: { ...cfHdr, 'content-type': 'application/json' },
+        body: JSON.stringify({ sql: "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'payload%' OR name='users'" }),
+      },
+    ).then((r) => r.json()).catch(() => ({}));
+    tables = q?.result?.[0]?.results?.map((r) => r.name) ?? [];
+    if (tables.includes('users') && tables.some((t) => t.startsWith('payload'))) break;
+    await sleep(3000);
+  }
+  console.log(`   D1 tables: ${tables.join(', ')}`);
+  if (!tables.includes('users') || !tables.includes('payload_migrations')) {
+    await fetch(`${WORKER}/api/apps/instances/${iid}`, { method: 'DELETE', headers: authed }).catch(() => {});
+    fail(`D1 not migrated — missing payload tables (got: ${tables.join(',') || 'none'})`);
+  }
+  console.log('   ✓ D1 migrated (users + payload_* tables present) — login submit works');
+}
+
 console.log('3) DELETE (cascade D1 + R2 + Worker)');
 const delRes = await fetch(`${WORKER}/api/apps/instances/${iid}`, {
   method: 'DELETE',
