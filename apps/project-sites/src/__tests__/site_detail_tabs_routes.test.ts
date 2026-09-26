@@ -28,7 +28,7 @@ jest.mock('../services/sysadmin.js', () => ({ isSuperAdmin: jest.fn() }));
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types/env.js';
 import { errorHandler } from '../middleware/error_handler.js';
-import { siteDetailTabs } from '../routes/site_detail_tabs.js';
+import { siteDetailTabs, toBlobCell, serializeSqlRows } from '../routes/site_detail_tabs.js';
 import { dbQuery, dbQueryOne, dbExecute } from '../services/db.js';
 import { writeAuditLog } from '../services/audit.js';
 import { isSuperAdmin } from '../services/sysadmin.js';
@@ -786,5 +786,38 @@ describe('DELETE /api/sites/:siteId/integration-providers/:key', () => {
       target_id: SITE,
       metadata_json: { provider: 'stripe' },
     });
+  });
+});
+
+describe('toBlobCell + serializeSqlRows (BLOB → JSON-safe envelope for the SQL console)', () => {
+  it('converts an ArrayBuffer to a { __blob, bytes, hex } envelope (first 16 bytes)', () => {
+    const buf = new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer;
+    expect(toBlobCell(buf)).toEqual({ __blob: true, bytes: 4, hex: '89 50 4e 47' });
+  });
+
+  it('converts a typed-array view (respecting offset/length) and caps the hex preview at 16 bytes', () => {
+    const full = new Uint8Array(Array.from({ length: 20 }, (_, i) => i));
+    const view = full.subarray(0, 20); // 20 bytes → hex preview only the first 16
+    const out = toBlobCell(view) as { __blob: boolean; bytes: number; hex: string };
+    expect(out.__blob).toBe(true);
+    expect(out.bytes).toBe(20);
+    expect(out.hex.split(' ')).toHaveLength(16); // preview bounded
+    expect(out.hex.startsWith('00 01 02')).toBe(true);
+  });
+
+  it('passes non-binary values through unchanged (string/number/null/plain object)', () => {
+    expect(toBlobCell('hello')).toBe('hello');
+    expect(toBlobCell(42)).toBe(42);
+    expect(toBlobCell(null)).toBeNull();
+    expect(toBlobCell({ a: 1 })).toEqual({ a: 1 });
+  });
+
+  it('serializeSqlRows maps every cell + preserves column keys', () => {
+    const rows = [{ id: 1, name: 'x', avatar: new Uint8Array([1, 2, 3]).buffer }];
+    const out = serializeSqlRows(rows);
+    expect(Object.keys(out[0])).toEqual(['id', 'name', 'avatar']);
+    expect(out[0].id).toBe(1);
+    expect(out[0].name).toBe('x');
+    expect(out[0].avatar).toEqual({ __blob: true, bytes: 3, hex: '01 02 03' });
   });
 });

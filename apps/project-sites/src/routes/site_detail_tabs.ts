@@ -236,6 +236,49 @@ const READONLY_PREFIX = /^\s*(SELECT|EXPLAIN|WITH|PRAGMA)\b/i;
 const FORBIDDEN_KEYWORDS =
   /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|REINDEX|VACUUM|REPLACE|TRUNCATE)\b/i;
 
+/**
+ * Serialize ONE D1 result cell for JSON transport. A BLOB comes back from D1 as an `ArrayBuffer` (or a
+ * typed-array view); `JSON.stringify` would mangle it to a useless `{}` — indistinguishable from an
+ * empty object. Convert it to a typed envelope `{ __blob: true, bytes, hex }` (hex = first 16 bytes)
+ * so the editor renders a read-only "BLOB · N bytes" chip instead of garbled text. Every non-binary
+ * value passes through unchanged. Pure.
+ */
+export function toBlobCell(value: unknown): unknown {
+  let bytes: Uint8Array | null = null;
+
+  if (value instanceof ArrayBuffer) {
+    bytes = new Uint8Array(value);
+  } else if (ArrayBuffer.isView(value)) {
+    const view = value as ArrayBufferView;
+    bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  }
+
+  if (!bytes) {
+    return value;
+  }
+
+  const hex = Array.from(bytes.subarray(0, 16))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join(' ');
+
+  return { __blob: true, bytes: bytes.byteLength, hex };
+}
+
+/** Map every cell of every SQL result row through {@link toBlobCell} (BLOB → a JSON-safe envelope). Pure. */
+export function serializeSqlRows(
+  rows: ReadonlyArray<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return rows.map((row) => {
+    const out: Record<string, unknown> = {};
+
+    for (const key of Object.keys(row)) {
+      out[key] = toBlobCell(row[key]);
+    }
+
+    return out;
+  });
+}
+
 tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
   const siteId = c.req.param('siteId');
   const orgId = c.get('orgId');
@@ -294,7 +337,9 @@ tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
   try {
     const stmt = c.env.DB.prepare(q);
     const result = await (boundParams.length > 0 ? stmt.bind(...boundParams) : stmt).all();
-    const rows = (result.results ?? []) as Array<Record<string, unknown>>;
+    // Serialize BLOB cells (D1 ArrayBuffer → a typed envelope) so binary never reaches the editor as a
+    // garbled `{}`; column keys are unchanged by the transform.
+    const rows = serializeSqlRows((result.results ?? []) as Array<Record<string, unknown>>);
     const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
     await writeAuditLog(c.env.DB, {
       org_id: orgId,

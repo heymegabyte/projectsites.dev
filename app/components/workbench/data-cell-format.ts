@@ -14,7 +14,7 @@
  */
 
 /** Semantic kind for a single grid cell value. */
-export type CellKind = 'null' | 'empty' | 'number' | 'boolean' | 'json' | 'url' | 'email' | 'date' | 'text';
+export type CellKind = 'null' | 'empty' | 'number' | 'boolean' | 'json' | 'url' | 'email' | 'date' | 'blob' | 'text';
 
 /**
  * Result of classifying a raw SQLite cell value for the dark-theme DataPanel.
@@ -240,6 +240,60 @@ export function isoDayKey(value: unknown): string | null {
   return null;
 }
 
+// blob renders in a muted violet mono so a binary value reads as "not editable text", distinct from JSON.
+const CLASS_BLOB = 'text-[#b39ddb] font-mono text-xs select-none';
+
+/** A BLOB cell as serialized by the worker (a raw `ArrayBuffer` would JSON-encode to a useless `{}`). */
+export interface BlobCellInfo {
+  /** Byte length of the binary value. */
+  bytes: number;
+
+  /** Space-separated hex of the first bytes (a preview, e.g. `'89 50 4e 47'`). May be empty. */
+  hex: string;
+}
+
+/**
+ * Detect the worker's BLOB envelope (`{ __blob: true, bytes, hex }`) — the honest wire form of a D1
+ * `ArrayBuffer` cell (which JSON.stringify would otherwise mangle to `{}`, indistinguishable from an
+ * empty object). Returns the `{bytes,hex}` info or `null` for any non-blob value. Pure, never throws.
+ *
+ * @example blobCellInfo({ __blob: true, bytes: 4, hex: '89 50 4e 47' }) // { bytes: 4, hex: '89 50 4e 47' }
+ * @example blobCellInfo({ a: 1 })                                        // null
+ */
+export function blobCellInfo(value: unknown): BlobCellInfo | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const rec = value as Record<string, unknown>;
+
+  if (rec.__blob !== true) {
+    return null;
+  }
+
+  return {
+    bytes: typeof rec.bytes === 'number' && rec.bytes >= 0 ? rec.bytes : 0,
+    hex: typeof rec.hex === 'string' ? rec.hex : '',
+  };
+}
+
+/** Humanize a byte count for a compact cell label: `900 B` · `1.2 KB` · `3.4 MB`. Pure. */
+export function humanBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) {
+    return '0 B';
+  }
+
+  if (n < 1024) {
+    return `${n} B`;
+  }
+
+  if (n < 1024 * 1024) {
+    return `${(n / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 /*
  * ---------------------------------------------------------------------------
  * Primary export: classifyCell
@@ -317,7 +371,23 @@ export function classifyCell(value: unknown): ClassifiedCell {
     };
   }
 
-  // 5. Objects / arrays (non-null, already excluded null above)
+  /*
+   * 5. BLOB envelope (worker-serialized binary) — a read-only "BLOB · N bytes" chip, NEVER editable
+   *    text. Checked before the generic object branch (a blob envelope IS an object). Raw = hex tooltip.
+   */
+  const blob = blobCellInfo(value);
+
+  if (blob) {
+    return {
+      kind: 'blob',
+      display: `BLOB · ${humanBytes(blob.bytes)}`,
+      className: CLASS_BLOB,
+      isJson: false,
+      title: blob.hex ? `${blob.hex}${blob.bytes > 16 ? ' …' : ''}` : undefined,
+    };
+  }
+
+  // 6. Objects / arrays (non-null, already excluded null above)
   if (typeof value === 'object') {
     const display = toCompactJson(value as object | unknown[]);
     return {

@@ -4,7 +4,7 @@
  * (`DataPanel.tsx`) is a thin view over these helpers + the PS_ admin bridge.
  */
 import type { DataOverviewTable } from '~/lib/embed/embedded-mode';
-import { isoDayKey } from './data-cell-format';
+import { isoDayKey, blobCellInfo, humanBytes } from './data-cell-format';
 import type { CellAggregates } from './data-aggregates';
 
 /** Phosphor icon per known table key; a sensible default for anything new. */
@@ -38,6 +38,13 @@ export function iconForTable(key: string): string {
 export function formatCellValue(value: unknown): string {
   if (value === null || value === undefined || value === '') {
     return '—';
+  }
+
+  // A worker-serialized BLOB → a compact "BLOB · N bytes" label, never a garbled `{}` / raw hex dump.
+  const blob = blobCellInfo(value);
+
+  if (blob) {
+    return `BLOB · ${humanBytes(blob.bytes)}`;
   }
 
   if (typeof value === 'object') {
@@ -1506,6 +1513,11 @@ export function sortRows(rows: readonly Record<string, unknown>[], sort: GridSor
  */
 export function clipboardValue(value: unknown): string {
   if (value === null || value === undefined || value === '') {
+    return '';
+  }
+
+  // Binary (BLOB) is not meaningfully copyable as cell text → no copy affordance (empty).
+  if (blobCellInfo(value)) {
     return '';
   }
 

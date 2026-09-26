@@ -1082,14 +1082,32 @@ it OBVIOUS + one-click, matching the grid's honest NULL vs `""` cell rendering.
 - Verified: editor Vitest **938/938** + tsc 0 + eslint 0 + build 0. No worker/admin files touched (worker Jest
   **12789/12789** unchanged). Hint logic unit-tested; the chip + hint RENDERING is verify-by-build (deep lazy chunk).
 
+### ✅ Shipped next fire (2026-09-26 #46) — honest BLOB rendering (worker envelope + read-only "BLOB · N bytes" chip)
+D1 returns a BLOB column as an `ArrayBuffer`; `JSON.stringify` mangles it to a useless `{}` (indistinguishable from an
+empty object), and a text editor opened on it would corrupt the binary. BLOBs surface only via the super-admin **SQL
+console** today (the fixed overview tables have no BLOB columns) — so this is a real correctness fix for that path,
+applied defensively across every cell renderer. Full-stack (worker serialization + editor classification).
+- **Worker (`site_detail_tabs.ts`, +4 jest):** `toBlobCell(value)` — an `ArrayBuffer`/typed-array view → a JSON-safe
+  envelope `{ __blob: true, bytes, hex }` (hex = first 16 bytes, offset/length respected); non-binary passes through.
+  `serializeSqlRows(rows)` maps every `/sql/exec` result cell through it (column keys unchanged). Pure + exported.
+- **Editor (`data-cell-format.ts` + `data-panel-logic.ts`, +7 Vitest):** shared `blobCellInfo(value)` + `humanBytes(n)`
+  detect the envelope. `classifyCell` gains a **`'blob'`** kind → a muted-violet read-only "BLOB · N bytes" chip with a
+  hex tooltip (ellipsis when bytes>preview); `formatCellValue` (SQL console) renders the same label; `clipboardValue`
+  returns `''` (binary isn't text-copyable → no copy affordance). Read-only is inherent — SQL results aren't editable,
+  and the editable overview tables have no BLOB columns.
+- **No bridge/admin change:** the envelope is just an object value in the existing SQL-response `rows` (forwarded opaquely).
+- Verified: worker Jest **12793/12793** + tsc 0; editor Vitest **945/945** + tsc 0 + eslint 0 + build 0. Serialization +
+  classification fully unit-tested; the chip RENDERING is verify-by-build (deep lazy chunk).
+
 **STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
 sticky-pin render · #37 view round-trip · #40 multi-sort · #41 date/datetime picker · #42 boolean checkbox + JSON
-textarea · #43–#44 value datalist · #45 NULL toggle + hint — one real-browser pass (authed admin session). **A
-dedicated real-browser QA fire remains the highest-value out-of-loop step** to convert this verify-by-build debt.
+textarea · #43–#44 value datalist · #45 NULL toggle + hint · #46 BLOB chip (super-admin SQL console) — one real-browser
+pass (authed admin session). **A dedicated real-browser QA fire remains the highest-value out-of-loop step.**
 
-**NEXT slice: BLOB read-only preview + safe presentation (contained, honesty-focused).** A BLOB column currently
-renders as `[object]`/garbled text and opens a text editor that would corrupt binary on save. Detect BLOB values
-(ArrayBuffer/typed-array/base64-ish from D1) → show a read-only chip (size + hex/first-bytes preview) and DISABLE
-editing (no doomed control), mirroring the generated-column read-only pattern. Pure classifier + size formatter
-(tested) + a verify-by-build widget. Alternatives: extend NULL affordance to the Add-row; async export JOBS >10k
-(bigger); nested AND/OR filter-tree; inert `field-types.ts` as a per-column field-config feature.
+**NEXT slice: BEGIN the SQL-console EXPLAIN QUERY PLAN affordance (contained, super-admin, real-today).** The SQL
+workspace exists (super-admin `/sql/exec`) but has no one-click "explain this query" — the delivery-order slice-4
+workspace calls for `EXPLAIN QUERY PLAN` + cost surfacing. Add a pure `toExplainQuery(sql)` (wrap a SELECT/WITH as
+`EXPLAIN QUERY PLAN <sql>`; reject non-SELECT) + an "Explain" button that runs it through the existing `/sql/exec`
+(already allowlists EXPLAIN) and renders the plan rows, flagging `SCAN` (vs `SEARCH`) as a potential full-scan cost.
+Pure query-builder + scan-detector (tested); the button/plan panel is verify-by-build. Alternatives: extend NULL
+affordance + datalist to the Add-row; async export JOBS >10k (bigger); nested AND/OR filter-tree.

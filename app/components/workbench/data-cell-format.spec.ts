@@ -7,7 +7,15 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { classifyCell, columnTypeBadge, isoDayKey, type CellKind, type ClassifiedCell } from './data-cell-format.js';
+import {
+  classifyCell,
+  columnTypeBadge,
+  isoDayKey,
+  blobCellInfo,
+  humanBytes,
+  type CellKind,
+  type ClassifiedCell,
+} from './data-cell-format.js';
 
 /*
  * ---------------------------------------------------------------------------
@@ -552,6 +560,7 @@ describe('isoDayKey — strict UTC day-key for calendar date-column detection', 
   it('converts an ±offset datetime to the correct UTC day (can cross midnight)', () => {
     // 23:30 at -05:00 = 04:30Z the NEXT day
     expect(isoDayKey('2024-01-01T23:30:00-05:00')).toBe('2024-01-02');
+
     // 00:30 at +05:00 = 19:30Z the PREVIOUS day
     expect(isoDayKey('2024-01-02T00:30:00+05:00')).toBe('2024-01-01');
   });
@@ -574,5 +583,47 @@ describe('isoDayKey — strict UTC day-key for calendar date-column detection', 
     expect(isoDayKey(null)).toBeNull();
     expect(isoDayKey(undefined)).toBeNull();
     expect(isoDayKey({ d: '2024-01-01' })).toBeNull();
+  });
+});
+
+describe('blobCellInfo + humanBytes (BLOB envelope detection + byte humanizing)', () => {
+  it('detects the worker BLOB envelope, rejects everything else', () => {
+    expect(blobCellInfo({ __blob: true, bytes: 4, hex: '89 50 4e 47' })).toEqual({
+      bytes: 4,
+      hex: '89 50 4e 47',
+    });
+    expect(blobCellInfo({ __blob: true })).toEqual({ bytes: 0, hex: '' }); // shape-hardened defaults
+    expect(blobCellInfo({ a: 1 })).toBeNull();
+    expect(blobCellInfo('not a blob')).toBeNull();
+    expect(blobCellInfo(null)).toBeNull();
+    expect(blobCellInfo(42)).toBeNull();
+  });
+
+  it('humanizes byte counts (B / KB / MB) and guards junk', () => {
+    expect(humanBytes(900)).toBe('900 B');
+    expect(humanBytes(2048)).toBe('2.0 KB');
+    expect(humanBytes(3 * 1024 * 1024)).toBe('3.0 MB');
+    expect(humanBytes(-5)).toBe('0 B');
+    expect(humanBytes(NaN)).toBe('0 B');
+  });
+});
+
+describe('classifyCell — BLOB envelope → read-only chip (never garbled JSON)', () => {
+  it('classifies a small BLOB as kind "blob" with a byte label + full hex tooltip (no ellipsis)', () => {
+    const cell = classifyCell({ __blob: true, bytes: 4, hex: '89 50 4e 47' });
+    expect(cell.kind).toBe('blob');
+    expect(cell.display).toBe('BLOB · 4 B');
+    expect(cell.isJson).toBe(false);
+    expect(cell.title).toBe('89 50 4e 47'); // bytes ≤ 16 → the whole blob is previewed, no ellipsis
+  });
+
+  it('humanizes a larger blob + appends an ellipsis when there are more bytes than the preview', () => {
+    const cell = classifyCell({ __blob: true, bytes: 1234, hex: '89 50 4e 47' });
+    expect(cell.display).toBe('BLOB · 1.2 KB');
+    expect(cell.title).toBe('89 50 4e 47 …'); // 1234 bytes > 16 previewed → ellipsis
+  });
+
+  it('a real (non-blob) object still classifies as json', () => {
+    expect(classifyCell({ a: 1 }).kind).toBe('json');
   });
 });

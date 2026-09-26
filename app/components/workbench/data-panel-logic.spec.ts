@@ -154,6 +154,10 @@ describe('formatCellValue', () => {
     cyclic.self = cyclic;
     expect(typeof formatCellValue(cyclic)).toBe('string'); // no throw
   });
+  it('renders a worker BLOB envelope as a compact "BLOB · N bytes" label (never a garbled {})', () => {
+    expect(formatCellValue({ __blob: true, bytes: 2048, hex: 'de ad' })).toBe('BLOB · 2.0 KB');
+    expect(formatCellValue({ __blob: true, bytes: 12, hex: '00' })).toBe('BLOB · 12 B');
+  });
 });
 
 describe('summarizeTables', () => {
@@ -1668,6 +1672,9 @@ describe('clipboardValue (raw cell copy text, never the display em-dash)', () =>
     const c: Record<string, unknown> = {};
     c.self = c;
     expect(typeof clipboardValue(c)).toBe('string');
+  });
+  it('does NOT offer copy text for a BLOB (binary is not meaningfully text-copyable)', () => {
+    expect(clipboardValue({ __blob: true, bytes: 4, hex: 'de ad be ef' })).toBe('');
   });
 });
 
