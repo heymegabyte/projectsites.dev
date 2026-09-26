@@ -190,13 +190,20 @@ export interface DataRequestMessage {
   search?: string;
 
   /**
-   * Exact-match filter column (a table column). The worker allowlist-validates it (else no filter) and
-   * only applies the filter when {@link filterVal} is non-empty. Composes with {@link search} + sort.
+   * Filter column (a table column). The worker allowlist-validates it (else no filter) and applies the
+   * filter per {@link filterOp}. Composes with {@link search} + sort.
    */
   filterCol?: string;
 
-  /** Exact-match value for {@link filterCol} (parameterized by the worker: `"col" = ?`). */
+  /** Value for {@link filterCol} (parameterized by the worker). Ignored for the `null`/`notnull` ops. */
   filterVal?: string;
+
+  /**
+   * Comparison operator for {@link filterCol}: `eq | ne | contains | gt | lt | gte | lte | null |
+   * notnull`. The worker maps it to a FIXED, parameterized clause (never user text) and defaults an
+   * absent/unknown op to `eq`. `null`/`notnull` filter on the column alone (no {@link filterVal}).
+   */
+  filterOp?: string;
 
   /**
    * `0` = skip the server COUNT(*) (paging/sorting doesn't change the total, so the client reuses its

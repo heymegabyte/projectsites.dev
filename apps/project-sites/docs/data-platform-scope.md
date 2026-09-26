@@ -419,10 +419,32 @@ the raw one hover away (honest, never lossy):
   non-date). Verified: Vitest 83/83 (data-cell-format) + 337 across 3 workbench specs, editor tsc 0 / eslint 0 /
   build ✓ (13.13s). Editor-only → CF Pages.
 
-**NEXT slice (per delivery order): the AND/OR filter-group builder** (fuller slice-3 beyond one exact-match column
-— needs a validated filter-tree worker endpoint that compiles a typed AND/OR tree to parameterized SQL with the
-same `spec.columns` allowlist; scope the worker side deliberately). OR wire `field-types.ts` richer INPUT widgets
-(single-select needs a field-config metadata store; date INPUT could reuse the new ISO presentation). Then the grid
-eval (RevoGrid vs Tabulator, license-checked) + **saved grid views** — the first slice needing the isolated
-ProjectSites.dev metadata store (views/filters/sort/field-config live there, NEVER in customer tables; a good
-moment to design that store: a `editor_grid_views` D1 table in the PLATFORM db + org-gated CRUD + a bridge msg).
+### ✅ Shipped next fire (2026-09-26 #12) — comparison OPERATORS on the column filter (slice 3 filters deepen)
+The column filter was exact-match only (`"col" = ?`). It now supports the full comparison set
+**`= · ≠ · contains · > · < · ≥ · ≤ · is null · is not null`**, end-to-end and injection-safe:
+- **Worker (`site_data_api/handlers.ts`)** — `buildColumnFilter` gains `FILTER_OPS`/`FilterOp`/`normalizeFilterOp`
+  + an operator `switch`. The operator is mapped to a **FIXED clause string from the switch** (never user text);
+  the column stays allowlist-gated (`spec.columns`) and every value is a bound `?` param. `contains` → `LIKE ?`
+  with `% _` **stripped** from the needle (never metacharacters); `null`/`notnull` → value-free `IS [NOT] NULL`;
+  an absent/unknown/mixed-case op **defaults to `eq`** so existing requests are byte-identical. +7 Jest.
+- **Bridge** — `PS_DATA_REQUEST` carries `filterOp?`; the admin (`bolt-embed.service.ts`) forwards only a
+  worker-recognized op (mirrors `PS_FILTER_OPS`) and sends **no** `filterVal` for value-free ops.
+- **Editor (`data-panel-logic.ts`)** — `BrowseFilters.filterOp?` + `filtersToParams` (omits the default `eq` so
+  exact-match requests are unchanged; value-free ops send column+op, no value) + pure `normalizeFilterOp` /
+  `filterOpIsValueFree` / `filterIsActive` + `FILTER_OP_OPTIONS` (the dropdown's single source). +34 Vitest.
+- **Grid UI (`DataPanel.tsx`)** — an operator `<select>` between the column select and the value box;
+  the value input is **hidden** for `is null`/`is not null` (replaced by an "no value needed" hint), and the
+  "· where …" note renders the operator symbol (`where age ≥ "18"`, `where deleted_at is null`). `filterOp` in
+  every `requestRows` call (open/page/sort/search/filter/page-size) so operator + paging/sort compose.
+- Verified: worker Jest **12726/12726** + tsc 0; editor Vitest **292/292** (logic+cell-format) + tsc 0 + eslint 0
+  + build ✓; admin tsc 0 + `ng build --configuration production` ✓ (no errors). Editor → CF Pages, admin → Worker CI.
+
+**NEXT slice (per delivery order): the AND/OR filter-group builder** (fuller slice-3 — multiple conditions, not one
+column). The single-column operators just shipped are the deliberate stepping-stone: the builder needs a validated
+filter-TREE worker endpoint that compiles a typed AND/OR tree of `{col, op, val}` leaves (REUSING this fire's
+`FILTER_OPS` + `buildColumnFilter` clause logic) to parameterized SQL under the same `spec.columns` allowlist; scope
+the worker side deliberately. OR wire `field-types.ts` richer INPUT widgets (single-select needs a field-config
+metadata store; a date INPUT could reuse the ISO presentation + the new `null`/`notnull` ops). Then the grid eval
+(RevoGrid vs Tabulator, license-checked) + **saved grid views** — the first slice needing the isolated
+ProjectSites.dev metadata store (views/filters/sort/field-config live there, NEVER in customer tables; a good moment
+to design that store: an `editor_grid_views` D1 table in the PLATFORM db + org-gated CRUD + a bridge msg).

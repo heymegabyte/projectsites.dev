@@ -250,4 +250,51 @@ describe('buildColumnFilter (browse per-column exact-match filter)', () => {
     });
     expect(buildColumnFilter(cols, 'status', 'y'.repeat(500)).params[0]).toBe('y'.repeat(200));
   });
+
+  it('maps each comparison operator to a fixed, parameterized clause (operators are never user text)', () => {
+    expect(buildColumnFilter(cols, 'status', 'new', 'eq')).toEqual({ clause: ' AND "status" = ?', params: ['new'] });
+    expect(buildColumnFilter(cols, 'status', 'new', 'ne')).toEqual({ clause: ' AND "status" != ?', params: ['new'] });
+    expect(buildColumnFilter(cols, 'status', '5', 'gt')).toEqual({ clause: ' AND "status" > ?', params: ['5'] });
+    expect(buildColumnFilter(cols, 'status', '5', 'lt')).toEqual({ clause: ' AND "status" < ?', params: ['5'] });
+    expect(buildColumnFilter(cols, 'status', '5', 'gte')).toEqual({ clause: ' AND "status" >= ?', params: ['5'] });
+    expect(buildColumnFilter(cols, 'status', '5', 'lte')).toEqual({ clause: ' AND "status" <= ?', params: ['5'] });
+  });
+
+  it('contains → LIKE %needle% with wildcards STRIPPED from user input (% / _ never metacharacters)', () => {
+    expect(buildColumnFilter(cols, 'status', 'pen', 'contains')).toEqual({
+      clause: ' AND "status" LIKE ?',
+      params: ['%pen%'],
+    });
+    expect(buildColumnFilter(cols, 'status', 'a%b_c', 'contains').params).toEqual(['%abc%']);
+    // a value that is ENTIRELY wildcards collapses to empty → no clause (never a bare LIKE %%)
+    expect(buildColumnFilter(cols, 'status', '%_%', 'contains')).toEqual({ clause: '', params: [] });
+  });
+
+  it('null / notnull are value-free IS [NOT] NULL clauses (no bound params, value ignored)', () => {
+    expect(buildColumnFilter(cols, 'status', '', 'null')).toEqual({ clause: ' AND "status" IS NULL', params: [] });
+    expect(buildColumnFilter(cols, 'status', 'ignored', 'notnull')).toEqual({
+      clause: ' AND "status" IS NOT NULL',
+      params: [],
+    });
+  });
+
+  it('defaults an absent / unknown / mixed-case operator to `eq` (backward-compatible, injection-safe)', () => {
+    expect(buildColumnFilter(cols, 'status', 'new', undefined)).toEqual({ clause: ' AND "status" = ?', params: ['new'] });
+    expect(buildColumnFilter(cols, 'status', 'new', 'sqlgibberish')).toEqual({ clause: ' AND "status" = ?', params: ['new'] });
+    expect(buildColumnFilter(cols, 'status', 'new', 'EQ')).toEqual({ clause: ' AND "status" = ?', params: ['new'] });
+    expect(buildColumnFilter(cols, 'status', 'new', '; DROP TABLE sites')).toEqual({
+      clause: ' AND "status" = ?',
+      params: ['new'],
+    });
+  });
+
+  it('still enforces the column allowlist for every operator (the injection boundary is the column)', () => {
+    expect(buildColumnFilter(cols, 'password', '', 'notnull')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilter(cols, 'password', 'x', 'contains')).toEqual({ clause: '', params: [] });
+  });
+
+  it('a value-requiring operator with a blank value yields no clause (null/notnull are the only value-free ops)', () => {
+    expect(buildColumnFilter(cols, 'status', '   ', 'gt')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilter(cols, 'status', '', 'contains')).toEqual({ clause: '', params: [] });
+  });
 });

@@ -34,6 +34,11 @@ const SAVE_TIMEOUT_MS = 30_000;
 const EDITOR_BASE = 'https://editor.projectsites.dev';
 const ALLOWED_ORIGINS = ['https://editor.projectsites.dev', 'http://localhost:5173'];
 
+// PS_DATA_REQUEST browse-filter operators — mirrors the worker's FILTER_OPS. We only forward an op
+// the worker recognizes (it defaults anything else to `eq`); null/notnull carry no value.
+const PS_FILTER_OPS = new Set(['eq', 'ne', 'contains', 'gt', 'lt', 'gte', 'lte', 'null', 'notnull']);
+const PS_FILTER_VALUE_FREE_OPS = new Set(['null', 'notnull']);
+
 export interface BoltEmbedSite {
   readonly id: string;
   readonly slug: string;
@@ -72,8 +77,14 @@ interface PsMessage {
   readonly search?: string;
   /** PS_DATA_REQUEST: exact-match filter column (worker allowlist-validates it; else no filter). */
   readonly filterCol?: string;
-  /** PS_DATA_REQUEST: exact-match value for `filterCol` (worker parameterizes it: `"col" = ?`). */
+  /** PS_DATA_REQUEST: value for `filterCol` (worker parameterizes it; ignored for null/notnull ops). */
   readonly filterVal?: string;
+  /**
+   * PS_DATA_REQUEST: comparison operator for `filterCol`
+   * (eq|ne|contains|gt|lt|gte|lte|null|notnull). The worker maps it to a FIXED clause — never
+   * user text — and defaults an absent/unknown op to `eq`. null/notnull are value-free.
+   */
+  readonly filterOp?: string;
   /** PS_DATA_REQUEST: 0 = skip the COUNT(*) (paging/sorting → reuse cached total); else the worker counts. */
   readonly count?: number;
   /** PS_SQL_REQUEST (D1 manager): the SQL to forward — /sql/exec (read) or /sql/exec-write (write). */
@@ -646,6 +657,14 @@ export class BoltEmbedService {
             typeof msg.filterVal === 'string' && msg.filterVal.trim()
               ? msg.filterVal.trim().slice(0, 200)
               : undefined;
+          // Comparison operator (eq|ne|contains|gt|lt|gte|lte|null|notnull) — forward only a
+          // worker-recognized op (else the worker defaults to eq anyway). null/notnull are value-free,
+          // so they filter on the column ALONE (no filterVal required).
+          const browseFilterOp =
+            typeof msg.filterOp === 'string' && PS_FILTER_OPS.has(msg.filterOp.trim().toLowerCase())
+              ? msg.filterOp.trim().toLowerCase()
+              : undefined;
+          const browseFilterValueFree = browseFilterOp ? PS_FILTER_VALUE_FREE_OPS.has(browseFilterOp) : false;
           // count=0 → the editor is paging/sorting and reuses its cached total; forward the skip so the
           // worker doesn't run an expensive COUNT(*) on every nav. Any other value → the worker counts.
           const browseSkipCount = msg.count === 0;
@@ -672,8 +691,12 @@ export class BoltEmbedService {
                     ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),
                     ...(browseOrderBy && browseDir ? { dir: browseDir } : {}),
                     ...(browseSearch ? { search: browseSearch } : {}),
-                    ...(browseFilterCol && browseFilterVal
-                      ? { filterCol: browseFilterCol, filterVal: browseFilterVal }
+                    ...(browseFilterCol && (browseFilterValueFree || browseFilterVal)
+                      ? {
+                          filterCol: browseFilterCol,
+                          ...(browseFilterOp ? { filterOp: browseFilterOp } : {}),
+                          ...(browseFilterValueFree ? {} : { filterVal: browseFilterVal as string }),
+                        }
                       : {}),
                     ...(browseSkipCount ? { count: '0' } : {}),
                   }

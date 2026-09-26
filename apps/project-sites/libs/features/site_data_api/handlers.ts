@@ -338,24 +338,85 @@ export function buildDataSearch(
  * SQL-injection boundary — same set that gates orderBy + search); anything else, or
  * an empty value, yields no clause. The value is parameterized (never concatenated)
  * and bounded to 200 chars. Complements the OR-of-LIKE `buildDataSearch` with a
- * precise single-column `= ?` for triaging (e.g. `status = new`).
+ * precise single-column comparison for triaging (e.g. `status = new`, `age >= 18`).
+ *
+ * The `?filterOp=` operator is chosen from a fixed WHITELIST by KEY — the SQL
+ * comparator is never taken from user text, so it's not an injection surface (the
+ * column allowlist + parameterized value remain the boundaries). Value-free ops
+ * (`null`/`notnull`) ignore `rawVal`; `contains` strips LIKE wildcards from the
+ * needle (matching `buildDataSearch`) and wraps it `%needle%`. An unknown/absent op
+ * defaults to `eq` (backward-compatible).
  *
  * @param columns - the table's safe column allowlist
  * @param rawCol - the client `?filterCol=` value
  * @param rawVal - the client `?filterVal=` value
- * @returns `{ clause, params }` — `clause` is ` AND "col" = ?` (or ''); one param
- * @example buildColumnFilter(['status','path'], 'status', 'new') // { clause: ' AND "status" = ?', params: ['new'] }
+ * @param rawOp - the client `?filterOp=` value (one of {@link FILTER_OPS}; default `eq`)
+ * @returns `{ clause, params }` — `clause` is ` AND "col" <op> ?` (or IS [NOT] NULL, or '')
+ * @example buildColumnFilter(['status'], 'status', 'new') // { clause: ' AND "status" = ?', params: ['new'] }
+ * @example buildColumnFilter(['age'], 'age', '18', 'gte') // { clause: ' AND "age" >= ?', params: ['18'] }
+ * @example buildColumnFilter(['note'], 'note', '', 'null') // { clause: ' AND "note" IS NULL', params: [] }
  */
+export const FILTER_OPS = [
+  'eq',
+  'ne',
+  'contains',
+  'gt',
+  'lt',
+  'gte',
+  'lte',
+  'null',
+  'notnull',
+] as const;
+export type FilterOp = (typeof FILTER_OPS)[number];
+
+/** Map a raw `?filterOp=` string to a whitelisted {@link FilterOp}; unknown/absent → `eq`. */
+function normalizeFilterOp(raw: string | undefined | null): FilterOp {
+  const op = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  return (FILTER_OPS as readonly string[]).includes(op) ? (op as FilterOp) : 'eq';
+}
+
 export function buildColumnFilter(
   columns: readonly string[],
   rawCol: string | undefined | null,
   rawVal: string | undefined | null,
+  rawOp?: string | undefined | null,
 ): { clause: string; params: string[] } {
   const col = String(rawCol ?? '').trim();
   if (!col || !columns.includes(col)) return { clause: '', params: [] };
+  const op = normalizeFilterOp(rawOp);
+
+  // Value-free operators — never look at rawVal.
+  if (op === 'null') return { clause: ` AND "${col}" IS NULL`, params: [] };
+  if (op === 'notnull') return { clause: ` AND "${col}" IS NOT NULL`, params: [] };
+
   const val = String(rawVal ?? '').trim().slice(0, 200);
   if (!val) return { clause: '', params: [] };
-  return { clause: ` AND "${col}" = ?`, params: [val] };
+
+  if (op === 'contains') {
+    // Strip LIKE wildcards from the needle (matching buildDataSearch) → a literal substring match.
+    const needle = val.replace(/[%_]/g, '');
+    if (!needle) return { clause: '', params: [] };
+    return { clause: ` AND "${col}" LIKE ?`, params: [`%${needle}%`] };
+  }
+
+  // Comparison operators — the comparator string comes from a fixed switch, never from user text.
+  switch (op) {
+    case 'ne':
+      return { clause: ` AND "${col}" != ?`, params: [val] };
+    case 'gt':
+      return { clause: ` AND "${col}" > ?`, params: [val] };
+    case 'lt':
+      return { clause: ` AND "${col}" < ?`, params: [val] };
+    case 'gte':
+      return { clause: ` AND "${col}" >= ?`, params: [val] };
+    case 'lte':
+      return { clause: ` AND "${col}" <= ?`, params: [val] };
+    case 'eq':
+    default:
+      return { clause: ` AND "${col}" = ?`, params: [val] };
+  }
 }
 
 /**
@@ -623,6 +684,7 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
     spec.columns,
     c.req.query('filterCol'),
     c.req.query('filterVal'),
+    c.req.query('filterOp'),
   );
   const extraClause = `${searchClause}${filterClause}`;
   const extraParams = [...searchParams, ...filterParams];

@@ -84,6 +84,11 @@ import {
   type CellInputKind,
   type BoundValue,
   type BrowseFilters,
+  type FilterOp,
+  FILTER_OP_OPTIONS,
+  filterOpIsValueFree,
+  filterIsActive,
+  normalizeFilterOp,
 } from './data-panel-logic';
 import { SqlEditor } from './SqlEditor';
 import { classNames } from '~/utils/classNames';
@@ -312,11 +317,13 @@ export const DataPanel = memo(() => {
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
-   * Exact-match single-column filter (worker `filterCol`/`filterVal`) — composes with search + sort.
-   * `filterCol` null → no column filter; a filter is only APPLIED when both are set (value non-empty).
+   * Single-column comparison filter (worker `filterCol`/`filterOp`/`filterVal`) — composes with search +
+   * sort. `filterCol` null → no column filter; a value-op filter APPLIES only when a value is present,
+   * while the value-free `null`/`notnull` ops apply on the column alone (see {@link filterIsActive}).
    */
   const [filterCol, setFilterCol] = useState<string | null>(null);
   const [filterVal, setFilterVal] = useState('');
+  const [filterOp, setFilterOp] = useState<FilterOp>('eq');
 
   /** Debounce timer for the exact-column filter value input. */
   const filterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -590,6 +597,7 @@ export const DataPanel = memo(() => {
       setBrowseTotal(null); // until the first page lands, pageInfo falls back to the overview count
       setFilterCol(null); // clear the prior table's column filter
       setFilterVal('');
+      setFilterOp('eq'); // reset the operator to the default exact-match
 
       if (searchTimer.current) {
         clearTimeout(searchTimer.current);
@@ -601,7 +609,7 @@ export const DataPanel = memo(() => {
 
       setSelectedKeys(new Set()); // never carry a bulk selection across a table switch / re-fetch
 
-      requestRows(key, 0, null, { search: '', filterCol: null, filterVal: '' }, true); // fresh: page 0, count
+      requestRows(key, 0, null, { search: '', filterCol: null, filterVal: '', filterOp: 'eq' }, true); // fresh: page 0, count
 
       /*
        * Super-admins get row DELETE — resolve the PK via PRAGMA table_info on its OWN correlation id
@@ -646,9 +654,9 @@ export const DataPanel = memo(() => {
       setSelectedKeys(new Set());
 
       // Page-nav: keep sort+search+filter, and SKIP the count (the total is unchanged → reuse cache).
-      requestRows(active, nextOffset, browseSort, { search, filterCol, filterVal }, false);
+      requestRows(active, nextOffset, browseSort, { search, filterCol, filterVal, filterOp }, false);
     },
-    [active, browseSort, search, filterCol, filterVal, requestRows],
+    [active, browseSort, search, filterCol, filterVal, filterOp, requestRows],
   );
 
   /*
@@ -1294,6 +1302,13 @@ export const DataPanel = memo(() => {
   const activeTable = tables.find((t) => t.key === active) ?? null;
 
   /*
+   * The human label for the current filter operator (=, ≠, contains, is null, …) + whether a column
+   * filter is actually applied — shared by the "· where …" note and the filter control's a11y text.
+   */
+  const filterOpLabel = FILTER_OP_OPTIONS.find((o) => o.value === filterOp)?.label ?? '=';
+  const filterApplied = filterIsActive(filterCol, filterOp, filterVal);
+
+  /*
    * Schema-aware SQL completion feed — REAL table + column identifiers from the inspected schema
    * (never fabricated). Table keys + the de-duplicated union of every table's columns.
    */
@@ -1378,10 +1393,10 @@ export const DataPanel = memo(() => {
         setSelectedKeys(new Set());
 
         // Sort change: keep search+filter, SKIP the count (sorting doesn't change the total).
-        requestRows(active, 0, next, { search, filterCol, filterVal }, false);
+        requestRows(active, 0, next, { search, filterCol, filterVal, filterOp }, false);
       }
     },
-    [browseSort, active, search, filterCol, filterVal, requestRows],
+    [browseSort, active, search, filterCol, filterVal, filterOp, requestRows],
   );
 
   /**
@@ -1401,9 +1416,9 @@ export const DataPanel = memo(() => {
       setBrowseError('');
       setDetailIdx(null);
       setSelectedKeys(new Set());
-      requestRows(active, 0, browseSort, { search: value, filterCol, filterVal }, true); // search → re-count
+      requestRows(active, 0, browseSort, { search: value, filterCol, filterVal, filterOp }, true); // search → re-count
     },
-    [active, browseSort, filterCol, filterVal, requestRows],
+    [active, browseSort, filterCol, filterVal, filterOp, requestRows],
   );
 
   /** Search-box change: update the input immediately, debounce the whole-table server search. */
@@ -1422,12 +1437,13 @@ export const DataPanel = memo(() => {
   );
 
   /**
-   * Run the exact-column filter (worker `filterCol`/`filterVal`) → reset to page 0 in the current sort
-   * + search and re-fetch. Only meaningful when col+val are both set (filtersToParams drops a partial
-   * filter). The worker allowlist-validates the column + parameterizes the value.
+   * Run the single-column comparison filter (worker `filterCol`/`filterOp`/`filterVal`) → reset to
+   * page 0 in the current sort + search and re-fetch. `filtersToParams` drops an inactive filter (a
+   * value-op with no value), and the value-free `null`/`notnull` ops apply on the column alone. The
+   * worker allowlist-validates the column, maps the op to a fixed clause, and parameterizes the value.
    */
   const runServerFilter = useCallback(
-    (col: string | null, val: string): void => {
+    (col: string | null, op: FilterOp, val: string): void => {
       if (!active) {
         return;
       }
@@ -1438,12 +1454,12 @@ export const DataPanel = memo(() => {
       setBrowseError('');
       setDetailIdx(null);
       setSelectedKeys(new Set());
-      requestRows(active, 0, browseSort, { search, filterCol: col, filterVal: val }, true); // filter → re-count
+      requestRows(active, 0, browseSort, { search, filterCol: col, filterVal: val, filterOp: op }, true); // filter → re-count
     },
     [active, browseSort, search, requestRows],
   );
 
-  /** Filter-column select: choosing a column re-applies if a value is typed; clearing it drops the filter. */
+  /** Filter-column select: choosing a column re-applies when it would filter; clearing it drops the filter. */
   const onFilterColChange = useCallback(
     (col: string): void => {
       const next = col || null;
@@ -1455,12 +1471,35 @@ export const DataPanel = memo(() => {
 
       if (!next) {
         setFilterVal('');
-        runServerFilter(null, ''); // column cleared → drop the filter
-      } else if (filterVal.trim()) {
-        runServerFilter(next, filterVal); // switched column with a value already typed → re-apply
+        setFilterOp('eq'); // cleared column → back to the default operator
+        runServerFilter(null, 'eq', ''); // column cleared → drop the filter
+      } else if (filterIsActive(next, filterOp, filterVal)) {
+        // switched column while the filter would apply (value present, or a value-free op) → re-apply
+        runServerFilter(next, filterOp, filterVal);
       }
     },
-    [filterVal, runServerFilter],
+    [filterVal, filterOp, runServerFilter],
+  );
+
+  /** Filter-operator select: value-free ops apply instantly; value-ops re-run with the current value (or drop it if blank). */
+  const onFilterOpChange = useCallback(
+    (raw: string): void => {
+      const op = normalizeFilterOp(raw);
+      setFilterOp(op);
+      setDetailIdx(null);
+
+      if (filterTimer.current) {
+        clearTimeout(filterTimer.current);
+      }
+
+      if (!filterCol) {
+        return; // no column chosen yet → nothing to fetch; the op is staged for when one is
+      }
+
+      // value-free ops need no value; value-ops carry the current value (blank → filtersToParams drops it)
+      runServerFilter(filterCol, op, filterOpIsValueFree(op) ? '' : filterVal);
+    },
+    [filterCol, filterVal, runServerFilter],
   );
 
   /** Filter-value input: update immediately, debounce the server filter (only fires with a column chosen). */
@@ -1473,21 +1512,22 @@ export const DataPanel = memo(() => {
         clearTimeout(filterTimer.current);
       }
 
-      filterTimer.current = setTimeout(() => runServerFilter(filterCol, val), SEARCH_DEBOUNCE_MS);
+      filterTimer.current = setTimeout(() => runServerFilter(filterCol, filterOp, val), SEARCH_DEBOUNCE_MS);
     },
-    [filterCol, runServerFilter],
+    [filterCol, filterOp, runServerFilter],
   );
 
-  /** Clear the exact-column filter entirely (instant, no debounce). */
+  /** Clear the column filter entirely (instant, no debounce) — column, operator, and value all reset. */
   const clearFilter = useCallback((): void => {
     setFilterCol(null);
     setFilterVal('');
+    setFilterOp('eq');
 
     if (filterTimer.current) {
       clearTimeout(filterTimer.current);
     }
 
-    runServerFilter(null, '');
+    runServerFilter(null, 'eq', '');
   }, [runServerFilter]);
 
   /**
@@ -1512,9 +1552,9 @@ export const DataPanel = memo(() => {
       setSelectedKeys(new Set());
 
       // Page-size change: same query, SKIP the count (page size doesn't change the total).
-      requestRows(active, 0, browseSort, { search, filterCol, filterVal }, false);
+      requestRows(active, 0, browseSort, { search, filterCol, filterVal, filterOp }, false);
     },
-    [active, browseSort, search, filterCol, filterVal, requestRows],
+    [active, browseSort, search, filterCol, filterVal, filterOp, requestRows],
   );
 
   /**
@@ -2224,13 +2264,18 @@ export const DataPanel = memo(() => {
                   · matching “{search}”
                 </span>
               ) : null}
-              {filterCol && filterVal.trim() ? (
+              {filterApplied ? (
                 <span
-                  className="truncate max-w-[180px]"
+                  className="truncate max-w-[200px]"
                   data-testid="data-filter-note"
-                  title={`Filtering the whole table where ${filterCol} = “${filterVal}”`}
+                  title={
+                    filterOpIsValueFree(filterOp)
+                      ? `Filtering the whole table where ${filterCol} ${filterOpLabel}`
+                      : `Filtering the whole table where ${filterCol} ${filterOpLabel} “${filterVal}”`
+                  }
                 >
-                  · where {filterCol} = “{filterVal}”
+                  · where {filterCol} {filterOpLabel}
+                  {filterOpIsValueFree(filterOp) ? null : <> “{filterVal}”</>}
                 </span>
               ) : null}
             </span>
@@ -2586,9 +2631,11 @@ export const DataPanel = memo(() => {
             </div>
           )}
 
-          {/* Exact-column filter — worker filterCol/filterVal (allowlist-validated, exact `"col" = ?`).
-              Composes with search + sort; applied only when a column + a non-empty value are both set.
-              Stays visible while a column is chosen so a 0-result filter can be changed/cleared. */}
+          {/* Single-column comparison filter — worker filterCol/filterOp/filterVal (allowlist-validated
+              column, fixed operator clause, parameterized value). Composes with search + sort. Value-ops
+              apply when a value is present; the value-free is-null / is-not-null ops apply on the column
+              alone (the value box is hidden). Stays visible while a column is chosen so a 0-result filter
+              can be changed/cleared. */}
           {columns.length > 0 && (rows.length > 0 || filterCol) && (
             <div className="px-3 py-1.5 border-b border-bolt-elements-borderColor/30">
               <div className="flex items-center gap-1.5">
@@ -2597,8 +2644,8 @@ export const DataPanel = memo(() => {
                   value={filterCol ?? ''}
                   onChange={(e) => onFilterColChange(e.target.value)}
                   data-testid="data-filter-col"
-                  aria-label="Filter column (exact match)"
-                  className="shrink-0 max-w-[45%] truncate rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none"
+                  aria-label="Filter column"
+                  className="shrink-0 max-w-[38%] truncate rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none"
                 >
                   <option value="">Filter column…</option>
                   {columns.map((c) => (
@@ -2609,16 +2656,38 @@ export const DataPanel = memo(() => {
                 </select>
                 {filterCol && (
                   <>
-                    <span className="shrink-0 text-[11px] text-bolt-elements-textTertiary">=</span>
-                    <input
-                      value={filterVal}
-                      onChange={(e) => onFilterValChange(e.target.value)}
-                      placeholder={`exact ${filterCol} value…`}
-                      data-testid="data-filter-val"
-                      aria-label={`Exact value for ${filterCol}`}
-                      spellCheck={false}
-                      className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-0.5 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none"
-                    />
+                    <select
+                      value={filterOp}
+                      onChange={(e) => onFilterOpChange(e.target.value)}
+                      data-testid="data-filter-op"
+                      aria-label={`Comparison operator for ${filterCol}`}
+                      title={`Comparison operator for ${filterCol}`}
+                      className="shrink-0 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none"
+                    >
+                      {FILTER_OP_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    {filterOpIsValueFree(filterOp) ? (
+                      <span
+                        className="min-w-0 flex-1 truncate text-[11px] italic text-bolt-elements-textTertiary"
+                        data-testid="data-filter-valuefree"
+                      >
+                        no value needed
+                      </span>
+                    ) : (
+                      <input
+                        value={filterVal}
+                        onChange={(e) => onFilterValChange(e.target.value)}
+                        placeholder={`${filterCol} ${filterOpLabel}…`}
+                        data-testid="data-filter-val"
+                        aria-label={`Value for ${filterCol} ${filterOpLabel}`}
+                        spellCheck={false}
+                        className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-0.5 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none"
+                      />
+                    )}
                     <button
                       type="button"
                       onClick={clearFilter}

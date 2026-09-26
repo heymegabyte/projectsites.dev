@@ -26,6 +26,12 @@ import {
   sortToParams,
   browseSearchParam,
   filtersToParams,
+  filterIsActive,
+  filterOpIsValueFree,
+  normalizeFilterOp,
+  FILTER_OPS,
+  FILTER_OP_OPTIONS,
+  FILTER_VALUE_FREE_OPS,
   clampPageSize,
   PAGE_SIZE_OPTIONS,
   insertableColumns,
@@ -853,6 +859,110 @@ describe('filtersToParams (search + exact-column filter → request params)', ()
       filterCol: 'c',
       filterVal: 'v',
     });
+  });
+
+  it('OMITS the default `eq` op so existing exact-match requests serialize byte-identically', () => {
+    // explicit eq and absent op both produce NO filterOp key (the worker defaults to eq)
+    expect(filtersToParams({ search: '', filterCol: 'status', filterVal: 'active', filterOp: 'eq' })).toEqual({
+      filterCol: 'status',
+      filterVal: 'active',
+    });
+    expect(filtersToParams({ search: '', filterCol: 'status', filterVal: 'active' })).not.toHaveProperty('filterOp');
+  });
+
+  it('forwards a non-default value-op as filterCol + filterOp + filterVal', () => {
+    expect(filtersToParams({ search: '', filterCol: 'age', filterVal: '18', filterOp: 'gte' })).toEqual({
+      filterCol: 'age',
+      filterOp: 'gte',
+      filterVal: '18',
+    });
+    expect(filtersToParams({ search: '', filterCol: 'name', filterVal: 'ada', filterOp: 'contains' })).toEqual({
+      filterCol: 'name',
+      filterOp: 'contains',
+      filterVal: 'ada',
+    });
+  });
+
+  it('value-free ops (null/notnull) send filterCol + filterOp and NO filterVal (even if a value lingers)', () => {
+    expect(filtersToParams({ search: '', filterCol: 'deleted_at', filterVal: '', filterOp: 'null' })).toEqual({
+      filterCol: 'deleted_at',
+      filterOp: 'null',
+    });
+
+    // a stale value in the box is ignored for a value-free op
+    expect(filtersToParams({ search: '', filterCol: 'deleted_at', filterVal: 'x', filterOp: 'notnull' })).toEqual({
+      filterCol: 'deleted_at',
+      filterOp: 'notnull',
+    });
+  });
+
+  it('a value-requiring op with a blank value sends no filter (only null/notnull are value-free)', () => {
+    expect(filtersToParams({ search: '', filterCol: 'age', filterVal: '  ', filterOp: 'gt' })).toEqual({});
+  });
+
+  it('an unknown op falls back to eq (value still required)', () => {
+    expect(filtersToParams({ search: '', filterCol: 'status', filterVal: 'active', filterOp: 'bogus' })).toEqual({
+      filterCol: 'status',
+      filterVal: 'active', // eq → no filterOp key
+    });
+  });
+});
+
+describe('normalizeFilterOp (raw op → known FilterOp, default eq)', () => {
+  it('passes through every known operator', () => {
+    for (const op of FILTER_OPS) {
+      expect(normalizeFilterOp(op)).toBe(op);
+    }
+  });
+
+  it('lowercases + trims and defaults unknown/blank/nullish to eq', () => {
+    expect(normalizeFilterOp('  GTE ')).toBe('gte');
+    expect(normalizeFilterOp('NotNull')).toBe('notnull');
+    expect(normalizeFilterOp('bogus')).toBe('eq');
+    expect(normalizeFilterOp('')).toBe('eq');
+    expect(normalizeFilterOp(undefined)).toBe('eq');
+    expect(normalizeFilterOp(null)).toBe('eq');
+  });
+});
+
+describe('filterOpIsValueFree (null/notnull need no value)', () => {
+  it('is true only for null + notnull', () => {
+    expect(filterOpIsValueFree('null')).toBe(true);
+    expect(filterOpIsValueFree('notnull')).toBe(true);
+    expect(FILTER_VALUE_FREE_OPS.has('null')).toBe(true);
+
+    for (const op of ['eq', 'ne', 'contains', 'gt', 'lt', 'gte', 'lte'] as const) {
+      expect(filterOpIsValueFree(op)).toBe(false);
+    }
+  });
+});
+
+describe('filterIsActive (does this filter state actually filter?)', () => {
+  it('needs a column', () => {
+    expect(filterIsActive('', 'eq', 'x')).toBe(false);
+    expect(filterIsActive(null, 'null', '')).toBe(false);
+  });
+
+  it('value-free ops are active on a column alone', () => {
+    expect(filterIsActive('deleted_at', 'null', '')).toBe(true);
+    expect(filterIsActive('deleted_at', 'notnull', '')).toBe(true);
+  });
+
+  it('value ops require a non-blank value', () => {
+    expect(filterIsActive('status', 'eq', 'active')).toBe(true);
+    expect(filterIsActive('status', 'eq', '   ')).toBe(false);
+    expect(filterIsActive('age', 'gt', '18')).toBe(true);
+    expect(filterIsActive('age', 'gt', '')).toBe(false);
+  });
+});
+
+describe('FILTER_OP_OPTIONS (operator dropdown source)', () => {
+  it('covers exactly the FILTER_OPS set, in order, each with a label', () => {
+    expect(FILTER_OP_OPTIONS.map((o) => o.value)).toEqual([...FILTER_OPS]);
+
+    for (const o of FILTER_OP_OPTIONS) {
+      expect(o.label.length).toBeGreaterThan(0);
+    }
   });
 });
 

@@ -1176,43 +1176,115 @@ export function browseSearchParam(search: string | null | undefined): { search?:
   return q ? { search: q } : {};
 }
 
-/** The whole-table filter state of the browse grid: a text search + an exact single-column filter. */
+/**
+ * Browse-filter comparison operators — mirrors the worker's `FILTER_OPS` (the server is the authority
+ * and re-validates). `null`/`notnull` are value-free (they filter on the column alone).
+ */
+export const FILTER_OPS = ['eq', 'ne', 'contains', 'gt', 'lt', 'gte', 'lte', 'null', 'notnull'] as const;
+export type FilterOp = (typeof FILTER_OPS)[number];
+
+/** The value-free operators — they need no value input and send none. */
+export const FILTER_VALUE_FREE_OPS: ReadonlySet<FilterOp> = new Set<FilterOp>(['null', 'notnull']);
+
+/** Human labels for the operator dropdown — one source shared by the grid UI and its tests. */
+export const FILTER_OP_OPTIONS: ReadonlyArray<{ value: FilterOp; label: string }> = [
+  { value: 'eq', label: '=' },
+  { value: 'ne', label: '≠' },
+  { value: 'contains', label: 'contains' },
+  { value: 'gt', label: '>' },
+  { value: 'lt', label: '<' },
+  { value: 'gte', label: '≥' },
+  { value: 'lte', label: '≤' },
+  { value: 'null', label: 'is null' },
+  { value: 'notnull', label: 'is not null' },
+];
+
+/** Normalize a raw operator to a known {@link FilterOp}, defaulting blank/unknown to `eq`. Pure. */
+export function normalizeFilterOp(raw: string | null | undefined): FilterOp {
+  const op = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  return (FILTER_OPS as readonly string[]).includes(op) ? (op as FilterOp) : 'eq';
+}
+
+/** True when {@link op} filters on the column alone (needs no value input). Pure. */
+export function filterOpIsValueFree(op: string | null | undefined): boolean {
+  return FILTER_VALUE_FREE_OPS.has(normalizeFilterOp(op));
+}
+
+/**
+ * Whether a column filter is ACTIVE: a column is chosen AND (the operator is value-free OR a non-empty
+ * value is present). Mirrors the worker's `buildColumnFilter` gate, so the UI shows an accurate
+ * "filter applied" state and only sends a request that will actually filter. Pure.
+ */
+export function filterIsActive(
+  col: string | null | undefined,
+  op: string | null | undefined,
+  val: string | null | undefined,
+): boolean {
+  if (!(col ?? '').trim()) {
+    return false;
+  }
+
+  if (filterOpIsValueFree(op)) {
+    return true;
+  }
+
+  return Boolean((val ?? '').trim());
+}
+
+/** The whole-table filter state of the browse grid: a text search + a single-column comparison filter. */
 export interface BrowseFilters {
   /** Whole-table OR-of-LIKE needle (see {@link browseSearchParam}). */
   search: string;
 
-  /** Exact-match filter column (a table column name), or null when no column filter is active. */
+  /** Filter column (a table column name), or null when no column filter is active. */
   filterCol: string | null;
 
-  /** Exact-match filter value. Only applied when {@link filterCol} is set AND this is non-empty. */
+  /** Filter value. Applied for value-ops when non-empty; ignored for the value-free `null`/`notnull`. */
   filterVal: string;
+
+  /** Comparison operator (see {@link FilterOp}); blank/unknown/absent → `eq`. */
+  filterOp?: string;
 }
 
 /**
  * Map the browse {@link BrowseFilters} to the `PS_DATA_REQUEST` filter params. `search` is trimmed +
- * omitted when blank; `filterCol`/`filterVal` are sent together ONLY when a column is chosen AND the
- * value is non-empty (matching the worker's `buildColumnFilter`, which ignores a blank value). Both are
- * display requests — the WORKER allowlist-validates `filterCol` + parameterizes every value — so nothing
- * is escaped here. Pure.
+ * omitted when blank. A column filter is sent only when {@link filterIsActive} — a column is chosen AND
+ * (the op is value-free OR the value is non-empty), matching the worker's `buildColumnFilter`. The
+ * default `eq` op is OMITTED (the worker defaults to it) so existing exact-match requests serialize
+ * byte-identically; value-free ops (`null`/`notnull`) send NO `filterVal`. The WORKER allowlist-validates
+ * `filterCol`, maps the op to a fixed clause, and parameterizes the value — nothing is escaped here. Pure.
  *
  * @example filtersToParams({ search: 'ada', filterCol: 'status', filterVal: 'active' })
- *   // { search: 'ada', filterCol: 'status', filterVal: 'active' }
+ *   // { search: 'ada', filterCol: 'status', filterVal: 'active' }   (eq default omitted)
+ * @example filtersToParams({ search: '', filterCol: 'status', filterVal: '', filterOp: 'notnull' })
+ *   // { filterCol: 'status', filterOp: 'notnull' }                  (value-free → no filterVal)
  * @example filtersToParams({ search: '', filterCol: 'status', filterVal: '' }) // {}  (blank value → no filter)
  */
 export function filtersToParams(f: BrowseFilters): {
   search?: string;
   filterCol?: string;
   filterVal?: string;
+  filterOp?: string;
 } {
-  const out: { search?: string; filterCol?: string; filterVal?: string } = {
+  const out: { search?: string; filterCol?: string; filterVal?: string; filterOp?: string } = {
     ...browseSearchParam(f.search),
   };
   const col = (f.filterCol ?? '').trim();
+  const op = normalizeFilterOp(f.filterOp);
   const val = (f.filterVal ?? '').trim();
 
-  if (col && val) {
+  if (filterIsActive(col, op, val)) {
     out.filterCol = col;
-    out.filterVal = val;
+
+    if (op !== 'eq') {
+      out.filterOp = op;
+    }
+
+    if (!filterOpIsValueFree(op)) {
+      out.filterVal = val;
+    }
   }
 
   return out;
