@@ -1135,6 +1135,9 @@ export function buildOrderByClause(columns: readonly string[], sortParam: string
 export const INTENT_DEFAULT_LIMIT = 100;
 export const MAX_INTENT_LIMIT = 1000;
 
+/** Max SELECT fields in one intent (bounds a hostile/huge select list; columns are allowlisted anyway). */
+export const MAX_SELECT_FIELDS = 64;
+
 /** Aggregate functions an intent may request (a fixed whitelist — never raw input). */
 export const INTENT_AGGS = ['count', 'sum', 'avg', 'min', 'max'] as const;
 export type IntentAgg = (typeof INTENT_AGGS)[number];
@@ -1183,13 +1186,21 @@ export function clampIntentLimit(limit: number | undefined | null): number {
  */
 export function compileQueryIntent(
   intent: QueryIntent,
-  spec: { columns: readonly string[]; countSql: string },
+  spec: { columns: readonly string[]; countSql: string; maskedColumns?: readonly string[] },
 ): CompiledQuery {
   const cols = spec.columns;
+  // Masked columns (e.g. `email` on form_submissions) may be FILTERED on (WHERE, like the browse path)
+  // but never SELECTed or GROUPed — that would leak the raw PII the browse route deliberately masks
+  // (directly, or via the `grp` alias). Strictly safe: reject them in any output position.
+  const masked = spec.maskedColumns ?? [];
   const select = Array.isArray(intent.select) ? intent.select : [];
 
   if (select.length === 0) {
     return { ok: false, error: 'select must specify at least one column or aggregate' };
+  }
+
+  if (select.length > MAX_SELECT_FIELDS) {
+    return { ok: false, error: `select is limited to ${MAX_SELECT_FIELDS} fields` };
   }
 
   const hasAgg = select.some((f) => !!f?.agg);
@@ -1210,6 +1221,10 @@ export function compileQueryIntent(
 
       if (f.col !== undefined && !cols.includes(f.col)) {
         return { ok: false, error: `unknown column: ${String(f.col)}` };
+      }
+
+      if (f.col !== undefined && masked.includes(f.col)) {
+        return { ok: false, error: `column "${f.col}" is masked and cannot be selected or grouped` };
       }
 
       let expr: string;
@@ -1238,6 +1253,10 @@ export function compileQueryIntent(
         return { ok: false, error: `unknown column: ${String(f.col)}` };
       }
 
+      if (masked.includes(f.col)) {
+        return { ok: false, error: `column "${f.col}" is masked and cannot be selected or grouped` };
+      }
+
       selectExprs.push(`"${f.col}"`);
     }
   }
@@ -1251,6 +1270,10 @@ export function compileQueryIntent(
 
     if (!cols.includes(intent.groupBy)) {
       return { ok: false, error: `unknown groupBy column: ${String(intent.groupBy)}` };
+    }
+
+    if (masked.includes(intent.groupBy)) {
+      return { ok: false, error: `column "${intent.groupBy}" is masked and cannot be selected or grouped` };
     }
 
     selectExprs.unshift(`"${intent.groupBy}" AS grp`);
@@ -1624,6 +1647,59 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table/column-distinct', async
   }
 
   return c.json({ data: { table: spec.key, column, values, truncated, cap: MAX_DISTINCT_VALUES } });
+});
+
+/**
+ * Grounded "Ask your data" EXECUTOR — run a typed {@link QueryIntent} (proposed by the AI pipeline or a
+ * UI builder) against ONE allowlisted overview table. Safety chain: org auth (401) → {@link ownsSiteData}
+ * tenant gate (404, never a 403 leak) → {@link overviewTable} allowlist (400 unknown) →
+ * {@link compileQueryIntent} — the deterministic, injection-safe compiler (400 with the TYPED reason on an
+ * invalid intent: masked-column selects, unknown columns/aggregates, mixed modes) → BOUND execution
+ * (`site_id` + the compiler's params bound; every identifier was allowlist-validated + quoted). Echoes the
+ * executed SQL for transparency. Read-only (SELECT), LIMIT-bounded by the compiler. `email` on
+ * `form_submissions` is passed as a masked column, so it can be FILTERED but never SELECTed/GROUPed
+ * (the executor never leaks the PII the browse route masks). Fail-soft: a runtime SQL error → 502, never
+ * a fabricated empty result.
+ */
+siteDataApi.post('/api/sites/:siteId/data-overview/:table/query', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+  const spec = overviewTable(table);
+  if (!spec) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Unknown table' } }, 400);
+  }
+
+  const body = (await c.req.json().catch(() => null)) as QueryIntent | null;
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'A query intent body is required' } }, 400);
+  }
+
+  const compiled = compileQueryIntent(body, {
+    columns: spec.columns,
+    countSql: spec.countSql,
+    maskedColumns: spec.maskEmail ? ['email'] : [],
+  });
+  if (!compiled.ok) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: compiled.error } }, 400);
+  }
+
+  let rows: Record<string, unknown>[] = [];
+  let rowsRead: number | null = null;
+  try {
+    const res = await c.env.DB.prepare(compiled.sql)
+      .bind(siteId, ...compiled.params)
+      .all();
+    rows = (res.results ?? []) as Record<string, unknown>[];
+    rowsRead = (res.meta as { rows_read?: number } | undefined)?.rows_read ?? null;
+  } catch {
+    return c.json({ error: { code: 'QUERY_FAILED', message: 'The query could not be executed.' } }, 502);
+  }
+
+  return c.json({ data: { table: spec.key, sql: compiled.sql, rows, rowsRead } });
 });
 
 /**

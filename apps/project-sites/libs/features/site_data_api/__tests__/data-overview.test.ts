@@ -33,6 +33,7 @@ import {
   clampIntentLimit,
   MAX_INTENT_LIMIT,
   INTENT_DEFAULT_LIMIT,
+  MAX_SELECT_FIELDS,
   normalizeGroupAgg,
   MAX_KANBAN_GROUPS,
   MAX_GRID_VIEWS_PER_TABLE,
@@ -1050,6 +1051,27 @@ describe('compileQueryIntent (grounded intent → parameterized SQLite; the AI/U
       ok: false,
       error: 'select must specify at least one column or aggregate',
     });
+  });
+
+  it('REJECTS a MASKED column in select / aggregate / groupBy (PII never leaked), but allows FILTERING it', () => {
+    const masked = { columns: fs.columns, countSql: fs.countSql, maskedColumns: ['email'] };
+    expect(compileQueryIntent({ select: [{ col: 'email' }] }, masked).ok).toBe(false);
+    expect(compileQueryIntent({ select: [{ agg: 'min', col: 'email' }] }, masked).ok).toBe(false);
+    expect(compileQueryIntent({ select: [{ agg: 'count' }], groupBy: 'email' }, masked).ok).toBe(false);
+    // Filtering by a masked column is allowed (WHERE only, never output) — consistent with the browse path.
+    const r = compileQueryIntent(
+      { select: [{ col: 'status' }], filters: [{ col: 'email', op: 'eq', val: 'a@b.co' }] },
+      masked,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sql).toContain('"email" = ?'); // filtered in the WHERE
+    expect(r.sql.startsWith('SELECT "status" FROM')).toBe(true); // email NEVER in the SELECT list
+  });
+
+  it('bounds the select field count (MAX_SELECT_FIELDS)', () => {
+    const many = Array.from({ length: MAX_SELECT_FIELDS + 1 }, () => ({ col: 'status' }));
+    expect(compileQueryIntent({ select: many }, fs).ok).toBe(false);
   });
 });
 

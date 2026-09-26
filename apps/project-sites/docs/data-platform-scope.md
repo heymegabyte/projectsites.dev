@@ -1189,10 +1189,34 @@ later fires); fully unit-tested first.
 multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 NULL toggle · #46 BLOB · #47–#48 KV meta/TTL ·
 #49 R2 folders — one real-browser pass (authed admin). **A dedicated real-browser QA fire remains the highest-value out-of-loop step.**
 
-**NEXT slice: "Ask your data" slice 2 — the authorized EXECUTOR endpoint for a compiled intent (worker + tests).**
-Wire `compileQueryIntent` into a real gated route: `POST /api/sites/:siteId/data-overview/:table/query` — resolve the
-spec via `overviewTable` (404 unknown), `ownsSiteData` IDOR guard, Zod-validate the intent body, `compileQueryIntent`
-→ on `ok:false` return 400 with the typed error; on ok, `DB.prepare(sql).bind(siteId, ...params).all()` (bounded) and
-return `{ sql (echoed for transparency), rows, rowsRead }`. Fully verifiable (route jest with a mock DB asserting the
-bound query + the refusal path). Then slice 3 = the NL→intent model call (AI Gateway) that FEEDS this executor.
-Alternatives: extend NULL affordance + datalist to the Add-row; nested AND/OR filter-tree.
+### ✅ Shipped next fire (2026-09-26 #51) — "Ask your data" slice 2: the authorized EXECUTOR endpoint
+Wires #50's compiler into a real gated route: `POST /api/sites/:siteId/data-overview/:table/query`. Safety chain: org
+auth (401) → `ownsSiteData` tenant gate (404, never a 403 leak) → `overviewTable` allowlist (400 unknown) →
+`compileQueryIntent` (400 with the TYPED reason on an invalid intent) → BOUND execution
+(`DB.prepare(sql).bind(siteId, ...params).all()`) → returns `{ table, sql (echoed for transparency), rows, rowsRead }`.
+Read-only, LIMIT-bounded, fail-soft (a runtime SQL error → 502, never a fabricated empty result). Worker-only.
+- **PII hardening (compiler, `handlers.ts`):** `compileQueryIntent`'s spec param gains `maskedColumns` — a masked
+  column (the route passes `email` on `form_submissions`, which the browse route masks) may be FILTERED (WHERE, like
+  the browse path) but is REJECTED in SELECT / aggregate / groupBy (would leak the raw PII via a row or the `grp`
+  alias). Also added `MAX_SELECT_FIELDS=64` (bounds a hostile huge select; columns are allowlisted anyway).
+- **Route tests (`query.test.ts`, NEW, 9 jest) + compiler tests (+2):** 401 unauth · 404 foreign-site (never a 403
+  leak) · 400 unknown table · 400 unknown-column (compiler reason surfaced, nothing reaches the DB) · 400 masked-email
+  select · 200 projection (asserts BOUND `[siteId, limit]` + echoed SQL) · 200 aggregate count+groupBy · 502 on a
+  runtime throw · 400 non-JSON body. Compiler: masked-col reject-in-output/allow-in-filter + select-count bound.
+- Verified: worker Jest **12829/12829** (+11, +1 suite) + tsc 0 + 0 eslint errors. Worker-only. Fully verifiable
+  (route jest with a mock DB + pure-compiler tests) — no verify-by-build debt. The route is live for the AI pipeline
+  (slice 3) + a future UI query-builder to call; a post-deploy 401-liveness check confirms the route exists once the
+  worker CI deploys (~14min).
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize · #34 footer · #35 whole-query · #36 pins · #37 view · #40
+multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 NULL toggle · #46 BLOB · #47–#48 KV meta/TTL ·
+#49 R2 folders — one real-browser pass (authed admin). **A dedicated real-browser QA fire remains the highest-value out-of-loop step.**
+
+**NEXT slice: "Ask your data" slice 3 — NL→intent via AI Gateway, feeding the #51 executor (worker + eval fixtures).**
+A `POST .../ask` route: take a natural-language question + the table's authorized schema (columns + types, minus masked
+cols) → call a CF-hosted model through the AI Gateway with STRUCTURED OUTPUT constrained to the `QueryIntent` shape (the
+model proposes an INTENT, never SQL) → validate + `compileQueryIntent` (the #50/#51 boundary re-runs server-side) →
+execute via the #51 path → return `{ question, intent, sql, rows }`. Start with the eval harness + a couple golden
+Q→intent fixtures (compare the EXECUTED result, not the SQL string) + a hard per-request budget; treat the model output
+as untrusted (re-validated by the compiler). Alternatives: a UI query-builder that POSTs intents to #51 (editor-side);
+extend NULL affordance + datalist to the Add-row; nested AND/OR filter-tree.
