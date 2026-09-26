@@ -7,6 +7,13 @@ interface DropdownProps {
   children: ReactNode;
   align?: 'start' | 'center' | 'end';
   sideOffset?: number;
+
+  /**
+   * Overrides the default panel styling entirely. Pass `ps-more-menu` to reuse
+   * the branded cyan/black glass panel the editor's ⋯ menu uses, so sibling
+   * dropdowns render identically.
+   */
+  contentClassName?: string;
 }
 
 interface DropdownItemProps {
@@ -33,25 +40,28 @@ export const DropdownItem = ({ children, onSelect, className }: DropdownItemProp
 
 export const DropdownSeparator = () => <DropdownMenu.Separator className="h-px bg-bolt-elements-borderColor my-1" />;
 
-export const Dropdown = ({ trigger, children, align = 'end', sideOffset = 5 }: DropdownProps) => {
+export const Dropdown = ({ trigger, children, align = 'end', sideOffset = 5, contentClassName }: DropdownProps) => {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>{trigger}</DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>
         <DropdownMenu.Content
-          className={classNames(
-            'min-w-[220px] rounded-lg p-2',
-            'bg-bolt-elements-background-depth-2',
-            'border border-bolt-elements-borderColor',
-            'shadow-lg',
-            'animate-in fade-in-80 zoom-in-95',
-            'data-[side=bottom]:slide-in-from-top-2',
-            'data-[side=left]:slide-in-from-right-2',
-            'data-[side=right]:slide-in-from-left-2',
-            'data-[side=top]:slide-in-from-bottom-2',
-            'z-[1000]',
-          )}
+          className={
+            contentClassName ??
+            classNames(
+              'min-w-[220px] rounded-lg p-2',
+              'bg-bolt-elements-background-depth-2',
+              'border border-bolt-elements-borderColor',
+              'shadow-lg',
+              'animate-in fade-in-80 zoom-in-95',
+              'data-[side=bottom]:slide-in-from-top-2',
+              'data-[side=left]:slide-in-from-right-2',
+              'data-[side=right]:slide-in-from-left-2',
+              'data-[side=top]:slide-in-from-bottom-2',
+              'z-[1000]',
+            )
+          }
           sideOffset={sideOffset}
           align={align}
         >

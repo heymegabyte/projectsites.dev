@@ -59,18 +59,16 @@ const webcontainerIframeOverride = stripIndents`
   globalThis.WEBCONTAINER_API_IFRAME_URL = "https://stackblitz.com";
 `;
 
+/*
+ * The ProjectSites editor is dark-first (brand). Force data-theme="dark" on the
+ * document so EVERY bolt-elements-* token AND every `dark:` utility resolves to
+ * the dark palette. Otherwise a light OS preference (or a stale `bolt_theme`)
+ * leaves the document in light/unset mode, where `bg-white`-based surfaces stay
+ * white inside the dark admin shell — the "white background in dark mode" bug.
+ * The theme toggle is hidden in the embedded editor, so there's nothing to honor.
+ */
 const inlineThemeCode = stripIndents`
-  setTutorialKitTheme();
-
-  function setTutorialKitTheme() {
-    let theme = localStorage.getItem('bolt_theme');
-
-    if (!theme) {
-      theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
-
-    document.querySelector('html')?.setAttribute('data-theme', theme);
-  }
+  document.querySelector('html')?.setAttribute('data-theme', 'dark');
 `;
 
 export const Head = createHead(() => (

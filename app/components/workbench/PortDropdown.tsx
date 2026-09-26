@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef } from 'react';
+import { classNames } from '~/utils/classNames';
 import type { PreviewInfo } from '~/lib/stores/previews';
 
 interface PortDropdownProps {
@@ -10,6 +11,16 @@ interface PortDropdownProps {
   previews: PreviewInfo[];
 }
 
+/**
+ * Port switcher for the preview address bar.
+ *
+ * - **One (or zero) port → renders NOTHING** (no plug icon, no number): there's
+ *   nothing to switch between, so the control is pure noise. The plug only ever
+ *   appears when the project actually serves more than one port.
+ * - **Multiple ports → a plug button that expands an INLINE port picker** (not a
+ *   floating popup): clicking the plug reveals every port as a chip right in the
+ *   address bar; selecting one navigates the preview to it and collapses again.
+ */
 export const PortDropdown = memo(
   ({
     activePreviewIndex,
@@ -26,7 +37,7 @@ export const PortDropdown = memo(
       .map((previewInfo, index) => ({ ...previewInfo, index }))
       .sort((a, b) => a.port - b.port);
 
-    // close dropdown if user clicks outside
+    // close the inline picker if the user clicks outside it
     useEffect(() => {
       const handleClickOutside = (event: MouseEvent) => {
         if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -45,44 +56,54 @@ export const PortDropdown = memo(
       };
     }, [isDropdownOpen]);
 
+    /*
+     * Only one port available → nothing to choose. Hide the control entirely
+     * (no plug, no number) so the address bar starts clean with just the URL.
+     */
+    if (previews.length <= 1) {
+      return null;
+    }
+
+    const activePreview =
+      activePreviewIndex >= 0 && activePreviewIndex < previews.length ? previews[activePreviewIndex] : undefined;
+
     return (
-      <div className="relative z-port-dropdown" ref={dropdownRef}>
-        {/* Display the active port if available, otherwise show the plug icon */}
+      <div className="ps-port relative z-port-dropdown flex items-center" ref={dropdownRef}>
         <button
-          className="flex items-center group-focus-within:text-bolt-elements-preview-addressBar-text bg-white group-focus-within:bg-bolt-elements-preview-addressBar-background dark:bg-bolt-elements-preview-addressBar-backgroundHover rounded-full px-2 py-1 gap-1.5"
+          type="button"
+          className="ps-port-plug flex items-center gap-1.5 rounded-full px-2 py-1"
           onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+          aria-expanded={isDropdownOpen}
+          aria-label="Switch preview port"
+          title="Switch preview port"
         >
-          <span className="i-ph:plug text-base"></span>
-          {previews.length > 0 && activePreviewIndex >= 0 && activePreviewIndex < previews.length ? (
-            <span className="text-xs font-medium">{previews[activePreviewIndex].port}</span>
+          <span className="i-ph:plug text-base" aria-hidden="true"></span>
+          {activePreview && !isDropdownOpen ? (
+            <span className="text-xs font-medium">{activePreview.port}</span>
           ) : null}
         </button>
+
         {isDropdownOpen && (
-          <div className="absolute left-0 mt-2 bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor rounded shadow-sm min-w-[140px] dropdown-animation">
-            <div className="px-4 py-2 border-b border-bolt-elements-borderColor text-sm font-semibold text-bolt-elements-textPrimary">
-              Ports
-            </div>
-            {sortedPreviews.map((preview) => (
-              <div
-                key={preview.port}
-                className="flex items-center px-4 py-2 cursor-pointer hover:bg-bolt-elements-item-backgroundActive"
-                onClick={() => {
-                  setActivePreviewIndex(preview.index);
-                  setIsDropdownOpen(false);
-                  setHasSelectedPreview(true);
-                }}
-              >
-                <span
-                  className={
-                    activePreviewIndex === preview.index
-                      ? 'text-bolt-elements-item-contentAccent'
-                      : 'text-bolt-elements-item-contentDefault group-hover:text-bolt-elements-item-contentActive'
-                  }
+          <div className="ps-port-inline flex items-center gap-1 pl-1" role="listbox" aria-label="Preview ports">
+            {sortedPreviews.map((preview) => {
+              const active = activePreviewIndex === preview.index;
+              return (
+                <button
+                  key={preview.port}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  className={classNames('ps-port-chip', { 'is-active': active })}
+                  onClick={() => {
+                    setActivePreviewIndex(preview.index);
+                    setIsDropdownOpen(false);
+                    setHasSelectedPreview(true);
+                  }}
                 >
                   {preview.port}
-                </span>
-              </div>
-            ))}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

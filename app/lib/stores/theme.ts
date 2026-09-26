@@ -9,18 +9,19 @@ export function themeIsDark() {
   return themeStore.get() === 'dark';
 }
 
-export const DEFAULT_THEME = 'light';
+export const DEFAULT_THEME = 'dark';
 
 export const themeStore = atom<Theme>(initStore());
 
-function initStore() {
-  if (!import.meta.env.SSR) {
-    const persistedTheme = localStorage.getItem(kTheme) as Theme | undefined;
-    const themeAttribute = document.querySelector('html')?.getAttribute('data-theme');
-
-    return persistedTheme ?? (themeAttribute as Theme) ?? DEFAULT_THEME;
-  }
-
+/*
+ * ProjectSites editor is dark-first (brand). Always initialize dark so the root
+ * Layout effect (which mirrors themeStore → data-theme) never re-sets the document
+ * back to light from a stale `bolt_theme` / prefers-color-scheme — which would
+ * re-introduce the "white surfaces in dark mode" bug the inline script fixes.
+ * The theme toggle is hidden in the embedded editor, so honoring a persisted
+ * light choice has no user-facing value here.
+ */
+function initStore(): Theme {
   return DEFAULT_THEME;
 }
 

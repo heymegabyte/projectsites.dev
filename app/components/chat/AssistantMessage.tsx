@@ -227,15 +227,8 @@ export const AssistantMessage = memo(
                       />
                     </WithTooltip>
                   )}
-                  {onFork && (
-                    <WithTooltip tooltip="Fork chat from this message">
-                      <button
-                        onClick={() => onFork(messageId)}
-                        key="i-ph:git-fork"
-                        className="i-ph:git-fork text-xl text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary transition-colors"
-                      />
-                    </WithTooltip>
-                  )}
+                  {/* "Fork chat from this message" button removed per product decision.
+                      The fork handler stays wired (onFork) — only the control is gone. */}
                 </div>
               )}
             </div>

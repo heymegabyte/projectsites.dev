@@ -12,7 +12,7 @@
  * <BottomPanelTabs />
  */
 import { useStore } from '@nanostores/react';
-import React, { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Panel, type ImperativePanelHandle } from 'react-resizable-panels';
 import { shortcutEventEmitter } from '~/lib/hooks';
 import { themeStore } from '~/lib/stores/theme';
@@ -29,29 +29,13 @@ const logger = createScopedLogger('BottomPanelTabs');
 const MAX_TERMINALS = 3;
 export const DEFAULT_BOTTOM_PANEL_SIZE = 30;
 
-const ProblemsTab = lazy(() => import('./tabs/ProblemsTab'));
-const LogsTab = lazy(() => import('./tabs/LogsTab'));
-
 /**
- * Icon-only extension tabs. Order = tab-strip order after Terminal slot.
- * Each tab is icon-only in the strip; the label field drives the tooltip + ARIA label.
+ * Extension tabs shown after the Terminal slot. "Problems" and "Logs" were
+ * removed from the bottom-panel tab strip per product decision — the strip now
+ * shows only the Terminal(s). To restore them, re-add their descriptors here
+ * (the tab components remain under ./tabs/ and can be lazy-imported again).
  */
-const EXTENSION_TABS: readonly ExtensionTabDescriptor[] = [
-  {
-    id: 'problems',
-    label: 'Problems',
-    icon: 'i-ph:warning-duotone',
-    component: ProblemsTab,
-    hint: 'TypeScript, lint, build, manifest errors',
-  },
-  {
-    id: 'logs',
-    label: 'Logs',
-    icon: 'i-ph:list-bullets-duotone',
-    component: LogsTab,
-    hint: 'Worker, preview, build, and deploy logs',
-  },
-];
+const EXTENSION_TABS: readonly ExtensionTabDescriptor[] = [];
 
 type ActiveTab = { kind: 'terminal'; index: number } | { kind: 'extension'; id: string };
 
@@ -287,10 +271,8 @@ export const BottomPanelTabs = memo(() => {
             </Tooltip.Root>
           ) : null}
 
-          {/* Separator */}
-          <div className="w-px h-5 bg-bolt-elements-borderColor mx-1" />
-
-          {/* Extension tabs — icon-only with tooltips */}
+          {/* Extension tabs — icon-only with tooltips (empty by default: Problems
+              + Logs were removed from the strip). */}
           {EXTENSION_TABS.map((tab) => {
             const active = activeTab.kind === 'extension' && activeTab.id === tab.id;
             return (

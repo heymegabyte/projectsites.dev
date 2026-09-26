@@ -13,23 +13,23 @@ interface SiteImportStatusProps {
   expectedFileCount: number;
 }
 
-/** Status-icon glyph + color per action lifecycle state (mirrors the Artifact list). */
+/** Status-icon glyph + brand color per action lifecycle state. */
 function actionIcon(status: ActionState['status']): { icon: string; color: string } {
   switch (status) {
     case 'running': {
-      return { icon: 'i-svg-spinners:90-ring-with-bg', color: 'text-bolt-elements-loader-progress' };
+      return { icon: 'i-svg-spinners:90-ring-with-bg', color: 'text-[#00e5ff]' };
     }
     case 'complete': {
-      return { icon: 'i-ph:check', color: 'text-bolt-elements-icon-success' };
+      return { icon: 'i-ph:check', color: 'text-[#5af78e]' };
     }
     case 'failed': {
-      return { icon: 'i-ph:x', color: 'text-bolt-elements-icon-error' };
+      return { icon: 'i-ph:x', color: 'text-[#ff5c79]' };
     }
     case 'aborted': {
-      return { icon: 'i-ph:x', color: 'text-bolt-elements-textSecondary' };
+      return { icon: 'i-ph:x', color: 'text-[rgba(244,244,255,0.5)]' };
     }
     default: {
-      return { icon: 'i-ph:circle-duotone', color: 'text-bolt-elements-textTertiary' };
+      return { icon: 'i-ph:circle-duotone', color: 'text-[rgba(244,244,255,0.4)]' };
     }
   }
 }
@@ -53,7 +53,7 @@ const ImportCommands = memo(({ artifact }: { artifact: ArtifactState }) => {
   }
 
   return (
-    <div className="border-t border-bolt-elements-artifacts-borderColor bg-bolt-elements-actions-background px-5 py-3">
+    <div className="border-t border-[rgba(0,229,255,0.14)] bg-[rgba(0,0,0,0.22)] px-5 py-3">
       <ul className="list-none space-y-2">
         {commands.map((action, index) => {
           const { icon, color } = actionIcon(action.status);
@@ -65,9 +65,9 @@ const ImportCommands = memo(({ artifact }: { artifact: ArtifactState }) => {
                 <span className={icon} />
               </span>
               <div className="min-w-0 flex-1">
-                <div className="text-bolt-elements-textSecondary text-[11px] leading-4">{label}</div>
-                <code className="block font-mono text-xs text-bolt-elements-textPrimary break-all">
-                  <span className="text-bolt-elements-textTertiary select-none">$ </span>
+                <div className="text-[11px] leading-4 text-[rgba(244,244,255,0.55)]">{label}</div>
+                <code className="ps-import-cmd block font-mono text-xs break-all">
+                  <span className="ps-import-cmd-prompt select-none">$ </span>
                   {(action.content ?? '').trim()}
                 </code>
               </div>
@@ -87,10 +87,13 @@ const ImportCommands = memo(({ artifact }: { artifact: ArtifactState }) => {
  * It watches the live editor file map (`workbenchStore.files`, a nanostore) and
  * shows **"Loading N files…"** with a live sub-count + progress rail, flipping to
  * **"Loaded N files"** the moment the editor holds every project file. Clicking the
- * header opens the Workbench — parity with the artifact card it replaces. Below the
- * header, {@link ImportCommands} prints the terminal commands the import runs.
+ * header opens the Workbench. Below the header, {@link ImportCommands} prints the
+ * terminal commands the import runs.
  *
- * @remarks `role="status"` + `aria-live="polite"` announce the transition to AT.
+ * @remarks Styled with EXPLICIT projectsites brand colors (cyan on near-black) so
+ * the headline is always legible light-on-dark — never white-on-white — regardless
+ * of the embedded editor's bolt theme. `role="status"` + `aria-live="polite"`
+ * announce the transition to AT.
  * @example
  * <SiteImportStatus expectedFileCount={49} />
  */
@@ -125,52 +128,41 @@ export const SiteImportStatus = memo(({ expectedFileCount }: SiteImportStatusPro
   }, [done]);
 
   return (
-    <div
-      className={classNames(
-        'artifact w-full overflow-hidden rounded-lg border border-bolt-elements-borderColor',
-        'bg-bolt-elements-artifacts-background transition-colors duration-150',
-      )}
-      data-testid="site-import-status"
-      data-state={done ? 'loaded' : 'loading'}
-    >
+    <div className="ps-import-card w-full" data-testid="site-import-status" data-state={done ? 'loaded' : 'loading'}>
       <button
         type="button"
-        onClick={() => workbenchStore.showWorkbench.set(!workbenchStore.showWorkbench.get())}
-        title="Click to open Workbench"
-        className="w-full text-left hover:bg-bolt-elements-artifacts-backgroundHover transition-colors duration-150"
+        onClick={() => {
+          // Open the Code tab + ensure the Workbench is visible. NEVER toggle it
+          // off (the old `set(!get())` could hide + push the Workbench off-screen).
+          workbenchStore.currentView.set('code');
+          workbenchStore.showWorkbench.set(true);
+        }}
+        title="Click to open Code"
+        className="w-full text-left transition-colors duration-150 hover:bg-[rgba(0,229,255,0.05)]"
       >
         <div className="flex items-center gap-3 px-5 py-3.5">
           <div
-            className={classNames(
-              'text-lg shrink-0',
-              done ? 'text-bolt-elements-icon-success' : 'text-bolt-elements-loader-progress',
-            )}
+            className={classNames('text-lg shrink-0 ps-import-glow', done ? 'text-[#5af78e]' : 'text-[#00e5ff]')}
             aria-hidden="true"
           >
             {done ? <div className="i-ph:check-circle-duotone" /> : <div className="i-svg-spinners:90-ring-with-bg" />}
           </div>
           <div className="min-w-0 flex-1">
-            <div
-              role="status"
-              aria-live="polite"
-              className="text-bolt-elements-textPrimary font-medium leading-5 text-sm truncate"
-            >
+            <div role="status" aria-live="polite" className="ps-import-headline text-sm leading-5 truncate">
               {headline}
             </div>
-            <div className="text-bolt-elements-textSecondary text-xs mt-0.5 truncate">
-              {done ? 'Click to open Workbench' : detail}
-            </div>
+            <div className="ps-import-sub text-xs mt-0.5 truncate">{done ? 'Click to open Code' : detail}</div>
           </div>
           {!done && (
-            <div className="shrink-0 font-mono text-[11px] tabular-nums text-bolt-elements-textTertiary">
+            <div className="ps-import-count shrink-0 font-mono text-[11px] tabular-nums">
               {loaded}/{expectedFileCount}
             </div>
           )}
         </div>
         {!done && (
-          <div className="h-0.5 w-full bg-bolt-elements-artifacts-borderColor" aria-hidden="true">
+          <div className="h-0.5 w-full bg-[rgba(0,229,255,0.12)]" aria-hidden="true">
             <div
-              className="h-full bg-bolt-elements-item-contentAccent transition-[width] duration-300 ease-out"
+              className="h-full bg-[#00e5ff] transition-[width] duration-300 ease-out"
               style={{ width: `${pct}%` }}
             />
           </div>

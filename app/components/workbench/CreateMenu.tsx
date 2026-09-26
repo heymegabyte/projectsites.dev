@@ -152,6 +152,7 @@ export const CreateMenu = memo(({ className }: CreateMenuProps) => {
     <>
       <Dropdown
         align="end"
+        contentClassName="ps-more-menu"
         trigger={
           <button
             type="button"
@@ -173,29 +174,35 @@ export const CreateMenu = memo(({ className }: CreateMenuProps) => {
           </button>
         }
       >
-        <DropdownItem className="text-bolt-elements-item-contentAccent font-medium" onSelect={openAi}>
+        <DropdownItem className="ps-create-item ps-create-item--accent" onSelect={openAi}>
           <div className="i-ph:magic-wand-duotone text-base" aria-hidden />
           Describe what you want to build…
         </DropdownItem>
         <DropdownSeparator />
 
         <div className={groupLabel}>Code</div>
-        <DropdownItem onSelect={() => quickCreate({ kind: 'function', name: 'my-function' })}>
+        <DropdownItem className="ps-create-item" onSelect={() => quickCreate({ kind: 'function', name: 'my-function' })}>
           <div className="i-ph:function text-base" aria-hidden />
           Add Function
         </DropdownItem>
-        <DropdownItem onSelect={() => quickCreate({ kind: 'endpoint', name: 'my-endpoint', method: 'POST' })}>
+        <DropdownItem
+          className="ps-create-item"
+          onSelect={() => quickCreate({ kind: 'endpoint', name: 'my-endpoint', method: 'POST' })}
+        >
           <div className="i-ph:plugs-connected-duotone text-base" aria-hidden />
           Add API Endpoint
         </DropdownItem>
 
         <DropdownSeparator />
         <div className={groupLabel}>Automation</div>
-        <DropdownItem onSelect={() => quickCreate({ kind: 'cron', name: 'nightly-job', schedule: '0 2 * * *' })}>
+        <DropdownItem
+          className="ps-create-item"
+          onSelect={() => quickCreate({ kind: 'cron', name: 'nightly-job', schedule: '0 2 * * *' })}
+        >
           <div className="i-ph:clock-duotone text-base" aria-hidden />
           Schedule Job
         </DropdownItem>
-        <DropdownItem onSelect={() => quickCreate({ kind: 'workflow', name: 'my-workflow' })}>
+        <DropdownItem className="ps-create-item" onSelect={() => quickCreate({ kind: 'workflow', name: 'my-workflow' })}>
           <div className="i-ph:flow-arrow-duotone text-base" aria-hidden />
           Create Workflow
         </DropdownItem>
@@ -205,6 +212,7 @@ export const CreateMenu = memo(({ className }: CreateMenuProps) => {
         {CREATE_TEMPLATES.map((tpl) => (
           <DropdownItem
             key={tpl.id}
+            className="ps-create-item"
             onSelect={() => quickCreate({ kind: 'template', name: tpl.intent.name, templateId: tpl.id })}
           >
             <div className="i-ph:file-code-duotone text-base" aria-hidden />

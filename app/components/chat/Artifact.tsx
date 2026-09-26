@@ -84,8 +84,8 @@ export const Artifact = memo(({ artifactId }: ArtifactProps) => {
           <button
             className="flex items-stretch bg-bolt-elements-artifacts-background hover:bg-bolt-elements-artifacts-backgroundHover w-full overflow-hidden"
             onClick={() => {
-              const showWorkbench = workbenchStore.showWorkbench.get();
-              workbenchStore.showWorkbench.set(!showWorkbench);
+              // Only ever SHOW the Workbench — never toggle it off-screen.
+              workbenchStore.showWorkbench.set(true);
             }}
           >
             <div className="px-5 p-3.5 w-full text-left">

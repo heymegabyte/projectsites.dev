@@ -77,6 +77,15 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
   const isDeviceModeOn: boolean = false;
 
   /*
+   * "Full Window" (fullscreen), "New Window Options", and "Open in new tab" were
+   * removed from the Preview toolbar per product decision. Gated off (not deleted)
+   * — typed `boolean` so the wrapped JSX stays valid code AND every handler/state
+   * stays referenced (no dead-variable cascade); the underlying feature code is
+   * kept intact for a future re-enable.
+   */
+  const showLegacyPreviewControls: boolean = false;
+
+  /*
    * Msg-3b: while the WebContainer boots the dev server (~30-60s cold), no preview URL exists yet.
    * Show a branded "preparing" state during that window, then fall back gracefully to "no preview"
    * so a project with no dev server never shows a perpetual spinner.
@@ -772,14 +781,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
             }}
             disabled={!activePreview}
           />
-          {activePreview && (
-            <IconButton
-              icon="i-ph:arrow-square-out"
-              onClick={openInNewTab}
-              title="Open preview in new tab"
-              className="shrink-0 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
-            />
-          )}
+          {/* "Open preview in new tab" button removed per product decision. */}
         </div>
 
         <div className="flex items-center gap-2">
@@ -795,12 +797,20 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
             }
             title={isInspectorMode ? 'Disable Element Inspector' : 'Enable Element Inspector'}
           />
-          <IconButton
-            icon={isFullscreen ? 'i-ph:arrows-in' : 'i-ph:arrows-out'}
-            onClick={toggleFullscreen}
-            title={isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
-          />
 
+          {/* "Full Window" + "New Window Options" hidden from the UI per product
+              decision. Wrapped in {false && …} (not deleted) so every handler +
+              state stays referenced — no dead-variable cascade; the underlying
+              feature code is intentionally kept intact. */}
+          {showLegacyPreviewControls && (
+            <IconButton
+              icon={isFullscreen ? 'i-ph:arrows-in' : 'i-ph:arrows-out'}
+              onClick={toggleFullscreen}
+              title={isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
+            />
+          )}
+
+          {showLegacyPreviewControls && (
           <div className="flex items-center relative">
             <IconButton
               icon="i-ph:list"
@@ -942,6 +952,7 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
               </>
             )}
           </div>
+          )}
         </div>
       </div>
 

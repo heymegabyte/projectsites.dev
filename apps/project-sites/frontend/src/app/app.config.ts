@@ -104,6 +104,19 @@ export const appConfig: ApplicationConfig = {
         onViewTransitionCreated: ({ transition, from, to }) => {
           if (isAdminRoute(from) && isAdminRoute(to)) {
             transition.skipTransition();
+
+            /*
+             * skipTransition() rejects the browser ViewTransition's `ready` (and
+             * `updateCallbackDone`) promise with an AbortError — "Transition was
+             * aborted because of invalid state." We own these promises when we
+             * skip manually, so the rejection would otherwise surface through the
+             * global ErrorHandler as a phantom "Editor error" (seen on refresh /
+             * every admin↔admin nav). Swallow them explicitly — skipping is the
+             * intended behaviour, not a failure.
+             */
+            void transition.ready.catch(() => undefined);
+            void transition.updateCallbackDone.catch(() => undefined);
+            void transition.finished.catch(() => undefined);
           }
         },
       }),

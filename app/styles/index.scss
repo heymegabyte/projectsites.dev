@@ -485,6 +485,174 @@ textarea[placeholder*='ask'] {
   }
 }
 
+/* ── Create menu — single-line item, matched to the ⋯ menu (ps-more) ──────
+   The Create dropdown reuses `.ps-more-menu` for its panel; its items are
+   single-line (icon + label), so this is the row variant of `.ps-more-item`
+   with the same cyan hover + Sora label. Keeps both editor menus identical. */
+.ps-create-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--ps-radius-sm);
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  font-family: 'Sora', system-ui, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--ps-ink, #f4f4ff);
+  transition: background var(--ps-dur-fast) var(--ps-ease-emphasized);
+}
+.ps-create-item [class^='i-ph'],
+.ps-create-item [class*=' i-ph'] {
+  color: var(--ps-accent, #00e5ff);
+  flex-shrink: 0;
+}
+.ps-create-item:hover,
+.ps-create-item[data-highlighted] {
+  background: rgba(0, 229, 255, 0.08);
+}
+.ps-create-item--accent {
+  color: var(--ps-accent, #00e5ff);
+  font-weight: 600;
+}
+
+/* ── Imported-site status card — projectsites brand (always legible) ──────
+   Rendered in place of the "I've built … The project files are:" turn. Uses
+   EXPLICIT brand colors (not bolt theme tokens) so "Loaded N files" is always
+   legible light-on-dark cyan/black — never white-on-white — regardless of the
+   embedded editor's bolt theme state. */
+.ps-import-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--ps-radius-md, 12px);
+  border: 1px solid rgba(0, 229, 255, 0.22);
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(0, 229, 255, 0.06), transparent 62%),
+    linear-gradient(180deg, rgba(19, 19, 34, 0.96), rgba(10, 10, 24, 0.99));
+  box-shadow:
+    0 18px 48px -22px rgba(0, 0, 0, 0.72),
+    0 0 40px -14px rgba(0, 229, 255, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  animation: psImportIn 340ms var(--ps-ease-emphasized, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+.ps-import-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 229, 255, 0.6) 30%,
+    rgba(124, 58, 237, 0.4) 70%,
+    transparent
+  );
+  pointer-events: none;
+}
+.ps-import-headline {
+  font-family: 'Sora', system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #f4f4ff;
+}
+.ps-import-sub {
+  color: rgba(244, 244, 255, 0.62);
+}
+.ps-import-count {
+  color: #00e5ff;
+}
+.ps-import-cmd {
+  color: #f4f4ff;
+}
+.ps-import-cmd-prompt {
+  color: #00e5ff;
+}
+.ps-import-glow {
+  color: #00e5ff;
+}
+@keyframes psImportIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ps-import-card {
+    animation: none;
+  }
+}
+
+/* ── Preview port switcher — inline cyan chips (PortDropdown) ─────────────
+   Shown only when >1 port exists. The plug expands an inline row of port
+   chips right in the address bar (no floating popup); the active port is a
+   solid cyan pill. */
+.ps-port-plug {
+  color: var(--ps-accent, #00e5ff);
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  transition:
+    background var(--ps-dur-fast) var(--ps-ease-emphasized),
+    border-color var(--ps-dur-fast) var(--ps-ease-emphasized);
+}
+.ps-port-plug:hover,
+.ps-port-plug[aria-expanded='true'] {
+  background: rgba(0, 229, 255, 0.16);
+  border-color: rgba(0, 229, 255, 0.45);
+}
+.ps-port-inline {
+  animation: psPortIn 180ms var(--ps-ease-emphasized, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+.ps-port-chip {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: var(--bolt-elements-textSecondary, rgba(244, 244, 255, 0.65));
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(0, 229, 255, 0.14);
+  transition:
+    color var(--ps-dur-fast) var(--ps-ease-emphasized),
+    background var(--ps-dur-fast) var(--ps-ease-emphasized),
+    border-color var(--ps-dur-fast) var(--ps-ease-emphasized),
+    box-shadow var(--ps-dur-fast) var(--ps-ease-emphasized);
+}
+.ps-port-chip:hover {
+  color: var(--ps-ink, #f4f4ff);
+  background: rgba(0, 229, 255, 0.12);
+  border-color: rgba(0, 229, 255, 0.4);
+}
+.ps-port-chip.is-active {
+  color: #060610;
+  background: var(--ps-accent, #00e5ff);
+  border-color: var(--ps-accent, #00e5ff);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+  font-weight: 600;
+}
+@keyframes psPortIn {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ps-port-inline {
+    animation: none;
+  }
+}
+
 /* ════════════════════════════════════════════════════════════════════════
    Cross-surface beauty pass — second wave
    ────────────────────────────────────────────────────────────────────────

@@ -61,7 +61,14 @@ export class WorkbenchStore {
 
   artifacts: Artifacts = import.meta.hot?.data?.artifacts ?? map({});
 
-  showWorkbench: WritableAtom<boolean> = import.meta.hot?.data?.showWorkbench ?? atom(false);
+  /*
+   * Default VISIBLE. The ProjectSites editor always opens with a site, so the
+   * Workbench is the primary surface — it must never start (or be toggled) into
+   * the off-screen `left-[100%]` state. Cards/artifacts now only ever SHOW it
+   * (never toggle it off), so it stays on-screen. (The loading overlay covers it
+   * until files are in.)
+   */
+  showWorkbench: WritableAtom<boolean> = import.meta.hot?.data?.showWorkbench ?? atom(true);
   currentView: WritableAtom<WorkbenchViewType> = import.meta.hot?.data?.currentView ?? atom('code');
   unsavedFiles: WritableAtom<Set<string>> = import.meta.hot?.data?.unsavedFiles ?? atom(new Set<string>());
   actionAlert: WritableAtom<ActionAlert | undefined> =
