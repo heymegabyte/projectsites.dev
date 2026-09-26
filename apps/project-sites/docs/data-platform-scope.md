@@ -1067,14 +1067,29 @@ Editor-only — no worker/bridge/admin change (the `/column-distinct` route + `c
   *(Incidental fix: stripped 5 stray NUL bytes that a prior edit left in `data-panel-logic.ts` — grep goes silent on
   NUL-containing files, so this had been invisible; file re-verified clean via tsc + a byte sweep.)*
 
+### ✅ Shipped next fire (2026-09-26 #45) — NULL vs empty-string affordance (toggle chip + live "saves as…" hint)
+Resolves the SQLite `NULL` vs `''` ambiguity a blank text field can't express — the choice was buried as one of 7
+options in the type `<select>`. The single-cell editor now shows (a) an explicit **"∅ NULL" toggle chip** beside the
+value (pressed = NULL; one click flips text⇄null) and (b) a live one-line **hint** stating exactly what Save will
+store. Editor-only — the mechanism (`null` kind binds NULL, blank `text` binds `''`) was already correct; this makes
+it OBVIOUS + one-click, matching the grid's honest NULL vs `""` cell rendering.
+- **Pure hint (`data-panel-logic.ts`, +3 Vitest):** `nullabilityHint(kind, value)` — `null`→"Saves as NULL (no
+  value)."; blank `text`→"Saves as an empty string (\"\"). Use NULL for no value."; every unambiguous state → `''`
+  (no hint). Drives an inline hint, never a mutation.
+- **Toggle (`CellEditor.tsx`):** shown only for the ambiguous **text/null** pair (number/boolean/date have
+  unambiguous widgets; an empty date/json already throws on save → guides to NULL). `aria-pressed` reflects NULL;
+  click calls `onKindChange('null'↔'text')` (reuses the existing kind machinery — no new state).
+- Verified: editor Vitest **938/938** + tsc 0 + eslint 0 + build 0. No worker/admin files touched (worker Jest
+  **12789/12789** unchanged). Hint logic unit-tested; the chip + hint RENDERING is verify-by-build (deep lazy chunk).
+
 **STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
 sticky-pin render · #37 view round-trip · #40 multi-sort · #41 date/datetime picker · #42 boolean checkbox + JSON
-textarea · #43–#44 value datalist (single-cell + Add-row, lazy/cached) — one real-browser pass (authed admin session).
-**A dedicated real-browser QA fire remains the highest-value out-of-loop step** to convert this verify-by-build debt.
+textarea · #43–#44 value datalist · #45 NULL toggle + hint — one real-browser pass (authed admin session). **A
+dedicated real-browser QA fire remains the highest-value out-of-loop step** to convert this verify-by-build debt.
 
-**NEXT slice: NULL-vs-empty-string toggle affordance (contained, honesty-focused).** SQLite distinguishes `NULL` from
-`''` but the text editor can't express the difference — a blank text field is ambiguous. Add an explicit affordance
-(e.g. a "set NULL" chip beside the field, distinct from clearing to `''`) so an owner can deliberately store one or the
-other, mirroring the grid's honest NULL vs `""` cell rendering. Mostly editor-only (the `null` kind already binds NULL;
-this is a clearer UI path to it). Alternatives: BLOB read-only preview; async export JOBS >10k (bigger); nested AND/OR
-filter-tree; inert `field-types.ts` as a per-column field-config feature.
+**NEXT slice: BLOB read-only preview + safe presentation (contained, honesty-focused).** A BLOB column currently
+renders as `[object]`/garbled text and opens a text editor that would corrupt binary on save. Detect BLOB values
+(ArrayBuffer/typed-array/base64-ish from D1) → show a read-only chip (size + hex/first-bytes preview) and DISABLE
+editing (no doomed control), mirroring the generated-column read-only pattern. Pure classifier + size formatter
+(tested) + a verify-by-build widget. Alternatives: extend NULL affordance to the Add-row; async export JOBS >10k
+(bigger); nested AND/OR filter-tree; inert `field-types.ts` as a per-column field-config feature.

@@ -108,6 +108,7 @@ import {
   isValidJsonText,
   distinctSuggestions,
   distinctCacheKey,
+  nullabilityHint,
   CELL_INPUT_KIND_OPTIONS,
   buildInsertStatement,
   buildDeleteByPk,
@@ -1991,6 +1992,25 @@ describe('distinctSuggestions (value-datalist suggestions; high-cardinality → 
   it('returns none for an empty/absent set', () => {
     expect(distinctSuggestions([], false)).toEqual([]);
     expect(distinctSuggestions(undefined, false)).toEqual([]);
+  });
+});
+
+describe('nullabilityHint (resolves the NULL vs empty-string "" ambiguity of a blank text field)', () => {
+  it('null kind → a NULL hint', () => {
+    expect(nullabilityHint('null', '')).toBe('Saves as NULL (no value).');
+    expect(nullabilityHint('null', 'ignored')).toBe('Saves as NULL (no value).');
+  });
+
+  it('blank text kind → an empty-string hint that points at NULL', () => {
+    expect(nullabilityHint('text', '')).toBe('Saves as an empty string (""). Use NULL for no value.');
+  });
+
+  it('no hint when the value is unambiguous (non-blank text, or a non-text/null kind)', () => {
+    expect(nullabilityHint('text', 'hello')).toBe('');
+    expect(nullabilityHint('number', '')).toBe('');
+    expect(nullabilityHint('boolean', '')).toBe('');
+    expect(nullabilityHint('date', '')).toBe('');
+    expect(nullabilityHint('json', '')).toBe('');
   });
 });
 

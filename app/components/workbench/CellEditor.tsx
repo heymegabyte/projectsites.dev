@@ -7,7 +7,7 @@
  */
 
 import { classNames } from '~/utils/classNames';
-import { CELL_INPUT_KIND_OPTIONS, type CellInputKind } from './data-panel-logic';
+import { CELL_INPUT_KIND_OPTIONS, nullabilityHint, type CellInputKind } from './data-panel-logic';
 import { TypedValueField } from './TypedValueField';
 
 export interface CellEditorProps {
@@ -58,6 +58,14 @@ export function CellEditor({
   onSave,
   onCancel,
 }: CellEditorProps) {
+  const nullHint = nullabilityHint(editKind, editValue);
+
+  /*
+   * The NULL⇄empty-text toggle is only meaningful for the ambiguous text/null pair (number/boolean/date
+   * have unambiguous widgets; an empty date/json already throws on save, guiding the user to NULL).
+   */
+  const showNullToggle = editKind === 'text' || editKind === 'null';
+
   return (
     <div className="flex w-full flex-col gap-1" data-testid="data-edit-cell">
       <div className="flex items-start gap-1.5">
@@ -85,7 +93,33 @@ export function CellEditor({
           onRequestSuggestions={onRequestSuggestions}
           testId="data-edit-value"
         />
+        {showNullToggle && (
+          <button
+            type="button"
+            onClick={() => onKindChange(editKind === 'null' ? 'text' : 'null')}
+            aria-pressed={editKind === 'null'}
+            data-testid="data-edit-null-toggle"
+            title={
+              editKind === 'null'
+                ? 'Currently NULL — click to enter an empty string instead'
+                : 'Set this cell to NULL (no value)'
+            }
+            className={classNames(
+              'shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+              editKind === 'null'
+                ? 'border-[#00e5ff]/40 bg-[#00e5ff]/15 text-[#00E5FF]'
+                : 'border-bolt-elements-borderColor text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
+            )}
+          >
+            ∅ NULL
+          </button>
+        )}
       </div>
+      {nullHint && (
+        <p className="text-[10px] text-bolt-elements-textTertiary" data-testid="data-edit-null-hint">
+          {nullHint}
+        </p>
+      )}
       {previewSql && (
         <div
           className="overflow-x-auto rounded bg-bolt-elements-background-depth-2 px-2 py-1 text-[10px] text-bolt-elements-textTertiary"

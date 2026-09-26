@@ -2613,6 +2613,28 @@ export function distinctCacheKey(table: string, col: string): string {
   return `${table}\n${col}`;
 }
 
+/**
+ * A one-line hint stating EXACTLY what the current cell editor will store — resolving the SQLite
+ * `NULL` vs empty-string `''` ambiguity a blank text field can't express. `null` kind → NULL; `text`
+ * kind with a blank value → the empty string (and points the user at NULL for "no value"). Every other
+ * state → `''` (no hint; the value is unambiguous). Pure — drives an inline hint, never a mutation.
+ *
+ * @example nullabilityHint('null', '')  // 'Saves as NULL (no value).'
+ * @example nullabilityHint('text', '')  // 'Saves as an empty string (""). Use NULL for no value.'
+ * @example nullabilityHint('text', 'x') // ''
+ */
+export function nullabilityHint(kind: CellInputKind, value: string): string {
+  if (kind === 'null') {
+    return 'Saves as NULL (no value).';
+  }
+
+  if (kind === 'text' && value === '') {
+    return 'Saves as an empty string (""). Use NULL for no value.';
+  }
+
+  return '';
+}
+
 /** A parameterized statement: `?1..?N` placeholders in `sql`, values in `params` (bind order). */
 export interface ParameterizedStatement {
   /** The SQL with quoted identifiers and `?1..?N` placeholders — safe to log/preview. */
