@@ -1311,12 +1311,44 @@ the deterministic pipeline + the intent→view mapping are eval/unit-proven; onl
 and the in-browser save round-trip are unmeasured). **A dedicated real-browser + live-model eval fire remains the
 highest-value out-of-loop step.**
 
-**NEXT slice: reopen a saved Ask/chart view as a live answer — OR a live-model eval RUN.** Two candidates:
-(a) **Chart rendering for the `chart` views** `askIntentToSavedView` now produces — a saved grouped-count view currently
-reopens as a grid of `{grp, n}` rows; render it as a compact bar/column chart (a small pure `intentToChartSeries` mapper
-+ an SVG/CSS bar list, ZERO chart deps, unit-tested) so "count by status" saved as a chart shows bars, not a table.
-(b) **The live-model eval RUN** (the standing out-of-loop step): drive the real `@cf/meta/llama-3.3-70b` binding over the
-golden `{question, intent}` fixtures on prod, score question→intent QUALITY (does the model propose the expected typed
-intent?), and record a `PROMPT_VERSION`-tagged baseline — the one remaining unmeasured link in the Ask pipeline.
-Recommend (a): it's a self-contained, fully-verifiable editor slice that makes the just-shipped `chart` view type
-actually render as a chart (closing a "saved but renders as a table" gap), whereas (b) needs a real prod/browser run.
+### ✅ Shipped next fire (2026-09-26 #56) — schema workflow slice 1: guided "New table" builder (wires the inert `schema-ddl.ts`)
+DELIVERY-ORDER 4 (SQL workspace + **schema/migration workflow**): the first guided schema-mutation surface — a super-admin
+**"New table"** builder in the tables overview that compiles a reviewable `CREATE TABLE` and runs it on the EXISTING
+authorized write rail. Wires the previously-inert, well-tested `schema-ddl.ts` (`buildCreateTable` + `quoteIdent` +
+`DdlError`) into the real UI.
+- **Why CREATE TABLE (not ALTER):** the editor manages the SHARED platform D1, so altering an existing table (e.g.
+  `form_submissions`) is a platform-schema action (foot-gun). **Creating a NEW object can't corrupt or expose existing
+  data** — the safest DDL. The new table is then browsable via the SQL console's "All tables" canned query (line 306) +
+  one-click-browse (`isTableListRow`), so it's coherent with today's developer surface.
+- **Pure core (`data-panel-logic.ts` · `planCreateTable(name, columns)`, +10 Vitest):** maps the form → `{ ddl, error,
+  warning }` via `buildCreateTable`; drops blank placeholder rows; returns a human error instead of throwing (dup column,
+  illegal/injection-shaped identifier → the `DdlError` message); a non-fatal `warning` when no PK is chosen (rows only
+  rowid-identifiable → grid edit/delete unavailable). Identifier validation + quoting is the SQL-injection boundary; the
+  DDL is SHOWN before it runs (falsifiable). Fully unit-proven incl. composite PK + injection refusal.
+- **UI (`DataPanel.tsx`):** a "+ New table" affordance (super-admin `canRunSql`) → a builder panel: table name + typed
+  column rows (name / TEXT·INTEGER·REAL·BLOB / PK / NOT NULL / remove) + "Add column"; live DDL `<pre>` preview; PK
+  warning; apply via `runSql(ddl)` (→ the existing super-admin `/sql/exec-write`, re-guarded server-side; CREATE is
+  non-destructive so no scary confirm). A dedicated `createTablePending` ref routes the reply for INLINE success/error
+  (name captured in `createNameRef` — the message effect has empty deps, per the stale-closure lesson); success flashes,
+  resets, and `requestOverview()` refreshes.
+- Verified: editor Vitest **973/973** (+10) + tsc 0 + eslint 0 + build 0. **No worker/bridge/admin change** (reuses the
+  `PS_SQL_REQUEST` write path — zero deploy skew). Verify-by-build for the form (deep lazy chunk); the compiler + all
+  refusals are unit-proven. **Phase-0 correction:** the prior fire's proposed NEXT (a) "render chart views as bars" was
+  found ALREADY DONE — `viewMode==='chart'` renders a whole-query bar chart via `buildChartBars` + measure/agg controls,
+  and `applyView` restores it; a saved Ask→chart view already reopens as a real chart. Not rebuilt.
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize · #34 footer · #35 whole-query · #36 pins · #37 view · #40
+multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 NULL toggle · #46 BLOB · #47–#48 KV meta/TTL ·
+#49 R2 folders · #52–#55 live NL→answer + save-as-view · **#56 the New-table builder round-trip in a real authed browser
+(the DDL compiler + refusals are unit-proven; the form + write-rail apply are verify-by-build).** **A dedicated
+real-browser + live-model eval fire remains the highest-value out-of-loop step.**
+
+**NEXT slice: guided "Add index" builder (schema workflow slice 2) — OR the live-model eval RUN.**
+(a) **Add index** — the natural companion to New-table: a super-admin "Add index" affordance on an OPEN table → pick
+columns + a name + UNIQUE → a pure `planCreateIndex` (wires `schema-ddl.ts`'s `buildCreateIndex`, already tested) → live
+DDL preview → apply via the same `/sql/exec-write` rail → the new index surfaces in the SQL "Indexes" canned query. Adding
+an index is non-destructive (pure perf; the directive: "warn before unindexed scans", "FTS5 search only when an index
+exists", "make index costs visible"). Target EXISTS + is browsable → fully coherent. Fully-verifiable pure planner + a
+smaller form than New-table. Recommend (a) — it completes the tables/indexes pair of the schema builder with the same
+safe pattern. (b) The standing **live-model eval RUN** (real `@cf/meta/llama-3.3-70b` over the golden fixtures on prod,
+score question→intent QUALITY, record a `PROMPT_VERSION` baseline) remains the top out-of-loop step (needs a prod run).

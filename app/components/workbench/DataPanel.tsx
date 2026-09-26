@@ -136,6 +136,8 @@ import {
   addCalendarMonth,
   monthFromDayKey,
   viewQueryFingerprint,
+  planCreateTable,
+  type NewColumnDraft,
 } from './data-panel-logic';
 import { bucketRowsByDate } from './view-models';
 import { CellEditor } from './CellEditor';
@@ -445,6 +447,18 @@ export const DataPanel = memo(() => {
   const [addBusy, setAddBusy] = useState(false);
   const addPending = useRef(false); // an add is in flight → route the next PS_SQL_RESPONSE to the form
   const addTargetRef = useRef<string | null>(null); // the table to re-open on success
+
+  /*
+   * Guided "New table" builder (super-admin schema workflow): a table name + typed column rows compile
+   * to a reviewable CREATE TABLE (via planCreateTable → schema-ddl) that runs on the authorized write rail.
+   */
+  const [creatingTable, setCreatingTable] = useState(false);
+  const [newTableName, setNewTableName] = useState('');
+  const [newCols, setNewCols] = useState<NewColumnDraft[]>([{ name: '', type: 'TEXT' }]);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const createTablePending = useRef(false); // a CREATE TABLE is in flight → route the next PS_SQL_RESPONSE
+  const createNameRef = useRef<string>(''); // the new table's name, captured at submit (effect has stale deps)
 
   /*
    * Row DELETE — the open table's primary-key column(s) (fetched via PRAGMA table_info when the
@@ -1108,6 +1122,55 @@ export const DataPanel = memo(() => {
     setImportCsvText('');
   }, [importPlan, runSql]);
 
+  /** The reviewable CREATE TABLE plan for the builder form (pure — identifier validation + quoting). */
+  const createPlan = useMemo(() => planCreateTable(newTableName, newCols), [newTableName, newCols]);
+
+  /** Open the guided New-table builder with a single blank column row. */
+  const openBuilder = useCallback(() => {
+    setNewTableName('');
+    setNewCols([{ name: '', type: 'TEXT' }]);
+    setCreateError(null);
+    setCreatingTable(true);
+  }, []);
+
+  /** Close the builder + reset its form. */
+  const cancelBuilder = useCallback(() => {
+    setCreatingTable(false);
+    setCreateError(null);
+    setNewTableName('');
+    setNewCols([{ name: '', type: 'TEXT' }]);
+  }, []);
+
+  const addBuilderCol = useCallback(() => setNewCols((cs) => [...cs, { name: '', type: 'TEXT' }]), []);
+
+  const removeBuilderCol = useCallback(
+    (i: number) => setNewCols((cs) => (cs.length <= 1 ? cs : cs.filter((_, idx) => idx !== i))),
+    [],
+  );
+
+  const updateBuilderCol = useCallback(
+    (i: number, patch: Partial<NewColumnDraft>) =>
+      setNewCols((cs) => cs.map((c, idx) => (idx === i ? { ...c, ...patch } : c))),
+    [],
+  );
+
+  /**
+   * Apply the CREATE TABLE — routes through the SAME super-admin write rail as Add-row/Import
+   * ({@link runSql} → POST /sql/exec-write, re-guarded server-side). CREATE is non-destructive, so no
+   * type-to-confirm; the DDL was shown for review. The reply is caught by the createTablePending branch.
+   */
+  const submitCreateTable = useCallback(() => {
+    if (!createPlan.ddl || createBusy) {
+      return;
+    }
+
+    createTablePending.current = true;
+    createNameRef.current = newTableName.trim();
+    setCreateBusy(true);
+    setCreateError(null);
+    runSql(createPlan.ddl);
+  }, [createPlan, createBusy, runSql, newTableName]);
+
   const cancelAddRow = useCallback(() => {
     setAddingRow(false);
     setAddError('');
@@ -1352,6 +1415,18 @@ export const DataPanel = memo(() => {
           }
 
           /*
+           * A CREATE TABLE failed (e.g. the name already exists) → surface it IN the builder and keep
+           * the form open so the user can rename/fix; never a silent failure.
+           */
+          if (createTablePending.current) {
+            createTablePending.current = false;
+            setCreateBusy(false);
+            setCreateError(msg.error);
+
+            return;
+          }
+
+          /*
            * A row DELETE failed (e.g. FK constraint) → surface it visibly (the user is in tables
            * mode) and keep the row; never a silent failure.
            */
@@ -1393,6 +1468,32 @@ export const DataPanel = memo(() => {
           setSqlRows([]);
           setSqlColumns([]);
           setWriteResult(null);
+
+          return;
+        }
+
+        /*
+         * A CREATE TABLE succeeded → close + reset the builder, flash, and refresh the tables list (the
+         * new table is then browsable via the SQL "All tables" query). Handled BEFORE the rows_affected
+         * gate because a DDL reply may carry no affected-row count.
+         */
+        if (createTablePending.current) {
+          createTablePending.current = false;
+          setCreateBusy(false);
+          setCreatingTable(false);
+
+          const created = createNameRef.current;
+          setNewTableName('');
+          setNewCols([{ name: '', type: 'TEXT' }]);
+
+          const tok = ++copyToken.current;
+          setCopied(`Created table "${created}"`);
+          setTimeout(() => {
+            if (copyToken.current === tok) {
+              setCopied('');
+            }
+          }, 2400);
+          requestOverview();
 
           return;
         }
@@ -3513,6 +3614,162 @@ export const DataPanel = memo(() => {
               </div>
             </button>
           ))}
+
+          {/* Guided "New table" builder — super-admin schema workflow (creates a NEW table; never alters
+              an existing one). Compiles a reviewable CREATE TABLE via schema-ddl + runs it on the write rail. */}
+          {canRunSql && !creatingTable && (
+            <button
+              type="button"
+              onClick={openBuilder}
+              data-testid="data-new-table-toggle"
+              className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-bolt-elements-borderColor/70 px-3 py-2.5 text-xs text-bolt-elements-textSecondary hover:border-bolt-elements-item-contentAccent/50 hover:text-bolt-elements-textPrimary cursor-pointer transition-colors"
+              title="Create a new table (super-admin · developer)"
+            >
+              <div className="i-ph:plus" /> New table
+            </button>
+          )}
+
+          {canRunSql && creatingTable && (
+            <div
+              className="rounded-lg border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-background-depth-1 p-3"
+              data-testid="data-new-table-form"
+            >
+              <div className="mb-2 flex items-center gap-2">
+                <div className="i-ph:table text-bolt-elements-item-contentAccent" />
+                <span className="text-xs font-medium text-bolt-elements-textPrimary">New table</span>
+                <span className="text-[10px] text-bolt-elements-textTertiary">
+                  developer · super-admin · every identifier is validated + quoted, then run for review
+                </span>
+              </div>
+
+              <input
+                value={newTableName}
+                onChange={(e) => setNewTableName(e.target.value)}
+                placeholder="table_name"
+                data-testid="data-new-table-name"
+                spellCheck={false}
+                aria-label="New table name"
+                className="mb-2 w-full rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1 font-mono text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-[#00e5ff]/50"
+              />
+
+              <div className="flex flex-col gap-1.5">
+                {newCols.map((col, i) => (
+                  <div key={i} className="flex items-center gap-1.5" data-testid={`data-new-col-${i}`}>
+                    <input
+                      value={col.name}
+                      onChange={(e) => updateBuilderCol(i, { name: e.target.value })}
+                      placeholder="column"
+                      spellCheck={false}
+                      aria-label={`Column ${i + 1} name`}
+                      data-testid={`data-new-col-name-${i}`}
+                      className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1 font-mono text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none"
+                    />
+                    <select
+                      value={col.type}
+                      onChange={(e) => updateBuilderCol(i, { type: e.target.value as NewColumnDraft['type'] })}
+                      aria-label={`Column ${i + 1} type`}
+                      data-testid={`data-new-col-type-${i}`}
+                      className="rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-1 text-[11px] text-bolt-elements-textSecondary focus:outline-none"
+                    >
+                      <option value="TEXT">TEXT</option>
+                      <option value="INTEGER">INTEGER</option>
+                      <option value="REAL">REAL</option>
+                      <option value="BLOB">BLOB</option>
+                    </select>
+                    <label
+                      className="flex items-center gap-1 text-[10px] text-bolt-elements-textTertiary"
+                      title="Primary key"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!!col.pk}
+                        onChange={(e) => updateBuilderCol(i, { pk: e.target.checked })}
+                        data-testid={`data-new-col-pk-${i}`}
+                        className="h-3 w-3 cursor-pointer"
+                      />
+                      PK
+                    </label>
+                    <label
+                      className="flex items-center gap-1 text-[10px] text-bolt-elements-textTertiary"
+                      title="NOT NULL"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!!col.notNull}
+                        onChange={(e) => updateBuilderCol(i, { notNull: e.target.checked })}
+                        data-testid={`data-new-col-notnull-${i}`}
+                        className="h-3 w-3 cursor-pointer"
+                      />
+                      NN
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => removeBuilderCol(i)}
+                      disabled={newCols.length <= 1}
+                      data-testid={`data-new-col-remove-${i}`}
+                      aria-label={`Remove column ${i + 1}`}
+                      className="i-ph:x shrink-0 text-bolt-elements-textTertiary hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={addBuilderCol}
+                data-testid="data-new-table-add-col"
+                className="mt-1.5 flex items-center gap-1 text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer"
+              >
+                <div className="i-ph:plus" /> Add column
+              </button>
+
+              {createPlan.ddl && (
+                <pre
+                  className="mt-2 overflow-x-auto rounded bg-bolt-elements-background-depth-2 px-2 py-1 text-[10px] font-mono text-bolt-elements-textSecondary"
+                  data-testid="data-new-table-ddl"
+                >
+                  {createPlan.ddl}
+                </pre>
+              )}
+
+              {createPlan.warning && !createError && (
+                <p className="mt-1.5 text-[10px] text-amber-300" data-testid="data-new-table-warning">
+                  {createPlan.warning}
+                </p>
+              )}
+
+              {(createPlan.error || createError) && (
+                <p className="mt-1.5 text-[11px] text-red-400" role="alert" data-testid="data-new-table-error">
+                  {createError ?? createPlan.error}
+                </p>
+              )}
+
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={submitCreateTable}
+                  disabled={!createPlan.ddl || createBusy}
+                  data-testid="data-new-table-submit"
+                  className={classNames(
+                    'rounded px-2.5 py-1 text-[11px] font-medium',
+                    !createPlan.ddl || createBusy
+                      ? 'cursor-not-allowed bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary'
+                      : 'cursor-pointer bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:opacity-90',
+                  )}
+                >
+                  {createBusy ? 'Creating…' : 'Create table'}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelBuilder}
+                  data-testid="data-new-table-cancel"
+                  className="cursor-pointer text-[11px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

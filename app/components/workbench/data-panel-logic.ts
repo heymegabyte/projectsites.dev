@@ -6,6 +6,7 @@
 import type { DataOverviewTable } from '~/lib/embed/embedded-mode';
 import { isoDayKey, blobCellInfo, humanBytes } from './data-cell-format';
 import type { CellAggregates } from './data-aggregates';
+import { buildCreateTable, DdlError } from './schema-ddl';
 
 /** Phosphor icon per known table key; a sensible default for anything new. */
 const TABLE_ICONS: Record<string, string> = {
@@ -2756,6 +2757,73 @@ export function askIntentToSavedView(
     sortDir: primary ? (primary.dir === 'desc' ? 'desc' : 'asc') : null,
     viewConfig: sorts ? { sorts } : {},
   };
+}
+
+/** One column row in the guided "New table" builder (before it is compiled to DDL). */
+export interface NewColumnDraft {
+  /** Raw column name from the form (validated by the DDL builder — SQLite identifier rules). */
+  readonly name: string;
+
+  /** SQLite storage class the owner picked from the type dropdown. */
+  readonly type: 'TEXT' | 'INTEGER' | 'REAL' | 'BLOB';
+
+  /** Part of the primary key (one → inline `PRIMARY KEY`; many → composite `PRIMARY KEY (…)`). */
+  readonly pk?: boolean;
+
+  /** Emit `NOT NULL`. */
+  readonly notNull?: boolean;
+
+  /** Optional DEFAULT — raw per {@link buildCreateTable}'s two-class heuristic (string vs numeric/keyword). */
+  readonly defaultValue?: string | null;
+}
+
+/**
+ * Compile a guided "New table" form into a reviewable `CREATE TABLE` statement — the pure, testable core
+ * of the schema builder. Blank-named column rows are dropped (they're placeholder rows in the UI), then
+ * {@link buildCreateTable} validates identifiers + uniqueness and quotes every identifier (the SQL-injection
+ * boundary). Returns a human error instead of throwing so the form can surface it inline, and a non-fatal
+ * `warning` when no primary key is chosen (rows would only be identifiable by rowid — grid edit/delete need
+ * a stable key). The DDL is shown to the user BEFORE it runs (falsifiable), then executed via the authorized
+ * super-admin write rail — the model/UI never concatenates raw SQL.
+ */
+export function planCreateTable(
+  name: string,
+  columns: readonly NewColumnDraft[],
+): { ddl: string | null; error: string | null; warning: string | null } {
+  if (!name.trim()) {
+    return { ddl: null, error: 'Enter a table name.', warning: null };
+  }
+
+  // Drop placeholder rows (a blank name = an unfilled row in the UI); validate the rest via the DDL builder.
+  const cols = columns.filter((c) => c.name.trim() !== '');
+
+  if (cols.length === 0) {
+    return { ddl: null, error: 'Add at least one named column.', warning: null };
+  }
+
+  try {
+    const ddl = buildCreateTable({
+      name: name.trim(),
+      columns: cols.map((c) => ({
+        name: c.name.trim(),
+        type: c.type,
+        primaryKey: c.pk,
+        notNull: c.notNull,
+        defaultValue: c.defaultValue ?? null,
+      })),
+    });
+    const warning = cols.some((c) => c.pk)
+      ? null
+      : 'No primary key selected — rows will only be identifiable by rowid, so grid editing and row-delete will be unavailable. Add a primary key for a fully editable table.';
+
+    return { ddl, error: null, warning };
+  } catch (e) {
+    return {
+      ddl: null,
+      error: e instanceof DdlError ? e.message : 'Could not build the CREATE TABLE statement.',
+      warning: null,
+    };
+  }
 }
 
 /** A parameterized statement: `?1..?N` placeholders in `sql`, values in `params` (bind order). */

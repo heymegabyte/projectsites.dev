@@ -111,6 +111,7 @@ import {
   nullabilityHint,
   describeIntent,
   askIntentToSavedView,
+  planCreateTable,
   CELL_INPUT_KIND_OPTIONS,
   buildInsertStatement,
   buildDeleteByPk,
@@ -2511,5 +2512,88 @@ describe('buildChartSeries', () => {
       { c: 'x', n: 'not-a-number' },
     ];
     expect(buildChartSeries(rows, 'c', 'n')).toEqual([{ label: '∅', value: 2 }]);
+  });
+});
+
+describe('planCreateTable (guided New-table form → reviewable CREATE TABLE DDL)', () => {
+  it('builds a single-column table', () => {
+    const r = planCreateTable('widgets', [{ name: 'label', type: 'TEXT' }]);
+    expect(r.error).toBeNull();
+    expect(r.ddl).toBe('CREATE TABLE "widgets" (\n  "label" TEXT\n)');
+  });
+
+  it('emits an inline PRIMARY KEY + NOT NULL + typed columns', () => {
+    const r = planCreateTable('users', [
+      { name: 'id', type: 'INTEGER', pk: true },
+      { name: 'email', type: 'TEXT', notNull: true },
+      { name: 'score', type: 'REAL', defaultValue: '0' },
+    ]);
+    expect(r.error).toBeNull();
+    expect(r.warning).toBeNull(); // a PK was chosen
+    expect(r.ddl).toBe(
+      'CREATE TABLE "users" (\n  "id" INTEGER PRIMARY KEY,\n  "email" TEXT NOT NULL,\n  "score" REAL DEFAULT 0\n)',
+    );
+  });
+
+  it('emits a composite PRIMARY KEY when more than one column is a PK', () => {
+    const r = planCreateTable('memberships', [
+      { name: 'user_id', type: 'INTEGER', pk: true },
+      { name: 'org_id', type: 'INTEGER', pk: true },
+    ]);
+    expect(r.ddl).toContain('PRIMARY KEY ("user_id", "org_id")');
+    expect(r.ddl).not.toContain('INTEGER PRIMARY KEY'); // composite is table-level, not inline
+  });
+
+  it('warns (non-fatal) when no primary key is selected', () => {
+    const r = planCreateTable('logs', [{ name: 'message', type: 'TEXT' }]);
+    expect(r.error).toBeNull();
+    expect(r.ddl).not.toBeNull();
+    expect(r.warning).toMatch(/no primary key/i);
+  });
+
+  it('drops blank placeholder column rows before compiling', () => {
+    const r = planCreateTable('t', [
+      { name: 'a', type: 'TEXT' },
+      { name: '   ', type: 'INTEGER' },
+      { name: '', type: 'REAL' },
+    ]);
+    expect(r.error).toBeNull();
+    expect(r.ddl).toBe('CREATE TABLE "t" (\n  "a" TEXT\n)');
+  });
+
+  it('rejects an empty table name', () => {
+    expect(planCreateTable('   ', [{ name: 'a', type: 'TEXT' }])).toEqual({
+      ddl: null,
+      error: 'Enter a table name.',
+      warning: null,
+    });
+  });
+
+  it('rejects when every column row is blank', () => {
+    const r = planCreateTable('t', [{ name: '', type: 'TEXT' }]);
+    expect(r.ddl).toBeNull();
+    expect(r.error).toMatch(/at least one named column/i);
+  });
+
+  it('surfaces the DDL builder error for a duplicate column name (never throws)', () => {
+    const r = planCreateTable('t', [
+      { name: 'a', type: 'TEXT' },
+      { name: 'A', type: 'INTEGER' }, // case-insensitive dup
+    ]);
+    expect(r.ddl).toBeNull();
+    expect(r.error).toMatch(/duplicate column/i);
+  });
+
+  it('surfaces the DDL builder error for an illegal identifier (injection-shaped name)', () => {
+    const r = planCreateTable('t', [{ name: 'a"); DROP TABLE users;--', type: 'TEXT' }]);
+    expect(r.ddl).toBeNull();
+    expect(r.error).toMatch(/not allowed in a SQLite identifier/i);
+  });
+
+  it('quotes an identifier that needs escaping rather than rejecting the whole build', () => {
+    // A leading-underscore name is legal; the builder quotes it. (Injection chars are rejected above.)
+    const r = planCreateTable('_private', [{ name: '_id', type: 'INTEGER', pk: true }]);
+    expect(r.error).toBeNull();
+    expect(r.ddl).toBe('CREATE TABLE "_private" (\n  "_id" INTEGER PRIMARY KEY\n)');
   });
 });
