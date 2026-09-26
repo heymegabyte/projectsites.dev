@@ -636,10 +636,28 @@ Gallery + kanban cards were display-only; clicking one now opens a right-side **
   into it) is the follow-up — deferred deliberately (the grid detail is a large `<tr>`-coupled, index-based, delete-
   bearing block; a careful extraction, not a rushed one).
 
-**NEXT slice (per delivery order): UNIFY the detail surface** — extract the grid's inline row-detail (copy/INSERT/
-UPDATE/Markdown + super-admin delete) into the shared record drawer so grid rows open the SAME drawer as gallery/kanban
-cards (remove the inline `<tr>`; keep the delete/copy actions in the drawer, gated by pk + canRunSql). One detail
-surface for every view. Alternatives: a **drift-aware "modified — update view?"** badge (Update exists since #19 —
-detect live-query divergence from the applied view via a query fingerprint); chart **sum/avg** aggregates (needs
-numeric columns — defer until arbitrary-table support); async export JOBS >10k; nested filter-tree; grid eval
-(RevoGrid vs Tabulator).
+### ✅ Shipped next fire (2026-09-26 #23) — drift-aware "modified — update view?" badge (+ applyView kanban/chart fix)
+Completes the #19 Update UX: applying a saved view then tweaking the query now surfaces a **"modified"** badge next to
+the Views control with one-click **Update** (persist the change — the Update verb was buried in the menu, undiscoverable)
+and **Reset** (re-apply the saved view). Editor-only:
+- **Editor (`data-panel-logic.ts`)** — pure **`viewQueryFingerprint`**: a stable string of a view's whole query
+  (search + ACTIVE conditions op-normalized + combinator-when-≥2 + sort + type + gallery/kanban config) that mirrors
+  what `filtersToParams` sends — two queries that fetch+render identically hash equal, so drift is exact. +4 Vitest
+  (234 total).
+- **Editor (`DataPanel.tsx`)** — `appliedViewId` + `appliedFingerprint` set on apply; `viewModified` = applied
+  fingerprint ≠ live fingerprint; a badge (name + amber "modified" + Update/Reset) near the Views button. Cleared on
+  table switch + when the applied view is deleted. Update reuses #19's `updateViewToCurrent` + optimistically clears
+  the dirty flag.
+- **Bonus latent-bug fix:** `applyView` restored only `gallery`/`grid` (written when only gallery existed, #18) — so
+  applying a saved **kanban/chart** view silently opened as grid. Now `normalizeViewMode(view.type)` restores all four.
+- Verified: editor Vitest **234/234** + tsc 0 + eslint 0 + build ✓; worker Jest **12769/12769** + tsc 0 (unchanged);
+  admin `ng build --prod` ✓. Editor → CF Pages. Saved views are now fully round-trip: apply · detect drift · Update/Reset.
+
+**NEXT slice (per delivery order): UNIFY the detail surface — make the record drawer EDITABLE, then route grid rows to
+it.** IMPORTANT finding this fire: the grid's inline row-detail carries not just copy/delete but **inline cell editing**
+(`editCol`/`editPreview`/save) + duplicate — a full unify must PORT that edit machinery into the drawer, so it's a
+2-step slice, not a one-shot "move the detail": **(1)** add typed inline editing (reuse `inferCellEditor`/`coerceCellInput`/
+`buildUpdateByPk`) + copy-variants/duplicate/delete (pk+canRunSql-gated; `deleteRow`/`duplicateRow` are already
+row-based) to the drawer; **(2)** grid rows open the drawer (`setDrawerRow`) + remove the inline `<tr>` + retire
+`detailIdx`. Do step 1 first (drawer reaches parity), then step 2 (consolidate). Alternatives: chart **sum/avg**
+aggregates (needs numeric columns — defer); async export JOBS >10k; nested filter-tree; grid eval (RevoGrid vs Tabulator).

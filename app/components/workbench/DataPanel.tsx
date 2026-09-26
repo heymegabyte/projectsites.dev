@@ -97,12 +97,14 @@ import {
   updateCondition,
   activeConditions,
   type ViewMode,
+  normalizeViewMode,
   galleryTitleField,
   galleryBodyFields,
   kanbanGroupKey,
   groupPageRows,
   buildChartBars,
   recordTitle,
+  viewQueryFingerprint,
 } from './data-panel-logic';
 import { SqlEditor } from './SqlEditor';
 import { classNames } from '~/utils/classNames';
@@ -379,6 +381,14 @@ export const DataPanel = memo(() => {
   const viewSaveCid = useRef<string | null>(null);
   const viewDeleteCid = useRef<string | null>(null);
   const viewUpdateCid = useRef<string | null>(null);
+
+  /**
+   * The saved view currently APPLIED (if any) + its query fingerprint at apply time. When the live
+   * query drifts from it, the Views control shows a "modified" badge + a one-click Update/Reset (so the
+   * owner discovers the Update verb instead of it hiding in the menu).
+   */
+  const [appliedViewId, setAppliedViewId] = useState<string | null>(null);
+  const [appliedFingerprint, setAppliedFingerprint] = useState<string | null>(null);
 
   /**
    * Whole-query export (CSV/JSON) of ALL rows matching the current search + filter group + sort — NOT
@@ -689,6 +699,8 @@ export const DataPanel = memo(() => {
       setViewMode('grid'); // a fresh table opens in the dense grid
       setGalleryTitleCol(null); // and with the default card-title field
       setDrawerRow(null); // close any open record drawer on table switch
+      setAppliedViewId(null); // no saved view applied to a freshly-opened table
+      setAppliedFingerprint(null);
       setKanbanGroupCol(null); // no kanban group chosen yet
       setKanbanGroups([]);
       setKanbanGroupsTruncated(false);
@@ -1522,6 +1534,20 @@ export const DataPanel = memo(() => {
     return `${activeFilterConds.length} filters (${filterCombinator})`;
   })();
 
+  // The applied saved view + whether the live query has DRIFTED from it (→ show the "modified" badge).
+  const appliedView = appliedViewId ? (savedViews.find((v) => v.id === appliedViewId) ?? null) : null;
+  const liveFingerprint = viewQueryFingerprint({
+    search,
+    conditions: filterConditions,
+    combinator: filterCombinator,
+    sortCol: browseSort?.col ?? null,
+    sortDir: browseSort?.dir ?? null,
+    type: viewMode,
+    titleField: galleryTitleCol,
+    groupField: kanbanGroupCol,
+  });
+  const viewModified = !!appliedView && appliedFingerprint !== null && appliedFingerprint !== liveFingerprint;
+
   /*
    * Schema-aware SQL completion feed — REAL table + column identifiers from the inspected schema
    * (never fabricated). Table keys + the de-duplicated union of every table's columns.
@@ -1851,6 +1877,9 @@ export const DataPanel = memo(() => {
       const cid = newCorrelationId('view-del');
       viewDeleteCid.current = cid;
       setSavedViews((prev) => prev.filter((v) => v.id !== id));
+
+      // If the deleted view was the applied one, drop the "modified" tracking (the query stays as-is).
+      setAppliedViewId((prev) => (prev === id ? null : prev));
       postToParent({ type: 'PS_VIEW_REQUEST', action: 'delete', table: active, viewId: id, correlationId: cid });
     },
     [active],
@@ -1958,10 +1987,28 @@ export const DataPanel = memo(() => {
       setFilterCombinator(view.combinator);
       setBrowseSort(sort);
 
-      // Restore the saved render type + gallery card-title (config may be absent on legacy views).
-      setViewMode(view.type === 'gallery' ? 'gallery' : 'grid');
+      /*
+       * Restore the saved render type (grid | gallery | kanban | chart) + gallery/kanban config
+       * (config may be absent on legacy views). normalizeViewMode guards a stale/unknown stored value.
+       */
+      setViewMode(normalizeViewMode(view.type));
       setGalleryTitleCol(view.config?.titleField ?? null);
       setKanbanGroupCol(view.config?.groupField ?? null);
+
+      // Remember which view is applied + its query fingerprint so a later drift shows a "modified" badge.
+      setAppliedViewId(view.id);
+      setAppliedFingerprint(
+        viewQueryFingerprint({
+          search: view.search,
+          conditions: view.conditions,
+          combinator: view.combinator,
+          sortCol: view.sortCol,
+          sortDir: view.sortDir,
+          type: view.type,
+          titleField: view.config?.titleField ?? null,
+          groupField: view.config?.groupField ?? null,
+        }),
+      );
       setViewsMenuOpen(false);
       setBrowseOffset(0);
       setRows([]);
@@ -2929,6 +2976,49 @@ export const DataPanel = memo(() => {
                       ))}
                     </select>
                   </label>
+                )}
+                {/* Applied-view drift badge — when a saved view is applied and the live query has drifted,
+                    surface "modified" + one-click Update (discoverable) / Reset (re-apply the saved view). */}
+                {appliedView && (
+                  <div className="flex items-center gap-1 text-[10px]" data-testid="data-applied-view">
+                    <span
+                      className="max-w-[120px] truncate text-bolt-elements-textSecondary"
+                      title={`Applied view: ${appliedView.name}`}
+                    >
+                      {appliedView.name}
+                    </span>
+                    {viewModified && (
+                      <>
+                        <span
+                          className="rounded bg-amber-500/15 px-1 py-0.5 text-[9px] font-semibold text-amber-400"
+                          data-testid="data-view-modified"
+                        >
+                          modified
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            updateViewToCurrent(appliedView);
+                            setAppliedFingerprint(liveFingerprint);
+                          }}
+                          data-testid="data-applied-view-update"
+                          title="Update this view to the current query"
+                          className="rounded bg-[#00e5ff]/15 px-1.5 py-0.5 text-[9px] font-semibold text-[#00e5ff] hover:bg-[#00e5ff]/25"
+                        >
+                          Update
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applyView(appliedView)}
+                          data-testid="data-applied-view-reset"
+                          title="Discard changes — re-apply the saved view"
+                          className="text-[9px] text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary"
+                        >
+                          Reset
+                        </button>
+                      </>
+                    )}
+                  </div>
                 )}
                 {/* Saved views — name the current query (search + filter group + sort) and re-apply it in
                     a click. Stored in the isolated ProjectSites.dev metadata store, NEVER in the

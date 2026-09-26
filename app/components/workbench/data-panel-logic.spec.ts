@@ -49,6 +49,7 @@ import {
   galleryTitleField,
   galleryBodyFields,
   recordTitle,
+  viewQueryFingerprint,
   clampPageSize,
   PAGE_SIZE_OPTIONS,
   insertableColumns,
@@ -1081,6 +1082,74 @@ describe('recordTitle (record-drawer heading)', () => {
     expect(recordTitle({ id: 1, name: null }, ['id', 'name'])).toBe('(untitled)');
     expect(recordTitle({ id: 1, name: '' }, ['id', 'name'])).toBe('(untitled)');
     expect(recordTitle({}, [])).toBe('(record)');
+  });
+});
+
+describe('viewQueryFingerprint (detect a saved view drifting from the live query)', () => {
+  const base = {
+    search: '',
+    conditions: [] as Array<{ col: string | null; op: string; val: string }>,
+    combinator: 'AND',
+    sortCol: null as string | null,
+    sortDir: null as string | null,
+    type: 'grid',
+    titleField: null as string | null,
+    groupField: null as string | null,
+  };
+
+  it('is equal for two queries that fetch + render identically', () => {
+    const a = viewQueryFingerprint({
+      ...base,
+      search: '  ada ',
+      conditions: [{ col: 'status', op: 'eq', val: 'new' }],
+    });
+    const b = viewQueryFingerprint({ ...base, search: 'ada', conditions: [{ col: 'status', op: 'eq', val: 'new' }] });
+    expect(a).toBe(b); // search trimmed; same active condition
+  });
+
+  it('ignores INACTIVE conditions + a blank value-op (they do not filter)', () => {
+    const withNoise = viewQueryFingerprint({
+      ...base,
+      conditions: [
+        { col: 'status', op: 'eq', val: 'new' },
+        { col: null, op: 'eq', val: 'x' }, // no column → inactive
+        { col: 'age', op: 'gt', val: '   ' }, // value-op, blank → inactive
+      ],
+    });
+    const clean = viewQueryFingerprint({ ...base, conditions: [{ col: 'status', op: 'eq', val: 'new' }] });
+    expect(withNoise).toBe(clean);
+  });
+
+  it('ignores combinator when <2 active conditions, but distinguishes AND vs OR with 2+', () => {
+    const oneAnd = viewQueryFingerprint({ ...base, combinator: 'AND', conditions: [{ col: 'a', op: 'eq', val: '1' }] });
+    const oneOr = viewQueryFingerprint({ ...base, combinator: 'OR', conditions: [{ col: 'a', op: 'eq', val: '1' }] });
+    expect(oneAnd).toBe(oneOr); // combinator irrelevant with 1 condition
+
+    const twoConds = [
+      { col: 'a', op: 'eq', val: '1' },
+      { col: 'b', op: 'eq', val: '2' },
+    ];
+    expect(viewQueryFingerprint({ ...base, combinator: 'AND', conditions: twoConds })).not.toBe(
+      viewQueryFingerprint({ ...base, combinator: 'OR', conditions: twoConds }),
+    );
+  });
+
+  it('detects drift in search / sort / type / gallery-title / kanban-group', () => {
+    const ref = viewQueryFingerprint(base);
+    expect(viewQueryFingerprint({ ...base, search: 'x' })).not.toBe(ref);
+    expect(viewQueryFingerprint({ ...base, sortCol: 'created_at', sortDir: 'desc' })).not.toBe(ref);
+    expect(viewQueryFingerprint({ ...base, type: 'gallery' })).not.toBe(ref);
+
+    // gallery title only matters in gallery/kanban (not grid)
+    expect(viewQueryFingerprint({ ...base, titleField: 'name' })).toBe(ref); // grid → title ignored
+    expect(viewQueryFingerprint({ ...base, type: 'gallery', titleField: 'name' })).not.toBe(
+      viewQueryFingerprint({ ...base, type: 'gallery' }),
+    );
+
+    // group only matters in kanban/chart
+    expect(viewQueryFingerprint({ ...base, type: 'kanban', groupField: 'status' })).not.toBe(
+      viewQueryFingerprint({ ...base, type: 'kanban' }),
+    );
   });
 });
 

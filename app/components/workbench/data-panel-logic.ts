@@ -1619,6 +1619,47 @@ export function recordTitle(
 }
 
 /**
+ * A stable fingerprint of a browse view's whole query — search + the ACTIVE filter conditions
+ * (op-normalized, value-free ops blanked) + combinator (only meaningful with >1 condition) + sort +
+ * render type + gallery/kanban config. Two queries that would fetch + render identically produce the
+ * SAME string, so an applied saved view can be compared to the live state to detect "modified" (the
+ * live query has drifted from the view). Mirrors the normalization `filtersToParams` sends. Pure.
+ */
+export function viewQueryFingerprint(q: {
+  search: string;
+  conditions: ReadonlyArray<{ col: string | null; op: string; val: string }>;
+  combinator: string;
+  sortCol: string | null;
+  sortDir: string | null;
+  type: string;
+  titleField: string | null;
+  groupField: string | null;
+}): string {
+  const conds = q.conditions
+    .filter((c) => filterIsActive(c.col, c.op, c.val))
+    .map((c) => {
+      const op = normalizeFilterOp(c.op);
+      return { col: (c.col ?? '').trim(), op, val: filterOpIsValueFree(op) ? '' : (c.val ?? '').trim() };
+    });
+  const type = normalizeViewMode(q.type);
+
+  return JSON.stringify({
+    search: (q.search ?? '').trim(),
+    conds,
+
+    // combinator only affects the result when ≥2 conditions are active
+    combinator: conds.length > 1 ? normalizeCombinator(q.combinator) : 'AND',
+    sortCol: q.sortCol || null,
+    sortDir: q.sortCol ? (q.sortDir === 'asc' ? 'asc' : 'desc') : null,
+    type,
+
+    // titleField only matters for gallery/kanban; groupField only for kanban/chart
+    titleField: type === 'grid' ? null : q.titleField || null,
+    groupField: type === 'kanban' || type === 'chart' ? q.groupField || null : null,
+  });
+}
+
+/**
  * Toggle a column's visibility. Showing a column is always allowed; HIDING is refused when it
  * would leave zero visible columns (never a dead-end empty grid). Returns the new hidden set,
  * ordered by `all` for stable persistence, immutable (never mutates the input).
