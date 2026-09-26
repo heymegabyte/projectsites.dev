@@ -1200,22 +1200,6 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
   animation: ps-editor-loader-orbit 3.4s linear infinite;
 }
 
-/* Indeterminate shimmer sweep under the mark. */
-.ps-editor-loader__shimmer {
-  position: relative;
-  width: min(200px, 42vw);
-  height: 2px;
-  overflow: hidden;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.06);
-}
-.ps-editor-loader__shimmer > span {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent 0%, #00e5ff 45%, #7c3aed 62%, transparent 100%);
-  animation: ps-editor-loader-slide 1.3s ease-in-out infinite;
-}
-
 @keyframes ps-editor-loader-in {
   from {
     opacity: 0;
@@ -1259,14 +1243,6 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
   }
   to {
     transform: rotate(360deg) translateX(52px);
-  }
-}
-@keyframes ps-editor-loader-slide {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(200%);
   }
 }
 @keyframes ps-editor-loader-drift {
@@ -1525,8 +1501,7 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
   .ps-editor-loader__pulse,
   .ps-editor-loader__ring,
   .ps-editor-loader__orb,
-  .ps-editor-loader__particle,
-  .ps-editor-loader__shimmer > span {
+  .ps-editor-loader__particle {
     animation: none !important;
   }
 

@@ -10,10 +10,11 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
  * admin sub-route change. This component renders:
  *
  *  - empty-site state (no site selected)
- *  - ONE cinematic loading veil that stays up across the WHOLE boot and fades
- *    the instant the workspace is truly ready (BoltEmbedService.editorReady).
- *    Its segmented progress bar fills through `bolt.loadingPhase()` (0→4) so the
- *    indicator shows ONCE and fills — never the old show/hide/show flicker.
+ *  - ONE cinematic loading veil (animated mark only — no progress/segment bar)
+ *    that stays up across the WHOLE boot and fades the instant the workspace is
+ *    truly ready (BoltEmbedService.editorReady). It's the SOLE loader: the
+ *    in-iframe bolt loader is suppressed when embedded, so nothing flashes
+ *    inside the iframe when this veil fades.
  */
 @Component({
   imports: [OnboardingChecklistComponent],
@@ -124,19 +125,6 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
     .ed-dots i:nth-child(2) { animation-delay: 0.16s; }
     .ed-dots i:nth-child(3) { animation-delay: 0.32s; }
 
-    /* Segmented progress bar — fills through loadingPhase; ONE continuous indicator. */
-    .ed-steps { display: flex; gap: 6px; width: 240px; margin-top: 0.45rem; }
-    .ed-step {
-      flex: 1; height: 4px; border-radius: 99px; position: relative; overflow: hidden;
-      background: rgba(255, 255, 255, 0.08);
-      transition: background 0.5s var(--ease-cinematic);
-    }
-    .ed-step.done { background: linear-gradient(90deg, #00E5FF, #7C3AED); }
-    .ed-step.active::after {
-      content: ''; position: absolute; inset: 0;
-      background: linear-gradient(90deg, transparent, rgba(0, 229, 255, 0.85), transparent);
-      animation: edShimmer 1.3s linear infinite;
-    }
     .ed-footnote { font-size: 0.7rem; color: rgba(244, 244, 255, 0.4); margin-top: 0.5rem; }
 
     @keyframes edSpin { to { transform: rotate(360deg); } }
@@ -148,10 +136,9 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
       66% { transform: translate3d(-3%, 2%, 0) scale(1.03); }
     }
     @keyframes edDot { 0%, 100% { opacity: 0.3; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-2px); } }
-    @keyframes edShimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 
     @media (prefers-reduced-motion: reduce) {
-      .empty-glyph, .ed-veil, .ed-aurora, .ed-core, .ed-glyph, .ed-dots i, .ed-step.active::after { animation: none; }
+      .empty-glyph, .ed-veil, .ed-aurora, .ed-core, .ed-glyph, .ed-dots i { animation: none; }
       .ed-ring { animation-duration: 4s; }
     }
   `],
@@ -189,15 +176,6 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
           </div>
           <div class="ed-headline">Booting your AI editor</div>
           <div class="ed-sub">{{ bolt.loadingStage() }}<span class="ed-dots"><i></i><i></i><i></i></span></div>
-          <div class="ed-steps" aria-hidden="true">
-            @for (s of steps; track s.n) {
-              <span
-                class="ed-step"
-                [class.done]="bolt.loadingPhase() >= s.n"
-                [class.active]="bolt.loadingPhase() === s.n - 1"
-              ></span>
-            }
-          </div>
           <div class="ed-footnote">First visit only — subsequent opens are instant.</div>
         </div>
       </div>
@@ -207,9 +185,6 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
 export class AdminEditorComponent {
   state = inject(AdminStateService);
   bolt = inject(BoltEmbedService);
-
-  /** Three progress segments mapped to boot phases 1-3 (workspace → preparing → preview). */
-  readonly steps = [{ n: 1 }, { n: 2 }, { n: 3 }] as const;
 
   openPalette(): void {
     document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'k', metaKey: true }));

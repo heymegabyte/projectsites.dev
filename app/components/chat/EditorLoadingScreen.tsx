@@ -41,6 +41,19 @@ export function EditorLoadingScreen() {
       return undefined;
     }
 
+    /*
+     * Embedded in the projectsites admin: the admin's own veil (OUTSIDE this
+     * iframe) is the loading indicator. Rendering this in-iframe overlay too
+     * caused a reveal-flash when that veil faded, and it re-mounted (twitched)
+     * whenever the iframe re-rendered/reloaded. Suppress it entirely when
+     * embedded — the opaque admin veil covers the iframe through the whole boot,
+     * so there's no in-iframe element left to flash.
+     */
+    if (window.parent !== window) {
+      setHidden(true);
+      return undefined;
+    }
+
     let finished = false;
     const params = new URLSearchParams(window.location.search);
     const isImport = params.has('slug') || params.has('importChatFrom');

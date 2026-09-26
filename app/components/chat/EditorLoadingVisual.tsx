@@ -11,8 +11,8 @@ interface EditorLoadingVisualProps {
 
 /**
  * The full-surface editor loading screen: a solid brand-dark field with a
- * breathing cyan→violet orb inside a slowly rotating accent ring and a thin
- * indeterminate shimmer. Wordless and calm — the animation IS the loader.
+ * breathing cyan→violet orb inside a slowly rotating accent ring. Wordless and
+ * calm — the animation IS the loader (no progress/shimmer bar).
  *
  * Presentation only. Mount/unmount + the `leaving` fade are owned by the
  * caller ({@link EditorLoadingScreen} self-manages; the pre-hydration
@@ -41,9 +41,6 @@ export const EditorLoadingVisual = memo(({ leaving = false, onTransitionEnd }: E
         <span className="ps-editor-loader__ring ps-editor-loader__ring--inner" />
         <span className="ps-editor-loader__orb" />
         <span className="ps-editor-loader__particle" />
-      </div>
-      <div className="ps-editor-loader__shimmer" aria-hidden="true">
-        <span />
       </div>
     </div>
   );
