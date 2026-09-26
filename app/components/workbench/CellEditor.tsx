@@ -28,6 +28,9 @@ export interface CellEditorProps {
    */
   suggestions?: string[];
 
+  /** Fired when the text widget gains focus → the parent lazily loads {@link suggestions} (cache-first). */
+  onRequestSuggestions?: () => void;
+
   /** The parameterized UPDATE SQL preview (SQL shape only — the value binds as ?1), or null. */
   previewSql: string | null;
 
@@ -48,6 +51,7 @@ export function CellEditor({
   editValue,
   onValueChange,
   suggestions,
+  onRequestSuggestions,
   previewSql,
   editError,
   editBusy,
@@ -78,6 +82,7 @@ export function CellEditor({
           ariaLabel={`New value for ${label}`}
           placeholder={editKind === 'null' ? 'NULL' : editKind === 'json' ? '{"key":"value"}' : ''}
           suggestions={suggestions}
+          onRequestSuggestions={onRequestSuggestions}
           testId="data-edit-value"
         />
       </div>

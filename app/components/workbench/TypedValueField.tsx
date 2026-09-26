@@ -44,6 +44,12 @@ export interface TypedValueFieldProps {
    * free-text; the user may pick or type). Empty/absent → a plain input. Ignored by non-text kinds.
    */
   suggestions?: string[];
+
+  /**
+   * Fired when the TEXT widget gains focus → the parent lazily loads {@link suggestions} (cache-first).
+   * Lets the Add-row form fetch a column's distinct values only when its field is actually used.
+   */
+  onRequestSuggestions?: () => void;
 }
 
 const BASE_INPUT =
@@ -60,6 +66,7 @@ export function TypedValueField({
   testId,
   jsonRows = 5,
   suggestions,
+  onRequestSuggestions,
 }: TypedValueFieldProps) {
   const listId = useId();
 
@@ -130,6 +137,7 @@ export function TypedValueField({
         value={value}
         disabled={disabled}
         onChange={(e) => onValueChange(e.target.value)}
+        onFocus={onRequestSuggestions}
         data-testid={testId}
         aria-label={ariaLabel}
         placeholder={placeholder}

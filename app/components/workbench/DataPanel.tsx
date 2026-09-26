@@ -83,6 +83,7 @@ import {
   coerceCellInput,
   editorKindForColumn,
   distinctSuggestions,
+  distinctCacheKey,
   CELL_INPUT_KIND_OPTIONS,
   buildInsertStatement,
   insertableColumns,
@@ -595,8 +596,14 @@ export const DataPanel = memo(() => {
    * Bounded DISTINCT values of the open editor's column → a "pick an existing value" datalist (select-like
    * hint). Fetched on-demand for text columns; [] when high-cardinality/absent (a plain text input then).
    */
-  const [distinctValues, setDistinctValues] = useState<string[]>([]);
-  const distinctCid = useRef<string | null>(null);
+  /*
+   * Value-datalist suggestions per column for the CURRENT table (`{ col: values }`) — read by both the
+   * single-cell editor and the Add-row form. Cleared on table switch; backed by a persistent per-
+   * (table,col) cache so re-opening an editor never refetches. `pendingDistinct` maps in-flight cids.
+   */
+  const [distinctByCol, setDistinctByCol] = useState<Record<string, string[]>>({});
+  const distinctCache = useRef<Map<string, string[]>>(new Map());
+  const pendingDistinct = useRef<Map<string, { key: string; col: string }>>(new Map());
   const updatePending = useRef(false); // a row edit is in flight → route the next PS_SQL_RESPONSE
   const updateTargetRef = useRef<string | null>(null); // the table to re-open after an edit
 
@@ -852,6 +859,7 @@ export const DataPanel = memo(() => {
       setBrowsePkCols([]); // clear the prior table's PK until this one's PRAGMA returns
       setBrowseGeneratedCols(new Set<string>()); // clear the prior table's generated-column set
       setBrowseColTypes({});
+      setDistinctByCol({}); // clear the prior table's datalist suggestions (the (table,col) cache persists)
       setBrowseOffset(0); // a fresh table opens at the first page
       setBrowseTotal(null); // until the first page lands, pageInfo falls back to the overview count
       setFilterConditions([]); // clear the prior table's column filter group
@@ -1558,15 +1566,19 @@ export const DataPanel = memo(() => {
       }
 
       /*
-       * Column distinct values → the cell-editor value datalist (matched on its own cid). A
-       * high-cardinality (truncated) or errored/absent result yields no suggestions (plain text input);
-       * deploy-skew (an older worker without the route → error) degrades to the same graceful no-op.
+       * Column distinct values → the value datalist (matched via the pending-request map → its target
+       * column + cache key). A high-cardinality (truncated) or errored/absent result yields no
+       * suggestions (plain text input); deploy-skew (an older worker without the route → error) degrades
+       * to the same graceful no-op. The result is cached per (table,col) so re-opening never refetches.
        */
-      if (msg.correlationId === distinctCid.current) {
-        distinctCid.current = null;
+      if (msg.correlationId && pendingDistinct.current.has(msg.correlationId)) {
+        const target = pendingDistinct.current.get(msg.correlationId)!;
+        pendingDistinct.current.delete(msg.correlationId);
 
         if (!msg.error) {
-          setDistinctValues(distinctSuggestions(msg.data?.distinctValues, !!msg.data?.truncated));
+          const vals = distinctSuggestions(msg.data?.distinctValues, !!msg.data?.truncated);
+          distinctCache.current.set(target.key, vals);
+          setDistinctByCol((prev) => ({ ...prev, [target.col]: vals }));
         }
 
         return;
@@ -2990,6 +3002,43 @@ export const DataPanel = memo(() => {
   }, [active, selectedKeys, visibleRows, browsePkCols, runSql, flashStatus]);
 
   /**
+   * Ensure the value-datalist suggestions for a column are loaded — CACHE-FIRST. A cached (table,col)
+   * result is applied synchronously; otherwise ONE bounded distinct request fires (idempotent — skips
+   * when a request for the same key is already in flight). Serves the single-cell editor AND the Add-row
+   * form. Called for TEXT columns only (the datalist is a select-like hint for low-cardinality text).
+   */
+  const ensureDistinct = useCallback(
+    (col: string): void => {
+      const table = activeRef.current;
+
+      if (!isEmbedded || !table || !col) {
+        return;
+      }
+
+      const key = distinctCacheKey(table, col);
+      const cached = distinctCache.current.get(key);
+
+      if (cached) {
+        setDistinctByCol((prev) => (prev[col] === cached ? prev : { ...prev, [col]: cached }));
+
+        return;
+      }
+
+      // Idempotent: skip when a request for this exact (table,col) key is already in flight.
+      for (const p of pendingDistinct.current.values()) {
+        if (p.key === key) {
+          return;
+        }
+      }
+
+      const cid = newCorrelationId('col-distinct');
+      pendingDistinct.current.set(cid, { key, col });
+      postToParent({ type: 'PS_DATA_REQUEST', table, columnDistinct: col, correlationId: cid });
+    },
+    [isEmbedded],
+  );
+
+  /**
    * Open the inline editor for one cell — pick the initial type from the column's DECLARED SQLite type
    * (so a DATE column opens a date picker, a numeric column a number input) and prefill it, falling back
    * to value-inference for TEXT/unknown columns. See {@link editorKindForColumn}.
@@ -3009,24 +3058,14 @@ export const DataPanel = memo(() => {
       setEditValue(value);
 
       /*
-       * For a TEXT column, fetch the column's bounded distinct values → a "pick an existing value"
-       * datalist (Airtable single-select feel). On-demand + bounded; a high-cardinality/absent result
-       * yields no suggestions (a plain text input). Other kinds (number/date/bool/json) get no datalist.
+       * For a TEXT column, load the column's distinct values → a "pick an existing value" datalist
+       * (Airtable single-select feel), cache-first. Other kinds (number/date/bool/json) get no datalist.
        */
-      setDistinctValues([]);
-
-      if (kind === 'text' && isEmbedded && activeRef.current) {
-        const cid = newCorrelationId('col-distinct');
-        distinctCid.current = cid;
-        postToParent({
-          type: 'PS_DATA_REQUEST',
-          table: activeRef.current,
-          columnDistinct: col,
-          correlationId: cid,
-        });
+      if (kind === 'text') {
+        ensureDistinct(col);
       }
     },
-    [browseGeneratedCols, browseColTypes],
+    [browseGeneratedCols, browseColTypes, ensureDistinct],
   );
 
   /**
@@ -4231,6 +4270,8 @@ export const DataPanel = memo(() => {
                         placeholder={
                           kind === 'default' ? 'uses column default' : kind === 'json' ? '{"key":"value"}' : ''
                         }
+                        suggestions={distinctByCol[c] ?? []}
+                        onRequestSuggestions={kind === 'text' ? () => ensureDistinct(c) : undefined}
                         testId="data-add-value"
                         jsonRows={3}
                       />
@@ -5497,7 +5538,8 @@ export const DataPanel = memo(() => {
                               setEditError('');
                               setEditValue(v);
                             }}
-                            suggestions={distinctValues}
+                            suggestions={distinctByCol[c] ?? []}
+                            onRequestSuggestions={() => ensureDistinct(c)}
                             previewSql={editPreviewFor(drawerRow)}
                             editError={editError}
                             editBusy={editBusy}

@@ -1047,14 +1047,34 @@ four layers (worker + bridge + admin + editor) mirroring the `/column-aggregates
 - Verified: editor Vitest **932/932** + tsc 0 + eslint 0 + build 0; admin tsc 0 (+ prettier); worker Jest **12789/12789**
   + tsc 0. Worker fn + heuristic fully unit-tested; the `<datalist>` RENDERING is verify-by-build (deep lazy chunk).
 
+### ✅ Shipped next fire (2026-09-26 #44) — value datalist on Add-row + per-(table,col) memoization (editor-only)
+Generalizes #43's single-cell datalist. The distinct-value suggestions now ALSO appear on the **Add-row** form (lazy —
+fetched on a text field's focus, not on form open, so an N-column form fires zero requests until a field is used), and
+every distinct result is **memoized per (table,column)** so re-opening an editor for the same column never refetches.
+Editor-only — no worker/bridge/admin change (the `/column-distinct` route + `columnDistinct` bridge field shipped #43).
+- **Unified fetch (`DataPanel.tsx`):** the single `distinctValues`/`distinctCid` pair is replaced by `distinctByCol`
+  (`{ col: values }` for the current table, read by BOTH the single-cell editor and the Add-row) + a persistent
+  `distinctCache` `Map` ref (survives table switches) + `pendingDistinct` (cid → `{key,col}`). One `ensureDistinct(col)`
+  is CACHE-FIRST + idempotent (skips when a request for the same key is in flight); the receive handler routes the
+  reply via the pending map to its column + fills the cache. `distinctByCol` clears on table switch; the cache persists.
+- **Pure key (`data-panel-logic.ts`, +3 Vitest):** `distinctCacheKey(table, col)` — newline-separated so the cache never
+  mixes two tables sharing a column name (`('ab','c') ≠ ('a','bc')`).
+- **Lazy trigger:** `<TypedValueField>` gains `onRequestSuggestions` (fired on the text widget's `onFocus`); the Add-row
+  wires it only for text-kind columns (no wasted fetch on numeric/date/etc). The single-cell editor still prefetches in
+  `startEdit` so suggestions are ready when the drawer editor renders.
+- Verified: editor Vitest **935/935** + tsc 0 + eslint 0 + build 0. No worker/admin files touched (worker Jest
+  **12789/12789** unchanged). Cache key + heuristic unit-tested; the datalist/focus RENDERING is verify-by-build.
+  *(Incidental fix: stripped 5 stray NUL bytes that a prior edit left in `data-panel-logic.ts` — grep goes silent on
+  NUL-containing files, so this had been invisible; file re-verified clean via tsc + a byte sweep.)*
+
 **STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
 sticky-pin render · #37 view round-trip · #40 multi-sort · #41 date/datetime picker · #42 boolean checkbox + JSON
-textarea · #43 value datalist — one real-browser pass (authed admin session). **A dedicated real-browser QA fire
-remains the highest-value out-of-loop step** to convert this verify-by-build debt to verified.
+textarea · #43–#44 value datalist (single-cell + Add-row, lazy/cached) — one real-browser pass (authed admin session).
+**A dedicated real-browser QA fire remains the highest-value out-of-loop step** to convert this verify-by-build debt.
 
-**NEXT slice: extend the value datalist to the Add-row form + cache distinct results (contained editor-only).** The
-`<datalist>` currently lands only on the single-cell (drawer) editor; wire `suggestions` into the Add-row
-`<TypedValueField>` too (per-text-column, lazy on focus) and memoize distinct results per (table,column) so re-opening an
-editor doesn't refetch — a small `Map` ref + a pure `distinctCacheKey(table,col)`. Alternatives: NULL-vs-empty-string
-toggle affordance; BLOB read-only preview; async export JOBS >10k (bigger); nested AND/OR filter-tree; inert
-`field-types.ts` as a per-column field-config feature.
+**NEXT slice: NULL-vs-empty-string toggle affordance (contained, honesty-focused).** SQLite distinguishes `NULL` from
+`''` but the text editor can't express the difference — a blank text field is ambiguous. Add an explicit affordance
+(e.g. a "set NULL" chip beside the field, distinct from clearing to `''`) so an owner can deliberately store one or the
+other, mirroring the grid's honest NULL vs `""` cell rendering. Mostly editor-only (the `null` kind already binds NULL;
+this is a clearer UI path to it). Alternatives: BLOB read-only preview; async export JOBS >10k (bigger); nested AND/OR
+filter-tree; inert `field-types.ts` as a per-column field-config feature.

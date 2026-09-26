@@ -107,6 +107,7 @@ import {
   toDatetimeLocalValue,
   isValidJsonText,
   distinctSuggestions,
+  distinctCacheKey,
   CELL_INPUT_KIND_OPTIONS,
   buildInsertStatement,
   buildDeleteByPk,
@@ -1990,6 +1991,21 @@ describe('distinctSuggestions (value-datalist suggestions; high-cardinality → 
   it('returns none for an empty/absent set', () => {
     expect(distinctSuggestions([], false)).toEqual([]);
     expect(distinctSuggestions(undefined, false)).toEqual([]);
+  });
+});
+
+describe('distinctCacheKey (per-(table,col) memo key; no cross-table/column collisions)', () => {
+  it('is stable + unique per (table, column)', () => {
+    expect(distinctCacheKey('form_submissions', 'status')).toBe('form_submissions\nstatus');
+    expect(distinctCacheKey('a', 'b')).toBe(distinctCacheKey('a', 'b')); // stable
+  });
+
+  it('does not collide when the same column name lives in two tables', () => {
+    expect(distinctCacheKey('orders', 'status')).not.toBe(distinctCacheKey('leads', 'status'));
+  });
+
+  it('separator makes ("ab","c") distinct from ("a","bc")', () => {
+    expect(distinctCacheKey('ab', 'c')).not.toBe(distinctCacheKey('a', 'bc'));
   });
 });
 

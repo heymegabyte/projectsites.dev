@@ -1879,7 +1879,7 @@ export function numericColumns(
  * matches its (null) rows without colliding with a literal "null" string value. Pure.
  */
 export function kanbanGroupKey(value: unknown): string {
-  return value === null || value === undefined ? ' ∅' : String(value);
+  return value === null || value === undefined ? '∅' : String(value);
 }
 
 /**
@@ -2600,6 +2600,17 @@ export function distinctSuggestions(values: readonly string[] | undefined, trunc
   }
 
   return [...values];
+}
+
+/**
+ * The memo key for a column's DISTINCT-values result, unique per (table, column) so the datalist cache
+ * never mixes two tables that share a column name. Uses a newline separator (never present in a SQLite
+ * identifier drawn from the fixed overview allowlist) so `('ab','c')` can't collide with `('a','bc')`. Pure.
+ *
+ * @example distinctCacheKey('form_submissions', 'status') // 'form_submissions\nstatus'
+ */
+export function distinctCacheKey(table: string, col: string): string {
+  return `${table}\n${col}`;
 }
 
 /** A parameterized statement: `?1..?N` placeholders in `sql`, values in `params` (bind order). */
