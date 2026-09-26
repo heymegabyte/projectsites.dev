@@ -21,6 +21,7 @@ import {
   buildCsvImportPlan,
   CsvImportError,
   pkFromTableInfo,
+  generatedFromTableXinfo,
   stripSqlCommentsAndStrings,
   classifySqlStatement,
   classifySql,
@@ -335,6 +336,35 @@ describe('pkFromTableInfo', () => {
   it('returns [] when no PK is declared (caller refuses inline mutation)', () => {
     expect(pkFromTableInfo([{ name: 'x', pk: 0 }])).toEqual([]);
     expect(pkFromTableInfo([])).toEqual([]);
+  });
+});
+
+describe('generatedFromTableXinfo', () => {
+  it('flags VIRTUAL (hidden 2) and STORED (hidden 3) generated columns', () => {
+    const gen = generatedFromTableXinfo([
+      { name: 'a', hidden: 0 },
+      { name: 'v', hidden: 2 },
+      { name: 's', hidden: 3 },
+    ]);
+    expect([...gen].sort()).toEqual(['s', 'v']);
+  });
+
+  it('does NOT flag ordinary (hidden 0) or internal-hidden (hidden 1) columns', () => {
+    const gen = generatedFromTableXinfo([
+      { name: 'a', hidden: 0 },
+      { name: 'rowid_alias', hidden: 1 },
+    ]);
+    expect(gen.size).toBe(0);
+  });
+
+  it('accepts the aliased "column" key and coerces a string hidden value', () => {
+    const gen = generatedFromTableXinfo([{ column: 'total', hidden: '2' }]);
+    expect(gen.has('total')).toBe(true);
+  });
+
+  it('treats a row with no `hidden` field as ordinary (empty set), never throws on []', () => {
+    expect(generatedFromTableXinfo([{ name: 'a', pk: 1 }]).size).toBe(0);
+    expect(generatedFromTableXinfo([]).size).toBe(0);
   });
 });
 

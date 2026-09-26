@@ -252,8 +252,27 @@ generated/non-writable fields"):
   view/null; virtual-module ×3 + null). Verified: Vitest 57/57 (d1-browser-logic) + 134 with siblings, editor
   tsc 0, eslint 0, `npm run build` ✓ (12.97s). All pure + honest (parsed from real DDL, never fabricated).
 
-**NEXT slice (per delivery order): wire generated/non-writable → the grid EDIT path** (DataPanel row-edit must
-present generated columns read-only + explain why — "never a doomed control") — the natural slice-3 follow-on to
-this schema work; then the grid eval (RevoGrid Core vs Tabulator against a real paginated D1, license-checked) +
-a server-side keyset-paginated read-only grid path (foundation for slices 3-4). Cheaper adjacent win: wire
-`field-types.ts` typed EDITORS (date/select) into the row-edit path.
+### ✅ Shipped next fire (2026-09-26 #3) — generated columns are read-only in the grid EDIT path (slice 3)
+SQLite REJECTS writing a generated (computed) column, so the row grid previously offered a **doomed edit** on
+one. Now DataPanel detects them and presents them read-only + labelled ("never a doomed/dead control"):
+- **Detection** — the per-table PK probe switched from a **bare** `PRAGMA table_info("t")` to the
+  table-valued-FUNCTION form `SELECT cid,name,type,"notnull",dflt_value,pk,hidden FROM pragma_table_xinfo('t')`.
+  Two wins: (a) it's a **SELECT**, so it survives the CF D1 REST authorizer's PRAGMA block (a bare `PRAGMA` can
+  return SQLITE_AUTH — so the PK/Delete affordance is now MORE robust too), and (b) `hidden` (2 = VIRTUAL,
+  3 = STORED) reveals generated columns. Same cid/name/type/pk fields → the existing PK + type parse is unchanged.
+- **Pure helper** `generatedFromTableXinfo(rows)` → `Set<string>` (mirrors `pkFromTableInfo`; `hidden≥2`; accepts
+  the `"column"` alias + string `hidden`; empty on `[]`/absent field). +4 Vitest.
+- **Enforcement** — `browseGeneratedCols` state (reset per table): the row-detail `editable` gate excludes
+  generated columns; `startEdit` early-returns on one (no editor ever opens); `duplicateRow` omits them from the
+  prefilled INSERT (like the PK — SQLite rejects supplying a generated value). A small amber **"computed"** chip
+  with a tooltip renders where the edit pencil would be, so it's an EXPLAINED read-only, not a silent dead cell.
+- Verified: Vitest 177/177 (data-panel-logic) + 342 across 5 workbench specs, editor tsc 0, eslint 0,
+  `npm run build` ✓ (13.86s). Honest: a checkbox/date is still just a UI interpretation; only generated-ness is
+  schema-enforced (from `hidden`), and that's exactly what we gate on.
+
+**NEXT slice (per delivery order): server-side pagination/keyset for the read-only grid** (slice 2 completion —
+today the browse grid loads a table's rows without an explicit keyset bound; the spec requires "avoid loading the
+DB into browser memory" + "avoid expensive exact counts on every nav"). Then the grid eval (RevoGrid Core vs
+Tabulator against a real paginated D1, license-checked). Cheaper adjacent win: wire `field-types.ts` typed
+EDITORS (date/select/url) into the row-edit path; or extend the add-row form to also omit generated columns
+(the duplicate path already does).

@@ -483,6 +483,33 @@ export function pkFromTableInfo(rows: readonly Record<string, unknown>[]): strin
     .map((r) => r.name);
 }
 
+/**
+ * The GENERATED (computed) columns from a `pragma_table_xinfo` result — its `hidden` field is 2 for a
+ * VIRTUAL generated column and 3 for a STORED one (0 = ordinary, 1 = an internal hidden column).
+ * SQLite REJECTS writing a generated column's value, so the grid uses this to present those columns
+ * read-only (never a doomed edit) and omit them from INSERT (add / duplicate). Accepts the raw `name`
+ * or the `"column"` alias; a row without a numeric `hidden` is treated as ordinary. Pure.
+ *
+ * @param rows - a pragma_table_xinfo result (each row has `hidden` + `name`/`column`)
+ * @returns the set of generated column names (empty when none, or when `hidden` is absent)
+ * @example generatedFromTableXinfo([{ name: 'a', hidden: 0 }, { name: 'total', hidden: 2 }]) // Set {'total'}
+ * @example generatedFromTableXinfo([{ name: 'hash', hidden: 3 }]) // Set {'hash'}  (STORED)
+ * @example generatedFromTableXinfo([{ name: 'a', hidden: 0 }]) // Set {}
+ */
+export function generatedFromTableXinfo(rows: readonly Record<string, unknown>[]): Set<string> {
+  const out = new Set<string>();
+
+  for (const r of rows ?? []) {
+    const name = String(r?.name ?? r?.column ?? '').trim();
+
+    if (name.length > 0 && Number(r?.hidden) >= 2) {
+      out.add(name);
+    }
+  }
+
+  return out;
+}
+
 /** Statement category for the Data console — drives the run affordance + which result view shows. */
 export type SqlKind = 'read' | 'write' | 'ddl' | 'transaction' | 'other';
 

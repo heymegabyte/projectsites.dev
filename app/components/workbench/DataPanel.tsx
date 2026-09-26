@@ -67,6 +67,7 @@ import {
   MAX_BULK_DELETE,
   buildUpdateByPk,
   pkFromTableInfo,
+  generatedFromTableXinfo,
   RowMutationError,
   friendlyModelLabel,
   canAskAi,
@@ -271,6 +272,13 @@ export const DataPanel = memo(() => {
 
   /** Declared SQLite type per column name — populated from the PRAGMA table_info reply. */
   const [browseColTypes, setBrowseColTypes] = useState<Record<string, string>>({});
+
+  /**
+   * GENERATED (computed) columns of the open table — from `pragma_table_xinfo`'s `hidden` field
+   * (2 = VIRTUAL, 3 = STORED generated). SQLite REJECTS writing a generated column's value, so the
+   * grid presents them read-only (never a doomed edit) and omits them from INSERT (add/duplicate).
+   */
+  const [browseGeneratedCols, setBrowseGeneratedCols] = useState<ReadonlySet<string>>(() => new Set<string>());
   const pkCid = useRef<string | null>(null); // PRAGMA table_info round-trip id (distinct from the SQL console)
   const deletePending = useRef(false); // a row delete is in flight → route the next PS_SQL_RESPONSE
   const deleteTargetRef = useRef<string | null>(null); // the table to re-open after a delete
@@ -492,6 +500,7 @@ export const DataPanel = memo(() => {
       setColMenuOpen(false);
       setBrowseLoading(true);
       setBrowsePkCols([]); // clear the prior table's PK until this one's PRAGMA returns
+      setBrowseGeneratedCols(new Set<string>()); // clear the prior table's generated-column set
       setBrowseColTypes({});
       setSelectedKeys(new Set()); // never carry a bulk selection across a table switch / re-fetch
 
@@ -517,7 +526,18 @@ export const DataPanel = memo(() => {
       if (canRunSql && /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
         const pcid = newCorrelationId(`pk-${key}`);
         pkCid.current = pcid;
-        postToParent({ type: 'PS_SQL_REQUEST', query: `PRAGMA table_info("${key}")`, correlationId: pcid });
+
+        /*
+         * `pragma_table_xinfo` via the table-valued-FUNCTION form (a SELECT, not a bare PRAGMA) so it
+         * survives the CF D1 REST authorizer's PRAGMA block, AND returns the extra `hidden` field
+         * (2/3 = generated) alongside the same cid/name/type/pk/notnull the PK+type parse already read.
+         * `key` is a validated bare identifier, so the single-quoted arg is injection-free.
+         */
+        postToParent({
+          type: 'PS_SQL_REQUEST',
+          query: `SELECT cid, name, type, "notnull", dflt_value, pk, hidden FROM pragma_table_xinfo('${key}')`,
+          correlationId: pcid,
+        });
       }
     },
     [canRunSql],
@@ -825,7 +845,10 @@ export const DataPanel = memo(() => {
             const tableInfoRows = msg.rows as Array<Record<string, unknown>>;
             setBrowsePkCols(pkFromTableInfo(tableInfoRows));
 
-            // Also extract declared types for columnTypeBadge display.
+            /*
+             * Also extract declared types for columnTypeBadge display + the GENERATED-column set
+             * (pragma_table_xinfo `hidden`: 2 = VIRTUAL, 3 = STORED generated — both non-writable).
+             */
             const typeMap: Record<string, string> = {};
 
             for (const row of tableInfoRows) {
@@ -837,6 +860,7 @@ export const DataPanel = memo(() => {
               }
             }
             setBrowseColTypes(typeMap);
+            setBrowseGeneratedCols(generatedFromTableXinfo(tableInfoRows));
           }
 
           return;
@@ -1412,14 +1436,22 @@ export const DataPanel = memo(() => {
   }, [active, selectedKeys, visibleRows, browsePkCols, runSql, flashStatus]);
 
   /** Open the inline editor for one cell — infer the initial type from the current value, prefill it. */
-  const startEdit = useCallback((col: string, rawValue: unknown): void => {
-    setEditError('');
-    setEditCol(col);
+  const startEdit = useCallback(
+    (col: string, rawValue: unknown): void => {
+      // A generated (computed) column is not writable — never open an editor on it (no doomed edit).
+      if (browseGeneratedCols.has(col)) {
+        return;
+      }
 
-    const { kind, value } = inferCellEditor(rawValue);
-    setEditKind(kind);
-    setEditValue(value);
-  }, []);
+      setEditError('');
+      setEditCol(col);
+
+      const { kind, value } = inferCellEditor(rawValue);
+      setEditKind(kind);
+      setEditValue(value);
+    },
+    [browseGeneratedCols],
+  );
 
   /**
    * Duplicate a row — open the Add-row form PREFILLED from this row, with the PRIMARY-KEY column(s)
@@ -1433,8 +1465,12 @@ export const DataPanel = memo(() => {
       const values: Record<string, string> = {};
 
       for (const col of columns) {
-        if (browsePkCols.includes(col)) {
-          kinds[col] = 'default'; // omit the key → DB assigns a fresh one
+        /*
+         * Omit the PK (DB assigns a fresh key) AND any generated column (SQLite computes its value —
+         * an INSERT that supplies one is rejected), leaving both at 'default'.
+         */
+        if (browsePkCols.includes(col) || browseGeneratedCols.has(col)) {
+          kinds[col] = 'default';
           continue;
         }
 
@@ -1449,7 +1485,7 @@ export const DataPanel = memo(() => {
       setAddingRow(true);
       setDetailIdx(null); // collapse the source row-detail; the prefilled form is at the top
     },
-    [columns, browsePkCols],
+    [columns, browsePkCols, browseGeneratedCols],
   );
 
   const cancelEdit = useCallback((): void => {
@@ -2505,8 +2541,13 @@ export const DataPanel = memo(() => {
                               {detailEntries(r, columns).map(([label, val], idx) => {
                                 const col = columns[idx];
 
-                                // Editable = super-admin + a resolvable PK + this column is NOT part of the key.
-                                const editable = canRunSql && browsePkCols.length > 0 && !browsePkCols.includes(col);
+                                /*
+                                 * Editable = super-admin + a resolvable PK + this column is NOT part of the
+                                 * key AND NOT a generated (computed, non-writable) column.
+                                 */
+                                const isGenerated = browseGeneratedCols.has(col);
+                                const editable =
+                                  canRunSql && browsePkCols.length > 0 && !browsePkCols.includes(col) && !isGenerated;
                                 const editing = editCol === col;
 
                                 return (
@@ -2647,6 +2688,15 @@ export const DataPanel = memo(() => {
                                             >
                                               <div className="i-ph:pencil-simple text-[11px]" />
                                             </button>
+                                          )}
+                                          {isGenerated && (
+                                            <span
+                                              data-testid="data-cell-generated"
+                                              title="Generated (computed) column — SQLite derives its value; it can't be edited."
+                                              className="shrink-0 rounded bg-amber-500/15 px-1 text-[8px] text-amber-300"
+                                            >
+                                              computed
+                                            </span>
                                           )}
                                         </>
                                       )}
