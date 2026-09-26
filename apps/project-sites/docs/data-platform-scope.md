@@ -507,11 +507,32 @@ db — **NEVER** in the customer's own tables — end-to-end and org-gated:
 - Verified: worker Jest **12746/12746** + tsc 0; editor Vitest **297/297** + tsc 0 + eslint 0 + build ✓; admin tsc 0 +
   `ng build --configuration production` ✓; migration live in prod D1. Editor → CF Pages, worker+admin → Worker CI.
 
-**NEXT slice (per delivery order): rich non-grid VIEWS read from the saved-view metadata** — the store now exists, so
-add a **view type** to `editor_grid_views` (`grid`|`gallery`|`kanban`|`calendar`|`chart`, default `grid`; a nullable
-`config_json` for group-by field / kanban column field / calendar date field / chart x·y) and render a **gallery**
-first (cards over the SAME rows, no record duplication, honest "page-only" labels on any summary). Reuse the existing
-browse endpoint + saved-view apply. Alternatively, round out saved-views POLISH first: **rename/update** an existing
-view (PUT), a "modified — update view?" affordance when the live query drifts from the applied view, and default-view
-per table. Deferred: nested filter-tree (groups-within-groups); `field-types.ts` richer INPUT widgets; grid eval
-(RevoGrid vs Tabulator) — the hand-rolled `<table>` stays until a large-dataset need forces it.
+### ✅ Shipped next fire (2026-09-26 #16) — honest WHOLE-QUERY CSV/JSON export (fixes silent page-only truncation)
+The grid's "Export CSV" silently exported only the LOADED PAGE (`visibleRows`, 25–100 rows) — a filter to 5,000
+matches + Export gave ~50 rows with no warning (the exact dishonest-export hazard the doctrine flags). Now export
+emits the WHOLE current query (search + AND/OR filter group + sort), bounded + honestly labelled:
+- **Worker (`site_data_api/handlers.ts`)** — new `GET /api/sites/:siteId/data-overview/:table/export` (distinct
+  `/export` segment → no `:table` shadow). Same auth (`ownsSiteData` 404) + safe-column allowlist + masked email as
+  the browse (export is safe by construction — only the columns the grid shows). Extracted **`composeBrowseFilter`**
+  (search + filter-group WHERE-suffix) so browse + export share ONE composition (no drift). Bounded to
+  **`MAX_EXPORT_ROWS=10000`** via a `LIMIT MAX+1` fetch → `truncated` flag when the match set overflows (sliced to
+  the cap, never silently dropped). Fail-soft (missing table → empty). +8 Jest (composeBrowseFilter + the export
+  route via the D1 mock: all-rows-not-a-page, LIMIT+1/no-offset, truncated slicing).
+- **Bridge** — `PS_DATA_REQUEST.exportAll` routes to `/export` (drops limit/offset/count; keeps sort+search+filters);
+  the reply `data` carries `rows`+`columns`+`truncated`+`cap` (`DataResponseMessage.data` extended).
+- **Editor (`DataPanel.tsx`)** — the CSV button + a NEW JSON button now `startExport(fmt)`: embedded → asks the admin
+  to fetch ALL matching rows (reusing `filtersToParams` so the file matches the grid exactly) then formats + downloads
+  client-side (`toCsv` / `JSON.stringify`) via a module `triggerDownload`; the export cid is matched BEFORE the browse
+  handler (refs only → no stale closure) so it downloads instead of replacing the grid. An honest note ("Exported N
+  rows" / "first 10,000 — narrow with filters") + a busy state. Standalone falls back to the loaded page, labelled.
+- Verified: worker Jest **12754/12754** + tsc 0; editor Vitest **297/297** + tsc 0 + eslint 0 + build ✓; admin tsc 0 +
+  `ng build --configuration production` ✓. Editor → CF Pages, worker+admin → Worker CI.
+
+**NEXT slice (per delivery order): rich non-grid VIEWS read from the saved-view metadata** — the store + export now
+exist, so add a **view type** to `editor_grid_views` (`grid`|`gallery`|`kanban`|`calendar`|`chart`, default `grid`; a
+nullable `config_json` for group-by / kanban-column / calendar-date / chart x·y field) and render a **gallery** first
+(cards over the SAME rows, no record duplication, honest "page-only" labels on any summary), reusing the browse
+endpoint + saved-view apply. Alternatively, saved-views POLISH: **rename/update** an existing view (PUT) + a
+"modified — update view?" affordance when the live query drifts + default-view-per-table. Deferred: async export JOBS
+for >10k rows (current export is bounded + honestly capped); nested filter-tree; `field-types.ts` richer INPUT
+widgets; grid eval (RevoGrid vs Tabulator) — the hand-rolled `<table>` stays until a large-dataset need forces it.

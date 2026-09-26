@@ -217,6 +217,13 @@ export interface DataRequestMessage {
   filterCombinator?: string;
 
   /**
+   * Export the WHOLE current query (search + filters + sort) instead of one page — routes to the
+   * `/data-overview/:table/export` endpoint (bounded to the server cap). The response `data` carries all
+   * matching rows + `truncated`. Ignores {@link offset}/{@link limit}/{@link count}.
+   */
+  exportAll?: boolean;
+
+  /**
    * `0` = skip the server COUNT(*) (paging/sorting doesn't change the total, so the client reuses its
    * cached total — avoids an expensive exact count on every nav). Omitted / `1` = the worker counts
    * (table open, search/filter change, post-mutation). Then `total` on the response is `null`.
@@ -258,6 +265,15 @@ export interface DataResponseMessage {
      * console reads the shared multi-tenant DB, so it MUST stay super-admin-gated — AL-792).
      */
     canRunSql?: boolean;
+
+    /**
+     * Export only: `true` when the match set exceeded the server cap and the returned rows were sliced.
+     * The editor tells the owner the export is partial (+ suggests narrowing) rather than silently drop.
+     */
+    truncated?: boolean;
+
+    /** Export only: the server row cap ({@link MAX_EXPORT_ROWS}), for an honest "first N rows" message. */
+    cap?: number;
   } | null;
 
   /**

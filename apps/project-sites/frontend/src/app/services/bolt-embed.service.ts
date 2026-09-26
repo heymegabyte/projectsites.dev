@@ -95,6 +95,8 @@ interface PsMessage {
   readonly filterCombinator?: string;
   /** PS_DATA_REQUEST: 0 = skip the COUNT(*) (paging/sorting → reuse cached total); else the worker counts. */
   readonly count?: number;
+  /** PS_DATA_REQUEST: export the WHOLE current query (routes to /data-overview/:table/export). */
+  readonly exportAll?: boolean;
   /** PS_VIEW_REQUEST (saved grid views): `list` | `save` | `delete`. */
   readonly action?: string;
   /** PS_VIEW_REQUEST delete: the view id. */
@@ -715,16 +717,18 @@ export class BoltEmbedService {
             reply({ error: 'No site selected' });
             break;
           }
+          // Whole-query export routes to the /export endpoint (bounded, all matching rows) and drops
+          // the pagination/count params; sort + search + filters still apply so the file matches the grid.
+          const isExport = msg.exportAll === true && !!table;
           const path = table
-            ? `/sites/${site.id}/data-overview/${encodeURIComponent(table)}`
+            ? `/sites/${site.id}/data-overview/${encodeURIComponent(table)}${isExport ? '/export' : ''}`
             : `/sites/${site.id}/data-overview`;
           this.api
             .get<{ data?: unknown; total?: number }>(
               path,
               table
                 ? {
-                    limit: String(browseLimit),
-                    offset: String(browseOffset),
+                    ...(isExport ? {} : { limit: String(browseLimit), offset: String(browseOffset) }),
                     ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),
                     ...(browseOrderBy && browseDir ? { dir: browseDir } : {}),
                     ...(browseSearch ? { search: browseSearch } : {}),
@@ -740,7 +744,7 @@ export class BoltEmbedService {
                             ...(browseFilterValueFree ? {} : { filterVal: browseFilterVal as string }),
                           }
                         : {}),
-                    ...(browseSkipCount ? { count: '0' } : {}),
+                    ...(browseSkipCount && !isExport ? { count: '0' } : {}),
                   }
                 : undefined,
               { silent: true },

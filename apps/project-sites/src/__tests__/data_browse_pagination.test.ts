@@ -20,7 +20,7 @@
  */
 
 import { Hono } from 'hono';
-import { siteDataApi } from '../../libs/features/site_data_api/handlers.js';
+import { siteDataApi, MAX_EXPORT_ROWS } from '../../libs/features/site_data_api/handlers.js';
 import type { Env, Variables } from '../types/env.js';
 
 // ─── D1 mock ────────────────────────────────────────────────────────────────
@@ -218,5 +218,62 @@ describe('GET /api/sites/:siteId/data-overview/:table pagination', () => {
       String(call[0]).toUpperCase().includes('COUNT(*)'),
     );
     expect(countPrepared).toBe(true);
+  });
+});
+
+describe('GET /api/sites/:siteId/data-overview/:table/export (whole-query export)', () => {
+  function exportReq(siteId: string, table: string, params: Record<string, string> = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return new Request(
+      `http://localhost/api/sites/${siteId}/data-overview/${table}/export${qs ? `?${qs}` : ''}`,
+    );
+  }
+
+  it('404 when the site belongs to a different org (IDOR guard)', async () => {
+    const DB = makeD1({ siteOwned: false });
+    const res = await makeApp(DB).request(exportReq('site-1', 'visitor_events'), {}, { DB } as unknown as Env);
+    expect(res.status).toBe(404);
+  });
+
+  it('returns ALL matching rows (not a page) with truncated=false when under the cap', async () => {
+    const rows = [
+      { id: 'r1', event_type: 'pageview', path: '/a', created_at: '2024-01-01' },
+      { id: 'r2', event_type: 'pageview', path: '/b', created_at: '2024-01-02' },
+    ];
+    const DB = makeD1({ rows });
+    const res = await makeApp(DB).request(exportReq('site-1', 'visitor_events'), {}, { DB } as unknown as Env);
+    expect(res.status).toBe(200);
+
+    interface ExportBody {
+      data: { rows: unknown[]; truncated: boolean; cap: number };
+    }
+    const body = (await res.json()) as ExportBody;
+    expect(body.data.rows).toHaveLength(2);
+    expect(body.data.truncated).toBe(false);
+    expect(body.data.cap).toBe(MAX_EXPORT_ROWS);
+
+    // The export SQL binds a LIMIT of MAX+1 (the truncation-detection fetch) and NO offset.
+    const prepareMock = (DB as unknown as { prepare: jest.Mock }).prepare;
+    const exportCall = prepareMock.mock.calls.find((call: unknown[]) => {
+      const s = String(call[0]).toUpperCase();
+      return s.startsWith('SELECT') && s.includes('LIMIT ?') && !s.includes('OFFSET') && !s.includes('COUNT(*)');
+    });
+    expect(exportCall).toBeTruthy();
+  });
+
+  it('flags truncated=true and slices to the cap when the match set exceeds MAX_EXPORT_ROWS', async () => {
+    // The mock returns whatever `rows` we give regardless of LIMIT, so MAX+1 rows simulates overflow.
+    const many = Array.from({ length: MAX_EXPORT_ROWS + 1 }, (_unused, i) => ({
+      id: `r${i}`,
+      event_type: 'pageview',
+      path: '/p',
+      created_at: '2024-01-01',
+    }));
+    const DB = makeD1({ rows: many });
+    const res = await makeApp(DB).request(exportReq('site-1', 'visitor_events'), {}, { DB } as unknown as Env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { rows: unknown[]; truncated: boolean } };
+    expect(body.data.truncated).toBe(true);
+    expect(body.data.rows).toHaveLength(MAX_EXPORT_ROWS); // sliced to the cap, not MAX+1
   });
 });

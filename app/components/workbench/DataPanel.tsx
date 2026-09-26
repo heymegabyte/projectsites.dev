@@ -225,6 +225,23 @@ const isDestructiveSql = (q: string): boolean => DESTRUCTIVE_RE.test(q) || UNSCO
 const NEW_TABLE_TEMPLATE =
   'CREATE TABLE my_table (\n  id TEXT PRIMARY KEY,\n  name TEXT NOT NULL,\n  created_at INTEGER DEFAULT (unixepoch())\n);';
 
+/** Trigger a client-side file download of `content` (a Blob) — no server round-trip, no bearer needed. */
+function triggerDownload(filename: string, content: string, mime: string): void {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export const DataPanel = memo(() => {
   const [status, setStatus] = useState<Status>(isEmbedded ? 'loading' : 'standalone');
   const [tables, setTables] = useState<DataOverviewTable[]>([]);
@@ -345,6 +362,15 @@ export const DataPanel = memo(() => {
   const viewListCid = useRef<string | null>(null);
   const viewSaveCid = useRef<string | null>(null);
   const viewDeleteCid = useRef<string | null>(null);
+
+  /**
+   * Whole-query export (CSV/JSON) of ALL rows matching the current search + filter group + sort — NOT
+   * just the visible page. The worker bounds it + flags `truncated`; the editor formats + downloads.
+   */
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportNote, setExportNote] = useState('');
+  const exportCid = useRef<string | null>(null);
+  const exportFormat = useRef<'csv' | 'json'>('csv');
 
   /*
    * The current open table, mirrored into a ref so the mount-only message listener (deps []) reads the
@@ -1270,6 +1296,38 @@ export const DataPanel = memo(() => {
         return;
       }
 
+      /*
+       * Whole-query export reply — matched on the export cid BEFORE the browse handling so it downloads
+       * a file instead of replacing the grid. Uses refs only (mount-only listener → no stale closure).
+       */
+      if (msg.correlationId === exportCid.current) {
+        exportCid.current = null;
+        setExportBusy(false);
+
+        if (msg.error) {
+          setExportNote(`Export failed: ${msg.error}`);
+
+          return;
+        }
+
+        const exportRows = msg.data?.rows ?? [];
+        const exportCols = msg.data?.columns ?? [];
+        const fmt = exportFormat.current;
+        const content = fmt === 'json' ? JSON.stringify(exportRows, null, 2) : toCsv(exportCols, exportRows);
+        triggerDownload(
+          `${activeRef.current ?? 'export'}.${fmt}`,
+          content,
+          fmt === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8',
+        );
+        setExportNote(
+          msg.data?.truncated
+            ? `Exported the first ${exportRows.length.toLocaleString()} rows (capped — narrow with filters for the rest).`
+            : `Exported ${exportRows.length.toLocaleString()} row${exportRows.length === 1 ? '' : 's'}.`,
+        );
+
+        return;
+      }
+
       // Overview reply (no `table`).
       if (!msg.table && msg.correlationId === overviewCid.current) {
         if (overviewTimer.current) {
@@ -1749,6 +1807,7 @@ export const DataPanel = memo(() => {
   useEffect(() => {
     activeRef.current = active;
     setViewsMenuOpen(false);
+    setExportNote('');
 
     if (active) {
       loadViews(active);
@@ -2128,22 +2187,51 @@ export const DataPanel = memo(() => {
   );
   const chartMax = useMemo(() => chartData.reduce((m, p) => Math.max(m, p.value), 0), [chartData]);
 
-  const exportCsv = useCallback(() => {
-    if (typeof document === 'undefined' || !activeTable) {
-      return;
-    }
+  /**
+   * Export the WHOLE current query (search + filter group + sort) to CSV/JSON — not just the loaded
+   * page. Embedded: ask the admin to fetch all matching rows (bounded) via the /export endpoint, then
+   * format + download here (the response also carries `truncated` for an honest note). Standalone (no
+   * cross-origin session): fall back to the loaded rows, clearly labelled as the visible page.
+   */
+  const startExport = useCallback(
+    (format: 'csv' | 'json'): void => {
+      if (!active || !activeTable) {
+        return;
+      }
 
-    const csv = toCsv(columns, visibleRows);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${activeTable.key}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }, [activeTable, columns, visibleRows]);
+      if (!isEmbedded) {
+        const content = format === 'json' ? JSON.stringify(visibleRows, null, 2) : toCsv(columns, visibleRows);
+        triggerDownload(
+          `${activeTable.key}.${format}`,
+          content,
+          format === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8',
+        );
+        setExportNote(`Exported ${visibleRows.length.toLocaleString()} loaded rows (standalone preview).`);
+
+        return;
+      }
+
+      const cid = newCorrelationId('export');
+      exportCid.current = cid;
+      exportFormat.current = format;
+      setExportBusy(true);
+      setExportNote('');
+
+      // Same filter serialization the grid sends → the file matches exactly what's on screen.
+      const params = filtersToParams({ search, conditions: filterConditions, combinator: filterCombinator });
+      postToParent({
+        type: 'PS_DATA_REQUEST',
+        table: active,
+        exportAll: true,
+        ...(params.search ? { search: params.search } : {}),
+        ...(params.filters ? { filters: params.filters } : {}),
+        ...(params.filterCombinator ? { filterCombinator: params.filterCombinator } : {}),
+        ...(browseSort ? { orderBy: browseSort.col, dir: browseSort.dir } : {}),
+        correlationId: cid,
+      });
+    },
+    [active, activeTable, columns, visibleRows, search, filterConditions, filterCombinator, browseSort],
+  );
 
   /** Export the SQL-console result grid to CSV (parity with the table-browse export). */
   const exportSqlCsv = useCallback(() => {
@@ -2664,16 +2752,38 @@ export const DataPanel = memo(() => {
                   </div>
                 )}
                 {rows.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={exportCsv}
-                    data-testid="data-export-csv"
-                    className="text-[10px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer flex items-center gap-1"
-                    title="Export the current view to CSV (every column, not just the visible ones)"
-                  >
-                    <div className="i-ph:download-simple" /> CSV
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => startExport('csv')}
+                      disabled={exportBusy}
+                      data-testid="data-export-csv"
+                      className="flex cursor-pointer items-center gap-1 text-[10px] text-bolt-elements-item-contentAccent hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+                      title="Export the WHOLE filtered query to CSV (all matching rows, not just this page)"
+                    >
+                      <div className="i-ph:download-simple" /> {exportBusy ? 'Exporting…' : 'CSV'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => startExport('json')}
+                      disabled={exportBusy}
+                      data-testid="data-export-json"
+                      className="flex cursor-pointer items-center gap-1 text-[10px] text-bolt-elements-item-contentAccent hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+                      title="Export the WHOLE filtered query to JSON (all matching rows, not just this page)"
+                    >
+                      <div className="i-ph:download-simple" /> JSON
+                    </button>
+                  </>
                 )}
+              </div>
+            )}
+            {exportNote && (
+              <div
+                className="px-3 pb-1.5 text-[10px] text-bolt-elements-textTertiary"
+                data-testid="data-export-note"
+                role="status"
+              >
+                {exportNote}
               </div>
             )}
           </div>

@@ -800,6 +800,29 @@ siteDataApi.get('/api/sites/:siteId/data-overview', async (c) => {
   return c.json({ data: { tables } });
 });
 
+/** Max rows a single export returns — bounded; truncation is detected with a `LIMIT MAX+1` fetch. */
+export const MAX_EXPORT_ROWS = 10000;
+
+/**
+ * Compose the parameterized WHERE-suffix (whole-table search OR-of-LIKE + the AND/OR column-filter
+ * group) shared by the browse + export routes, read from the request query. `spec.columns` is the
+ * injection boundary (the `filters=`/`filterCol=` column MUST be allowlisted); every value is a bound
+ * param. Returns the ` AND …` clause + its params (both empty when neither a search nor a filter is set).
+ * Extracting this keeps browse + export from drifting apart (a filter fix lands in one place).
+ */
+export function composeBrowseFilter(
+  spec: { columns: readonly string[] },
+  query: (key: string) => string | undefined | null,
+): { clause: string; params: string[] } {
+  const { clause: searchClause, params: searchParams } = buildDataSearch(spec.columns, query('search'));
+  const parsed = parseFilterConditions(query('filters'));
+  const { clause: filterClause, params: filterParams } =
+    parsed.length > 0
+      ? buildColumnFilters(spec.columns, parsed, query('filterCombinator'))
+      : buildColumnFilter(spec.columns, query('filterCol'), query('filterVal'), query('filterOp'));
+  return { clause: `${searchClause}${filterClause}`, params: [...searchParams, ...filterParams] };
+}
+
 /**
  * Browse the most-recent rows of one overview table. Read-only; only the table's
  * safe-column allowlist is selected (never PII payloads or encrypted tokens);
@@ -825,27 +848,10 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
   // Default (any other value / absent) still counts, so existing callers are unchanged.
   const wantCount = c.req.query('count') !== '0';
 
-  // Optional parameterized text search (OR-of-LIKE) + a precise single-column
-  // exact-match filter, both injected after `WHERE site_id = ?` on BOTH the browse
-  // AND count queries so `total` reflects the filtered set. Columns are allowlist-
-  // validated (the injection boundary); values are parameterized + bounded.
-  const { clause: searchClause, params: searchParams } = buildDataSearch(spec.columns, c.req.query('search'));
-  // Column filter: the multi-condition builder (`?filters=` JSON + `?filterCombinator=`) takes
-  // precedence; otherwise fall back to the single-column `?filterCol/Op/Val` (backward-compatible so an
-  // older Editor bundle keeps working during the deploy window). Both paths share the same
-  // allowlist-validated, parameterized leaf logic.
-  const parsedConditions = parseFilterConditions(c.req.query('filters'));
-  const { clause: filterClause, params: filterParams } =
-    parsedConditions.length > 0
-      ? buildColumnFilters(spec.columns, parsedConditions, c.req.query('filterCombinator'))
-      : buildColumnFilter(
-          spec.columns,
-          c.req.query('filterCol'),
-          c.req.query('filterVal'),
-          c.req.query('filterOp'),
-        );
-  const extraClause = `${searchClause}${filterClause}`;
-  const extraParams = [...searchParams, ...filterParams];
+  // Parameterized text search (OR-of-LIKE) + the AND/OR column-filter group, injected after
+  // `WHERE site_id = ?` on BOTH the browse AND count queries so `total` reflects the filtered set.
+  // Shared with the export route via composeBrowseFilter (allowlist-validated columns; bound values).
+  const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) => c.req.query(k));
   const withSearch = (sql: string): string =>
     extraClause ? sql.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`) : sql;
 
@@ -888,6 +894,59 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
   // `data.{table,columns,rows}` is preserved for the existing consumer; `total` (null when the count
   // was skipped), `limit`, `offset` are additive for the paginated grid.
   return c.json({ data: { table: spec.key, columns: spec.columns, rows }, total, limit, offset });
+});
+
+/**
+ * Export the WHOLE current query (search + AND/OR filter group + sort) — NOT just the visible page —
+ * as bounded rows the editor formats to CSV/JSON client-side. Same auth + safe-column allowlist +
+ * masked email as the browse (export is safe by construction — it can only ever emit the same columns
+ * the grid shows). Bounded to {@link MAX_EXPORT_ROWS}; a `LIMIT MAX+1` fetch detects overflow so the
+ * response can flag `truncated` HONESTLY (the editor tells the owner + suggests narrowing) rather than
+ * silently drop rows. Fail-soft: a missing/renamed table exports empty, never 500.
+ */
+siteDataApi.get('/api/sites/:siteId/data-overview/:table/export', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+  const spec = overviewTable(table);
+  if (!spec) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Unknown table' } }, 400);
+  }
+
+  const orderBy = c.req.query('orderBy');
+  const dir = String(c.req.query('dir') ?? '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) => c.req.query(k));
+  const withSearch = (sql: string): string =>
+    extraClause ? sql.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`) : sql;
+  const base = withSearch(spec.browseSql);
+  // Same ORDER BY rebuild as the browse, but `LIMIT ?` only (no offset) — export the whole match set.
+  const exportSql =
+    orderBy && spec.columns.includes(orderBy)
+      ? `${base.replace(/\s+ORDER BY\s+.+\s+LIMIT\s+\?\s*$/i, '')} ORDER BY "${orderBy}" ${dir} LIMIT ?`
+      : base.replace(/\s+LIMIT\s+\?\s*$/i, ' LIMIT ?');
+
+  let rows: Record<string, unknown>[] = [];
+  try {
+    // LIMIT MAX+1 → if we get MAX+1 back, there are more matches than the cap ⇒ truncated.
+    const res = await c.env.DB.prepare(exportSql)
+      .bind(siteId, ...extraParams, MAX_EXPORT_ROWS + 1)
+      .all();
+    rows = (res.results || []) as Record<string, unknown>[];
+  } catch {
+    rows = []; // fail-soft: missing/renamed table exports empty, never 500
+  }
+  const truncated = rows.length > MAX_EXPORT_ROWS;
+  if (truncated) {
+    rows = rows.slice(0, MAX_EXPORT_ROWS);
+  }
+  if (spec.maskEmail) {
+    rows = rows.map((r) => ('email' in r ? { ...r, email: maskEmailValue(r['email']) } : r));
+  }
+
+  return c.json({ data: { table: spec.key, columns: spec.columns, rows, truncated, cap: MAX_EXPORT_ROWS } });
 });
 
 /**

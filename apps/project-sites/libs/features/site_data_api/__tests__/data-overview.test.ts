@@ -13,6 +13,8 @@ import {
   buildColumnFilters,
   parseFilterConditions,
   MAX_FILTER_CONDITIONS,
+  composeBrowseFilter,
+  MAX_EXPORT_ROWS,
   validateViewName,
   normalizeSortDir,
   serializeGridView,
@@ -529,5 +531,54 @@ describe('serializeGridView (stored row → client view; hardens filters, hides 
   it('exposes a sane per-table cap constant', () => {
     expect(MAX_GRID_VIEWS_PER_TABLE).toBeGreaterThan(0);
     expect(MAX_GRID_VIEWS_PER_TABLE).toBeLessThanOrEqual(200);
+  });
+});
+
+describe('composeBrowseFilter (shared browse+export WHERE-suffix)', () => {
+  const spec = { columns: ['status', 'age', 'note', 'created_at'] };
+  const q =
+    (m: Record<string, string>) =>
+    (k: string): string | undefined =>
+      m[k];
+
+  it('returns an empty clause when neither search nor filter is set', () => {
+    expect(composeBrowseFilter(spec, q({}))).toEqual({ clause: '', params: [] });
+  });
+
+  it('combines the search OR-of-LIKE with the AND/OR filter group (both parameterized)', () => {
+    const { clause, params } = composeBrowseFilter(
+      spec,
+      q({
+        search: 'ada',
+        filters: '[{"col":"status","op":"eq","val":"new"},{"col":"age","op":"gte","val":"18"}]',
+        filterCombinator: 'AND',
+      }),
+    );
+    // search clause first, then the ANDed filter group
+    expect(clause).toContain('LIKE ?');
+    expect(clause).toContain('"status" = ?');
+    expect(clause).toContain('"age" >= ?');
+    expect(params).toEqual(['%ada%', '%ada%', '%ada%', 'new', '18']);
+  });
+
+  it('falls back to the single-column filter when no `filters` JSON is present', () => {
+    expect(composeBrowseFilter(spec, q({ filterCol: 'status', filterVal: 'live', filterOp: 'ne' }))).toEqual({
+      clause: ' AND "status" != ?',
+      params: ['live'],
+    });
+  });
+
+  it('drops a non-allowlisted column (the injection boundary holds through the shared path)', () => {
+    expect(composeBrowseFilter(spec, q({ filters: '[{"col":"password","op":"eq","val":"x"}]' }))).toEqual({
+      clause: '',
+      params: [],
+    });
+  });
+});
+
+describe('MAX_EXPORT_ROWS (bounded whole-query export)', () => {
+  it('is a sane bound for a client-side CSV/JSON download', () => {
+    expect(MAX_EXPORT_ROWS).toBeGreaterThanOrEqual(1000);
+    expect(MAX_EXPORT_ROWS).toBeLessThanOrEqual(100000);
   });
 });
