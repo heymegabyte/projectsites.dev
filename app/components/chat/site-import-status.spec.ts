@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FileMap } from '~/lib/stores/files';
-import { countProjectFiles, parseSiteImport, siteImportStatusView } from './site-import-status';
+import { countProjectFiles, isSeedSitePrompt, parseSiteImport, siteImportStatusView } from './site-import-status';
 
 /**
  * The initial imported-site assistant message, exactly as the worker emits it
@@ -43,6 +43,24 @@ describe('parseSiteImport', () => {
   it('is safe on empty / undefined content', () => {
     expect(parseSiteImport('').isSiteImport).toBe(false);
     expect(parseSiteImport(undefined as unknown as string).isSiteImport).toBe(false);
+  });
+});
+
+describe('isSeedSitePrompt', () => {
+  it('matches the bare echoed seed prompt', () => {
+    expect(isSeedSitePrompt('Build a professional website for Russ & Daughters')).toBe(true);
+    expect(isSeedSitePrompt("Build a professional website for Vito's Mens Salon")).toBe(true);
+  });
+
+  it('ignores an ordinary follow-up prompt (caller also gates on the first message)', () => {
+    expect(isSeedSitePrompt('Add a contact form to the About page')).toBe(false);
+    expect(isSeedSitePrompt('Change the hero to a dark theme')).toBe(false);
+  });
+
+  it('is safe on non-string / empty content', () => {
+    expect(isSeedSitePrompt('')).toBe(false);
+    expect(isSeedSitePrompt(undefined)).toBe(false);
+    expect(isSeedSitePrompt([{ type: 'text', text: 'Build a professional website for X' }])).toBe(false);
   });
 });
 

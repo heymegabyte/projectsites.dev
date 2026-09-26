@@ -54,6 +54,29 @@ export function parseSiteImport(content: string): ParsedSiteImport {
 }
 
 /**
+ * The echoed seed prompt the worker stores as the FIRST (user) message of an
+ * imported site's chat: `Build a professional website for <business>` — and
+ * nothing else. Matched as the WHOLE trimmed message so a real follow-up prompt
+ * (which always carries more than the bare phrase) never trips it.
+ */
+const SEED_SITE_PROMPT_RE = /^Build a professional website for .+$/;
+
+/**
+ * True when `content` is the imported-site's echoed seed user prompt. The editor
+ * hides this row on first open (the site is already built — the prompt is noise),
+ * mirroring how the assistant "I've built…" turn collapses to the status card.
+ *
+ * @param content - A user message's content (string; arrays/other types → false).
+ * @returns Whether the message is the bare seed prompt.
+ * @example
+ * isSeedSitePrompt('Build a professional website for Russ & Daughters'); // true
+ * isSeedSitePrompt('Add a contact form to the About page');              // false
+ */
+export function isSeedSitePrompt(content: unknown): boolean {
+  return typeof content === 'string' && SEED_SITE_PROMPT_RE.test(content.trim());
+}
+
+/**
  * Count the real files (not folders) currently loaded in the editor's file map.
  *
  * @param files - The workbench file map (`workbenchStore.files`).
