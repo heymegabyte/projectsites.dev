@@ -486,7 +486,12 @@ async function destroyCfNativeInstance(
     await clearAppHost(c.env, defaultAppHostname(row.subdomain));
   } catch (err) {
     console.warn(
-      JSON.stringify({ level: 'warn', event: 'apphost_clear_failed', id: row.id, err: String(err) }),
+      JSON.stringify({
+        level: 'warn',
+        event: 'apphost_clear_failed',
+        id: row.id,
+        err: String(err),
+      }),
     );
   }
 

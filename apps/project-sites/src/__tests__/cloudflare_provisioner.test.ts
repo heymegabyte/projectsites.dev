@@ -92,9 +92,9 @@ describe('provisionPayloadStack', () => {
       },
     );
     // Uploaded into the dispatch namespace, NOT as a standalone script.
-    expect(puts.some((u) => u.includes('/dispatch/namespaces/project-sites-endpoints/scripts/'))).toBe(
-      true,
-    );
+    expect(
+      puts.some((u) => u.includes('/dispatch/namespaces/project-sites-endpoints/scripts/')),
+    ).toBe(true);
     // Routed at the cert-ready platform host, and NO workers.dev subdomain enablement.
     expect(stack.subdomain).toBe('acme.cms.projectsites.dev');
     expect(stack.dispatchNamespace).toBe('project-sites-endpoints');
@@ -108,7 +108,11 @@ describe('provisionPayloadStack', () => {
       return { body: okGeneric };
     });
     const stack = await provisionPayloadStack(
-      { ...ENV, PAYLOAD_BRANDED_HOST: 'true', PAYLOAD_INSTANCE_HOST: 'app.projectsites.dev' } as unknown as Env,
+      {
+        ...ENV,
+        PAYLOAD_BRANDED_HOST: 'true',
+        PAYLOAD_INSTANCE_HOST: 'app.projectsites.dev',
+      } as unknown as Env,
       {
         instanceId: 'abcdef12-0000-0000-0000-000000000000',
         slug: 'acme',
