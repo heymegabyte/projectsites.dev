@@ -40,6 +40,8 @@ const PS_FILTER_OPS = new Set([
   'eq',
   'ne',
   'contains',
+  'startswith',
+  'endswith',
   'gt',
   'lt',
   'gte',

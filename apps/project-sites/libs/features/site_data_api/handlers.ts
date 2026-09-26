@@ -360,6 +360,8 @@ export const FILTER_OPS = [
   'eq',
   'ne',
   'contains',
+  'startswith',
+  'endswith',
   'gt',
   'lt',
   'gte',
@@ -403,11 +405,14 @@ function buildFilterLeaf(
     .slice(0, 200);
   if (!val) return { pred: '', params: [] };
 
-  if (op === 'contains') {
-    // Strip LIKE wildcards from the needle (matching buildDataSearch) → a literal substring match.
+  // LIKE-based ops: strip the user's own `%`/`_` wildcards (matching buildDataSearch) → a LITERAL match,
+  // then anchor per op. Injection-safe (bound `?`); a needle that's all-wildcards → inactive.
+  if (op === 'contains' || op === 'startswith' || op === 'endswith') {
     const needle = val.replace(/[%_]/g, '');
     if (!needle) return { pred: '', params: [] };
-    return { pred: `"${col}" LIKE ?`, params: [`%${needle}%`] };
+    const pattern =
+      op === 'startswith' ? `${needle}%` : op === 'endswith' ? `%${needle}` : `%${needle}%`;
+    return { pred: `"${col}" LIKE ?`, params: [pattern] };
   }
 
   // Comparison operators — the comparator string comes from a fixed switch, never from user text.

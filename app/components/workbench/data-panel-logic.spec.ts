@@ -1420,7 +1420,7 @@ describe('filterOpIsValueFree (null/notnull need no value)', () => {
     expect(filterOpIsValueFree('notnull')).toBe(true);
     expect(FILTER_VALUE_FREE_OPS.has('null')).toBe(true);
 
-    for (const op of ['eq', 'ne', 'contains', 'gt', 'lt', 'gte', 'lte'] as const) {
+    for (const op of ['eq', 'ne', 'contains', 'startswith', 'endswith', 'gt', 'lt', 'gte', 'lte'] as const) {
       expect(filterOpIsValueFree(op)).toBe(false);
     }
   });

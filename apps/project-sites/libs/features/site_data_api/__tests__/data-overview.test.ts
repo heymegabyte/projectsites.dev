@@ -338,6 +338,27 @@ describe('buildColumnFilter (browse per-column exact-match filter)', () => {
     });
   });
 
+  it('startswith / endswith → anchored LIKE, wildcards STRIPPED (prefix/suffix match)', () => {
+    expect(buildColumnFilter(cols, 'status', 'pen', 'startswith')).toEqual({
+      clause: ' AND "status" LIKE ?',
+      params: ['pen%'], // needle anchored at the START
+    });
+    expect(buildColumnFilter(cols, 'status', 'ing', 'endswith')).toEqual({
+      clause: ' AND "status" LIKE ?',
+      params: ['%ing'], // needle anchored at the END
+    });
+    // user wildcards are stripped (a literal prefix, never a metacharacter)
+    expect(buildColumnFilter(cols, 'status', 'a%b_', 'startswith').params).toEqual(['ab%']);
+    expect(buildColumnFilter(cols, 'status', "x' OR 1=1", 'endswith').params).toEqual([
+      "%x' OR 1=1",
+    ]); // value bound, not concatenated
+    // all-wildcards → inactive (no bare anchored LIKE)
+    expect(buildColumnFilter(cols, 'status', '%%', 'startswith')).toEqual({
+      clause: '',
+      params: [],
+    });
+  });
+
   it('null / notnull are value-free IS [NOT] NULL clauses (no bound params, value ignored)', () => {
     expect(buildColumnFilter(cols, 'status', '', 'null')).toEqual({
       clause: ' AND "status" IS NULL',

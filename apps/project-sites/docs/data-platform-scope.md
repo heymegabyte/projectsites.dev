@@ -942,10 +942,29 @@ sticky-pin render · #37 view save/apply round-trip — all need one real-browse
 SQL fully tested; the interactions/visuals/round-trips ship verify-by-build (per `interaction≠build`). **A dedicated
 real-browser QA fire is the highest-value next step** to convert this debt to verified.
 
-**NEXT slice: multi-column sort (dedicated — it's wide).** `browseSort` (single `{col,dir}`) → an ordered
-`{col,dir}[]`; a Sort PANEL (mirror the filter builder — add/remove sort rows, normal form controls, more
-verifiable than shift-click) + header-click sets the primary; worker `orderBy`/`dir` → a `sort=col:dir,…` list
-building a multi-col ORDER BY (each allowlist-validated, pure+tested); persist in the view `config` as `sorts`
-(NO schema change — config already carries rich layout). RIPPLES through the browseSort type + threading +
-fingerprint — give it a full fire. Async export JOBS >10k is the bigger multi-fire alternative. Then: nested
-AND/OR filter-tree; wire the last inert foundations `field-types.ts` + `schema-ddl.ts`.
+### ✅ Shipped next fire (2026-09-26 #39) — `starts with` / `ends with` filter operators
+The column-filter builder gains two anchored text ops beside `contains` — `starts with` (prefix) + `ends with`
+(suffix). Small, contained, **fully verify-by-build + unit-tested** (all logic; the result is server-computed via
+the worker's LIKE) — no bridge round-trip, no new endpoint, no new interaction (2 options in the existing op
+`<select>`, rendered from `FILTER_OP_OPTIONS`). Chosen over the wide multi-sort to ship a complete slice cleanly.
+- **Worker (`handlers.ts`, jest-tested):** `FILTER_OPS` + `buildFilterLeaf` gain `startswith`/`endswith` — same
+  wildcard-STRIP discipline as `contains` (the user's `%`/`_` are stripped → a LITERAL prefix/suffix, never a
+  metacharacter; value BOUND as `?`, never concatenated), anchored `needle%` / `%needle`; all-wildcards → inactive.
+  4 assertions incl. an injection-shaped value bound literally.
+- **Editor (`data-panel-logic.ts`):** `FILTER_OPS` + `FILTER_OP_OPTIONS` (labels "starts with"/"ends with"); they're
+  value-ops (not value-free). Multi-condition filters flow through the `filters` JSON (worker re-validates each
+  leaf), so no bridge change was needed; `PS_FILTER_OPS` (admin, legacy single-filter path) tightened for consistency.
+- Verified: editor Vitest **907/907** + tsc 0 + eslint 0 + build 0; admin tsc 0; worker Jest **12781/12781** + tsc 0.
+  Fully verifiable — logic tested + server-computed result; the only UI delta is 2 select options.
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
+sticky-pin render · #37 view round-trip — need one real-browser pass (authed admin session). **A dedicated
+real-browser QA fire remains the highest-value out-of-loop step** to convert this verify-by-build debt to verified.
+
+**NEXT slice: multi-column sort (dedicated — it's wide, ~12 touch points).** `browseSort` (single `{col,dir}`) → an
+ordered `{col,dir}[]`; a Sort PANEL (mirror the filter builder — add/remove sort rows, normal form controls) +
+header-click sets the primary; worker `orderBy`/`dir` → a `sort=col:dir,…` list → multi-col ORDER BY (each
+allowlist-validated, pure+tested); persist in the view `config` as `sorts` (NO schema change — config carries rich
+layout). RIPPLES through the browseSort type + threading + fingerprint (extend `layoutSignature`-style) — give it a
+FULL fire. Async export JOBS >10k is the bigger multi-fire alternative. Then: nested AND/OR filter-tree; wire the
+last inert foundations `field-types.ts` (typed editors) + `schema-ddl.ts` (guided DDL → review in the SQL console).

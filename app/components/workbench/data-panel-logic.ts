@@ -1155,7 +1155,19 @@ export function browseSearchParam(search: string | null | undefined): { search?:
  * Browse-filter comparison operators — mirrors the worker's `FILTER_OPS` (the server is the authority
  * and re-validates). `null`/`notnull` are value-free (they filter on the column alone).
  */
-export const FILTER_OPS = ['eq', 'ne', 'contains', 'gt', 'lt', 'gte', 'lte', 'null', 'notnull'] as const;
+export const FILTER_OPS = [
+  'eq',
+  'ne',
+  'contains',
+  'startswith',
+  'endswith',
+  'gt',
+  'lt',
+  'gte',
+  'lte',
+  'null',
+  'notnull',
+] as const;
 export type FilterOp = (typeof FILTER_OPS)[number];
 
 /** The value-free operators — they need no value input and send none. */
@@ -1166,6 +1178,8 @@ export const FILTER_OP_OPTIONS: ReadonlyArray<{ value: FilterOp; label: string }
   { value: 'eq', label: '=' },
   { value: 'ne', label: '≠' },
   { value: 'contains', label: 'contains' },
+  { value: 'startswith', label: 'starts with' },
+  { value: 'endswith', label: 'ends with' },
   { value: 'gt', label: '>' },
   { value: 'lt', label: '<' },
   { value: 'gte', label: '≥' },
