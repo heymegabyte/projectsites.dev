@@ -4,7 +4,13 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { formatBytes, formatUploaded, isPreviewableContentType } from './r2-browser-logic';
+import {
+  formatBytes,
+  formatUploaded,
+  isPreviewableContentType,
+  r2ParentPrefix,
+  r2PrefixLabel,
+} from './r2-browser-logic';
 
 describe('formatBytes', () => {
   it('renders 0 / negative / non-finite as "0 B"', () => {
@@ -53,5 +59,33 @@ describe('isPreviewableContentType', () => {
     expect(isPreviewableContentType('application/pdf')).toBe(false);
     expect(isPreviewableContentType('application/octet-stream')).toBe(false);
     expect(isPreviewableContentType(null)).toBe(false);
+  });
+});
+
+describe('r2ParentPrefix (folder "up" navigation)', () => {
+  it('drops the last delimited segment', () => {
+    expect(r2ParentPrefix('logs/2026/01/')).toBe('logs/2026/');
+    expect(r2ParentPrefix('logs/2026/')).toBe('logs/');
+  });
+
+  it('a top-level prefix goes to the root ("")', () => {
+    expect(r2ParentPrefix('logs/')).toBe('');
+    expect(r2ParentPrefix('')).toBe('');
+  });
+
+  it('handles a prefix without a trailing delimiter', () => {
+    expect(r2ParentPrefix('logs/2026')).toBe('logs/');
+    expect(r2ParentPrefix('logs')).toBe('');
+  });
+});
+
+describe('r2PrefixLabel (folder display name relative to the current prefix)', () => {
+  it('shows only the segment after the current prefix', () => {
+    expect(r2PrefixLabel('logs/2026/', 'logs/')).toBe('2026/');
+    expect(r2PrefixLabel('images/', '')).toBe('images/');
+  });
+
+  it('falls back to the full prefix when it does not start with the current one', () => {
+    expect(r2PrefixLabel('other/', 'logs/')).toBe('other/');
   });
 });

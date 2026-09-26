@@ -186,6 +186,8 @@ interface PsMessage {
     | 'delete';
   /** PS_R2_REQUEST: the R2 bucket binding name (required for the objects + object ops). */
   readonly bucket?: string;
+  /** PS_R2_REQUEST (objects op): grouping delimiter (e.g. `/`) for folder-like prefix navigation. */
+  readonly delimiter?: string;
   /** PS_VEC_REQUEST: the Vectorize index name (required for the `index` describe op). */
   readonly name?: string;
   /** PS_QUEUE_REQUEST: the queue id (required for the `queue` describe op). */
@@ -1158,6 +1160,7 @@ export class BoltEmbedService {
             r2Path = `/admin/r2/${encodeURIComponent(msg.bucket)}/objects`;
             if (msg.prefix) r2Params['prefix'] = msg.prefix;
             if (msg.cursor) r2Params['cursor'] = msg.cursor;
+            if (msg.delimiter) r2Params['delimiter'] = msg.delimiter;
           } else if (op === 'object') {
             if (!msg.bucket || !msg.key) {
               reply({ ok: false, error: 'Missing bucket or key' });

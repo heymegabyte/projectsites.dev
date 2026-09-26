@@ -114,6 +114,7 @@ r2Inspector.get('/api/admin/r2/:bucket/objects', async (c) => {
     prefix: c.req.query('prefix'),
     cursor: c.req.query('cursor'),
     limit: c.req.query('limit'),
+    delimiter: c.req.query('delimiter'),
   });
   if (!queryParse.success) {
     return c.json(
@@ -127,7 +128,7 @@ r2Inspector.get('/api/admin/r2/:bucket/objects', async (c) => {
       400,
     );
   }
-  const { prefix, cursor, limit } = queryParse.data;
+  const { prefix, cursor, limit, delimiter } = queryParse.data;
 
   const r2 = resolveR2(c.env, bucket);
   const t0 = Date.now();
@@ -135,7 +136,11 @@ r2Inspector.get('/api/admin/r2/:bucket/objects', async (c) => {
     prefix,
     cursor,
     limit: Math.min(limit ?? R2_LIST_MAX, R2_LIST_MAX),
+    // With a delimiter, R2 returns `delimitedPrefixes` (common prefixes = "folders") + only the objects
+    // at THIS level — folder-like navigation without loading the whole bucket into memory.
+    ...(delimiter ? { delimiter } : {}),
   });
+  const delimitedPrefixes = (listed as { delimitedPrefixes?: string[] }).delimitedPrefixes ?? [];
   logR2(c, {
     route: 'r2/objects',
     bucket,
@@ -154,6 +159,8 @@ r2Inspector.get('/api/admin/r2/:bucket/objects', async (c) => {
       etag: o.etag,
       contentType: o.httpMetadata?.contentType ?? null,
     })),
+    // The "folders" at this level — key-prefixes up to the delimiter, NOT real directories (R2 is flat).
+    delimitedPrefixes,
     truncated: listed.truncated,
     cursor: listed.truncated ? (listed as { cursor?: string }).cursor : undefined,
   });

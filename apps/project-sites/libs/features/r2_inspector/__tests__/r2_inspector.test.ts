@@ -149,6 +149,30 @@ describe('GET /api/admin/r2/:bucket/objects', () => {
     expect(opts?.prefix).toBe('sites/a');
     expect(opts?.cursor).toBe('c0');
   });
+
+  it('forwards a delimiter to R2 list + returns delimitedPrefixes (folder grouping)', async () => {
+    mockSitesBucket.list.mockResolvedValueOnce({
+      objects: [{ key: 'logs/root.txt', size: 3, uploaded: new Date(0), etag: 'e', httpMetadata: {} }],
+      delimitedPrefixes: ['logs/2026/', 'logs/2025/'],
+      truncated: false,
+    });
+    const res = await req(appWith('super-1'), '/api/admin/r2/SITES_BUCKET/objects?prefix=logs%2F&delimiter=%2F');
+    expect(res.status).toBe(200);
+    const [opts] = mockSitesBucket.list.mock.calls[0] as [{ delimiter?: string }];
+    expect(opts?.delimiter).toBe('/');
+    const body = await res.json<{ delimitedPrefixes: string[]; objects: unknown[] }>();
+    expect(body.delimitedPrefixes).toEqual(['logs/2026/', 'logs/2025/']);
+    expect(body.objects).toHaveLength(1);
+  });
+
+  it('omits the delimiter from R2 list when not requested (flat listing) + defaults delimitedPrefixes to []', async () => {
+    mockSitesBucket.list.mockResolvedValueOnce({ objects: [], truncated: false });
+    const res = await req(appWith('super-1'), '/api/admin/r2/SITES_BUCKET/objects');
+    const [opts] = mockSitesBucket.list.mock.calls[0] as [{ delimiter?: string }];
+    expect(opts?.delimiter).toBeUndefined();
+    const body = await res.json<{ delimitedPrefixes: string[] }>();
+    expect(body.delimitedPrefixes).toEqual([]);
+  });
 });
 
 describe('GET /api/admin/r2/:bucket/object', () => {

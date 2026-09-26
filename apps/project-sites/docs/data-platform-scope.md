@@ -1140,9 +1140,36 @@ sticky-pin render · #37 view round-trip · #40 multi-sort · #41 date/datetime 
 textarea · #43–#44 value datalist · #45 NULL toggle + hint · #46 BLOB chip · #47–#48 KV metadata/TTL preserve + set/clear
 — one real-browser pass (authed admin session). **A dedicated real-browser QA fire remains the highest-value out-of-loop step.**
 
-**NEXT slice: audit R2 / Vectorize / Queues browsers for the same replace-semantics / doomed-control class the KV audit
-surfaced (correctness pass).** Phase-0 (#47) found `<R2Browser>`/`<VectorizeBrowser>`/`<QueuesBrowser>` all exist — do
-their write paths (if any) have the KV "put replaces the whole entry → silently drops metadata" bug, or show controls
-their backend doesn't support (doomed buttons)? Trace each browser + its worker endpoints; fix the first real defect
-found (else document them clean). Alternatives: extend NULL affordance + datalist to the Add-row; nested AND/OR
-filter-tree; async export JOBS >10k (bigger); grounded "Ask your data" (slice 5, the big unbuilt frontier).
+### ✅ Shipped next fire (2026-09-26 #49) — R2/Vectorize/Queues audit (CLEAN) + R2 delimiter "folder" grouping
+**Audit outcome (the committed #48 task): all three inspector browsers are CLEAN** — `<R2Browser>`/`<VectorizeBrowser>`/
+`<QueuesBrowser>` are honestly read-only (their backends are GET-only; each carries an explicit "no downloads / no
+query-insert-delete / no send-purge-ack" note), so NO doomed controls and NO replace-semantics writes (the KV bug class
+is absent). The one real gap found: R2 listed **flat** (`r2.list({prefix})`, no `delimiter`), so a bucket with many
+`/`-delimited keys had no folder navigation — and the KV/R2 mandate is "group keys by prefix visually." Shipped that.
+- **Worker (`r2_inspector`, +2 jest):** `R2ListQuerySchema` gains `delimiter`; the objects handler forwards it to
+  `r2.list({delimiter})` and returns `delimitedPrefixes` (the "folders" at this level; `[]` when no delimiter). Caught a
+  real self-introduced bug via the test — the `safeParse` INPUT object omitted `delimiter: c.req.query('delimiter')`, so
+  the schema stripped it (added it → green). Column keys unchanged; still read-only.
+- **Bridge + admin:** `R2RequestMessage.delimiter` + `R2ObjectsData.delimitedPrefixes`; admin forwards the delimiter.
+- **Editor (`r2-browser-logic.ts` +5 Vitest · `R2Browser.tsx`):** pure `r2ParentPrefix` (up-nav) + `r2PrefixLabel`
+  (folder display name relative to the current prefix). The object list now renders an "up" row + clickable "folder"
+  rows (from `delimitedPrefixes`) above the objects; clicking drills in (sets the prefix + reloads). Honestly titled
+  "key-prefix (folder-like) — R2 keys are flat; this is a display grouping" (never claims real directories).
+- Verified: worker Jest **12805/12805** (+2) + tsc 0; editor Vitest **954/954** (+5) + tsc 0 + build 0; admin tsc 0.
+  Pure nav helpers + the worker delimiter path unit-tested; the folder UI is verify-by-build. (`R2Browser.tsx` carries
+  27 PRE-EXISTING editor-eslint style errors — a known repo-wide-dirty file; my additions match its style; the editor
+  build doesn't gate on eslint. Not mine, confirmed via a stash check.)
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
+sticky-pin render · #37 view round-trip · #40 multi-sort · #41 date/datetime picker · #42 boolean checkbox + JSON
+textarea · #43–#44 value datalist · #45 NULL toggle + hint · #46 BLOB chip · #47–#48 KV metadata/TTL · #49 R2 folder
+nav — one real-browser pass (authed admin session). **A dedicated real-browser QA fire remains the highest-value out-of-loop step.**
+
+**NEXT slice: BEGIN grounded "Ask your data" (delivery-order slice 5, the big unbuilt frontier) — a scoped FIRST slice.**
+The SQL console (super-admin) + rich views exist, but there's no NL→typed-intent→parameterized-SQL pipeline for
+ordinary owners. First slice (worker + tests, fully verifiable, no UI yet): a PURE deterministic compiler
+`compileQueryIntent(intent, spec)` — a strict typed intent (`{table, select[], filters[], groupBy?, orderBy?, limit}`)
+→ parameterized SQLite over the ALLOWLISTED overview tables (every field re-validated against `spec.columns`, values
+bound, LIMIT enforced) → `{sql, params}` or a typed rejection. This is the deterministic core the AI pipeline compiles
+INTO (the model proposes an intent; the server validates+compiles+executes) — build + test it before any model call.
+Alternatives: extend NULL affordance + datalist to the Add-row; nested AND/OR filter-tree; async export JOBS >10k.

@@ -23,7 +23,16 @@ import type {
   R2RequestMessage,
   R2ResponseMessage,
 } from '../../lib/embed/embedded-mode';
-import { formatBytes, formatUploaded, isPreviewableContentType } from './r2-browser-logic';
+import {
+  formatBytes,
+  formatUploaded,
+  isPreviewableContentType,
+  r2ParentPrefix,
+  r2PrefixLabel,
+} from './r2-browser-logic';
+
+/** The folder-grouping delimiter for R2 browsing (S3/R2 convention). Key-prefixes, not real dirs. */
+const R2_DELIMITER = '/';
 
 export interface R2BrowserProps {
   /** Post a bridge request to the admin parent (DataPanel's existing helper). */
@@ -43,6 +52,7 @@ export const R2Browser = memo(function R2Browser({ postToParent }: R2BrowserProp
   const [buckets, setBuckets] = useState<string[] | null>(null);
   const [bucket, setBucket] = useState<string>('');
   const [objects, setObjects] = useState<R2ObjectDescriptor[]>([]);
+  const [prefixes, setPrefixes] = useState<string[]>([]); // "folders" at this level (delimitedPrefixes)
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [prefix, setPrefix] = useState<string>('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -109,27 +119,46 @@ export const R2Browser = memo(function R2Browser({ postToParent }: R2BrowserProp
   }, [request]);
 
   const loadObjects = useCallback(
-    async (reset: boolean): Promise<void> => {
+    async (reset: boolean, overridePrefix?: string): Promise<void> => {
       if (!bucket) return;
+      const p = overridePrefix !== undefined ? overridePrefix : prefix;
       setObjectsLoading(true);
       setObjectsError(null);
       const res = await request({
         op: 'objects',
         bucket,
-        prefix: prefix || undefined,
+        prefix: p || undefined,
         cursor: reset ? undefined : cursor,
+        delimiter: R2_DELIMITER, // folder-like grouping — response carries `delimitedPrefixes`
       });
       setObjectsLoading(false);
       if (res.ok && res.data && 'objects' in res.data) {
         const data = res.data as R2ObjectsData;
         setObjects((prev) => (reset ? data.objects : [...prev, ...data.objects]));
+        // "Folders" only come with the first page; a "Load more" (cursor) page keeps the current set.
+        if (reset) setPrefixes(data.delimitedPrefixes ?? []);
         setCursor(data.cursor);
       } else {
         setObjectsError(res.error ?? 'Could not list objects');
-        if (reset) setObjects([]);
+        if (reset) {
+          setObjects([]);
+          setPrefixes([]);
+        }
       }
     },
     [bucket, prefix, cursor, request],
+  );
+
+  /** Drill into / up to a folder prefix: reset selection + paging, then reload at the new prefix. */
+  const navigateTo = useCallback(
+    (nextPrefix: string): void => {
+      setPrefix(nextPrefix);
+      setSelectedKey(null);
+      setMeta(null);
+      setCursor(undefined);
+      void loadObjects(true, nextPrefix);
+    },
+    [loadObjects],
   );
 
   // (Re)load objects whenever the bucket changes; reset paging + selection.
@@ -238,7 +267,37 @@ export const R2Browser = memo(function R2Browser({ postToParent }: R2BrowserProp
             )}
 
             <ul className="max-h-80 overflow-auto rounded-md border border-bolt-elements-borderColor/40 modern-scrollbar">
-              {objects.length === 0 && !objectsLoading && (
+              {/* "Up" — navigate to the parent key-prefix (shown only when inside a prefix). */}
+              {prefix && (
+                <li>
+                  <button
+                    type="button"
+                    data-testid="data-r2-up"
+                    onClick={() => navigateTo(r2ParentPrefix(prefix, R2_DELIMITER))}
+                    title="Up to the parent prefix"
+                    className="flex w-full items-center gap-2 border-b border-bolt-elements-borderColor/20 px-3 py-1.5 text-left text-[11px] font-mono text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 cursor-pointer"
+                  >
+                    <div className="i-ph:arrow-up shrink-0 text-bolt-elements-textTertiary" />
+                    <span className="truncate">..</span>
+                  </button>
+                </li>
+              )}
+              {/* "Folders" — delimited key-prefixes (NOT real directories); click to drill in. */}
+              {prefixes.map((p) => (
+                <li key={`dir:${p}`}>
+                  <button
+                    type="button"
+                    data-testid="data-r2-folder"
+                    onClick={() => navigateTo(p)}
+                    title="Key-prefix (folder-like) — click to browse into it. R2 keys are flat; this is a display grouping."
+                    className="flex w-full items-center gap-2 border-b border-bolt-elements-borderColor/20 px-3 py-1.5 text-left text-[11px] font-mono text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 cursor-pointer"
+                  >
+                    <div className="i-ph:folder-simple shrink-0 text-[#f5c451]" />
+                    <span className="truncate">{r2PrefixLabel(p, prefix)}</span>
+                  </button>
+                </li>
+              ))}
+              {objects.length === 0 && prefixes.length === 0 && !objectsLoading && (
                 <li className="px-3 py-4 text-center text-[11px] text-bolt-elements-textTertiary">No objects.</li>
               )}
               {objects.map((o) => (

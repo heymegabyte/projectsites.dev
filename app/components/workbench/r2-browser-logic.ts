@@ -35,6 +35,7 @@ export function formatBytes(bytes: number): string {
 
   // Bytes render as whole numbers; larger units get one decimal.
   const formatted = unit === 0 ? String(Math.round(value)) : value.toFixed(1);
+
   return `${formatted} ${units[unit]}`;
 }
 
@@ -56,6 +57,7 @@ export function formatUploaded(iso: string | null, now: number): string {
   }
 
   const t = Date.parse(iso);
+
   if (Number.isNaN(t)) {
     return '—';
   }
@@ -67,16 +69,19 @@ export function formatUploaded(iso: string | null, now: number): string {
   }
 
   const diffMinutes = Math.floor(diffSeconds / 60);
+
   if (diffMinutes < 60) {
     return `${diffMinutes}m ago`;
   }
 
   const diffHours = Math.floor(diffMinutes / 60);
+
   if (diffHours < 24) {
     return `${diffHours}h ago`;
   }
 
   const diffDays = Math.floor(diffHours / 24);
+
   return `${diffDays}d ago`;
 }
 
@@ -99,5 +104,34 @@ export function isPreviewableContentType(contentType: string | null): boolean {
   }
 
   const ct = contentType.toLowerCase();
+
   return ct.startsWith('image/') || ct.startsWith('text/') || ct === 'application/json';
+}
+
+/**
+ * The PARENT prefix for "up" navigation in delimiter-grouped R2 browsing: drop the trailing delimiter,
+ * then everything after the (new) last delimiter. A top-level prefix (or empty) → `''` (the root). These
+ * are key-prefixes, NOT real directories — R2 keys are flat; the delimiter is a display grouping only. Pure.
+ *
+ * @example r2ParentPrefix('logs/2026/01/') // 'logs/2026/'
+ * @example r2ParentPrefix('logs/')         // ''
+ * @example r2ParentPrefix('')              // ''
+ */
+export function r2ParentPrefix(prefix: string, delimiter = '/'): string {
+  const trimmed = prefix.endsWith(delimiter) ? prefix.slice(0, -delimiter.length) : prefix;
+  const idx = trimmed.lastIndexOf(delimiter);
+
+  return idx >= 0 ? trimmed.slice(0, idx + delimiter.length) : '';
+}
+
+/**
+ * The display LABEL for a delimited "folder" prefix — the segment after the current prefix (so
+ * `logs/2026/` under `logs/` shows as `2026/`). Falls back to the full prefix when it doesn't start with
+ * the current one. Pure — a cosmetic shortening, never changes the value clicked.
+ *
+ * @example r2PrefixLabel('logs/2026/', 'logs/') // '2026/'
+ * @example r2PrefixLabel('images/', '')         // 'images/'
+ */
+export function r2PrefixLabel(fullPrefix: string, currentPrefix: string): string {
+  return fullPrefix.startsWith(currentPrefix) ? fullPrefix.slice(currentPrefix.length) : fullPrefix;
 }

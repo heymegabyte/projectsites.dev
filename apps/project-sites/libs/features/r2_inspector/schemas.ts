@@ -24,6 +24,12 @@ export const R2ListQuerySchema = z.object({
   cursor: z.string().optional(),
   /** Max objects per page; the handler clamps to R2's 1000 hard cap via Math.min. */
   limit: z.coerce.number().int().min(1).optional(),
+  /**
+   * Grouping delimiter (typically `/`) — when set, R2 collapses keys sharing a prefix up to the next
+   * delimiter into `delimitedPrefixes` (folder-like navigation), and `objects` holds only the keys at
+   * THIS level. A key-prefix grouping, NOT real directories (R2 keys are flat). Bounded length.
+   */
+  delimiter: z.string().max(16).optional(),
 });
 
 /** Query params for GET /api/admin/r2/:bucket/object */

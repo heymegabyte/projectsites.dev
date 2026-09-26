@@ -555,6 +555,12 @@ export interface R2RequestMessage {
   /** For `objects` — opaque pagination cursor from the previous page. */
   cursor?: string;
 
+  /**
+   * For `objects` — grouping delimiter (typically `/`). When set, the response `delimitedPrefixes`
+   * lists the "folders" at this level and `objects` holds only the keys AT this level (folder browsing).
+   */
+  delimiter?: string;
+
   /** For `object` — the exact object key. */
   key?: string;
 }
@@ -566,6 +572,12 @@ export interface R2BucketsData {
 export interface R2ObjectsData {
   objects: R2ObjectDescriptor[];
   cursor?: string;
+
+  /**
+   * The "folders" at this level when a delimiter was sent — key-prefixes up to the delimiter, NOT real
+   * directories (R2 keys are flat). Clicking one drills in (sets it as the new prefix). May be empty.
+   */
+  delimitedPrefixes?: string[];
 }
 
 export interface R2ObjectData {
