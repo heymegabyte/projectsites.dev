@@ -609,6 +609,54 @@ export async function getOutboundClicksSummary(
   return { total, byLink };
 }
 
+/** Most-clicked UI ELEMENTS (generic interactions), first-party `click` beacon. */
+export interface ClickSummary {
+  /** Total tracked interactions over the window (sum across ALL labels, not just the shown set). */
+  readonly total: number;
+  /** Top interaction labels by count, descending (the shown set, capped at 10). */
+  readonly byLabel: ReadonlyArray<{ label: string; count: number }>;
+}
+
+/**
+ * Most-clicked ELEMENTS over the window, from the first-party `click` beacon's `label` (the
+ * element's data-ps-label / aria-label / trimmed text). Answers "which buttons + interactions do
+ * visitors actually use?" — a metric CF's plan has NO dataset for, and one distinct from outbound
+ * clicks (conversions) and page views (navigations); the beacon only emits `click` for
+ * non-conversion, non-anchor interactions carrying a stable label, so an empty/blank row is never
+ * grouped. `total` sums ALL labels (honest, not just the top-10 shown). Fail-soft: a query error
+ * yields the empty summary (the card shows "measuring…", never a fabricated 0).
+ */
+export async function getClickSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<ClickSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ label: string | null; n: number }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.label') AS label,
+            COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'click'
+        AND json_extract(metadata, '$.label') IS NOT NULL
+      GROUP BY label ORDER BY n DESC LIMIT 50`,
+    params,
+  );
+  if (error) return { total: 0, byLabel: [] };
+  let total = 0;
+  const byLabel: Array<{ label: string; count: number }> = [];
+  for (const r of data) {
+    if (typeof r.label !== 'string' || !r.label) continue;
+    const count = Number(r.n) || 0;
+    if (count <= 0) continue;
+    total += count;
+    if (byLabel.length < 10) byLabel.push({ label: r.label, count });
+  }
+  return { total, byLabel };
+}
+
 /**
  * AN-FORM — the contact-form LEAD FUNNEL over the window. Counts `form_start` (validated
  * submit attempts) and `form_submit` (server-confirmed successes) from `visitor_events`,

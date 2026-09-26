@@ -11,8 +11,9 @@ honestly-blocked, or deliberately-dropped (verified against source; scans mis-re
 chain). **BUT the plateau is on the existing CARDS, not the metric space.** The prompt's "AUGMENT with advanced
 first-party metrics" clause still had genuine unbuilt metrics: **new-vs-returning + top-landing (entry) pages
 both shipped 2026-09-25** (rows below) — the beacon had NO returning-visitor detection and NO session-entry
-attribution. Still-unbuilt first-party AUGMENTs: only the beacon `click`/`custom` event types remain — **exit pages**
-and **session duration** are now BOTH shipped (2026-09-25, rows below), completing the measurable-dwell AUGMENT
+attribution. Still-unbuilt first-party AUGMENTs: only the beacon **`custom`** (owner-defined *named* events) type
+remains — **most-clicked buttons (generic `click` interactions) shipped 2026-09-26**, and **exit pages**
+and **session duration** were shipped (2026-09-25, rows below), completing the measurable-dwell AUGMENT
 tier (time-on-page · scroll · nav-timing · network · entry · exit · new-vs-returning · session-duration). Do NOT rebuild the already-shipped set
 (the scans mis-report them because they don't trace the wrapper chain):
 
@@ -153,8 +154,29 @@ once the augment tier is genuinely exhausted. A CF plan upgrade is the only path
   now falls back to `?days` (a valid named param still wins), so all three cards honor the selected window.
   +10 Jest (median/avg/max/distribution · empty · fail-soft · GROUP-BY-sid query shape · tenant 404 · 200 owned
   · 4 `parseWindowDays` fallback cases) + 13 Karma card. Worker + frontend tsc/eslint/prettier clean; Jest
-  **213/213** analytics suites; Karma **2296**. **First-party AUGMENT tier COMPLETE** (only the `click`/`custom`
-  beacon event types remain unbuilt across the whole first-party space).
+  **213/213** analytics suites; Karma **2296**. **First-party AUGMENT tier COMPLETE** (only the `custom`
+  owner-defined-named-events beacon type remains unbuilt across the whole first-party space).
+- **Most-clicked buttons / generic UI interactions (✅ DONE end-to-end 2026-09-26):** the `click` beacon type
+  was DECLARED in `EVENT_TYPES` but **never emitted** and **absent from `VISITOR_MIRROR_TYPES`** — a genuine gap.
+  Answers "which BUTTONS + interactions do visitors actually use?" — a first-party signal CF's plan has NO dataset
+  for, and one deliberately DISTINCT from outbound clicks (conversions) + page navigations (pageviews) so nothing
+  is double-counted. app.js `onClick` gained a SECOND path (the conversion path is unchanged + returns first):
+  after a non-conversion click, `t.closest('button,[role=button],summary,[data-ps-track]')` captures the
+  interaction surface — EXCLUDING `[data-ps-cta]` (already a conversion) and anchors (they navigate → a pageview),
+  unless the owner opts an element in with `data-ps-track` (opt-out via `data-ps-track="off"`). Label = the
+  element's `data-ps-label`/`aria-label`/trimmed text (low-cardinality group key, ≤60 chars client / ≤80 server);
+  an unlabelled element is skipped (never a blank row); a per-page cap of 25 bounds noise/cost. Ingest adds `click`
+  to `VISITOR_MIRROR_TYPES` + a server-side re-guard branch (`{label,section}`, both length-capped) →
+  **`getClickSummary`** groups by label (`WHERE event_type='click' … GROUP BY label ORDER BY n DESC LIMIT 50`),
+  returning an **honest `total` (sum across ALL labels, not just the top-10 shown)** + the top-10, fail-soft to
+  empty → owner-scoped route `GET /api/sites/:siteId/analytics/clicks` (`requireOwnedSite`, cross-org → 404) →
+  **`ClickTrackingCardComponent`** ("Most-clicked buttons") beside the exit-pages card, showing the total, ranked
+  labels with share bars, an honest **"Measuring…"** empty (never a fabricated 0 — the beacon runs on every page),
+  and a NO-double-count disclaimer (links/CTAs = conversions, page views = traffic). +12 Jest (5 aggregator/route:
+  fold/skip-null-label · honest-total-vs-top10-cap · fail-soft · tenant 404 · 200 owned; 7 beacon-contract:
+  registered · payload · conversion-returns-before-generic · excludes-CTA+anchors · interaction-surface-selector ·
+  unlabelled-skip · cap+opt-out) + 12 Karma card. Worker tsc+jest (794 suites/12718), app tsc, card Karma 12/12,
+  build:prod all green. Data accrues from first serve.
 - **CF GraphQL `httpRequestsAdaptiveGroups`** (`services/multi_url_analytics.ts`) is **fallback-only**
   now — the prior "no traffic" bug (reading empty CF-zone data for `*.projectsites.dev` subdomains
   instead of D1) is fixed. CF-zone per-host data is only meaningful for **custom domains in a CF zone**,
@@ -196,7 +218,8 @@ once the augment tier is genuinely exhausted. A CF plan upgrade is the only path
     (`SUM(duration_ms)` per `sid` → nearest-rank median + avg + longest + ≥30s/1m/3m/5m distribution, no beacon
     change) + owner route + `SessionDurationCardComponent` beside exit-pages; ALSO fixed the `?days`-vs-`windowDays`
     window bug in `parseWindowDays` (entry/exit/session cards now honor the window selector). **First-party AUGMENT
-    tier now COMPLETE** — only the beacon `click`/`custom` event types remain in the whole first-party space.
+    tier now COMPLETE** — after **most-clicked buttons (generic `click` interactions) shipped 2026-09-26 (row below)**,
+    only the beacon **`custom`** (owner-defined *named* events) type remains in the whole first-party space.
   - **REJECTED — conversions by-kind drilldown filter (❌ FALSE GAP, do NOT build):** a prior scan flagged
     `byConversionKind` as "the one breakdown with no click-to-filter." But `conversion_kind` (metadata
     `$.kind`) exists ONLY on `event_type='conversion'` events, and the drilldown filter appends
@@ -970,3 +993,17 @@ worker version `f1cd19fc` @ 100%. +2 worker Jest, +9 Karma. What remains, in pri
    not worth the behavioral risk.
 - Plan-blocked (need a CF plan upgrade, not code): **Security/WAF** (`firewallEventsAdaptiveGroups` — no entitlement) + **latency
   percentiles**. Honestly absent in the UI, never faked.
+
+✅ **SHIPPED (cycle 2026-09-26) — Most-clicked buttons (generic `click` interactions).** Closed the last-but-one first-party
+AUGMENT gap: the `click` beacon type was declared but never emitted / never mirrored. Now app.js emits `click` for the
+non-conversion interaction surface (button / role=button / summary / opt-in `[data-ps-track]`), labelled by text/aria and
+excluding conversions (links/CTAs) + navigations (anchors) so nothing double-counts; `getClickSummary` + owner-scoped
+`GET /api/sites/:siteId/analytics/clicks` (tenant 404) + `ClickTrackingCardComponent` render an honest total + top-10 with
+share bars + "Measuring…" empty. +12 worker Jest, +12 Karma; worker 794 suites/12718, app tsc, build:prod all green. Full
+detail row in the AUGMENT section above. **Tenant isolation:** same `requireOwnedSite` (site→org resolved server-side, cross-org
+→404) proven by `clicks.test.ts`; the aggregator's `currentWindow` binds `site_id = ?` first, and the route validates ownership
+before any query runs. **NEXT (single highest-priority):** the beacon **`custom`** (owner-defined *named* events) type — the ONLY
+remaining unbuilt first-party metric (a `window.ps('event', name, props)` API + `getCustomEventsSummary` + card); it needs owner
+opt-in code, so it's lower universal-value than the auto-captured cards. Once shipped, the first-party space is exhausted and the
+loop should reallocate to the DATA-loop adapters (Hyperdrive/DO PLANNED) — CF's WAF/botScore/TTFB datasets need a plan upgrade,
+not code.

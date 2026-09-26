@@ -39,6 +39,10 @@ const VISITOR_MIRROR_TYPES = [
   'scroll_depth',
   'network_quality',
   'nav_timing',
+  // Generic UI interaction (button / role=button / summary / opt-in [data-ps-track]) — the
+  // first-party "most-clicked elements" signal; distinct from outbound clicks (conversions) and
+  // page navigations (pageviews), which the beacon emits on separate paths.
+  'click',
   // AI concierge usage (app.js universal-runtime FAB): `concierge_open` on panel open,
   // `concierge_message` per visitor question. Previously LOST (only the un-provisioned
   // analytics_events store held them) — mirror them so concierge engagement is measurable.
@@ -287,6 +291,7 @@ analyticsRoutes.post('/api/events', async (c) => {
               nv?: unknown;
               ep?: unknown;
               sid?: unknown;
+              label?: unknown;
             }
           | undefined;
         // web_vital carries {metric, value}: validate against the known CWV set + a
@@ -403,7 +408,19 @@ analyticsRoutes.post('/api/events', async (c) => {
                           ? // Concierge events carry no payload — they're counted by event_type +
                             // session_id (unique visitors) alone, so no metadata is stored.
                             {}
-                          : { form: typeof p?.form === 'string' ? p.form : undefined };
+                          : mirrorType === 'click'
+                            ? {
+                                // Generic interaction: re-guard the label (the group key) + section.
+                                // A non-string/empty label is dropped so the aggregator never groups
+                                // a fabricated or empty row; both are length-capped defensively.
+                                label:
+                                  typeof p?.label === 'string' && p.label.trim()
+                                    ? p.label.trim().slice(0, 80)
+                                    : undefined,
+                                section:
+                                  typeof p?.section === 'string' ? p.section.slice(0, 80) : undefined,
+                              }
+                            : { form: typeof p?.form === 'string' ? p.form : undefined };
         await recordVisitorEvent(
           env,
           { orgId: site.org_id, siteId: site.id },

@@ -43,6 +43,7 @@ import { TechBreakdownComponent } from './tech-breakdown.component';
 import { VisitorTypeCardComponent } from './visitor-type-card.component';
 import { EntryPagesCardComponent } from './entry-pages-card.component';
 import { ExitPagesCardComponent } from './exit-pages-card.component';
+import { ClickTrackingCardComponent } from './click-tracking-card.component';
 import { SessionDurationCardComponent } from './session-duration-card.component';
 import { ConciergeCardComponent } from './concierge-card.component';
 import { ChannelBreakdownComponent } from './channel-breakdown.component';
@@ -133,6 +134,7 @@ function sparklinePath(
     VisitorTypeCardComponent,
     EntryPagesCardComponent,
     ExitPagesCardComponent,
+    ClickTrackingCardComponent,
     SessionDurationCardComponent,
     ConciergeCardComponent,
     ChannelBreakdownComponent,
@@ -1170,6 +1172,15 @@ function sparklinePath(
         <!-- Top exit pages — the LAST page_engagement per session (grouped by the session id).
            Where visitors leave from; the complement to landing pages. CF has no exit dataset. -->
         <app-exit-pages-card
+          appReveal
+          [siteId]="state.selectedSite()?.id ?? null"
+          [windowDays]="rangeDays()"
+        />
+
+        <!-- Most-clicked buttons — first-party generic UI interactions (button / role=button /
+           summary / opt-in [data-ps-track]), labelled by text. Excludes conversions (links/CTAs)
+           + navigations (pageviews) so nothing is double-counted. CF has no interaction dataset. -->
+        <app-click-tracking-card
           appReveal
           [siteId]="state.selectedSite()?.id ?? null"
           [windowDays]="rangeDays()"

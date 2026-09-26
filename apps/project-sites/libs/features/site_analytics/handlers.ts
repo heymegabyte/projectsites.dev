@@ -39,6 +39,7 @@ import { parseCustomWindow } from '../analytics/handlers.js';
 // so the ?start&end filter matches the tz-aware daily buckets.
 import {
   getEntryPagesSummary,
+  getClickSummary,
   getConciergeEngagementSummary,
   getExitPagesSummary,
   getNewVsReturningSummary,
@@ -226,6 +227,17 @@ siteAnalytics.get('/api/sites/:siteId/analytics/exit-pages', async (c) => {
 
   const windowDays = parseWindowDays(c, 'windowDays');
   const summary = await getExitPagesSummary(c.env, gate.siteId, windowDays);
+  return c.json(summary);
+});
+
+// AN — most-clicked ELEMENTS (first-party `click` beacon, generic non-conversion interactions
+// grouped by label), owner-scoped. Distinct from outbound clicks (conversions) + navigations.
+siteAnalytics.get('/api/sites/:siteId/analytics/clicks', async (c) => {
+  const gate = await requireOwnedSite(c);
+  if (gate instanceof Response) return gate;
+
+  const windowDays = parseWindowDays(c, 'windowDays');
+  const summary = await getClickSummary(c.env, gate.siteId, windowDays);
   return c.json(summary);
 });
 

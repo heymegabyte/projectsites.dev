@@ -218,15 +218,54 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     return null;
   }
 
+  // Generic UI interaction label = data-ps-label / aria-label / trimmed text (the low-cardinality
+  // group key). An unlabelled element (icon-only, no aria) yields '' → skipped, so no blank row is
+  // ever grouped. Capped at 60 chars client-side (server re-truncates).
+  function labelOf(el) {
+    try {
+      var l =
+        el.getAttribute('data-ps-label') ||
+        el.getAttribute('aria-label') ||
+        (el.textContent || '').replace(/\\s+/g, ' ').trim();
+      if (!l) return '';
+      return l.length > 60 ? l.slice(0, 60) : l;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  var psClicks = 0; // per-page generic-click cap (bounds noise + ingest cost)
   function onClick(ev) {
     try {
       var t = ev.target;
+      // 1) Conversion path (unchanged): tel/mailto/sms/outbound/directions links + CTA buttons.
       var a = t && t.closest ? t.closest('a[href],button[data-ps-cta]') : null;
-      if (!a) return;
-      var href = a.getAttribute('href') || '';
-      var kind = a.getAttribute('data-ps-cta') || classifyLink(href);
-      if (!kind) return;
-      track('conversion', { kind: kind, section: sectionOf(a), href: href || undefined });
+      if (a) {
+        var href = a.getAttribute('href') || '';
+        var kind = a.getAttribute('data-ps-cta') || classifyLink(href);
+        if (kind) {
+          track('conversion', { kind: kind, section: sectionOf(a), href: href || undefined });
+          return;
+        }
+      }
+      // 2) Generic interaction path: buttons / role=button / summary / opt-in [data-ps-track].
+      //    Excludes conversions (data-ps-cta, handled above) and anchors (they navigate → a
+      //    pageview already) UNLESS the owner explicitly opts an element in with data-ps-track.
+      //    The first-party "most-clicked elements" signal CF's plan has no dataset for.
+      var el = t && t.closest ? t.closest('button,[role="button"],summary,[data-ps-track]') : null;
+      if (!el || el.getAttribute('data-ps-cta') !== null) return;
+      var trackAttr = el.getAttribute('data-ps-track');
+      if (trackAttr === 'off') return; // explicit opt-out
+      if (el.tagName === 'A' && trackAttr === null) return; // anchor without opt-in → nav/pageview
+      if (psClicks >= 25) return;
+      var label = labelOf(el);
+      if (!label) return;
+      psClicks++;
+      var pth = '/';
+      try {
+        pth = location.pathname;
+      } catch (e) {}
+      track('click', { label: label, section: sectionOf(el), href: pth });
     } catch (e) {}
   }
 
