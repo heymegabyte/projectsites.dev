@@ -439,6 +439,21 @@ The column filter was exact-match only (`"col" = ?`). It now supports the full c
 - Verified: worker Jest **12726/12726** + tsc 0; editor Vitest **292/292** (logic+cell-format) + tsc 0 + eslint 0
   + build ✓; admin tsc 0 + `ng build --configuration production` ✓ (no errors). Editor → CF Pages, admin → Worker CI.
 
+### 🐛 Deploy-gate fix (2026-09-26 #13) — CI was silently NOT deploying the worker for ≥2 fires
+Investigating why #12's worker+admin parts would go live surfaced that the **last two Worker-CI runs (#10
+count-skip, #11 ISO dates) `completed failure`** — the `Test worker package` job failed, which **skips the
+`Deploy to Production` job** (shown as `-` / 0s). So the count-skip + ISO-date **worker** changes never actually
+deployed (their editor-only parts did, via the independent CF Pages pipeline). Root cause: CI pinned
+`NODE_VERSION: '20.19.0'`, but Node 20 has **no built-in `node:sqlite`**; the 7 real-SQLite reconcile/provisioner
+suites (`helpers/d1_sqlite` → `node:sqlite`, the `verify-against-source-of-truth` guards) **threw at COLLECTION**
+on CI (`Object.<anonymous>` top-level) → 7 suites failed → deploy skipped. Local runs passed (Node 26 has sqlite
+stable), hiding it — a collect-time-throw-disables-the-gate class. Fix: bump `NODE_VERSION` **20.19.0 → 22.11.0**
+(the documented stack floor — global stack is "Node 22") + add **`--experimental-sqlite`** to the test-unit job's
+`NODE_OPTIONS` (Node 22 gates `node:sqlite` behind it; jest workers inherit `NODE_OPTIONS`). Validated in Docker on
+the exact `node:22.11.0` image: `node:sqlite` loads via that precise `NODE_OPTIONS` string (harmless
+ExperimentalWarning only); the 7 suites pass locally with the flag (27 tests). Unblocks the worker+admin deploy for
+#12 and every future worker fire. `.github/workflows/project-sites.yaml`.
+
 **NEXT slice (per delivery order): the AND/OR filter-group builder** (fuller slice-3 — multiple conditions, not one
 column). The single-column operators just shipped are the deliberate stepping-stone: the builder needs a validated
 filter-TREE worker endpoint that compiles a typed AND/OR tree of `{col, op, val}` leaves (REUSING this fire's

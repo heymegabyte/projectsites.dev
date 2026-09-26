@@ -32,7 +32,12 @@ on:
         type: boolean
 
 env:
-  NODE_VERSION: '20.19.0'
+  # Node 22 LTS — the documented runtime floor (global stack: "Node 22"). Node 20 lacked the
+  # built-in `node:sqlite` module, so the 7 real-SQLite reconcile/provisioner test suites
+  # (helpers/d1_sqlite → node:sqlite) threw at COLLECTION on CI and silently skipped the
+  # Deploy-to-Production job. 22 ships node:sqlite (behind --experimental-sqlite, set in the
+  # test-unit job's NODE_OPTIONS below). See docs/data-platform-scope.md #13.
+  NODE_VERSION: '22.11.0'
 
 jobs:
   # ─── Stage 1: Auto-fix + Lint + Typecheck ──────────────────
@@ -107,7 +112,11 @@ jobs:
       # Heap headroom for the heavy route_malformed_json_boundary suite (imports the full
       # ../index worker → crashed a worker on the lower-RAM CI runner). Kept as a safety
       # margin even though --coverage (the main heap pressure) is now OFF the deploy gate.
-      NODE_OPTIONS: '--max-old-space-size=4096'
+      # --experimental-sqlite: Node 22 gates the built-in `node:sqlite` behind this flag; the
+      # 7 real-SQLite reconcile/provisioner suites (helpers/d1_sqlite) import it at module load,
+      # so without the flag they throw at collection and fail the deploy gate. Jest workers
+      # inherit NODE_OPTIONS, so the flag reaches every test process.
+      NODE_OPTIONS: '--max-old-space-size=4096 --experimental-sqlite'
     steps:
       - uses: actions/checkout@v4
 
