@@ -85,6 +85,8 @@ interface PsMessage {
   readonly orderBy?: string;
   /** PS_DATA_REQUEST: server-side sort direction for `orderBy` (worker clamps to asc/desc). */
   readonly dir?: string;
+  /** PS_DATA_REQUEST: multi-column sort `col:dir,…` (worker allowlist-validates each; precedes orderBy/dir). */
+  readonly sort?: string;
   /** PS_DATA_REQUEST: whole-table search (worker: OR-of-LIKE over allowlisted columns; affects `total`). */
   readonly search?: string;
   /** PS_DATA_REQUEST: exact-match filter column (worker allowlist-validates it; else no filter). */
@@ -130,6 +132,7 @@ interface PsMessage {
     titleField?: string;
     groupField?: string;
     dateField?: string;
+    sorts?: string;
     layout?: {
       hidden?: string[];
       order?: string[];
@@ -698,6 +701,9 @@ export class BoltEmbedService {
           const browseOrderBy =
             typeof msg.orderBy === 'string' && msg.orderBy ? msg.orderBy.slice(0, 64) : undefined;
           const browseDir = msg.dir === 'asc' ? 'asc' : msg.dir === 'desc' ? 'desc' : undefined;
+          // Multi-column sort `col:dir,…` — forwarded as-is; the worker allowlist-validates + bounds each key.
+          const browseSort =
+            typeof msg.sort === 'string' && msg.sort.trim() ? msg.sort.trim().slice(0, 256) : undefined;
           // Whole-table search — the WORKER runs the OR-of-LIKE over allowlisted columns (parameterized)
           // and reflects it in `total`; we just forward the trimmed, length-capped needle.
           const browseSearch =
@@ -826,6 +832,7 @@ export class BoltEmbedService {
                         ...(isExport
                           ? {}
                           : { limit: String(browseLimit), offset: String(browseOffset) }),
+                        ...(browseSort ? { sort: browseSort } : {}),
                         ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),
                         ...(browseOrderBy && browseDir ? { dir: browseDir } : {}),
                         ...filterParams,

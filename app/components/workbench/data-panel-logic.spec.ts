@@ -75,6 +75,9 @@ import {
   closeQueryTab,
   updateQueryTabSql,
   nextSort,
+  cycleSortMulti,
+  sortsToParam,
+  parseSortSpec,
   sortRows,
   clipboardValue,
   rowJson,
@@ -843,6 +846,74 @@ describe('sortToParams (GridSort → server-sort request params)', () => {
   });
 });
 
+describe('cycleSortMulti (header-click builds/cycles a multi-column sort)', () => {
+  it('appends a new column ascending; cycles asc→desc in place; desc removes it', () => {
+    expect(cycleSortMulti([], 'name')).toEqual([{ col: 'name', dir: 'asc' }]);
+    expect(cycleSortMulti([{ col: 'name', dir: 'asc' }], 'name')).toEqual([{ col: 'name', dir: 'desc' }]);
+    expect(cycleSortMulti([{ col: 'name', dir: 'desc' }], 'name')).toEqual([]);
+  });
+  it('builds a priority-ordered multi-sort across successive columns (in place, keeping priority)', () => {
+    expect(cycleSortMulti([{ col: 'a', dir: 'asc' }], 'b')).toEqual([
+      { col: 'a', dir: 'asc' },
+      { col: 'b', dir: 'asc' },
+    ]);
+    expect(
+      cycleSortMulti(
+        [
+          { col: 'a', dir: 'asc' },
+          { col: 'b', dir: 'asc' },
+        ],
+        'a',
+      ),
+    ).toEqual([
+      { col: 'a', dir: 'desc' },
+      { col: 'b', dir: 'asc' },
+    ]);
+
+    // removing a middle sort keeps the rest in order
+    expect(
+      cycleSortMulti(
+        [
+          { col: 'a', dir: 'desc' },
+          { col: 'b', dir: 'asc' },
+        ],
+        'a',
+      ),
+    ).toEqual([{ col: 'b', dir: 'asc' }]);
+  });
+  it('does not mutate the input', () => {
+    const input = [{ col: 'a', dir: 'asc' as const }];
+    cycleSortMulti(input, 'a');
+    expect(input).toEqual([{ col: 'a', dir: 'asc' }]);
+  });
+});
+
+describe('sortsToParam / parseSortSpec (multi-sort ↔ col:dir,… round-trip)', () => {
+  it('serializes an ordered list to the sort param, empty → {}', () => {
+    expect(
+      sortsToParam([
+        { col: 'a', dir: 'asc' },
+        { col: 'b', dir: 'desc' },
+      ]),
+    ).toEqual({ sort: 'a:asc,b:desc' });
+    expect(sortsToParam([])).toEqual({});
+  });
+  it('parses the param back (dir coerced, blanks + dupes dropped) — round-trips', () => {
+    expect(parseSortSpec('a:asc,b:desc')).toEqual([
+      { col: 'a', dir: 'asc' },
+      { col: 'b', dir: 'desc' },
+    ]);
+    expect(parseSortSpec('a:bogus,,a:desc')).toEqual([{ col: 'a', dir: 'asc' }]); // junk dir→asc; dupe dropped
+    expect(parseSortSpec('')).toEqual([]);
+
+    const list = [
+      { col: 'x', dir: 'desc' as const },
+      { col: 'y', dir: 'asc' as const },
+    ];
+    expect(parseSortSpec(sortsToParam(list).sort)).toEqual(list);
+  });
+});
+
 describe('browseSearchParam (search box → server-search request param)', () => {
   it('trims a non-empty needle into { search }', () => {
     expect(browseSearchParam('ada')).toEqual({ search: 'ada' });
@@ -1333,11 +1404,49 @@ describe('viewQueryFingerprint (detect a saved view drifting from the live query
 
   it('dateField only matters in the calendar view', () => {
     const ref = viewQueryFingerprint(base);
+
     // grid → dateField ignored (no false "modified")
     expect(viewQueryFingerprint({ ...base, dateField: 'created_at' })).toBe(ref);
+
     // calendar → changing the date column IS a drift
     expect(viewQueryFingerprint({ ...base, type: 'calendar', dateField: 'created_at' })).not.toBe(
       viewQueryFingerprint({ ...base, type: 'calendar' }),
+    );
+  });
+
+  it('detects multi-sort drift (order + direction) — omitted sorts → null (single sortCol/sortDir only)', () => {
+    const noSorts = viewQueryFingerprint(base);
+    expect(viewQueryFingerprint({ ...base, sorts: undefined })).toBe(noSorts);
+
+    const s1 = viewQueryFingerprint({ ...base, sorts: [{ col: 'a', dir: 'asc' }] });
+
+    // adding a secondary sort, or flipping a direction, or reordering priority all change the fingerprint
+    expect(
+      viewQueryFingerprint({
+        ...base,
+        sorts: [
+          { col: 'a', dir: 'asc' },
+          { col: 'b', dir: 'desc' },
+        ],
+      }),
+    ).not.toBe(s1);
+    expect(viewQueryFingerprint({ ...base, sorts: [{ col: 'a', dir: 'desc' }] })).not.toBe(s1);
+    expect(
+      viewQueryFingerprint({
+        ...base,
+        sorts: [
+          { col: 'b', dir: 'asc' },
+          { col: 'a', dir: 'asc' },
+        ],
+      }),
+    ).not.toBe(
+      viewQueryFingerprint({
+        ...base,
+        sorts: [
+          { col: 'a', dir: 'asc' },
+          { col: 'b', dir: 'asc' },
+        ],
+      }),
     );
   });
 
@@ -1346,6 +1455,7 @@ describe('viewQueryFingerprint (detect a saved view drifting from the live query
     expect(viewQueryFingerprint({ ...base, layout: undefined })).toBe(noLayout);
 
     const bare = viewQueryFingerprint({ ...base, layout: { density: 'cozy' } });
+
     // each layout facet changing flips the fingerprint
     expect(viewQueryFingerprint({ ...base, layout: { density: 'compact' } })).not.toBe(bare);
     expect(viewQueryFingerprint({ ...base, layout: { density: 'cozy', hidden: ['x'] } })).not.toBe(bare);
@@ -1360,10 +1470,12 @@ describe('viewQueryFingerprint (detect a saved view drifting from the live query
     const w1 = viewQueryFingerprint({ ...base, layout: { widths: { a: 100, b: 200 } } });
     const w2 = viewQueryFingerprint({ ...base, layout: { widths: { b: 200, a: 100 } } });
     expect(w1).toBe(w2);
+
     // order array: different order → DIFFERENT fingerprint (a real rearrangement)
     const o1 = viewQueryFingerprint({ ...base, layout: { order: ['a', 'b'] } });
     const o2 = viewQueryFingerprint({ ...base, layout: { order: ['b', 'a'] } });
     expect(o1).not.toBe(o2);
+
     // a sparse {density:'cozy'} equals an all-empty-normalized layout (the apply-baseline case)
     expect(viewQueryFingerprint({ ...base, layout: { density: 'cozy' } })).toBe(
       viewQueryFingerprint({ ...base, layout: { density: 'cozy', hidden: [], order: [], pinned: [] } }),
@@ -1598,6 +1710,7 @@ describe('normalizeDensity + densityCellClass (grid row density)', () => {
 
   it('every density is a real, distinct option (no accidental collision)', () => {
     expect(GRID_DENSITIES).toEqual(['compact', 'cozy', 'comfortable']);
+
     const classes = GRID_DENSITIES.map(densityCellClass);
     expect(new Set(classes).size).toBe(3);
   });

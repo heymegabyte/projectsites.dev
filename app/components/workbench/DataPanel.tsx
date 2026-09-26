@@ -56,6 +56,9 @@ import {
   updateQueryTabSql,
   type GridSort,
   nextSort,
+  cycleSortMulti,
+  sortsToParam,
+  parseSortSpec,
   sortRows,
   clipboardValue,
   rowJson,
@@ -92,7 +95,6 @@ import {
   BROWSE_PAGE_SIZE,
   PAGE_SIZE_OPTIONS,
   clampPageSize,
-  sortToParams,
   filtersToParams,
   RowMutationError,
   friendlyModelLabel,
@@ -378,7 +380,7 @@ export const DataPanel = memo(() => {
    * Client-side column sort of the LOADED browse window (the grid honestly discloses it's
    * showing the latest N). null = original (server) order; a header click cycles asc→desc→off.
    */
-  const [browseSort, setBrowseSort] = useState<GridSort | null>(null);
+  const [browseSort, setBrowseSort] = useState<GridSort[]>([]); // ordered multi-column sort ([0] = primary)
 
   /*
    * View-only column selection for the browse grid (per-table, localStorage-persisted). Hidden
@@ -786,7 +788,7 @@ export const DataPanel = memo(() => {
    * `data-overview/:table` endpoint (server-side LIMIT/OFFSET — the browser never loads the whole table).
    */
   const requestRows = useCallback(
-    (key: string, offset: number, sort: GridSort | null, filters: BrowseFilters, withCount: boolean): void => {
+    (key: string, offset: number, sorts: GridSort[], filters: BrowseFilters, withCount: boolean): void => {
       const cid = newCorrelationId(key);
       browseCid.current = cid;
 
@@ -814,7 +816,7 @@ export const DataPanel = memo(() => {
         offset,
         limit: pageSizeRef.current, // the current rows-per-page (ref → always fresh, no stale closure)
         count: withCount ? 1 : 0,
-        ...sortToParams(sort),
+        ...sortsToParam(sorts),
         ...filtersToParams(filters),
         correlationId: cid,
       });
@@ -829,7 +831,7 @@ export const DataPanel = memo(() => {
       setColumns([]);
       setBrowseError('');
       setSearch('');
-      setBrowseSort(null);
+      setBrowseSort([]);
       setHiddenCols(readHiddenCols(key)); // restore this table's column selection
       setColOrder(readColOrder(key)); // restore this table's column order
       setColWidths(readColWidths(key)); // restore this table's resized column widths
@@ -868,7 +870,7 @@ export const DataPanel = memo(() => {
 
       setSelectedKeys(new Set()); // never carry a bulk selection across a table switch / re-fetch
 
-      requestRows(key, 0, null, { search: '', conditions: [], combinator: 'AND' }, true); // fresh: page 0, count
+      requestRows(key, 0, [], { search: '', conditions: [], combinator: 'AND' }, true); // fresh: page 0, count, no sort
 
       /*
        * Super-admins get row DELETE — resolve the PK via PRAGMA table_info on its OWN correlation id
@@ -1737,8 +1739,9 @@ export const DataPanel = memo(() => {
     search,
     conditions: filterConditions,
     combinator: filterCombinator,
-    sortCol: browseSort?.col ?? null,
-    sortDir: browseSort?.dir ?? null,
+    sortCol: browseSort[0]?.col ?? null,
+    sortDir: browseSort[0]?.dir ?? null,
+    sorts: browseSort,
     type: viewMode,
     titleField: galleryTitleCol,
     groupField: kanbanGroupCol,
@@ -2077,7 +2080,7 @@ export const DataPanel = memo(() => {
        * index would point at a different row) + clear selection. browseSort still drives the header
        * ▲/▼ indicator; the WORKER allowlist-validates the column before it touches SQL.
        */
-      const next = nextSort(browseSort, col);
+      const next = cycleSortMulti(browseSort, col);
       setBrowseSort(next);
       setDrawerRow(null);
 
@@ -2094,6 +2097,19 @@ export const DataPanel = memo(() => {
     },
     [browseSort, active, search, filterConditions, filterCombinator, requestRows],
   );
+
+  /** Clear the entire multi-column sort → back to the table's default order (re-fetch page 0). */
+  const clearBrowseSort = useCallback((): void => {
+    setBrowseSort([]);
+
+    if (active) {
+      setBrowseOffset(0);
+      setRows([]);
+      setBrowseLoading(true);
+      setBrowseError('');
+      requestRows(active, 0, [], { search, conditions: filterConditions, combinator: filterCombinator }, false);
+    }
+  }, [active, search, filterConditions, filterCombinator, requestRows]);
 
   /**
    * Run the WHOLE-TABLE (server-side) search: reset to page 0 in the current sort with the new needle
@@ -2299,16 +2315,17 @@ export const DataPanel = memo(() => {
       name,
       filters: params.filters ?? '[]',
       combinator: filterCombinator,
-      sortCol: browseSort?.col ?? null,
-      sortDir: browseSort?.dir ?? null,
+      sortCol: browseSort[0]?.col ?? null,
+      sortDir: browseSort[0]?.dir ?? null,
       search,
 
-      // Persist the render type + card-title/group/date + the full column layout so applying restores everything.
+      // Persist render type + card-title/group/date + the FULL multi-sort + column layout so applying restores all.
       viewType: viewMode,
       viewConfig: {
         ...(galleryTitleCol ? { titleField: galleryTitleCol } : {}),
         ...((viewMode === 'kanban' || viewMode === 'chart') && kanbanGroupCol ? { groupField: kanbanGroupCol } : {}),
         ...(viewMode === 'calendar' && calendarDateCol ? { dateField: calendarDateCol } : {}),
+        ...(browseSort.length ? { sorts: sortsToParam(browseSort).sort } : {}),
         ...(currentLayout ? { layout: currentLayout } : {}),
       },
       correlationId: cid,
@@ -2357,7 +2374,13 @@ export const DataPanel = memo(() => {
         sortDir: string | null;
         search: string;
         viewType: string;
-        viewConfig: { titleField?: string; groupField?: string; dateField?: string; layout?: SavedGridViewLayout };
+        viewConfig: {
+          titleField?: string;
+          groupField?: string;
+          dateField?: string;
+          sorts?: string;
+          layout?: SavedGridViewLayout;
+        };
       },
     ): void => {
       if (!active) {
@@ -2392,14 +2415,15 @@ export const DataPanel = memo(() => {
       sendViewUpdate(view.id, view.name, {
         filters: params.filters ?? '[]',
         combinator: filterCombinator,
-        sortCol: browseSort?.col ?? null,
-        sortDir: browseSort?.dir ?? null,
+        sortCol: browseSort[0]?.col ?? null,
+        sortDir: browseSort[0]?.dir ?? null,
         search,
         viewType: viewMode,
         viewConfig: {
           ...(galleryTitleCol ? { titleField: galleryTitleCol } : {}),
           ...((viewMode === 'kanban' || viewMode === 'chart') && kanbanGroupCol ? { groupField: kanbanGroupCol } : {}),
           ...(viewMode === 'calendar' && calendarDateCol ? { dateField: calendarDateCol } : {}),
+          ...(browseSort.length ? { sorts: sortsToParam(browseSort).sort } : {}),
           ...(currentLayout ? { layout: currentLayout } : {}),
         },
       });
@@ -2454,7 +2478,13 @@ export const DataPanel = memo(() => {
         op: cnd.op,
         val: cnd.val,
       }));
-      const sort: GridSort | null = view.sortCol ? { col: view.sortCol, dir: view.sortDir ?? 'desc' } : null;
+
+      // Restore the FULL multi-sort from config.sorts; fall back to the primary sortCol/sortDir for legacy views.
+      const sort: GridSort[] = view.config?.sorts
+        ? parseSortSpec(view.config.sorts)
+        : view.sortCol
+          ? [{ col: view.sortCol, dir: view.sortDir ?? 'desc' }]
+          : [];
       setSearch(view.search);
       setFilterConditions(conditions);
       setFilterCombinator(view.combinator);
@@ -2497,6 +2527,7 @@ export const DataPanel = memo(() => {
           combinator: view.combinator,
           sortCol: view.sortCol,
           sortDir: view.sortDir,
+          sorts: sort, // the restored multi-sort array (same as what setBrowseSort received)
           type: view.type,
           titleField: view.config?.titleField ?? null,
           groupField: view.config?.groupField ?? null,
@@ -3111,7 +3142,7 @@ export const DataPanel = memo(() => {
         ...(params.search ? { search: params.search } : {}),
         ...(params.filters ? { filters: params.filters } : {}),
         ...(params.filterCombinator ? { filterCombinator: params.filterCombinator } : {}),
-        ...(browseSort ? { orderBy: browseSort.col, dir: browseSort.dir } : {}),
+        ...sortsToParam(browseSort), // export honors the full multi-sort (same as the grid)
         correlationId: cid,
       });
     },
@@ -3910,6 +3941,20 @@ export const DataPanel = memo(() => {
                     <div className="i-ph:upload-simple" /> Import CSV
                   </button>
                 )}
+                {/* Clear sort — visible only when a header-click sort is active; a multi-key sort
+                    shows its count so the user knows how many columns drive the order. */}
+                {viewMode === 'grid' && browseSort.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearBrowseSort}
+                    data-testid="data-clear-sort"
+                    title="Clear the row sort and return to the table's natural order"
+                    className="text-[10px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary cursor-pointer flex items-center gap-1"
+                  >
+                    <div className="i-ph:sort-ascending" /> Clear sort
+                    {browseSort.length > 1 ? ` (${browseSort.length})` : ''}
+                  </button>
+                )}
                 {viewMode === 'grid' && rows.length > 0 && (
                   <div
                     className="flex items-center rounded-md border border-bolt-elements-borderColor p-0.5"
@@ -4557,67 +4602,77 @@ export const DataPanel = memo(() => {
                         />
                       </th>
                     )}
-                    {visibleCols.map((c) => (
-                      <th
-                        key={c}
-                        aria-sort={
-                          browseSort?.col === c ? (browseSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'
-                        }
-                        style={{ ...colStyle(c), ...stickyPinStyle(c, 30) }}
-                        className={classNames(
-                          'relative text-left font-medium text-bolt-elements-textTertiary border-b border-bolt-elements-borderColor/50 whitespace-nowrap p-0',
-                          pinOffsets[c] !== undefined && 'bg-bolt-elements-background-depth-2',
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => toggleBrowseSort(c)}
-                          data-testid="data-browse-sort"
-                          title={`Sort by ${columnLabel(c)}`}
+                    {visibleCols.map((c) => {
+                      // This column's place in the multi-sort ([0]=primary); drives the arrow + priority badge.
+                      const si = browseSort.findIndex((s) => s.col === c);
+                      const st = si >= 0 ? browseSort[si] : null;
+
+                      return (
+                        <th
+                          key={c}
+                          aria-sort={st ? (st.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                          style={{ ...colStyle(c), ...stickyPinStyle(c, 30) }}
                           className={classNames(
-                            'w-full flex items-center gap-1 text-left hover:text-bolt-elements-textPrimary cursor-pointer',
-                            densityCellClass(density),
+                            'relative text-left font-medium text-bolt-elements-textTertiary border-b border-bolt-elements-borderColor/50 whitespace-nowrap p-0',
+                            pinOffsets[c] !== undefined && 'bg-bolt-elements-background-depth-2',
                           )}
                         >
-                          <span className="truncate">{columnLabel(c)}</span>
-                          {(() => {
-                            const badge = columnTypeBadge(browseColTypes[c]);
-                            return badge ? (
-                              <span
-                                className="shrink-0 rounded px-1 py-px text-[8px] font-mono font-medium bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary/70 border border-bolt-elements-borderColor/30"
-                                title={badge.title}
-                                aria-label={`Type: ${badge.title}`}
-                              >
-                                {badge.label}
-                              </span>
-                            ) : null;
-                          })()}
-                          <span
-                            aria-hidden="true"
+                          <button
+                            type="button"
+                            onClick={() => toggleBrowseSort(c)}
+                            data-testid="data-browse-sort"
+                            title={`Sort by ${columnLabel(c)}`}
                             className={classNames(
-                              'shrink-0 text-[8px]',
-                              browseSort?.col === c
-                                ? 'text-bolt-elements-item-contentAccent'
-                                : 'text-bolt-elements-textTertiary/40',
-                              browseSort?.col === c && browseSort.dir === 'desc'
-                                ? 'i-ph:caret-down-bold'
-                                : 'i-ph:caret-up-bold',
+                              'w-full flex items-center gap-1 text-left hover:text-bolt-elements-textPrimary cursor-pointer',
+                              densityCellClass(density),
                             )}
-                          />
-                        </button>
-                        {/* Resize handle — drag the right edge to set an exact width; double-click resets to
+                          >
+                            <span className="truncate">{columnLabel(c)}</span>
+                            {(() => {
+                              const badge = columnTypeBadge(browseColTypes[c]);
+                              return badge ? (
+                                <span
+                                  className="shrink-0 rounded px-1 py-px text-[8px] font-mono font-medium bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary/70 border border-bolt-elements-borderColor/30"
+                                  title={badge.title}
+                                  aria-label={`Type: ${badge.title}`}
+                                >
+                                  {badge.label}
+                                </span>
+                              ) : null;
+                            })()}
+                            <span
+                              aria-hidden="true"
+                              className={classNames(
+                                'shrink-0 text-[8px]',
+                                st ? 'text-bolt-elements-item-contentAccent' : 'text-bolt-elements-textTertiary/40',
+                                st?.dir === 'desc' ? 'i-ph:caret-down-bold' : 'i-ph:caret-up-bold',
+                              )}
+                            />
+                            {/* Priority badge (1,2,3…) only when there's a multi-column sort. */}
+                            {st && browseSort.length > 1 && (
+                              <span
+                                className="shrink-0 rounded-full bg-[#00e5ff]/20 px-1 text-[7px] font-semibold text-[#00e5ff]"
+                                title={`Sort priority ${si + 1}`}
+                                aria-hidden="true"
+                              >
+                                {si + 1}
+                              </span>
+                            )}
+                          </button>
+                          {/* Resize handle — drag the right edge to set an exact width; double-click resets to
                             auto. stopPropagation keeps the drag from triggering the sort button. */}
-                        <div
-                          role="separator"
-                          aria-orientation="vertical"
-                          onMouseDown={(e) => startResize(e, c)}
-                          onDoubleClick={() => resetColWidth(c)}
-                          data-testid="data-col-resize"
-                          title="Drag to resize · double-click to reset"
-                          className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize select-none hover:bg-[#00e5ff]/40"
-                        />
-                      </th>
-                    ))}
+                          <div
+                            role="separator"
+                            aria-orientation="vertical"
+                            onMouseDown={(e) => startResize(e, c)}
+                            onDoubleClick={() => resetColWidth(c)}
+                            data-testid="data-col-resize"
+                            title="Drag to resize · double-click to reset"
+                            className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize select-none hover:bg-[#00e5ff]/40"
+                          />
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>

@@ -183,6 +183,13 @@ export interface DataRequestMessage {
   dir?: 'asc' | 'desc';
 
   /**
+   * MULTI-column server sort as `col:dir,col2:dir2` (priority order) — takes precedence over the single
+   * {@link orderBy}/{@link dir}. Each column is worker allowlist-validated (display request, never trusted
+   * as SQL); bounded to a few keys. Sent by the browse grid + export. Omit for the default order.
+   */
+  sort?: string;
+
+  /**
    * Whole-table search needle. The worker runs a parameterized OR-of-LIKE over the table's allowlisted
    * columns and reflects the match count in `total` — so this searches the WHOLE table, not just the
    * loaded page. Omit / empty → no search.
@@ -866,7 +873,15 @@ export interface SavedGridView {
    * visibility/order/widths/pins/summaries/density) so applying a view restores its whole arrangement.
    * All optional; worker shape-hardens.
    */
-  config: { titleField?: string; groupField?: string; dateField?: string; layout?: SavedGridViewLayout };
+  config: {
+    titleField?: string;
+    groupField?: string;
+    dateField?: string;
+
+    /** Multi-column sort as `col:dir,…` (priority order). The primary also lives in `sortCol`/`sortDir`. */
+    sorts?: string;
+    layout?: SavedGridViewLayout;
+  };
   updatedAt: string | null;
 }
 
@@ -910,8 +925,14 @@ export interface ViewRequestMessage {
   /** save: the render type — `grid` | `gallery` | `kanban` | `chart` | `calendar` (worker whitelists, default grid). */
   viewType?: string;
 
-  /** save: view-type display config (`titleField`/`groupField`/`dateField` + the full column `layout`; worker shape-hardens). */
-  viewConfig?: { titleField?: string; groupField?: string; dateField?: string; layout?: SavedGridViewLayout };
+  /** save: view display config (`titleField`/`groupField`/`dateField` + `sorts` + the full column `layout`; worker shape-hardens). */
+  viewConfig?: {
+    titleField?: string;
+    groupField?: string;
+    dateField?: string;
+    sorts?: string;
+    layout?: SavedGridViewLayout;
+  };
 
   /** delete: the view id. */
   viewId?: string;

@@ -1139,6 +1139,70 @@ export function sortToParams(sort: GridSort | null): { orderBy?: string; dir?: S
 }
 
 /**
+ * Header-click cycle for a MULTI-column sort: a column not yet in the sort is APPENDED ascending; an
+ * ascending column flips to descending (in place, keeping its priority); a descending column is REMOVED.
+ * So repeated clicks on one column go asc → desc → gone, and clicking successive columns builds a
+ * priority-ordered multi-sort. Immutable (never mutates the input). Pure.
+ *
+ * @example cycleSortMulti([], 'name') // [{ col:'name', dir:'asc' }]
+ * @example cycleSortMulti([{col:'name',dir:'asc'}], 'name') // [{ col:'name', dir:'desc' }]
+ * @example cycleSortMulti([{col:'name',dir:'desc'}], 'name') // []
+ * @example cycleSortMulti([{col:'a',dir:'asc'}], 'b') // [{col:'a',dir:'asc'},{col:'b',dir:'asc'}]
+ */
+export function cycleSortMulti(sorts: readonly GridSort[], col: string): GridSort[] {
+  const i = sorts.findIndex((s) => s.col === col);
+
+  if (i < 0) {
+    return [...sorts, { col, dir: 'asc' }];
+  }
+
+  if (sorts[i].dir === 'asc') {
+    const next = sorts.slice();
+    next[i] = { col, dir: 'desc' };
+
+    return next;
+  }
+
+  return sorts.filter((s) => s.col !== col);
+}
+
+/**
+ * Map an ordered {@link GridSort} list to the `PS_DATA_REQUEST` `sort` param — `col:dir,col2:dir2` (in
+ * priority order). Empty → `{}` (the table's default order). Columns are display requests only — the
+ * WORKER allowlist-validates each before it can reach SQL. Pure.
+ *
+ * @example sortsToParam([{col:'a',dir:'asc'},{col:'b',dir:'desc'}]) // { sort: 'a:asc,b:desc' }
+ * @example sortsToParam([]) // {}
+ */
+export function sortsToParam(sorts: readonly GridSort[]): { sort?: string } {
+  return sorts.length ? { sort: sorts.map((s) => `${s.col}:${s.dir}`).join(',') } : {};
+}
+
+/**
+ * Parse a persisted/param `col:dir,…` sort string back to an ordered {@link GridSort}[] — dir coerced to
+ * asc/desc, blank cols + dupes dropped. The inverse of {@link sortsToParam} for restoring a saved view.
+ * Pure. (Columns are re-validated against the live schema by the caller / worker.)
+ *
+ * @example parseSortSpec('a:asc,b:desc') // [{col:'a',dir:'asc'},{col:'b',dir:'desc'}]
+ */
+export function parseSortSpec(spec: string | null | undefined): GridSort[] {
+  const seen = new Set<string>();
+  const out: GridSort[] = [];
+
+  for (const pair of String(spec ?? '').split(',')) {
+    const [rawCol, rawDir] = pair.split(':');
+    const col = (rawCol ?? '').trim();
+
+    if (col && !seen.has(col)) {
+      seen.add(col);
+      out.push({ col, dir: (rawDir ?? '').trim().toLowerCase() === 'desc' ? 'desc' : 'asc' });
+    }
+  }
+
+  return out;
+}
+
+/**
  * Map a search box value to the `PS_DATA_REQUEST` `search` param — trimmed, and OMITTED when blank so
  * an empty box means "no filter" (the default order + full `total`). The worker runs the actual
  * parameterized OR-of-LIKE over its allowlisted columns, so nothing is escaped here. Pure.
@@ -2082,6 +2146,7 @@ export function viewQueryFingerprint(q: {
   groupField: string | null;
   dateField?: string | null;
   layout?: ViewLayoutSig | null;
+  sorts?: ReadonlyArray<GridSort> | null;
 }): string {
   const conds = q.conditions
     .filter((c) => filterIsActive(c.col, c.op, c.val))
@@ -2099,6 +2164,12 @@ export function viewQueryFingerprint(q: {
     combinator: conds.length > 1 ? normalizeCombinator(q.combinator) : 'AND',
     sortCol: q.sortCol || null,
     sortDir: q.sortCol ? (q.sortDir === 'asc' ? 'asc' : 'desc') : null,
+
+    /*
+     * Full multi-column sort (priority order) — so reordering/adding secondary sorts flags "modified".
+     * Callers that omit it → null (they rely on the single sortCol/sortDir above).
+     */
+    sorts: q.sorts && q.sorts.length ? q.sorts.map((s) => `${s.col}:${s.dir === 'asc' ? 'asc' : 'desc'}`) : null,
     type,
 
     /*

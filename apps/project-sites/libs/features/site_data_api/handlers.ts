@@ -640,6 +640,7 @@ export function parseGridViewConfig(raw: unknown): {
   titleField?: string;
   groupField?: string;
   dateField?: string;
+  sorts?: string;
   layout?: GridViewLayout;
 } {
   let obj: unknown = raw;
@@ -657,6 +658,7 @@ export function parseGridViewConfig(raw: unknown): {
     titleField?: string;
     groupField?: string;
     dateField?: string;
+    sorts?: string;
     layout?: GridViewLayout;
   } = {};
   if (typeof rec.titleField === 'string' && rec.titleField.trim()) {
@@ -667,6 +669,10 @@ export function parseGridViewConfig(raw: unknown): {
   }
   if (typeof rec.dateField === 'string' && rec.dateField.trim()) {
     out.dateField = rec.dateField.trim().slice(0, 64);
+  }
+  // Multi-column sort as a `col:dir,…` string (the editor parses + re-validates each column on apply).
+  if (typeof rec.sorts === 'string' && rec.sorts.trim()) {
+    out.sorts = rec.sorts.trim().slice(0, 512);
   }
   const layout = parseGridViewLayout(rec.layout);
   if (layout) {
@@ -685,7 +691,7 @@ export function serializeGridView(row: Record<string, unknown>): {
   sortDir: 'asc' | 'desc' | null;
   search: string;
   type: GridViewType;
-  config: { titleField?: string; groupField?: string; dateField?: string; layout?: GridViewLayout };
+  config: { titleField?: string; groupField?: string; dateField?: string; sorts?: string; layout?: GridViewLayout };
   updatedAt: string | null;
 } {
   return {
@@ -1062,6 +1068,41 @@ export function buildColumnAggregatesSql(
     : base;
 }
 
+/** Max sort keys honored in a multi-column browse sort (a sane bound; more would rarely help + costs). */
+export const MAX_SORT_KEYS = 4;
+
+/**
+ * Build a MULTI-COLUMN `ORDER BY` clause from a `col:dir,col2:dir2` sort spec — the server side of the
+ * grid's multi-sort. Each column MUST be in the allowlist (the injection boundary — quoted, never bound);
+ * `dir` is coerced to `ASC`/`DESC` (never raw); duplicate columns keep only the first; unknown columns are
+ * dropped; bounded to {@link MAX_SORT_KEYS}. Returns `'ORDER BY "a" ASC, "b" DESC'` or `''` when nothing is
+ * valid (the caller then keeps the table's default order). Pure.
+ *
+ * @example buildOrderByClause(['a','b'], 'a:asc,b:desc') // 'ORDER BY "a" ASC, "b" DESC'
+ * @example buildOrderByClause(['a'], 'x:asc,a:desc')     // 'ORDER BY "a" DESC'  (x dropped)
+ * @example buildOrderByClause(['a'], '')                 // ''  (default order)
+ */
+export function buildOrderByClause(columns: readonly string[], sortParam: string | undefined | null): string {
+  const seen = new Set<string>();
+  const terms: string[] = [];
+
+  for (const pair of String(sortParam ?? '').split(',')) {
+    const [rawCol, rawDir] = pair.split(':');
+    const col = (rawCol ?? '').trim();
+    if (!col || seen.has(col) || !columns.includes(col)) {
+      continue;
+    }
+    seen.add(col);
+    const dir = (rawDir ?? '').trim().toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+    terms.push(`"${col}" ${dir}`);
+    if (terms.length >= MAX_SORT_KEYS) {
+      break;
+    }
+  }
+
+  return terms.length ? `ORDER BY ${terms.join(', ')}` : '';
+}
+
 /**
  * Browse the most-recent rows of one overview table. Read-only; only the table's
  * safe-column allowlist is selected (never PII payloads or encrypted tokens);
@@ -1100,10 +1141,15 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
   // orderBy (in the column allowlist) rebuilds the ORDER BY with that validated
   // identifier; anything else keeps the spec's default sort, so an unknown/hostile
   // column string can never reach the SQL (allowlist is the injection boundary).
+  // Multi-column sort (`?sort=col:dir,…`) takes precedence over the single `orderBy`/`dir` (kept for
+  // backward compat + export); an empty/all-invalid sort falls back to single, then the spec default.
+  const multiOrderBy = buildOrderByClause(spec.columns, c.req.query('sort'));
   const base = withSearch(spec.browseSql);
-  const browseSql =
-    orderBy && spec.columns.includes(orderBy)
-      ? `${base.replace(/\s+ORDER BY\s+.+\s+LIMIT\s+\?\s*$/i, '')} ORDER BY "${orderBy}" ${dir} LIMIT ? OFFSET ?`
+  const stripOrderBy = (sql: string): string => sql.replace(/\s+ORDER BY\s+.+\s+LIMIT\s+\?\s*$/i, '');
+  const browseSql = multiOrderBy
+    ? `${stripOrderBy(base)} ${multiOrderBy} LIMIT ? OFFSET ?`
+    : orderBy && spec.columns.includes(orderBy)
+      ? `${stripOrderBy(base)} ORDER BY "${orderBy}" ${dir} LIMIT ? OFFSET ?`
       : base.replace(/\s+LIMIT\s+\?\s*$/i, ' LIMIT ? OFFSET ?');
 
   let rows: Record<string, unknown>[] = [];
@@ -1169,10 +1215,13 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table/export', async (c) => {
   const withSearch = (sql: string): string =>
     extraClause ? sql.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`) : sql;
   const base = withSearch(spec.browseSql);
-  // Same ORDER BY rebuild as the browse, but `LIMIT ?` only (no offset) — export the whole match set.
-  const exportSql =
-    orderBy && spec.columns.includes(orderBy)
-      ? `${base.replace(/\s+ORDER BY\s+.+\s+LIMIT\s+\?\s*$/i, '')} ORDER BY "${orderBy}" ${dir} LIMIT ?`
+  // Same ORDER BY rebuild as the browse (multi-sort precedence → single → default), `LIMIT ?` only (no offset).
+  const multiOrderBy = buildOrderByClause(spec.columns, c.req.query('sort'));
+  const stripOrderBy = (sql: string): string => sql.replace(/\s+ORDER BY\s+.+\s+LIMIT\s+\?\s*$/i, '');
+  const exportSql = multiOrderBy
+    ? `${stripOrderBy(base)} ${multiOrderBy} LIMIT ?`
+    : orderBy && spec.columns.includes(orderBy)
+      ? `${stripOrderBy(base)} ORDER BY "${orderBy}" ${dir} LIMIT ?`
       : base.replace(/\s+LIMIT\s+\?\s*$/i, ' LIMIT ?');
 
   let rows: Record<string, unknown>[] = [];

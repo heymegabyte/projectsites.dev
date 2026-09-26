@@ -25,6 +25,8 @@ import {
   buildGroupCountSql,
   buildGroupAggregateSql,
   buildColumnAggregatesSql,
+  buildOrderByClause,
+  MAX_SORT_KEYS,
   normalizeGroupAgg,
   MAX_KANBAN_GROUPS,
   MAX_GRID_VIEWS_PER_TABLE,
@@ -743,6 +745,18 @@ describe('parseGridViewConfig (view display config; string OR object; never thro
     expect(cfg.layout).toEqual({ pinned: ['id'] });
   });
 
+  it('preserves a multi-column `sorts` string (trim; drop non-string; bound to 512; coexist)', () => {
+    expect(parseGridViewConfig({ sorts: 'created_at:desc,name:asc' }).sorts).toBe(
+      'created_at:desc,name:asc',
+    );
+    expect(parseGridViewConfig('{"sorts":"  status:asc  "}').sorts).toBe('status:asc'); // trimmed
+    expect(parseGridViewConfig({ sorts: 42 }).sorts).toBeUndefined(); // non-string dropped
+    expect(parseGridViewConfig({ sorts: '   ' }).sorts).toBeUndefined(); // blank dropped
+    expect(parseGridViewConfig({ sorts: 'x'.repeat(600) }).sorts?.length).toBe(512); // bounded
+    const cfg = parseGridViewConfig({ titleField: 'name', sorts: 'a:asc', layout: { pinned: ['id'] } });
+    expect(cfg).toEqual({ titleField: 'name', sorts: 'a:asc', layout: { pinned: ['id'] } });
+  });
+
   it('returns {} for malformed / empty / non-object / array (never throws)', () => {
     expect(parseGridViewConfig('{not json')).toEqual({});
     expect(parseGridViewConfig('')).toEqual({});
@@ -860,6 +874,33 @@ describe('buildGroupAggregateSql (whole-query chart measure: SUM/AVG/MIN/MAX per
     expect(buildGroupAggregateSql(spec, 'build_version', 'sum', 'bytes', '')).toBe(
       'SELECT "build_version" AS value, COUNT(*) AS n, SUM("bytes") AS agg FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL GROUP BY "build_version" ORDER BY agg DESC, n DESC LIMIT ?',
     );
+  });
+});
+
+describe('buildOrderByClause (multi-column browse sort; allowlist-validated)', () => {
+  const cols = ['name', 'created_at', 'status'];
+
+  it('builds a multi-column ORDER BY with coerced directions', () => {
+    expect(buildOrderByClause(cols, 'name:asc,created_at:desc')).toBe('ORDER BY "name" ASC, "created_at" DESC');
+    expect(buildOrderByClause(cols, 'status:desc')).toBe('ORDER BY "status" DESC');
+  });
+
+  it('drops unknown columns, de-dupes (first wins), coerces junk dir → DESC', () => {
+    expect(buildOrderByClause(cols, 'x:asc,name:bogus,name:asc')).toBe('ORDER BY "name" DESC'); // x dropped; name deduped to its first (bogus→DESC)
+    expect(buildOrderByClause(cols, "name'); DROP TABLE t--:asc")).toBe(''); // hostile col not in allowlist → dropped
+  });
+
+  it('bounds the number of sort keys to MAX_SORT_KEYS', () => {
+    const many = ['a', 'b', 'c', 'd', 'e', 'f'];
+    const spec = many.map((c) => `${c}:asc`).join(',');
+    const clause = buildOrderByClause(many, spec);
+    expect(clause.split(',').length).toBe(MAX_SORT_KEYS);
+  });
+
+  it('empty / all-invalid → "" (caller keeps the default order)', () => {
+    expect(buildOrderByClause(cols, '')).toBe('');
+    expect(buildOrderByClause(cols, undefined)).toBe('');
+    expect(buildOrderByClause(cols, 'nope:asc,also_nope:desc')).toBe('');
   });
 });
 

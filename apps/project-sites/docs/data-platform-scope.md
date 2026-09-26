@@ -957,14 +957,38 @@ the worker's LIKE) — no bridge round-trip, no new endpoint, no new interaction
 - Verified: editor Vitest **907/907** + tsc 0 + eslint 0 + build 0; admin tsc 0; worker Jest **12781/12781** + tsc 0.
   Fully verifiable — logic tested + server-computed result; the only UI delta is 2 select options.
 
-**STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
-sticky-pin render · #37 view round-trip — need one real-browser pass (authed admin session). **A dedicated
-real-browser QA fire remains the highest-value out-of-loop step** to convert this verify-by-build debt to verified.
+### ✅ Shipped next fire (2026-09-26 #40) — MULTI-COLUMN sort (header-click cycling + priority badges + persistence)
+`browseSort` goes from a single `{col,dir}` to an ordered `GridSort[]` ([0] = primary). Header clicks now CYCLE
+none→asc→desc→remove and APPEND to the sort order, so a second header click adds a SECONDARY key rather than
+replacing the first — Airtable/DBeaver-class multi-sort. Each header shows its `aria-sort` caret, and when >1 key is
+active a priority badge (1,2,3…) marks the order. A "Clear sort" toolbar chip (with the key-count) resets to the
+table's natural order. Persisted in the saved-view `config.sorts` string — **NO schema change** (config_json blob).
+- **Worker (`handlers.ts`, jest-tested):** `buildOrderByClause(columns, sortParam)` parses `col:dir,col2:dir2,…`,
+  each column **allowlist-validated + quoted** (NEVER bound — identifiers can't be SQL parameters), dir coerced
+  ASC/DESC, de-duped (first wins), bounded to `MAX_SORT_KEYS=4`; returns `ORDER BY "a" ASC, "b" DESC` or `''`. Wired
+  into BOTH browse + export (takes precedence over the legacy single `orderBy`/`dir`). `parseGridViewConfig` preserves
+  a `sorts` string (trim · drop non-string · bound 512). +5 assertions (multi-col · dedup/coerce · MAX cap · empty · config).
+- **Editor (`data-panel-logic.ts`, pure+tested):** `cycleSortMulti` (immutable none→asc→desc→remove), `sortsToParam`
+  (`GridSort[]` → `col:dir,…`), `parseSortSpec` (inverse; coerce dir, drop blanks/dupes); `viewQueryFingerprint`
+  extended with `sorts` so the "modified — update view?" badge fires on sort-ORDER drift too. +6 Vitest.
+- **DataPanel + bridge:** `browseSort: GridSort[]` threaded through `requestRows`/liveFingerprint/save/update/apply/
+  export; `applyView` prefers `config.sorts`, falls back to `[primary]` for legacy single-sort views. Bridge
+  (`DataRequestMessage.sort`) + admin (`PsMessage.sort`, opaque-forward → worker re-validates) mirrored.
+- **Simplification vs. the plan:** chose header-click CYCLING as the multi-sort UI (verifiable, in-grid, one
+  interaction) over a separate Sort panel — fewer new surfaces. A dedicated add/remove panel can layer on later.
+- Verified: editor Vitest **913/913** + tsc 0 + eslint 0 + build 0; admin tsc 0; worker Jest **12786/12786** + tsc 0.
+  Logic + server-computed order fully verifiable; the header-click cycle + priority badge + Clear-sort chip are
+  verify-by-build (deep lazy chunk, not headless-reachable) → added to the standing real-browser QA list.
 
-**NEXT slice: multi-column sort (dedicated — it's wide, ~12 touch points).** `browseSort` (single `{col,dir}`) → an
-ordered `{col,dir}[]`; a Sort PANEL (mirror the filter builder — add/remove sort rows, normal form controls) +
-header-click sets the primary; worker `orderBy`/`dir` → a `sort=col:dir,…` list → multi-col ORDER BY (each
-allowlist-validated, pure+tested); persist in the view `config` as `sorts` (NO schema change — config carries rich
-layout). RIPPLES through the browseSort type + threading + fingerprint (extend `layoutSignature`-style) — give it a
-FULL fire. Async export JOBS >10k is the bigger multi-fire alternative. Then: nested AND/OR filter-tree; wire the
-last inert foundations `field-types.ts` (typed editors) + `schema-ddl.ts` (guided DDL → review in the SQL console).
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
+sticky-pin render · #37 view round-trip · #40 multi-sort header-click + priority badges — one real-browser pass
+(authed admin session). **A dedicated real-browser QA fire remains the highest-value out-of-loop step** to convert
+this verify-by-build debt to verified.
+
+**NEXT slice: wire the inert `field-types.ts` foundation → TYPED cell editors (contained, mostly verifiable).** The
+grid's `<CellEditor>` is one text input regardless of column type; the tested-but-inert `field-types.ts` already
+classifies SQLite affinity → an editor kind (integer/real/boolean/date/datetime/text/json). Wire it so the drawer +
+inline editor render the RIGHT control (number input with step, checkbox for 0/1, date/datetime picker, JSON textarea
+with parse-validate) — values still bound as `?` on the gated write path. Logic (affinity→kind, coerce+validate) is
+pure+tested; the control swap is verify-by-build. Alternatives: async export JOBS >10k (bigger multi-fire); nested
+AND/OR filter-tree; `schema-ddl.ts` guided DDL builder → review in the SQL console.
