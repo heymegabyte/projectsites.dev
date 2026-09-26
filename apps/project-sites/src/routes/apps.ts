@@ -130,15 +130,33 @@ async function loadInstance(env: Env, orgId: string, id: string): Promise<AppIns
   );
 }
 
+/**
+ * The public host an instance actually serves on. CF-native Payload instances live at
+ * `{slug}.cms.projectsites.dev` (WfP dispatch, cert-ready *.cms pack); container apps at
+ * `{slug}.app.projectsites.dev`. The admin uses THIS for the "Open" link so it never
+ * points at a dead/cert-broken host.
+ */
+function instancePublicHost(row: AppInstanceRow): string {
+  return isCfNativeApp(row.app_slug)
+    ? `${row.subdomain}.cms.projectsites.dev`
+    : `${row.subdomain}.app.projectsites.dev`;
+}
+
 function sanitizeInstance(row: AppInstanceRow): Omit<AppInstanceRow, 'env_encrypted' | 'env_iv'> & {
   env: null;
+  public_host: string;
   costEstimate: InstanceCostEstimate;
 } {
   // env is NEVER included on list/get — the decrypted-env detail route requires
   // admin role. costEstimate is a live metered monthly estimate (running-state
   // compute + provisioned infra), replacing the static catalog `estCostMonthly`.
   const { env_encrypted: _ee, env_iv: _ev, ...rest } = row;
-  return { ...rest, env: null, costEstimate: estimateInstanceCost(row) };
+  return {
+    ...rest,
+    env: null,
+    public_host: instancePublicHost(row),
+    costEstimate: estimateInstanceCost(row),
+  };
 }
 
 async function decryptEnv(env: Env, row: AppInstanceRow): Promise<Record<string, string>> {

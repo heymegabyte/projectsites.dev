@@ -224,7 +224,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                     aria-label="Subdomain"
                     [pattern]="subdomainPattern"
                     data-testid="apps-deploy-subdomain" />
-                  <span class="subdomain-suffix">.app.projectsites.dev</span>
+                  <span class="subdomain-suffix">{{ a.image?.startsWith('cf-native:') ? '.cms.projectsites.dev' : '.app.projectsites.dev' }}</span>
                 </div>
                 @if (subdomainError()) {
                   <span class="form-help form-help--err">{{ subdomainError() }}</span>

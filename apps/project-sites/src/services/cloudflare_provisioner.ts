@@ -114,16 +114,26 @@ async function cfFetch(
   path: string,
   init?: RequestInit & { body?: string | FormData },
 ): Promise<{ ok: boolean; status: number; json: { success?: boolean; result?: unknown; errors?: unknown } }> {
-  const res = await fetch(`${CF_BASE}${path}`, {
-    ...init,
-    headers: { ...c.headers, ...(init?.headers as Record<string, string> | undefined) },
-  });
-  const json = (await res.json().catch(() => ({}))) as {
+  // Retry transient CF-API 5xx — the provisioning API intermittently 500s under load,
+  // which otherwise surfaces as a flaky launch failure. Up to 3 attempts w/ backoff.
+  // Skip retry for FormData bodies (not safely replayable) beyond the first attempt.
+  const canRetry = !(init?.body instanceof FormData);
+  let res: Response | undefined;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    res = await fetch(`${CF_BASE}${path}`, {
+      ...init,
+      headers: { ...c.headers, ...(init?.headers as Record<string, string> | undefined) },
+    });
+    if (res.status < 500 || !canRetry || attempt === 2) break;
+    await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+  }
+  const r = res as Response;
+  const json = (await r.json().catch(() => ({}))) as {
     success?: boolean;
     result?: unknown;
     errors?: unknown;
   };
-  return { ok: res.ok, status: res.status, json };
+  return { ok: r.ok, status: r.status, json };
 }
 
 // ── D1 ──────────────────────────────────────────────────────────────────────

@@ -5,6 +5,17 @@
 > where **deleting the instance from the UI deletes the D1 + R2 + Worker with zero dangling
 > resources**. Started 2026-09-25. This doc lets any fresh context continue.
 
+## 🔧 fire 14 — admin shows the working URL + harden launch against CF-API flakiness (2026-09-25)
+
+- **`sanitizeInstance` now returns `public_host`** (CF-native Payload → `{slug}.cms.projectsites.dev`,
+  container apps → `.app.`), and the admin ("Open" link + launch-form suffix) uses it — so owners
+  click the REAL serving host, not a dead `.app.` cert-error link.
+- **`cfFetch` retries transient CF-API 5xx** (3× w/ backoff). Root-caused the intermittent launch
+  500s seen across fires 12/14: the CF provisioning API 500s under rapid-launch load; the launch is
+  otherwise sound (proven 201 + full branded/styled/migrated instance once CF cooperates). Retry
+  makes provisioning robust. (Also swept + cleaned danglers from the rapid-test launches.)
+- Deployed clean (no debug); 9 unit tests green; frontend rebuilt + deployed.
+
 ## 🎉🎉 fire 13 — BRANDED + STYLED Payload DONE (2026-09-25) — the full ask, minus `.app.` cert
 
 A customer launches from the admin → a **real, styled, functional Payload CMS at the branded
