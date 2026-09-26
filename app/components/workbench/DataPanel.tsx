@@ -18,7 +18,12 @@
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { isEmbedded, postToParent, onParentMessage } from '~/lib/embed/embedded-mode';
-import type { DataOverviewTable, ParentToChildMessage, SavedGridView } from '~/lib/embed/embedded-mode';
+import type {
+  DataOverviewTable,
+  ParentToChildMessage,
+  SavedGridView,
+  SavedGridViewLayout,
+} from '~/lib/embed/embedded-mode';
 import { KvBrowser } from './KvBrowser';
 import { R2Browser } from './R2Browser';
 import { VectorizeBrowser } from './VectorizeBrowser';
@@ -2241,6 +2246,37 @@ export const DataPanel = memo(() => {
   }, []);
 
   /** Save the CURRENT query (search + filter group + sort) as a named view. */
+  /*
+   * The current column LAYOUT (visibility/order/widths/pins/summaries/density), included when saving a
+   * view so applying it later restores the whole arrangement. Only non-empty parts are sent (a lean
+   * config); density is always carried (it has a meaningful default). Empty overall → undefined.
+   */
+  const currentLayout = useMemo((): SavedGridViewLayout | undefined => {
+    const l: SavedGridViewLayout = { density };
+
+    if (hiddenCols.length) {
+      l.hidden = hiddenCols;
+    }
+
+    if (colOrder.length) {
+      l.order = colOrder;
+    }
+
+    if (Object.keys(colWidths).length) {
+      l.widths = colWidths;
+    }
+
+    if (colPinned.length) {
+      l.pinned = colPinned;
+    }
+
+    if (Object.keys(colSummaries).length) {
+      l.summaries = colSummaries;
+    }
+
+    return l;
+  }, [density, hiddenCols, colOrder, colWidths, colPinned, colSummaries]);
+
   const saveCurrentView = useCallback((): void => {
     const name = saveViewName.trim();
 
@@ -2265,12 +2301,13 @@ export const DataPanel = memo(() => {
       sortDir: browseSort?.dir ?? null,
       search,
 
-      // Persist the render type + gallery card-title so applying the view restores the whole layout.
+      // Persist the render type + card-title/group/date + the full column layout so applying restores everything.
       viewType: viewMode,
       viewConfig: {
         ...(galleryTitleCol ? { titleField: galleryTitleCol } : {}),
         ...((viewMode === 'kanban' || viewMode === 'chart') && kanbanGroupCol ? { groupField: kanbanGroupCol } : {}),
         ...(viewMode === 'calendar' && calendarDateCol ? { dateField: calendarDateCol } : {}),
+        ...(currentLayout ? { layout: currentLayout } : {}),
       },
       correlationId: cid,
     });
@@ -2282,6 +2319,7 @@ export const DataPanel = memo(() => {
     filterCombinator,
     browseSort,
     viewMode,
+    currentLayout,
     galleryTitleCol,
     kanbanGroupCol,
     calendarDateCol,
@@ -2317,7 +2355,7 @@ export const DataPanel = memo(() => {
         sortDir: string | null;
         search: string;
         viewType: string;
-        viewConfig: { titleField?: string; groupField?: string; dateField?: string };
+        viewConfig: { titleField?: string; groupField?: string; dateField?: string; layout?: SavedGridViewLayout };
       },
     ): void => {
       if (!active) {
@@ -2360,6 +2398,7 @@ export const DataPanel = memo(() => {
           ...(galleryTitleCol ? { titleField: galleryTitleCol } : {}),
           ...((viewMode === 'kanban' || viewMode === 'chart') && kanbanGroupCol ? { groupField: kanbanGroupCol } : {}),
           ...(viewMode === 'calendar' && calendarDateCol ? { dateField: calendarDateCol } : {}),
+          ...(currentLayout ? { layout: currentLayout } : {}),
         },
       });
     },
@@ -2369,6 +2408,7 @@ export const DataPanel = memo(() => {
       filterCombinator,
       browseSort,
       viewMode,
+      currentLayout,
       galleryTitleCol,
       kanbanGroupCol,
       calendarDateCol,
@@ -2428,6 +2468,23 @@ export const DataPanel = memo(() => {
       setKanbanGroupCol(view.config?.groupField ?? null);
       setCalendarDateCol(view.config?.dateField ?? null);
       setCalendarMonth(null);
+
+      /*
+       * Restore the saved column LAYOUT (visibility/order/widths/pins/summaries/density), re-hardening each
+       * through the same parsers the localStorage reads use (invalid summary kinds dropped, unknown density
+       * → cozy, stale columns naturally ignored at render). A view WITHOUT a layout leaves the current
+       * arrangement untouched (legacy views), rather than blanking it.
+       */
+      const layout = view.config?.layout;
+
+      if (layout) {
+        setHiddenCols(Array.isArray(layout.hidden) ? layout.hidden : []);
+        setColOrder(Array.isArray(layout.order) ? layout.order : []);
+        setColWidths(parseColWidths(layout.widths));
+        setColPinned(Array.isArray(layout.pinned) ? layout.pinned : []);
+        setColSummaries(parseColSummaries(layout.summaries));
+        setDensity(normalizeDensity(layout.density));
+      }
 
       // Remember which view is applied + its query fingerprint so a later drift shows a "modified" badge.
       setAppliedViewId(view.id);

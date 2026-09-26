@@ -567,10 +567,75 @@ export function normalizeGridViewType(raw: unknown): GridViewType {
  * editor re-validates each against the live columns at render (a stale field falls back to a default) —
  * this is shape-hardening, not authorization.
  */
+/** The saved column-layout sub-object of a grid view (field visibility/order/widths/pins/summaries/density). */
+export interface GridViewLayout {
+  hidden?: string[];
+  order?: string[];
+  widths?: Record<string, number>;
+  pinned?: string[];
+  summaries?: Record<string, string>;
+  density?: string;
+}
+
+/** Max entries kept in any layout array/map — a bloat/abuse bound (a table can't have this many columns). */
+export const MAX_LAYOUT_ENTRIES = 200;
+
+/** Bounded string[] (non-empty strings, each ≤64 chars, ≤MAX entries), or undefined when empty/not-an-array. */
+function boundedStringArray(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v
+    .filter((s): s is string => typeof s === 'string' && s.length > 0)
+    .slice(0, MAX_LAYOUT_ENTRIES)
+    .map((s) => s.slice(0, 64));
+  return out.length ? out : undefined;
+}
+
+/**
+ * Shape-harden a saved view's column LAYOUT (from config_json / POST body): bounded string arrays for
+ * hidden/order/pinned, a positive-number widths map, a summaries map (kind strings), and a density string.
+ * Bounds every array/map to {@link MAX_LAYOUT_ENTRIES} + caps key/value lengths — enough to stop bloat/abuse.
+ * The EDITOR re-validates the semantics on apply (invalid summary kinds dropped, unknown density → default,
+ * stale columns ignored), so this is size/type-hardening, not authorization. NEVER throws. Pure.
+ */
+export function parseGridViewLayout(raw: unknown): GridViewLayout | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const rec = raw as Record<string, unknown>;
+  const out: GridViewLayout = {};
+  const hidden = boundedStringArray(rec.hidden);
+  if (hidden) out.hidden = hidden;
+  const order = boundedStringArray(rec.order);
+  if (order) out.order = order;
+  const pinned = boundedStringArray(rec.pinned);
+  if (pinned) out.pinned = pinned;
+  if (rec.widths && typeof rec.widths === 'object' && !Array.isArray(rec.widths)) {
+    const w: Record<string, number> = {};
+    for (const [k, val] of Object.entries(rec.widths as Record<string, unknown>).slice(
+      0,
+      MAX_LAYOUT_ENTRIES,
+    )) {
+      if (typeof val === 'number' && Number.isFinite(val) && val > 0) w[k.slice(0, 64)] = val;
+    }
+    if (Object.keys(w).length) out.widths = w;
+  }
+  if (rec.summaries && typeof rec.summaries === 'object' && !Array.isArray(rec.summaries)) {
+    const s: Record<string, string> = {};
+    for (const [k, val] of Object.entries(rec.summaries as Record<string, unknown>).slice(
+      0,
+      MAX_LAYOUT_ENTRIES,
+    )) {
+      if (typeof val === 'string' && val.length <= 16) s[k.slice(0, 64)] = val;
+    }
+    if (Object.keys(s).length) out.summaries = s;
+  }
+  if (typeof rec.density === 'string' && rec.density.length <= 16) out.density = rec.density;
+  return Object.keys(out).length ? out : undefined;
+}
+
 export function parseGridViewConfig(raw: unknown): {
   titleField?: string;
   groupField?: string;
   dateField?: string;
+  layout?: GridViewLayout;
 } {
   let obj: unknown = raw;
   if (typeof raw === 'string') {
@@ -583,7 +648,12 @@ export function parseGridViewConfig(raw: unknown): {
   }
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
   const rec = obj as Record<string, unknown>;
-  const out: { titleField?: string; groupField?: string; dateField?: string } = {};
+  const out: {
+    titleField?: string;
+    groupField?: string;
+    dateField?: string;
+    layout?: GridViewLayout;
+  } = {};
   if (typeof rec.titleField === 'string' && rec.titleField.trim()) {
     out.titleField = rec.titleField.trim().slice(0, 64);
   }
@@ -592,6 +662,10 @@ export function parseGridViewConfig(raw: unknown): {
   }
   if (typeof rec.dateField === 'string' && rec.dateField.trim()) {
     out.dateField = rec.dateField.trim().slice(0, 64);
+  }
+  const layout = parseGridViewLayout(rec.layout);
+  if (layout) {
+    out.layout = layout;
   }
   return out;
 }
@@ -606,7 +680,7 @@ export function serializeGridView(row: Record<string, unknown>): {
   sortDir: 'asc' | 'desc' | null;
   search: string;
   type: GridViewType;
-  config: { titleField?: string; groupField?: string; dateField?: string };
+  config: { titleField?: string; groupField?: string; dateField?: string; layout?: GridViewLayout };
   updatedAt: string | null;
 } {
   return {

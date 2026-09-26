@@ -20,6 +20,8 @@ import {
   serializeGridView,
   normalizeGridViewType,
   parseGridViewConfig,
+  parseGridViewLayout,
+  MAX_LAYOUT_ENTRIES,
   buildGroupCountSql,
   buildGroupAggregateSql,
   buildColumnAggregatesSql,
@@ -680,6 +682,44 @@ describe('parseGridViewConfig (view display config; string OR object; never thro
       'd'.repeat(64),
     );
     expect(parseGridViewConfig({ dateField: 9 })).toEqual({}); // non-string dropped
+  });
+
+  it('shape-hardens a full column layout sub-object (hidden/order/widths/pinned/summaries/density)', () => {
+    const layout = parseGridViewConfig({
+      layout: {
+        hidden: ['a', '', 5, 'b'], // non-strings/empties dropped
+        order: ['b', 'a'],
+        widths: { a: 200, bad: 'x', neg: -1 }, // only positive numbers kept
+        pinned: ['a'],
+        summaries: { a: 'sum', b: 42 }, // non-string value dropped
+        density: 'compact',
+        junk: 'ignored',
+      },
+    }).layout;
+    expect(layout).toEqual({
+      hidden: ['a', 'b'],
+      order: ['b', 'a'],
+      widths: { a: 200 },
+      pinned: ['a'],
+      summaries: { a: 'sum' },
+      density: 'compact',
+    });
+  });
+
+  it('drops an empty/invalid layout (→ no layout key) + bounds array length', () => {
+    expect(parseGridViewConfig({ layout: {} }).layout).toBeUndefined();
+    expect(parseGridViewConfig({ layout: 'nope' }).layout).toBeUndefined();
+    expect(parseGridViewConfig({ layout: { hidden: [] } }).layout).toBeUndefined();
+    const many = Array.from({ length: MAX_LAYOUT_ENTRIES + 50 }, (_, i) => `c${i}`);
+    expect(parseGridViewConfig({ layout: { order: many } }).layout?.order?.length).toBe(
+      MAX_LAYOUT_ENTRIES,
+    );
+  });
+
+  it('parseGridViewLayout keeps title/group/date + layout coexisting', () => {
+    const cfg = parseGridViewConfig({ titleField: 'name', layout: { pinned: ['id'] } });
+    expect(cfg.titleField).toBe('name');
+    expect(cfg.layout).toEqual({ pinned: ['id'] });
   });
 
   it('returns {} for malformed / empty / non-object / array (never throws)', () => {

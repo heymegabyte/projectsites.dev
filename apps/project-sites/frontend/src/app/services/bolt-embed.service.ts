@@ -120,8 +120,23 @@ interface PsMessage {
   readonly viewId?: string;
   /** PS_VIEW_REQUEST save: the render type — `grid` | `gallery`. */
   readonly viewType?: string;
-  /** PS_VIEW_REQUEST save: view-type display config (gallery: `{ titleField }`). */
-  readonly viewConfig?: { titleField?: string };
+  /**
+   * PS_VIEW_REQUEST save: view display config — card-title/group/date fields + the full column `layout`
+   * (visibility/order/widths/pins/summaries/density). Forwarded opaquely to the worker, which shape-hardens.
+   */
+  readonly viewConfig?: {
+    titleField?: string;
+    groupField?: string;
+    dateField?: string;
+    layout?: {
+      hidden?: string[];
+      order?: string[];
+      widths?: Record<string, number>;
+      pinned?: string[];
+      summaries?: Record<string, string>;
+      density?: string;
+    };
+  };
   /** PS_VIEW_REQUEST save: how to join the filter group — `AND` | `OR`. */
   readonly combinator?: string;
   /** PS_VIEW_REQUEST save: the single-column sort (worker re-normalizes). */

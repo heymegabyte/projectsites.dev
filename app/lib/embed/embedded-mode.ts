@@ -862,10 +862,22 @@ export interface SavedGridView {
 
   /**
    * View-type display config: gallery/kanban card-title column (`titleField`); kanban/chart group-by
-   * column (`groupField`); calendar date column (`dateField`). All optional; worker shape-hardens.
+   * column (`groupField`); calendar date column (`dateField`); + the full column `layout` (field
+   * visibility/order/widths/pins/summaries/density) so applying a view restores its whole arrangement.
+   * All optional; worker shape-hardens.
    */
-  config: { titleField?: string; groupField?: string; dateField?: string };
+  config: { titleField?: string; groupField?: string; dateField?: string; layout?: SavedGridViewLayout };
   updatedAt: string | null;
+}
+
+/** The saved column layout of a grid view — restored on apply (the editor re-validates each field). */
+export interface SavedGridViewLayout {
+  hidden?: string[];
+  order?: string[];
+  widths?: Record<string, number>;
+  pinned?: string[];
+  summaries?: Record<string, string>;
+  density?: string;
 }
 
 /**
@@ -898,8 +910,8 @@ export interface ViewRequestMessage {
   /** save: the render type — `grid` | `gallery` | `kanban` | `chart` | `calendar` (worker whitelists, default grid). */
   viewType?: string;
 
-  /** save: view-type display config (gallery/kanban `titleField`; kanban/chart `groupField`; calendar `dateField`; worker shape-hardens). */
-  viewConfig?: { titleField?: string; groupField?: string; dateField?: string };
+  /** save: view-type display config (`titleField`/`groupField`/`dateField` + the full column `layout`; worker shape-hardens). */
+  viewConfig?: { titleField?: string; groupField?: string; dateField?: string; layout?: SavedGridViewLayout };
 
   /** delete: the view id. */
   viewId?: string;

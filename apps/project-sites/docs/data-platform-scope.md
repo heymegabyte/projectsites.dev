@@ -901,15 +901,36 @@ when not). Completes the grid-mandate "Pinned identifying columns".
   but the sticky-left CSS + z-index layering + opaque-bg (does the frozen region actually stay put + not bleed on
   horizontal scroll?) ship **verify-by-build** — a real-browser pass is required (per `interaction≠build`).
 
-**STILL-OPEN manual QA (not loop-actionable):** #33 resize drag, #34 footer picker, #35 whole-query fetch, #36
-sticky-pin rendering — all need a real-browser pass (authed admin session). Logic/SQL tested; interactions +
-sticky CSS ship verify-by-build.
+### ✅ Shipped next fire (2026-09-26 #37) — saved views capture the FULL column layout (Airtable "views save fields/order/…")
+A saved view now restores its whole COLUMN ARRANGEMENT — field visibility, order, widths, pins, per-column
+summaries, and density — not just the query. This makes all the recent display features (#31/#32/#33/#34/#36)
+shareable/saveable per view (previously they were per-table localStorage only, lost on view-apply). Pure
+serialization, no new interaction, **no migration** (rides the existing `config_json` blob).
+- **Worker (`handlers.ts`, jest-tested):** `parseGridViewLayout(raw)` shape-hardens a `{hidden,order,widths,
+  pinned,summaries,density}` sub-object — bounded string arrays (≤`MAX_LAYOUT_ENTRIES` 200, each ≤64 chars), a
+  positive-number widths map, a string summaries map, a density string; merged into `parseGridViewConfig().layout`.
+  Size/type-hardening only (the editor re-validates semantics on apply); never throws. 3 tests.
+- **Bridge/editor:** `SavedGridViewLayout` type; `SavedGridView.config.layout` + `viewConfig.layout` (+ the admin
+  `PsMessage.viewConfig` tightened — it already forwarded `config` opaquely, so layout flowed at runtime). A
+  `currentLayout` memo (only non-empty parts; density always carried) added to both save paths; **applyView**
+  restores each via the SAME parsers the localStorage reads use (`parseColWidths`/`parseColSummaries`/
+  `normalizeDensity`; hidden/order/pinned as string[]) — a legacy view without a layout leaves the arrangement
+  untouched (never blanks it).
+- Verified: editor Vitest **904/904** + tsc 0 + eslint 0 + build 0; admin tsc 0; worker Jest **12780/12780** + tsc 0.
+  *Honest residual:* worker layout-parse fully tested; the save/apply round-trip ships verify-by-build (WebContainer
+  + authed session). Deploy-skew is graceful (old worker drops the unknown `layout` key → views persist query-only
+  until the worker lands; apply's `if (layout)` guard → no breakage), per `editor-worker-deploy-skew`.
+- KNOWN follow-up: layout drift isn't yet in the "modified" fingerprint (rearranging columns after applying a view
+  doesn't flag it modified) — a refinement, not a gap; the save+restore core is complete.
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
+sticky-pin render · #37 view save/apply round-trip — all need one real-browser pass (authed admin session). Logic/
+SQL fully tested; the interactions/visuals/round-trips ship verify-by-build (per `interaction≠build`).
 
 **NEXT slice: multi-column sort — OR async export JOBS >10k.** Multi-sort: `browseSort` (single `{col,dir}`) →
-an ordered `{col,dir}[]`; shift-click a header to add a secondary sort (badge shows priority); worker `orderBy`/
-`dir` → a `sort=col:dir,col2:dir2` list building a multi-col ORDER BY (each allowlist-validated); persist through
-saved views (`sortCol`/`sortDir` singular → a JSON sort array in `config_json`, or a new column) — RIPPLES into
-saved-view schema + the SavedGridView type + serializeGridView + fingerprint, so scope it carefully. Async export
-JOBS is the bigger multi-fire alternative (migration + `data_export_jobs` + enqueue/poll + R2 streaming + UI).
-Then: nested AND/OR filter-tree; SQL-workspace polish; wire the last inert foundations `field-types.ts` (richer
-typed cell editors — date/select/rating) + `schema-ddl.ts` (guided DDL builder → review in the SQL console).
+an ordered `{col,dir}[]`; shift-click a header to add a secondary sort (priority badge); worker `orderBy`/`dir` →
+a `sort=col:dir,…` list building a multi-col ORDER BY (each allowlist-validated); persist in the saved-view
+`config.layout`-style blob (now that config carries rich layout, add `sorts` there — NO schema change needed).
+RIPPLES through the browseSort type + threading + header UI + fingerprint — scope carefully. Async export JOBS is
+the bigger multi-fire alternative. Then: nested AND/OR filter-tree; wire the last inert foundations
+`field-types.ts` (richer typed editors) + `schema-ddl.ts` (guided DDL builder → review in the SQL console).
