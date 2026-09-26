@@ -8,6 +8,7 @@
 
 import { classNames } from '~/utils/classNames';
 import { CELL_INPUT_KIND_OPTIONS, type CellInputKind } from './data-panel-logic';
+import { TypedValueField } from './TypedValueField';
 
 export interface CellEditorProps {
   /** Column label (for aria-labels only). */
@@ -48,7 +49,7 @@ export function CellEditor({
 }: CellEditorProps) {
   return (
     <div className="flex w-full flex-col gap-1" data-testid="data-edit-cell">
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-start gap-1.5">
         <select
           value={editKind}
           onChange={(e) => onKindChange(e.target.value as CellInputKind)}
@@ -62,20 +63,14 @@ export function CellEditor({
             </option>
           ))}
         </select>
-        <input
-          type={editKind === 'date' ? 'date' : editKind === 'datetime' ? 'datetime-local' : 'text'}
-          step={editKind === 'datetime' ? 1 : undefined}
+        <TypedValueField
+          kind={editKind}
           value={editValue}
-          onChange={(e) => onValueChange(e.target.value)}
+          onValueChange={onValueChange}
           disabled={editKind === 'null'}
-          data-testid="data-edit-value"
-          aria-label={`New value for ${label}`}
-          placeholder={editKind === 'null' ? 'NULL' : editKind === 'boolean' ? 'true / false' : ''}
-          spellCheck={false}
-          className={classNames(
-            'min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-0.5 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none',
-            editKind === 'null' ? 'opacity-40' : '',
-          )}
+          ariaLabel={`New value for ${label}`}
+          placeholder={editKind === 'null' ? 'NULL' : editKind === 'json' ? '{"key":"value"}' : ''}
+          testId="data-edit-value"
         />
       </div>
       {previewSql && (

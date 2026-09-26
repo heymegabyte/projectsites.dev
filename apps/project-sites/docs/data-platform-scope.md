@@ -1007,15 +1007,35 @@ through the existing gated `coerceCellInput → buildUpdateByPk → runSql` path
   **12786/12786** unchanged from #40). The affinity/coerce/reformat logic is fully unit-tested; the native date/
   datetime picker RENDERING is verify-by-build (DataPanel is a deep lazy chunk, not headless-reachable).
 
-**STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
-sticky-pin render · #37 view round-trip · #40 multi-sort header-click + priority badges · #41 date/datetime picker
-render — one real-browser pass (authed admin session). **A dedicated real-browser QA fire remains the highest-value
-out-of-loop step** to convert this verify-by-build debt to verified.
+### ✅ Shipped next fire (2026-09-26 #42) — finished typed-editor control set: BOOLEAN checkbox + JSON textarea
+Closes the typed-editor set from #41. `boolean` cells now render a real **checkbox** with an explicit `true`/`false`
+label (cyan when true) instead of a "true / false" text box; `json` cells render a multi-line **`<textarea>`** (monospace,
+resizable) with a live **"not valid JSON yet"** hint that appears only while the non-empty text fails to parse. Both
+the grid/drawer `<CellEditor>` AND the Add-row form get the upgrade. Editor-only — the widget edits the same STRING the
+parent already coerces + binds as `?` (`coerceCellInput`), so **no worker/bridge/admin change**.
+- **New shared widget (`TypedValueField.tsx`):** ONE presentational component now renders the per-kind value control
+  for BOTH consumers (text/number/date/datetime → input; boolean → checkbox; json → textarea+hint). The two hardcoded
+  value `<input>`s that would drift as kinds gain widgets are gone — the render-side sibling of #41's
+  `CELL_INPUT_KIND_OPTIONS` (the select-side single source). Consumers pass `kind/value/onValueChange/disabled/testId`.
+- **Editor logic (`data-panel-logic.ts`, +3 Vitest):** `isValidJsonText(s)` — accepts any valid JSON (obj/array/
+  string/number/bool/null), rejects malformed + blank; a property test asserts it AGREES with `coerceCellInput('json')`
+  (validity hint ⇔ save won't throw), so the live hint and on-save validation can never disagree.
+- **Honesty:** a checkbox is a UI affordance over a 0/1 INTEGER, not a schema-enforced boolean — the label shows the
+  literal stored value (`true`/`false`) and the type badge still shows the real declared type.
+- Verified: editor Vitest **929/929** + tsc 0 + eslint 0 + build 0. No worker/admin files touched (worker Jest
+  **12786/12786** unchanged). Logic (isValidJsonText) fully unit-tested; the checkbox + textarea RENDERING is
+  verify-by-build (deep lazy chunk, not headless-reachable).
 
-**NEXT slice: finish the typed-editor control set — BOOLEAN checkbox + JSON multi-line textarea (contained).** The
-`boolean` kind still renders a text input ("true / false") and `json` a single-line input; upgrade `<CellEditor>` (+
-the Add-row value input) so `boolean` renders a real checkbox/segmented 0-1 toggle and `json` a multi-line `<textarea>`
-with live parse-validate (reuse `coerceCellInput('json')`). Pure-logic core already exists; the widget swap is
-verify-by-build. Then: `singleSelect`-style editor seeded from a column's DISTINCT values (a light whole-query
-`SELECT DISTINCT … LIMIT n`); async export JOBS >10k (bigger multi-fire); nested AND/OR filter-tree; the inert
-`field-types.ts` registry as a per-column field-configuration feature.
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
+sticky-pin render · #37 view round-trip · #40 multi-sort header-click + priority badges · #41 date/datetime picker ·
+#42 boolean checkbox + JSON textarea render — one real-browser pass (authed admin session). **A dedicated real-browser
+QA fire remains the highest-value out-of-loop step** to convert this verify-by-build debt to verified.
+
+**NEXT slice: `singleSelect`-style value editor seeded from a column's DISTINCT values (first to add a server round-
+trip).** When editing a low-cardinality text column, offer a datalist/combobox of its existing distinct values so the
+user picks instead of retyping (Airtable single-select feel) — still free-text (open combobox), values still bound as
+`?`. Needs a NEW read path: a bounded whole-query `SELECT DISTINCT "col" … WHERE … LIMIT 50` (col allowlist-validated,
+pure+tested worker fn like `buildColumnAggregatesSql`) + a bridge `PS_DATA_REQUEST` mode + admin forward + editor
+plumbing — so it spans editor+worker+bridge (deploy-skew: degrade to a plain input when the distinct list isn't
+fresh). Alternatives (editor-only, smaller): a NULL-vs-empty-string toggle affordance; BLOB read-only preview. Bigger:
+async export JOBS >10k; nested AND/OR filter-tree; the inert `field-types.ts` as a per-column field-config feature.

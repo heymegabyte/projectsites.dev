@@ -105,6 +105,7 @@ import {
   editorKindForColumn,
   toDateInputValue,
   toDatetimeLocalValue,
+  isValidJsonText,
   CELL_INPUT_KIND_OPTIONS,
   buildInsertStatement,
   buildDeleteByPk,
@@ -1937,6 +1938,39 @@ describe('toDateInputValue / toDatetimeLocalValue (stored value → native input
     expect(toDatetimeLocalValue('2024-01-31T12:30:00Z')).toBe(''); // zone-marked → don't drop the zone
     expect(toDatetimeLocalValue('2024-01-31T12:30:00-05:00')).toBe(''); // offset → text fallback
     expect(toDatetimeLocalValue('2024-01-31')).toBe(''); // date only
+  });
+});
+
+describe('isValidJsonText (live JSON-editor validity; mirrors coerceCellInput json accept-set)', () => {
+  it('accepts any valid JSON (object/array/string/number/bool/null)', () => {
+    expect(isValidJsonText('{"a":1}')).toBe(true);
+    expect(isValidJsonText('[1,2,3]')).toBe(true);
+    expect(isValidJsonText('  "hi"  ')).toBe(true); // trims first
+    expect(isValidJsonText('42')).toBe(true);
+    expect(isValidJsonText('true')).toBe(true);
+    expect(isValidJsonText('null')).toBe(true);
+  });
+
+  it('rejects malformed JSON and blank (blank = "not filled yet", hint stays hidden)', () => {
+    expect(isValidJsonText('{a:1}')).toBe(false);
+    expect(isValidJsonText('{"a":}')).toBe(false);
+    expect(isValidJsonText('')).toBe(false);
+    expect(isValidJsonText('   ')).toBe(false);
+  });
+
+  it('agrees with coerceCellInput: a string is valid here iff json-coerce does not throw', () => {
+    for (const s of ['{"x":1}', '[1]', '"s"', '7', 'bad', '{']) {
+      const coerceOk = (() => {
+        try {
+          coerceCellInput('json', s);
+
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+      expect(isValidJsonText(s)).toBe(coerceOk);
+    }
   });
 });
 

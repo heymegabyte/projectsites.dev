@@ -137,6 +137,7 @@ import {
 } from './data-panel-logic';
 import { bucketRowsByDate } from './view-models';
 import { CellEditor } from './CellEditor';
+import { TypedValueField } from './TypedValueField';
 import { SqlEditor } from './SqlEditor';
 import { classNames } from '~/utils/classNames';
 import { classifyCell, columnTypeBadge } from './data-cell-format';
@@ -4180,30 +4181,17 @@ export const DataPanel = memo(() => {
                           </option>
                         ))}
                       </select>
-                      <input
-                        type={kind === 'date' ? 'date' : kind === 'datetime' ? 'datetime-local' : 'text'}
-                        step={kind === 'datetime' ? 1 : undefined}
+                      <TypedValueField
+                        kind={kind === 'default' ? 'text' : kind}
                         value={addValues[c] ?? ''}
-                        onChange={(e) => setAddValue(c, e.target.value)}
+                        onValueChange={(v) => setAddValue(c, v)}
                         disabled={disabled}
-                        data-testid="data-add-value"
-                        aria-label={`Value for ${c}`}
+                        ariaLabel={`Value for ${c}`}
                         placeholder={
-                          kind === 'default'
-                            ? 'uses column default'
-                            : kind === 'null'
-                              ? 'NULL'
-                              : kind === 'boolean'
-                                ? 'true / false'
-                                : kind === 'json'
-                                  ? '{"key":"value"}'
-                                  : ''
+                          kind === 'default' ? 'uses column default' : kind === 'json' ? '{"key":"value"}' : ''
                         }
-                        spellCheck={false}
-                        className={classNames(
-                          'min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-0.5 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none',
-                          disabled ? 'opacity-40' : '',
-                        )}
+                        testId="data-add-value"
+                        jsonRows={3}
                       />
                     </div>
                   );

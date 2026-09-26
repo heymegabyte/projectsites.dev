@@ -2558,6 +2558,33 @@ export function coerceCellInput(kind: CellInputKind, raw: string): BoundValue {
   }
 }
 
+/**
+ * Does `s` parse as JSON (any valid JSON — object, array, string, number, bool, null)? Mirrors the
+ * accept-set of {@link coerceCellInput}'s `json` case so the live "not valid JSON yet" hint in the JSON
+ * editor and the on-save validation never disagree. Blank → `false` (nothing to validate yet, the hint
+ * stays hidden). Pure, never throws.
+ *
+ * @example isValidJsonText('{"a":1}')  // true
+ * @example isValidJsonText('42')       // true
+ * @example isValidJsonText('{a:1}')    // false
+ * @example isValidJsonText('')         // false
+ */
+export function isValidJsonText(s: string): boolean {
+  const t = (s ?? '').trim();
+
+  if (t === '') {
+    return false;
+  }
+
+  try {
+    JSON.parse(t);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** A parameterized statement: `?1..?N` placeholders in `sql`, values in `params` (bind order). */
 export interface ParameterizedStatement {
   /** The SQL with quoted identifiers and `?1..?N` placeholders — safe to log/preview. */
