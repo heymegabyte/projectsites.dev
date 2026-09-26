@@ -10,6 +10,7 @@ import {
   newCorrelationId,
   columnLabel,
   toCsv,
+  toTsv,
   filterRows,
   isRowActivationKey,
   isDismissKey,
@@ -218,6 +219,26 @@ describe('toCsv', () => {
   });
   it('header-only when there are no rows', () => {
     expect(toCsv(['a'], [])).toBe('A');
+  });
+});
+
+describe('toTsv (clipboard → spreadsheet-native tab block)', () => {
+  it('emits a labelled tab header + CRLF rows', () => {
+    expect(toTsv(['form_name', 'email'], [{ form_name: 'Contact', email: 'a@x.com' }])).toBe(
+      'Form Name\tEmail\r\nContact\ta@x.com',
+    );
+  });
+  it('quotes only on tab / quote / newline (a comma stays bare, unlike CSV)', () => {
+    expect(toTsv(['v'], [{ v: 'a,b' }])).toBe('V\r\na,b'); // comma is safe in TSV
+    expect(toTsv(['v'], [{ v: 'a\tb' }])).toBe('V\r\n"a\tb"'); // tab must be quoted
+    expect(toTsv(['v'], [{ v: 'she said "hi"' }])).toBe('V\r\n"she said ""hi"""');
+    expect(toTsv(['v'], [{ v: 'l1\nl2' }])).toBe('V\r\n"l1\nl2"');
+  });
+  it('null/undefined → empty; an object → JSON (quoted+escaped, since JSON carries quotes)', () => {
+    expect(toTsv(['a', 'b'], [{ a: null, b: { x: 1 } }])).toBe('A\tB\r\n\t"{""x"":1}"');
+  });
+  it('header-only when there are no rows', () => {
+    expect(toTsv(['a'], [])).toBe('A');
   });
 });
 

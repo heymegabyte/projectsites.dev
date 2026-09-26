@@ -36,6 +36,7 @@ import {
   newCorrelationId,
   columnLabel,
   toCsv,
+  toTsv,
   isRowActivationKey,
   isDismissKey,
   addToSqlHistory,
@@ -3245,6 +3246,30 @@ export const DataPanel = memo(() => {
     return computeAggregates(values);
   }, [selectedKeys, visibleRows, visibleCols, browsePkCols]);
 
+  /** The currently-selected rows on THIS page (selection is page-scoped, like the aggregates footer). */
+  const selectedRows = useMemo(
+    () =>
+      visibleRows.filter((r) => {
+        const k = rowPkKey(r, browsePkCols);
+        return k !== null && selectedKeys.has(k);
+      }),
+    [visibleRows, browsePkCols, selectedKeys],
+  );
+
+  /**
+   * Copy the selected rows to the clipboard as a TAB-separated block (header + rows) — the
+   * spreadsheet-native format, so it pastes straight into Google Sheets / Excel cells. Fail-soft via
+   * {@link writeClipboard}; a polite count flashes. Serves the epic's "bulk copy / range copy" verb.
+   */
+  const copySelected = useCallback(() => {
+    if (selectedRows.length === 0) {
+      return;
+    }
+
+    writeClipboard(toTsv(visibleCols, selectedRows));
+    flashStatus(`Copied ${selectedRows.length} row${selectedRows.length === 1 ? '' : 's'}`);
+  }, [selectedRows, visibleCols, writeClipboard, flashStatus]);
+
   const toggleRowSelect = useCallback(
     (row: Record<string, unknown>): void => {
       const key = rowPkKey(row, browsePkCols);
@@ -5328,6 +5353,15 @@ export const DataPanel = memo(() => {
                   {' · '}max <b style={{ color: '#00E5FF' }}>{selectionAgg.max}</b>
                 </span>
               )}
+              <button
+                type="button"
+                onClick={copySelected}
+                data-testid="data-bulk-copy"
+                title="Copy the selected rows to the clipboard as tab-separated values — pastes straight into Sheets/Excel"
+                className="flex items-center gap-1 text-[10px] rounded px-2 py-0.5 border border-bolt-elements-borderColor text-bolt-elements-textSecondary hover:border-bolt-elements-item-contentAccent/50 hover:text-bolt-elements-textPrimary cursor-pointer"
+              >
+                <div className="i-ph:copy text-[11px]" /> Copy
+              </button>
               <button
                 type="button"
                 onClick={bulkDeleteSelected}

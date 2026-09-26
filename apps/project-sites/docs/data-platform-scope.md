@@ -1422,13 +1422,33 @@ multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 
 write-rail apply are verify-by-build).** **A dedicated real-browser + live-model eval fire remains the highest-value
 out-of-loop step.**
 
-**NEXT slice: the live-model eval RUN (top out-of-loop step) — OR "Copy result as JSON" SQL-workspace export parity.**
-(a) **Live-model eval RUN** (standing out-of-loop): drive the real `@cf/meta/llama-3.3-70b` binding over the golden
-`{question,intent}` fixtures on prod, score question→intent QUALITY, record a `PROMPT_VERSION` baseline. Needs a
-dedicated authed-prod session + a verified worker `/ask` deploy — the natural "dedicated real-browser fire". (b)
-**SQL-result JSON export + copy** — the SQL console result grid exports CSV only (`exportSqlCsv`); the browse grid has
-CSV+JSON. Add JSON export + a "Copy as CSV/JSON" to the SQL result (pure serialize of already-fetched rows via `toCsv`
-/ a new `toJsonRows`, unit-tested; client-side, read-only, editor-verifiable). Small but completes the SQL-workspace
-export parity the directive lists ("CSV/JSON export"). Recommend (b) for an in-loop fire (fully verifiable), (a) for the
-next dedicated real-browser/prod fire. Also open: `field-types.ts` semantic layer (needs the per-column metadata-config
-arc); per-customer D1 discovery (slice 1) to unlock ALTER-existing (Rename) safely.
+### ✅ Shipped next fire (2026-09-26 #60) — grid: "Copy selected" rows to the clipboard (the bulk copy/paste verb)
+The bulk selection footer had Delete + Clear + live aggregates but **no copy** — a directive-named gap ("range
+copy/paste", "bulk copy"). Now a **"Copy"** button copies the selected rows to the clipboard as a **TAB-separated block
+(header + rows)** — the spreadsheet-native format, so it pastes straight into Google Sheets / Excel cells with no import
+dialog. Reuses the existing page-scoped selection + `writeClipboard` (fail-soft) + `flashStatus`.
+- **Pure core (`data-panel-logic.ts` · `toTsv(columns, rows)`, +4 Vitest):** labelled tab header + CRLF rows; a cell is
+  double-quote-wrapped ONLY on tab/quote/CR/LF (a comma stays bare, unlike CSV — correct for spreadsheet paste); null →
+  empty; object → JSON. Same escaping discipline as the sibling `toCsv`.
+- **UI (`DataPanel.tsx`):** a `selectedRows` memo (page-scoped, matching the aggregates footer) + a `copySelected`
+  callback (`writeClipboard(toTsv(visibleCols, selectedRows))` + a "Copied N rows" flash); a "Copy" button placed before
+  "Delete selected" in the bulk bar (`data-bulk-copy`).
+- Verified: editor Vitest **1008/1008** (+4) + tsc 0 + eslint 0 + build 0. **No worker/bridge/admin change** (pure
+  client-side clipboard — zero deploy skew). Verify-by-build for the button; `toTsv` unit-proven.
+
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize · #34 footer · #35 whole-query · #36 pins · #37 view · #40
+multi-sort · #41 date picker · #42 checkbox/JSON · #43–#44 datalist · #45 NULL toggle · #46 BLOB · #47–#48 KV meta/TTL ·
+#49 R2 folders · #52–#55 live NL→answer + save-as-view · #56–#58 schema builder · #59 JSON import · **#60 the
+Copy-selected clipboard write in a real authed browser (a secure-context clipboard call; `toTsv` is unit-proven).**
+**A dedicated real-browser + live-model eval fire remains the highest-value out-of-loop step.**
+
+**NEXT slice: SQL-result JSON export + copy (in-loop) — OR the live-model eval RUN (dedicated prod fire).**
+(a) **SQL-result export parity** — the SQL console result grid exports CSV only (`exportSqlCsv`); the browse grid has
+CSV+JSON, and the grid now has clipboard-copy (#60). Add a JSON export + a "Copy" (TSV) to the SQL result grid — reuse
+`toTsv` (just shipped) + a small `toJsonRows` (pure `JSON.stringify` of the row objects, unit-tested); client-side,
+read-only, fully editor-verifiable. Completes the SQL-workspace "CSV/JSON export" the directive lists + brings the
+copy affordance the browse grid now has to the SQL results. (b) **Live-model eval RUN** (standing out-of-loop): real
+`@cf/meta/llama-3.3-70b` over the golden `{question,intent}` fixtures on prod; score question→intent QUALITY; record a
+`PROMPT_VERSION` baseline. Needs a dedicated authed-prod session + a verified worker `/ask` deploy. Recommend (a)
+in-loop (fully verifiable, reuses `toTsv`); (b) for the next dedicated real-browser/prod fire. Also open: `field-types.ts`
+semantic layer (per-column metadata-config arc); per-customer D1 discovery (slice 1) to unlock ALTER-existing (Rename).

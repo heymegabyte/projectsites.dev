@@ -138,6 +138,32 @@ export function toCsv(columns: readonly string[], rows: readonly Record<string, 
   return body ? `${head}\r\n${body}` : head;
 }
 
+/** Tab-delimited cell — quotes (doubling embedded `"`) only when the value carries a tab/quote/CR/LF. */
+function tsvCell(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  const s = typeof value === 'object' ? safeJson(value) : String(value);
+
+  return /[\t"\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/**
+ * Serialize rows to a TAB-separated block (header = column labels, CRLF line breaks) — the clipboard's
+ * spreadsheet-native format: pasting TSV drops straight into Google Sheets / Excel cells with no import
+ * dialog. Same escaping discipline as {@link toCsv} but tab-delimited (a cell with a tab/quote/CR/LF is
+ * double-quote-wrapped). Empty rows → header line only. Pure.
+ *
+ * @example toTsv(['a', 'b'], [{ a: '1', b: 'x' }]) // 'A\tB\r\n1\tx'
+ */
+export function toTsv(columns: readonly string[], rows: readonly Record<string, unknown>[]): string {
+  const head = columns.map((c) => tsvCell(columnLabel(c))).join('\t');
+  const body = rows.map((r) => columns.map((c) => tsvCell(r[c])).join('\t')).join('\r\n');
+
+  return body ? `${head}\r\n${body}` : head;
+}
+
 /**
  * Filter browse rows by a case-insensitive substring matched across ALL columns.
  * A blank query returns every row (a fresh copy). Pure — never mutates input.
