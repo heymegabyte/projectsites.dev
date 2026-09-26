@@ -9,11 +9,21 @@ import {
   provideZoneChangeDetection,
 } from '@angular/core';
 import {
+  type ActivatedRouteSnapshot,
   provideRouter,
   withInMemoryScrolling,
   withPreloading,
   withViewTransitions,
 } from '@angular/router';
+
+/**
+ * True when a route snapshot resolves under `/admin`. Used to skip the browser
+ * view transition for admin section↔section swaps — those use a plain CSS
+ * fade-in instead (no snapshot → the outgoing section can't flash, and there's
+ * no cross-fade of old→new content).
+ */
+const isAdminRoute = (snapshot: ActivatedRouteSnapshot): boolean =>
+  snapshot.pathFromRoot.some((route) => route.url.some((segment) => segment.path === 'admin'));
 import { HoverPreloadingStrategy } from './services/hover-preloading-strategy';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import { provideAnimations } from '@angular/platform-browser/animations';
@@ -84,7 +94,19 @@ export const appConfig: ApplicationConfig = {
     provideRouter(
       routes,
       withPreloading(HoverPreloadingStrategy),
-      withViewTransitions({ skipInitialTransition: true }),
+      withViewTransitions({
+        skipInitialTransition: true,
+        // Admin section↔section swaps (e.g. Forms→Apps) must NOT run a browser view
+        // transition: the snapshot cross-fade left the outgoing section (its images/UI)
+        // flashing during the swap. Skipping it swaps the DOM instantly with no snapshot,
+        // and a CSS fade-in on the new section (with a short delay, no FOUC) does the
+        // transition. Public/marketing routes keep view transitions.
+        onViewTransitionCreated: ({ transition, from, to }) => {
+          if (isAdminRoute(from) && isAdminRoute(to)) {
+            transition.skipTransition();
+          }
+        },
+      }),
       // Lets `routerLink="/" fragment="pricing"` (e.g. the /signin header nav)
       // scroll to the homepage #pricing section after navigation.
       withInMemoryScrolling({ anchorScrolling: 'enabled' }),

@@ -224,6 +224,29 @@ main > app-section-error-boundary {
   to   { opacity: 1; }
 }
 
+// ── 4c. Admin section swap — no overlay, delayed fade-in, no old-content flash ──
+// Browser view transitions are SKIPPED for admin↔admin navs (app.config.ts
+// onViewTransitionCreated → transition.skipTransition()), so the OUTGOING section
+// can no longer flash its images/UI during the swap. The two rules below finish it:
+//   1. Suppress the app-shell "Loading…" route-skeleton overlay while the admin
+//      shell is mounted — section chunks are hover/idle-preloaded, so a blocking
+//      veil isn't wanted for tab-to-tab swaps.
+//   2. Fade the INCOMING section in after a ~200ms beat. `both` fill holds it at
+//      opacity 0 through the delay, so the content settles first (no flash of
+//      unstyled content) and only then fades — opacity-only, no slide, no jump.
+body:has(app-admin) .route-skeleton {
+  display: none !important;
+}
+app-admin router-outlet ~ * {
+  animation: psAdminSectionIn 300ms var(--ps-ease-emphasized, cubic-bezier(0.16, 1, 0.3, 1)) 200ms both;
+}
+@media (prefers-reduced-motion: reduce) {
+  app-admin router-outlet ~ * {
+    animation-delay: 0ms;
+    animation-duration: 1ms;
+  }
+}
+
 // Loading spinner — brand-accent conic gradient (replaces 2px border).
 .loading-spinner,
 .loading-spinner-sm {
