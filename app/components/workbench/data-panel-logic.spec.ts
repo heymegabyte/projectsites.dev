@@ -106,6 +106,7 @@ import {
   toDateInputValue,
   toDatetimeLocalValue,
   isValidJsonText,
+  distinctSuggestions,
   CELL_INPUT_KIND_OPTIONS,
   buildInsertStatement,
   buildDeleteByPk,
@@ -1971,6 +1972,24 @@ describe('isValidJsonText (live JSON-editor validity; mirrors coerceCellInput js
       })();
       expect(isValidJsonText(s)).toBe(coerceOk);
     }
+  });
+});
+
+describe('distinctSuggestions (value-datalist suggestions; high-cardinality → none)', () => {
+  it('returns a copy of a small distinct set (select-like column)', () => {
+    const values = ['open', 'closed', 'pending'];
+    const out = distinctSuggestions(values, false);
+    expect(out).toEqual(['open', 'closed', 'pending']);
+    expect(out).not.toBe(values); // a copy, not the same ref
+  });
+
+  it('returns none when truncated (high-cardinality = free-text column, not a select)', () => {
+    expect(distinctSuggestions(['a', 'b', 'c'], true)).toEqual([]);
+  });
+
+  it('returns none for an empty/absent set', () => {
+    expect(distinctSuggestions([], false)).toEqual([]);
+    expect(distinctSuggestions(undefined, false)).toEqual([]);
   });
 });
 

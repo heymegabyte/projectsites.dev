@@ -82,6 +82,7 @@ import {
   toggleHiddenColumn,
   coerceCellInput,
   editorKindForColumn,
+  distinctSuggestions,
   CELL_INPUT_KIND_OPTIONS,
   buildInsertStatement,
   insertableColumns,
@@ -589,6 +590,13 @@ export const DataPanel = memo(() => {
   const [editValue, setEditValue] = useState('');
   const [editError, setEditError] = useState('');
   const [editBusy, setEditBusy] = useState(false);
+
+  /*
+   * Bounded DISTINCT values of the open editor's column → a "pick an existing value" datalist (select-like
+   * hint). Fetched on-demand for text columns; [] when high-cardinality/absent (a plain text input then).
+   */
+  const [distinctValues, setDistinctValues] = useState<string[]>([]);
+  const distinctCid = useRef<string | null>(null);
   const updatePending = useRef(false); // a row edit is in flight → route the next PS_SQL_RESPONSE
   const updateTargetRef = useRef<string | null>(null); // the table to re-open after an edit
 
@@ -1544,6 +1552,21 @@ export const DataPanel = memo(() => {
         if (!msg.error) {
           const aggs = msg.data?.aggregates;
           setColumnAggs(aggs && typeof aggs === 'object' ? aggs : {});
+        }
+
+        return;
+      }
+
+      /*
+       * Column distinct values → the cell-editor value datalist (matched on its own cid). A
+       * high-cardinality (truncated) or errored/absent result yields no suggestions (plain text input);
+       * deploy-skew (an older worker without the route → error) degrades to the same graceful no-op.
+       */
+      if (msg.correlationId === distinctCid.current) {
+        distinctCid.current = null;
+
+        if (!msg.error) {
+          setDistinctValues(distinctSuggestions(msg.data?.distinctValues, !!msg.data?.truncated));
         }
 
         return;
@@ -2984,6 +3007,24 @@ export const DataPanel = memo(() => {
       const { kind, value } = editorKindForColumn(browseColTypes[col], rawValue);
       setEditKind(kind);
       setEditValue(value);
+
+      /*
+       * For a TEXT column, fetch the column's bounded distinct values → a "pick an existing value"
+       * datalist (Airtable single-select feel). On-demand + bounded; a high-cardinality/absent result
+       * yields no suggestions (a plain text input). Other kinds (number/date/bool/json) get no datalist.
+       */
+      setDistinctValues([]);
+
+      if (kind === 'text' && isEmbedded && activeRef.current) {
+        const cid = newCorrelationId('col-distinct');
+        distinctCid.current = cid;
+        postToParent({
+          type: 'PS_DATA_REQUEST',
+          table: activeRef.current,
+          columnDistinct: col,
+          correlationId: cid,
+        });
+      }
     },
     [browseGeneratedCols, browseColTypes],
   );
@@ -5456,6 +5497,7 @@ export const DataPanel = memo(() => {
                               setEditError('');
                               setEditValue(v);
                             }}
+                            suggestions={distinctValues}
                             previewSql={editPreviewFor(drawerRow)}
                             editError={editError}
                             editBusy={editBusy}

@@ -12,6 +12,7 @@
  *   json                             → a multi-line `<textarea>` with a live "not valid JSON yet" hint
  */
 
+import { useId } from 'react';
 import { classNames } from '~/utils/classNames';
 import { isValidJsonText, type CellInputKind } from './data-panel-logic';
 
@@ -37,6 +38,12 @@ export interface TypedValueFieldProps {
 
   /** Textarea height for the `json` kind (rows). Default 5 (compact forms pass fewer). */
   jsonRows?: number;
+
+  /**
+   * Distinct-value suggestions for the TEXT widget → a native `<datalist>` (the input stays open
+   * free-text; the user may pick or type). Empty/absent → a plain input. Ignored by non-text kinds.
+   */
+  suggestions?: string[];
 }
 
 const BASE_INPUT =
@@ -52,7 +59,10 @@ export function TypedValueField({
   placeholder,
   testId,
   jsonRows = 5,
+  suggestions,
 }: TypedValueFieldProps) {
+  const listId = useId();
+
   if (kind === 'boolean') {
     const checked = value === 'true';
 
@@ -108,18 +118,32 @@ export function TypedValueField({
 
   const inputType = kind === 'date' ? 'date' : kind === 'datetime' ? 'datetime-local' : 'text';
 
+  // A datalist only makes sense for the free-text widget (date/datetime have their own pickers).
+  const listValues = inputType === 'text' && !disabled ? (suggestions ?? []) : [];
+  const showList = listValues.length > 0;
+
   return (
-    <input
-      type={inputType}
-      step={kind === 'datetime' ? 1 : undefined}
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onValueChange(e.target.value)}
-      data-testid={testId}
-      aria-label={ariaLabel}
-      placeholder={placeholder}
-      spellCheck={false}
-      className={classNames(BASE_INPUT, disabled ? 'opacity-40' : '')}
-    />
+    <>
+      <input
+        type={inputType}
+        step={kind === 'datetime' ? 1 : undefined}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onValueChange(e.target.value)}
+        data-testid={testId}
+        aria-label={ariaLabel}
+        placeholder={placeholder}
+        spellCheck={false}
+        list={showList ? listId : undefined}
+        className={classNames(BASE_INPUT, disabled ? 'opacity-40' : '')}
+      />
+      {showList && (
+        <datalist id={listId} data-testid={`${testId}-suggestions`}>
+          {listValues.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      )}
+    </>
   );
 }

@@ -1026,16 +1026,35 @@ parent already coerces + binds as `?` (`coerceCellInput`), so **no worker/bridge
   **12786/12786** unchanged). Logic (isValidJsonText) fully unit-tested; the checkbox + textarea RENDERING is
   verify-by-build (deep lazy chunk, not headless-reachable).
 
-**STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
-sticky-pin render · #37 view round-trip · #40 multi-sort header-click + priority badges · #41 date/datetime picker ·
-#42 boolean checkbox + JSON textarea render — one real-browser pass (authed admin session). **A dedicated real-browser
-QA fire remains the highest-value out-of-loop step** to convert this verify-by-build debt to verified.
+### ✅ Shipped next fire (2026-09-26 #43) — `singleSelect`-style value datalist (DISTINCT values; first full-stack slice in a while)
+Editing a low-cardinality TEXT cell now offers a native **`<datalist>`** of the column's existing distinct values
+(Airtable single-select feel) — the input stays open free-text (pick OR type), values still bound as `?`. Spans all
+four layers (worker + bridge + admin + editor) mirroring the `/column-aggregates` precedent.
+- **Worker (`handlers.ts`, jest-tested +3):** `buildColumnDistinctSql(spec, col)` — col **allowlist-validated + quoted**
+  (never bound — the injection boundary), non-null/non-empty, ordered, `LIMIT ?`. New route
+  `GET /data-overview/:table/column-distinct?column=` (auth + `ownsSiteData` + `overviewTable` 400-on-unknown + column
+  re-validation; fail-soft → empty). Fetches `MAX_DISTINCT_VALUES(50)+1` → `truncated` flags a high-cardinality column.
+  Does NOT apply the grid filter — the suggestion set is the column's whole value domain, not the filtered slice.
+- **Bridge (`embedded-mode.ts`) + admin (`bolt-embed.service.ts`):** `columnDistinct` request field + `distinctValues`/
+  `distinctColumn` response fields mirrored; admin adds an `isColumnDistinct` routing mode → `/column-distinct?column=`.
+- **Editor (`DataPanel.tsx` + `data-panel-logic.ts` +3 Vitest):** `startEdit` fetches distinct values for a TEXT column
+  (on-demand, own cid); `distinctSuggestions(values, truncated)` (pure, tested) applies the **honest select-like
+  heuristic** — a high-cardinality (`truncated`) column surfaces NO suggestions (it's free-text, not a select).
+  Threaded editor → `<CellEditor>` → `<TypedValueField>` (native `<datalist>` on the text widget only; date/datetime
+  keep their pickers).
+- **Deploy-skew (editor ~2min before worker ~14min):** an older worker 404s `/column-distinct` → admin replies error →
+  editor leaves suggestions empty → **plain text input** (graceful; no broken window). Verified the fallback path.
+- Verified: editor Vitest **932/932** + tsc 0 + eslint 0 + build 0; admin tsc 0 (+ prettier); worker Jest **12789/12789**
+  + tsc 0. Worker fn + heuristic fully unit-tested; the `<datalist>` RENDERING is verify-by-build (deep lazy chunk).
 
-**NEXT slice: `singleSelect`-style value editor seeded from a column's DISTINCT values (first to add a server round-
-trip).** When editing a low-cardinality text column, offer a datalist/combobox of its existing distinct values so the
-user picks instead of retyping (Airtable single-select feel) — still free-text (open combobox), values still bound as
-`?`. Needs a NEW read path: a bounded whole-query `SELECT DISTINCT "col" … WHERE … LIMIT 50` (col allowlist-validated,
-pure+tested worker fn like `buildColumnAggregatesSql`) + a bridge `PS_DATA_REQUEST` mode + admin forward + editor
-plumbing — so it spans editor+worker+bridge (deploy-skew: degrade to a plain input when the distinct list isn't
-fresh). Alternatives (editor-only, smaller): a NULL-vs-empty-string toggle affordance; BLOB read-only preview. Bigger:
-async export JOBS >10k; nested AND/OR filter-tree; the inert `field-types.ts` as a per-column field-config feature.
+**STILL-OPEN manual QA (not loop-actionable):** #33 resize drag · #34 footer picker · #35 whole-query fetch · #36
+sticky-pin render · #37 view round-trip · #40 multi-sort · #41 date/datetime picker · #42 boolean checkbox + JSON
+textarea · #43 value datalist — one real-browser pass (authed admin session). **A dedicated real-browser QA fire
+remains the highest-value out-of-loop step** to convert this verify-by-build debt to verified.
+
+**NEXT slice: extend the value datalist to the Add-row form + cache distinct results (contained editor-only).** The
+`<datalist>` currently lands only on the single-cell (drawer) editor; wire `suggestions` into the Add-row
+`<TypedValueField>` too (per-text-column, lazy on focus) and memoize distinct results per (table,column) so re-opening an
+editor doesn't refetch — a small `Map` ref + a pure `distinctCacheKey(table,col)`. Alternatives: NULL-vs-empty-string
+toggle affordance; BLOB read-only preview; async export JOBS >10k (bigger); nested AND/OR filter-tree; inert
+`field-types.ts` as a per-column field-config feature.

@@ -1068,6 +1068,27 @@ export function buildColumnAggregatesSql(
     : base;
 }
 
+/** Max distinct values suggested for a low-cardinality column's value editor (a select-like hint, not an enum). */
+export const MAX_DISTINCT_VALUES = 50;
+
+/**
+ * Build a BOUNDED `DISTINCT` query for ONE allowlisted column — powers the cell editor's "pick an
+ * existing value" datalist (Airtable single-select feel over a raw D1 column). `col` MUST already be
+ * allowlist-validated by the caller (quoted here, NEVER bound — an identifier can't be a SQL parameter;
+ * this is the injection boundary). Non-null + non-empty values only, ordered, `LIMIT ?` — the caller
+ * binds `MAX+1` and treats an over-cap result as "high-cardinality → offer no suggestions" (an honest
+ * select-like heuristic, never a full column scan surfaced to the user). Does NOT apply the grid's
+ * search/filter — the suggestion set is the column's whole value domain, not the filtered slice. Pure.
+ *
+ * @example buildColumnDistinctSql({ countSql: 'SELECT COUNT(*) AS n FROM form_submissions WHERE site_id = ?' }, 'status')
+ *   // SELECT DISTINCT "status" AS v FROM form_submissions WHERE site_id = ? AND "status" IS NOT NULL AND "status" <> '' ORDER BY "status" LIMIT ?
+ */
+export function buildColumnDistinctSql(spec: { countSql: string }, col: string): string {
+  const base = spec.countSql.replace(/SELECT\s+COUNT\(\*\)\s+AS\s+n/i, `SELECT DISTINCT "${col}" AS v`);
+
+  return `${base} AND "${col}" IS NOT NULL AND "${col}" <> '' ORDER BY "${col}" LIMIT ?`;
+}
+
 /** Max sort keys honored in a multi-column browse sort (a sane bound; more would rarely help + costs). */
 export const MAX_SORT_KEYS = 4;
 
@@ -1393,6 +1414,47 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table/column-aggregates', asy
   }
 
   return c.json({ data: { table: spec.key, aggregates } });
+});
+
+/**
+ * BOUNDED distinct values of ONE allowlisted column → `{ column, values: string[], truncated }`. Powers
+ * the cell editor's "pick an existing value" datalist. `?column=` is re-validated against the table's
+ * allowlist (the injection boundary → 400 when unknown). Fetches `MAX_DISTINCT_VALUES + 1` so the client
+ * can tell a low-cardinality column (offer suggestions) from a high-cardinality one (`truncated` → the
+ * editor shows none — it's a free-text column, not a select). Same auth + fail-soft as the browse; does
+ * NOT apply the grid filter (the suggestion set is the whole value domain, not the filtered slice).
+ */
+siteDataApi.get('/api/sites/:siteId/data-overview/:table/column-distinct', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+  const spec = overviewTable(table);
+  if (!spec) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Unknown table' } }, 400);
+  }
+
+  const column = String(c.req.query('column') ?? '').trim();
+  if (!column || !spec.columns.includes(column)) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'A valid column is required' } }, 400);
+  }
+
+  let values: string[] = [];
+  let truncated = false;
+  try {
+    const res = await c.env.DB.prepare(buildColumnDistinctSql(spec, column))
+      .bind(siteId, MAX_DISTINCT_VALUES + 1)
+      .all();
+    const raw = ((res.results || []) as Record<string, unknown>[]).map((r) => r.v);
+    truncated = raw.length > MAX_DISTINCT_VALUES;
+    values = raw.slice(0, MAX_DISTINCT_VALUES).map((v) => String(v));
+  } catch {
+    values = []; // fail-soft: missing/renamed table → no suggestions (editor keeps a plain text input)
+  }
+
+  return c.json({ data: { table: spec.key, column, values, truncated, cap: MAX_DISTINCT_VALUES } });
 });
 
 /**

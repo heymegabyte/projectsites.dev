@@ -2585,6 +2585,23 @@ export function isValidJsonText(s: string): boolean {
   }
 }
 
+/**
+ * The value-editor datalist suggestions for a column, given the worker's bounded DISTINCT result. When
+ * the column is HIGH-cardinality (`truncated` — more distinct values than the server cap) it is a
+ * free-text column, NOT a select, so we surface NO suggestions rather than a misleadingly-partial list.
+ * Otherwise the (small, complete) distinct set is the suggestion list. Pure.
+ *
+ * @example distinctSuggestions(['open', 'closed'], false) // ['open', 'closed']
+ * @example distinctSuggestions(['a', 'b', 'c'], true)     // []  (high-cardinality → not select-like)
+ */
+export function distinctSuggestions(values: readonly string[] | undefined, truncated: boolean): string[] {
+  if (truncated || !values || values.length === 0) {
+    return [];
+  }
+
+  return [...values];
+}
+
 /** A parameterized statement: `?1..?N` placeholders in `sql`, values in `params` (bind order). */
 export interface ParameterizedStatement {
   /** The SQL with quoted identifiers and `?1..?N` placeholders — safe to log/preview. */

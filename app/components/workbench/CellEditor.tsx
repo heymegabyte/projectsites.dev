@@ -22,6 +22,12 @@ export interface CellEditorProps {
   editValue: string;
   onValueChange: (value: string) => void;
 
+  /**
+   * Bounded distinct values of this column → a "pick an existing value" datalist on the text widget
+   * (select-like hint; the input stays open free-text). Empty/absent → a plain text input.
+   */
+  suggestions?: string[];
+
   /** The parameterized UPDATE SQL preview (SQL shape only — the value binds as ?1), or null. */
   previewSql: string | null;
 
@@ -41,6 +47,7 @@ export function CellEditor({
   onKindChange,
   editValue,
   onValueChange,
+  suggestions,
   previewSql,
   editError,
   editBusy,
@@ -70,6 +77,7 @@ export function CellEditor({
           disabled={editKind === 'null'}
           ariaLabel={`New value for ${label}`}
           placeholder={editKind === 'null' ? 'NULL' : editKind === 'json' ? '{"key":"value"}' : ''}
+          suggestions={suggestions}
           testId="data-edit-value"
         />
       </div>

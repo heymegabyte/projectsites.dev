@@ -256,6 +256,13 @@ export interface DataRequestMessage {
   columnsAgg?: string;
 
   /**
+   * Bounded DISTINCT values of ONE allowlisted column → routes to `/data-overview/:table/column-distinct`
+   * (`?column=`), and the response carries `distinctValues: string[]` + `truncated`. Powers the cell
+   * editor's "pick an existing value" datalist (a select-like hint). Omit for a normal browse.
+   */
+  columnDistinct?: string;
+
+  /**
    * `0` = skip the server COUNT(*) (paging/sorting doesn't change the total, so the client reuses its
    * cached total — avoids an expensive exact count on every nav). Omitted / `1` = the worker counts
    * (table open, search/filter change, post-mutation). Then `total` on the response is `null`.
@@ -329,6 +336,16 @@ export interface DataResponseMessage {
       string,
       { count: number; filled: number; sum: number | null; avg: number | null; min: number | null; max: number | null }
     >;
+
+    /**
+     * column-distinct only: bounded distinct values of {@link distinctColumn} (the column's whole value
+     * domain, non-null/non-empty, ordered). With {@link truncated} true the column is high-cardinality —
+     * the editor offers NO suggestions (it's a free-text column, not a select). Powers the value datalist.
+     */
+    distinctValues?: string[];
+
+    /** column-distinct only: the column the {@link distinctValues} belong to. */
+    distinctColumn?: string;
   } | null;
 
   /**

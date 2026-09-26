@@ -118,6 +118,8 @@ interface PsMessage {
   readonly agg?: string;
   /** PS_DATA_REQUEST (footer summaries): comma-list of columns → routes to /data-overview/:table/column-aggregates. */
   readonly columnsAgg?: string;
+  /** PS_DATA_REQUEST (value datalist): one column → routes to /data-overview/:table/column-distinct. */
+  readonly columnDistinct?: string;
   /** PS_VIEW_REQUEST (saved grid views): `list` | `save` | `delete`. */
   readonly action?: string;
   /** PS_VIEW_REQUEST delete: the view id. */
@@ -703,7 +705,9 @@ export class BoltEmbedService {
           const browseDir = msg.dir === 'asc' ? 'asc' : msg.dir === 'desc' ? 'desc' : undefined;
           // Multi-column sort `col:dir,…` — forwarded as-is; the worker allowlist-validates + bounds each key.
           const browseSort =
-            typeof msg.sort === 'string' && msg.sort.trim() ? msg.sort.trim().slice(0, 256) : undefined;
+            typeof msg.sort === 'string' && msg.sort.trim()
+              ? msg.sort.trim().slice(0, 256)
+              : undefined;
           // Whole-table search — the WORKER runs the OR-of-LIKE over allowlisted columns (parameterized)
           // and reflects it in `total`; we just forward the trimmed, length-capped needle.
           const browseSearch =
@@ -788,6 +792,13 @@ export class BoltEmbedService {
               ? msg.columnsAgg.trim().slice(0, 2000)
               : undefined;
           const isColumnAgg = !!browseColumnsAgg && !!table && !isExport && !isGroupCounts;
+          // Value datalist (cell editor): one column → /column-distinct (bounded DISTINCT suggestions).
+          const browseColumnDistinct =
+            typeof msg.columnDistinct === 'string' && msg.columnDistinct.trim()
+              ? msg.columnDistinct.trim().slice(0, 64)
+              : undefined;
+          const isColumnDistinct =
+            !!browseColumnDistinct && !!table && !isExport && !isGroupCounts && !isColumnAgg;
           // The search + filter query params (shared by all three modes).
           const filterParams: Record<string, string> = {
             ...(browseSearch ? { search: browseSearch } : {}),
@@ -810,7 +821,9 @@ export class BoltEmbedService {
               ? '/group-counts'
               : isColumnAgg
                 ? '/column-aggregates'
-                : '';
+                : isColumnDistinct
+                  ? '/column-distinct'
+                  : '';
           const path = table
             ? `/sites/${site.id}/data-overview/${encodeURIComponent(table)}${suffix}`
             : `/sites/${site.id}/data-overview`;
@@ -828,16 +841,18 @@ export class BoltEmbedService {
                     }
                   : isColumnAgg
                     ? { columns: browseColumnsAgg as string, ...filterParams }
-                    : {
-                        ...(isExport
-                          ? {}
-                          : { limit: String(browseLimit), offset: String(browseOffset) }),
-                        ...(browseSort ? { sort: browseSort } : {}),
-                        ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),
-                        ...(browseOrderBy && browseDir ? { dir: browseDir } : {}),
-                        ...filterParams,
-                        ...(browseSkipCount && !isExport ? { count: '0' } : {}),
-                      }
+                    : isColumnDistinct
+                      ? { column: browseColumnDistinct as string }
+                      : {
+                          ...(isExport
+                            ? {}
+                            : { limit: String(browseLimit), offset: String(browseOffset) }),
+                          ...(browseSort ? { sort: browseSort } : {}),
+                          ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),
+                          ...(browseOrderBy && browseDir ? { dir: browseDir } : {}),
+                          ...filterParams,
+                          ...(browseSkipCount && !isExport ? { count: '0' } : {}),
+                        }
                 : undefined,
               { silent: true },
             )

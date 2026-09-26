@@ -25,6 +25,8 @@ import {
   buildGroupCountSql,
   buildGroupAggregateSql,
   buildColumnAggregatesSql,
+  buildColumnDistinctSql,
+  MAX_DISTINCT_VALUES,
   buildOrderByClause,
   MAX_SORT_KEYS,
   normalizeGroupAgg,
@@ -937,5 +939,30 @@ describe('MAX_EXPORT_ROWS (bounded whole-query export)', () => {
   it('is a sane bound for a client-side CSV/JSON download', () => {
     expect(MAX_EXPORT_ROWS).toBeGreaterThanOrEqual(1000);
     expect(MAX_EXPORT_ROWS).toBeLessThanOrEqual(100000);
+  });
+});
+
+describe('buildColumnDistinctSql (bounded DISTINCT for the value datalist)', () => {
+  it('quotes the column (identifier, never bound), excludes null/empty, orders, LIMIT ?', () => {
+    const spec = { countSql: 'SELECT COUNT(*) AS n FROM form_submissions WHERE site_id = ?' };
+    expect(buildColumnDistinctSql(spec, 'status')).toBe(
+      'SELECT DISTINCT "status" AS v FROM form_submissions WHERE site_id = ? ' +
+        'AND "status" IS NOT NULL AND "status" <> \'\' ORDER BY "status" LIMIT ?',
+    );
+  });
+
+  it('chains its filters AFTER an existing soft-delete predicate (site_id AND deleted_at)', () => {
+    const spec = {
+      countSql: 'SELECT COUNT(*) AS n FROM site_data WHERE site_id = ? AND deleted_at IS NULL',
+    };
+    expect(buildColumnDistinctSql(spec, 'table_name')).toBe(
+      'SELECT DISTINCT "table_name" AS v FROM site_data WHERE site_id = ? AND deleted_at IS NULL ' +
+        'AND "table_name" IS NOT NULL AND "table_name" <> \'\' ORDER BY "table_name" LIMIT ?',
+    );
+  });
+
+  it('MAX_DISTINCT_VALUES is a small, select-like bound (never a full-column scan surfaced as a picker)', () => {
+    expect(MAX_DISTINCT_VALUES).toBeGreaterThanOrEqual(10);
+    expect(MAX_DISTINCT_VALUES).toBeLessThanOrEqual(200);
   });
 });
