@@ -1,5 +1,30 @@
 # Payload CMS on CF (D1 + R2 + Worker) — per-site launcher · PROGRESS
 
+## ✅ FEATURE COMPLETE (fire 16, 2026-09-25) — loop paused; `.app.` is the one human-gated item
+
+Re-verified green AGAIN this fire: launch → **branded styled real Payload login (200 + CSS 200)** at
+`{slug}.cms.projectsites.dev` + **migrated D1** (login submit works) → delete → worker/d1/r2 all 404,
+zero dangling. The FULL functional brief is delivered: launch on **D1 + R2 + Workers via WfP**, 200
+from the real login, delete removes D1 + R2 + Worker.
+
+**The ONLY remaining item is the literal `.app.` hostname, and it's HUMAN-GATED — not autonomously
+resolvable:**
+- `{slug}.app.projectsites.dev` needs a `*.app.projectsites.dev` **ACM advanced cert pack**. The zone
+  is at its advanced-pack cap (8 packs) on a `rate_plan=free` → ordering a new pack returns `1401`;
+  CF-for-SaaS returns `1404`; Total TLS enable is unavailable. All fixes are **(a) a billing/plan
+  action (ACM add-on / upgrade)** or **(b) deleting a cert pack on the PRIMARY production domain**
+  (unacceptable blast radius to do autonomously per `blast-radius-minimization` + `autonomous-engineering`).
+- **Activation (2 steps, no code):** (1) order the `*.app.projectsites.dev` ACM pack (or free a slot);
+  (2) `wrangler secret put PAYLOAD_INSTANCE_HOST` = `app.projectsites.dev`. `serveAppBySubdomain` +
+  `payloadInstanceHost(env)` already route + serve `.app.` (unit-tested). Then re-run
+  `e2e/admin-verify/verify-payload-launcher.mjs`.
+
+**Loop status:** feature is functionally complete; fires 10-16 were polish/hardening. The remaining
+`.app.` work auto-activates the moment the ACM cert exists + `PAYLOAD_INSTANCE_HOST` is flipped — a
+future fire (or manual re-run of the verify script) will confirm `.app.` once you order the cert.
+
+
+
 > Epic: replace the container Payload at `cms.projectsites.dev` with a **per-instance,
 > per-site (max 3)** Payload launched from the admin catalog UI on **D1 + R2 + a CF Worker**,
 > where **deleting the instance from the UI deletes the D1 + R2 + Worker with zero dangling
