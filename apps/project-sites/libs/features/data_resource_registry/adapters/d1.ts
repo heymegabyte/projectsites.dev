@@ -59,6 +59,7 @@ import {
   type ProvisionInput,
   type ProvisionMutateResult,
 } from '../provision_mutation.js';
+import { recordQueryHistory } from '../query_history.js';
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
 
@@ -810,6 +811,13 @@ class D1Adapter
     const db = makeSiteDataExecutor(scope.auth, scope.accountId, databaseId);
     try {
       const { results, meta } = await db.query<Record<string, unknown>>(sql, params);
+      // FIRE-AND-FORGET history: STATEMENT TEMPLATE + effect + D1 meta only (never params) — best-effort.
+      this.recordHistory(scope, sql, effect, {
+        ok: true,
+        durationMs: meta.duration,
+        rowsRead: meta.rows_read ?? 0,
+        rowsWritten: meta.rows_written ?? 0,
+      });
       return {
         correlationId: cid,
         data: {
@@ -825,7 +833,10 @@ class D1Adapter
         ok: true,
       };
     } catch (err) {
-      return queryError<D1MutateResult>(cid, err);
+      const failed = queryError<D1MutateResult>(cid, err);
+      // Record the failed attempt too (template + typed error code) — best-effort, never param values.
+      this.recordHistory(scope, sql, effect, { ok: false, errorCode: failed.error?.code });
+      return failed;
     }
   }
 
@@ -905,13 +916,17 @@ class D1Adapter
         id: typeof r.id === 'number' ? r.id : 0,
         parent: typeof r.parent === 'number' ? r.parent : 0,
       }));
+      // FIRE-AND-FORGET history: an explain is always read-only; record the TEMPLATE only (never params).
+      this.recordHistory(scope, sql, 'read_only', { ok: true, durationMs: meta.duration });
       return {
         correlationId: cid,
         data: { action: 'explain', durationMs: meta.duration, effect: 'read_only', plan },
         ok: true,
       };
     } catch (err) {
-      return queryError<D1MutateResult>(cid, err);
+      const failed = queryError<D1MutateResult>(cid, err);
+      this.recordHistory(scope, sql, 'read_only', { ok: false, errorCode: failed.error?.code });
+      return failed;
     }
   }
 
@@ -1135,6 +1150,49 @@ class D1Adapter
       },
       ok: true,
     };
+  }
+
+  /**
+   * Record ONE query-history entry — FIRE-AND-FORGET. Best-effort ONLY: it writes the STATEMENT
+   * TEMPLATE (`sql`) + the honest effect classification + D1's execution meta to the SHARED PLATFORM
+   * D1 (`scope.db`, `env.DB`) — NEVER the customer's per-site D1, and NEVER the bound `params[]`
+   * VALUES (they are the customer's data and may be sensitive; only the template is persisted). If
+   * `scope.db` is absent (a caller that didn't attach the platform DB) NOTHING is recorded — the
+   * query still ran. The returned promise is deliberately NOT awaited by callers on the hot path and
+   * `recordQueryHistory` itself never rejects, so a history write can never block or fail the query.
+   *
+   * @param scope - the resolved scope; `scope.db` is the platform DB (server-attached), `resourceId` the site D1
+   * @param sql - the STATEMENT TEMPLATE the caller ran (with `?` placeholders) — never param values
+   * @param effect - the classifier's leading-keyword verdict
+   * @param meta - D1's ground-truth execution meta + ok/errorCode
+   */
+  private recordHistory(
+    scope: ResolvedScope,
+    sql: string,
+    effect: SqlEffect,
+    meta: {
+      ok: boolean;
+      durationMs?: number | undefined;
+      rowsRead?: number | undefined;
+      rowsWritten?: number | undefined;
+      errorCode?: string | undefined;
+    },
+  ): void {
+    // No platform DB attached → history is simply not recorded (the query itself still ran).
+    if (!scope.db) return;
+    // Fire-and-forget: never awaited on the hot path; recordQueryHistory swallows its own errors.
+    void recordQueryHistory(scope.db, {
+      siteId: scope.siteId,
+      orgId: scope.orgId,
+      environment: scope.environment,
+      statementKind: effect,
+      sqlText: sql, // TEMPLATE ONLY — params are intentionally NOT passed.
+      durationMs: meta.durationMs,
+      rowsRead: meta.rowsRead,
+      rowsWritten: meta.rowsWritten,
+      ok: meta.ok,
+      errorCode: meta.errorCode,
+    });
   }
 }
 

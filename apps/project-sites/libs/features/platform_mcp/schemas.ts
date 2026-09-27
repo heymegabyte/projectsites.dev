@@ -205,6 +205,25 @@ export const DataD1MigrationsInput = z
   .strict();
 
 /**
+ * `data_d1_query_history` — read the RECENT query history for the OWNED site's own D1 (Data Platform
+ * "query history", READ-ONLY). Every `data_d1_exec` / `data_d1_explain` run records its STATEMENT
+ * TEMPLATE (the SQL with its `?` placeholders) + timing + rows meta + ok/error into the SHARED platform
+ * D1 — bound parameter VALUES are NEVER stored (they are your data, may be sensitive). A caller names
+ * ONLY the OWNED `site_id` (NEVER a CF/database id) plus an optional environment filter + a `limit`
+ * (clamped to `[1, 200]`, default 25). Returns entries newest-first. `.strict()` rejects any attempt to
+ * smuggle a `databaseId`/`accountId`. Ownership + isolation + `per_site_data` flag-gate + `data:read`
+ * scope are enforced server-side.
+ */
+export const DataD1QueryHistoryInput = z
+  .object({
+    site_id: z.string().min(1),
+    // LENIENT bound (positive int, optional) — the dispatcher CLAMPS to [1, 200] rather than rejecting.
+    limit: z.number().int().positive().optional(),
+    environment: z.enum(['preview', 'production']).optional(),
+  })
+  .strict();
+
+/**
  * `data_d1_time_travel_info` — READ the OWNED site's own D1 current Time Travel bookmark + the 30-day PITR
  * window (D1 recovery, READ-ONLY). A caller names ONLY the OWNED `site_id` (NEVER a CF/database id — the db is
  * server-resolved from `site_database_allocations`) plus an optional ISO 8601 `timestamp` (→ the nearest bookmark

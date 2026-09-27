@@ -29,6 +29,7 @@ import {
 } from '../../../src/services/site_data_db.js';
 import { listResources, resolveResourceRef } from '../data_resource_registry/service.js';
 import { d1Adapter } from '../data_resource_registry/adapters/d1.js';
+import { readQueryHistory } from '../data_resource_registry/query_history.js';
 import { kvAdapter } from '../data_resource_registry/adapters/kv.js';
 import { r2Adapter } from '../data_resource_registry/adapters/r2.js';
 import { vectorizeAdapter } from '../data_resource_registry/adapters/vectorize.js';
@@ -52,6 +53,7 @@ import {
   DataD1ExecInput,
   DataD1ExplainInput,
   DataD1MigrationsInput,
+  DataD1QueryHistoryInput,
   DataD1TimeTravelInfoInput,
   DataD1RestoreInput,
   DataKvListKeysInput,
@@ -539,6 +541,22 @@ export const PLATFORM_MCP_TOOLS = [
       properties: {
         site_id: { type: 'string' },
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_d1_query_history',
+    description:
+      "List the RECENT query history for your site's OWN dedicated database — every data_d1_exec / data_d1_explain run records its STATEMENT TEMPLATE (the SQL with its ? placeholders) plus the effect (read_only/mutating/destructive/unknown), timing, rows read/written, and ok/error. ⚠️ Bound parameter VALUES are NEVER stored — only the template — so nothing sensitive (PII, secrets) is retained. Optionally filter by environment and pass a limit (clamped to 1-200, default 25). Returns { entries:[{id,statement_kind,sql_text,duration_ms,rows_read,rows_written,ok,error_code,created_at}], count }, newest-first. Honestly empty until you run a query. READ-ONLY, no confirm. You name only the site_id (+ optional limit/environment) — never a database id; the history is resolved server-side and isolated to your site.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        limit: { type: 'number', minimum: 1, maximum: 200, default: 25 },
+        environment: { type: 'string', enum: ['preview', 'production'] },
       },
       required: ['site_id'],
       additionalProperties: false,
@@ -1742,6 +1760,9 @@ export async function dispatchPlatformTool(
           accessPolicy: 'no_direct',
           accountId,
           auth,
+          // Platform DB (env.DB) attached so the adapter can FIRE-AND-FORGET record query history to
+          // the SHARED platform D1 (org+site-scoped) — NEVER the per-site D1, NEVER param VALUES.
+          db,
           environment,
           orgId,
           resourceId: resolved.databaseId,
@@ -1802,6 +1823,9 @@ export async function dispatchPlatformTool(
           accessPolicy: 'no_direct',
           accountId,
           auth,
+          // Platform DB attached for FIRE-AND-FORGET query-history recording (shared platform D1,
+          // org+site-scoped) — NEVER the per-site D1, NEVER param VALUES.
+          db,
           environment,
           orgId,
           resourceId: resolved.databaseId,
@@ -1873,6 +1897,46 @@ export async function dispatchPlatformTool(
         count: data?.migrations?.length ?? 0,
         migrations: data?.migrations ?? [],
         duration_ms: data?.durationMs,
+      });
+    }
+
+    case 'data_d1_query_history': {
+      // Flag-gated on the SAME flag the db/tables surface uses (dark → err, mirroring its 404).
+      if (!(await isFlagOn(env, PER_SITE_DATA_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site data is not enabled for this account.');
+      }
+      const { site_id, limit, environment } = DataD1QueryHistoryInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF/db id — history
+      // lives in the SHARED platform D1 (`db` = env.DB), and readQueryHistory ALSO scopes to org_id
+      // (belt-and-braces) so a foreign site's history can never be returned.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      // Read recent history from the platform D1 (newest-first, clamped). Honestly empty until a query
+      // has been run. This NEVER exposes bound parameter VALUES — only the statement templates.
+      const entries = await readQueryHistory(db, site_id, orgId, {
+        ...(environment ? { environment } : {}),
+        ...(typeof limit === 'number' ? { limit } : {}),
+      });
+      return ok({
+        site_id,
+        ...(environment ? { environment } : {}),
+        count: entries.length,
+        entries: entries.map((e) => ({
+          id: e.id,
+          environment: e.environment,
+          statement_kind: e.statementKind,
+          sql_text: e.sqlText,
+          duration_ms: e.durationMs,
+          rows_read: e.rowsRead,
+          rows_written: e.rowsWritten,
+          ok: e.ok,
+          error_code: e.errorCode,
+          created_at: e.createdAt,
+        })),
       });
     }
 
