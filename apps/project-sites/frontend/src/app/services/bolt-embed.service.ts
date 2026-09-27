@@ -235,6 +235,12 @@ interface PsMessage {
     limit?: number;
     offset?: number;
   };
+  /**
+   * PS_RES_MUTATE_REQUEST: the SAFE, non-identifier operands (per-kind) forwarded as the mutate `input` — a
+   * CF id is NEVER accepted; the worker server-resolves (or PRODUCES) the id. `action` reuses the shared
+   * {@link action} field; `confirm` reuses the shared {@link confirm} field.
+   */
+  readonly input?: Record<string, unknown>;
 }
 
 /**
@@ -1584,6 +1590,68 @@ export class BoltEmbedService {
                   reply({ ok: false, enabled: false });
                 } else {
                   reply({ ok: false, error: 'Failed to load resource' });
+                }
+              },
+            });
+          break;
+        }
+        case 'PS_RES_MUTATE_REQUEST': {
+          // Resource mutate — run a NAMED, typed WRITE verb on ONE resource (provision / put / delete / exec /
+          // terminate / send / upsert …), via POST /api/sites/:id/resources/:kind/mutate. The embedded editor
+          // has no cross-origin session, so it asks US (we hold currentSite + the ApiService bearer). The caller
+          // NEVER names a CF id — only kind + action + bounded, non-identifier input (+ confirm for destructive
+          // ops); the worker server-resolves (or PRODUCES) the id. Reply with PS_RES_MUTATE_RESPONSE. A
+          // confirmation_required / not_available adapter outcome rides in `result` (ok:false), NOT `error`.
+          // Same "not enabled" 404 dark-flag translation as PS_RES_OVERVIEW_REQUEST.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const kind = typeof msg.resourceKind === 'string' && msg.resourceKind ? msg.resourceKind : undefined;
+          const mutateAction = typeof msg.action === 'string' && msg.action ? msg.action : undefined;
+          const environment = typeof msg.environment === 'string' && msg.environment ? msg.environment : undefined;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_MUTATE_RESPONSE', correlationId: cid, kind, action: mutateAction, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!kind || !mutateAction) {
+            reply({ ok: false, error: 'Failed to perform action' });
+            break;
+          }
+          // Body carries ONLY { action, input?, confirm? } — never a CF id (the worker's strict schema rejects
+          // one). input is the mutation's safe, non-identifier operands; confirm approves a destructive op.
+          const body: Record<string, unknown> = { action: mutateAction };
+          if (msg.input && typeof msg.input === 'object') body['input'] = msg.input;
+          if (msg.confirm === true) body['confirm'] = true;
+          // `environment` rides in the query string (the worker's mutate route reads it via `?environment=`);
+          // ApiService.post takes no params bag, so append it to the path.
+          const envQuery = environment ? `?environment=${encodeURIComponent(environment)}` : '';
+          // The worker wraps the payload in `{ data: { kind, action, result } }` — unwrap to `result`.
+          this.api
+            .post<{ data?: { result?: unknown } }>(
+              `/sites/${site.id}/resources/${encodeURIComponent(kind)}/mutate${envQuery}`,
+              body,
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, result: res?.data?.result }),
+              // Dark-flag: a real 404 whose body message says "not enabled" is the killswitch, not a
+              // failure — tell the editor to hide the surface, not show an error.
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, error: 'Failed to perform action' });
                 }
               },
             });

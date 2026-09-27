@@ -736,6 +736,67 @@ export interface ResDetailResponseMessage {
   error?: string;
 }
 
+/**
+ * Child → Parent (resource mutate): run a NAMED, typed WRITE verb on ONE resource — provision it, `put`/`delete`
+ * a KV key, delete an R2 object, `exec` D1 SQL, start/terminate a workflow run, `upsert`/`delete` vectors, etc.
+ * The embedded editor has no cross-origin session, so the admin (which holds `selectedSite` + the bearer) calls
+ * `POST /api/sites/:siteId/resources/:kind/mutate` and replies with {@link ResMutateResponseMessage}. The caller
+ * NEVER names a CF id — only `kind` + `action` + bounded, non-identifier `input`; every id is server-resolved
+ * (or PRODUCED, for `provision`). A DESTRUCTIVE action (delete/terminate/reset/exec-DDL/provision) sends
+ * `confirm:true` after the editor's own confirm dialog. Same dark-flag translation as
+ * {@link ResOverviewRequestMessage}.
+ */
+export interface ResMutateRequestMessage {
+  type: 'PS_RES_MUTATE_REQUEST';
+  correlationId: string;
+
+  /** The resource kind to act on (`d1` | `kv` | `r2` | `vectorize` | `workflow` | `durable_object` | …). */
+  kind: string;
+
+  /** The kind's named mutation (`put` | `delete` | `exec` | `provision` | `terminate` | `send` | …). */
+  action: string;
+
+  /** Which environment the resource belongs to (`production` | `preview`). Omit for the default. */
+  environment?: string;
+
+  /**
+   * The mutation's SAFE, non-identifier operands (per-kind) — a CF id is NEVER accepted. The worker validates +
+   * each adapter reads the subset it understands: `kv`/`r2` `put`/`delete` → `key`/`value`/`prefix`; `d1` `exec`
+   * → `sql`/`params`; `vectorize` → `vectors`/`ids`; `workflow` → `instanceId`/`params`; `durable_object` →
+   * `objectId`; `queue` → `messages`. `provision` needs none.
+   */
+  input?: Record<string, unknown>;
+
+  /** `true` to approve a DESTRUCTIVE/billable mutation (delete/terminate/reset/exec-DDL/provision). */
+  confirm?: boolean;
+}
+
+/**
+ * Parent → Child (resource mutate): the admin's reply to {@link ResMutateRequestMessage} (mirrors the worker's
+ * `data` envelope — `{ kind, action, result }` where `result` is the adapter's typed
+ * {@link ResourceDetailResult}). A `confirmation_required` / `not_available` / `not_supported` adapter outcome
+ * rides in `result` (an `ok:false` with a typed error), NOT `error` — `error` is a transport failure (no site
+ * selected, network, 4xx). `enabled:false` when the surface's flag is dark (the 404 "not enabled").
+ */
+export interface ResMutateResponseMessage {
+  type: 'PS_RES_MUTATE_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** Echoed resource kind the result belongs to. */
+  kind?: string;
+
+  /** Echoed action performed (`put` | `delete` | `exec` | `provision` | …). */
+  action?: string;
+
+  /** The adapter's typed result envelope — success (what changed) OR a typed error/confirmation, rendered generically. */
+  result?: ResourceDetailResult;
+
+  /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
 // ── KV Browser bridge messages ────────────────────────────────────────────────
 
 /** KV namespace entry returned by the `namespaces` op. */
@@ -947,6 +1008,7 @@ export type ParentToChildMessage =
   | ResOverviewResponseMessage
   | ResReconcileResponseMessage
   | ResDetailResponseMessage
+  | ResMutateResponseMessage
   | KvResponseMessage
   | ViewResponseMessage
   | PSToastMessage;
@@ -965,6 +1027,7 @@ export type ChildToParentMessage =
   | ResOverviewRequestMessage
   | ResReconcileRequestMessage
   | ResDetailRequestMessage
+  | ResMutateRequestMessage
   | KvRequestMessage
   | ViewRequestMessage
   | PSErrorMessage

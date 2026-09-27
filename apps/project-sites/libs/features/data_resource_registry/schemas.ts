@@ -277,6 +277,40 @@ export const ResourceDetailParamsSchema = z
   .strict();
 export type ResourceDetailParams = z.infer<typeof ResourceDetailParamsSchema>;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Resource MUTATE — the generic write action a caller drives per kind
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The WRITE-verb request body the generic mutate route accepts (Data & Resource Platform §5, WRITE slice).
+ * The caller names ONLY `{ action, input?, confirm? }` — NEVER a CF id (INV-1): the id is server-resolved
+ * from an owned registry row (or, for `action:'provision'`, PRODUCED by the provisioner). `.strict()`
+ * rejects any smuggled `resourceId`/`databaseId`/`accountId`/`namespaceId` at the boundary.
+ *
+ * `action` is the kind's named mutation (`put`/`delete`/`exec`/`provision`/`terminate`/`send`/…); the route
+ * validates it is a REAL mutation the resolved adapter's `supports.mutations` declares before dispatching.
+ * `input` is the mutation's non-identifier operands (key+value, sql+params, ids, instanceId, messages, …) —
+ * the route MERGES `{action, ...input, confirm}` into the adapter's discriminated `mutate` union. `confirm`
+ * hoists a top-level confirm into that union so a destructive op (delete/terminate/exec-DDL/provision) can be
+ * approved without the caller having to nest it inside `input`.
+ */
+export const ResourceMutateBodySchema = z
+  .object({
+    /** The kind's named mutation — validated against the adapter's `supports.mutations` in the route. */
+    action: z.string().min(1).max(64),
+    /**
+     * The mutation's SAFE, non-identifier operands (per-kind), merged into the adapter's discriminated
+     * `{ action, … }` union. A passthrough object (each adapter Zod-narrows its own variant); `.passthrough`
+     * is NOT used — the adapter validates the inner shape, and the OUTER `.strict()` still blocks a smuggled
+     * id at the top level. Absent for a no-operand mutation (e.g. `provision`).
+     */
+    input: z.record(z.unknown()).optional(),
+    /** Hoisted confirm for destructive/billable mutations (delete/terminate/exec-DDL/provision). */
+    confirm: z.boolean().optional(),
+  })
+  .strict();
+export type ResourceMutateBody = z.infer<typeof ResourceMutateBodySchema>;
+
 /** Typed reason a ref could not be resolved to a CF id — honest, no fabrication. */
 export const ResolveResourceRefFailureSchema = z.enum([
   'unauthorized', // no authed org

@@ -54,6 +54,7 @@ import {
   ResourceEnvironmentSchema,
   type ResourceKind,
   ResourceKindSchema,
+  ResourceMutateBodySchema,
   type ResourceRecord,
 } from './schemas.js';
 
@@ -304,6 +305,93 @@ resourceRegistryApi.get('/api/sites/:siteId/resources/:kind/detail', async (c) =
   }
 });
 
+/**
+ * POST one resource's MUTATE: dispatch a NAMED, typed write verb to the kind's adapter for the OWNED site +
+ * environment, and return the adapter's typed {@link AdapterResult} verbatim under
+ * `{ data: { kind, action, result } }`. This is the generic per-kind WRITE the editor's ResourceDetailPanel
+ * drives — one endpoint that serves EVERY implemented kind, because every adapter shares the uniform
+ * `mutate(scope, {action, ...input, confirm}) → AdapterResult` contract (adapter.ts). This is the OWNER acting
+ * on their OWN resource (the embedded editor bridge carries the owner session).
+ *
+ * The caller NEVER names a CF id (INV-1): it addresses `:kind` + a body `{ action, input?, confirm? }` whose
+ * `input` carries only bounded, non-identifier operands (key/value, sql/params, ids, instanceId, messages, …).
+ * The 5-step gate resolves the real CF id server-side from a registry row the caller proved it owns:
+ *   1. AUTH       — `orgId` from context, else 401.
+ *   2. FLAG       — `isFlagOn(data_resource_platform)`, else 404 (DARK, never 403).
+ *   3. OWNERSHIP  — `ownsSiteData`, else 404 (IDOR, never 403).
+ *   4. OPERANDS   — validate `kind` ∈ ResourceKind, the `{action,input?,confirm?}` body (`.strict` strips a
+ *                   smuggled id), the `environment` enum, and that `action` ∈ the adapter's declared
+ *                   `supports.mutations` — else 400 (or an honest `not_supported`/`not_registered` result).
+ *   5. RESOLVE    — for `provision` (which PRODUCES the id) attach `scope.env` + `scope.tenantId` and dispatch
+ *                   with an empty `resourceId`; for every other action `resolveResourceRef` maps
+ *                   `{kind,environment}` → the OWNED CF id, then dispatch `IMPLEMENTED_ADAPTERS[kind].mutate`.
+ *
+ * Honest passthrough: `confirmation_required` (a destructive/billable op awaiting `confirm:true`),
+ * `not_available`/`not_supported` (a verb the CF API can't back), `not_registered` (no owned row), and the
+ * adapter's own typed errors (`cf_unauthorized`, `quota_at_cap`, …) ALL pass through as a 200
+ * `{ result: { ok:false, error } }` — the surface renders them as-is, never fabricating a success.
+ */
+resourceRegistryApi.post('/api/sites/:siteId/resources/:kind/mutate', async (c) => {
+  // 1. AUTH
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, kind: rawKind } = c.req.param();
+
+  // 2. FLAG (DARK → 404, never 403 / never leak existence)
+  if (!(await isFlagOn(c.env, FLAG, { orgId, siteId })))
+    return c.json(
+      { error: { code: 'NOT_FOUND', message: 'Resource platform is not enabled' } },
+      404,
+    );
+
+  // 3. OWNERSHIP (IDOR guard — 404 on foreign/missing, never 403)
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+  // 4. OPERANDS — kind + the {action,input?,confirm?} body (strict strips a smuggled id) + environment.
+  const parsedKind = ResourceKindSchema.safeParse(rawKind);
+  if (!parsedKind.success)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid resource kind' } }, 400);
+  const kind = parsedKind.data;
+
+  const rawBody = (await c.req.json().catch(() => null)) as unknown;
+  const parsedBody = ResourceMutateBodySchema.safeParse(rawBody);
+  if (!parsedBody.success)
+    return c.json(
+      { error: { code: 'BAD_REQUEST', message: 'action is required; a CF id may not be supplied' } },
+      400,
+    );
+  const { action, input, confirm } = parsedBody.data;
+
+  const environment = parseEnvironment(c.req.query('environment'));
+  if (environment === null)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid environment' } }, 400);
+
+  // 5. RESOLVE + dispatch — the CF id is server-resolved from an OWNED registry row (or PRODUCED by provision).
+  try {
+    const result = await runMutate(c.env, siteId, orgId, kind, action, environment, input, confirm);
+    return c.json({ data: { action, kind, result } });
+  } catch (err) {
+    console.warn(
+      JSON.stringify({
+        level: 'error',
+        msg: 'resource_registry_mutate_failed',
+        service: 'data_resource_registry_handlers',
+        siteId,
+        kind,
+        action,
+        environment,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return c.json(
+      { error: { code: 'INTERNAL_ERROR', message: 'Could not perform this action.' } },
+      500,
+    );
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // helpers (pure — grouping / sorting / re-shaping the reconcile result)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -392,6 +480,112 @@ async function runDetail(
   };
 
   return action === 'list' ? adapter.list(scope, params) : adapter.get(scope, params);
+}
+
+/**
+ * The named mutations that CREATE a new CF resource rather than operate on an already-resolved one. For these,
+ * `scope.resourceId` is EMPTY (the id is what the mutation PRODUCES), so resolve is SKIPPED and the scope is
+ * built with `env` + `tenantId` instead (`service.provisionResource` needs the DB + creds). Every other
+ * mutation operates on an owned, server-resolved id. Kept as a set so the "produces vs operates-on" split is
+ * one lookup (mirrors `PROVISION_META` in service.ts).
+ */
+const PRODUCING_MUTATIONS: ReadonlySet<string> = new Set(['provision']);
+
+/**
+ * Resolve the OWNED CF id for `(siteId, kind, environment)`, build the adapter scope, and dispatch the requested
+ * NAMED mutation. Returns the adapter's {@link AdapterResult} — or an honest {@link resolveFailureEnvelope}
+ * when the ref can't resolve or the kind has no wired adapter/verb/mutation. NEVER accepts a CF id; every id
+ * comes from the registry via {@link resolveResourceRef} (or is PRODUCED by a `provision` mutation).
+ *
+ * The `{action, ...input, confirm}` object is merged into the adapter's discriminated `mutate` union: the
+ * top-level `confirm` hoists a destructive/billable approval so the caller need not nest it, and only bounded,
+ * non-identifier `input` operands reach the adapter (the route's `.strict()` body already stripped a smuggled id).
+ */
+async function runMutate(
+  env: Env,
+  siteId: string,
+  orgId: string,
+  kind: ResourceKind,
+  action: string,
+  environment: ResourceEnvironment,
+  input: Record<string, unknown> | undefined,
+  confirm: boolean | undefined,
+): Promise<AdapterResult<unknown>> {
+  const adapter = IMPLEMENTED_ADAPTERS[kind];
+  // A kind with no wired CF-backed adapter is an honest "nothing to act on" (never a 500).
+  if (!adapter) return resolveFailureEnvelope('not_registered');
+
+  // The adapter must actually declare `mutate` AND the specific named mutation (honest capability gate) — the
+  // UI drives only mutations from `supports.mutations`, but re-check server-side so a crafted call can't reach
+  // an unwired verb.
+  if (!adapter.supports.verbs.includes('mutate') || !adapter.supports.mutations.includes(action)) {
+    return {
+      correlationId: `unsupported-${action}`,
+      error: {
+        code: 'not_supported',
+        message: `The ${kind} resource does not support the '${action}' action.`,
+        retryable: false,
+      },
+      ok: false,
+    };
+  }
+
+  // Merge the mutation payload: the discriminated `{ action, ...input }` union + a hoisted top-level confirm
+  // (so a destructive/billable op can be approved without nesting confirm inside input). A nested
+  // `input.confirm` still works; the explicit top-level one wins when present.
+  const mutateInput = {
+    ...(input ?? {}),
+    action,
+    ...(confirm !== undefined ? { confirm } : {}),
+  } as never;
+
+  const auth = await resolveCfCredentials(env, orgId);
+  if (!auth) return resolveFailureEnvelope('no_account_id');
+  const accountId = env.CF_ACCOUNT_ID;
+  if (!accountId) return resolveFailureEnvelope('no_account_id');
+
+  // PROVISION (and any future producing mutation) CREATES the resource, so there is no owned id to resolve yet
+  // — the ownership gate already ran in the route. Build the scope with `env` + `tenantId` (the provisioner's
+  // DB + creds source) and an EMPTY resourceId; `service.provisionResource` re-scopes every read on site+org.
+  if (PRODUCING_MUTATIONS.has(action)) {
+    const scope: ResolvedScope = {
+      accessPolicy: 'no_direct',
+      accountId,
+      auth,
+      db: env.DB,
+      env,
+      environment,
+      ingestEnabled: env.ANALYTICS_INGEST_ENABLED === 'true',
+      orgId,
+      resourceId: '', // the id is what provision PRODUCES
+      siteId,
+      tenantId: orgId,
+    };
+    return adapter.mutate(scope, mutateInput);
+  }
+
+  // Every non-producing mutation operates on an OWNED, server-resolved id (INV-1/§4) — the caller named only
+  // the kind + action + safe operands.
+  const resolved = await resolveResourceRef(env, siteId, { environment, kind }, { orgId });
+  if (!resolved.ok) return resolveFailureEnvelope(resolved.reason);
+
+  const scope: ResolvedScope = {
+    accessPolicy: resolved.accessPolicy,
+    accountId,
+    auth,
+    // D1 handle for D1-backed kinds (e.g. connection); CF-REST adapters ignore it. env is attached too so a
+    // kind's mutate that lazily needs it never fails — additive, never widens a CF-REST adapter's contract.
+    db: env.DB,
+    env,
+    environment,
+    ingestEnabled: env.ANALYTICS_INGEST_ENABLED === 'true',
+    orgId,
+    resourceId: resolved.resourceId,
+    siteId,
+    tenantId: orgId,
+  };
+
+  return adapter.mutate(scope, mutateInput);
 }
 
 /**

@@ -1,5 +1,5 @@
 /**
- * @file Resource Detail — the editor "Resources" tab's GENERIC per-kind drill-in.
+ * @file Resource Detail — the editor "Resources" tab's GENERIC per-kind drill-in + WRITE surface.
  *
  * @remarks
  * Opened when a business owner clicks a resource card in {@link ResourceOverviewPanel}. It shows ONE
@@ -9,6 +9,18 @@
  *   - `get`  → ONE child (a table's row page, one KV value, one R2 object, one run's status), rendered
  *     as a key-value inspector + (for tabular payloads) a rows table.
  *
+ * AND it now drives the platform's uniform WRITE verb — `mutate(scope, {action, ...input, confirm})` →
+ * `AdapterResult` (adapter.ts) — via a supports-driven control strip:
+ *   - a prominent **Provision** button when the resource is not yet connected (`not_registered` / an
+ *     "available to add" card) and the kind is provisionable (d1/kv/r2);
+ *   - per-action controls: KV `put` (key+value+TTL) / `delete` (key); R2 `delete` (object key); D1
+ *     `exec` (SQL textarea + params); Vectorize `delete` (ids); Workflow `start`/`terminate`/… ;
+ *     generic named-action buttons for the rest.
+ *   Which controls appear is DRIVEN by the kind's declared `supports.mutations` (a compile-time
+ *   constant per adapter, mirrored here) — the server RE-VALIDATES `action ∈ supports.mutations`, so a
+ *   control can never reach an unwired verb. DESTRUCTIVE actions (delete/terminate/reset/destroy/drop)
+ *   open a confirm dialog, then send `confirm:true`.
+ *
  * ONE component serves EVERY kind because the worker returns the adapter's uniform `AdapterResult`
  * envelope (`{ ok, data?, error?, correlationId }`, see `adapter.ts`) and this panel renders that
  * shape GENERICALLY — a primitive/array/object walker — never a per-kind bespoke view. New kinds light
@@ -17,24 +29,29 @@
  * The embedded editor has no cross-origin session, so it talks to the parent admin over `postMessage`:
  *   - `PS_RES_DETAIL_REQUEST { kind, action, environment, params? }` →
  *     `GET /api/sites/:siteId/resources/:kind/detail?action=…` → `PS_RES_DETAIL_RESPONSE { result }`.
- * The caller NEVER names a CF id — only the kind + action + bounded params; the worker server-resolves
- * the id from a registry row the site owns. Dark behind the surface's flag (a 404 "not enabled" →
- * `{ ok:false, enabled:false }`) → a friendly "not enabled" state, never a scary error.
+ *   - `PS_RES_MUTATE_REQUEST { kind, action, environment, input?, confirm? }` →
+ *     `POST /api/sites/:siteId/resources/:kind/mutate` → `PS_RES_MUTATE_RESPONSE { result }`.
+ * The caller NEVER names a CF id — only the kind + action + bounded params/input; the worker
+ * server-resolves (or PRODUCES, for `provision`) the id. Dark behind the surface's flag (a 404 "not
+ * enabled" → `{ ok:false, enabled:false }`) → a friendly "not enabled" state, never a scary error.
  *
  * Honest states, always: loading · disabled · a typed adapter error (`not_registered` "nothing
  * connected yet" / `not_supported` / `table_not_found` / `cf_unauthorized`) shown as a friendly card ·
- * an empty result · the data. Style mirrors `./ResourceOverviewPanel` + `./SiteTablesPanel` EXACTLY
- * (UnoCSS `bolt-elements-*` tokens, phosphor `i-ph:*`, black + cyan, ≥24px targets, aria-labels,
- * focus-visible rings, `motion-reduce:*`).
+ * an empty result · the data · a mutation's typed result (success + what-changed / confirmation_required
+ * / not_available). Style mirrors `./ResourceOverviewPanel` + `./SiteTablesPanel` EXACTLY (UnoCSS
+ * `bolt-elements-*` tokens, phosphor `i-ph:*`, black + cyan, ≥24px targets, aria-labels, focus-visible
+ * rings, `motion-reduce:*`). After a successful mutate, the detail refetches so the change shows.
  */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { classNames } from '~/utils/classNames';
+import { ConfirmationDialog } from '~/components/ui/Dialog';
 import {
   isEmbedded,
   postToParent,
   onParentMessage,
   type ParentToChildMessage,
   type ResDetailResponseMessage,
+  type ResMutateResponseMessage,
   type ResourceDetailResult,
 } from '~/lib/embed/embedded-mode';
 
@@ -52,6 +69,12 @@ export interface ResourceDetailTarget {
   concept?: string;
   /** The Worker binding it's exposed under, for the header subtitle. */
   bindingName?: string;
+  /**
+   * The overview's availability verdict for this card, when known: `available` = server-known but NOT
+   * yet connected (→ lead with Provision); `connected` = a live resource (→ read + per-action writes).
+   * Absent → inferred from the load result (`not_registered` ⇒ treat as available-to-provision).
+   */
+  availability?: 'connected' | 'available' | 'unsupported';
 }
 
 /** The safe, non-identifier operands forwarded into the adapter's `list`/`get` (a CF id is NEVER one). */
@@ -70,10 +93,49 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>;
 }
 
+/** The outcome of a mutate round-trip, rendered inline under the write controls (honest, never faked). */
+type MutateOutcome =
+  | { kind: 'success'; action: string; result: Record<string, unknown> }
+  | { kind: 'confirmation'; action: string; message: string }
+  | { kind: 'not_available'; action: string; message: string }
+  | { kind: 'error'; action: string; message: string };
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const DISABLED_404 = 'not enabled';
+
+/**
+ * The named mutations each kind's adapter declares (`supports.mutations`) — mirrored here so the write
+ * controls render WITHOUT a round-trip; the worker RE-VALIDATES `action ∈ supports.mutations`, so this
+ * is a UI hint, never the authority. Keep in lock-step with the adapters' `supports.mutations` blocks.
+ */
+const MUTATIONS_FOR_KIND: Record<string, readonly string[]> = {
+  d1: ['exec', 'provision'],
+  kv: ['put', 'delete', 'provision'],
+  r2: ['put', 'delete', 'provision'],
+  vectorize: ['upsert', 'delete'],
+  workflow: ['start', 'pause', 'resume', 'restart', 'terminate'],
+  durable_object: ['status_probe', 'reset'],
+  queue: ['send'],
+  connection: [],
+  analytics_engine: [],
+};
+
+/** Actions that DESTROY / irreversibly change existing state → gated behind a confirm dialog + `confirm:true`. */
+const DESTRUCTIVE_ACTIONS: ReadonlySet<string> = new Set([
+  'delete',
+  'terminate',
+  'reset',
+  'destroy',
+  'drop',
+  'restart',
+  'purge',
+  'revoke',
+]);
+
+/** The provisioning action (creates real, billable CF infra) — always confirm-gated. */
+const PROVISION_ACTION = 'provision';
 
 let correlationCounter = 0;
 function nextCorrelationId(): string {
@@ -82,6 +144,65 @@ function nextCorrelationId(): string {
   }
 
   return `resdetail_${++correlationCounter}`;
+}
+
+/** Resolve which named mutations to offer for a kind (falls back to none for an unknown kind). */
+function mutationsForKind(kind: string): readonly string[] {
+  const k = (kind || '').toLowerCase();
+
+  if (MUTATIONS_FOR_KIND[k]) {
+    return MUTATIONS_FOR_KIND[k];
+  }
+
+  // Tolerate synonym-ish kinds (e.g. `database` → d1) so a slightly-off label still offers the right verbs.
+  if (k.includes('d1') || k.includes('sql')) return MUTATIONS_FOR_KIND.d1;
+  if (k.includes('kv') || k.includes('key')) return MUTATIONS_FOR_KIND.kv;
+  if (k.includes('r2') || k.includes('bucket') || k.includes('object')) return MUTATIONS_FOR_KIND.r2;
+  if (k.includes('vector')) return MUTATIONS_FOR_KIND.vectorize;
+  if (k.includes('workflow')) return MUTATIONS_FOR_KIND.workflow;
+  if (k.includes('durable') || k.includes('do')) return MUTATIONS_FOR_KIND.durable_object;
+  if (k.includes('queue')) return MUTATIONS_FOR_KIND.queue;
+
+  return [];
+}
+
+/** True when a kind can be provisioned (its adapter declares the `provision` mutation). */
+function canProvision(kind: string): boolean {
+  return mutationsForKind(kind).includes(PROVISION_ACTION);
+}
+
+/** Human label for a named action button (`status_probe` → "Status Probe", `terminate` → "Terminate"). */
+function labelForAction(action: string): string {
+  return humanize(action);
+}
+
+/** A phosphor icon for a named action (best-effort; falls back to a generic play icon). */
+function iconForAction(action: string): string {
+  switch (action) {
+    case PROVISION_ACTION:
+      return 'i-ph:sparkle-duotone';
+    case 'delete':
+    case 'destroy':
+    case 'drop':
+    case 'purge':
+      return 'i-ph:trash-duotone';
+    case 'terminate':
+      return 'i-ph:stop-circle-duotone';
+    case 'reset':
+    case 'restart':
+      return 'i-ph:arrow-counter-clockwise-duotone';
+    case 'pause':
+      return 'i-ph:pause-circle-duotone';
+    case 'resume':
+    case 'start':
+      return 'i-ph:play-circle-duotone';
+    case 'status_probe':
+      return 'i-ph:heartbeat-duotone';
+    case 'send':
+      return 'i-ph:paper-plane-tilt-duotone';
+    default:
+      return 'i-ph:lightning-duotone';
+  }
 }
 
 /** A human title for a `resource_kind` — strips separators + Title-Cases each word. */
@@ -219,12 +340,18 @@ function friendlyError(result: ResourceDetailResult): { title: string; hint: str
   }
 }
 
+/** True when a read result's error means "not connected yet" (⇒ lead with the Provision affordance). */
+function isNotRegistered(result: ResourceDetailResult | null): boolean {
+  return Boolean(result && result.ok === false && (result.error?.code === 'not_registered' || result.error?.code === 'not_provisioned'));
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 /**
  * The generic resource detail panel. Renders as an in-tab drill-in over one resource; `onBack` returns
  * to the overview. Loads `list` on mount; a click on a listed child that has an addressable id
- * (`name`/`key`/`id`) issues a `get` to inspect that child.
+ * (`name`/`key`/`id`) issues a `get` to inspect that child. A supports-driven write strip drives the
+ * platform's uniform `mutate` verb (provision + per-action controls, destructive confirm).
  */
 export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceDetailTarget; onBack: () => void }) => {
   const [state, setState] = useState<DetailState>({ status: 'loading' });
@@ -248,9 +375,10 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
   }, []);
 
   // ONE parent-message listener; resolve by correlationId via the live ref (repo []-deps stale-ref rule).
+  // Handles BOTH the detail read reply AND the mutate reply (each carries its own correlationId).
   useEffect(() => {
     const unsubscribe = onParentMessage((msg) => {
-      if (msg.type !== 'PS_RES_DETAIL_RESPONSE') {
+      if (msg.type !== 'PS_RES_DETAIL_RESPONSE' && msg.type !== 'PS_RES_MUTATE_RESPONSE') {
         return;
       }
 
@@ -321,6 +449,74 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
     [request, target.kind, target.environment],
   );
 
+  /**
+   * Run a NAMED mutation via the bridge (`PS_RES_MUTATE_REQUEST`), return the classified {@link MutateOutcome}
+   * for inline rendering. NEVER names a CF id — only the kind + action + bounded `input` (+ confirm). Honest:
+   * a `confirmation_required` / `not_available` adapter result is surfaced as such, never a fake success.
+   */
+  const mutate = useCallback(
+    async (action: string, input?: Record<string, unknown>, confirm?: boolean): Promise<MutateOutcome> => {
+      if (!isEmbedded) {
+        return { kind: 'error', action, message: 'Open this from the ProjectSites admin to make changes.' };
+      }
+
+      try {
+        const reply = (await request({
+          type: 'PS_RES_MUTATE_REQUEST',
+          correlationId: nextCorrelationId(),
+          kind: target.kind,
+          action,
+          environment: target.environment,
+          input,
+          confirm,
+        })) as ResMutateResponseMessage;
+
+        if (!reply.ok) {
+          if (reply.enabled === false) {
+            return { kind: 'error', action, message: 'This surface isn’t enabled.' };
+          }
+
+          return { kind: 'error', action, message: reply.error || 'That action didn’t go through.' };
+        }
+
+        const result = reply.result;
+
+        if (!result) {
+          return { kind: 'error', action, message: 'No result returned.' };
+        }
+
+        if (result.ok) {
+          return { kind: 'success', action, result: (result.data as Record<string, unknown>) ?? {} };
+        }
+
+        const code = result.error?.code ?? 'error';
+        const message = result.error?.message ?? 'That action couldn’t be completed.';
+
+        if (code === 'confirmation_required') {
+          return { kind: 'confirmation', action, message };
+        }
+
+        if (code === 'not_available' || code === 'not_supported' || code === 'quota_at_cap') {
+          return { kind: 'not_available', action, message };
+        }
+
+        return { kind: 'error', action, message };
+      } catch (err) {
+        return { kind: 'error', action, message: err instanceof Error ? err.message : 'That action didn’t go through.' };
+      }
+    },
+    [request, target.kind, target.environment],
+  );
+
+  /** Refetch the current view (list or the open child) — called after a successful mutate so the change shows. */
+  const refresh = useCallback(() => {
+    if (child) {
+      void load('get', child.params);
+    } else {
+      void load('list');
+    }
+  }, [child, load]);
+
   // On mount + whenever the child selection changes: load the right view.
   useEffect(() => {
     if (child) {
@@ -364,6 +560,19 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
     [target.kind],
   );
 
+  const currentResult = state.status === 'ready' ? state.result : null;
+  const notRegistered = target.availability === 'available' || isNotRegistered(currentResult);
+  const mutations = useMemo(() => mutationsForKind(target.kind), [target.kind]);
+  // The write strip stays mounted once the panel has EVER settled (ready/error) — so a post-mutate refetch
+  // (which flips the body to a loading spinner) never unmounts the controls or drops the success/outcome
+  // card mid-refresh. It's hidden only during the very FIRST load (nothing settled yet) or when the surface
+  // is flag-dark (`disabled`). Gated on the kind actually offering a mutation.
+  const [everSettled, setEverSettled] = useState(false);
+  useEffect(() => {
+    if (state.status === 'ready' || state.status === 'error') setEverSettled(true);
+  }, [state.status]);
+  const showWrite = mutations.length > 0 && state.status !== 'disabled' && (everSettled || state.status === 'ready' || state.status === 'error');
+
   return (
     <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary">
       <DetailHeader
@@ -371,12 +580,23 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
         child={child}
         onBack={onBack}
         onClearChild={() => setChild(null)}
-        onRefresh={() => (child ? void load('get', child.params) : void load('list'))}
+        onRefresh={refresh}
       />
+
+      {showWrite && (
+        <WriteControls
+          kind={target.kind}
+          mutations={mutations}
+          notRegistered={notRegistered}
+          currentChild={child}
+          mutate={mutate}
+          onMutated={refresh}
+        />
+      )}
 
       {state.status === 'loading' && <Spinner label={child ? `Loading ${child.label}…` : 'Loading…'} />}
       {state.status === 'disabled' && <DisabledCard />}
-      {state.status === 'error' && <ErrorCard message={state.message} onRetry={() => (child ? void load('get', child.params) : void load('list'))} />}
+      {state.status === 'error' && <ErrorCard message={state.message} onRetry={refresh} />}
 
       {state.status === 'ready' &&
         (state.result.ok ? (
@@ -387,7 +607,7 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
             onInspectChild={setChild}
           />
         ) : (
-          <AdapterErrorCard result={state.result} onRetry={() => (child ? void load('get', child.params) : void load('list'))} />
+          <AdapterErrorCard result={state.result} onRetry={refresh} />
         ))}
     </div>
   );
@@ -450,6 +670,491 @@ const DetailHeader = memo(
 );
 
 DetailHeader.displayName = 'ResourceDetailPanel.Header';
+
+// ── Write controls (supports-driven) ───────────────────────────────────────────
+
+/**
+ * The supports-driven WRITE strip. Renders the right controls for the kind's declared mutations:
+ *   - `provision` → a prominent Provision button (lead with it when the resource isn't connected yet);
+ *   - KV → put (key/value/TTL) + delete (key); R2 → delete (object key); D1 → exec (SQL + params);
+ *   - Vectorize → delete (ids); generic named-action buttons for the rest (workflow/DO/queue verbs).
+ * DESTRUCTIVE actions (delete/terminate/reset/…) + provision open a confirm dialog then send `confirm:true`.
+ * The classified {@link MutateOutcome} renders inline; a success refetches the detail via `onMutated`.
+ */
+const WriteControls = memo(
+  ({
+    kind,
+    mutations,
+    notRegistered,
+    currentChild,
+    mutate,
+    onMutated,
+  }: {
+    kind: string;
+    mutations: readonly string[];
+    notRegistered: boolean;
+    currentChild: { label: string; params: DetailParams } | null;
+    mutate: (action: string, input?: Record<string, unknown>, confirm?: boolean) => Promise<MutateOutcome>;
+    onMutated: () => void;
+  }) => {
+    const [busyAction, setBusyAction] = useState<string | null>(null);
+    const [outcome, setOutcome] = useState<MutateOutcome | null>(null);
+    /** The action currently awaiting a confirm-dialog decision (destructive / provision), with its input. */
+    const [confirming, setConfirming] = useState<{ action: string; input?: Record<string, unknown>; label: string } | null>(null);
+
+    const k = kind.toLowerCase();
+    const has = useCallback((action: string) => mutations.includes(action), [mutations]);
+
+    /** Run a mutation now (already confirmed if needed): set busy, send, classify, refetch on success. */
+    const run = useCallback(
+      async (action: string, input?: Record<string, unknown>, confirm?: boolean) => {
+        setBusyAction(action);
+        setOutcome(null);
+
+        const result = await mutate(action, input, confirm);
+        setBusyAction(null);
+        setOutcome(result);
+
+        if (result.kind === 'success') {
+          onMutated();
+        }
+      },
+      [mutate, onMutated],
+    );
+
+    /** Route an action: destructive/provision → open the confirm dialog; everything else runs immediately. */
+    const dispatch = useCallback(
+      (action: string, input: Record<string, unknown> | undefined, label: string) => {
+        if (DESTRUCTIVE_ACTIONS.has(action) || action === PROVISION_ACTION) {
+          setConfirming({ action, input, label });
+          return;
+        }
+
+        void run(action, input);
+      },
+      [run],
+    );
+
+    const confirmDialog =
+      confirming &&
+      (() => {
+        const destructive = DESTRUCTIVE_ACTIONS.has(confirming.action);
+        const title =
+          confirming.action === PROVISION_ACTION
+            ? `Provision this ${titleForKind(kind)}?`
+            : `${labelForAction(confirming.action)} ${confirming.label}?`;
+        const description =
+          confirming.action === PROVISION_ACTION
+            ? `This creates a real, dedicated ${titleForKind(kind)} for your site on Cloudflare. It may count toward your plan. Continue?`
+            : `This ${destructive ? 'permanently changes' : 'changes'} “${confirming.label}”. This can’t be undone. Continue?`;
+
+        return (
+          <ConfirmationDialog
+            isOpen={true}
+            title={title}
+            description={description}
+            confirmLabel={confirming.action === PROVISION_ACTION ? 'Provision' : labelForAction(confirming.action)}
+            cancelLabel="Cancel"
+            variant={destructive ? 'destructive' : 'default'}
+            isLoading={busyAction === confirming.action}
+            onClose={() => setConfirming(null)}
+            onConfirm={() => {
+              const pending = confirming;
+              setConfirming(null);
+              void run(pending.action, pending.input, true);
+            }}
+          />
+        );
+      })();
+
+    // The named actions that get a plain button (everything that ISN'T rendered as a bespoke form control).
+    const bespoke = new Set<string>();
+    if (has('put') && (k.includes('kv') || k.includes('r2'))) bespoke.add('put');
+    if (has('delete') && (k.includes('kv') || k.includes('r2') || k.includes('vector'))) bespoke.add('delete');
+    if (has('exec') && k.includes('d1')) bespoke.add('exec');
+    const genericActions = mutations.filter((m) => m !== PROVISION_ACTION && !bespoke.has(m));
+
+    return (
+      <div className="shrink-0 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/40 px-4 py-3 space-y-3" data-testid="resource-detail-write">
+        {/* Provision — lead with it when the resource isn't connected yet. */}
+        {has(PROVISION_ACTION) && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="resource-mutate-provision"
+              disabled={busyAction !== null}
+              onClick={() => dispatch(PROVISION_ACTION, undefined, titleForKind(kind))}
+              className={classNames(
+                'min-h-[32px] inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed',
+                notRegistered
+                  ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3'
+                  : 'border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-3',
+              )}
+            >
+              <div className={classNames(busyAction === PROVISION_ACTION ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : iconForAction(PROVISION_ACTION), 'text-sm')} />
+              {notRegistered ? `Provision ${titleForKind(kind)}` : 'Re-provision'}
+            </button>
+            {notRegistered && (
+              <span className="text-[10px] text-bolt-elements-textTertiary">Creates a dedicated resource for your site.</span>
+            )}
+          </div>
+        )}
+
+        {/* KV put — key + value + optional TTL. */}
+        {bespoke.has('put') && k.includes('kv') && (
+          <KvPutForm busy={busyAction === 'put'} onSubmit={(input) => dispatch('put', input, String(input.key))} />
+        )}
+
+        {/* R2 put (create/overwrite an object) — key + value. */}
+        {bespoke.has('put') && k.includes('r2') && (
+          <R2PutForm busy={busyAction === 'put'} onSubmit={(input) => dispatch('put', input, String(input.key))} />
+        )}
+
+        {/* Delete by key (KV / R2) — key input, destructive. */}
+        {bespoke.has('delete') && (k.includes('kv') || k.includes('r2')) && (
+          <KeyDeleteForm
+            label={k.includes('r2') ? 'object key' : 'key'}
+            busy={busyAction === 'delete'}
+            defaultKey={currentChild && typeof currentChild.params.key === 'string' ? currentChild.params.key : ''}
+            onSubmit={(key) => dispatch('delete', { key }, key)}
+          />
+        )}
+
+        {/* Vectorize delete by ids — comma/space-separated ids, destructive. */}
+        {bespoke.has('delete') && k.includes('vector') && (
+          <VectorDeleteForm busy={busyAction === 'delete'} onSubmit={(ids) => dispatch('delete', { ids }, `${ids.length} vector${ids.length === 1 ? '' : 's'}`)} />
+        )}
+
+        {/* D1 exec — SQL textarea + optional JSON params. Mutating SQL is confirm-gated server-side. */}
+        {bespoke.has('exec') && k.includes('d1') && (
+          <D1ExecForm
+            busy={busyAction === 'exec'}
+            onSubmit={(input, isDestructive) =>
+              isDestructive ? setConfirming({ action: 'exec', input, label: 'this SQL statement' }) : void run('exec', input, true)
+            }
+          />
+        )}
+
+        {/* Generic named-action buttons (workflow start/pause/…, DO status_probe/reset, queue send, …). */}
+        {genericActions.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5" data-testid="resource-mutate-actions">
+            {genericActions.map((action) => (
+              <GenericActionButton
+                key={action}
+                action={action}
+                busy={busyAction === action}
+                disabled={busyAction !== null}
+                onRun={(input) => dispatch(action, input, labelForAction(action))}
+              />
+            ))}
+          </div>
+        )}
+
+        {outcome && <MutateOutcomeCard outcome={outcome} onDismiss={() => setOutcome(null)} />}
+
+        {confirmDialog}
+      </div>
+    );
+  },
+);
+
+WriteControls.displayName = 'ResourceDetailPanel.WriteControls';
+
+// ── Per-action forms ────────────────────────────────────────────────────────────
+
+const inputClass =
+  'w-full rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2.5 py-1.5 text-xs font-mono text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent';
+
+const primaryBtnClass =
+  'min-h-[32px] inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed';
+
+const dangerBtnClass =
+  'min-h-[32px] inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold border border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed';
+
+const KvPutForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (input: Record<string, unknown>) => void }) => {
+  const [key, setKey] = useState('');
+  const [value, setValue] = useState('');
+  const [ttl, setTtl] = useState('');
+
+  const submit = () => {
+    if (!key.trim()) return;
+
+    const input: Record<string, unknown> = { key: key.trim(), value };
+    const ttlNum = Number(ttl);
+    if (ttl.trim() && Number.isFinite(ttlNum) && ttlNum >= 60) input.expirationTtl = Math.trunc(ttlNum);
+    onSubmit(input);
+  };
+
+  return (
+    <div className="space-y-1.5" data-testid="resource-mutate-kv-put">
+      <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Write a key</label>
+      <input className={inputClass} placeholder="key" aria-label="KV key to write" value={key} onChange={(e) => setKey(e.target.value)} />
+      <textarea className={classNames(inputClass, 'min-h-[52px] resize-y')} placeholder="value" aria-label="KV value" value={value} onChange={(e) => setValue(e.target.value)} />
+      <div className="flex items-center gap-2">
+        <input className={classNames(inputClass, 'w-32')} placeholder="TTL secs (≥60)" aria-label="Optional TTL in seconds" inputMode="numeric" value={ttl} onChange={(e) => setTtl(e.target.value)} />
+        <button type="button" className={primaryBtnClass} disabled={busy || !key.trim()} onClick={submit}>
+          <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:floppy-disk-duotone', 'text-sm')} /> Write key
+        </button>
+      </div>
+    </div>
+  );
+});
+
+KvPutForm.displayName = 'ResourceDetailPanel.KvPutForm';
+
+const R2PutForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (input: Record<string, unknown>) => void }) => {
+  const [key, setKey] = useState('');
+  const [value, setValue] = useState('');
+
+  const submit = () => {
+    if (!key.trim()) return;
+
+    onSubmit({ key: key.trim(), value });
+  };
+
+  return (
+    <div className="space-y-1.5" data-testid="resource-mutate-r2-put">
+      <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Write an object</label>
+      <input className={inputClass} placeholder="object key" aria-label="R2 object key to write" value={key} onChange={(e) => setKey(e.target.value)} />
+      <textarea className={classNames(inputClass, 'min-h-[52px] resize-y')} placeholder="contents" aria-label="R2 object contents" value={value} onChange={(e) => setValue(e.target.value)} />
+      <button type="button" className={primaryBtnClass} disabled={busy || !key.trim()} onClick={submit}>
+        <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:floppy-disk-duotone', 'text-sm')} /> Write object
+      </button>
+    </div>
+  );
+});
+
+R2PutForm.displayName = 'ResourceDetailPanel.R2PutForm';
+
+const KeyDeleteForm = memo(
+  ({ label, busy, defaultKey, onSubmit }: { label: string; busy: boolean; defaultKey: string; onSubmit: (key: string) => void }) => {
+    const [key, setKey] = useState(defaultKey);
+
+    // Reflect a newly-selected child key into the delete field.
+    useEffect(() => {
+      setKey(defaultKey);
+    }, [defaultKey]);
+
+    return (
+      <div className="space-y-1.5" data-testid="resource-mutate-key-delete">
+        <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Delete a {label}</label>
+        <div className="flex items-center gap-2">
+          <input className={inputClass} placeholder={label} aria-label={`The ${label} to delete`} value={key} onChange={(e) => setKey(e.target.value)} />
+          <button type="button" className={dangerBtnClass} disabled={busy || !key.trim()} onClick={() => key.trim() && onSubmit(key.trim())}>
+            <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash-duotone', 'text-sm')} /> Delete
+          </button>
+        </div>
+      </div>
+    );
+  },
+);
+
+KeyDeleteForm.displayName = 'ResourceDetailPanel.KeyDeleteForm';
+
+const VectorDeleteForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (ids: string[]) => void }) => {
+  const [raw, setRaw] = useState('');
+
+  const ids = useMemo(() => raw.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean), [raw]);
+
+  return (
+    <div className="space-y-1.5" data-testid="resource-mutate-vector-delete">
+      <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Delete vectors by id</label>
+      <div className="flex items-center gap-2">
+        <input className={inputClass} placeholder="id1, id2, id3" aria-label="Vector ids to delete (comma or space separated)" value={raw} onChange={(e) => setRaw(e.target.value)} />
+        <button type="button" className={dangerBtnClass} disabled={busy || ids.length === 0} onClick={() => ids.length > 0 && onSubmit(ids)}>
+          <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:trash-duotone', 'text-sm')} /> Delete{ids.length > 0 ? ` (${ids.length})` : ''}
+        </button>
+      </div>
+    </div>
+  );
+});
+
+VectorDeleteForm.displayName = 'ResourceDetailPanel.VectorDeleteForm';
+
+const D1ExecForm = memo(({ busy, onSubmit }: { busy: boolean; onSubmit: (input: Record<string, unknown>, isDestructive: boolean) => void }) => {
+  const [sql, setSql] = useState('');
+  const [paramsRaw, setParamsRaw] = useState('');
+  const [paramsError, setParamsError] = useState<string | null>(null);
+
+  // Best-effort client hint (the WORKER classifies authoritatively): flag likely-destructive DDL/DML so the
+  // confirm dialog fires up-front. The server re-classifies + gates regardless, so this is only UX.
+  const likelyDestructive = /^\s*(drop|truncate|alter|delete)\b/i.test(sql) && !/\bwhere\b/i.test(sql.replace(/^\s*delete\b/i, 'delete'));
+  const likelyMutating = /^\s*(insert|update|delete|replace|create|alter|drop|truncate)\b/i.test(sql);
+
+  const submit = () => {
+    if (!sql.trim()) return;
+
+    setParamsError(null);
+
+    let params: unknown[] | undefined;
+
+    if (paramsRaw.trim()) {
+      try {
+        const parsed = JSON.parse(paramsRaw);
+
+        if (!Array.isArray(parsed)) {
+          setParamsError('Params must be a JSON array, e.g. ["a", 1, true].');
+          return;
+        }
+
+        params = parsed;
+      } catch {
+        setParamsError('Params must be valid JSON (an array of values).');
+        return;
+      }
+    }
+
+    const input: Record<string, unknown> = { sql: sql.trim() };
+    if (params) input.params = params;
+    // A mutating statement is confirm-gated (destructive → dialog; other mutating → the server still
+    // requires confirm:true, which we pass). A read-only statement runs with no confirm.
+    onSubmit(input, likelyDestructive || likelyMutating);
+  };
+
+  return (
+    <div className="space-y-1.5" data-testid="resource-mutate-d1-exec">
+      <label className="block text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">Run SQL</label>
+      <textarea
+        className={classNames(inputClass, 'min-h-[64px] resize-y')}
+        placeholder="SELECT * FROM my_table LIMIT 10;"
+        aria-label="SQL statement to run"
+        value={sql}
+        onChange={(e) => setSql(e.target.value)}
+      />
+      <input
+        className={inputClass}
+        placeholder='params (JSON array, optional) — e.g. ["a", 1]'
+        aria-label="Bound SQL parameters as a JSON array"
+        value={paramsRaw}
+        onChange={(e) => setParamsRaw(e.target.value)}
+      />
+      {paramsError && <p className="text-[10px] text-red-400">{paramsError}</p>}
+      <div className="flex items-center gap-2">
+        <button type="button" className={likelyDestructive ? dangerBtnClass : primaryBtnClass} disabled={busy || !sql.trim()} onClick={submit}>
+          <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:play-duotone', 'text-sm')} /> Run
+        </button>
+        {likelyMutating && (
+          <span className="text-[10px] text-amber-400/90">
+            {likelyDestructive ? 'This looks destructive — you’ll confirm first.' : 'This modifies data — you’ll confirm first.'}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+});
+
+D1ExecForm.displayName = 'ResourceDetailPanel.D1ExecForm';
+
+const GenericActionButton = memo(
+  ({ action, busy, disabled, onRun }: { action: string; busy: boolean; disabled: boolean; onRun: (input?: Record<string, unknown>) => void }) => {
+    const destructive = DESTRUCTIVE_ACTIONS.has(action);
+    // Instance-scoped verbs need an id; ask for it inline so the button isn't a dead control.
+    const needsInstance = ['pause', 'resume', 'restart', 'terminate'].includes(action);
+    const needsObject = ['status_probe', 'reset'].includes(action);
+    const needsMessages = action === 'send';
+    const [value, setValue] = useState('');
+
+    if (needsInstance || needsObject || needsMessages) {
+      const field = needsInstance ? 'instanceId' : needsObject ? 'objectId' : 'messages';
+      const placeholder = needsMessages ? 'message body' : needsInstance ? 'run instance id' : 'object id';
+      const buildInput = (): Record<string, unknown> => (needsMessages ? { messages: [value.trim()] } : { [field]: value.trim() });
+
+      return (
+        <div className="flex items-center gap-1.5">
+          <input className={classNames(inputClass, 'w-40')} placeholder={placeholder} aria-label={`${labelForAction(action)} — ${placeholder}`} value={value} onChange={(e) => setValue(e.target.value)} />
+          <button
+            type="button"
+            data-testid={`resource-mutate-action-${action}`}
+            disabled={disabled || !value.trim()}
+            onClick={() => value.trim() && onRun(buildInput())}
+            className={destructive ? dangerBtnClass : primaryBtnClass}
+          >
+            <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : iconForAction(action), 'text-sm')} />
+            {labelForAction(action)}
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        data-testid={`resource-mutate-action-${action}`}
+        disabled={disabled}
+        onClick={() => onRun()}
+        className={destructive ? dangerBtnClass : primaryBtnClass}
+      >
+        <div className={classNames(busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : iconForAction(action), 'text-sm')} />
+        {labelForAction(action)}
+      </button>
+    );
+  },
+);
+
+GenericActionButton.displayName = 'ResourceDetailPanel.GenericActionButton';
+
+/** Renders the classified {@link MutateOutcome} inline — honest success/confirmation/not-available/error. */
+const MutateOutcomeCard = memo(({ outcome, onDismiss }: { outcome: MutateOutcome; onDismiss: () => void }) => {
+  const config: Record<MutateOutcome['kind'], { icon: string; tone: string; title: string }> = {
+    success: { icon: 'i-ph:check-circle-duotone', tone: 'text-emerald-400', title: `${labelForAction(outcome.action)} succeeded` },
+    confirmation: { icon: 'i-ph:shield-warning-duotone', tone: 'text-amber-400', title: 'Confirmation needed' },
+    not_available: { icon: 'i-ph:prohibit-duotone', tone: 'text-bolt-elements-textTertiary', title: 'Not available' },
+    error: { icon: 'i-ph:warning-circle-duotone', tone: 'text-red-400', title: `${labelForAction(outcome.action)} didn’t go through` },
+  };
+  const c = config[outcome.kind];
+
+  return (
+    <div
+      className="flex items-start gap-2 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-3 py-2"
+      role="status"
+      aria-live="polite"
+      data-testid="resource-mutate-outcome"
+    >
+      <div className={classNames(c.icon, c.tone, 'text-base shrink-0 mt-0.5')} aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <p className={classNames('text-xs font-semibold', c.tone)}>{c.title}</p>
+        {outcome.kind === 'success' ? (
+          <WhatChanged result={outcome.result} />
+        ) : (
+          <p className="text-[11px] text-bolt-elements-textTertiary break-words">{outcome.message}</p>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss"
+        title="Dismiss"
+        className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer shrink-0"
+      >
+        <div className="i-ph:x text-sm" />
+      </button>
+    </div>
+  );
+});
+
+MutateOutcomeCard.displayName = 'ResourceDetailPanel.MutateOutcomeCard';
+
+/** The "what changed" summary of a successful mutation — the AdapterResult's own scalar fields, humanized. */
+const WhatChanged = memo(({ result }: { result: Record<string, unknown> }) => {
+  const entries = Object.entries(result).filter(([, v]) => v === null || typeof v !== 'object');
+
+  if (entries.length === 0) {
+    return <p className="text-[11px] text-bolt-elements-textTertiary">Done.</p>;
+  }
+
+  return (
+    <dl className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+      {entries.map(([k, v]) => (
+        <div key={k} className="flex items-center gap-1">
+          <dt className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">{humanize(k)}</dt>
+          <dd className="text-[11px] font-mono text-bolt-elements-textSecondary">{renderCell(v)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+});
+
+WhatChanged.displayName = 'ResourceDetailPanel.WhatChanged';
 
 // ── Result view (generic) ─────────────────────────────────────────────────────
 
