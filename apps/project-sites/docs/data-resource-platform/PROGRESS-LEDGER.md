@@ -26,3 +26,6 @@ Loop-maintained (cron `ef7c305d`, every 15m). Each fire folds prior work, advanc
 
 ## Parity gate (every phase)
 Each phase ships BOTH the Data-tab UI section AND the parity ProjectSites MCP tool(s), on the SAME server-side registry+authz services. Not done until UI+MCP+adapter+tests all green and the changed surfaces are prod-verified.
+
+## Deploy log
+- Resources tab deployed to editor.projectsites.dev on 2026-09-27, commit 100b74c51
