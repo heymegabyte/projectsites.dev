@@ -1,5 +1,57 @@
 # PROGRESS LEDGER
 
+## 2026-09-27 — Gated per-site GREENFIELD RESET re-applied on the FIRE-7 tip (FIRE 8)
+
+**Re-applied Fire 8 correctly** — the original Fire 8 was built on a stale base (`f8e4170c6`) that
+still had the deleted `DataPanel.tsx` and pre-dated Fire 7's bridge; its logic was reused via
+`git show` but re-pointed + made additive on the current tip.
+
+**What shipped:**
+
+- **Worker** (`libs/features/data_resource_registry/`): `reset_handlers.ts` (`dataResourceReset` Hono
+  app — `POST /api/sites/:siteId/data/reset[/preview]`) + `site_resources.ts` (`resolveSiteResources`
+  + `FORBIDDEN_DB_IDS` denylist + `isForbiddenDbId`). Mounted in `src/index.ts` BEFORE `siteDataApi`
+  so `/data/reset[/preview]` wins over `/data/:table`. → **Docker worker-deploy** (per-site D1/KV/R2
+  wipe via CF REST; not deployed this fire per instruction).
+- **Editor**: `GreenfieldReset.tsx` + `DangerZone.tsx` + pure `greenfield-reset-logic.ts` (+ spec).
+  **DangerZone mounts in `DatabasePanel.tsx`** (Table-view footer, collapsed-by-default) — NOT the
+  deleted `DataPanel.tsx`. Uses the sibling panels' `postToParent` import.
+- **Bridge (ADDITIVE)**: `PS_RESET_REQUEST`/`PS_RESET_RESPONSE` added to `embedded-mode.ts` +
+  `bolt-embed.service.ts` WITHOUT touching Fire 7's `PS_CODE_*` / `PS_RES_*` (all coexist).
+- **Manifest**: extended the EXISTING `feature.manifest.ts` (Resource Registry, flag
+  `data_resource_platform`) additively — added the reset `apiRoutes` + `reset_handlers.test.ts` +
+  `reset_handlers.ts` schema, NOT a clobbering thinner manifest. Reset gates on its OWN flag
+  `per_site_data` (shared with the Tables surface).
+
+**Safety chain (all worker-enforced, none client-trusted):** flag `per_site_data` off→404 →
+`assertSiteOwned` foreign→404 → server-resolved per-site ids only, shared platform D1 **denylisted →
+409 FORBIDDEN_TARGET with ZERO CF calls** → backup-first (Time-Travel bookmark before any delete;
+failed backup → 424 BACKUP_FAILED, no DROP) → preview → type-to-confirm re-checked at worker (409 on
+mismatch).
+
+**Pre-existing drift fixed in-turn (was masking these gates; base tip `b12870803` did NOT typecheck):**
+
+- `Workbench.client.tsx` imported the deleted `./DataPanel` + used un-imported `DatabasePanel` /
+  `ResourceOverviewPanel`; `WorkbenchViewType` lacked `'database'`/`'resources'` — FIRE 1 mid-refactor
+  drift. Fixed: import `DatabasePanel` + `ResourceOverviewPanel`, add the two union members.
+- `editor.component.ts:53` had backticks inside a CSS comment in a `styles:` template literal
+  (`` `animation: edFade` ``) → `tsc` `',' expected` (the god-tier-engineering Angular-comment-backtick
+  class). Fixed to plain quotes. This syntax error had been ABORTING Angular `tsc` early, masking →
+- `bolt-embed.service.ts` `PS_RES_*` handlers (FIRE 7) referenced `msg.environment` / `resourceKind` /
+  `detailParams` / `input` + a dangling `ResourceOverviewEntry` type never declared on `PsMessage`.
+  Added the four optional fields + the permissive `ResourceOverviewEntry` alias.
+
+**Files changed:** `libs/features/data_resource_registry/{reset_handlers.ts,site_resources.ts,
+feature.manifest.ts,__tests__/reset_handlers.test.ts}`, `src/index.ts`, `app/components/workbench/
+{GreenfieldReset.tsx,DangerZone.tsx,greenfield-reset-logic.ts,greenfield-reset-logic.spec.ts,
+DatabasePanel.tsx,Workbench.client.tsx}`, `app/lib/embed/embedded-mode.ts`, `app/lib/stores/
+workbench.ts`, `frontend/src/app/services/bolt-embed.service.ts`, `frontend/src/app/pages/admin/
+sections/editor.component.ts`, this ledger + `docs/data-resource-platform/CORRECTION-AND-BACKLOG.md`.
+
+**Verification:** editor `tsc --noEmit` exit 0 · worker `npm run typecheck` exit 0 · worker
+`npx jest reset_handlers` 11/11 green · Angular `tsc -p tsconfig.app.json` exit 0 ·
+`validate:features` PASS (0 errors, 2 pre-existing unrelated warnings). Not deployed (per instruction).
+
 ## 2026-09-27 — Remaining orphans resolved (ProblemsTab/LogsTab, mcp_pkce, allowlist cleaned)
 
 **Interconnectedness sweep — every remaining `detect:orphans` finding connected or deleted.**

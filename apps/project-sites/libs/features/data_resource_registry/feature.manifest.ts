@@ -31,9 +31,15 @@ export default defineFeatureManifest({
   createdAt: '2026-09-27',
   updatedAt: '2026-09-27',
 
-  // ---- surfaces (none wired yet — contract + service foundation only) ----
-  routes: [],
-  apiRoutes: [],
+  // ---- surfaces ----
+  // The gated per-site GREENFIELD RESET (FIRE 8) is mounted from this module's reset_handlers.ts
+  // (Danger Zone in the editor's Database tab). It is gated by its OWN flag `per_site_data`
+  // (shared with the Tables surface) — not this module's `data_resource_platform` flag.
+  routes: ['/admin/editor'],
+  apiRoutes: [
+    'POST /api/sites/:siteId/data/reset/preview',
+    'POST /api/sites/:siteId/data/reset',
+  ],
 
   // ---- governance ----
   permissions: [],
@@ -44,12 +50,14 @@ export default defineFeatureManifest({
   unitTests: [
     '../libs/features/data_resource_registry/__tests__/schemas.test.ts',
     '../libs/features/data_resource_registry/__tests__/service.test.ts',
+    // FIRE 8 — gated per-site greenfield reset: forbidden-id refusal + confirm + backup-before-delete.
+    '../libs/features/data_resource_registry/__tests__/reset_handlers.test.ts',
   ],
   integrationTests: [],
   testStatus: 'passing',
 
   // ---- schemas ----
-  zodSchemas: ['schemas.ts'],
+  zodSchemas: ['schemas.ts', 'reset_handlers.ts'],
 
   // ---- observability ----
   observability: {
@@ -81,6 +89,9 @@ export default defineFeatureManifest({
   removalNotes:
     'Remove: this module (libs/features/data_resource_registry), the data_resource_platform ' +
     'FLAG_REGISTRY + FLAG_DOCS entries, and (if applied) the site_resource_registry table + the ' +
-    'additive site_database_allocations columns from migration 0643. No routes are mounted yet, so ' +
-    'there is nothing to un-wire in src/index.ts.',
+    'additive site_database_allocations columns from migration 0643. FIRE 8 greenfield reset also ' +
+    'lives here: to remove it, delete reset_handlers.ts + site_resources.ts + their test, un-wire the ' +
+    'dataResourceReset app.route() mount in src/index.ts, and remove the editor DangerZone/GreenfieldReset ' +
+    'components + the PS_RESET_REQUEST/PS_RESET_RESPONSE bridge messages (embedded-mode.ts + ' +
+    'bolt-embed.service.ts). Reset is gated by per_site_data (shared with Tables) — do NOT remove that flag.',
 });

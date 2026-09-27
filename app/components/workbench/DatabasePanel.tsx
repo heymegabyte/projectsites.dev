@@ -49,6 +49,7 @@
  */
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { classNames } from '~/utils/classNames';
+import { postToParent } from '~/lib/embed/embedded-mode';
 import { SiteTablesPanel } from './SiteTablesPanel';
 import { SchemaBuilder } from './SchemaBuilder';
 import { TimeTravelPanel } from './TimeTravelPanel';
@@ -57,6 +58,7 @@ import { KvBrowser } from './KvBrowser';
 import { ImportPanel } from './ImportPanel';
 import { AiSeedPanel } from './AiSeedPanel';
 import { FormBuilder } from './FormBuilder';
+import { DangerZone } from './DangerZone';
 
 // ── Sub-nav model ────────────────────────────────────────────────────────────
 
@@ -222,7 +224,19 @@ export const DatabasePanel = memo(() => {
 
       {/* Active sub-view — each stays lightweight; only the mounted view holds a live bridge. */}
       <div className="relative flex-1 overflow-hidden">
-        {subView === 'table' && <SiteTablesPanel onCreateTable={() => setSubView('schema')} />}
+        {subView === 'table' && (
+          // Table-view is a vertical column: the tables browser scrolls, and the collapsed-by-default
+          // Danger Zone (per-site greenfield reset, FIRE 8) sits at the very bottom — reachable without
+          // disturbing the browser's own scroll. It targets the site's OWN dedicated D1/KV/R2 only.
+          <div className="h-full flex flex-col overflow-y-auto">
+            <div className="flex-1 min-h-0">
+              <SiteTablesPanel onCreateTable={() => setSubView('schema')} />
+            </div>
+            <div className="shrink-0 px-3 pb-4">
+              <DangerZone postToParent={postToParent} />
+            </div>
+          </div>
+        )}
         {subView === 'schema' && <SchemaBuilder />}
         {subView === 'import' && <ImportPanel />}
         {subView === 'seed' && <AiSeedPanel />}
