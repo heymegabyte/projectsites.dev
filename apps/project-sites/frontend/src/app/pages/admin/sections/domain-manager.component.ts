@@ -28,8 +28,15 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
  * through us on Cloudflare (search availability → Stripe Checkout → auto-connect).
  *
  * Backend contract (instance-scoped): `GET /apps/slug-check`, `POST /apps/instances/:id/slug`,
- * `GET /apps/instances/:id/domain-status`, `POST /apps/instances/:id/domains`,
+ * `GET /apps/instances/:id/cname-check`, `GET /apps/instances/:id/domains`,
+ * `POST /apps/instances/:id/domains`, `POST /apps/instances/:id/domains/primary`,
  * `GET /apps/instances/:id/domain-availability`, `POST /apps/instances/:id/domains/purchase`.
+ *
+ * Pre-attach validation (`checkCname`, live green/red on the "Add a custom domain" field) is
+ * DECOUPLED from post-attach watching: the Attach button gates ONLY on a valid, not-yet-attached
+ * CNAME — never on a GLOBAL cert phase — so a domain that already has a cert elsewhere can still be
+ * attached to THIS instance. Once attached, a table status-poll refreshes each row's cert state in
+ * place until every row is activated.
  */
 @Component({
   selector: 'app-domain-manager',
@@ -144,7 +151,9 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
             @if (domain().length > 3) {
               @switch (cnameState()) {
                 @case ('ok') {
-                  @if (phase() !== 'certifying' && phase() !== 'connected') {
+                  @if (alreadyAttached()) {
+                    <div class="dm-help dm-ok">Already connected — see the list above.</div>
+                  } @else {
                     <div class="dm-help dm-ok">✓ Pointed to projectsites.dev — ready to connect.</div>
                     <button type="button" class="dm-attach" (click)="attach()" [disabled]="busy()"
                             data-testid="domain-manager-attach">
@@ -170,27 +179,9 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
                     <div class="dm-links">
                       <button type="button" class="dm-link dm-link--btn" (click)="recheck()">Re-check now</button>
                     </div>
-                    <div class="dm-help dm-watching">We're watching your DNS live — this updates the moment it connects.</div>
+                    <div class="dm-help dm-watching">Add the record, then Re-check — it connects the moment DNS points here.</div>
                   </div>
                 }
-              }
-
-              <!-- Live connection ladder — auto-updates while we poll DNS + TLS. -->
-              @if (watching() && phase()) {
-                <div class="dm-ladder" role="status" aria-live="polite" data-testid="domain-manager-ladder">
-                  <div class="dm-step" [class.done]="phaseAtLeast('pointed')" [class.active]="phase() === 'awaiting_dns'">
-                    <span class="dm-step-ic">@if (phaseAtLeast('pointed')) { ✓ } @else { <span class="dm-spin"></span> }</span>
-                    DNS pointed to projectsites.dev
-                  </div>
-                  <div class="dm-step" [class.done]="phase() === 'connected'" [class.active]="phase() === 'certifying'">
-                    <span class="dm-step-ic">@if (phase() === 'connected') { ✓ } @else if (phase() === 'certifying') { <span class="dm-spin"></span> } @else { • }</span>
-                    TLS certificate issued
-                  </div>
-                  <div class="dm-step" [class.done]="phase() === 'connected'" [class.active]="phase() === 'connected'">
-                    <span class="dm-step-ic">@if (phase() === 'connected') { ✓ } @else { • }</span>
-                    <strong>Connected — live over HTTPS</strong>
-                  </div>
-                </div>
               }
             }
           </div>
@@ -342,23 +333,6 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
     .dm-link--btn { font-family: inherit; }
     .dm-warn { color: #fcd34d; background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.22); border-radius: 8px; padding: 6px 9px; }
     .dm-watching { color: rgba(0,229,255,0.8); font-style: italic; }
-    .dm-ladder {
-      display: flex; flex-direction: column; gap: 8px; margin-top: 10px;
-      padding: 12px; border-radius: 10px;
-      background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.08);
-    }
-    .dm-step {
-      display: flex; align-items: center; gap: 9px;
-      font-size: 0.72rem; color: rgba(255,255,255,0.5);
-      transition: color 200ms ease;
-    }
-    .dm-step.active { color: #fff; }
-    .dm-step.done { color: #6ee7b7; }
-    .dm-step-ic {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 18px; height: 18px; flex-shrink: 0; font-weight: 700;
-    }
-    .dm-step.done .dm-step-ic { color: #34d399; }
     .dm-domains { display: flex; flex-direction: column; gap: 6px; }
     .dm-dom {
       display: flex; flex-direction: column; gap: 6px;
@@ -370,6 +344,7 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
     .dm-dom-head { display: flex; align-items: center; gap: 8px; }
     .dm-dom-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fff; }
     .dm-dom-badge { font-size: 0.56rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6ee7b7; padding: 1px 6px; border-radius: 999px; background: rgba(52,211,153,0.14); }
+    .dm-dom-badge--muted { color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.08); }
     .dm-dom-rm { color: rgba(255,255,255,0.4); background: none; border: none; cursor: pointer; font-size: 0.8rem; padding: 0 2px; flex-shrink: 0; }
     .dm-dom-rm:hover:not(:disabled) { color: #fca5a5; }
     .dm-dom-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -388,7 +363,7 @@ export class DomainManagerComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.stopWatch());
+    this.destroyRef.onDestroy(() => this.stopTablePoll());
   }
 
   readonly instanceId = input.required<string>();
@@ -418,6 +393,49 @@ export class DomainManagerComponent {
   /** A custom domain awaiting DNS/cert — shown in a muted "pending" style on the trigger. */
   readonly pending = signal<string | null>(null);
 
+  /**
+   * Table rows = a synthetic PLATFORM row (the built-in `*.cms`/`*.app` host, always connected)
+   * PREPENDED to the custom domains. The platform row is primary only when NO custom domain is —
+   * so `activeHost` (primary custom → platform) and the "Primary" badge stay in lock-step.
+   */
+  readonly rows = computed<
+    ReadonlyArray<{
+      domain: string;
+      primary: boolean;
+      pointed: boolean;
+      activated: boolean;
+      ssl_status: string;
+      isPlatform: boolean;
+    }>
+  >(() => {
+    const custom = this.domains();
+    const platformPrimary = !custom.some((d) => d.primary);
+    return [
+      {
+        domain: this.host(),
+        primary: platformPrimary,
+        pointed: true,
+        activated: true,
+        ssl_status: 'active',
+        isPlatform: true,
+      },
+      ...custom.map((d) => ({
+        domain: d.domain,
+        primary: d.primary,
+        pointed: d.pointed,
+        activated: d.activated,
+        ssl_status: d.ssl_status,
+        isPlatform: false,
+      })),
+    ];
+  });
+
+  /** True when the typed domain is ALREADY attached to THIS instance (→ show a note, not Attach). */
+  readonly alreadyAttached = computed(() => {
+    const d = this.domain().trim().toLowerCase();
+    return !!d && this.domains().some((x) => x.domain === d);
+  });
+
   // Slug editor
   readonly slug = signal('');
   readonly slugState = signal<Availability>('idle');
@@ -429,10 +447,9 @@ export class DomainManagerComponent {
   readonly cnameState = signal<Availability>('idle');
   private domainTimer: ReturnType<typeof setTimeout> | undefined;
 
-  // Live connection watch (polls domain-status until the cert is active)
-  readonly phase = signal<'' | 'awaiting_dns' | 'pointed' | 'certifying' | 'connected'>('');
-  readonly watching = signal(false);
-  private pollHandle: ReturnType<typeof setInterval> | undefined;
+  // Table status poll — refreshes each attached row's cert state in place while the popover is
+  // open and any row is still pending (activated === false).
+  private tablePollHandle: ReturnType<typeof setInterval> | undefined;
 
   // Buy-a-domain (Cloudflare-native, registered through us at cost) flow
   readonly buyName = signal('');
@@ -452,10 +469,6 @@ export class DomainManagerComponent {
 
   /** Apex (2-label) domains can't CNAME at most registrars — surface a nudge. */
   readonly isApex = computed(() => this.domain().trim().replace(/\.$/, '').split('.').filter(Boolean).length === 2);
-  private readonly PHASE_ORDER = ['awaiting_dns', 'pointed', 'certifying', 'connected'];
-  phaseAtLeast(p: string): boolean {
-    return this.PHASE_ORDER.indexOf(this.phase()) >= this.PHASE_ORDER.indexOf(p) && this.phase() !== '';
-  }
 
   readonly recordName = computed(() => {
     const parts = this.domain().split('.');
@@ -468,11 +481,13 @@ export class DomainManagerComponent {
     this.open.set(next);
     if (next) {
       if (!this.slug()) this.slug.set(this.host().split('.')[0] ?? '');
-      this.loadDomains();
+      this.loadDomains(() => this.startTablePoll());
+    } else {
+      this.stopTablePoll();
     }
   }
 
-  private loadDomains(): void {
+  private loadDomains(after?: () => void): void {
     this.api
       .get<{
         domains: Array<{
@@ -488,9 +503,45 @@ export class DomainManagerComponent {
       )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => this.domains.set(r.domains ?? []),
+        next: (r) => {
+          this.domains.set(r.domains ?? []);
+          after?.();
+        },
         error: () => undefined,
       });
+  }
+
+  /**
+   * While the popover is open AND any attached row is still pending (`activated === false`),
+   * re-list every 8s so a cert going pending→active flips the row in place. Idempotent — safe to
+   * call after each `loadDomains`; auto-stops once all rows are activated.
+   */
+  private startTablePoll(): void {
+    this.stopTablePoll();
+    this.clearPendingIfActive();
+    if (!this.open()) return;
+    if (!this.domains().some((d) => !d.activated)) return;
+    this.tablePollHandle = setInterval(() => {
+      if (!this.open() || !this.domains().some((d) => !d.activated)) {
+        this.stopTablePoll();
+        return;
+      }
+      this.loadDomains(() => {
+        this.clearPendingIfActive();
+        if (!this.domains().some((d) => !d.activated)) this.stopTablePoll();
+      });
+    }, 8000);
+  }
+
+  /** Drop the trigger's "→ pending" hint once its domain's cert is active in the fresh list. */
+  private clearPendingIfActive(): void {
+    const p = this.pending();
+    if (p && this.domains().some((d) => d.domain === p && d.activated)) this.pending.set(null);
+  }
+
+  private stopTablePoll(): void {
+    if (this.tablePollHandle) clearInterval(this.tablePollHandle);
+    this.tablePollHandle = undefined;
   }
 
   setPrimary(domain: string): void {
@@ -529,11 +580,17 @@ export class DomainManagerComponent {
 
   @HostListener('document:click')
   onDocClick(): void {
-    if (this.open()) this.open.set(false);
+    if (this.open()) {
+      this.open.set(false);
+      this.stopTablePoll();
+    }
   }
   @HostListener('document:keydown.escape')
   onEsc(): void {
-    if (this.open()) this.open.set(false);
+    if (this.open()) {
+      this.open.set(false);
+      this.stopTablePoll();
+    }
   }
 
   onSlug(v: string): void {
@@ -601,64 +658,40 @@ export class DomainManagerComponent {
     const val = v.trim().toLowerCase();
     if (val.length < 4 || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(val)) {
       this.cnameState.set('idle');
-      this.stopWatch();
-      this.phase.set('');
       return;
     }
     this.cnameState.set('checking');
-    // Debounce, then start LIVE watching: the poll drives both the green/red CNAME state and
-    // the connection ladder, so pointing the domain lights up here without re-typing.
-    this.domainTimer = setTimeout(() => this.startWatch(val), 400);
+    // Debounce, then a SINGLE lightweight CNAME check — pure pre-attach validation, no global
+    // domain-status / phase / "connected" side-effects while typing.
+    this.domainTimer = setTimeout(() => this.checkCname(val), 400);
   }
 
-  /** Begin polling domain-status until the cert is active (live "Connected ✓"). */
-  private startWatch(domain: string): void {
-    this.stopWatch();
-    this.watching.set(true);
-    this.pollStatus(domain);
-    this.pollHandle = setInterval(() => this.pollStatus(domain), 6000);
-  }
-
-  private stopWatch(): void {
-    if (this.pollHandle) clearInterval(this.pollHandle);
-    this.pollHandle = undefined;
-    this.watching.set(false);
-  }
-
-  private pollStatus(domain: string): void {
-    if (this.domain().trim().toLowerCase() !== domain) {
-      this.stopWatch();
-      return;
-    }
+  /**
+   * One-shot: is `val` CNAME'd to projectsites.dev yet? Drives the green/red field state ONLY.
+   * Guards against a stale response landing after the user kept typing.
+   */
+  private checkCname(val: string): void {
+    this.cnameState.set('checking');
     this.api
-      .get<{ dnsOk: boolean; connected: boolean; phase: string }>(
-        `/apps/instances/${this.instanceId()}/domain-status?domain=${encodeURIComponent(domain)}`,
+      .get<{ ok: boolean }>(
+        `/apps/instances/${this.instanceId()}/cname-check?domain=${encodeURIComponent(val)}`,
       )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {
-          this.cnameState.set(r.dnsOk ? 'ok' : 'bad');
-          this.phase.set(
-            r.phase as '' | 'awaiting_dns' | 'pointed' | 'certifying' | 'connected',
-          );
-          if (r.connected) {
-            this.stopWatch();
-            this.pending.set(null);
-            this.toast.success(`${domain} is connected — live over HTTPS.`);
-            this.loadDomains();
-            this.changed.emit();
-          }
+          if (this.domain().trim().toLowerCase() !== val) return; // stale — user kept typing
+          this.cnameState.set(r.ok ? 'ok' : 'bad');
         },
-        error: () => this.cnameState.set('bad'),
+        error: () => {
+          if (this.domain().trim().toLowerCase() !== val) return;
+          this.cnameState.set('bad');
+        },
       });
   }
 
   recheck(): void {
     const val = this.domain().trim().toLowerCase();
-    if (val.length > 3) {
-      this.cnameState.set('checking');
-      this.startWatch(val);
-    }
+    if (val.length > 3) this.checkCname(val);
   }
 
   /** Enter in the custom-domain field attaches the moment it's validated green. */
@@ -670,7 +703,7 @@ export class DomainManagerComponent {
   }
 
   attach(): void {
-    if (this.cnameState() !== 'ok' || this.busy()) return;
+    if (this.cnameState() !== 'ok' || this.busy() || this.alreadyAttached()) return;
     const domain = this.domain().trim().toLowerCase();
     this.busy.set(true);
     this.api
@@ -681,11 +714,14 @@ export class DomainManagerComponent {
       .subscribe({
         next: () => {
           this.busy.set(false);
+          // Clear the field so it's empty + ready for the NEXT domain — never re-populate the input.
+          this.domain.set('');
+          this.cnameState.set('idle');
           this.pending.set(domain);
           this.toast.success(`${domain} attached — issuing certificate…`);
           this.changed.emit();
-          this.loadDomains();
-          this.startWatch(domain); // live-poll until the cert goes active → "Connected ✓"
+          // Re-list, then table-poll until the new row's cert goes active (updates the row in place).
+          this.loadDomains(() => this.startTablePoll());
         },
         error: () => this.busy.set(false),
       });
