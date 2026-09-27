@@ -13,7 +13,6 @@ import { workbenchStore, type WorkbenchViewType } from '~/lib/stores/workbench';
 import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
 import { renderLogger } from '~/utils/logger';
-import { DataPanel } from './DataPanel';
 import { GitPanel } from './GitPanel';
 import { CreateMenu } from './CreateMenu';
 import { EditorPanel } from './EditorPanel';
