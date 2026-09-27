@@ -6,11 +6,13 @@
  * cursor-paginated + honest `list_complete`, NEVER a fabricated total), `head` (existence probe),
  * `get` (one key's value + metadata) — PLUS the first WRITE slice: `mutate({action:'put'|'delete'})`.
  * `mutate` is a discriminated NAMED-mutation union (never a `runAnything`/`{command}` mega-verb —
- * tool-design-as-api): `put` writes one key's value (optional TTL + metadata), `delete` removes one key.
- * Both are guarded — an OVERWRITE (put over an existing key) and a DELETE are destructive of the prior
- * value, so each REQUIRES an explicit `confirm:true`; without it `mutate` returns a typed
- * `confirmation_required` envelope that REPORTS what WOULD change (the key + whether it exists) and
- * writes nothing (SECURITY-INVARIANTS INV-9/INV-11). bulk_delete/provision/destroy remain future verbs.
+ * tool-design-as-api): `put` writes one key's value (optional TTL + metadata), `delete` removes one key,
+ * `bulk_delete` removes MANY keys in one CF bulk request (clamped/rejected at the 10k CF cap). The
+ * destructive verbs are guarded — an OVERWRITE (put over an existing key), a `delete`, and a `bulk_delete`
+ * are destructive of the prior value(s), so each REQUIRES an explicit `confirm:true`; without it `mutate`
+ * returns a typed `confirmation_required` envelope that REPORTS what WOULD change (the key, or the COUNT
+ * for bulk) and writes nothing (SECURITY-INVARIANTS INV-9/INV-11). `bulkGet` is the read companion of
+ * `get` — MANY keys at once (clamped to the CF cap, honest per-key miss); `provision`/`destroy` land later.
  *
  * ISOLATION — the same structural guarantee as `site_data_db.ts` / the `d1` adapter:
  *  - Every verb operates ONLY on the `scope.resourceId` it was minted with. That id is the site's
@@ -148,8 +150,64 @@ export interface KvDeleteInput {
   readonly confirm?: boolean;
 }
 
+/**
+ * CF KV bulk API hard cap: a single bulk write/delete request accepts at most 10,000 keys
+ * (https://developers.cloudflare.com/kv/api/write-key-value-pairs/#write-multiple-key-value-pairs).
+ * We CLAMP a bulk_get page to this same bound; we REJECT an over-cap bulk_delete with an honest message
+ * (a silent truncation of a DESTRUCTIVE op would delete a different set than the caller asked for).
+ */
+const BULK_MAX_KEYS = 10_000;
+
+/**
+ * The `bulk_delete` mutation input: remove MANY keys from the site's OWN KV namespace in one call.
+ * DESTRUCTIVE — `confirm:true` is REQUIRED (INV-9/INV-11): without it, `mutate` returns a typed
+ * `confirmation_required` envelope that REPORTS the count that WOULD be removed and deletes nothing.
+ * Over the {@link BULK_MAX_KEYS} CF cap is REJECTED (never silently truncated — a partial destructive op
+ * would remove a different set than requested).
+ */
+export interface KvBulkDeleteInput {
+  readonly action: 'bulk_delete';
+  /** The keys to delete (1..={@link BULK_MAX_KEYS}); over the cap is an honest `bulk_limit_exceeded` error. */
+  readonly keys: readonly string[];
+  /** Must be `true` to actually delete (destructive-op gate); without it the count is REPORTED, nothing deleted. */
+  readonly confirm?: boolean;
+}
+
+/** The `bulk_get` read input: fetch MANY keys' values at once. `keys` is CLAMPED to {@link BULK_MAX_KEYS}. */
+export interface KvBulkGetInput {
+  /** The keys to read; a page over {@link BULK_MAX_KEYS} is CLAMPED (a read is non-destructive). */
+  readonly keys: readonly string[];
+}
+
+/** One entry in a `bulk_get` response: the key + whether it was found + its value (honest per-key miss). */
+export interface KvBulkGetValue {
+  readonly key: string;
+  /** True when the key exists in the namespace; false → `value` absent (an honest per-key miss). */
+  readonly found: boolean;
+  /** The raw value string when found; absent on a miss. */
+  readonly value?: string;
+}
+
+/** What a `bulk_get` returns: one honest {@link KvBulkGetValue} per REQUESTED key + how many were clamped off. */
+export interface KvBulkGetData {
+  readonly values: readonly KvBulkGetValue[];
+  /** Count of keys found (a value was returned). */
+  readonly found: number;
+  /** Count of requested keys that were missing. */
+  readonly missing: number;
+  /** How many keys past {@link BULK_MAX_KEYS} were dropped from an over-cap request (0 when within cap). */
+  readonly clampedOff: number;
+}
+
+/** What a `bulk_delete` returns: how many keys were requested + submitted for deletion (honest, not fabricated). */
+export interface KvBulkDeleteResult {
+  readonly action: 'bulk_delete';
+  /** Count of unique keys the CF bulk-delete request removed. */
+  readonly requested: number;
+}
+
 /** The discriminated named-mutation union for the kv adapter — NEVER a generic `{ command }` field. */
-export type KvMutateInput = KvPutInput | KvDeleteInput | ProvisionInput;
+export type KvMutateInput = KvPutInput | KvDeleteInput | KvBulkDeleteInput | ProvisionInput;
 
 /** What a KV `put` returns: the key written + whether it overwrote a prior value + TTL/metadata echoes. */
 export interface KvPutResult {
@@ -172,7 +230,7 @@ export interface KvDeleteResult {
 }
 
 /** The discriminated result union a successful `mutate` returns. */
-export type KvMutateResult = KvPutResult | KvDeleteResult | ProvisionMutateResult;
+export type KvMutateResult = KvPutResult | KvDeleteResult | KvBulkDeleteResult | ProvisionMutateResult;
 
 /** Mint a correlation id for one adapter call (structured-logging: every envelope carries one). */
 function correlationId(): string {
@@ -205,6 +263,23 @@ function clampLimit(limit: number | undefined): number {
 }
 
 /**
+ * Normalize a bulk key list: coerce to an array of non-empty strings, drop blanks, de-duplicate (a
+ * repeated key in a bulk op is one operation), and CLAMP to {@link BULK_MAX_KEYS} (returning how many were
+ * dropped so the caller can report it honestly). A read (`bulk_get`) clamps silently-but-reported; a
+ * destructive `bulk_delete` uses this only AFTER its own over-cap REJECTION so it never truncates a delete.
+ */
+function normalizeBulkKeys(keys: readonly string[] | undefined): { keys: string[]; clampedOff: number } {
+  if (!Array.isArray(keys)) return { clampedOff: 0, keys: [] };
+  const seen = new Set<string>();
+  for (const k of keys) {
+    if (typeof k === 'string' && k.length > 0) seen.add(k);
+  }
+  const unique = Array.from(seen);
+  if (unique.length <= BULK_MAX_KEYS) return { clampedOff: 0, keys: unique };
+  return { clampedOff: unique.length - BULK_MAX_KEYS, keys: unique.slice(0, BULK_MAX_KEYS) };
+}
+
+/**
  * The `kv` adapter. `list`/`head`/`get` are live (read-only); `mutate` implements the `put` + `delete`
  * named mutations (destructive/overwrite gated on `confirm:true`). `supports` declares this honestly so
  * the UI + MCP only ever offer a verb that runs.
@@ -216,12 +291,13 @@ class KvAdapter
 
   /**
    * Honest capability declaration (CAPABILITY-MATRIX.md): kv serves both environments, all three read
-   * verbs, and the `put`/`delete` named mutations (the first WRITE slice). bulk_delete/provision/destroy
-   * land later — append them here as they are implemented so the UI/MCP never offer an unwired verb.
+   * verbs, and the `put`/`delete`/`bulk_delete`/`provision` named mutations. `bulk_get` is a read
+   * companion of `get` (many keys at once) — exposed as the {@link KvAdapter.bulkGet} method, not a
+   * mutate action (it changes nothing). Only wired verbs are listed so the UI/MCP never offer a dead verb.
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: ['put', 'delete', 'provision'] as const,
+    mutations: ['put', 'delete', 'bulk_delete', 'provision'] as const,
     verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
@@ -455,6 +531,11 @@ class KvAdapter
       return runProvisionMutation(cid, scope, 'kv', input);
     }
 
+    // BULK_DELETE — remove MANY keys in ONE CF bulk request. Destructive → confirm gate REPORTS the count.
+    if (input && input.action === 'bulk_delete') {
+      return this.bulkDelete(cid, scope, input);
+    }
+
     if (!input || (input.action !== 'put' && input.action !== 'delete')) {
       return {
         correlationId: cid,
@@ -629,6 +710,153 @@ class KvAdapter
       },
       ok: true,
     };
+  }
+
+  /**
+   * DELETE MANY keys from the site's OWN KV namespace in ONE CF bulk request
+   * (`DELETE .../storage/kv/namespaces/{id}/bulk` with a JSON array body). DESTRUCTIVE — `confirm:true`
+   * is REQUIRED (INV-9/INV-11): without it we return a typed `confirmation_required` envelope that REPORTS
+   * the count that WOULD be removed and deletes NOTHING. An over-{@link BULK_MAX_KEYS} request is REJECTED
+   * (`bulk_limit_exceeded`) rather than truncated — a partial destructive op would remove a DIFFERENT set
+   * than the caller asked for. Empty/blank/duplicate keys are normalized out first; an empty effective set
+   * is an honest `no_keys` rejection (never a fabricated success). Operates ONLY on `scope.resourceId`.
+   */
+  private async bulkDelete(
+    cid: string,
+    scope: ResolvedScope,
+    input: KvBulkDeleteInput,
+  ): Promise<AdapterResult<KvMutateResult>> {
+    // Count UNIQUE non-empty keys BEFORE clamping so the over-cap check sees the caller's true intent.
+    const uniqueRequested = new Set(
+      (Array.isArray(input.keys) ? input.keys : []).filter((k) => typeof k === 'string' && k.length > 0),
+    );
+    if (uniqueRequested.size === 0) {
+      return {
+        correlationId: cid,
+        error: { code: 'no_keys', message: 'No keys to delete.', retryable: false },
+        ok: false,
+      };
+    }
+    // REJECT (never truncate) an over-cap destructive request — honest, actionable message.
+    if (uniqueRequested.size > BULK_MAX_KEYS) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'bulk_limit_exceeded',
+          message: `Bulk delete accepts at most ${BULK_MAX_KEYS} keys per request (received ${uniqueRequested.size}). Split into smaller batches.`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+    const keys = Array.from(uniqueRequested);
+    // DESTRUCTIVE gate — REPORT the count that would be removed; delete nothing without confirm.
+    if (input.confirm !== true) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'confirmation_required',
+          message: `Bulk-deleting ${keys.length} KV ${keys.length === 1 ? 'key' : 'keys'} is destructive. Re-run with confirm:true to remove ${keys.length === 1 ? 'it' : 'them'}.`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(
+        `${CF_API_BASE}/accounts/${scope.accountId}/storage/kv/namespaces/${scope.resourceId}/bulk`,
+        {
+          body: JSON.stringify(keys),
+          headers: { ...cfAuthHeaders(scope.auth), 'content-type': 'application/json' },
+          method: 'DELETE',
+        },
+      );
+    } catch (err) {
+      return restError<KvMutateResult>(cid, undefined, err instanceof Error ? err.message : 'CF request failed');
+    }
+    if (!res.ok) {
+      const json = (await res.json().catch(() => null)) as { errors?: unknown } | null;
+      const detail = json?.errors ? JSON.stringify(json.errors) : `HTTP ${res.status}`;
+      return restError<KvMutateResult>(cid, res.status, `CF KV bulk delete failed: ${detail}`);
+    }
+    return {
+      correlationId: cid,
+      data: { action: 'bulk_delete', requested: keys.length },
+      ok: true,
+    };
+  }
+
+  /**
+   * Read MANY keys' values from the site's OWN KV namespace in ONE CF bulk request
+   * (`GET .../storage/kv/namespaces/{id}/bulk/get`, body `{ keys: [...] }`). Non-destructive → NO confirm.
+   * The `keys` list is CLAMPED to {@link BULK_MAX_KEYS} (and de-duplicated), and the returned
+   * {@link KvBulkGetData.clampedOff} REPORTS how many were dropped — never a silent truncation. Every
+   * REQUESTED (post-clamp) key gets an honest entry: `found:true` with its value, or `found:false` on a
+   * miss (KV is eventually-consistent — a just-written key can be absent briefly). Operates ONLY on
+   * `scope.resourceId`. An empty effective key set is an honest empty result, never an error.
+   *
+   * @param scope - the server-resolved scope; `scope.resourceId` is the ONLY namespace this can read
+   * @param input - `{ keys }` — the exact keys to read (clamped to the CF cap)
+   */
+  async bulkGet(scope: ResolvedScope, input: KvBulkGetInput): Promise<AdapterResult<KvBulkGetData>> {
+    const cid = correlationId();
+    const { clampedOff, keys } = normalizeBulkKeys(input?.keys);
+    if (keys.length === 0) {
+      return { correlationId: cid, data: { clampedOff, found: 0, missing: 0, values: [] }, ok: true };
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(
+        `${CF_API_BASE}/accounts/${scope.accountId}/storage/kv/namespaces/${scope.resourceId}/bulk/get`,
+        {
+          body: JSON.stringify({ keys }),
+          headers: { ...cfAuthHeaders(scope.auth), 'content-type': 'application/json' },
+          method: 'GET',
+        },
+      );
+    } catch (err) {
+      return restError<KvBulkGetData>(cid, undefined, err instanceof Error ? err.message : 'CF request failed');
+    }
+
+    const json = (await res.json().catch(() => null)) as {
+      success?: boolean;
+      // CF returns { result: { values: { key: value | {value,...} }, ... } } for bulk/get.
+      result?: { values?: Record<string, unknown> } | Record<string, unknown> | null;
+      errors?: unknown;
+    } | null;
+
+    if (!res.ok || !json?.success) {
+      const detail = json?.errors ? JSON.stringify(json.errors) : `HTTP ${res.status}`;
+      return restError<KvBulkGetData>(cid, res.status, `CF KV bulk get failed: ${detail}`);
+    }
+
+    // The values map may sit under result.values or be the result itself; a MISS is an absent/null entry.
+    const resultObj = (json.result ?? {}) as Record<string, unknown>;
+    const rawValues = (('values' in resultObj ? resultObj.values : resultObj) ?? {}) as Record<string, unknown>;
+
+    let found = 0;
+    let missing = 0;
+    const values: KvBulkGetValue[] = keys.map((key) => {
+      const raw = Object.prototype.hasOwnProperty.call(rawValues, key) ? rawValues[key] : undefined;
+      if (raw === undefined || raw === null) {
+        missing += 1;
+        return { found: false, key };
+      }
+      // CF may return the bare string, or an object { value, metadata } depending on API options.
+      const value =
+        typeof raw === 'string'
+          ? raw
+          : typeof (raw as { value?: unknown }).value === 'string'
+            ? String((raw as { value?: unknown }).value)
+            : JSON.stringify(raw);
+      found += 1;
+      return { found: true, key, value };
+    });
+
+    return { correlationId: cid, data: { clampedOff, found, missing, values }, ok: true };
   }
 }
 

@@ -278,6 +278,43 @@ export const DataKvDeleteInput = z
   .strict();
 
 /**
+ * `data_kv_bulk_get` — read MANY keys' values at once from the OWNED site's own KV namespace (batched
+ * companion of `data_kv_get`). A caller names ONLY the OWNED `site_id` + a `keys` array (NEVER a CF
+ * namespace id — server-resolved) plus the optional environment. `keys` is LENIENT (≥1 entry) because the
+ * dispatcher CLAMPS the list to the CF bulk cap (10,000) rather than REJECTING an over-cap read — a read is
+ * non-destructive — and REPORTS how many were dropped. Each requested key gets an honest per-key result
+ * (`found` + `value`); a missing key is `found:false`, never an error. `.strict()` rejects any attempt to
+ * smuggle a `namespaceId`/`accountId`. Ownership + isolation + `per_site_kv` flag-gate + `data:read` scope
+ * are enforced server-side.
+ */
+export const DataKvBulkGetInput = z
+  .object({
+    site_id: z.string().min(1),
+    keys: z.array(z.string().min(1).max(512)).min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_kv_bulk_delete` — DELETE MANY keys at once from the OWNED site's own KV namespace (batched companion
+ * of `data_kv_delete`). A caller names ONLY the OWNED `site_id` + a `keys` array (NEVER a CF namespace id —
+ * server-resolved) plus `confirm` and the optional environment. ⚠️ DESTRUCTIVE: `confirm:true` is REQUIRED —
+ * without it the dispatcher returns `confirmation required` and REPORTS the COUNT that WOULD be removed,
+ * deleting nothing. Over the CF bulk cap (10,000) is REJECTED (never silently truncated — a partial
+ * destructive op would remove a different set than requested). `.strict()` rejects any attempt to smuggle a
+ * `namespaceId`/`accountId`. Ownership + isolation + `per_site_kv` flag-gate + `data:write` scope are
+ * enforced server-side.
+ */
+export const DataKvBulkDeleteInput = z
+  .object({
+    site_id: z.string().min(1),
+    keys: z.array(z.string().min(1).max(512)).min(1),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
  * `data_r2_list_objects` — list objects in the OWNED site's own dedicated R2 bucket (MCP parity with the
  * Data tab's R2 surface). A caller names ONLY the OWNED `site_id` (NEVER a CF bucket name — the bucket is
  * server-resolved from `site_database_allocations`) plus optional prefix/cursor/limit and the environment.
@@ -749,6 +786,8 @@ export type DataKvListKeysArgs = z.infer<typeof DataKvListKeysInput>;
 export type DataKvGetArgs = z.infer<typeof DataKvGetInput>;
 export type DataKvPutArgs = z.infer<typeof DataKvPutInput>;
 export type DataKvDeleteArgs = z.infer<typeof DataKvDeleteInput>;
+export type DataKvBulkGetArgs = z.infer<typeof DataKvBulkGetInput>;
+export type DataKvBulkDeleteArgs = z.infer<typeof DataKvBulkDeleteInput>;
 export type DataR2ListObjectsArgs = z.infer<typeof DataR2ListObjectsInput>;
 export type DataR2HeadObjectArgs = z.infer<typeof DataR2HeadObjectInput>;
 export type DataR2PutObjectArgs = z.infer<typeof DataR2PutObjectInput>;

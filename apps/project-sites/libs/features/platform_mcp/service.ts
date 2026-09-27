@@ -56,6 +56,8 @@ import {
   DataKvGetInput,
   DataKvPutInput,
   DataKvDeleteInput,
+  DataKvBulkGetInput,
+  DataKvBulkDeleteInput,
   DataR2ListObjectsInput,
   DataR2HeadObjectInput,
   DataR2PutObjectInput,
@@ -605,6 +607,39 @@ export const PLATFORM_MCP_TOOLS = [
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id', 'key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_kv_bulk_get',
+    description:
+      "Read MANY keys' values at once from your site's OWN dedicated KV namespace (batched companion of data_kv_get). Pass a keys[] array; returns { values:[{key,found,value?}], found, missing, clamped_off }. Each requested key gets an honest result — a missing key is found:false (never an error). The list is CLAMPED to the CF bulk cap of 10,000 keys (a read is non-destructive); clamped_off reports how many past the cap were dropped. You name only the site_id + keys (+ optional environment) — never a KV namespace id; the namespace is resolved server-side and isolated to your site.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        keys: { type: 'array', items: { type: 'string', maxLength: 512 }, minItems: 1 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'keys'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_kv_bulk_delete',
+    description:
+      "Delete MANY keys at once from your site's OWN dedicated KV namespace in one bulk request (batched companion of data_kv_delete). Pass a keys[] array; returns { requested }. ⚠️ DESTRUCTIVE: this permanently removes those keys' values, so it REQUIRES confirm:true — without confirm you get an error that REPORTS the COUNT that would be removed and NOTHING is deleted. Over the CF bulk cap of 10,000 keys is REJECTED (never silently truncated — split into smaller batches). You name only the site_id + keys (+ optional environment) — never a KV namespace id; the namespace is resolved server-side and isolated to your site.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        keys: { type: 'array', items: { type: 'string', maxLength: 512 }, minItems: 1 },
+        confirm: { type: 'boolean' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'keys'],
       additionalProperties: false,
     },
   },
@@ -1866,6 +1901,65 @@ export async function dispatchPlatformTool(
         key,
         action: 'delete',
         existed: data?.existed ?? false,
+      });
+    }
+
+    case 'data_kv_bulk_get': {
+      if (!(await isFlagOn(env, PER_SITE_KV_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site KV is not enabled for this account.');
+      }
+      const { site_id, keys, environment } = DataKvBulkGetInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF namespace id —
+      // the caller named only site_id; the namespace is server-resolved from the registry.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveKvScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // The adapter CLAMPS the keys[] to the CF bulk cap (a read is non-destructive) and reports clampedOff.
+      const result = await kvAdapter.bulkGet(scoped.scope, { keys });
+      if (!result.ok) return err(result.error?.message ?? 'Could not bulk-read KV values.');
+      return ok({
+        site_id,
+        environment,
+        namespaceId: scoped.scope.resourceId,
+        found: result.data?.found ?? 0,
+        missing: result.data?.missing ?? 0,
+        clamped_off: result.data?.clampedOff ?? 0,
+        values: result.data?.values ?? [],
+      });
+    }
+
+    case 'data_kv_bulk_delete': {
+      // Flag-gated on the reserved per_site_kv flag (dark → err, mirroring the Data-tab KV 404).
+      if (!(await isFlagOn(env, PER_SITE_KV_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site KV is not enabled for this account.');
+      }
+      const { site_id, keys, confirm, environment } = DataKvBulkDeleteInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveKvScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // The adapter enforces the destructive gate: no confirm:true → a `confirmation_required` error that
+      // REPORTS the count that WOULD be removed (nothing deleted); over the 10k cap → `bulk_limit_exceeded`.
+      const result = await kvAdapter.mutate(scoped.scope, { action: 'bulk_delete', confirm, keys });
+      if (!result.ok) {
+        return err(result.error?.message ?? 'Could not bulk-delete the KV keys.');
+      }
+      const data = result.data as { requested?: number } | undefined;
+      return ok({
+        site_id,
+        environment,
+        namespaceId: scoped.scope.resourceId,
+        action: 'bulk_delete',
+        requested: data?.requested ?? 0,
       });
     }
 
