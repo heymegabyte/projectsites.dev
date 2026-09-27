@@ -37,3 +37,4 @@ Each phase ships BOTH the Data-tab UI section AND the parity ProjectSites MCP to
 - Resources tab deployed to editor.projectsites.dev on 2026-09-27, commit 100b74c51
 - FIRE 2 (per-site grid inline cell edit + undo) committed on branch `worktree-agent-a8ebdd1f1bceafacf` (off `feat/apps-deploy-panel` `adb6fed83`) 2026-09-27 — editor-only; DEPLOY DEFERRED, parent cherry-picks + deploys to editor.projectsites.dev (Pages bolt-diy).
 - Rich SQL editor (SqlNavigator) deployed to editor.projectsites.dev on 2026-09-27, commit 0a4eb0721
+- Ask-AI SQL assistant + KV manager + DataPanel retirement deployed to editor.projectsites.dev on 2026-09-27, commit bdc5c537a (built from clean detached-HEAD worktree; `wrangler pages deploy build/client` rc=0 → https://877f487c.bolt-diy-8jf.pages.dev; prod-verify editor.projectsites.dev HTTP 200 — Ask-AI toggle in SqlNavigator + KvBrowser $10/mo upsell gate both LIVE)
