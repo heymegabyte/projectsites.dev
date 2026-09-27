@@ -1214,7 +1214,8 @@ apps.get('/api/apps/instances/:id/cname-check', async (c) => {
   const row = await loadInstance(c.env, orgId, c.req.param('id'));
   if (!row) throw notFound('app_instance not found');
   const domain = (c.req.query('domain') ?? '').trim().toLowerCase();
-  if (!domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) throw badRequest('Provide a valid domain.');
+  if (!domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain))
+    throw badRequest('Provide a valid domain.');
   const target = await checkCnameTarget(domain);
   const ok = !!target && /(^|\.)projectsites\.dev$/.test(target.toLowerCase());
   return c.json({ domain, target, ok, expected: 'projectsites.dev' });
@@ -1246,9 +1247,13 @@ apps.post('/api/apps/instances/:id/slug', async (c) => {
     [next],
   );
   if (clash) throw badRequest('That subdomain is already taken.');
-  const { error: upErr } = await dbUpdate(c.env.DB, 'app_instances', { subdomain: next }, 'id = ?', [
-    row.id,
-  ]);
+  const { error: upErr } = await dbUpdate(
+    c.env.DB,
+    'app_instances',
+    { subdomain: next },
+    'id = ?',
+    [row.id],
+  );
   if (upErr) throw internalError(`Failed to rename subdomain: ${upErr}`);
   // Re-point the KV host map (best-effort; serveAppInstance also resolves by the subdomain column).
   await clearAppHost(c.env, defaultAppHostname(row.subdomain)).catch(() => undefined);
@@ -1267,7 +1272,11 @@ apps.post('/api/apps/instances/:id/slug', async (c) => {
     metadata_json: { from: row.subdomain, to: next },
     request_id: c.get('requestId'),
   });
-  return c.json({ ok: true, subdomain: next, host: instancePublicHost({ ...row, subdomain: next }, cfHost) });
+  return c.json({
+    ok: true,
+    subdomain: next,
+    host: instancePublicHost({ ...row, subdomain: next }, cfHost),
+  });
 });
 
 /**
