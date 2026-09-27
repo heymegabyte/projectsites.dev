@@ -1,3 +1,14 @@
 {
-  "tasks": []
+  "tasks": [
+    {
+      "id": "ef7c305d",
+      "cron": "*/15 * * * *",
+      "prompt": "Advance the ProjectSites \"Data\" resource-management arc to completion by fanning out parallel agents. Governing scope: recall memory \"data-resource-mgmt-directive-governs-data-arc\" and read apps/project-sites/docs/data-resource-platform/PHASED-PLAN.md + its progress ledger (create the ledger from PHASED-PLAN if missing). Each fire, in order: (1) FOLD FIRST — if any prior slice is uncommitted or a workflow is mid-flight, fold + verify (typecheck + tests + drift) + commit + push + deploy it before starting new work; (2) PICK the next 1-2 incomplete slices (per-resource: D1 enhance, KV, R2, Durable Objects, Workflows, Queues, Vectorize, connections/observability — each = Data-tab UI section + parity ProjectSites MCP tools + CF adapter methods + tests), discovery/overview first; (3) LAUNCH a Workflow fanning out 4-6 parallel agents to build that slice end-to-end against the shared registry service (libs/features/data_resource_registry), obeying docs/data-resource-platform/SECURITY-INVARIANTS.md (server-resolve every CF id from registry+authed site+env, never client-supplied, preview!=prod, no account tokens to browser/MCP, honest \"not available\" per CAPABILITY-MATRIX.md) and apps/project-sites/_LOOP_CHARTER.md (real-user-journey proof + progressive enhancement + faster pace); (4) VERIFY typecheck + tests + validate:features, COMMIT + push, DEPLOY changed surfaces (editor->Pages bolt-diy, Angular->R2, worker if changed) and prod-verify them; (5) UPDATE the progress ledger, mark slices done. Keep the main thread lean — delegate reads to Explore agents, never read giant files. STOP the loop when PHASED-PLAN is fully complete and all defined Data tasks pass their gates; also sweep any other defined open tasks. Each fire report: slice(s) shipped + remaining count.",
+      "createdAt": 1790481764923,
+      "recurring": true,
+      "createdBySessionId": "dc275e4a-df42-4719-85cc-6db76be50160",
+      "createdByPid": 12047,
+      "createdByProcStart": "Sun Sep 27 03:15:57 2026"
+    }
+  ]
 }

@@ -104,6 +104,22 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'POST /api/sites/:id/rollback restores a prior commit; Off → rollback 404s',
     ],
   },
+  data_resource_platform: {
+    checklist: [
+      'Registry is the SSOT — every CF resource a site touches is a row the platform owns',
+      'Callers name only { site_id, environment }; the client NEVER supplies a CF id',
+      'resolveResourceRef maps { kind, environment } → the real CF id from a row the caller OWNS',
+      'Reuses assertSiteOwned (404-on-foreign) + FORBIDDEN_DB_IDS denylist (fail-closed on shared id)',
+      'preview + production isolated: a preview ref resolves a different CF id, never production',
+      'Off (default, DARK) → gates the future overview surface + MCP tools; this fire wires no routes',
+    ],
+    explanation:
+      'Authoritative Resource Registry (Data & Resource Platform §1): the server-side single source of truth for every Cloudflare resource a customer site touches — each resource is a ROW the platform owns and resolves server-side from the authed { site_id, environment }, a generalisation of the live per-site-D1 keystone. The module (libs/features/data_resource_registry) ships the Zod schemas for the registry model + the distinct concepts (ResourceKind/ResourceConcept, preview|production, ResourceRecord/BindingRecord), a service (record/list/get + the resolveResourceRef isolation keystone), and the typed CF adapter interface each per-kind adapter implements — backed by the site_resource_registry table + additive site_database_allocations columns (migration 0643). resolveResourceRef is the security core: the caller never names a CF id, it names { kind, environment[, selector] }, and the service maps that to a row the caller owns (reusing assertSiteOwned + the shared-id denylist), rejecting any ref for a foreign site/env and failing closed on a resolved shared-platform id. Off → the future registry/overview surface + parity MCP tools 404; this fire wires no routes.',
+    smoke_test: [
+      'Unit: npm test -- data_resource_registry → resolveResourceRef rejects a foreign-site ref (not_owned) + a shared-platform id (forbidden_shared)',
+      'Once routes land + flag on → the overview surface lists a site\'s resources; off → those routes 404 (never 403)',
+    ],
+  },
   per_site_data: {
     checklist: [
       'On site-create, provision a dedicated D1 + KV + R2 per site (in parallel)',

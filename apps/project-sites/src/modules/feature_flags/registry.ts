@@ -73,6 +73,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  data_resource_platform: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Authoritative Resource Registry (Data & Resource Platform §1 — docs/data-resource-platform/DESIGN.md). The server-side SSOT for every Cloudflare resource a site touches: each resource is a ROW the platform owns and resolves server-side from the authed { site_id, environment }.\n\n• libs/features/data_resource_registry: Zod schemas for the registry model + the distinct concepts (ResourceKind, ResourceConcept, preview|production environment, ResourceRecord/BindingRecord), a service (record/list/get + resolveResourceRef), and the typed CF adapter interface. Backed by the site_resource_registry table + additive site_database_allocations columns (migration 0643).\n• The isolation keystone resolveResourceRef maps { kind, environment } → the real CF id from a row the caller OWNS (reuses assertSiteOwned + the FORBIDDEN_DB_IDS denylist); the client NEVER names a CF id. A ref for a foreign site/env is rejected; a resolved shared-platform id fails closed.\n• Off (default, DARK) → gates the future overview/registry surface + parity MCP tools; this fire wires no routes, so nothing 404s yet. Server guard returns 404 (never 403) when off once routes land.',
+    key: 'data_resource_platform',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   per_site_data: {
     default_enabled: false,
     default_rollout_percent: 0,
