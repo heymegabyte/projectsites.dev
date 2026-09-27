@@ -234,6 +234,49 @@ export const ResourceRefSchema = z
   .strict();
 export type ResourceRef = z.infer<typeof ResourceRefSchema>;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Resource DETAIL — the generic `list`/`get` action a caller drives per kind
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The two READ verbs the generic detail surface exposes. `list` enumerates a resource's children
+ * (D1 tables, KV keys, R2 objects, Vectorize vectors, workflow runs, …); `get` reads ONE child
+ * (a table page, one KV value, one R2 object, one run). `head`/`mutate` are NOT exposed here — the
+ * overview owns `head` (via reconcile) and Phase 2 is read-only, so a caller can only `list`/`get`.
+ */
+export const ResourceDetailActionSchema = z.enum(['list', 'get']);
+export type ResourceDetailAction = z.infer<typeof ResourceDetailActionSchema>;
+
+/**
+ * The SAFE, non-identifier operands the detail route forwards into an adapter's `list`/`get` `input`.
+ * A caller NEVER names a CF id (INV-1) — only the site (route param) + kind + action + these bounded
+ * selectors. Each adapter reads the subset it understands (`d1.get` → `table`; `kv`/`r2` →
+ * `key`/`prefix`/`cursor`; `workflow`/`durable_object`/`connection`/`queue` → `id`; `vectorize` →
+ * `ids`) and ignores the rest — so one union safely feeds every kind. `.strict()` rejects a smuggled
+ * `resourceId`/`databaseId`/`accountId`/`namespaceId`.
+ */
+export const ResourceDetailParamsSchema = z
+  .object({
+    /** D1 `get`: which table to read a page of. */
+    table: z.string().min(1).max(128).optional(),
+    /** KV/R2 `get`: the exact key / object key to fetch. */
+    key: z.string().min(1).max(1024).optional(),
+    /** KV/R2 `list`: key/object-name prefix filter. */
+    prefix: z.string().max(1024).optional(),
+    /** KV/R2/workflow `list`: opaque pagination cursor from a prior page. */
+    cursor: z.string().min(1).max(4096).optional(),
+    /** workflow/durable_object/connection/queue `get`: the child id (run id, instance id, connection id). */
+    id: z.string().min(1).max(256).optional(),
+    /** vectorize `get`: vector ids to fetch (namespace-scoped; the adapter clamps + dedupes). */
+    ids: z.array(z.string().min(1).max(256)).max(100).optional(),
+    /** Page size for `list`/`get` (each adapter clamps to its own bound). */
+    limit: z.coerce.number().int().min(1).max(1000).optional(),
+    /** 0-based row offset for a paginated `get`/`list` (each adapter clamps to >= 0). */
+    offset: z.coerce.number().int().min(0).optional(),
+  })
+  .strict();
+export type ResourceDetailParams = z.infer<typeof ResourceDetailParamsSchema>;
+
 /** Typed reason a ref could not be resolved to a CF id — honest, no fabrication. */
 export const ResolveResourceRefFailureSchema = z.enum([
   'unauthorized', // no authed org

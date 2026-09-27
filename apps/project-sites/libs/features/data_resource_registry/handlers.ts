@@ -38,16 +38,22 @@ import { Hono } from 'hono';
 
 import type { Env, Variables } from '../../../src/types/env.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
+import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 
 import { ownsSiteData } from '../site_data_api/handlers.js';
 
-import { reconcileResources } from './reconciler.js';
-import { listResources } from './service.js';
+import type { AdapterResult, ResolvedScope } from './adapter.js';
+import { IMPLEMENTED_ADAPTERS, reconcileResources } from './reconciler.js';
+import { listResources, resolveResourceRef } from './service.js';
 import {
+  type ResourceDetailAction,
+  ResourceDetailActionSchema,
+  ResourceDetailParamsSchema,
   type ResourceDriftCode,
   type ResourceEnvironment,
   ResourceEnvironmentSchema,
   type ResourceKind,
+  ResourceKindSchema,
   type ResourceRecord,
 } from './schemas.js';
 
@@ -207,9 +213,209 @@ resourceRegistryApi.post('/api/sites/:siteId/resources/reconcile', async (c) => 
   }
 });
 
+/**
+ * GET one resource's DETAIL: dispatch a `list` or `get` READ verb to the kind's adapter for the
+ * OWNED site + environment, and return the adapter's typed {@link AdapterResult} verbatim under
+ * `{ data: { kind, action, result } }`. This is the generic per-kind drill-in the editor's
+ * ResourceDetailPanel drives — one endpoint that serves EVERY implemented kind, because every
+ * adapter shares the uniform `list`/`get` → `AdapterResult` contract (adapter.ts).
+ *
+ * The caller NEVER names a CF id (INV-1): it addresses `:kind` + `?action=` + bounded, non-identifier
+ * params (`table`/`key`/`prefix`/`cursor`/`id`/`ids`/`limit`/`offset`). The 5-step gate resolves the
+ * real CF id server-side from a registry row the caller proved it owns:
+ *   1. AUTH       — `orgId` from context, else 401.
+ *   2. FLAG       — `isFlagOn(data_resource_platform)`, else 404 (DARK, never 403).
+ *   3. OWNERSHIP  — `ownsSiteData`, else 404 (IDOR, never 403).
+ *   4. OPERANDS   — validate `kind` ∈ ResourceKind, `action` ∈ {list,get}, `environment` enum, and
+ *                   the safe params — else 400.
+ *   5. RESOLVE    — `resolveResourceRef` maps `{kind,environment}` → the OWNED CF id (or a typed
+ *                   reason), then dispatch to `IMPLEMENTED_ADAPTERS[kind].list|get(scope, params)`.
+ *
+ * Honest passthrough: a kind with NO owned registry row resolves `not_registered` → a 200
+ * `{ result: { ok:false, error:{code:'not_registered'} } }` (an honest "nothing to show", not a 500);
+ * a kind with no wired adapter → `not_registered` likewise; an `unsupported_kind` (queue) →
+ * `not_supported`. The adapter's own typed errors (`table_not_found`, `cf_unauthorized`, …) pass
+ * through untouched — the surface renders them as-is, never fabricating data.
+ */
+resourceRegistryApi.get('/api/sites/:siteId/resources/:kind/detail', async (c) => {
+  // 1. AUTH
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, kind: rawKind } = c.req.param();
+
+  // 2. FLAG (DARK → 404, never 403 / never leak existence)
+  if (!(await isFlagOn(c.env, FLAG, { orgId, siteId })))
+    return c.json(
+      { error: { code: 'NOT_FOUND', message: 'Resource platform is not enabled' } },
+      404,
+    );
+
+  // 3. OWNERSHIP (IDOR guard — 404 on foreign/missing, never 403)
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+  // 4. OPERANDS — kind + action + environment + safe params (never a CF id).
+  const parsedKind = ResourceKindSchema.safeParse(rawKind);
+  if (!parsedKind.success)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid resource kind' } }, 400);
+  const kind = parsedKind.data;
+
+  const parsedAction = ResourceDetailActionSchema.safeParse(c.req.query('action'));
+  if (!parsedAction.success)
+    return c.json(
+      { error: { code: 'BAD_REQUEST', message: 'action must be "list" or "get"' } },
+      400,
+    );
+  const action = parsedAction.data;
+
+  const environment = parseEnvironment(c.req.query('environment'));
+  if (environment === null)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid environment' } }, 400);
+
+  const parsedParams = ResourceDetailParamsSchema.safeParse(collectDetailParams(c.req));
+  if (!parsedParams.success)
+    return c.json(
+      { error: { code: 'BAD_REQUEST', message: 'Invalid detail parameters' } },
+      400,
+    );
+
+  // 5. RESOLVE + dispatch — the CF id is server-resolved from an OWNED registry row.
+  try {
+    const result = await runDetail(c.env, siteId, orgId, kind, action, environment, parsedParams.data);
+    return c.json({ data: { action, kind, result } });
+  } catch (err) {
+    console.warn(
+      JSON.stringify({
+        level: 'error',
+        msg: 'resource_registry_detail_failed',
+        service: 'data_resource_registry_handlers',
+        siteId,
+        kind,
+        action,
+        environment,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return c.json(
+      { error: { code: 'INTERNAL_ERROR', message: 'Could not read this resource.' } },
+      500,
+    );
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // helpers (pure — grouping / sorting / re-shaping the reconcile result)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A typed adapter-style envelope the detail route returns WITHOUT calling CF when the ref cannot be
+ * resolved to an owned CF id — an honest "nothing to show here" rather than a 500. Mirrors
+ * {@link AdapterResult} so the client renders resolve-failures with the SAME code path as an adapter's
+ * own typed errors. `not_registered`/`not_owned` are the common "blank site" cases (no row yet);
+ * `not_supported` is a kind the CF API can't back (queue).
+ */
+function resolveFailureEnvelope(reason: string): AdapterResult<never> {
+  const notSupported = reason === 'unsupported_kind';
+  return {
+    correlationId: `resolve-${reason}`,
+    error: {
+      code: notSupported ? 'not_supported' : reason === 'not_registered' ? 'not_registered' : reason,
+      message: notSupported
+        ? 'This resource kind is not available on this deployment.'
+        : reason === 'not_registered'
+          ? 'No resource of this kind is connected to this site yet.'
+          : 'This resource could not be read.',
+      retryable: reason === 'no_account_id',
+    },
+    ok: false,
+  };
+}
+
+/**
+ * Resolve the OWNED CF id for `(siteId, kind, environment)`, build the adapter scope, and dispatch the
+ * requested read verb. Returns the adapter's {@link AdapterResult} — or an honest
+ * {@link resolveFailureEnvelope} when the ref can't resolve or the kind has no wired adapter/verb.
+ * NEVER accepts a CF id; every id comes from the registry via {@link resolveResourceRef}.
+ */
+async function runDetail(
+  env: Env,
+  siteId: string,
+  orgId: string,
+  kind: ResourceKind,
+  action: ResourceDetailAction,
+  environment: ResourceEnvironment,
+  params: Record<string, unknown>,
+): Promise<AdapterResult<unknown>> {
+  const adapter = IMPLEMENTED_ADAPTERS[kind];
+  // A kind with no wired CF-backed adapter is an honest "nothing to show" (never a 500).
+  if (!adapter) return resolveFailureEnvelope('not_registered');
+
+  // The verb the caller wants must be one this adapter actually serves (honest capability gate).
+  if (!adapter.supports.verbs.includes(action)) {
+    return {
+      correlationId: `unsupported-${action}`,
+      error: {
+        code: 'not_supported',
+        message: `The ${kind} resource does not support '${action}'.`,
+        retryable: false,
+      },
+      ok: false,
+    };
+  }
+
+  // Server-resolve the CF id from an OWNED registry row (INV-1/§4) — the caller named only the kind.
+  const resolved = await resolveResourceRef(
+    env,
+    siteId,
+    { environment, kind },
+    { orgId },
+  );
+  if (!resolved.ok) return resolveFailureEnvelope(resolved.reason);
+
+  const auth = await resolveCfCredentials(env, orgId);
+  if (!auth) return resolveFailureEnvelope('no_account_id');
+  const accountId = env.CF_ACCOUNT_ID;
+  if (!accountId) return resolveFailureEnvelope('no_account_id');
+
+  const scope: ResolvedScope = {
+    accessPolicy: resolved.accessPolicy,
+    accountId,
+    auth,
+    // D1 handle for D1-backed kinds (e.g. connection reads mcp_connections); CF-REST adapters ignore it.
+    db: env.DB,
+    environment,
+    ingestEnabled: env.ANALYTICS_INGEST_ENABLED === 'true',
+    orgId,
+    resourceId: resolved.resourceId,
+    siteId,
+  };
+
+  return action === 'list' ? adapter.list(scope, params) : adapter.get(scope, params);
+}
+
+/**
+ * Collect the SAFE detail params from the query string into a plain object for
+ * {@link ResourceDetailParamsSchema}. Only reads the known keys (never a CF id); `ids` accepts either
+ * repeated `?ids=` params or a single comma-separated value. Absent keys are omitted so Zod defaults +
+ * `.strict()` behave. Numeric coercion is left to the schema (`z.coerce.number`).
+ */
+function collectDetailParams(req: {
+  query: (k: string) => string | undefined;
+  queries: (k: string) => string[] | undefined;
+}): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of ['table', 'key', 'prefix', 'cursor', 'id', 'limit', 'offset'] as const) {
+    const value = req.query(key);
+    if (value !== undefined && value !== '') out[key] = value;
+  }
+  const idsMulti = req.queries('ids');
+  if (idsMulti && idsMulti.length > 0) {
+    const ids = idsMulti.flatMap((v) => v.split(',')).map((s) => s.trim()).filter(Boolean);
+    if (ids.length > 0) out.ids = ids;
+  }
+  return out;
+}
 
 /** Stable kind ordering for the overview (mirrors `ResourceKindSchema` declaration order). */
 const KIND_ORDER: readonly ResourceKind[] = [

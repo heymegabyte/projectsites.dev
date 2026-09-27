@@ -59,7 +59,7 @@ import { listResources, recordResource } from './service.js';
  * map here (not a global singleton) means the reconciler drift-checks EXACTLY the kinds that have a
  * real CF-backed adapter — never a kind whose `head` would throw `not_implemented`.
  */
-const IMPLEMENTED_ADAPTERS: Partial<
+export const IMPLEMENTED_ADAPTERS: Partial<
   Record<ResourceKind, ResourceAdapter<unknown, unknown, unknown, unknown, unknown>>
 > = {
   d1: d1Adapter,

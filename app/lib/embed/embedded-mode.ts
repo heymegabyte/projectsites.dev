@@ -657,6 +657,85 @@ export interface ResReconcileResponseMessage {
   error?: string;
 }
 
+/** The generic per-kind adapter result envelope the detail surface renders (mirrors the worker `AdapterResult`). */
+export interface ResourceDetailResult {
+  ok: boolean;
+
+  /** The kind-specific payload on success (a list/table or one child's key-values). Rendered generically. */
+  data?: unknown;
+
+  /** A typed error on failure (`not_registered` / `not_supported` / `table_not_found` / `cf_unauthorized` / …). */
+  error?: { code: string; message: string; retryable?: boolean };
+
+  /** Log/trace correlation id from the adapter (or the resolver on a resolve-failure). */
+  correlationId?: string;
+}
+
+/**
+ * Child → Parent (resource detail): drill into ONE resource — `list` its children (D1 tables, KV keys,
+ * R2 objects, Vectorize vectors, workflow runs, …) or `get` one child (a table page, one KV value, one
+ * R2 object, one run). The embedded editor has no cross-origin session, so the admin (which holds
+ * `selectedSite` + the bearer) calls `GET /api/sites/:siteId/resources/:kind/detail?action=…` and
+ * replies with {@link ResDetailResponseMessage}. The caller NEVER names a CF id — only `kind` + `action`
+ * + bounded, non-identifier `params`; every id is server-resolved. Same dark-flag translation as
+ * {@link ResOverviewRequestMessage}.
+ */
+export interface ResDetailRequestMessage {
+  type: 'PS_RES_DETAIL_REQUEST';
+  correlationId: string;
+
+  /** The resource kind to drill into (`d1` | `kv` | `r2` | `vectorize` | `workflow` | `durable_object` | …). */
+  kind: string;
+
+  /** `list` (enumerate children) | `get` (read one child). */
+  action: 'list' | 'get';
+
+  /** Which environment the resource belongs to (`production` | `preview`). Omit for the default. */
+  environment?: string;
+
+  /**
+   * Safe, non-identifier operands forwarded into the adapter's `list`/`get` — a CF id is NEVER accepted.
+   * The worker validates + each adapter reads the subset it understands: `d1.get` → `table`; `kv`/`r2` →
+   * `key`/`prefix`/`cursor`; `workflow`/`durable_object`/`connection`/`queue` → `id`; `vectorize` →
+   * `ids`; `limit`/`offset` are clamped per-adapter.
+   */
+  params?: {
+    table?: string;
+    key?: string;
+    prefix?: string;
+    cursor?: string;
+    id?: string;
+    ids?: string[];
+    limit?: number;
+    offset?: number;
+  };
+}
+
+/**
+ * Parent → Child (resource detail): the admin's reply to {@link ResDetailRequestMessage} (mirrors the
+ * worker's `data` envelope — `{ kind, action, result }` where `result` is the adapter's typed
+ * {@link ResourceDetailResult}). `enabled` is `false` when the surface's flag is dark (the 404 "not
+ * enabled"); `error` carries any other transport failure (no site selected, network, 4xx).
+ */
+export interface ResDetailResponseMessage {
+  type: 'PS_RES_DETAIL_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** Echoed resource kind the result belongs to. */
+  kind?: string;
+
+  /** Echoed action (`list` | `get`). */
+  action?: string;
+
+  /** The adapter's typed result envelope — success payload OR a typed error, rendered generically. */
+  result?: ResourceDetailResult;
+
+  /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
 // ── KV Browser bridge messages ────────────────────────────────────────────────
 
 /** KV namespace entry returned by the `namespaces` op. */
@@ -867,6 +946,7 @@ export type ParentToChildMessage =
   | SiteDbRowsResponseMessage
   | ResOverviewResponseMessage
   | ResReconcileResponseMessage
+  | ResDetailResponseMessage
   | KvResponseMessage
   | ViewResponseMessage
   | PSToastMessage;
@@ -884,6 +964,7 @@ export type ChildToParentMessage =
   | SiteDbRowsRequestMessage
   | ResOverviewRequestMessage
   | ResReconcileRequestMessage
+  | ResDetailRequestMessage
   | KvRequestMessage
   | ViewRequestMessage
   | PSErrorMessage

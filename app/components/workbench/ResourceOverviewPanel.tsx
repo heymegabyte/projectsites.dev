@@ -37,6 +37,7 @@ import {
   type ResReconcileResponseMessage,
   type ResourceOverviewEntry,
 } from '~/lib/embed/embedded-mode';
+import { ResourceDetailPanel, type ResourceDetailTarget } from './ResourceDetailPanel';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -254,6 +255,22 @@ export const ResourceOverviewPanel = memo(() => {
   const [overview, setOverview] = useState<OverviewState>({ status: 'loading' });
   const [reconciling, setReconciling] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  /** The resource the owner clicked to drill into — non-null renders {@link ResourceDetailPanel}. */
+  const [selected, setSelected] = useState<ResourceDetailTarget | null>(null);
+
+  /** Open the generic detail drill-in for a clicked resource card (never passes a CF id — kind + env only). */
+  const openDetail = useCallback(
+    (entry: ResourceOverviewEntry) => {
+      const env = entry.environment === 'preview' || entry.environment === 'production' ? entry.environment : environment;
+      setSelected({
+        kind: entry.resource_kind,
+        environment: env,
+        concept: entry.resource_concept || undefined,
+        bindingName: entry.binding_name || undefined,
+      });
+    },
+    [environment],
+  );
 
   /*
    * The repo has a known empty-deps stale-ref bug: a single `onParentMessage` listener registered
@@ -426,6 +443,11 @@ export const ResourceOverviewPanel = memo(() => {
 
   const totalCount = overview.status === 'ready' ? overview.resources.length : 0;
 
+  // When a resource card is clicked, drill into the GENERIC per-kind detail view (list/get).
+  if (selected) {
+    return <ResourceDetailPanel target={selected} onBack={() => setSelected(null)} />;
+  }
+
   return (
     <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary">
       <Header
@@ -456,7 +478,7 @@ export const ResourceOverviewPanel = memo(() => {
         ) : (
           <div className="flex-1 overflow-auto modern-scrollbar px-4 py-4 space-y-6" data-testid="resources-groups">
             {groups.map((group) => (
-              <ResourceGroupSection key={group.key} group={group} onComingSoon={setNotice} />
+              <ResourceGroupSection key={group.key} group={group} onComingSoon={setNotice} onOpen={openDetail} />
             ))}
           </div>
         ))}
@@ -665,7 +687,15 @@ EmptyLaunchpad.displayName = 'ResourceOverviewPanel.EmptyLaunchpad';
 // ── Group section (kind × environment) ───────────────────────────────────────
 
 const ResourceGroupSection = memo(
-  ({ group, onComingSoon }: { group: ResourceGroup; onComingSoon: (label: string) => void }) => (
+  ({
+    group,
+    onComingSoon,
+    onOpen,
+  }: {
+    group: ResourceGroup;
+    onComingSoon: (label: string) => void;
+    onOpen: (entry: ResourceOverviewEntry) => void;
+  }) => (
     <section data-testid="resources-group">
       <div className="flex items-center gap-2 mb-2.5">
         <div className={classNames(iconForKind(group.kind), 'text-base text-bolt-elements-item-contentAccent shrink-0')} />
@@ -682,7 +712,7 @@ const ResourceGroupSection = memo(
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {group.entries.map((entry) => (
-          <ResourceCard key={entry.id} entry={entry} onComingSoon={onComingSoon} />
+          <ResourceCard key={entry.id} entry={entry} onComingSoon={onComingSoon} onOpen={onOpen} />
         ))}
       </div>
     </section>
@@ -694,9 +724,20 @@ ResourceGroupSection.displayName = 'ResourceOverviewPanel.ResourceGroupSection';
 // ── Resource card ────────────────────────────────────────────────────────────
 
 const ResourceCard = memo(
-  ({ entry, onComingSoon }: { entry: ResourceOverviewEntry; onComingSoon: (label: string) => void }) => {
+  ({
+    entry,
+    onComingSoon,
+    onOpen,
+  }: {
+    entry: ResourceOverviewEntry;
+    onComingSoon: (label: string) => void;
+    onOpen: (entry: ResourceOverviewEntry) => void;
+  }) => {
     const availability = availabilityFor(entry);
     const drifted = Boolean(entry.drift_code);
+    // Only a CONNECTED resource can be drilled into — an available/unsupported card keeps its own affordance.
+    const openable = availability === 'connected';
+    const open = openable ? () => onOpen(entry) : undefined;
 
     const availabilityChip =
       availability === 'connected'
@@ -715,10 +756,26 @@ const ResourceCard = memo(
             ? 'border-amber-400/50 bg-amber-400/[0.04]'
             : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2',
           availability === 'available' && 'opacity-80',
+          openable &&
+            'cursor-pointer hover:border-bolt-elements-item-contentAccent/60 hover:bg-bolt-elements-background-depth-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
         )}
         data-testid="resources-card"
         data-availability={availability}
         data-drift={drifted ? entry.drift_code : undefined}
+        role={openable ? 'button' : undefined}
+        tabIndex={openable ? 0 : undefined}
+        aria-label={openable ? `Open ${entry.resource_concept || titleForKind(entry.resource_kind)}` : undefined}
+        onClick={open}
+        onKeyDown={
+          openable
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onOpen(entry);
+                }
+              }
+            : undefined
+        }
       >
         {/* Top row — kind icon + concept + drift badge */}
         <div className="flex items-start gap-2.5">

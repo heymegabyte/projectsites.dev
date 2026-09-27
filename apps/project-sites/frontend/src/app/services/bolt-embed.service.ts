@@ -216,8 +216,25 @@ interface PsMessage {
   readonly expirationTtl?: number;
   /** PS_KV_REQUEST (put op): explicitly remove the expiration (make the key permanent). */
   readonly clearExpiration?: boolean;
-  /** PS_RES_OVERVIEW_REQUEST / PS_RES_RECONCILE_REQUEST: which environment's resources to list/reconcile. */
+  /** PS_RES_OVERVIEW_REQUEST / PS_RES_RECONCILE_REQUEST / PS_RES_DETAIL_REQUEST: which environment to target. */
   readonly environment?: string;
+  /** PS_RES_DETAIL_REQUEST: the resource kind to drill into (`d1` | `kv` | `r2` | `vectorize` | …). */
+  readonly resourceKind?: string;
+  /**
+   * PS_RES_DETAIL_REQUEST: SAFE non-identifier operands forwarded to the adapter's `list`/`get`
+   * (`?action=`). NEVER a CF id — the worker validates + server-resolves the id. `action` reuses the
+   * shared {@link action} field.
+   */
+  readonly detailParams?: {
+    table?: string;
+    key?: string;
+    prefix?: string;
+    cursor?: string;
+    id?: string;
+    ids?: string[];
+    limit?: number;
+    offset?: number;
+  };
 }
 
 /**
@@ -1501,6 +1518,72 @@ export class BoltEmbedService {
                   reply({ ok: false, enabled: false });
                 } else {
                   reply({ ok: false, error: 'Failed to reconcile resources' });
+                }
+              },
+            });
+          break;
+        }
+        case 'PS_RES_DETAIL_REQUEST': {
+          // Resource detail — drill into ONE resource: `list` its children or `get` one child, via
+          // GET /api/sites/:id/resources/:kind/detail?action=…. The embedded editor has no cross-origin
+          // session, so it asks US (we hold currentSite + the ApiService bearer). The caller NEVER names a
+          // CF id — only kind + action + bounded params; the worker server-resolves the id. Reply with
+          // PS_RES_DETAIL_RESPONSE. Same "not enabled" 404 dark-flag translation as PS_RES_OVERVIEW_REQUEST.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const kind = typeof msg.resourceKind === 'string' && msg.resourceKind ? msg.resourceKind : undefined;
+          const detailAction = msg.action === 'get' ? 'get' : 'list';
+          const environment = typeof msg.environment === 'string' && msg.environment ? msg.environment : undefined;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_DETAIL_RESPONSE', correlationId: cid, kind, action: detailAction, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!kind) {
+            reply({ ok: false, error: 'Failed to load resource' });
+            break;
+          }
+          // Build the query — action + optional environment + the safe, non-identifier detail params. `ids`
+          // (vectorize) collapses to a comma-separated value the worker splits back; a CF id is never sent.
+          const query: Record<string, string> = { action: detailAction };
+          if (environment) query['environment'] = environment;
+          const p = msg.detailParams;
+          if (p) {
+            for (const key of ['table', 'key', 'prefix', 'cursor', 'id'] as const) {
+              const value = p[key];
+              if (typeof value === 'string' && value) query[key] = value;
+            }
+            if (typeof p.limit === 'number' && Number.isFinite(p.limit)) query['limit'] = String(Math.trunc(p.limit));
+            if (typeof p.offset === 'number' && Number.isFinite(p.offset)) query['offset'] = String(Math.trunc(p.offset));
+            if (Array.isArray(p.ids) && p.ids.length > 0) query['ids'] = p.ids.filter((s) => typeof s === 'string' && s).join(',');
+          }
+          // The worker wraps the payload in `{ data: { kind, action, result } }` — unwrap to `result`.
+          this.api
+            .get<{ data?: { result?: unknown } }>(
+              `/sites/${site.id}/resources/${encodeURIComponent(kind)}/detail`,
+              query,
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, result: res?.data?.result }),
+              // Dark-flag: a real 404 whose body message says "not enabled" is the killswitch, not a
+              // failure — tell the editor to hide the surface, not show an error.
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, error: 'Failed to load resource' });
                 }
               },
             });
