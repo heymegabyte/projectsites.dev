@@ -10,7 +10,15 @@
  * (Visitor Events / Snapshots / form_submissions / `/data-overview`) is REMOVED from the editor.
  *
  * Sub-views:
- *  - **Table-view** — the read grid over the site's OWN D1 ({@link SiteTablesPanel}, `PS_SITEDB_*`).
+ *  - **Table-view** — the read/edit grid over the site's OWN D1 ({@link SiteTablesPanel}, `PS_SITEDB_*`).
+ *  - **Schema builder** — a guided, visual DDL builder ({@link SchemaBuilder}): create table / add · rename ·
+ *    drop column (drop is confirm-gated) / create index. Compiles SAFE statements via the pure `schema-ddl`
+ *    generators and runs them through the SAME per-site exec rail (`PS_RES_MUTATE { kind:'d1', action:'exec' }`)
+ *    with the SQL previewed first. No SQL knowledge required (embarrassingly-easy bar).
+ *  - **History** — D1 Time-Travel restore ({@link TimeTravelPanel}): see the live bookmark, label a point, and
+ *    RESTORE the whole database to a bookmark or a chosen date-time (confirm-gated, honest "restores to <time>").
+ *    Uses `PS_RES_MUTATE { kind:'d1', action:'time_travel_info' | 'restore' }` → the worker's REAL CF REST
+ *    Time-Travel calls; an honest "not available" state when Cloudflare can't expose it.
  *  - **SQL navigator** — the RICH per-site D1 SQL workspace ({@link SqlNavigator}), tucked behind a
  *    remembered **Advanced/Developer** toggle (SQL is NOT hidden, it's tucked — 2026-09-26 override).
  *    Recycles the proven editor from `DataPanel` (syntax-highlighted + schema-completing editor, query
@@ -33,23 +41,28 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { classNames } from '~/utils/classNames';
 import { SiteTablesPanel } from './SiteTablesPanel';
+import { SchemaBuilder } from './SchemaBuilder';
+import { TimeTravelPanel } from './TimeTravelPanel';
 import { SqlNavigator } from './SqlNavigator';
 import { KvBrowser } from './KvBrowser';
 
 // ── Sub-nav model ────────────────────────────────────────────────────────────
 
-type SubView = 'table' | 'sql' | 'kv';
+type SubView = 'table' | 'schema' | 'history' | 'sql' | 'kv';
 
 interface SubNavItem {
   value: SubView;
   label: string;
   icon: string;
+
   /** When true this item only appears while the Advanced/Developer toggle is on. */
   advanced?: boolean;
 }
 
 const SUB_NAV: readonly SubNavItem[] = [
   { value: 'table', label: 'Table-view', icon: 'i-ph:table-duotone' },
+  { value: 'schema', label: 'Schema', icon: 'i-ph:blueprint-duotone' },
+  { value: 'history', label: 'History', icon: 'i-ph:clock-counter-clockwise-duotone' },
   { value: 'sql', label: 'SQL navigator', icon: 'i-ph:terminal-window-duotone', advanced: true },
   { value: 'kv', label: 'KV manager', icon: 'i-ph:key-duotone' },
 ];
@@ -90,6 +103,7 @@ export const DatabasePanel = memo(() => {
     setAdvanced((cur) => {
       const next = !cur;
       writeAdvancedPref(next);
+
       return next;
     });
   }, []);
@@ -191,9 +205,11 @@ export const DatabasePanel = memo(() => {
         </button>
       </div>
 
-      {/* Active sub-view — all three stay lightweight; only Table-view holds a live bridge on mount. */}
+      {/* Active sub-view — each stays lightweight; only the mounted view holds a live bridge. */}
       <div className="relative flex-1 overflow-hidden">
-        {subView === 'table' && <SiteTablesPanel />}
+        {subView === 'table' && <SiteTablesPanel onCreateTable={() => setSubView('schema')} />}
+        {subView === 'schema' && <SchemaBuilder />}
+        {subView === 'history' && <TimeTravelPanel />}
         {subView === 'sql' && advanced && <SqlNavigator />}
         {subView === 'kv' && <KvManager />}
       </div>

@@ -121,7 +121,7 @@ authed site+env (SECURITY-INVARIANTS INV-1/INV-2) — the panel never sees or se
 ### 2E. Snapshots / Time-Travel UI (D1 DATA versioning — SEPARATE from git)
 
 - **DONE (adapter+MCP)** — D1 Time-Travel info + restore (`data_d1_time_travel_info`/`data_d1_restore`, confirm-gated whole-DB revert; auto-snapshot-before-destructive intent realized).
-- **NOT-DONE** — owner-facing **Time-Travel restore UI** (pick a point/bookmark, one-click restore) in the Database tab. *(Fire 4)*
+- **✅ DONE (Fire 4)** — owner-facing **Time-Travel restore UI** (`TimeTravelPanel.tsx`, Database tab "History" sub-view): live bookmark read (`time_travel_info`), label/save points (local), one-click restore to a saved bookmark OR a chosen date-time (`restore`, whole-DB), type-RESTORE confirm + honest "restores your entire database to <time>", undo-handle via `previous_bookmark`, honest "not available" when CF can't expose it. Pure logic in `time-travel-logic.ts` (+20 tests). EDITOR-ONLY (worker adapter already shipped).
 - **SKIP (Brian)** — per-row change history / audit log.
 
 ### 2F. KV opt-in billing
@@ -133,8 +133,8 @@ authed site+env (SECURITY-INVARIANTS INV-1/INV-2) — the panel never sees or se
 ### 2G. Views / schema-builder / AI-seeding
 
 - **DONE (shared surface, re-point needed)** — rich views **grid · gallery · kanban · chart · calendar** + saved views (CRUD + drift badge + layout capture) + record drawer + column reorder/resize/pin/hide/density/summaries. `view-models.ts`/`field-types.ts`/`schema-ddl.ts` foundations tested.
-- **NOT-DONE** — guided **schema builder** on the per-site D1 (create tables, add/rename/retype cols, relations; DDL preview + impact + confirm + rebuild-when-ALTER-can't). `schema-ddl.ts` is inert. *(Fire 4)*
-- **NOT-DONE** — first field types on the per-site grid: typed primitives + single/multi-select + date (linked-records/lookup/rollup/formulas/attachments/rating LATER, computed-at-display). *(Fire 4)*
+- **✅ DONE (Fire 4)** — guided **schema builder** on the per-site D1 (`SchemaBuilder.tsx`, Database tab "Schema" sub-view): create table (N typed column rows) / add · rename · drop column / create index, with type · PK · NOT NULL · UNIQUE · DEFAULT pickers, LIVE SQL preview before apply, and DROP type-to-confirm. Compiles via the now-WIRED pure `schema-ddl.ts` generators (through `schema-builder-logic.ts`, +27 tests) and runs each statement through the per-site `PS_RES_MUTATE {kind:'d1',action:'exec'}` rail (confirm-gated destructive). The empty-state + table-list "New table" now open the builder. (relations/retype-via-rebuild are later; ALTER add/rename/drop covers the common path.) EDITOR-ONLY.
+- **✅ DONE (Fire 4)** — first field types on the per-site grid: typed primitives + **date/datetime pickers** (auto-selected from a column's declared type via `editorKindForColumn` → native `<input type=date|datetime-local>`) + **single-select (enum-ish)** — a column whose loaded-page values form a small distinct set renders a real `<select>` (+ "Other…" escape) via a new `options` prop on `TypedValueField`/`CellEditor` (`enumOptionsForColumn`, zero round-trip). (multi-select/linked-records/lookup/rollup/formulas/attachments/rating LATER.) EDITOR-ONLY.
 - **NOT-DONE** — **AI seeds tables on generation** (builder↔DB: pipeline creates tables + wires Worker bindings + app code). *(Fire 6)*
 - **NOT-DONE** — AI copilot: NL query / NL edits / insights / formula-gen / conversational chat / data-cleaning; AI-first onboarding. *(Fire 6, later slices)*
 

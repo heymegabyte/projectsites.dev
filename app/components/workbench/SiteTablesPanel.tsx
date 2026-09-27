@@ -34,7 +34,7 @@
  * Style matches the editor conventions exactly (UnoCSS `bolt-elements-*` tokens, phosphor `i-ph:*`
  * icons) — mirrors `./DatabasePanel`'s SqlNavigator + `./Preview`.
  */
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { classNames } from '~/utils/classNames';
 import {
@@ -177,6 +177,47 @@ function exportPageCsv(page: TablePage): void {
   }
 }
 
+/**
+ * Derive a small, CONSTRAINED enum option set for a column from the CURRENTLY-LOADED page rows — a
+ * zero-round-trip, honest "enum-ish" affordance: when a column's non-null string/number values on the page
+ * form a SMALL distinct set (≤ {@link ENUM_MAX_DISTINCT}, ≥2), the cell editor offers a real `<select>`
+ * dropdown of those values (with an "Other…" escape) instead of an open text box. This never claims the set
+ * is exhaustive — it's derived from the visible page, and "Other…" always allows a value outside it. Returns
+ * `[]` (→ plain free text) for high-cardinality columns, all-null columns, or non-text/number values.
+ */
+const ENUM_MAX_DISTINCT = 8;
+
+function enumOptionsForColumn(rows: readonly Record<string, unknown>[], column: string): string[] {
+  const distinct = new Set<string>();
+
+  for (const row of rows) {
+    const v = row[column];
+
+    if (v === null || v === undefined) {
+      continue;
+    }
+
+    // Only simple scalar columns are enum candidates (skip objects/arrays/JSON blobs).
+    if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') {
+      return [];
+    }
+
+    const s = String(v);
+
+    if (s.length > 40) {
+      return [];
+    } // long values aren't an enum
+
+    distinct.add(s);
+
+    if (distinct.size > ENUM_MAX_DISTINCT) {
+      return [];
+    } // too many distinct → free text
+  }
+
+  return distinct.size >= 2 ? [...distinct].sort((a, b) => a.localeCompare(b)) : [];
+}
+
 /** A short, human label for a value in the Undo toast (truncated so long text never overflows). */
 function undoValueLabel(value: unknown): string {
   if (value === null || value === undefined) {
@@ -190,7 +231,16 @@ function undoValueLabel(value: unknown): string {
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export const SiteTablesPanel = memo(() => {
+export interface SiteTablesPanelProps {
+  /**
+   * Optional: switch the Database tab to the Schema builder (the empty-state "New table" launchpad + a
+   * "New table" action call this so the owner's click lands in the guided builder, per the
+   * embarrassingly-easy bar). When absent, the button falls back to an inline "coming next" note.
+   */
+  onCreateTable?: () => void;
+}
+
+export const SiteTablesPanel = memo(({ onCreateTable }: SiteTablesPanelProps = {}) => {
   const [tables, setTables] = useState<TablesState>({ status: 'loading' });
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [rows, setRows] = useState<RowsState>({ status: 'idle' });
@@ -703,6 +753,33 @@ export const SiteTablesPanel = memo(() => {
     clearUndo();
   }, [undo, rows, pkCols, execSql, clearUndo]);
 
+  /**
+   * Per-column enum options derived from the loaded page — an editable, non-PK, non-generated column whose
+   * page values form a small distinct set gets a `<select>` in its cell editor (see {@link enumOptionsForColumn}).
+   * Recomputed only when the page changes, so scrolling/editing is cheap.
+   */
+  const columnOptions = useMemo<Record<string, string[]>>(() => {
+    if (rows.status !== 'ready') {
+      return {};
+    }
+
+    const out: Record<string, string[]> = {};
+
+    for (const col of rows.page.columns) {
+      if (!editableColumn(col.name).editable) {
+        continue;
+      }
+
+      const opts = enumOptionsForColumn(rows.page.rows, col.name);
+
+      if (opts.length > 0) {
+        out[col.name] = opts;
+      }
+    }
+
+    return out;
+  }, [rows, editableColumn]);
+
   return (
     <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary">
       <Header
@@ -726,6 +803,7 @@ export const SiteTablesPanel = memo(() => {
           onOpen={openTable}
           onRetry={() => void loadTables()}
           onComingSoon={flashComingSoon}
+          onCreateTable={onCreateTable}
         />
       ) : (
         <BrowseView
@@ -740,6 +818,7 @@ export const SiteTablesPanel = memo(() => {
           editError={editError}
           editBusy={editBusy}
           pkCols={pkCols}
+          columnOptions={columnOptions}
           onBack={backToList}
           onPrev={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
           onNext={() => setOffset((o) => o + PAGE_SIZE)}
@@ -813,6 +892,7 @@ export const SiteTablesPanel = memo(() => {
           editError={editError}
           editBusy={editBusy}
           pkCols={pkCols}
+          columnOptions={columnOptions}
           onStartEdit={startEdit}
           onEditKindChange={setEditKind}
           onEditValueChange={setEditValue}
@@ -897,11 +977,13 @@ const TableListView = memo(
     onOpen,
     onRetry,
     onComingSoon,
+    onCreateTable,
   }: {
     state: TablesState;
     onOpen: (name: string) => void;
     onRetry: () => void;
     onComingSoon: (label: string) => void;
+    onCreateTable?: () => void;
   }) => {
     if (state.status === 'loading') {
       return <Spinner label="Loading your tables…" />;
@@ -943,7 +1025,7 @@ const TableListView = memo(
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => onComingSoon('New table')}
+              onClick={() => (onCreateTable ? onCreateTable() : onComingSoon('New table'))}
               data-testid="sitedb-new-table"
               className="min-h-[24px] text-[12px] font-semibold px-3.5 py-2 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:opacity-90 transition-opacity flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
             >
@@ -964,8 +1046,21 @@ const TableListView = memo(
 
     return (
       <div className="flex-1 overflow-auto modern-scrollbar" data-testid="sitedb-table-list">
-        <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
-          Tables ({state.tables.length})
+        <div className="flex items-center gap-2 px-3 py-1.5">
+          <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
+            Tables ({state.tables.length})
+          </span>
+          {onCreateTable && (
+            <button
+              type="button"
+              onClick={onCreateTable}
+              data-testid="sitedb-new-table-inline"
+              title="Build a new table"
+              className="ml-auto min-h-[24px] text-[11px] font-medium px-2 py-0.5 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            >
+              <div className="i-ph:plus" /> New table
+            </button>
+          )}
         </div>
         {state.tables.map((t) => (
           <button
@@ -998,6 +1093,12 @@ interface EditProps {
   editError: string;
   editBusy: boolean;
   pkCols: string[];
+
+  /**
+   * Per-column CONSTRAINED enum options derived from the loaded page (see {@link enumOptionsForColumn}). When a
+   * column maps to a small distinct set, the cell editor renders a `<select>` (+ "Other…") instead of free text.
+   */
+  columnOptions: Record<string, string[]>;
   onStartEdit: (row: Record<string, unknown>, col: ColumnInfo) => void;
   onEditKindChange: (kind: CellInputKind) => void;
   onEditValueChange: (value: string) => void;
@@ -1023,6 +1124,7 @@ const BrowseView = memo(
     editError,
     editBusy,
     pkCols,
+    columnOptions,
     onStartEdit,
     onEditKindChange,
     onEditValueChange,
@@ -1158,6 +1260,7 @@ const BrowseView = memo(
                         editError={editError}
                         editBusy={editBusy}
                         pkCols={pkCols}
+                        columnOptions={columnOptions}
                         onStartEdit={onStartEdit}
                         onEditKindChange={onEditKindChange}
                         onEditValueChange={onEditValueChange}
@@ -1223,6 +1326,7 @@ const GridRow = memo(
     editError,
     editBusy,
     pkCols,
+    columnOptions,
     onStartEdit,
     onEditKindChange,
     onEditValueChange,
@@ -1265,6 +1369,7 @@ const GridRow = memo(
                   onKindChange={onEditKindChange}
                   editValue={editValue}
                   onValueChange={onEditValueChange}
+                  options={columnOptions[col.name]}
                   previewSql={null}
                   editError={editError}
                   editBusy={editBusy}
@@ -1334,6 +1439,7 @@ const RowDrawer = memo(
     editError,
     editBusy,
     pkCols,
+    columnOptions,
     onStartEdit,
     onEditKindChange,
     onEditValueChange,
@@ -1420,6 +1526,7 @@ const RowDrawer = memo(
                         onKindChange={onEditKindChange}
                         editValue={editValue}
                         onValueChange={onEditValueChange}
+                        options={columnOptions[col.name]}
                         previewSql={null}
                         editError={editError}
                         editBusy={editBusy}
