@@ -975,7 +975,9 @@ describe('POST /api/apps/instances/:id/domains/purchase', () => {
       if (/FROM subscriptions/i.test(sql)) return { stripe_customer_id: 'cus_123' }; // existing customer
       return null;
     });
-    mockAvail.mockResolvedValue([{ name: 'acme.com', tld: 'com', available: true, price_usd: 9.77 }]);
+    mockAvail.mockResolvedValue([
+      { name: 'acme.com', tld: 'com', available: true, price_usd: 9.77 },
+    ]);
     mockDbInsert.mockResolvedValue({ error: null });
 
     const realFetch = global.fetch;
@@ -1025,7 +1027,9 @@ describe('POST /api/apps/instances/:id/domains/purchase', () => {
       if (/FROM app_instances/i.test(sql)) return instanceRow();
       return null;
     });
-    mockAvail.mockResolvedValue([{ name: 'taken.com', tld: 'com', available: false, price_usd: 9.77 }]);
+    mockAvail.mockResolvedValue([
+      { name: 'taken.com', tld: 'com', available: false, price_usd: 9.77 },
+    ]);
     const res = await req(
       makeApp(AUTH),
       '/api/apps/instances/inst-1/domains/purchase',

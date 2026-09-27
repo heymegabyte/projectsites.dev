@@ -239,9 +239,8 @@ webhooks.post('/webhooks/stripe', async (c) => {
                     [meta.org_id],
                   ).catch(() => null)
                 : null;
-              const { completeDomainPurchase } = await import(
-                '../services/domain_purchase_complete.js'
-              );
+              const { completeDomainPurchase } =
+                await import('../services/domain_purchase_complete.js');
               await completeDomainPurchase(c.env, obj.id as string, owner?.email ?? null);
             } catch (err) {
               // Fully isolated — domain fulfilment must never fail the billing webhook. The

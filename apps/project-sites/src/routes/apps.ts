@@ -1252,14 +1252,19 @@ async function verifyPointed(domain: string): Promise<{ ok: boolean; target: str
 
 /** CF custom-hostname state for `domain` (looked up by NAME — no stored cf_id). `ssl_status`
  *  'active' = the cert is issued + the domain is ACTIVATED. Soft: returns 'none' on any hiccup. */
-async function cfHostnameStatus(env: Env, domain: string): Promise<{ status: string; ssl_status: string }> {
+async function cfHostnameStatus(
+  env: Env,
+  domain: string,
+): Promise<{ status: string; ssl_status: string }> {
   try {
     const r = await fetch(
       `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/custom_hostnames?hostname=${encodeURIComponent(domain)}`,
       { headers: { Authorization: `Bearer ${env.CF_API_TOKEN}` } },
     );
     if (!r.ok) return { status: 'none', ssl_status: 'none' };
-    const j = (await r.json()) as { result?: Array<{ status?: string; ssl?: { status?: string } }> };
+    const j = (await r.json()) as {
+      result?: Array<{ status?: string; ssl?: { status?: string } }>;
+    };
     const rec = j.result?.[0];
     return rec
       ? { status: rec.status ?? 'pending', ssl_status: rec.ssl?.status ?? 'pending' }
@@ -1698,13 +1703,17 @@ apps.post('/api/apps/instances/:id/domains/purchase', async (c) => {
   const body = purchaseDomainBody.parse(await c.req.json().catch(() => ({})));
   const domain = body.domain.trim().toLowerCase().replace(/\.$/, '');
   if (!/^[a-z0-9-]+\.[a-z]{2,}$/.test(domain) || domain.endsWith('.projectsites.dev')) {
-    throw badRequest('Enter a domain to register, e.g. example.com (not a *.projectsites.dev subdomain).');
+    throw badRequest(
+      'Enter a domain to register, e.g. example.com (not a *.projectsites.dev subdomain).',
+    );
   }
   const tld = domain.slice(domain.indexOf('.') + 1);
 
   // Stripe must be configured — surface a clean, actionable error instead of a raw failure later.
   if (!c.env.STRIPE_SECRET_KEY) {
-    throw badRequest('Domain purchases are temporarily unavailable (billing is not configured). Please try again later.');
+    throw badRequest(
+      'Domain purchases are temporarily unavailable (billing is not configured). Please try again later.',
+    );
   }
 
   // Already attached to THIS instance? Nothing to buy.
@@ -1726,11 +1735,14 @@ apps.post('/api/apps/instances/:id/domains/purchase', async (c) => {
 
   // At-cost annual registration price (whole USD). Prefer the availability price, fall back to the
   // static per-TLD table. If we still can't price it, refuse rather than charge an unknown amount.
-  const priceUsd = avail[0]?.price_usd && avail[0].price_usd > 0
-    ? avail[0].price_usd
-    : (staticTldPriceUsd(tld) ?? 0);
+  const priceUsd =
+    avail[0]?.price_usd && avail[0].price_usd > 0
+      ? avail[0].price_usd
+      : (staticTldPriceUsd(tld) ?? 0);
   if (priceUsd <= 0) {
-    throw badRequest(`We can't price .${tld} for at-cost registration yet. Add it as a custom domain you own instead.`);
+    throw badRequest(
+      `We can't price .${tld} for at-cost registration yet. Add it as a custom domain you own instead.`,
+    );
   }
   const domainCents = Math.round(priceUsd * 100);
 
@@ -1799,8 +1811,7 @@ apps.post('/api/apps/instances/:id/domains/purchase', async (c) => {
     'line_items[1][price_data][currency]': PRICING.CURRENCY,
     'line_items[1][price_data][unit_amount]': String(domainCents),
     'line_items[1][price_data][product_data][name]': `Domain registration — ${domain}`,
-    'line_items[1][price_data][product_data][description]':
-      `1 year at Cloudflare Registrar at-cost pricing${cfCanRegister ? '' : ' (registered by our team)'}`,
+    'line_items[1][price_data][product_data][description]': `1 year at Cloudflare Registrar at-cost pricing${cfCanRegister ? '' : ' (registered by our team)'}`,
     'line_items[1][quantity]': '1',
     billing_address_collection: 'auto',
     'metadata[kind]': 'domain_purchase',

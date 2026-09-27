@@ -68,14 +68,12 @@ describe('getOrCreatePageAudio — fail-soft + observable', () => {
 
   it('ElevenLabs preferred when ELEVENLABS_API_KEY set → uses ElevenLabs, stores audio/mpeg, MeloTTS NOT called', async () => {
     // ElevenLabs returns MP3 bytes; MeloTTS (env.AI.run for the TTS model) must NOT be hit.
-    const fetchSpy = jest
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(
-        new Response(new Uint8Array(1024), {
-          status: 200,
-          headers: { 'content-type': 'audio/mpeg' },
-        }),
-      );
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(new Uint8Array(1024), {
+        status: 200,
+        headers: { 'content-type': 'audio/mpeg' },
+      }),
+    );
     // Capture the content-type of the AUDIO object put (the `.wav` key), not the `.txt` sidecar.
     let audioContentType: string | undefined;
     const env = {
