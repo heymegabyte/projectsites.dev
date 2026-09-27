@@ -163,11 +163,16 @@ export class AppComponent implements OnInit, OnDestroy {
   private translate = inject(TranslateService);
   private appShell = inject(AppShellService);
   private telemetry = inject(TelemetryService);
-
   showHeader = signal(true);
   showCommandPalette = signal(false);
   showShortcuts = signal(false);
   inAdmin = signal(false);
+  /** True on `/admin/editor*` — gates the top-level editor loading veil (rendered at the app
+   * root, max z-index) so it shows only while the editor is the active surface. */
+  isEditorRoute = signal(false);
+  // The editor loading veil now lives in the admin shell (admin.component) as an absolute
+  // sibling of the bolt iframe — pure-CSS positioned in the content pane. No app-root veil /
+  // JS rect-measuring here anymore.
   /** True while a LAZY route chunk is downloading (a cold deep-link to a heavy route like
    * `/create` takes ~3s to hydrate) — drives an instant loading skeleton so the funnel
    * destination never shows a dead-blank. NEVER set for the homepage (`/`) so its delicate
@@ -371,12 +376,14 @@ export class AppComponent implements OnInit, OnDestroy {
     // Set initial value
     this.showHeader.set(!this.isHeaderlessRoute(this.router.url));
     this.inAdmin.set(this.router.url.startsWith('/admin'));
+    this.isEditorRoute.set(this.router.url.split('?')[0].startsWith('/admin/editor'));
     // Listen for route changes
     this.router.events
       .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
       .subscribe(e => {
         this.showHeader.set(!this.isHeaderlessRoute(e.urlAfterRedirects));
         this.inAdmin.set(e.urlAfterRedirects.startsWith('/admin'));
+        this.isEditorRoute.set(e.urlAfterRedirects.split('?')[0].startsWith('/admin/editor'));
         // Closing the global palette when entering /admin prevents the
         // double-palette regression even if a user toggled it elsewhere.
         if (e.urlAfterRedirects.startsWith('/admin')) this.showCommandPalette.set(false);
