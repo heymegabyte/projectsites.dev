@@ -13,6 +13,42 @@
 > Angular host makes the authed API call, and posts the result back. The Angular admin can call the
 > API directly. Never wire the editor to fetch the API itself.
 
+## Tab assignment (Data vs Backend)
+
+**Directive (Brian, 2026-09-27):** the resource surface splits across TWO editor tabs. The phase
+sections below are ORDERED so every DATA-tab phase ships before every BACKEND-tab phase; each phase's
+detailed spec is unchanged — only the sequence and the tab label are added.
+
+- **DATA tab** — the data/storage plane: **D1**, **KV**, **R2**, **database connections**
+  (Hyperdrive / external DB), and **Vectorize / AI-Search** (it is a data + search STORE, so it lives
+  with the data plane, not the compute plane).
+- **BACKEND tab** (the FINAL tab) — the compute/bindings plane: **Durable Objects**, **Workflows**,
+  **Queues**, **scheduled tasks** (Cron Triggers), and **Worker bindings** (service bindings, Secrets
+  Store, AI, Browser Rendering, Images, etc.).
+- **Overview / discovery is SHARED** (Phase 1): it is not one tab's — EACH tab renders its OWN
+  reconciled inventory (the Data tab lists its data-plane rows; the Backend tab lists its compute-plane
+  rows) from the same registry + reconciler. One panel component, two filtered views.
+- **Observability is CROSS-CUTTING → surfaced under BACKEND.** Site-filtered logs + Analytics Engine
+  are Worker-LEVEL signals (they describe the running Worker, not a single data store), so they render
+  on the Backend tab — noted explicitly here so a later fire doesn't file them under Data.
+
+| Phase | Kind | Tab |
+|---|---|---|
+| 0 | Foundation (registry + adapter + resolver) | shared |
+| 1 | Discovery / Overview | shared (per-tab filtered view) |
+| 2 | D1 | Data |
+| 3 | KV | Data |
+| 4 | R2 | Data |
+| 5 | Vectorize / AI-Search | Data |
+| 8 · Connections | Hyperdrive / external DB connections | Data |
+| 6 | Workflows | Backend |
+| 7 | Durable Objects | Backend |
+| 8 · Queues + Worker bindings + Observability | Queues · Cron Triggers · Worker bindings · logs + Analytics Engine | Backend |
+
+Note: Phase 8 is split across BOTH tabs by concern — its **Connections** half (DB connections) is a
+DATA-tab surface; its **Queues + scheduled-tasks + Worker-bindings + Observability** half is a
+BACKEND-tab surface. Build the Connections half with the Data-tab wave, the rest with the Backend wave.
+
 ## Phase 0 (FOUNDATION — this directive, do first)
 
 Ships the shared model everything else builds on:
@@ -26,10 +62,12 @@ Ships the shared model everything else builds on:
 - Tests: resolver IDOR/flag/denylist/preview-isolation unit tests; schema round-trip; drift-code
   enum. **Gate: green before Phase 1.**
 
-## Phase 1 — Discovery / Overview (HIGHEST VALUE, do first after foundation)
+## Phase 1 — Discovery / Overview (HIGHEST VALUE, do first after foundation) — Tab: SHARED
 
 The single screen that answers "what does this site have?" — the reconciled inventory across all
 kinds. Highest value because it's the entry point, needs no per-kind write, and surfaces drift.
+**Shared across both tabs**: the Data tab renders the data-plane rows, the Backend tab renders the
+compute-plane rows — one panel component, two filtered views over the same registry + reconciler.
 
 - **UI section**: "Resources" overview in the Data tab — a list of the site's registry rows (Table A
   allocations + Table B rows) grouped by kind × environment, each with lifecycle_state, tenancy,
@@ -44,7 +82,11 @@ kinds. Highest value because it's the entry point, needs no per-kind write, and 
   `resource_missing_on_cf` when a row's CF `head` 404s; MCP tool re-scopes on `token.org_id`;
   prod-E2E asserts the overview renders live for a real site.
 
-## Phase 2 — D1 (ENHANCE the live surface)
+---
+
+# DATA-tab phases (ship BEFORE Backend-tab phases) — D1 · KV · R2 · Vectorize · Connections
+
+## Phase 2 — D1 (ENHANCE the live surface) — Tab: DATA
 
 D1 is already live (`per_site_data`); this phase formalises it behind the adapter + adds parity MCP.
 
@@ -58,7 +100,7 @@ D1 is already live (`per_site_data`); this phase formalises it behind the adapte
 - **Tests**: reuse `site_data_db.test.ts` + `site-db.test.ts`; add adapter contract test + MCP
   owned-check; no-PRAGMA + single-statement assertions; `per-site-d1.spec.ts` extended.
 
-## Phase 3 — KV (wire the ready backend)
+## Phase 3 — KV (wire the ready backend) — Tab: DATA
 
 `kv_provisioner.ts` + allocation columns exist; build the surface (flag `per_site_kv`).
 
@@ -70,7 +112,7 @@ D1 is already live (`per_site_data`); this phase formalises it behind the adapte
 - **Tests**: provision idempotency (`kv_provisioner` test exists to extend); cursor pagination
   honesty; put→get→delete causal; eventual-consistency "propagating" state; foreign→404; prod-E2E.
 
-## Phase 4 — R2 data bucket (wire the ready backend)
+## Phase 4 — R2 data bucket (wire the ready backend) — Tab: DATA
 
 `r2_provisioner.ts` + `r2_bucket_name` exist; build the surface (flag `per_site_r2`).
 
@@ -84,9 +126,10 @@ D1 is already live (`per_site_data`); this phase formalises it behind the adapte
 - **Tests**: deploy-artifact prefix is unreachable from the data surface; presign scoping; streaming
   large object (no buffer); foreign→404; prod-E2E.
 
-## Phase 5 — Vectorize / AI-Search (namespace partition)
+## Phase 5 — Vectorize / AI-Search (namespace partition) — Tab: DATA
 
-Index bound (`RAG_INDEX`); surface the per-site NAMESPACE (not a per-site index).
+Index bound (`RAG_INDEX`); surface the per-site NAMESPACE (not a per-site index). Vectorize is a
+data + search STORE → it lives on the DATA tab with D1/KV/R2, not the compute-plane Backend tab.
 
 - **UI section**: "AI Search (Vectorize)" — list the site's namespaces (from our metadata index),
   query within the namespace, upsert/delete-by-ids scoped to it, index dim/metric display. Bridge:
@@ -99,7 +142,15 @@ Index bound (`RAG_INDEX`); surface the per-site NAMESPACE (not a per-site index)
 - **Tests**: cross-namespace query is impossible (scope enforced); namespace≠index assertion; AutoRAG
   fallback path; foreign→404; prod-E2E.
 
-## Phase 6 — Workflows (run instances, read-heavy)
+---
+
+# BACKEND-tab phases (ship AFTER Data-tab phases) — Workflows · Durable Objects · Queues · scheduled tasks · Worker bindings · Observability
+
+> The Backend tab is the FINAL tab. Build the DATA-tab surfaces (Phases 2–5 + the Connections half of
+> Phase 8) first; then this compute/bindings plane. Observability (logs + Analytics Engine) is
+> cross-cutting but surfaces HERE — it describes the running Worker, not any single store.
+
+## Phase 6 — Workflows (run instances, read-heavy) — Tab: BACKEND
 
 Platform workflows bound; surface per-site RUNS.
 
@@ -113,7 +164,7 @@ Platform workflows bound; surface per-site RUNS.
 - **Tests**: run listing scoped to the site (no cross-site runs); trigger→status causal; schedule
   CRUD; foreign→404; prod-E2E.
 
-## Phase 7 — Durable Objects (opt-in instance ops ONLY)
+## Phase 7 — Durable Objects (opt-in instance ops ONLY) — Tab: BACKEND
 
 Honest, narrow: `SITE_BUILDER` only; NO state browse.
 
@@ -128,22 +179,38 @@ Honest, narrow: `SITE_BUILDER` only; NO state browse.
 - **Tests**: browse-all-state is not offered (returns `not_supported`); addressed reset works;
   foreign→404; prod-E2E.
 
-## Phase 8 — Queues + Connections/Observability
+## Phase 8 — Connections (DATA tab) + Queues/scheduled-tasks/Worker-bindings/Observability (BACKEND tab)
 
-Two low-lift closers.
+Low-lift closers, SPLIT across both tabs by concern. Build the **Connections** half with the DATA-tab
+wave (it's a DB-connection surface); build the rest with the BACKEND-tab wave.
 
-- **Queues (`not_supported` today)**: render the section as "not enabled on this account" (no
-  `QUEUE` binding) — never a fake empty queue. Adapter returns `not_supported` for every verb; MCP
-  tool returns an honest `isError`. If ever enabled: pull (leased batch) with explicit ack/retry,
-  depth, DLQ — labelled "current messages (leased)", never "history" (HARD FACTS #1/#2). Bridge:
-  `PS_RES_QUEUE_REQUEST/RESPONSE`.
-- **Connections / Observability (read + revoke)**: "Connections" section lists `mcp_connections` +
-  health, revoke; "Observability" reads Analytics Engine / CWV per subdomain, **reconciled against
-  ground truth** (`verify-against-source-of-truth`: cross-check display vs D1 `visitor_events`/
-  `form_submissions` in the MASTER D1). MCP: `data_list_connections` · `data_revoke_connection`
-  (write) · `data_read_observability`. Adapter `connection.{list,get,head,mutate:revoke}` +
-  `analytics_engine.{head,get}` (read-only). Tests: revoke revokes the external token; no secret
-  returned; observability reconciles (lying-empty guard); foreign→404; prod-E2E.
+- **Connections (read + revoke) — Tab: DATA**: "Connections" section lists **Hyperdrive / external
+  DB connections** + `mcp_connections` + health, revoke. This is the database-connection member of the
+  data plane, so it lives on the DATA tab beside D1/KV/R2. MCP: `data_list_connections` ·
+  `data_revoke_connection` (write). Adapter `connection.{list,get,head,mutate:revoke}`. Tests: revoke
+  revokes the external token; no secret returned; foreign→404; prod-E2E. Bridge:
+  `PS_RES_CONN_REQUEST/RESPONSE`.
+- **Queues (`not_supported` today) — Tab: BACKEND**: render the section as "not enabled on this
+  account" (no `QUEUE` binding) — never a fake empty queue. Adapter returns `not_supported` for every
+  verb; MCP tool returns an honest `isError`. If ever enabled: pull (leased batch) with explicit
+  ack/retry, depth, DLQ — labelled "current messages (leased)", never "history" (HARD FACTS #1/#2).
+  Bridge: `PS_RES_QUEUE_REQUEST/RESPONSE`.
+- **Scheduled tasks (Cron Triggers) — Tab: BACKEND**: list the site's schedules
+  (`site_functions_schedules`, since WfP has no native cron — cross-ref Phase 6's per-site schedule
+  management), next-run/last-run, create/edit/delete. MCP: `backend_list_schedules` ·
+  `backend_upsert_schedule` (write) · `backend_delete_schedule` (write). Bridge:
+  `PS_RES_CRON_REQUEST/RESPONSE`.
+- **Worker bindings (read) — Tab: BACKEND**: surface the site Worker's declared bindings — service
+  bindings, Secrets Store, AI, Browser Rendering, Images, etc. — resolved from the registry + deploy
+  manifest (NEVER a raw CF id from the client; INV per SECURITY-INVARIANTS). Read-only presence +
+  metadata; NEVER return secret values. MCP: `backend_list_bindings` · `backend_get_binding`. Adapter
+  `worker_binding.{list,get,head}` (read-only). Bridge: `PS_RES_BIND_REQUEST/RESPONSE`.
+- **Observability (read, cross-cutting) — Tab: BACKEND**: reads Analytics Engine / CWV per subdomain,
+  **reconciled against ground truth** (`verify-against-source-of-truth`: cross-check display vs D1
+  `visitor_events`/`form_submissions` in the MASTER D1). It describes the running Worker (not one data
+  store) → surfaced on the BACKEND tab. MCP: `data_read_observability`. Adapter
+  `analytics_engine.{head,get}` (read-only). Tests: observability reconciles (lying-empty guard);
+  foreign→404; prod-E2E.
 
 ---
 
@@ -159,11 +226,15 @@ Two low-lift closers.
 7. Drift-clean: `npm run validate:features` + no CF id read from request + no credential in any
    serializer.
 
-## Ordering rationale (by value)
+## Ordering rationale (tab split first, then by value)
 
-Overview (Phase 1) is the map that makes every other surface discoverable → first. D1 (Phase 2) is
-already live → formalise + add MCP parity next for immediate coverage. KV (3) + R2 (4) have
-ready backends → cheapest new surfaces. Vectorize (5) + Workflows (6) are platform-bound and
-read-heavy → medium lift. DO (7) is honest-narrow. Queues + Connections/Observability (8) are the
-lowest-lift closers (mostly read/not_supported). This sequences maximum coverage per unit of effort
-while every phase ships green.
+**Primary sequence = the tab split (Brian 2026-09-27): all DATA-tab surfaces ship before all
+BACKEND-tab surfaces.** Overview (Phase 1) is the shared map that makes every surface discoverable →
+first, rendered per-tab. Then the DATA wave: D1 (Phase 2) is already live → formalise + add MCP parity
+for immediate coverage; KV (3) + R2 (4) have ready backends → cheapest new surfaces; Vectorize (5) is
+the remaining data store; the Connections half of Phase 8 (DB connections) closes the DATA tab. Then
+the BACKEND wave (the final tab): Workflows (6) + DO (7) are platform-bound/honest-narrow; Queues +
+scheduled-tasks + Worker-bindings + Observability (8) are the lowest-lift closers (mostly
+read/not_supported), with Observability surfaced here because it's Worker-level, not per-store. Within
+each tab, order remains by value/effort. This ships the data plane the customer touches first, defers
+the compute plane to the final tab, and keeps every phase green.
