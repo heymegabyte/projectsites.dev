@@ -616,7 +616,7 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
   async deleteInstance(inst: AppInstance): Promise<void> {
     const ok = await this.confirmSvc.confirm({
       title: 'Delete instance',
-      message: `Delete instance "${this.nameFor(inst)}"? This destroys its container and data — this cannot be undone.`,
+      message: `Delete instance "${this.nameFor(inst)}"? This destroys ${resolveApp(inst.app_id)?.image?.startsWith('cf-native:') ? 'its Worker, D1 database, and R2 bucket' : 'its container and data'} — this cannot be undone.`,
       confirmLabel: 'Delete',
       danger: true,
     });
@@ -1173,7 +1173,7 @@ export class AppInstanceDetailComponent implements OnInit, OnDestroy {
     // deliberate, can't be missed).
     const ok = await this.confirmSvc.confirm({
       title: 'Destroy instance',
-      message: `Destroy "${this.catalogApp()?.name ?? i.app_id}"? Its container, all data, and the subdomain are released — this cannot be undone.`,
+      message: `Destroy "${this.catalogApp()?.name ?? i.app_id}"? ${this.catalogApp()?.image?.startsWith('cf-native:') ? 'Its Worker, D1 database, R2 bucket' : 'Its container, all data'}, and the subdomain are released — this cannot be undone.`,
       confirmLabel: 'Destroy',
       danger: true,
     });
@@ -1217,7 +1217,7 @@ export class AppInstanceDetailComponent implements OnInit, OnDestroy {
     }
     this.busy.set(true);
     this.api.patch(`/apps/instances/${i.id}/env`, { env_overrides: this.envValues }).subscribe({
-      next: () => { this.busy.set(false); this.toast.success('Env saved — restarting container'); this.load(); },
+      next: () => { this.busy.set(false); this.toast.success(this.catalogApp()?.image?.startsWith('cf-native:') ? 'Env saved — redeploying Worker' : 'Env saved — restarting container'); this.load(); },
       error: () => this.busy.set(false),
     });
   }

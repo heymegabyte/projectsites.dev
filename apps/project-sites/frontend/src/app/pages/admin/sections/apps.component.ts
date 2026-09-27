@@ -75,7 +75,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
             </span>
           </h1>
           <p class="text-[0.78rem] text-text-secondary m-0 mt-1 max-w-prose leading-relaxed">
-            Self-hostable services launched on Cloudflare Workers Containers — pick, configure, deploy in &lt;5 min.
+            Self-hostable services launched on Cloudflare — edge Workers &amp; Containers — pick, configure, deploy in &lt;5 min.
           </p>
         </div>
         <div class="flex items-center gap-2">
