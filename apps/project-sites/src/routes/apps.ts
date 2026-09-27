@@ -302,8 +302,7 @@ apps.get('/api/apps/slug-check', async (c) => {
   const { app_id, subdomain } = parsed.data;
 
   // ── valid: mirrors the format rules in createInstanceBody exactly ──────────
-  const valid =
-    subdomain.length >= 2 && subdomain.length <= 63 && SUBDOMAIN_RE.test(subdomain);
+  const valid = subdomain.length >= 2 && subdomain.length <= 63 && SUBDOMAIN_RE.test(subdomain);
 
   // ── available: uniqueness query mirrors POST /api/apps/instances ───────────
   let available = false;
@@ -331,12 +330,13 @@ apps.get('/api/apps/slug-check', async (c) => {
   const rawBase = siteRow?.slug ?? siteRow?.business_name ?? app_id;
   // Sanitize: lowercase, collapse any non-[a-z0-9] run to a single hyphen,
   // strip leading/trailing hyphens, then truncate to 10 chars.
-  const sanitized = rawBase
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 10)
-    .replace(/^-+|-+$/g, '') || 'app';
+  const sanitized =
+    rawBase
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 10)
+      .replace(/^-+|-+$/g, '') || 'app';
 
   let suggestion = sanitized;
   const MAX_ATTEMPTS = 25;

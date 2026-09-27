@@ -105,12 +105,7 @@ function makeApp(vars: Partial<Variables> = AUTH) {
   return app;
 }
 
-function req(
-  app: AnyApp,
-  path: string,
-  init: RequestInit,
-  env: Env,
-) {
+function req(app: AnyApp, path: string, init: RequestInit, env: Env) {
   return app.request(path, init, env, {
     waitUntil: () => {},
     passThroughOnException: () => {},
@@ -149,7 +144,11 @@ describe('GET /api/apps/slug-check — Zod validation', () => {
   });
 
   it('returns 401 when not authenticated', async () => {
-    const res = await get(makeApp({}), '/api/apps/slug-check?app_id=umami&subdomain=myapp', makeEnv());
+    const res = await get(
+      makeApp({}),
+      '/api/apps/slug-check?app_id=umami&subdomain=myapp',
+      makeEnv(),
+    );
     expect(res.status).toBe(401);
   });
 });
@@ -213,7 +212,11 @@ describe('GET /api/apps/slug-check — valid flag (format rules)', () => {
 describe('GET /api/apps/slug-check — available flag', () => {
   it('returns available=true when no row exists', async () => {
     mockDbQueryOne.mockResolvedValue(null);
-    const res = await get(makeApp(), '/api/apps/slug-check?app_id=umami&subdomain=free-slug', makeEnv());
+    const res = await get(
+      makeApp(),
+      '/api/apps/slug-check?app_id=umami&subdomain=free-slug',
+      makeEnv(),
+    );
     expect(res.status).toBe(200);
     const json = (await res.json()) as CheckResponse;
     expect(json.available).toBe(true);
@@ -222,7 +225,11 @@ describe('GET /api/apps/slug-check — available flag', () => {
 
   it('returns available=false when row exists with deleted_at IS NULL', async () => {
     mockDbQueryOne.mockResolvedValue({ id: 'existing-1' });
-    const res = await get(makeApp(), '/api/apps/slug-check?app_id=umami&subdomain=taken-slug', makeEnv());
+    const res = await get(
+      makeApp(),
+      '/api/apps/slug-check?app_id=umami&subdomain=taken-slug',
+      makeEnv(),
+    );
     expect(res.status).toBe(200);
     const json = (await res.json()) as CheckResponse;
     expect(json.available).toBe(false);
@@ -230,7 +237,11 @@ describe('GET /api/apps/slug-check — available flag', () => {
 
   it('returns available=false for an invalid format (invalid ⇒ not available)', async () => {
     // An invalid subdomain is not available (it can never be registered)
-    const res = await get(makeApp(), '/api/apps/slug-check?app_id=umami&subdomain=BAD_FORMAT', makeEnv());
+    const res = await get(
+      makeApp(),
+      '/api/apps/slug-check?app_id=umami&subdomain=BAD_FORMAT',
+      makeEnv(),
+    );
     expect(res.status).toBe(200);
     const json = (await res.json()) as CheckResponse;
     expect(json.valid).toBe(false);
@@ -242,7 +253,11 @@ describe('GET /api/apps/slug-check — available flag', () => {
 
 describe('GET /api/apps/slug-check — suggestion', () => {
   it('returns a non-empty url-safe suggestion string', async () => {
-    const res = await get(makeApp(), '/api/apps/slug-check?app_id=umami&subdomain=myslug', makeEnv());
+    const res = await get(
+      makeApp(),
+      '/api/apps/slug-check?app_id=umami&subdomain=myslug',
+      makeEnv(),
+    );
     const json = (await res.json()) as CheckResponse;
     expect(json.suggestion).toMatch(/^[a-z0-9-]+$/);
     expect(json.suggestion.length).toBeGreaterThan(0);
@@ -251,7 +266,11 @@ describe('GET /api/apps/slug-check — suggestion', () => {
 
   it('suggestion is always available (no matching row)', async () => {
     // Default mock: null returned for all dbQueryOne calls → suggestion is available.
-    const res = await get(makeApp(), '/api/apps/slug-check?app_id=umami&subdomain=taken', makeEnv());
+    const res = await get(
+      makeApp(),
+      '/api/apps/slug-check?app_id=umami&subdomain=taken',
+      makeEnv(),
+    );
     const json = (await res.json()) as CheckResponse;
     // The suggestion itself must be different from "taken" when taken is unavailable.
     // When the default is free, suggestion may match; the invariant is it's url-safe.
@@ -267,7 +286,11 @@ describe('GET /api/apps/slug-check — suggestion', () => {
       if (callCount <= 2) return Promise.resolve({ id: `inst-${callCount}` });
       return Promise.resolve(null);
     });
-    const res = await get(makeApp(), '/api/apps/slug-check?app_id=umami&subdomain=taken-sub', makeEnv());
+    const res = await get(
+      makeApp(),
+      '/api/apps/slug-check?app_id=umami&subdomain=taken-sub',
+      makeEnv(),
+    );
     const json = (await res.json()) as CheckResponse;
     // Suggestion must end in -2 or higher suffix indicating fallback to increment
     expect(json.suggestion).toMatch(/^[a-z0-9]([a-z0-9-]{0,23}[a-z0-9])?$/);
