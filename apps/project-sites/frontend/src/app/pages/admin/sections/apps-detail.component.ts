@@ -268,7 +268,10 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
               @if (supported()) {
               <label class="form-field">
                 <span class="form-label">Subdomain</span>
-                <div class="subdomain-input">
+                <div class="subdomain-input"
+                     [class.subdomain-input--valid]="subdomainValid() === true && subdomainAvailable() === true"
+                     [class.subdomain-input--invalid]="subdomainValid() === false || subdomainAvailable() === false"
+                     [class.subdomain-input--checking]="subdomainChecking()">
                   <input
                     type="text"
                     hlmInput
@@ -279,21 +282,25 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                     placeholder="my-{{ a.id }}"
                     aria-label="Subdomain"
                     [pattern]="subdomainPattern"
-                    [attr.aria-invalid]="(subdomainValid() === false)"
+                    [attr.aria-invalid]="(subdomainValid() === false || subdomainAvailable() === false)"
                     data-testid="apps-deploy-subdomain" />
                   <span class="subdomain-suffix">{{ a.image?.startsWith('cf-native:') ? '.cms.projectsites.dev' : '.app.projectsites.dev' }}</span>
-                  @if (subdomainValid() === true && subdomainAvailable() === true && subdomainTouched()) {
+                  @if (subdomainChecking()) {
+                    <span class="subdomain-check-icon subdomain-check-icon--checking" aria-hidden="true"></span>
+                  } @else if (subdomainValid() === true && subdomainAvailable() === true) {
                     <span class="subdomain-check-icon subdomain-check-icon--valid" aria-hidden="true">✓</span>
                   } @else if (subdomainValid() === false || subdomainAvailable() === false) {
                     <span class="subdomain-check-icon subdomain-check-icon--invalid" aria-hidden="true">✕</span>
                   }
                 </div>
-                @if (subdomainError()) {
+                @if (subdomainChecking()) {
+                  <span class="form-help" role="status" aria-live="polite">Checking availability…</span>
+                } @else if (subdomainError()) {
                   <span class="form-help form-help--err">{{ subdomainError() }}</span>
                 } @else if (subdomainCheckMessage()) {
-                  <span class="form-help form-help--err" [attr.aria-live]="'polite'" role="status">{{ subdomainCheckMessage() }}</span>
+                  <span class="form-help form-help--err" aria-live="polite" role="status">{{ subdomainCheckMessage() }}</span>
                 } @else if (subdomainValid() === true && subdomainAvailable() === true) {
-                  <span class="form-help form-help--ok" [attr.aria-live]="'polite'" role="status">✓ Available</span>
+                  <span class="form-help form-help--ok" aria-live="polite" role="status">✓ Available</span>
                 } @else {
                   <span class="form-help">Lowercase letters, digits, dashes. 3-40 chars.</span>
                 }
@@ -757,6 +764,19 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     .subdomain-input:focus-within {
       border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 50%, transparent);
     }
+    /* Live availability state — colors the whole field green/red from the get-go. */
+    .subdomain-input--valid {
+      border-color: rgba(52,211,153,0.7);
+      background: rgba(52,211,153,0.08);
+    }
+    .subdomain-input--valid:focus-within { border-color: #34d399; }
+    .subdomain-input--invalid {
+      border-color: rgba(248,113,113,0.7);
+      background: rgba(248,113,113,0.08);
+    }
+    .subdomain-input--invalid:focus-within { border-color: #f87171; }
+    /* Checking wins the neutral look — a subtle accent hairline while the round-trip is in flight. */
+    .subdomain-input--checking { border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 45%, transparent); }
     /* seamless segment inside .subdomain-input; hlmInput [seamless] owns
        border/bg/outline — this only carries padding + mono type + color */
     .subdomain-field {
@@ -881,6 +901,14 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     }
     .subdomain-check-icon--valid { color: #34d399; }
     .subdomain-check-icon--invalid { color: #fca5a5; }
+    .subdomain-check-icon--checking {
+      width: 12px; height: 12px; margin-top: -1px;
+      border: 2px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 35%, transparent);
+      border-top-color: var(--ps-accent, #00E5FF);
+      border-radius: 50%;
+      animation: spin 700ms linear infinite;
+    }
+    @media (prefers-reduced-motion: reduce) { .subdomain-check-icon--checking { animation: none; } }
     .form-help--ok { color: #34d399; }
 
     /* ─── Instances table ─── */
@@ -1098,6 +1126,8 @@ export class AppDetailComponent implements OnInit {
   subdomainValid = signal<boolean | null>(null);
   subdomainAvailable = signal<boolean | null>(null);
   subdomainCheckMessage = signal<string>('');
+  /** True while a debounced availability round-trip is in flight (drives the neutral "Checking…" state). */
+  subdomainChecking = signal<boolean>(false);
   instances = signal<Array<{ id: string; app_id: string; subdomain: string; host: string; status: string; created_at: string }>>([]);
   openMenuInstanceId = signal<string | null>(null);
 
@@ -1276,11 +1306,13 @@ export class AppDetailComponent implements OnInit {
       next: (r) => {
         this.subdomain = r.suggestion ?? seed;
         this.subdomainSignal.set(this.subdomain);
+        this.runSubdomainCheck(this.subdomain); // color green/red immediately on load
       },
       error: () => {
         // Fallback on error
         this.subdomain = seed;
         this.subdomainSignal.set(this.subdomain);
+        this.runSubdomainCheck(this.subdomain);
       },
     });
     // Fetch instances for this app
@@ -1331,39 +1363,65 @@ export class AppDetailComponent implements OnInit {
     this.subdomainTouched.set(true);
     this.subdomainSignal.set(value);
 
-    // Clear old timer and reset validity
+    // Debounce: clear the pending check + go NEUTRAL (drops stale green/red) while typing.
     if (this.subdomainCheckTimer) clearTimeout(this.subdomainCheckTimer);
     this.subdomainValid.set(null);
     this.subdomainAvailable.set(null);
+    this.subdomainCheckMessage.set('');
+    // Show the pending state only for a non-empty value the user is actively editing.
+    this.subdomainChecking.set(!!value.trim());
+    this.subdomainCheckTimer = setTimeout(() => this.runSubdomainCheck(value), 350);
+  }
 
-    // Return early if basic validation fails
-    if (!value.trim() || value.length < 3 || value.length > 40 || !/^[a-z0-9-]+$/.test(value) || value.startsWith('-') || value.endsWith('-')) {
+  /**
+   * Resolve a subdomain's validity + availability and drive the green/red field state.
+   * Shared by the debounced input handler AND the initial auto-pick, so the field is
+   * colored from the get-go (not only after the user types). Local format gate first
+   * (instant red, no round-trip); server `/apps/slug-check` confirms availability.
+   */
+  private runSubdomainCheck(value: string): void {
+    const v = value.trim();
+    if (!v) {
+      // Empty → neutral (default hint), never red.
+      this.subdomainChecking.set(false);
+      this.subdomainValid.set(null);
+      this.subdomainAvailable.set(null);
+      this.subdomainCheckMessage.set('');
       return;
     }
-
-    // Debounced check (350ms)
-    this.subdomainCheckTimer = setTimeout(() => {
-      const appId = this.app()?.id;
-      if (!appId) return;
-      this.api.get<{ available: boolean; valid: boolean; suggestion?: string }>(`/apps/slug-check?app_id=${encodeURIComponent(appId)}&subdomain=${encodeURIComponent(value)}`).subscribe({
+    if (v.length < 3 || v.length > 40 || !/^[a-z0-9-]+$/.test(v) || v.startsWith('-') || v.endsWith('-')) {
+      this.subdomainChecking.set(false);
+      this.subdomainValid.set(false);
+      this.subdomainAvailable.set(false);
+      this.subdomainCheckMessage.set('Invalid subdomain.');
+      return;
+    }
+    const appId = this.app()?.id;
+    if (!appId) {
+      this.subdomainChecking.set(false);
+      return;
+    }
+    this.subdomainChecking.set(true);
+    this.api
+      .get<{ available: boolean; valid: boolean; suggestion?: string }>(
+        `/apps/slug-check?app_id=${encodeURIComponent(appId)}&subdomain=${encodeURIComponent(v)}`,
+      )
+      .subscribe({
         next: (r) => {
+          this.subdomainChecking.set(false);
           this.subdomainValid.set(r.valid);
           this.subdomainAvailable.set(r.available);
-          if (!r.available) {
-            this.subdomainCheckMessage.set('Subdomain taken.');
-          } else if (!r.valid) {
-            this.subdomainCheckMessage.set('Invalid subdomain.');
-          } else {
-            this.subdomainCheckMessage.set('');
-          }
+          this.subdomainCheckMessage.set(
+            !r.available ? 'Subdomain taken.' : !r.valid ? 'Invalid subdomain.' : '',
+          );
         },
         error: () => {
+          this.subdomainChecking.set(false);
           this.subdomainValid.set(false);
           this.subdomainAvailable.set(false);
           this.subdomainCheckMessage.set('Error checking availability.');
         },
       });
-    }, 350);
   }
 
   /**
