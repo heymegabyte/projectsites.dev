@@ -50,6 +50,8 @@ import {
   DataReadTableInput,
   DataKvListKeysInput,
   DataKvGetInput,
+  DataKvPutInput,
+  DataKvDeleteInput,
   DataR2ListObjectsInput,
   DataR2HeadObjectInput,
   DataVectorizeListInput,
@@ -497,6 +499,43 @@ export const PLATFORM_MCP_TOOLS = [
       properties: {
         site_id: { type: 'string' },
         key: { type: 'string', maxLength: 512 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_kv_put',
+    description:
+      "Write ONE key's value to your site's OWN dedicated KV namespace (optional expiration_ttl in seconds — CF minimum 60 — and an optional metadata object). Returns { key, overwritten, expirationTtl?, metadataStored }. ⚠️ DESTRUCTIVE OVERWRITE GUARD: writing over an EXISTING key overwrites its current value, so it REQUIRES confirm:true — without confirm on an existing key you get an error that REPORTS the key + that it already exists and NOTHING is written (a brand-new key needs no confirm). You name only the site_id + key + value (+ optional environment) — never a KV namespace id; the namespace is resolved server-side and isolated to your site.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        key: { type: 'string', maxLength: 512 },
+        value: { type: 'string' },
+        expiration_ttl: { type: 'number', minimum: 60 },
+        metadata: { type: 'object' },
+        confirm: { type: 'boolean' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'key', 'value'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_kv_delete',
+    description:
+      "Delete ONE key from your site's OWN dedicated KV namespace. Returns { key, existed }. ⚠️ DESTRUCTIVE: this permanently removes the key's value, so it REQUIRES confirm:true — without confirm you get an error that REPORTS the key + whether it currently exists and NOTHING is deleted. Delete is idempotent: removing an already-absent key is an honest existed:false success. You name only the site_id + key (+ optional environment) — never a KV namespace id; the namespace is resolved server-side and isolated to your site.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        key: { type: 'string', maxLength: 512 },
+        confirm: { type: 'boolean' },
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id', 'key'],
@@ -1320,6 +1359,80 @@ export async function dispatchPlatformTool(
         value: result.data?.value,
         metadata: result.data?.metadata,
         ...(result.data?.truncated ? { truncated: true } : {}),
+      });
+    }
+
+    case 'data_kv_put': {
+      // Flag-gated on the reserved per_site_kv flag (dark → err, mirroring the Data-tab KV 404).
+      if (!(await isFlagOn(env, PER_SITE_KV_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site KV is not enabled for this account.');
+      }
+      const { site_id, key, value, expiration_ttl, metadata, confirm, environment } =
+        DataKvPutInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF namespace id —
+      // the caller named only site_id; the namespace is server-resolved from the registry.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveKvScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // The adapter enforces the destructive-OVERWRITE gate: an existing key needs confirm:true, else it
+      // returns a `confirmation_required` error that REPORTS the key + that it exists (nothing written).
+      const result = await kvAdapter.mutate(scoped.scope, {
+        action: 'put',
+        confirm,
+        expirationTtl: expiration_ttl,
+        key,
+        metadata,
+        value,
+      });
+      if (!result.ok) {
+        // Surface the confirm-required report (or a CF failure) as an isError result — never a silent write.
+        return err(result.error?.message ?? 'Could not write the KV value.');
+      }
+      const data = result.data as { overwritten?: boolean; metadataStored?: boolean } | undefined;
+      return ok({
+        site_id,
+        environment,
+        namespaceId: scoped.scope.resourceId,
+        key,
+        action: 'put',
+        overwritten: data?.overwritten ?? false,
+        metadata_stored: data?.metadataStored ?? false,
+        ...(expiration_ttl !== undefined ? { expiration_ttl } : {}),
+      });
+    }
+
+    case 'data_kv_delete': {
+      if (!(await isFlagOn(env, PER_SITE_KV_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site KV is not enabled for this account.');
+      }
+      const { site_id, key, confirm, environment } = DataKvDeleteInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveKvScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // The adapter enforces the destructive-DELETE gate: no confirm:true → a `confirmation_required`
+      // error that REPORTS the key + whether it exists (nothing deleted).
+      const result = await kvAdapter.mutate(scoped.scope, { action: 'delete', confirm, key });
+      if (!result.ok) {
+        return err(result.error?.message ?? 'Could not delete the KV key.');
+      }
+      const data = result.data as { existed?: boolean } | undefined;
+      return ok({
+        site_id,
+        environment,
+        namespaceId: scoped.scope.resourceId,
+        key,
+        action: 'delete',
+        existed: data?.existed ?? false,
       });
     }
 

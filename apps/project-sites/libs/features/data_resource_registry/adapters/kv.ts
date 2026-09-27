@@ -4,10 +4,13 @@
  *
  * Implements the read verbs against a site's OWN dedicated Cloudflare KV namespace: `list` (its keys,
  * cursor-paginated + honest `list_complete`, NEVER a fabricated total), `head` (existence probe),
- * `get` (one key's value + metadata). `mutate` returns a typed `not_implemented` envelope (this pass
- * is READ-ONLY) — never a raw throw, never a `runAnything` mega-verb (tool-design-as-api). put/delete/
- * bulk_delete/provision/destroy land in the write pass (append to `supports.mutations` + implement
- * `mutate` in the same fire).
+ * `get` (one key's value + metadata) — PLUS the first WRITE slice: `mutate({action:'put'|'delete'})`.
+ * `mutate` is a discriminated NAMED-mutation union (never a `runAnything`/`{command}` mega-verb —
+ * tool-design-as-api): `put` writes one key's value (optional TTL + metadata), `delete` removes one key.
+ * Both are guarded — an OVERWRITE (put over an existing key) and a DELETE are destructive of the prior
+ * value, so each REQUIRES an explicit `confirm:true`; without it `mutate` returns a typed
+ * `confirmation_required` envelope that REPORTS what WOULD change (the key + whether it exists) and
+ * writes nothing (SECURITY-INVARIANTS INV-9/INV-11). bulk_delete/provision/destroy remain future verbs.
  *
  * ISOLATION — the same structural guarantee as `site_data_db.ts` / the `d1` adapter:
  *  - Every verb operates ONLY on the `scope.resourceId` it was minted with. That id is the site's
@@ -102,9 +105,69 @@ export interface KvGetData {
   readonly truncated?: boolean;
 }
 
-/** Placeholder mutate payloads — this pass is read-only; put/delete/provision land later. */
-type KvMutateInput = never;
-type KvMutateResult = never;
+/** CF KV minimum TTL for a value with `expirationTtl` (seconds) — the CF API rejects anything below 60. */
+const KV_MIN_EXPIRATION_TTL = 60;
+/** Max value bytes `put` will accept (CF KV values can be ≤25 MiB; we cap what we upload inline). */
+const PUT_MAX_VALUE_BYTES = 25 * 1024 * 1024;
+/** Hard bound on a key's length (CF KV keys are ≤512 bytes). */
+const KEY_MAX_BYTES = 512;
+
+/**
+ * The `put` mutation input: write ONE key's value to the site's OWN KV namespace, with optional TTL +
+ * metadata. `confirm` is REQUIRED when the key already exists (an overwrite is destructive of the prior
+ * value — INV-9/INV-11): without it, `mutate` returns `confirmation_required` and REPORTS the key + that
+ * it exists, changing nothing.
+ */
+export interface KvPutInput {
+  readonly action: 'put';
+  readonly key: string;
+  /** The raw value string to store (KV stores bytes; we upload the text body). */
+  readonly value: string;
+  /** Optional absolute TTL in seconds (CF minimum 60); omit for a non-expiring key. */
+  readonly expirationTtl?: number;
+  /** Optional small opaque metadata object stored alongside the key. */
+  readonly metadata?: Record<string, unknown>;
+  /** Must be `true` to overwrite an EXISTING key (a new key needs no confirm). */
+  readonly confirm?: boolean;
+}
+
+/**
+ * The `delete` mutation input: remove ONE key from the site's OWN KV namespace. DESTRUCTIVE — `confirm`
+ * is REQUIRED (INV-9/INV-11): without it, `mutate` returns `confirmation_required` and REPORTS the key +
+ * whether it currently exists, deleting nothing.
+ */
+export interface KvDeleteInput {
+  readonly action: 'delete';
+  readonly key: string;
+  /** Must be `true` to actually delete (destructive-op gate). */
+  readonly confirm?: boolean;
+}
+
+/** The discriminated named-mutation union for the kv adapter — NEVER a generic `{ command }` field. */
+export type KvMutateInput = KvPutInput | KvDeleteInput;
+
+/** What a KV `put` returns: the key written + whether it overwrote a prior value + TTL/metadata echoes. */
+export interface KvPutResult {
+  readonly action: 'put';
+  readonly key: string;
+  /** True when a value already existed at this key (this write overwrote it). */
+  readonly overwritten: boolean;
+  /** The absolute TTL applied (seconds), when one was requested. */
+  readonly expirationTtl?: number;
+  /** True when metadata was stored alongside the value. */
+  readonly metadataStored: boolean;
+}
+
+/** What a KV `delete` returns: the key + whether it existed before the delete (honest, not a fabricated success). */
+export interface KvDeleteResult {
+  readonly action: 'delete';
+  readonly key: string;
+  /** True when the key existed and was removed; false when it was already absent (delete is idempotent). */
+  readonly existed: boolean;
+}
+
+/** The discriminated result union a successful `mutate` returns. */
+export type KvMutateResult = KvPutResult | KvDeleteResult;
 
 /** Mint a correlation id for one adapter call (structured-logging: every envelope carries one). */
 function correlationId(): string {
@@ -130,19 +193,6 @@ function restError<T>(cid: string, status: number | undefined, message: string):
   };
 }
 
-/** The typed `not_implemented` envelope every read-only-pass-unfilled verb returns. */
-function notImplemented<T>(verb: string): AdapterResult<T> {
-  return {
-    correlationId: correlationId(),
-    error: {
-      code: 'not_implemented',
-      message: `The kv adapter '${verb}' verb is not implemented yet.`,
-      retryable: false,
-    },
-    ok: false,
-  };
-}
-
 /** Clamp a requested page `limit` into `[1, 1000]`, defaulting to 100 for a missing/invalid value. */
 function clampLimit(limit: number | undefined): number {
   if (typeof limit !== 'number' || !Number.isFinite(limit)) return LIST_LIMIT_DEFAULT;
@@ -150,8 +200,9 @@ function clampLimit(limit: number | undefined): number {
 }
 
 /**
- * The `kv` adapter. `list`/`head`/`get` are live (read-only); `mutate` returns `not_implemented`.
- * `supports` declares that honestly so the UI + MCP never offer a verb that would 501.
+ * The `kv` adapter. `list`/`head`/`get` are live (read-only); `mutate` implements the `put` + `delete`
+ * named mutations (destructive/overwrite gated on `confirm:true`). `supports` declares this honestly so
+ * the UI + MCP only ever offer a verb that runs.
  */
 class KvAdapter
   implements ResourceAdapter<KvListData, KvHeadData, KvGetData, KvMutateInput, KvMutateResult>
@@ -159,14 +210,14 @@ class KvAdapter
   readonly kind = 'kv' as const;
 
   /**
-   * Honest capability declaration (CAPABILITY-MATRIX.md): kv serves both environments and all three read
-   * verbs. `mutations: []` — this pass is read-only; put/delete/bulk_delete/provision/destroy land in the
-   * write pass (append them here + implement `mutate` in the same fire).
+   * Honest capability declaration (CAPABILITY-MATRIX.md): kv serves both environments, all three read
+   * verbs, and the `put`/`delete` named mutations (the first WRITE slice). bulk_delete/provision/destroy
+   * land later — append them here as they are implemented so the UI/MCP never offer an unwired verb.
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: [] as const,
-    verbs: ['list', 'head', 'get'] as const,
+    mutations: ['put', 'delete'] as const,
+    verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
   /**
@@ -353,9 +404,219 @@ class KvAdapter
     return { correlationId: cid, data: { found: true, key, metadata, value }, ok: true };
   }
 
-  /** Not implemented in this read pass — put/delete/bulk_delete/provision/destroy land in the write pass. */
-  async mutate(_scope: ResolvedScope, _input: KvMutateInput): Promise<AdapterResult<KvMutateResult>> {
-    return notImplemented<KvMutateResult>('mutate');
+  /**
+   * Probe whether ONE key currently HAS a value in the site's OWN KV namespace (a cheap `HEAD` on the
+   * values endpoint). Returns `true`/`false` on a definitive answer, or `undefined` when the probe itself
+   * failed (auth/5xx/network) — the caller must NOT interpret an indeterminate probe as "absent" (that would
+   * let an overwrite skip its confirm gate on a transient blip). Used to decide whether a `put`/`delete`
+   * needs `confirm:true` and to report the honest before-state.
+   */
+  private async keyExists(scope: ResolvedScope, key: string): Promise<boolean | undefined> {
+    const encoded = encodeURIComponent(key);
+    let res: Response;
+    try {
+      res = await fetch(
+        `${CF_API_BASE}/accounts/${scope.accountId}/storage/kv/namespaces/${scope.resourceId}/values/${encoded}`,
+        { headers: { ...cfAuthHeaders(scope.auth) }, method: 'HEAD' },
+      );
+    } catch {
+      return undefined; // network failure — indeterminate, never "absent".
+    }
+    if (res.status === 404) return false;
+    if (res.ok) return true;
+    return undefined; // auth/5xx — indeterminate.
+  }
+
+  /**
+   * Run a NAMED mutation against the site's OWN KV namespace (the FIRST write slice). `put` writes one
+   * key's value (optional TTL + metadata); `delete` removes one key. Both operate ONLY on
+   * `scope.resourceId` (server-resolved upstream — this adapter accepts NO namespace id and cannot be
+   * redirected). Guarding (SECURITY-INVARIANTS INV-9/INV-11): a `delete`, and a `put` that would OVERWRITE
+   * an existing key, are destructive of the prior value and REQUIRE `confirm:true`; without it the mutation
+   * returns a typed `confirmation_required` envelope that REPORTS what WOULD change (the key + whether it
+   * exists) and writes NOTHING. Every payload is validated here (key non-empty + bounded, value bounded,
+   * TTL ≥ CF's 60s minimum). Returns a typed {@link KvMutateResult} describing what actually changed.
+   *
+   * @param scope - the server-resolved scope; `scope.resourceId` is the ONLY namespace this can write
+   * @param input - the discriminated `{ action:'put'|'delete', … }` mutation
+   */
+  async mutate(scope: ResolvedScope, input: KvMutateInput): Promise<AdapterResult<KvMutateResult>> {
+    const cid = correlationId();
+
+    if (!input || (input.action !== 'put' && input.action !== 'delete')) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_action', message: 'Unknown KV mutation action.', retryable: false },
+        ok: false,
+      };
+    }
+
+    const key = input.key;
+    if (typeof key !== 'string' || key.length === 0) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_key', message: 'Key is missing or empty.', retryable: false },
+        ok: false,
+      };
+    }
+    if (new TextEncoder().encode(key).length > KEY_MAX_BYTES) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'invalid_key',
+          message: `Key exceeds the ${KEY_MAX_BYTES}-byte KV limit.`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+    const encoded = encodeURIComponent(key);
+
+    if (input.action === 'delete') {
+      // DESTRUCTIVE — require confirm. Report whether the key exists so the caller knows what they're removing.
+      if (input.confirm !== true) {
+        const exists = await this.keyExists(scope, key);
+        return {
+          correlationId: cid,
+          error: {
+            code: 'confirmation_required',
+            message: `Deleting KV key "${key}" is destructive${
+              exists === true ? ' (the key currently exists)' : exists === false ? ' (the key does not currently exist)' : ''
+            }. Re-run with confirm:true to delete it.`,
+            retryable: false,
+          },
+          ok: false,
+        };
+      }
+      // Probe existence BEFORE the delete so the result honestly reports whether it existed (delete is
+      // idempotent — deleting an absent key still 200s). An indeterminate probe → report existed:false-unknown
+      // conservatively as false; the delete still runs.
+      const existedBefore = await this.keyExists(scope, key);
+      let res: Response;
+      try {
+        res = await fetch(
+          `${CF_API_BASE}/accounts/${scope.accountId}/storage/kv/namespaces/${scope.resourceId}/values/${encoded}`,
+          { headers: { ...cfAuthHeaders(scope.auth) }, method: 'DELETE' },
+        );
+      } catch (err) {
+        return restError<KvMutateResult>(cid, undefined, err instanceof Error ? err.message : 'CF request failed');
+      }
+      // A 404 on delete means the key was already gone — an idempotent success, not an error.
+      if (!res.ok && res.status !== 404) {
+        return restError<KvMutateResult>(cid, res.status, `CF KV delete returned HTTP ${res.status}`);
+      }
+      return {
+        correlationId: cid,
+        data: { action: 'delete', existed: existedBefore === true, key },
+        ok: true,
+      };
+    }
+
+    // action === 'put'
+    const value = input.value;
+    if (typeof value !== 'string') {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_value', message: 'A string value is required for put.', retryable: false },
+        ok: false,
+      };
+    }
+    if (new TextEncoder().encode(value).length > PUT_MAX_VALUE_BYTES) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'value_too_large',
+          message: 'Value exceeds the 25 MiB KV value limit.',
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+    let expirationTtl: number | undefined;
+    if (input.expirationTtl !== undefined) {
+      if (typeof input.expirationTtl !== 'number' || !Number.isFinite(input.expirationTtl)) {
+        return {
+          correlationId: cid,
+          error: { code: 'invalid_ttl', message: 'expirationTtl must be a number of seconds.', retryable: false },
+          ok: false,
+        };
+      }
+      expirationTtl = Math.floor(input.expirationTtl);
+      if (expirationTtl < KV_MIN_EXPIRATION_TTL) {
+        return {
+          correlationId: cid,
+          error: {
+            code: 'invalid_ttl',
+            message: `expirationTtl must be at least ${KV_MIN_EXPIRATION_TTL} seconds (CF KV minimum).`,
+            retryable: false,
+          },
+          ok: false,
+        };
+      }
+    }
+
+    // Determine overwrite state to gate the confirm + report the honest before-state. An INDETERMINATE
+    // probe fails CLOSED for the confirm gate (treat as "might exist") so a transient blip can't let an
+    // unconfirmed overwrite through.
+    const existsBefore = await this.keyExists(scope, key);
+    if (existsBefore !== false && input.confirm !== true) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'confirmation_required',
+          message: `KV key "${key}" already exists — writing overwrites its current value. Re-run with confirm:true to overwrite.`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+
+    // CF KV value PUT: raw body is the value; TTL rides as a query param; metadata rides as multipart, but
+    // the single-value endpoint also accepts a `metadata` FORM field alongside `value`. We use multipart
+    // form-data ONLY when metadata is present (so a plain value is a clean raw PUT); TTL is always a query param.
+    const url = new URL(
+      `${CF_API_BASE}/accounts/${scope.accountId}/storage/kv/namespaces/${scope.resourceId}/values/${encoded}`,
+    );
+    if (expirationTtl !== undefined) url.searchParams.set('expiration_ttl', String(expirationTtl));
+
+    let res: Response;
+    const hasMetadata = input.metadata !== undefined && input.metadata !== null;
+    try {
+      if (hasMetadata) {
+        const form = new FormData();
+        form.set('value', value);
+        form.set('metadata', JSON.stringify(input.metadata));
+        res = await fetch(url.toString(), {
+          body: form,
+          headers: { ...cfAuthHeaders(scope.auth) }, // let fetch set the multipart boundary content-type
+          method: 'PUT',
+        });
+      } else {
+        res = await fetch(url.toString(), {
+          body: value,
+          headers: { ...cfAuthHeaders(scope.auth), 'content-type': 'text/plain' },
+          method: 'PUT',
+        });
+      }
+    } catch (err) {
+      return restError<KvMutateResult>(cid, undefined, err instanceof Error ? err.message : 'CF request failed');
+    }
+    if (!res.ok) {
+      const json = (await res.json().catch(() => null)) as { errors?: unknown } | null;
+      const detail = json?.errors ? JSON.stringify(json.errors) : `HTTP ${res.status}`;
+      return restError<KvMutateResult>(cid, res.status, `CF KV put failed: ${detail}`);
+    }
+    return {
+      correlationId: cid,
+      data: {
+        action: 'put',
+        key,
+        metadataStored: hasMetadata,
+        overwritten: existsBefore === true,
+        ...(expirationTtl !== undefined ? { expirationTtl } : {}),
+      },
+      ok: true,
+    };
   }
 }
 

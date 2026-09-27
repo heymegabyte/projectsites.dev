@@ -67,14 +67,17 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-// ─── (h) mutate() always returns not_implemented ────────────────────────────────
+// ─── (h) mutate() rejects a malformed action (write slice now live) ───────────────
+// The read-pass `not_implemented` contract was replaced by the put/delete write slice
+// (see kv_adapter_mutate.test.ts for the full put/delete + confirm coverage). An absent
+// action is now an `invalid_action` rejection — still never throws, never fetches.
 
-describe('kvAdapter.mutate()', () => {
-  it('(h) returns not_implemented code — never throws, never fetches', async () => {
+describe('kvAdapter.mutate() guard', () => {
+  it('(h) an absent/unknown action → invalid_action — never throws, never fetches', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await kvAdapter.mutate(scope, undefined as any);
     expect(result.ok).toBe(false);
-    expect(result.error?.code).toBe('not_implemented');
+    expect(result.error?.code).toBe('invalid_action');
     expect(result.error?.retryable).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });

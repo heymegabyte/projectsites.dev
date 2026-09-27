@@ -181,6 +181,46 @@ export const DataKvGetInput = z
   .strict();
 
 /**
+ * `data_kv_put` — write ONE key's value (optional TTL + metadata) to the OWNED site's own KV namespace
+ * (the FIRST WRITE slice, MCP parity with the Data tab's KV put). A caller names ONLY the OWNED `site_id`
+ * + the `key` + the `value` (NEVER a CF namespace id — server-resolved) plus optional `expiration_ttl`
+ * (seconds, CF minimum 60) / `metadata` / `confirm` and the environment. ⚠️ OVERWRITE is destructive of
+ * the prior value: `confirm:true` is REQUIRED to overwrite an EXISTING key — without it the dispatcher
+ * returns `confirmation required` and REPORTS the key + that it exists, changing nothing (a brand-new key
+ * needs no confirm). `.strict()` rejects any attempt to smuggle a `namespaceId`/`accountId`. Ownership +
+ * isolation + `per_site_kv` flag-gate + `data:write` scope are enforced server-side.
+ */
+export const DataKvPutInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(512),
+    value: z.string().max(25 * 1024 * 1024),
+    expiration_ttl: z.number().int().min(60).optional(),
+    metadata: z.record(z.unknown()).optional(),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_kv_delete` — DELETE ONE key from the OWNED site's own KV namespace (the FIRST WRITE slice, MCP
+ * parity with the Data tab's KV delete). A caller names ONLY the OWNED `site_id` + the `key` (NEVER a CF
+ * namespace id — server-resolved) plus `confirm` and the environment. ⚠️ DESTRUCTIVE: `confirm:true` is
+ * REQUIRED — without it the dispatcher returns `confirmation required` and REPORTS the key + whether it
+ * currently exists, deleting nothing. `.strict()` rejects any attempt to smuggle a `namespaceId`/
+ * `accountId`. Ownership + isolation + `per_site_kv` flag-gate + `data:write` scope are enforced
+ * server-side. Delete is idempotent — removing an already-absent key is an honest `existed:false` success.
+ */
+export const DataKvDeleteInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(512),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
  * `data_r2_list_objects` — list objects in the OWNED site's own dedicated R2 bucket (MCP parity with the
  * Data tab's R2 surface). A caller names ONLY the OWNED `site_id` (NEVER a CF bucket name — the bucket is
  * server-resolved from `site_database_allocations`) plus optional prefix/cursor/limit and the environment.
@@ -432,6 +472,8 @@ export type DataListTablesArgs = z.infer<typeof DataListTablesInput>;
 export type DataReadTableArgs = z.infer<typeof DataReadTableInput>;
 export type DataKvListKeysArgs = z.infer<typeof DataKvListKeysInput>;
 export type DataKvGetArgs = z.infer<typeof DataKvGetInput>;
+export type DataKvPutArgs = z.infer<typeof DataKvPutInput>;
+export type DataKvDeleteArgs = z.infer<typeof DataKvDeleteInput>;
 export type DataR2ListObjectsArgs = z.infer<typeof DataR2ListObjectsInput>;
 export type DataR2HeadObjectArgs = z.infer<typeof DataR2HeadObjectInput>;
 export type DataVectorizeListArgs = z.infer<typeof DataVectorizeListInput>;
