@@ -141,6 +141,21 @@ function makeEnv(): Env {
   } as unknown as Env;
 }
 
+/**
+ * Env whose USER_DISPATCH binding returns a caller-controlled Response — lets a test drive
+ * the CF-native readiness probe (probeInstanceReady dispatches to the user Worker directly).
+ */
+function makeDispatchEnv(probeResponse: () => Response): Env {
+  return {
+    ...makeEnv(),
+    USER_DISPATCH: {
+      get: (_name: string, _args?: unknown, _opts?: unknown) => ({
+        fetch: async (_req: Request) => probeResponse(),
+      }),
+    },
+  } as unknown as Env;
+}
+
 function makeApp(vars: Partial<Variables> = {}) {
   const app = new Hono<{ Bindings: Env; Variables: Variables }>();
   app.onError(errorHandler);
@@ -493,6 +508,66 @@ describe('GET /api/apps/instances/:id', () => {
     const json = (await res.json()) as { instance: { id: string; env: Record<string, unknown> } };
     expect(json.instance.id).toBe('inst-1');
     expect(json.instance.env).toEqual({}); // decrypt mock returns "{}"
+  });
+
+  it('flips a provisioning payload instance to running once the real admin answers', async () => {
+    mockDbQueryOne.mockResolvedValue(
+      instanceRow({
+        app_slug: 'payload',
+        status: 'provisioning',
+        worker_script_name: 'payload-acme-abc12345',
+        subdomain: 'acme',
+      }),
+    );
+    // A 200 WITHOUT the bootstrap "finishing setup" marker = the real admin is live.
+    const env = makeDispatchEnv(
+      () => new Response('<html><body>Payload — create your first user</body></html>', { status: 200 }),
+    );
+    const res = await req(
+      makeApp({ ...AUTH, userRole: 'admin' }),
+      '/api/apps/instances/inst-1',
+      { method: 'GET' },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { instance: { status: string } };
+    expect(json.instance.status).toBe('running');
+    expect(mockDbUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      'app_instances',
+      expect.objectContaining({ status: 'running' }),
+      'id = ?',
+      ['inst-1'],
+    );
+  });
+
+  it('keeps a payload instance provisioning while only the bootstrap placeholder answers', async () => {
+    mockDbQueryOne.mockResolvedValue(
+      instanceRow({
+        app_slug: 'payload',
+        status: 'provisioning',
+        worker_script_name: 'payload-acme-abc12345',
+        subdomain: 'acme',
+      }),
+    );
+    // The bootstrap placeholder 200s the "finishing setup" page — NOT the real admin.
+    const env = makeDispatchEnv(
+      () =>
+        new Response(
+          '<html><body><p style="opacity:.7">Admin UI finishing setup…</p></body></html>',
+          { status: 200, headers: { 'content-type': 'text/html' } },
+        ),
+    );
+    const res = await req(
+      makeApp({ ...AUTH, userRole: 'admin' }),
+      '/api/apps/instances/inst-1',
+      { method: 'GET' },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { instance: { status: string } };
+    expect(json.instance.status).toBe('provisioning');
+    expect(mockDbUpdate).not.toHaveBeenCalled();
   });
 });
 

@@ -36,6 +36,7 @@ import {
   payloadInstanceHost,
   provisionPayloadStack,
 } from '../services/cloudflare_provisioner.js';
+import { dispatchToUserWorker } from '../services/wfp_dispatch.js';
 
 export const apps = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -144,10 +145,76 @@ async function loadInstance(env: Env, orgId: string, id: string): Promise<AppIns
  * `{slug}.app.projectsites.dev`. The admin uses THIS for the "Open" link so it never
  * points at a dead/cert-broken host.
  */
-function instancePublicHost(row: AppInstanceRow, cfNativeHost: string): string {
+function instancePublicHost(
+  row: Pick<AppInstanceRow, 'app_slug' | 'subdomain'>,
+  cfNativeHost: string,
+): string {
   return isCfNativeApp(row.app_slug)
     ? `${row.subdomain}.${cfNativeHost}`
     : `${row.subdomain}.app.projectsites.dev`;
+}
+
+/**
+ * The bootstrap placeholder ({@link PAYLOAD_BOOTSTRAP_WORKER}) 200s every path with this
+ * phrase while the real Payload bundle is still uploading. Its ABSENCE (on a 200 or a
+ * redirect-to-login) is the signal the swapped-in admin is genuinely live.
+ */
+const PAYLOAD_BOOTSTRAP_MARKER = 'finishing setup';
+
+/**
+ * Probe whether a CF-native instance's REAL app is serving at its URL — not the bootstrap
+ * placeholder, and not {@link serveAppInstance}'s 202 booting shell. Reaches the user Worker
+ * DIRECTLY through the dispatch namespace ({@link dispatchToUserWorker}) so the platform's
+ * status gate (which 202s while `provisioning`) is bypassed. Returns false on ANY error so a
+ * flaky probe can never falsely report "running".
+ */
+async function probeInstanceReady(
+  env: Env,
+  row: Pick<AppInstanceRow, 'app_slug' | 'subdomain' | 'worker_script_name'>,
+): Promise<boolean> {
+  const scriptName = row.worker_script_name;
+  if (!scriptName) return false;
+  const host = instancePublicHost(row, payloadInstanceHost(env));
+  try {
+    const req = new Request(`https://${host}/admin`, {
+      headers: { 'user-agent': 'projectsites-readiness-probe' },
+      redirect: 'manual',
+    });
+    // Standalone workers.dev fallback (local dev) isn't in the namespace → fetch directly.
+    const res = host.endsWith('.workers.dev')
+      ? await fetch(req)
+      : await dispatchToUserWorker(env, scriptName, req);
+    // Payload's /admin 200s (create-first-user / login) or 3xx-redirects to login once the
+    // real bundle is live; the bootstrap ALWAYS 200s its marker page and never redirects.
+    if (res.status >= 300 && res.status < 400) return true;
+    if (res.status !== 200) return false;
+    const body = await res.text();
+    return !body.includes(PAYLOAD_BOOTSTRAP_MARKER);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Self-heal a CF-native instance's status on read: if it's still `provisioning` but its real
+ * app now answers, flip it to `running` (stamping `last_started_at`). This is the lazy
+ * fallback for when the launch-time readiness poll timed out inside `waitUntil`. Returns the
+ * row with its (possibly updated) status so the caller surfaces the fresh value immediately.
+ */
+async function flipToRunningIfReady(env: Env, row: AppInstanceRow): Promise<AppInstanceRow> {
+  if (row.status !== 'provisioning' || !isCfNativeApp(row.app_slug) || !row.worker_script_name) {
+    return row;
+  }
+  if (!(await probeInstanceReady(env, row))) return row;
+  const now = new Date().toISOString();
+  await dbUpdate(
+    env.DB,
+    'app_instances',
+    { status: 'running', last_error: null, last_started_at: now },
+    'id = ?',
+    [row.id],
+  ).catch(() => undefined);
+  return { ...row, status: 'running', last_started_at: now };
 }
 
 function sanitizeInstance(
@@ -267,7 +334,10 @@ apps.get('/api/apps/instances', async (c) => {
   );
   if (error) throw badRequest(error);
   const cfHost = payloadInstanceHost(c.env);
-  return c.json({ instances: data.map((r) => sanitizeInstance(r, cfHost)) });
+  // Self-heal any instance still `provisioning` whose real app is now live (bounded — only
+  // provisioning CF-native rows are probed; the rest early-return untouched).
+  const rows = await Promise.all(data.map((r) => flipToRunningIfReady(c.env, r)));
+  return c.json({ instances: rows.map((r) => sanitizeInstance(r, cfHost)) });
 });
 
 // ─── Subdomain availability check ─────────────────────────────
@@ -444,7 +514,10 @@ async function launchCfNativeInstance(
     created_by: userId,
     app_slug: app.id,
     subdomain: body.subdomain,
-    status: 'running',
+    // Seed as `provisioning` — the bootstrap 200s immediately but the REAL Payload admin
+    // isn't live until the waitUntil readiness poll (below) confirms it. Never claim
+    // `running` before the URL actually serves the real bundle.
+    status: 'provisioning',
     env_encrypted: encrypted,
     env_iv: 'inline',
     neon_project_id: null,
@@ -482,12 +555,39 @@ async function launchCfNativeInstance(
       namespace: stack.dispatchNamespace ?? undefined,
     })
       .then(async (r) => {
+        if (!r.ok) {
+          await dbUpdate(
+            c.env.DB,
+            'app_instances',
+            { status: 'error', last_error: `payload_bundle: ${r.error ?? 'deploy failed'}` },
+            'id = ?',
+            [instanceId],
+          );
+          return;
+        }
+        // Bundle uploaded — but the edge needs a beat to serve the swapped-in admin. Poll
+        // the REAL URL and flip to `running` ONLY when the actual Payload admin answers (not
+        // the bootstrap). If the poll window elapses first, leave it `provisioning` — the
+        // lazy flipToRunningIfReady on the next read finishes the job. Never lie `running`.
+        const probeRow = {
+          app_slug: app.id,
+          subdomain: body.subdomain,
+          worker_script_name: stack.workerName,
+        };
+        let ready = false;
+        for (let i = 0; i < 14; i++) {
+          if (await probeInstanceReady(c.env, probeRow)) {
+            ready = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
         await dbUpdate(
           c.env.DB,
           'app_instances',
-          r.ok
-            ? { status: 'running', last_error: null }
-            : { status: 'running', last_error: `payload_bundle: ${r.error ?? 'deploy failed'}` },
+          ready
+            ? { status: 'running', last_error: null, last_started_at: new Date().toISOString() }
+            : { status: 'provisioning', last_error: null },
           'id = ?',
           [instanceId],
         );
@@ -496,7 +596,7 @@ async function launchCfNativeInstance(
         await dbUpdate(
           c.env.DB,
           'app_instances',
-          { status: 'running', last_error: `payload_bundle_throw: ${String(err)}` },
+          { status: 'error', last_error: `payload_bundle_throw: ${String(err)}` },
           'id = ?',
           [instanceId],
         ).catch(() => undefined);
@@ -523,7 +623,7 @@ async function launchCfNativeInstance(
   return c.json(
     {
       instance_id: instanceId,
-      status: 'running',
+      status: 'provisioning',
       subdomain: body.subdomain,
       url: `https://${stack.subdomain}`,
       admin_url: `https://${stack.subdomain}/admin`,
@@ -810,8 +910,10 @@ apps.get('/api/apps/instances/:id', async (c) => {
   if (role && !['owner', 'admin'].includes(role)) {
     throw forbidden('Only owners/admins can read decrypted env vars.');
   }
-  const row = await loadInstance(c.env, orgId, c.req.param('id'));
-  if (!row) throw notFound('app_instance not found');
+  const loaded = await loadInstance(c.env, orgId, c.req.param('id'));
+  if (!loaded) throw notFound('app_instance not found');
+  // Self-heal `provisioning → running` the moment the real app answers (see flipToRunningIfReady).
+  const row = await flipToRunningIfReady(c.env, loaded);
   const decryptedEnv = await decryptEnv(c.env, row);
   return c.json({
     instance: { ...sanitizeInstance(row, payloadInstanceHost(c.env)), env: decryptedEnv },
