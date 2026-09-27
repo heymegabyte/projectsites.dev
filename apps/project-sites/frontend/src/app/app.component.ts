@@ -1,4 +1,4 @@
-import { Component, type OnInit, type OnDestroy, HostListener, inject, signal } from '@angular/core';
+import { Component, type OnInit, type OnDestroy, HostListener, inject, signal, effect } from '@angular/core';
 import {
   RouterOutlet,
   Router,
@@ -84,11 +84,15 @@ import { BoltEmbedService } from './services/bolt-embed.service';
          nothing (the admin shell, tab strip, or the bolt.diy iframe) can EVER overlap it.
          Shows only on the editor route; opacity-toggled to fade out the instant the bolt
          editor reports loaded via postMessage (bolt.editorReady). pointer-events:none —
-         purely visual, never blocks the cursor. -->
+         purely visual, never blocks the cursor. Sized (veilRect) to the editor content area. -->
     @if (isEditorRoute()) {
       <div
         class="app-editor-veil"
         [class.app-editor-veil--gone]="bolt.editorReady()"
+        [style.top.px]="veilRect()?.top"
+        [style.left.px]="veilRect()?.left"
+        [style.width.px]="veilRect()?.width"
+        [style.height.px]="veilRect()?.height"
         role="status"
         aria-live="polite"
         [attr.aria-busy]="!bolt.editorReady()"
@@ -188,7 +192,13 @@ import { BoltEmbedService } from './services/bolt-embed.service';
        loaded (bolt.editorReady → .app-editor-veil--gone). Keeps the status messages. */
     .app-editor-veil {
       position: fixed;
-      inset: 0;
+      /* Sized in JS (veilRect) to the editor CONTENT AREA — below the top navbar, right of
+         the side nav (it mirrors the bolt iframe's slot). These full-viewport values are the
+         FALLBACK used only until the iframe slot is measurable (safe: covers everything). */
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100dvh;
       z-index: 2147483647;
       display: flex; align-items: center; justify-content: center;
       overflow: hidden;
@@ -277,6 +287,59 @@ export class AppComponent implements OnInit, OnDestroy {
   /** True on `/admin/editor*` — gates the top-level editor loading veil (rendered at the app
    * root, max z-index) so it shows only while the editor is the active surface. */
   isEditorRoute = signal(false);
+  /**
+   * The measured rect of the editor CONTENT AREA — the bolt iframe's slot, i.e. everywhere
+   * BELOW the top navbar and RIGHT OF the side nav. The top-level veil is sized to this so it
+   * covers only the editor surface, never the chrome. `null` → the veil falls back to
+   * full-viewport (safe). Kept as viewport px because the veil is `position: fixed`.
+   */
+  protected veilRect = signal<{ top: number; left: number; width: number; height: number } | null>(null);
+  private veilResizeObs?: ResizeObserver;
+  /**
+   * While on the editor route, keep the veil sized to the bolt iframe's slot. Re-measures on
+   * show, on window resize, and whenever the iframe reflows (the sidebar collapse/expand +
+   * full-width toggle resize the content column → the iframe → this observer). The iframe's
+   * `getBoundingClientRect()` already yields {top: topbar-height, left: sidebar-width, …}, so
+   * matching it excludes the top navbar + side nav exactly. Cleans up its listeners on re-run.
+   */
+  private readonly _veilRectSync = effect((onCleanup) => {
+    const on = this.isEditorRoute();
+    this.veilResizeObs?.disconnect();
+    this.veilResizeObs = undefined;
+    if (!on || typeof document === 'undefined') {
+      this.veilRect.set(null);
+      return;
+    }
+    const measure = (): void => {
+      const frame = document.querySelector('.bolt-frame') as HTMLElement | null;
+      const r = frame?.getBoundingClientRect();
+      if (r && r.width > 8 && r.height > 8 && r.top < window.innerHeight) {
+        this.veilRect.set({
+          top: Math.max(0, Math.round(r.top)),
+          left: Math.max(0, Math.round(r.left)),
+          width: Math.round(r.width),
+          height: Math.round(r.height),
+        });
+      } else {
+        this.veilRect.set(null); // iframe not laid out yet → full-viewport fallback
+      }
+    };
+    measure();
+    requestAnimationFrame(measure);
+    const settleTimer = setTimeout(measure, 150);
+    window.addEventListener('resize', measure);
+    const frame = document.querySelector('.bolt-frame');
+    if (frame && typeof ResizeObserver !== 'undefined') {
+      this.veilResizeObs = new ResizeObserver(measure);
+      this.veilResizeObs.observe(frame);
+    }
+    onCleanup(() => {
+      clearTimeout(settleTimer);
+      window.removeEventListener('resize', measure);
+      this.veilResizeObs?.disconnect();
+      this.veilResizeObs = undefined;
+    });
+  });
   /** True while a LAZY route chunk is downloading (a cold deep-link to a heavy route like
    * `/create` takes ~3s to hydrate) — drives an instant loading skeleton so the funnel
    * destination never shows a dead-blank. NEVER set for the homepage (`/`) so its delicate
