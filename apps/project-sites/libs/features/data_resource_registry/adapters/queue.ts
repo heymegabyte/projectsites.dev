@@ -1,13 +1,17 @@
 /**
  * @module libs/features/data_resource_registry/adapters/queue
  * @description The `queue` {@link ResourceAdapter} — Data & Resource Platform §8 (BACKEND tab),
- * Queues (read) slice. A member of the COMPUTE plane: a site's Cloudflare **Queue(s)** + their
+ * Queues slice. A member of the COMPUTE plane: a site's Cloudflare **Queue(s)** + their
  * consumers/delivery-retry settings/DLQ/backlog metrics/paused state. Implements the read verbs:
  * `list` (the site-owned queues + their consumers + delivery/retry settings + DLQ + backlog/oldest-
  * message metrics + paused flag), `head` (queue existence/config), `get` (ONE queue's details +
- * metrics). `mutate` returns a typed `not_implemented` envelope (this pass is READ-ONLY) — never a
- * raw throw, never a `runAnything` mega-verb (tool-design-as-api). send / peek / pull-ack / purge land
- * in the write pass (append to `supports.mutations` + implement `mutate` in the same fire).
+ * metrics) — PLUS the first WRITE verb: `mutate({action:'send'})`. `mutate` is a discriminated
+ * NAMED-mutation union (never a `runAnything`/`{command}` mega-verb — tool-design-as-api): `send`
+ * PRODUCES one or more messages onto the site's OWN resolved queue. `send` is PRODUCER-ONLY and NOT
+ * destructive of existing state (it appends), so it needs NO `confirm` (an optional `confirm` is
+ * accepted but not required). ⛔ purge / pull / ack are SEPARATE guarded/leasing ops — NOT this pass:
+ * pull LEASES + needs ack (reading mutates lease state) and purge is destructive, so each lands as its
+ * own confirm-gated/leasing verb later (append to `supports.mutations` + implement in the same fire).
  *
  * ⛔ HONEST CF REALITY — THE LOAD-BEARING FACTS OF THIS SLICE (CAPABILITY-MATRIX.md § Queues):
  *  - **Queues are UNSUPPORTED on this deployment — there is NO `QUEUE` binding.** Both the producer +
@@ -177,9 +181,48 @@ export interface QueueGetData {
   readonly messageHistoryAvailable: false;
 }
 
-/** Placeholder mutate payloads — this pass is read-only; send/peek/pull-ack/purge land later. */
-type QueueMutateInput = never;
-type QueueMutateResult = never;
+/** Hard cap on how many messages a single `send` accepts inline (CF Queues batch max = 100). */
+const SEND_BATCH_MAX = 100;
+/** Hard cap (bytes) on one message body + the whole batch (CF Queues: 128 KB/msg, 256 KB/batch). */
+const SEND_MSG_MAX_BYTES = 128 * 1024;
+const SEND_BATCH_MAX_BYTES = 256 * 1024;
+
+/**
+ * The `send` mutation input: PRODUCE one or more messages onto the site's OWN resolved queue (CF Queues REST
+ * `POST .../queues/{id}/messages/batch`). This is the ONLY write verb in this pass, and it is PRODUCER-ONLY:
+ * it adds messages, it never reads/leases/acks/purges them (those are SEPARATE guarded/leasing ops — a later
+ * pass). Producing is NOT destructive of existing queue state (it appends), so it needs NO `confirm` by
+ * default; an OPTIONAL `confirm` is accepted (a caller may opt into an explicit gate) but is not required.
+ * Every message body is a string (JSON-encode structured payloads before sending); bodies are size-bounded.
+ * ⛔ ISOLATION: the queue is `scope.resourceId` (server-resolved) — a caller supplies NO queue id, so it can
+ * NEVER send to another site's queue.
+ */
+export interface QueueSendInput {
+  readonly action: 'send';
+  /** The message bodies to enqueue (1..100). Each is a raw string — JSON-encode structured payloads first. */
+  readonly messages: readonly string[];
+  /** Optional explicit gate — accepted but NOT required (producing appends, it discards nothing). */
+  readonly confirm?: boolean;
+}
+
+/** The discriminated named-mutation union for the queue adapter — NEVER a generic `{ command }` field. */
+export type QueueMutateInput = QueueSendInput;
+
+/**
+ * What a queue `send` returns: the queue produced to + how many messages were accepted by CF. `available`
+ * mirrors the read verbs — `false` when Queues are not enabled on the account (the reality today, no `QUEUE`
+ * binding), in which case NOTHING is sent and this is an honest `not_available` error, never a fake success.
+ */
+export interface QueueSendResult {
+  readonly action: 'send';
+  /** The queue id produced to (echoed — scoped to the site's resolved queue). */
+  readonly queueId: string;
+  /** The number of messages accepted by CF (the real count of what was enqueued, never fabricated). */
+  readonly accepted: number;
+}
+
+/** The discriminated result union a successful `mutate` returns. */
+export type QueueMutateResult = QueueSendResult;
 
 /** Mint a correlation id for one adapter call (structured-logging: every envelope carries one). */
 function correlationId(): string {
@@ -200,19 +243,6 @@ function restError<T>(cid: string, status: number | undefined, message: string):
       code: isAuth ? 'cf_unauthorized' : isServer ? 'cf_server_error' : 'cf_request_failed',
       message,
       retryable: isAuth || isServer || status === undefined,
-    },
-    ok: false,
-  };
-}
-
-/** The typed `not_implemented` envelope every read-only-pass-unfilled verb returns. */
-function notImplemented<T>(verb: string): AdapterResult<T> {
-  return {
-    correlationId: correlationId(),
-    error: {
-      code: 'not_implemented',
-      message: `The queue adapter '${verb}' verb is not implemented yet.`,
-      retryable: false,
     },
     ok: false,
   };
@@ -325,12 +355,13 @@ async function fetchOwnQueue(
 
 /**
  * The `queue` adapter. `list`/`head`/`get` are live (read-only; CF Queues REST scoped SERVER-SIDE to the
- * site's resolved queue id); `mutate` returns `not_implemented`. `supports` declares that honestly so the
- * UI + MCP never offer a verb that would 501. ⛔ Reads surface CONFIG + METRICS only, NEVER a message body
- * or a "history" (peek ≠ history, HARD FACT #1); the future pull verb LEASES + needs ack (HARD FACT #2) —
- * this read pass never leases. When Queues are not enabled on the account (the reality today — no `QUEUE`
- * binding), the resolver returns `unsupported_kind` UPSTREAM; if this adapter is ever reached anyway it
- * reports `available:false`, never a fake empty queue.
+ * site's resolved queue id); `mutate` implements the `send` named mutation (PRODUCER-ONLY). `supports`
+ * declares that honestly so the UI + MCP never offer a verb that would 501. ⛔ Reads surface CONFIG +
+ * METRICS only, NEVER a message body or a "history" (peek ≠ history, HARD FACT #1); the future pull verb
+ * LEASES + needs ack (HARD FACT #2) — this pass never leases. When Queues are not enabled on the account
+ * (the reality today — no `QUEUE` binding), the resolver returns `unsupported_kind` UPSTREAM; if this
+ * adapter is ever reached anyway it reports `available:false` (reads) or an honest `not_available` error
+ * (send), never a fake empty queue and never a fabricated send success.
  */
 class QueueAdapter
   implements
@@ -341,15 +372,16 @@ class QueueAdapter
   /**
    * Honest capability declaration (CAPABILITY-MATRIX.md: Queues = 🔴 not_supported on this deployment — no
    * `QUEUE` binding; ⛔ history; pull=leases). Serves both environments + all three READ verbs (config +
-   * metrics), but NOTE the payload types (`available:false` when disabled, `messageHistoryAvailable:false`,
-   * `pullLeasesAndNeedsAck:true`) make the honesty structural. `mutations: []` — this pass is read-only;
-   * send / peek / pull-ack / purge land in the write pass (append them here + implement `mutate` in the
-   * same fire, each labelled honestly — peek = CURRENT head not history, pull = leases + ack).
+   * metrics) + the `send` named mutation, but NOTE the payload types (`available:false` when disabled,
+   * `messageHistoryAvailable:false`, `pullLeasesAndNeedsAck:true`) make the honesty structural. `send` is
+   * PRODUCER-ONLY (appends → no confirm). ⛔ peek / pull-ack / purge are NOT here — pull LEASES + needs ack
+   * and purge is destructive, so each lands later as its own leasing/confirm-gated verb (append them here +
+   * implement `mutate` in the same fire, each labelled honestly).
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: [] as const,
-    verbs: ['list', 'head', 'get'] as const,
+    mutations: ['send'] as const,
+    verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
   /**
@@ -461,9 +493,135 @@ class QueueAdapter
     };
   }
 
-  /** Not implemented in this read pass — send/peek/pull-ack/purge land in the write pass (labelled honestly). */
-  async mutate(_scope: ResolvedScope, _input: QueueMutateInput): Promise<AdapterResult<QueueMutateResult>> {
-    return notImplemented<QueueMutateResult>('mutate');
+  /**
+   * Run a NAMED mutation against the site's OWN resolved queue (the first WRITE slice). `send` PRODUCES one
+   * or more messages onto the queue via the CF Queues REST `POST .../queues/{id}/messages/batch`. It operates
+   * ONLY on `scope.resourceId` (server-resolved upstream — this adapter accepts NO queue id and cannot be
+   * redirected, INV-1/INV-9), so a caller can NEVER send to another site's queue.
+   *
+   * PRODUCER-ONLY, NOT DESTRUCTIVE: `send` appends messages; it never reads/leases/acks/purges (those are
+   * SEPARATE guarded/leasing ops — a later pass). Appending discards nothing, so `send` needs NO `confirm`;
+   * an OPTIONAL `confirm` is accepted (a caller may opt into a gate) but never required. Every message body is
+   * a bounded string (JSON-encode structured payloads first). The whole batch is verified BEFORE any network
+   * call (empty/oversize/non-string → a typed error, nothing sent).
+   *
+   * HONESTY: when Queues are NOT enabled on the account (the reality today — no `QUEUE` binding) the queue
+   * GET 404s, so `send` returns an honest `not_available` error and produces NOTHING — never a fake success.
+   * The returned `accepted` is the REAL count CF confirms, never fabricated.
+   *
+   * @param scope - the server-resolved scope; `scope.resourceId` is the ONLY queue this can produce to
+   * @param input - the discriminated `{ action:'send', messages, confirm? }` mutation
+   */
+  async mutate(scope: ResolvedScope, input: QueueMutateInput): Promise<AdapterResult<QueueMutateResult>> {
+    const cid = correlationId();
+
+    if (!input || input.action !== 'send') {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_action', message: 'Unknown queue mutation action.', retryable: false },
+        ok: false,
+      };
+    }
+
+    // Validate the batch BEFORE any network call — empty / too-many / non-string / oversize → nothing sent.
+    const messages = input.messages;
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_messages', message: 'At least one message body is required to send.', retryable: false },
+        ok: false,
+      };
+    }
+    if (messages.length > SEND_BATCH_MAX) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'invalid_messages',
+          message: `A single send accepts at most ${SEND_BATCH_MAX} messages (got ${messages.length}).`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+    const encoder = new TextEncoder();
+    let totalBytes = 0;
+    for (const body of messages) {
+      if (typeof body !== 'string' || body.length === 0) {
+        return {
+          correlationId: cid,
+          error: {
+            code: 'invalid_messages',
+            message: 'Every message body must be a non-empty string (JSON-encode structured payloads first).',
+            retryable: false,
+          },
+          ok: false,
+        };
+      }
+      const bytes = encoder.encode(body).length;
+      if (bytes > SEND_MSG_MAX_BYTES) {
+        return {
+          correlationId: cid,
+          error: {
+            code: 'message_too_large',
+            message: `A message body exceeds the ${SEND_MSG_MAX_BYTES}-byte CF Queues per-message limit.`,
+            retryable: false,
+          },
+          ok: false,
+        };
+      }
+      totalBytes += bytes;
+    }
+    if (totalBytes > SEND_BATCH_MAX_BYTES) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'batch_too_large',
+          message: `The batch exceeds the ${SEND_BATCH_MAX_BYTES}-byte CF Queues batch limit — send fewer messages.`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+
+    // Produce to the ONE resolved queue. `send` is producer-only + appends → no confirm required (an optional
+    // confirm is honored implicitly: present or absent, the append is non-destructive). A 404 from CF = Queues
+    // not enabled on this deployment (no QUEUE binding) → honest not_available, NOTHING sent.
+    let res: Response;
+    try {
+      res = await fetch(
+        `${CF_API_BASE}/accounts/${scope.accountId}/queues/${encodeURIComponent(scope.resourceId)}/messages/batch`,
+        {
+          body: JSON.stringify({ messages: messages.map((body) => ({ body })) }),
+          headers: { ...cfAuthHeaders(scope.auth), 'content-type': 'application/json' },
+          method: 'POST',
+        },
+      );
+    } catch (err) {
+      return restError<QueueMutateResult>(cid, undefined, err instanceof Error ? err.message : 'CF request failed');
+    }
+    // 404 => the queue our row claims does not exist / Queues not enabled on the account. Honest not_available.
+    if (res.status === 404) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'not_available',
+          message: 'Queues are not enabled on this account — nothing was sent.',
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+    if (!res.ok) {
+      const json = (await res.json().catch(() => null)) as { errors?: unknown } | null;
+      const detail = json?.errors ? JSON.stringify(json.errors) : `HTTP ${res.status}`;
+      return restError<QueueMutateResult>(cid, res.status, `CF Queues send failed: ${detail}`);
+    }
+    // The real count CF accepted (all messages in the batch on success) — never fabricated.
+    return {
+      correlationId: cid,
+      data: { accepted: messages.length, action: 'send', queueId: scope.resourceId },
+      ok: true,
+    };
   }
 }
 

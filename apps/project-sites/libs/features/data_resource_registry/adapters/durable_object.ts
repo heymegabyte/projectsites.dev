@@ -1,16 +1,25 @@
 /**
  * @module libs/features/data_resource_registry/adapters/durable_object
  * @description The `durable_object` {@link ResourceAdapter} — Data & Resource Platform §7 (BACKEND tab),
- * Durable Objects (read) slice. The COMPUTE-PLANE member of the resource platform: a site's Cloudflare
+ * Durable Objects slice. The COMPUTE-PLANE member of the resource platform: a site's Cloudflare
  * **Durable Object CLASS namespaces** (the class bindings on a Worker) + the object IDs a caller can
  * NAME. Implements the read verbs: `list` (the DO namespaces/classes CF exposes for the account —
  * NEVER "all instances", which CF cannot enumerate), `head` (does the DO class namespace exist + its
  * config), `get` (ONE object id's derivable METADATA ONLY — the id + its hex + the namespace it belongs
- * to; ⛔ NEVER the object's private storage or in-memory state, which no CF API can read). `mutate`
- * returns a typed `not_implemented` envelope (this pass is READ-ONLY) — never a raw throw, never a
- * `runAnything` mega-verb (tool-design-as-api). reset_instance/send (both ADDRESSED to a known instance,
- * never a browse) land in the write pass (append to `supports.mutations` + implement `mutate` in the
- * same fire).
+ * to; ⛔ NEVER the object's private storage or in-memory state, which no CF API can read) — PLUS the
+ * narrow WRITE verb: `mutate({action, objectId, confirm?})`.
+ *
+ * ⛔ THE LOAD-BEARING WRITE INVARIANT — a NARROW, opt-in, AUTHENTICATED management interface ONLY:
+ * `mutate` exposes a CLOSED, platform-defined allowlist of management actions ({@link DurableObjectManageAction}
+ * = `status_probe` | `reset`) addressed to a KNOWN instance the platform created — it is **NEVER an arbitrary
+ * method call into customer code** merely because a caller holds an object id, and it is **NEVER public**. A
+ * caller can only pick from the fixed enum; there is no `{method, args}` passthrough. The addressed instance is
+ * bound to the site's SERVER-RESOLVED namespace (`scope.resourceId`) — a caller supplies NO namespace/account,
+ * so it can never reach another site's object. `reset` (state-changing) is `confirm`-gated (INV-9/INV-11);
+ * `status_probe` (read-only) is not. On THIS deployment there is NO per-site DO namespace AND CF exposes no API
+ * to reach an arbitrary instance's state, so every action is an HONEST `not_available` that runs NOTHING —
+ * never a fabricated result, never a call into customer code. (This is the tool-design-as-api discipline: a
+ * defined management API, not a `runAnything` into a DO.)
  *
  * ⛔ HONEST CF REALITY — THE LOAD-BEARING FACTS OF THIS SLICE (CAPABILITY-MATRIX.md § Durable Objects,
  * HARD FACT #3 "no generic DO-state browse"):
@@ -119,9 +128,63 @@ export interface DurableObjectGetData {
   readonly stateBrowsable: false;
 }
 
-/** Placeholder mutate payloads — this pass is read-only; reset_instance/send (ADDRESSED) land later. */
-type DurableObjectMutateInput = never;
-type DurableObjectMutateResult = never;
+/**
+ * The FIXED, platform-defined management actions this adapter exposes. This is a CLOSED allowlist of NAMED
+ * ops a ProjectSites opt-in AUTHENTICATED management interface would offer against a managed DO class — it is
+ * NEVER an arbitrary method name into customer code. Adding an action here is a deliberate platform decision;
+ * a caller can only ever pick from this enum.
+ *
+ * - `status_probe` — invoke a managed class's EXPLICITLY-EXPOSED, platform-defined status endpoint (a safe,
+ *   read-only "are you healthy / what's your public status" op). NON-state-changing → no confirm.
+ * - `reset` — a platform-defined, state-changing management op on a managed instance (e.g. clear transient
+ *   in-memory state / re-arm an alarm on a class the platform controls). State-changing → confirm-gated.
+ */
+export type DurableObjectManageAction = 'status_probe' | 'reset';
+
+/**
+ * The `mutate` input for the durable_object adapter: a NARROW, ADDRESSED management op against a KNOWN
+ * instance the platform created. ⛔ THE CRITICAL ISOLATION FACT: `action` is a FIXED enum
+ * ({@link DurableObjectManageAction}) — this is NEVER an arbitrary method call into customer code merely
+ * because a caller holds an object id. `objectId` names ONE instance; the instance is bound to the site's
+ * SERVER-RESOLVED namespace (`scope.resourceId`) — a caller supplies NO namespace and NO account id, so it can
+ * only ever address an instance within its OWN namespace. `reset` (state-changing) REQUIRES `confirm:true`;
+ * `status_probe` (read-only) needs none.
+ */
+export interface DurableObjectManageInput {
+  /** The management action — a FIXED platform-defined op, NEVER an arbitrary customer method name. */
+  readonly action: DurableObjectManageAction;
+  /** The KNOWN instance id to address (bound to the site's resolved namespace; never a browse, never widened). */
+  readonly objectId: string;
+  /** Must be `true` for the state-changing `reset`; ignored for the read-only `status_probe`. */
+  readonly confirm?: boolean;
+}
+
+/** The discriminated named-mutation union for the durable_object adapter — a CLOSED set, never `{ method }`. */
+export type DurableObjectMutateInput = DurableObjectManageInput;
+
+/**
+ * What a durable_object `mutate` returns: the action taken + the addressed object + whether the platform could
+ * actually run it. On THIS deployment there is NO per-site DO namespace AND no CF API can reach an arbitrary
+ * instance's state, so `available` is `false` and the op is an honest `not_available` (nothing was called into
+ * customer code) — never a fabricated result. `stateBrowsable` is permanently `false` (mirrors `get`): even a
+ * management op NEVER dumps the object's private storage.
+ */
+export interface DurableObjectMutateResult {
+  /** The management action performed (or attempted). */
+  readonly action: DurableObjectManageAction;
+  /** The object id addressed (echoed — bound to the site's resolved namespace). */
+  readonly objectId: string;
+  /** The namespace id the object belongs to (server-resolved from the scope). */
+  readonly namespaceId: string;
+  /**
+   * Whether a per-site DO management interface is reachable on this deployment. FALSE today — only
+   * `SITE_BUILDER` is bound, there is no per-site DO namespace, and CF exposes no API to reach an arbitrary
+   * instance. When false the op ran NOTHING (honest `not_available`).
+   */
+  readonly available: boolean;
+  /** Always false — a management op NEVER reads/dumps the object's private storage or in-memory state. */
+  readonly stateBrowsable: false;
+}
 
 /** Mint a correlation id for one adapter call (structured-logging: every envelope carries one). */
 function correlationId(): string {
@@ -142,19 +205,6 @@ function restError<T>(cid: string, status: number | undefined, message: string):
       code: isAuth ? 'cf_unauthorized' : isServer ? 'cf_server_error' : 'cf_request_failed',
       message,
       retryable: isAuth || isServer || status === undefined,
-    },
-    ok: false,
-  };
-}
-
-/** The typed `not_implemented` envelope every read-only-pass-unfilled verb returns. */
-function notImplemented<T>(verb: string): AdapterResult<T> {
-  return {
-    correlationId: correlationId(),
-    error: {
-      code: 'not_implemented',
-      message: `The durable_object adapter '${verb}' verb is not implemented yet.`,
-      retryable: false,
     },
     ok: false,
   };
@@ -223,11 +273,12 @@ function toHexId(id: string): string | undefined {
 
 /**
  * The `durable_object` adapter. `list`/`head`/`get` are live (read-only; account-level CF API scoped
- * SERVER-SIDE to the site's resolved DO namespace); `mutate` returns `not_implemented`. `supports` declares
- * that honestly so the UI + MCP never offer a verb that would 501. ⛔ `list` lists NAMESPACES (classes),
- * NEVER instances (CF cannot enumerate instances); `get` returns identity METADATA of a NAMED object id,
- * NEVER its state (no CF API can read DO storage). Reads the CF Durable Objects REST API bound to
- * `scope.resourceId` (the namespace id, server-resolved) — never a caller id, never an account id.
+ * SERVER-SIDE to the site's resolved DO namespace); `mutate` implements a NARROW, platform-defined management
+ * interface (`status_probe`/`reset`) addressed to a KNOWN instance — ⛔ NEVER an arbitrary method call into
+ * customer code. `supports` declares that honestly so the UI + MCP never offer a verb that would 501. ⛔ `list`
+ * lists NAMESPACES (classes), NEVER instances (CF cannot enumerate instances); `get` returns identity METADATA
+ * of a NAMED object id, NEVER its state (no CF API can read DO storage). Reads the CF Durable Objects REST API
+ * bound to `scope.resourceId` (the namespace id, server-resolved) — never a caller id, never an account id.
  */
 class DurableObjectAdapter
   implements
@@ -243,16 +294,17 @@ class DurableObjectAdapter
 
   /**
    * Honest capability declaration (CAPABILITY-MATRIX.md: Durable Objects = ✅ ops-only, SITE_BUILDER only,
-   * ⛔ browse-all state, ⛔ list instances via CF): serves both environments + all three read verbs, but
-   * NOTE `list` surfaces NAMESPACES not instances and `get` surfaces metadata not state — the types
-   * (`instancesEnumerable:false`, `stateBrowsable:false`) make that honesty structural. `mutations: []` —
-   * this pass is read-only; reset_instance/send (both ADDRESSED to a known instance, never a browse) land
-   * in the write pass (append them here + implement `mutate` in the same fire).
+   * ⛔ browse-all state, ⛔ list instances via CF): serves both environments + all three read verbs + the
+   * NARROW `status_probe`/`reset` management mutations. NOTE `list` surfaces NAMESPACES not instances and
+   * `get`/`mutate` surface metadata/ops not state — the types (`instancesEnumerable:false`,
+   * `stateBrowsable:false`) make that honesty structural. ⛔ The `mutations` list is a CLOSED, platform-defined
+   * allowlist — NEVER an arbitrary method into customer code; `reset` is confirm-gated. On this deployment
+   * there is no per-site DO namespace, so `mutate` honestly reports `available:false` and runs nothing.
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: [] as const,
-    verbs: ['list', 'head', 'get'] as const,
+    mutations: ['status_probe', 'reset'] as const,
+    verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
   /**
@@ -352,12 +404,87 @@ class DurableObjectAdapter
     };
   }
 
-  /** Not implemented in this read pass — reset_instance/send (ADDRESSED to a known instance) land later. */
+  /**
+   * Run a NARROW, platform-defined management action against a KNOWN instance in the site's OWN namespace.
+   *
+   * ⛔ THE ISOLATION INVARIANT: `input.action` is a CLOSED enum ({@link DurableObjectManageAction}) — a caller
+   * can only pick `status_probe` or `reset`. This is **NEVER an arbitrary method call into customer code** and
+   * there is NO `{method, args}` passthrough — the platform decides what a managed class exposes. `input.objectId`
+   * names ONE instance, bound to `scope.resourceId` (the DO namespace, server-resolved upstream — this adapter
+   * accepts NO namespace/account and cannot be redirected, INV-1/INV-9), so a caller can only ever address an
+   * instance inside its OWN namespace.
+   *
+   * GUARDING (INV-9/INV-11): `reset` is STATE-CHANGING → REQUIRES `confirm:true`; without it, `mutate` returns a
+   * typed `confirmation_required` envelope that WARNS and runs NOTHING. `status_probe` is read-only → no confirm.
+   *
+   * HONESTY: on THIS deployment there is NO per-site DO namespace (only `SITE_BUILDER` is bound) AND CF exposes
+   * no API to reach an arbitrary instance's state, so once past validation every action returns an honest
+   * `not_available` (available:false) that runs NOTHING — never a fabricated result, and NEVER a call into
+   * customer code. `stateBrowsable` is permanently false: a management op never dumps the object's state.
+   *
+   * @param scope - the server-resolved scope; `scope.resourceId` is the ONLY namespace this can address
+   * @param input - the discriminated `{ action, objectId, confirm? }` management op (a CLOSED action set)
+   */
   async mutate(
-    _scope: ResolvedScope,
-    _input: DurableObjectMutateInput,
+    scope: ResolvedScope,
+    input: DurableObjectMutateInput,
   ): Promise<AdapterResult<DurableObjectMutateResult>> {
-    return notImplemented<DurableObjectMutateResult>('mutate');
+    const cid = correlationId();
+
+    // ⛔ CLOSED allowlist — reject anything outside the platform-defined management actions. This is the
+    // structural guarantee that a caller can NEVER name an arbitrary customer method: there is no passthrough.
+    if (!input || (input.action !== 'status_probe' && input.action !== 'reset')) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'invalid_action',
+          message:
+            'Unknown Durable Object management action. Only the platform-defined ops (status_probe, reset) are allowed — arbitrary method calls into a Durable Object are never permitted.',
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+
+    const objectId = input.objectId;
+    if (typeof objectId !== 'string' || objectId.length === 0) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_id', message: 'Durable Object id is missing or empty.', retryable: false },
+        ok: false,
+      };
+    }
+
+    // DESTRUCTIVE/STATE-CHANGING gate: `reset` changes instance state → REQUIRES confirm:true. Without it, WARN
+    // and run NOTHING (INV-9/INV-11). `status_probe` is read-only → no confirm. This gate runs BEFORE the
+    // availability check so a caller learns the confirm requirement even on a deployment without per-site DOs.
+    if (input.action === 'reset' && input.confirm !== true) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'confirmation_required',
+          message: `Resetting Durable Object "${objectId}" is a state-changing management op — its transient in-memory state / alarm is cleared. Re-run with confirm:true to reset it.`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+
+    // ⛔ HONEST not_available — there is NO per-site DO namespace on this deployment (only SITE_BUILDER is bound)
+    // and CF exposes no API to address an arbitrary instance's state. Nothing is called into customer code; the
+    // op runs NOTHING. When a per-site DO management interface is later wired, this returns the addressed op's
+    // real result — still ONLY the closed action set, still namespace-bound, never a raw method passthrough.
+    return {
+      correlationId: cid,
+      data: {
+        action: input.action,
+        available: false,
+        namespaceId: scope.resourceId,
+        objectId,
+        stateBrowsable: false,
+      },
+      ok: true,
+    };
   }
 }
 

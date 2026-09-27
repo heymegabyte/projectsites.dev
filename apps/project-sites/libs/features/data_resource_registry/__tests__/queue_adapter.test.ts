@@ -101,14 +101,14 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-// ─── (j) mutate() always returns not_implemented ────────────────────────────────
+// ─── (j) mutate() rejects an unknown action — full send coverage lives in queue_adapter_mutate.test.ts ──
 
-describe('queueAdapter.mutate()', () => {
-  it('(j) returns not_implemented code — never throws, never fetches (send/peek/pull-ack are the write pass)', async () => {
+describe('queueAdapter.mutate() — guard', () => {
+  it('(j) an unknown/undefined action → invalid_action, never throws, never fetches (send is covered in the mutate suite)', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await queueAdapter.mutate(scope, undefined as any);
     expect(result.ok).toBe(false);
-    expect(result.error?.code).toBe('not_implemented');
+    expect(result.error?.code).toBe('invalid_action');
     expect(result.error?.retryable).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });

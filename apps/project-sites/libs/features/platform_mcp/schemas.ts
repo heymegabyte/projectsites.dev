@@ -582,6 +582,51 @@ export const DataQueueDescribeInput = z
   .strict();
 
 /**
+ * `data_queue_send` — PRODUCE one or more messages onto the OWNED site's resolved Queue (a WRITE slice, MCP
+ * parity with the Backend tab's queue producer). A caller names ONLY the OWNED `site_id` + the `messages`
+ * (1..100 non-empty strings — JSON-encode structured payloads first) plus an OPTIONAL `confirm` and the
+ * environment (NEVER a CF queue id/account — the queue is server-resolved and site-scoped, so a site can NEVER
+ * send to another site's queue). `send` is PRODUCER-ONLY and NOT destructive (it appends), so `confirm` is
+ * accepted but NOT required. `.strict()` rejects any attempt to smuggle a `queue`/`queueId`/`accountId`. ⛔
+ * purge / pull / ack are SEPARATE guarded/leasing ops — NOT this tool (pull LEASES + needs ack; purge is
+ * destructive). Ownership + isolation + `per_site_queues` flag-gate + `data:write` scope are enforced
+ * server-side. Queues are NOT enabled on this deployment (no `QUEUE` binding) → honest 'not available' (nothing
+ * sent), never a fabricated send success.
+ */
+export const DataQueueSendInput = z
+  .object({
+    site_id: z.string().min(1),
+    messages: z.array(z.string().min(1)).min(1).max(100),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_durable_object_manage` — run a NARROW, platform-defined MANAGEMENT op against a KNOWN Durable Object
+ * instance in the OWNED site's namespace (a WRITE slice, MCP parity with the Backend tab's DO management). A
+ * caller names ONLY the OWNED `site_id` + the `action` (a FIXED enum: `status_probe` | `reset`) + the KNOWN
+ * `object_id` plus an OPTIONAL `confirm` and the environment. ⛔ THE ISOLATION INVARIANT: `action` is a CLOSED
+ * allowlist — this is NEVER an arbitrary method call into customer code and there is NO `{method,args}`
+ * passthrough; the platform decides what a managed class exposes. The instance is bound to the site's
+ * server-resolved namespace (NEVER a CF namespace id/account — a foreign object can't be reached even if its id
+ * is guessed). `reset` (state-changing) REQUIRES `confirm:true`; `status_probe` (read-only) needs none.
+ * `.strict()` rejects any attempt to smuggle a `namespace`/`accountId`/`method`. Ownership + isolation +
+ * `per_site_durable_objects` flag-gate + `data:write` scope are enforced server-side. Only `SITE_BUILDER` is
+ * bound + CF exposes no arbitrary-instance API → honest 'not available' (nothing is called into customer code),
+ * never a fabricated result and never the object's state.
+ */
+export const DataDurableObjectManageInput = z
+  .object({
+    site_id: z.string().min(1),
+    action: z.enum(['status_probe', 'reset']),
+    object_id: z.string().min(1).max(256),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
  * `data_analytics_list` — summarise the OWNED site's Analytics Engine dataset(s) + the custom-event dimensions
  * the platform records (Observability, cross-cutting Backend tab). A caller names ONLY the OWNED `site_id`
  * (NEVER a CF dataset name AND never an account id — the dataset is server-resolved) plus the optional
@@ -651,6 +696,8 @@ export type DataDurableObjectsListArgs = z.infer<typeof DataDurableObjectsListIn
 export type DataDurableObjectDescribeArgs = z.infer<typeof DataDurableObjectDescribeInput>;
 export type DataQueuesListArgs = z.infer<typeof DataQueuesListInput>;
 export type DataQueueDescribeArgs = z.infer<typeof DataQueueDescribeInput>;
+export type DataQueueSendArgs = z.infer<typeof DataQueueSendInput>;
+export type DataDurableObjectManageArgs = z.infer<typeof DataDurableObjectManageInput>;
 export type DataAnalyticsListArgs = z.infer<typeof DataAnalyticsListInput>;
 export type DataAnalyticsQuerySummaryArgs = z.infer<typeof DataAnalyticsQuerySummaryInput>;
 

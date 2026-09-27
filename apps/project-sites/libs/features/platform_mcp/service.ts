@@ -70,8 +70,10 @@ import {
   DataWorkflowControlInput,
   DataDurableObjectsListInput,
   DataDurableObjectDescribeInput,
+  DataDurableObjectManageInput,
   DataQueuesListInput,
   DataQueueDescribeInput,
+  DataQueueSendInput,
   DataAnalyticsListInput,
   DataAnalyticsQuerySummaryInput,
   DataBackendInventoryInput,
@@ -848,6 +850,24 @@ export const PLATFORM_MCP_TOOLS = [
     },
   },
   {
+    name: 'data_durable_object_manage',
+    description:
+      "Run a NARROW, platform-defined MANAGEMENT op against a KNOWN Durable Object instance in your site's namespace: action = status_probe (read-only, invoke the managed class's explicitly-exposed status endpoint) | reset (state-changing, clear the instance's transient state/alarm). Returns { action, objectId, namespaceId, available, stateBrowsable:false }. ⛔ THE ISOLATION RULE: action is a FIXED allowlist — this is NEVER an arbitrary method call into your Durable Object code, and there is NO method/args passthrough; the platform decides what a managed class exposes. ⚠️ reset is STATE-CHANGING → requires confirm:true (without it you get a confirmation error and NOTHING runs); status_probe needs no confirm. You name only the site_id + action + object_id (an id you already know) (+ optional confirm/environment) — never a Cloudflare namespace id and never an account id; the namespace is server-resolved and the object is bound under it, so you can never reach another site's object even if you guess its id. ⛔ Only SITE_BUILDER is bound + Cloudflare exposes no arbitrary-instance API → honest 'not available' (available:false, nothing called into customer code), never a fabricated result and never the object's state.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        action: { type: 'string', enum: ['status_probe', 'reset'] },
+        object_id: { type: 'string', maxLength: 256 },
+        confirm: { type: 'boolean' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'action', 'object_id'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'data_queues_list',
     description:
       "List your site's OWN Queue(s) + their consumers, delivery/retry settings, dead-letter queue, backlog/oldest-message metrics, and paused state (the same per-site Queues the editor's Backend tab shows). Returns each queue's CONFIG + METRICS + available (is Queues enabled on the account) + pullLeasesAndNeedsAck:true. ⛔ Returns CONFIG + METRICS ONLY — NEVER a message body or a 'history': a queue peek shows the CURRENT head, not a durable log (Cloudflare has no message-history API), and the pull consumer LEASES messages + needs ack (reading leases; unacked messages redeliver) — this read never leases. You name only the site_id (+ optional environment) — never a Cloudflare queue id and never an account id; the queue is resolved server-side and isolated to your site (you can never see another site's messages). Queues are NOT enabled on this deployment (no QUEUE binding) → honest 'not available / not provisioned' until Queues are enabled and your site has a queue.",
@@ -875,6 +895,23 @@ export const PLATFORM_MCP_TOOLS = [
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_queue_send',
+    description:
+      "PRODUCE (send) one or more messages onto your site's OWN Queue (the same per-site Queue the editor's Backend tab shows). messages = [\"…\"] (1-100 non-empty strings — JSON-encode structured payloads before sending). Returns { queueId, action:'send', accepted }. ✅ PRODUCER-ONLY + NON-DESTRUCTIVE: sending APPENDS messages, so NO confirm is required (an optional confirm is accepted). ⛔ This is NOT peek/pull/ack/purge — reading a queue LEASES messages + needs ack, and purge is destructive; those are SEPARATE guarded ops, not this tool. You name only the site_id + messages (+ optional confirm/environment) — never a Cloudflare queue id and never an account id; the queue is resolved server-side and isolated to your site, so you can NEVER send to another site's queue. ⛔ Queues are NOT enabled on this deployment (no QUEUE binding) → honest 'not available' (nothing sent), never a fabricated send success. Honest 'not provisioned' until Queues are enabled and your site has a queue.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        messages: { type: 'array', items: { type: 'string', minLength: 1 }, minItems: 1, maxItems: 100 },
+        confirm: { type: 'boolean' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'messages'],
       additionalProperties: false,
     },
   },
@@ -2225,6 +2262,46 @@ export async function dispatchPlatformTool(
       });
     }
 
+    case 'data_durable_object_manage': {
+      // Flag-gated on the reserved per_site_durable_objects flag (dark → err, mirroring the Backend-tab DO 404).
+      if (
+        !(await isFlagOn(env, PER_SITE_DURABLE_OBJECTS_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site Durable Objects are not enabled for this account.');
+      }
+      const { site_id, action, object_id, confirm, environment } = DataDurableObjectManageInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveDurableObjectScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // ⛔ NARROW management ONLY: `action` is the CLOSED enum the adapter enforces — NEVER an arbitrary method
+      // into customer code. The adapter binds the op to the resolved namespace + the named instance (foreign
+      // object impossible), owns the destructive gate (reset needs confirm:true → a confirmation_required error
+      // when absent), and honestly reports available:false (nothing called) on this no-per-site-DO deployment.
+      const result = await durableObjectAdapter.mutate(scoped.scope, {
+        action,
+        confirm,
+        objectId: object_id,
+      });
+      if (!result.ok) return err(result.error?.message ?? 'Could not run the Durable Object management op.');
+      return ok({
+        site_id,
+        environment,
+        action: result.data?.action,
+        objectId: result.data?.objectId,
+        namespaceId: result.data?.namespaceId,
+        available: result.data?.available ?? false,
+        stateBrowsable: false,
+      });
+    }
+
     case 'data_queues_list': {
       // Flag-gated on the reserved per_site_queues flag (dark → err, mirroring the Backend-tab Queues 404).
       if (
@@ -2289,6 +2366,43 @@ export async function dispatchPlatformTool(
         available: result.data?.available ?? false,
         queue: result.data?.queue,
         messageHistoryAvailable: false,
+      });
+    }
+
+    case 'data_queue_send': {
+      // Flag-gated on the reserved per_site_queues flag (dark → err, mirroring the Backend-tab Queues 404).
+      if (
+        !(await isFlagOn(env, PER_SITE_QUEUES_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site Queues are not enabled for this account.');
+      }
+      const { site_id, messages, confirm, environment } = DataQueueSendInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF queue id/account —
+      // the caller named only site_id; the queue id is server-resolved from the registry, so a site can
+      // never send to another site's queue.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveQueueScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // ✅ PRODUCER-ONLY + non-destructive — send APPENDS, so no confirm is required (an optional confirm is
+      // forwarded but the adapter never blocks on it). ⛔ NOT peek/pull/ack/purge (separate guarded/leasing ops).
+      // The adapter validates the batch, binds to the ONE resolved queue, and returns an honest not_available
+      // (nothing sent) when Queues are disabled on this deployment — never a fabricated success.
+      const result = await queueAdapter.mutate(scoped.scope, { action: 'send', confirm, messages });
+      if (!result.ok) return err(result.error?.message ?? 'Could not send to the queue.');
+      return ok({
+        site_id,
+        environment,
+        queueId: result.data?.queueId,
+        action: 'send',
+        accepted: result.data?.accepted ?? 0,
       });
     }
 

@@ -8,8 +8,9 @@
  *
  * ⛔ THE LOAD-BEARING HONESTY OF THIS SLICE: CF has NO API to enumerate DO INSTANCES or read arbitrary
  * instance storage — a structural fact, not a missing feature. So `list` lists NAMESPACES (classes), `get`
- * returns identity METADATA of a NAMED object id (never its state), and `mutate` is not_implemented in this
- * read pass. Only `SITE_BUILDER` is bound; there is no per-site DO namespace, so a blank site resolves no
+ * returns identity METADATA of a NAMED object id (never its state), and `mutate` exposes a NARROW closed
+ * management allowlist (never an arbitrary method into customer code) — full coverage in the mutate suite.
+ * Only `SITE_BUILDER` is bound; there is no per-site DO namespace, so a blank site resolves no
  * `durable_object` row upstream (honest empty). The account namespaces API is account-level; isolation is
  * enforced by resolving `scope.resourceId` (the namespace id) server-side and surfacing ONLY the matching
  * namespace.
@@ -78,14 +79,14 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-// ─── (j) mutate() always returns not_implemented ────────────────────────────────
+// ─── (j) mutate() rejects an unknown action — full manage coverage lives in durable_object_adapter_mutate.test.ts ──
 
-describe('durableObjectAdapter.mutate()', () => {
-  it('(j) returns not_implemented code — never throws, never fetches (reset/send are the write pass)', async () => {
+describe('durableObjectAdapter.mutate() — guard', () => {
+  it('(j) an unknown/undefined action → invalid_action, never throws, never fetches (status_probe/reset are covered in the mutate suite)', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await durableObjectAdapter.mutate(scope, undefined as any);
     expect(result.ok).toBe(false);
-    expect(result.error?.code).toBe('not_implemented');
+    expect(result.error?.code).toBe('invalid_action');
     expect(result.error?.retryable).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });
