@@ -105,6 +105,7 @@ function adaptCostEstimate(
 
 const STATUS_META: Readonly<Record<InstanceStatus, { label: string; color: string }>> = {
   provisioning: { label: 'Provisioning', color: '#fbbf24' },
+  starting:     { label: 'Starting',     color: '#38bdf8' },
   running:      { label: 'Running',      color: '#34d399' },
   error:        { label: 'Error',        color: '#fca5a5' },
   stopped:      { label: 'Stopped',      color: 'rgba(255,255,255,0.5)' },

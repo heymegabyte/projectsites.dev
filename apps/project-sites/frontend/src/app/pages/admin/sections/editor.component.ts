@@ -174,7 +174,7 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
       </div>
     }
     <!-- The loading veil now lives at the TOP LEVEL of the shell (admin.component,
-         sibling of the iframe) so nothing can overlap it — see `.bolt-veil` there. -->
+         sibling of the iframe) so nothing can overlap it — see .bolt-veil there. -->
   `,
 })
 export class AdminEditorComponent {
