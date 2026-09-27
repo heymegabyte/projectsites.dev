@@ -481,6 +481,92 @@ export interface AskResponseMessage {
   error?: string;
 }
 
+// ── Per-site D1 bridge messages ────────────────────────────────────────────────
+
+/**
+ * Child → Parent (per-site D1 Tables surface): list the tables in the site's OWN dedicated
+ * Cloudflare D1 (blank at first, lazily provisioned) — NEVER the shared platform DB and NEVER
+ * another site's. The embedded editor has no cross-origin session, so the admin (which holds
+ * `selectedSite` + the bearer) calls `GET /api/sites/:siteId/db/tables` and replies with
+ * {@link SiteDbTablesResponseMessage}. Gated server-side by the `per_site_data` flag (DARK → 404).
+ */
+export interface SiteDbTablesRequestMessage {
+  type: 'PS_SITEDB_TABLES_REQUEST';
+  correlationId: string;
+}
+
+/**
+ * Child → Parent (per-site D1 Tables surface): browse one table's rows. The admin calls
+ * `GET /api/sites/:siteId/db/tables/:table?limit&offset` and replies with
+ * {@link SiteDbRowsResponseMessage}. Reads the site's OWN dedicated D1 only.
+ */
+export interface SiteDbRowsRequestMessage {
+  type: 'PS_SITEDB_ROWS_REQUEST';
+  correlationId: string;
+  table: string;
+
+  /** Page size for the paginated browse grid (worker-clamped). */
+  limit?: number;
+
+  /** 0-based row offset for the paginated browse grid (default 0). */
+  offset?: number;
+}
+
+/**
+ * Parent → Child (per-site D1 Tables surface): the admin's reply to {@link SiteDbTablesRequestMessage}
+ * (mirrors the worker's `data` envelope — `{ databaseId, provisioned, tables:[{name}] }`). `enabled`
+ * is `false` when the `per_site_data` flag is dark (the 404 "Per-site data is not enabled"); `error`
+ * carries any other failure (no site selected, network, 4xx).
+ */
+export interface SiteDbTablesResponseMessage {
+  type: 'PS_SITEDB_TABLES_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The site's dedicated D1 database id (blank until first provisioned). */
+  databaseId?: string;
+
+  /** True once the site's D1 has been lazily provisioned. */
+  provisioned?: boolean;
+
+  /** The tables in the site's OWN D1 (empty on a blank, freshly-provisioned DB). */
+  tables?: { name: string }[];
+
+  /** `false` when the `per_site_data` flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/**
+ * Parent → Child (per-site D1 Tables surface): the admin's reply to {@link SiteDbRowsRequestMessage}
+ * (mirrors the worker's `data` envelope — `{ table, columns:[{name,type,notnull,pk}], rows, limit,
+ * offset, total }`). `error` is set when the authed call failed.
+ */
+export interface SiteDbRowsResponseMessage {
+  type: 'PS_SITEDB_ROWS_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The table that was browsed. */
+  table?: string;
+
+  /** The table's schema from `PRAGMA table_info` — `notnull`/`pk` are 0/1 SQLite ints. */
+  columns?: { name: string; type: string; notnull: number; pk: number }[];
+
+  /** The page of rows. */
+  rows?: Record<string, unknown>[];
+
+  /** Echoed page size. */
+  limit?: number;
+
+  /** Echoed 0-based row offset. */
+  offset?: number;
+
+  /** Total row count for the table, so the grid pages through the matches. */
+  total?: number;
+  error?: string;
+}
+
 // ── KV Browser bridge messages ────────────────────────────────────────────────
 
 /** KV namespace entry returned by the `namespaces` op. */
@@ -687,6 +773,8 @@ export type ParentToChildMessage =
   | SqlResponseMessage
   | Nl2SqlResponseMessage
   | AskResponseMessage
+  | SiteDbTablesResponseMessage
+  | SiteDbRowsResponseMessage
   | KvResponseMessage
   | ViewResponseMessage
   | PSToastMessage;
@@ -700,6 +788,8 @@ export type ChildToParentMessage =
   | SqlRequestMessage
   | Nl2SqlRequestMessage
   | AskRequestMessage
+  | SiteDbTablesRequestMessage
+  | SiteDbRowsRequestMessage
   | KvRequestMessage
   | ViewRequestMessage
   | PSErrorMessage

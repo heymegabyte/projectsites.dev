@@ -14,6 +14,7 @@ import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
 import { renderLogger } from '~/utils/logger';
 import { DataPanel } from './DataPanel';
+import { SiteTablesPanel } from './SiteTablesPanel';
 import { CreateMenu } from './CreateMenu';
 import { EditorPanel } from './EditorPanel';
 import { Preview } from './Preview';
@@ -58,6 +59,7 @@ const TOP_TABS: TopTab[] = [
   { value: 'code', text: 'Code', icon: 'i-ph:code-duotone' },
   { value: 'preview', text: 'Preview', icon: 'i-ph:eye-duotone' },
   { value: 'data', text: 'Data', icon: 'i-ph:chart-bar-duotone' },
+  { value: 'database', text: 'Database', icon: 'i-ph:database-duotone' },
 ];
 
 /**
@@ -510,6 +512,9 @@ export const Workbench = memo(
                     </PanelLayer>
                     <PanelLayer active={selectedView === 'data'}>
                       <DataPanel />
+                    </PanelLayer>
+                    <PanelLayer active={selectedView === 'database'}>
+                      <SiteTablesPanel />
                     </PanelLayer>
                     {/* Chat panel — a first-class tab panel, tablet/mobile only.
                         It cross-fades via the SAME PanelLayer mechanism as Code /
