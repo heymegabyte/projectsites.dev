@@ -50,7 +50,7 @@ type TopTab = { value: WorkbenchViewType; text: string; icon: string };
 /**
  * The Chat tab — LEFTMOST, tablet/mobile only (<1024px). On desktop the chat is
  * the docked left column so this tab is hidden; on narrow screens it joins the
- * strip as an equal sibling of Code/Preview/Database/Resources. (Brian 2026-08-22)
+ * strip as an equal sibling of Code/Preview/Data. (Brian 2026-08-22)
  */
 const CHAT_TAB: TopTab = { value: 'chat', text: 'Chat', icon: 'i-ph:chat-circle-dots-duotone' };
 
@@ -392,9 +392,9 @@ export const Workbench = memo(
                         }
                       }}
                     />
-                    {/* Top tab strip — Code | Preview | Database | Resources, plus a
-                        LEFTMOST "Chat" tab on tablet/mobile (<1024px). The Chat tab
-                        is just another tab: same styling, same active-state, same
+                    {/* Top tab strip — Code | Preview | Data, plus a LEFTMOST
+                        "Chat" tab on tablet/mobile (<1024px). The Chat tab is just
+                        another tab: same styling, same active-state, same
                         selectedView slot as its siblings — it simply selects the
                         chat panel instead of an editor panel. (Brian 2026-08-22) */}
                     <div className="flex items-center gap-0.5 flex-1 overflow-x-auto">
@@ -559,7 +559,7 @@ export const Workbench = memo(
                     </PanelLayer>
                     {/* Chat panel — a first-class tab panel, tablet/mobile only.
                         It cross-fades via the SAME PanelLayer mechanism as Code /
-                        Preview / Functions / Data, driven by selectedView === 'chat'.
+                        Preview / Data, driven by selectedView === 'chat'.
                         The node is the SAME chat instance BaseChat docks on desktop
                         (passed via mobileChatPanel), so it stays perfectly in sync —
                         one data-bound chat, two render slots. (Brian 2026-08-22) */}
