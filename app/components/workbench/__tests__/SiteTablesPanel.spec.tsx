@@ -43,6 +43,7 @@ const { postToParentSpy, onParentMessageSpy, parentHandlers } = vi.hoisted(() =>
 
   const onParentMessageSpy = vi.fn((handler: (msg: unknown) => void) => {
     parentHandlers.add(handler);
+
     // Return an unsubscribe function matching the real embed bridge contract.
     return () => {
       parentHandlers.delete(handler);
@@ -58,9 +59,11 @@ vi.mock('~/lib/embed/embedded-mode', () => ({
   onParentMessage: onParentMessageSpy,
 }));
 
-// `useVirtualizer` from @tanstack/react-virtual calls getBoundingClientRect
-// which returns 0s in jsdom. We stub it to return each row as a virtual item
-// so cells are rendered without depending on layout measurement.
+/*
+ * `useVirtualizer` from @tanstack/react-virtual calls getBoundingClientRect
+ * which returns 0s in jsdom. We stub it to return each row as a virtual item
+ * so cells are rendered without depending on layout measurement.
+ */
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: vi.fn(({ count }: { count: number }) => ({
     getVirtualItems: () =>
@@ -89,6 +92,7 @@ function fireReply(msg: unknown): void {
 function lastCorrelationId(): string | undefined {
   const calls = postToParentSpy.mock.calls;
   const last = calls[calls.length - 1]?.[0];
+
   return (last as { correlationId?: string })?.correlationId;
 }
 
@@ -114,12 +118,12 @@ describe('SiteTablesPanel — empty tables list', () => {
   it('shows the empty-state launchpad when tables array is empty', async () => {
     render(<SiteTablesPanel />);
 
-    // Wait for the component to register its onParentMessage handler and fire
-    // its PS_SITEDB_TABLES_REQUEST. Then simulate an empty-tables reply.
+    /*
+     * Wait for the component to register its onParentMessage handler and fire
+     * its PS_SITEDB_TABLES_REQUEST. Then simulate an empty-tables reply.
+     */
     await waitFor(() => {
-      expect(postToParentSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      );
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
     });
 
     const correlationId = lastCorrelationId();
@@ -152,9 +156,7 @@ describe('SiteTablesPanel — empty tables list', () => {
     render(<SiteTablesPanel />);
 
     await waitFor(() => {
-      expect(postToParentSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      );
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
     });
 
     const correlationId = lastCorrelationId();
@@ -184,9 +186,7 @@ describe('SiteTablesPanel — empty tables list', () => {
     render(<SiteTablesPanel />);
 
     await waitFor(() => {
-      expect(postToParentSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      );
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
     });
 
     const correlationId = lastCorrelationId();
@@ -197,7 +197,7 @@ describe('SiteTablesPanel — empty tables list', () => {
         correlationId,
         ok: false,
         enabled: false,
-        error: "Per-site data is not enabled",
+        error: 'Per-site data is not enabled',
       });
     });
 
@@ -208,9 +208,7 @@ describe('SiteTablesPanel — empty tables list', () => {
     render(<SiteTablesPanel />);
 
     await waitFor(() => {
-      expect(postToParentSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      );
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
     });
 
     const correlationId = lastCorrelationId();
@@ -252,9 +250,7 @@ describe('SiteTablesPanel — tables present + row grid', () => {
 
     // ── Step 1: tables response ──
     await waitFor(() => {
-      expect(postToParentSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      );
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
     });
 
     const tablesCorrelationId = lastCorrelationId();
@@ -272,6 +268,7 @@ describe('SiteTablesPanel — tables present + row grid', () => {
 
     // Table list renders
     expect(screen.getByTestId('sitedb-table-list')).toBeTruthy();
+
     const tableRows = screen.getAllByTestId('sitedb-table-row');
     expect(tableRows.length).toBe(2);
     expect(tableRows[0].textContent).toContain('posts');
@@ -348,9 +345,7 @@ describe('SiteTablesPanel — tables present + row grid', () => {
     render(<SiteTablesPanel />);
 
     await waitFor(() => {
-      expect(postToParentSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      );
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
     });
 
     await act(async () => {
@@ -398,9 +393,7 @@ describe('SiteTablesPanel — tables present + row grid', () => {
     render(<SiteTablesPanel />);
 
     await waitFor(() => {
-      expect(postToParentSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      );
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
     });
 
     await act(async () => {
@@ -448,9 +441,7 @@ describe('SiteTablesPanel — tables present + row grid', () => {
     render(<SiteTablesPanel />);
 
     await waitFor(() => {
-      expect(postToParentSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }),
-      );
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
     });
 
     await act(async () => {
@@ -497,10 +488,12 @@ describe('SiteTablesPanel — tables present + row grid', () => {
   });
 });
 
-// ─── Pure-function contract tests ─────────────────────────────────────────────
-// These test the payload builder / response field contract without any React
-// rendering — verifying that request and response shapes agree on field names.
-// This is the "runtime contract" guard that catches field-name drift early.
+/*
+ * ─── Pure-function contract tests ─────────────────────────────────────────────
+ * These test the payload builder / response field contract without any React
+ * rendering — verifying that request and response shapes agree on field names.
+ * This is the "runtime contract" guard that catches field-name drift early.
+ */
 
 describe('PS_SITEDB_* message field contract', () => {
   it('PS_SITEDB_TABLES_REQUEST carries type + correlationId', () => {
@@ -539,6 +532,7 @@ describe('PS_SITEDB_* message field contract', () => {
     };
     expect(res.ok).toBe(false);
     expect(res.enabled).toBe(false);
+
     // The component checks: reply.enabled === false || reply.error.includes(DISABLED_404)
     expect(res.error).toContain('Per-site data is not enabled');
   });
@@ -593,8 +587,10 @@ describe('PS_SITEDB_* message field contract', () => {
   });
 
   it('PS_SITEDB_ROWS_RESPONSE correlationId links to the matching request', () => {
-    // The SiteTablesPanel resolves the pending promise by correlationId — the
-    // response MUST echo the same correlationId that the request sent.
+    /*
+     * The SiteTablesPanel resolves the pending promise by correlationId — the
+     * response MUST echo the same correlationId that the request sent.
+     */
     const requestCorrelationId = 'unique-correlation-id-42';
     const req = {
       type: 'PS_SITEDB_ROWS_REQUEST' as const,
@@ -613,5 +609,236 @@ describe('PS_SITEDB_* message field contract', () => {
 
     // The key contract: correlationId on response == correlationId on request
     expect(res.correlationId).toBe(req.correlationId);
+  });
+});
+
+/*
+ * ─── FIRE 2: typed inline cell edit + local undo (per-site D1) ─────────────────
+ *
+ * The Table-view now edits the site's OWN D1 through the resource-mutate bridge
+ * (`PS_RES_MUTATE {kind:'d1', action:'exec'}`), NEVER the shared-D1 super-admin
+ * path. These cases prove: (1) an editable (non-PK) cell click opens the typed
+ * editor + Save dispatches a param-bound UPDATE-by-PK with confirm:true; (2) a
+ * failed write rolls back the optimistic change + surfaces the error; (3) a
+ * primary-key column is honest-locked (never opens a doomed editor).
+ */
+
+describe('SiteTablesPanel — FIRE 2 inline edit + undo (per-site D1)', () => {
+  beforeEach(() => {
+    postToParentSpy.mockClear();
+    onParentMessageSpy.mockClear();
+    parentHandlers.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    parentHandlers.clear();
+  });
+
+  /** Drive to a browsed table with one editable text column + a PK. */
+  async function openEditableTable(): Promise<void> {
+    render(<SiteTablesPanel />);
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
+    });
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_TABLES_RESPONSE',
+        correlationId: lastCorrelationId(),
+        ok: true,
+        databaseId: 'db-fire2',
+        provisioned: true,
+        tables: [{ name: 'posts' }],
+      });
+    });
+
+    const tableRows = screen.getAllByTestId('sitedb-table-row');
+
+    await act(async () => {
+      tableRows[0].click();
+    });
+
+    /*
+     * The rows request fires; opening a table ALSO fires a pragma_table_xinfo exec
+     * (generated-cols) — reply to the ROWS request specifically by finding its id.
+     */
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'PS_SITEDB_ROWS_REQUEST', table: 'posts' }),
+      );
+    });
+
+    const rowsReq = postToParentSpy.mock.calls
+      .map((c) => c[0])
+      .find((m: unknown) => (m as { type?: string })?.type === 'PS_SITEDB_ROWS_REQUEST') as
+      | { correlationId: string }
+      | undefined;
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_ROWS_RESPONSE',
+        correlationId: rowsReq?.correlationId,
+        ok: true,
+        table: 'posts',
+        columns: [
+          { name: 'id', type: 'INTEGER', notnull: 1, pk: 1 },
+          { name: 'title', type: 'TEXT', notnull: 0, pk: 0 },
+        ],
+        rows: [{ id: 1, title: 'Hello' }],
+        limit: 25,
+        offset: 0,
+        total: 1,
+      });
+    });
+  }
+
+  it('clicking an editable (non-PK) cell opens the typed editor; Save dispatches a param-bound UPDATE with confirm:true', async () => {
+    await openEditableTable();
+
+    // The editable-column header shows the "editable" badge (PK present).
+    expect(screen.getByText('editable')).toBeTruthy();
+
+    // Click the title cell (editable). The id cell is PK-locked and must not open an editor.
+    const cells = screen.getAllByTestId('sitedb-grid-cell');
+    const titleCell = cells.find((c) => c.textContent?.includes('Hello'));
+    expect(titleCell).toBeTruthy();
+
+    await act(async () => {
+      titleCell!.click();
+    });
+
+    // The typed editor opens for this cell.
+    expect(screen.getByTestId('sitedb-cell-editing')).toBeTruthy();
+
+    // Change the value + Save.
+    const input = screen.getByTestId('data-edit-value') as HTMLInputElement;
+    await act(async () => {
+      input.focus();
+
+      // React-controlled input: set value via the native setter then dispatch input.
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, 'Hello world');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    postToParentSpy.mockClear();
+
+    await act(async () => {
+      screen.getByTestId('data-edit-save').click();
+    });
+
+    // A param-bound UPDATE-by-PK went out over the resource-mutate bridge with confirm:true.
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'PS_RES_MUTATE_REQUEST',
+          kind: 'd1',
+          action: 'exec',
+          confirm: true,
+          input: expect.objectContaining({
+            sql: expect.stringContaining('UPDATE "posts" SET "title" = ?1 WHERE'),
+            params: expect.arrayContaining(['Hello world', 1]),
+          }),
+        }),
+      );
+    });
+
+    // Reply success → the edit commits + the Undo affordance appears.
+    const mutateReq = postToParentSpy.mock.calls
+      .map((c) => c[0])
+      .find((m: unknown) => (m as { type?: string })?.type === 'PS_RES_MUTATE_REQUEST') as
+      | { correlationId: string }
+      | undefined;
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_RES_MUTATE_RESPONSE',
+        correlationId: mutateReq?.correlationId,
+        ok: true,
+        kind: 'd1',
+        action: 'exec',
+        result: { ok: true, data: { action: 'exec', rows: [], rowsWritten: 1, rowsRead: 0, changedDb: true } },
+      });
+    });
+
+    // The optimistic value is shown + the Undo toast is present.
+    expect(screen.getByTestId('sitedb-undo')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-undo-button')).toBeTruthy();
+  });
+
+  it('a failed write rolls back the optimistic edit and surfaces the error', async () => {
+    await openEditableTable();
+
+    const cells = screen.getAllByTestId('sitedb-grid-cell');
+    const titleCell = cells.find((c) => c.textContent?.includes('Hello'));
+
+    await act(async () => {
+      titleCell!.click();
+    });
+
+    const input = screen.getByTestId('data-edit-value') as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, 'Broken');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    // Clear so the finder below picks the UPDATE mutate, not the earlier generated-cols pragma exec.
+    postToParentSpy.mockClear();
+
+    await act(async () => {
+      screen.getByTestId('data-edit-save').click();
+    });
+
+    // The UPDATE mutate is the one whose SQL begins with UPDATE (a pragma exec would be a SELECT).
+    const mutateReq = postToParentSpy.mock.calls
+      .map((c) => c[0])
+      .find(
+        (m: unknown) =>
+          (m as { type?: string })?.type === 'PS_RES_MUTATE_REQUEST' &&
+          typeof (m as { input?: { sql?: string } })?.input?.sql === 'string' &&
+          (m as { input: { sql: string } }).input.sql.startsWith('UPDATE'),
+      ) as { correlationId: string } | undefined;
+
+    // Reply with a typed adapter error (not transport) → editor stays open with the error.
+    await act(async () => {
+      fireReply({
+        type: 'PS_RES_MUTATE_RESPONSE',
+        correlationId: mutateReq?.correlationId,
+        ok: true,
+        kind: 'd1',
+        action: 'exec',
+        result: { ok: false, error: { code: 'query_failed', message: 'D1 write rejected' } },
+      });
+    });
+
+    // The error surfaces (never silent) and the editor is still open.
+    await waitFor(() => {
+      expect(screen.getByTestId('data-edit-error').textContent).toContain('D1 write rejected');
+    });
+    expect(screen.getByTestId('sitedb-cell-editing')).toBeTruthy();
+
+    // Rolled back: no Undo toast (the write never committed).
+    expect(screen.queryByTestId('sitedb-undo')).toBeNull();
+  });
+
+  it('a primary-key column is honest-locked (clicking it opens the row drawer, never a cell editor)', async () => {
+    await openEditableTable();
+
+    const cells = screen.getAllByTestId('sitedb-grid-cell');
+
+    // The id cell (PK) renders "1" and must NOT be editable.
+    const idCell = cells.find((c) => c.textContent?.trim() === '1');
+    expect(idCell).toBeTruthy();
+
+    await act(async () => {
+      idCell!.click();
+    });
+
+    // No cell editor opened; the row drawer opened instead (PK cells fall through to row-click).
+    expect(screen.queryByTestId('sitedb-cell-editing')).toBeNull();
+    expect(screen.getByTestId('sitedb-row-drawer')).toBeTruthy();
   });
 });
