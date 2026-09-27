@@ -37,7 +37,11 @@ import {
   provisionPayloadStack,
 } from '../services/cloudflare_provisioner.js';
 import { dispatchToUserWorker } from '../services/wfp_dispatch.js';
-import { checkCnameTarget, createCustomHostname, checkDomainAvailability } from '../services/domains.js';
+import {
+  checkCnameTarget,
+  createCustomHostname,
+  checkDomainAvailability,
+} from '../services/domains.js';
 
 export const apps = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -1336,7 +1340,8 @@ apps.get('/api/apps/instances/:id/domain-availability', async (c) => {
     throw badRequest('Enter a domain to register, e.g. example.com');
   }
   const res = await checkDomainAvailability(c.env, [domain]);
-  if (!Array.isArray(res)) return c.json({ domain, available: false, price_usd: 0, error: res.error });
+  if (!Array.isArray(res))
+    return c.json({ domain, available: false, price_usd: 0, error: res.error });
   const a = res[0];
   return c.json({ domain, available: a?.available ?? false, price_usd: a?.price_usd ?? 0 });
 });
