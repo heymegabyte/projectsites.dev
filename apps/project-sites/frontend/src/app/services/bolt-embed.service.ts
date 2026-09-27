@@ -216,47 +216,10 @@ interface PsMessage {
   readonly expirationTtl?: number;
   /** PS_KV_REQUEST (put op): explicitly remove the expiration (make the key permanent). */
   readonly clearExpiration?: boolean;
-  /** PS_RES_OVERVIEW_REQUEST / PS_RES_RECONCILE_REQUEST / PS_RES_DETAIL_REQUEST: which environment to target. */
-  readonly environment?: string;
-  /** PS_RES_DETAIL_REQUEST: the resource kind to drill into (`d1` | `kv` | `r2` | `vectorize` | …). */
-  readonly resourceKind?: string;
-  /**
-   * PS_RES_DETAIL_REQUEST: SAFE non-identifier operands forwarded to the adapter's `list`/`get`
-   * (`?action=`). NEVER a CF id — the worker validates + server-resolves the id. `action` reuses the
-   * shared {@link action} field.
-   */
-  readonly detailParams?: {
-    table?: string;
-    key?: string;
-    prefix?: string;
-    cursor?: string;
-    id?: string;
-    ids?: string[];
-    limit?: number;
-    offset?: number;
-  };
-  /**
-   * PS_RES_MUTATE_REQUEST: the SAFE, non-identifier operands (per-kind) forwarded as the mutate `input` — a
-   * CF id is NEVER accepted; the worker server-resolves (or PRODUCES) the id. `action` reuses the shared
-   * {@link action} field; `confirm` reuses the shared {@link confirm} field.
-   */
-  readonly input?: Record<string, unknown>;
-}
-
-/**
- * One resource row in the PS_RES_OVERVIEW_RESPONSE inventory — mirrors the worker's
- * `GET /api/sites/:siteId/resources` `data.resources[]` shape (editor mirror of `ResourceOverviewEntry`).
- */
-interface ResourceOverviewEntry {
-  readonly id: string;
-  readonly resource_kind: string;
-  readonly resource_concept: string;
-  readonly environment: string;
-  readonly tenancy: string;
-  readonly lifecycle_state: string;
-  readonly drift_code?: string;
-  readonly binding_name?: string;
-  readonly last_sync_at?: string;
+  /** PS_CODE_FILE_REQUEST (Code tab, FIRE 7): the file path to read, relative to the site's R2 prefix. */
+  readonly path?: string;
+  /** PS_CODE_HISTORY_REQUEST (Code tab, FIRE 7): how many commits to walk back (worker clamps 1–100). */
+  readonly depth?: number;
 }
 
 export interface BoltFileEntry {
@@ -915,6 +878,135 @@ export class BoltEmbedService {
                 });
               },
               error: () => reply({ error: 'Failed to load data' }),
+            });
+          break;
+        }
+        case 'PS_CODE_TREE_REQUEST': {
+          // Code tab (FIRE 7) — the embedded editor has no cross-origin session, so it asks US (we hold
+          // currentSite + the ApiService bearer) to list the site's PUBLISHED build files via
+          // GET /api/sites/:id/files. Reads the site's OWN R2 prefix only (`requireOwnedSite`-guarded
+          // server-side). Reply with PS_CODE_TREE_RESPONSE. Mirrors the PS_DATA bridge.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_CODE_TREE_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          // The worker wraps the payload in `{ data: { files, prefix, version } }` — unwrap it.
+          this.api
+            .get<{
+              data?: {
+                files?: {
+                  key: string;
+                  name: string;
+                  size: number;
+                  uploaded: string;
+                  content_type: string | null;
+                }[];
+                prefix?: string;
+                version?: string | null;
+              };
+            }>(`/sites/${site.id}/files`, undefined, { silent: true })
+            .subscribe({
+              next: (res) =>
+                reply({
+                  ok: true,
+                  files: res?.data?.files ?? [],
+                  prefix: res?.data?.prefix,
+                  version: res?.data?.version ?? null,
+                }),
+              error: () => reply({ ok: false, error: 'Failed to load files' }),
+            });
+          break;
+        }
+        case 'PS_CODE_FILE_REQUEST': {
+          // Code tab (FIRE 7) — read ONE file's text from the site's PUBLISHED build via
+          // GET /api/sites/:id/files/:path. The worker sanitizes + prefix-guards the path (traversal
+          // defense + cross-site isolation). Reply with PS_CODE_FILE_RESPONSE.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const path = typeof msg.path === 'string' && msg.path ? msg.path : undefined;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_CODE_FILE_RESPONSE', correlationId: cid, path, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!path) {
+            reply({ ok: false, error: 'No file path' });
+            break;
+          }
+          // Encode each path segment but KEEP the slashes (the worker route is `:path{.+}`).
+          const encodedPath = path
+            .split('/')
+            .map((seg) => encodeURIComponent(seg))
+            .join('/');
+          // The worker wraps the payload in `{ data: { key, content, size, content_type } }` — unwrap it.
+          this.api
+            .get<{
+              data?: { key?: string; content?: string; size?: number; content_type?: string | null };
+            }>(`/sites/${site.id}/files/${encodedPath}`, undefined, { silent: true })
+            .subscribe({
+              next: (res) =>
+                reply({
+                  ok: true,
+                  key: res?.data?.key,
+                  content: res?.data?.content ?? '',
+                  size: res?.data?.size,
+                  content_type: res?.data?.content_type ?? null,
+                }),
+              error: () => reply({ ok: false, error: 'Could not open this file' }),
+            });
+          break;
+        }
+        case 'PS_CODE_HISTORY_REQUEST': {
+          // Code tab (FIRE 7) — list the site's R2-stored git commit history (the dense AI-build timeline)
+          // via GET /api/sites/:id/git/history?depth=N. Read-only; empty for sites with no committed builds
+          // (an honest "no version history yet"). Reply with PS_CODE_HISTORY_RESPONSE.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const depth =
+            typeof msg.depth === 'number' && Number.isFinite(msg.depth)
+              ? Math.max(1, Math.min(100, Math.trunc(msg.depth)))
+              : 20;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_CODE_HISTORY_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          // The worker wraps the payload in `{ data: [ { id, parent, message, timestamp, author, files } ] }`.
+          this.api
+            .get<{
+              data?: {
+                id: string;
+                parent?: string | null;
+                message: string;
+                timestamp: string;
+                author: string;
+                files?: { path: string; size: number }[];
+              }[];
+            }>(`/sites/${site.id}/git/history`, { depth: String(depth) }, { silent: true })
+            .subscribe({
+              next: (res) => reply({ ok: true, commits: res?.data ?? [] }),
+              error: () => reply({ ok: false, error: 'Could not load version history' }),
             });
           break;
         }

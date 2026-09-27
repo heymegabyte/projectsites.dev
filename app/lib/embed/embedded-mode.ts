@@ -991,6 +991,123 @@ export interface ViewResponseMessage {
   error?: string;
 }
 
+// ── Code / Git browser bridge messages (per-site source, read-first — FIRE 7) ────
+
+/**
+ * Child → Parent (Code tab): list the files that make up the site's current published build. The
+ * embedded editor has no cross-origin session, so the admin (which holds `selectedSite` + the bearer)
+ * calls `GET /api/sites/:siteId/files` and replies with {@link CodeTreeResponseMessage}. Reads the
+ * site's OWN R2 code prefix (`sites/{slug}/[{version}/]`) only — never another site's.
+ */
+export interface CodeTreeRequestMessage {
+  type: 'PS_CODE_TREE_REQUEST';
+  correlationId: string;
+}
+
+/**
+ * Child → Parent (Code tab): read ONE file's text content from the site's current build. The admin
+ * calls `GET /api/sites/:siteId/files/:path` and replies with {@link CodeFileResponseMessage}. `path`
+ * is relative to the site's R2 prefix; the worker sanitizes + prefix-guards it (traversal defense +
+ * cross-site isolation) before any read.
+ */
+export interface CodeFileRequestMessage {
+  type: 'PS_CODE_FILE_REQUEST';
+  correlationId: string;
+
+  /** The file path to read, relative to the site's R2 prefix (e.g. `index.html`, `assets/app.js`). */
+  path: string;
+}
+
+/**
+ * Child → Parent (Code tab): list the site's R2-stored git commit history (the dense AI-build
+ * timeline). The admin calls `GET /api/sites/:siteId/git/history?depth=N` and replies with
+ * {@link CodeHistoryResponseMessage}. Read-only; empty for sites with no committed builds (an honest
+ * "no version history yet", never an error).
+ */
+export interface CodeHistoryRequestMessage {
+  type: 'PS_CODE_HISTORY_REQUEST';
+  correlationId: string;
+
+  /** How many commits to walk back from HEAD (worker-clamped 1–100, default 20). */
+  depth?: number;
+}
+
+/**
+ * Parent → Child (Code tab): the admin's reply to {@link CodeTreeRequestMessage} (mirrors the worker's
+ * `data` envelope — `{ files:[{key,name,size,uploaded,content_type}], prefix, version }`). `error`
+ * carries any failure (no site selected, network, 4xx).
+ */
+export interface CodeTreeResponseMessage {
+  type: 'PS_CODE_TREE_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The site's files (capped at 500 by the worker); `name` is the path relative to `prefix`. */
+  files?: {
+    key: string;
+    name: string;
+    size: number;
+    uploaded: string;
+    content_type: string | null;
+  }[];
+
+  /** The R2 prefix the files were listed under (`sites/{slug}/[{version}/]`). */
+  prefix?: string;
+
+  /** The build version the tree was read from (null → the live top-level prefix). */
+  version?: string | null;
+  error?: string;
+}
+
+/**
+ * Parent → Child (Code tab): the admin's reply to {@link CodeFileRequestMessage} (mirrors the worker's
+ * `data` envelope — `{ key, content, size, content_type }`). `error` is set when the authed read failed
+ * (binary/too-large, 404, network).
+ */
+export interface CodeFileResponseMessage {
+  type: 'PS_CODE_FILE_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The path that was read (echoed so a late reply targets the right viewer state). */
+  path?: string;
+
+  /** The full R2 key the content came from. */
+  key?: string;
+
+  /** The file's text content (UTF-8; binary files come back garbled — the viewer gates by extension). */
+  content?: string;
+
+  /** The file's byte size. */
+  size?: number;
+
+  /** The file's stored content type, when known. */
+  content_type?: string | null;
+  error?: string;
+}
+
+/**
+ * Parent → Child (Code tab): the admin's reply to {@link CodeHistoryRequestMessage} (mirrors the
+ * worker's `data` envelope — an array of `{ id, parent, message, timestamp, author, files:[{path,size}] }`).
+ * `commits` is `[]` for a site with no committed builds (honest empty, not an error).
+ */
+export interface CodeHistoryResponseMessage {
+  type: 'PS_CODE_HISTORY_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The commit chain from HEAD (newest first); empty for a site with no build history. */
+  commits?: {
+    id: string;
+    parent?: string | null;
+    message: string;
+    timestamp: string;
+    author: string;
+    files?: { path: string; size: number }[];
+  }[];
+  error?: string;
+}
+
 export type ParentToChildMessage =
   | SubmitPromptMessage
   | ImportFilesMessage
@@ -1011,6 +1128,9 @@ export type ParentToChildMessage =
   | ResMutateResponseMessage
   | KvResponseMessage
   | ViewResponseMessage
+  | CodeTreeResponseMessage
+  | CodeFileResponseMessage
+  | CodeHistoryResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -1030,6 +1150,9 @@ export type ChildToParentMessage =
   | ResMutateRequestMessage
   | KvRequestMessage
   | ViewRequestMessage
+  | CodeTreeRequestMessage
+  | CodeFileRequestMessage
+  | CodeHistoryRequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;

@@ -13,8 +13,8 @@ import { workbenchStore, type WorkbenchViewType } from '~/lib/stores/workbench';
 import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
 import { renderLogger } from '~/utils/logger';
-import { DatabasePanel } from './DatabasePanel';
-import { ResourceOverviewPanel } from './ResourceOverviewPanel';
+import { DataPanel } from './DataPanel';
+import { GitPanel } from './GitPanel';
 import { CreateMenu } from './CreateMenu';
 import { EditorPanel } from './EditorPanel';
 import { Preview } from './Preview';
@@ -57,25 +57,16 @@ const CHAT_TAB: TopTab = { value: 'chat', text: 'Chat', icon: 'i-ph:chat-circle-
 /**
  * Top editor tabs — order drives the tab strip left-to-right.
  *
- * The old shared-platform-D1 `Data` tab folded into **Database** (Table-view · SQL navigator · KV
- * manager), which targets the site's OWN per-site D1 only — the shared-platform-D1 surface (Visitor
- * Events / Snapshots / form_submissions / `/data-overview`) is gone from the editor (Brian 2026-09-27
- * — FIRE 1).
- *
- * **Resources** is its own tab (FIRE: Resources) — the full per-site Cloudflare asset console. Where
- * Database is the D1-centric editor, Resources VIEWS + MANAGES every CF primitive the site is wired to
- * under its WfP dispatch namespace: D1 / KV / R2 / Durable Objects / Workflows / Queues / Vectorize /
- * bindings / connections / observability. It renders `ResourceOverviewPanel` (inventory per kind × env
- * with honest connected / available-to-add / unsupported states + env selector) drilling into
- * `ResourceDetailPanel` (inspect + the manage actions each adapter supports; destructive ops are
- * confirm-gated; unsupported CF capabilities render an honest "not available", never a mock control).
- * Every CF id is server-resolved for the authed site+env — this panel never sees or sends one.
+ * **Git** (FIRE 7) is the read-first browser over the site's PUBLISHED R2 build + its commit history —
+ * the complement to the live `Code` file-workbench: browse every published file + view its contents
+ * (syntax-labelled) + a version timeline, without booting a container. Reads the site's OWN code only
+ * (server-resolved + `requireOwnedSite`-guarded); diff/restore are deferred with honest "coming soon".
  */
 const TOP_TABS: TopTab[] = [
   { value: 'code', text: 'Code', icon: 'i-ph:code-duotone' },
   { value: 'preview', text: 'Preview', icon: 'i-ph:eye-duotone' },
-  { value: 'database', text: 'Database', icon: 'i-ph:database-duotone' },
-  { value: 'resources', text: 'Resources', icon: 'i-ph:stack-duotone' },
+  { value: 'data', text: 'Data', icon: 'i-ph:chart-bar-duotone' },
+  { value: 'git', text: 'Git', icon: 'i-ph:git-branch-duotone' },
 ];
 
 /**
@@ -556,6 +547,13 @@ export const Workbench = memo(
                         authed site+env — the panel never sees or sends one. */}
                     <PanelLayer active={selectedView === 'resources'}>
                       <ResourceOverviewPanel />
+                    </PanelLayer>
+                    {/* Git panel (FIRE 7) — read-first browser over the site's PUBLISHED R2 build + its
+                        commit history: file tree + syntax-labelled viewer + a version timeline, no
+                        container boot. Reads the site's OWN code only (server-resolved + ownership-guarded);
+                        diff/restore are deferred (honest "coming soon", never a dead control). */}
+                    <PanelLayer active={selectedView === 'git'}>
+                      <GitPanel />
                     </PanelLayer>
                     {/* Chat panel — a first-class tab panel, tablet/mobile only.
                         It cross-fades via the SAME PanelLayer mechanism as Code /
