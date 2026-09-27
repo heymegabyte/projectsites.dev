@@ -566,6 +566,8 @@ export async function deployRealPayloadWorker(
     r2BucketName: string;
     payloadSecret: string;
     namespace?: string;
+    /** Owner-supplied env vars → secret_text bindings on the user Worker (reserved names skipped). */
+    extraEnv?: Record<string, string>;
   },
 ): Promise<{ ok: boolean; error?: string }> {
   const bundle = await readPayloadBundle(env);
@@ -594,6 +596,14 @@ export async function deployRealPayloadWorker(
     { type: 'r2_bucket', name: 'R2', bucket_name: ctx.r2BucketName },
     { type: 'plain_text', name: 'PAYLOAD_SECRET', text: ctx.payloadSecret },
   ];
+  // Owner-supplied env vars → secret_text bindings (never plain_text — they may hold API
+  // keys). Skip reserved binding names + anything that isn't a valid env identifier so a bad
+  // key can't shadow D1/R2/ASSETS/PAYLOAD_SECRET or break the upload.
+  const RESERVED_BINDINGS = new Set(['D1', 'R2', 'ASSETS', 'PAYLOAD_SECRET']);
+  for (const [k, v] of Object.entries(ctx.extraEnv ?? {})) {
+    if (RESERVED_BINDINGS.has(k) || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) continue;
+    bindings.push({ type: 'secret_text', name: k, text: v });
+  }
   const metadata: Record<string, unknown> = {
     main_module: manifest.main_module,
     compatibility_date: manifest.compatibility_date,

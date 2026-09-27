@@ -614,6 +614,19 @@ describe('POST /api/apps/instances/:id/restart', () => {
     );
     expect(res.status).toBe(500);
   });
+
+  it('restart on a CF-native payload instance re-probes (no container dispatch, honest status)', async () => {
+    mockDbQueryOne.mockResolvedValue(
+      instanceRow({ app_slug: 'payload', worker_script_name: 'payload-x-abc', subdomain: 'acme' }),
+    );
+    const env = makeDispatchEnv(() => new Response('<html>Payload login</html>', { status: 200 }));
+    const res = await req(makeApp(AUTH), '/api/apps/instances/inst-1/restart', { method: 'POST' }, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { ok: boolean; status: string };
+    expect(json).toMatchObject({ ok: true, status: 'running' });
+    expect(mockRestart).not.toHaveBeenCalled(); // NEVER the container path for cf-native
+    expect(mockDbUpdate.mock.calls[0][2]).toMatchObject({ status: 'running' });
+  });
 });
 
 describe('POST /api/apps/instances/:id/stop', () => {
@@ -629,6 +642,18 @@ describe('POST /api/apps/instances/:id/stop', () => {
     expect(mockStop).toHaveBeenCalledWith(expect.anything(), 'inst-1', 'umami');
     expect(mockDbUpdate.mock.calls[0][2]).toMatchObject({ status: 'stopped' });
     expect(mockAudit.mock.calls[0][1]).toMatchObject({ action: 'apps.instance.stopped' });
+  });
+
+  it('stop on a CF-native payload instance marks stopped (no container dispatch)', async () => {
+    mockDbQueryOne.mockResolvedValue(
+      instanceRow({ app_slug: 'payload', worker_script_name: 'payload-x-abc', subdomain: 'acme' }),
+    );
+    const res = await req(makeApp(AUTH), '/api/apps/instances/inst-1/stop', { method: 'POST' }, makeEnv());
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { ok: boolean; status: string };
+    expect(json).toMatchObject({ ok: true, status: 'stopped' });
+    expect(mockStop).not.toHaveBeenCalled(); // NEVER the container path for cf-native
+    expect(mockDbUpdate.mock.calls[0][2]).toMatchObject({ status: 'stopped' });
   });
 
   it('persists an error status when the dispatcher reports failure', async () => {

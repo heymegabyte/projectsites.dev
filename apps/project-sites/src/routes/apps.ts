@@ -202,9 +202,10 @@ async function probeInstanceReady(
  * row with its (possibly updated) status so the caller surfaces the fresh value immediately.
  */
 async function flipToRunningIfReady(env: Env, row: AppInstanceRow): Promise<AppInstanceRow> {
-  if (row.status !== 'provisioning' || !isCfNativeApp(row.app_slug) || !row.worker_script_name) {
-    return row;
-  }
+  // Reconcile any not-yet-confirmed CF-native state — `provisioning` (fresh launch) OR
+  // `starting` (a legacy/lifecycle write that never resolves for a stateless WfP worker).
+  if (!isCfNativeApp(row.app_slug) || !row.worker_script_name) return row;
+  if (row.status !== 'provisioning' && row.status !== 'starting') return row;
   if (!(await probeInstanceReady(env, row))) return row;
   const now = new Date().toISOString();
   await dbUpdate(
@@ -506,7 +507,13 @@ async function launchCfNativeInstance(
     throw err;
   }
 
-  const encrypted = await encrypt(c.env, JSON.stringify({ PAYLOAD_SECRET: payloadSecret }));
+  // Persist owner-supplied env vars alongside the instance's own PAYLOAD_SECRET (which is
+  // written LAST so a caller can never override it). These are injected into the Worker below.
+  const launchEnv: Record<string, string> = {
+    ...(body.env_overrides ?? {}),
+    PAYLOAD_SECRET: payloadSecret,
+  };
+  const encrypted = await encrypt(c.env, JSON.stringify(launchEnv));
   const now = new Date().toISOString();
   const { error: insertErr } = await dbInsert(c.env.DB, 'app_instances', {
     id: instanceId,
@@ -553,6 +560,7 @@ async function launchCfNativeInstance(
       r2BucketName: stack.r2BucketName,
       payloadSecret,
       namespace: stack.dispatchNamespace ?? undefined,
+      extraEnv: body.env_overrides ?? undefined,
     })
       .then(async (r) => {
         if (!r.ok) {
@@ -939,6 +947,33 @@ apps.post('/api/apps/instances/:id/restart', async (c) => {
   const { userId, orgId } = requireAuth(c);
   const row = await loadInstance(c.env, orgId, c.req.param('id'));
   if (!row) throw notFound('app_instance not found');
+  // CF-native (Payload on WfP) has no container — a "restart"/"start" just re-checks whether
+  // the real admin answers and sets an HONEST status. Never dispatch to the container layer
+  // or persist a `starting` that will never resolve (the ted-drewes stuck-instance class).
+  if (isCfNativeApp(row.app_slug)) {
+    const ready = await probeInstanceReady(c.env, row);
+    const { error: writeErr } = await dbUpdate(
+      c.env.DB,
+      'app_instances',
+      {
+        status: ready ? 'running' : 'provisioning',
+        last_started_at: new Date().toISOString(),
+        last_error: null,
+      },
+      'id = ?',
+      [row.id],
+    );
+    if (writeErr) throw internalError(`Failed to persist restart status: ${writeErr}`);
+    await auditService.writeAuditLog(c.env.DB, {
+      org_id: orgId,
+      actor_id: userId,
+      action: 'apps.instance.restarted',
+      target_type: 'app_instance',
+      target_id: row.id,
+      request_id: c.get('requestId'),
+    });
+    return c.json({ ok: true, status: ready ? 'running' : 'provisioning' });
+  }
   const r = await dispatcher.restartContainer(c.env, row.id, row.app_slug);
   const { error: restartWriteErr } = await dbUpdate(
     c.env.DB,
@@ -973,6 +1008,28 @@ apps.post('/api/apps/instances/:id/stop', async (c) => {
   const { userId, orgId } = requireAuth(c);
   const row = await loadInstance(c.env, orgId, c.req.param('id'));
   if (!row) throw notFound('app_instance not found');
+  // CF-native (Payload) "stop" = mark stopped so serveAppInstance serves the stopped shell.
+  // The Worker + D1 + R2 stay intact so a later Start brings it right back; true teardown is
+  // DELETE. No container dispatcher (there is no container).
+  if (isCfNativeApp(row.app_slug)) {
+    const { error: writeErr } = await dbUpdate(
+      c.env.DB,
+      'app_instances',
+      { status: 'stopped' },
+      'id = ?',
+      [row.id],
+    );
+    if (writeErr) throw internalError(`Failed to persist stop status: ${writeErr}`);
+    await auditService.writeAuditLog(c.env.DB, {
+      org_id: orgId,
+      actor_id: userId,
+      action: 'apps.instance.stopped',
+      target_type: 'app_instance',
+      target_id: row.id,
+      request_id: c.get('requestId'),
+    });
+    return c.json({ ok: true, status: 'stopped' });
+  }
   const r = await dispatcher.stopContainer(c.env, row.id, row.app_slug);
   const { error: stopWriteErr } = await dbUpdate(
     c.env.DB,
@@ -1027,6 +1084,82 @@ apps.patch('/api/apps/instances/:id/env', async (c) => {
   // User-data write — never report success (or restart with stale env) on a
   // dropped save. Throw BEFORE the restart is scheduled.
   if (envWriteErr) throw internalError(`Failed to save env vars: ${envWriteErr}`);
+
+  // CF-native (Payload): env vars are Worker bindings baked in at deploy — REDEPLOY the
+  // worker with the merged env so they actually take effect (no container to restart). The
+  // instance keeps serving the old version until CF atomically swaps, so status stays as-is
+  // through the redeploy; we re-probe after and only downgrade on failure. PAYLOAD_SECRET is
+  // the instance's own; everything else becomes a secret_text binding on the user Worker.
+  if (isCfNativeApp(row.app_slug)) {
+    const { PAYLOAD_SECRET: instanceSecret = '', ...ownerEnv } = merged;
+    const ns =
+      (c.env as unknown as { PAYLOAD_BRANDED_HOST?: string }).PAYLOAD_BRANDED_HOST === 'true'
+        ? c.env.WFP_NAMESPACE_NAME
+        : undefined;
+    const probeRow = {
+      app_slug: row.app_slug,
+      subdomain: row.subdomain,
+      worker_script_name: row.worker_script_name,
+    };
+    c.executionCtx.waitUntil(
+      deployRealPayloadWorker(c.env, {
+        name: row.worker_script_name ?? '',
+        d1DatabaseId: row.d1_database_id ?? '',
+        r2BucketName: row.r2_bucket_name ?? '',
+        payloadSecret: instanceSecret,
+        namespace: ns,
+        extraEnv: ownerEnv,
+      })
+        .then(async (r) => {
+          if (!r.ok) {
+            await dbUpdate(
+              c.env.DB,
+              'app_instances',
+              { status: 'error', last_error: `env_redeploy: ${r.error ?? 'failed'}` },
+              'id = ?',
+              [row.id],
+            );
+            return;
+          }
+          let ready = false;
+          for (let i = 0; i < 14; i++) {
+            if (await probeInstanceReady(c.env, probeRow)) {
+              ready = true;
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+          await dbUpdate(
+            c.env.DB,
+            'app_instances',
+            ready
+              ? { status: 'running', last_error: null, last_started_at: new Date().toISOString() }
+              : { status: 'provisioning', last_error: null },
+            'id = ?',
+            [row.id],
+          );
+        })
+        .catch(async (err) => {
+          await dbUpdate(
+            c.env.DB,
+            'app_instances',
+            { status: 'error', last_error: `env_redeploy_throw: ${String(err)}` },
+            'id = ?',
+            [row.id],
+          ).catch(() => undefined);
+        }),
+    );
+    await auditService.writeAuditLog(c.env.DB, {
+      org_id: orgId,
+      actor_id: userId,
+      action: 'apps.instance.env_updated',
+      target_type: 'app_instance',
+      target_id: row.id,
+      metadata_json: { keys: Object.keys(body.env_overrides), kind: 'cf-native' },
+      request_id: c.get('requestId'),
+    });
+    return c.json({ ok: true, status: row.status });
+  }
 
   // Schedule a restart so the new env-var values take effect.
   c.executionCtx.waitUntil(
