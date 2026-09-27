@@ -37,6 +37,7 @@ import {
   provisionPayloadStack,
 } from '../services/cloudflare_provisioner.js';
 import { dispatchToUserWorker } from '../services/wfp_dispatch.js';
+import { checkCnameTarget, createCustomHostname } from '../services/domains.js';
 
 export const apps = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -1202,6 +1203,115 @@ apps.patch('/api/apps/instances/:id/env', async (c) => {
     request_id: c.get('requestId'),
   });
   return c.json({ ok: true, status: 'starting' });
+});
+
+/**
+ * `GET /api/apps/instances/:id/cname-check?domain=` — Read-only: does `domain` CNAME to
+ * projectsites.dev yet? Powers the domain-manager's live green/red CNAME status. Safe (DoH).
+ */
+apps.get('/api/apps/instances/:id/cname-check', async (c) => {
+  const { orgId } = requireAuth(c);
+  const row = await loadInstance(c.env, orgId, c.req.param('id'));
+  if (!row) throw notFound('app_instance not found');
+  const domain = (c.req.query('domain') ?? '').trim().toLowerCase();
+  if (!domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) throw badRequest('Provide a valid domain.');
+  const target = await checkCnameTarget(domain);
+  const ok = !!target && /(^|\.)projectsites\.dev$/.test(target.toLowerCase());
+  return c.json({ domain, target, ok, expected: 'projectsites.dev' });
+});
+
+/**
+ * `POST /api/apps/instances/:id/slug` — Rename the instance's `*.cms`/`*.app` subdomain.
+ * Validates format + GLOBAL uniqueness, updates the row + KV host map, returns the new public
+ * host. Same-zone re-point (serveAppInstance resolves by the subdomain column) — no external DNS.
+ */
+apps.post('/api/apps/instances/:id/slug', async (c) => {
+  const { userId, orgId } = requireAuth(c);
+  const row = await loadInstance(c.env, orgId, c.req.param('id'));
+  if (!row) throw notFound('app_instance not found');
+  const body = z
+    .object({ subdomain: z.string().min(2).max(63) })
+    .parse(await c.req.json().catch(() => ({})));
+  const next = body.subdomain.trim().toLowerCase();
+  const cfHost = payloadInstanceHost(c.env);
+  if (!SUBDOMAIN_RE.test(next)) {
+    throw badRequest('Use lowercase letters, digits, and dashes (no leading/trailing dash).');
+  }
+  if (next === row.subdomain) {
+    return c.json({ ok: true, subdomain: next, host: instancePublicHost(row, cfHost) });
+  }
+  const clash = await dbQueryOne<{ id: string }>(
+    c.env.DB,
+    `SELECT id FROM app_instances WHERE subdomain = ? AND deleted_at IS NULL`,
+    [next],
+  );
+  if (clash) throw badRequest('That subdomain is already taken.');
+  const { error: upErr } = await dbUpdate(c.env.DB, 'app_instances', { subdomain: next }, 'id = ?', [
+    row.id,
+  ]);
+  if (upErr) throw internalError(`Failed to rename subdomain: ${upErr}`);
+  // Re-point the KV host map (best-effort; serveAppInstance also resolves by the subdomain column).
+  await clearAppHost(c.env, defaultAppHostname(row.subdomain)).catch(() => undefined);
+  await setAppHost(c.env, defaultAppHostname(next), {
+    instanceId: row.id,
+    appSlug: row.app_slug,
+    orgId,
+    subdomain: next,
+  }).catch(() => undefined);
+  await auditService.writeAuditLog(c.env.DB, {
+    org_id: orgId,
+    actor_id: userId,
+    action: 'apps.instance.renamed',
+    target_type: 'app_instance',
+    target_id: row.id,
+    metadata_json: { from: row.subdomain, to: next },
+    request_id: c.get('requestId'),
+  });
+  return c.json({ ok: true, subdomain: next, host: instancePublicHost({ ...row, subdomain: next }, cfHost) });
+});
+
+/**
+ * `POST /api/apps/instances/:id/domains` — Attach a custom domain (CNAME'd to projectsites.dev)
+ * to this instance: verify the CNAME first, then provision a CF custom hostname (HTTP-DV TLS) and
+ * route it to this instance via the KV host map. Additive + reversible (deleteCustomHostname).
+ *
+ * @throws 400 when the domain is malformed OR its CNAME isn't pointed at projectsites.dev yet.
+ */
+apps.post('/api/apps/instances/:id/domains', async (c) => {
+  const { userId, orgId } = requireAuth(c);
+  const row = await loadInstance(c.env, orgId, c.req.param('id'));
+  if (!row) throw notFound('app_instance not found');
+  const body = z
+    .object({ domain: z.string().min(4).max(253) })
+    .parse(await c.req.json().catch(() => ({})));
+  const domain = body.domain.trim().toLowerCase().replace(/\.$/, '');
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain) || domain.endsWith('.projectsites.dev')) {
+    throw badRequest('Enter a custom domain you own (not a *.projectsites.dev subdomain).');
+  }
+  // Gate on a real CNAME → projectsites.dev before issuing a cert (HTTP-DV needs it resolving).
+  const target = await checkCnameTarget(domain);
+  if (!target || !/(^|\.)projectsites\.dev$/.test(target.toLowerCase())) {
+    throw badRequest(
+      `${domain} is not pointed at projectsites.dev yet — add a CNAME record first, then retry.`,
+    );
+  }
+  const cf = await createCustomHostname(c.env, domain);
+  await setAppHost(c.env, domain, {
+    instanceId: row.id,
+    appSlug: row.app_slug,
+    orgId,
+    subdomain: row.subdomain,
+  }).catch(() => undefined);
+  await auditService.writeAuditLog(c.env.DB, {
+    org_id: orgId,
+    actor_id: userId,
+    action: 'apps.instance.domain_attached',
+    target_type: 'app_instance',
+    target_id: row.id,
+    metadata_json: { domain, cf_id: cf.cf_id, ssl_status: cf.ssl_status },
+    request_id: c.get('requestId'),
+  });
+  return c.json({ ok: true, domain, ssl_status: cf.ssl_status, status: cf.status });
 });
 
 /**

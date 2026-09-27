@@ -23,6 +23,7 @@ import { HlmInputDirective } from '../../../ui';
 import { ErrorCardComponent } from '../../../components/states';
 import { APPS_CATALOG, findApp, type CatalogApp } from './apps-catalog.data';
 import { AppSecretInputComponent } from './app-secret-input.component';
+import { DomainManagerComponent } from './domain-manager.component';
 
 type InstanceStatus = 'provisioning' | 'starting' | 'running' | 'error' | 'stopped';
 
@@ -726,6 +727,11 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
   nameFor(i: AppInstance): string { return resolveApp(i.app_id)?.name ?? i.app_id; }
   categoryFor(i: AppInstance): string { return resolveApp(i.app_id)?.category ?? 'app'; }
   hostUrl(i: AppInstance): string { return `https://${i.hostname}`; }
+  /** Zone suffix (everything after the first label) → the domain-manager's platform suffix. */
+  hostSuffix(hostname: string): string {
+    const parts = (hostname || '').split('.');
+    return parts.length > 1 ? parts.slice(1).join('.') : 'cms.projectsites.dev';
+  }
 
   statusLabel(s: InstanceStatus): string { return STATUS_META[s].label; }
   statusColor(s: InstanceStatus): string { return STATUS_META[s].color; }
@@ -814,7 +820,7 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
 @Component({
   selector: 'app-admin-apps-instance-detail',
   standalone: true,
-  imports: [DatePipe, FormsModule, RouterLink, RevealDirective, HlmInputDirective, ErrorCardComponent, AppSecretInputComponent],
+  imports: [DatePipe, FormsModule, RouterLink, RevealDirective, HlmInputDirective, ErrorCardComponent, AppSecretInputComponent, DomainManagerComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -826,14 +832,28 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
       @if (instance(); as i) {
         <header class="detail-head" appReveal>
           <div class="head-main">
-            <div class="head-glyph" aria-hidden="true">{{ catalogApp()?.glyph ?? '📦' }}</div>
+            <div class="head-glyph" aria-hidden="true">
+              @if (catalogApp()?.logo; as lg) {
+                <img class="head-logo" [src]="lg" [alt]="(catalogApp()?.name ?? '') + ' logo'" loading="eager" decoding="async" />
+              } @else {
+                {{ catalogApp()?.glyph ?? '📦' }}
+              }
+            </div>
             <div class="min-w-0 flex-1">
               <div class="kicker">{{ catalogApp()?.category ?? 'app' }}</div>
               <h2 class="section-h text-2xl font-bold text-white m-0 mt-1">{{ catalogApp()?.name ?? i.app_id }}</h2>
-              <a class="inst-host" [href]="'https://' + i.hostname" target="_blank" rel="noopener noreferrer">
-                {{ i.hostname }}
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
-              </a>
+              <div class="inst-host-row">
+                <app-domain-manager
+                  [instanceId]="i.id"
+                  [appId]="i.app_id"
+                  [host]="i.hostname"
+                  [suffix]="hostSuffix(i.hostname)"
+                  (changed)="load()" />
+                <a class="inst-host-open" [href]="'https://' + i.hostname" target="_blank" rel="noopener noreferrer"
+                   [attr.aria-label]="'Open ' + i.hostname + ' in a new tab'">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+                </a>
+              </div>
             </div>
             <span class="status-pill" [attr.data-status]="i.status" [style.--pill-color]="statusColor(i.status)">
               <span class="status-dot" aria-hidden="true"></span>
@@ -1092,6 +1112,14 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
       border: 1px solid rgba(255,255,255,0.06);
       border-radius: var(--ps-radius-xl, 22px);
     }
+    .inst-host-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    .inst-host-open {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+      color: var(--ps-accent, #00E5FF); background: rgba(0,229,255,0.06); border: 1px solid rgba(0,229,255,0.2);
+    }
+    .inst-host-open:hover { background: rgba(0,229,255,0.14); }
+    .inst-host-open:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
     .head-glyph {
       flex-shrink: 0;
       width: 64px; height: 64px;
@@ -1100,7 +1128,9 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
       background: color-mix(in oklch, var(--ps-accent, #00E5FF) 10%, transparent);
       border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 24%, transparent);
       border-radius: var(--ps-radius-sm, 12px);
+      overflow: hidden;
     }
+    .head-logo { width: 60%; height: 60%; object-fit: contain; display: block; }
     .inst-host {
       display: inline-flex; align-items: center; gap: 4px;
       font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -1501,6 +1531,11 @@ export class AppInstanceDetailComponent implements OnInit, OnDestroy {
 
   statusLabel(s: InstanceStatus): string { return STATUS_META[s].label; }
   statusColor(s: InstanceStatus): string { return STATUS_META[s].color; }
+  /** Zone suffix (everything after the first label) → the domain-manager's platform suffix. */
+  hostSuffix(hostname: string): string {
+    const parts = (hostname || '').split('.');
+    return parts.length > 1 ? parts.slice(1).join('.') : 'cms.projectsites.dev';
+  }
 
   formatLog(l: LogLine): string {
     const ts = l.ts ?? '';
