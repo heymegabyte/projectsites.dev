@@ -301,11 +301,38 @@ interface SampleTableSpec {
 }
 
 const SAMPLE_FIRST_NAMES = [
-  'Ava', 'Liam', 'Mia', 'Noah', 'Zoe', 'Ethan', 'Luna', 'Kai', 'Nora', 'Owen',
-  'Isla', 'Leo', 'Ruby', 'Milo', 'Iris', 'Finn', 'Elle', 'Jude', 'Wren', 'Cole',
+  'Ava',
+  'Liam',
+  'Mia',
+  'Noah',
+  'Zoe',
+  'Ethan',
+  'Luna',
+  'Kai',
+  'Nora',
+  'Owen',
+  'Isla',
+  'Leo',
+  'Ruby',
+  'Milo',
+  'Iris',
+  'Finn',
+  'Elle',
+  'Jude',
+  'Wren',
+  'Cole',
 ];
 const SAMPLE_LAST_NAMES = [
-  'Rivera', 'Chen', 'Patel', 'Okafor', 'Nguyen', 'Silva', 'Haddad', 'Kim', 'Rossi', 'Abara',
+  'Rivera',
+  'Chen',
+  'Patel',
+  'Okafor',
+  'Nguyen',
+  'Silva',
+  'Haddad',
+  'Kim',
+  'Rossi',
+  'Abara',
 ];
 const SAMPLE_PRODUCTS = [
   { category: 'Beverage', name: 'Cold Brew Concentrate', price: 14.0 },
@@ -353,7 +380,7 @@ function sampleTableSpecs(): SampleTableSpec[] {
             `${first} ${last}`,
             `${first.toLowerCase()}.${last.toLowerCase()}@example.com`,
             pick(['Portland', 'Austin', 'Denver', 'Miami', 'Seattle'], i),
-            Math.round((40 + (i * 37) % 260) * 100) / 100,
+            Math.round((40 + ((i * 37) % 260)) * 100) / 100,
             new Date(now - (i * 5 + 3) * dayMs).toISOString(),
           ];
         }),
@@ -368,8 +395,7 @@ function sampleTableSpecs(): SampleTableSpec[] {
         in_stock INTEGER NOT NULL DEFAULT 1
       )`,
       name: 'products',
-      rows: () =>
-        SAMPLE_PRODUCTS.map((p, i) => [p.name, p.category, p.price, i % 7 === 0 ? 0 : 1]),
+      rows: () => SAMPLE_PRODUCTS.map((p, i) => [p.name, p.category, p.price, i % 7 === 0 ? 0 : 1]),
     },
     {
       columns: ['customer_id', 'product_id', 'quantity', 'total', 'status', 'ordered_at'],
@@ -393,7 +419,7 @@ function sampleTableSpecs(): SampleTableSpec[] {
             qty,
             Math.round(product.price * qty * 100) / 100,
             pick(['paid', 'paid', 'paid', 'refunded', 'pending'], i),
-            new Date(now - (i * 2) * dayMs).toISOString(),
+            new Date(now - i * 2 * dayMs).toISOString(),
           ];
         }),
     },

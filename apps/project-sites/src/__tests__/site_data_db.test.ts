@@ -282,7 +282,9 @@ describe('buildCreateTableSql', () => {
   });
 
   it('rejects a hostile table name', () => {
-    expect(buildCreateTableSql({ columns: [{ name: 'a', type: 'TEXT' }], table: 'bad; DROP' })).toBeNull();
+    expect(
+      buildCreateTableSql({ columns: [{ name: 'a', type: 'TEXT' }], table: 'bad; DROP' }),
+    ).toBeNull();
   });
 
   it('drops a user-supplied id column + hostile column names; null when nothing safe remains', () => {
@@ -297,7 +299,9 @@ describe('buildCreateTableSql', () => {
     expect(built!.sql).toContain('"name" TEXT');
     expect((built!.sql.match(/id INTEGER PRIMARY KEY AUTOINCREMENT/g) ?? []).length).toBe(1);
 
-    expect(buildCreateTableSql({ columns: [{ name: 'bad name', type: 'TEXT' }], table: 't' })).toBeNull();
+    expect(
+      buildCreateTableSql({ columns: [{ name: 'bad name', type: 'TEXT' }], table: 't' }),
+    ).toBeNull();
   });
 });
 
@@ -345,7 +349,12 @@ describe('insertSeedRows', () => {
 
   it('returns 0 when the table has no insertable (non-PK) columns', async () => {
     const { db } = recordingDb();
-    const out = await insertSeedRows(db, 't', [{ name: 'id', notnull: 0, pk: 1, type: 'INTEGER' }], [{ id: 1 }]);
+    const out = await insertSeedRows(
+      db,
+      't',
+      [{ name: 'id', notnull: 0, pk: 1, type: 'INTEGER' }],
+      [{ id: 1 }],
+    );
     expect(out.inserted).toBe(0);
   });
 });

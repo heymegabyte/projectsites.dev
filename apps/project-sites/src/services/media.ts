@@ -179,7 +179,12 @@ export interface MediaUsage {
  * ```
  */
 export async function mediaUsage(env: Env, orgId: string): Promise<MediaUsage> {
-  const empty: MediaUsage = { countByKind: {}, countBySource: {}, totalCount: 0, totalSizeBytes: 0 };
+  const empty: MediaUsage = {
+    countByKind: {},
+    countBySource: {},
+    totalCount: 0,
+    totalSizeBytes: 0,
+  };
   const { data, error } = await dbQuery<{
     kind: string;
     source: string;
@@ -197,7 +202,12 @@ export async function mediaUsage(env: Env, orgId: string): Promise<MediaUsage> {
     console.warn('[media] mediaUsage failed:', error);
     return empty;
   }
-  const usage: MediaUsage = { countByKind: {}, countBySource: {}, totalCount: 0, totalSizeBytes: 0 };
+  const usage: MediaUsage = {
+    countByKind: {},
+    countBySource: {},
+    totalCount: 0,
+    totalSizeBytes: 0,
+  };
   for (const row of data) {
     const n = Number(row.n) || 0;
     usage.totalSizeBytes += Number(row.bytes) || 0;
