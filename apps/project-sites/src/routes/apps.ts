@@ -1421,9 +1421,11 @@ apps.post('/api/apps/instances/:id/domains/primary', async (c) => {
     [row.id, domain],
   );
   if (!owned) throw notFound('That domain is not attached to this instance.');
-  await dbExecute(c.env.DB, `UPDATE app_instance_domains SET is_primary = 0 WHERE instance_id = ?`, [
-    row.id,
-  ]);
+  await dbExecute(
+    c.env.DB,
+    `UPDATE app_instance_domains SET is_primary = 0 WHERE instance_id = ?`,
+    [row.id],
+  );
   await dbExecute(
     c.env.DB,
     `UPDATE app_instance_domains SET is_primary = 1, updated_at = ? WHERE instance_id = ? AND domain = ?`,
@@ -1456,12 +1458,14 @@ apps.delete('/api/apps/instances/:id/domains', async (c) => {
     [row.id, domain],
   );
   if (!owned) throw notFound('That domain is not attached to this instance.');
-  if (owned.cf_hostname_id) await deleteCustomHostname(c.env, owned.cf_hostname_id).catch(() => undefined);
+  if (owned.cf_hostname_id)
+    await deleteCustomHostname(c.env, owned.cf_hostname_id).catch(() => undefined);
   await clearAppHost(c.env, domain).catch(() => undefined);
-  await dbExecute(c.env.DB, `DELETE FROM app_instance_domains WHERE instance_id = ? AND domain = ?`, [
-    row.id,
-    domain,
-  ]);
+  await dbExecute(
+    c.env.DB,
+    `DELETE FROM app_instance_domains WHERE instance_id = ? AND domain = ?`,
+    [row.id, domain],
+  );
   // If the primary was removed, promote the next-oldest domain so one stays primary.
   if (owned.is_primary === 1) {
     const nextDomain = await dbQueryOne<{ domain: string }>(
