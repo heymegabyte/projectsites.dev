@@ -193,20 +193,31 @@ describe('reconcileResources — drift sweep (row claims existence, CF head 404s
     expect(mockD1Head).not.toHaveBeenCalled();
   });
 
-  it('does NOT probe rows of an unimplemented kind (e.g. analytics_engine) — leaves them untouched', async () => {
-    // d1 + kv + r2 + vectorize adapters are now implemented; pick a kind with NO CF-backed adapter yet so
-    // the "unimplemented kinds are skipped" contract stays honestly exercised.
+  it('probes an implemented analytics_engine row but NEVER flags it as drift (AE head has no 404 — health is `available`)', async () => {
+    // All 9 ResourceKinds are now implemented (d1/kv/r2/vectorize/connection/workflow/durable_object/queue/
+    // analytics_engine), so there is no genuinely-unimplemented kind left. The reconciler mocks only the d1
+    // adapter here; the REAL analytics_engine adapter runs. AE has NO per-dataset existence endpoint, so its
+    // `head` reports exists:true (the shared dataset is configured) + available:false (ingest disabled) —
+    // NEVER a 404. Contract: an AE row IS probed (checked +1), but it can never be flagged
+    // `resource_missing_on_cf`; a clean head stamps the sync + clears drift (never a drift write).
     mockDbQueryOne.mockResolvedValueOnce(null);
+    mockResolveCfCredentials.mockResolvedValue({ apiKey: 'k', email: 'e', kind: 'global' });
     mockListResources.mockResolvedValue([
-      registryRow({ id: 'row_ae', resourceIdOrName: 'ds-x', resourceKind: 'analytics_engine' }),
+      registryRow({ id: 'row_ae', resourceIdOrName: 'projectsites_admin_v1', resourceKind: 'analytics_engine' }),
     ]);
 
     const res = await reconcileResources(envWith() as never, OWNED_SITE, 'production');
 
-    expect(res.checked).toBe(0);
+    // The AE row was probed (implemented kind) — never left untouched.
+    expect(res.checked).toBe(1);
+    // The d1 adapter was NOT the one probed (this row is analytics_engine).
     expect(mockD1Head).not.toHaveBeenCalled();
-    // No drift write for the unimplemented-kind row.
-    expect(mockDbUpdate).not.toHaveBeenCalled();
+    // NEVER flagged as drift — AE head never 404s.
+    expect(res.drift).toEqual([]);
+    // The single dbUpdate is a clean-sync stamp (drift_code cleared), NOT a drift write.
+    expect(mockDbUpdate).toHaveBeenCalledTimes(1);
+    const cleanUpdate = mockDbUpdate.mock.calls[0];
+    expect((cleanUpdate as unknown[])[2]).toMatchObject({ drift_code: null });
   });
 });
 

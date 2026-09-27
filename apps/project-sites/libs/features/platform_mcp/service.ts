@@ -35,6 +35,7 @@ import { connectionAdapter } from '../data_resource_registry/adapters/connection
 import { workflowAdapter } from '../data_resource_registry/adapters/workflow.js';
 import { durableObjectAdapter } from '../data_resource_registry/adapters/durable_object.js';
 import { queueAdapter } from '../data_resource_registry/adapters/queue.js';
+import { analyticsEngineAdapter } from '../data_resource_registry/adapters/analytics_engine.js';
 import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 import {
   ListSitesInput,
@@ -61,6 +62,8 @@ import {
   DataDurableObjectDescribeInput,
   DataQueuesListInput,
   DataQueueDescribeInput,
+  DataAnalyticsListInput,
+  DataAnalyticsQuerySummaryInput,
 } from './schemas.js';
 
 /** Flag gating the Data & Resource Platform MCP tools (registry read surface). */
@@ -154,6 +157,21 @@ const PER_SITE_DURABLE_OBJECTS_FLAG = 'per_site_durable_objects';
  * can NEVER peek/ack/purge another site's messages — it only ever addresses the ONE server-resolved queue.
  */
 const PER_SITE_QUEUES_FLAG = 'per_site_queues';
+
+/**
+ * Flag gating the per-site Observability (Analytics Engine) READ tools — the reserved `per_site_observability`
+ * flag (CAPABILITY-MATRIX.md § Analytics Engine / SECURITY-INVARIANTS.md). DARK → the tools err (mirroring the
+ * Backend-tab Observability surface's 404), never leak. Analytics Engine INGEST is DISABLED on this deployment
+ * (`ANALYTICS_INGEST_ENABLED="false"`) so the tools honestly report `available:false` (no events ingested yet),
+ * NEVER a fabricated event stream; the dataset is `shared_platform` (one shared `projectsites_admin_v1`, NOT
+ * per-site) and the reconciler records no analytics_engine allocation source, so a blank site resolves no
+ * `analytics_engine` registry row → Observability is a cross-cutting Worker-level section (not a per-store row).
+ * Mirrors `PER_SITE_QUEUES_FLAG` exactly — a runtime gate CONSTANT (referenced via the constant, so the
+ * orphan-flag-gate checker, which only scans literal `isFlagOn(env,'x')` strings, does not require a registry
+ * row). ⛔ The summary query is SERVER-BUILT + site-scoped (`WHERE blob3 = <siteId>`) — a caller supplies ONLY
+ * site_id + an optional window, NEVER a raw query, so one site can never read another's analytics.
+ */
+const PER_SITE_OBSERVABILITY_FLAG = 'per_site_observability';
 
 /** Mirrors DOMAINS.SITES_SUFFIX — the public site subdomain suffix. */
 const SITES_SUFFIX = '.projectsites.dev';
@@ -668,6 +686,37 @@ export const PLATFORM_MCP_TOOLS = [
       properties: {
         site_id: { type: 'string' },
         id: { type: 'string', maxLength: 256 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_analytics_list',
+    description:
+      "Summarise your site's Observability: the Analytics Engine dataset(s) your site's events flow into + the custom-event dimensions the platform records (event, route, site_id, org_id, user-agent class, referrer, country, count, latency). Returns { datasets:[{ name, dimensions }], count, available }. ⛔ Analytics Engine ingest is DISABLED on this deployment (no events are being written yet) → available:false, an honest 'no data ingested yet' (never a fabricated event stream). The dataset is shared across the platform (not per-site); your data is isolated by a server-built WHERE on your site — you never see another site's events. You name only the site_id (+ optional environment) — never a Cloudflare dataset name and never an account id.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_analytics_query_summary',
+    description:
+      "Read a SITE-SCOPED recent event-count summary for your site from Analytics Engine: the total estimated events over a trailing window + a per-event breakdown. Returns { datasetName, windowDays, available, totalEvents, events:[{ event, count }], sampled:true }. ⛔ You supply ONLY the site_id + an optional window_days (1-90, clamped; default 30) — NEVER a SQL query, a dataset name, or an account id. The query is SERVER-BUILT with a mandatory filter on YOUR site, so you can never read another site's analytics. Counts are SAMPLED estimates (SUM of sample intervals), never exact. Ingest is DISABLED on this deployment → an honest zero summary (available:false) without querying, never a fabricated count. Scoped to the site_id you own; the dataset is server-resolved, never named by you.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        window_days: { type: 'number', minimum: 1, maximum: 90, default: 30 },
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id'],
@@ -1678,6 +1727,75 @@ export async function dispatchPlatformTool(
       });
     }
 
+    case 'data_analytics_list': {
+      // Flag-gated on the reserved per_site_observability flag (dark → err, mirroring the Backend-tab
+      // Observability 404).
+      if (
+        !(await isFlagOn(env, PER_SITE_OBSERVABILITY_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site observability is not enabled for this account.');
+      }
+      const { site_id, environment } = DataAnalyticsListInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF dataset/account —
+      // the caller named only site_id; the dataset is server-resolved from the registry.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveAnalyticsScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // ⛔ available:false when ingest is disabled (the reality today) — an honest 'no data ingested yet'.
+      const result = await analyticsEngineAdapter.list(scoped.scope);
+      if (!result.ok) return err(result.error?.message ?? 'Could not list Analytics datasets.');
+      return ok({
+        site_id,
+        environment,
+        count: result.data?.count ?? 0,
+        available: result.data?.available ?? false,
+        datasets: result.data?.datasets ?? [],
+      });
+    }
+
+    case 'data_analytics_query_summary': {
+      if (
+        !(await isFlagOn(env, PER_SITE_OBSERVABILITY_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site observability is not enabled for this account.');
+      }
+      const { site_id, window_days, environment } = DataAnalyticsQuerySummaryInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveAnalyticsScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // ⛔ The AE SQL query is SERVER-BUILT + site-scoped (WHERE blob3 = <siteId>) inside the adapter — the
+      // caller supplies ONLY the window (clamped in the adapter to [1, 90]), NEVER a raw query/dataset, so one
+      // site can never read another's analytics. Counts are SAMPLED; ingest-disabled → an honest zero summary.
+      const result = await analyticsEngineAdapter.get(scoped.scope, { windowDays: window_days });
+      if (!result.ok) return err(result.error?.message ?? 'Could not read the analytics summary.');
+      return ok({
+        site_id,
+        environment,
+        datasetName: result.data?.datasetName,
+        windowDays: result.data?.windowDays,
+        available: result.data?.available ?? false,
+        totalEvents: result.data?.totalEvents ?? 0,
+        events: result.data?.events ?? [],
+        sampled: true,
+      });
+    }
+
     default:
       return err(`Tool '${name}' is advertised but not yet wired.`);
   }
@@ -1985,6 +2103,58 @@ async function resolveQueueScope(
       orgId,
       // The queue id (server-resolved). The adapter binds every read to this ONE queue — no cross-site access.
       resourceId: resolved.resourceId,
+      siteId,
+    },
+  };
+}
+
+/**
+ * The shared platform Analytics Engine dataset name (mirrors `cf_analytics.ts`). Observability is a
+ * `shared_platform`, cross-cutting Worker-level concern — there is NO per-site AE dataset, so this is NOT
+ * resolved from a per-site registry row (a blank site has no `analytics_engine` allocation). Per-site
+ * isolation is the adapter's SERVER-BUILT `WHERE blob3 = <siteId>`, never a separate dataset.
+ */
+const ANALYTICS_DATASET = 'projectsites_admin_v1';
+
+/**
+ * Resolve the site's Observability surface into a {@link ResolvedScope} for the analytics_engine adapter,
+ * SERVER-SIDE. Unlike the per-store scopes, this does NOT call `resolveResourceRef` — Analytics Engine is a
+ * `shared_platform` dataset (one shared {@link ANALYTICS_DATASET}, NOT per-site), surfaced as a cross-cutting
+ * Worker-level section, so there is no per-site registry row to resolve. The caller already proved org
+ * ownership (the dispatcher's `WHERE id=? AND org_id=?` gate); this attaches server-side credentials + account
+ * + the shared dataset name, and — CRITICALLY — the ingest-enabled state (`env.ANALYTICS_INGEST_ENABLED`) the
+ * adapter uses to honestly report `available:false` when ingest is off (the reality today). The adapter builds
+ * every AE SQL query with a mandatory `WHERE blob3 = siteId`, so isolation is structural (a caller supplies no
+ * dataset, no account, no query). An account/credentials gap returns a typed, user-safe message — NEVER a
+ * fabricated summary.
+ */
+async function resolveAnalyticsScope(
+  env: Env,
+  siteId: string,
+  orgId: string,
+  environment: 'preview' | 'production',
+): Promise<
+  | { ok: true; scope: import('../data_resource_registry/adapter.js').ResolvedScope }
+  | { ok: false; message: string }
+> {
+  const account = env.CF_ACCOUNT_ID;
+  if (!account) return { message: 'Observability is not available for this account.', ok: false };
+  const auth = await resolveCfCredentials(env, orgId);
+  if (!auth) return { message: 'Observability is not available for this account.', ok: false };
+  return {
+    ok: true,
+    scope: {
+      // Read-only observability surface — no mutation path.
+      accessPolicy: 'read_only',
+      accountId: account,
+      auth,
+      environment,
+      // Server-read ingest state — the adapter reports available:false (honest 'no data ingested yet') when off.
+      ingestEnabled: env.ANALYTICS_INGEST_ENABLED === 'true',
+      orgId,
+      // The shared platform dataset name (NOT per-site). The adapter scopes every query to `siteId` via a
+      // server-built WHERE — a caller can never read another site's analytics.
+      resourceId: ANALYTICS_DATASET,
       siteId,
     },
   };

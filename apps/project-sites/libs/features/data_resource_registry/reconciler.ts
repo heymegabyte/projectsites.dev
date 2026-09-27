@@ -35,6 +35,7 @@ import type { Env } from '../../../src/types/env.js';
 import { dbQueryOne, dbUpdate } from '../../../src/services/db.js';
 import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 
+import { analyticsEngineAdapter } from './adapters/analytics_engine.js';
 import { connectionAdapter } from './adapters/connection.js';
 import { d1Adapter } from './adapters/d1.js';
 import { durableObjectAdapter } from './adapters/durable_object.js';
@@ -95,6 +96,14 @@ const IMPLEMENTED_ADAPTERS: Partial<
   // REST API bound to the resolved queue id). Honest, never fabricated — the adapter surfaces config +
   // metrics only, never a message body or a "history" (peek ≠ history; pull = leases + ack).
   queue: queueAdapter,
+  // analytics_engine: read-only observability adapter wired. AE INGEST is disabled on this deployment
+  // (`ANALYTICS_INGEST_ENABLED="false"`) so its `head` honestly reports `available:false` (never a fabricated
+  // event stream); the dataset is `shared_platform` (one shared `projectsites_admin_v1`, NOT per-site), and
+  // `readAllocationSources` records NO analytics_engine allocation source, so a blank site never gets an
+  // `analytics_engine` registry row — Observability is a cross-cutting Worker-level section, not a per-store
+  // row. This map entry only head-checks an `analytics_engine` row if one already exists; `head` never 404s
+  // (AE has no per-dataset existence endpoint), so it never flips a row to drift — an honest health probe.
+  analytics_engine: analyticsEngineAdapter,
 };
 
 /** One recorded allocation: which kind, and the CF id/name the source row actually holds. */
@@ -286,6 +295,9 @@ function scopeForRow(
     // CF-REST adapters ignore it. Attaching it here is additive + never widens their contract.
     db: env.DB,
     environment: row.environment,
+    // Server-read AE ingest state — consumed ONLY by the `analytics_engine` adapter's `head`/`get`; every
+    // other adapter ignores it. Additive, never widens their contract.
+    ingestEnabled: env.ANALYTICS_INGEST_ENABLED === 'true',
     orgId: row.orgId,
     resourceId: row.resourceIdOrName,
     siteId: row.siteId,

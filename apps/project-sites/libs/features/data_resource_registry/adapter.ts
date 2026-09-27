@@ -65,6 +65,14 @@ export interface ResolvedScope {
    * `auth` + `resourceId`. Optional so it never widens the CF-REST adapters' contract.
    */
   readonly db?: D1Database;
+  /**
+   * Whether Analytics Engine INGEST is enabled on this deployment (`env.ANALYTICS_INGEST_ENABLED === "true"`),
+   * present ONLY for the `analytics_engine` kind. Server-attached (read from env, never caller-supplied). When
+   * `false`/absent the `analytics_engine` adapter reports `available:false` (honest "no data ingested yet")
+   * rather than querying an empty dataset. The other adapters ignore it — additive, never widens their
+   * contract.
+   */
+  readonly ingestEnabled?: boolean;
 }
 
 /**

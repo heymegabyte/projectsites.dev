@@ -383,6 +383,43 @@ export const DataQueueDescribeInput = z
   })
   .strict();
 
+/**
+ * `data_analytics_list` — summarise the OWNED site's Analytics Engine dataset(s) + the custom-event dimensions
+ * the platform records (Observability, cross-cutting Backend tab). A caller names ONLY the OWNED `site_id`
+ * (NEVER a CF dataset name AND never an account id — the dataset is server-resolved) plus the optional
+ * environment. `.strict()` rejects any attempt to smuggle a `dataset`/`accountId`/`sql`. Ownership + isolation
+ * + `per_site_observability` flag-gate are enforced server-side in the dispatcher, mirroring the per-site
+ * D1/KV/R2/Vectorize/Workflows/DO/Queues surfaces. ⛔ Analytics Engine INGEST is DISABLED on this deployment
+ * (`ANALYTICS_INGEST_ENABLED="false"`) → honest `available:false` (no events ingested yet), NEVER a fabricated
+ * event stream. The dataset is `shared_platform` (one shared dataset, NOT per-site); per-site isolation is a
+ * server-built `WHERE` on the site dimension, never a raw query from the caller.
+ */
+export const DataAnalyticsListInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_analytics_query_summary` — read a SITE-SCOPED recent event-count summary (total + per-event breakdown)
+ * over a trailing window, via the Analytics Engine SQL API. ⛔ The caller supplies ONLY the OWNED `site_id` + an
+ * OPTIONAL `window_days` (a bounded integer) — NEVER a SQL query, a dataset name, an account id, or a site
+ * dimension. The query is SERVER-BUILT and carries a mandatory `WHERE blob3 = <siteId>`, so one site can never
+ * read another's analytics (SECURITY-INVARIANTS: the AE SQL API is account-wide; isolation is a server-side
+ * `WHERE`, never trust in a client query). `window_days` is LENIENT (a positive int) because the adapter CLAMPS
+ * it to `[1, 90]` (AE retention ~3 months) rather than REJECTING an over-window request. `.strict()` rejects
+ * any attempt to smuggle a `sql`/`dataset`/`accountId`/`where`. When ingest is disabled (the reality today) the
+ * summary is an honest ZERO WITHOUT querying; counts are SAMPLED estimates (`sampled:true`), never exact.
+ */
+export const DataAnalyticsQuerySummaryInput = z
+  .object({
+    site_id: z.string().min(1),
+    window_days: z.number().int().positive().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
 export type ListSitesArgs = z.infer<typeof ListSitesInput>;
 export type GetSiteArgs = z.infer<typeof GetSiteInput>;
 export type BuildStatusArgs = z.infer<typeof BuildStatusInput>;
@@ -407,3 +444,5 @@ export type DataDurableObjectsListArgs = z.infer<typeof DataDurableObjectsListIn
 export type DataDurableObjectDescribeArgs = z.infer<typeof DataDurableObjectDescribeInput>;
 export type DataQueuesListArgs = z.infer<typeof DataQueuesListInput>;
 export type DataQueueDescribeArgs = z.infer<typeof DataQueueDescribeInput>;
+export type DataAnalyticsListArgs = z.infer<typeof DataAnalyticsListInput>;
+export type DataAnalyticsQuerySummaryArgs = z.infer<typeof DataAnalyticsQuerySummaryInput>;
