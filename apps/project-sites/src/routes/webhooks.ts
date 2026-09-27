@@ -43,6 +43,7 @@ import {
 import * as billingService from '../services/billing.js';
 import * as auditService from '../services/audit.js';
 import * as connectService from '../services/stripe_connect.js';
+import { dbQueryOne } from '../services/db.js';
 import { handleWalletStripeEvent } from '../services/wallet_webhook.js';
 import { tryEmitEvent } from '../services/emit_event.js';
 import { safeWaitUntil } from '../lib/wait-until.js';
@@ -223,6 +224,39 @@ webhooks.post('/webhooks/stripe', async (c) => {
             subscription: obj.subscription as string,
             metadata: obj.metadata as { org_id?: string; site_id?: string },
           });
+          // "Buy a domain through us" checkout: the same session activated the $50/mo paid
+          // account above; now fulfil the DOMAIN side — register at CF Registrar (when the TLD
+          // is supported) and attach the CF custom hostname. Idempotent on the pending row's
+          // terminal status; never throws (a registration failure is recorded, not retried
+          // indefinitely, so the subscription stays active). Guarded so it only runs for
+          // domain-purchase sessions.
+          if (meta.kind === 'domain_purchase') {
+            try {
+              const owner = meta.org_id
+                ? await dbQueryOne<{ email: string }>(
+                    db,
+                    `SELECT u.email FROM users u JOIN memberships m ON u.id = m.user_id WHERE m.org_id = ? AND m.deleted_at IS NULL AND u.deleted_at IS NULL ORDER BY u.created_at ASC LIMIT 1`,
+                    [meta.org_id],
+                  ).catch(() => null)
+                : null;
+              const { completeDomainPurchase } = await import(
+                '../services/domain_purchase_complete.js'
+              );
+              await completeDomainPurchase(c.env, obj.id as string, owner?.email ?? null);
+            } catch (err) {
+              // Fully isolated — domain fulfilment must never fail the billing webhook. The
+              // pending row stays non-terminal so a Stripe retry (or a manual sweep) re-runs it.
+              console.warn(
+                JSON.stringify({
+                  level: 'error',
+                  service: 'webhooks',
+                  message: 'domain_purchase_complete_failed',
+                  session_id: String(obj.id ?? ''),
+                  error: err instanceof Error ? err.message : String(err),
+                }),
+              );
+            }
+          }
           // Fire-and-forget notification: notify the org owner their plan is active.
           // Fully isolated — Hono's c.executionCtx getter throws when absent
           // (e.g. tests), so guard it; notification never affects the webhook.

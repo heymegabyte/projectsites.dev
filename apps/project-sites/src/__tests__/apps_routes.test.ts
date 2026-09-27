@@ -915,7 +915,7 @@ describe('GET /api/apps/instances/:id/cname-check', () => {
 });
 
 describe('GET /api/apps/instances/:id/domain-availability', () => {
-  it('reports availability + price from the registrar check', async () => {
+  it('reports availability + at-cost price (normalized {available, price, currency, tld})', async () => {
     mockDbQueryOne.mockResolvedValue(instanceRow());
     mockAvail.mockResolvedValue([
       { name: 'acme.com', tld: 'com', available: true, price_usd: 9.77 },
@@ -927,9 +927,125 @@ describe('GET /api/apps/instances/:id/domain-availability', () => {
       makeEnv(),
     );
     expect(res.status).toBe(200);
-    expect((await res.json()) as { available: boolean; price_usd: number }).toMatchObject({
+    expect(
+      (await res.json()) as { available: boolean; price: number; currency: string; tld: string },
+    ).toMatchObject({
       available: true,
-      price_usd: 9.77,
+      price: 9.77,
+      currency: 'USD',
+      tld: 'com',
+    });
+  });
+
+  it('offers same-label suggestions on other TLDs when the domain is taken', async () => {
+    mockDbQueryOne.mockResolvedValue(instanceRow());
+    // First call = the taken domain; second call = the alternative-TLD batch.
+    mockAvail
+      .mockResolvedValueOnce([{ name: 'acme.com', tld: 'com', available: false, price_usd: 9.77 }])
+      .mockResolvedValueOnce([
+        { name: 'acme.net', tld: 'net', available: true, price_usd: 12 },
+        { name: 'acme.co', tld: 'co', available: false, price_usd: 24 },
+        { name: 'acme.io', tld: 'io', available: true, price_usd: 39 },
+      ]);
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/domain-availability?domain=acme.com',
+      { method: 'GET' },
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { available: boolean; suggestions?: string[] };
+    expect(body.available).toBe(false);
+    expect(body.suggestions).toEqual(['acme.net', 'acme.io']);
+  });
+});
+
+describe('POST /api/apps/instances/:id/domains/purchase', () => {
+  /** Env with a Stripe key so the purchase endpoint doesn't early-return "billing not configured". */
+  function stripeEnv(): Env {
+    return { ...makeEnv(), STRIPE_SECRET_KEY: 'sk_test_123' } as unknown as Env;
+  }
+
+  it('creates a combined Stripe checkout (domain + $50/mo) and returns checkoutUrl', async () => {
+    // dbQueryOne is called for: loadInstance, already-attached (null), owner email, existing sub.
+    mockDbQueryOne.mockImplementation(async (_db: unknown, sql: string) => {
+      if (/FROM app_instances/i.test(sql)) return instanceRow();
+      if (/FROM app_instance_domains/i.test(sql)) return null; // not already attached
+      if (/SELECT u\.email/i.test(sql)) return { email: 'owner@acme.com' };
+      if (/FROM subscriptions/i.test(sql)) return { stripe_customer_id: 'cus_123' }; // existing customer
+      return null;
+    });
+    mockAvail.mockResolvedValue([{ name: 'acme.com', tld: 'com', available: true, price_usd: 9.77 }]);
+    mockDbInsert.mockResolvedValue({ error: null });
+
+    const realFetch = global.fetch;
+    const calls: string[] = [];
+    global.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push(String(url));
+      const body = String(init?.body ?? '');
+      if (String(url).includes('/v1/checkout/sessions')) {
+        // Assert the combined line items are present on the session request.
+        expect(body).toContain('mode=subscription');
+        expect(body).toContain(String(5000)); // $50/mo recurring (line_items[0])
+        // One-time domain line: a SECOND line item (subscription-mode Checkout bills one-time
+        // line_items on the first invoice). URLSearchParams encodes the brackets → `line_items%5B1%5D`.
+        expect(body).toContain('line_items%5B1%5D');
+        expect(body).toContain(String(977)); // $9.77 at-cost domain (unit_amount)
+        expect(body).toContain('domain_purchase'); // metadata.kind
+        return new Response(
+          JSON.stringify({ id: 'cs_test_1', url: 'https://checkout.stripe.com/c/cs_test_1' }),
+          { status: 200 },
+        );
+      }
+      return new Response('{}', { status: 200 });
+    }) as unknown as typeof fetch;
+
+    try {
+      const res = await req(
+        makeApp(AUTH),
+        '/api/apps/instances/inst-1/domains/purchase',
+        jsonInit('POST', { domain: 'acme.com' }),
+        stripeEnv(),
+      );
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { checkoutUrl: string }).toMatchObject({
+        checkoutUrl: 'https://checkout.stripe.com/c/cs_test_1',
+      });
+      // A pending purchase row was persisted keyed on the session id.
+      const insertedTables = mockDbInsert.mock.calls.map((c) => c[1]);
+      expect(insertedTables).toContain('app_instance_domain_purchases');
+      expect(calls.some((u) => u.includes('/v1/checkout/sessions'))).toBe(true);
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  it('fails closed with 400 when the domain is already taken', async () => {
+    mockDbQueryOne.mockImplementation(async (_db: unknown, sql: string) => {
+      if (/FROM app_instances/i.test(sql)) return instanceRow();
+      return null;
+    });
+    mockAvail.mockResolvedValue([{ name: 'taken.com', tld: 'com', available: false, price_usd: 9.77 }]);
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/domains/purchase',
+      jsonInit('POST', { domain: 'taken.com' }),
+      stripeEnv(),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('returns a clean 400 when Stripe is not configured', async () => {
+    mockDbQueryOne.mockResolvedValue(instanceRow());
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/domains/purchase',
+      jsonInit('POST', { domain: 'acme.com' }),
+      makeEnv(), // no STRIPE_SECRET_KEY
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error?: { message?: string } }).toMatchObject({
+      error: { message: expect.stringMatching(/billing is not configured/i) },
     });
   });
 });
