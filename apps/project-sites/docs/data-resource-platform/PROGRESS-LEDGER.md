@@ -32,3 +32,4 @@ Each phase ships BOTH the Data-tab UI section AND the parity ProjectSites MCP to
 ## Deploy log
 - Resources tab deployed to editor.projectsites.dev on 2026-09-27, commit 100b74c51
 - FIRE 2 (per-site grid inline cell edit + undo) committed on branch `worktree-agent-a8ebdd1f1bceafacf` (off `feat/apps-deploy-panel` `adb6fed83`) 2026-09-27 — editor-only; DEPLOY DEFERRED, parent cherry-picks + deploys to editor.projectsites.dev (Pages bolt-diy).
+- Fire 2 + Resources namespace-summary deployed to editor.projectsites.dev on 2026-09-27, commit 0aeb51dd2
