@@ -22,6 +22,7 @@ import { BrnTooltipImports } from '@spartan-ng/brain/tooltip';
 import { filter, Subscription } from 'rxjs';
 
 import { DomainPickerComponent } from '../../components/domain-picker/domain-picker.component';
+import { DomainMenuPopupComponent } from '../../components/domain-menu/domain-menu-popup.component';
 import { GlobalDropZoneComponent } from '../../components/global-drop-zone/global-drop-zone.component';
 import { NavIconComponent } from '../../components/nav-icon/nav-icon.component';
 import { SectionErrorBoundaryComponent } from '../../components/section-error-boundary/section-error-boundary.component';
@@ -96,6 +97,7 @@ export const G_CHORD_ROUTES: Readonly<Record<string, string>> = {
     SectionErrorBoundaryComponent,
     FocusTrapDirective,
     DomainPickerComponent,
+    DomainMenuPopupComponent,
     GlobalDropZoneComponent,
     TaskTrayComponent,
     ShareLinkDialogComponent,

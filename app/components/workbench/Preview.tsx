@@ -756,12 +756,39 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
             previews={previews}
           />
           {primaryHost && (
-            <span
-              className="shrink-0 max-w-[48%] truncate pl-1.5 pr-0.5 text-bolt-elements-textTertiary select-none"
-              title={`Your site's live URL — ${primaryUrl}`}
+            <button
+              type="button"
+              className="shrink-0 max-w-[52%] flex items-center gap-1 pl-1.5 pr-1.5 py-0.5 rounded-full text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundActive transition-colors"
+              title={`Manage this site's URL & domains — ${primaryUrl}`}
+              aria-label={`Manage URL & domains for ${primaryHost}`}
+              data-testid="preview-domain-menu-trigger"
+              onClick={() => {
+                // Ask the parent admin to open the site's domain menu popup (set slug / attach /
+                // buy domains). The admin's BoltEmbedService validates event.origin, so '*' is
+                // safe here and works in dev + prod. Standalone editor (no parent) → no-op.
+                try {
+                  window.parent?.postMessage({ type: 'PS_OPEN_DOMAIN_MENU' }, '*');
+                } catch {
+                  /* no admin parent — nothing to open */
+                }
+              }}
             >
-              {primaryHost}
-            </span>
+              <span className="truncate">{primaryHost}</span>
+              <svg
+                width="9"
+                height="9"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="shrink-0 opacity-70"
+                aria-hidden="true"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
           )}
           <input
             title="URL Path"

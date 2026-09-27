@@ -30,6 +30,7 @@ import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ApiService } from './api.service';
 import { ToastService } from './toast.service';
+import { DomainMenuService } from '../components/domain-menu/domain-menu.service';
 
 const HARD_TIMEOUT_MS = 90_000; // absolute cap — a cold WebContainer boot + npm install can run ~60s
 const CHAT_GRACE_MS = 10_000; // after the chat paints, wait this long for the true preview-ready signal before dismissing
@@ -388,6 +389,7 @@ export class BoltEmbedService {
   private readonly sanitizer = inject(DomSanitizer);
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastService);
+  private readonly domainMenu = inject(DomainMenuService);
 
   /** Sanitized iframe URL — null until a site has been selected. */
   readonly iframeUrl = signal<SafeResourceUrl | null>(null);
@@ -763,6 +765,12 @@ export class BoltEmbedService {
         case 'PS_APP_RUNNING':
           // The preview app is actually running — the TRUE ready signal. Dismiss now.
           this.dismissVeil('app_running');
+          break;
+        case 'PS_OPEN_DOMAIN_MENU':
+          // The editor's Preview URL-bar button asked to open the site's domain menu. Flip the
+          // shared signal — DomainMenuPopupComponent (mounted in the admin shell) renders the
+          // popup over the editor for the currently-selected site.
+          this.domainMenu.open();
           break;
         case 'PS_BOLT_CHAT_READY':
           // The chat placeholder has painted (interactive) but the preview is usually still
