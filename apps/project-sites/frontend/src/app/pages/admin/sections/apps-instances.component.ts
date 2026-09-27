@@ -40,6 +40,21 @@ interface AppInstance {
   readonly last_error?: string | null;
 }
 
+/**
+ * A group of instances of the SAME app (e.g. every Payload CMS instance), rendered
+ * as ONE encapsulated card with an inner table of instances + per-instance actions.
+ * Grouping keeps the list scannable when an org runs several of the same app.
+ */
+interface InstanceGroup {
+  readonly app_id: string;
+  readonly name: string;
+  readonly glyph: string;
+  readonly instances: readonly AppInstance[];
+  readonly runningCount: number;
+  readonly totalMonthlyUsd: number;
+  readonly anyProvisioning: boolean;
+}
+
 interface LogLine {
   readonly ts: string;
   readonly level: 'info' | 'warn' | 'error';
@@ -177,72 +192,105 @@ export class AppsInstancesCache {
           (primaryClick)="goToCatalog()"
         />
       } @else {
-        <div class="instance-list">
-          @for (inst of instances(); track inst.id) {
-            <a class="instance-row"
-               appReveal
-               [routerLink]="['/admin/apps/instances', inst.id]"
-               [attr.data-testid]="'apps-instance-' + inst.id">
-              <div class="inst-glyph" aria-hidden="true">{{ glyphFor(inst) }}</div>
-              <div class="inst-main">
-                <div class="inst-name">{{ nameFor(inst) }}</div>
-                <a class="inst-host"
-                   [href]="hostUrl(inst)"
-                   target="_blank"
-                   rel="noopener noreferrer"
-                   (click)="$event.stopPropagation()"
-                   [attr.aria-label]="'Open ' + inst.hostname">
-                  {{ inst.hostname }}
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+        <!-- Aggregate strip — totals across every group. -->
+        <div class="agg-strip" appReveal>
+          <span class="agg-cell"><b class="agg-num">{{ instances().length }}</b> instance{{ instances().length === 1 ? '' : 's' }}</span>
+          <span class="agg-cell agg-groups"><b class="agg-num">{{ groups().length }}</b> app{{ groups().length === 1 ? '' : 's' }}</span>
+          @if (runningCount() > 0) {
+            <span class="agg-cell agg-running"><span class="agg-run-dot" aria-hidden="true"></span><b class="agg-num">{{ runningCount() }}</b> running</span>
+          }
+          @if (totalMonthlyUsd() > 0) {
+            <span class="agg-cell agg-cost"><b class="agg-num">{{ '~$' + totalMonthlyUsd() }}</b><span class="cost-unit">/mo est.</span></span>
+          }
+        </div>
+
+        <!-- One encapsulated card PER APP; instances of the same app are grouped
+             into an inner table with per-instance action buttons (no popup menu →
+             nothing can be clipped by the scroll container). -->
+        <div class="group-list">
+          @for (group of groups(); track group.app_id) {
+            <section class="group-card" appReveal [attr.data-testid]="'apps-group-' + group.app_id">
+              <span class="group-accent" aria-hidden="true"></span>
+              <header class="group-head">
+                <div class="group-glyph" aria-hidden="true">{{ group.glyph }}</div>
+                <div class="group-headmain">
+                  <h3 class="group-name">
+                    <span class="group-name-text">{{ group.name }}</span>
+                    <span class="group-count" [attr.aria-label]="group.instances.length + ' instances'">{{ group.instances.length }}</span>
+                  </h3>
+                  <div class="group-sub">
+                    @if (group.runningCount > 0) {
+                      <span class="group-run"><span class="group-run-dot" aria-hidden="true"></span>{{ group.runningCount }} running</span>
+                    }
+                    @if (group.instances.length - group.runningCount > 0) {
+                      <span class="group-idle">{{ group.instances.length - group.runningCount }} idle</span>
+                    }
+                    @if (group.totalMonthlyUsd > 0) {
+                      <span class="group-cost">{{ '~$' + group.totalMonthlyUsd }}<span class="cost-unit">/mo</span></span>
+                    }
+                  </div>
+                </div>
+                <a class="btn-deploy-another"
+                   [routerLink]="['/admin/apps', group.app_id]"
+                   [attr.aria-label]="'Deploy another ' + group.name">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                  <span class="dep-label">Deploy another</span>
                 </a>
-              </div>
-              <span class="status-pill" [attr.data-status]="inst.status" [style.--pill-color]="statusColor(inst.status)">
-                <span class="status-dot" aria-hidden="true"></span>
-                {{ statusLabel(inst.status) }}
-              </span>
-              @if (inst.status === 'error' && inst.last_error) {
-                <span class="inst-error" role="status" [title]="inst.last_error"
-                      aria-label="Last error: {{ inst.last_error }}">
-                  ⚠ {{ inst.last_error }}
-                </span>
-              }
-              <span class="inst-activity">
-                @if (inst.last_activity_at) {
-                  Last activity {{ inst.last_activity_at | date:'short' }}
-                } @else {
-                  Created {{ inst.created_at | date:'short' }}
-                }
-              </span>
-              @if (inst.costEstimate; as ce) {
-                <span class="inst-cost"
-                      [attr.aria-label]="'Estimated cost ' + ce.monthlyUsd + ' dollars per month'"
-                      title="Live estimate from this instance's running state + provisioned infra (not exact billing)">
-                  {{ '~$' + ce.monthlyUsd }}<span class="cost-unit" aria-hidden="true">/mo</span>
-                </span>
-              }
-              <span class="row-menu-wrap" (click)="$event.preventDefault(); $event.stopPropagation()">
-                <button class="row-menu"
-                        type="button"
-                        (click)="toggleMenu(inst, $event)"
-                        [attr.aria-label]="'Actions for ' + nameFor(inst)"
-                        [attr.aria-expanded]="menuOpenId() === inst.id"
-                        title="Actions">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
-                </button>
-                @if (menuOpenId() === inst.id) {
-                  <div class="row-menu-pop">
-                    <button class="row-menu-item" type="button"(click)="openDetail(inst)">Open detail</button>
-                    @if (inst.status === 'running' || inst.status === 'error') {
-                      <button class="row-menu-item" type="button"[disabled]="acting() === inst.id" (click)="restartInstance(inst)">Restart</button>
+              </header>
+
+              <div class="inst-table" role="table" [attr.aria-label]="group.name + ' instances'">
+                @for (inst of group.instances; track inst.id) {
+                  <div class="inst-line" role="row" [attr.data-testid]="'apps-instance-' + inst.id" [attr.data-status]="inst.status">
+                    <a class="inst-host" role="cell"
+                       [href]="hostUrl(inst)" target="_blank" rel="noopener noreferrer"
+                       [attr.aria-label]="'Open ' + inst.hostname">
+                      <span class="host-text">{{ inst.hostname }}</span>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+                    </a>
+                    <span class="status-pill" role="cell" [attr.data-status]="inst.status" [style.--pill-color]="statusColor(inst.status)">
+                      <span class="status-dot" aria-hidden="true"></span>
+                      {{ statusLabel(inst.status) }}
+                    </span>
+                    <span class="inst-cost" role="cell">
+                      @if (inst.costEstimate; as ce) {
+                        <span [attr.aria-label]="'Estimated cost ' + ce.monthlyUsd + ' dollars per month'"
+                              title="Live estimate from running state + provisioned infra (not exact billing)">{{ '~$' + ce.monthlyUsd }}<span class="cost-unit" aria-hidden="true">/mo</span></span>
+                      }
+                    </span>
+                    <span class="inst-activity" role="cell">
+                      @if (inst.last_activity_at) { {{ inst.last_activity_at | date:'short' }} }
+                      @else { {{ inst.created_at | date:'short' }} }
+                    </span>
+                    <span class="inst-actions" role="cell">
+                      <a class="act-btn" [routerLink]="['/admin/apps/instances', inst.id]"
+                         title="Open detail" [attr.aria-label]="'Open detail for ' + inst.hostname">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                      </a>
+                      @if (inst.status === 'running' || inst.status === 'error') {
+                        <button class="act-btn" type="button" [disabled]="acting() === inst.id"
+                                (click)="restartInstance(inst)" title="Restart" [attr.aria-label]="'Restart ' + inst.hostname">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/></svg>
+                        </button>
+                      }
+                      @if (inst.status === 'running') {
+                        <button class="act-btn" type="button" [disabled]="acting() === inst.id"
+                                (click)="stopInstance(inst)" title="Stop" [attr.aria-label]="'Stop ' + inst.hostname">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+                        </button>
+                      }
+                      <button class="act-btn act-danger" type="button" [disabled]="acting() === inst.id"
+                              (click)="deleteInstance(inst)" title="Delete" [attr.aria-label]="'Delete ' + inst.hostname">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                      </button>
+                    </span>
+                    @if (inst.status === 'error' && inst.last_error) {
+                      <span class="inst-error-line" role="cell" [title]="inst.last_error"
+                            [attr.aria-label]="'Last error: ' + inst.last_error">⚠ {{ inst.last_error }}</span>
                     }
-                    @if (inst.status === 'running') {
-                      <button class="row-menu-item" type="button"[disabled]="acting() === inst.id" (click)="stopInstance(inst)">Stop</button>
-                    }
-                    <button class="row-menu-item row-menu-danger" type="button" [disabled]="acting() === inst.id" (click)="deleteInstance(inst)">Delete</button>
                   </div>
                 }
-              </span>
-            </a>
+              </div>
+            </section>
           }
         </div>
       }
@@ -425,6 +473,153 @@ export class AppsInstancesCache {
     .row-menu-item:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: -2px; }
     .row-menu-danger { color: #fca5a5; }
     .row-menu-danger:hover:not(:disabled) { background: rgba(248,113,113,0.12); }
+
+    /* ─── Aggregate strip + grouped instance cards (Brian 2026-09-27) ─── */
+    .agg-strip {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem 1.1rem;
+      padding: 0.55rem 0.95rem;
+      background: color-mix(in oklch, var(--ps-accent, #00E5FF) 4%, rgba(13,13,40,0.5));
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: var(--ps-radius-lg, 14px);
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.68rem; color: rgba(255,255,255,0.55);
+    }
+    .agg-cell { display: inline-flex; align-items: center; gap: 6px; }
+    .agg-num { color: #fff; font-weight: 700; }
+    .agg-running { color: #6ee7b7; }
+    .agg-run-dot { width: 6px; height: 6px; border-radius: 50%; background: #34d399; box-shadow: 0 0 6px rgba(52,211,153,0.7); }
+    .agg-cost { color: var(--ps-accent, #00E5FF); }
+    .cost-unit { opacity: 0.6; margin-left: 1px; font-weight: 400; }
+
+    .group-list { display: flex; flex-direction: column; gap: 14px; }
+    .group-card {
+      position: relative; overflow: hidden;
+      background:
+        linear-gradient(180deg, color-mix(in oklch, var(--ps-accent,#00E5FF) 5%, transparent), transparent 120px),
+        var(--ps-surface-1, rgba(13,13,40,0.62));
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: var(--ps-radius-xl, 22px);
+      box-shadow: 0 18px 44px -30px rgba(0,0,0,0.75);
+      transition: border-color 200ms ease, box-shadow 200ms ease;
+    }
+    .group-card:hover {
+      border-color: color-mix(in oklch, var(--ps-accent,#00E5FF) 26%, transparent);
+      box-shadow: 0 22px 60px -28px rgba(0,0,0,0.8), 0 0 0 1px color-mix(in oklch, var(--ps-accent,#00E5FF) 12%, transparent);
+    }
+    .group-accent {
+      position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, color-mix(in oklch, var(--ps-accent,#00E5FF) 70%, transparent), rgba(124,58,237,0.6), transparent);
+      opacity: 0.75;
+    }
+    @media (prefers-reduced-motion: reduce) { .group-card { transition: none; } }
+
+    .group-head {
+      display: flex; align-items: center; gap: 0.9rem;
+      padding: 1rem 1.15rem;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .group-glyph {
+      flex-shrink: 0; width: 46px; height: 46px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 1.5rem; line-height: 1;
+      background: color-mix(in oklch, var(--ps-accent,#00E5FF) 9%, transparent);
+      border: 1px solid color-mix(in oklch, var(--ps-accent,#00E5FF) 20%, transparent);
+      border-radius: var(--ps-radius-sm, 12px);
+    }
+    .group-headmain { min-width: 0; flex: 1; }
+    .group-name {
+      display: flex; align-items: center; gap: 8px; margin: 0;
+      font-family: 'Sora', system-ui, sans-serif; font-weight: 700;
+      font-size: 0.98rem; letter-spacing: -0.01em; color: var(--ps-ink, #fff);
+    }
+    .group-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .group-count {
+      flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 22px; height: 20px; padding: 0 7px;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.66rem; font-weight: 700;
+      color: var(--ps-accent,#00E5FF);
+      background: color-mix(in oklch, var(--ps-accent,#00E5FF) 12%, transparent);
+      border: 1px solid color-mix(in oklch, var(--ps-accent,#00E5FF) 30%, transparent);
+      border-radius: 999px;
+    }
+    .group-sub {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-top: 3px;
+      font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.64rem;
+    }
+    .group-run { display: inline-flex; align-items: center; gap: 5px; color: #6ee7b7; }
+    .group-run-dot { width: 5px; height: 5px; border-radius: 50%; background: #34d399; box-shadow: 0 0 6px rgba(52,211,153,0.7); }
+    .group-idle { color: rgba(255,255,255,0.4); }
+    .group-cost { color: rgba(255,255,255,0.55); }
+
+    .btn-deploy-another {
+      flex-shrink: 0;
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 0.4rem 0.75rem; border-radius: var(--ps-radius-sm, 8px);
+      background: rgba(255,255,255,0.04);
+      color: rgba(255,255,255,0.7);
+      border: 1px solid rgba(255,255,255,0.1);
+      font-family: 'Sora', system-ui, sans-serif; font-size: 0.68rem; font-weight: 600;
+      text-decoration: none; white-space: nowrap;
+      transition: background 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms ease;
+    }
+    .btn-deploy-another:hover {
+      background: rgba(0,229,255,0.12); color: var(--ps-accent,#00E5FF);
+      border-color: rgba(0,229,255,0.4); transform: translateY(-1px);
+    }
+    .btn-deploy-another:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) { .btn-deploy-another:hover { transform: none; } }
+    @media (max-width: 620px) { .btn-deploy-another .dep-label { display: none; } }
+
+    .inst-table { display: flex; flex-direction: column; padding: 4px 6px; }
+    .inst-line {
+      display: grid;
+      grid-template-columns: minmax(150px, 1fr) auto auto auto auto;
+      align-items: center; gap: 0.75rem;
+      padding: 0.6rem 0.7rem;
+      border-radius: var(--ps-radius-sm, 10px);
+      transition: background 140ms ease;
+    }
+    .inst-line + .inst-line { border-top: 1px solid rgba(255,255,255,0.045); }
+    .inst-line:hover { background: color-mix(in oklch, var(--ps-accent,#00E5FF) 4%, transparent); }
+    .inst-line .inst-host { margin-top: 0; min-width: 0; }
+    .host-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .inst-cost {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.66rem; color: rgba(255,255,255,0.55); white-space: nowrap; text-align: right;
+    }
+    .inst-actions { display: inline-flex; align-items: center; gap: 4px; justify-self: end; }
+    .act-btn {
+      width: 30px; height: 30px; flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px; color: rgba(255,255,255,0.6); cursor: pointer; text-decoration: none;
+      transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+    }
+    .act-btn:hover:not(:disabled) { background: rgba(0,229,255,0.12); color: var(--ps-accent,#00E5FF); border-color: rgba(0,229,255,0.35); }
+    .act-btn:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
+    .act-btn:disabled { opacity: 0.4; cursor: progress; }
+    .act-danger:hover:not(:disabled) { background: rgba(248,113,113,0.14); color: #fca5a5; border-color: rgba(248,113,113,0.4); }
+    .inst-error-line {
+      grid-column: 1 / -1;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.64rem; color: #fca5a5;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 2px;
+    }
+    @media (max-width: 760px) {
+      .inst-line {
+        grid-template-columns: 1fr auto;
+        grid-template-areas: "host actions" "status cost";
+        row-gap: 8px;
+      }
+      .inst-line .inst-host { grid-area: host; }
+      .inst-line .inst-actions { grid-area: actions; }
+      .inst-line .status-pill { grid-area: status; justify-self: start; }
+      .inst-line .inst-cost { grid-area: cost; justify-self: end; text-align: right; }
+      .inst-line .inst-activity { display: none; }
+      .inst-error-line { grid-column: 1 / -1; }
+    }
   `],
 })
 export class AppInstancesComponent implements OnInit, OnDestroy {
@@ -441,6 +636,35 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
   /** Worker request_id from a failed instances load → copyable support reference on the error card. */
   loadErrorRef = signal('');
   runningCount = computed(() => this.instances().filter((i) => i.status === 'running').length);
+  /** Total live monthly-cost estimate across every instance (0 when none report). */
+  totalMonthlyUsd = computed(() =>
+    Math.round(this.instances().reduce((sum, i) => sum + (i.costEstimate?.monthlyUsd ?? 0), 0)),
+  );
+  /**
+   * Instances grouped by app — the list renders ONE encapsulated card per group
+   * (e.g. all Payload CMS instances in a single entry with an inner table + per-
+   * instance actions). Sorted by instance count desc, then name, so the busiest
+   * apps lead. (Brian 2026-09-27.)
+   */
+  groups = computed<readonly InstanceGroup[]>(() => {
+    const byApp = new Map<string, AppInstance[]>();
+    for (const inst of this.instances()) {
+      const arr = byApp.get(inst.app_id);
+      if (arr) arr.push(inst);
+      else byApp.set(inst.app_id, [inst]);
+    }
+    return [...byApp.entries()]
+      .map(([app_id, insts]) => ({
+        app_id,
+        name: resolveApp(app_id)?.name ?? app_id,
+        glyph: resolveApp(app_id)?.glyph ?? '📦',
+        instances: insts,
+        runningCount: insts.filter((i) => i.status === 'running').length,
+        totalMonthlyUsd: Math.round(insts.reduce((s, i) => s + (i.costEstimate?.monthlyUsd ?? 0), 0)),
+        anyProvisioning: insts.some((i) => i.status === 'provisioning'),
+      }))
+      .sort((a, b) => b.instances.length - a.instances.length || a.name.localeCompare(b.name));
+  });
 
   private pollHandle?: ReturnType<typeof setInterval>;
   /** Visibility-gated background sync — pause when the tab is hidden, catch up

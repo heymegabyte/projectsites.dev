@@ -527,3 +527,52 @@ describe('AppInstancesComponent (stale-while-revalidate cache)', () => {
     expect(c.loadFailed()).withContext('a 404 is not a retryable load failure').toBeFalse();
     expect(c.notFound()).withContext('the not-found notice state is set').toBeTrue();
   });
+
+/**
+ * Grouping (Brian 2026-09-27): instances of the SAME app collapse into ONE entry
+ * with an inner table, so 3 Payload CMS instances render as a single grouped card
+ * (busiest app first). Cost + running counts aggregate per group.
+ */
+describe('AppInstancesComponent (grouping)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const withApp = (id: string, app_id: string, extra: Record<string, unknown> = {}) =>
+    ({ id, app_id, hostname: id + '.projectsites.dev', status: 'running', ...extra } as never);
+
+  it('groups instances of the SAME app into one entry', () => {
+    const { c } = make();
+    c.instances.set([withApp('a', 'payload'), withApp('b', 'payload'), withApp('c', 'payload')]);
+    const groups = c.groups();
+    expect(groups.length).withContext('3 Payload instances → 1 group').toBe(1);
+    expect(groups[0].instances.length).toBe(3);
+    expect(groups[0].app_id).toBe('payload');
+  });
+
+  it('keeps different apps in separate groups, busiest first', () => {
+    const { c } = make();
+    c.instances.set([withApp('a', 'payload'), withApp('b', 'umami'), withApp('c', 'payload')]);
+    const groups = c.groups();
+    expect(groups.length).toBe(2);
+    expect(groups[0].app_id).withContext('the 2-instance app leads').toBe('payload');
+    expect(groups[0].instances.length).toBe(2);
+    expect(groups[1].instances.length).toBe(1);
+  });
+
+  it('sums per-group + overall monthly cost estimates', () => {
+    const { c } = make();
+    c.instances.set([
+      withApp('a', 'payload', { costEstimate: { monthlyUsd: 5, running: true } }),
+      withApp('b', 'payload', { costEstimate: { monthlyUsd: 7, running: true } }),
+    ]);
+    expect(c.groups()[0].totalMonthlyUsd).toBe(12);
+    expect(c.totalMonthlyUsd()).toBe(12);
+  });
+
+  it('counts running vs idle per group', () => {
+    const { c } = make();
+    c.instances.set([withApp('a', 'payload'), withApp('b', 'payload', { status: 'stopped' })]);
+    const g = c.groups()[0];
+    expect(g.runningCount).toBe(1);
+    expect(g.instances.length - g.runningCount).withContext('one idle').toBe(1);
+  });
+});
