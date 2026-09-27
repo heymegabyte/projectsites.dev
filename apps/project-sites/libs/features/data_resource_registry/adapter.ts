@@ -58,6 +58,13 @@ export interface ResolvedScope {
   readonly resourceId: string; // resolved from the registry (the ONLY id, server-side)
   /** How the resolved resource may be reached (drives whether a mutate verb is even offered). */
   readonly accessPolicy: ResourceAccessPolicy;
+  /**
+   * The D1 binding, present ONLY for kinds whose data lives in the platform's own D1 rather than a CF
+   * account object reachable by REST (e.g. `connection` reads `mcp_connections`). Server-attached, never
+   * caller-supplied. The CF-REST adapters (`d1`/`kv`/`r2`/`vectorize`) ignore it — they reach CF via
+   * `auth` + `resourceId`. Optional so it never widens the CF-REST adapters' contract.
+   */
+  readonly db?: D1Database;
 }
 
 /**

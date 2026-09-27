@@ -35,6 +35,7 @@ import type { Env } from '../../../src/types/env.js';
 import { dbQueryOne, dbUpdate } from '../../../src/services/db.js';
 import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 
+import { connectionAdapter } from './adapters/connection.js';
 import { d1Adapter } from './adapters/d1.js';
 import { kvAdapter } from './adapters/kv.js';
 import { r2Adapter } from './adapters/r2.js';
@@ -64,6 +65,11 @@ const IMPLEMENTED_ADAPTERS: Partial<
   // (per-site Vectorize provisioning isn't wired), so a blank site never gets a vectorize row — this map
   // entry only head-drift-checks a vectorize row if one already exists. Honest, never fabricated.
   vectorize: vectorizeAdapter,
+  // connection: read-only adapter wired. A connection is NOT a CF account object + `readAllocationSources`
+  // records NO connection allocation source, so a blank site never gets a `connection` registry row — this
+  // map entry only head-checks a connection row if one already exists. Its `head` reads `mcp_connections`
+  // via `scope.db` (attached in `scopeForRow`), not a CF REST API. Honest, never fabricated.
+  connection: connectionAdapter,
 };
 
 /** One recorded allocation: which kind, and the CF id/name the source row actually holds. */
@@ -251,6 +257,9 @@ function scopeForRow(
     accessPolicy: row.accessPolicy,
     accountId: account,
     auth,
+    // The D1 handle is used ONLY by D1-backed kinds (e.g. `connection` reads `mcp_connections`); the
+    // CF-REST adapters ignore it. Attaching it here is additive + never widens their contract.
+    db: env.DB,
     environment: row.environment,
     orgId: row.orgId,
     resourceId: row.resourceIdOrName,

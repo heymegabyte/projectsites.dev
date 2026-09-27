@@ -248,6 +248,36 @@ export const DataVectorizeDescribeInput = z
   })
   .strict();
 
+/**
+ * `data_connections_list` — list the OWNED site's outbound connections to EXTERNAL providers (Hyperdrive /
+ * external DB + `mcp_connections` OAuth/paste-key links), MCP parity with the Data tab's Connections
+ * surface. A caller names ONLY the OWNED `site_id` plus the optional environment. `.strict()` rejects any
+ * attempt to smuggle a connection id or a secret. Ownership + isolation + `per_site_connections` flag-gate
+ * are enforced server-side in the dispatcher, mirroring the per-site D1/KV/R2/Vectorize surfaces. Returns
+ * id/name/type/MASKED host/status ONLY — ⛔ NEVER a token, password, or connection string.
+ */
+export const DataConnectionsListInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_connection_describe` — read ONE connection's SECRET-FREE metadata (id/name/type/MASKED host/status)
+ * from the OWNED site's connections. A caller names ONLY the OWNED `site_id` + the connection `id` (scoped
+ * to the site — a foreign connection can't be read even if its id is guessed) plus the optional
+ * environment. `.strict()` rejects unknown keys. ⛔ Returns metadata ONLY — never a token, password, or
+ * connection string. A missing id is an honest `found:false`, never an error.
+ */
+export const DataConnectionDescribeInput = z
+  .object({
+    site_id: z.string().min(1),
+    id: z.string().min(1).max(256),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
 export type ListSitesArgs = z.infer<typeof ListSitesInput>;
 export type GetSiteArgs = z.infer<typeof GetSiteInput>;
 export type BuildStatusArgs = z.infer<typeof BuildStatusInput>;
@@ -264,3 +294,5 @@ export type DataR2ListObjectsArgs = z.infer<typeof DataR2ListObjectsInput>;
 export type DataR2HeadObjectArgs = z.infer<typeof DataR2HeadObjectInput>;
 export type DataVectorizeListArgs = z.infer<typeof DataVectorizeListInput>;
 export type DataVectorizeDescribeArgs = z.infer<typeof DataVectorizeDescribeInput>;
+export type DataConnectionsListArgs = z.infer<typeof DataConnectionsListInput>;
+export type DataConnectionDescribeArgs = z.infer<typeof DataConnectionDescribeInput>;

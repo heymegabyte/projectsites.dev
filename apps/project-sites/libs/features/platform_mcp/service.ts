@@ -31,6 +31,7 @@ import { listResources, resolveResourceRef } from '../data_resource_registry/ser
 import { kvAdapter } from '../data_resource_registry/adapters/kv.js';
 import { r2Adapter } from '../data_resource_registry/adapters/r2.js';
 import { vectorizeAdapter } from '../data_resource_registry/adapters/vectorize.js';
+import { connectionAdapter } from '../data_resource_registry/adapters/connection.js';
 import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 import {
   ListSitesInput,
@@ -49,6 +50,8 @@ import {
   DataR2HeadObjectInput,
   DataVectorizeListInput,
   DataVectorizeDescribeInput,
+  DataConnectionsListInput,
+  DataConnectionDescribeInput,
 } from './schemas.js';
 
 /** Flag gating the Data & Resource Platform MCP tools (registry read surface). */
@@ -89,6 +92,18 @@ const PER_SITE_R2_FLAG = 'per_site_r2';
  * `isFlagOn(env,'x')` strings, does not require a registry row).
  */
 const PER_SITE_VECTORIZE_FLAG = 'per_site_vectorize';
+
+/**
+ * Flag gating the per-site Connections READ tools — the reserved `per_site_connections` flag
+ * (CAPABILITY-MATRIX.md / SECURITY-INVARIANTS.md). DARK → the tools err (mirroring the Data-tab Connections
+ * surface's 404), never leak. A connection is NOT a CF account object (it lives in `mcp_connections`); a
+ * blank site simply has no connection rows → the tools honestly report zero connections. Mirrors
+ * `PER_SITE_R2_FLAG` exactly — a runtime gate CONSTANT (referenced via the constant, so the
+ * orphan-flag-gate checker, which only scans literal `isFlagOn(env,'x')` strings, does not require a
+ * registry row). ⛔ These tools NEVER return a secret/token/connection-string — only id/name/type/
+ * masked-host/status.
+ */
+const PER_SITE_CONNECTIONS_FLAG = 'per_site_connections';
 
 /** Mirrors DOMAINS.SITES_SUFFIX — the public site subdomain suffix. */
 const SITES_SUFFIX = '.projectsites.dev';
@@ -480,6 +495,37 @@ export const PLATFORM_MCP_TOOLS = [
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_connections_list',
+    description:
+      "List your site's OWN outbound connections to EXTERNAL providers (Hyperdrive / external database + OAuth/paste-key integrations like Stripe, HubSpot, GitHub, Slack — the same connections the editor's Data tab shows). Returns each connection's { id, name, type, maskedHost, status, connectedAt } — id, provider/engine type, a MASKED host, and health/status ONLY. NEVER a password, token, or connection string (those are encrypted at rest and never returned). Scoped to the site_id you own. Honest empty (count 0) until your site has a connection.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_connection_describe',
+    description:
+      "Read ONE connection's metadata (id, name, type, MASKED host, status, timestamps) from your site's OWN connections. Returns { found, connection:{ id, name, type, maskedHost, status, ... }, secretsRedacted:true } — metadata ONLY, NEVER a password, token, or connection string. A missing connection is an honest found:false. Scoped to the site_id you own; a connection outside your site is never returned even if its id is guessed.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        id: { type: 'string', maxLength: 256 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'id'],
       additionalProperties: false,
     },
   },
@@ -1198,6 +1244,87 @@ export async function dispatchPlatformTool(
         count: result.data?.vectors.length ?? 0,
         vectors: result.data?.vectors ?? [],
         metadataOnly: true,
+      });
+    }
+
+    case 'data_connections_list': {
+      // Flag-gated on the reserved per_site_connections flag (dark → err, mirroring the Data-tab 404).
+      if (
+        !(await isFlagOn(env, PER_SITE_CONNECTIONS_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site connections are not enabled for this account.');
+      }
+      const { site_id, environment } = DataConnectionsListInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. A connection is NOT a CF object —
+      // no resolveResourceRef; the adapter reads mcp_connections via env.DB, filtered to the OWNED site id.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      // The site id IS the scope's resourceId for connections; env.DB is attached server-side.
+      const result = await connectionAdapter.list({
+        accessPolicy: 'read_only',
+        accountId: env.CF_ACCOUNT_ID ?? '',
+        auth: undefined as never,
+        db,
+        environment,
+        orgId,
+        resourceId: site_id,
+        siteId: site_id,
+      });
+      if (!result.ok) return err(result.error?.message ?? 'Could not read the site connections.');
+      // ⛔ Only secret-free fields cross the boundary — the adapter never surfaces a secret column.
+      return ok({
+        site_id,
+        environment,
+        count: result.data?.count ?? 0,
+        connections: result.data?.connections ?? [],
+      });
+    }
+
+    case 'data_connection_describe': {
+      if (
+        !(await isFlagOn(env, PER_SITE_CONNECTIONS_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site connections are not enabled for this account.');
+      }
+      const { site_id, id, environment } = DataConnectionDescribeInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      // The adapter binds BOTH the owned site id AND the connection id, so a foreign connection is never
+      // returned even if its id is guessed. METADATA ONLY — never a token/password/connection-string.
+      const result = await connectionAdapter.get(
+        {
+          accessPolicy: 'read_only',
+          accountId: env.CF_ACCOUNT_ID ?? '',
+          auth: undefined as never,
+          db,
+          environment,
+          orgId,
+          resourceId: site_id,
+          siteId: site_id,
+        },
+        { id },
+      );
+      if (!result.ok) return err(result.error?.message ?? 'Could not read the connection.');
+      return ok({
+        site_id,
+        environment,
+        found: result.data?.found ?? false,
+        connection: result.data?.connection,
+        secretsRedacted: true,
       });
     }
 
