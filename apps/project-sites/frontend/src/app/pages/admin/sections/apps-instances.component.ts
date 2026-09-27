@@ -798,14 +798,49 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
                   </label>
                 }
               </div>
+
+              <!-- Owner-added custom env vars — the ONLY env editor for CF-native apps (no fixed
+                   catalog env), and extra vars for container apps. Saved keys inject into the
+                   Worker/container on save. -->
+              <div class="env-custom">
+                @if (customEnv().length === 0) {
+                  <p class="text-[0.74rem] text-text-secondary m-0">No custom variables yet.</p>
+                }
+                @for (row of customEnv(); track $index) {
+                  <div class="env-custom-row">
+                    <input type="text" hlmInput class="font-mono text-xs" placeholder="KEY"
+                           [ngModel]="row.key" (ngModelChange)="setEnvKey($index, $event)"
+                           [attr.aria-label]="'Env var name ' + ($index + 1)"
+                           [attr.data-testid]="'env-custom-key-' + $index" />
+                    <input type="text" hlmInput class="font-mono text-xs" maxlength="8000" placeholder="value"
+                           [ngModel]="row.value" (ngModelChange)="setEnvValue($index, $event)"
+                           [attr.aria-label]="'Env var value ' + ($index + 1)"
+                           [attr.data-testid]="'env-custom-val-' + $index" />
+                    <button class="btn-tiny env-remove" type="button" (click)="removeEnvRow($index)"
+                            [attr.aria-label]="'Remove env var ' + ($index + 1)">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                    </button>
+                  </div>
+                }
+                <button class="btn-ghost btn-add-env mt-2" type="button" (click)="addEnvRow()" data-testid="env-add-row">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                  Add variable
+                </button>
+                @if (invalidEnvKeys()) {
+                  <p class="text-[0.72rem] m-0 mt-2" style="color: var(--ps-warning, #ffb454);" role="alert">
+                    Names must start with a letter or underscore (A–Z, 0–9, _ only).
+                  </p>
+                }
+              </div>
+
               @if (requiredEnvMissing().length) {
                 <p class="text-[0.72rem] m-0 mt-2" style="color: var(--ps-warning, #ffb454);" role="alert" data-testid="env-required-hint">
                   Required before restart: {{ requiredEnvMissing().join(', ') }}
                 </p>
               }
               <button class="btn-primary mt-3" type="button" (click)="saveEnv()"
-                      [disabled]="busy() || requiredEnvMissing().length > 0"
-                      [attr.aria-disabled]="busy() || requiredEnvMissing().length > 0">
+                      [disabled]="busy() || requiredEnvMissing().length > 0 || invalidEnvKeys()"
+                      [attr.aria-disabled]="busy() || requiredEnvMissing().length > 0 || invalidEnvKeys()">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
                 Save &amp; restart
               </button>
@@ -993,6 +1028,19 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
     }
     /* .input-field removed — the lone env-value field now uses hlmInput (Spartan). */
 
+    .env-custom { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+    .env-custom-row {
+      display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr) 30px;
+      gap: 6px; align-items: center;
+    }
+    .env-remove {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 30px; height: 30px; padding: 0;
+      color: rgba(255,255,255,0.55);
+    }
+    .env-remove:hover { color: #fca5a5; }
+    .btn-add-env { align-self: flex-start; }
+
     .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
     @media (max-width: 540px) { .meta-grid { grid-template-columns: 1fr; } }
     .meta-cell {
@@ -1109,8 +1157,28 @@ export class AppInstanceDetailComponent implements OnInit, OnDestroy {
   joinedLogs = computed<string>(() => this.logs().map((l) => this.formatLog(l)).join(''));
 
   envValues: Record<string, string> = {};
+  /** Owner-added custom env vars (key+value rows) — for apps with no fixed catalog env
+   *  (e.g. CF-native Payload). Merged into env_overrides on save. */
+  customEnv = signal<Array<{ key: string; value: string }>>([]);
 
   private pollHandle?: ReturnType<typeof setInterval>;
+
+  addEnvRow(): void {
+    this.customEnv.update((rows) => [...rows, { key: '', value: '' }]);
+  }
+  removeEnvRow(idx: number): void {
+    this.customEnv.update((rows) => rows.filter((_, i) => i !== idx));
+  }
+  setEnvKey(idx: number, key: string): void {
+    this.customEnv.update((rows) => rows.map((r, i) => (i === idx ? { ...r, key } : r)));
+  }
+  setEnvValue(idx: number, value: string): void {
+    this.customEnv.update((rows) => rows.map((r, i) => (i === idx ? { ...r, value } : r)));
+  }
+  /** True when any custom row has a key that isn't a valid env identifier (blocks save). */
+  invalidEnvKeys = computed(() =>
+    this.customEnv().some((r) => r.key.trim() !== '' && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(r.key.trim())),
+  );
 
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id') ?? '';
@@ -1141,6 +1209,16 @@ export class AppInstanceDetailComponent implements OnInit, OnDestroy {
         if (inst?.env_keys) {
           for (const k of inst.env_keys) {
             if (!(k in this.envValues)) this.envValues[k] = '';
+          }
+          // CF-native (no fixed catalog env) → seed editable custom-var rows from the server
+          // keys (values stay blank; secrets are never surfaced). Skip PAYLOAD_SECRET (internal)
+          // + any catalog-defined key. Values re-entered here are re-injected on save.
+          if (this.catalogApp()?.image?.startsWith('cf-native:')) {
+            const catalogKeys = new Set((this.catalogApp()?.env ?? []).map((e) => e.key));
+            const rows = inst.env_keys
+              .filter((k) => k !== 'PAYLOAD_SECRET' && !catalogKeys.has(k))
+              .map((k) => ({ key: k, value: '' }));
+            if (rows.length && this.customEnv().length === 0) this.customEnv.set(rows);
           }
         }
       },
@@ -1307,8 +1385,18 @@ export class AppInstanceDetailComponent implements OnInit, OnDestroy {
       this.toast.error(`Fill required env before restart: ${missing.join(', ')}`);
       return;
     }
+    if (this.invalidEnvKeys()) {
+      this.toast.error('Env var names must start with a letter/underscore and contain only letters, numbers, underscores.');
+      return;
+    }
+    // Merge owner-added custom rows (non-empty keys) over the catalog values.
+    const overrides: Record<string, string> = { ...this.envValues };
+    for (const r of this.customEnv()) {
+      const key = r.key.trim();
+      if (key) overrides[key] = r.value;
+    }
     this.busy.set(true); this.busyLabel.set('Saving…');
-    this.api.patch(`/apps/instances/${i.id}/env`, { env_overrides: this.envValues }).subscribe({
+    this.api.patch(`/apps/instances/${i.id}/env`, { env_overrides: overrides }).subscribe({
       next: () => { this.busy.set(false); this.busyLabel.set(''); this.toast.success(this.catalogApp()?.image?.startsWith('cf-native:') ? 'Env saved — redeploying Worker' : 'Env saved — restarting container'); this.load(); },
       error: () => { this.busy.set(false); this.busyLabel.set(''); },
     });
