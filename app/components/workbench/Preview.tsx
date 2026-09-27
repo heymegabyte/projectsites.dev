@@ -133,7 +133,17 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
    * finished site is actually served at — not the throwaway WebContainer origin.
    */
   const siteSlug = useStore(siteSlugAtom);
-  const primaryUrl = primarySiteUrl(siteSlug);
+  /*
+   * Fall back to the `?slug=` query the admin opens the editor with (bootForSite
+   * always sets it) so the primary domain shows in the toolbar even before the
+   * store atom is published by Chat.client — otherwise the address bar renders
+   * only the path with no domain until the embed messages arrive.
+   */
+  const querySlug =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('slug') ?? undefined
+      : undefined;
+  const primaryUrl = primarySiteUrl(siteSlug ?? querySlug);
   const primaryHost = primaryUrl?.replace(/^https?:\/\//, '');
 
   /*

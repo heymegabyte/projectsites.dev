@@ -36,13 +36,28 @@ interface AppInstance {
   readonly created_at: string;
   readonly last_activity_at: string | null;
   readonly env_keys?: ReadonlyArray<string>;
-  /** Decrypted env values (admin-only, from the detail GET) — loaded MASKED into the editor so a
-   *  persisted secret shows as dots (unmaskable), never as an empty field. */
-  readonly env?: Readonly<Record<string, string>>;
   /** A2 — live metered monthly-cost estimate from the worker (running-state + provisioned infra). */
   readonly costEstimate?: { readonly monthlyUsd: number; readonly running: boolean };
   /** A3 — last container error, surfaced so a crash isn't a silent white screen. */
   readonly last_error?: string | null;
+  /** Decrypted env values (admin-only, from the detail GET) — loaded MASKED into the editor so a
+   *  persisted secret shows as dots (unmaskable), never as an empty field. */
+  readonly env?: Readonly<Record<string, string>>;
+}
+
+/**
+ * A group of instances of the SAME app (e.g. every Payload CMS instance), rendered
+ * as ONE encapsulated card with an inner table of instances + per-instance actions.
+ * Grouping keeps the list scannable when an org runs several of the same app.
+ */
+interface InstanceGroup {
+  readonly app_id: string;
+  readonly name: string;
+  readonly glyph: string;
+  readonly instances: readonly AppInstance[];
+  readonly runningCount: number;
+  readonly totalMonthlyUsd: number;
+  readonly anyProvisioning: boolean;
 }
 
 interface LogLine {
@@ -73,8 +88,6 @@ function adaptInstance(row: Record<string, unknown>): AppInstance {
     created_at: String(row['created_at'] ?? ''),
     last_activity_at: (row['last_started_at'] ?? row['last_activity_at'] ?? null) as string | null,
     env_keys: env && typeof env === 'object' ? Object.keys(env as object) : undefined,
-    env:
-      env && typeof env === 'object' ? (env as Record<string, string>) : undefined,
     costEstimate: adaptCostEstimate(row['costEstimate']),
     last_error: typeof row['last_error'] === 'string' ? (row['last_error'] as string) : null,
   };
@@ -92,7 +105,6 @@ function adaptCostEstimate(
 
 const STATUS_META: Readonly<Record<InstanceStatus, { label: string; color: string }>> = {
   provisioning: { label: 'Provisioning', color: '#fbbf24' },
-  starting:     { label: 'Starting',     color: '#fbbf24' },
   running:      { label: 'Running',      color: '#34d399' },
   error:        { label: 'Error',        color: '#fca5a5' },
   stopped:      { label: 'Stopped',      color: 'rgba(255,255,255,0.5)' },
@@ -132,65 +144,35 @@ export class AppsInstancesCache {
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
-      <header class="apps-head" appReveal>
-        <div class="apps-head-main">
-          <div class="kicker">App store · Instances</div>
-          <h2 class="apps-title">
-            <span class="apps-title-glyph" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-            </span>
+      <header class="flex items-start justify-between gap-3 flex-wrap" appReveal>
+        <div>
+          <div class="kicker">App store</div>
+          <h2 class="section-h text-lg font-bold text-white m-0 mt-1 flex items-center gap-2">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="text-accent"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
             App Instances
+            @if (runningCount() > 0) {
+              <span class="header-pill" aria-label="Running instances">
+                <span class="header-pill-dot" aria-hidden="true"></span>
+                {{ runningCount() }} running
+              </span>
+            }
           </h2>
-          <p class="apps-sub">
-            Self-hosted services running on Cloudflare for this org — launch, restart, stop, or destroy any time.
+          <p class="text-[0.78rem] text-text-secondary m-0 mt-1 max-w-prose leading-relaxed">
+            Self-hosted services deployed for this org. Restart, stop, or destroy from the ⋯ menu.
           </p>
         </div>
-        <a class="btn-primary apps-cta" routerLink="/admin/apps">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          <span>Deploy new app</span>
-        </a>
+        <div class="flex items-center gap-3">
+          <a class="btn-primary" routerLink="/admin/apps">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            <span>Deploy new app</span>
+          </a>
+        </div>
       </header>
 
-      @if (!loading() && !loadError() && instances().length > 0) {
-        <div class="stat-bar" appReveal aria-label="Instance summary">
-          <div class="stat-tile">
-            <span class="stat-num">{{ totalCount() }}</span>
-            <span class="stat-lbl">Total apps</span>
-          </div>
-          <div class="stat-tile stat-tile--ok" [class.is-zero]="runningCount() === 0">
-            <span class="stat-num"><span class="stat-dot" aria-hidden="true"></span>{{ runningCount() }}</span>
-            <span class="stat-lbl">Running</span>
-          </div>
-          @if (provisioningCount() > 0) {
-            <div class="stat-tile stat-tile--warn">
-              <span class="stat-num">{{ provisioningCount() }}</span>
-              <span class="stat-lbl">Provisioning</span>
-            </div>
-          }
-          @if (stoppedCount() > 0) {
-            <div class="stat-tile stat-tile--muted">
-              <span class="stat-num">{{ stoppedCount() }}</span>
-              <span class="stat-lbl">Stopped</span>
-            </div>
-          }
-          @if (errorCount() > 0) {
-            <div class="stat-tile stat-tile--err">
-              <span class="stat-num">{{ errorCount() }}</span>
-              <span class="stat-lbl">Errored</span>
-            </div>
-          }
-          <div class="stat-tile stat-tile--cost">
-            <span class="stat-num">~\${{ totalMonthlyCost() }}<span class="stat-unit">/mo</span></span>
-            <span class="stat-lbl">Est. spend</span>
-          </div>
-        </div>
-      }
-
       @if (loading() && instances().length === 0) {
-        <div class="instance-list" role="status" aria-live="polite" aria-busy="true" aria-label="Loading instances">
+        <div class="space-y-2" role="status" aria-live="polite" aria-busy="true" aria-label="Loading instances">
           @for (i of [0,1,2]; track i) {
-            <div class="inst-card skel-row">
-              <span class="inst-rail" aria-hidden="true"></span>
+            <div class="instance-row skel-row">
               <div class="skel skel-glyph"></div>
               <div class="flex-1 space-y-2">
                 <div class="skel skel-line w-32"></div>
@@ -209,108 +191,111 @@ export class AppsInstancesCache {
       } @else if (instances().length === 0) {
         <app-empty-state
           icon="🚀"
-          title="No apps running yet"
-          body="Launch a self-hosted service — Payload CMS, Umami, Listmonk, Open WebUI and more — on Cloudflare in a couple of minutes. Delete anytime; nothing lingers."
+          title="No app instances yet"
+          body="Deploy your first self-hosted app — Umami, Outline, Mattermost, n8n, and 30+ others available."
           primary="Browse the app store"
           (primaryClick)="goToCatalog()"
         />
       } @else {
-        <div class="instance-list">
-          @for (inst of instances(); track inst.id) {
-            <a class="inst-card"
-               appReveal
-               [attr.data-status]="inst.status"
-               [style.--rail]="statusColor(inst.status)"
-               [routerLink]="['/admin/apps/instances', inst.id]"
-               [attr.data-testid]="'apps-instance-' + inst.id">
-              <span class="inst-rail" aria-hidden="true"></span>
-              <div class="inst-glyph" aria-hidden="true">
-                @if (logoFor(inst); as lg) {
-                  <img class="inst-logo" [src]="lg" [alt]="nameFor(inst) + ' logo'" loading="lazy" decoding="async" />
-                } @else {
-                  {{ glyphFor(inst) }}
-                }
-              </div>
-              <div class="inst-main">
-                <div class="inst-name-row">
-                  <span class="inst-name">{{ nameFor(inst) }}</span>
-                  <span class="inst-cat">{{ categoryFor(inst) }}</span>
+        <!-- Aggregate strip — totals across every group. -->
+        <div class="agg-strip" appReveal>
+          <span class="agg-cell"><b class="agg-num">{{ instances().length }}</b> instance{{ instances().length === 1 ? '' : 's' }}</span>
+          <span class="agg-cell agg-groups"><b class="agg-num">{{ groups().length }}</b> app{{ groups().length === 1 ? '' : 's' }}</span>
+          @if (runningCount() > 0) {
+            <span class="agg-cell agg-running"><span class="agg-run-dot" aria-hidden="true"></span><b class="agg-num">{{ runningCount() }}</b> running</span>
+          }
+          @if (totalMonthlyUsd() > 0) {
+            <span class="agg-cell agg-cost"><b class="agg-num">{{ '~$' + totalMonthlyUsd() }}</b><span class="cost-unit">/mo est.</span></span>
+          }
+        </div>
+
+        <!-- One encapsulated card PER APP; instances of the same app are grouped
+             into an inner table with per-instance action buttons (no popup menu →
+             nothing can be clipped by the scroll container). -->
+        <div class="group-list">
+          @for (group of groups(); track group.app_id) {
+            <section class="group-card" appReveal [attr.data-testid]="'apps-group-' + group.app_id">
+              <span class="group-accent" aria-hidden="true"></span>
+              <header class="group-head">
+                <div class="group-glyph" aria-hidden="true">{{ group.glyph }}</div>
+                <div class="group-headmain">
+                  <h3 class="group-name">
+                    <span class="group-name-text">{{ group.name }}</span>
+                    <span class="group-count" [attr.aria-label]="group.instances.length + ' instances'">{{ group.instances.length }}</span>
+                  </h3>
+                  <div class="group-sub">
+                    @if (group.runningCount > 0) {
+                      <span class="group-run"><span class="group-run-dot" aria-hidden="true"></span>{{ group.runningCount }} running</span>
+                    }
+                    @if (group.instances.length - group.runningCount > 0) {
+                      <span class="group-idle">{{ group.instances.length - group.runningCount }} idle</span>
+                    }
+                    @if (group.totalMonthlyUsd > 0) {
+                      <span class="group-cost">{{ '~$' + group.totalMonthlyUsd }}<span class="cost-unit">/mo</span></span>
+                    }
+                  </div>
                 </div>
-                <a class="inst-host"
-                   [href]="hostUrl(inst)"
-                   target="_blank"
-                   rel="noopener noreferrer"
-                   (click)="$event.stopPropagation()"
-                   [attr.aria-label]="'Open ' + inst.hostname">
-                  {{ inst.hostname }}
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+                <a class="btn-deploy-another"
+                   [routerLink]="['/admin/apps', group.app_id]"
+                   [attr.aria-label]="'Deploy another ' + group.name">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                  <span class="dep-label">Deploy another</span>
                 </a>
-                @if (inst.status === 'error' && inst.last_error) {
-                  <span class="inst-error" role="status" [title]="inst.last_error"
-                        aria-label="Last error: {{ inst.last_error }}">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
-                    {{ inst.last_error }}
-                  </span>
-                }
-              </div>
-              <div class="inst-meta">
-                <span class="status-pill" [attr.data-status]="inst.status" [style.--pill-color]="statusColor(inst.status)">
-                  <span class="status-dot" aria-hidden="true"></span>
-                  {{ statusLabel(inst.status) }}
-                </span>
-                <span class="inst-chips">
-                  <span class="inst-chip" [title]="inst.last_activity_at ? 'Last activity' : 'Created'">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-                    {{ (inst.last_activity_at || inst.created_at) | date:'MMM d' }}
-                  </span>
-                  @if (inst.costEstimate; as ce) {
-                    <span class="inst-chip inst-chip--cost"
-                          title="Live estimate (running state + provisioned infra) — not exact billing">
-                      ~\${{ ce.monthlyUsd }}<span class="cost-unit" aria-hidden="true">/mo</span>
+              </header>
+
+              <div class="inst-table" role="table" [attr.aria-label]="group.name + ' instances'">
+                @for (inst of group.instances; track inst.id) {
+                  <div class="inst-line" role="row" [attr.data-testid]="'apps-instance-' + inst.id" [attr.data-status]="inst.status">
+                    <a class="inst-host" role="cell"
+                       [href]="hostUrl(inst)" target="_blank" rel="noopener noreferrer"
+                       [attr.aria-label]="'Open ' + inst.hostname">
+                      <span class="host-text">{{ inst.hostname }}</span>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+                    </a>
+                    <span class="status-pill" role="cell" [attr.data-status]="inst.status" [style.--pill-color]="statusColor(inst.status)">
+                      <span class="status-dot" aria-hidden="true"></span>
+                      {{ statusLabel(inst.status) }}
                     </span>
-                  }
-                </span>
-              </div>
-              <span class="row-menu-wrap" (click)="$event.preventDefault(); $event.stopPropagation()">
-                <button class="row-menu"
-                        type="button"
-                        (click)="toggleMenu(inst, $event)"
-                        [attr.aria-label]="'Actions for ' + nameFor(inst)"
-                        [attr.aria-expanded]="menuOpenId() === inst.id"
-                        title="Actions">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
-                </button>
-                @if (menuOpenId() === inst.id) {
-                  <div class="row-menu-pop" role="menu">
-                    <button class="row-menu-item" role="menuitem" type="button" (click)="openDetail(inst)">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-                      Open detail
-                    </button>
-                    @if (inst.status === 'stopped') {
-                      <button class="row-menu-item" role="menuitem" type="button" [disabled]="acting() === inst.id" (click)="restartInstance(inst)">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg>
-                        Start
+                    <span class="inst-cost" role="cell">
+                      @if (inst.costEstimate; as ce) {
+                        <span [attr.aria-label]="'Estimated cost ' + ce.monthlyUsd + ' dollars per month'"
+                              title="Live estimate from running state + provisioned infra (not exact billing)">{{ '~$' + ce.monthlyUsd }}<span class="cost-unit" aria-hidden="true">/mo</span></span>
+                      }
+                    </span>
+                    <span class="inst-activity" role="cell">
+                      @if (inst.last_activity_at) { {{ inst.last_activity_at | date:'short' }} }
+                      @else { {{ inst.created_at | date:'short' }} }
+                    </span>
+                    <span class="inst-actions" role="cell">
+                      <a class="act-btn" [routerLink]="['/admin/apps/instances', inst.id]"
+                         title="Open detail" [attr.aria-label]="'Open detail for ' + inst.hostname">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                      </a>
+                      @if (inst.status === 'running' || inst.status === 'error') {
+                        <button class="act-btn" type="button" [disabled]="acting() === inst.id"
+                                (click)="restartInstance(inst)" title="Restart" [attr.aria-label]="'Restart ' + inst.hostname">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/></svg>
+                        </button>
+                      }
+                      @if (inst.status === 'running') {
+                        <button class="act-btn" type="button" [disabled]="acting() === inst.id"
+                                (click)="stopInstance(inst)" title="Stop" [attr.aria-label]="'Stop ' + inst.hostname">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+                        </button>
+                      }
+                      <button class="act-btn act-danger" type="button" [disabled]="acting() === inst.id"
+                              (click)="deleteInstance(inst)" title="Delete" [attr.aria-label]="'Delete ' + inst.hostname">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
                       </button>
-                    } @else if (inst.status === 'running' || inst.status === 'error') {
-                      <button class="row-menu-item" role="menuitem" type="button" [disabled]="acting() === inst.id" (click)="restartInstance(inst)">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/></svg>
-                        Restart
-                      </button>
+                    </span>
+                    @if (inst.status === 'error' && inst.last_error) {
+                      <span class="inst-error-line" role="cell" [title]="inst.last_error"
+                            [attr.aria-label]="'Last error: ' + inst.last_error">⚠ {{ inst.last_error }}</span>
                     }
-                    @if (inst.status === 'running') {
-                      <button class="row-menu-item" role="menuitem" type="button" [disabled]="acting() === inst.id" (click)="stopInstance(inst)">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
-                        Stop
-                      </button>
-                    }
-                    <button class="row-menu-item row-menu-danger" role="menuitem" type="button" [disabled]="acting() === inst.id" (click)="deleteInstance(inst)">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
-                      Delete
-                    </button>
                   </div>
                 }
-              </span>
-            </a>
+              </div>
+            </section>
           }
         </div>
       }
@@ -339,190 +324,95 @@ export class AppsInstancesCache {
       background: #34d399; box-shadow: 0 0 6px rgba(52,211,153,0.7);
     }
 
-    /* ─── Header ─── */
-    .apps-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-    .apps-head-main { min-width: 0; }
-    .apps-title {
-      display: flex; align-items: center; gap: 10px; margin: 6px 0 0 0;
-      font-family: 'Sora', system-ui, sans-serif; font-weight: 800;
-      font-size: clamp(1.25rem, 3vw, 1.6rem); letter-spacing: -0.02em; color: #fff;
-    }
-    .apps-title-glyph {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 34px; height: 34px; border-radius: 10px; color: var(--ps-accent, #00E5FF);
-      background: color-mix(in oklch, var(--ps-accent, #00E5FF) 12%, transparent);
-      border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 28%, transparent);
-    }
-    .apps-sub {
-      margin: 8px 0 0 0; max-width: 62ch; line-height: 1.55;
-      font-size: 0.82rem; color: rgba(255,255,255,0.62);
-    }
-    .apps-cta { align-self: center; }
-
-    /* ─── Stat summary bar ─── */
-    .stat-bar {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 10px;
-    }
-    .stat-tile {
-      display: flex; flex-direction: column; gap: 3px;
-      padding: 0.8rem 0.95rem; border-radius: var(--ps-radius-lg, 14px);
-      background: var(--ps-surface-1, rgba(13,13,40,0.62));
-      border: 1px solid rgba(255,255,255,0.07);
-      position: relative; overflow: hidden;
-    }
-    .stat-tile::before {
-      content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
-      background: var(--tile, rgba(255,255,255,0.18));
-    }
-    .stat-num {
-      display: inline-flex; align-items: center; gap: 7px;
-      font-family: 'Sora', system-ui, sans-serif; font-weight: 800;
-      font-size: 1.5rem; letter-spacing: -0.02em; color: #fff; line-height: 1;
-    }
-    .stat-lbl {
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
-      font-size: 0.6rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
-      color: rgba(255,255,255,0.5);
-    }
-    .stat-unit { font-size: 0.8rem; font-weight: 600; color: rgba(255,255,255,0.5); }
-    .stat-tile--ok { --tile: #34d399; }
-    .stat-tile--ok .stat-num { color: #6ee7b7; }
-    .stat-tile--ok.is-zero .stat-num { color: #fff; }
-    .stat-tile--ok .stat-dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; box-shadow: 0 0 8px rgba(52,211,153,0.8); }
-    .stat-tile--ok.is-zero .stat-dot { background: rgba(255,255,255,0.3); box-shadow: none; }
-    .stat-tile--warn { --tile: #fbbf24; }
-    .stat-tile--warn .stat-num { color: #fcd34d; }
-    .stat-tile--muted { --tile: rgba(255,255,255,0.4); }
-    .stat-tile--err { --tile: #f87171; }
-    .stat-tile--err .stat-num { color: #fca5a5; }
-    .stat-tile--cost { --tile: var(--ps-accent, #00E5FF); }
-    .stat-tile--cost .stat-num { color: var(--ps-accent, #00E5FF); }
-
-    /* ─── Instance cards ─── */
-    .instance-list { display: flex; flex-direction: column; gap: 10px; }
-    .inst-card {
-      position: relative;
+    .instance-list { display: flex; flex-direction: column; gap: 8px; }
+    .instance-row {
       display: grid;
-      grid-template-columns: 48px minmax(160px, 1fr) auto 34px;
+      grid-template-columns: 44px minmax(180px, 1fr) auto auto 32px;
       gap: 1rem; align-items: center;
-      padding: 0.9rem 1rem 0.9rem 1.35rem;
+      padding: 0.85rem 1rem;
       background: var(--ps-surface-1, rgba(13,13,40,0.62));
-      border: 1px solid rgba(255,255,255,0.07);
-      border-radius: var(--ps-radius-lg, 16px);
-      text-decoration: none; color: inherit; overflow: hidden;
-      transition: border-color 180ms ease, background 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: var(--ps-radius-lg, 14px);
+      text-decoration: none; color: inherit;
+      transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
     }
-    /* status-color accent rail down the left edge */
-    .inst-rail {
-      position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
-      background: var(--rail, rgba(255,255,255,0.25));
-      box-shadow: 0 0 14px -2px var(--rail, transparent);
+    .instance-row:hover {
+      border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 24%, transparent);
+      background: color-mix(in oklch, var(--ps-accent, #00E5FF) 3%, var(--ps-surface-1, rgba(13,13,40,0.62)));
+      transform: translateY(-1px);
     }
-    .inst-card:hover {
-      border-color: color-mix(in oklch, var(--rail, var(--ps-accent, #00E5FF)) 45%, transparent);
-      background: color-mix(in oklch, var(--rail, var(--ps-accent, #00E5FF)) 5%, var(--ps-surface-1, rgba(13,13,40,0.62)));
-      transform: translateY(-2px);
-      box-shadow: 0 16px 40px -22px color-mix(in oklch, var(--rail, #00E5FF) 60%, black);
+    .instance-row:focus-visible {
+      outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px;
     }
-    .inst-card:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
     @media (prefers-reduced-motion: reduce) {
-      .inst-card { transition: none; }
-      .inst-card:hover { transform: none; }
+      .instance-row { transition: none; }
+      .instance-row:hover { transform: none; }
+    }
+    @media (max-width: 760px) {
+      .instance-row {
+        grid-template-columns: 36px 1fr auto;
+        grid-template-rows: auto auto;
+        row-gap: 4px;
+      }
+      .inst-activity, .row-menu { grid-column: 2 / -1; justify-self: end; }
     }
 
     .inst-glyph {
-      width: 48px; height: 48px; overflow: hidden;
+      width: 44px; height: 44px;
       display: inline-flex; align-items: center; justify-content: center;
-      font-size: 1.5rem; line-height: 1;
+      font-size: 1.35rem; line-height: 1;
       background: color-mix(in oklch, var(--ps-accent, #00E5FF) 8%, transparent);
       border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 18%, transparent);
-      border-radius: var(--ps-radius-sm, 12px);
+      border-radius: var(--ps-radius-sm, 10px);
     }
-    .inst-logo { width: 58%; height: 58%; object-fit: contain; display: block; }
     .inst-main { min-width: 0; }
-    .inst-name-row { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
     .inst-name {
       font-family: 'Sora', system-ui, sans-serif;
       font-weight: 700; color: var(--ps-ink, #fff);
-      font-size: 0.9rem; letter-spacing: -0.01em;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
-    }
-    .inst-cat {
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
-      font-size: 0.56rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
-      color: rgba(255,255,255,0.55);
-      padding: 1px 7px; border-radius: 999px;
-      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+      font-size: 0.86rem; letter-spacing: -0.01em;
     }
     .inst-host {
       display: inline-flex; align-items: center; gap: 4px;
       font-family: 'JetBrains Mono', ui-monospace, monospace;
       font-size: 0.7rem;
       color: var(--ps-accent, #00E5FF);
-      text-decoration: none; margin-top: 3px; max-width: 100%;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      text-decoration: none; margin-top: 2px;
       transition: opacity 140ms ease;
     }
     .inst-host:hover { opacity: 0.78; text-decoration: underline; }
-    .inst-error {
-      display: inline-flex; align-items: center; gap: 5px; margin-top: 5px;
-      font-size: 0.66rem; color: #fca5a5; max-width: 100%;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-
-    .inst-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-    .inst-chips { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-    .inst-chip {
-      display: inline-flex; align-items: center; gap: 4px;
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
-      font-size: 0.62rem; color: rgba(255,255,255,0.55);
-      padding: 2px 7px; border-radius: 999px;
-      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
-      white-space: nowrap;
-    }
-    .inst-chip svg { opacity: 0.7; }
-    .inst-chip--cost { color: color-mix(in oklch, var(--ps-accent, #00E5FF) 85%, white); border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 22%, transparent); }
-    .cost-unit { opacity: 0.6; }
 
     .status-pill {
       display: inline-flex; align-items: center; gap: 5px;
       padding: 3px 9px;
       border-radius: 999px;
-      font-size: 0.62rem; font-weight: 700;
-      background: color-mix(in oklch, var(--pill-color, #fff) 14%, transparent);
-      border: 1px solid color-mix(in oklch, var(--pill-color, #fff) 40%, transparent);
+      font-size: 0.65rem; font-weight: 700;
+      background: color-mix(in oklch, var(--pill-color, #fff) 12%, transparent);
+      border: 1px solid color-mix(in oklch, var(--pill-color, #fff) 36%, transparent);
       color: var(--pill-color, #fff);
       font-family: 'JetBrains Mono', ui-monospace, monospace;
-      text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap;
+      text-transform: uppercase; letter-spacing: 0.06em;
     }
     .status-dot {
       width: 5px; height: 5px; border-radius: 50%;
       background: var(--pill-color, #fff);
       box-shadow: 0 0 6px color-mix(in oklch, var(--pill-color, #fff) 60%, transparent);
     }
-    .status-pill[data-status="provisioning"] .status-dot,
-    .status-pill[data-status="starting"] .status-dot { animation: pulse 1200ms ease-in-out infinite; }
+    .status-pill[data-status="provisioning"] .status-dot { animation: pulse 1200ms ease-in-out infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
     @media (prefers-reduced-motion: reduce) {
-      .status-pill .status-dot { animation: none !important; }
+      .status-pill[data-status="provisioning"] .status-dot { animation: none; }
     }
 
-    @media (max-width: 760px) {
-      .inst-card {
-        grid-template-columns: 42px 1fr 34px;
-        grid-template-rows: auto auto;
-        row-gap: 8px;
-      }
-      .inst-meta { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; }
-      .row-menu-wrap { grid-column: 3; grid-row: 1; }
+    .inst-activity {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.66rem; color: rgba(255,255,255,0.5);
+      white-space: nowrap;
     }
-
     .row-menu {
-      width: 34px; height: 34px;
+      width: 32px; height: 32px;
       display: inline-flex; align-items: center; justify-content: center;
       background: transparent; border: 1px solid transparent;
-      border-radius: 8px;
+      border-radius: 6px;
       color: rgba(255,255,255,0.55); cursor: pointer;
       transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
     }
@@ -530,8 +420,15 @@ export class AppsInstancesCache {
     .row-menu:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
 
     /* Skeleton loaders */
-    .skel-row { padding-left: 1.35rem; }
-    .skel { background: rgba(255,255,255,0.04); border-radius: 6px; overflow: hidden; position: relative; }
+    .skel-row {
+      display: grid;
+      grid-template-columns: 44px 1fr auto;
+      gap: 1rem; align-items: center;
+    }
+    .skel {
+      background: rgba(255,255,255,0.04);
+      border-radius: 6px; overflow: hidden; position: relative;
+    }
     .skel::after {
       content: ''; position: absolute; inset: 0;
       background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06) 40%, rgba(0,229,255,0.08) 50%, rgba(255,255,255,0.06) 60%, transparent);
@@ -539,7 +436,7 @@ export class AppsInstancesCache {
     }
     @keyframes shine { from { background-position: 200% 0; } to { background-position: -200% 0; } }
     @media (prefers-reduced-motion: reduce) { .skel::after { animation: none; } }
-    .skel-glyph { width: 48px; height: 48px; border-radius: 12px; }
+    .skel-glyph { width: 44px; height: 44px; border-radius: 10px; }
     .skel-line { height: 10px; }
     .skel-pill { width: 90px; height: 22px; border-radius: 999px; }
 
@@ -581,6 +478,153 @@ export class AppsInstancesCache {
     .row-menu-item:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: -2px; }
     .row-menu-danger { color: #fca5a5; }
     .row-menu-danger:hover:not(:disabled) { background: rgba(248,113,113,0.12); }
+
+    /* ─── Aggregate strip + grouped instance cards (Brian 2026-09-27) ─── */
+    .agg-strip {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem 1.1rem;
+      padding: 0.55rem 0.95rem;
+      background: color-mix(in oklch, var(--ps-accent, #00E5FF) 4%, rgba(13,13,40,0.5));
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: var(--ps-radius-lg, 14px);
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.68rem; color: rgba(255,255,255,0.55);
+    }
+    .agg-cell { display: inline-flex; align-items: center; gap: 6px; }
+    .agg-num { color: #fff; font-weight: 700; }
+    .agg-running { color: #6ee7b7; }
+    .agg-run-dot { width: 6px; height: 6px; border-radius: 50%; background: #34d399; box-shadow: 0 0 6px rgba(52,211,153,0.7); }
+    .agg-cost { color: var(--ps-accent, #00E5FF); }
+    .cost-unit { opacity: 0.6; margin-left: 1px; font-weight: 400; }
+
+    .group-list { display: flex; flex-direction: column; gap: 14px; }
+    .group-card {
+      position: relative; overflow: hidden;
+      background:
+        linear-gradient(180deg, color-mix(in oklch, var(--ps-accent,#00E5FF) 5%, transparent), transparent 120px),
+        var(--ps-surface-1, rgba(13,13,40,0.62));
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: var(--ps-radius-xl, 22px);
+      box-shadow: 0 18px 44px -30px rgba(0,0,0,0.75);
+      transition: border-color 200ms ease, box-shadow 200ms ease;
+    }
+    .group-card:hover {
+      border-color: color-mix(in oklch, var(--ps-accent,#00E5FF) 26%, transparent);
+      box-shadow: 0 22px 60px -28px rgba(0,0,0,0.8), 0 0 0 1px color-mix(in oklch, var(--ps-accent,#00E5FF) 12%, transparent);
+    }
+    .group-accent {
+      position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, color-mix(in oklch, var(--ps-accent,#00E5FF) 70%, transparent), rgba(124,58,237,0.6), transparent);
+      opacity: 0.75;
+    }
+    @media (prefers-reduced-motion: reduce) { .group-card { transition: none; } }
+
+    .group-head {
+      display: flex; align-items: center; gap: 0.9rem;
+      padding: 1rem 1.15rem;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .group-glyph {
+      flex-shrink: 0; width: 46px; height: 46px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 1.5rem; line-height: 1;
+      background: color-mix(in oklch, var(--ps-accent,#00E5FF) 9%, transparent);
+      border: 1px solid color-mix(in oklch, var(--ps-accent,#00E5FF) 20%, transparent);
+      border-radius: var(--ps-radius-sm, 12px);
+    }
+    .group-headmain { min-width: 0; flex: 1; }
+    .group-name {
+      display: flex; align-items: center; gap: 8px; margin: 0;
+      font-family: 'Sora', system-ui, sans-serif; font-weight: 700;
+      font-size: 0.98rem; letter-spacing: -0.01em; color: var(--ps-ink, #fff);
+    }
+    .group-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .group-count {
+      flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 22px; height: 20px; padding: 0 7px;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.66rem; font-weight: 700;
+      color: var(--ps-accent,#00E5FF);
+      background: color-mix(in oklch, var(--ps-accent,#00E5FF) 12%, transparent);
+      border: 1px solid color-mix(in oklch, var(--ps-accent,#00E5FF) 30%, transparent);
+      border-radius: 999px;
+    }
+    .group-sub {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-top: 3px;
+      font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.64rem;
+    }
+    .group-run { display: inline-flex; align-items: center; gap: 5px; color: #6ee7b7; }
+    .group-run-dot { width: 5px; height: 5px; border-radius: 50%; background: #34d399; box-shadow: 0 0 6px rgba(52,211,153,0.7); }
+    .group-idle { color: rgba(255,255,255,0.4); }
+    .group-cost { color: rgba(255,255,255,0.55); }
+
+    .btn-deploy-another {
+      flex-shrink: 0;
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 0.4rem 0.75rem; border-radius: var(--ps-radius-sm, 8px);
+      background: rgba(255,255,255,0.04);
+      color: rgba(255,255,255,0.7);
+      border: 1px solid rgba(255,255,255,0.1);
+      font-family: 'Sora', system-ui, sans-serif; font-size: 0.68rem; font-weight: 600;
+      text-decoration: none; white-space: nowrap;
+      transition: background 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms ease;
+    }
+    .btn-deploy-another:hover {
+      background: rgba(0,229,255,0.12); color: var(--ps-accent,#00E5FF);
+      border-color: rgba(0,229,255,0.4); transform: translateY(-1px);
+    }
+    .btn-deploy-another:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) { .btn-deploy-another:hover { transform: none; } }
+    @media (max-width: 620px) { .btn-deploy-another .dep-label { display: none; } }
+
+    .inst-table { display: flex; flex-direction: column; padding: 4px 6px; }
+    .inst-line {
+      display: grid;
+      grid-template-columns: minmax(150px, 1fr) auto auto auto auto;
+      align-items: center; gap: 0.75rem;
+      padding: 0.6rem 0.7rem;
+      border-radius: var(--ps-radius-sm, 10px);
+      transition: background 140ms ease;
+    }
+    .inst-line + .inst-line { border-top: 1px solid rgba(255,255,255,0.045); }
+    .inst-line:hover { background: color-mix(in oklch, var(--ps-accent,#00E5FF) 4%, transparent); }
+    .inst-line .inst-host { margin-top: 0; min-width: 0; }
+    .host-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .inst-cost {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.66rem; color: rgba(255,255,255,0.55); white-space: nowrap; text-align: right;
+    }
+    .inst-actions { display: inline-flex; align-items: center; gap: 4px; justify-self: end; }
+    .act-btn {
+      width: 30px; height: 30px; flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px; color: rgba(255,255,255,0.6); cursor: pointer; text-decoration: none;
+      transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+    }
+    .act-btn:hover:not(:disabled) { background: rgba(0,229,255,0.12); color: var(--ps-accent,#00E5FF); border-color: rgba(0,229,255,0.35); }
+    .act-btn:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
+    .act-btn:disabled { opacity: 0.4; cursor: progress; }
+    .act-danger:hover:not(:disabled) { background: rgba(248,113,113,0.14); color: #fca5a5; border-color: rgba(248,113,113,0.4); }
+    .inst-error-line {
+      grid-column: 1 / -1;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.64rem; color: #fca5a5;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 2px;
+    }
+    @media (max-width: 760px) {
+      .inst-line {
+        grid-template-columns: 1fr auto;
+        grid-template-areas: "host actions" "status cost";
+        row-gap: 8px;
+      }
+      .inst-line .inst-host { grid-area: host; }
+      .inst-line .inst-actions { grid-area: actions; }
+      .inst-line .status-pill { grid-area: status; justify-self: start; }
+      .inst-line .inst-cost { grid-area: cost; justify-self: end; text-align: right; }
+      .inst-line .inst-activity { display: none; }
+      .inst-error-line { grid-column: 1 / -1; }
+    }
   `],
 })
 export class AppInstancesComponent implements OnInit, OnDestroy {
@@ -597,16 +641,35 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
   /** Worker request_id from a failed instances load → copyable support reference on the error card. */
   loadErrorRef = signal('');
   runningCount = computed(() => this.instances().filter((i) => i.status === 'running').length);
-  totalCount = computed(() => this.instances().length);
-  provisioningCount = computed(
-    () => this.instances().filter((i) => i.status === 'provisioning' || i.status === 'starting').length,
+  /** Total live monthly-cost estimate across every instance (0 when none report). */
+  totalMonthlyUsd = computed(() =>
+    Math.round(this.instances().reduce((sum, i) => sum + (i.costEstimate?.monthlyUsd ?? 0), 0)),
   );
-  stoppedCount = computed(() => this.instances().filter((i) => i.status === 'stopped').length);
-  errorCount = computed(() => this.instances().filter((i) => i.status === 'error').length);
-  /** Sum of live per-instance monthly cost estimates — the at-a-glance spend for this org. */
-  totalMonthlyCost = computed(() =>
-    this.instances().reduce((sum, i) => sum + (i.costEstimate?.monthlyUsd ?? 0), 0),
-  );
+  /**
+   * Instances grouped by app — the list renders ONE encapsulated card per group
+   * (e.g. all Payload CMS instances in a single entry with an inner table + per-
+   * instance actions). Sorted by instance count desc, then name, so the busiest
+   * apps lead. (Brian 2026-09-27.)
+   */
+  groups = computed<readonly InstanceGroup[]>(() => {
+    const byApp = new Map<string, AppInstance[]>();
+    for (const inst of this.instances()) {
+      const arr = byApp.get(inst.app_id);
+      if (arr) arr.push(inst);
+      else byApp.set(inst.app_id, [inst]);
+    }
+    return [...byApp.entries()]
+      .map(([app_id, insts]) => ({
+        app_id,
+        name: resolveApp(app_id)?.name ?? app_id,
+        glyph: resolveApp(app_id)?.glyph ?? '📦',
+        instances: insts,
+        runningCount: insts.filter((i) => i.status === 'running').length,
+        totalMonthlyUsd: Math.round(insts.reduce((s, i) => s + (i.costEstimate?.monthlyUsd ?? 0), 0)),
+        anyProvisioning: insts.some((i) => i.status === 'provisioning'),
+      }))
+      .sort((a, b) => b.instances.length - a.instances.length || a.name.localeCompare(b.name));
+  });
 
   private pollHandle?: ReturnType<typeof setInterval>;
   /** Visibility-gated background sync — pause when the tab is hidden, catch up
@@ -723,15 +786,8 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
   }
 
   glyphFor(i: AppInstance): string { return resolveApp(i.app_id)?.glyph ?? '📦'; }
-  logoFor(i: AppInstance): string | null { return resolveApp(i.app_id)?.logo ?? null; }
   nameFor(i: AppInstance): string { return resolveApp(i.app_id)?.name ?? i.app_id; }
-  categoryFor(i: AppInstance): string { return resolveApp(i.app_id)?.category ?? 'app'; }
   hostUrl(i: AppInstance): string { return `https://${i.hostname}`; }
-  /** Zone suffix (everything after the first label) → the domain-manager's platform suffix. */
-  hostSuffix(hostname: string): string {
-    const parts = (hostname || '').split('.');
-    return parts.length > 1 ? parts.slice(1).join('.') : 'cms.projectsites.dev';
-  }
 
   statusLabel(s: InstanceStatus): string { return STATUS_META[s].label; }
   statusColor(s: InstanceStatus): string { return STATUS_META[s].color; }

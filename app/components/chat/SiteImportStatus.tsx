@@ -128,7 +128,11 @@ export const SiteImportStatus = memo(({ expectedFileCount }: SiteImportStatusPro
   }, [done]);
 
   return (
-    <div className="ps-import-card w-full" data-testid="site-import-status" data-state={done ? 'loaded' : 'loading'}>
+    <div
+      className="ps-import-card w-full overflow-hidden rounded-xl border border-[rgba(0,229,255,0.16)] bg-[#0e0e28] text-[#f4f4ff] shadow-[0_8px_28px_-16px_rgba(0,0,0,0.7)]"
+      data-testid="site-import-status"
+      data-state={done ? 'loaded' : 'loading'}
+    >
       <button
         type="button"
         onClick={() => {
