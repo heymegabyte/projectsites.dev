@@ -693,25 +693,63 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
         </header>
 
         <div class="grid-2col">
-          <!-- ─── LOGS ─── -->
-          <section class="card" appReveal [attr.aria-busy]="logsLoading()">
-            <header class="flex items-center justify-between mb-3 gap-2 flex-wrap">
-              <h3 class="card-h m-0">Logs</h3>
-              <div class="flex items-center gap-2">
-                <span class="text-[0.62rem] text-text-secondary font-mono" aria-live="polite">
-                  {{ logs().length }} lines · {{ pollingLabel() }}
+          @if (catalogApp()?.image?.startsWith('cf-native:')) {
+            <!-- ─── RUNTIME (CF-native edge Worker) ─── -->
+            <!-- CF-native apps run as an edge Worker (D1 + R2 + Workers-for-Platforms),
+                 NOT a container — there is no container log stream, so instead of a dead
+                 empty "Logs" terminal we show the provisioning→live lifecycle + the live
+                 URL. Status polls via load() until running (see maybeStartPolling). -->
+            <section class="card" appReveal [attr.aria-busy]="i.status === 'provisioning'">
+              <header class="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                <h3 class="card-h m-0">Runtime</h3>
+                <span class="status-pill" [attr.data-status]="i.status" [style.--pill-color]="statusColor(i.status)">
+                  <span class="status-dot" aria-hidden="true"></span>{{ statusLabel(i.status) }}
                 </span>
-                <button class="btn-tiny" type="button" (click)="refreshLogs()" [disabled]="logsLoading()" [attr.aria-label]="logsLoading() ? 'Refreshing logs' : 'Refresh logs'">
-                  <span class="inline-block text-center min-w-[11ch]">{{ logsLoading() ? 'Refreshing…' : 'Refresh' }}</span>
-                </button>
-              </div>
-            </header>
-            @if (logs().length === 0) {
-              <pre #logsBox class="logs-box logs-box--empty" aria-live="polite">No logs yet. Provisioning… check back in a few seconds.</pre>
-            } @else {
-              <pre #logsBox class="logs-box" aria-live="polite">{{ joinedLogs() }}</pre>
-            }
-          </section>
+              </header>
+              <ul class="text-[0.85rem] leading-relaxed list-none p-0 m-0 space-y-2" aria-live="polite">
+                <li class="flex items-center gap-2" [class.text-text-secondary]="i.status === 'provisioning'">
+                  <span aria-hidden="true">{{ i.status !== 'provisioning' ? '✅' : '⏳' }}</span> Provisioned D1 database + R2 bucket
+                </li>
+                <li class="flex items-center gap-2" [class.text-text-secondary]="i.status !== 'running'">
+                  <span aria-hidden="true">{{ i.status === 'running' ? '✅' : (i.status === 'provisioning' ? '⏳' : '◦') }}</span> Deployed Worker to the edge network
+                </li>
+                <li class="flex items-center gap-2" [class.text-text-secondary]="i.status !== 'running'">
+                  <span aria-hidden="true">{{ i.status === 'running' ? '✅' : '◦' }}</span> Live on the edge
+                </li>
+              </ul>
+              @if (i.status === 'running') {
+                <a class="btn-ghost mt-3" [href]="'https://' + i.hostname" target="_blank" rel="noopener noreferrer">
+                  Open {{ i.hostname }}
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+                </a>
+              } @else if (i.status === 'error') {
+                <p class="text-[0.8rem] mt-3 m-0" style="color:#f87171">Provisioning failed — destroy this instance and relaunch.</p>
+              }
+              <p class="text-[0.68rem] text-text-secondary mt-3 mb-0">
+                Runs as a Cloudflare Worker on the edge (Workers for Platforms) — no container, so there's no container log stream.
+              </p>
+            </section>
+          } @else {
+            <!-- ─── LOGS ─── (container apps) -->
+            <section class="card" appReveal [attr.aria-busy]="logsLoading()">
+              <header class="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                <h3 class="card-h m-0">Logs</h3>
+                <div class="flex items-center gap-2">
+                  <span class="text-[0.62rem] text-text-secondary font-mono" aria-live="polite">
+                    {{ logs().length }} lines · {{ pollingLabel() }}
+                  </span>
+                  <button class="btn-tiny" type="button" (click)="refreshLogs()" [disabled]="logsLoading()" [attr.aria-label]="logsLoading() ? 'Refreshing logs' : 'Refresh logs'">
+                    <span class="inline-block text-center min-w-[11ch]">{{ logsLoading() ? 'Refreshing…' : 'Refresh' }}</span>
+                  </button>
+                </div>
+              </header>
+              @if (logs().length === 0) {
+                <pre #logsBox class="logs-box logs-box--empty" aria-live="polite">No logs yet. Provisioning… check back in a few seconds.</pre>
+              } @else {
+                <pre #logsBox class="logs-box" aria-live="polite">{{ joinedLogs() }}</pre>
+              }
+            </section>
+          }
 
           <!-- ─── ENV EDITOR ─── -->
           <aside class="card" appReveal>
