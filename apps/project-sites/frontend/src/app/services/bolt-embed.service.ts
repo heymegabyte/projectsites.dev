@@ -26,6 +26,8 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, effect, inject, signal } from '@angular/core';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
+import { forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { ApiService } from './api.service';
 import { ToastService } from './toast.service';
 
@@ -242,6 +244,125 @@ interface PsMessage {
   };
   /** PS_RES_MUTATE_REQUEST (Resource console, FIRE 7): the mutation's safe, non-identifier operands (never a CF id). */
   readonly input?: Record<string, unknown>;
+  /** PS_DB_AI_SEED (Database tab): free-form theme / new-table description for AI row generation. */
+  readonly prompt?: string;
+  /** PS_DB_AI_SEED (Database tab): how many rows to generate (worker clamps 1–50). */
+  readonly rowCount?: number;
+  /** PS_RES_MEDIA (Resources tab): the media action — `list` (default) or `delete`. */
+  readonly mediaAction?: 'list' | 'delete';
+  /** PS_RES_MEDIA (Resources tab, list): filter by asset kind (image|video|audio|document|other). */
+  readonly mediaKind?: string;
+  /** PS_RES_MEDIA (Resources tab, list): filter by source (uploaded|generated|stock|imported). */
+  readonly mediaSource?: string;
+  /** PS_RES_MEDIA (Resources tab, list): free-text search over name/prompt. */
+  readonly q?: string;
+  /** PS_RES_MEDIA (Resources tab, delete): the media asset id to soft-delete. */
+  readonly assetId?: string;
+  /**
+   * PS_RES_MEDIA_UPLOAD (Resources tab): the upload's display file name — reuses the shared `name`
+   * field above (also used by PS_VEC_REQUEST / PS_VIEW_REQUEST), so no separate declaration.
+   * PS_RES_MEDIA_UPLOAD: the upload's MIME type.
+   */
+  readonly contentType?: string;
+  /** PS_RES_MEDIA_UPLOAD (Resources tab): the file contents as a base64 data URL (`data:<mime>;base64,<...>`). */
+  readonly dataUrl?: string;
+  /** PS_RES_SITE_FILES (Resources tab): the published build version to list (default: current). */
+  readonly version?: string;
+}
+
+/**
+ * One media asset row exactly as the editor's Resources tab consumes it
+ * (`app/lib/embed/embedded-mode.ts` → `MediaAssetEntry`): `{id, url, name, contentType, size,
+ * uploaded, kind, source}`. The worker's `media_assets` row shape is different
+ * (`{id, r2_key, mime, size_bytes, created_at, …}`) — {@link mapMediaAsset} bridges the two so
+ * both sides speak ONE shape.
+ */
+interface EditorMediaAsset {
+  id: string;
+  url: string;
+  name?: string;
+  contentType?: string;
+  size?: number;
+  uploaded?: string;
+  kind?: string;
+  source?: string;
+}
+
+/**
+ * Aggregate media usage as the editor's usage header reads it
+ * (`ResourcesPanel` reads `usage.totalBytes` + `usage.totalCount`). The worker's `mediaUsage`
+ * returns `{totalSizeBytes, totalCount, countByKind, countBySource}` — {@link mapMediaUsage}
+ * renames `totalSizeBytes → totalBytes` + `countByKind → countsByKind` so the header + the
+ * editor's `MediaUsageSummary` type agree on the exact field names.
+ */
+interface EditorMediaUsage {
+  totalBytes?: number;
+  totalCount?: number;
+  countsByKind?: Record<string, number>;
+}
+
+/** A raw `media_assets` row as the worker's `/api/media/*` endpoints return it. */
+interface WorkerMediaAssetRow {
+  id?: string;
+  r2_key?: string;
+  mime?: string;
+  size_bytes?: number;
+  name?: string;
+  kind?: string;
+  source?: string;
+  created_at?: number | string;
+}
+
+/**
+ * Map a worker `media_assets` row → the {@link EditorMediaAsset} shape the editor consumes.
+ * `url` points at the authed raw-stream route (`/api/media/assets/:id/raw`) so the `<img>` +
+ * open-in-new work; `contentType`/`size`/`uploaded` are renamed from the DB column names.
+ */
+function mapMediaAsset(row: WorkerMediaAssetRow): EditorMediaAsset {
+  const id = String(row?.id ?? '');
+  return {
+    id,
+    url: `/api/media/assets/${encodeURIComponent(id)}/raw`,
+    name: row?.name,
+    contentType: row?.mime,
+    size: typeof row?.size_bytes === 'number' ? row.size_bytes : undefined,
+    uploaded: row?.created_at !== undefined ? String(row.created_at) : undefined,
+    kind: row?.kind,
+    source: row?.source,
+  };
+}
+
+/** Map the worker's `MediaUsage` → the {@link EditorMediaUsage} field names the editor header reads. */
+function mapMediaUsage(
+  usage:
+    | { totalSizeBytes?: number; totalCount?: number; countByKind?: Record<string, number> }
+    | null
+    | undefined,
+): EditorMediaUsage | undefined {
+  if (!usage) return undefined;
+  return {
+    totalBytes: usage.totalSizeBytes,
+    totalCount: usage.totalCount,
+    countsByKind: usage.countByKind,
+  };
+}
+
+/**
+ * Decode a base64 data URL (`data:<mime>;base64,<...>`) → `{ buffer, mime }`; throws on a malformed
+ * value. Returns a concrete `ArrayBuffer` (not a `Uint8Array` view) so it drops straight into a
+ * `Blob` part without the SharedArrayBuffer union TS otherwise infers for a bare typed array.
+ */
+function decodeDataUrl(dataUrl: string): { buffer: ArrayBuffer; mime: string } {
+  const match = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(dataUrl ?? '');
+  if (!match) throw new Error('Malformed data URL');
+  const mime = match[1] || 'application/octet-stream';
+  const isBase64 = !!match[2];
+  const payload = match[3] ?? '';
+  const binary = isBase64 ? atob(payload) : decodeURIComponent(payload);
+  const buffer = new ArrayBuffer(binary.length);
+  const view = new Uint8Array(buffer);
+  for (let i = 0; i < binary.length; i++) view[i] = binary.charCodeAt(i);
+  return { buffer, mime };
 }
 
 /**
@@ -2030,6 +2151,316 @@ export class BoltEmbedService {
               });
             },
           });
+          break;
+        }
+        case 'PS_DB_LOAD_SAMPLE': {
+          // Database tab — the embedded editor has no cross-origin session, so it asks US (we hold
+          // currentSite + the ApiService bearer) to seed the site's OWN blank D1 with realistic,
+          // related sample tables via POST /api/sites/:id/db/sample-data. Server-resolved + isolated +
+          // idempotent (existing tables are skipped, never clobbered). Reply PS_DB_LOAD_SAMPLE_RESULT.
+          // Dark behind `per_site_data` → a 404 "not enabled" translates to `{ok:false, enabled:false}`.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_DB_LOAD_SAMPLE_RESULT', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          this.api
+            .post<{
+              ok?: boolean;
+              data?: { tables?: string[]; rowCounts?: Record<string, number>; skipped?: string[] };
+            }>(`/sites/${site.id}/db/sample-data`, {}, { silent: true })
+            .subscribe({
+              // The worker returns `{ data: { tables:[names], rowCounts, skipped } }`; the editor
+              // (`DbLoadSampleResponseMessage`) reads TOP-LEVEL `{ tablesCreated, rowsInserted, tables[] }`.
+              // Map: tablesCreated = tables.length, rowsInserted = Σ rowCounts, tables = tables.
+              next: (res) => {
+                const tables = res?.data?.tables ?? [];
+                const rowCounts = res?.data?.rowCounts ?? {};
+                const rowsInserted = Object.values(rowCounts).reduce(
+                  (sum, n) => sum + (typeof n === 'number' ? n : 0),
+                  0,
+                );
+                reply({ ok: true, tablesCreated: tables.length, rowsInserted, tables });
+              },
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, error: 'Could not seed sample data.' });
+                }
+              },
+            });
+          break;
+        }
+        case 'PS_DB_AI_SEED': {
+          // Database tab — ask US to AI-generate rows for the site's OWN D1: seed an existing `table`,
+          // or CREATE one from a `prompt`. POST /api/sites/:id/db/ai-seed (server-resolved + isolated;
+          // values bound, never interpolated). Reply PS_DB_AI_SEED_RESULT. Same dark-flag translation
+          // as PS_DB_LOAD_SAMPLE. A non-ok body (e.g. "AI returned no rows") rides in the payload, not error.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_DB_AI_SEED_RESULT', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          // Body carries ONLY the safe seed operands the worker's strict schema accepts.
+          const seedBody: Record<string, unknown> = {};
+          if (typeof msg.table === 'string' && msg.table) seedBody['table'] = msg.table;
+          if (typeof msg.prompt === 'string' && msg.prompt) seedBody['prompt'] = msg.prompt;
+          if (typeof msg.rowCount === 'number' && Number.isFinite(msg.rowCount))
+            seedBody['rowCount'] = Math.trunc(msg.rowCount);
+          this.api
+            .post<{
+              ok?: boolean;
+              data?: {
+                table?: string;
+                inserted?: number;
+                previewRows?: Record<string, unknown>[];
+                createdTable?: boolean;
+              };
+              error?: { code?: string; message?: string };
+            }>(`/sites/${site.id}/db/ai-seed`, seedBody, { silent: true })
+            .subscribe({
+              // The worker returns `{ ok, data: { table, inserted, previewRows, createdTable } }`
+              // (200 ok:true on success; 502 ok:false on "AI returned no rows"). The editor
+              // (`DbAiSeedResponseMessage`) reads TOP-LEVEL `{ table, rowsInserted }` — map
+              // rowsInserted = inserted, table = table, preserving the worker's `ok`.
+              next: (res) =>
+                reply({
+                  ok: res?.ok ?? true,
+                  table: res?.data?.table,
+                  rowsInserted: res?.data?.inserted ?? 0,
+                }),
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                } else if (
+                  err instanceof HttpErrorResponse &&
+                  typeof err.error?.error?.message === 'string'
+                ) {
+                  // A 400/502 with a real message (bad request / AI could not design a table) — pass it through.
+                  reply({ ok: false, error: err.error.error.message });
+                } else {
+                  reply({ ok: false, error: 'Could not seed the table.' });
+                }
+              },
+            });
+          break;
+        }
+        case 'PS_RES_MEDIA': {
+          // Resources tab — the embedded editor has no cross-origin session, so it asks US (we hold the
+          // ApiService bearer) to LIST or DELETE org media, plus fetch aggregate usage. `list` →
+          // GET /api/media/assets (+ GET /api/media/usage); `delete` → DELETE /api/media/assets/:id.
+          // Reply PS_RES_MEDIA_RESULT. The media API is org-scoped (not flag-gated), so a failure is a
+          // real error (surfaced silently), never a dark-flag.
+          const iframe = this.iframeEl;
+          const cid = msg.correlationId;
+          const mediaAction = msg.mediaAction === 'delete' ? 'delete' : 'list';
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_MEDIA_RESULT', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (mediaAction === 'delete') {
+            const id = typeof msg.assetId === 'string' && msg.assetId ? msg.assetId : undefined;
+            if (!id) {
+              reply({ ok: false, error: 'Missing asset id' });
+              break;
+            }
+            this.api
+              .delete<{ ok?: boolean }>(`/media/assets/${encodeURIComponent(id)}`, { silent: true })
+              .subscribe({
+                // Editor (`ResMediaResponseMessage`) reads `{ ok, deleted }` for the delete action.
+                next: () => reply({ ok: true, action: 'delete', deleted: true }),
+                error: () => reply({ ok: false, action: 'delete', error: 'Could not delete the asset.' }),
+              });
+            break;
+          }
+          // list — build the filter query (only defined values), then fetch assets + usage together.
+          const query: Record<string, string> = {};
+          if (typeof msg.mediaKind === 'string' && msg.mediaKind) query['kind'] = msg.mediaKind;
+          if (typeof msg.mediaSource === 'string' && msg.mediaSource) query['source'] = msg.mediaSource;
+          if (typeof msg.q === 'string' && msg.q) query['q'] = msg.q;
+          if (typeof msg.limit === 'number' && Number.isFinite(msg.limit))
+            query['limit'] = String(Math.max(1, Math.min(200, Math.trunc(msg.limit))));
+          if (typeof msg.offset === 'number' && Number.isFinite(msg.offset))
+            query['offset'] = String(Math.max(0, Math.trunc(msg.offset)));
+          forkJoin({
+            // Worker `/api/media/assets` → `{ ok, assets:[<media_assets row>] }`; `/api/media/usage` →
+            // `{ ok, data:{ totalSizeBytes, totalCount, countByKind, countBySource } }`.
+            assets: this.api
+              .get<{ ok?: boolean; assets?: WorkerMediaAssetRow[] }>(
+                '/media/assets',
+                Object.keys(query).length ? query : undefined,
+                { silent: true },
+              )
+              .pipe(catchError(() => of(null))),
+            usage: this.api
+              .get<{
+                ok?: boolean;
+                data?: { totalSizeBytes?: number; totalCount?: number; countByKind?: Record<string, number> };
+              }>('/media/usage', undefined, { silent: true })
+              .pipe(catchError(() => of(null))),
+          }).subscribe({
+            next: ({ assets, usage }) => {
+              if (!assets) {
+                reply({ ok: false, action: 'list', error: 'Could not load media.' });
+                return;
+              }
+              // Editor (`ResMediaResponseMessage`) reads TOP-LEVEL `{ assets, usage, cursor }` where each
+              // asset is `{ id, url, name, contentType, size, uploaded, kind, source }`. Map every raw
+              // worker row + rename the usage fields the header reads (`totalBytes`/`totalCount`).
+              reply({
+                ok: true,
+                action: 'list',
+                assets: (assets.assets ?? []).map(mapMediaAsset),
+                usage: mapMediaUsage(usage?.data),
+              });
+            },
+            error: () => reply({ ok: false, action: 'list', error: 'Could not load media.' }),
+          });
+          break;
+        }
+        case 'PS_RES_MEDIA_UPLOAD': {
+          // Resources tab — upload ONE asset. The editor read the file locally and handed us a base64
+          // data URL (`MediaUploadRequestMessage`: { name, contentType, dataUrl }); we decode it, build
+          // multipart FormData (the worker's `POST /api/media/upload` expects a `file` field), and post it
+          // with the admin session (org-scoped server-side). Reply PS_RES_MEDIA_UPLOAD_RESULT with the
+          // created asset mapped to the editor's shape. The media API is org-scoped (not flag-gated), so a
+          // failure is a real error, never a dark-flag.
+          const iframe = this.iframeEl;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_MEDIA_UPLOAD_RESULT', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          const name = typeof msg.name === 'string' && msg.name ? msg.name : 'upload';
+          const contentType =
+            typeof msg.contentType === 'string' && msg.contentType
+              ? msg.contentType
+              : 'application/octet-stream';
+          const dataUrl = typeof msg.dataUrl === 'string' ? msg.dataUrl : '';
+          let decoded: { buffer: ArrayBuffer; mime: string };
+          try {
+            decoded = decodeDataUrl(dataUrl);
+          } catch {
+            reply({ ok: false, error: 'Could not read the file.' });
+            break;
+          }
+          const blob = new Blob([decoded.buffer], { type: contentType || decoded.mime });
+          const form = new FormData();
+          // The worker reads `form.get('file')` + derives name/mime from the File; pass the real name.
+          form.append('file', blob, name);
+          // Worker `POST /api/media/upload` → `{ ok, asset:<media_assets row> }` (201). postFormData omits
+          // the JSON Content-Type so the browser sets the multipart boundary; the bearer still rides along.
+          this.api
+            .postFormData<{ ok?: boolean; asset?: WorkerMediaAssetRow }>('/media/upload', form, {
+              silent: true,
+            })
+            .subscribe({
+              next: (res) =>
+                res?.asset
+                  ? reply({ ok: true, asset: mapMediaAsset(res.asset) })
+                  : reply({ ok: false, error: 'Upload failed.' }),
+              error: (err: unknown) => {
+                const status = (err as { status?: number })?.status;
+                reply({
+                  ok: false,
+                  error:
+                    status === 413
+                      ? 'That file is too large.'
+                      : status === 400
+                        ? 'That file could not be uploaded.'
+                        : 'Upload failed.',
+                });
+              },
+            });
+          break;
+        }
+        case 'PS_RES_SITE_FILES': {
+          // Resources tab — ask US to list the site's PUBLISHED build files (the whole deliverable) via
+          // GET /api/sites/:id/build-files (?version optional). Reply PS_RES_SITE_FILES_RESULT. build-files
+          // is flag-gated (`per_site_data`) → a 404 "not enabled" translates to `{ok:false, enabled:false}`.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_SITE_FILES_RESULT', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          const filesQuery =
+            typeof msg.version === 'string' && msg.version ? { version: msg.version } : undefined;
+          // Worker `/build-files` → `{ ok, data:{ files:[{key,name,size,uploaded,url}], totalSize, version } }`.
+          // The editor (`ResSiteFilesResponseMessage`) reads TOP-LEVEL `{ files, prefix, version }` where each
+          // file is `{ key, name, size, uploaded, url }` (contentType optional — the worker omits it, and the
+          // editor tolerates its absence). Flatten `data` up + derive `prefix` from slug + version.
+          this.api
+            .get<{
+              ok?: boolean;
+              data?: {
+                files?: Array<{ key: string; name: string; size: number; uploaded: string; url: string }>;
+                totalSize?: number;
+                version?: string | null;
+              };
+            }>(`/sites/${site.id}/build-files`, filesQuery, { silent: true })
+            .subscribe({
+              next: (res) => {
+                const version = res?.data?.version ?? null;
+                reply({
+                  ok: true,
+                  files: res?.data?.files ?? [],
+                  version,
+                  prefix: version ? `sites/${site.slug}/${version}/` : undefined,
+                });
+              },
+              // Distinguish the dark-flag 404 (feature off → editor hides) from any other failure.
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, error: 'Could not load site files.' });
+                }
+              },
+            });
           break;
         }
         default:

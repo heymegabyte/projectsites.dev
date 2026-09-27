@@ -53,10 +53,19 @@ const { postToParentSpy, onParentMessageSpy, parentHandlers } = vi.hoisted(() =>
   return { postToParentSpy, onParentMessageSpy, parentHandlers };
 });
 
+const { requestDbLoadSampleSpy, requestDbAiSeedSpy, postToastToParentSpy } = vi.hoisted(() => ({
+  requestDbLoadSampleSpy: vi.fn(async () => ({ type: 'PS_DB_LOAD_SAMPLE_RESULT', ok: true, tablesCreated: 1, tables: ['sample'] })),
+  requestDbAiSeedSpy: vi.fn(async () => ({ type: 'PS_DB_AI_SEED_RESULT', ok: true, rowsInserted: 10, table: 'posts' })),
+  postToastToParentSpy: vi.fn(),
+}));
+
 vi.mock('~/lib/embed/embedded-mode', () => ({
   isEmbedded: true,
   postToParent: postToParentSpy,
+  postToastToParent: postToastToParentSpy,
   onParentMessage: onParentMessageSpy,
+  requestDbLoadSample: requestDbLoadSampleSpy,
+  requestDbAiSeed: requestDbAiSeedSpy,
 }));
 
 /*
@@ -110,12 +119,12 @@ describe('SiteTablesPanel — empty tables list', () => {
     parentHandlers.clear();
   });
 
-  it('renders the loading spinner initially', () => {
+  it('renders the loading skeleton initially', () => {
     render(<SiteTablesPanel />);
-    expect(screen.getByTestId('sitedb-loading')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-skeleton')).toBeTruthy();
   });
 
-  it('shows the empty-state launchpad when tables array is empty', async () => {
+  it('shows the gorgeous empty-state launchpad with all four primary actions when tables array is empty', async () => {
     render(<SiteTablesPanel />);
 
     /*
@@ -139,20 +148,15 @@ describe('SiteTablesPanel — empty tables list', () => {
       });
     });
 
-    // Empty-state container
+    // Empty-state launchpad container + all four primary action tiles.
     expect(screen.getByTestId('sitedb-empty')).toBeTruthy();
-
-    // Both launchpad CTAs must be present and visible
-    const newTableBtn = screen.getByTestId('sitedb-new-table');
-    expect(newTableBtn).toBeTruthy();
-    expect(newTableBtn.textContent).toContain('New table');
-
-    const askAiBtn = screen.getByTestId('sitedb-ask-ai');
-    expect(askAiBtn).toBeTruthy();
-    expect(askAiBtn.textContent).toContain('Ask AI');
+    expect(screen.getByTestId('sitedb-empty-seed')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-empty-sample')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-empty-newtable')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-empty-import')).toBeTruthy();
   });
 
-  it('clicking "New table" shows the coming-soon inline note', async () => {
+  it('clicking "Load sample data" calls the sample-data bridge sender', async () => {
     render(<SiteTablesPanel />);
 
     await waitFor(() => {
@@ -172,14 +176,40 @@ describe('SiteTablesPanel — empty tables list', () => {
       });
     });
 
-    const newTableBtn = screen.getByTestId('sitedb-new-table');
+    requestDbLoadSampleSpy.mockClear();
 
     await act(async () => {
-      newTableBtn.click();
+      screen.getByTestId('sitedb-empty-sample').click();
     });
 
-    expect(screen.getByTestId('sitedb-coming-soon')).toBeTruthy();
-    expect(screen.getByTestId('sitedb-coming-soon').textContent).toContain('New table');
+    expect(requestDbLoadSampleSpy).toHaveBeenCalled();
+  });
+
+  it('clicking "Seed with AI" (standalone, no panel prop) calls the AI-seed bridge sender', async () => {
+    render(<SiteTablesPanel />);
+
+    await waitFor(() => {
+      expect(postToParentSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'PS_SITEDB_TABLES_REQUEST' }));
+    });
+
+    await act(async () => {
+      fireReply({
+        type: 'PS_SITEDB_TABLES_RESPONSE',
+        correlationId: lastCorrelationId(),
+        ok: true,
+        databaseId: 'db-abc123',
+        provisioned: true,
+        tables: [],
+      });
+    });
+
+    requestDbAiSeedSpy.mockClear();
+
+    await act(async () => {
+      screen.getByTestId('sitedb-empty-seed').click();
+    });
+
+    expect(requestDbAiSeedSpy).toHaveBeenCalled();
   });
 
   it('renders the disabled state when per_site_data flag is off', async () => {

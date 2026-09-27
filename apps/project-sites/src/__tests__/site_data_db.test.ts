@@ -17,13 +17,18 @@
  */
 import { createD1Sqlite } from './helpers/d1_sqlite.js';
 import {
+  buildCreateTableSql,
+  createSampleData,
   FORBIDDEN_DB_IDS,
+  insertSeedRows,
+  introspectColumns,
   isSafeIdent,
   listSiteTables,
   quoteIdent,
   resolveSiteDataDb,
   SiteDataD1Error,
   type SiteDataD1,
+  type SiteTableColumn,
 } from '../services/site_data_db.js';
 
 jest.mock('../services/d1_provisioner.js', () => ({
@@ -237,5 +242,148 @@ describe('listSiteTables', () => {
       })) as SiteDataD1['query'],
     };
     expect(await listSiteTables(fake)).toEqual(['customers', 'orders']);
+  });
+});
+
+/** Record every (sql, params) a helper issues; drive canned per-SQL results. */
+function recordingDb(handler: (sql: string, params?: readonly unknown[]) => unknown = () => ({})): {
+  db: SiteDataD1;
+  calls: Array<{ sql: string; params?: readonly unknown[] }>;
+} {
+  const calls: Array<{ sql: string; params?: readonly unknown[] }> = [];
+  const db: SiteDataD1 = {
+    databaseId: 'db-x',
+    query: (async (sql: string, params?: readonly unknown[]) => {
+      calls.push({ params, sql });
+      const r = handler(sql, params) as { results?: unknown[]; meta?: Record<string, unknown> };
+      return { meta: r?.meta ?? {}, results: r?.results ?? [] };
+    }) as SiteDataD1['query'],
+  };
+  return { calls, db };
+}
+
+describe('buildCreateTableSql', () => {
+  it('builds a safe CREATE with an autoincrement id + clamped types', () => {
+    const built = buildCreateTableSql({
+      columns: [
+        { name: 'title', type: 'TEXT', notnull: true },
+        { name: 'qty', type: 'INTEGER' },
+        { name: 'weird', type: 'HACK' }, // unknown type → TEXT
+      ],
+      table: 'tasks',
+    });
+    expect(built).not.toBeNull();
+    expect(built!.table).toBe('tasks');
+    expect(built!.sql).toContain('CREATE TABLE IF NOT EXISTS "tasks"');
+    expect(built!.sql).toContain('id INTEGER PRIMARY KEY AUTOINCREMENT');
+    expect(built!.sql).toContain('"title" TEXT NOT NULL');
+    expect(built!.sql).toContain('"qty" INTEGER');
+    expect(built!.sql).toContain('"weird" TEXT'); // clamped
+  });
+
+  it('rejects a hostile table name', () => {
+    expect(buildCreateTableSql({ columns: [{ name: 'a', type: 'TEXT' }], table: 'bad; DROP' })).toBeNull();
+  });
+
+  it('drops a user-supplied id column + hostile column names; null when nothing safe remains', () => {
+    const built = buildCreateTableSql({
+      columns: [
+        { name: 'id', type: 'INTEGER' }, // dropped (id is auto)
+        { name: 'name', type: 'TEXT' },
+      ],
+      table: 'people',
+    });
+    // Only the auto id + "name" survive.
+    expect(built!.sql).toContain('"name" TEXT');
+    expect((built!.sql.match(/id INTEGER PRIMARY KEY AUTOINCREMENT/g) ?? []).length).toBe(1);
+
+    expect(buildCreateTableSql({ columns: [{ name: 'bad name', type: 'TEXT' }], table: 't' })).toBeNull();
+  });
+});
+
+describe('introspectColumns', () => {
+  it('binds the table name as a VALUE to pragma_table_info', async () => {
+    const { db, calls } = recordingDb(() => ({
+      results: [{ name: 'id', notnull: 0, pk: 1, type: 'INTEGER' }],
+    }));
+    const cols = await introspectColumns(db, 'customers');
+    expect(cols).toEqual([{ name: 'id', notnull: 0, pk: 1, type: 'INTEGER' }]);
+    expect(calls[0]?.params).toEqual(['customers']); // bound, never interpolated
+    expect(calls[0]?.sql).toContain('pragma_table_info(?)');
+  });
+});
+
+describe('insertSeedRows', () => {
+  const cols: SiteTableColumn[] = [
+    { name: 'id', notnull: 0, pk: 1, type: 'INTEGER' },
+    { name: 'name', notnull: 1, pk: 0, type: 'TEXT' },
+    { name: 'age', notnull: 0, pk: 0, type: 'INTEGER' },
+  ];
+
+  it('inserts non-PK columns parameterized; ignores hallucinated keys + the PK', async () => {
+    const { db, calls } = recordingDb(() => ({ meta: { rows_written: 1 } }));
+    const out = await insertSeedRows(db, 'people', cols, [
+      { age: 30, id: 999, injected: 'x', name: 'Ada' }, // id + injected ignored
+      { name: 'Bo', age: 5 },
+    ]);
+    expect(out.inserted).toBe(2);
+    // Every INSERT binds VALUES (never interpolates them) and never touches id/injected.
+    for (const call of calls) {
+      expect(call.sql).toMatch(/INSERT INTO "people"/);
+      expect(call.sql).not.toContain('injected');
+      expect(call.sql).not.toMatch(/\(\s*"?id"?/);
+      expect(Array.isArray(call.params)).toBe(true);
+    }
+    expect(calls[0]?.params).toEqual(['Ada', 30]); // order follows the table's insertable columns
+  });
+
+  it('serialises object/array cells to JSON text before binding', async () => {
+    const { db, calls } = recordingDb(() => ({ meta: { rows_written: 1 } }));
+    await insertSeedRows(db, 'people', cols, [{ name: { nested: true }, age: [1, 2] }]);
+    expect(calls[0]?.params).toEqual([JSON.stringify({ nested: true }), JSON.stringify([1, 2])]);
+  });
+
+  it('returns 0 when the table has no insertable (non-PK) columns', async () => {
+    const { db } = recordingDb();
+    const out = await insertSeedRows(db, 't', [{ name: 'id', notnull: 0, pk: 1, type: 'INTEGER' }], [{ id: 1 }]);
+    expect(out.inserted).toBe(0);
+  });
+});
+
+describe('createSampleData', () => {
+  it('creates + seeds the three related tables when the DB is blank', async () => {
+    const { db, calls } = recordingDb((sql) => {
+      if (/COUNT\(\*\)/.test(sql)) return { results: [{ n: 0 }] }; // every table empty
+      if (/^INSERT INTO/.test(sql)) return { meta: { rows_written: 1 } };
+      return {};
+    });
+    const res = await createSampleData(db);
+    expect(res.tables.sort()).toEqual(['customers', 'orders', 'products']);
+    expect(res.skipped).toEqual([]);
+    // Row counts land in the promised 12–20 band.
+    for (const t of res.tables) {
+      expect(res.rowCounts[t]).toBeGreaterThanOrEqual(12);
+      expect(res.rowCounts[t]).toBeLessThanOrEqual(20);
+    }
+    // Each table got a CREATE TABLE IF NOT EXISTS.
+    expect(calls.filter((c) => /CREATE TABLE IF NOT EXISTS/.test(c.sql))).toHaveLength(3);
+    // Every INSERT is parameterized.
+    for (const c of calls.filter((c) => /^INSERT INTO/.test(c.sql))) {
+      expect(Array.isArray(c.params)).toBe(true);
+      expect(c.sql).toMatch(/VALUES \(\?(?:, \?)*\)/);
+    }
+  });
+
+  it('SKIPS a table that already has rows (never clobbers)', async () => {
+    const { db } = recordingDb((sql) => {
+      if (/COUNT\(\*\) AS n FROM "customers"/.test(sql)) return { results: [{ n: 5 }] }; // customers has data
+      if (/COUNT\(\*\)/.test(sql)) return { results: [{ n: 0 }] };
+      if (/^INSERT INTO/.test(sql)) return { meta: { rows_written: 1 } };
+      return {};
+    });
+    const res = await createSampleData(db);
+    expect(res.skipped).toContain('customers');
+    expect(res.tables).not.toContain('customers');
+    expect(res.rowCounts['customers']).toBeUndefined();
   });
 });

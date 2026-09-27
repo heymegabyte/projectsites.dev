@@ -2,22 +2,23 @@
 /**
  * DatabasePanel.spec.tsx
  *
- * Unit tests for the consolidated per-site Database panel (FIRE 1 — Brian 2026-09-27).
+ * Unit tests for the consolidated per-site Database panel (Brian 2026-09-27 — menu cleanup FIRE).
  *
- * The panel is the ONE data surface: a sub-nav BUTTON bar (Table-view · SQL navigator · KV manager)
- * over the site's OWN per-site D1. Table-view renders SiteTablesPanel; SQL navigator is tucked behind
- * a remembered Advanced/Developer toggle; KV manager is a $10/mo locked-upsell (honest, never a dead
- * control) until purchased.
+ * The panel is the ONE data surface: a CONCISE sub-nav BUTTON bar (Tables · SQL · KV) over the site's
+ * OWN per-site D1. Tables renders SiteTablesPanel (+ an actions toolbar: Seed with AI / Import / New
+ * table / History as buttons, NOT nav entries); SQL is a normal always-visible entry (no Advanced
+ * toggle); KV is a $10/mo locked-upsell (honest, never a dead control) until purchased.
  *
  * Strategy: mock the embed bridge + virtualizer exactly as SiteTablesPanel.spec does, so the embedded
- * SiteTablesPanel mounts cleanly. localStorage is mocked so the Advanced preference is deterministic.
+ * SiteTablesPanel mounts cleanly. localStorage is mocked so the KV-unlock preference is deterministic.
  *
  * Cases:
- *  1. Default sub-nav — Table-view + KV manager buttons render; SQL navigator is hidden (tucked).
- *  2. Advanced toggle — turning it on reveals the SQL navigator button + surface; the pref persists.
- *  3. KV manager — shows the $10/mo locked-upsell card with an Unlock control (never a dead control).
- *  4. KV manager — clicking Unlock swaps the upsell for the REAL per-site KV browser (recycled KvBrowser).
- *  5. SQL navigator — the run control + textarea render once Advanced is on; the AI "Ask" toggle is present.
+ *  1. Sub-nav is concise — Tables + SQL + KV render; there is NO Advanced toggle and NO schema/seed/forms.
+ *  2. Tables view shows the actions toolbar (Seed with AI / Import / New table / History) as buttons.
+ *  3. An action button opens a modal overlay hosting the corresponding panel (Import shown here).
+ *  4. SQL is a first-class entry — selecting it mounts the SQL navigator (textarea + run + Ask toggle).
+ *  5. KV manager — shows the $10/mo locked-upsell with an Unlock control (never a dead control).
+ *  6. KV manager — clicking Unlock swaps the upsell for the REAL per-site KV browser.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent, within } from '@testing-library/react';
@@ -41,7 +42,10 @@ const { postToParentSpy, onParentMessageSpy, parentHandlers } = vi.hoisted(() =>
 vi.mock('~/lib/embed/embedded-mode', () => ({
   isEmbedded: true,
   postToParent: postToParentSpy,
+  postToastToParent: vi.fn(),
   onParentMessage: onParentMessageSpy,
+  requestDbLoadSample: vi.fn(async () => ({ type: 'PS_DB_LOAD_SAMPLE_RESULT', ok: true, tablesCreated: 0 })),
+  requestDbAiSeed: vi.fn(async () => ({ type: 'PS_DB_AI_SEED_RESULT', ok: true, rowsInserted: 0 })),
 }));
 
 // SiteTablesPanel uses @tanstack/react-virtual — stub it (jsdom has no layout engine).
@@ -56,7 +60,7 @@ vi.mock('@tanstack/react-virtual', () => ({
 // ─── Import AFTER mocks ─────────────────────────────────────────────────────────
 import { DatabasePanel } from '../DatabasePanel';
 
-// ─── localStorage stub (deterministic Advanced pref) ────────────────────────────
+// ─── localStorage stub (deterministic KV-unlock pref) ───────────────────────────
 
 let store: Record<string, string> = {};
 
@@ -83,38 +87,75 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('DatabasePanel — consolidated per-site data surface', () => {
-  it('renders the sub-nav with Table-view + KV manager, SQL navigator tucked by default', () => {
+describe('DatabasePanel — consolidated per-site data surface (concise nav)', () => {
+  it('renders a concise sub-nav — Tables + SQL + KV, no Advanced toggle, no schema/seed/forms entries', () => {
     render(<DatabasePanel />);
 
     expect(screen.getByTestId('database-subnav-table')).toBeTruthy();
+    expect(screen.getByTestId('database-subnav-sql')).toBeTruthy();
     expect(screen.getByTestId('database-subnav-kv')).toBeTruthy();
 
-    // SQL navigator is behind the Advanced toggle — not present until enabled.
-    expect(screen.queryByTestId('database-subnav-sql')).toBeNull();
-
-    // The Advanced toggle itself is present and off by default.
-    const toggle = screen.getByTestId('database-advanced-toggle');
-    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    // The removed entries + the removed Advanced toggle must NOT be present.
+    expect(screen.queryByTestId('database-advanced-toggle')).toBeNull();
+    expect(screen.queryByTestId('database-subnav-schema')).toBeNull();
+    expect(screen.queryByTestId('database-subnav-seed')).toBeNull();
+    expect(screen.queryByTestId('database-subnav-forms')).toBeNull();
+    expect(screen.queryByTestId('database-subnav-import')).toBeNull();
+    expect(screen.queryByTestId('database-subnav-history')).toBeNull();
   });
 
-  it('reveals the SQL navigator when Advanced is enabled, and persists the preference', () => {
+  it('shows the Tables actions toolbar (Seed with AI / Import / New table / History) as buttons', () => {
     render(<DatabasePanel />);
 
-    fireEvent.click(screen.getByTestId('database-advanced-toggle'));
-
-    // SQL sub-nav now visible; toggle reflects the on state; pref persisted.
-    expect(screen.getByTestId('database-subnav-sql')).toBeTruthy();
-    expect(screen.getByTestId('database-advanced-toggle').getAttribute('aria-checked')).toBe('true');
-    expect(store.ps_database_advanced).toBe('1');
+    // Tables is the default view; its actions toolbar hosts the entries removed from the nav.
+    expect(screen.getByTestId('database-tables-toolbar')).toBeTruthy();
+    expect(screen.getByTestId('database-action-seed')).toBeTruthy();
+    expect(screen.getByTestId('database-action-import')).toBeTruthy();
+    expect(screen.getByTestId('database-action-schema')).toBeTruthy();
+    expect(screen.getByTestId('database-action-history')).toBeTruthy();
   });
 
-  it('restores the Advanced preference from localStorage on mount', () => {
-    store.ps_database_advanced = '1';
+  it('opens a modal overlay hosting the Import panel when the Import action is clicked', () => {
     render(<DatabasePanel />);
 
-    // SQL sub-nav is visible immediately because the pref was remembered.
-    expect(screen.getByTestId('database-subnav-sql')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('database-action-import'));
+
+    const overlay = screen.getByTestId('database-action-overlay');
+    expect(overlay).toBeTruthy();
+    // The import surface mounts inside the overlay with its dropzone + paste affordance.
+    expect(within(overlay).getByTestId('import-panel')).toBeTruthy();
+    expect(within(overlay).getByTestId('import-dropzone')).toBeTruthy();
+  });
+
+  it('opens the AI-seed panel overlay + asks the per-site bridge for the table list when Seed action is clicked', () => {
+    render(<DatabasePanel />);
+
+    fireEvent.click(screen.getByTestId('database-action-seed'));
+
+    const overlay = screen.getByTestId('database-action-overlay');
+    expect(within(overlay).getByTestId('ai-seed-panel')).toBeTruthy();
+    const tablesCall = postToParentSpy.mock.calls.find(
+      (c) => (c[0] as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST',
+    );
+    expect(tablesCall).toBeTruthy();
+  });
+
+  it('SQL is a first-class entry — selecting it mounts the SQL navigator (textarea + run + Ask toggle)', () => {
+    render(<DatabasePanel />);
+
+    fireEvent.click(screen.getByTestId('database-subnav-sql'));
+
+    expect(screen.getByTestId('database-sql-textarea')).toBeTruthy();
+    expect(screen.getByTestId('database-sql-ask-toggle')).toBeTruthy();
+
+    const run = screen.getByTestId('database-sql-run');
+    // Run is disabled until there's SQL to execute.
+    expect((run as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(screen.getByTestId('database-sql-textarea'), {
+      target: { value: 'SELECT 1;' },
+    });
+    expect((screen.getByTestId('database-sql-run') as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('KV manager shows the $10/mo locked-upsell (honest, not a dead control)', () => {
@@ -146,71 +187,5 @@ describe('DatabasePanel — consolidated per-site data surface', () => {
     expect((listCall?.[0] as { kind?: string })?.kind).toBe('kv');
     // The unlock persists.
     expect(store.ps_database_kv_unlocked).toBe('1');
-  });
-
-  it('SQL navigator renders the query textarea + run control + AI Ask toggle once Advanced is on', () => {
-    store.ps_database_advanced = '1';
-    render(<DatabasePanel />);
-
-    fireEvent.click(screen.getByTestId('database-subnav-sql'));
-
-    expect(screen.getByTestId('database-sql-textarea')).toBeTruthy();
-    // The recycled AI SQL assistant ("Ask AI") is present in the navigator toolbar.
-    expect(screen.getByTestId('database-sql-ask-toggle')).toBeTruthy();
-
-    const run = screen.getByTestId('database-sql-run');
-    // Run is disabled until there's SQL to execute.
-    expect((run as HTMLButtonElement).disabled).toBe(true);
-
-    fireEvent.change(screen.getByTestId('database-sql-textarea'), {
-      target: { value: 'SELECT 1;' },
-    });
-    expect((screen.getByTestId('database-sql-run') as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  // ── FIRE 6: Import / Seed / Forms entry points ────────────────────────────────
-
-  it('exposes the FIRE-6 Import, Seed-with-AI, and Forms sub-nav entry points', () => {
-    render(<DatabasePanel />);
-
-    expect(screen.getByTestId('database-subnav-import')).toBeTruthy();
-    expect(screen.getByTestId('database-subnav-seed')).toBeTruthy();
-    expect(screen.getByTestId('database-subnav-forms')).toBeTruthy();
-  });
-
-  it('mounts the Import panel (file dropzone + paste) when Import is selected', () => {
-    render(<DatabasePanel />);
-
-    fireEvent.click(screen.getByTestId('database-subnav-import'));
-
-    // The import surface mounts with its dropzone + paste affordance (the first-run launchpad).
-    expect(screen.getByTestId('import-panel')).toBeTruthy();
-    expect(screen.getByTestId('import-dropzone')).toBeTruthy();
-    expect(screen.getByTestId('import-choose-file')).toBeTruthy();
-  });
-
-  it('mounts the AI-seed panel + asks the per-site bridge for the table list when Seed is selected', () => {
-    render(<DatabasePanel />);
-
-    fireEvent.click(screen.getByTestId('database-subnav-seed'));
-
-    // The seed surface mounts and asks the per-site bridge for the table list (server-resolved D1).
-    expect(screen.getByTestId('ai-seed-panel')).toBeTruthy();
-    const tablesCall = postToParentSpy.mock.calls.find(
-      (c) => (c[0] as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST',
-    );
-    expect(tablesCall).toBeTruthy();
-  });
-
-  it('mounts the Form builder (title + fields + create) when Forms is selected', () => {
-    render(<DatabasePanel />);
-
-    fireEvent.click(screen.getByTestId('database-subnav-forms'));
-
-    expect(screen.getByTestId('form-builder-panel')).toBeTruthy();
-    expect(screen.getByTestId('form-title')).toBeTruthy();
-    expect(screen.getByTestId('form-add-field')).toBeTruthy();
-    // The default fields render as editable rows (embarrassingly-easy: not a blank form).
-    expect(screen.getByTestId('form-field-0')).toBeTruthy();
   });
 });

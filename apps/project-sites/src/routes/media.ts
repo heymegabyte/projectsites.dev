@@ -37,6 +37,7 @@ import {
   generateVideo,
   getAsset,
   listAssets,
+  mediaUsage,
   saveStockToLibrary,
   searchStock,
   sendToBolt,
@@ -153,6 +154,21 @@ mediaRoutes.get('/api/media/assets', async (c) => {
     offset: Number.isFinite(offset) ? offset : 0,
   });
   return c.json({ ok: true, assets });
+});
+
+// ─── GET /api/media/usage ──────────────────────────────────
+
+/**
+ * Aggregate media-library usage for the caller's org: total bytes + counts by kind + by source.
+ * A ground-truth roll-up straight from `media_assets` (never a client re-scan) — powers the
+ * Resources tab's usage header.
+ */
+mediaRoutes.get('/api/media/usage', async (c) => {
+  const scope = getOrgScope(c);
+  if (scope instanceof Response) return scope;
+
+  const usage = await mediaUsage(c.env, scope.orgId);
+  return c.json({ ok: true, data: usage });
 });
 
 // ─── GET /api/media/assets/:id ─────────────────────────────

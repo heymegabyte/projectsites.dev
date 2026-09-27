@@ -1165,6 +1165,305 @@ export interface ResetResponseMessage {
   error?: string;
 }
 
+// ── Database quick-fill bridge messages (empty-state launchpad + Tables toolbar) ───────────────
+
+/**
+ * Child → Parent (Database Tables — "📊 Load sample data"): ask the admin to seed the site's OWN D1
+ * with a small, ready-made SAMPLE dataset (a couple of realistic starter tables + rows) so a brand-new,
+ * empty database has something to show immediately (embarrassingly-easy first-run). The embedded editor
+ * has no cross-origin session, so the admin (which holds `selectedSite` + the bearer) performs the seed
+ * server-side against the site's server-resolved D1 and replies with {@link DbLoadSampleResponseMessage}.
+ * DARK behind the `per_site_data` flag (a 404 whose message includes "not enabled" → `enabled:false`).
+ *
+ * @remarks Assumed response shape — see {@link DbLoadSampleResponseMessage}. The exact `data` field names
+ * (`tablesCreated` / `rowsInserted`) are the editor's expectation; the backend agent should mirror them.
+ */
+export interface DbLoadSampleRequestMessage {
+  type: 'PS_DB_LOAD_SAMPLE';
+  correlationId: string;
+
+  /** Which environment's D1 to seed (`production` | `preview`). Omit for the default. */
+  environment?: string;
+}
+
+/** Parent → Child: the admin's reply to {@link DbLoadSampleRequestMessage}. */
+export interface DbLoadSampleResponseMessage {
+  type: 'PS_DB_LOAD_SAMPLE_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** How many sample tables were created. */
+  tablesCreated?: number;
+
+  /** How many sample rows were inserted across those tables. */
+  rowsInserted?: number;
+
+  /** The names of the tables the sample created — so the UI can jump straight to one. */
+  tables?: string[];
+
+  /** `false` when the `per_site_data` flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/**
+ * Child → Parent (Database Tables — "✨ Seed with AI"): ask the admin to fill a table in the site's OWN
+ * D1 with realistic AI-generated rows that MATCH the real schema. The admin forwards to the platform AI
+ * (grounded on the server-fetched schema), previews/inserts server-side (parameter-bound) against the
+ * site's server-resolved D1, and replies with {@link DbAiSeedResponseMessage}. When `table` is omitted the
+ * backend may seed the most-recently-created / only table (or return an error asking the UI to pick one).
+ * DARK behind the `per_site_data` flag (a 404 whose message includes "not enabled" → `enabled:false`).
+ *
+ * @remarks Assumed response shape — see {@link DbAiSeedResponseMessage} (`rowsInserted` + echoed `table`).
+ */
+export interface DbAiSeedRequestMessage {
+  type: 'PS_DB_AI_SEED';
+  correlationId: string;
+
+  /** The target table to fill. Omit to let the backend choose (or ask the UI to pick). */
+  table?: string;
+
+  /** An optional natural-language hint shaping the generated rows (e.g. "coffee shop menu items"). */
+  prompt?: string;
+
+  /** How many rows to generate (backend-clamped; a sensible default when omitted). */
+  rowCount?: number;
+
+  /** Which environment's D1 to seed (`production` | `preview`). Omit for the default. */
+  environment?: string;
+}
+
+/** Parent → Child: the admin's reply to {@link DbAiSeedRequestMessage}. */
+export interface DbAiSeedResponseMessage {
+  type: 'PS_DB_AI_SEED_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The table that was seeded (echoed — the backend may have chosen it). */
+  table?: string;
+
+  /** How many AI-generated rows were inserted. */
+  rowsInserted?: number;
+
+  /** `false` when the `per_site_data` flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+// ── Resources media library bridge messages (Resources tab) ─────────────────────────────────────
+
+/** A single media asset descriptor in the {@link ResMediaResponseMessage} list. */
+export interface MediaAssetEntry {
+  /** Stable id used to `delete` the asset (the backend's own handle — an R2 key or a media-row id). */
+  id: string;
+
+  /** The asset's public/served URL (for the `<img>` preview + open-in-new). */
+  url: string;
+
+  /** A friendly file name for display. */
+  name?: string;
+
+  /** The MIME type, when known (drives the image-vs-file thumbnail). */
+  contentType?: string;
+
+  /** Byte size, when known (drives the storage-usage summary). */
+  size?: number;
+
+  /** ISO timestamp the asset was uploaded/created, when known. */
+  uploaded?: string;
+
+  /** A coarse kind for the kind filter (`image` | `video` | `document` | `other`), when the backend classifies. */
+  kind?: string;
+
+  /** Where the asset came from (e.g. `upload` | `generated` | `build`), when the backend classifies. */
+  source?: string;
+}
+
+/** Whole-library usage rollup echoed alongside a media `list` (powers the Resources storage-usage header). */
+export interface MediaUsageSummary {
+  /** Total byte size across all assets. */
+  totalBytes?: number;
+
+  /** Total asset count. */
+  totalCount?: number;
+
+  /** Per-kind counts, keyed by kind (`image` / `video` / `document` / `other`). */
+  countsByKind?: Record<string, number>;
+}
+
+/**
+ * Child → Parent (Resources — Media library): `list` the site's media assets (with optional kind/source
+ * filter + search + paging), or `delete` one by id. The embedded editor has no cross-origin session, so the
+ * admin (which holds `selectedSite` + the bearer) calls the site's media endpoint server-side (against the
+ * site's server-resolved R2/media store) and replies with {@link ResMediaResponseMessage}. The caller NEVER
+ * names a CF id — only the asset's opaque `id`. DARK behind its flag (a 404 whose message includes "not
+ * enabled" → `enabled:false`).
+ *
+ * @remarks Assumed request/response shape — the backend agent should mirror the `list`/`delete` actions and
+ * the {@link MediaAssetEntry} + {@link MediaUsageSummary} fields. Upload is a separate concern (see
+ * {@link MediaUploadRequestMessage}); `delete` here removes an existing asset.
+ */
+export interface ResMediaRequestMessage {
+  type: 'PS_RES_MEDIA';
+  correlationId: string;
+
+  /** `list` (enumerate assets) | `delete` (remove one by id). */
+  action: 'list' | 'delete';
+
+  /** Which environment's media to read/act on (`production` | `preview`). Omit for the default. */
+  environment?: string;
+
+  /** `list`: filter to one coarse kind (`image` | `video` | `document` | `other`). Omit for all kinds. */
+  kind?: string;
+
+  /** `list`: filter to one source (`upload` | `generated` | `build`). Omit for all sources. */
+  source?: string;
+
+  /** `list`: a case-insensitive name search needle. Omit / empty → no search. */
+  search?: string;
+
+  /** `list`: page size (backend-clamped). */
+  limit?: number;
+
+  /** `list`: opaque pagination cursor from the previous page. */
+  cursor?: string;
+
+  /** `delete`: the asset id to remove (the opaque handle from {@link MediaAssetEntry.id}). */
+  id?: string;
+}
+
+/** Parent → Child: the admin's reply to {@link ResMediaRequestMessage}. */
+export interface ResMediaResponseMessage {
+  type: 'PS_RES_MEDIA_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** Echoed action (`list` | `delete`). */
+  action?: string;
+
+  /** `list`: the page of assets. */
+  assets?: MediaAssetEntry[];
+
+  /** `list`: opaque cursor for the next page (absent → last page). */
+  cursor?: string;
+
+  /** `list`: whole-library usage rollup for the storage-usage header. */
+  usage?: MediaUsageSummary;
+
+  /** `delete`: true when the asset was removed. */
+  deleted?: boolean;
+
+  /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/**
+ * Child → Parent (Resources — Media library): upload one asset. The embedded editor reads the file locally
+ * (a base64 data URL) and hands it to the admin, which uploads it server-side to the site's server-resolved
+ * media store and replies with {@link MediaUploadResponseMessage} (the newly-created {@link MediaAssetEntry}).
+ * DARK behind its flag (a 404 whose message includes "not enabled" → `enabled:false`).
+ *
+ * @remarks Assumed shape — the backend agent should accept a base64 `dataUrl` (or `content`) + `name` +
+ * `contentType` and return the created asset. Kept separate from {@link ResMediaRequestMessage} because the
+ * payload (file bytes) is large and shouldn't ride the list/delete verb.
+ */
+export interface MediaUploadRequestMessage {
+  type: 'PS_RES_MEDIA_UPLOAD';
+  correlationId: string;
+
+  /** The file name (used to derive the stored name + extension). */
+  name: string;
+
+  /** The MIME type of the upload. */
+  contentType: string;
+
+  /** The file contents as a base64 data URL (`data:<type>;base64,<...>`). */
+  dataUrl: string;
+
+  /** Which environment's media store to upload to (`production` | `preview`). Omit for the default. */
+  environment?: string;
+}
+
+/** Parent → Child: the admin's reply to {@link MediaUploadRequestMessage}. */
+export interface MediaUploadResponseMessage {
+  type: 'PS_RES_MEDIA_UPLOAD_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The created asset (so the UI can prepend it to the grid without a full reload). */
+  asset?: MediaAssetEntry;
+
+  /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+// ── Resources site-build-files bridge messages (Resources tab) ──────────────────────────────────
+
+/** A single build file descriptor in the {@link ResSiteFilesResponseMessage} list. */
+export interface SiteBuildFileEntry {
+  /** The full R2 key the file lives at. */
+  key: string;
+
+  /** The path relative to the build prefix (for display). */
+  name: string;
+
+  /** Byte size. */
+  size: number;
+
+  /** ISO timestamp the file was uploaded, when known. */
+  uploaded?: string;
+
+  /** The stored content type, when known. */
+  contentType?: string | null;
+
+  /** A directly-openable URL for the file, when the backend can mint one (open-in-new). */
+  url?: string;
+}
+
+/**
+ * Child → Parent (Resources — Site build files): list the files that make up the site's published build
+ * (optionally for a specific version). The admin (which holds `selectedSite` + the bearer) lists the site's
+ * OWN R2 build prefix (`sites/{slug}/[{version}/]`) server-side and replies with
+ * {@link ResSiteFilesResponseMessage}. Reads the site's OWN code only. DARK behind its flag (a 404 whose
+ * message includes "not enabled" → `enabled:false`).
+ *
+ * @remarks Assumed shape — parallels the existing {@link CodeTreeRequestMessage}, but scoped to the
+ * Resources tab's build-files list (with size + open-in-new). The backend agent may back this with the same
+ * `GET /api/sites/:siteId/files` endpoint.
+ */
+export interface ResSiteFilesRequestMessage {
+  type: 'PS_RES_SITE_FILES';
+  correlationId: string;
+
+  /** An optional build version to list (omit → the live top-level prefix). */
+  version?: string;
+
+  /** Which environment's build to list (`production` | `preview`). Omit for the default. */
+  environment?: string;
+}
+
+/** Parent → Child: the admin's reply to {@link ResSiteFilesRequestMessage}. */
+export interface ResSiteFilesResponseMessage {
+  type: 'PS_RES_SITE_FILES_RESULT';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The build files (backend-capped); `name` is the path relative to `prefix`. */
+  files?: SiteBuildFileEntry[];
+
+  /** The R2 prefix the files were listed under (`sites/{slug}/[{version}/]`). */
+  prefix?: string;
+
+  /** The build version the list was read from (null → the live top-level prefix). */
+  version?: string | null;
+
+  /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
 export type ParentToChildMessage =
   | SubmitPromptMessage
   | ImportFilesMessage
@@ -1189,6 +1488,11 @@ export type ParentToChildMessage =
   | CodeFileResponseMessage
   | CodeHistoryResponseMessage
   | ResetResponseMessage
+  | DbLoadSampleResponseMessage
+  | DbAiSeedResponseMessage
+  | ResMediaResponseMessage
+  | MediaUploadResponseMessage
+  | ResSiteFilesResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -1212,6 +1516,11 @@ export type ChildToParentMessage =
   | CodeFileRequestMessage
   | CodeHistoryRequestMessage
   | ResetRequestMessage
+  | DbLoadSampleRequestMessage
+  | DbAiSeedRequestMessage
+  | ResMediaRequestMessage
+  | MediaUploadRequestMessage
+  | ResSiteFilesRequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;
@@ -1623,6 +1932,142 @@ export function postToastToParent(level: NonNullable<PSToastMessage['kind']>, me
    * side of the bridge can match without coordination.
    */
   postToParent({ type: 'PS_TOAST', kind: level, level, message });
+}
+
+// ── Request/await-by-correlationId helper (shared by the new Database + Resources senders) ────────
+
+/** Monotonic per-module counter so a helper-generated correlationId is always unique. */
+let bridgeCorrelationCounter = 0;
+
+/** Mint a unique correlationId (crypto.randomUUID when available, else a monotonic fallback). */
+export function nextBridgeCorrelationId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `bridge_${++bridgeCorrelationCounter}`;
+}
+
+const BRIDGE_REQUEST_TIMEOUT_MS = 20_000;
+
+/**
+ * Send ONE child→parent request + resolve with the parent's reply whose `type` is `expectType` AND whose
+ * `correlationId` matches. Rejects on timeout so a dropped/unhandled parent never hangs the caller. Mirrors
+ * the ad-hoc `request()` closures in SiteTablesPanel/ResourceOverviewPanel, extracted so the new Database
+ * quick-fill + Resources senders share one implementation. Outside embedded mode it rejects immediately.
+ *
+ * @typeParam R - the expected `ParentToChildMessage` variant.
+ * @param message - the child→parent message (its `correlationId` is used to match the reply).
+ * @param expectType - the `type` string of the reply variant to resolve on.
+ * @param timeoutMs - how long to wait before rejecting (default {@link BRIDGE_REQUEST_TIMEOUT_MS}).
+ */
+export function requestFromParent<R extends ParentToChildMessage>(
+  message: ChildToParentMessage & { correlationId: string },
+  expectType: R['type'],
+  timeoutMs: number = BRIDGE_REQUEST_TIMEOUT_MS,
+): Promise<R> {
+  return new Promise<R>((resolve, reject) => {
+    if (!isEmbedded) {
+      reject(new Error('Open this from the ProjectSites admin to use this feature.'));
+      return;
+    }
+
+    const { correlationId } = message;
+    let unsubscribe: () => void = () => {};
+
+    const timer = setTimeout(() => {
+      unsubscribe();
+      reject(new Error('The request timed out. Check the admin connection and retry.'));
+    }, timeoutMs);
+
+    unsubscribe = onParentMessage((reply) => {
+      if (reply.type !== expectType) {
+        return;
+      }
+
+      if ((reply as { correlationId?: string }).correlationId !== correlationId) {
+        return;
+      }
+
+      clearTimeout(timer);
+      unsubscribe();
+      resolve(reply as R);
+    });
+
+    postToParent(message);
+  });
+}
+
+/**
+ * "📊 Load sample data" — seed the site's OWN D1 with a ready-made starter dataset.
+ * Resolves with the parent's {@link DbLoadSampleResponseMessage}.
+ */
+export function requestDbLoadSample(
+  input: { environment?: string } = {},
+): Promise<DbLoadSampleResponseMessage> {
+  return requestFromParent<DbLoadSampleResponseMessage>(
+    { type: 'PS_DB_LOAD_SAMPLE', correlationId: nextBridgeCorrelationId(), environment: input.environment },
+    'PS_DB_LOAD_SAMPLE_RESULT',
+  );
+}
+
+/**
+ * "✨ Seed with AI" — fill a table in the site's OWN D1 with realistic AI-generated rows.
+ * Resolves with the parent's {@link DbAiSeedResponseMessage}.
+ */
+export function requestDbAiSeed(
+  input: { table?: string; prompt?: string; rowCount?: number; environment?: string } = {},
+): Promise<DbAiSeedResponseMessage> {
+  return requestFromParent<DbAiSeedResponseMessage>(
+    {
+      type: 'PS_DB_AI_SEED',
+      correlationId: nextBridgeCorrelationId(),
+      table: input.table,
+      prompt: input.prompt,
+      rowCount: input.rowCount,
+      environment: input.environment,
+    },
+    'PS_DB_AI_SEED_RESULT',
+  );
+}
+
+/** List / delete the site's media assets. Resolves with the parent's {@link ResMediaResponseMessage}. */
+export function requestResMedia(
+  input: {
+    action: 'list' | 'delete';
+    environment?: string;
+    kind?: string;
+    source?: string;
+    search?: string;
+    limit?: number;
+    cursor?: string;
+    id?: string;
+  },
+): Promise<ResMediaResponseMessage> {
+  return requestFromParent<ResMediaResponseMessage>(
+    { type: 'PS_RES_MEDIA', correlationId: nextBridgeCorrelationId(), ...input },
+    'PS_RES_MEDIA_RESULT',
+  );
+}
+
+/** Upload one media asset (base64 data URL). Resolves with the parent's {@link MediaUploadResponseMessage}. */
+export function requestMediaUpload(
+  input: { name: string; contentType: string; dataUrl: string; environment?: string },
+): Promise<MediaUploadResponseMessage> {
+  return requestFromParent<MediaUploadResponseMessage>(
+    { type: 'PS_RES_MEDIA_UPLOAD', correlationId: nextBridgeCorrelationId(), ...input },
+    'PS_RES_MEDIA_UPLOAD_RESULT',
+  );
+}
+
+/** List the site's build files. Resolves with the parent's {@link ResSiteFilesResponseMessage}. */
+export function requestResSiteFiles(
+  input: { version?: string; environment?: string } = {},
+): Promise<ResSiteFilesResponseMessage> {
+  return requestFromParent<ResSiteFilesResponseMessage>(
+    { type: 'PS_RES_SITE_FILES', correlationId: nextBridgeCorrelationId(), version: input.version, environment: input.environment },
+    'PS_RES_SITE_FILES_RESULT',
+  );
 }
 
 // ── Initialize ───────────────────────────────────────────────

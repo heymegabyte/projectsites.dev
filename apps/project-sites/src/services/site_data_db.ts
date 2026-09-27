@@ -252,5 +252,302 @@ export async function listSiteTables(db: SiteDataD1): Promise<string[]> {
   return results.map((r) => r.name).filter(isSafeIdent);
 }
 
+/**
+ * One column of a per-site table as `PRAGMA table_info` reports it — the shape both the browse
+ * surface and the AI-seed introspection path consume.
+ */
+export interface SiteTableColumn {
+  readonly name: string;
+  /** SQLite declared type (`TEXT`/`INTEGER`/`REAL`/…); empty string when the table used no type. */
+  readonly type: string;
+  /** 1 when the column is `NOT NULL`. */
+  readonly notnull: number;
+  /** 1 when the column is (part of) the primary key. */
+  readonly pk: number;
+  /** The column's DEFAULT expression as text, or null. */
+  readonly dflt_value?: string | null;
+}
+
+/**
+ * Introspect a table's columns via `pragma_table_info` — the SAME parameterized read the browse
+ * route uses. The caller MUST have validated `table` with {@link isSafeIdent} (the name is bound as a
+ * VALUE to `pragma_table_info(?)`, so it is safe regardless, but keep the allowlist for the callers
+ * that also interpolate the name elsewhere). Returns `[]` for a table with no columns / that vanished.
+ */
+export async function introspectColumns(db: SiteDataD1, table: string): Promise<SiteTableColumn[]> {
+  const { results } = await db.query<SiteTableColumn>(
+    `SELECT name, type, "notnull", pk, dflt_value FROM pragma_table_info(?)`,
+    [table],
+  );
+  return results ?? [];
+}
+
+/**
+ * The realistic sample dataset seeded by {@link createSampleData} — three RELATED e-commerce tables
+ * (`customers` → `orders` → `products`, with `orders` referencing both) so a blank per-site D1
+ * immediately demonstrates joins + typed columns, not a lone toy table. Kept as data (not inline SQL)
+ * so the DDL + the row generator can't drift and the row COUNTS are asserted in tests.
+ *
+ * Each table: a `CREATE TABLE IF NOT EXISTS` with a stable, typed schema; a row generator producing
+ * a deterministic-but-realistic spread. All values are inserted PARAMETERIZED (never interpolated).
+ */
+interface SampleTableSpec {
+  readonly name: string;
+  readonly createSql: string;
+  /** Ordered column names for the INSERT (excludes autoincrement `id`). */
+  readonly columns: readonly string[];
+  /** Build the value rows (each row an array aligned to {@link columns}). */
+  readonly rows: () => unknown[][];
+}
+
+const SAMPLE_FIRST_NAMES = [
+  'Ava', 'Liam', 'Mia', 'Noah', 'Zoe', 'Ethan', 'Luna', 'Kai', 'Nora', 'Owen',
+  'Isla', 'Leo', 'Ruby', 'Milo', 'Iris', 'Finn', 'Elle', 'Jude', 'Wren', 'Cole',
+];
+const SAMPLE_LAST_NAMES = [
+  'Rivera', 'Chen', 'Patel', 'Okafor', 'Nguyen', 'Silva', 'Haddad', 'Kim', 'Rossi', 'Abara',
+];
+const SAMPLE_PRODUCTS = [
+  { category: 'Beverage', name: 'Cold Brew Concentrate', price: 14.0 },
+  { category: 'Beverage', name: 'Single-Origin Beans 12oz', price: 18.5 },
+  { category: 'Equipment', name: 'Ceramic Pour-Over', price: 32.0 },
+  { category: 'Accessory', name: 'Reusable Tumbler', price: 24.0 },
+  { category: 'Beverage', name: 'Espresso Blend 1lb', price: 22.0 },
+  { category: 'Equipment', name: 'Milk Frother', price: 39.0 },
+  { category: 'Accessory', name: 'Barista Apron', price: 28.0 },
+  { category: 'Beverage', name: 'Tasting Flight Set', price: 16.0 },
+  { category: 'Other', name: 'Gift Card', price: 50.0 },
+  { category: 'Equipment', name: 'Travel Grinder', price: 45.0 },
+  { category: 'Beverage', name: 'Oat Milk Case', price: 30.0 },
+  { category: 'Accessory', name: 'Logo Mug', price: 12.0 },
+];
+
+/** Deterministic pseudo-value pickers (seeded by index) — realistic spread, stable across runs. */
+function pick<T>(arr: readonly T[], i: number): T {
+  return arr[i % arr.length] as T;
+}
+
+/** The three related sample tables. Row counts land in the 12–20 band the task asks for. */
+function sampleTableSpecs(): SampleTableSpec[] {
+  const CUSTOMER_COUNT = 16;
+  const ORDER_COUNT = 20;
+  const now = Date.now();
+  const dayMs = 86_400_000;
+  return [
+    {
+      columns: ['name', 'email', 'city', 'lifetime_value', 'created_at'],
+      createSql: `CREATE TABLE IF NOT EXISTS "customers" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        city TEXT,
+        lifetime_value REAL NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      )`,
+      name: 'customers',
+      rows: () =>
+        Array.from({ length: CUSTOMER_COUNT }, (_, i) => {
+          const first = pick(SAMPLE_FIRST_NAMES, i);
+          const last = pick(SAMPLE_LAST_NAMES, i * 3 + 1);
+          return [
+            `${first} ${last}`,
+            `${first.toLowerCase()}.${last.toLowerCase()}@example.com`,
+            pick(['Portland', 'Austin', 'Denver', 'Miami', 'Seattle'], i),
+            Math.round((40 + (i * 37) % 260) * 100) / 100,
+            new Date(now - (i * 5 + 3) * dayMs).toISOString(),
+          ];
+        }),
+    },
+    {
+      columns: ['name', 'category', 'price', 'in_stock'],
+      createSql: `CREATE TABLE IF NOT EXISTS "products" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        price REAL NOT NULL,
+        in_stock INTEGER NOT NULL DEFAULT 1
+      )`,
+      name: 'products',
+      rows: () =>
+        SAMPLE_PRODUCTS.map((p, i) => [p.name, p.category, p.price, i % 7 === 0 ? 0 : 1]),
+    },
+    {
+      columns: ['customer_id', 'product_id', 'quantity', 'total', 'status', 'ordered_at'],
+      createSql: `CREATE TABLE IF NOT EXISTS "orders" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_id INTEGER NOT NULL,
+        product_id INTEGER NOT NULL,
+        quantity INTEGER NOT NULL DEFAULT 1,
+        total REAL NOT NULL,
+        status TEXT NOT NULL DEFAULT 'paid',
+        ordered_at TEXT NOT NULL
+      )`,
+      name: 'orders',
+      rows: () =>
+        Array.from({ length: ORDER_COUNT }, (_, i) => {
+          const product = pick(SAMPLE_PRODUCTS, i * 2 + 1);
+          const qty = (i % 3) + 1;
+          return [
+            (i % CUSTOMER_COUNT) + 1,
+            ((i * 2 + 1) % SAMPLE_PRODUCTS.length) + 1,
+            qty,
+            Math.round(product.price * qty * 100) / 100,
+            pick(['paid', 'paid', 'paid', 'refunded', 'pending'], i),
+            new Date(now - (i * 2) * dayMs).toISOString(),
+          ];
+        }),
+    },
+  ];
+}
+
+/** Result of {@link createSampleData}: the tables touched + how many rows each received. */
+export interface SampleDataResult {
+  readonly tables: string[];
+  readonly rowCounts: Record<string, number>;
+  /** Tables skipped because they already existed with rows (never clobbered). */
+  readonly skipped: string[];
+}
+
+/**
+ * Seed a blank per-site D1 with the three related sample tables ({@link sampleTableSpecs}).
+ * Idempotent + non-destructive: a table that ALREADY has rows is left untouched (reported in
+ * `skipped`); a table that is absent or empty is created (`IF NOT EXISTS`) and filled. Every INSERT
+ * is a single parameterized statement (the D1 REST `/query` plane is single-statement).
+ *
+ * @param db - the per-site executor (already resolved + isolated upstream via {@link resolveSiteDataDb})
+ * @returns the tables + per-table row counts inserted this call, plus any skipped
+ */
+export async function createSampleData(db: SiteDataD1): Promise<SampleDataResult> {
+  const specs = sampleTableSpecs();
+  const rowCounts: Record<string, number> = {};
+  const tables: string[] = [];
+  const skipped: string[] = [];
+
+  for (const spec of specs) {
+    // Create the table if missing (safe no-op when present).
+    await db.query(spec.createSql);
+
+    // Never clobber existing customer data — skip a table that already holds rows.
+    const existing = await db.query<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM ${quoteIdent(spec.name)}`,
+    );
+    if (Number(existing.results[0]?.n ?? 0) > 0) {
+      skipped.push(spec.name);
+      continue;
+    }
+
+    const rows = spec.rows();
+    const cols = spec.columns.map(quoteIdent).join(', ');
+    const placeholders = spec.columns.map(() => '?').join(', ');
+    let inserted = 0;
+    for (const row of rows) {
+      const res = await db.query(
+        `INSERT INTO ${quoteIdent(spec.name)} (${cols}) VALUES (${placeholders})`,
+        row,
+      );
+      inserted += Number(res.meta.rows_written ?? 0) || 1;
+    }
+    rowCounts[spec.name] = inserted;
+    tables.push(spec.name);
+  }
+
+  return { rowCounts, skipped, tables };
+}
+
+/** Result of an AI seed: the target table, how many rows landed, and a small preview. */
+export interface AiSeedResult {
+  readonly table: string;
+  readonly inserted: number;
+  readonly previewRows: SiteDataRow[];
+  /** true when THIS call CREATE'd the table from a prompt (vs. seeded an existing one). */
+  readonly createdTable: boolean;
+}
+
+/** A JSON-serialisable value the AI may return for a cell (guarded before binding). */
+type SeedCell = string | number | boolean | null;
+
+/** Coerce one AI-returned cell to a D1-bindable primitive; objects/arrays become JSON text. */
+function toBindable(value: unknown): SeedCell {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * INSERT already-generated rows into an EXISTING table (parameterized). Each `row` is a
+ * column→value map; only keys matching a REAL, {@link isSafeIdent}-valid column of `table` are used
+ * (an AI hallucinating an extra key can never inject a column), and the primary-key column is
+ * dropped so autoincrement stays intact. Returns the count inserted + a preview of what landed.
+ *
+ * @param db      - per-site executor (resolved + isolated upstream)
+ * @param table   - target table (caller validated with {@link isSafeIdent}; confirmed to exist)
+ * @param columns - the table's introspected columns (from {@link introspectColumns})
+ * @param rows    - AI-generated column→value maps
+ */
+export async function insertSeedRows(
+  db: SiteDataD1,
+  table: string,
+  columns: SiteTableColumn[],
+  rows: Array<Record<string, unknown>>,
+): Promise<{ inserted: number }> {
+  // Insertable columns = real, safe-named, non-PK (leave autoincrement PKs to SQLite).
+  const insertable = columns.filter((c) => isSafeIdent(c.name) && c.pk !== 1).map((c) => c.name);
+  const insertableSet = new Set(insertable);
+  if (insertable.length === 0) return { inserted: 0 };
+
+  let inserted = 0;
+  for (const row of rows) {
+    // Only real columns the AI actually provided a value for (order-stable to the table's columns).
+    const usedCols = insertable.filter((c) => c in row && insertableSet.has(c));
+    if (usedCols.length === 0) continue;
+    const values = usedCols.map((c) => toBindable(row[c]));
+    const colSql = usedCols.map(quoteIdent).join(', ');
+    const placeholders = usedCols.map(() => '?').join(', ');
+    const res = await db.query(
+      `INSERT INTO ${quoteIdent(table)} (${colSql}) VALUES (${placeholders})`,
+      values,
+    );
+    inserted += Number(res.meta.rows_written ?? 0) || 1;
+  }
+  return { inserted };
+}
+
+/** A CREATE-TABLE plan the AI proposes when seeding from a bare prompt (no existing table). */
+export interface AiTablePlan {
+  readonly table: string;
+  /** Ordered column definitions (name + SQLite type + optional NOT NULL). */
+  readonly columns: Array<{ name: string; type: string; notnull?: boolean }>;
+}
+
+/** Allowed SQLite column types the AI may propose (anything else → TEXT). */
+const ALLOWED_COL_TYPES = new Set(['TEXT', 'INTEGER', 'REAL', 'NUMERIC', 'BLOB']);
+
+/**
+ * Build a safe `CREATE TABLE` statement from an AI-proposed {@link AiTablePlan}. The table name +
+ * every column name MUST pass {@link isSafeIdent} (rejects a hostile identifier); the type is
+ * clamped to {@link ALLOWED_COL_TYPES}. Always prepends an `id INTEGER PRIMARY KEY AUTOINCREMENT`.
+ * Returns `null` when the plan has no safe columns (caller renders a clean 400).
+ */
+export function buildCreateTableSql(plan: AiTablePlan): { sql: string; table: string } | null {
+  if (!isSafeIdent(plan.table)) return null;
+  const cols = plan.columns
+    .filter((c) => isSafeIdent(c.name) && c.name.toLowerCase() !== 'id')
+    .map((c) => {
+      const type = ALLOWED_COL_TYPES.has(String(c.type).toUpperCase())
+        ? String(c.type).toUpperCase()
+        : 'TEXT';
+      return `${quoteIdent(c.name)} ${type}${c.notnull ? ' NOT NULL' : ''}`;
+    });
+  if (cols.length === 0) return null;
+  const sql = `CREATE TABLE IF NOT EXISTS ${quoteIdent(plan.table)} (id INTEGER PRIMARY KEY AUTOINCREMENT, ${cols.join(', ')})`;
+  return { sql, table: plan.table };
+}
+
 /** The re-exported deterministic per-site D1 name (`ps-site-{id}`) — for logging / display. */
 export { siteD1Name };

@@ -2,50 +2,33 @@
  * @file Database — the ONE consolidated per-site data surface in the editor.
  *
  * @remarks
- * Brian's 2026-09-27 directive (FIRE 1): the editor's three data tabs (`Data` → the shared-platform-D1
- * `DataPanel`, `Database` → the per-site `SiteTablesPanel`, `Resources` → the per-site resource console)
- * collapse into ONE **Database** tab. Its sub-nav is a segmented BUTTON bar — **Table-view · SQL
- * navigator · KV manager** — and EVERYTHING targets the site's OWN dedicated per-site Cloudflare D1
- * (+ its KV), NEVER the shared platform DB and NEVER another site's. The shared-platform-D1 surface
- * (Visitor Events / Snapshots / form_submissions / `/data-overview`) is REMOVED from the editor.
+ * The Database tab's sub-nav is a concise, Airtable/Notion-like segmented BUTTON bar — **Tables · SQL ·
+ * KV** — and EVERYTHING targets the site's OWN dedicated Cloudflare D1 (+ its KV), NEVER the shared
+ * platform DB and NEVER another site's. (Brian 2026-09-27, FIRE: Database menu cleanup.)
  *
- * Sub-views:
- *  - **Table-view** — the read/edit grid over the site's OWN D1 ({@link SiteTablesPanel}, `PS_SITEDB_*`).
- *  - **Schema builder** — a guided, visual DDL builder ({@link SchemaBuilder}): create table / add · rename ·
- *    drop column (drop is confirm-gated) / create index. Compiles SAFE statements via the pure `schema-ddl`
- *    generators and runs them through the SAME per-site exec rail (`PS_RES_MUTATE { kind:'d1', action:'exec' }`)
- *    with the SQL previewed first. No SQL knowledge required (embarrassingly-easy bar).
- *  - **Import** (FIRE 6) — CSV/JSON → the site's OWN D1 ({@link ImportPanel}): drop/paste a file, auto-detect
- *    columns + types, map them to a new or existing table, preview, then a chunked PARAMETERIZED batch INSERT
- *    through the SAME per-site exec rail. Values are BOUND (never concatenated); the safety keystone lives in the
- *    pure, unit-tested `data-ingest-logic`.
- *  - **Seed with AI** (FIRE 6) — fill a table with realistic sample rows ({@link AiSeedPanel}): pick a table, the
- *    platform AI (`/api/llmcall`, DeepSeek) generates rows matching the real schema, previewed then confirm-inserted
- *    through the per-site rail (param-bound).
- *  - **Forms** (FIRE 6) — a simple form builder ({@link FormBuilder}): define fields → create a backing table +
- *    store a form definition in the site's OWN D1 (the public-render + submit endpoint is a documented follow-up).
- *  - **History** — D1 Time-Travel restore ({@link TimeTravelPanel}): see the live bookmark, label a point, and
- *    RESTORE the whole database to a bookmark or a chosen date-time (confirm-gated, honest "restores to <time>").
- *    Uses `PS_RES_MUTATE { kind:'d1', action:'time_travel_info' | 'restore' }` → the worker's REAL CF REST
- *    Time-Travel calls; an honest "not available" state when Cloudflare can't expose it.
- *  - **SQL navigator** — the RICH per-site D1 SQL workspace ({@link SqlNavigator}), tucked behind a
- *    remembered **Advanced/Developer** toggle (SQL is NOT hidden, it's tucked — 2026-09-26 override).
- *    Recycles the proven editor from `DataPanel` (syntax-highlighted + schema-completing editor, query
- *    history, saved queries, EXPLAIN cost hint, typed result grid) RE-POINTED at the site's OWN D1 via
- *    the per-site adapter (`PS_RES_MUTATE { kind:'d1', action:'exec' }` → `data_d1_exec`), NEVER the
- *    super-admin shared-D1 `/sql/*` path. Mutating statements are confirm-gated; `rowsWritten` is truth.
- *  - **KV manager** — the site's OWN KV, a **$10/mo Stripe add-on**. Until unlocked this is an honest
- *    LOCKED-UPSELL card (never a dead/mock control); once unlocked it renders the REAL per-site KV browser
- *    ({@link KvBrowser}, `PS_RES_DETAIL/MUTATE { kind:'kv' }`) — list/get/put/delete keys against the
- *    site's OWN server-resolved KV namespace, DARK behind `per_site_kv` (a 404 → honest "not enabled yet",
- *    never a dead control). The Stripe checkout + provision-on-purchase backend is FIRE 3's wiring; this
- *    fire recycles the honest gate + the real UI behind it.
+ * Sub-views (the ONLY top-level nav entries):
+ *  - **Tables** — the read/edit grid over the site's OWN D1 ({@link SiteTablesPanel}, `PS_SITEDB_*`).
+ *    Import (CSV/JSON) + History (D1 Time-Travel) + Schema (guided DDL) + AI-seed are reachable AS ACTIONS
+ *    from WITHIN this view (a toolbar + the empty-state launchpad), NOT as top nav entries — the menu stays
+ *    concise. Those panels ({@link ImportPanel}, {@link TimeTravelPanel}, {@link SchemaBuilder},
+ *    {@link AiSeedPanel}) render as a modal overlay ON TOP of the Tables grid.
+ *  - **SQL** — the RICH per-site D1 SQL workspace ({@link SqlNavigator}), now a NORMAL, always-visible menu
+ *    entry (the Advanced/Developer toggle was removed — SQL is a first-class view). Recycles the proven
+ *    editor (syntax-highlighted + schema-completing, query history, saved queries, EXPLAIN cost hint, typed
+ *    result grid) RE-POINTED at the site's OWN D1 via the per-site adapter (`PS_RES_MUTATE { kind:'d1',
+ *    action:'exec' }` → `data_d1_exec`). Mutating statements are confirm-gated; `rowsWritten` is truth.
+ *  - **KV** — the site's OWN KV, a **$10/mo Stripe add-on**. Until unlocked this is an honest LOCKED-UPSELL
+ *    card (never a dead/mock control); once unlocked it renders the REAL per-site KV browser
+ *    ({@link KvBrowser}, `PS_RES_DETAIL/MUTATE { kind:'kv' }`), DARK behind `per_site_kv` (a 404 → honest
+ *    "not enabled yet").
  *
  * Isolation is SERVER-resolved for every sub-view: the worker resolves the site's CF ids from the
- * registry for the OWNED site+environment; this panel never sees or sends a CF id it could tamper with
- * (SECURITY-INVARIANTS INV-1/INV-2). Dark flags surface as friendly "not enabled yet" states (404 →
- * disabled), never scary errors (INV-3). Style matches the editor conventions exactly (UnoCSS
- * `bolt-elements-*` tokens, phosphor `i-ph:*` icons).
+ * registry for the OWNED site+environment; this panel never sees or sends a CF id it could tamper with.
+ * Dark flags surface as friendly "not enabled yet" states (404 → disabled), never scary errors. Style
+ * matches the editor conventions exactly (UnoCSS `bolt-elements-*` tokens, phosphor `i-ph:*` icons).
+ *
+ * FormBuilder is intentionally NOT wired as a nav entry or an action here (Brian 2026-09-27) but stays
+ * IMPORTED so it remains reachable/interconnected for a future surface.
  */
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { classNames } from '~/utils/classNames';
@@ -62,70 +45,42 @@ import { DangerZone } from './DangerZone';
 
 // ── Sub-nav model ────────────────────────────────────────────────────────────
 
-type SubView = 'table' | 'schema' | 'import' | 'seed' | 'forms' | 'history' | 'sql' | 'kv';
+/** Top-level Database views — concise (Airtable/Notion-like): Tables · SQL · KV. */
+type SubView = 'table' | 'sql' | 'kv';
+
+/**
+ * An ACTION reachable from within the Tables view (a modal overlay), NOT a top-level nav entry — this is
+ * how Import / History / Schema / AI-seed stay reachable while the menu stays concise.
+ */
+type TableAction = 'import' | 'history' | 'schema' | 'seed';
 
 interface SubNavItem {
   value: SubView;
   label: string;
   icon: string;
-
-  /** When true this item only appears while the Advanced/Developer toggle is on. */
-  advanced?: boolean;
 }
 
 const SUB_NAV: readonly SubNavItem[] = [
-  { value: 'table', label: 'Table-view', icon: 'i-ph:table-duotone' },
-  { value: 'schema', label: 'Schema', icon: 'i-ph:blueprint-duotone' },
-  { value: 'import', label: 'Import', icon: 'i-ph:upload-simple-duotone' },
-  { value: 'seed', label: 'Seed with AI', icon: 'i-ph:sparkle-duotone' },
-  { value: 'forms', label: 'Forms', icon: 'i-ph:list-checks-duotone' },
-  { value: 'history', label: 'History', icon: 'i-ph:clock-counter-clockwise-duotone' },
-  { value: 'sql', label: 'SQL navigator', icon: 'i-ph:terminal-window-duotone', advanced: true },
-  { value: 'kv', label: 'KV manager', icon: 'i-ph:key-duotone' },
+  { value: 'table', label: 'Tables', icon: 'i-ph:table-duotone' },
+  { value: 'sql', label: 'SQL', icon: 'i-ph:terminal-window-duotone' },
+  { value: 'kv', label: 'KV', icon: 'i-ph:key-duotone' },
 ];
 
-/** localStorage key remembering the user's Advanced/Developer preference (per 2026-09-26 override). */
-const ADVANCED_KEY = 'ps_database_advanced';
-
-function readAdvancedPref(): boolean {
-  try {
-    return localStorage.getItem(ADVANCED_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function writeAdvancedPref(on: boolean): void {
-  try {
-    localStorage.setItem(ADVANCED_KEY, on ? '1' : '0');
-  } catch {
-    // localStorage unavailable (private mode) — the toggle still works for the session
-  }
-}
+/**
+ * Keep FormBuilder referenced so it stays importable/interconnected (it is deliberately not a nav entry
+ * per Brian 2026-09-27, but must remain reachable code — never orphaned). Tree-shaken from the render path.
+ */
+export const DATABASE_UNWIRED_BUT_REACHABLE = { FormBuilder } as const;
 
 // ── Container ────────────────────────────────────────────────────────────────
 
 export const DatabasePanel = memo(() => {
-  const [advanced, setAdvanced] = useState<boolean>(() => readAdvancedPref());
   const [subView, setSubView] = useState<SubView>('table');
 
-  // If SQL is the active view and Advanced gets turned OFF, fall back to Table-view (never a blank body).
-  useEffect(() => {
-    if (!advanced && subView === 'sql') {
-      setSubView('table');
-    }
-  }, [advanced, subView]);
+  /** The Tables-view action overlay currently open (Import / History / Schema / AI-seed), or null. */
+  const [tableAction, setTableAction] = useState<TableAction | null>(null);
 
-  const toggleAdvanced = useCallback(() => {
-    setAdvanced((cur) => {
-      const next = !cur;
-      writeAdvancedPref(next);
-
-      return next;
-    });
-  }, []);
-
-  const visibleNav = useMemo(() => SUB_NAV.filter((item) => !item.advanced || advanced), [advanced]);
+  const visibleNav = useMemo(() => SUB_NAV, []);
 
   // Roving-tabindex keyboard nav across the segmented button bar (Left/Right/Home/End).
   const onNavKeyDown = useCallback(
@@ -161,12 +116,14 @@ export const DatabasePanel = memo(() => {
     [visibleNav, subView],
   );
 
+  const closeAction = useCallback(() => setTableAction(null), []);
+
   return (
     <div
       className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary"
       data-testid="database-panel"
     >
-      {/* Sub-nav button bar + Advanced/Developer toggle */}
+      {/* Sub-nav button bar — concise Tables · SQL · KV (Airtable/Notion segmented control) */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor shrink-0">
         <div
           role="tablist"
@@ -187,7 +144,7 @@ export const DatabasePanel = memo(() => {
                 data-testid={`database-subnav-${item.value}`}
                 onClick={() => setSubView(item.value)}
                 className={classNames(
-                  'min-h-[24px] flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors',
+                  'min-h-[24px] flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors motion-reduce:transition-none',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
                   active
                     ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 shadow-sm'
@@ -200,56 +157,174 @@ export const DatabasePanel = memo(() => {
             );
           })}
         </div>
-
-        {/* Advanced/Developer toggle — tucks the SQL navigator until asked for; remembered. */}
-        <button
-          type="button"
-          role="switch"
-          aria-checked={advanced}
-          data-testid="database-advanced-toggle"
-          onClick={toggleAdvanced}
-          title={advanced ? 'Hide the SQL navigator' : 'Show the SQL navigator (advanced)'}
-          className={classNames(
-            'ml-auto min-h-[24px] flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md border transition-colors',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
-            advanced
-              ? 'border-bolt-elements-item-contentAccent/60 bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent'
-              : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3',
-          )}
-        >
-          <div className={classNames(advanced ? 'i-ph:code-duotone' : 'i-ph:code', 'text-sm')} aria-hidden />
-          <span className="min-w-[6ch] text-center">{advanced ? 'Developer' : 'Advanced'}</span>
-        </button>
       </div>
 
       {/* Active sub-view — each stays lightweight; only the mounted view holds a live bridge. */}
       <div className="relative flex-1 overflow-hidden">
         {subView === 'table' && (
-          // Table-view is a vertical column: the tables browser scrolls, and the collapsed-by-default
-          // Danger Zone (per-site greenfield reset, FIRE 8) sits at the very bottom — reachable without
-          // disturbing the browser's own scroll. It targets the site's OWN dedicated D1/KV/R2 only.
+          // Tables-view is a vertical column: the tables browser scrolls, an ACTIONS toolbar sits at the top
+          // (Import / History / Schema / Seed with AI — the entries removed from the nav live here as
+          // buttons), and the collapsed-by-default Danger Zone (per-site greenfield reset) sits at the very
+          // bottom. Everything targets the site's OWN dedicated D1/KV/R2 only.
           <div className="h-full flex flex-col overflow-y-auto">
+            <TablesToolbar onAction={setTableAction} />
             <div className="flex-1 min-h-0">
-              <SiteTablesPanel onCreateTable={() => setSubView('schema')} />
+              <SiteTablesPanel
+                onCreateTable={() => setTableAction('schema')}
+                onSeedWithAi={() => setTableAction('seed')}
+                onImportCsv={() => setTableAction('import')}
+                onNewTableSql={() => setSubView('sql')}
+              />
             </div>
             <div className="shrink-0 px-3 pb-4">
               <DangerZone postToParent={postToParent} />
             </div>
           </div>
         )}
-        {subView === 'schema' && <SchemaBuilder />}
-        {subView === 'import' && <ImportPanel />}
-        {subView === 'seed' && <AiSeedPanel />}
-        {subView === 'forms' && <FormBuilder />}
-        {subView === 'history' && <TimeTravelPanel />}
-        {subView === 'sql' && advanced && <SqlNavigator />}
+        {subView === 'sql' && <SqlNavigator />}
         {subView === 'kv' && <KvManager />}
+
+        {/* Tables-view action overlay — Import / History / Schema / AI-seed, on top of the grid. */}
+        {subView === 'table' && tableAction && (
+          <TableActionOverlay action={tableAction} onClose={closeAction} />
+        )}
       </div>
     </div>
   );
 });
 
 DatabasePanel.displayName = 'DatabasePanel';
+
+// ── Tables-view actions toolbar (Import · History · Schema · Seed with AI) ────────────────────────
+
+const TABLE_ACTIONS: readonly { value: TableAction; label: string; icon: string; title: string }[] = [
+  {
+    value: 'seed',
+    label: 'Seed with AI',
+    icon: 'i-ph:sparkle-duotone',
+    title: 'Fill a table with realistic sample rows generated by AI',
+  },
+  {
+    value: 'import',
+    label: 'Import',
+    icon: 'i-ph:upload-simple-duotone',
+    title: 'Import a CSV/JSON file into a table',
+  },
+  {
+    value: 'schema',
+    label: 'New table',
+    icon: 'i-ph:blueprint-duotone',
+    title: 'Build a new table with a guided schema builder',
+  },
+  {
+    value: 'history',
+    label: 'History',
+    icon: 'i-ph:clock-counter-clockwise-duotone',
+    title: 'Time-travel: restore your database to an earlier point',
+  },
+] as const;
+
+/** The compact actions row above the Tables grid — the entries removed from the top nav live here. */
+const TablesToolbar = memo(({ onAction }: { onAction: (action: TableAction) => void }) => (
+  <div
+    className="flex items-center gap-1.5 px-3 py-2 border-b border-bolt-elements-borderColor/60 shrink-0 overflow-x-auto"
+    data-testid="database-tables-toolbar"
+  >
+    <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary shrink-0 mr-0.5">
+      Actions
+    </span>
+    {TABLE_ACTIONS.map((action) => (
+      <button
+        key={action.value}
+        type="button"
+        onClick={() => onAction(action.value)}
+        title={action.title}
+        data-testid={`database-action-${action.value}`}
+        className={classNames(
+          'min-h-[24px] shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-md border transition-colors motion-reduce:transition-none flex items-center gap-1.5',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+          action.value === 'seed'
+            ? 'border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/20'
+            : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3',
+        )}
+      >
+        <div className={classNames(action.icon, 'text-sm')} aria-hidden />
+        {action.label}
+      </button>
+    ))}
+  </div>
+));
+
+TablesToolbar.displayName = 'DatabasePanel.TablesToolbar';
+
+// ── Tables-view action overlay (renders Import / History / Schema / AiSeed panels on top of the grid) ───
+
+const ACTION_META: Record<TableAction, { title: string; icon: string }> = {
+  import: { title: 'Import data', icon: 'i-ph:upload-simple-duotone' },
+  history: { title: 'History — time travel', icon: 'i-ph:clock-counter-clockwise-duotone' },
+  schema: { title: 'New table — schema builder', icon: 'i-ph:blueprint-duotone' },
+  seed: { title: 'Seed with AI', icon: 'i-ph:sparkle-duotone' },
+};
+
+/**
+ * A modal overlay that hosts one of the Tables-view action panels. Keeps {@link ImportPanel},
+ * {@link TimeTravelPanel}, {@link SchemaBuilder}, {@link AiSeedPanel} reachable + interconnected without
+ * cluttering the top nav. Esc / backdrop / the close button dismiss it (restores focus to the grid).
+ */
+const TableActionOverlay = memo(({ action, onClose }: { action: TableAction; onClose: () => void }) => {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', onKey);
+
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const meta = ACTION_META[action];
+
+  return (
+    <div
+      className="absolute inset-0 z-30 flex items-stretch justify-end"
+      role="dialog"
+      aria-modal="true"
+      aria-label={meta.title}
+      data-testid="database-action-overlay"
+    >
+      <button
+        type="button"
+        aria-label={`Close ${meta.title}`}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/50 cursor-default motion-safe:animate-[fadeIn_120ms_ease-out]"
+      />
+      <div className="relative w-[min(560px,92%)] h-full bg-bolt-elements-background-depth-1 border-l border-bolt-elements-borderColor shadow-2xl flex flex-col motion-safe:animate-[fadeInRight_160ms_ease-out]">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0">
+          <div className={classNames(meta.icon, 'text-lg text-bolt-elements-item-contentAccent')} aria-hidden />
+          <h3 className="text-sm font-semibold text-bolt-elements-textPrimary flex-1 tracking-tight">{meta.title}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded hover:bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+          >
+            <div className="i-ph:x text-sm" />
+          </button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {action === 'import' && <ImportPanel />}
+          {action === 'history' && <TimeTravelPanel />}
+          {action === 'schema' && <SchemaBuilder />}
+          {action === 'seed' && <AiSeedPanel />}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+TableActionOverlay.displayName = 'DatabasePanel.TableActionOverlay';
 
 // ── KV manager (honest $10/mo locked-upsell gate → the REAL per-site KV browser once unlocked) ────
 
@@ -274,11 +349,10 @@ function writeKvUnlocked(on: boolean): void {
 
 /**
  * The KV manager gate. The site's OWN Cloudflare KV is a **$10/mo Stripe add-on** (per the resource
- * model). Until unlocked this renders an HONEST locked-upsell card — never a dead/mock control
- * (SECURITY-INVARIANTS INV-3). Once unlocked it mounts the REAL {@link KvBrowser}, which manages the
- * site's OWN server-resolved KV namespace (`PS_RES_DETAIL/MUTATE { kind:'kv' }`) and itself renders an
- * honest "not enabled yet" state while `per_site_kv` is dark. This fire recycles the gate + the real UI
- * behind it; the Stripe checkout + provision-on-purchase backend is FIRE 3.
+ * model). Until unlocked this renders an HONEST locked-upsell card — never a dead/mock control. Once
+ * unlocked it mounts the REAL {@link KvBrowser}, which manages the site's OWN server-resolved KV namespace
+ * (`PS_RES_DETAIL/MUTATE { kind:'kv' }`) and itself renders an honest "not enabled yet" state while
+ * `per_site_kv` is dark.
  */
 const KvManager = memo(() => {
   const [unlocked, setUnlocked] = useState<boolean>(() => readKvUnlocked());

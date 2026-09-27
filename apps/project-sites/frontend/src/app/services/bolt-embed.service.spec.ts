@@ -199,6 +199,152 @@ describe('BoltEmbedService (PS_FILES_READY dedupe — module + route responders 
   });
 });
 
+/**
+ * Bridge response-shape parity: the editor (`app/lib/embed/embedded-mode.ts`) consumes specific
+ * top-level fields; the admin handlers must emit EXACTLY those (not a nested `{data}` envelope, not
+ * the worker's raw column names). These lock the 5 aligned contracts + the added upload handler so a
+ * future refactor can't silently re-introduce the divergence. Each fires a request from the trusted
+ * editor origin, stubs the worker call, and asserts the exact reply posted back to the iframe.
+ */
+describe('BoltEmbedService (bridge response-shape parity — editor is the contract)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  interface ParitySetup {
+    fire: (origin: string, data: unknown) => void;
+    posted: Array<Record<string, unknown>>;
+  }
+
+  function paritySetup(api: Partial<Record<string, unknown>>): ParitySetup {
+    const posted: Array<Record<string, unknown>> = [];
+    TestBed.configureTestingModule({
+      providers: [
+        BoltEmbedService,
+        { provide: DomSanitizer, useValue: { bypassSecurityTrustResourceUrl: (u: string) => u } },
+        { provide: ApiService, useValue: { get: () => of({}), post: () => of({}), postFormData: () => of({}), delete: () => of({}), ...api } },
+        { provide: ToastService, useValue: { toasts: signal([]), error: jasmine.createSpy('error'), success: jasmine.createSpy('success') } },
+      ],
+    });
+    const svc = TestBed.inject(BoltEmbedService) as unknown as Testable & {
+      registerIframe: (el: unknown) => void;
+      bootForSite: (s: unknown) => void;
+    };
+    // Fake iframe: capture every message the handler posts back to the editor.
+    svc.registerIframe({ contentWindow: { postMessage: (m: Record<string, unknown>) => posted.push(m) } });
+    svc.bootForSite({ id: 's1', slug: 'acme', business_name: 'Acme', status: 'published', current_build_version: 'v1' });
+    svc.attachMessageListener();
+    const fire = (origin: string, data: unknown): void =>
+      svc.messageHandler(new MessageEvent('message', { origin, data }));
+    return { fire, posted };
+  }
+
+  const TRUSTED = 'https://editor.projectsites.dev';
+  const last = (posted: Array<Record<string, unknown>>, type: string): Record<string, unknown> | undefined =>
+    [...posted].reverse().find((m) => m['type'] === type);
+
+  it('PS_DB_LOAD_SAMPLE → top-level {tablesCreated, rowsInserted, tables} (not nested data)', async () => {
+    const { fire, posted } = paritySetup({
+      post: () => of({ ok: true, data: { tables: ['customers', 'orders'], rowCounts: { customers: 5, orders: 8 } } }),
+    });
+    fire(TRUSTED, { type: 'PS_DB_LOAD_SAMPLE', correlationId: 'c1' });
+    await new Promise((r) => setTimeout(r, 0));
+    const reply = last(posted, 'PS_DB_LOAD_SAMPLE_RESULT')!;
+    expect(reply).toBeDefined();
+    expect(reply['tablesCreated']).toBe(2);
+    expect(reply['rowsInserted']).toBe(13);
+    expect(reply['tables']).toEqual(['customers', 'orders']);
+    expect(reply['data']).toBeUndefined(); // no nested envelope
+  });
+
+  it('PS_DB_AI_SEED → top-level {table, rowsInserted} mapped from worker {inserted} (preserves ok)', async () => {
+    const { fire, posted } = paritySetup({
+      post: () => of({ ok: true, data: { table: 'menu', inserted: 12, previewRows: [], createdTable: true } }),
+    });
+    fire(TRUSTED, { type: 'PS_DB_AI_SEED', correlationId: 'c2', table: 'menu' });
+    await new Promise((r) => setTimeout(r, 0));
+    const reply = last(posted, 'PS_DB_AI_SEED_RESULT')!;
+    expect(reply['table']).toBe('menu');
+    expect(reply['rowsInserted']).toBe(12);
+    expect(reply['ok']).toBeTrue();
+    expect(reply['data']).toBeUndefined();
+  });
+
+  it('PS_RES_MEDIA list → top-level {assets, usage}; assets mapped to editor shape, usage renamed', async () => {
+    const { fire, posted } = paritySetup({
+      get: (path: string) =>
+        path === '/media/assets'
+          ? of({ ok: true, assets: [{ id: 'a1', r2_key: 'k', mime: 'image/png', size_bytes: 900, name: 'hero.png', kind: 'image', source: 'uploaded', created_at: 123 }] })
+          : of({ ok: true, data: { totalSizeBytes: 900, totalCount: 1, countByKind: { image: 1 } } }),
+    });
+    fire(TRUSTED, { type: 'PS_RES_MEDIA', correlationId: 'c3', mediaAction: 'list' });
+    await new Promise((r) => setTimeout(r, 0));
+    const reply = last(posted, 'PS_RES_MEDIA_RESULT')!;
+    const assets = reply['assets'] as Array<Record<string, unknown>>;
+    expect(assets.length).toBe(1);
+    expect(assets[0]['id']).toBe('a1');
+    expect(assets[0]['url']).toBe('/api/media/assets/a1/raw'); // authed raw-stream route
+    expect(assets[0]['contentType']).toBe('image/png'); // mime → contentType
+    expect(assets[0]['size']).toBe(900); // size_bytes → size
+    expect(assets[0]['uploaded']).toBe('123'); // created_at → uploaded
+    const usage = reply['usage'] as Record<string, unknown>;
+    expect(usage['totalBytes']).toBe(900); // totalSizeBytes → totalBytes (what the header reads)
+    expect(usage['totalCount']).toBe(1);
+    expect(reply['data']).toBeUndefined();
+  });
+
+  it('PS_RES_MEDIA_UPLOAD (NEW handler) → decodes dataUrl, posts FormData, replies {ok, asset mapped}', async () => {
+    let sentForm: FormData | null = null;
+    const { fire, posted } = paritySetup({
+      postFormData: (path: string, form: FormData) => {
+        sentForm = form;
+        expect(path).toBe('/media/upload');
+        return of({ ok: true, asset: { id: 'u1', r2_key: 'k', mime: 'image/png', size_bytes: 3, name: 'p.png', kind: 'image', source: 'uploaded', created_at: 9 } });
+      },
+    });
+    // 1x1 transparent-ish base64 PNG payload (content irrelevant — we assert decode + map).
+    fire(TRUSTED, {
+      type: 'PS_RES_MEDIA_UPLOAD',
+      correlationId: 'c4',
+      name: 'p.png',
+      contentType: 'image/png',
+      dataUrl: 'data:image/png;base64,AAAA',
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sentForm).withContext('multipart FormData was built + posted').not.toBeNull();
+    expect((sentForm as unknown as FormData).get('file')).withContext('file field present').not.toBeNull();
+    const reply = last(posted, 'PS_RES_MEDIA_UPLOAD_RESULT')!;
+    expect(reply['ok']).toBeTrue();
+    const asset = reply['asset'] as Record<string, unknown>;
+    expect(asset['id']).toBe('u1');
+    expect(asset['url']).toBe('/api/media/assets/u1/raw');
+    expect(asset['contentType']).toBe('image/png');
+  });
+
+  it('PS_RES_MEDIA_UPLOAD malformed dataUrl → {ok:false, error} (never throws)', async () => {
+    const { fire, posted } = paritySetup({});
+    fire(TRUSTED, { type: 'PS_RES_MEDIA_UPLOAD', correlationId: 'c5', name: 'x', contentType: 'image/png', dataUrl: 'not-a-data-url' });
+    await new Promise((r) => setTimeout(r, 0));
+    const reply = last(posted, 'PS_RES_MEDIA_UPLOAD_RESULT')!;
+    expect(reply['ok']).toBeFalse();
+    expect(reply['error']).toBeTruthy();
+  });
+
+  it('PS_RES_SITE_FILES → top-level {files, version, prefix} (not nested data, no dead assets)', async () => {
+    const { fire, posted } = paritySetup({
+      get: (path: string) =>
+        path === '/sites/s1/build-files'
+          ? of({ ok: true, data: { files: [{ key: 'sites/acme/v1/index.html', name: 'index.html', size: 10, uploaded: 't', url: 'u' }], totalSize: 10, version: 'v1' } })
+          : of({}),
+    });
+    fire(TRUSTED, { type: 'PS_RES_SITE_FILES', correlationId: 'c6' });
+    await new Promise((r) => setTimeout(r, 0));
+    const reply = last(posted, 'PS_RES_SITE_FILES_RESULT')!;
+    expect((reply['files'] as unknown[]).length).toBe(1);
+    expect(reply['version']).toBe('v1');
+    expect(reply['prefix']).toBe('sites/acme/v1/');
+    expect(reply['data']).toBeUndefined();
+  });
+});
+
 describe('BoltEmbedService (veil dismiss → editorReady)', () => {
   afterEach(() => TestBed.resetTestingModule());
   const ready = (svc: unknown): boolean => (svc as { editorReady(): boolean }).editorReady();

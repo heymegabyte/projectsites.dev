@@ -40,7 +40,10 @@ import { classNames } from '~/utils/classNames';
 import {
   isEmbedded,
   postToParent,
+  postToastToParent,
   onParentMessage,
+  requestDbLoadSample,
+  requestDbAiSeed,
   type ParentToChildMessage,
   type SiteDbTablesResponseMessage,
   type SiteDbRowsResponseMessage,
@@ -233,14 +236,27 @@ function undoValueLabel(value: unknown): string {
 
 export interface SiteTablesPanelProps {
   /**
-   * Optional: switch the Database tab to the Schema builder (the empty-state "New table" launchpad + a
-   * "New table" action call this so the owner's click lands in the guided builder, per the
-   * embarrassingly-easy bar). When absent, the button falls back to an inline "coming next" note.
+   * Optional: open the guided Schema builder (the empty-state "＋ New table" launchpad + the "New table"
+   * action call this so the owner's click lands in the guided builder, per the embarrassingly-easy bar).
+   * When absent, the button falls back to an inline "coming next" note.
    */
   onCreateTable?: () => void;
+
+  /**
+   * Optional: open the AI-seed panel (the "✨ Seed with AI" empty-state button falls back to this when
+   * present). When absent, the empty-state button runs the inline {@link requestDbAiSeed} bridge directly.
+   */
+  onSeedWithAi?: () => void;
+
+  /** Optional: open the CSV/JSON Import panel (the "⬆ Import CSV" empty-state + toolbar button). */
+  onImportCsv?: () => void;
+
+  /** Optional: jump to the SQL view with the NEW TABLE template (an alternate create flow for power users). */
+  onNewTableSql?: () => void;
 }
 
-export const SiteTablesPanel = memo(({ onCreateTable }: SiteTablesPanelProps = {}) => {
+export const SiteTablesPanel = memo(
+  ({ onCreateTable, onSeedWithAi, onImportCsv, onNewTableSql }: SiteTablesPanelProps = {}) => {
   const [tables, setTables] = useState<TablesState>({ status: 'loading' });
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [rows, setRows] = useState<RowsState>({ status: 'idle' });
@@ -536,6 +552,115 @@ export const SiteTablesPanel = memo(({ onCreateTable }: SiteTablesPanelProps = {
     setTimeout(() => setComingSoon((cur) => (cur === label ? null : cur)), 3200);
   }, []);
 
+  // ── Quick-fill actions (Load sample data · Seed with AI) ──────────────────
+  /** Which quick-fill action is in flight (disables its button + shows a spinner), or null. */
+  const [quickFill, setQuickFill] = useState<null | 'sample' | 'seed'>(null);
+
+  /**
+   * "📊 Load sample data" — ask the admin (via the per-site bridge) to seed the site's OWN D1 with a
+   * ready-made starter dataset. Toasts the outcome + refreshes the table list so the new tables appear.
+   */
+  const loadSampleData = useCallback(async () => {
+    if (quickFill) {
+      return;
+    }
+
+    setQuickFill('sample');
+
+    try {
+      const reply = await requestDbLoadSample({});
+
+      if (!reply.ok) {
+        if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+          setTables({ status: 'disabled' });
+          return;
+        }
+
+        postToastToParent('error', reply.error || 'Could not load the sample data.');
+
+        return;
+      }
+
+      const tablesCreated = reply.tablesCreated ?? reply.tables?.length ?? 0;
+      const rowsInserted = reply.rowsInserted ?? 0;
+      postToastToParent(
+        'success',
+        tablesCreated > 0
+          ? `Loaded ${tablesCreated} sample table${tablesCreated === 1 ? '' : 's'}${rowsInserted > 0 ? ` with ${rowsInserted} rows` : ''}.`
+          : 'Sample data loaded.',
+      );
+      await loadTables();
+
+      // Jump straight into the first created table (embarrassingly-easy: land on real data).
+      const first = reply.tables?.[0];
+
+      if (first) {
+        openTable(first);
+      }
+    } catch (err) {
+      postToastToParent('error', err instanceof Error ? err.message : 'Could not load the sample data.');
+    } finally {
+      setQuickFill(null);
+    }
+  }, [quickFill, loadTables, openTable]);
+
+  /**
+   * "✨ Seed with AI" — ask the admin to fill a table with realistic AI-generated rows. From the empty
+   * state it prefers the parent's richer AI-seed panel ({@link onSeedWithAi}); the toolbar version (with a
+   * table already open) seeds THAT table inline via the bridge. Toasts the outcome + refreshes the rows.
+   */
+  const seedWithAi = useCallback(
+    async (table?: string) => {
+      // When a dedicated panel is available and no specific table is targeted, open it (richer flow).
+      if (onSeedWithAi && !table) {
+        onSeedWithAi();
+        return;
+      }
+
+      if (quickFill) {
+        return;
+      }
+
+      setQuickFill('seed');
+
+      try {
+        const reply = await requestDbAiSeed({ table });
+
+        if (!reply.ok) {
+          if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+            setTables({ status: 'disabled' });
+            return;
+          }
+
+          postToastToParent('error', reply.error || 'AI could not seed the table.');
+
+          return;
+        }
+
+        const rows = reply.rowsInserted ?? 0;
+        const seeded = reply.table ?? table;
+        postToastToParent(
+          'success',
+          seeded
+            ? `Added ${rows} AI-generated row${rows === 1 ? '' : 's'} to ${seeded}.`
+            : `Added ${rows} AI-generated row${rows === 1 ? '' : 's'}.`,
+        );
+
+        // Refresh: re-load the open table's rows if it was the target, else the table list.
+        if (selectedTable && (!seeded || seeded === selectedTable)) {
+          await loadRows(selectedTable, offset);
+        } else {
+          await loadTables();
+        }
+      } catch (err) {
+        postToastToParent('error', err instanceof Error ? err.message : 'AI could not seed the table.');
+      } finally {
+        setQuickFill(null);
+      }
+    },
+    [onSeedWithAi, quickFill, selectedTable, offset, loadRows, loadTables],
+  );
+
   // ── Edit helpers ──────────────────────────────────────────────────────────
 
   /** A column is editable only when there's a resolvable PK, it isn't part of the PK, and isn't generated. */
@@ -785,6 +910,8 @@ export const SiteTablesPanel = memo(({ onCreateTable }: SiteTablesPanelProps = {
       <Header
         onRefresh={selectedTable ? () => void loadRows(selectedTable, offset) : () => void loadTables()}
         editable={selectedTable !== null && pkCols.length > 0}
+        onSeedWithAi={() => void seedWithAi(selectedTable ?? undefined)}
+        seeding={quickFill === 'seed'}
         subtitle={
           selectedTable
             ? pkCols.length > 0
@@ -804,6 +931,11 @@ export const SiteTablesPanel = memo(({ onCreateTable }: SiteTablesPanelProps = {
           onRetry={() => void loadTables()}
           onComingSoon={flashComingSoon}
           onCreateTable={onCreateTable}
+          onNewTableSql={onNewTableSql}
+          onSeedWithAi={() => void seedWithAi()}
+          onLoadSample={() => void loadSampleData()}
+          onImportCsv={onImportCsv}
+          quickFill={quickFill}
         />
       ) : (
         <BrowseView
@@ -913,7 +1045,19 @@ SiteTablesPanel.displayName = 'SiteTablesPanel';
 // ── Header ─────────────────────────────────────────────────────────────────
 
 const Header = memo(
-  ({ subtitle, onRefresh, editable }: { subtitle: string; onRefresh: () => void; editable: boolean }) => (
+  ({
+    subtitle,
+    onRefresh,
+    editable,
+    onSeedWithAi,
+    seeding,
+  }: {
+    subtitle: string;
+    onRefresh: () => void;
+    editable: boolean;
+    onSeedWithAi: () => void;
+    seeding: boolean;
+  }) => (
     <div className="flex items-center gap-3 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0">
       <div className="i-ph:database-duotone text-xl text-bolt-elements-textSecondary" />
       <div className="min-w-0">
@@ -926,6 +1070,24 @@ const Header = memo(
             editable
           </span>
         )}
+        {/* Seed with AI — moved out of the removed nav into the toolbar. Label reserves its widest state. */}
+        <button
+          type="button"
+          onClick={onSeedWithAi}
+          disabled={seeding}
+          data-testid="sitedb-seed-ai"
+          title="Fill a table with realistic sample rows generated by AI"
+          className="min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded-md border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors motion-reduce:transition-none flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+        >
+          <div
+            className={classNames(
+              seeding ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:sparkle-duotone',
+              'text-sm shrink-0',
+            )}
+            aria-hidden
+          />
+          <span className="min-w-[9ch] text-center">{seeding ? 'Seeding…' : 'Seed with AI'}</span>
+        </button>
         <button
           type="button"
           onClick={onRefresh}
@@ -969,6 +1131,191 @@ const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => 
 
 ErrorCard.displayName = 'SiteTablesPanel.ErrorCard';
 
+// ── Loading skeleton (Airtable/Notion pattern: a REAL header row + pending body rows beat a spinner) ──
+
+const TableListSkeleton = memo(() => (
+  <div className="flex-1 overflow-hidden p-3" data-testid="sitedb-skeleton" aria-busy="true" aria-live="polite">
+    <div className="flex items-center gap-2 px-1 py-1.5">
+      <div className="h-3 w-16 rounded bg-bolt-elements-background-depth-3 motion-safe:animate-pulse" />
+    </div>
+    <div className="space-y-1.5 mt-1">
+      {Array.from({ length: 7 }).map((_, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-2 px-2 py-2 rounded-md bg-bolt-elements-background-depth-2/60"
+        >
+          <div className="i-ph:table text-sm text-bolt-elements-textTertiary/40 shrink-0" aria-hidden />
+          <div
+            className="h-3 rounded bg-bolt-elements-background-depth-3 motion-safe:animate-pulse"
+            style={{ width: `${45 + ((i * 13) % 40)}%` }}
+          />
+        </div>
+      ))}
+    </div>
+    <span className="sr-only">Loading your tables…</span>
+  </div>
+));
+
+TableListSkeleton.displayName = 'SiteTablesPanel.TableListSkeleton';
+
+// ── Empty launchpad (Airtable/Notion: the first-run empty table is onboarding, not a dead end) ──────
+
+/** One primary action tile in the gorgeous empty-state launchpad. */
+interface LaunchTile {
+  key: 'seed' | 'sample' | 'newtable' | 'import';
+  icon: string;
+  glyph: string;
+  title: string;
+  desc: string;
+  primary?: boolean;
+}
+
+const LAUNCH_TILES: readonly LaunchTile[] = [
+  {
+    key: 'seed',
+    icon: 'i-ph:sparkle-duotone',
+    glyph: '✨',
+    title: 'Seed with AI',
+    desc: 'Generate a table full of realistic rows from a short description.',
+    primary: true,
+  },
+  {
+    key: 'sample',
+    icon: 'i-ph:table-duotone',
+    glyph: '📊',
+    title: 'Load sample data',
+    desc: 'Drop in a ready-made starter dataset to explore right away.',
+  },
+  {
+    key: 'newtable',
+    icon: 'i-ph:plus-square-duotone',
+    glyph: '＋',
+    title: 'New table',
+    desc: 'Design a table yourself with a guided, no-SQL schema builder.',
+  },
+  {
+    key: 'import',
+    icon: 'i-ph:upload-simple-duotone',
+    glyph: '⬆',
+    title: 'Import CSV',
+    desc: 'Bring your own data — upload a CSV or JSON file into a table.',
+  },
+] as const;
+
+const EmptyLaunchpad = memo(
+  ({
+    onSeedWithAi,
+    onLoadSample,
+    onCreateTable,
+    onImportCsv,
+    quickFill,
+  }: {
+    onSeedWithAi: () => void;
+    onLoadSample: () => void;
+    onCreateTable: () => void;
+    onImportCsv: () => void;
+    quickFill: null | 'sample' | 'seed';
+  }) => {
+    const handlers: Record<LaunchTile['key'], () => void> = {
+      seed: onSeedWithAi,
+      sample: onLoadSample,
+      newtable: onCreateTable,
+      import: onImportCsv,
+    };
+
+    return (
+      <div className="flex-1 overflow-auto modern-scrollbar" data-testid="sitedb-empty">
+        <div className="min-h-full flex flex-col items-center justify-center gap-6 p-8 text-center">
+          {/* Hero mark + copy */}
+          <div className="flex flex-col items-center gap-3">
+            <div className="relative flex items-center justify-center h-16 w-16 rounded-2xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08]">
+              <div className="i-ph:database-duotone text-3xl text-bolt-elements-item-contentAccent" aria-hidden />
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute -inset-2 rounded-3xl opacity-40 blur-xl"
+                style={{ background: 'radial-gradient(circle, color-mix(in oklch, #00e5ff 40%, transparent), transparent 70%)' }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-[length:clamp(1rem,3.5vw,1.25rem)] font-semibold text-bolt-elements-textPrimary tracking-tight">
+                Your database is a blank canvas
+              </h3>
+              <p className="text-[12px] text-bolt-elements-textSecondary max-w-[380px] text-pretty">
+                Start with real data in one click — let AI generate it, drop in a sample set, design a table, or bring
+                your own file.
+              </p>
+            </div>
+          </div>
+
+          {/* Action tiles — Airtable/Notion card grid; one visually-dominant primary (Seed with AI). */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-[520px]">
+            {LAUNCH_TILES.map((tile) => {
+              const busy = (tile.key === 'seed' && quickFill === 'seed') || (tile.key === 'sample' && quickFill === 'sample');
+              const disabled = quickFill !== null;
+
+              return (
+                <button
+                  key={tile.key}
+                  type="button"
+                  onClick={handlers[tile.key]}
+                  disabled={disabled}
+                  data-testid={`sitedb-empty-${tile.key}`}
+                  className={classNames(
+                    'group relative overflow-hidden rounded-xl border p-4 text-left flex flex-col gap-2 transition-all duration-150 motion-reduce:transition-none',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent',
+                    'enabled:hover:-translate-y-0.5 motion-reduce:enabled:hover:translate-y-0 enabled:hover:shadow-lg enabled:hover:shadow-bolt-elements-item-contentAccent/5',
+                    disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
+                    tile.primary
+                      ? 'border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-contentAccent/[0.06] enabled:hover:border-bolt-elements-item-contentAccent/70'
+                      : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 enabled:hover:border-bolt-elements-item-contentAccent/40 enabled:hover:bg-bolt-elements-background-depth-3',
+                  )}
+                >
+                  {tile.primary && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-0 top-0 bottom-0 w-0.5 bg-bolt-elements-item-contentAccent/70"
+                    />
+                  )}
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className={classNames(
+                        'flex items-center justify-center h-9 w-9 rounded-xl shrink-0',
+                        tile.primary
+                          ? 'border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.1]'
+                          : 'border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-1',
+                      )}
+                      aria-hidden="true"
+                    >
+                      <div
+                        className={classNames(
+                          busy ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : tile.icon,
+                          'text-lg',
+                          tile.primary ? 'text-bolt-elements-item-contentAccent' : 'text-bolt-elements-textSecondary',
+                        )}
+                      />
+                    </div>
+                    <span className="text-[13px] font-semibold text-bolt-elements-textPrimary">
+                      {busy ? 'Working…' : tile.title}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-bolt-elements-textTertiary leading-snug text-pretty">{tile.desc}</p>
+                </button>
+              );
+            })}
+          </div>
+
+          <p className="text-[10px] text-bolt-elements-textTertiary/80 flex items-center gap-1.5">
+            <span className="i-ph:shield-check text-bolt-elements-item-contentAccent/70" aria-hidden />
+            This is your site&rsquo;s own private database — nothing is shared with other sites.
+          </p>
+        </div>
+      </div>
+    );
+  },
+);
+
+EmptyLaunchpad.displayName = 'SiteTablesPanel.EmptyLaunchpad';
+
 // ── Table list view ────────────────────────────────────────────────────────
 
 const TableListView = memo(
@@ -978,15 +1325,25 @@ const TableListView = memo(
     onRetry,
     onComingSoon,
     onCreateTable,
+    onNewTableSql,
+    onSeedWithAi,
+    onLoadSample,
+    onImportCsv,
+    quickFill,
   }: {
     state: TablesState;
     onOpen: (name: string) => void;
     onRetry: () => void;
     onComingSoon: (label: string) => void;
     onCreateTable?: () => void;
+    onNewTableSql?: () => void;
+    onSeedWithAi: () => void;
+    onLoadSample: () => void;
+    onImportCsv?: () => void;
+    quickFill: null | 'sample' | 'seed';
   }) => {
     if (state.status === 'loading') {
-      return <Spinner label="Loading your tables…" />;
+      return <TableListSkeleton />;
     }
 
     if (state.status === 'disabled') {
@@ -1008,39 +1365,16 @@ const TableListView = memo(
       return <ErrorCard message={state.message} onRetry={onRetry} />;
     }
 
-    // ready → empty launchpad OR the table list
+    // ready → gorgeous empty launchpad OR the table list
     if (state.tables.length === 0) {
       return (
-        <div
-          className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center"
-          data-testid="sitedb-empty"
-        >
-          <div className="i-ph:table text-4xl text-bolt-elements-textTertiary" />
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-bolt-elements-textPrimary">Your database is empty</p>
-            <p className="text-[11px] text-bolt-elements-textTertiary max-w-[280px]">
-              Create your first table to start storing data — or let AI build one from a plain-English description.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => (onCreateTable ? onCreateTable() : onComingSoon('New table'))}
-              data-testid="sitedb-new-table"
-              className="min-h-[24px] text-[12px] font-semibold px-3.5 py-2 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 hover:opacity-90 transition-opacity flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-            >
-              <div className="i-ph:plus-bold" /> New table
-            </button>
-            <button
-              type="button"
-              onClick={() => onComingSoon('Ask AI')}
-              data-testid="sitedb-ask-ai"
-              className="min-h-[24px] text-[12px] font-semibold px-3.5 py-2 rounded-lg border border-bolt-elements-item-contentAccent/60 bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-            >
-              <div className="i-ph:sparkle" /> Ask AI
-            </button>
-          </div>
-        </div>
+        <EmptyLaunchpad
+          onSeedWithAi={onSeedWithAi}
+          onLoadSample={onLoadSample}
+          onCreateTable={() => (onCreateTable ? onCreateTable() : onNewTableSql ? onNewTableSql() : onComingSoon('New table'))}
+          onImportCsv={() => (onImportCsv ? onImportCsv() : onComingSoon('Import CSV'))}
+          quickFill={quickFill}
+        />
       );
     }
 

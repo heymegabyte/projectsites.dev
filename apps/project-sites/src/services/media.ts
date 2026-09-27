@@ -159,6 +159,55 @@ export async function getAsset(env: Env, orgId: string, id: string): Promise<Med
   );
 }
 
+/** Aggregate usage of an org's media library — total bytes + counts by kind + by source. */
+export interface MediaUsage {
+  totalSizeBytes: number;
+  countByKind: Record<string, number>;
+  countBySource: Record<string, number>;
+  totalCount: number;
+}
+
+/**
+ * Aggregate the org's (non-deleted) media library in ONE round-trip: total stored bytes plus a
+ * tally by `kind` and by `source`. Powers the Resources tab's "media usage" header — a ground-truth
+ * count straight from `media_assets`, never a client-side re-scan.
+ *
+ * @example
+ * ```ts
+ * const u = await mediaUsage(env, orgId);
+ * // → { totalSizeBytes: 20489321, countByKind: { image: 42, video: 3 }, countBySource: { uploaded: 30, stock: 15 }, totalCount: 45 }
+ * ```
+ */
+export async function mediaUsage(env: Env, orgId: string): Promise<MediaUsage> {
+  const empty: MediaUsage = { countByKind: {}, countBySource: {}, totalCount: 0, totalSizeBytes: 0 };
+  const { data, error } = await dbQuery<{
+    kind: string;
+    source: string;
+    n: number;
+    bytes: number | null;
+  }>(
+    env.DB,
+    `SELECT kind, source, COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS bytes
+       FROM media_assets
+      WHERE org_id = ? AND deleted_at IS NULL
+      GROUP BY kind, source`,
+    [orgId],
+  );
+  if (error) {
+    console.warn('[media] mediaUsage failed:', error);
+    return empty;
+  }
+  const usage: MediaUsage = { countByKind: {}, countBySource: {}, totalCount: 0, totalSizeBytes: 0 };
+  for (const row of data) {
+    const n = Number(row.n) || 0;
+    usage.totalSizeBytes += Number(row.bytes) || 0;
+    usage.totalCount += n;
+    usage.countByKind[row.kind] = (usage.countByKind[row.kind] ?? 0) + n;
+    usage.countBySource[row.source] = (usage.countBySource[row.source] ?? 0) + n;
+  }
+  return usage;
+}
+
 /** Soft-delete an asset (sets `deleted_at`; preserves R2 object). */
 export async function softDeleteAsset(
   env: Env,

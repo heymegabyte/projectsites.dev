@@ -14,12 +14,11 @@ import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
 import { renderLogger } from '~/utils/logger';
 import { DatabasePanel } from './DatabasePanel';
-import { ResourceOverviewPanel } from './ResourceOverviewPanel';
+import { ResourcesPanel } from './ResourcesPanel';
 import { GitPanel } from './GitPanel';
 import { CreateMenu } from './CreateMenu';
 import { EditorPanel } from './EditorPanel';
 import { Preview } from './Preview';
-import { DatabasePanel } from './DatabasePanel';
 import { StatusBar } from './StatusBar.client';
 import { openInStackBlitz } from './EditorOverlays.client';
 import useViewport from '~/lib/hooks';
@@ -67,7 +66,8 @@ const CHAT_TAB: TopTab = { value: 'chat', text: 'Chat', icon: 'i-ph:chat-circle-
 const TOP_TABS: TopTab[] = [
   { value: 'code', text: 'Code', icon: 'i-ph:code-duotone' },
   { value: 'preview', text: 'Preview', icon: 'i-ph:eye-duotone' },
-  { value: 'data', text: 'Data', icon: 'i-ph:chart-bar-duotone' },
+  { value: 'database', text: 'Database', icon: 'i-ph:database-duotone' },
+  { value: 'resources', text: 'Resources', icon: 'i-ph:stack-duotone' },
   { value: 'git', text: 'Git', icon: 'i-ph:git-branch-duotone' },
 ];
 
@@ -541,14 +541,15 @@ export const Workbench = memo(
                     <PanelLayer active={selectedView === 'database' || selectedView === 'data'}>
                       <DatabasePanel />
                     </PanelLayer>
-                    {/* Resources panel — the full per-site Cloudflare asset console (FIRE: Resources).
-                        Inventory per kind × env (D1/KV/R2/DO/Workflows/Queues/Vectorize/bindings/connections/
-                        observability) with honest connected / available-to-add / unsupported states, drilling
-                        into a generic detail + manage surface (confirm-gated destructive ops; unsupported CF
-                        capabilities render an honest "not available"). Every CF id is server-resolved for the
-                        authed site+env — the panel never sees or sends one. */}
+                    {/* Resources panel — the site's ASSET overview: a Media library (grid/gallery of the
+                        site's images/video/docs with kind+source filter, search, upload + delete) plus the
+                        Site build files list (with sizes + open-in-new) and a storage-usage summary header.
+                        Airtable/Notion/Linear aesthetic. Reads the site's OWN assets only — every CF id is
+                        server-resolved for the authed site+env; the panel never sees or sends one. The deeper
+                        per-kind CF-primitive console (`ResourceOverviewPanel`/`ResourceDetailPanel`) stays
+                        importable + reachable from within this panel. */}
                     <PanelLayer active={selectedView === 'resources'}>
-                      <ResourceOverviewPanel />
+                      <ResourcesPanel />
                     </PanelLayer>
                     {/* Git panel (FIRE 7) — read-first browser over the site's PUBLISHED R2 build + its
                         commit history: file tree + syntax-labelled viewer + a version timeline, no
