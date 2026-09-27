@@ -30,6 +30,7 @@ import {
 import { listResources, resolveResourceRef } from '../data_resource_registry/service.js';
 import { kvAdapter } from '../data_resource_registry/adapters/kv.js';
 import { r2Adapter } from '../data_resource_registry/adapters/r2.js';
+import { vectorizeAdapter } from '../data_resource_registry/adapters/vectorize.js';
 import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 import {
   ListSitesInput,
@@ -46,6 +47,8 @@ import {
   DataKvGetInput,
   DataR2ListObjectsInput,
   DataR2HeadObjectInput,
+  DataVectorizeListInput,
+  DataVectorizeDescribeInput,
 } from './schemas.js';
 
 /** Flag gating the Data & Resource Platform MCP tools (registry read surface). */
@@ -74,6 +77,18 @@ const PER_SITE_KV_FLAG = 'per_site_kv';
  * only scans literal `isFlagOn(env,'x')` strings, does not require a registry row).
  */
 const PER_SITE_R2_FLAG = 'per_site_r2';
+
+/**
+ * Flag gating the per-site Vectorize READ tools — the reserved `per_site_vectorize` flag
+ * (CAPABILITY-MATRIX.md / SECURITY-INVARIANTS.md). DARK → the tools err (mirroring the Data-tab Vectorize
+ * surface's 404), never leak. Per-site Vectorize is a metadata NAMESPACE inside the SHARED index (not a
+ * dedicated index — namespace ≠ quota); per-site Vectorize provisioning is NOT wired yet (the reconciler
+ * records no vectorize allocation source), so a blank site resolves no `vectorize` registry row → the tools
+ * honestly report the namespace is not provisioned. Mirrors `PER_SITE_R2_FLAG` exactly — a runtime gate
+ * CONSTANT (referenced via the constant, so the orphan-flag-gate checker, which only scans literal
+ * `isFlagOn(env,'x')` strings, does not require a registry row).
+ */
+const PER_SITE_VECTORIZE_FLAG = 'per_site_vectorize';
 
 /** Mirrors DOMAINS.SITES_SUFFIX — the public site subdomain suffix. */
 const SITES_SUFFIX = '.projectsites.dev';
@@ -434,6 +449,37 @@ export const PLATFORM_MCP_TOOLS = [
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id', 'key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_vectorize_list',
+    description:
+      "Summarise your site's OWN vector namespace inside the shared Vectorize index (the same per-site Vectorize the editor's Data tab shows). Returns the index name, dimensions, distance metric, its configured metadata (filterable) fields, AND your site's server-derived namespace. Per-site isolation is a NAMESPACE partition inside one shared index — not a dedicated index (there is no per-site index, and a namespace is not its own quota). You name only the site_id (+ optional environment) — never a Cloudflare index name and never a namespace; both are resolved/derived server-side and isolated to your site. Honest 'not provisioned' until your site has a Vectorize namespace.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_vectorize_describe',
+    description:
+      "Describe your site's Vectorize index config (dimensions, metric, metadata indexes) + your site's namespace, and OPTIONALLY fetch specific vectors' id + METADATA by id (namespace-scoped — a vector outside your namespace is never returned). Returns { indexName, namespace, dimensions, metric, vectors:[{id, metadata}] } — id + metadata ONLY, never the raw vector values. Pass ids:[] (or omit) to describe only. Scoped to the site_id you own; the index + namespace are server-resolved, never named by you.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        ids: { type: 'array', items: { type: 'string', maxLength: 512 }, maxItems: 1000 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
       additionalProperties: false,
     },
   },
@@ -1086,6 +1132,75 @@ export async function dispatchPlatformTool(
       });
     }
 
+    case 'data_vectorize_list': {
+      // Flag-gated on the reserved per_site_vectorize flag (dark → err, mirroring the Data-tab Vectorize 404).
+      if (
+        !(await isFlagOn(env, PER_SITE_VECTORIZE_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site Vectorize is not enabled for this account.');
+      }
+      const { site_id, environment } = DataVectorizeListInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF index name/namespace —
+      // the caller named only site_id; the index is server-resolved from the registry, the namespace derived.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveVectorizeScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      const result = await vectorizeAdapter.list(scoped.scope);
+      if (!result.ok) return err(result.error?.message ?? 'Could not read the Vectorize namespace.');
+      return ok({
+        site_id,
+        environment,
+        indexName: result.data?.indexName,
+        namespace: result.data?.namespace,
+        dimensions: result.data?.dimensions,
+        metric: result.data?.metric,
+        metadataIndexes: result.data?.metadataIndexes ?? [],
+      });
+    }
+
+    case 'data_vectorize_describe': {
+      if (
+        !(await isFlagOn(env, PER_SITE_VECTORIZE_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site Vectorize is not enabled for this account.');
+      }
+      const { site_id, ids, environment } = DataVectorizeDescribeInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveVectorizeScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // NAMESPACE-SCOPED get-by-ids — the adapter derives the namespace from siteId + filters CF's result to
+      // it, so a foreign vector is never returned. METADATA ONLY — the adapter never returns raw vector values.
+      const result = await vectorizeAdapter.get(scoped.scope, { ids });
+      if (!result.ok) return err(result.error?.message ?? 'Could not describe the Vectorize index.');
+      return ok({
+        site_id,
+        environment,
+        indexName: result.data?.indexName,
+        namespace: result.data?.namespace,
+        dimensions: result.data?.dimensions,
+        metric: result.data?.metric,
+        count: result.data?.vectors.length ?? 0,
+        vectors: result.data?.vectors ?? [],
+        metadataOnly: true,
+      });
+    }
+
     default:
       return err(`Tool '${name}' is advertised but not yet wired.`);
   }
@@ -1182,6 +1297,59 @@ async function resolveR2Scope(
       auth,
       environment,
       orgId,
+      resourceId: resolved.resourceId,
+      siteId,
+    },
+  };
+}
+
+/**
+ * Resolve a site's Vectorize scope into a {@link ResolvedScope} for the vectorize adapter, SERVER-SIDE. The
+ * caller already proved org ownership (the dispatcher's `WHERE id=? AND org_id=?` gate); this maps the OWNED
+ * `(site, environment, kind='vectorize')` to its registry-recorded CF index NAME via `resolveResourceRef` (the
+ * same resolver the routes use — no CF index name is ever accepted from the client). Per-site isolation is a
+ * NAMESPACE partition inside that SHARED index (namespace ≠ quota) — the adapter DERIVES the site's namespace
+ * from `scope.siteId` (never caller-supplied), so `resourceId` here is the shared index name only. The
+ * account-wide CF credentials NEVER reach the client. An honest failure (per-site Vectorize provisioning is
+ * NOT wired yet — the reconciler records no vectorize allocation source, so a blank site has no `vectorize`
+ * registry row) returns a typed, user-safe message — NEVER a fabricated index/namespace. Mirrors
+ * {@link resolveR2Scope} exactly.
+ */
+async function resolveVectorizeScope(
+  env: Env,
+  siteId: string,
+  orgId: string,
+  environment: 'preview' | 'production',
+): Promise<
+  | { ok: true; scope: import('../data_resource_registry/adapter.js').ResolvedScope }
+  | { ok: false; message: string }
+> {
+  // The ownership gate already passed in the dispatcher; pass an always-true guard so the resolver does not
+  // re-query (it still re-scopes the registry lookup on siteId + orgId + kind='vectorize').
+  const resolved = await resolveResourceRef(
+    env,
+    siteId,
+    { environment, kind: 'vectorize' },
+    { orgId, ownsSite: async () => true },
+  );
+  if (!resolved.ok) {
+    // not_registered = per-site Vectorize not provisioned yet (namespace provisioning not wired). Honest.
+    if (resolved.reason === 'not_registered') {
+      return { message: 'This site does not have a Vectorize namespace yet.', ok: false };
+    }
+    return { message: 'Could not open the site Vectorize index.', ok: false };
+  }
+  const auth = await resolveCfCredentials(env, orgId);
+  if (!auth) return { message: 'Could not open the site Vectorize index.', ok: false };
+  return {
+    ok: true,
+    scope: {
+      accessPolicy: resolved.accessPolicy,
+      accountId: resolved.accountId,
+      auth,
+      environment,
+      orgId,
+      // The SHARED index name (server-resolved). The adapter derives the site's namespace from siteId.
       resourceId: resolved.resourceId,
       siteId,
     },

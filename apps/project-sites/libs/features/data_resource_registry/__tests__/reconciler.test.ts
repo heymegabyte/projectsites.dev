@@ -193,12 +193,12 @@ describe('reconcileResources — drift sweep (row claims existence, CF head 404s
     expect(mockD1Head).not.toHaveBeenCalled();
   });
 
-  it('does NOT probe rows of an unimplemented kind (e.g. vectorize) — leaves them untouched', async () => {
-    // d1 + kv + r2 adapters are now implemented; pick a kind with NO CF-backed adapter yet so the
-    // "unimplemented kinds are skipped" contract stays honestly exercised.
+  it('does NOT probe rows of an unimplemented kind (e.g. analytics_engine) — leaves them untouched', async () => {
+    // d1 + kv + r2 + vectorize adapters are now implemented; pick a kind with NO CF-backed adapter yet so
+    // the "unimplemented kinds are skipped" contract stays honestly exercised.
     mockDbQueryOne.mockResolvedValueOnce(null);
     mockListResources.mockResolvedValue([
-      registryRow({ id: 'row_vec', resourceIdOrName: 'idx-x', resourceKind: 'vectorize' }),
+      registryRow({ id: 'row_ae', resourceIdOrName: 'ds-x', resourceKind: 'analytics_engine' }),
     ]);
 
     const res = await reconcileResources(envWith() as never, OWNED_SITE, 'production');

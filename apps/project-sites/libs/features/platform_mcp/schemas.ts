@@ -215,6 +215,39 @@ export const DataR2HeadObjectInput = z
   })
   .strict();
 
+/**
+ * `data_vectorize_list` — summarise the OWNED site's own metadata NAMESPACE inside the shared Vectorize index
+ * (MCP parity with the Data tab's Vectorize surface). A caller names ONLY the OWNED `site_id` (NEVER a CF index
+ * name AND never a namespace — BOTH are server-derived: the index from the registry, the namespace from the
+ * site id) plus the optional environment. `.strict()` rejects any attempt to smuggle an `index`/`indexName`/
+ * `namespace`/`accountId`. Ownership + isolation + `per_site_vectorize` flag-gate are enforced server-side in
+ * the dispatcher, mirroring the per-site D1/KV/R2 surfaces. Per-site isolation is a NAMESPACE partition, not a
+ * dedicated per-site index (namespace ≠ quota). Honest 'not provisioned' until the site has a Vectorize row.
+ */
+export const DataVectorizeListInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_vectorize_describe` — read the shared index config (dimensions/metric/metadata-indexes) + the OWNED
+ * site's server-derived namespace, and OPTIONALLY fetch specific vectors' id+METADATA via a NAMESPACE-SCOPED
+ * get-by-ids (a foreign vector is never returned; the namespace filter is the site's own). A caller names ONLY
+ * the OWNED `site_id` (never a CF index name/namespace — server-derived) + optional `ids` + environment. `ids`
+ * is LENIENT (a positive-length string array) because the adapter CLAMPS it to at most 100 (deduped) rather
+ * than REJECTING an over-length request. `.strict()` rejects unknown keys (no `index`/`namespace` smuggling).
+ * Returns id + METADATA ONLY — never the raw vector float values. A missing/foreign id simply isn't returned.
+ */
+export const DataVectorizeDescribeInput = z
+  .object({
+    site_id: z.string().min(1),
+    ids: z.array(z.string().min(1).max(512)).max(1000).optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
 export type ListSitesArgs = z.infer<typeof ListSitesInput>;
 export type GetSiteArgs = z.infer<typeof GetSiteInput>;
 export type BuildStatusArgs = z.infer<typeof BuildStatusInput>;
@@ -229,3 +262,5 @@ export type DataKvListKeysArgs = z.infer<typeof DataKvListKeysInput>;
 export type DataKvGetArgs = z.infer<typeof DataKvGetInput>;
 export type DataR2ListObjectsArgs = z.infer<typeof DataR2ListObjectsInput>;
 export type DataR2HeadObjectArgs = z.infer<typeof DataR2HeadObjectInput>;
+export type DataVectorizeListArgs = z.infer<typeof DataVectorizeListInput>;
+export type DataVectorizeDescribeArgs = z.infer<typeof DataVectorizeDescribeInput>;
