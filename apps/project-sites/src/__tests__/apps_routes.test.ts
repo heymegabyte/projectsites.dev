@@ -620,7 +620,12 @@ describe('POST /api/apps/instances/:id/restart', () => {
       instanceRow({ app_slug: 'payload', worker_script_name: 'payload-x-abc', subdomain: 'acme' }),
     );
     const env = makeDispatchEnv(() => new Response('<html>Payload login</html>', { status: 200 }));
-    const res = await req(makeApp(AUTH), '/api/apps/instances/inst-1/restart', { method: 'POST' }, env);
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/restart',
+      { method: 'POST' },
+      env,
+    );
     expect(res.status).toBe(200);
     const json = (await res.json()) as { ok: boolean; status: string };
     expect(json).toMatchObject({ ok: true, status: 'running' });
@@ -648,7 +653,12 @@ describe('POST /api/apps/instances/:id/stop', () => {
     mockDbQueryOne.mockResolvedValue(
       instanceRow({ app_slug: 'payload', worker_script_name: 'payload-x-abc', subdomain: 'acme' }),
     );
-    const res = await req(makeApp(AUTH), '/api/apps/instances/inst-1/stop', { method: 'POST' }, makeEnv());
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/stop',
+      { method: 'POST' },
+      makeEnv(),
+    );
     expect(res.status).toBe(200);
     const json = (await res.json()) as { ok: boolean; status: string };
     expect(json).toMatchObject({ ok: true, status: 'stopped' });
