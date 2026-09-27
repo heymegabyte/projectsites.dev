@@ -71,14 +71,18 @@ describe('getOrCreatePageAudio — fail-soft + observable', () => {
     const fetchSpy = jest
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(
-        new Response(new Uint8Array(1024), { status: 200, headers: { 'content-type': 'audio/mpeg' } }),
+        new Response(new Uint8Array(1024), {
+          status: 200,
+          headers: { 'content-type': 'audio/mpeg' },
+        }),
       );
     // Capture the content-type of the AUDIO object put (the `.wav` key), not the `.txt` sidecar.
     let audioContentType: string | undefined;
     const env = {
       AI: {
         run: (model: string) => {
-          if (model.includes('llama')) return Promise.resolve({ response: 'A warm spoken summary.' });
+          if (model.includes('llama'))
+            return Promise.resolve({ response: 'A warm spoken summary.' });
           throw new Error('MeloTTS must not be called when ElevenLabs succeeds');
         },
       },

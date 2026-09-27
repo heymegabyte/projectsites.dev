@@ -155,7 +155,10 @@ describe('resolveSiteDataDb — isolation (the security boundary)', () => {
     const h = createD1Sqlite();
     try {
       h.exec(ALLOC_DDL);
-      const res = await resolveSiteDataDb(envWith(h.db), 's4', { autoProvision: false, orgId: null });
+      const res = await resolveSiteDataDb(envWith(h.db), 's4', {
+        autoProvision: false,
+        orgId: null,
+      });
       expect(res).toEqual({ ok: false, reason: 'not_provisioned' });
       expect(mockProvision).not.toHaveBeenCalled();
     } finally {

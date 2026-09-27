@@ -77,10 +77,7 @@ export interface SiteDataD1 {
   /** The resolved per-site database id this executor targets (audit / logging). */
   readonly databaseId: string;
   /** Run a single parameterized SQL statement. Throws {@link SiteDataD1Error} on CF error. */
-  query<T = SiteDataRow>(
-    sql: string,
-    params?: readonly unknown[],
-  ): Promise<SiteDataQueryResult<T>>;
+  query<T = SiteDataRow>(sql: string, params?: readonly unknown[]): Promise<SiteDataQueryResult<T>>;
 }
 
 /** Reason a per-site D1 could not be resolved — honest, typed, no fabrication. */
@@ -135,7 +132,11 @@ export function quoteIdent(name: string): string {
  * @param account - CF account id (`env.CF_ACCOUNT_ID`)
  * @param databaseId - the ONE per-site database id this executor targets (caller MUST NOT pass a shared id)
  */
-export function makeSiteDataExecutor(auth: CfAuth, account: string, databaseId: string): SiteDataD1 {
+export function makeSiteDataExecutor(
+  auth: CfAuth,
+  account: string,
+  databaseId: string,
+): SiteDataD1 {
   return {
     databaseId,
     async query<T = SiteDataRow>(
