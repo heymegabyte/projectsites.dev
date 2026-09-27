@@ -60,6 +60,8 @@ import {
   DataR2HeadObjectInput,
   DataR2PutObjectInput,
   DataR2DeleteObjectInput,
+  DataR2BucketConfigInput,
+  DataR2PreviewUrlInput,
   DataVectorizeListInput,
   DataVectorizeDescribeInput,
   DataVectorizeUpsertInput,
@@ -672,6 +674,37 @@ export const PLATFORM_MCP_TOOLS = [
         site_id: { type: 'string' },
         key: { type: 'string', maxLength: 1024 },
         confirm: { type: 'boolean' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_r2_bucket_config',
+    description:
+      "READ the configuration of your site's OWN dedicated R2 bucket: CORS rules, object-lifecycle rules, public-access, and custom-domain settings. Returns { exists, bucketName, settings:[{ key, label, requiresPlatformAdmin, reason?, available, value? }] }. READ-ONLY + HONEST: CORS + lifecycle are owner-readable (requiresPlatformAdmin:false); public-access (the r2.dev public exposure) + custom domains are platform-administered (DNS/zone + account-wide toggle) and are reported with requiresPlatformAdmin:true + a reason — NEVER a fake control you could click that wouldn't take effect. A setting whose read fails transiently is available:false (not 'off'). You name only the site_id (+ optional environment) — never an R2 bucket name; the bucket is resolved server-side and isolated to your site. Honest 'not provisioned' until your site has an R2 bucket. (This is your OWN R2 bucket, NOT the platform's deployed-site static assets.)",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_r2_preview_url',
+    description:
+      "Get a SHORT-LIVED SCOPED preview/download URL for ONE object in your site's OWN R2 bucket. Returns { key, found, contentType?, size?, kind?, available, url?, expiresInSeconds?, approach? }. CREDENTIAL-SAFE: the response NEVER contains account credentials — only a scoped, time-boxed, single-object handle when signed-URL minting is wired, or an honest available:false + approach (a server-minted signed R2 URL for common image/text/json/pdf types, or a streamed scoped proxy for large/binary) when it is not. A missing object is an honest found:false, never a fabricated URL. You name only the site_id + key (+ optional environment) — never an R2 bucket name; the bucket is resolved server-side and isolated to your site.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        key: { type: 'string', maxLength: 1024 },
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id', 'key'],
@@ -1974,6 +2007,69 @@ export async function dispatchPlatformTool(
         key,
         action: 'delete',
         existed: data?.existed ?? false,
+      });
+    }
+
+    case 'data_r2_bucket_config': {
+      // Flag-gated on the reserved per_site_r2 flag (dark → err, mirroring the Data-tab R2 404).
+      if (!(await isFlagOn(env, PER_SITE_R2_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site R2 is not enabled for this account.');
+      }
+      const { site_id, environment } = DataR2BucketConfigInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF bucket name —
+      // the caller named only site_id; the bucket is server-resolved from the registry.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveR2Scope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // READ-ONLY. The adapter reports each setting's requiresPlatformAdmin honestly (CORS/lifecycle owner-
+      // readable; public-access + custom-domains platform-administered) — never a fake control. No creds returned.
+      const result = await r2Adapter.bucketConfig(scoped.scope);
+      if (!result.ok) return err(result.error?.message ?? 'Could not read the R2 bucket configuration.');
+      return ok({
+        site_id,
+        environment,
+        bucketName: scoped.scope.resourceId,
+        exists: result.data?.exists ?? false,
+        settings: result.data?.settings ?? [],
+      });
+    }
+
+    case 'data_r2_preview_url': {
+      // Flag-gated on the reserved per_site_r2 flag (dark → err, mirroring the Data-tab R2 404).
+      if (!(await isFlagOn(env, PER_SITE_R2_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site R2 is not enabled for this account.');
+      }
+      const { site_id, key, environment } = DataR2PreviewUrlInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveR2Scope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // CREDENTIAL-SAFE (INV-6): the adapter returns a SCOPED short-lived handle when wired, or an honest
+      // available:false + approach — NEVER an account credential, NEVER a fabricated creds-bearing URL.
+      const result = await r2Adapter.previewUrl(scoped.scope, { key });
+      if (!result.ok) return err(result.error?.message ?? 'Could not build a preview URL.');
+      return ok({
+        site_id,
+        environment,
+        bucketName: scoped.scope.resourceId,
+        key,
+        found: result.data?.found ?? false,
+        contentType: result.data?.contentType,
+        size: result.data?.size,
+        kind: result.data?.kind,
+        available: result.data?.available ?? false,
+        url: result.data?.url,
+        expiresInSeconds: result.data?.expiresInSeconds,
+        approach: result.data?.approach,
       });
     }
 

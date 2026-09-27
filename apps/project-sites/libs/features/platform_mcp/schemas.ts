@@ -357,6 +357,41 @@ export const DataR2DeleteObjectInput = z
   .strict();
 
 /**
+ * `data_r2_bucket_config` — READ the OWNED site's R2 bucket configuration (CORS + object-lifecycle rules +
+ * public-access + custom-domain settings). A caller names ONLY the OWNED `site_id` (NEVER a CF bucket name —
+ * server-resolved) plus the optional environment. `.strict()` rejects any attempt to smuggle a
+ * `bucket`/`bucketName`/`accountId`. READ-ONLY: each setting is reported with an honest `requiresPlatformAdmin`
+ * flag — CORS + lifecycle are owner-readable; public-access (r2.dev exposure) + custom domains are
+ * platform-administered (DNS/zone + account-wide toggle) and returned with a reason, NEVER a fake CRUD control.
+ * Ownership + isolation + `per_site_r2` flag-gate + `data:read` scope are enforced server-side. Honest 'not
+ * provisioned' until the site has an R2 bucket. NOTE: this describes the customer's OWN R2 bucket, NOT the
+ * platform's deployed-site static assets (a separate surface).
+ */
+export const DataR2BucketConfigInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_r2_preview_url` — mint a SHORT-LIVED SCOPED preview/download URL for ONE object in the OWNED site's R2
+ * bucket. A caller names ONLY the OWNED `site_id` + the exact `key` (NEVER a CF bucket name — server-resolved)
+ * plus the optional environment. `.strict()` rejects unknown keys (no `bucket` smuggling). READ-ONLY and
+ * credential-safe by construction (SECURITY-INVARIANTS INV-6): the response NEVER contains account credentials
+ * — only a scoped, time-boxed, single-object handle when minting is wired, or an honest `available:false` +
+ * `approach` (signed-URL / streamed-proxy) when it is not. A missing object is an honest `found:false`, never a
+ * fabricated URL. Ownership + isolation + `per_site_r2` flag-gate + `data:read` scope are enforced server-side.
+ */
+export const DataR2PreviewUrlInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(1024),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
  * `data_vectorize_list` — summarise the OWNED site's own metadata NAMESPACE inside the shared Vectorize index
  * (MCP parity with the Data tab's Vectorize surface). A caller names ONLY the OWNED `site_id` (NEVER a CF index
  * name AND never a namespace — BOTH are server-derived: the index from the registry, the namespace from the

@@ -227,9 +227,109 @@ export interface R2DeleteResult {
 /** The discriminated result union a successful `mutate` returns. */
 export type R2MutateResult = R2PutResult | R2DeleteResult | ProvisionMutateResult;
 
+/**
+ * ONE readable bucket-configuration setting (the `bucket_config` READ verb). Two honest shapes:
+ *  - OWNER-MANAGEABLE (`requiresPlatformAdmin:false`): CORS + object-lifecycle rules are BUCKET-level in the
+ *    CF R2 REST API — read directly and reported as `value` (the parsed rule set / a count summary), never a
+ *    fabricated control.
+ *  - PLATFORM-ADMINISTERED (`requiresPlatformAdmin:true`): public-access (the `r2.dev` managed domain, which
+ *    exposes the bucket to the open internet) + custom-domain attachment require DNS/zone ownership and an
+ *    account-wide toggle a single site OWNER cannot manage on this shared CF account (SECURITY-INVARIANTS
+ *    INV-6/INV-7). These are reported WITH the current state (when readable) + an honest `reason` — NEVER a
+ *    fake CRUD toggle the owner could click but that would never take effect.
+ *
+ * `available:false` marks a setting whose CF read itself failed transiently (auth/5xx/network) — the caller
+ * must NOT read that as "off"/"empty" (that would be a lying-empty per `verify-against-source-of-truth`).
+ */
+export interface R2BucketConfigSetting {
+  /** Stable key: `cors` | `lifecycle` | `public_access` | `custom_domains`. */
+  readonly key: string;
+  /** Human label for the Data-tab row. */
+  readonly label: string;
+  /** True when this setting is platform-administered — the site owner cannot manage it here (honest, not a fake control). */
+  readonly requiresPlatformAdmin: boolean;
+  /** Why it's platform-administered (present only when `requiresPlatformAdmin`) — surfaced to the owner verbatim. */
+  readonly reason?: string;
+  /** True when the setting was read successfully; false → the CF read failed transiently (NOT "off"/"empty"). */
+  readonly available: boolean;
+  /** The read value (parsed CORS rules, lifecycle rule summary, public-access state, custom-domain list) — present when `available`. */
+  readonly value?: unknown;
+}
+
+/**
+ * What the `bucket_config` READ verb returns: the site bucket's readable settings. `exists:false` when the
+ * bucket our registry row claims is gone on CF (→ drift, mirrors `head`). Each setting is honest about whether
+ * the OWNER can manage it (`requiresPlatformAdmin`) and whether the read itself succeeded (`available`).
+ */
+export interface R2BucketConfigData {
+  /** True when CF confirms the bucket exists (a `200` from the bucket GET). */
+  readonly exists: boolean;
+  /** The probed bucket name (echoed for audit — it came from the scope, not the caller). */
+  readonly bucketName: string;
+  /** The readable configuration settings (CORS, lifecycle, public-access, custom-domains). */
+  readonly settings: readonly R2BucketConfigSetting[];
+}
+
+/** The `preview_url` input: which object to mint a short-lived scoped preview/download URL for. */
+export interface R2PreviewUrlInput {
+  readonly key: string;
+}
+
+/**
+ * Common-content-type classification of an object for the `preview_url` verb — drives how a client renders the
+ * short-lived scoped URL (inline image/text/json/pdf vs a download for large/binary). NEVER account credentials.
+ */
+export type R2PreviewKind = 'image' | 'text' | 'json' | 'pdf' | 'binary' | 'unknown';
+
+/**
+ * What the `preview_url` READ verb returns. Honest by construction (SECURITY-INVARIANTS INV-6):
+ *  - `found:false` when the object does not exist (an honest miss, never a fabricated URL).
+ *  - `available:false` + `approach` when short-lived signed-URL minting is NOT wired for the per-site bucket
+ *    (the account-wide R2 S3 credentials are NOT held in the Worker by design, so we do NOT fabricate a
+ *    creds-bearing URL). `approach` describes HOW a preview/download WILL be served (a server-minted signed R2
+ *    URL, or a streamed proxy for large/binary) so the surface is honest about the boundary.
+ *  - a `url` is present ONLY when a genuinely SCOPED short-lived URL was minted server-side — and it is NEVER
+ *    an account credential; it is a time-boxed, single-object, GET-only handle.
+ */
+export interface R2PreviewUrlData {
+  readonly key: string;
+  /** True when the object exists (metadata probe succeeded). */
+  readonly found: boolean;
+  /** The object's stored content-type, when found — drives `kind`. */
+  readonly contentType?: string;
+  /** Size in bytes, when found — large objects use a streamed/scoped approach, never inline bytes. */
+  readonly size?: number;
+  /** Common-content-type classification driving how a client renders the URL. */
+  readonly kind?: R2PreviewKind;
+  /** True when a genuinely scoped short-lived URL was minted; false → not wired (see `approach`). */
+  readonly available: boolean;
+  /** The short-lived SCOPED preview/download URL — present ONLY when `available`. NEVER an account credential. */
+  readonly url?: string;
+  /** Seconds until `url` expires, when minted (short-lived by construction). */
+  readonly expiresInSeconds?: number;
+  /** Honest description of HOW a preview/download is (or will be) served — always present when NOT `available`. */
+  readonly approach?: string;
+}
+
 /** Mint a correlation id for one adapter call (structured-logging: every envelope carries one). */
 function correlationId(): string {
   return `r2-${crypto.randomUUID()}`;
+}
+
+/**
+ * Classify a stored content-type into a {@link R2PreviewKind} for the `preview_url` verb. A common, inline-safe
+ * type (image/text/json/pdf) previews in place; everything else is `binary` (download via a scoped/streamed
+ * handle). `unknown` when the object carries no content-type. Pure — no I/O, no credentials.
+ */
+function previewKindFor(contentType: string | undefined, size: number | undefined): R2PreviewKind {
+  void size; // size does not change the KIND (it changes the delivery approach), kept for signature clarity.
+  if (typeof contentType !== 'string' || contentType.length === 0) return 'unknown';
+  const ct = contentType.toLowerCase();
+  if (ct.startsWith('image/')) return 'image';
+  if (ct === 'application/json' || ct.endsWith('+json')) return 'json';
+  if (ct === 'application/pdf') return 'pdf';
+  if (ct.startsWith('text/') || ct === 'application/xml' || ct.endsWith('+xml')) return 'text';
+  return 'binary';
 }
 
 /**
@@ -271,8 +371,11 @@ function metaOrUndefined(raw: unknown): Record<string, unknown> | undefined {
 /**
  * The `r2` adapter. `list`/`head`/`get` are live (read-only, `get` = METADATA only); `mutate` implements
  * the `put` + `delete` named mutations (destructive/overwrite gated on `confirm:true`; large objects use a
- * signed URL, not inline bytes). `supports` declares this honestly so the UI + MCP only ever offer a verb
- * that runs.
+ * signed URL, not inline bytes). Two additional READ-ONLY surfaces: {@link R2Adapter.bucketConfig} (read the
+ * bucket's CORS/lifecycle/public-access/custom-domain settings — honest `requiresPlatformAdmin` per setting,
+ * never a fake control) and {@link R2Adapter.previewUrl} (a short-lived SCOPED preview/download URL for one
+ * object — NEVER account credentials; honest `not_available` + approach when signed-URL minting isn't wired).
+ * `supports` declares the four interface verbs honestly so the UI + MCP only ever offer a verb that runs.
  */
 class R2Adapter
   implements ResourceAdapter<R2ListData, R2HeadData, R2GetData, R2MutateInput, R2MutateResult>
@@ -700,6 +803,198 @@ class R2Adapter
         key,
         metadataStored: hasCustom || hasHttp,
         overwritten: existsBefore === true,
+      },
+      ok: true,
+    };
+  }
+
+  /**
+   * READ the site bucket's configuration (`bucket_config` — READ-ONLY, no confirm). Reports, per setting,
+   * whether the OWNER can manage it here + the current value when readable:
+   *  - **CORS** (`cors`) + **object-lifecycle rules** (`lifecycle`) are BUCKET-level in the CF R2 REST API →
+   *    read directly, `requiresPlatformAdmin:false`, value = the parsed rule set / a count summary.
+   *  - **public access** (`public_access`, the `r2.dev` managed domain that exposes the bucket to the open
+   *    internet) + **custom domains** (`custom_domains`) require DNS/zone ownership + an account-wide toggle a
+   *    single site OWNER cannot manage on this SHARED CF account → `requiresPlatformAdmin:true` + an honest
+   *    `reason`, with the current state attached when it reads (never a fake CRUD control — INV-6/INV-7).
+   *
+   * Operates ONLY on `scope.resourceId`'s bucket (server-resolved upstream — accepts NO bucket name). An honest
+   * `not_available` (`available:false`) marks a setting whose CF read failed transiently — NEVER read as "off".
+   * A `404` on the bucket itself → `exists:false` (drift, mirrors {@link head}). Account credentials never leave
+   * the Worker (only `data` + typed errors + `correlationId` are returned).
+   */
+  async bucketConfig(scope: ResolvedScope): Promise<AdapterResult<R2BucketConfigData>> {
+    const cid = correlationId();
+    const bucketName = scope.resourceId;
+    const base = `${CF_API_BASE}/accounts/${scope.accountId}/r2/buckets/${encodeURIComponent(bucketName)}`;
+
+    // Bucket existence first — a gone bucket is drift, not an empty config.
+    let headRes: Response;
+    try {
+      headRes = await fetch(base, {
+        headers: { ...cfAuthHeaders(scope.auth), 'content-type': 'application/json' },
+        method: 'GET',
+      });
+    } catch (err) {
+      return restError<R2BucketConfigData>(
+        cid,
+        undefined,
+        err instanceof Error ? err.message : 'CF request failed',
+      );
+    }
+    if (
+      headRes.status === 404 ||
+      (headRes.status >= 400 && headRes.status < 500 && headRes.status !== 401 && headRes.status !== 403)
+    ) {
+      return {
+        correlationId: cid,
+        data: { bucketName, exists: false, settings: [] },
+        ok: true,
+      };
+    }
+    if (!headRes.ok) {
+      return restError<R2BucketConfigData>(cid, headRes.status, `CF R2 bucket read returned HTTP ${headRes.status}`);
+    }
+
+    // Read a bucket-level sub-resource; `available:false` on any transient failure (never "empty"/"off").
+    const readSub = async (
+      path: string,
+    ): Promise<{ available: boolean; value?: unknown }> => {
+      let res: Response;
+      try {
+        res = await fetch(`${base}${path}`, {
+          headers: { ...cfAuthHeaders(scope.auth), 'content-type': 'application/json' },
+          method: 'GET',
+        });
+      } catch {
+        return { available: false };
+      }
+      // A 404 here means "no rules configured" — an honest empty, not a failure.
+      if (res.status === 404) return { available: true, value: null };
+      if (!res.ok) return { available: false };
+      const json = (await res.json().catch(() => null)) as { success?: boolean; result?: unknown } | null;
+      if (!json?.success) return { available: false };
+      return { available: true, value: json.result ?? null };
+    };
+
+    const [cors, lifecycle, publicAccess, customDomains] = await Promise.all([
+      readSub('/cors'),
+      readSub('/lifecycle'),
+      // The managed (`r2.dev`) public-access state + the attached custom domains are readable, but MANAGING
+      // them is platform-administered (DNS/zone ownership + an account-wide public-exposure toggle).
+      readSub('/domains/managed'),
+      readSub('/domains/custom'),
+    ]);
+
+    const settings: R2BucketConfigSetting[] = [
+      {
+        available: cors.available,
+        key: 'cors',
+        label: 'CORS rules',
+        requiresPlatformAdmin: false,
+        value: cors.value,
+      },
+      {
+        available: lifecycle.available,
+        key: 'lifecycle',
+        label: 'Object lifecycle rules',
+        requiresPlatformAdmin: false,
+        value: lifecycle.value,
+      },
+      {
+        available: publicAccess.available,
+        key: 'public_access',
+        label: 'Public access (r2.dev managed domain)',
+        reason:
+          'Exposing this bucket to the public internet is an account-wide setting managed by the platform, not per-site — request public access through support.',
+        requiresPlatformAdmin: true,
+        value: publicAccess.value,
+      },
+      {
+        available: customDomains.available,
+        key: 'custom_domains',
+        label: 'Custom domains',
+        reason:
+          'Attaching a custom domain to this bucket requires DNS/zone ownership managed by the platform — request a custom domain through support.',
+        requiresPlatformAdmin: true,
+        value: customDomains.value,
+      },
+    ];
+
+    return {
+      correlationId: cid,
+      data: { bucketName, exists: true, settings },
+      ok: true,
+    };
+  }
+
+  /**
+   * Return a SHORT-LIVED SCOPED preview/download URL for ONE object (`preview_url` — READ-ONLY, no confirm).
+   * SECURITY-INVARIANTS INV-6: this NEVER returns account credentials. It first probes the object's metadata
+   * (via {@link get} — METADATA only, never bytes) to (1) honestly report `found:false` for a missing object
+   * rather than fabricating a URL, and (2) classify the content-type (image/text/json/pdf/binary) so the caller
+   * knows how to render it.
+   *
+   * Signed-URL minting for a per-site bucket is NOT wired (the account-wide R2 S3 credentials are deliberately
+   * NOT held in the Worker), so — rather than fabricate a creds-bearing URL — this returns `available:false`
+   * with an honest `approach` describing HOW a preview/download WILL be served once minting lands: a
+   * server-minted, time-boxed, single-object, GET-only signed R2 URL for common inline types, or a streamed
+   * scoped proxy for large/binary objects (never inline bytes, never a raw credential). When minting IS wired,
+   * a `url` is present and is ALWAYS a scoped short-lived handle, never an account credential.
+   *
+   * Operates ONLY on `scope.resourceId`'s bucket (server-resolved upstream — accepts NO bucket name). The key is
+   * validated (non-empty) before any I/O.
+   */
+  async previewUrl(scope: ResolvedScope, input: R2PreviewUrlInput): Promise<AdapterResult<R2PreviewUrlData>> {
+    const cid = correlationId();
+    const key = input?.key;
+    if (typeof key !== 'string' || key.length === 0) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_key', message: 'Object key is missing or empty.', retryable: false },
+        ok: false,
+      };
+    }
+
+    // Probe metadata first (never bytes) — honest found:false + content-type classification.
+    const meta = await this.get(scope, { key });
+    if (!meta.ok) {
+      // Transient CF failure reading metadata — surface as-is (retryable), never a fabricated URL.
+      return {
+        correlationId: cid,
+        error: meta.error ?? { code: 'cf_request_failed', message: 'Could not read the object.', retryable: true },
+        ok: false,
+      };
+    }
+    if (meta.data?.found !== true) {
+      return {
+        correlationId: cid,
+        data: { available: false, found: false, key, approach: 'The object does not exist — nothing to preview.' },
+        ok: true,
+      };
+    }
+
+    const contentType = meta.data.contentType;
+    const size = meta.data.size;
+    const kind = previewKindFor(contentType, size);
+
+    // Signed-URL minting for the per-site bucket is NOT wired (INV-6: no account R2 S3 credentials in the
+    // Worker). Return the HONEST approach — never a fabricated creds-bearing URL.
+    const approach =
+      kind === 'binary' || (typeof size === 'number' && size > PUT_MAX_INLINE_BYTES)
+        ? 'A large/binary object will be served through a server-streamed, scoped, GET-only proxy — never inline bytes and never an account credential.'
+        : 'A short-lived, single-object, GET-only signed R2 URL will be minted server-side for inline preview — it is a scoped time-boxed handle, never an account credential.';
+
+    return {
+      correlationId: cid,
+      data: {
+        approach,
+        available: false,
+        contentType,
+        found: true,
+        key,
+        kind,
+        size,
       },
       ok: true,
     };
