@@ -1047,6 +1047,37 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Disable the flag → the Workflows routes + data_workflows_* MCP tools 404 (not 403)',
     ],
   },
+  per_site_bindings: {
+    checklist: [
+      "Site-owned Worker-bindings inventory (READ-ONLY): the bindings a site's Worker uses",
+      'Kinds: service / Secrets Store / AI / Browser Rendering / Images / KV / R2 / D1 / DO / Vectorize / Analytics / Queues',
+      'Each binding: description + managed (in-platform manageRoute) OR honest notAvailableReason',
+      'Part of the data_backend_inventory MCP tool; server-resolved from the authed { site_id }',
+      '⛔ No secret VALUE ever returned — only names + presence + last-change metadata',
+      'Off (default, DARK) → the bindings-inventory surface 404 (never 403)',
+    ],
+    explanation:
+      "Per-site Worker-bindings inventory for the Data & Resource Platform (Phase 8b, Backend tab): a site owner sees the bindings their compute plane uses — service, Secrets Store, AI, Browser Rendering, Images, KV, R2, D1, Durable Objects, Vectorize, Analytics Engine, Queues — each with a useful description and whether THIS platform has an integrated management surface (a manageRoute into the Data/Backend tabs) or an honest not-available note (no fake CRUD for un-integrated products). Read-only presence + metadata, resolved server-side from the authed { site_id } (owned-site gate); the client never names a CF id. Surfaced via the data_backend_inventory MCP tool (umbrella-gated on data_resource_platform). ⛔ Secret bindings show NAMES only — never a value. Off (default) → the surface 404s (never 403).",
+    smoke_test: [
+      "Enable + a signed-in owner → see their site's Worker bindings (read-only, no values)",
+      'Disable the flag → the bindings-inventory surface 404s (not 403)',
+    ],
+  },
+  per_site_schedules: {
+    checklist: [
+      "Site-owned scheduled-tasks (Cron Triggers) inventory: the site's cron schedules",
+      'Reads site_functions_schedules (WfP has no native cron → platform cron dispatcher fires them)',
+      'Part of the data_backend_inventory MCP tool; server-resolved from the authed { site_id }',
+      "assertSiteOwned — a foreign site's schedules are never returned",
+      'Off (default, DARK) → the schedules surface 404 (never 403)',
+    ],
+    explanation:
+      "Per-site scheduled-tasks inventory for the Data & Resource Platform (Phase 8b, Backend tab): a site owner sees the cron schedules their site declared in functions/_scheduled.* — Workers-for-Platforms dispatch-namespace scripts have no native cron, so these live in the site_functions_schedules D1 table and fire via the platform cron dispatcher (index.ts scheduled()). Read-only, resolved server-side from the authed { site_id } (owned-site gate); the client never names a CF id. Surfaced via the data_backend_inventory MCP tool (umbrella-gated on data_resource_platform). Off (default) → the surface 404s (never 403).",
+    smoke_test: [
+      "Enable + a signed-in owner → see their site's cron schedules",
+      'Disable the flag → the schedules surface 404s (not 403)',
+    ],
+  },
 };
 
 export function getDocs(key: string): FlagDocs | undefined {

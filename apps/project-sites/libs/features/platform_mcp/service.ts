@@ -64,7 +64,9 @@ import {
   DataQueueDescribeInput,
   DataAnalyticsListInput,
   DataAnalyticsQuerySummaryInput,
+  DataBackendInventoryInput,
 } from './schemas.js';
+import { getBackendInventory } from '../data_resource_registry/backend_inventory.js';
 
 /** Flag gating the Data & Resource Platform MCP tools (registry read surface). */
 const DATA_RESOURCE_FLAG = 'data_resource_platform';
@@ -717,6 +719,21 @@ export const PLATFORM_MCP_TOOLS = [
       properties: {
         site_id: { type: 'string' },
         window_days: { type: 'number', minimum: 1, maximum: 90, default: 30 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_backend_inventory',
+    description:
+      "Inventory your site's Backend/compute plane (READ-ONLY): its scheduled tasks (Cron Triggers), its Worker bindings (service, Secrets Store, AI, Browser Rendering, Images, KV, R2, D1, Durable Objects, Vectorize, Analytics Engine, Queues), and its secret NAMES + last-change metadata. Returns { functionsDeployed, schedules:[{cron,…}], bindings:[{kind,name,description,managed,manageRoute,notAvailableReason,docsUrl,scope}], secrets:[{name,scope,isSecret,lastChangedAt,createdAt}], counts }. ⛔ Returns secret NAMES + metadata ONLY — NEVER a secret VALUE (values are AES-GCM at rest and are never read). Each binding says whether THIS platform has an integrated management surface (managed:true + an in-platform manageRoute) or not (managed:false + an honest notAvailableReason) — no fake CRUD for un-integrated products. You name ONLY the site_id (+ optional environment) — never a Cloudflare id and never an account id; the inventory reads your site's OWN records and is isolated to your site.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id'],
@@ -1794,6 +1811,31 @@ export async function dispatchPlatformTool(
         events: result.data?.events ?? [],
         sampled: true,
       });
+    }
+
+    case 'data_backend_inventory': {
+      // Flag-gated on the umbrella data_resource_platform flag (this is the cross-cutting Backend-tab
+      // inventory, not a per-kind surface). DARK → err (mirroring the Backend-tab 404), never leak.
+      if (
+        !(await isFlagOn(env, DATA_RESOURCE_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('The Data & Resource platform is not enabled for this account.');
+      }
+      const { site_id, environment } = DataBackendInventoryInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF id/account — the
+      // caller named only site_id; the inventory reads the site's OWN records keyed on the owned siteId.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      // ⛔ Secret NAMES + last-change ONLY — the reader never SELECTs value_encrypted; no value can leak.
+      const inv = await getBackendInventory(env, site_id, orgId, environment);
+      return ok(inv);
     }
 
     default:

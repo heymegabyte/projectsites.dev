@@ -569,6 +569,24 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  per_site_bindings: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Per-site Worker-bindings inventory (Data & Resource Platform Phase 8b, Backend tab — a READ-ONLY list of the bindings a site's Worker uses).\n\n• Gates the site-owned Worker-bindings inventory surface + its share of the data_backend_inventory MCP tool: a site owner sees the bindings their compute plane uses (service / Secrets Store / AI / Browser Rendering / Images / KV / R2 / D1 / Durable Objects / Vectorize / Analytics Engine / Queues), each with a useful description + whether THIS platform has an integrated management surface (a manageRoute) or an honest not-available note — resolved server-side from the authed { site_id } reusing the owned-site gate; the client never names a CF id (INV-1).\n• Who sees it: a signed-in site owner in the editor Backend tab (Bindings) + MCP clients; super-admin promotes per-surface.\n• Failure mode when off (default, DARK): the bindings-inventory surface + its MCP output 404 (never 403); the data_backend_inventory tool itself is umbrella-gated on data_resource_platform.\n• Acceptance: flag on → an owner sees their site's bindings (read-only, no values); off → the surface 404s. ⛔ No secret VALUE is ever returned — only names + presence.",
+    key: 'per_site_bindings',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  per_site_schedules: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Per-site scheduled-tasks inventory (Data & Resource Platform Phase 8b, Backend tab — the site's Cron Triggers).\n\n• Gates the site-owned scheduled-tasks (Cron Triggers) surface + its share of the data_backend_inventory MCP tool: a site owner sees the cron schedules their site declared in functions/_scheduled.* (Workers-for-Platforms has no native cron, so these live in site_functions_schedules and fire via the platform cron dispatcher), resolved server-side from the authed { site_id } reusing the owned-site gate; the client never names a CF id.\n• Who sees it: a signed-in site owner in the editor Backend tab (Scheduled tasks) + MCP clients; super-admin promotes per-surface.\n• Failure mode when off (default, DARK): the schedules surface + its MCP output 404 (never 403); the data_backend_inventory tool itself is umbrella-gated on data_resource_platform.\n• Acceptance: flag on → an owner sees their site's cron schedules; off → the surface 404s.",
+    key: 'per_site_schedules',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   site_analytics: {
     default_enabled: false,
     default_rollout_percent: 0,

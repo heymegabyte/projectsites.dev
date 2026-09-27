@@ -446,3 +446,23 @@ export type DataQueuesListArgs = z.infer<typeof DataQueuesListInput>;
 export type DataQueueDescribeArgs = z.infer<typeof DataQueueDescribeInput>;
 export type DataAnalyticsListArgs = z.infer<typeof DataAnalyticsListInput>;
 export type DataAnalyticsQuerySummaryArgs = z.infer<typeof DataAnalyticsQuerySummaryInput>;
+
+/**
+ * `data_backend_inventory` — the READ-ONLY Backend-tab connected-resource INVENTORY (Data & Resource
+ * Platform Phase 8b): a site's scheduled tasks (Cron Triggers), its Worker bindings (service /
+ * Secrets Store / AI / Browser Rendering / Images / KV / R2 / D1 / DO / Vectorize / Analytics /
+ * Queues), and its secret NAMES + last-change metadata. ⛔ NEVER a secret VALUE — only names +
+ * metadata; the value column is never read. Each binding carries `managed` + an in-platform
+ * `manageRoute` when THIS platform has an integrated management surface, or an honest
+ * `managed:false` + `notAvailableReason` when it does not (no fake CRUD for un-integrated products).
+ * A caller names ONLY the OWNED `site_id` (+ optional environment) — NEVER a CF id/account (INV-1);
+ * ownership + isolation + the `data_resource_platform` flag are enforced server-side in the
+ * dispatcher. `.strict()` rejects any attempt to smuggle a binding id / dataset / account id.
+ */
+export const DataBackendInventoryInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+export type DataBackendInventoryArgs = z.infer<typeof DataBackendInventoryInput>;
