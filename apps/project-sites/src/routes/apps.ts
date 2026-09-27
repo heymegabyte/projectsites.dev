@@ -15,6 +15,7 @@ import {
   internalError,
   notFound,
   unauthorized,
+  PRICING,
 } from '@project-sites/shared';
 import type { Env, Variables } from '../types/env.js';
 import { APPS_CATALOG, type CatalogApp } from '../data/apps-catalog.js';
@@ -43,6 +44,8 @@ import {
   checkDomainAvailability,
   deleteCustomHostname,
 } from '../services/domains.js';
+import { getOrCreateStripeCustomer } from '../services/billing.js';
+import { isKnownUnsupportedTld, staticTldPriceUsd } from '../services/cf_registrar.js';
 
 export const apps = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -1584,8 +1587,18 @@ apps.delete('/api/apps/instances/:id/domains', async (c) => {
 });
 
 /**
- * `GET /api/apps/instances/:id/domain-availability?domain=` — Is `domain` free to REGISTER?
- * (RDAP; powers the "don't have a domain? register one at GoDaddy" flow.) Read-only.
+ * `GET /api/apps/instances/:id/domain-availability?domain=` — Is `domain` free to REGISTER,
+ * and what does it cost? Powers the in-app "buy a domain through us" flow. Read-only.
+ *
+ * Availability comes from RDAP (`checkDomainAvailability` — never advertises a possibly-taken
+ * domain as free). `price` is the at-cost annual registration price for the TLD. When the
+ * requested domain is taken we offer a few same-label alternatives on other TLDs (`suggestions`)
+ * so the picker can render a "try .net / .co" row without a round-trip.
+ *
+ * @returns `{ available, price?, currency?, tld?, suggestions? }` — `price`/`currency` present
+ *   only when the TLD is priceable; `suggestions` present only when the domain is taken.
+ * @throws 400 BAD_REQUEST when `domain` is missing or malformed.
+ * @throws 404 NOT_FOUND when the instance isn't owned by the caller's org.
  */
 apps.get('/api/apps/instances/:id/domain-availability', async (c) => {
   const { orgId } = requireAuth(c);
@@ -1596,10 +1609,306 @@ apps.get('/api/apps/instances/:id/domain-availability', async (c) => {
     throw badRequest('Enter a domain to register, e.g. example.com');
   }
   const res = await checkDomainAvailability(c.env, [domain]);
-  if (!Array.isArray(res))
-    return c.json({ domain, available: false, price_usd: 0, error: res.error });
+  if (!Array.isArray(res)) {
+    // Soft registry failure — degrade to "unknown / not-available" without leaking internals.
+    return c.json({ domain, available: false, error: res.error });
+  }
   const a = res[0];
-  return c.json({ domain, available: a?.available ?? false, price_usd: a?.price_usd ?? 0 });
+  const available = a?.available ?? false;
+  const tld = a?.tld ?? domain.slice(domain.indexOf('.') + 1);
+  const price = a?.price_usd && a.price_usd > 0 ? a.price_usd : undefined;
+
+  // When taken, offer same-label alternatives on popular TLDs that ARE available (cheap,
+  // no AI): check a small candidate set in one RDAP batch and keep the free ones.
+  let suggestions: string[] | undefined;
+  if (!available) {
+    const label = domain.slice(0, domain.indexOf('.'));
+    const altTlds = ['com', 'net', 'co', 'io', 'org', 'app', 'dev'].filter((t) => t !== tld);
+    const candidates = altTlds.map((t) => `${label}.${t}`);
+    const alt = await checkDomainAvailability(c.env, candidates);
+    if (Array.isArray(alt)) {
+      suggestions = alt
+        .filter((r) => r.available)
+        .slice(0, 4)
+        .map((r) => r.name);
+    }
+  }
+
+  return c.json({
+    domain,
+    available,
+    tld,
+    ...(price !== undefined ? { price, currency: 'USD' } : {}),
+    ...(suggestions && suggestions.length > 0 ? { suggestions } : {}),
+  });
+});
+
+/** Request body for the in-app domain-purchase checkout. */
+const purchaseDomainBody = z.object({ domain: z.string().min(4).max(253) });
+
+/**
+ * `POST /api/apps/instances/:id/domains/purchase` — Buy a domain THROUGH us and start the
+ * customer's paid billing agreement in one Stripe Checkout.
+ *
+ * Builds a Stripe Checkout Session that combines, on the SAME order:
+ *  1. a ONE-TIME line item for the domain registration at Cloudflare Registrar at-cost pricing
+ *     (`price` from the availability check / static per-TLD table), and
+ *  2. the $50/mo recurring paid subscription (`PRICING.MONTHLY_CENTS`) — the purchase is what
+ *     starts the paid account.
+ *
+ * A PENDING record is persisted (`app_instance_domain_purchases`, keyed on the Stripe session id)
+ * so the `checkout.session.completed` webhook can complete registration + attach the CF custom
+ * hostname. We never trigger a real charge or registration here — only the Session object is
+ * created. On completion the webhook registers via CF Registrar when the TLD is supported, else
+ * marks the domain `registration_queued` for concierge fulfilment.
+ *
+ * @returns `{ checkoutUrl }` — the hosted Stripe Checkout URL to redirect the owner to.
+ * @throws 400 BAD_REQUEST when the domain is malformed, already taken, or a *.projectsites.dev
+ *   subdomain; or when Stripe isn't configured (clean, actionable message — never raw).
+ * @throws 404 NOT_FOUND when the instance isn't owned by the caller's org.
+ * @throws 409 CONFLICT when the domain is already attached to this instance.
+ */
+apps.post('/api/apps/instances/:id/domains/purchase', async (c) => {
+  const { userId, orgId } = requireAuth(c);
+  const row = await loadInstance(c.env, orgId, c.req.param('id'));
+  if (!row) throw notFound('app_instance not found');
+
+  const body = purchaseDomainBody.parse(await c.req.json().catch(() => ({})));
+  const domain = body.domain.trim().toLowerCase().replace(/\.$/, '');
+  if (!/^[a-z0-9-]+\.[a-z]{2,}$/.test(domain) || domain.endsWith('.projectsites.dev')) {
+    throw badRequest('Enter a domain to register, e.g. example.com (not a *.projectsites.dev subdomain).');
+  }
+  const tld = domain.slice(domain.indexOf('.') + 1);
+
+  // Stripe must be configured — surface a clean, actionable error instead of a raw failure later.
+  if (!c.env.STRIPE_SECRET_KEY) {
+    throw badRequest('Domain purchases are temporarily unavailable (billing is not configured). Please try again later.');
+  }
+
+  // Already attached to THIS instance? Nothing to buy.
+  const alreadyAttached = await dbQueryOne<{ domain: string }>(
+    c.env.DB,
+    `SELECT domain FROM app_instance_domains WHERE instance_id = ? AND domain = ?`,
+    [row.id, domain],
+  );
+  if (alreadyAttached) throw conflict('That domain is already attached to this instance.');
+
+  // Re-check availability — fail closed if it's taken (RDAP; never advertises possibly-taken as free).
+  const avail = await checkDomainAvailability(c.env, [domain]);
+  if (!Array.isArray(avail)) {
+    throw badRequest('Could not verify domain availability right now. Please try again.');
+  }
+  if (!avail[0]?.available) {
+    throw badRequest(`${domain} is not available to register. Try a different name or TLD.`);
+  }
+
+  // At-cost annual registration price (whole USD). Prefer the availability price, fall back to the
+  // static per-TLD table. If we still can't price it, refuse rather than charge an unknown amount.
+  const priceUsd = avail[0]?.price_usd && avail[0].price_usd > 0
+    ? avail[0].price_usd
+    : (staticTldPriceUsd(tld) ?? 0);
+  if (priceUsd <= 0) {
+    throw badRequest(`We can't price .${tld} for at-cost registration yet. Add it as a custom domain you own instead.`);
+  }
+  const domainCents = Math.round(priceUsd * 100);
+
+  // Resolve the org owner's email for the Stripe customer (best-effort; Stripe collects it in
+  // Checkout otherwise). Reuses the owner-membership query used by build limits + notifications.
+  const owner = await dbQueryOne<{ email: string }>(
+    c.env.DB,
+    `SELECT u.email FROM users u JOIN memberships m ON u.id = m.user_id WHERE m.org_id = ? AND m.deleted_at IS NULL AND u.deleted_at IS NULL ORDER BY u.created_at ASC LIMIT 1`,
+    [orgId],
+  ).catch(() => null);
+
+  let stripeCustomerId: string;
+  try {
+    const cust = await getOrCreateStripeCustomer(
+      c.env.DB,
+      c.env,
+      orgId,
+      owner?.email ?? `org+${orgId}@projectsites.dev`,
+    );
+    stripeCustomerId = cust.stripe_customer_id;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      JSON.stringify({
+        level: 'error',
+        service: 'apps',
+        message: 'domain_purchase_customer_failed',
+        org_id: orgId,
+        instance_id: row.id,
+        error: msg.slice(0, 300),
+      }),
+    );
+    throw badRequest('Could not start checkout with our billing provider. Please try again.');
+  }
+
+  // Whether CF Registrar can auto-register this TLD (drives concierge fallback + the checkout
+  // description). The webhook re-decides authoritatively at completion time.
+  const cfCanRegister = !isKnownUnsupportedTld(tld);
+  const purchaseId = crypto.randomUUID();
+
+  // ── Build the combined Checkout Session ──────────────────────────────────────────
+  // mode=subscription so the $50/mo recurring line item is billed; the one-time domain line
+  // rides along via `add_invoice_items` (charged once on the first invoice). Both settle on
+  // the SAME payment, which is exactly "the purchase starts the billing agreement".
+  const baseUrl = (c.env.CMS_BASE_URL ?? 'https://projectsites.dev').replace(/\/$/, '');
+  const params = new URLSearchParams({
+    mode: 'subscription',
+    customer: stripeCustomerId,
+    success_url: `${baseUrl}/admin/apps?domain_purchase=success&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${baseUrl}/admin/apps?domain_purchase=cancelled`,
+    'payment_method_types[0]': 'card',
+    'payment_method_types[1]': 'link',
+    // Recurring $50/mo paid account.
+    'line_items[0][price_data][currency]': PRICING.CURRENCY,
+    'line_items[0][price_data][unit_amount]': String(PRICING.MONTHLY_CENTS),
+    'line_items[0][price_data][recurring][interval]': 'month',
+    'line_items[0][price_data][product_data][name]': 'Project Sites Pro',
+    'line_items[0][price_data][product_data][description]':
+      'Paid account — custom domains, analytics, no top bar',
+    'line_items[0][quantity]': '1',
+    // One-time domain registration (at-cost) as a SECOND line item. In subscription-mode Checkout
+    // a one-time `price_data` line item (no `recurring`) is billed on the FIRST invoice alongside
+    // the recurring plan — per Stripe "How Checkout works" (mix recurring + one-time in line_items).
+    // `add_invoice_items` is a /v1/subscriptions param, NOT a Checkout Session param (Stripe rejects
+    // `subscription_data[add_invoice_items]` here as `parameter_unknown`).
+    'line_items[1][price_data][currency]': PRICING.CURRENCY,
+    'line_items[1][price_data][unit_amount]': String(domainCents),
+    'line_items[1][price_data][product_data][name]': `Domain registration — ${domain}`,
+    'line_items[1][price_data][product_data][description]':
+      `1 year at Cloudflare Registrar at-cost pricing${cfCanRegister ? '' : ' (registered by our team)'}`,
+    'line_items[1][quantity]': '1',
+    billing_address_collection: 'auto',
+    'metadata[kind]': 'domain_purchase',
+    'metadata[org_id]': orgId,
+    'metadata[instance_id]': row.id,
+    'metadata[domain]': domain,
+    'metadata[purchase_id]': purchaseId,
+    // Mirror onto the subscription so `customer.subscription.*` events carry org context too.
+    'subscription_data[metadata][kind]': 'domain_purchase',
+    'subscription_data[metadata][org_id]': orgId,
+    'subscription_data[metadata][instance_id]': row.id,
+    'subscription_data[metadata][domain]': domain,
+  });
+
+  // POST the Checkout Session for a given customer id (params.customer is overwritten each call).
+  const createCheckoutSession = async (
+    customerId: string,
+  ): Promise<{ ok: boolean; raw: string; json: { id: string; url: string | null } | null }> => {
+    params.set('customer', customerId);
+    const resp = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${c.env.STRIPE_SECRET_KEY}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params,
+    });
+    if (!resp.ok) return { ok: false, raw: await resp.text(), json: null };
+    return { ok: true, raw: '', json: (await resp.json()) as { id: string; url: string | null } };
+  };
+
+  let session: { id: string; url: string | null };
+  try {
+    let r = await createCheckoutSession(stripeCustomerId);
+    // Self-heal a stale/invalid stored customer: a customer deleted in the Stripe dashboard, or a
+    // test→live id left in `subscriptions.stripe_customer_id` (e.g. `cus_smoke_*`), makes Stripe
+    // reject with `resource_missing`/"No such customer". Create a FRESH customer, repoint the org's
+    // subscription row, and retry the session ONCE — never dead-end the buyer on a stale id.
+    if (!r.ok && /No such customer|resource_missing/.test(r.raw)) {
+      const freshResp = await fetch('https://api.stripe.com/v1/customers', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${c.env.STRIPE_SECRET_KEY}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          email: owner?.email ?? `org+${orgId}@projectsites.dev`,
+          'metadata[org_id]': orgId,
+        }),
+      });
+      if (freshResp.ok) {
+        stripeCustomerId = ((await freshResp.json()) as { id: string }).id;
+        await dbExecute(
+          c.env.DB,
+          `UPDATE subscriptions SET stripe_customer_id = ?, updated_at = ? WHERE org_id = ? AND deleted_at IS NULL`,
+          [stripeCustomerId, new Date().toISOString(), orgId],
+        ).catch(() => undefined);
+        r = await createCheckoutSession(stripeCustomerId);
+      }
+    }
+    if (!r.ok || !r.json) {
+      console.warn(
+        JSON.stringify({
+          level: 'error',
+          service: 'apps',
+          message: 'domain_purchase_checkout_failed',
+          org_id: orgId,
+          instance_id: row.id,
+          status: 400,
+          raw: r.raw.slice(0, 400),
+        }),
+      );
+      throw badRequest('Stripe could not create the checkout for this domain. Please try again.');
+    }
+    session = r.json;
+  } catch (err) {
+    if (err instanceof Error && /Stripe could not create/.test(err.message)) throw err;
+    throw badRequest('Could not reach our billing provider. Please retry.');
+  }
+
+  // Persist the PENDING record so the webhook can complete registration + hostname attach.
+  const nowIso = new Date().toISOString();
+  const { error: insErr } = await dbInsert(c.env.DB, 'app_instance_domain_purchases', {
+    id: purchaseId,
+    instance_id: row.id,
+    org_id: orgId,
+    domain,
+    tld,
+    price_usd: priceUsd,
+    currency: 'USD',
+    stripe_session_id: session.id,
+    status: 'pending',
+    cf_poll_url: null,
+    error: null,
+    created_at: nowIso,
+    updated_at: nowIso,
+  });
+  if (insErr) {
+    // The Session already exists in Stripe; a lost pending row would strand the webhook. Surface
+    // it so the owner retries (idempotent: the UNIQUE session id makes a retry a no-op upsert path).
+    console.warn(
+      JSON.stringify({
+        level: 'error',
+        service: 'apps',
+        message: 'domain_purchase_pending_insert_failed',
+        org_id: orgId,
+        instance_id: row.id,
+        session_id: session.id,
+        error: insErr,
+      }),
+    );
+    throw internalError('Could not record the domain purchase. Please retry.');
+  }
+
+  await auditService.writeAuditLog(c.env.DB, {
+    org_id: orgId,
+    actor_id: userId,
+    action: 'apps.instance.domain_purchase_started',
+    target_type: 'app_instance',
+    target_id: row.id,
+    metadata_json: {
+      domain,
+      price_usd: priceUsd,
+      stripe_session_id: session.id,
+      cf_can_register: cfCanRegister,
+    },
+    request_id: c.get('requestId'),
+  });
+
+  return c.json({ checkoutUrl: session.url });
 });
 
 /**

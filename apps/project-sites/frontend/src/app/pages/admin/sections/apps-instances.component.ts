@@ -10,7 +10,7 @@ import {
   type OnDestroy,
   type OnInit,
 } from '@angular/core';
-import { DatePipe } from '@angular/common';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { Observable } from 'rxjs';
@@ -820,7 +820,7 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
 @Component({
   selector: 'app-admin-apps-instance-detail',
   standalone: true,
-  imports: [DatePipe, FormsModule, RouterLink, RevealDirective, HlmInputDirective, ErrorCardComponent, AppSecretInputComponent, DomainManagerComponent],
+  imports: [DatePipe, NgTemplateOutlet, FormsModule, RouterLink, RevealDirective, HlmInputDirective, ErrorCardComponent, AppSecretInputComponent, DomainManagerComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -908,15 +908,39 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
               </header>
               <ul class="text-[0.85rem] leading-relaxed list-none p-0 m-0 space-y-2" aria-live="polite">
                 <li class="flex items-center gap-2" [class.text-text-secondary]="i.status === 'provisioning'">
-                  <span aria-hidden="true">{{ i.status !== 'provisioning' ? '✅' : '⏳' }}</span> Provisioned D1 database + R2 bucket
+                  <ng-container *ngTemplateOutlet="stepIcon; context: { $implicit: i.status === 'error' ? 'failed' : (i.status === 'provisioning' ? 'processing' : 'success') }" /> Provisioned D1 database + R2 bucket
                 </li>
                 <li class="flex items-center gap-2" [class.text-text-secondary]="i.status !== 'running'">
-                  <span aria-hidden="true">{{ i.status === 'running' ? '✅' : (i.status === 'provisioning' ? '⏳' : '◦') }}</span> Deployed Worker to the edge network
+                  <ng-container *ngTemplateOutlet="stepIcon; context: { $implicit: i.status === 'running' ? 'success' : (i.status === 'error' ? 'failed' : 'pending') }" /> Deployed Worker to the edge network
                 </li>
                 <li class="flex items-center gap-2" [class.text-text-secondary]="i.status !== 'running'">
-                  <span aria-hidden="true">{{ i.status === 'running' ? '✅' : '◦' }}</span> Live on the edge
+                  <ng-container *ngTemplateOutlet="stepIcon; context: { $implicit: i.status === 'running' ? 'success' : (i.status === 'error' ? 'failed' : 'pending') }" /> Live on the edge
                 </li>
               </ul>
+
+              <!-- Shared, equi-spaced status-icon set for the provisioning timeline.
+                   One visual family (18px inline SVG, stroke=currentColor) in a
+                   fixed-width leading column so every step label lines up. States:
+                   pending · processing · failed · success. -->
+              <ng-template #stepIcon let-state>
+                <span class="step-ico" [attr.data-state]="state" role="img"
+                      [attr.aria-label]="state === 'success' ? 'completed' : (state === 'processing' ? 'in progress' : (state === 'failed' ? 'failed' : 'pending'))">
+                  @switch (state) {
+                    @case ('success') {
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.4 2.4 4.6-5.2"/></svg>
+                    }
+                    @case ('processing') {
+                      <span class="step-spinner" aria-hidden="true"></span>
+                    }
+                    @case ('failed') {
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6"/><path d="m15 9-6 6"/></svg>
+                    }
+                    @default {
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/></svg>
+                    }
+                  }
+                </span>
+              </ng-template>
               @if (i.status === 'provisioning') {
                 <p class="provision-note" role="status" aria-live="polite">
                   <span class="act-spinner" aria-hidden="true"></span>
@@ -1178,6 +1202,29 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
     }
     @keyframes act-spin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .act-spinner { animation: none; } }
+
+    /* Provisioning-timeline status icons — single visual family, fixed-width
+       leading column so every step label lines up (equi-spaced). */
+    .step-ico {
+      flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 22px; height: 22px;
+    }
+    .step-ico svg { width: 18px; height: 18px; display: block; }
+    .step-ico[data-state="success"] { color: var(--ps-accent, #00E5FF); }
+    .step-ico[data-state="failed"] { color: var(--ps-danger, #f87171); }
+    .step-ico[data-state="pending"] { color: var(--ps-text-muted, rgba(255,255,255,0.6)); }
+    .step-ico[data-state="processing"] { color: var(--ps-accent, #00E5FF); }
+    .step-spinner {
+      width: 16px; height: 16px; flex-shrink: 0;
+      border: 2px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 30%, transparent);
+      border-top-color: var(--ps-accent, #00E5FF);
+      border-radius: 50%;
+      animation: act-spin 700ms linear infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .step-spinner { animation: none; }
+    }
     .provision-note {
       display: flex; align-items: center; gap: 8px;
       margin: 0.75rem 0 0 0;

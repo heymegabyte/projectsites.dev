@@ -23,11 +23,13 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
  *
  * Renders the ACTIVE host inline as a click target (+ a PENDING custom domain in a muted style
  * when one is awaiting DNS). Clicking opens an in-place popover to: rename the platform slug
- * (live green/red availability), and attach a custom domain (live CNAME status → clear
- * instructions + one-click DNS-provider deep links → certificate provisioning once pointed).
+ * (live green/red availability), attach a custom domain the owner already has (live CNAME status
+ * → clear DNS instructions → certificate provisioning once pointed), and BUY a domain registered
+ * through us on Cloudflare (search availability → Stripe Checkout → auto-connect).
  *
  * Backend contract (instance-scoped): `GET /apps/slug-check`, `POST /apps/instances/:id/slug`,
- * `GET /apps/instances/:id/cname-check`, `POST /apps/instances/:id/domains`.
+ * `GET /apps/instances/:id/domain-status`, `POST /apps/instances/:id/domains`,
+ * `GET /apps/instances/:id/domain-availability`, `POST /apps/instances/:id/domains/purchase`.
  */
 @Component({
   selector: 'app-domain-manager',
@@ -112,11 +114,12 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
             </div>
           }
 
-          <!-- ── Custom domain ── -->
+          <!-- ── Custom domain (owner already has one) ── -->
           <div class="dm-sec">
             <div class="dm-sec-h">Add a custom domain</div>
             <div class="dm-slug-row">
               <input class="dm-input dm-input--wide" [ngModel]="domain()" (ngModelChange)="onDomain($event)"
+                     (keydown.enter)="onDomainEnter($event)"
                      placeholder="projectsites.megabyte.space" aria-label="Custom domain" spellcheck="false" autocapitalize="off"
                      [class.dm-input--ok]="cnameState() === 'ok'" [class.dm-input--bad]="cnameState() === 'bad'"
                      data-testid="domain-manager-domain" />
@@ -133,19 +136,20 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
               @switch (cnameState()) {
                 @case ('ok') {
                   @if (phase() !== 'certifying' && phase() !== 'connected') {
-                    <div class="dm-help dm-ok">✓ CNAME points to projectsites.dev — ready to attach.</div>
-                    <button type="button" class="dm-btn dm-btn--primary" (click)="attach()" [disabled]="busy()"
+                    <div class="dm-help dm-ok">✓ Pointed to projectsites.dev — ready to connect.</div>
+                    <button type="button" class="dm-attach" (click)="attach()" [disabled]="busy()"
                             data-testid="domain-manager-attach">
-                      {{ busy() ? 'Provisioning…' : 'Attach + issue certificate' }}
+                      @if (busy()) { <span class="dm-spin"></span> Connecting… }
+                      @else { Attach domain — {{ domain() }} }
                     </button>
                   }
                 }
                 @case ('checking') { <div class="dm-help">Checking DNS…</div> }
                 @default {
                   <div class="dm-instructions">
-                    <div class="dm-help dm-bad">Not pointed yet — add this DNS record at your registrar:</div>
+                    <div class="dm-help dm-bad">Not pointed yet — add this DNS record where your domain is managed:</div>
                     @if (isApex()) {
-                      <div class="dm-help dm-warn">⚠ Apex domains can't CNAME at most registrars. Use <strong>www.{{ domain() }}</strong>, or a registrar with CNAME flattening / ALIAS (Cloudflare supports it).</div>
+                      <div class="dm-help dm-warn">⚠ Apex domains can't CNAME at most registrars. Use <strong>www.{{ domain() }}</strong>, or a registrar with CNAME flattening / ALIAS.</div>
                     }
                     <div class="dm-record">
                       <span class="dm-record-cell"><span class="dm-k">Type</span>CNAME</span>
@@ -155,10 +159,6 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
                       </span>
                     </div>
                     <div class="dm-links">
-                      <span class="dm-links-lbl">Open DNS at:</span>
-                      <a class="dm-link" [href]="cloudflareLink()" target="_blank" rel="noopener noreferrer">Cloudflare</a>
-                      <a class="dm-link" [href]="godaddyLink()" target="_blank" rel="noopener noreferrer">GoDaddy</a>
-                      <a class="dm-link" [href]="namecheapLink()" target="_blank" rel="noopener noreferrer">Namecheap</a>
                       <button type="button" class="dm-link dm-link--btn" (click)="recheck()">Re-check now</button>
                     </div>
                     <div class="dm-help dm-watching">We're watching your DNS live — this updates the moment it connects.</div>
@@ -186,36 +186,43 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
             }
           </div>
 
-          <!-- ── Register a domain (GoDaddy) ── -->
+          <!-- ── Buy a domain through us (Cloudflare-native, at cost) ── -->
           <div class="dm-sec">
-            <div class="dm-sec-h">Need a domain?</div>
-            @if (!regOpen()) {
-              <button type="button" class="dm-link dm-link--btn" (click)="regOpen.set(true)" data-testid="domain-manager-register">
-                Register a new one on GoDaddy →
-              </button>
-            } @else {
-              <div class="dm-slug-row">
-                <input class="dm-input dm-input--wide" [ngModel]="regName()" (ngModelChange)="onRegName($event)"
-                       placeholder="mybusiness.com" aria-label="Domain to register" spellcheck="false" autocapitalize="off"
-                       [class.dm-input--ok]="regState() === 'ok'" [class.dm-input--bad]="regState() === 'bad'"
-                       data-testid="domain-manager-regname" />
-                <span class="dm-badge" [attr.data-state]="regState()" aria-hidden="true">
-                  @switch (regState()) { @case ('checking') { <span class="dm-spin"></span> } @case ('ok') { ✓ } @case ('bad') { ✕ } }
-                </span>
-              </div>
-              @switch (regState()) {
-                @case ('ok') {
-                  <div class="dm-help dm-ok">✓ {{ regName() }} is available — ~\${{ regPrice() }}/yr</div>
-                  <div class="dm-links">
-                    <a class="dm-btn dm-btn--primary" [href]="godaddyBuyLink()" target="_blank" rel="noopener noreferrer" data-testid="domain-manager-godaddy-buy">Register on GoDaddy →</a>
-                    <button type="button" class="dm-link dm-link--btn" (click)="useRegistered()">I bought it — connect it</button>
-                  </div>
-                  <div class="dm-help">After buying, GoDaddy → DNS → add the CNAME above. We'll detect it live.</div>
-                }
-                @case ('bad') { <div class="dm-help dm-bad">Taken — try another name.</div> }
-                @case ('checking') { <div class="dm-help">Checking availability…</div> }
-                @default { <div class="dm-help">Type the domain you want, e.g. mybusiness.com</div> }
+            <div class="dm-sec-h">Buy a domain</div>
+            <div class="dm-help">Registered through us on Cloudflare, at cost — no separate registrar account, connected automatically.</div>
+            <div class="dm-slug-row">
+              <input class="dm-input dm-input--wide" [ngModel]="buyName()" (ngModelChange)="onBuyName($event)"
+                     (keydown.enter)="onBuyEnter($event)"
+                     placeholder="mybusiness.com" aria-label="Domain to buy" spellcheck="false" autocapitalize="off"
+                     [class.dm-input--ok]="buyState() === 'ok'" [class.dm-input--bad]="buyState() === 'bad'"
+                     data-testid="domain-manager-buy-name" />
+              <span class="dm-badge" [attr.data-state]="buyState()" aria-hidden="true">
+                @switch (buyState()) { @case ('checking') { <span class="dm-spin"></span> } @case ('ok') { ✓ } @case ('bad') { ✕ } }
+              </span>
+            </div>
+            @switch (buyState()) {
+              @case ('ok') {
+                <div class="dm-help dm-ok">✓ {{ buyName() }} is available</div>
+                <button type="button" class="dm-attach" (click)="purchase()" [disabled]="busy()"
+                        data-testid="domain-manager-buy">
+                  @if (busy()) { <span class="dm-spin"></span> Starting checkout… }
+                  @else { Register &amp; connect — {{ buyPriceLabel() }}/yr + $50/mo }
+                </button>
+                <div class="dm-help">The $50/mo covers your paid, hosted account. You'll pay the domain in Checkout, then it connects automatically.</div>
               }
+              @case ('bad') {
+                <div class="dm-help dm-bad">{{ buyName() }} is taken.</div>
+                @if (buySuggestions().length) {
+                  <div class="dm-help">Try one of these instead:</div>
+                  <div class="dm-links" data-testid="domain-manager-buy-suggestions">
+                    @for (s of buySuggestions(); track s) {
+                      <button type="button" class="dm-link dm-link--btn" (click)="pickSuggestion(s)">{{ s }}</button>
+                    }
+                  </div>
+                }
+              }
+              @case ('checking') { <div class="dm-help">Checking availability…</div> }
+              @default { <div class="dm-help">Type the domain you want, e.g. mybusiness.com</div> }
             }
           </div>
         </div>
@@ -287,6 +294,25 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
     .dm-btn--primary:hover:not(:disabled) { background: rgba(0,229,255,0.24); }
     .dm-btn:disabled { opacity: 0.45; cursor: not-allowed; }
     .dm-btn:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
+
+    /* Visually-dominant primary action — the obvious next step once a domain is valid. */
+    .dm-attach {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      align-self: stretch; width: 100%; min-height: 40px; padding: 10px 18px;
+      border-radius: 10px; cursor: pointer;
+      font-family: inherit; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.01em;
+      color: var(--ps-bg, #060610);
+      background: linear-gradient(180deg, #38ecff, var(--ps-accent, #00E5FF));
+      border: 1px solid rgba(0,229,255,0.7);
+      box-shadow: 0 8px 22px -8px rgba(0,229,255,0.6), inset 0 1px 0 rgba(255,255,255,0.35);
+      transition: transform 120ms ease, box-shadow 160ms ease, filter 160ms ease;
+    }
+    .dm-attach:hover:not(:disabled) { filter: brightness(1.06); box-shadow: 0 12px 28px -8px rgba(0,229,255,0.75); transform: translateY(-1px); }
+    .dm-attach:active:not(:disabled) { transform: translateY(0); }
+    .dm-attach:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+    .dm-attach:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
+    .dm-attach .dm-spin { border-color: rgba(6,6,16,0.35); border-top-color: var(--ps-bg, #060610); }
+    @media (prefers-reduced-motion: reduce) { .dm-attach { transition: none; } .dm-attach:hover:not(:disabled) { transform: none; } }
 
     .dm-instructions { display: flex; flex-direction: column; gap: 8px; }
     .dm-record {
@@ -399,15 +425,21 @@ export class DomainManagerComponent {
   readonly watching = signal(false);
   private pollHandle: ReturnType<typeof setInterval> | undefined;
 
-  // Register-a-domain (GoDaddy) flow
-  readonly regOpen = signal(false);
-  readonly regName = signal('');
-  readonly regState = signal<Availability>('idle');
-  readonly regPrice = signal(0);
-  private regTimer: ReturnType<typeof setTimeout> | undefined;
-  readonly godaddyBuyLink = computed(
-    () => `https://www.godaddy.com/domainsearch/find?domainToCheck=${encodeURIComponent(this.regName().trim().toLowerCase())}`,
-  );
+  // Buy-a-domain (Cloudflare-native, registered through us at cost) flow
+  readonly buyName = signal('');
+  readonly buyState = signal<Availability>('idle');
+  readonly buyPrice = signal<number | null>(null);
+  readonly buyCurrency = signal('USD');
+  readonly buySuggestions = signal<ReadonlyArray<string>>([]);
+  private buyTimer: ReturnType<typeof setTimeout> | undefined;
+  /** "$12.00" style label; falls back to a plain word when the registrar omits a price. */
+  readonly buyPriceLabel = computed(() => {
+    const p = this.buyPrice();
+    if (p == null) return 'at cost';
+    const cur = this.buyCurrency() || 'USD';
+    const sym = cur === 'USD' ? '$' : cur + ' ';
+    return `${sym}${p.toFixed(2)}`;
+  });
 
   /** Apex (2-label) domains can't CNAME at most registrars — surface a nudge. */
   readonly isApex = computed(() => this.domain().trim().replace(/\.$/, '').split('.').filter(Boolean).length === 2);
@@ -420,18 +452,6 @@ export class DomainManagerComponent {
     const parts = this.domain().split('.');
     return parts.length > 2 ? parts[0] : '@';
   });
-  readonly cloudflareLink = computed(() => 'https://dash.cloudflare.com/?to=/:account/:zone/dns/records');
-  readonly godaddyLink = computed(
-    () => `https://dcc.godaddy.com/control/dnsmanagement?domainName=${encodeURIComponent(this.apex())}`,
-  );
-  readonly namecheapLink = computed(
-    () => `https://ap.www.namecheap.com/domains/domaincontrolpanel/${encodeURIComponent(this.apex())}/advancedns`,
-  );
-
-  private apex(): string {
-    const p = this.domain().split('.');
-    return p.length > 2 ? p.slice(-2).join('.') : this.domain();
-  }
 
   toggle(ev: MouseEvent): void {
     ev.stopPropagation();
@@ -632,6 +652,14 @@ export class DomainManagerComponent {
     }
   }
 
+  /** Enter in the custom-domain field attaches the moment it's validated green. */
+  onDomainEnter(ev: Event): void {
+    if (this.cnameState() === 'ok' && !this.busy()) {
+      ev.preventDefault();
+      this.attach();
+    }
+  }
+
   attach(): void {
     if (this.cnameState() !== 'ok' || this.busy()) return;
     const domain = this.domain().trim().toLowerCase();
@@ -654,39 +682,85 @@ export class DomainManagerComponent {
       });
   }
 
-  // ── Register a domain (GoDaddy) ──
-  onRegName(v: string): void {
-    this.regName.set(v);
-    if (this.regTimer) clearTimeout(this.regTimer);
+  // ── Buy a domain (registered through us on Cloudflare, at cost) ──
+  onBuyName(v: string): void {
+    this.buyName.set(v);
+    if (this.buyTimer) clearTimeout(this.buyTimer);
+    this.buySuggestions.set([]);
     const val = v.trim().toLowerCase();
     if (!/^[a-z0-9-]+\.[a-z]{2,}$/.test(val)) {
-      this.regState.set('idle');
+      this.buyState.set('idle');
+      this.buyPrice.set(null);
       return;
     }
-    this.regState.set('checking');
-    this.regTimer = setTimeout(() => this.checkAvail(val), 450);
+    this.buyState.set('checking');
+    this.buyTimer = setTimeout(() => this.checkAvailability(val), 450);
   }
 
-  private checkAvail(val: string): void {
+  /** Enter in the buy field starts checkout when the name is available. */
+  onBuyEnter(ev: Event): void {
+    if (this.buyState() === 'ok' && !this.busy()) {
+      ev.preventDefault();
+      this.purchase();
+    }
+  }
+
+  private checkAvailability(val: string): void {
     this.api
-      .get<{ available: boolean; price_usd: number }>(
+      .get<{ available: boolean; price?: number; currency?: string; tld?: string; suggestions?: string[] }>(
         `/apps/instances/${this.instanceId()}/domain-availability?domain=${encodeURIComponent(val)}`,
       )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {
-          this.regState.set(r.available ? 'ok' : 'bad');
-          this.regPrice.set(r.price_usd ?? 0);
+          if (this.buyName().trim().toLowerCase() !== val) return; // stale response
+          this.buyState.set(r.available ? 'ok' : 'bad');
+          this.buyPrice.set(typeof r.price === 'number' ? r.price : null);
+          this.buyCurrency.set(r.currency || 'USD');
+          this.buySuggestions.set(r.available ? [] : r.suggestions ?? []);
         },
-        error: () => this.regState.set('bad'),
+        error: () => {
+          this.buyState.set('bad');
+          this.buyPrice.set(null);
+          this.buySuggestions.set([]);
+        },
       });
   }
 
-  /** After buying on GoDaddy, drop the name into the custom-domain field + start the connect flow. */
-  useRegistered(): void {
-    const val = this.regName().trim().toLowerCase();
-    this.regOpen.set(false);
-    this.onDomain(val);
+  /** Click a "taken" suggestion → load it into the field and re-run availability. */
+  pickSuggestion(domain: string): void {
+    this.onBuyName(domain);
+  }
+
+  /** Buy + auto-connect: Stripe Checkout when a checkoutUrl comes back, else a queued toast. */
+  purchase(): void {
+    if (this.buyState() !== 'ok' || this.busy()) return;
+    const domain = this.buyName().trim().toLowerCase();
+    this.busy.set(true);
+    this.api
+      .post<{ checkoutUrl?: string; status?: string }>(
+        `/apps/instances/${this.instanceId()}/domains/purchase`,
+        { domain },
+      )
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.busy.set(false);
+          if (r?.checkoutUrl) {
+            window.location.href = r.checkoutUrl; // → Stripe Checkout
+            return;
+          }
+          if (r?.status === 'queued') {
+            this.toast.success("Registration started — we'll email you when it's connected");
+            this.loadDomains();
+            this.changed.emit();
+            return;
+          }
+          this.toast.success(`Registration started for ${domain}`);
+          this.loadDomains();
+        },
+        error: () => this.busy.set(false),
+      });
   }
 
   copy(text: string): void {
