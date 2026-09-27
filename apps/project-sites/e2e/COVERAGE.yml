@@ -73,6 +73,7 @@ ai_features:
 
 editor:
   inline_editing:   { status: covered, specs: [inline-editing.spec.ts] }
+  per_site_d1:      { status: covered, specs: [per-site-d1.spec.ts] }  # Data Platform foundation — per-site OWN-D1 Tables surface (GET /api/sites/:id/db/tables[/:table]). DARK-launch contract: routes mounted + hard auth-gated (401 JSON, never 500 / SPA-shell soft-200) so isolation ships BEFORE owner access. Owner path (flag on) covered by worker unit tests (libs/features/site_data_api/__tests__/site-db.test.ts) + service isolation tests (src/__tests__/site_data_db.test.ts).
 
 media:
   # The Media Library ADMIN UI was removed (/admin/media → admin-404: no

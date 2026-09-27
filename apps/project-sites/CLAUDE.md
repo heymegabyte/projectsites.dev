@@ -564,6 +564,8 @@ src/
 | GET | `/api/sites/:id/workflow` | Get workflow status |
 | GET | `/api/sites/:id/logs` | Get site audit logs |
 | GET | `/api/sites/:id/readiness` | Production-readiness grade for one site (#9; reads latest `workflow.build_validation` audit) |
+| GET | `/api/sites/:siteId/db/tables` | Data Platform: list a site's OWN per-site D1 tables (lazy-provision; flag `per_site_data`, DARK → 404) |
+| GET | `/api/sites/:siteId/db/tables/:table` | Data Platform: browse one table's rows in the site's OWN D1 (paginated; flag-gated) |
 | GET | `/api/readiness?ids=a,b,c` | Batch readiness grades for ≤100 sites in one request (#9 follow-on; org-scoped, `{id: data\|null}`) |
 | POST | `/api/sites/:id/reset` | Reset site (rebuild) |
 | POST | `/api/sites/:id/deploy` | Deploy zip to site |
