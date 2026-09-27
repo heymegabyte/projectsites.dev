@@ -33,22 +33,12 @@ import { BoltEmbedService } from './services/bolt-embed.service';
   template: `
     <a class="skip-link" href="#main-content">Skip to main content</a>
     <app-network-status-banner />
-    <!-- No role="banner" here: HeaderComponent's inner <header role="banner"> IS the banner
-         landmark. Putting it on the host too created TWO nested banner landmarks (axe
-         landmark-no-duplicate-banner / -is-top-level / -unique) on /search + /create. -->
     @if (showHeader()) { <app-header /> }
     <app-bg-orbs />
-    <!-- Easter eggs (Konami code / holiday hero variants / style-remix) are pure
-         delight — 538 lines with no critical path. Defer off the initial bundle
-         and attach during browser idle (well before any user could trigger a
-         Konami sequence). Trims the eager weight without risking any gated UX. -->
     @defer (on idle) {
       <app-easter-eggs />
     }
     <app-toast />
-    <!-- A2HS install prompt (#25) — pure enhancement, no critical path.
-         Deferred off the initial bundle; only renders when genuinely
-         installable and not previously dismissed. -->
     @defer (on idle) {
       <app-install-prompt />
     }
@@ -61,14 +51,8 @@ import { BoltEmbedService } from './services/bolt-embed.service';
     @if (showShortcuts()) {
       <app-shortcuts-overlay (closed)="showShortcuts.set(false)" />
     }
-    <!-- tabindex="-1" lets the skip-link MOVE focus here (a <main> isn't natively
-         focusable) so the next Tab resumes inside the content, not from the top
-         — completes WCAG 2.4.1 Bypass Blocks. -->
     <main id="main-content" role="main" tabindex="-1" class="app" [class.no-pad]="!showHeader()">
       @if (routeLoading()) {
-        <!-- Instant loading affordance while a lazy route chunk downloads (AL-697) — a cold
-             deep-link to /create (funnel destination) / editor / admin no longer shows a
-             ~3.3s dead-blank. Removed the instant the route hydrates (no CLS on the real page). -->
         <div class="route-skeleton" role="status" aria-live="polite" aria-busy="true"
              data-testid="route-loading">
           <span class="route-skeleton__spinner" aria-hidden="true"></span>
@@ -80,11 +64,10 @@ import { BoltEmbedService } from './services/bolt-embed.service';
       }
       <router-outlet />
     </main>
-    <!-- TOP-LEVEL editor loading veil — rendered at the app ROOT with MAXIMUM z-index so
-         nothing (the admin shell, tab strip, or the bolt.diy iframe) can EVER overlap it.
-         Shows only on the editor route; opacity-toggled to fade out the instant the bolt
-         editor reports loaded via postMessage (bolt.editorReady). pointer-events:none —
-         purely visual, never blocks the cursor. Sized (veilRect) to the editor content area. -->
+    <!-- TOP-LEVEL editor loading veil — app ROOT, MAX z-index so nothing (shell, tab strip,
+         iframe) overlaps it. Shows only on the editor route; sized (veilRect) to the content
+         pane (below top navbar, right of side nav); fades in on mount, fades out when the bolt
+         editor postMessages loaded (bolt.editorReady). pointer-events:none — purely visual. -->
     @if (isEditorRoute()) {
       <div
         class="app-editor-veil"
@@ -122,18 +105,10 @@ import { BoltEmbedService } from './services/bolt-embed.service';
     .app.no-pad {
       padding-top: 0;
     }
-    /* Route-loading skeleton (AL-697) — a loading veil while a lazy chunk downloads.
-       It MUST be an ABSOLUTE OVERLAY (inset:0 inside the position:relative .app), NOT an
-       in-flow block: the skeleton arms on EVERY lazy RouteConfigLoadStart — including admin
-       section↔section swaps and the admin→default-section redirect, which fire AFTER the page
-       has already painted. As an in-flow element its 520px min-height inserted ABOVE the live
-       router-outlet and shoved the mounted page down 520px → a catastrophic ~0.44 CLS on every
-       admin route (AL-722). As an overlay it occupies zero layout space, so it can never push
-       content on cold OR warm navigations. Brand veil; reduced-motion disables the animations. */
     .route-skeleton {
       position: absolute;
       inset: 0;
-      z-index: 5; /* above the outlet it veils; below header(10000)/toast(9999)/takeover(100000) */
+      z-index: 5;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -182,19 +157,12 @@ import { BoltEmbedService } from './services/bolt-embed.service';
       .route-skeleton__spinner { animation-duration: 1.6s; }
       .route-skeleton__bars span { animation: none; }
     }
-    /* The skip-link target receives focus programmatically (never via Tab — it's
-       tabindex=-1), so the region outline would just be visual noise. */
     #main-content:focus { outline: none; }
 
-    /* ── Top-level editor loading veil (Brian 2026-09-27) ──────────────────────────
-       At the app ROOT with MAX z-index + position:fixed so nothing overlaps it;
-       pointer-events:none (purely visual). Fades out when the bolt editor postMessages
-       loaded (bolt.editorReady → .app-editor-veil--gone). Keeps the status messages. */
+    /* Top-level editor loading veil — sized (JS veilRect) to the content pane: below the top
+       navbar, right of the side nav. Full-viewport is only the pre-measure fallback. */
     .app-editor-veil {
       position: fixed;
-      /* Sized in JS (veilRect) to the editor CONTENT AREA — below the top navbar, right of
-         the side nav (it mirrors the bolt iframe's slot). These full-viewport values are the
-         FALLBACK used only until the iframe slot is measurable (safe: covers everything). */
       top: 0;
       left: 0;
       width: 100vw;
@@ -207,6 +175,10 @@ import { BoltEmbedService } from './services/bolt-embed.service';
       opacity: 1;
       will-change: opacity;
       transition: opacity 520ms cubic-bezier(0.7, 0, 0.84, 0);
+    }
+    /* Fade IN on mount (eases from transparent, not a hard cut). */
+    @starting-style {
+      .app-editor-veil { opacity: 0; }
     }
     .app-editor-veil--gone { opacity: 0; }
     .app-editor-veil__aurora {
@@ -271,37 +243,25 @@ export class AppComponent implements OnInit, OnDestroy {
   private translate = inject(TranslateService);
   private appShell = inject(AppShellService);
   private telemetry = inject(TelemetryService);
-  /**
-   * Root singleton (providedIn:'root'). Its `editorReady` signal is flipped by the bolt.diy
-   * editor's postMessage (PS_APP_RUNNING / PS_BOLT_FILES_LOADED, via BoltEmbedService's window
-   * listener) and `loadingStage` carries the status text. The TOP-LEVEL editor veil below reads
-   * both — it lives at the app root with maximum z-index so nothing (iframe, shell, toast) can
-   * ever overlap it, and fades out the instant the editor reports loaded.
-   */
   bolt = inject(BoltEmbedService);
 
   showHeader = signal(true);
   showCommandPalette = signal(false);
   showShortcuts = signal(false);
   inAdmin = signal(false);
-  /** True on `/admin/editor*` — gates the top-level editor loading veil (rendered at the app
-   * root, max z-index) so it shows only while the editor is the active surface. */
+  /** True on `/admin/editor*` — gates the top-level editor loading veil. */
   isEditorRoute = signal(false);
   /**
-   * The measured rect of the editor CONTENT AREA — the bolt iframe's slot, i.e. everywhere
-   * BELOW the top navbar and RIGHT OF the side nav. The top-level veil is sized to this so it
-   * covers only the editor surface, never the chrome. `null` → the veil falls back to
-   * full-viewport (safe). Kept as viewport px because the veil is `position: fixed`.
+   * The editor content-pane rect — everywhere BELOW the top navbar and RIGHT OF the side nav.
+   * Measured from the CHROME (.admin-sidebar right edge + .admin-topbar bottom), NOT the iframe:
+   * the bolt iframe is left:0/width:100% and merely underlaps the sticky sidebar, so its rect is
+   * full-width. `null` → full-viewport fallback. Viewport px (veil is position:fixed).
    */
   protected veilRect = signal<{ top: number; left: number; width: number; height: number } | null>(null);
   /**
-   * While on the editor route, keep the veil sized to the bolt iframe's slot (the editor content
-   * area: BELOW the top navbar, RIGHT OF the side nav). The iframe mounts a few SECONDS after the
-   * route flips (lazy chunk + WebContainer boot), so a one-shot measure misses it and the veil
-   * stays full-viewport — hence a per-FRAME poll that re-measures until the slot is known AND
-   * tracks the sidebar collapse/expand reflow, stopping once the editor is ready (veil fading).
-   * The iframe's `getBoundingClientRect()` yields {top: topbar-height, left: sidebar-width, …},
-   * so matching it excludes the top navbar + side nav exactly. `null` → full-viewport fallback.
+   * While on the editor route, keep the veil sized to the content pane. Per-frame poll (the
+   * shell/iframe mount + the sidebar reflow happen over several frames), stopping once the editor
+   * reports ready (veil fading). Measures the CHROME so the veil excludes the side nav + top navbar.
    */
   private readonly _veilRectSync = effect((onCleanup) => {
     const on = this.isEditorRoute();
@@ -311,22 +271,21 @@ export class AppComponent implements OnInit, OnDestroy {
     }
     let raf = 0;
     const tick = (): void => {
-      const frame = document.querySelector('.bolt-frame') as HTMLElement | null;
-      const r = frame?.getBoundingClientRect();
-      if (r && r.width > 8 && r.height > 8 && r.top < window.innerHeight && r.left < window.innerWidth) {
-        const next = {
-          top: Math.max(0, Math.round(r.top)),
-          left: Math.max(0, Math.round(r.left)),
-          width: Math.round(r.width),
-          height: Math.round(r.height),
-        };
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const sr = (document.querySelector('.admin-sidebar') as HTMLElement | null)?.getBoundingClientRect();
+      const tr = (document.querySelector('.admin-topbar') as HTMLElement | null)?.getBoundingClientRect();
+      // left = side-nav right edge (0 when it's the off-screen mobile drawer or absent);
+      // top  = top-navbar bottom edge. Guarded so a huge/negative rect never mis-sizes the veil.
+      const left = sr && sr.right > 0 && sr.right < vw * 0.6 ? Math.round(sr.right) : 0;
+      const top = tr && tr.bottom > 0 && tr.bottom < vh * 0.6 ? Math.round(tr.bottom) : 0;
+      if (sr || tr) {
+        const next = { top, left, width: Math.max(0, vw - left), height: Math.max(0, vh - top) };
         const cur = this.veilRect();
         if (!cur || cur.top !== next.top || cur.left !== next.left || cur.width !== next.width || cur.height !== next.height) {
           this.veilRect.set(next);
         }
       }
-      // Keep polling while the veil is up (iframe may still be mounting / the sidebar may
-      // reflow); stop once the editor reports ready — the veil is fading out then anyway.
       if (!this.bolt.editorReady()) {
         raf = requestAnimationFrame(tick);
       }
@@ -334,19 +293,8 @@ export class AppComponent implements OnInit, OnDestroy {
     raf = requestAnimationFrame(tick);
     onCleanup(() => cancelAnimationFrame(raf));
   });
-  /** True while a LAZY route chunk is downloading (a cold deep-link to a heavy route like
-   * `/create` takes ~3s to hydrate) — drives an instant loading skeleton so the funnel
-   * destination never shows a dead-blank. NEVER set for the homepage (`/`) so its delicate
-   * static-hero LCP optimization is untouched (AL-697). */
   routeLoading = signal(false);
-  /** The URL of the in-flight navigation, captured on NavigationStart — lets `routeLoading`
-   * exclude the homepage before the (homepage-lazy) RouteConfigLoadStart would otherwise fire. */
   private pendingNavUrl = '';
-  /** Timer that arms the lazy-route skeleton ONLY if the chunk load outlasts the delay.
-   * After `PreloadAllModules` most navigations resolve in a few ms, so arming the skeleton
-   * instantly made it FLASH in-and-out between page changes. A short delay lets a fast/cached
-   * nav settle first (clearing the timer) → no skeleton, no flash; only a genuinely slow cold
-   * load (~3s `/create`/editor chunk) ever shows it. Cleared on every nav settle. */
   private routeLoadingTimer?: ReturnType<typeof setTimeout>;
   private readonly ROUTE_SKELETON_DELAY_MS = 160;
 
@@ -356,27 +304,19 @@ export class AppComponent implements OnInit, OnDestroy {
 
   @HostListener('document:keydown', ['$event'])
   onGlobalKeydown(event: KeyboardEvent): void {
-    // Cmd+K / Ctrl+K — toggle command palette EXCEPT inside /admin,
-    // which mounts its own richer palette. Two palettes opening at once was
-    // a real bug (#4 in the Part 1 brief).
     if (event.key === 'k' && (event.metaKey || event.ctrlKey)) {
-      if (this.router.url.startsWith('/admin')) return; // let admin's palette handle it
+      if (this.router.url.startsWith('/admin')) return;
       event.preventDefault();
       this.showCommandPalette.update(v => !v);
       this.showShortcuts.set(false);
       return;
     }
-    // '?' — show shortcuts overlay (only when not typing in an input/textarea).
-    // Same /admin skip as Cmd+K above: the admin shell mounts its own overlay
-    // and BOTH opening stacked was a real bug (caught by ADV-OL-05/06 —
-    // pressing ? inside /admin rendered two identical modals).
     if (event.key === '?' && !this.isInputFocused()) {
-      if (this.router.url.startsWith('/admin')) return; // admin shell owns ? there
+      if (this.router.url.startsWith('/admin')) return;
       this.showShortcuts.update(v => !v);
       this.showCommandPalette.set(false);
       return;
     }
-    // '/' — focus the first visible search input (only when not typing)
     if (event.key === '/' && !this.isInputFocused()) {
       event.preventDefault();
       const search = document.querySelector<HTMLInputElement>('input[type="text"][placeholder*="earch"]');
@@ -384,7 +324,6 @@ export class AppComponent implements OnInit, OnDestroy {
     }
   }
 
-  /** Show shortcuts from the command palette action */
   onPaletteShowShortcuts(): void {
     this.showCommandPalette.set(false);
     this.showShortcuts.set(true);
@@ -411,14 +350,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.wireLanguage();
   }
 
-  /**
-   * Fire a `$pageview` (PostHog) + `page_view` (GA4) + Sentry breadcrumb on
-   * every successful navigation. SPA pageviews are NOT captured by the GA4
-   * gtag.js auto-send because the URL only changes via History API — we
-   * surface them explicitly so funnel reports stay accurate.
-   */
   private wireTelemetryPageViews(): void {
-    // Initial pageview (Router.events doesn't fire for the first paint).
     this.telemetry.pageView(this.router.url, document.title);
     this.router.events
       .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
@@ -427,42 +359,14 @@ export class AppComponent implements OnInit, OnDestroy {
       });
   }
 
-  /**
-   * Show an instant loading skeleton while a LAZY route chunk downloads (AL-697). A cold
-   * deep-link to a heavy route — `/create` (the acquisition funnel's destination), `/admin`,
-   * an editor route — takes ~3s to download+hydrate its chunk, during which the router-outlet
-   * is EMPTY: a prospect faced a ~3.3s dead-blank. `RouteConfigLoadStart` fires exactly when a
-   * lazy chunk begins loading; we surface a branded skeleton until the navigation settles.
-   *
-   * The homepage (`/`) is EXCLUDED: it renders its own static-hero markup from `index.html`'s
-   * `<app-root>` (a deliberate FCP/LCP optimization) — a skeleton over it would flash + break the
-   * no-CLS hydration swap. We capture the in-flight URL on `NavigationStart` and only arm the
-   * skeleton when it is NOT the homepage. Root component (never destroyed) → no unsubscribe needed.
-   *
-   * CRITICAL (AL-722): arm ONLY during an ACTIVE navigation. `app.config` enables
-   * `withPreloading(PreloadAllModules)`, so after the first navigation the router downloads EVERY
-   * remaining lazy chunk in the background — each emitting `RouteConfigLoadStart` with NO active
-   * navigation and NO following `NavigationEnd`. Arming on those latched `routeLoading` ON forever:
-   * the skeleton stuck on every admin route → a ~0.44 CLS (in-flow block shoving the page down
-   * 520px) AND `[aria-busy=true]` never clearing (a lying-loading veil). `router.getCurrentNavigation()`
-   * is non-null during any real nav (including the initial cold load — robust against the subscription
-   * racing the initial `NavigationStart`) and null during background preloads, so it's the correct gate.
-   */
   private wireRouteLoading(): void {
     this.router.events.subscribe((e) => {
       if (e instanceof NavigationStart) {
         this.pendingNavUrl = e.url;
       } else if (e instanceof RouteConfigLoadStart) {
-        // Ignore preload-triggered chunk loads — only a real in-flight navigation arms the skeleton.
         if (!this.router.getCurrentNavigation()) return;
-        // A lazy chunk is loading. Arm the skeleton unless this navigation targets the homepage.
-        // On a COLD DIRECT load the NavigationStart may precede our subscription, so fall back to
-        // the real browser path (`/create` immediately) — NOT router.url (still `/` until nav settles).
         const url = this.pendingNavUrl || (typeof location !== 'undefined' ? location.pathname : '');
         if (url && url !== '/' && !url.startsWith('/?') && !url.startsWith('/#')) {
-          // DELAY arming: a fast/cached nav (the common case post-PreloadAllModules) settles
-          // before the timer fires, so the skeleton never flashes between page changes. Only a
-          // slow cold chunk (>160ms) surfaces it. The timer is cleared on nav settle below.
           if (this.routeLoadingTimer) clearTimeout(this.routeLoadingTimer);
           this.routeLoadingTimer = setTimeout(() => this.routeLoading.set(true), this.ROUTE_SKELETON_DELAY_MS);
         }
@@ -480,12 +384,6 @@ export class AppComponent implements OnInit, OnDestroy {
     });
   }
 
-  /**
-   * Keep `<html lang>` in sync with `TranslateService.currentLang` for WCAG
-   * 3.1.1 Language of Page. Stamps the initial value and re-applies on every
-   * change. Falls back to `'en'` when the translate service has not yet
-   * resolved a language.
-   */
   private wireLanguage(): void {
     const initial = (this.translate.currentLang as AppLanguage | undefined) ?? 'en';
     this.appShell.applyLanguage(initial === 'es' ? 'es' : 'en');
@@ -495,11 +393,6 @@ export class AppComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Reads the persisted theme (dark|light|system), density (compact|comfortable|spacious),
-   * and high-contrast flag from localStorage and stamps the matching `data-*`
-   * attributes on `<html>` at app boot. Without this, /admin/user → Appearance
-   * settings would only apply after the user clicks a swatch — refresh or first
-   * load would always be dark + comfortable + normal-contrast. */
   private applyStoredTheme(): void {
     const html = document.documentElement;
     try {
@@ -522,37 +415,31 @@ export class AppComponent implements OnInit, OnDestroy {
       localStorage.removeItem('ps_onboarding');
       localStorage.removeItem('ps_onboarding_seen');
     } catch {
-      // ignore — private mode / quota
+      // ignore
     }
   }
 
   private isHeaderlessRoute(url: string): boolean {
     const path = url.split('?')[0];
-    // Homepage has its own nav; admin/billing/editor have their own chrome
     if (path === '/' || path === '') return true;
     return ['/admin', '/billing', '/editor'].some(r => path.startsWith(r));
   }
 
   private trackRoute(): void {
-    // Set initial value
     this.showHeader.set(!this.isHeaderlessRoute(this.router.url));
     this.inAdmin.set(this.router.url.startsWith('/admin'));
     this.isEditorRoute.set(this.router.url.split('?')[0].startsWith('/admin/editor'));
-    // Listen for route changes
     this.router.events
       .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
       .subscribe(e => {
         this.showHeader.set(!this.isHeaderlessRoute(e.urlAfterRedirects));
         this.inAdmin.set(e.urlAfterRedirects.startsWith('/admin'));
         this.isEditorRoute.set(e.urlAfterRedirects.split('?')[0].startsWith('/admin/editor'));
-        // Closing the global palette when entering /admin prevents the
-        // double-palette regression even if a user toggled it elsewhere.
         if (e.urlAfterRedirects.startsWith('/admin')) this.showCommandPalette.set(false);
       });
   }
 
   ngOnDestroy(): void {
-    // Clean up cursor follower
     for (const { type, handler } of this.cursorListeners) {
       if (type === 'message-cursor') {
         window.removeEventListener('message', handler);
@@ -576,7 +463,6 @@ export class AppComponent implements OnInit, OnDestroy {
     if (typeof window === 'undefined') return;
     if (!window.matchMedia('(hover: hover)').matches) return;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    // Honor the per-user opt-out from /admin/user → Appearance → Cursor follower.
     try { if (localStorage.getItem('ps_cursor') === 'off') return; } catch { /* */ }
 
     const follower = document.createElement('div');
@@ -602,19 +488,11 @@ export class AppComponent implements OnInit, OnDestroy {
       follower.classList.remove('visible');
     });
 
-    // Cross-iframe cursor sync — the bolt.diy editor at
-    // editor.projectsites.dev postMessages its cursor coords on every
-    // mousemove (offset by the iframe's bounding rect, computed by the
-    // parent on receipt). This keeps the follower glued to the user even
-    // while they're inside the embedded IDE — the iframe normally swallows
-    // mouseevents from the parent. Type discriminator: PS_CURSOR.
     const iframeMessageHandler = (ev: MessageEvent) => {
       if (ev.origin !== 'https://editor.projectsites.dev' &&
           ev.origin !== 'http://localhost:5173') return;
       const data = ev.data as { type?: string; x?: number; y?: number; hover?: boolean };
       if (!data || data.type !== 'PS_CURSOR') return;
-      // The iframe sends viewport-relative coords (its own viewport). We
-      // translate by the iframe's offset in our viewport.
       const iframe = document.querySelector('.bolt-frame') as HTMLIFrameElement | null;
       if (!iframe) return;
       const rect = iframe.getBoundingClientRect();
@@ -664,33 +542,16 @@ export class AppComponent implements OnInit, OnDestroy {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
     const email = params.get('email');
-    // auth_callback is informational (which provider). token+email is sufficient
-    // to establish a session — the earlier requirement caused Google/GitHub OAuth
-    // logins to silently drop the session because those callbacks shipped
-    // token+email without the marker. Magic-link still ships it, so we keep
-    // reading it for analytics + URL cleanup but don't gate session creation on it.
     const authCallback = params.get('auth_callback');
 
     if (token && email) {
       this.auth.setSession(token, email);
-      // Clean the sensitive params out of the URL FIRST — the session token must never
-      // persist in history / referrer / a subsequent analytics $pageview.
       const url = new URL(window.location.href);
       url.searchParams.delete('token');
       url.searchParams.delete('email');
       url.searchParams.delete('auth_callback');
       window.history.replaceState({}, '', url.toString());
 
-      // Destination priority — honor the returnUrl round-trip:
-      //  1. The deep app route the server already landed us on (returnUrl honored
-      //     server-side — e.g. /admin/billing when the owner clicked "Billing" while
-      //     logged out and the 401-guard bounced them to /signin?returnUrl=/admin/billing).
-      //     STAY there. Dumping them on the dashboard to re-navigate is exactly the friction
-      //     the returnUrl exists to remove (embarrassingly-easy). Safe against the guard: the
-      //     router runs non-blocking initial navigation, so setSession() above lands BEFORE the
-      //     guard resolves and this navigate cancels+restarts the pending nav with the session set.
-      //  2. A pending create flow (business selected pre-signin) → /create.
-      //  3. Otherwise the dashboard.
       const landed = url.pathname;
       const isDeepAppRoute =
         landed !== '/' &&
@@ -710,15 +571,11 @@ export class AppComponent implements OnInit, OnDestroy {
         destination = '/admin';
         this.router.navigate(['/admin']);
       }
-      // Telemetry: this is the moment a session lands — fires GA4 `signup`
-      // via the conversion-alias inside TelemetryService. `returned_to` lets us see
-      // whether the returnUrl round-trip actually deep-links owners or dumps them on /admin.
       this.telemetry.track('auth.signin.succeeded', {
         provider: authCallback ?? 'email',
         had_selected_business: !!business,
         returned_to: destination,
       });
-      // Best-effort analytics — never blocks the session.
       if (authCallback) {
         this.api.post('/analytics/track', { event: 'auth.callback', provider: authCallback })
           .subscribe({ error: () => undefined });
@@ -726,26 +583,10 @@ export class AppComponent implements OnInit, OnDestroy {
     }
   }
 
-  /**
-   * Async session validation. Only clears the local session on a definitive
-   * 401 (the auth interceptor already handles redirect). Transient errors
-   * (network blip, 5xx, timeout) MUST NOT log the user out — that was the
-   * "forced re-sign-in on every refresh" bug.
-   */
   private restoreSession(): void {
     if (!this.auth.isLoggedIn()) return;
-    // `{ silent: true }` — this is a BACKGROUND session-validation that OWNS its outcome:
-    // it intentionally no-ops on transient errors (keeps the session) and the interceptor
-    // owns the 401 (clear + conditional redirect, which still runs under silent). Without
-    // silent, a transient status-0 blip on app-init fired ApiService's alarming "Can't reach
-    // the server. Check your connection." toast even though the user stays logged in and the
-    // next request Just Works — a false alarm on every /admin load whose /auth/me got a blip
-    // (or a CF-challenged headless XHR). See [[cf-bot-challenge-opaque-xhr-misleading-toast]].
     this.api.getMe({ silent: true }).subscribe({
       next: (res) => {
-        // Attach identity to PostHog + GA4 so subsequent events are
-        // user-scoped. User identity is attached via PostHog identify().
-        // — don't double-attach here.
         const user = res?.data;
         if (user?.id) {
           this.telemetry.identify(user.id, {
@@ -755,9 +596,6 @@ export class AppComponent implements OnInit, OnDestroy {
         }
       },
       error: (err: { status?: number }) => {
-        // The api.service interceptor already clears + redirects on 401.
-        // Anything else (0 = offline, 5xx, timeout) is transient — keep the
-        // session so a refresh once connectivity returns Just Works.
         if (err?.status !== 401) {
           // Intentional no-op — leave the local token in place.
         }
