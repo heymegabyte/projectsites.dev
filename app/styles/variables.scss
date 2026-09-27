@@ -261,3 +261,89 @@
   --bolt-elements-terminal-color-brightCyan: var(--bolt-terminal-brightCyan);
   --bolt-elements-terminal-color-brightWhite: var(--bolt-terminal-brightWhite);
 }
+
+/*
+ * ProjectSites brand skin (BLANKET, last-cascade override) — Brian 2026-09-27.
+ *
+ * The embedded bolt editor kept shipping WHITE/gray buttons + panels because the
+ * vendor token blocks above (a) resolve light in some states and (b) carry
+ * copy-paste bugs (dark theme set `icon-primary: gray.950` + `dividerColor:
+ * gray.100` — near-black icons / near-white dividers on a dark UI). Per-component
+ * patching never catches them all. This block REMAPS every vendor surface/button/
+ * text token to brand black+cyan at :root for ALL theme variants — it is defined
+ * LAST so it wins the cascade, and every editor component consumes these via
+ * `var(--bolt-elements-*)`, so nothing can render white. Edit brand values HERE,
+ * not per-component. (god-tier pattern #5; see memory embedded-editor-needs-blanket-brand-override.)
+ */
+:root,
+:root[data-theme='dark'],
+:root[data-theme='light'] {
+  /* Surfaces — brand black/near-black, never white */
+  --bolt-elements-bg-depth-1: #060610;
+  --bolt-elements-bg-depth-2: #0e0e28;
+  --bolt-elements-bg-depth-3: #141436;
+  --bolt-elements-bg-depth-4: rgba(255, 255, 255, 0.04);
+
+  --bolt-elements-borderColor: rgba(0, 229, 255, 0.14);
+  --bolt-elements-borderColorActive: #00e5ff;
+  --bolt-elements-dividerColor: rgba(0, 229, 255, 0.12);
+
+  /* Text — light on dark */
+  --bolt-elements-textPrimary: #f4f4ff;
+  --bolt-elements-textSecondary: rgba(244, 244, 255, 0.66);
+  --bolt-elements-textTertiary: rgba(244, 244, 255, 0.45);
+
+  /* Buttons — dark base + cyan accent; NEVER a white/gray fill */
+  --bolt-elements-button-primary-background: rgba(0, 229, 255, 0.14);
+  --bolt-elements-button-primary-backgroundHover: rgba(0, 229, 255, 0.24);
+  --bolt-elements-button-primary-text: #00e5ff;
+  --bolt-elements-button-secondary-background: rgba(255, 255, 255, 0.04);
+  --bolt-elements-button-secondary-backgroundHover: rgba(0, 229, 255, 0.12);
+  --bolt-elements-button-secondary-text: #f4f4ff;
+
+  /* Items / lists */
+  --bolt-elements-item-contentDefault: rgba(244, 244, 255, 0.55);
+  --bolt-elements-item-contentActive: #f4f4ff;
+  --bolt-elements-item-contentAccent: #00e5ff;
+  --bolt-elements-item-backgroundActive: rgba(0, 229, 255, 0.10);
+  --bolt-elements-item-backgroundAccent: rgba(0, 229, 255, 0.12);
+
+  /* Icons — fixes vendor dark-theme bug (icon-primary was gray.950 = invisible) */
+  --bolt-elements-icon-primary: #f4f4ff;
+  --bolt-elements-icon-secondary: rgba(244, 244, 255, 0.66);
+  --bolt-elements-icon-tertiary: rgba(244, 244, 255, 0.45);
+
+  /* Panels: artifacts / actions / messages / prompt / CTA */
+  --bolt-elements-artifacts-background: #0e0e28;
+  --bolt-elements-artifacts-backgroundHover: rgba(0, 229, 255, 0.06);
+  --bolt-elements-artifacts-inlineCode-background: #0b0b1e;
+  --bolt-elements-actions-background: #0e0e28;
+  --bolt-elements-messages-background: #0e0e28;
+  --bolt-elements-prompt-background: rgba(10, 10, 24, 0.86);
+  --bolt-elements-cta-background: rgba(0, 229, 255, 0.10);
+  --bolt-elements-cta-text: #f4f4ff;
+
+  /* Code surfaces */
+  --bolt-elements-code-background: #0b0b1e;
+  --bolt-elements-code-text: #f4f4ff;
+
+  /* Sidebar */
+  --bolt-elements-sidebar-buttonBackgroundDefault: rgba(0, 229, 255, 0.10);
+  --bolt-elements-sidebar-buttonBackgroundHover: rgba(0, 229, 255, 0.20);
+  --bolt-elements-sidebar-buttonText: #00e5ff;
+
+  /* Preview address bar */
+  --bolt-elements-preview-addressBar-background: #0e0e28;
+  --bolt-elements-preview-addressBar-backgroundHover: rgba(0, 229, 255, 0.06);
+  --bolt-elements-preview-addressBar-backgroundActive: #141436;
+  --bolt-elements-preview-addressBar-text: rgba(244, 244, 255, 0.66);
+  --bolt-elements-preview-addressBar-textActive: #f4f4ff;
+
+  /* Terminal chrome (ANSI colors themselves stay vendor) */
+  --bolt-elements-terminals-background: #060610;
+  --bolt-elements-terminals-buttonBackground: #141436;
+
+  /* Loader rail */
+  --bolt-elements-loader-background: rgba(0, 229, 255, 0.12);
+  --bolt-elements-loader-progress: #00e5ff;
+}

@@ -23,6 +23,7 @@
  *   PS_GENERATION_STATUS).
  */
 
+import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, effect, inject, signal } from '@angular/core';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from './api.service';
@@ -215,6 +216,10 @@ interface PsMessage {
   readonly expirationTtl?: number;
   /** PS_KV_REQUEST (put op): explicitly remove the expiration (make the key permanent). */
   readonly clearExpiration?: boolean;
+  /** PS_CODE_FILE_REQUEST (Code tab, FIRE 7): the file path to read, relative to the site's R2 prefix. */
+  readonly path?: string;
+  /** PS_CODE_HISTORY_REQUEST (Code tab, FIRE 7): how many commits to walk back (worker clamps 1–100). */
+  readonly depth?: number;
 }
 
 export interface BoltFileEntry {
@@ -876,6 +881,135 @@ export class BoltEmbedService {
             });
           break;
         }
+        case 'PS_CODE_TREE_REQUEST': {
+          // Code tab (FIRE 7) — the embedded editor has no cross-origin session, so it asks US (we hold
+          // currentSite + the ApiService bearer) to list the site's PUBLISHED build files via
+          // GET /api/sites/:id/files. Reads the site's OWN R2 prefix only (`requireOwnedSite`-guarded
+          // server-side). Reply with PS_CODE_TREE_RESPONSE. Mirrors the PS_DATA bridge.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_CODE_TREE_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          // The worker wraps the payload in `{ data: { files, prefix, version } }` — unwrap it.
+          this.api
+            .get<{
+              data?: {
+                files?: {
+                  key: string;
+                  name: string;
+                  size: number;
+                  uploaded: string;
+                  content_type: string | null;
+                }[];
+                prefix?: string;
+                version?: string | null;
+              };
+            }>(`/sites/${site.id}/files`, undefined, { silent: true })
+            .subscribe({
+              next: (res) =>
+                reply({
+                  ok: true,
+                  files: res?.data?.files ?? [],
+                  prefix: res?.data?.prefix,
+                  version: res?.data?.version ?? null,
+                }),
+              error: () => reply({ ok: false, error: 'Failed to load files' }),
+            });
+          break;
+        }
+        case 'PS_CODE_FILE_REQUEST': {
+          // Code tab (FIRE 7) — read ONE file's text from the site's PUBLISHED build via
+          // GET /api/sites/:id/files/:path. The worker sanitizes + prefix-guards the path (traversal
+          // defense + cross-site isolation). Reply with PS_CODE_FILE_RESPONSE.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const path = typeof msg.path === 'string' && msg.path ? msg.path : undefined;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_CODE_FILE_RESPONSE', correlationId: cid, path, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!path) {
+            reply({ ok: false, error: 'No file path' });
+            break;
+          }
+          // Encode each path segment but KEEP the slashes (the worker route is `:path{.+}`).
+          const encodedPath = path
+            .split('/')
+            .map((seg) => encodeURIComponent(seg))
+            .join('/');
+          // The worker wraps the payload in `{ data: { key, content, size, content_type } }` — unwrap it.
+          this.api
+            .get<{
+              data?: { key?: string; content?: string; size?: number; content_type?: string | null };
+            }>(`/sites/${site.id}/files/${encodedPath}`, undefined, { silent: true })
+            .subscribe({
+              next: (res) =>
+                reply({
+                  ok: true,
+                  key: res?.data?.key,
+                  content: res?.data?.content ?? '',
+                  size: res?.data?.size,
+                  content_type: res?.data?.content_type ?? null,
+                }),
+              error: () => reply({ ok: false, error: 'Could not open this file' }),
+            });
+          break;
+        }
+        case 'PS_CODE_HISTORY_REQUEST': {
+          // Code tab (FIRE 7) — list the site's R2-stored git commit history (the dense AI-build timeline)
+          // via GET /api/sites/:id/git/history?depth=N. Read-only; empty for sites with no committed builds
+          // (an honest "no version history yet"). Reply with PS_CODE_HISTORY_RESPONSE.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const depth =
+            typeof msg.depth === 'number' && Number.isFinite(msg.depth)
+              ? Math.max(1, Math.min(100, Math.trunc(msg.depth)))
+              : 20;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_CODE_HISTORY_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          // The worker wraps the payload in `{ data: [ { id, parent, message, timestamp, author, files } ] }`.
+          this.api
+            .get<{
+              data?: {
+                id: string;
+                parent?: string | null;
+                message: string;
+                timestamp: string;
+                author: string;
+                files?: { path: string; size: number }[];
+              }[];
+            }>(`/sites/${site.id}/git/history`, { depth: String(depth) }, { silent: true })
+            .subscribe({
+              next: (res) => reply({ ok: true, commits: res?.data ?? [] }),
+              error: () => reply({ ok: false, error: 'Could not load version history' }),
+            });
+          break;
+        }
         case 'PS_VIEW_REQUEST': {
           // Saved grid views (Data tab) — the editor has no cross-origin session, so we proxy to the
           // org-gated /api/sites/:id/grid-views endpoints (list/save/delete) and reply PS_VIEW_RESPONSE.
@@ -1267,6 +1401,351 @@ export class BoltEmbedService {
             .subscribe({
               next: (res) => reply({ ok: true, data: res ?? {} }),
               error: () => reply({ ok: false, error: 'KV inspector not available' }),
+            });
+          break;
+        }
+        case 'PS_SITEDB_TABLES_REQUEST': {
+          // Data Platform (per-site D1) — the embedded editor has no cross-origin session, so it asks
+          // US (we hold currentSite + the ApiService bearer) to list the site's OWN dedicated D1 tables
+          // via GET /api/sites/:id/db/tables. That D1 is server-resolved + lazily provisioned + isolated
+          // from the shared platform DB (docs/data-platform-scope.md). Reply with PS_SITEDB_TABLES_RESPONSE.
+          // Dark behind the `per_site_data` flag → the worker returns a 404 whose message says the feature
+          // is not enabled; we translate that to `{ok:false, enabled:false}`. Mirrors the PS_DATA bridge.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_SITEDB_TABLES_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          // The worker wraps the payload in `{ data: { databaseId, provisioned, tables:[{name}] } }` — unwrap it.
+          this.api
+            .get<{
+              data?: {
+                databaseId?: string;
+                provisioned?: boolean;
+                tables?: { name: string }[];
+              };
+            }>(`/sites/${site.id}/db/tables`, undefined, { silent: true })
+            .subscribe({
+              next: (res) =>
+                reply({
+                  ok: true,
+                  databaseId: res?.data?.databaseId,
+                  provisioned: res?.data?.provisioned,
+                  tables: res?.data?.tables ?? [],
+                }),
+              // Dark-flag: a real 404 whose body message says "not enabled" is the `per_site_data`
+              // killswitch, not a failure — tell the editor to hide the surface, not show an error.
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, error: 'Failed to load tables' });
+                }
+              },
+            });
+          break;
+        }
+        case 'PS_SITEDB_ROWS_REQUEST': {
+          // Data Platform (per-site D1) — browse ONE table's rows in the site's OWN dedicated D1 via
+          // GET /api/sites/:id/db/tables/:table?limit&offset. Same server-side isolation + lazy provisioning
+          // as PS_SITEDB_TABLES_REQUEST. Reply with PS_SITEDB_ROWS_RESPONSE. Mirrors the PS_DATA bridge.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const table = typeof msg.table === 'string' && msg.table ? msg.table : undefined;
+          // Pagination — the worker clamps too, but we forward sane values (limit 1–200 default 25, offset ≥ 0
+          // default 0) so a paging nav never sends garbage.
+          const rowsLimit =
+            typeof msg.limit === 'number' && Number.isFinite(msg.limit)
+              ? Math.max(1, Math.min(200, Math.trunc(msg.limit)))
+              : 25;
+          const rowsOffset =
+            typeof msg.offset === 'number' && Number.isFinite(msg.offset)
+              ? Math.max(0, Math.trunc(msg.offset))
+              : 0;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_SITEDB_ROWS_RESPONSE', correlationId: cid, table, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!table) {
+            reply({ ok: false, error: 'Failed to load rows' });
+            break;
+          }
+          // The worker wraps the payload in `{ data: { table, columns, rows, limit, offset, total } }` — unwrap it.
+          this.api
+            .get<{
+              data?: {
+                table?: string;
+                columns?: { name: string; type: string; notnull: number; pk: number }[];
+                rows?: Record<string, unknown>[];
+                limit?: number;
+                offset?: number;
+                total?: number;
+              };
+            }>(`/sites/${site.id}/db/tables/${encodeURIComponent(table)}`, {
+              limit: String(rowsLimit),
+              offset: String(rowsOffset),
+            }, { silent: true })
+            .subscribe({
+              next: (res) =>
+                reply({
+                  ok: true,
+                  table,
+                  columns: res?.data?.columns ?? [],
+                  rows: res?.data?.rows ?? [],
+                  limit: res?.data?.limit,
+                  offset: res?.data?.offset,
+                  total: res?.data?.total,
+                }),
+              // Dark-flag: same `per_site_data` killswitch translation as the tables request.
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, error: 'Failed to load rows' });
+                }
+              },
+            });
+          break;
+        }
+        case 'PS_RES_OVERVIEW_REQUEST': {
+          // Resource overview — the embedded editor has no cross-origin session, so it asks US (we hold
+          // currentSite + the ApiService bearer) to list the site's platform resources for an environment
+          // via GET /api/sites/:id/resources. Reply with PS_RES_OVERVIEW_RESPONSE. Dark behind its flag →
+          // the worker returns a 404 whose message says the feature is not enabled; we translate that to
+          // `{ok:false, enabled:false}`. Mirrors the PS_SITEDB bridge.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const environment = typeof msg.environment === 'string' && msg.environment ? msg.environment : undefined;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_OVERVIEW_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          // The worker wraps the payload in `{ data: { resources: [...] } }` — unwrap it.
+          this.api
+            .get<{ data?: { resources?: ResourceOverviewEntry[] } }>(
+              `/sites/${site.id}/resources`,
+              environment ? { environment } : undefined,
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, environment, resources: res?.data?.resources ?? [] }),
+              // Dark-flag: a real 404 whose body message says "not enabled" is the killswitch, not a
+              // failure — tell the editor to hide the surface, not show an error.
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, error: 'Failed to load resources' });
+                }
+              },
+            });
+          break;
+        }
+        case 'PS_RES_RECONCILE_REQUEST': {
+          // Resource overview — reconcile the site's resources against desired state for an environment via
+          // POST /api/sites/:id/resources/reconcile. Reply with PS_RES_RECONCILE_RESPONSE. Same dark-flag
+          // translation as PS_RES_OVERVIEW_REQUEST. Mirrors the PS_SITEDB bridge.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const environment = typeof msg.environment === 'string' && msg.environment ? msg.environment : undefined;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_RECONCILE_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          // The worker wraps the payload in `{ data: { reconciled, drift } }` — unwrap it.
+          this.api
+            .post<{ data?: { reconciled?: number; drift?: unknown[] } }>(
+              `/sites/${site.id}/resources/reconcile`,
+              environment ? { environment } : {},
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, reconciled: res?.data?.reconciled, drift: res?.data?.drift }),
+              // Dark-flag: same "not enabled" 404 killswitch translation as the overview request.
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, error: 'Failed to reconcile resources' });
+                }
+              },
+            });
+          break;
+        }
+        case 'PS_RES_DETAIL_REQUEST': {
+          // Resource detail — drill into ONE resource: `list` its children or `get` one child, via
+          // GET /api/sites/:id/resources/:kind/detail?action=…. The embedded editor has no cross-origin
+          // session, so it asks US (we hold currentSite + the ApiService bearer). The caller NEVER names a
+          // CF id — only kind + action + bounded params; the worker server-resolves the id. Reply with
+          // PS_RES_DETAIL_RESPONSE. Same "not enabled" 404 dark-flag translation as PS_RES_OVERVIEW_REQUEST.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const kind = typeof msg.resourceKind === 'string' && msg.resourceKind ? msg.resourceKind : undefined;
+          const detailAction = msg.action === 'get' ? 'get' : 'list';
+          const environment = typeof msg.environment === 'string' && msg.environment ? msg.environment : undefined;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_DETAIL_RESPONSE', correlationId: cid, kind, action: detailAction, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!kind) {
+            reply({ ok: false, error: 'Failed to load resource' });
+            break;
+          }
+          // Build the query — action + optional environment + the safe, non-identifier detail params. `ids`
+          // (vectorize) collapses to a comma-separated value the worker splits back; a CF id is never sent.
+          const query: Record<string, string> = { action: detailAction };
+          if (environment) query['environment'] = environment;
+          const p = msg.detailParams;
+          if (p) {
+            for (const key of ['table', 'key', 'prefix', 'cursor', 'id'] as const) {
+              const value = p[key];
+              if (typeof value === 'string' && value) query[key] = value;
+            }
+            if (typeof p.limit === 'number' && Number.isFinite(p.limit)) query['limit'] = String(Math.trunc(p.limit));
+            if (typeof p.offset === 'number' && Number.isFinite(p.offset)) query['offset'] = String(Math.trunc(p.offset));
+            if (Array.isArray(p.ids) && p.ids.length > 0) query['ids'] = p.ids.filter((s) => typeof s === 'string' && s).join(',');
+          }
+          // The worker wraps the payload in `{ data: { kind, action, result } }` — unwrap to `result`.
+          this.api
+            .get<{ data?: { result?: unknown } }>(
+              `/sites/${site.id}/resources/${encodeURIComponent(kind)}/detail`,
+              query,
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, result: res?.data?.result }),
+              // Dark-flag: a real 404 whose body message says "not enabled" is the killswitch, not a
+              // failure — tell the editor to hide the surface, not show an error.
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, error: 'Failed to load resource' });
+                }
+              },
+            });
+          break;
+        }
+        case 'PS_RES_MUTATE_REQUEST': {
+          // Resource mutate — run a NAMED, typed WRITE verb on ONE resource (provision / put / delete / exec /
+          // terminate / send / upsert …), via POST /api/sites/:id/resources/:kind/mutate. The embedded editor
+          // has no cross-origin session, so it asks US (we hold currentSite + the ApiService bearer). The caller
+          // NEVER names a CF id — only kind + action + bounded, non-identifier input (+ confirm for destructive
+          // ops); the worker server-resolves (or PRODUCES) the id. Reply with PS_RES_MUTATE_RESPONSE. A
+          // confirmation_required / not_available adapter outcome rides in `result` (ok:false), NOT `error`.
+          // Same "not enabled" 404 dark-flag translation as PS_RES_OVERVIEW_REQUEST.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const kind = typeof msg.resourceKind === 'string' && msg.resourceKind ? msg.resourceKind : undefined;
+          const mutateAction = typeof msg.action === 'string' && msg.action ? msg.action : undefined;
+          const environment = typeof msg.environment === 'string' && msg.environment ? msg.environment : undefined;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_MUTATE_RESPONSE', correlationId: cid, kind, action: mutateAction, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!kind || !mutateAction) {
+            reply({ ok: false, error: 'Failed to perform action' });
+            break;
+          }
+          // Body carries ONLY { action, input?, confirm? } — never a CF id (the worker's strict schema rejects
+          // one). input is the mutation's safe, non-identifier operands; confirm approves a destructive op.
+          const body: Record<string, unknown> = { action: mutateAction };
+          if (msg.input && typeof msg.input === 'object') body['input'] = msg.input;
+          if (msg.confirm === true) body['confirm'] = true;
+          // `environment` rides in the query string (the worker's mutate route reads it via `?environment=`);
+          // ApiService.post takes no params bag, so append it to the path.
+          const envQuery = environment ? `?environment=${encodeURIComponent(environment)}` : '';
+          // The worker wraps the payload in `{ data: { kind, action, result } }` — unwrap to `result`.
+          this.api
+            .post<{ data?: { result?: unknown } }>(
+              `/sites/${site.id}/resources/${encodeURIComponent(kind)}/mutate${envQuery}`,
+              body,
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, result: res?.data?.result }),
+              // Dark-flag: a real 404 whose body message says "not enabled" is the killswitch, not a
+              // failure — tell the editor to hide the surface, not show an error.
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, error: 'Failed to perform action' });
+                }
+              },
             });
           break;
         }

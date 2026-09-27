@@ -1,0 +1,5 @@
+{
+  "_README": "Baseline allowlist for scripts/detect-orphans.mjs. Each entry SUPPRESSES one known-intentional (or accepted-baseline) orphan so `npm run detect:orphans` exits 0 until a NEW, un-accepted orphan appears. knip-style 'unused' is not always dead — an entry here is a deliberate acceptance, not a blanket mute. Match key = `type` + `path`. Ratchet DOWN over time: every time one of these is wired or removed, delete its entry so the detector then ENFORCES that it stays connected. Adding a NEW major code unit without wiring it = a new finding = build fail (interconnectedness gate).",
+  "_status": "Empty by design (2026-09-27) — every baseline orphan was resolved per the interconnectedness rule: FunctionsPanel DELETED (superseded by code-defined Functions, ADR-0035); ProblemsTab + LogsTab DELETED (Problems/Logs bottom-panel tabs stripped in ef9b812a3/d9a371012 — the component files were the leftover); mcp_pkce WIRED (routes/mcp_oauth.ts now imports generateCodeVerifier instead of an inline copy). A new unwired major unit = a new finding = build fail; add a deliberate entry here only with an accurate `remove_when`.",
+  "allow": []
+}

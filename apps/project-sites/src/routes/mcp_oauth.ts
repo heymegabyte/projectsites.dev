@@ -33,6 +33,7 @@ import { getAdapter, type Provider } from '../services/mcp_client.js';
 import { encrypt } from '../services/ai_crypto.js';
 import * as auditService from '../services/audit.js';
 import { assertSiteOwned } from '../services/site_ownership.js';
+import { generateCodeVerifier } from '../services/mcp_pkce.js';
 
 /** Boundary contract for the paste-key flow — a non-empty secret string. */
 const PasteKeyBodySchema = z.object({ api_key: z.string().min(1) });
@@ -135,9 +136,10 @@ mcpOauth.get('/api/mcp/:provider/connect', async (c) => {
   // `//evil.com` would be an open redirect. (Stored safe → callback is safe.)
   const returnUrl = safeRelativePath(c.req.query('return_url'), '/admin/mcp');
   const state = crypto.randomUUID().replace(/-/g, '');
-  const codeVerifier = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(48))))
-    .replace(/[^A-Za-z0-9]/g, '')
-    .slice(0, 64);
+  // RFC 7636 PKCE verifier — shared helper (services/mcp_pkce.ts) rather than an
+  // inline re-implementation, so the one canonical generator is imported here and
+  // unit-tested there. Emits a base64url verifier in the spec's [43,128] range.
+  const codeVerifier = generateCodeVerifier();
 
   await c.env.DB.prepare(
     `INSERT INTO mcp_oauth_states (state, org_id, site_id, provider, code_verifier, return_url)

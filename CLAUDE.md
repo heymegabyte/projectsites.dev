@@ -104,6 +104,15 @@ Status machine: `draft → collecting → imaging → generating → published |
   Head before the bundle loads (overrides the default `/headless` iframe); `WebContainer.boot()` in
   `app/lib/webcontainer/index.ts` uses `coep:'credentialless'`. Boot failures → check headers, the
   iframe URL, third-party-storage blocking (stackblitz.com / webcontainer.io exceptions).
+- **Per-site D1 data plane (Data Platform re-arch, `docs/data-platform-scope.md`)** — the editor "Data" tab's
+  **Tables** surface (`GET /api/sites/:siteId/db/tables[/:table]`, `siteDbApi` in
+  `libs/features/site_data_api/site_db_handlers.ts`) reads a customer's OWN dedicated Cloudflare D1 (blank at
+  first), NEVER the shared platform DB and NEVER another site's. Isolation is server-resolved:
+  `resolveSiteDataDb` (`src/services/site_data_db.ts`) reads the site's `d1_database_id` from
+  `site_database_allocations` for the OWNED site, lazily provisions via `provisionSiteD1` (idempotent), denylists
+  the shared platform ids (`FORBIDDEN_DB_IDS`), and executes through the CF REST D1 `/query` API bound to that one
+  id (a Worker can't statically bind thousands of per-site D1s). Flag `per_site_data` (DARK → 404). Platform
+  per-site data (`form_submissions`/`visitor_events`) STAYS in the master D1 — the `data-overview` surface, not this.
 - **Removed — never reintroduce**: Supabase, phone-OTP (legacy Twilio SMS auth removed; Twilio VOICE is KEPT — `src/services/twilio.ts` + `routes/voice*`), Lago/Unkey/Nango/Inngest/Novu (Novu replaced by psnotify; Postiz KEPT as an HTTP-boundary transition social scheduler at social.projectsites.dev),
   **AI Agents** (the `/admin/ai-endpoints` UI-authored AI-endpoint feature + `ai_endpoints` D1 table + the
   `/api/ai/:slug/:endpoint` dispatcher — replaced by code-defined **Functions** on Cloudflare Workers for

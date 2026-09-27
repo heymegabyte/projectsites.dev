@@ -13,7 +13,7 @@ import { workbenchStore, type WorkbenchViewType } from '~/lib/stores/workbench';
 import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
 import { renderLogger } from '~/utils/logger';
-import { DataPanel } from './DataPanel';
+import { GitPanel } from './GitPanel';
 import { CreateMenu } from './CreateMenu';
 import { EditorPanel } from './EditorPanel';
 import { Preview } from './Preview';
@@ -49,15 +49,23 @@ type TopTab = { value: WorkbenchViewType; text: string; icon: string };
 /**
  * The Chat tab — LEFTMOST, tablet/mobile only (<1024px). On desktop the chat is
  * the docked left column so this tab is hidden; on narrow screens it joins the
- * strip as an equal sibling of Code/Preview/Functions/Data. (Brian 2026-08-22)
+ * strip as an equal sibling of Code/Preview/Data. (Brian 2026-08-22)
  */
 const CHAT_TAB: TopTab = { value: 'chat', text: 'Chat', icon: 'i-ph:chat-circle-dots-duotone' };
 
-/** Top editor tabs — order drives the tab strip left-to-right. */
+/**
+ * Top editor tabs — order drives the tab strip left-to-right.
+ *
+ * **Git** (FIRE 7) is the read-first browser over the site's PUBLISHED R2 build + its commit history —
+ * the complement to the live `Code` file-workbench: browse every published file + view its contents
+ * (syntax-labelled) + a version timeline, without booting a container. Reads the site's OWN code only
+ * (server-resolved + `requireOwnedSite`-guarded); diff/restore are deferred with honest "coming soon".
+ */
 const TOP_TABS: TopTab[] = [
   { value: 'code', text: 'Code', icon: 'i-ph:code-duotone' },
   { value: 'preview', text: 'Preview', icon: 'i-ph:eye-duotone' },
   { value: 'data', text: 'Data', icon: 'i-ph:chart-bar-duotone' },
+  { value: 'git', text: 'Git', icon: 'i-ph:git-branch-duotone' },
 ];
 
 /**
@@ -153,6 +161,21 @@ export const Workbench = memo(
         setSelectedView('code');
       }
     }, [isSmallViewport, selectedView]);
+
+    /*
+     * Normalize stale persisted views to a live tab so a returning user never lands on a blank panel.
+     * The shared-platform-D1 `Data` tab folded into `Database` (Brian 2026-09-27, FIRE 1) and the
+     * earlier `Functions` tab folds to `Code`. `Resources` is a LIVE tab again (FIRE: Resources) — it
+     * must NOT be normalized away. A `currentView` persisted as `data`/`functions` still type-checks
+     * (the legacy values remain in WorkbenchViewType) but no tab renders it — snap it to the survivor.
+     */
+    useEffect(() => {
+      if (selectedView === 'data') {
+        setSelectedView('database');
+      } else if (selectedView === 'functions') {
+        setSelectedView('code');
+      }
+    }, [selectedView]);
 
     useEffect(() => {
       workbenchStore.setDocuments(files);
@@ -359,9 +382,9 @@ export const Workbench = memo(
                         }
                       }}
                     />
-                    {/* Top tab strip — Code | Preview | Functions | Data, plus a
-                        LEFTMOST "Chat" tab on tablet/mobile (<1024px). The Chat tab
-                        is just another tab: same styling, same active-state, same
+                    {/* Top tab strip — Code | Preview | Data, plus a LEFTMOST
+                        "Chat" tab on tablet/mobile (<1024px). The Chat tab is just
+                        another tab: same styling, same active-state, same
                         selectedView slot as its siblings — it simply selects the
                         chat panel instead of an editor panel. (Brian 2026-08-22) */}
                     <div className="flex items-center gap-0.5 flex-1 overflow-x-auto">
@@ -508,12 +531,32 @@ export const Workbench = memo(
                     <PanelLayer active={selectedView === 'preview'}>
                       <Preview setSelectedElement={setSelectedElement} />
                     </PanelLayer>
-                    <PanelLayer active={selectedView === 'data'}>
-                      <DataPanel />
+                    {/* Consolidated Database panel — Table-view · SQL navigator · KV manager, all on the
+                        site's OWN per-site D1 (+ its KV). The shared-platform-D1 surface is gone from the
+                        editor; a stale persisted `data` view normalizes to `database` above, so this layer
+                        also owns it. (Brian 2026-09-27 — FIRE 1.) */}
+                    <PanelLayer active={selectedView === 'database' || selectedView === 'data'}>
+                      <DatabasePanel />
+                    </PanelLayer>
+                    {/* Resources panel — the full per-site Cloudflare asset console (FIRE: Resources).
+                        Inventory per kind × env (D1/KV/R2/DO/Workflows/Queues/Vectorize/bindings/connections/
+                        observability) with honest connected / available-to-add / unsupported states, drilling
+                        into a generic detail + manage surface (confirm-gated destructive ops; unsupported CF
+                        capabilities render an honest "not available"). Every CF id is server-resolved for the
+                        authed site+env — the panel never sees or sends one. */}
+                    <PanelLayer active={selectedView === 'resources'}>
+                      <ResourceOverviewPanel />
+                    </PanelLayer>
+                    {/* Git panel (FIRE 7) — read-first browser over the site's PUBLISHED R2 build + its
+                        commit history: file tree + syntax-labelled viewer + a version timeline, no
+                        container boot. Reads the site's OWN code only (server-resolved + ownership-guarded);
+                        diff/restore are deferred (honest "coming soon", never a dead control). */}
+                    <PanelLayer active={selectedView === 'git'}>
+                      <GitPanel />
                     </PanelLayer>
                     {/* Chat panel — a first-class tab panel, tablet/mobile only.
                         It cross-fades via the SAME PanelLayer mechanism as Code /
-                        Preview / Functions / Data, driven by selectedView === 'chat'.
+                        Preview / Data, driven by selectedView === 'chat'.
                         The node is the SAME chat instance BaseChat docks on desktop
                         (passed via mobileChatPanel), so it stays perfectly in sync —
                         one data-bound chat, two render slots. (Brian 2026-08-22) */}

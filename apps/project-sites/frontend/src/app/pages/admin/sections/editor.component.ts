@@ -50,13 +50,19 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
       z-index: 2;
       overflow: hidden;
       background: #060610;
+      /* Opaque from frame 1 — NO entry fade-in. The old `animation: edFade` ramped
+         opacity 0→1 over 260ms, and during that ramp the booting iframe flashed
+         through the semi-transparent veil (the "flash during presentation"). A
+         loading COVER must be solid the instant it mounts, never fade in. */
       opacity: 1;
-      animation: edFade 260ms var(--ease-cinematic);
-      /* Drives the fade-OUT: Angular's animate.leave adds .ed-veil--leaving when
-         the workspace is ready and holds the element in the DOM until this
-         transition settles, so the veil fades away (never a hard cut) and stops
-         intercepting clicks the instant it starts leaving. */
-      transition: opacity 420ms var(--ease-cinematic);
+      will-change: opacity;
+      /* Fade-OUT only (Angular's animate.leave adds .ed-veil--leaving when the
+         workspace is ready, holding the element in the DOM until this settles).
+         An ease-IN curve keeps the veil near-opaque for most of the transition and
+         drops fast only at the very end — so any last-moment iframe relayout/twitch
+         stays masked until the reveal is essentially complete, instead of bleeding
+         through a long linear cross-fade. */
+      transition: opacity 560ms cubic-bezier(0.7, 0, 0.84, 0);
     }
     /* Fade out + go click-through the moment the veil begins leaving. */
     .ed-veil--leaving {

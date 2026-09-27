@@ -50,6 +50,15 @@ export interface TypedValueFieldProps {
    * Lets the Add-row form fetch a column's distinct values only when its field is actually used.
    */
   onRequestSuggestions?: () => void;
+
+  /**
+   * CONSTRAINED enum options for the TEXT widget → a real `<select>` (dropdown) instead of a free-text
+   * input, when the column's value domain is a small fixed set (an "enum-ish" column). Distinct from
+   * {@link suggestions} (which keeps the input open free-text): `options` MEANS "pick one of these". A
+   * final "Other…" entry lets the user drop back to free text for a value not in the set (so a select is
+   * never a dead-end). Empty/absent → the free-text/datalist widget. Ignored by non-text kinds.
+   */
+  options?: string[];
 }
 
 const BASE_INPUT =
@@ -67,6 +76,7 @@ export function TypedValueField({
   jsonRows = 5,
   suggestions,
   onRequestSuggestions,
+  options,
 }: TypedValueFieldProps) {
   const listId = useId();
 
@@ -124,6 +134,44 @@ export function TypedValueField({
   }
 
   const inputType = kind === 'date' ? 'date' : kind === 'datetime' ? 'datetime-local' : 'text';
+
+  /*
+   * CONSTRAINED enum select — a real dropdown for a small fixed value set (an "enum-ish" TEXT column). Only
+   * for the free-text TEXT widget (date/datetime/boolean/json have their own controls). A trailing "Other…"
+   * sentinel drops back to free text so the select is never a dead-end. `__other__` is a UI-only marker; the
+   * value it produces is the empty string until the user types (then the free-text input shows).
+   */
+  const enumOptions = inputType === 'text' && !disabled ? (options ?? []) : [];
+  const OTHER = '__ps_other__';
+  const valueInEnum = enumOptions.includes(value);
+
+  if (enumOptions.length > 0) {
+    // Show the select unless the user chose "Other…" (value not in the set AND non-empty → free text).
+    const usingOther = value !== '' && !valueInEnum;
+
+    if (!usingOther) {
+      return (
+        <select
+          value={valueInEnum ? value : ''}
+          disabled={disabled}
+          onChange={(e) => onValueChange(e.target.value === OTHER ? ' ' : e.target.value)}
+          data-testid={testId}
+          aria-label={ariaLabel}
+          className={classNames(BASE_INPUT, 'cursor-pointer', disabled ? 'opacity-40' : '')}
+        >
+          <option value="">{placeholder || 'Choose…'}</option>
+          {enumOptions.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+          <option value={OTHER}>Other…</option>
+        </select>
+      );
+    }
+
+    // usingOther → fall through to the free-text input below (pre-filled with the typed value).
+  }
 
   // A datalist only makes sense for the free-text widget (date/datetime have their own pickers).
   const listValues = inputType === 'text' && !disabled ? (suggestions ?? []) : [];

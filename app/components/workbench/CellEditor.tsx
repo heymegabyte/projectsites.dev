@@ -31,6 +31,13 @@ export interface CellEditorProps {
   /** Fired when the text widget gains focus → the parent lazily loads {@link suggestions} (cache-first). */
   onRequestSuggestions?: () => void;
 
+  /**
+   * CONSTRAINED enum options → a real `<select>` dropdown on the TEXT widget (for an "enum-ish" column with a
+   * small fixed value set), with a trailing "Other…" escape to free text. Distinct from {@link suggestions}
+   * (open free-text): `options` MEANS "pick one of these". Empty/absent → the free-text/datalist widget.
+   */
+  options?: string[];
+
   /** The parameterized UPDATE SQL preview (SQL shape only — the value binds as ?1), or null. */
   previewSql: string | null;
 
@@ -52,6 +59,7 @@ export function CellEditor({
   onValueChange,
   suggestions,
   onRequestSuggestions,
+  options,
   previewSql,
   editError,
   editBusy,
@@ -91,6 +99,7 @@ export function CellEditor({
           placeholder={editKind === 'null' ? 'NULL' : editKind === 'json' ? '{"key":"value"}' : ''}
           suggestions={suggestions}
           onRequestSuggestions={onRequestSuggestions}
+          options={options}
           testId="data-edit-value"
         />
         {showNullToggle && (

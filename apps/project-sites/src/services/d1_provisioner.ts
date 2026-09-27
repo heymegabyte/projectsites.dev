@@ -14,8 +14,9 @@
  * - Honest failure — returns a typed `{ ok: false, reason }` (no credentials / no account / CF error)
  *   and records NOTHING when the create fails; never fabricates a database id.
  *
- * INERT until wired into the site-create pipeline behind the `per_site_d1` flag (the next Phase 0c
- * increment) — nothing calls it yet, so building it creates zero real resources.
+ * Callers (both gated behind the `per_site_data` flag, DARK by default → zero real resources until
+ * enabled): `site_create.ts` provisions eagerly on site-create; `site_data_db.ts` provisions LAZILY
+ * on first Data-tab access. Both are idempotent, so the two paths converge on one D1 per site.
  */
 import type { Env } from '../types/env.js';
 

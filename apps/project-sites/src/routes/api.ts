@@ -3807,8 +3807,11 @@ api.post('/api/page-audio/:slug', async (c) => {
 api.get('/api/page-audio/:slug/a/:file', async (c) => {
   const obj = await fetchPageAudioObject(c.env, c.req.param('slug'), c.req.param('file'));
   if (!obj) return c.notFound();
+  // Read the real MIME from R2 metadata — ElevenLabs clips are audio/mpeg (MP3),
+  // MeloTTS clips are audio/wav. A hardcoded audio/wav mislabels an MP3 (some
+  // browsers refuse to play it). Fall back to audio/wav for pre-existing objects.
   return c.body(obj.body, 200, {
-    'content-type': 'audio/wav',
+    'content-type': obj.httpMetadata?.contentType || 'audio/wav',
     'cache-control': 'public, max-age=31536000, immutable',
   });
 });

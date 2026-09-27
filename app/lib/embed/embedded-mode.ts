@@ -481,6 +481,322 @@ export interface AskResponseMessage {
   error?: string;
 }
 
+// ── Per-site D1 bridge messages ────────────────────────────────────────────────
+
+/**
+ * Child → Parent (per-site D1 Tables surface): list the tables in the site's OWN dedicated
+ * Cloudflare D1 (blank at first, lazily provisioned) — NEVER the shared platform DB and NEVER
+ * another site's. The embedded editor has no cross-origin session, so the admin (which holds
+ * `selectedSite` + the bearer) calls `GET /api/sites/:siteId/db/tables` and replies with
+ * {@link SiteDbTablesResponseMessage}. Gated server-side by the `per_site_data` flag (DARK → 404).
+ */
+export interface SiteDbTablesRequestMessage {
+  type: 'PS_SITEDB_TABLES_REQUEST';
+  correlationId: string;
+}
+
+/**
+ * Child → Parent (per-site D1 Tables surface): browse one table's rows. The admin calls
+ * `GET /api/sites/:siteId/db/tables/:table?limit&offset` and replies with
+ * {@link SiteDbRowsResponseMessage}. Reads the site's OWN dedicated D1 only.
+ */
+export interface SiteDbRowsRequestMessage {
+  type: 'PS_SITEDB_ROWS_REQUEST';
+  correlationId: string;
+  table: string;
+
+  /** Page size for the paginated browse grid (worker-clamped). */
+  limit?: number;
+
+  /** 0-based row offset for the paginated browse grid (default 0). */
+  offset?: number;
+}
+
+/**
+ * Parent → Child (per-site D1 Tables surface): the admin's reply to {@link SiteDbTablesRequestMessage}
+ * (mirrors the worker's `data` envelope — `{ databaseId, provisioned, tables:[{name}] }`). `enabled`
+ * is `false` when the `per_site_data` flag is dark (the 404 "Per-site data is not enabled"); `error`
+ * carries any other failure (no site selected, network, 4xx).
+ */
+export interface SiteDbTablesResponseMessage {
+  type: 'PS_SITEDB_TABLES_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The site's dedicated D1 database id (blank until first provisioned). */
+  databaseId?: string;
+
+  /** True once the site's D1 has been lazily provisioned. */
+  provisioned?: boolean;
+
+  /** The tables in the site's OWN D1 (empty on a blank, freshly-provisioned DB). */
+  tables?: { name: string }[];
+
+  /** `false` when the `per_site_data` flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/**
+ * Parent → Child (per-site D1 Tables surface): the admin's reply to {@link SiteDbRowsRequestMessage}
+ * (mirrors the worker's `data` envelope — `{ table, columns:[{name,type,notnull,pk}], rows, limit,
+ * offset, total }`). `error` is set when the authed call failed.
+ */
+export interface SiteDbRowsResponseMessage {
+  type: 'PS_SITEDB_ROWS_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The table that was browsed. */
+  table?: string;
+
+  /** The table's schema from `PRAGMA table_info` — `notnull`/`pk` are 0/1 SQLite ints. */
+  columns?: { name: string; type: string; notnull: number; pk: number }[];
+
+  /** The page of rows. */
+  rows?: Record<string, unknown>[];
+
+  /** Echoed page size. */
+  limit?: number;
+
+  /** Echoed 0-based row offset. */
+  offset?: number;
+
+  /** Total row count for the table, so the grid pages through the matches. */
+  total?: number;
+  error?: string;
+}
+
+// ── Resource-overview bridge messages ──────────────────────────────────────────
+
+/**
+ * Child → Parent (resource overview): list the site's platform resources (the per-site D1/KV/R2/queue/
+ * function inventory) for the given environment. The embedded editor has no cross-origin session, so the
+ * admin (which holds `selectedSite` + the bearer) calls `GET /api/sites/:siteId/resources` and replies
+ * with {@link ResOverviewResponseMessage}. Gated server-side by its dark flag (a 404 whose message
+ * includes "not enabled" → `{ok:false, enabled:false}`).
+ */
+export interface ResOverviewRequestMessage {
+  type: 'PS_RES_OVERVIEW_REQUEST';
+  correlationId: string;
+
+  /** Which environment's resources to list (e.g. `production` | `preview`). Omit for the default. */
+  environment?: string;
+}
+
+/**
+ * Child → Parent (resource overview): reconcile the site's resources against the desired state for the
+ * given environment. The admin calls `POST /api/sites/:siteId/resources/reconcile` and replies with
+ * {@link ResReconcileResponseMessage}. Same dark-flag translation as {@link ResOverviewRequestMessage}.
+ */
+export interface ResReconcileRequestMessage {
+  type: 'PS_RES_RECONCILE_REQUEST';
+  correlationId: string;
+
+  /** Which environment to reconcile (e.g. `production` | `preview`). Omit for the default. */
+  environment?: string;
+}
+
+/** One resource row in the {@link ResOverviewResponseMessage} inventory. */
+export interface ResourceOverviewEntry {
+  id: string;
+  resource_kind: string;
+  resource_concept: string;
+  environment: string;
+  tenancy: string;
+  lifecycle_state: string;
+
+  /** Set when the resource has drifted from desired state (the drift taxonomy code). */
+  drift_code?: string;
+
+  /** The Worker binding name this resource is exposed under, when bound. */
+  binding_name?: string;
+
+  /** ISO timestamp of the last successful sync/reconcile, when known. */
+  last_sync_at?: string;
+}
+
+/**
+ * Parent → Child (resource overview): the admin's reply to {@link ResOverviewRequestMessage} (mirrors the
+ * worker's `data` envelope — `{ resources:[…] }`). `enabled` is `false` when the surface's flag is dark
+ * (the 404 "not enabled"); `error` carries any other failure (no site selected, network, 4xx).
+ */
+export interface ResOverviewResponseMessage {
+  type: 'PS_RES_OVERVIEW_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** Echoed environment the resources belong to. */
+  environment?: string;
+
+  /** The site's platform resource inventory for the environment. */
+  resources?: ResourceOverviewEntry[];
+
+  /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/**
+ * Parent → Child (resource overview): the admin's reply to {@link ResReconcileRequestMessage} (mirrors
+ * the worker's `data` envelope — `{ reconciled, drift }`). `error` is set when the authed call failed.
+ */
+export interface ResReconcileResponseMessage {
+  type: 'PS_RES_RECONCILE_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** How many resources were reconciled to desired state. */
+  reconciled?: number;
+
+  /** The residual drift after reconciliation (resource-specific shapes). */
+  drift?: unknown[];
+
+  /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/** The generic per-kind adapter result envelope the detail surface renders (mirrors the worker `AdapterResult`). */
+export interface ResourceDetailResult {
+  ok: boolean;
+
+  /** The kind-specific payload on success (a list/table or one child's key-values). Rendered generically. */
+  data?: unknown;
+
+  /** A typed error on failure (`not_registered` / `not_supported` / `table_not_found` / `cf_unauthorized` / …). */
+  error?: { code: string; message: string; retryable?: boolean };
+
+  /** Log/trace correlation id from the adapter (or the resolver on a resolve-failure). */
+  correlationId?: string;
+}
+
+/**
+ * Child → Parent (resource detail): drill into ONE resource — `list` its children (D1 tables, KV keys,
+ * R2 objects, Vectorize vectors, workflow runs, …) or `get` one child (a table page, one KV value, one
+ * R2 object, one run). The embedded editor has no cross-origin session, so the admin (which holds
+ * `selectedSite` + the bearer) calls `GET /api/sites/:siteId/resources/:kind/detail?action=…` and
+ * replies with {@link ResDetailResponseMessage}. The caller NEVER names a CF id — only `kind` + `action`
+ * + bounded, non-identifier `params`; every id is server-resolved. Same dark-flag translation as
+ * {@link ResOverviewRequestMessage}.
+ */
+export interface ResDetailRequestMessage {
+  type: 'PS_RES_DETAIL_REQUEST';
+  correlationId: string;
+
+  /** The resource kind to drill into (`d1` | `kv` | `r2` | `vectorize` | `workflow` | `durable_object` | …). */
+  kind: string;
+
+  /** `list` (enumerate children) | `get` (read one child). */
+  action: 'list' | 'get';
+
+  /** Which environment the resource belongs to (`production` | `preview`). Omit for the default. */
+  environment?: string;
+
+  /**
+   * Safe, non-identifier operands forwarded into the adapter's `list`/`get` — a CF id is NEVER accepted.
+   * The worker validates + each adapter reads the subset it understands: `d1.get` → `table`; `kv`/`r2` →
+   * `key`/`prefix`/`cursor`; `workflow`/`durable_object`/`connection`/`queue` → `id`; `vectorize` →
+   * `ids`; `limit`/`offset` are clamped per-adapter.
+   */
+  params?: {
+    table?: string;
+    key?: string;
+    prefix?: string;
+    cursor?: string;
+    id?: string;
+    ids?: string[];
+    limit?: number;
+    offset?: number;
+  };
+}
+
+/**
+ * Parent → Child (resource detail): the admin's reply to {@link ResDetailRequestMessage} (mirrors the
+ * worker's `data` envelope — `{ kind, action, result }` where `result` is the adapter's typed
+ * {@link ResourceDetailResult}). `enabled` is `false` when the surface's flag is dark (the 404 "not
+ * enabled"); `error` carries any other transport failure (no site selected, network, 4xx).
+ */
+export interface ResDetailResponseMessage {
+  type: 'PS_RES_DETAIL_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** Echoed resource kind the result belongs to. */
+  kind?: string;
+
+  /** Echoed action (`list` | `get`). */
+  action?: string;
+
+  /** The adapter's typed result envelope — success payload OR a typed error, rendered generically. */
+  result?: ResourceDetailResult;
+
+  /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/**
+ * Child → Parent (resource mutate): run a NAMED, typed WRITE verb on ONE resource — provision it, `put`/`delete`
+ * a KV key, delete an R2 object, `exec` D1 SQL, start/terminate a workflow run, `upsert`/`delete` vectors, etc.
+ * The embedded editor has no cross-origin session, so the admin (which holds `selectedSite` + the bearer) calls
+ * `POST /api/sites/:siteId/resources/:kind/mutate` and replies with {@link ResMutateResponseMessage}. The caller
+ * NEVER names a CF id — only `kind` + `action` + bounded, non-identifier `input`; every id is server-resolved
+ * (or PRODUCED, for `provision`). A DESTRUCTIVE action (delete/terminate/reset/exec-DDL/provision) sends
+ * `confirm:true` after the editor's own confirm dialog. Same dark-flag translation as
+ * {@link ResOverviewRequestMessage}.
+ */
+export interface ResMutateRequestMessage {
+  type: 'PS_RES_MUTATE_REQUEST';
+  correlationId: string;
+
+  /** The resource kind to act on (`d1` | `kv` | `r2` | `vectorize` | `workflow` | `durable_object` | …). */
+  kind: string;
+
+  /** The kind's named mutation (`put` | `delete` | `exec` | `provision` | `terminate` | `send` | …). */
+  action: string;
+
+  /** Which environment the resource belongs to (`production` | `preview`). Omit for the default. */
+  environment?: string;
+
+  /**
+   * The mutation's SAFE, non-identifier operands (per-kind) — a CF id is NEVER accepted. The worker validates +
+   * each adapter reads the subset it understands: `kv`/`r2` `put`/`delete` → `key`/`value`/`prefix`; `d1` `exec`
+   * → `sql`/`params`; `vectorize` → `vectors`/`ids`; `workflow` → `instanceId`/`params`; `durable_object` →
+   * `objectId`; `queue` → `messages`. `provision` needs none.
+   */
+  input?: Record<string, unknown>;
+
+  /** `true` to approve a DESTRUCTIVE/billable mutation (delete/terminate/reset/exec-DDL/provision). */
+  confirm?: boolean;
+}
+
+/**
+ * Parent → Child (resource mutate): the admin's reply to {@link ResMutateRequestMessage} (mirrors the worker's
+ * `data` envelope — `{ kind, action, result }` where `result` is the adapter's typed
+ * {@link ResourceDetailResult}). A `confirmation_required` / `not_available` / `not_supported` adapter outcome
+ * rides in `result` (an `ok:false` with a typed error), NOT `error` — `error` is a transport failure (no site
+ * selected, network, 4xx). `enabled:false` when the surface's flag is dark (the 404 "not enabled").
+ */
+export interface ResMutateResponseMessage {
+  type: 'PS_RES_MUTATE_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** Echoed resource kind the result belongs to. */
+  kind?: string;
+
+  /** Echoed action performed (`put` | `delete` | `exec` | `provision` | …). */
+  action?: string;
+
+  /** The adapter's typed result envelope — success (what changed) OR a typed error/confirmation, rendered generically. */
+  result?: ResourceDetailResult;
+
+  /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
 // ── KV Browser bridge messages ────────────────────────────────────────────────
 
 /** KV namespace entry returned by the `namespaces` op. */
@@ -675,6 +991,123 @@ export interface ViewResponseMessage {
   error?: string;
 }
 
+// ── Code / Git browser bridge messages (per-site source, read-first — FIRE 7) ────
+
+/**
+ * Child → Parent (Code tab): list the files that make up the site's current published build. The
+ * embedded editor has no cross-origin session, so the admin (which holds `selectedSite` + the bearer)
+ * calls `GET /api/sites/:siteId/files` and replies with {@link CodeTreeResponseMessage}. Reads the
+ * site's OWN R2 code prefix (`sites/{slug}/[{version}/]`) only — never another site's.
+ */
+export interface CodeTreeRequestMessage {
+  type: 'PS_CODE_TREE_REQUEST';
+  correlationId: string;
+}
+
+/**
+ * Child → Parent (Code tab): read ONE file's text content from the site's current build. The admin
+ * calls `GET /api/sites/:siteId/files/:path` and replies with {@link CodeFileResponseMessage}. `path`
+ * is relative to the site's R2 prefix; the worker sanitizes + prefix-guards it (traversal defense +
+ * cross-site isolation) before any read.
+ */
+export interface CodeFileRequestMessage {
+  type: 'PS_CODE_FILE_REQUEST';
+  correlationId: string;
+
+  /** The file path to read, relative to the site's R2 prefix (e.g. `index.html`, `assets/app.js`). */
+  path: string;
+}
+
+/**
+ * Child → Parent (Code tab): list the site's R2-stored git commit history (the dense AI-build
+ * timeline). The admin calls `GET /api/sites/:siteId/git/history?depth=N` and replies with
+ * {@link CodeHistoryResponseMessage}. Read-only; empty for sites with no committed builds (an honest
+ * "no version history yet", never an error).
+ */
+export interface CodeHistoryRequestMessage {
+  type: 'PS_CODE_HISTORY_REQUEST';
+  correlationId: string;
+
+  /** How many commits to walk back from HEAD (worker-clamped 1–100, default 20). */
+  depth?: number;
+}
+
+/**
+ * Parent → Child (Code tab): the admin's reply to {@link CodeTreeRequestMessage} (mirrors the worker's
+ * `data` envelope — `{ files:[{key,name,size,uploaded,content_type}], prefix, version }`). `error`
+ * carries any failure (no site selected, network, 4xx).
+ */
+export interface CodeTreeResponseMessage {
+  type: 'PS_CODE_TREE_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The site's files (capped at 500 by the worker); `name` is the path relative to `prefix`. */
+  files?: {
+    key: string;
+    name: string;
+    size: number;
+    uploaded: string;
+    content_type: string | null;
+  }[];
+
+  /** The R2 prefix the files were listed under (`sites/{slug}/[{version}/]`). */
+  prefix?: string;
+
+  /** The build version the tree was read from (null → the live top-level prefix). */
+  version?: string | null;
+  error?: string;
+}
+
+/**
+ * Parent → Child (Code tab): the admin's reply to {@link CodeFileRequestMessage} (mirrors the worker's
+ * `data` envelope — `{ key, content, size, content_type }`). `error` is set when the authed read failed
+ * (binary/too-large, 404, network).
+ */
+export interface CodeFileResponseMessage {
+  type: 'PS_CODE_FILE_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The path that was read (echoed so a late reply targets the right viewer state). */
+  path?: string;
+
+  /** The full R2 key the content came from. */
+  key?: string;
+
+  /** The file's text content (UTF-8; binary files come back garbled — the viewer gates by extension). */
+  content?: string;
+
+  /** The file's byte size. */
+  size?: number;
+
+  /** The file's stored content type, when known. */
+  content_type?: string | null;
+  error?: string;
+}
+
+/**
+ * Parent → Child (Code tab): the admin's reply to {@link CodeHistoryRequestMessage} (mirrors the
+ * worker's `data` envelope — an array of `{ id, parent, message, timestamp, author, files:[{path,size}] }`).
+ * `commits` is `[]` for a site with no committed builds (honest empty, not an error).
+ */
+export interface CodeHistoryResponseMessage {
+  type: 'PS_CODE_HISTORY_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The commit chain from HEAD (newest first); empty for a site with no build history. */
+  commits?: {
+    id: string;
+    parent?: string | null;
+    message: string;
+    timestamp: string;
+    author: string;
+    files?: { path: string; size: number }[];
+  }[];
+  error?: string;
+}
+
 export type ParentToChildMessage =
   | SubmitPromptMessage
   | ImportFilesMessage
@@ -687,8 +1120,17 @@ export type ParentToChildMessage =
   | SqlResponseMessage
   | Nl2SqlResponseMessage
   | AskResponseMessage
+  | SiteDbTablesResponseMessage
+  | SiteDbRowsResponseMessage
+  | ResOverviewResponseMessage
+  | ResReconcileResponseMessage
+  | ResDetailResponseMessage
+  | ResMutateResponseMessage
   | KvResponseMessage
   | ViewResponseMessage
+  | CodeTreeResponseMessage
+  | CodeFileResponseMessage
+  | CodeHistoryResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -700,8 +1142,17 @@ export type ChildToParentMessage =
   | SqlRequestMessage
   | Nl2SqlRequestMessage
   | AskRequestMessage
+  | SiteDbTablesRequestMessage
+  | SiteDbRowsRequestMessage
+  | ResOverviewRequestMessage
+  | ResReconcileRequestMessage
+  | ResDetailRequestMessage
+  | ResMutateRequestMessage
   | KvRequestMessage
   | ViewRequestMessage
+  | CodeTreeRequestMessage
+  | CodeFileRequestMessage
+  | CodeHistoryRequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;

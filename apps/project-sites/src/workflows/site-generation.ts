@@ -244,6 +244,14 @@ export interface SiteGenerationParams {
   uploadedAssets?: string[];
   uploadId?: string;
   orgId: string;
+  /**
+   * Cost tier for this build (`free | standard | plus | premium | patron`). The
+   * reset route resolves it (body override > sites.budget_tier > 'free') but it was
+   * previously dropped here. On the `free` tier the build prompt gets a LEAN-IMAGE
+   * directive (prefer cheap stock, skip paid AI image generation) so a build stays
+   * inexpensive. See {@link buildPrompt}.
+   */
+  budgetTier?: string;
   /** Diagnostic: skip Claude Code, write a static index.html, upload to R2. */
   minimalMode?: boolean;
   /** Diagnostic: hit /build-stub (no API cost) to validate KV-callback persistence. */
@@ -432,6 +440,16 @@ export function buildPrompt(params: SiteGenerationParams): string {
     // hero — AL-423). Pick the `_assets.json` image whose SUBJECT is the business's real
     // products; if none fits, prefer the branded gradient over a wrong-subject stock photo.
     `## Hero + product imagery MUST show ${safeName}'s ACTUAL subject (${params.businessCategory || 'this business'}) — never a generic clothing-boutique / "retail store" stock photo, whatever the theme.`,
+    // LEAN-IMAGE directive (free tier) — keep the build inexpensive: wire the CHEAP
+    // pre-sourced stock images from _assets.json (Unsplash/Pexels/Pixabay, already
+    // collected in the research phase) and DO NOT call any paid AI image generator
+    // (DALL-E / gpt-image-1 / Stability / Ideogram) to synthesize new images. If a
+    // section lacks a fitting stock image, prefer a branded CSS gradient over a paid
+    // generation. The free Cloudflare flux icon/wordmark backup is fine; paid image
+    // synthesis is not.
+    params.budgetTier === 'free' || !params.budgetTier
+      ? '## Budget: LEAN — use the pre-sourced stock images from _assets.json ONLY; do NOT generate new images with any paid AI image model (DALL-E / gpt-image-1 / Stability / Ideogram). Branded gradient over a paid generation when no stock image fits.'
+      : '',
     '',
     '## Build steps (do these IN ORDER, directly — no fan-out)',
     `0. _brand.json is ALREADY MATERIALIZED for you — the workflow wrote the real business data (name="${safeName}") into the build dir's _brand.json. NEVER rewrite or regenerate it; the template's shipped copy has {BUSINESS_NAME} placeholders and overwriting it ships those placeholders LIVE. Read it, use it.`,
@@ -2199,6 +2217,44 @@ export class SiteGenerationWorkflow extends WorkflowEntrypoint<Env, SiteGenerati
             // load/build-validator errors are NOT brand failures — fail-soft so a
             // validator bug never blocks a legitimate publish.
           }
+        }
+
+        // PER-SITE ASSET SCOPE (Data Platform) — mirror the published build into the
+        // per-site namespace prefix `sites-data/{siteId}/` inside SITES_BUCKET (the exact
+        // `__PS_R2` shim scope a Functions worker sees), so a site's assets ALSO live
+        // scoped under its own namespace, not only in the shared `sites/{slug}/` serving
+        // path. Uses the BOUND binding (no S3 creds needed — same physical bucket, a
+        // per-site prefix). Fail-soft: a mirror error never blocks the publish (serving
+        // continues to read the canonical `sites/{slug}/` copy). Idempotent — re-running a
+        // build overwrites the same per-site keys.
+        try {
+          const srcPrefix = `sites/${params.slug}/${version}/`;
+          const dstPrefix = `sites-data/${params.siteId}/${srcPrefix}`;
+          let mirrored = 0;
+          let cursor: string | undefined;
+          do {
+            const page = await env.SITES_BUCKET.list({ prefix: srcPrefix, cursor, limit: 200 });
+            for (const obj of page.objects) {
+              const src = await env.SITES_BUCKET.get(obj.key);
+              if (!src) continue;
+              const rel = obj.key.slice(srcPrefix.length);
+              await env.SITES_BUCKET.put(`${dstPrefix}${rel}`, await src.arrayBuffer(), {
+                httpMetadata: src.httpMetadata,
+              });
+              mirrored++;
+            }
+            cursor = page.truncated ? page.cursor : undefined;
+          } while (cursor);
+          await wfLog('workflow.per_site_asset_mirror', {
+            mirrored,
+            dstPrefix,
+            message: `Mirrored ${mirrored} asset(s) into the per-site namespace scope ${dstPrefix}`,
+          });
+        } catch (err) {
+          await wfLog('workflow.per_site_asset_mirror_failed', {
+            error: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+            message: 'per-site asset mirror failed (fail-soft — publish continues)',
+          });
         }
 
         // Update D1 status to published. Hardened (journey 2026-08-19 — the

@@ -92,9 +92,892 @@ export const SetDomainInput = z.object({
     ),
 });
 
+/**
+ * `data_list_resources` + `data_reconcile_resources` — the Data & Resource Platform
+ * MCP surface. A caller names ONLY the OWNED `site_id` (never a CF id) + the
+ * environment; `environment` defaults to production. `.strict()` rejects any attempt
+ * to smuggle a `resourceId`/`databaseId`/`accountId`. Ownership + isolation are
+ * enforced server-side in the dispatcher (org-scope + 404-on-foreign), mirroring the
+ * per-site D1 Tables surface.
+ */
+export const DataListResourcesInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/** Reconcile the registry against CF ground truth for the OWNED site + environment. */
+export const DataReconcileResourcesInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_list_tables` + `data_read_table` — the per-site D1 READ surface (MCP parity with the
+ * editor's SiteTablesPanel / the `/api/sites/:id/db/tables` endpoint). A caller names ONLY the
+ * OWNED `site_id` (NEVER a CF/database id — the db is server-resolved from `site_database_allocations`)
+ * plus the optional environment. `.strict()` rejects any attempt to smuggle a `databaseId`/`accountId`.
+ * Ownership + isolation + `per_site_data` flag-gate are enforced server-side in the dispatcher,
+ * mirroring the per-site D1 Tables surface.
+ */
+export const DataListTablesInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * Browse one table's rows (paginated) from the OWNED site's own D1. `limit`/`offset` are LENIENT
+ * here — a positive-int `limit` and a non-negative `offset` — because the dispatcher CLAMPS them to
+ * `[1, 200]` / `[0, ∞)` (matching the `/api/sites/:id/db/tables/:table` endpoint) rather than
+ * REJECTING an over-limit request. A `.max(200)` bound would throw on `limit=201`; the endpoint
+ * instead serves 200 rows. `.strict()` still rejects unknown keys (no `databaseId` smuggling).
+ */
+export const DataReadTableInput = z
+  .object({
+    site_id: z.string().min(1),
+    table: z.string().min(1),
+    limit: z.number().int().positive().optional(),
+    offset: z.number().int().min(0).optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_d1_exec` — run ONE PARAMETERIZED SQL statement against the OWNED site's own D1 (the gated WRITE
+ * slice, MCP parity with the Data tab's parameterized row write). A caller names ONLY the OWNED `site_id` +
+ * the `sql` (NEVER a CF/database id — the db is server-resolved from `site_database_allocations`) plus optional
+ * positional `params` (bound VALUES only — identifiers can't be REST-parameterized) / `confirm` and the
+ * environment. ⚠️ The dispatcher's d1 adapter CLASSIFIES the statement honestly by its leading keyword: a
+ * data-MUTATING or DESTRUCTIVE (DROP/TRUNCATE/ALTER/DELETE-without-WHERE) statement REQUIRES `confirm:true` —
+ * without it the tool returns `confirmation required` REPORTING the detected kind and running nothing; a
+ * DESTRUCTIVE one additionally notes D1 Time Travel (30-day PITR) as the rollback path. This is NOT a false
+ * "sandboxed read-only" claim — the classifier decides the gate, D1's `rows_written` is the ground truth.
+ * `.strict()` rejects any attempt to smuggle a `databaseId`/`accountId`. Ownership + isolation +
+ * `per_site_data` flag-gate + `data:write` scope are enforced server-side.
+ */
+export const DataD1ExecInput = z
+  .object({
+    site_id: z.string().min(1),
+    sql: z.string().min(1).max(100_000),
+    params: z.array(z.unknown()).max(100).optional(),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_d1_explain` — run `EXPLAIN QUERY PLAN <sql>` for ONE READ statement against the OWNED site's own D1
+ * (D1 polish, READ-ONLY). A caller names ONLY the OWNED `site_id` + the `sql` (NEVER a CF/database id — the db
+ * is server-resolved from `site_database_allocations`) plus optional bound `params` and the environment. ⚠️ The
+ * adapter REFUSES to explain a MUTATING statement: the inner SQL is classified by its leading keyword and
+ * anything not read-only returns an `explain_refused_mutating` error (nothing runs) — the plan is a debugging
+ * aid for SELECTs, never a path around the exec confirm gate. Returns the plan rows + D1's query timing. No
+ * confirm is needed (read-only). `.strict()` rejects any attempt to smuggle a `databaseId`/`accountId`.
+ * Ownership + isolation + `per_site_data` flag-gate + `data:read` scope are enforced server-side.
+ */
+export const DataD1ExplainInput = z
+  .object({
+    site_id: z.string().min(1),
+    sql: z.string().min(1).max(100_000),
+    params: z.array(z.unknown()).max(100).optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_d1_migrations` — read the OWNED site's own D1 applied-migration history from `d1_migrations`
+ * (D1 polish, READ-ONLY). A caller names ONLY the OWNED `site_id` (NEVER a CF/database id — the db is
+ * server-resolved from `site_database_allocations`) plus the optional environment. A blank per-site D1 that was
+ * never migrated has no `d1_migrations` table → an HONEST empty history (`tablePresent:false`, `migrations:[]`),
+ * never an error. `.strict()` rejects any attempt to smuggle a `databaseId`/`accountId`. Ownership + isolation +
+ * `per_site_data` flag-gate + `data:read` scope are enforced server-side.
+ */
+export const DataD1MigrationsInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_d1_query_history` — read the RECENT query history for the OWNED site's own D1 (Data Platform
+ * "query history", READ-ONLY). Every `data_d1_exec` / `data_d1_explain` run records its STATEMENT
+ * TEMPLATE (the SQL with its `?` placeholders) + timing + rows meta + ok/error into the SHARED platform
+ * D1 — bound parameter VALUES are NEVER stored (they are your data, may be sensitive). A caller names
+ * ONLY the OWNED `site_id` (NEVER a CF/database id) plus an optional environment filter + a `limit`
+ * (clamped to `[1, 200]`, default 25). Returns entries newest-first. `.strict()` rejects any attempt to
+ * smuggle a `databaseId`/`accountId`. Ownership + isolation + `per_site_data` flag-gate + `data:read`
+ * scope are enforced server-side.
+ */
+export const DataD1QueryHistoryInput = z
+  .object({
+    site_id: z.string().min(1),
+    // LENIENT bound (positive int, optional) — the dispatcher CLAMPS to [1, 200] rather than rejecting.
+    limit: z.number().int().positive().optional(),
+    environment: z.enum(['preview', 'production']).optional(),
+  })
+  .strict();
+
+/**
+ * `data_d1_time_travel_info` — READ the OWNED site's own D1 current Time Travel bookmark + the 30-day PITR
+ * window (D1 recovery, READ-ONLY). A caller names ONLY the OWNED `site_id` (NEVER a CF/database id — the db is
+ * server-resolved from `site_database_allocations`) plus an optional ISO 8601 `timestamp` (→ the nearest bookmark
+ * AT OR BEFORE it, the value a restore to that instant would land on) and the environment. Time Travel IS exposed
+ * by the CF D1 REST API (verified) so this returns the LIVE bookmark, never a fabricated one. `.strict()` rejects
+ * any attempt to smuggle a `databaseId`/`accountId`. Ownership + isolation + `per_site_data` flag-gate +
+ * `data:read` scope are enforced server-side.
+ */
+export const DataD1TimeTravelInfoInput = z
+  .object({
+    site_id: z.string().min(1),
+    timestamp: z.string().min(1).optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_d1_restore` — restore the OWNED site's own D1 to a point in time via CF REST Time Travel (D1 recovery,
+ * DESTRUCTIVE WHOLE-DATABASE write). A caller names ONLY the OWNED `site_id` (NEVER a CF/database id — the db is
+ * server-resolved) plus EXACTLY ONE of `bookmark` (from `data_d1_time_travel_info`) | `timestamp` (ISO 8601), a
+ * REQUIRED `confirm`, and the environment. ⚠️ The adapter gates on `confirm:true` — without it the tool returns a
+ * `confirmation required` warning that this reverts the WHOLE database within the 30-day window and runs nothing;
+ * and requires exactly one target (zero/both → error). This is a real CF REST call
+ * (`POST …/time_travel/restore`) — never a fabricated success. `.strict()` rejects any attempt to smuggle a
+ * `databaseId`/`accountId`. Ownership + isolation + `per_site_data` flag-gate + `data:write` scope are enforced
+ * server-side.
+ */
+export const DataD1RestoreInput = z
+  .object({
+    site_id: z.string().min(1),
+    bookmark: z.string().min(1).optional(),
+    timestamp: z.string().min(1).optional(),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_kv_list_keys` — list keys in the OWNED site's own dedicated KV namespace (MCP parity with the
+ * Data tab's KV surface). A caller names ONLY the OWNED `site_id` (NEVER a CF namespace id — the
+ * namespace is server-resolved from `site_database_allocations`) plus optional prefix/cursor/limit and
+ * the environment. `limit` is LENIENT (positive int) because the dispatcher CLAMPS it to `[1, 1000]`
+ * (matching CF KV's page cap) rather than REJECTING an over-limit request. `.strict()` rejects any
+ * attempt to smuggle a `namespaceId`/`accountId`. Ownership + isolation + `per_site_kv` flag-gate are
+ * enforced server-side in the dispatcher, mirroring the per-site D1 Tables surface.
+ */
+export const DataKvListKeysInput = z
+  .object({
+    site_id: z.string().min(1),
+    prefix: z.string().max(512).optional(),
+    cursor: z.string().max(2048).optional(),
+    limit: z.number().int().positive().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_kv_get` — read one key's value + metadata from the OWNED site's own KV namespace. A caller
+ * names ONLY the OWNED `site_id` + the exact `key` (never a CF namespace id — server-resolved) plus the
+ * optional environment. `.strict()` rejects unknown keys (no `namespaceId` smuggling). A missing key is
+ * an honest `found:false` from the dispatcher (KV is eventually-consistent), never an error.
+ */
+export const DataKvGetInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(512),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_kv_put` — write ONE key's value (optional TTL + metadata) to the OWNED site's own KV namespace
+ * (the FIRST WRITE slice, MCP parity with the Data tab's KV put). A caller names ONLY the OWNED `site_id`
+ * + the `key` + the `value` (NEVER a CF namespace id — server-resolved) plus optional `expiration_ttl`
+ * (seconds, CF minimum 60) / `metadata` / `confirm` and the environment. ⚠️ OVERWRITE is destructive of
+ * the prior value: `confirm:true` is REQUIRED to overwrite an EXISTING key — without it the dispatcher
+ * returns `confirmation required` and REPORTS the key + that it exists, changing nothing (a brand-new key
+ * needs no confirm). `.strict()` rejects any attempt to smuggle a `namespaceId`/`accountId`. Ownership +
+ * isolation + `per_site_kv` flag-gate + `data:write` scope are enforced server-side.
+ */
+export const DataKvPutInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(512),
+    value: z.string().max(25 * 1024 * 1024),
+    expiration_ttl: z.number().int().min(60).optional(),
+    metadata: z.record(z.unknown()).optional(),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_kv_delete` — DELETE ONE key from the OWNED site's own KV namespace (the FIRST WRITE slice, MCP
+ * parity with the Data tab's KV delete). A caller names ONLY the OWNED `site_id` + the `key` (NEVER a CF
+ * namespace id — server-resolved) plus `confirm` and the environment. ⚠️ DESTRUCTIVE: `confirm:true` is
+ * REQUIRED — without it the dispatcher returns `confirmation required` and REPORTS the key + whether it
+ * currently exists, deleting nothing. `.strict()` rejects any attempt to smuggle a `namespaceId`/
+ * `accountId`. Ownership + isolation + `per_site_kv` flag-gate + `data:write` scope are enforced
+ * server-side. Delete is idempotent — removing an already-absent key is an honest `existed:false` success.
+ */
+export const DataKvDeleteInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(512),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_kv_bulk_get` — read MANY keys' values at once from the OWNED site's own KV namespace (batched
+ * companion of `data_kv_get`). A caller names ONLY the OWNED `site_id` + a `keys` array (NEVER a CF
+ * namespace id — server-resolved) plus the optional environment. `keys` is LENIENT (≥1 entry) because the
+ * dispatcher CLAMPS the list to the CF bulk cap (10,000) rather than REJECTING an over-cap read — a read is
+ * non-destructive — and REPORTS how many were dropped. Each requested key gets an honest per-key result
+ * (`found` + `value`); a missing key is `found:false`, never an error. `.strict()` rejects any attempt to
+ * smuggle a `namespaceId`/`accountId`. Ownership + isolation + `per_site_kv` flag-gate + `data:read` scope
+ * are enforced server-side.
+ */
+export const DataKvBulkGetInput = z
+  .object({
+    site_id: z.string().min(1),
+    keys: z.array(z.string().min(1).max(512)).min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_kv_bulk_delete` — DELETE MANY keys at once from the OWNED site's own KV namespace (batched companion
+ * of `data_kv_delete`). A caller names ONLY the OWNED `site_id` + a `keys` array (NEVER a CF namespace id —
+ * server-resolved) plus `confirm` and the optional environment. ⚠️ DESTRUCTIVE: `confirm:true` is REQUIRED —
+ * without it the dispatcher returns `confirmation required` and REPORTS the COUNT that WOULD be removed,
+ * deleting nothing. Over the CF bulk cap (10,000) is REJECTED (never silently truncated — a partial
+ * destructive op would remove a different set than requested). `.strict()` rejects any attempt to smuggle a
+ * `namespaceId`/`accountId`. Ownership + isolation + `per_site_kv` flag-gate + `data:write` scope are
+ * enforced server-side.
+ */
+export const DataKvBulkDeleteInput = z
+  .object({
+    site_id: z.string().min(1),
+    keys: z.array(z.string().min(1).max(512)).min(1),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_r2_list_objects` — list objects in the OWNED site's own dedicated R2 bucket (MCP parity with the
+ * Data tab's R2 surface). A caller names ONLY the OWNED `site_id` (NEVER a CF bucket name — the bucket is
+ * server-resolved from `site_database_allocations`) plus optional prefix/cursor/limit and the environment.
+ * `limit` is LENIENT (positive int) because the dispatcher CLAMPS it to `[1, 1000]` (matching R2's page cap)
+ * rather than REJECTING an over-limit request. `.strict()` rejects any attempt to smuggle a
+ * `bucket`/`bucketName`/`accountId`. Ownership + isolation + `per_site_r2` flag-gate are enforced
+ * server-side in the dispatcher, mirroring the per-site D1 Tables + per-site KV surfaces. NOTE: this lists
+ * the customer's OWN R2 objects, NOT the platform's deployed-site static assets (a separate surface).
+ */
+export const DataR2ListObjectsInput = z
+  .object({
+    site_id: z.string().min(1),
+    prefix: z.string().max(1024).optional(),
+    cursor: z.string().max(4096).optional(),
+    limit: z.number().int().positive().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_r2_head_object` — read ONE object's METADATA (size/etag/content-type/uploaded + http + custom
+ * metadata) from the OWNED site's own R2 bucket. A caller names ONLY the OWNED `site_id` + the exact `key`
+ * (never a CF bucket name — server-resolved) plus the optional environment. `.strict()` rejects unknown
+ * keys (no `bucket` smuggling). Returns METADATA ONLY — never the object bytes (a large download uses a
+ * signed URL in a later pass). A missing object is an honest `found:false`, never an error.
+ */
+export const DataR2HeadObjectInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(1024),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_r2_put_object` — write ONE SMALL object's bytes (optional content-type + http/custom metadata) to the
+ * OWNED site's own dedicated R2 bucket (the FIRST WRITE slice, MCP parity with the Data tab's R2 put). A caller
+ * names ONLY the OWNED `site_id` + the `key` + the `body` (NEVER a CF bucket name — server-resolved) plus
+ * optional `content_type` / `http_metadata` / `custom_metadata` / `confirm` and the environment. ⚠️ OVERWRITE is
+ * destructive of the prior object: `confirm:true` is REQUIRED to overwrite an EXISTING object — without it the
+ * dispatcher returns `confirmation required` and REPORTS the key + that it exists, changing nothing (a brand-new
+ * object needs no confirm). LARGE/multipart objects are NOT embedded — a body over the inline cap is rejected
+ * with a note that a short-lived SCOPED (signed) upload URL is required (a later pass), never buffered inline.
+ * `.strict()` rejects any attempt to smuggle a `bucket`/`bucketName`/`accountId`. Ownership + isolation +
+ * `per_site_r2` flag-gate + `data:write` scope are enforced server-side. NOTE: this writes the customer's OWN R2
+ * objects, NOT the platform's deployed-site static assets (a separate surface).
+ */
+export const DataR2PutObjectInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(1024),
+    body: z.string().max(25 * 1024 * 1024),
+    content_type: z.string().max(256).optional(),
+    http_metadata: z.record(z.unknown()).optional(),
+    custom_metadata: z.record(z.unknown()).optional(),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_r2_delete_object` — DELETE ONE object from the OWNED site's own R2 bucket (the FIRST WRITE slice, MCP
+ * parity with the Data tab's R2 delete). A caller names ONLY the OWNED `site_id` + the `key` (NEVER a CF bucket
+ * name — server-resolved) plus `confirm` and the environment. ⚠️ DESTRUCTIVE: `confirm:true` is REQUIRED —
+ * without it the dispatcher returns `confirmation required` and REPORTS the key + whether it currently exists,
+ * deleting nothing. `.strict()` rejects any attempt to smuggle a `bucket`/`bucketName`/`accountId`. Ownership +
+ * isolation + `per_site_r2` flag-gate + `data:write` scope are enforced server-side. Delete is idempotent —
+ * removing an already-absent object is an honest `existed:false` success.
+ */
+export const DataR2DeleteObjectInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(1024),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_r2_multipart_create` — BEGIN a multipart upload for ONE LARGE object in the OWNED site's own dedicated R2
+ * bucket (MCP parity with the Data tab's multipart create). A caller names ONLY the OWNED `site_id` + the `key`
+ * (NEVER a CF bucket name — server-resolved) plus optional content-type/metadata + environment. Returns an
+ * `upload_id` the caller threads through part uploads + completion — OR an honest `multipart_not_available` when
+ * the per-site REST bucket has no wired multipart transport (never a fabricated upload_id, never a credential).
+ * ⛔ LARGE PART BYTES ARE NEVER CARRIED IN AN MCP ARGUMENT: parts transfer through a SERVER-SIDE proxy (the
+ * Worker relays one part at a time under a scoped token — SECURITY-INVARIANTS INV-6); this tool returns only the
+ * transfer HANDLE (`upload_id` + limits), not object bytes. `.strict()` rejects a smuggled `bucket`/`accountId`.
+ * Ownership + isolation + `per_site_r2` flag-gate + `data:write` scope are enforced server-side.
+ */
+export const DataR2MultipartCreateInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(1024),
+    content_type: z.string().max(256).optional(),
+    http_metadata: z.record(z.unknown()).optional(),
+    custom_metadata: z.record(z.unknown()).optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_r2_multipart_complete` — ASSEMBLE the uploaded parts into the FINAL object for an in-flight multipart
+ * upload in the OWNED site's own R2 bucket (MCP parity). A caller names ONLY the OWNED `site_id` + `key` +
+ * `upload_id` + the collected `parts[]` ({part_number, etag} — the small handles returned by each part upload,
+ * NEVER object bytes) plus `confirm` + environment. ⚠️ OVERWRITE is destructive: `confirm:true` is REQUIRED when
+ * an object already EXISTS at `key` — without it the dispatcher returns `confirmation required` and REPORTS the
+ * key + that it exists, assembling nothing. `parts[]` must be non-empty, ≤10000, strictly ascending by
+ * part_number. Returns `multipart_not_available` (honest) until the transport is wired. `.strict()` rejects a
+ * smuggled `bucket`/`accountId`. Ownership + isolation + `per_site_r2` flag-gate + `data:write` scope server-side.
+ */
+export const DataR2MultipartCompleteInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(1024),
+    upload_id: z.string().min(1),
+    parts: z
+      .array(
+        z
+          .object({
+            part_number: z.number().int().min(1).max(10_000),
+            etag: z.string().min(1),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(10_000),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_r2_multipart_abort` — CANCEL an in-flight multipart upload + discard its uploaded parts in the OWNED
+ * site's own R2 bucket (MCP parity). A caller names ONLY the OWNED `site_id` + `key` + `upload_id` + environment.
+ * IDEMPOTENT cleanup: aborting an already-gone/unknown upload is an honest success (no live object is touched, so
+ * no confirm is needed). Returns `multipart_not_available` (honest) until the transport is wired. `.strict()`
+ * rejects a smuggled `bucket`/`accountId`. Ownership + isolation + `per_site_r2` flag-gate + `data:write` scope
+ * are enforced server-side.
+ */
+export const DataR2MultipartAbortInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(1024),
+    upload_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_r2_bucket_config` — READ the OWNED site's R2 bucket configuration (CORS + object-lifecycle rules +
+ * public-access + custom-domain settings). A caller names ONLY the OWNED `site_id` (NEVER a CF bucket name —
+ * server-resolved) plus the optional environment. `.strict()` rejects any attempt to smuggle a
+ * `bucket`/`bucketName`/`accountId`. READ-ONLY: each setting is reported with an honest `requiresPlatformAdmin`
+ * flag — CORS + lifecycle are owner-readable; public-access (r2.dev exposure) + custom domains are
+ * platform-administered (DNS/zone + account-wide toggle) and returned with a reason, NEVER a fake CRUD control.
+ * Ownership + isolation + `per_site_r2` flag-gate + `data:read` scope are enforced server-side. Honest 'not
+ * provisioned' until the site has an R2 bucket. NOTE: this describes the customer's OWN R2 bucket, NOT the
+ * platform's deployed-site static assets (a separate surface).
+ */
+export const DataR2BucketConfigInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_r2_preview_url` — mint a SHORT-LIVED SCOPED preview/download URL for ONE object in the OWNED site's R2
+ * bucket. A caller names ONLY the OWNED `site_id` + the exact `key` (NEVER a CF bucket name — server-resolved)
+ * plus the optional environment. `.strict()` rejects unknown keys (no `bucket` smuggling). READ-ONLY and
+ * credential-safe by construction (SECURITY-INVARIANTS INV-6): the response NEVER contains account credentials
+ * — only a scoped, time-boxed, single-object handle when minting is wired, or an honest `available:false` +
+ * `approach` (signed-URL / streamed-proxy) when it is not. A missing object is an honest `found:false`, never a
+ * fabricated URL. Ownership + isolation + `per_site_r2` flag-gate + `data:read` scope are enforced server-side.
+ */
+export const DataR2PreviewUrlInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(1024),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_vectorize_list` — summarise the OWNED site's own metadata NAMESPACE inside the shared Vectorize index
+ * (MCP parity with the Data tab's Vectorize surface). A caller names ONLY the OWNED `site_id` (NEVER a CF index
+ * name AND never a namespace — BOTH are server-derived: the index from the registry, the namespace from the
+ * site id) plus the optional environment. `.strict()` rejects any attempt to smuggle an `index`/`indexName`/
+ * `namespace`/`accountId`. Ownership + isolation + `per_site_vectorize` flag-gate are enforced server-side in
+ * the dispatcher, mirroring the per-site D1/KV/R2 surfaces. Per-site isolation is a NAMESPACE partition, not a
+ * dedicated per-site index (namespace ≠ quota). Honest 'not provisioned' until the site has a Vectorize row.
+ */
+export const DataVectorizeListInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_vectorize_describe` — read the shared index config (dimensions/metric/metadata-indexes) + the OWNED
+ * site's server-derived namespace, and OPTIONALLY fetch specific vectors' id+METADATA via a NAMESPACE-SCOPED
+ * get-by-ids (a foreign vector is never returned; the namespace filter is the site's own). A caller names ONLY
+ * the OWNED `site_id` (never a CF index name/namespace — server-derived) + optional `ids` + environment. `ids`
+ * is LENIENT (a positive-length string array) because the adapter CLAMPS it to at most 100 (deduped) rather
+ * than REJECTING an over-length request. `.strict()` rejects unknown keys (no `index`/`namespace` smuggling).
+ * Returns id + METADATA ONLY — never the raw vector float values. A missing/foreign id simply isn't returned.
+ */
+export const DataVectorizeDescribeInput = z
+  .object({
+    site_id: z.string().min(1),
+    ids: z.array(z.string().min(1).max(512)).max(1000).optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_vectorize_upsert` — write vectors to the OWNED site's own metadata NAMESPACE inside the shared Vectorize
+ * index (a WRITE slice, MCP parity with the Data tab's Vectorize upsert). A caller names ONLY the OWNED
+ * `site_id` + the `vectors` (NEVER a CF index name AND NEVER a namespace — the index is server-resolved, the
+ * namespace server-DERIVED from the site id and FORCED onto every vector). Each vector is `{ id, values[],
+ * metadata? }`; a caller-supplied `namespace` is not part of the schema (`.strict()`) and, even if smuggled,
+ * the adapter overwrites it — a vector can never land in a foreign partition (INV-1). `values` is a non-empty
+ * array of finite numbers; the adapter clamps the batch to at most 1000 vectors. Upsert is insert-or-overwrite
+ * by id WITHIN the site's own namespace (no confirm needed — the destructive gate is on delete). Ownership +
+ * isolation + `per_site_vectorize` flag-gate + `data:write` scope are enforced server-side.
+ */
+export const DataVectorizeUpsertInput = z
+  .object({
+    site_id: z.string().min(1),
+    vectors: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1).max(512),
+            values: z.array(z.number().finite()).min(1),
+            metadata: z.record(z.unknown()).optional(),
+          })
+          .strict(),
+      )
+      .min(1, 'Provide at least one vector as {id, values}.')
+      .max(1000, 'An upsert may include at most 1000 vectors.'),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_vectorize_delete` — DELETE vectors BY ID from the OWNED site's own namespace (a WRITE slice, MCP parity
+ * with the Data tab's Vectorize delete-by-ids). A caller names ONLY the OWNED `site_id` + the `ids` (NEVER a CF
+ * index name AND NEVER a namespace — server-resolved/derived) plus `confirm` and the environment. ⚠️
+ * DESTRUCTIVE: `confirm:true` is REQUIRED — without it the dispatcher returns `confirmation required` REPORTING
+ * how many of the requested ids are in the site's namespace (the count that WOULD be removed), deleting
+ * nothing. ISOLATION: the adapter first confirms which requested ids live in the site's OWN namespace and
+ * deletes ONLY those — a foreign id (even if its id is guessed) is NEVER deleted (CF's delete_by_ids has no
+ * namespace filter, so the adapter enforces it). `.strict()` rejects any attempt to smuggle an `index`/
+ * `namespace`/`accountId`. Ownership + isolation + `per_site_vectorize` flag-gate + `data:write` scope are
+ * enforced server-side.
+ */
+export const DataVectorizeDeleteInput = z
+  .object({
+    site_id: z.string().min(1),
+    ids: z.array(z.string().min(1).max(512)).min(1, 'Provide at least one vector id.').max(1000),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_connections_list` — list the OWNED site's outbound connections to EXTERNAL providers (Hyperdrive /
+ * external DB + `mcp_connections` OAuth/paste-key links), MCP parity with the Data tab's Connections
+ * surface. A caller names ONLY the OWNED `site_id` plus the optional environment. `.strict()` rejects any
+ * attempt to smuggle a connection id or a secret. Ownership + isolation + `per_site_connections` flag-gate
+ * are enforced server-side in the dispatcher, mirroring the per-site D1/KV/R2/Vectorize surfaces. Returns
+ * id/name/type/MASKED host/status ONLY — ⛔ NEVER a token, password, or connection string.
+ */
+export const DataConnectionsListInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_connection_describe` — read ONE connection's SECRET-FREE metadata (id/name/type/MASKED host/status)
+ * from the OWNED site's connections. A caller names ONLY the OWNED `site_id` + the connection `id` (scoped
+ * to the site — a foreign connection can't be read even if its id is guessed) plus the optional
+ * environment. `.strict()` rejects unknown keys. ⛔ Returns metadata ONLY — never a token, password, or
+ * connection string. A missing id is an honest `found:false`, never an error.
+ */
+export const DataConnectionDescribeInput = z
+  .object({
+    site_id: z.string().min(1),
+    id: z.string().min(1).max(256),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_workflows_list` — list the OWNED site's workflow RUN INSTANCES (id/status/timestamps), MCP parity
+ * with the Backend tab's Workflows surface. A caller names ONLY the OWNED `site_id` (NEVER a CF workflow
+ * name AND never an account id — the workflow name is server-resolved from the site's registry row) plus an
+ * optional `cursor`/`limit` and the environment. `limit` is LENIENT (a positive int) because the adapter
+ * CLAMPS it to `[1, 100]` (matching CF's per_page cap) rather than REJECTING an over-limit request.
+ * `.strict()` rejects any attempt to smuggle a `workflow`/`workflowName`/`accountId`/`instanceId`.
+ * Ownership + isolation + `per_site_workflows` flag-gate are enforced server-side in the dispatcher,
+ * mirroring the per-site D1/KV/R2/Vectorize surfaces. Workflows are platform-owned definitions (not
+ * per-site); per-site workflow provisioning is NOT wired → honest 'not provisioned' until the site has a
+ * workflow row. NEVER an optimistic run status — the adapter surfaces the ACTUAL CF status.
+ */
+export const DataWorkflowsListInput = z
+  .object({
+    site_id: z.string().min(1),
+    cursor: z.string().max(4096).optional(),
+    limit: z.number().int().positive().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_workflow_get_instance` — read ONE run instance's status + SANITIZED steps from the OWNED site's
+ * workflow. A caller names ONLY the OWNED `site_id` + the instance `id` (scoped to the site's resolved
+ * workflow — a foreign instance can't be read even if its id is guessed) plus the optional environment.
+ * `.strict()` rejects unknown keys (no `workflow`/`accountId` smuggling). ⛔ Step output/error are SANITIZED
+ * (secret-shaped keys redacted + truncated) — a raw credential/PII payload is never dumped. A missing
+ * instance is an honest `found:false`, never an error. The status is the ACTUAL CF status, never optimistic.
+ */
+export const DataWorkflowGetInstanceInput = z
+  .object({
+    site_id: z.string().min(1),
+    id: z.string().min(1).max(256),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_workflow_start` — CREATE + START a new run INSTANCE of the OWNED site's resolved workflow (a WRITE slice,
+ * MCP parity with the Backend tab's Workflows trigger). A caller names ONLY the OWNED `site_id` (NEVER a CF
+ * workflow name AND never an account id — the workflow name is server-resolved from the site's registry row) plus
+ * an OPTIONAL `params` object (the new run's event payload) and the environment. Starting a run CREATES state — it
+ * is NOT state-changing/destructive of an existing run — so it needs NO `confirm`. `.strict()` rejects any attempt
+ * to smuggle a `workflow`/`workflowName`/`accountId`/`instanceId`. Ownership + isolation + `per_site_workflows`
+ * flag-gate + `data:write` scope are enforced server-side. The result carries the ACTUAL CF instance id + status
+ * (a fresh run is queued/running — NEVER an optimistic complete).
+ */
+export const DataWorkflowStartInput = z
+  .object({
+    site_id: z.string().min(1),
+    params: z.record(z.unknown()).optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_workflow_control` — pause / resume / restart / terminate ONE run instance of the OWNED site's resolved
+ * workflow (a WRITE slice, MCP parity with the Backend tab's run controls). A caller names ONLY the OWNED
+ * `site_id` + the `instanceId` + the `op` (NEVER a CF workflow name/account — the workflow is server-resolved and
+ * the instance is bound under it, so a foreign instance can't be acted on even if its id is guessed) plus optional
+ * `confirm` and the environment. ⚠️ `restart` REPLAYS the run's side effects from step 0 + discards prior step
+ * outputs; `terminate` DISCARDS the run's in-flight state irreversibly — each REQUIRES `confirm:true`: without it
+ * the dispatcher returns `confirmation required` WARNING about the replay/discard, changing nothing. `pause`/
+ * `resume` are reversible → no confirm. `.strict()` rejects any attempt to smuggle a `workflow`/`accountId`.
+ * Ownership + isolation + `per_site_workflows` flag-gate + `data:write` scope are enforced server-side. The result
+ * carries the ACTUAL CF instance status AFTER the op — never optimistic.
+ */
+export const DataWorkflowControlInput = z
+  .object({
+    site_id: z.string().min(1),
+    instanceId: z.string().min(1).max(256),
+    op: z.enum(['pause', 'resume', 'restart', 'terminate']),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_durable_objects_list` — list the OWNED site's Durable Object CLASS namespaces (id/class/script),
+ * MCP parity with the Backend tab's Durable Objects surface. A caller names ONLY the OWNED `site_id` (NEVER
+ * a CF namespace id AND never an account id — the namespace is server-resolved from the site's registry row)
+ * plus the optional environment. `.strict()` rejects any attempt to smuggle a `namespace`/`namespaceId`/
+ * `accountId`. Ownership + isolation + `per_site_durable_objects` flag-gate are enforced server-side in the
+ * dispatcher, mirroring the per-site D1/KV/R2/Vectorize/Workflows surfaces. ⛔ This lists NAMESPACES
+ * (classes), NEVER instances — CF has no API to enumerate DO instances. Only `SITE_BUILDER` is bound; there
+ * is no per-site DO namespace → honest 'not provisioned' until the site has a durable_object row.
+ */
+export const DataDurableObjectsListInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_durable_object_describe` — describe the derivable METADATA of a NAMED object id within the OWNED
+ * site's Durable Object namespace. A caller names ONLY the OWNED `site_id` + the object `id` (an id it
+ * already KNOWS — never a browse) plus the optional environment. `.strict()` rejects unknown keys (no
+ * `namespace`/`accountId` smuggling). ⛔ Returns identity metadata ONLY (id + namespace + hex form) —
+ * NEVER the object's private storage or in-memory state, which no CF API can read (`stateBrowsable:false`
+ * is permanent). This surfaces "which object did I address", never its data.
+ */
+export const DataDurableObjectDescribeInput = z
+  .object({
+    site_id: z.string().min(1),
+    id: z.string().min(1).max(256),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_queues_list` — list the OWNED site's Queue(s) + their consumers/delivery-retry settings/DLQ/backlog
+ * metrics/paused state (CONFIG + METRICS only), MCP parity with the Backend tab's Queues surface. A caller
+ * names ONLY the OWNED `site_id` (NEVER a CF queue id AND never an account id — the queue id is
+ * server-resolved from the site's registry row) plus the optional environment. `.strict()` rejects any
+ * attempt to smuggle a `queue`/`queueId`/`accountId`. Ownership + isolation + `per_site_queues` flag-gate are
+ * enforced server-side in the dispatcher, mirroring the per-site D1/KV/R2/Vectorize/Workflows/DO surfaces.
+ * ⛔ Queues are UNSUPPORTED on this deployment (no `QUEUE` binding) → honest 'not available / not
+ * provisioned' until Queues are enabled + the site has a queue row. peek ≠ history; pull = leases + ack —
+ * this read pass returns config + metrics ONLY, never a message body.
+ */
+export const DataQueuesListInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_queue_describe` — read ONE queue's CONFIG + METRICS (name/paused/consumers/DLQ/backlog) from the
+ * OWNED site's queue. A caller names ONLY the OWNED `site_id` (the queue is server-resolved from the site's
+ * registry row — a foreign queue can't be read) plus an OPTIONAL `id` echo and the optional environment.
+ * `id` is optional + non-identifier: the ONLY queue addressed is the site's resolved queue; a mismatching
+ * echo can NEVER widen to another queue. `.strict()` rejects unknown keys (no `queue`/`accountId`
+ * smuggling). ⛔ Returns CONFIG + METRICS ONLY — NEVER a message body or a "history" (peek ≠ history, HARD
+ * FACT #1). A missing queue is an honest `found:false`, never an error.
+ */
+export const DataQueueDescribeInput = z
+  .object({
+    site_id: z.string().min(1),
+    id: z.string().min(1).max(256).optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_queue_send` — PRODUCE one or more messages onto the OWNED site's resolved Queue (a WRITE slice, MCP
+ * parity with the Backend tab's queue producer). A caller names ONLY the OWNED `site_id` + the `messages`
+ * (1..100 non-empty strings — JSON-encode structured payloads first) plus an OPTIONAL `confirm` and the
+ * environment (NEVER a CF queue id/account — the queue is server-resolved and site-scoped, so a site can NEVER
+ * send to another site's queue). `send` is PRODUCER-ONLY and NOT destructive (it appends), so `confirm` is
+ * accepted but NOT required. `.strict()` rejects any attempt to smuggle a `queue`/`queueId`/`accountId`. ⛔
+ * purge / pull / ack are SEPARATE guarded/leasing ops — NOT this tool (pull LEASES + needs ack; purge is
+ * destructive). Ownership + isolation + `per_site_queues` flag-gate + `data:write` scope are enforced
+ * server-side. Queues are NOT enabled on this deployment (no `QUEUE` binding) → honest 'not available' (nothing
+ * sent), never a fabricated send success.
+ */
+export const DataQueueSendInput = z
+  .object({
+    site_id: z.string().min(1),
+    messages: z.array(z.string().min(1)).min(1).max(100),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_durable_object_manage` — run a NARROW, platform-defined MANAGEMENT op against a KNOWN Durable Object
+ * instance in the OWNED site's namespace (a WRITE slice, MCP parity with the Backend tab's DO management). A
+ * caller names ONLY the OWNED `site_id` + the `action` (a FIXED enum: `status_probe` | `reset`) + the KNOWN
+ * `object_id` plus an OPTIONAL `confirm` and the environment. ⛔ THE ISOLATION INVARIANT: `action` is a CLOSED
+ * allowlist — this is NEVER an arbitrary method call into customer code and there is NO `{method,args}`
+ * passthrough; the platform decides what a managed class exposes. The instance is bound to the site's
+ * server-resolved namespace (NEVER a CF namespace id/account — a foreign object can't be reached even if its id
+ * is guessed). `reset` (state-changing) REQUIRES `confirm:true`; `status_probe` (read-only) needs none.
+ * `.strict()` rejects any attempt to smuggle a `namespace`/`accountId`/`method`. Ownership + isolation +
+ * `per_site_durable_objects` flag-gate + `data:write` scope are enforced server-side. Only `SITE_BUILDER` is
+ * bound + CF exposes no arbitrary-instance API → honest 'not available' (nothing is called into customer code),
+ * never a fabricated result and never the object's state.
+ */
+export const DataDurableObjectManageInput = z
+  .object({
+    site_id: z.string().min(1),
+    action: z.enum(['status_probe', 'reset']),
+    object_id: z.string().min(1).max(256),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_analytics_list` — summarise the OWNED site's Analytics Engine dataset(s) + the custom-event dimensions
+ * the platform records (Observability, cross-cutting Backend tab). A caller names ONLY the OWNED `site_id`
+ * (NEVER a CF dataset name AND never an account id — the dataset is server-resolved) plus the optional
+ * environment. `.strict()` rejects any attempt to smuggle a `dataset`/`accountId`/`sql`. Ownership + isolation
+ * + `per_site_observability` flag-gate are enforced server-side in the dispatcher, mirroring the per-site
+ * D1/KV/R2/Vectorize/Workflows/DO/Queues surfaces. ⛔ Analytics Engine INGEST is DISABLED on this deployment
+ * (`ANALYTICS_INGEST_ENABLED="false"`) → honest `available:false` (no events ingested yet), NEVER a fabricated
+ * event stream. The dataset is `shared_platform` (one shared dataset, NOT per-site); per-site isolation is a
+ * server-built `WHERE` on the site dimension, never a raw query from the caller.
+ */
+export const DataAnalyticsListInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_analytics_query_summary` — read a SITE-SCOPED recent event-count summary (total + per-event breakdown)
+ * over a trailing window, via the Analytics Engine SQL API. ⛔ The caller supplies ONLY the OWNED `site_id` + an
+ * OPTIONAL `window_days` (a bounded integer) — NEVER a SQL query, a dataset name, an account id, or a site
+ * dimension. The query is SERVER-BUILT and carries a mandatory `WHERE blob3 = <siteId>`, so one site can never
+ * read another's analytics (SECURITY-INVARIANTS: the AE SQL API is account-wide; isolation is a server-side
+ * `WHERE`, never trust in a client query). `window_days` is LENIENT (a positive int) because the adapter CLAMPS
+ * it to `[1, 90]` (AE retention ~3 months) rather than REJECTING an over-window request. `.strict()` rejects
+ * any attempt to smuggle a `sql`/`dataset`/`accountId`/`where`. When ingest is disabled (the reality today) the
+ * summary is an honest ZERO WITHOUT querying; counts are SAMPLED estimates (`sampled:true`), never exact.
+ */
+export const DataAnalyticsQuerySummaryInput = z
+  .object({
+    site_id: z.string().min(1),
+    window_days: z.number().int().positive().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
 export type ListSitesArgs = z.infer<typeof ListSitesInput>;
 export type GetSiteArgs = z.infer<typeof GetSiteInput>;
 export type BuildStatusArgs = z.infer<typeof BuildStatusInput>;
 export type DeploySiteArgs = z.infer<typeof DeploySiteInput>;
 export type TailLogsArgs = z.infer<typeof TailLogsInput>;
 export type SetDomainArgs = z.infer<typeof SetDomainInput>;
+export type DataListResourcesArgs = z.infer<typeof DataListResourcesInput>;
+export type DataReconcileResourcesArgs = z.infer<typeof DataReconcileResourcesInput>;
+export type DataListTablesArgs = z.infer<typeof DataListTablesInput>;
+export type DataReadTableArgs = z.infer<typeof DataReadTableInput>;
+export type DataD1ExecArgs = z.infer<typeof DataD1ExecInput>;
+export type DataD1ExplainArgs = z.infer<typeof DataD1ExplainInput>;
+export type DataD1MigrationsArgs = z.infer<typeof DataD1MigrationsInput>;
+export type DataKvListKeysArgs = z.infer<typeof DataKvListKeysInput>;
+export type DataKvGetArgs = z.infer<typeof DataKvGetInput>;
+export type DataKvPutArgs = z.infer<typeof DataKvPutInput>;
+export type DataKvDeleteArgs = z.infer<typeof DataKvDeleteInput>;
+export type DataKvBulkGetArgs = z.infer<typeof DataKvBulkGetInput>;
+export type DataKvBulkDeleteArgs = z.infer<typeof DataKvBulkDeleteInput>;
+export type DataR2ListObjectsArgs = z.infer<typeof DataR2ListObjectsInput>;
+export type DataR2HeadObjectArgs = z.infer<typeof DataR2HeadObjectInput>;
+export type DataR2PutObjectArgs = z.infer<typeof DataR2PutObjectInput>;
+export type DataR2DeleteObjectArgs = z.infer<typeof DataR2DeleteObjectInput>;
+export type DataVectorizeListArgs = z.infer<typeof DataVectorizeListInput>;
+export type DataVectorizeDescribeArgs = z.infer<typeof DataVectorizeDescribeInput>;
+export type DataVectorizeUpsertArgs = z.infer<typeof DataVectorizeUpsertInput>;
+export type DataVectorizeDeleteArgs = z.infer<typeof DataVectorizeDeleteInput>;
+export type DataConnectionsListArgs = z.infer<typeof DataConnectionsListInput>;
+export type DataConnectionDescribeArgs = z.infer<typeof DataConnectionDescribeInput>;
+export type DataWorkflowsListArgs = z.infer<typeof DataWorkflowsListInput>;
+export type DataWorkflowGetInstanceArgs = z.infer<typeof DataWorkflowGetInstanceInput>;
+export type DataWorkflowStartArgs = z.infer<typeof DataWorkflowStartInput>;
+export type DataWorkflowControlArgs = z.infer<typeof DataWorkflowControlInput>;
+export type DataDurableObjectsListArgs = z.infer<typeof DataDurableObjectsListInput>;
+export type DataDurableObjectDescribeArgs = z.infer<typeof DataDurableObjectDescribeInput>;
+export type DataQueuesListArgs = z.infer<typeof DataQueuesListInput>;
+export type DataQueueDescribeArgs = z.infer<typeof DataQueueDescribeInput>;
+export type DataQueueSendArgs = z.infer<typeof DataQueueSendInput>;
+export type DataDurableObjectManageArgs = z.infer<typeof DataDurableObjectManageInput>;
+export type DataAnalyticsListArgs = z.infer<typeof DataAnalyticsListInput>;
+export type DataAnalyticsQuerySummaryArgs = z.infer<typeof DataAnalyticsQuerySummaryInput>;
+
+/**
+ * `data_backend_inventory` — the READ-ONLY Backend-tab connected-resource INVENTORY (Data & Resource
+ * Platform Phase 8b): a site's scheduled tasks (Cron Triggers), its Worker bindings (service /
+ * Secrets Store / AI / Browser Rendering / Images / KV / R2 / D1 / DO / Vectorize / Analytics /
+ * Queues), and its secret NAMES + last-change metadata. ⛔ NEVER a secret VALUE — only names +
+ * metadata; the value column is never read. Each binding carries `managed` + an in-platform
+ * `manageRoute` when THIS platform has an integrated management surface, or an honest
+ * `managed:false` + `notAvailableReason` when it does not (no fake CRUD for un-integrated products).
+ * A caller names ONLY the OWNED `site_id` (+ optional environment) — NEVER a CF id/account (INV-1);
+ * ownership + isolation + the `data_resource_platform` flag are enforced server-side in the
+ * dispatcher. `.strict()` rejects any attempt to smuggle a binding id / dataset / account id.
+ */
+export const DataBackendInventoryInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+export type DataBackendInventoryArgs = z.infer<typeof DataBackendInventoryInput>;
+
+/**
+ * `data_provision_resource` — PROVISION a per-site DEDICATED resource (the provisioning wire-up:
+ * `not_registered` → live dedicated D1/KV/R2). A caller names ONLY the OWNED `site_id` + the `kind`
+ * (`d1` | `kv` | `r2`) + `confirm` (NEVER a CF id/account — the id is what provisioning PRODUCES,
+ * server-side). ⚠️ Provisioning creates REAL, BILLABLE Cloudflare infrastructure, so `confirm:true` is
+ * REQUIRED — without it the dispatcher returns a confirmation error and CREATES NOTHING. IDEMPOTENT:
+ * if the site already has this resource, the existing allocation is returned and nothing is created.
+ * Before creating, the platform checks the REAL Cloudflare account quota — at cap → an honest
+ * `quota_at_cap` error (a shared resource is NEVER substituted silently). A partial failure (the CF
+ * resource was created but the registry record failed) is reported so it is RECOVERABLE (re-run is
+ * idempotent). `.strict()` rejects any attempt to smuggle a `resourceId`/`databaseId`/`namespaceId`/
+ * `bucket`/`accountId`. Ownership + isolation + `data_resource_platform` flag-gate + `data:write` scope
+ * are enforced server-side.
+ */
+export const DataProvisionResourceInput = z
+  .object({
+    site_id: z.string().min(1),
+    kind: z.enum(['d1', 'kv', 'r2']),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+export type DataProvisionResourceArgs = z.infer<typeof DataProvisionResourceInput>;

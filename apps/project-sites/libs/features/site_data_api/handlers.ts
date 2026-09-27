@@ -777,7 +777,7 @@ siteDataApi.get('/api/public-data/:table', async (c) => {
  * the caller's org a user could read/write/delete ANOTHER org's `site_data` by passing
  * a foreign siteId (orgId was only used for the 401 auth check). Returns false → 404.
  */
-async function ownsSiteData(db: D1Database, siteId: string, orgId: string): Promise<boolean> {
+export async function ownsSiteData(db: D1Database, siteId: string, orgId: string): Promise<boolean> {
   const row = await db
     .prepare('SELECT 1 AS ok FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL')
     .bind(siteId, orgId)

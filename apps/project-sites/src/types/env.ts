@@ -466,6 +466,13 @@ export interface Env {
   // ── Generative AI APIs ────────────────────────────────────
   /** ElevenLabs API key for AI voiceover generation. */
   ELEVENLABS_API_KEY?: string;
+  /**
+   * Optional ElevenLabs voice id override for the homepage/page "Listen" audio. Defaults
+   * to a FREE-tier-usable `premade` voice (Sarah) in page_audio.ts. Set this to a custom or
+   * library voice id when on a paid ElevenLabs plan. A library voice on a free plan 402s →
+   * silent MeloTTS fallback, so the default stays a premade voice.
+   */
+  ELEVENLABS_VOICE_ID?: string;
   /** Stability AI API key for Stable Diffusion image generation. */
   STABILITY_API_KEY?: string;
   /** Remove.bg API key for background removal from product/logo images. */

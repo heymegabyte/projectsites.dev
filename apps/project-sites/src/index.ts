@@ -54,6 +54,8 @@ import { api } from './routes/api.js';
 import { isFlagOn as isFlagOnBetterAuth } from './modules/feature_flags/services.js';
 import { search } from './routes/search.js';
 import { siteDataApi } from '../libs/features/site_data_api/handlers.js'; // per-site D1 data-table API (GET /api/public-data/:table + GET/PUT/DELETE /api/sites/:siteId/data[/:table[/:rowId]]) — extracted from search.ts (route-decomposition installment 21); MUST mount before search + api
+import { siteDbApi } from '../libs/features/site_data_api/site_db_handlers.js'; // per-site OWN-D1 Tables surface (GET /api/sites/:siteId/db/tables[/:table]) — Data Platform foundation, flag-gated per_site_data (DARK); MUST mount before api so /db/* wins
+import { resourceRegistryApi } from '../libs/features/data_resource_registry/handlers.js'; // Resource Overview + Reconcile (GET /api/sites/:siteId/resources + POST /api/sites/:siteId/resources/reconcile) — Data & Resource Platform §1+§6, flag-gated data_resource_platform (DARK); MUST mount before api so /resources wins
 import { containerProxy } from '../libs/features/container_proxy/handlers.js'; // build-container callbacks (PUT /api/container-upload/*, POST /api/container-query, GET /api/container-script — shared-secret auth) — extracted from search.ts (route-decomposition installment 22)
 import { contactNewsletter } from '../libs/features/contact_newsletter/handlers.js'; // public form ingest (POST /api/contact-form/:slug + POST /api/newsletter/subscribe) — extracted from search.ts (route-decomposition installment 23)
 import { placesSearch } from '../libs/features/places_search/handlers.js'; // public Google Places search (GET /api/search/businesses + GET /api/search/address) — extracted from search.ts (route-decomposition installment 25)
@@ -600,6 +602,8 @@ app.route('/api', health); // /api/health alias for external consumers who expec
 app.route('/', bolt); // Bolt admin: chat-state mirror, transcribe, vision OCR, prompt suggestions
 app.route('/', openapiRoutes); // GET /api/openapi.json — Zod-derived OpenAPI 3.1 spec (zod-to-openapi + hono-openapi describeRoute)
 app.route('/', siteDataApi); // /api/public-data/:table + /api/sites/:siteId/data[/:table[/:rowId]] — per-site D1 data-table API extracted from search.ts (route-decomposition installment 21); MUST precede search AND api so /api/sites/:siteId/data wins over api's /api/sites/:id
+app.route('/', siteDbApi); // /api/sites/:siteId/db/tables[/:table] — per-site OWN-D1 Tables surface (Data Platform foundation, flag-gated per_site_data, DARK); MUST precede api so /db/* wins over api's /api/sites/:id
+app.route('/', resourceRegistryApi); // /api/sites/:siteId/resources + /api/sites/:siteId/resources/reconcile — Resource Overview + Reconcile (Data & Resource Platform §1+§6, flag-gated data_resource_platform, DARK); MUST precede api so /resources wins over api's /api/sites/:id
 app.route('/', containerProxy); // /api/container-{upload/*,query,script} — build-container shared-secret callbacks extracted from search.ts (route-decomposition installment 22)
 app.route('/', contactNewsletter); // /api/contact-form/:slug + /api/newsletter/subscribe — public form ingest extracted from search.ts (route-decomposition installment 23)
 app.route('/', placesSearch); // /api/search/{businesses,address} — public Google Places search extracted from search.ts (route-decomposition installment 25)

@@ -73,6 +73,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  data_resource_platform: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Authoritative Resource Registry (Data & Resource Platform §1 — docs/data-resource-platform/DESIGN.md). The server-side SSOT for every Cloudflare resource a site touches: each resource is a ROW the platform owns and resolves server-side from the authed { site_id, environment }.\n\n• libs/features/data_resource_registry: Zod schemas for the registry model + the distinct concepts (ResourceKind, ResourceConcept, preview|production environment, ResourceRecord/BindingRecord), a service (record/list/get + resolveResourceRef), and the typed CF adapter interface. Backed by the site_resource_registry table + additive site_database_allocations columns (migration 0643).\n• The isolation keystone resolveResourceRef maps { kind, environment } → the real CF id from a row the caller OWNS (reuses assertSiteOwned + the FORBIDDEN_DB_IDS denylist); the client NEVER names a CF id. A ref for a foreign site/env is rejected; a resolved shared-platform id fails closed.\n• Off (default, DARK) → gates the future overview/registry surface + parity MCP tools; this fire wires no routes, so nothing 404s yet. Server guard returns 404 (never 403) when off once routes land.',
+    key: 'data_resource_platform',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   per_site_data: {
     default_enabled: false,
     default_rollout_percent: 0,
@@ -479,6 +488,102 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     description:
       'Read-only, super-admin platform debugging tool for the account Cloudflare Queues (job / workflow pipelines — shared platform infra, not tenant-owned).\n\n• Worker: libs/features/queues_inspector/handlers.ts serves GET /api/admin/queues (list) + /api/admin/queues/:id (describe: delivery delay, message retention, producers + consumers with worker script/service).\n• Cloudflare credentials stay SERVER-side (worker global key via resolveCfCredentials); account id is env.CF_ACCOUNT_ID, never client-supplied. :id validated as a slug/hex (no REST-path injection); the super-admin gate is the authz boundary.\n• Read-only (no publish/purge/delete). Super-admin only; flag off → 404 (never leak existence). Honest "not available" (never a fabricated empty list) when creds/API fail.\n• Admin surface: /admin/queues-inspector (System Administrator).',
     key: 'queues_inspector',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  // ── Per-site resource-platform gates (Data & Resource Platform — docs/data-resource-platform/).
+  //    Registered 2026-09-27 (tracked follow-up in PROGRESS-LEDGER.md): these 8 were runtime gate
+  //    CONSTANTS not in FLAG_REGISTRY, so they were dark-by-default AND un-toggleable. Registered
+  //    here (default-off, DARK) so a super-admin can promote each per-kind surface independently.
+  //    per_site_data (Phase 0c provisioning) + data_resource_platform (registry SSOT) are separate,
+  //    already registered above — these gate the per-KIND read/write surfaces + their MCP tools.
+  per_site_connections: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Per-site Connections surface (Data & Resource Platform — the customer's own external service connections + secrets for THEIR site).\n\n• Gates the site-owned Connections read/write surface + its parity MCP tools (data_connections_*): a site owner lists/creates/rotates the connections + encrypted env vars scoped to their OWN site, resolved server-side from the authed { site_id } — reusing assertSiteOwned so a foreign site's connections are never returned; secret values stay AES-GCM at rest and are never echoed back.\n• Who sees it: a signed-in site owner in the editor Data tab (Connections), plus MCP clients driving the same tools; super-admin can promote per-kind.\n• Failure mode when off (default, DARK): the Connections routes + data_connections_* MCP tools 404 (never 403 — no existence leak); nothing regresses because no surface is wired to it yet.\n• Acceptance: flag on → an owner lists/creates a connection scoped to their site and a foreign-site ref is rejected; off → those routes 404.",
+    key: 'per_site_connections',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  per_site_durable_objects: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Per-site Durable Objects surface (Data & Resource Platform — a site's OWN Durable Object namespaces for stateful/coordination workloads).\n\n• Gates the site-owned Durable Objects read surface + its parity MCP tools (data_do_*): list the DO namespaces bound to the caller's OWN site and describe one (class, script, id-derivation), resolved server-side from the authed { site_id } via resolveResourceRef against a row the caller OWNS — reusing assertSiteOwned + the FORBIDDEN_DB_IDS-style denylist so a foreign or shared-platform DO is never resolved; the client never names a CF id.\n• Who sees it: a signed-in site owner in the editor Data tab (Durable Objects) + MCP clients; super-admin promotes per-kind.\n• Failure mode when off (default, DARK): the DO routes + data_do_* MCP tools 404 (never 403); no surface is wired yet so nothing regresses.\n• Acceptance: flag on → an owner lists their site's DO namespaces and a foreign-site ref is rejected; off → those routes 404.",
+    key: 'per_site_durable_objects',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  per_site_kv: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Per-site KV surface (Data & Resource Platform — a site's OWN dedicated Cloudflare KV namespace, blank at first, NEVER the shared platform CACHE_KV/PROMPT_STORE).\n\n• Gates the site-owned KV read/write surface + its parity MCP tools (data_kv_list_keys / data_kv_get_value / data_kv_put_value): list keys (cursor-paginated), get a value (size-capped + truncated flag), and put/delete, all resolved server-side to the site's OWN kv_namespace_id from site_database_allocations via resolveResourceRef — reusing assertSiteOwned so a foreign site's KV is never reached and the client never supplies a namespace id.\n• Who sees it: a signed-in site owner in the editor Data tab (KV) + MCP clients; super-admin promotes per-kind.\n• Failure mode when off (default, DARK): the KV routes + data_kv_* MCP tools 404 (never 403); this is distinct from kv_inspector (the SHARED-platform super-admin tool) which is unaffected.\n• Acceptance: flag on → an owner lists/gets/puts keys in their OWN namespace and a foreign-site ref is rejected; off → those routes 404.",
+    key: 'per_site_kv',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  per_site_observability: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Per-site Observability surface (Data & Resource Platform — a site's OWN logs / metrics / traces for its per-site resources, scoped to that one site).\n\n• Gates the site-owned Observability read surface + its parity MCP tools (data_observability_*): query the caller's OWN site's resource logs/metrics (invocations, errors, latency, per-kind usage) over a time window, resolved server-side from the authed { site_id } — reusing assertSiteOwned so a foreign site's telemetry is never returned; read-only, no mutation path.\n• Who sees it: a signed-in site owner in the editor Data tab (Observability) + MCP clients; super-admin promotes per-kind. Distinct from the platform-wide analytics/data-overview surfaces (those read the master D1).\n• Failure mode when off (default, DARK): the observability routes + data_observability_* MCP tools 404 (never 403); no surface is wired yet so nothing regresses.\n• Acceptance: flag on → an owner sees their OWN site's resource metrics and a foreign-site ref is rejected; off → those routes 404.",
+    key: 'per_site_observability',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  per_site_queues: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Per-site Queues surface (Data & Resource Platform — a site's OWN Cloudflare Queues for background/async workloads, distinct from the account-wide queues_inspector).\n\n• Gates the site-owned Queues read/write surface + its parity MCP tools (data_queues_*): list the queues bound to the caller's OWN site, describe one (delivery delay, retention, producers/consumers), and send a message, resolved server-side from the authed { site_id } via resolveResourceRef against a row the caller OWNS — reusing assertSiteOwned so a foreign or shared-platform queue is never resolved and the client never names a CF id.\n• Who sees it: a signed-in site owner in the editor Data tab (Queues) + MCP clients; super-admin promotes per-kind.\n• Failure mode when off (default, DARK): the Queues routes + data_queues_* MCP tools 404 (never 403); the super-admin queues_inspector (shared platform infra) is a separate flag and is unaffected.\n• Acceptance: flag on → an owner lists/sends to their OWN site's queue and a foreign-site ref is rejected; off → those routes 404.",
+    key: 'per_site_queues',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  per_site_r2: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Per-site R2 surface (Data & Resource Platform — a site's OWN dedicated Cloudflare R2 bucket for object storage, NEVER the shared platform SITES_BUCKET).\n\n• Gates the site-owned R2 object-browser read/write surface + its parity MCP tools (data_r2_list_objects / data_r2_head_object + later get/put/delete): list objects (prefix + continuation), HEAD an object's metadata (no body), and put/delete, all resolved server-side to the site's OWN r2_bucket_name from site_database_allocations via resolveResourceRef — reusing assertSiteOwned so a foreign site's bucket is never reached and the client never supplies a bucket name.\n• Who sees it: a signed-in site owner in the editor Data tab (R2) + MCP clients; super-admin promotes per-kind. Distinct from r2_inspector (the SHARED-platform super-admin tool), which is unaffected.\n• Failure mode when off (default, DARK): the R2 routes + data_r2_* MCP tools 404 (never 403); r2_provisioner exists but stays INERT (honest not_registered).\n• Acceptance: flag on → an owner lists/heads/puts objects in their OWN bucket and a foreign-site ref is rejected; off → those routes 404.",
+    key: 'per_site_r2',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  per_site_vectorize: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Per-site Vectorize surface (Data & Resource Platform — a site's OWN Cloudflare Vectorize index for RAG / embeddings, distinct from the account-wide vectorize_inspector).\n\n• Gates the site-owned Vectorize read/write surface + its parity MCP tools (data_vectorize_*): describe the caller's OWN site's index (dimensions, distance metric, vector count), query by vector, and upsert/delete vectors, resolved server-side from the authed { site_id } via resolveResourceRef against a row the caller OWNS — reusing assertSiteOwned so a foreign or shared-platform index is never resolved and the client never names a CF index name.\n• Who sees it: a signed-in site owner in the editor Data tab (Vectorize) + MCP clients; super-admin promotes per-kind.\n• Failure mode when off (default, DARK): the Vectorize routes + data_vectorize_* MCP tools 404 (never 403); the super-admin vectorize_inspector (shared platform infra) is a separate flag and is unaffected.\n• Acceptance: flag on → an owner describes/queries their OWN index and a foreign-site ref is rejected; off → those routes 404.",
+    key: 'per_site_vectorize',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  per_site_workflows: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Per-site Workflows surface (Data & Resource Platform — a site's OWN Cloudflare Workflows for durable multi-step orchestration, scoped to that one site).\n\n• Gates the site-owned Workflows read/write surface + its parity MCP tools (data_workflows_*): list the workflows bound to the caller's OWN site, describe one + its recent instances (status, steps), and trigger/terminate an instance, resolved server-side from the authed { site_id } via resolveResourceRef against a row the caller OWNS — reusing assertSiteOwned so a foreign or shared-platform workflow is never resolved and the client never names a CF id.\n• Who sees it: a signed-in site owner in the editor Data tab (Workflows) + MCP clients; super-admin promotes per-kind. Distinct from the platform's own SITE_WORKFLOW site-generation pipeline (internal, not this surface).\n• Failure mode when off (default, DARK): the Workflows routes + data_workflows_* MCP tools 404 (never 403); no surface is wired yet so nothing regresses.\n• Acceptance: flag on → an owner lists/triggers their OWN site's workflow and a foreign-site ref is rejected; off → those routes 404.",
+    key: 'per_site_workflows',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  per_site_bindings: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Per-site Worker-bindings inventory (Data & Resource Platform Phase 8b, Backend tab — a READ-ONLY list of the bindings a site's Worker uses).\n\n• Gates the site-owned Worker-bindings inventory surface + its share of the data_backend_inventory MCP tool: a site owner sees the bindings their compute plane uses (service / Secrets Store / AI / Browser Rendering / Images / KV / R2 / D1 / Durable Objects / Vectorize / Analytics Engine / Queues), each with a useful description + whether THIS platform has an integrated management surface (a manageRoute) or an honest not-available note — resolved server-side from the authed { site_id } reusing the owned-site gate; the client never names a CF id (INV-1).\n• Who sees it: a signed-in site owner in the editor Backend tab (Bindings) + MCP clients; super-admin promotes per-surface.\n• Failure mode when off (default, DARK): the bindings-inventory surface + its MCP output 404 (never 403); the data_backend_inventory tool itself is umbrella-gated on data_resource_platform.\n• Acceptance: flag on → an owner sees their site's bindings (read-only, no values); off → the surface 404s. ⛔ No secret VALUE is ever returned — only names + presence.",
+    key: 'per_site_bindings',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  per_site_schedules: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      "Per-site scheduled-tasks inventory (Data & Resource Platform Phase 8b, Backend tab — the site's Cron Triggers).\n\n• Gates the site-owned scheduled-tasks (Cron Triggers) surface + its share of the data_backend_inventory MCP tool: a site owner sees the cron schedules their site declared in functions/_scheduled.* (Workers-for-Platforms has no native cron, so these live in site_functions_schedules and fire via the platform cron dispatcher), resolved server-side from the authed { site_id } reusing the owned-site gate; the client never names a CF id.\n• Who sees it: a signed-in site owner in the editor Backend tab (Scheduled tasks) + MCP clients; super-admin promotes per-surface.\n• Failure mode when off (default, DARK): the schedules surface + its MCP output 404 (never 403); the data_backend_inventory tool itself is umbrella-gated on data_resource_platform.\n• Acceptance: flag on → an owner sees their site's cron schedules; off → the surface 404s.",
+    key: 'per_site_schedules',
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },

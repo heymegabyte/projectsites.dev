@@ -12,6 +12,8 @@
  * - `media:write`    — upload/delete media
  * - `forms:read`     — list form submissions
  * - `analytics:read` — read analytics data
+ * - `data:read`      — list/reconcile a site's Data & Resource Platform resources
+ * - `data:write`     — mutate a site's Data & Resource Platform resources (e.g. KV put/delete)
  * - `me:read`        — read own profile (always granted to any valid token)
  *
  * @packageDocumentation
@@ -27,6 +29,8 @@ export const VALID_SCOPES = [
   'media:write',
   'forms:read',
   'analytics:read',
+  'data:read',
+  'data:write',
   'me:read',
 ] as const;
 
