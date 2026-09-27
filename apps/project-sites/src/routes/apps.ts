@@ -62,6 +62,13 @@ const patchEnvBody = z.object({
   env_overrides: z.record(z.string().max(8_000)),
 });
 
+const slugCheckQuery = z.object({
+  app_id: z.string().min(1).max(64),
+  // Accept any non-empty string up to 253 chars so the handler can evaluate
+  // `valid` and return it as false rather than a 400 for over-long values.
+  subdomain: z.string().min(1).max(253),
+});
+
 // ─── DB shape ────────────────────────────────────────────────
 
 interface AppInstanceRow {
@@ -261,6 +268,92 @@ apps.get('/api/apps/instances', async (c) => {
   if (error) throw badRequest(error);
   const cfHost = payloadInstanceHost(c.env);
   return c.json({ instances: data.map((r) => sanitizeInstance(r, cfHost)) });
+});
+
+// ─── Subdomain availability check ─────────────────────────────
+
+/**
+ * `GET /api/apps/slug-check` — Pre-flight check for the Deploy panel: is a
+ * requested subdomain valid, available, and what's a good alternative if not?
+ *
+ * @remarks
+ * Runs the identical format rules and uniqueness query used by the POST
+ * `/api/apps/instances` handler so the client gets an accurate answer before
+ * committing to the launch flow. A suggestion is always returned — if the
+ * requested slug is taken the caller can pre-fill the input with it.
+ *
+ * Suggestion algorithm:
+ * 1. Derive a ≤10-char base from the caller's owning site slug or `app_id`.
+ * 2. Sanitize to `[a-z0-9-]` and truncate.
+ * 3. If the base is free, return it; otherwise append `-2`, `-3`, … up to
+ *    a loop cap of 25 attempts.
+ *
+ * @throws 400 BAD_REQUEST when `app_id` or `subdomain` query params are missing.
+ * @throws 401 UNAUTHORIZED when org context is missing.
+ */
+apps.get('/api/apps/slug-check', async (c) => {
+  const { orgId } = requireAuth(c);
+
+  const parsed = slugCheckQuery.safeParse({
+    app_id: c.req.query('app_id'),
+    subdomain: c.req.query('subdomain'),
+  });
+  if (!parsed.success) throw badRequest(parsed.error.issues[0]?.message ?? 'Invalid query params');
+  const { app_id, subdomain } = parsed.data;
+
+  // ── valid: mirrors the format rules in createInstanceBody exactly ──────────
+  const valid =
+    subdomain.length >= 2 && subdomain.length <= 63 && SUBDOMAIN_RE.test(subdomain);
+
+  // ── available: uniqueness query mirrors POST /api/apps/instances ───────────
+  let available = false;
+  if (valid) {
+    const existing = await dbQueryOne<{ id: string }>(
+      c.env.DB,
+      `SELECT id FROM app_instances WHERE subdomain = ? AND deleted_at IS NULL`,
+      [subdomain],
+    );
+    available = !existing;
+  }
+
+  // ── suggestion: derive a short, url-safe, AVAILABLE slug ──────────────────
+  // Prefer a base derived from the site the caller is deploying into; fall
+  // back to sanitizing app_id so the suggestion is still contextual.
+  const siteRow = await dbQueryOne<{ slug: string; business_name: string }>(
+    c.env.DB,
+    `SELECT slug, business_name FROM sites
+       WHERE org_id = ? AND deleted_at IS NULL
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    [orgId],
+  );
+
+  const rawBase = siteRow?.slug ?? siteRow?.business_name ?? app_id;
+  // Sanitize: lowercase, collapse any non-[a-z0-9] run to a single hyphen,
+  // strip leading/trailing hyphens, then truncate to 10 chars.
+  const sanitized = rawBase
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 10)
+    .replace(/^-+|-+$/g, '') || 'app';
+
+  let suggestion = sanitized;
+  const MAX_ATTEMPTS = 25;
+  for (let i = 2; i <= MAX_ATTEMPTS; i++) {
+    const candidate = i === 2 ? sanitized : `${sanitized}-${i}`;
+    const taken = await dbQueryOne<{ id: string }>(
+      c.env.DB,
+      `SELECT id FROM app_instances WHERE subdomain = ? AND deleted_at IS NULL`,
+      [candidate],
+    );
+    if (!taken) {
+      suggestion = candidate;
+      break;
+    }
+  }
+
+  return c.json({ available, valid, suggestion });
 });
 
 // ─── CF-native lifecycle (Payload CMS on D1 + R2 + Worker) ───
