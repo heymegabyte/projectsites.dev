@@ -190,6 +190,42 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                   }
                 </div>
               }
+
+              <!-- Owner-added custom env vars, applied AT LAUNCH — the primary editor for
+                   CF-native apps (empty catalog env) + extra vars for any app. -->
+              <div class="custom-env">
+                <div class="custom-env-head">
+                  <span class="custom-env-title">Custom variables</span>
+                  <span class="custom-env-sub">applied at launch</span>
+                </div>
+                @if (customEnv().length === 0) {
+                  <p class="text-[0.74rem] text-text-secondary m-0">None yet — add keys the {{ a.image?.startsWith('cf-native:') ? 'Worker' : 'container' }} should start with.</p>
+                }
+                @for (row of customEnv(); track $index) {
+                  <div class="custom-env-row">
+                    <input class="env-input custom-env-key" [value]="row.key"
+                           (input)="setEnvRowKey($index, $any($event.target).value)"
+                           placeholder="KEY" [attr.aria-label]="'Custom env name ' + ($index + 1)"
+                           [attr.data-testid]="'apps-env-custom-key-' + $index"
+                           autocomplete="off" spellcheck="false" />
+                    <input class="env-input custom-env-val" [value]="row.value"
+                           (input)="setEnvRowValue($index, $any($event.target).value)"
+                           placeholder="value" [attr.aria-label]="'Custom env value ' + ($index + 1)"
+                           [attr.data-testid]="'apps-env-custom-val-' + $index"
+                           autocomplete="off" spellcheck="false" />
+                    <button type="button" class="custom-env-remove" (click)="removeEnvRow($index)"
+                            [attr.aria-label]="'Remove custom env ' + ($index + 1)">✕</button>
+                  </div>
+                }
+                <button type="button" class="btn-add-env" (click)="addEnvRow()" data-testid="apps-env-add-row">
+                  <span aria-hidden="true">+</span> Add variable
+                </button>
+                @if (invalidEnvKeys()) {
+                  <p class="text-[0.7rem] mt-1 m-0" style="color: var(--ps-warning, #ffb454);" role="alert">
+                    Names must start with a letter or underscore (A–Z, 0–9, _ only).
+                  </p>
+                }
+              </div>
             </article>
 
             <article class="card">
@@ -608,6 +644,28 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     }
     .env-input--missing { border-color: rgba(251,191,36,0.55); background: rgba(251,191,36,0.06); }
     .env-row:last-child { border-bottom: none; }
+
+    .custom-env { margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid rgba(255,255,255,0.07); display: flex; flex-direction: column; gap: 8px; }
+    .custom-env-head { display: flex; align-items: baseline; gap: 8px; }
+    .custom-env-title { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ps-accent, #00E5FF); opacity: 0.85; }
+    .custom-env-sub { font-size: 0.62rem; color: rgba(255,255,255,0.5); }
+    .custom-env-row { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.3fr) 30px; gap: 6px; align-items: center; }
+    .custom-env-remove {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 30px; height: 30px; padding: 0; border: none; background: none; cursor: pointer;
+      color: rgba(255,255,255,0.5); border-radius: 6px; font-size: 0.9rem;
+    }
+    .custom-env-remove:hover { color: #fca5a5; background: rgba(255,255,255,0.05); }
+    .custom-env-remove:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
+    .btn-add-env {
+      align-self: flex-start; display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 12px; border-radius: 8px; cursor: pointer;
+      background: color-mix(in oklch, var(--ps-accent, #00E5FF) 10%, transparent);
+      border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 30%, transparent);
+      color: var(--ps-accent, #00E5FF); font-size: 0.72rem; font-weight: 600;
+    }
+    .btn-add-env:hover { background: color-mix(in oklch, var(--ps-accent, #00E5FF) 18%, transparent); }
+    .btn-add-env:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
     .env-row-head {
       background: rgba(255,255,255,0.03);
       font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -1138,6 +1196,30 @@ export class AppDetailComponent implements OnInit {
     this.envOverrides.update((m) => ({ ...m, [key]: value }));
   }
 
+  /** Owner-added custom env vars set AT LAUNCH (key+value rows), merged into env_overrides on
+   *  deploy. The primary env editor for CF-native apps (whose catalog env is empty) + extra
+   *  vars for container apps. Reset per-app in ngOnInit. */
+  customEnv = signal<Array<{ key: string; value: string }>>([]);
+
+  addEnvRow(): void {
+    this.customEnv.update((r) => [...r, { key: '', value: '' }]);
+  }
+  removeEnvRow(idx: number): void {
+    this.customEnv.update((r) => r.filter((_, i) => i !== idx));
+  }
+  setEnvRowKey(idx: number, key: string): void {
+    this.customEnv.update((r) => r.map((row, i) => (i === idx ? { ...row, key } : row)));
+  }
+  setEnvRowValue(idx: number, value: string): void {
+    this.customEnv.update((r) => r.map((row, i) => (i === idx ? { ...row, value } : row)));
+  }
+  /** True when a custom row has a non-empty key that isn't a valid env identifier — blocks deploy. */
+  readonly invalidEnvKeys = computed<boolean>(() =>
+    this.customEnv().some(
+      (r) => r.key.trim() !== '' && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(r.key.trim()),
+    ),
+  );
+
   /** Required, user-provided (non-auto) env keys still missing a value. */
   readonly missingRequiredEnv = computed<string[]>(() => {
     const a = this.app();
@@ -1150,7 +1232,13 @@ export class AppDetailComponent implements OnInit {
   readonly readyToDeploy = computed<boolean>(() => {
     const available = this.subdomainAvailable();
     const valid = this.subdomainValid();
-    return this.canDeploy() && (available === true && valid === true) && this.missingRequiredEnv().length === 0;
+    return (
+      this.canDeploy() &&
+      available === true &&
+      valid === true &&
+      this.missingRequiredEnv().length === 0 &&
+      !this.invalidEnvKeys()
+    );
   });
 
   /** Live (deployable today) vs Soon (catalog placeholder — no runtime container yet). */
@@ -1174,6 +1262,7 @@ export class AppDetailComponent implements OnInit {
           if (!e.auto) seed[e.key] = e.default ?? '';
         }
         this.envOverrides.set(seed);
+        this.customEnv.set([]); // per-app reset — custom launch vars don't leak across apps
 
         // Auto-pick subdomain from API
         this.checkAndSetSubdomain(found.id);
@@ -1352,6 +1441,11 @@ export class AppDetailComponent implements OnInit {
     const env_overrides: Record<string, string> = {};
     for (const [k, v] of Object.entries(this.envOverrides())) {
       if (v.trim()) env_overrides[k] = v.trim();
+    }
+    // Owner-added custom vars override catalog values; value may be intentionally blank.
+    for (const row of this.customEnv()) {
+      const k = row.key.trim();
+      if (k) env_overrides[k] = row.value;
     }
     const payload = {
       app_id: a.id,
