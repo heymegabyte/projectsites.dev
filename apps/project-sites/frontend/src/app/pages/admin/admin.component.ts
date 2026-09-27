@@ -41,6 +41,7 @@ import { provideHlmTooltip } from '../../ui';
 import { isEditorPath } from './admin-route.util';
 import { adminSectionLabelFromPath, isSiteDetailPath } from './admin-section-labels';
 import { AdminStateService } from './admin-state.service';
+import { BoltVeilComponent } from './bolt-veil.component';
 import { CommandPaletteComponent } from './command-palette.component';
 import {
   ADMIN_NAV_GROUPS,
@@ -89,6 +90,7 @@ export const G_CHORD_ROUTES: Readonly<Record<string, string>> = {
   imports: [
     FormsModule,
     RouterModule,
+    BoltVeilComponent,
     CommandPaletteComponent,
     ShortcutsOverlayComponent,
     SectionErrorBoundaryComponent,

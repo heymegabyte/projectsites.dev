@@ -1176,36 +1176,18 @@
         </iframe>
       }
 
-      <!-- Editor loading veil — an ABSOLUTE div in the content pane, sibling of the
-         iframe (same `relative flex-1` containing block), so it covers EVERYTHING in
-         the pane below the top navbar + right of the side nav, but never the chrome.
-         Pure CSS positioning (no JS measuring); z-index above the iframe;
-         pointer-events:none (purely visual, never blocks the cursor). Fades IN on
-         mount (@starting-style) and fades OUT when the bolt editor postMessages ready
-         (bolt.editorReady → .bolt-veil--gone). Only rendered on the editor route. -->
+      <!-- Editor loading veil — a cinematic WebGL backdrop behind a glassy brand
+         card (app-bolt-veil). Its host is an ABSOLUTE box in the content pane,
+         sibling of the iframe (same `relative flex-1` containing block), so it
+         covers EVERYTHING in the pane below the top navbar + right of the side nav
+         but never the chrome. Pure CSS positioning (no JS measuring); z-index above
+         the iframe; pointer-events:none (purely visual, never blocks the cursor).
+         Fades IN on mount (@starting-style) and fades OUT (bolt-veil--gone) when the
+         bolt editor postMessages ready. The component pauses its RAF when gone /
+         hidden, honours prefers-reduced-motion, and falls back to a CSS aurora with
+         no WebGL. Only rendered on the editor route. -->
       @if (isEditorRoute()) {
-        <div
-          class="bolt-veil"
-          [class.bolt-veil--gone]="bolt.editorReady()"
-          role="status"
-          aria-live="polite"
-          [attr.aria-busy]="!bolt.editorReady()"
-          data-testid="editor-loading-veil"
-        >
-          <div class="bolt-veil__aurora" aria-hidden="true"></div>
-          <div class="bolt-veil__card">
-            <div class="bolt-veil__mark" aria-hidden="true">
-              <span class="bolt-veil__ring"></span>
-              <span class="bolt-veil__core"></span>
-              <svg class="bolt-veil__glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M13 2 4.5 13.2a.6.6 0 0 0 .48.96H11l-1 7.84 8.5-11.2a.6.6 0 0 0-.48-.96H12l1-7.84Z" />
-              </svg>
-            </div>
-            <div class="bolt-veil__headline">Booting your AI editor</div>
-            <div class="bolt-veil__sub">{{ bolt.loadingStage() }}<span class="bolt-veil__dots"><i></i><i></i><i></i></span></div>
-            <div class="bolt-veil__footnote">First visit only — subsequent opens are instant.</div>
-          </div>
-        </div>
+        <app-bolt-veil [editorReady]="bolt.editorReady()" [stage]="bolt.loadingStage()" />
       }
 
     </div>
