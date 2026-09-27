@@ -315,6 +315,39 @@ export const DataWorkflowGetInstanceInput = z
   })
   .strict();
 
+/**
+ * `data_durable_objects_list` — list the OWNED site's Durable Object CLASS namespaces (id/class/script),
+ * MCP parity with the Backend tab's Durable Objects surface. A caller names ONLY the OWNED `site_id` (NEVER
+ * a CF namespace id AND never an account id — the namespace is server-resolved from the site's registry row)
+ * plus the optional environment. `.strict()` rejects any attempt to smuggle a `namespace`/`namespaceId`/
+ * `accountId`. Ownership + isolation + `per_site_durable_objects` flag-gate are enforced server-side in the
+ * dispatcher, mirroring the per-site D1/KV/R2/Vectorize/Workflows surfaces. ⛔ This lists NAMESPACES
+ * (classes), NEVER instances — CF has no API to enumerate DO instances. Only `SITE_BUILDER` is bound; there
+ * is no per-site DO namespace → honest 'not provisioned' until the site has a durable_object row.
+ */
+export const DataDurableObjectsListInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_durable_object_describe` — describe the derivable METADATA of a NAMED object id within the OWNED
+ * site's Durable Object namespace. A caller names ONLY the OWNED `site_id` + the object `id` (an id it
+ * already KNOWS — never a browse) plus the optional environment. `.strict()` rejects unknown keys (no
+ * `namespace`/`accountId` smuggling). ⛔ Returns identity metadata ONLY (id + namespace + hex form) —
+ * NEVER the object's private storage or in-memory state, which no CF API can read (`stateBrowsable:false`
+ * is permanent). This surfaces "which object did I address", never its data.
+ */
+export const DataDurableObjectDescribeInput = z
+  .object({
+    site_id: z.string().min(1),
+    id: z.string().min(1).max(256),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
 export type ListSitesArgs = z.infer<typeof ListSitesInput>;
 export type GetSiteArgs = z.infer<typeof GetSiteInput>;
 export type BuildStatusArgs = z.infer<typeof BuildStatusInput>;
@@ -335,3 +368,5 @@ export type DataConnectionsListArgs = z.infer<typeof DataConnectionsListInput>;
 export type DataConnectionDescribeArgs = z.infer<typeof DataConnectionDescribeInput>;
 export type DataWorkflowsListArgs = z.infer<typeof DataWorkflowsListInput>;
 export type DataWorkflowGetInstanceArgs = z.infer<typeof DataWorkflowGetInstanceInput>;
+export type DataDurableObjectsListArgs = z.infer<typeof DataDurableObjectsListInput>;
+export type DataDurableObjectDescribeArgs = z.infer<typeof DataDurableObjectDescribeInput>;

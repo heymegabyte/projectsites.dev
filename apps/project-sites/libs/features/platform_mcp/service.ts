@@ -33,6 +33,7 @@ import { r2Adapter } from '../data_resource_registry/adapters/r2.js';
 import { vectorizeAdapter } from '../data_resource_registry/adapters/vectorize.js';
 import { connectionAdapter } from '../data_resource_registry/adapters/connection.js';
 import { workflowAdapter } from '../data_resource_registry/adapters/workflow.js';
+import { durableObjectAdapter } from '../data_resource_registry/adapters/durable_object.js';
 import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 import {
   ListSitesInput,
@@ -55,6 +56,8 @@ import {
   DataConnectionDescribeInput,
   DataWorkflowsListInput,
   DataWorkflowGetInstanceInput,
+  DataDurableObjectsListInput,
+  DataDurableObjectDescribeInput,
 } from './schemas.js';
 
 /** Flag gating the Data & Resource Platform MCP tools (registry read surface). */
@@ -120,6 +123,19 @@ const PER_SITE_CONNECTIONS_FLAG = 'per_site_connections';
  * claim a run finished — they surface the ACTUAL CF instance status.
  */
 const PER_SITE_WORKFLOWS_FLAG = 'per_site_workflows';
+
+/**
+ * Flag gating the per-site Durable Objects READ tools — the reserved `per_site_durable_objects` flag
+ * (CAPABILITY-MATRIX.md § Durable Objects / SECURITY-INVARIANTS.md). DARK → the tools err (mirroring the
+ * Backend-tab Durable Objects surface's 404), never leak. Only `SITE_BUILDER` is bound; there is NO per-site
+ * DO namespace (the reconciler records no durable_object allocation source), so a blank site resolves no
+ * `durable_object` registry row → the tools honestly report it is not provisioned. Mirrors
+ * `PER_SITE_R2_FLAG` exactly — a runtime gate CONSTANT (referenced via the constant, so the orphan-flag-gate
+ * checker, which only scans literal `isFlagOn(env,'x')` strings, does not require a registry row). ⛔ These
+ * tools list NAMESPACES (classes), NEVER instances (CF cannot enumerate them), and `describe` returns
+ * identity metadata ONLY — never a DO's private storage or in-memory state (no CF API can read it).
+ */
+const PER_SITE_DURABLE_OBJECTS_FLAG = 'per_site_durable_objects';
 
 /** Mirrors DOMAINS.SITES_SUFFIX — the public site subdomain suffix. */
 const SITES_SUFFIX = '.projectsites.dev';
@@ -566,6 +582,37 @@ export const PLATFORM_MCP_TOOLS = [
     name: 'data_workflow_get_instance',
     description:
       "Read ONE workflow run instance's status + STEPS from your site's workflow. Returns { found, workflowName, instanceId, status, steps:[{name, type, status, start, end, outputPreview, errorPreview}], outputSanitized:true }. The status is the ACTUAL Cloudflare status — never optimistically claimed complete. Step output/error are SANITIZED — secret-shaped keys are redacted and long payloads truncated, so a credential or PII in a step's output is NEVER dumped. A missing instance is an honest found:false. Scoped to the site_id you own; the workflow is server-resolved, and an instance outside your site's workflow is never returned even if its id is guessed.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        id: { type: 'string', maxLength: 256 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_durable_objects_list',
+    description:
+      "List your site's OWN Durable Object CLASS namespaces (the same per-site Durable Objects the editor's Backend tab shows). Returns each namespace's { id, className, scriptName, useSqlite } + instancesEnumerable:false. ⛔ This lists NAMESPACES (classes), NEVER instances — Cloudflare has NO API to enumerate Durable Object instances or browse their state; that is a structural fact, not a missing feature. You name only the site_id (+ optional environment) — never a Cloudflare namespace id and never an account id; the namespace is resolved server-side and isolated to your site. Honest 'not provisioned' until your site has a Durable Object namespace.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_durable_object_describe',
+    description:
+      "Describe the derivable METADATA of a NAMED Durable Object id within your site's namespace. Returns { objectId, namespaceId, hexId, stateBrowsable:false } — the id, its namespace, and its hex form ONLY. ⛔ NEVER the object's private storage or in-memory state — no Cloudflare API can read a Durable Object's state, so this surfaces WHICH object you addressed, never its data (stateBrowsable is always false). Pass an object id you already know. Scoped to the site_id you own; the namespace is server-resolved, never named by you.",
     requiredScope: 'data:read' as const,
     inputSchema: {
       type: 'object',
@@ -1450,6 +1497,71 @@ export async function dispatchPlatformTool(
       });
     }
 
+    case 'data_durable_objects_list': {
+      // Flag-gated on the reserved per_site_durable_objects flag (dark → err, mirroring the Backend-tab DO 404).
+      if (
+        !(await isFlagOn(env, PER_SITE_DURABLE_OBJECTS_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site Durable Objects are not enabled for this account.');
+      }
+      const { site_id, environment } = DataDurableObjectsListInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF namespace id/account —
+      // the caller named only site_id; the DO namespace id is server-resolved from the registry.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveDurableObjectScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // ⛔ Lists NAMESPACES (classes), NEVER instances — CF cannot enumerate DO instances.
+      const result = await durableObjectAdapter.list(scoped.scope);
+      if (!result.ok) return err(result.error?.message ?? 'Could not list Durable Object namespaces.');
+      return ok({
+        site_id,
+        environment,
+        count: result.data?.namespaces.length ?? 0,
+        namespaces: result.data?.namespaces ?? [],
+        instancesEnumerable: false,
+      });
+    }
+
+    case 'data_durable_object_describe': {
+      if (
+        !(await isFlagOn(env, PER_SITE_DURABLE_OBJECTS_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site Durable Objects are not enabled for this account.');
+      }
+      const { site_id, id, environment } = DataDurableObjectDescribeInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveDurableObjectScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // ⛔ Returns identity metadata ONLY — the object's private storage / in-memory state is NEVER read
+      // (no CF API can). stateBrowsable is permanently false.
+      const result = await durableObjectAdapter.get(scoped.scope, { id });
+      if (!result.ok) return err(result.error?.message ?? 'Could not describe the Durable Object.');
+      return ok({
+        site_id,
+        environment,
+        objectId: result.data?.objectId,
+        namespaceId: result.data?.namespaceId,
+        hexId: result.data?.hexId,
+        stateBrowsable: false,
+      });
+    }
+
     default:
       return err(`Tool '${name}' is advertised but not yet wired.`);
   }
@@ -1651,6 +1763,57 @@ async function resolveWorkflowScope(
       environment,
       orgId,
       // The workflow NAME (server-resolved). The adapter binds instance ops to this name.
+      resourceId: resolved.resourceId,
+      siteId,
+    },
+  };
+}
+
+/**
+ * Resolve a site's OWN Durable Object CLASS namespace into a {@link ResolvedScope} for the durable_object
+ * adapter, SERVER-SIDE. The caller already proved org ownership (the dispatcher's `WHERE id=? AND org_id=?`
+ * gate); this maps the OWNED `(site, environment, kind='durable_object')` to its registry-recorded CF
+ * namespace id via `resolveResourceRef` (the same resolver the routes use — no CF id is ever accepted from
+ * the client), then attaches server-side credentials + account. Only `SITE_BUILDER` is bound; there is NO
+ * per-site DO namespace (the reconciler records no durable_object allocation source), so a blank site has no
+ * `durable_object` registry row → an honest failure returns a typed, user-safe message — NEVER a fabricated
+ * namespace, and NEVER any object state.
+ */
+async function resolveDurableObjectScope(
+  env: Env,
+  siteId: string,
+  orgId: string,
+  environment: 'preview' | 'production',
+): Promise<
+  | { ok: true; scope: import('../data_resource_registry/adapter.js').ResolvedScope }
+  | { ok: false; message: string }
+> {
+  // The ownership gate already passed in the dispatcher; pass an always-true guard so the resolver does not
+  // re-query (it still re-scopes the registry lookup on siteId + orgId + kind='durable_object').
+  const resolved = await resolveResourceRef(
+    env,
+    siteId,
+    { environment, kind: 'durable_object' },
+    { orgId, ownsSite: async () => true },
+  );
+  if (!resolved.ok) {
+    // not_registered = no per-site DO namespace (only SITE_BUILDER is bound; none is per-site). Honest.
+    if (resolved.reason === 'not_registered') {
+      return { message: 'This site does not have a Durable Object namespace yet.', ok: false };
+    }
+    return { message: 'Could not open the site Durable Object namespace.', ok: false };
+  }
+  const auth = await resolveCfCredentials(env, orgId);
+  if (!auth) return { message: 'Could not open the site Durable Object namespace.', ok: false };
+  return {
+    ok: true,
+    scope: {
+      accessPolicy: resolved.accessPolicy,
+      accountId: resolved.accountId,
+      auth,
+      environment,
+      orgId,
+      // The DO NAMESPACE id (server-resolved). The adapter filters/addresses ops to this namespace only.
       resourceId: resolved.resourceId,
       siteId,
     },

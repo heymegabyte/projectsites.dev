@@ -37,6 +37,7 @@ import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 
 import { connectionAdapter } from './adapters/connection.js';
 import { d1Adapter } from './adapters/d1.js';
+import { durableObjectAdapter } from './adapters/durable_object.js';
 import { kvAdapter } from './adapters/kv.js';
 import { r2Adapter } from './adapters/r2.js';
 import { vectorizeAdapter } from './adapters/vectorize.js';
@@ -77,6 +78,14 @@ const IMPLEMENTED_ADAPTERS: Partial<
   // entry only head-drift-checks a `workflow` row if one already exists (its `head` probes the workflow
   // DEFINITION via the CF Workflows REST API bound to the resolved workflow name). Honest, never fabricated.
   workflow: workflowAdapter,
+  // durable_object: read-only adapter wired. DOs are addressed AT RUNTIME by a Worker holding the class
+  // binding — there is NO CF API to enumerate instances or read arbitrary state (⛔ HARD FACT #3). Only
+  // `SITE_BUILDER` is bound; there is NO per-site DO namespace, and `readAllocationSources` records NO
+  // durable_object allocation source, so a blank site never gets a `durable_object` registry row. This map
+  // entry only head-drift-checks a `durable_object` row if one already exists (its `head` probes the DO
+  // CLASS namespace via the CF management REST API filtered to the resolved namespace id). Honest, never
+  // fabricated — the adapter surfaces namespaces/ids, never object state.
+  durable_object: durableObjectAdapter,
 };
 
 /** One recorded allocation: which kind, and the CF id/name the source row actually holds. */
