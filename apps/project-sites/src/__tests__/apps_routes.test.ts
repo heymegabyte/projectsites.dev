@@ -886,12 +886,18 @@ describe('GET /api/apps/instances/:id/cname-check', () => {
     mockDbQueryOne.mockResolvedValue(instanceRow());
     mockCname.mockResolvedValue(null); // no literal CNAME (flattened)
     const realFetch = global.fetch;
-    global.fetch = jest.fn(async () =>
-      // Both the domain AND projectsites.dev resolve to the same CF anycast IPs.
-      new Response(
-        JSON.stringify({ Answer: [{ type: 1, data: '104.21.28.71' }, { type: 1, data: '172.67.144.156' }] }),
-        { status: 200 },
-      ),
+    global.fetch = jest.fn(
+      async () =>
+        // Both the domain AND projectsites.dev resolve to the same CF anycast IPs.
+        new Response(
+          JSON.stringify({
+            Answer: [
+              { type: 1, data: '104.21.28.71' },
+              { type: 1, data: '172.67.144.156' },
+            ],
+          }),
+          { status: 200 },
+        ),
     ) as unknown as typeof fetch;
     try {
       const res = await req(
@@ -951,7 +957,9 @@ describe('custom domains (attach · list · primary · detach)', () => {
     mockDbQueryOne.mockResolvedValue(instanceRow());
     mockCname.mockResolvedValue('proxy.projectsites.dev');
     mockCreateHost.mockRejectedValue(
-      new Error('Failed to create custom hostname: {"errors":[{"code":1404,"message":"No quota has been allocated"}]}'),
+      new Error(
+        'Failed to create custom hostname: {"errors":[{"code":1404,"message":"No quota has been allocated"}]}',
+      ),
     );
     const res = await req(
       makeApp(AUTH),
