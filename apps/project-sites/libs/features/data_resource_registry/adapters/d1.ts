@@ -1,10 +1,29 @@
 /**
  * @module libs/features/data_resource_registry/adapters/d1
- * @description The `d1` {@link ResourceAdapter} — Data & Resource Platform §5, Phase 1 → 2 (read) slice.
+ * @description The `d1` {@link ResourceAdapter} — Data & Resource Platform §5, Phase 2 (read + gated WRITE).
  *
  * Implements the read verbs against a site's OWN Cloudflare D1: `list` (its tables), `head` (existence
- * probe), `get` (one table's columns + a row page). `mutate` returns a typed `not_implemented` envelope
- * (Phase 2 is READ-ONLY) — never a raw throw, never a `runAnything` mega-verb (tool-design-as-api).
+ * probe), `get` (one table's columns + a row page) — PLUS the gated WRITE slice: `mutate({action:'exec'})`,
+ * a single PARAMETERIZED SQL statement run through the same CF REST D1 `/query` plane. `mutate` is a
+ * discriminated NAMED-mutation union (never a `runAnything`/`{command}` mega-verb — tool-design-as-api).
+ *
+ * SQL CLASSIFICATION — honest, NOT a false "sandboxed read-only" claim (PHASED-PLAN.md: "distinguish
+ * potentially mutating SQL; do not pretend a simple regex reliably makes arbitrary SQL read-only"). The
+ * statement is classified by its LEADING keyword after stripping comments/CTEs:
+ *  - READ-ONLY  → `SELECT` / `PRAGMA` / `EXPLAIN` / `WITH … SELECT` / `VALUES`
+ *  - MUTATING   → `INSERT` / `UPDATE` / `DELETE` / `REPLACE` / `CREATE` / `ALTER` / `DROP` / `TRUNCATE` /
+ *                 `WITH … <mutating>` (a CTE that ends in a write)
+ *  - DESTRUCTIVE (a subset of mutating) → `DROP` / `TRUNCATE` / `ALTER` / a `DELETE` with NO `WHERE`
+ * A MUTATING statement requires an explicit `confirm:true`; without it `mutate` returns a typed
+ * `confirmation_required` envelope that REPORTS the detected statement kind and executes NOTHING
+ * (SECURITY-INVARIANTS INV-9/INV-11). A DESTRUCTIVE statement is additionally FLAGGED and its message
+ * NOTES that D1 Time Travel (30-day PITR) is the recovery path — the caller restores to a pre-write
+ * timestamp via `wrangler d1 time-travel restore`, since the CF REST plane does not expose a bookmark
+ * create call here. The classifier is BEST-EFFORT: the leading-keyword parse decides the confirm gate,
+ * but the GROUND TRUTH of what changed is D1's own `rows_written` / `changed_db` meta on the result —
+ * this adapter NEVER claims the classifier sandboxes arbitrary SQL, it relies on parameterized exec +
+ * that meta. Identifiers can't be REST-parameterized, so DDL/DML that names a table is the caller's
+ * responsibility; only bound `params[]` are ever interpolated as VALUES.
  *
  * ISOLATION — the same structural guarantee as `site_data_db.ts` `resolveSiteDataDb`:
  *  - Every verb operates ONLY on the `scope.resourceId` it was minted with. That id was SERVER-RESOLVED
@@ -14,10 +33,11 @@
  *  - The shared-platform D1 ids ({@link FORBIDDEN_DB_IDS}) are refused at every verb as defense-in-depth on
  *    top of the resolver's denylist — a scope that somehow carries a shared id fails closed
  *    (`forbidden_shared`) and is treated by the reconciler as NOT a "missing" signal.
- *  - Execution goes through the CF **D1 REST API** — `head` via the database GET, `list`/`get` via the same
- *    REST `/query` plane `resolveSiteDataDb` executes through. We reuse the exact low-level query mechanism
- *    ({@link makeSiteDataExecutor} from `site_data_db.ts`) bound to `scope.resourceId`, rather than
- *    duplicating the fetch — a Worker can't statically bind thousands of per-site D1s.
+ *  - Execution goes through the CF **D1 REST API** — `head` via the database GET, `list`/`get`/`mutate` via
+ *    the same REST `/query` plane `resolveSiteDataDb` executes through. We reuse the exact low-level query
+ *    mechanism ({@link makeSiteDataExecutor} from `site_data_db.ts`) bound to `scope.resourceId`, rather than
+ *    duplicating the fetch — a Worker can't statically bind thousands of per-site D1s. The executor is
+ *    single-statement + env/id-bound at mint time (INV-9): a `mutate` can only ever write the resolved id.
  *
  * @packageDocumentation
  */
@@ -81,9 +101,162 @@ export interface D1GetData {
   readonly total: number;
 }
 
-/** Placeholder mutate payloads — Phase 2 is read-only; provision/seed/put land later. */
-type D1MutateInput = never;
-type D1MutateResult = never;
+/**
+ * The honest classification of one SQL statement's effect (see module docs). `read_only` runs without a
+ * confirm; `mutating` needs `confirm:true`; `destructive` is a mutating subset that is ALSO flagged +
+ * carries the Time-Travel recovery note. `unknown` (empty / unparseable leading keyword) is treated as
+ * mutating for the confirm gate — fail CLOSED, never assume a blank statement is a safe read.
+ */
+export type SqlEffect = 'read_only' | 'mutating' | 'destructive' | 'unknown';
+
+/**
+ * The `exec` mutation input: run ONE PARAMETERIZED SQL statement against the site's OWN D1. `params[]` are
+ * bound VALUES only (identifiers can't be REST-parameterized). A MUTATING statement (see {@link SqlEffect})
+ * REQUIRES `confirm:true`; without it `mutate` returns `confirmation_required` reporting the detected kind
+ * and runs NOTHING. A DESTRUCTIVE statement is additionally flagged with a Time-Travel recovery note.
+ */
+export interface D1ExecInput {
+  readonly action: 'exec';
+  /** A single SQL statement. Multiple statements are refused (the REST `/query` plane is single-statement). */
+  readonly sql: string;
+  /** Bound parameter VALUES (positional `?`), never identifiers. */
+  readonly params?: readonly unknown[];
+  /** Must be `true` to run a MUTATING/DESTRUCTIVE statement (a read-only statement needs no confirm). */
+  readonly confirm?: boolean;
+}
+
+/** The discriminated named-mutation union for the d1 adapter — NEVER a generic `{ sql }` bare field. */
+export type D1MutateInput = D1ExecInput;
+
+/**
+ * What a successful `exec` returns: the honestly-classified effect, D1's GROUND-TRUTH meta (`rowsRead`/
+ * `rowsWritten`/`changedDb` — the authoritative "what changed", not the classifier's guess), and the row
+ * page for a read-only statement (a mutating statement typically returns no rows).
+ */
+export interface D1ExecResult {
+  readonly action: 'exec';
+  /** The classifier's leading-keyword verdict (best-effort — see `changedDb` for ground truth). */
+  readonly effect: SqlEffect;
+  /** True when the statement was flagged destructive (DROP/TRUNCATE/ALTER/DELETE-without-WHERE). */
+  readonly destructive: boolean;
+  /** Rows the result carried (a SELECT/PRAGMA/RETURNING page); empty for a plain write. */
+  readonly rows: readonly Record<string, unknown>[];
+  /** D1-reported rows read (ground truth from the `/query` meta). */
+  readonly rowsRead: number;
+  /** D1-reported rows written (ground truth — the real mutation signal, not the classifier). */
+  readonly rowsWritten: number;
+  /** D1-reported whether the database changed (ground truth). */
+  readonly changedDb: boolean;
+}
+
+/** The discriminated result union a successful `mutate` returns. */
+export type D1MutateResult = D1ExecResult;
+
+/** SQLite keywords whose statement MUTATES the database. */
+const MUTATING_KEYWORDS: ReadonlySet<string> = new Set([
+  'INSERT',
+  'UPDATE',
+  'DELETE',
+  'REPLACE',
+  'CREATE',
+  'ALTER',
+  'DROP',
+  'TRUNCATE',
+  'REINDEX',
+  'VACUUM',
+  'ANALYZE',
+]);
+
+/** Read-only leading keywords (a `WITH … SELECT` resolves to its trailing statement — see below). */
+const READ_ONLY_KEYWORDS: ReadonlySet<string> = new Set([
+  'SELECT',
+  'PRAGMA',
+  'EXPLAIN',
+  'VALUES',
+]);
+
+/**
+ * Strip SQL comments (`-- line` and block comments) + collapse whitespace so the leading-keyword parse
+ * sees the real first token. Best-effort — string-literal-aware enough for classification, NOT a full SQL
+ * parser (the confirm gate is the safety net, D1's `rows_written` is the ground truth).
+ */
+function stripSqlNoise(sql: string): string {
+  return sql
+    .replace(/--[^\n]*/g, ' ') // line comments
+    .replace(/\/\*[\s\S]*?\*\//g, ' ') // block comments
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Classify a single SQL statement's effect by its LEADING keyword (see module docs). Honest + best-effort:
+ * decides the confirm gate; D1's result meta is the ground truth of what actually changed. `EXPLAIN` /
+ * `EXPLAIN QUERY PLAN` is always read-only regardless of what it explains. A `WITH` CTE is resolved to its
+ * trailing top-level statement (a CTE ending in `DELETE`/`INSERT`/`UPDATE` is mutating). An `ALTER`/`DROP`/
+ * `TRUNCATE`, or a `DELETE` with no `WHERE`, is DESTRUCTIVE.
+ */
+export function classifySql(rawSql: string): SqlEffect {
+  const sql = stripSqlNoise(rawSql);
+  if (sql.length === 0) return 'unknown';
+
+  // EXPLAIN [QUERY PLAN] <inner> — always read-only, regardless of the inner statement.
+  const explainMatch = /^EXPLAIN\b/i.exec(sql);
+  if (explainMatch) return 'read_only';
+
+  // Resolve the effective leading keyword. For WITH-CTEs, find the FIRST top-level DML/DDL keyword after
+  // the CTE list (a CTE body is parenthesised; the trailing statement is the classified one).
+  const firstWord = /^([A-Za-z]+)/.exec(sql)?.[1]?.toUpperCase() ?? '';
+  let effective = firstWord;
+  if (firstWord === 'WITH') {
+    // Scan for the first mutating/read keyword that appears at paren-depth 0 after the CTE definitions.
+    effective = leadingKeywordAfterCte(sql);
+  }
+
+  if (READ_ONLY_KEYWORDS.has(effective)) return 'read_only';
+  if (MUTATING_KEYWORDS.has(effective)) {
+    if (isDestructive(effective, sql)) return 'destructive';
+    return 'mutating';
+  }
+  // Unknown leading token (a rare pragma spelling, or garbage) → fail CLOSED as mutating-unknown.
+  return 'unknown';
+}
+
+/** Find the first top-level (paren-depth 0) DML/DDL keyword after a `WITH` CTE list. */
+function leadingKeywordAfterCte(sql: string): string {
+  let depth = 0;
+  const tokens = sql.split(/([(),\s]+)/);
+  for (const tok of tokens) {
+    for (const ch of tok) {
+      if (ch === '(') depth++;
+      else if (ch === ')') depth = Math.max(0, depth - 1);
+    }
+    if (depth !== 0) continue;
+    const word = /^[A-Za-z]+$/.test(tok) ? tok.toUpperCase() : '';
+    if (word === 'WITH' || word === 'RECURSIVE' || word === 'AS') continue;
+    if (READ_ONLY_KEYWORDS.has(word) || MUTATING_KEYWORDS.has(word)) return word;
+  }
+  return 'SELECT'; // a WITH that never reaches a DML keyword is a read CTE.
+}
+
+/** A DROP/TRUNCATE/ALTER, or a DELETE with no WHERE clause, is destructive of existing data. */
+function isDestructive(keyword: string, sql: string): boolean {
+  if (keyword === 'DROP' || keyword === 'TRUNCATE' || keyword === 'ALTER' || keyword === 'VACUUM') {
+    return true;
+  }
+  if (keyword === 'DELETE') {
+    // A DELETE with no WHERE wipes the whole table — destructive. `\bWHERE\b` case-insensitive.
+    return !/\bWHERE\b/i.test(sql);
+  }
+  return false;
+}
+
+/** Reject a multi-statement payload (the REST `/query` plane runs ONE statement per call). */
+function isMultiStatement(sql: string): boolean {
+  const stripped = stripSqlNoise(sql);
+  // A single trailing semicolon is fine; a semicolon with more SQL after it is a second statement.
+  const withoutTrailing = stripped.replace(/;+\s*$/, '');
+  return withoutTrailing.includes(';');
+}
 
 /** Mint a correlation id for one adapter call (structured-logging: every envelope carries one). */
 function correlationId(): string {
@@ -126,19 +299,6 @@ function queryError<T>(cid: string, err: unknown): AdapterResult<T> {
   };
 }
 
-/** The typed `not_implemented` envelope every Phase-2-unfilled verb returns. */
-function notImplemented<T>(verb: string): AdapterResult<T> {
-  return {
-    correlationId: correlationId(),
-    error: {
-      code: 'not_implemented',
-      message: `The d1 adapter '${verb}' verb is not implemented yet.`,
-      retryable: false,
-    },
-    ok: false,
-  };
-}
-
 /** Clamp a requested page `limit` into `[1, 200]`, defaulting to 50 for a missing/invalid value. */
 function clampLimit(limit: number | undefined): number {
   if (typeof limit !== 'number' || !Number.isFinite(limit)) return GET_LIMIT_DEFAULT;
@@ -152,8 +312,9 @@ function clampOffset(offset: number | undefined): number {
 }
 
 /**
- * The `d1` adapter. `list`/`head`/`get` are live (read-only); `mutate` returns `not_implemented`.
- * `supports` declares that honestly so the UI + MCP never offer a verb that would 501.
+ * The `d1` adapter. `list`/`head`/`get` are live (read-only); `mutate({action:'exec'})` runs one gated
+ * PARAMETERIZED statement (mutating/destructive statements gated on `confirm:true`, classified honestly).
+ * `supports` declares this so the UI + MCP only ever offer a verb that runs.
  */
 class D1Adapter
   implements ResourceAdapter<D1ListData, D1HeadData, D1GetData, D1MutateInput, D1MutateResult>
@@ -161,14 +322,15 @@ class D1Adapter
   readonly kind = 'd1' as const;
 
   /**
-   * Honest capability declaration (CAPABILITY-MATRIX.md): d1 serves both environments and all three read
-   * verbs. `mutations: []` — Phase 2 is read-only; provision/destroy/seed named mutations land in Phase 3
-   * (append them here + implement `mutate` in the same fire).
+   * Honest capability declaration (CAPABILITY-MATRIX.md): d1 serves both environments, all three read verbs,
+   * and the `exec` named mutation (a single gated PARAMETERIZED statement). provision/seed/destroy named
+   * mutations land later — append them here + implement in the same fire so the UI/MCP never offer an
+   * unwired verb.
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: [] as const,
-    verbs: ['list', 'head', 'get'] as const,
+    mutations: ['exec'] as const,
+    verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
   /**
@@ -355,10 +517,116 @@ class D1Adapter
     }
   }
 
-  /** Not implemented in Phase 2 — provision/destroy/seed named mutations land in Phase 3 (read-only now). */
-  async mutate(_scope: ResolvedScope, _input: D1MutateInput): Promise<AdapterResult<D1MutateResult>> {
-    return notImplemented<D1MutateResult>('mutate');
+  /**
+   * Run ONE PARAMETERIZED SQL statement against the site's OWN D1 (the gated WRITE slice). `exec` operates
+   * ONLY on `scope.resourceId` (server-resolved upstream — this adapter accepts NO database id and cannot be
+   * redirected; INV-9). The statement is CLASSIFIED honestly by its leading keyword ({@link classifySql}):
+   * a MUTATING/DESTRUCTIVE/unknown statement REQUIRES `confirm:true`; without it this returns a typed
+   * `confirmation_required` envelope that REPORTS the detected kind and runs NOTHING (INV-9/INV-11). A
+   * DESTRUCTIVE statement's message additionally NOTES D1 Time Travel (30-day PITR) as the recovery path.
+   * The classifier decides the gate ONLY — the GROUND TRUTH of what changed is D1's `rows_written`/
+   * `changed_db` meta on the result (this adapter never claims the classifier sandboxes arbitrary SQL). Only
+   * bound `params[]` VALUES are interpolated; identifiers are the caller's responsibility. Multiple
+   * statements are refused (the REST `/query` plane is single-statement).
+   *
+   * @param scope - the server-resolved scope; `scope.resourceId` is the ONLY database this can write
+   * @param input - the discriminated `{ action:'exec', sql, params?, confirm? }` mutation
+   */
+  async mutate(scope: ResolvedScope, input: D1MutateInput): Promise<AdapterResult<D1MutateResult>> {
+    const cid = correlationId();
+    const databaseId = scope.resourceId;
+    const forbidden = refuseSharedId<D1MutateResult>(cid, databaseId);
+    if (forbidden) return forbidden;
+
+    if (!input || input.action !== 'exec') {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_action', message: 'Unknown D1 mutation action.', retryable: false },
+        ok: false,
+      };
+    }
+
+    const sql = input.sql;
+    if (typeof sql !== 'string' || stripSqlNoiseIsEmpty(sql)) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_sql', message: 'SQL statement is missing or empty.', retryable: false },
+        ok: false,
+      };
+    }
+    if (isMultiStatement(sql)) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'multi_statement',
+          message: 'Only a single SQL statement per call is supported (the D1 REST query API is single-statement).',
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+    const params = input.params ?? [];
+    if (!Array.isArray(params)) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_params', message: 'params must be an array of bound values.', retryable: false },
+        ok: false,
+      };
+    }
+
+    const effect = classifySql(sql);
+    const isMutating = effect !== 'read_only';
+    const destructive = effect === 'destructive';
+
+    // Confirm gate: any statement the classifier does NOT prove read-only requires confirm:true. An
+    // `unknown` leading token fails CLOSED here (treated as mutating) — never assume a blank/odd statement
+    // is a safe read.
+    if (isMutating && input.confirm !== true) {
+      const kindLabel =
+        effect === 'destructive'
+          ? 'a DESTRUCTIVE statement'
+          : effect === 'unknown'
+            ? 'a statement whose effect could not be verified read-only'
+            : 'a data-mutating statement';
+      const travelNote = destructive
+        ? ' This is destructive — before re-running, note that D1 Time Travel (30-day point-in-time recovery) is the rollback path: `wrangler d1 time-travel restore` to a pre-write timestamp.'
+        : '';
+      return {
+        correlationId: cid,
+        error: {
+          code: 'confirmation_required',
+          message: `This SQL is classified as ${kindLabel} (best-effort leading-keyword classification; D1's rows_written is the ground truth). Re-run with confirm:true to execute it.${travelNote}`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+
+    const db = makeSiteDataExecutor(scope.auth, scope.accountId, databaseId);
+    try {
+      const { results, meta } = await db.query<Record<string, unknown>>(sql, params);
+      return {
+        correlationId: cid,
+        data: {
+          action: 'exec',
+          changedDb: meta.changed_db === true,
+          destructive,
+          effect,
+          rows: results,
+          rowsRead: meta.rows_read ?? 0,
+          rowsWritten: meta.rows_written ?? 0,
+        },
+        ok: true,
+      };
+    } catch (err) {
+      return queryError<D1MutateResult>(cid, err);
+    }
   }
+}
+
+/** True when a SQL string is only comments/whitespace (used by `mutate`'s empty-statement guard). */
+function stripSqlNoiseIsEmpty(sql: string): boolean {
+  return stripSqlNoise(sql).length === 0;
 }
 
 /** The singleton `d1` adapter instance the reconciler + registry look up by kind. */

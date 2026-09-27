@@ -148,6 +148,29 @@ export const DataReadTableInput = z
   .strict();
 
 /**
+ * `data_d1_exec` — run ONE PARAMETERIZED SQL statement against the OWNED site's own D1 (the gated WRITE
+ * slice, MCP parity with the Data tab's parameterized row write). A caller names ONLY the OWNED `site_id` +
+ * the `sql` (NEVER a CF/database id — the db is server-resolved from `site_database_allocations`) plus optional
+ * positional `params` (bound VALUES only — identifiers can't be REST-parameterized) / `confirm` and the
+ * environment. ⚠️ The dispatcher's d1 adapter CLASSIFIES the statement honestly by its leading keyword: a
+ * data-MUTATING or DESTRUCTIVE (DROP/TRUNCATE/ALTER/DELETE-without-WHERE) statement REQUIRES `confirm:true` —
+ * without it the tool returns `confirmation required` REPORTING the detected kind and running nothing; a
+ * DESTRUCTIVE one additionally notes D1 Time Travel (30-day PITR) as the rollback path. This is NOT a false
+ * "sandboxed read-only" claim — the classifier decides the gate, D1's `rows_written` is the ground truth.
+ * `.strict()` rejects any attempt to smuggle a `databaseId`/`accountId`. Ownership + isolation +
+ * `per_site_data` flag-gate + `data:write` scope are enforced server-side.
+ */
+export const DataD1ExecInput = z
+  .object({
+    site_id: z.string().min(1),
+    sql: z.string().min(1).max(100_000),
+    params: z.array(z.unknown()).max(100).optional(),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
  * `data_kv_list_keys` — list keys in the OWNED site's own dedicated KV namespace (MCP parity with the
  * Data tab's KV surface). A caller names ONLY the OWNED `site_id` (NEVER a CF namespace id — the
  * namespace is server-resolved from `site_database_allocations`) plus optional prefix/cursor/limit and
@@ -514,6 +537,7 @@ export type DataListResourcesArgs = z.infer<typeof DataListResourcesInput>;
 export type DataReconcileResourcesArgs = z.infer<typeof DataReconcileResourcesInput>;
 export type DataListTablesArgs = z.infer<typeof DataListTablesInput>;
 export type DataReadTableArgs = z.infer<typeof DataReadTableInput>;
+export type DataD1ExecArgs = z.infer<typeof DataD1ExecInput>;
 export type DataKvListKeysArgs = z.infer<typeof DataKvListKeysInput>;
 export type DataKvGetArgs = z.infer<typeof DataKvGetInput>;
 export type DataKvPutArgs = z.infer<typeof DataKvPutInput>;

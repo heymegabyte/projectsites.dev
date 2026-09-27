@@ -28,6 +28,7 @@ import {
   SiteDataD1Error,
 } from '../../../src/services/site_data_db.js';
 import { listResources, resolveResourceRef } from '../data_resource_registry/service.js';
+import { d1Adapter } from '../data_resource_registry/adapters/d1.js';
 import { kvAdapter } from '../data_resource_registry/adapters/kv.js';
 import { r2Adapter } from '../data_resource_registry/adapters/r2.js';
 import { vectorizeAdapter } from '../data_resource_registry/adapters/vectorize.js';
@@ -48,6 +49,7 @@ import {
   DataReconcileResourcesInput,
   DataListTablesInput,
   DataReadTableInput,
+  DataD1ExecInput,
   DataKvListKeysInput,
   DataKvGetInput,
   DataKvPutInput,
@@ -470,6 +472,24 @@ export const PLATFORM_MCP_TOOLS = [
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id', 'table'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_d1_exec',
+    description:
+      "Run ONE PARAMETERIZED SQL statement against your site's OWN dedicated database (the same per-site D1 the editor's Data tab manages). Pass positional params for bound VALUES (?) — identifiers (table/column names) can't be parameterized, so name them directly in the sql. Returns { effect, destructive, rows, rowsRead, rowsWritten, changedDb }. ⚠️ The statement is CLASSIFIED honestly by its leading keyword: a data-MUTATING statement (INSERT/UPDATE/DELETE/REPLACE/CREATE/ALTER/DROP/TRUNCATE) — or one whose effect can't be verified read-only — REQUIRES confirm:true; without it you get an error REPORTING the detected kind and NOTHING runs (a plain SELECT/PRAGMA/EXPLAIN needs no confirm). A DESTRUCTIVE statement (DROP/TRUNCATE/ALTER/DELETE-without-WHERE) is additionally flagged and the error notes D1 Time Travel (30-day point-in-time recovery) as the rollback path. This is best-effort classification, NOT a sandbox — D1's rowsWritten is the ground truth of what changed. Only ONE statement per call. You name only the site_id + sql (+ optional params/confirm/environment) — never a database id; the database is resolved server-side and isolated to your site.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        sql: { type: 'string', maxLength: 100000 },
+        params: { type: 'array', maxItems: 100 },
+        confirm: { type: 'boolean' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'sql'],
       additionalProperties: false,
     },
   },
@@ -1339,6 +1359,72 @@ export async function dispatchPlatformTool(
         if (e instanceof SiteDataD1Error) return err('Could not read table rows.');
         throw e;
       }
+    }
+
+    case 'data_d1_exec': {
+      // Flag-gated on the SAME flag the db/tables endpoint uses (dark → err, mirroring its 404).
+      if (!(await isFlagOn(env, PER_SITE_DATA_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site data is not enabled for this account.');
+      }
+      const { site_id, sql, params, confirm, environment } = DataD1ExecInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF/db id — the caller
+      // named only site_id; resolveSiteDataDb server-resolves + isolates + denylists the database.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const resolved = await resolveSiteDataDb(env, site_id, { orgId });
+      if (!resolved || !resolved.ok) return err('Could not open the site database.');
+      // Build the resolved scope the d1 adapter's mutate consumes. resolveSiteDataDb already isolated the
+      // databaseId (provision + FORBIDDEN_DB_IDS denylist); we attach server-side auth + account for the
+      // adapter's own executor — the CF credentials NEVER reach the client (INV-6).
+      const auth = await resolveCfCredentials(env, orgId);
+      const accountId = env.CF_ACCOUNT_ID;
+      if (!auth || !accountId) return err('Could not open the site database.');
+      // The adapter enforces the SQL classification + destructive/mutating confirm gate: a mutating
+      // statement without confirm:true returns a `confirmation_required` error that REPORTS the detected
+      // kind (nothing runs); a destructive one adds the Time-Travel recovery note.
+      const result = await d1Adapter.mutate(
+        {
+          // Per-site D1 is reachable only via REST / service binding (INV-8) — no_direct.
+          accessPolicy: 'no_direct',
+          accountId,
+          auth,
+          environment,
+          orgId,
+          resourceId: resolved.databaseId,
+          siteId: site_id,
+        },
+        { action: 'exec', confirm, params, sql },
+      );
+      if (!result.ok) {
+        // Surface the confirm-required report (or a CF/SQL failure) as an isError result — never a silent write.
+        return err(result.error?.message ?? 'Could not execute the SQL statement.');
+      }
+      const data = result.data as
+        | {
+            effect?: string;
+            destructive?: boolean;
+            rows?: unknown[];
+            rowsRead?: number;
+            rowsWritten?: number;
+            changedDb?: boolean;
+          }
+        | undefined;
+      return ok({
+        site_id,
+        environment,
+        databaseId: resolved.databaseId,
+        action: 'exec',
+        effect: data?.effect ?? 'unknown',
+        destructive: data?.destructive ?? false,
+        rows: data?.rows ?? [],
+        rows_read: data?.rowsRead ?? 0,
+        rows_written: data?.rowsWritten ?? 0,
+        changed_db: data?.changedDb ?? false,
+      });
     }
 
     case 'data_kv_list_keys': {

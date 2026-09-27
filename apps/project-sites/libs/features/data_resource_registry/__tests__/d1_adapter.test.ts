@@ -9,7 +9,8 @@
  *   (a) get() rejects a non-isSafeIdent table name → code 'invalid_table'
  *   (b) get() clamps limit/offset (limit=0→1, limit=999→200, offset=-5→0)
  *   (c) list() filters out sqlite_* / _cf_* / d1_migrations internals
- *   (d) mutate() returns code 'not_implemented' (never throws)
+ *   (d) mutate() with a bad/absent action → code 'invalid_action' (never throws; write slice is
+ *       exercised in d1_adapter_mutate.test.ts)
  *
  * Mock strategy: we mock `makeSiteDataExecutor` (the CF REST D1 query bridge)
  * and `cfAuthHeaders` (the auth header builder). The adapter imports these from
@@ -67,16 +68,16 @@ beforeEach(() => {
   mockMakeExecutor.mockReturnValue({ query: mockQuery });
 });
 
-// ─── (d) mutate() always returns not_implemented ───────────────────────────────
+// ─── (d) mutate() rejects a bad/absent action ───────────────────────────────────
 
 describe('d1Adapter.mutate()', () => {
-  it('(d) returns not_implemented code — never throws', async () => {
+  it('(d) an absent action → invalid_action — never throws (write slice is in d1_adapter_mutate.test.ts)', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await d1Adapter.mutate(scope, undefined as any);
     expect(result.ok).toBe(false);
-    expect(result.error?.code).toBe('not_implemented');
+    expect(result.error?.code).toBe('invalid_action');
     expect(result.error?.retryable).toBe(false);
-    // Executor must NOT be called for a mutate
+    // Executor must NOT be called for an invalid mutate
     expect(mockMakeExecutor).not.toHaveBeenCalled();
   });
 });
