@@ -521,7 +521,8 @@ describe('GET /api/apps/instances/:id', () => {
     );
     // A 200 WITHOUT the bootstrap "finishing setup" marker = the real admin is live.
     const env = makeDispatchEnv(
-      () => new Response('<html><body>Payload — create your first user</body></html>', { status: 200 }),
+      () =>
+        new Response('<html><body>Payload — create your first user</body></html>', { status: 200 }),
     );
     const res = await req(
       makeApp({ ...AUTH, userRole: 'admin' }),
