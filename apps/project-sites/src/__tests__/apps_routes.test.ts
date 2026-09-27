@@ -871,7 +871,9 @@ describe('GET /api/apps/instances/:id/cname-check', () => {
 describe('GET /api/apps/instances/:id/domain-availability', () => {
   it('reports availability + price from the registrar check', async () => {
     mockDbQueryOne.mockResolvedValue(instanceRow());
-    mockAvail.mockResolvedValue([{ name: 'acme.com', tld: 'com', available: true, price_usd: 9.77 }]);
+    mockAvail.mockResolvedValue([
+      { name: 'acme.com', tld: 'com', available: true, price_usd: 9.77 },
+    ]);
     const res = await req(
       makeApp(AUTH),
       '/api/apps/instances/inst-1/domain-availability?domain=acme.com',
@@ -914,7 +916,9 @@ describe('custom domains (attach · list · primary · detach)', () => {
     expect(res.status).toBe(200);
     expect(mockCreateHost).toHaveBeenCalledWith(expect.anything(), 'cms.acme.com');
     // INSERT with is_primary = 1 (the 6th positional param), first domain becomes primary.
-    const insertCall = mockDbExecute.mock.calls.find((c) => String(c[1]).includes('INSERT INTO app_instance_domains'));
+    const insertCall = mockDbExecute.mock.calls.find((c) =>
+      String(c[1]).includes('INSERT INTO app_instance_domains'),
+    );
     expect(insertCall?.[2]?.[5]).toBe(1);
     expect(mockAudit.mock.calls[0][1]).toMatchObject({ action: 'apps.instance.domain_attached' });
   });
@@ -958,7 +962,9 @@ describe('custom domains (attach · list · primary · detach)', () => {
       makeEnv(),
     );
     expect(res.status).toBe(200);
-    const del = mockDbExecute.mock.calls.find((c) => String(c[1]).includes('DELETE FROM app_instance_domains'));
+    const del = mockDbExecute.mock.calls.find((c) =>
+      String(c[1]).includes('DELETE FROM app_instance_domains'),
+    );
     expect(del).toBeTruthy();
     expect(mockAudit.mock.calls[0][1]).toMatchObject({ action: 'apps.instance.domain_detached' });
   });
