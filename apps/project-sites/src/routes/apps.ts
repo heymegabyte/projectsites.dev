@@ -484,10 +484,15 @@ async function launchCfNativeInstance(
   }
 
   const instanceId = crypto.randomUUID();
-  // 48-hex-char (24-byte) PAYLOAD_SECRET — self-generated per always.md § Secrets.
-  const payloadSecret = Array.from(crypto.getRandomValues(new Uint8Array(24)))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  // PAYLOAD_SECRET: honor an owner-supplied value (they can override the auto default on the
+  // deploy panel), else self-generate a 48-hex-char (24-byte) secret per always.md § Secrets.
+  const ownerPayloadSecret = body.env_overrides?.PAYLOAD_SECRET?.trim();
+  const payloadSecret =
+    ownerPayloadSecret && ownerPayloadSecret.length > 0
+      ? ownerPayloadSecret
+      : Array.from(crypto.getRandomValues(new Uint8Array(24)))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
 
   let stack;
   try {

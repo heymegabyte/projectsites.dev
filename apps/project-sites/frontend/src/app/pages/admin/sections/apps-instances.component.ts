@@ -22,6 +22,7 @@ import { RevealDirective } from '../../../directives/reveal.directive';
 import { HlmInputDirective } from '../../../ui';
 import { ErrorCardComponent } from '../../../components/states';
 import { APPS_CATALOG, findApp, type CatalogApp } from './apps-catalog.data';
+import { AppSecretInputComponent } from './app-secret-input.component';
 
 type InstanceStatus = 'provisioning' | 'starting' | 'running' | 'error' | 'stopped';
 
@@ -648,7 +649,7 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
 @Component({
   selector: 'app-admin-apps-instance-detail',
   standalone: true,
-  imports: [DatePipe, FormsModule, RouterLink, RevealDirective, HlmInputDirective, ErrorCardComponent],
+  imports: [DatePipe, FormsModule, RouterLink, RevealDirective, HlmInputDirective, ErrorCardComponent, AppSecretInputComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -779,23 +780,32 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
             } @else {
               <div class="env-list">
                 @for (e of catalogApp()!.env; track e.key) {
-                  <label class="env-field">
+                  <div class="env-field">
                     <span class="env-field-label">
                       <code>{{ e.key }}</code>
                       @if (e.required) { <span class="env-req">*</span> }
                       @if (e.auto) { <span class="env-auto-mini">auto</span> }
                     </span>
-                    <input type="text"
-                           hlmInput
-                           class="font-mono text-xs"
-                           maxlength="8000"
-                           [placeholder]="e.auto ? '(auto-resolved)' : (e.default ?? 'set value')"
-                           [(ngModel)]="envValues[e.key]"
-                           [disabled]="!!e.auto"
-                           [attr.data-testid]="'env-input-' + e.key"
-                           [attr.aria-label]="e.key" />
+                    @if (e.auto && !isEditingAuto(e.key)) {
+                      <!-- Auto-generated (e.g. PAYLOAD_SECRET) — click to set a custom value the
+                           instance uses on its next reload. Blur it empty to keep the current value. -->
+                      <button type="button" class="env-auto-edit" (click)="startEditAuto(e.key)"
+                              [attr.data-testid]="'env-auto-' + e.key"
+                              [attr.aria-label]="'Override ' + e.key + ' with a custom value'">
+                        <span>Auto-generated — click to override</span>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                      </button>
+                    } @else {
+                      <app-secret-input
+                        [value]="envValues[e.key] || ''"
+                        (valueChange)="envValues[e.key] = $event"
+                        (valueBlur)="e.auto && onAutoBlur(e.key)"
+                        [placeholder]="e.auto ? 'new value applied on next reload' : (e.default ?? 'set value')"
+                        [ariaLabel]="e.key"
+                        [testid]="'env-input-' + e.key" />
+                    }
                     <span class="env-desc">{{ e.description }}</span>
-                  </label>
+                  </div>
                 }
               </div>
 
@@ -812,10 +822,12 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
                            [ngModel]="row.key" (ngModelChange)="setEnvKey($index, $event)"
                            [attr.aria-label]="'Env var name ' + ($index + 1)"
                            [attr.data-testid]="'env-custom-key-' + $index" />
-                    <input type="text" hlmInput class="font-mono text-xs" maxlength="8000" placeholder="value"
-                           [ngModel]="row.value" (ngModelChange)="setEnvValue($index, $event)"
-                           [attr.aria-label]="'Env var value ' + ($index + 1)"
-                           [attr.data-testid]="'env-custom-val-' + $index" />
+                    <app-secret-input class="env-custom-val-wrap"
+                           [value]="row.value"
+                           (valueChange)="setEnvValue($index, $event)"
+                           placeholder="value"
+                           [ariaLabel]="'Env var value ' + ($index + 1)"
+                           [testid]="'env-custom-val-' + $index" />
                     <button class="btn-tiny env-remove" type="button" (click)="removeEnvRow($index)"
                             [attr.aria-label]="'Remove env var ' + ($index + 1)">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
@@ -1005,6 +1017,17 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
 
     .env-list { display: flex; flex-direction: column; gap: 10px; }
     .env-field { display: flex; flex-direction: column; gap: 4px; }
+    .env-auto-edit {
+      display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+      padding: 0.42rem 0.7rem; cursor: pointer;
+      background: rgba(52,211,153,0.08); border: 1px dashed rgba(52,211,153,0.4);
+      border-radius: var(--ps-radius-sm, 8px);
+      color: #6ee7b7; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.68rem;
+      transition: background 140ms ease, border-color 140ms ease;
+    }
+    .env-auto-edit:hover { background: rgba(52,211,153,0.16); border-color: rgba(52,211,153,0.6); }
+    .env-auto-edit:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
+    .env-custom-val-wrap { min-width: 0; }
     .env-field-label {
       display: inline-flex; align-items: center; gap: 6px;
       font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -1179,6 +1202,27 @@ export class AppInstanceDetailComponent implements OnInit, OnDestroy {
   invalidEnvKeys = computed(() =>
     this.customEnv().some((r) => r.key.trim() !== '' && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(r.key.trim())),
   );
+
+  /** Auto (platform-injected) catalog vars — e.g. PAYLOAD_SECRET — the owner chose to OVERRIDE
+   *  with a manual value on the next reload. Click the "auto" chip to open a masked input;
+   *  blur it empty to revert to auto (the instance keeps its existing value). */
+  editingAuto = signal<ReadonlySet<string>>(new Set());
+  isEditingAuto(key: string): boolean {
+    return this.editingAuto().has(key);
+  }
+  startEditAuto(key: string): void {
+    this.editingAuto.update((s) => new Set(s).add(key));
+  }
+  onAutoBlur(key: string): void {
+    if (!(this.envValues[key] ?? '').trim()) {
+      this.envValues[key] = '';
+      this.editingAuto.update((s) => {
+        const n = new Set(s);
+        n.delete(key);
+        return n;
+      });
+    }
+  }
 
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id') ?? '';

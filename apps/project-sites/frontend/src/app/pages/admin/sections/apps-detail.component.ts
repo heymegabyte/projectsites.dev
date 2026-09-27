@@ -18,6 +18,7 @@ import { AdminStateService } from '../admin-state.service';
 import { RevealDirective } from '../../../directives/reveal.directive';
 import { RollingCounterComponent } from '../../../components/rolling-counter/rolling-counter.component';
 import { HlmInputDirective } from '../../../ui';
+import { AppSecretInputComponent } from './app-secret-input.component';
 import {
   APPS_CATALOG,
   isAppSupported,
@@ -66,7 +67,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
 @Component({
   selector: 'app-admin-app-detail',
   standalone: true,
-  imports: [FormsModule, RouterLink, RevealDirective, RollingCounterComponent, HlmInputDirective, DatePipe],
+  imports: [FormsModule, RouterLink, RevealDirective, RollingCounterComponent, HlmInputDirective, DatePipe, AppSecretInputComponent],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -169,21 +170,25 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                         }
                       </div>
                       <div role="cell" class="env-value-cell">
-                        @if (e.auto) {
-                          <!-- Platform-injected — not user-editable. -->
-                          <span class="env-auto" [title]="autoSourceLabel(e.auto)">{{ autoSourceLabel(e.auto) }}</span>
+                        @if (e.auto && !isEditingAuto(e.key)) {
+                          <!-- Platform-injected default — click to OVERRIDE with a manual value. -->
+                          <button type="button" class="env-auto env-auto--editable"
+                                  (click)="startEditAuto(e.key)"
+                                  [title]="'Click to set a custom ' + e.key"
+                                  [attr.aria-label]="'Override ' + e.key + ' (currently ' + autoSourceLabel(e.auto) + ')'"
+                                  [attr.data-testid]="'apps-env-auto-' + e.key">
+                            {{ autoSourceLabel(e.auto) }}
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                          </button>
                         } @else {
-                          <!-- Customize before deploy (seeded with the default). -->
-                          <input
-                            class="env-input"
-                            [class.env-input--missing]="e.required && !envValue(e.key).trim()"
+                          <!-- Manual override (auto vars) OR a normal user var — masked, with reveal. -->
+                          <app-secret-input
                             [value]="envValue(e.key)"
-                            (input)="setEnvOverride(e.key, $any($event.target).value)"
-                            [attr.placeholder]="e.default || (e.required ? 'required' : 'optional')"
-                            [attr.aria-label]="'Value for ' + e.key"
-                            [attr.aria-invalid]="e.required && !envValue(e.key).trim()"
-                            [attr.data-testid]="'apps-env-input-' + e.key"
-                            autocomplete="off" spellcheck="false" />
+                            (valueChange)="setEnvOverride(e.key, $event)"
+                            (valueBlur)="e.auto && onAutoBlur(e.key)"
+                            [placeholder]="e.auto ? ('override ' + autoSourceLabel(e.auto)) : (e.default || (e.required ? 'required' : 'optional'))"
+                            [ariaLabel]="'Value for ' + e.key"
+                            [testid]="'apps-env-input-' + e.key" />
                         }
                       </div>
                     </div>
@@ -208,11 +213,11 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                            placeholder="KEY" [attr.aria-label]="'Custom env name ' + ($index + 1)"
                            [attr.data-testid]="'apps-env-custom-key-' + $index"
                            autocomplete="off" spellcheck="false" />
-                    <input class="env-input custom-env-val" [value]="row.value"
-                           (input)="setEnvRowValue($index, $any($event.target).value)"
-                           placeholder="value" [attr.aria-label]="'Custom env value ' + ($index + 1)"
-                           [attr.data-testid]="'apps-env-custom-val-' + $index"
-                           autocomplete="off" spellcheck="false" />
+                    <app-secret-input class="custom-env-val"
+                           [value]="row.value"
+                           (valueChange)="setEnvRowValue($index, $event)"
+                           placeholder="value" [ariaLabel]="'Custom env value ' + ($index + 1)"
+                           [testid]="'apps-env-custom-val-' + $index" />
                     <button type="button" class="custom-env-remove" (click)="removeEnvRow($index)"
                             [attr.aria-label]="'Remove custom env ' + ($index + 1)">✕</button>
                   </div>
@@ -704,6 +709,10 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     }
     .env-optional { color: rgba(255,255,255,0.45); border: 1px solid rgba(255,255,255,0.08); }
     .env-manual { color: #fbbf24; background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.22); }
+    /* The auto chip is a real button that opens a manual override on click. */
+    .env-auto--editable { gap: 5px; cursor: pointer; transition: background 140ms ease, border-color 140ms ease; }
+    .env-auto--editable:hover { background: rgba(52,211,153,0.2); border-color: rgba(52,211,153,0.5); }
+    .env-auto--editable:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
 
     /* ─── Code preview ─── */
     .code-pre {
@@ -1250,6 +1259,27 @@ export class AppDetailComponent implements OnInit {
     ),
   );
 
+  /** Auto (platform-injected) catalog vars the owner chose to OVERRIDE with a manual value.
+   *  Clicking the "auto" chip opens an editable masked input; blurring it empty reverts to auto. */
+  editingAuto = signal<ReadonlySet<string>>(new Set());
+  isEditingAuto(key: string): boolean {
+    return this.editingAuto().has(key);
+  }
+  startEditAuto(key: string): void {
+    this.editingAuto.update((s) => new Set(s).add(key));
+  }
+  /** On blur: an emptied override reverts to the auto default (chip); a filled one persists. */
+  onAutoBlur(key: string): void {
+    if (!this.envValue(key).trim()) {
+      this.setEnvOverride(key, '');
+      this.editingAuto.update((s) => {
+        const n = new Set(s);
+        n.delete(key);
+        return n;
+      });
+    }
+  }
+
   /** Required, user-provided (non-auto) env keys still missing a value. */
   readonly missingRequiredEnv = computed<string[]>(() => {
     const a = this.app();
@@ -1293,6 +1323,7 @@ export class AppDetailComponent implements OnInit {
         }
         this.envOverrides.set(seed);
         this.customEnv.set([]); // per-app reset — custom launch vars don't leak across apps
+        this.editingAuto.set(new Set()); // per-app reset — auto-override edits don't leak
 
         // Auto-pick subdomain from API
         this.checkAndSetSubdomain(found.id);
