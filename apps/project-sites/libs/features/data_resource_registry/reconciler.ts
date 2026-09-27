@@ -37,6 +37,7 @@ import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 
 import { d1Adapter } from './adapters/d1.js';
 import { kvAdapter } from './adapters/kv.js';
+import { r2Adapter } from './adapters/r2.js';
 import type { ResourceAdapter, ResolvedScope } from './adapter.js';
 import {
   type ResourceEnvironment,
@@ -57,6 +58,7 @@ const IMPLEMENTED_ADAPTERS: Partial<
 > = {
   d1: d1Adapter,
   kv: kvAdapter,
+  r2: r2Adapter,
 };
 
 /** One recorded allocation: which kind, and the CF id/name the source row actually holds. */

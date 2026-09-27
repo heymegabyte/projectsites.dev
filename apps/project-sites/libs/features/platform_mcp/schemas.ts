@@ -180,6 +180,41 @@ export const DataKvGetInput = z
   })
   .strict();
 
+/**
+ * `data_r2_list_objects` — list objects in the OWNED site's own dedicated R2 bucket (MCP parity with the
+ * Data tab's R2 surface). A caller names ONLY the OWNED `site_id` (NEVER a CF bucket name — the bucket is
+ * server-resolved from `site_database_allocations`) plus optional prefix/cursor/limit and the environment.
+ * `limit` is LENIENT (positive int) because the dispatcher CLAMPS it to `[1, 1000]` (matching R2's page cap)
+ * rather than REJECTING an over-limit request. `.strict()` rejects any attempt to smuggle a
+ * `bucket`/`bucketName`/`accountId`. Ownership + isolation + `per_site_r2` flag-gate are enforced
+ * server-side in the dispatcher, mirroring the per-site D1 Tables + per-site KV surfaces. NOTE: this lists
+ * the customer's OWN R2 objects, NOT the platform's deployed-site static assets (a separate surface).
+ */
+export const DataR2ListObjectsInput = z
+  .object({
+    site_id: z.string().min(1),
+    prefix: z.string().max(1024).optional(),
+    cursor: z.string().max(4096).optional(),
+    limit: z.number().int().positive().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_r2_head_object` — read ONE object's METADATA (size/etag/content-type/uploaded + http + custom
+ * metadata) from the OWNED site's own R2 bucket. A caller names ONLY the OWNED `site_id` + the exact `key`
+ * (never a CF bucket name — server-resolved) plus the optional environment. `.strict()` rejects unknown
+ * keys (no `bucket` smuggling). Returns METADATA ONLY — never the object bytes (a large download uses a
+ * signed URL in a later pass). A missing object is an honest `found:false`, never an error.
+ */
+export const DataR2HeadObjectInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(1024),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
 export type ListSitesArgs = z.infer<typeof ListSitesInput>;
 export type GetSiteArgs = z.infer<typeof GetSiteInput>;
 export type BuildStatusArgs = z.infer<typeof BuildStatusInput>;
@@ -192,3 +227,5 @@ export type DataListTablesArgs = z.infer<typeof DataListTablesInput>;
 export type DataReadTableArgs = z.infer<typeof DataReadTableInput>;
 export type DataKvListKeysArgs = z.infer<typeof DataKvListKeysInput>;
 export type DataKvGetArgs = z.infer<typeof DataKvGetInput>;
+export type DataR2ListObjectsArgs = z.infer<typeof DataR2ListObjectsInput>;
+export type DataR2HeadObjectArgs = z.infer<typeof DataR2HeadObjectInput>;

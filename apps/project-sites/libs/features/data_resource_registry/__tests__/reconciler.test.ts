@@ -193,10 +193,12 @@ describe('reconcileResources — drift sweep (row claims existence, CF head 404s
     expect(mockD1Head).not.toHaveBeenCalled();
   });
 
-  it('does NOT probe rows of an unimplemented kind (e.g. r2) — leaves them untouched', async () => {
+  it('does NOT probe rows of an unimplemented kind (e.g. vectorize) — leaves them untouched', async () => {
+    // d1 + kv + r2 adapters are now implemented; pick a kind with NO CF-backed adapter yet so the
+    // "unimplemented kinds are skipped" contract stays honestly exercised.
     mockDbQueryOne.mockResolvedValueOnce(null);
     mockListResources.mockResolvedValue([
-      registryRow({ id: 'row_r2', resourceIdOrName: 'bucket-x', resourceKind: 'r2' }),
+      registryRow({ id: 'row_vec', resourceIdOrName: 'idx-x', resourceKind: 'vectorize' }),
     ]);
 
     const res = await reconcileResources(envWith() as never, OWNED_SITE, 'production');

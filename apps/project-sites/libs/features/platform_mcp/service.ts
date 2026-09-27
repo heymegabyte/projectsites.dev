@@ -29,6 +29,7 @@ import {
 } from '../../../src/services/site_data_db.js';
 import { listResources, resolveResourceRef } from '../data_resource_registry/service.js';
 import { kvAdapter } from '../data_resource_registry/adapters/kv.js';
+import { r2Adapter } from '../data_resource_registry/adapters/r2.js';
 import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 import {
   ListSitesInput,
@@ -43,6 +44,8 @@ import {
   DataReadTableInput,
   DataKvListKeysInput,
   DataKvGetInput,
+  DataR2ListObjectsInput,
+  DataR2HeadObjectInput,
 } from './schemas.js';
 
 /** Flag gating the Data & Resource Platform MCP tools (registry read surface). */
@@ -61,6 +64,16 @@ const PER_SITE_DATA_FLAG = 'per_site_data';
  * namespace → the tools honestly report the namespace is not provisioned.
  */
 const PER_SITE_KV_FLAG = 'per_site_kv';
+
+/**
+ * Flag gating the per-site R2 READ tools — the reserved `per_site_r2` flag (CAPABILITY-MATRIX.md /
+ * SECURITY-INVARIANTS.md). DARK → the tools err (mirroring the Data-tab R2 surface's 404), never leak.
+ * Per-site R2 provisioning is backend-ready (`r2_provisioner.ts`) but INERT, so a blank site resolves no
+ * bucket → the tools honestly report the bucket is not provisioned. Mirrors `PER_SITE_KV_FLAG` exactly —
+ * both are runtime gate CONSTANTS (referenced via the constant, so the orphan-flag-gate checker, which
+ * only scans literal `isFlagOn(env,'x')` strings, does not require a registry row).
+ */
+const PER_SITE_R2_FLAG = 'per_site_r2';
 
 /** Mirrors DOMAINS.SITES_SUFFIX — the public site subdomain suffix. */
 const SITES_SUFFIX = '.projectsites.dev';
@@ -384,6 +397,40 @@ export const PLATFORM_MCP_TOOLS = [
       properties: {
         site_id: { type: 'string' },
         key: { type: 'string', maxLength: 512 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_r2_list_objects',
+    description:
+      "List objects in one of your sites' OWN dedicated R2 bucket (the same per-site R2 the editor's Data tab shows — your object store, NOT the platform's deployed-site static assets). Continuation-token paginated: pass the returned cursor for the next page; truncated tells you when there are more (no fake total). Optional prefix filter. You name only the site_id (+ optional environment) — never an R2 bucket name; the bucket is resolved server-side and isolated to your site. Honest 'not provisioned' until your site has an R2 bucket.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        prefix: { type: 'string', maxLength: 1024 },
+        cursor: { type: 'string', maxLength: 4096 },
+        limit: { type: 'number', minimum: 1, maximum: 1000, default: 100 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_r2_head_object',
+    description:
+      "Read ONE object's METADATA (size, etag, content-type, uploaded time, http + custom metadata) from your site's OWN R2 bucket. Returns { found, size, etag, contentType, ... } — metadata ONLY, never the object bytes (a large download uses a signed URL, a later capability). A missing object is an honest found:false. Scoped to the site_id you own; the bucket is server-resolved, never named by you.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        key: { type: 'string', maxLength: 1024 },
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id', 'key'],
@@ -973,6 +1020,72 @@ export async function dispatchPlatformTool(
       });
     }
 
+    case 'data_r2_list_objects': {
+      // Flag-gated on the reserved per_site_r2 flag (dark → err, mirroring the Data-tab R2 404).
+      if (!(await isFlagOn(env, PER_SITE_R2_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site R2 is not enabled for this account.');
+      }
+      const { site_id, prefix, cursor, limit, environment } = DataR2ListObjectsInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF bucket name —
+      // the caller named only site_id; the bucket is server-resolved from the registry.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveR2Scope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // CLAMP (never reject) to the SAME [1, 1000] bound R2 pages at; the adapter clamps too.
+      const result = await r2Adapter.list(scoped.scope, {
+        cursor,
+        limit: typeof limit === 'number' ? Math.max(1, Math.min(1000, Math.trunc(limit))) : undefined,
+        prefix,
+      });
+      if (!result.ok) return err(result.error?.message ?? 'Could not list R2 objects.');
+      return ok({
+        site_id,
+        environment,
+        bucketName: scoped.scope.resourceId,
+        count: result.data?.objects.length ?? 0,
+        truncated: result.data?.truncated ?? false,
+        cursor: result.data?.cursor,
+        objects: result.data?.objects ?? [],
+      });
+    }
+
+    case 'data_r2_head_object': {
+      if (!(await isFlagOn(env, PER_SITE_R2_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site R2 is not enabled for this account.');
+      }
+      const { site_id, key, environment } = DataR2HeadObjectInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveR2Scope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // METADATA ONLY — the adapter never returns object bytes; a large download is a later signed-URL pass.
+      const result = await r2Adapter.get(scoped.scope, { key });
+      if (!result.ok) return err(result.error?.message ?? 'Could not read the R2 object metadata.');
+      return ok({
+        site_id,
+        environment,
+        bucketName: scoped.scope.resourceId,
+        key,
+        found: result.data?.found ?? false,
+        size: result.data?.size,
+        etag: result.data?.etag,
+        contentType: result.data?.contentType,
+        uploaded: result.data?.uploaded,
+        httpMetadata: result.data?.httpMetadata,
+        customMetadata: result.data?.customMetadata,
+        metadataOnly: true,
+      });
+    }
+
     default:
       return err(`Tool '${name}' is advertised but not yet wired.`);
   }
@@ -1012,6 +1125,55 @@ async function resolveKvScope(
   }
   const auth = await resolveCfCredentials(env, orgId);
   if (!auth) return { message: 'Could not open the site KV namespace.', ok: false };
+  return {
+    ok: true,
+    scope: {
+      accessPolicy: resolved.accessPolicy,
+      accountId: resolved.accountId,
+      auth,
+      environment,
+      orgId,
+      resourceId: resolved.resourceId,
+      siteId,
+    },
+  };
+}
+
+/**
+ * Resolve a site's OWN dedicated R2 bucket into a {@link ResolvedScope} for the r2 adapter, SERVER-SIDE.
+ * The caller already proved org ownership (the dispatcher's `WHERE id=? AND org_id=?` gate); this maps the
+ * OWNED `(site, environment, kind='r2')` to its registry-recorded CF bucket name via `resolveResourceRef`
+ * (the same resolver the routes use — no CF bucket name is ever accepted from the client), then attaches
+ * server-side credentials + account. The account-wide R2 credentials NEVER reach the client. An honest
+ * failure (per-site R2 is INERT until provisioned, so a blank site has no `r2` registry row) returns a
+ * typed, user-safe message — NEVER a fabricated bucket. Mirrors {@link resolveKvScope} exactly.
+ */
+async function resolveR2Scope(
+  env: Env,
+  siteId: string,
+  orgId: string,
+  environment: 'preview' | 'production',
+): Promise<
+  | { ok: true; scope: import('../data_resource_registry/adapter.js').ResolvedScope }
+  | { ok: false; message: string }
+> {
+  // The ownership gate already passed in the dispatcher; pass an always-true guard so the resolver does
+  // not re-query (it still re-scopes the registry lookup on siteId + orgId + kind='r2').
+  const resolved = await resolveResourceRef(
+    env,
+    siteId,
+    { environment, kind: 'r2' },
+    { orgId, ownsSite: async () => true },
+  );
+  if (!resolved.ok) {
+    // not_registered = per-site R2 not provisioned yet (backend-ready but INERT). Honest, not a leak.
+    if (resolved.reason === 'not_registered') {
+      return { message: 'This site does not have an R2 bucket yet.', ok: false };
+    }
+    return { message: 'Could not open the site R2 bucket.', ok: false };
+  }
+  const auth = await resolveCfCredentials(env, orgId);
+  if (!auth) return { message: 'Could not open the site R2 bucket.', ok: false };
   return {
     ok: true,
     scope: {
