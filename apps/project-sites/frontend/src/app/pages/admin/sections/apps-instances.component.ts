@@ -702,7 +702,7 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
                   {{ logs().length }} lines · {{ pollingLabel() }}
                 </span>
                 <button class="btn-tiny" type="button" (click)="refreshLogs()" [disabled]="logsLoading()" [attr.aria-label]="logsLoading() ? 'Refreshing logs' : 'Refresh logs'">
-                  {{ logsLoading() ? 'Refreshing…' : 'Refresh' }}
+                  <span class="inline-block text-center min-w-[11ch]">{{ logsLoading() ? 'Refreshing…' : 'Refresh' }}</span>
                 </button>
               </div>
             </header>

@@ -1531,6 +1531,13 @@ function sparklinePath(
         min-width: 110px;
         justify-content: center;
       }
+      /* Reserve the width of the LONGEST label ("Refreshing", 10ch) so the button
+         never resizes when the text toggles Refresh ↔ Refreshing (rule:
+         buttons-accommodate-largest-text). 110px above is only a floor. */
+      .refresh-btn span {
+        min-width: 10ch;
+        text-align: center;
+      }
       .refresh-btn .spinning {
         animation: spin 1.2s linear infinite;
       }

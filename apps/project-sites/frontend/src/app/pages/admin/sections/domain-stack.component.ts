@@ -85,7 +85,7 @@ interface StackAdvanceResponse {
           }
           @if (runId()) {
             <button class="btn-ghost text-xs ds-focus" type="button" (click)="refresh()" [disabled]="loading()"
-                    [attr.aria-busy]="loading()" aria-label="Refresh stack status">{{ loading() ? 'Refreshing…' : 'Refresh' }}</button>
+                    [attr.aria-busy]="loading()" aria-label="Refresh stack status"><span class="inline-block text-center min-w-[11ch]">{{ loading() ? 'Refreshing…' : 'Refresh' }}</span></button>
           }
         </div>
       </header>

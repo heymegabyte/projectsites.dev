@@ -326,7 +326,7 @@ import { toCsv, downloadText } from '../../../utils/csv-export';
                 data-testid="db-refresh"
                 aria-label="Refresh rows"
               >
-                {{ rowsLoading() ? 'Loading…' : 'Refresh' }}
+                <span class="inline-block text-center min-w-[8ch]">{{ rowsLoading() ? 'Loading…' : 'Refresh' }}</span>
               </button>
             </div>
           </div>
