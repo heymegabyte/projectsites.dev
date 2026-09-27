@@ -115,6 +115,38 @@ export const DataReconcileResourcesInput = z
   })
   .strict();
 
+/**
+ * `data_list_tables` + `data_read_table` — the per-site D1 READ surface (MCP parity with the
+ * editor's SiteTablesPanel / the `/api/sites/:id/db/tables` endpoint). A caller names ONLY the
+ * OWNED `site_id` (NEVER a CF/database id — the db is server-resolved from `site_database_allocations`)
+ * plus the optional environment. `.strict()` rejects any attempt to smuggle a `databaseId`/`accountId`.
+ * Ownership + isolation + `per_site_data` flag-gate are enforced server-side in the dispatcher,
+ * mirroring the per-site D1 Tables surface.
+ */
+export const DataListTablesInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * Browse one table's rows (paginated) from the OWNED site's own D1. `limit`/`offset` are LENIENT
+ * here — a positive-int `limit` and a non-negative `offset` — because the dispatcher CLAMPS them to
+ * `[1, 200]` / `[0, ∞)` (matching the `/api/sites/:id/db/tables/:table` endpoint) rather than
+ * REJECTING an over-limit request. A `.max(200)` bound would throw on `limit=201`; the endpoint
+ * instead serves 200 rows. `.strict()` still rejects unknown keys (no `databaseId` smuggling).
+ */
+export const DataReadTableInput = z
+  .object({
+    site_id: z.string().min(1),
+    table: z.string().min(1),
+    limit: z.number().int().positive().optional(),
+    offset: z.number().int().min(0).optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
 export type ListSitesArgs = z.infer<typeof ListSitesInput>;
 export type GetSiteArgs = z.infer<typeof GetSiteInput>;
 export type BuildStatusArgs = z.infer<typeof BuildStatusInput>;
@@ -123,3 +155,5 @@ export type TailLogsArgs = z.infer<typeof TailLogsInput>;
 export type SetDomainArgs = z.infer<typeof SetDomainInput>;
 export type DataListResourcesArgs = z.infer<typeof DataListResourcesInput>;
 export type DataReconcileResourcesArgs = z.infer<typeof DataReconcileResourcesInput>;
+export type DataListTablesArgs = z.infer<typeof DataListTablesInput>;
+export type DataReadTableArgs = z.infer<typeof DataReadTableInput>;

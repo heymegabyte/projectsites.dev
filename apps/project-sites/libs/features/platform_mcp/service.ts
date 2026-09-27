@@ -20,6 +20,13 @@ import { hasScope } from '../../../src/services/api_tokens.js';
 import { provisionCustomDomain, checkCnameTarget } from '../../../src/services/domains.js';
 import { getOrgEntitlements } from '../../../src/services/billing.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
+import {
+  isSafeIdent,
+  listSiteTables,
+  quoteIdent,
+  resolveSiteDataDb,
+  SiteDataD1Error,
+} from '../../../src/services/site_data_db.js';
 import { listResources } from '../data_resource_registry/service.js';
 import {
   ListSitesInput,
@@ -30,10 +37,18 @@ import {
   SetDomainInput,
   DataListResourcesInput,
   DataReconcileResourcesInput,
+  DataListTablesInput,
+  DataReadTableInput,
 } from './schemas.js';
 
 /** Flag gating the Data & Resource Platform MCP tools (registry read surface). */
 const DATA_RESOURCE_FLAG = 'data_resource_platform';
+
+/**
+ * Flag gating the per-site D1 READ tools — the SAME flag the `/api/sites/:id/db/tables` endpoint
+ * uses (`site_db_handlers.ts`). DARK → the tools err (mirroring the endpoint's 404), never leak.
+ */
+const PER_SITE_DATA_FLAG = 'per_site_data';
 
 /** Mirrors DOMAINS.SITES_SUFFIX — the public site subdomain suffix. */
 const SITES_SUFFIX = '.projectsites.dev';
@@ -293,6 +308,39 @@ export const PLATFORM_MCP_TOOLS = [
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_list_tables',
+    description:
+      "List the tables in one of your sites' OWN dedicated database (the same per-site D1 the editor's Data tab shows). Blank until you create tables. You name only the site_id (+ optional environment) — never a database id; the database is resolved server-side and is isolated to your site.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_read_table',
+    description:
+      "Read rows from one table in your site's OWN database (paginated: limit 1-200, offset). Returns the column schema, the rows, and the total row count. Scoped to the site_id you own; the database is server-resolved, never named by you.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        table: { type: 'string' },
+        limit: { type: 'number', minimum: 1, maximum: 200, default: 50 },
+        offset: { type: 'number', minimum: 0, default: 0 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'table'],
       additionalProperties: false,
     },
   },
@@ -731,6 +779,91 @@ export async function dispatchPlatformTool(
         drift_count: totalDrift,
         kinds,
       });
+    }
+
+    case 'data_list_tables': {
+      // Flag-gated on the SAME flag the db/tables endpoint uses (dark → err, mirroring its 404).
+      if (!(await isFlagOn(env, PER_SITE_DATA_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site data is not enabled for this account.');
+      }
+      const { site_id, environment } = DataListTablesInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF/db id —
+      // the caller named only site_id; resolveSiteDataDb server-resolves + isolates the database.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const resolved = await resolveSiteDataDb(env, site_id, { orgId });
+      if (!resolved || !resolved.ok) return err('Could not open the site database.');
+      try {
+        const tables = await listSiteTables(resolved.db);
+        return ok({
+          site_id,
+          environment,
+          databaseId: resolved.databaseId,
+          provisioned: resolved.provisioned,
+          count: tables.length,
+          tables: tables.map((tableName) => ({ name: tableName })),
+        });
+      } catch (e) {
+        if (e instanceof SiteDataD1Error) return err('Could not read site tables.');
+        throw e;
+      }
+    }
+
+    case 'data_read_table': {
+      if (!(await isFlagOn(env, PER_SITE_DATA_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site data is not enabled for this account.');
+      }
+      const { site_id, table, limit: rawLimit, offset: rawOffset, environment } =
+        DataReadTableInput.parse(args);
+      // CLAMP (never reject) to the SAME bounds the /api/sites/:id/db/tables/:table endpoint uses:
+      // limit ∈ [1, 200] default 50; offset ≥ 0 default 0. An over-limit request SUCCEEDS clamped.
+      const limit = Math.max(1, Math.min(200, Math.trunc(rawLimit ?? 50)));
+      const offset = Math.max(0, Math.trunc(rawOffset ?? 0));
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      // D1 REST cannot bind an identifier — validate the table name against the allowlist first.
+      if (!isSafeIdent(table)) return err('Invalid table name.');
+      const resolved = await resolveSiteDataDb(env, site_id, { orgId });
+      if (!resolved || !resolved.ok) return err('Could not open the site database.');
+      try {
+        // Confirm the table exists in THIS site's DB (clean err instead of a raw SQL error).
+        // Guard against a non-array result (never `.includes` on undefined) so a resolver quirk
+        // becomes a clean err() envelope, not an uncaught throw that drops the MCP content[].
+        const tables = await listSiteTables(resolved.db);
+        if (!Array.isArray(tables) || !tables.includes(table)) return err('Table not found.');
+        const q = quoteIdent(table);
+        // Same query the /api/sites/:id/db/tables/:table endpoint runs: count + rows + column schema.
+        const [countRes, rowsRes, colRes] = await Promise.all([
+          resolved.db.query<{ n: number }>(`SELECT COUNT(*) AS n FROM ${q}`),
+          resolved.db.query(`SELECT * FROM ${q} LIMIT ? OFFSET ?`, [limit, offset]),
+          resolved.db.query<{ name: string; type: string; notnull: number; pk: number }>(
+            `SELECT name, type, "notnull", pk FROM pragma_table_info(?)`,
+            [table],
+          ),
+        ]);
+        const total = Number(countRes.results[0]?.n ?? 0);
+        return ok({
+          site_id,
+          environment,
+          table,
+          columns: colRes.results,
+          limit,
+          offset,
+          total,
+          rows: rowsRes.results,
+        });
+      } catch (e) {
+        if (e instanceof SiteDataD1Error) return err('Could not read table rows.');
+        throw e;
+      }
     }
 
     default:

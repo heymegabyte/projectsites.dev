@@ -124,8 +124,18 @@ export function quoteIdent(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
-/** Build the executor bound to one database id. Internal — reach it via {@link resolveSiteDataDb}. */
-function makeExecutor(auth: CfAuth, account: string, databaseId: string): SiteDataD1 {
+/**
+ * Build the executor bound to one database id via the CF REST D1 `/query` API. The **low-level query
+ * mechanism** shared by both the resolve-and-provision path here ({@link resolveSiteDataDb}) and the
+ * data-resource-registry `d1` adapter, which operates on an ALREADY-RESOLVED scope and so must NOT
+ * re-resolve — it builds its own executor from the resolved `{ auth, accountId, resourceId }`. Both
+ * therefore execute through the exact same single-statement, 5xx-retrying REST `/query` path.
+ *
+ * @param auth - CF auth (from `resolveCfCredentials` upstream — never client-supplied)
+ * @param account - CF account id (`env.CF_ACCOUNT_ID`)
+ * @param databaseId - the ONE per-site database id this executor targets (caller MUST NOT pass a shared id)
+ */
+export function makeSiteDataExecutor(auth: CfAuth, account: string, databaseId: string): SiteDataD1 {
   return {
     databaseId,
     async query<T = SiteDataRow>(
@@ -219,7 +229,7 @@ export async function resolveSiteDataDb(
   const account = env.CF_ACCOUNT_ID;
   if (!account) return { ok: false, reason: 'no_account_id' };
 
-  return { databaseId, db: makeExecutor(auth, account, databaseId), ok: true, provisioned };
+  return { databaseId, db: makeSiteDataExecutor(auth, account, databaseId), ok: true, provisioned };
 }
 
 /**
