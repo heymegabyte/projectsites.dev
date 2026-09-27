@@ -34,6 +34,7 @@ import { vectorizeAdapter } from '../data_resource_registry/adapters/vectorize.j
 import { connectionAdapter } from '../data_resource_registry/adapters/connection.js';
 import { workflowAdapter } from '../data_resource_registry/adapters/workflow.js';
 import { durableObjectAdapter } from '../data_resource_registry/adapters/durable_object.js';
+import { queueAdapter } from '../data_resource_registry/adapters/queue.js';
 import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 import {
   ListSitesInput,
@@ -58,6 +59,8 @@ import {
   DataWorkflowGetInstanceInput,
   DataDurableObjectsListInput,
   DataDurableObjectDescribeInput,
+  DataQueuesListInput,
+  DataQueueDescribeInput,
 } from './schemas.js';
 
 /** Flag gating the Data & Resource Platform MCP tools (registry read surface). */
@@ -136,6 +139,21 @@ const PER_SITE_WORKFLOWS_FLAG = 'per_site_workflows';
  * identity metadata ONLY — never a DO's private storage or in-memory state (no CF API can read it).
  */
 const PER_SITE_DURABLE_OBJECTS_FLAG = 'per_site_durable_objects';
+
+/**
+ * Flag gating the per-site Queues READ tools — the reserved `per_site_queues` flag (CAPABILITY-MATRIX.md
+ * § Queues / SECURITY-INVARIANTS.md). DARK → the tools err (mirroring the Backend-tab Queues surface's 404),
+ * never leak. Queues are UNSUPPORTED on this deployment — there is NO `QUEUE` binding (the code falls back to
+ * Workflows), and `queue` is in `UNSUPPORTED_KINDS` so `resolveResourceRef` returns `unsupported_kind`; a
+ * blank site records no queue allocation source, so it resolves no `queue` registry row → the tools honestly
+ * report Queues are not available / the queue is not provisioned. Mirrors `PER_SITE_R2_FLAG` exactly — a
+ * runtime gate CONSTANT (referenced via the constant, so the orphan-flag-gate checker, which only scans
+ * literal `isFlagOn(env,'x')` strings, does not require a registry row). ⛔ These tools surface CONFIG +
+ * METRICS only (consumers/delivery-retry/DLQ/backlog/paused), NEVER a message body or a "history" (peek ≠
+ * history, HARD FACT #1); the future pull verb LEASES + needs ack (HARD FACT #2) — never a browse. A caller
+ * can NEVER peek/ack/purge another site's messages — it only ever addresses the ONE server-resolved queue.
+ */
+const PER_SITE_QUEUES_FLAG = 'per_site_queues';
 
 /** Mirrors DOMAINS.SITES_SUFFIX — the public site subdomain suffix. */
 const SITES_SUFFIX = '.projectsites.dev';
@@ -622,6 +640,37 @@ export const PLATFORM_MCP_TOOLS = [
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id', 'id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_queues_list',
+    description:
+      "List your site's OWN Queue(s) + their consumers, delivery/retry settings, dead-letter queue, backlog/oldest-message metrics, and paused state (the same per-site Queues the editor's Backend tab shows). Returns each queue's CONFIG + METRICS + available (is Queues enabled on the account) + pullLeasesAndNeedsAck:true. ⛔ Returns CONFIG + METRICS ONLY — NEVER a message body or a 'history': a queue peek shows the CURRENT head, not a durable log (Cloudflare has no message-history API), and the pull consumer LEASES messages + needs ack (reading leases; unacked messages redeliver) — this read never leases. You name only the site_id (+ optional environment) — never a Cloudflare queue id and never an account id; the queue is resolved server-side and isolated to your site (you can never see another site's messages). Queues are NOT enabled on this deployment (no QUEUE binding) → honest 'not available / not provisioned' until Queues are enabled and your site has a queue.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_queue_describe',
+    description:
+      "Describe ONE of your site's queues: its config + metrics (name, paused, consumers, delivery/retry settings, dead-letter queue, backlog/oldest-message estimates). Returns { queueId, found, available, queue, messageHistoryAvailable:false }. ⛔ Returns CONFIG + METRICS ONLY — NEVER a message body or a 'history' (a peek shows the CURRENT head, not a durable log; Cloudflare has no message-history API, so messageHistoryAvailable is always false). The optional id is only an echo — the ONLY queue read is your site's server-resolved queue; a mismatching id can never widen to another queue. A missing queue is an honest found:false. Scoped to the site_id you own; the queue is server-resolved, never named by you.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        id: { type: 'string', maxLength: 256 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
       additionalProperties: false,
     },
   },
@@ -1562,6 +1611,73 @@ export async function dispatchPlatformTool(
       });
     }
 
+    case 'data_queues_list': {
+      // Flag-gated on the reserved per_site_queues flag (dark → err, mirroring the Backend-tab Queues 404).
+      if (
+        !(await isFlagOn(env, PER_SITE_QUEUES_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site Queues are not enabled for this account.');
+      }
+      const { site_id, environment } = DataQueuesListInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF queue id/account —
+      // the caller named only site_id; the queue id is server-resolved from the registry.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveQueueScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // ⛔ CONFIG + METRICS only — NEVER a message body or a "history" (peek ≠ history; pull = leases + ack).
+      const result = await queueAdapter.list(scoped.scope);
+      if (!result.ok) return err(result.error?.message ?? 'Could not list Queues.');
+      return ok({
+        site_id,
+        environment,
+        count: result.data?.queues.length ?? 0,
+        available: result.data?.available ?? false,
+        queues: result.data?.queues ?? [],
+        pullLeasesAndNeedsAck: true,
+      });
+    }
+
+    case 'data_queue_describe': {
+      if (
+        !(await isFlagOn(env, PER_SITE_QUEUES_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site Queues are not enabled for this account.');
+      }
+      const { site_id, id, environment } = DataQueueDescribeInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveQueueScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // The optional id is only an echo — the ONLY queue addressed is the scope's resolved queue, so a
+      // foreign queue is never read. ⛔ CONFIG + METRICS only — never a message body or a "history".
+      const result = await queueAdapter.get(scoped.scope, { id });
+      if (!result.ok) return err(result.error?.message ?? 'Could not describe the queue.');
+      return ok({
+        site_id,
+        environment,
+        queueId: result.data?.queueId,
+        found: result.data?.found ?? false,
+        available: result.data?.available ?? false,
+        queue: result.data?.queue,
+        messageHistoryAvailable: false,
+      });
+    }
+
     default:
       return err(`Tool '${name}' is advertised but not yet wired.`);
   }
@@ -1814,6 +1930,60 @@ async function resolveDurableObjectScope(
       environment,
       orgId,
       // The DO NAMESPACE id (server-resolved). The adapter filters/addresses ops to this namespace only.
+      resourceId: resolved.resourceId,
+      siteId,
+    },
+  };
+}
+
+/**
+ * Resolve a site's OWN Queue into a {@link ResolvedScope} for the queue adapter, SERVER-SIDE. The caller
+ * already proved org ownership (the dispatcher's `WHERE id=? AND org_id=?` gate); this maps the OWNED
+ * `(site, environment, kind='queue')` to its registry-recorded CF queue id via `resolveResourceRef` (the
+ * same resolver the routes use — no CF queue id is ever accepted from the client), then attaches server-side
+ * credentials + account. The adapter binds every read to this ONE queue id, so a caller can NEVER
+ * peek/ack/purge another site's messages. Queues are UNSUPPORTED on this deployment — there is NO `QUEUE`
+ * binding and `queue` ∈ `UNSUPPORTED_KINDS`, so `resolveResourceRef` returns `unsupported_kind`; a blank
+ * site records no queue allocation source, so it has no `queue` registry row → an honest failure returns a
+ * typed, user-safe message — NEVER a fabricated queue, and NEVER a message body. Mirrors
+ * {@link resolveDurableObjectScope} exactly.
+ */
+async function resolveQueueScope(
+  env: Env,
+  siteId: string,
+  orgId: string,
+  environment: 'preview' | 'production',
+): Promise<
+  | { ok: true; scope: import('../data_resource_registry/adapter.js').ResolvedScope }
+  | { ok: false; message: string }
+> {
+  // The ownership gate already passed in the dispatcher; pass an always-true guard so the resolver does not
+  // re-query (it still re-scopes the registry lookup on siteId + orgId + kind='queue').
+  const resolved = await resolveResourceRef(
+    env,
+    siteId,
+    { environment, kind: 'queue' },
+    { orgId, ownsSite: async () => true },
+  );
+  if (!resolved.ok) {
+    // unsupported_kind = Queues not enabled on this deployment (no QUEUE binding); not_registered = no
+    // per-site queue. Both are honest "not available", NEVER a fake empty queue.
+    if (resolved.reason === 'unsupported_kind' || resolved.reason === 'not_registered') {
+      return { message: 'This site does not have a queue yet.', ok: false };
+    }
+    return { message: 'Could not open the site queue.', ok: false };
+  }
+  const auth = await resolveCfCredentials(env, orgId);
+  if (!auth) return { message: 'Could not open the site queue.', ok: false };
+  return {
+    ok: true,
+    scope: {
+      accessPolicy: resolved.accessPolicy,
+      accountId: resolved.accountId,
+      auth,
+      environment,
+      orgId,
+      // The queue id (server-resolved). The adapter binds every read to this ONE queue — no cross-site access.
       resourceId: resolved.resourceId,
       siteId,
     },

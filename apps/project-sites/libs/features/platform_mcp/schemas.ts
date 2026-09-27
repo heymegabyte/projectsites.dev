@@ -348,6 +348,41 @@ export const DataDurableObjectDescribeInput = z
   })
   .strict();
 
+/**
+ * `data_queues_list` — list the OWNED site's Queue(s) + their consumers/delivery-retry settings/DLQ/backlog
+ * metrics/paused state (CONFIG + METRICS only), MCP parity with the Backend tab's Queues surface. A caller
+ * names ONLY the OWNED `site_id` (NEVER a CF queue id AND never an account id — the queue id is
+ * server-resolved from the site's registry row) plus the optional environment. `.strict()` rejects any
+ * attempt to smuggle a `queue`/`queueId`/`accountId`. Ownership + isolation + `per_site_queues` flag-gate are
+ * enforced server-side in the dispatcher, mirroring the per-site D1/KV/R2/Vectorize/Workflows/DO surfaces.
+ * ⛔ Queues are UNSUPPORTED on this deployment (no `QUEUE` binding) → honest 'not available / not
+ * provisioned' until Queues are enabled + the site has a queue row. peek ≠ history; pull = leases + ack —
+ * this read pass returns config + metrics ONLY, never a message body.
+ */
+export const DataQueuesListInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_queue_describe` — read ONE queue's CONFIG + METRICS (name/paused/consumers/DLQ/backlog) from the
+ * OWNED site's queue. A caller names ONLY the OWNED `site_id` (the queue is server-resolved from the site's
+ * registry row — a foreign queue can't be read) plus an OPTIONAL `id` echo and the optional environment.
+ * `id` is optional + non-identifier: the ONLY queue addressed is the site's resolved queue; a mismatching
+ * echo can NEVER widen to another queue. `.strict()` rejects unknown keys (no `queue`/`accountId`
+ * smuggling). ⛔ Returns CONFIG + METRICS ONLY — NEVER a message body or a "history" (peek ≠ history, HARD
+ * FACT #1). A missing queue is an honest `found:false`, never an error.
+ */
+export const DataQueueDescribeInput = z
+  .object({
+    site_id: z.string().min(1),
+    id: z.string().min(1).max(256).optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
 export type ListSitesArgs = z.infer<typeof ListSitesInput>;
 export type GetSiteArgs = z.infer<typeof GetSiteInput>;
 export type BuildStatusArgs = z.infer<typeof BuildStatusInput>;
@@ -370,3 +405,5 @@ export type DataWorkflowsListArgs = z.infer<typeof DataWorkflowsListInput>;
 export type DataWorkflowGetInstanceArgs = z.infer<typeof DataWorkflowGetInstanceInput>;
 export type DataDurableObjectsListArgs = z.infer<typeof DataDurableObjectsListInput>;
 export type DataDurableObjectDescribeArgs = z.infer<typeof DataDurableObjectDescribeInput>;
+export type DataQueuesListArgs = z.infer<typeof DataQueuesListInput>;
+export type DataQueueDescribeArgs = z.infer<typeof DataQueueDescribeInput>;

@@ -39,6 +39,7 @@ import { connectionAdapter } from './adapters/connection.js';
 import { d1Adapter } from './adapters/d1.js';
 import { durableObjectAdapter } from './adapters/durable_object.js';
 import { kvAdapter } from './adapters/kv.js';
+import { queueAdapter } from './adapters/queue.js';
 import { r2Adapter } from './adapters/r2.js';
 import { vectorizeAdapter } from './adapters/vectorize.js';
 import { workflowAdapter } from './adapters/workflow.js';
@@ -86,6 +87,14 @@ const IMPLEMENTED_ADAPTERS: Partial<
   // CLASS namespace via the CF management REST API filtered to the resolved namespace id). Honest, never
   // fabricated — the adapter surfaces namespaces/ids, never object state.
   durable_object: durableObjectAdapter,
+  // queue: read-only adapter wired. Queues are UNSUPPORTED on this deployment — there is NO `QUEUE` binding
+  // (both producer + consumer blocks commented), the code falls back to Workflows, and `queue` is in
+  // `UNSUPPORTED_KINDS` so `resolveResourceRef` returns `unsupported_kind` UPSTREAM. `readAllocationSources`
+  // records NO queue allocation source, so a blank site never gets a `queue` registry row. This map entry
+  // only head-drift-checks a `queue` row if one already exists (its `head` probes the queue via the CF Queues
+  // REST API bound to the resolved queue id). Honest, never fabricated — the adapter surfaces config +
+  // metrics only, never a message body or a "history" (peek ≠ history; pull = leases + ack).
+  queue: queueAdapter,
 };
 
 /** One recorded allocation: which kind, and the CF id/name the source row actually holds. */
