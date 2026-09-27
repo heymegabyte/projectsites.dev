@@ -701,7 +701,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       border-bottom: 1px solid rgba(255,255,255,0.05);
       font-size: 0.74rem;
     }
-    .env-value-cell { display: flex; justify-content: flex-end; }
+    .env-value-cell { display: flex; justify-content: flex-start; }
     .env-value-cell .env-auto { white-space: nowrap; }
     /* Editable env value — customize before deploy. */
     .env-input {
