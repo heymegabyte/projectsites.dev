@@ -72,6 +72,21 @@ jest.mock('../services/db.js', () => ({
   dbExecute: jest.fn(),
 }));
 
+// Domain service — mock the CF/DNS boundary so the domain endpoints test deterministically.
+jest.mock('../services/domains.js', () => ({
+  checkCnameTarget: jest.fn(),
+  createCustomHostname: jest.fn(),
+  checkDomainAvailability: jest.fn(),
+  deleteCustomHostname: jest.fn().mockResolvedValue(undefined),
+}));
+
+// Host-resolver KV writers — no-op in tests (KV mock covers reads).
+jest.mock('../services/app_host_resolver.js', () => ({
+  clearAppHost: jest.fn().mockResolvedValue(undefined),
+  setAppHost: jest.fn().mockResolvedValue(undefined),
+  defaultAppHostname: (s: string) => `${s}.app.projectsites.dev`,
+}));
+
 // Stub the DO-subclass module so the route import doesn't pull in the
 // `@cloudflare/containers` ESM package (which jest can't transform). We
 // mirror the real SUPPORTED_APP_SLUGS so the supported/unsupported
@@ -103,6 +118,15 @@ import { writeAuditLog } from '../services/audit.js';
 import { provisionInfra, deprovisionInfra } from '../services/app_provisioner.js';
 import * as dispatcher from '../services/container_dispatcher.js';
 import { dbQuery, dbQueryOne, dbInsert, dbUpdate, dbExecute } from '../services/db.js';
+import {
+  checkCnameTarget,
+  createCustomHostname,
+  checkDomainAvailability,
+} from '../services/domains.js';
+
+const mockCname = checkCnameTarget as unknown as jest.Mock;
+const mockCreateHost = createCustomHostname as unknown as jest.Mock;
+const mockAvail = checkDomainAvailability as unknown as jest.Mock;
 
 const mockProvision = provisionInfra as unknown as jest.Mock;
 const mockDeprovision = deprovisionInfra as unknown as jest.Mock;
@@ -768,5 +792,174 @@ describe('DELETE /api/apps/instances/:id', () => {
     });
     expect(mockDbExecute).toHaveBeenCalledTimes(1);
     expect(mockAudit.mock.calls[0][1]).toMatchObject({ action: 'apps.instance.destroyed' });
+  });
+});
+
+// ─── URL & domain management (slug rename · CNAME · custom domains) ────────────
+
+describe('POST /api/apps/instances/:id/slug (rename)', () => {
+  it('renames the subdomain when free + returns the new host', async () => {
+    mockDbQueryOne.mockResolvedValueOnce(instanceRow()); // loadInstance
+    mockDbQueryOne.mockResolvedValueOnce(null); // no clash
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/slug',
+      jsonInit('POST', { subdomain: 'renamed-app' }),
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { ok: boolean; subdomain: string; host: string };
+    expect(json).toMatchObject({ ok: true, subdomain: 'renamed-app' });
+    expect(mockDbUpdate.mock.calls[0][2]).toMatchObject({ subdomain: 'renamed-app' });
+    expect(mockAudit.mock.calls[0][1]).toMatchObject({ action: 'apps.instance.renamed' });
+  });
+
+  it('rejects a subdomain already taken by another instance', async () => {
+    mockDbQueryOne.mockResolvedValueOnce(instanceRow()); // loadInstance
+    mockDbQueryOne.mockResolvedValueOnce({ id: 'other-inst' }); // clash
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/slug',
+      jsonInit('POST', { subdomain: 'taken' }),
+      makeEnv(),
+    );
+    expect(res.status).toBe(400);
+    expect(mockDbUpdate).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid subdomain format', async () => {
+    mockDbQueryOne.mockResolvedValueOnce(instanceRow());
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/slug',
+      jsonInit('POST', { subdomain: '-bad-' }),
+      makeEnv(),
+    );
+    expect(res.status).toBe(400);
+    expect(mockDbUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/apps/instances/:id/cname-check', () => {
+  it('ok:true when the CNAME resolves to projectsites.dev', async () => {
+    mockDbQueryOne.mockResolvedValue(instanceRow());
+    mockCname.mockResolvedValue('proxy.projectsites.dev');
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/cname-check?domain=cms.acme.com',
+      { method: 'GET' },
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { ok: boolean }).toMatchObject({ ok: true });
+  });
+
+  it('ok:false when the CNAME is missing / wrong target', async () => {
+    mockDbQueryOne.mockResolvedValue(instanceRow());
+    mockCname.mockResolvedValue(null);
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/cname-check?domain=cms.acme.com',
+      { method: 'GET' },
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { ok: boolean }).toMatchObject({ ok: false });
+  });
+});
+
+describe('GET /api/apps/instances/:id/domain-availability', () => {
+  it('reports availability + price from the registrar check', async () => {
+    mockDbQueryOne.mockResolvedValue(instanceRow());
+    mockAvail.mockResolvedValue([{ name: 'acme.com', tld: 'com', available: true, price_usd: 9.77 }]);
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/domain-availability?domain=acme.com',
+      { method: 'GET' },
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { available: boolean; price_usd: number }).toMatchObject({
+      available: true,
+      price_usd: 9.77,
+    });
+  });
+});
+
+describe('custom domains (attach · list · primary · detach)', () => {
+  it('rejects attach when the CNAME is not pointed yet', async () => {
+    mockDbQueryOne.mockResolvedValue(instanceRow());
+    mockCname.mockResolvedValue(null);
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/domains',
+      jsonInit('POST', { domain: 'cms.acme.com' }),
+      makeEnv(),
+    );
+    expect(res.status).toBe(400);
+    expect(mockCreateHost).not.toHaveBeenCalled();
+  });
+
+  it('attaches a pointed domain: provisions the CF hostname + persists it as primary', async () => {
+    mockDbQueryOne.mockResolvedValue(instanceRow());
+    mockCname.mockResolvedValue('proxy.projectsites.dev');
+    mockCreateHost.mockResolvedValue({ cf_id: 'cf-1', status: 'pending', ssl_status: 'pending' });
+    mockDbQuery.mockResolvedValue({ data: [{ n: 0 }], error: null }); // 0 existing → primary
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/domains',
+      jsonInit('POST', { domain: 'cms.acme.com' }),
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    expect(mockCreateHost).toHaveBeenCalledWith(expect.anything(), 'cms.acme.com');
+    // INSERT with is_primary = 1 (the 6th positional param), first domain becomes primary.
+    const insertCall = mockDbExecute.mock.calls.find((c) => String(c[1]).includes('INSERT INTO app_instance_domains'));
+    expect(insertCall?.[2]?.[5]).toBe(1);
+    expect(mockAudit.mock.calls[0][1]).toMatchObject({ action: 'apps.instance.domain_attached' });
+  });
+
+  it('lists attached domains with their primary + ssl state', async () => {
+    mockDbQueryOne.mockResolvedValue(instanceRow());
+    mockDbQuery.mockResolvedValue({
+      data: [{ domain: 'cms.acme.com', is_primary: 1, status: 'active', ssl_status: 'active' }],
+      error: null,
+    });
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/domains',
+      { method: 'GET' },
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { domains: Array<{ domain: string; primary: boolean }> };
+    expect(json.domains[0]).toMatchObject({ domain: 'cms.acme.com', primary: true });
+  });
+
+  it('set-primary 404s a domain not attached to the instance', async () => {
+    mockDbQueryOne.mockResolvedValueOnce(instanceRow()); // loadInstance
+    mockDbQueryOne.mockResolvedValueOnce(null); // owned check → not found
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/domains/primary',
+      jsonInit('POST', { domain: 'nope.com' }),
+      makeEnv(),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('detaches an attached domain (single-primary promote path)', async () => {
+    mockDbQueryOne.mockResolvedValueOnce(instanceRow()); // loadInstance
+    mockDbQueryOne.mockResolvedValueOnce({ cf_hostname_id: 'cf-1', is_primary: 0 }); // owned
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/domains?domain=cms.acme.com',
+      { method: 'DELETE' },
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const del = mockDbExecute.mock.calls.find((c) => String(c[1]).includes('DELETE FROM app_instance_domains'));
+    expect(del).toBeTruthy();
+    expect(mockAudit.mock.calls[0][1]).toMatchObject({ action: 'apps.instance.domain_detached' });
   });
 });
