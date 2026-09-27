@@ -37,7 +37,7 @@ import {
   provisionPayloadStack,
 } from '../services/cloudflare_provisioner.js';
 import { dispatchToUserWorker } from '../services/wfp_dispatch.js';
-import { checkCnameTarget, createCustomHostname } from '../services/domains.js';
+import { checkCnameTarget, createCustomHostname, checkDomainAvailability } from '../services/domains.js';
 
 export const apps = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -1321,6 +1321,70 @@ apps.post('/api/apps/instances/:id/domains', async (c) => {
     request_id: c.get('requestId'),
   });
   return c.json({ ok: true, domain, ssl_status: cf.ssl_status, status: cf.status });
+});
+
+/**
+ * `GET /api/apps/instances/:id/domain-availability?domain=` — Is `domain` free to REGISTER?
+ * (RDAP; powers the "don't have a domain? register one at GoDaddy" flow.) Read-only.
+ */
+apps.get('/api/apps/instances/:id/domain-availability', async (c) => {
+  const { orgId } = requireAuth(c);
+  const row = await loadInstance(c.env, orgId, c.req.param('id'));
+  if (!row) throw notFound('app_instance not found');
+  const domain = (c.req.query('domain') ?? '').trim().toLowerCase().replace(/\.$/, '');
+  if (!/^[a-z0-9-]+\.[a-z]{2,}$/.test(domain)) {
+    throw badRequest('Enter a domain to register, e.g. example.com');
+  }
+  const res = await checkDomainAvailability(c.env, [domain]);
+  if (!Array.isArray(res)) return c.json({ domain, available: false, price_usd: 0, error: res.error });
+  const a = res[0];
+  return c.json({ domain, available: a?.available ?? false, price_usd: a?.price_usd ?? 0 });
+});
+
+/**
+ * `GET /api/apps/instances/:id/domain-status?domain=` — Live connection state for a custom
+ * domain: is the CNAME pointed AND is the TLS cert active? Drives the live "Connected ✓" ladder.
+ * Reads CF custom_hostnames by NAME (no stored cf_id needed). Read-only, safe to poll.
+ *
+ * phase: `awaiting_dns` → `pointed` (CNAME ok, not attached) → `certifying` → `connected`.
+ */
+apps.get('/api/apps/instances/:id/domain-status', async (c) => {
+  const { orgId } = requireAuth(c);
+  const row = await loadInstance(c.env, orgId, c.req.param('id'));
+  if (!row) throw notFound('app_instance not found');
+  const domain = (c.req.query('domain') ?? '').trim().toLowerCase().replace(/\.$/, '');
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) throw badRequest('Provide a valid domain.');
+  const target = await checkCnameTarget(domain);
+  const dnsOk = !!target && /(^|\.)projectsites\.dev$/.test(target.toLowerCase());
+  let chStatus = 'none';
+  let sslStatus = 'none';
+  try {
+    const r = await fetch(
+      `https://api.cloudflare.com/client/v4/zones/${c.env.CF_ZONE_ID}/custom_hostnames?hostname=${encodeURIComponent(domain)}`,
+      { headers: { Authorization: `Bearer ${c.env.CF_API_TOKEN}` } },
+    );
+    if (r.ok) {
+      const j = (await r.json()) as {
+        result?: Array<{ status?: string; ssl?: { status?: string } }>;
+      };
+      const rec = j.result?.[0];
+      if (rec) {
+        chStatus = rec.status ?? 'pending';
+        sslStatus = rec.ssl?.status ?? 'pending';
+      }
+    }
+  } catch {
+    /* soft — the client polls again */
+  }
+  const connected = dnsOk && sslStatus === 'active';
+  const phase = connected
+    ? 'connected'
+    : !dnsOk
+      ? 'awaiting_dns'
+      : chStatus === 'none'
+        ? 'pointed'
+        : 'certifying';
+  return c.json({ domain, target, dnsOk, chStatus, sslStatus, connected, phase });
 });
 
 /**

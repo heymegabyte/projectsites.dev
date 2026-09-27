@@ -100,16 +100,21 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
             @if (domain().length > 3) {
               @switch (cnameState()) {
                 @case ('ok') {
-                  <div class="dm-help dm-ok">✓ CNAME points to projectsites.dev — ready to attach.</div>
-                  <button type="button" class="dm-btn dm-btn--primary" (click)="attach()" [disabled]="busy()"
-                          data-testid="domain-manager-attach">
-                    {{ busy() ? 'Provisioning…' : 'Attach + issue certificate' }}
-                  </button>
+                  @if (phase() !== 'certifying' && phase() !== 'connected') {
+                    <div class="dm-help dm-ok">✓ CNAME points to projectsites.dev — ready to attach.</div>
+                    <button type="button" class="dm-btn dm-btn--primary" (click)="attach()" [disabled]="busy()"
+                            data-testid="domain-manager-attach">
+                      {{ busy() ? 'Provisioning…' : 'Attach + issue certificate' }}
+                    </button>
+                  }
                 }
                 @case ('checking') { <div class="dm-help">Checking DNS…</div> }
                 @default {
                   <div class="dm-instructions">
-                    <div class="dm-help dm-bad">Not pointed yet. Add this DNS record at your provider:</div>
+                    <div class="dm-help dm-bad">Not pointed yet — add this DNS record at your registrar:</div>
+                    @if (isApex()) {
+                      <div class="dm-help dm-warn">⚠ Apex domains can't CNAME at most registrars. Use <strong>www.{{ domain() }}</strong>, or a registrar with CNAME flattening / ALIAS (Cloudflare supports it).</div>
+                    }
                     <div class="dm-record">
                       <span class="dm-record-cell"><span class="dm-k">Type</span>CNAME</span>
                       <span class="dm-record-cell"><span class="dm-k">Name</span>{{ recordName() }}</span>
@@ -122,10 +127,62 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
                       <a class="dm-link" [href]="cloudflareLink()" target="_blank" rel="noopener noreferrer">Cloudflare</a>
                       <a class="dm-link" [href]="godaddyLink()" target="_blank" rel="noopener noreferrer">GoDaddy</a>
                       <a class="dm-link" [href]="namecheapLink()" target="_blank" rel="noopener noreferrer">Namecheap</a>
-                      <button type="button" class="dm-link dm-link--btn" (click)="recheck()">Re-check</button>
+                      <button type="button" class="dm-link dm-link--btn" (click)="recheck()">Re-check now</button>
                     </div>
+                    <div class="dm-help dm-watching">We're watching your DNS live — this updates the moment it connects.</div>
                   </div>
                 }
+              }
+
+              <!-- Live connection ladder — auto-updates while we poll DNS + TLS. -->
+              @if (watching() && phase()) {
+                <div class="dm-ladder" role="status" aria-live="polite" data-testid="domain-manager-ladder">
+                  <div class="dm-step" [class.done]="phaseAtLeast('pointed')" [class.active]="phase() === 'awaiting_dns'">
+                    <span class="dm-step-ic">@if (phaseAtLeast('pointed')) { ✓ } @else { <span class="dm-spin"></span> }</span>
+                    DNS pointed to projectsites.dev
+                  </div>
+                  <div class="dm-step" [class.done]="phase() === 'connected'" [class.active]="phase() === 'certifying'">
+                    <span class="dm-step-ic">@if (phase() === 'connected') { ✓ } @else if (phase() === 'certifying') { <span class="dm-spin"></span> } @else { • }</span>
+                    TLS certificate issued
+                  </div>
+                  <div class="dm-step" [class.done]="phase() === 'connected'" [class.active]="phase() === 'connected'">
+                    <span class="dm-step-ic">@if (phase() === 'connected') { ✓ } @else { • }</span>
+                    <strong>Connected — live over HTTPS</strong>
+                  </div>
+                </div>
+              }
+            }
+          </div>
+
+          <!-- ── Register a domain (GoDaddy) ── -->
+          <div class="dm-sec">
+            <div class="dm-sec-h">Need a domain?</div>
+            @if (!regOpen()) {
+              <button type="button" class="dm-link dm-link--btn" (click)="regOpen.set(true)" data-testid="domain-manager-register">
+                Register a new one on GoDaddy →
+              </button>
+            } @else {
+              <div class="dm-slug-row">
+                <input class="dm-input dm-input--wide" [ngModel]="regName()" (ngModelChange)="onRegName($event)"
+                       placeholder="mybusiness.com" aria-label="Domain to register" spellcheck="false" autocapitalize="off"
+                       [class.dm-input--ok]="regState() === 'ok'" [class.dm-input--bad]="regState() === 'bad'"
+                       data-testid="domain-manager-regname" />
+                <span class="dm-badge" [attr.data-state]="regState()" aria-hidden="true">
+                  @switch (regState()) { @case ('checking') { <span class="dm-spin"></span> } @case ('ok') { ✓ } @case ('bad') { ✕ } }
+                </span>
+              </div>
+              @switch (regState()) {
+                @case ('ok') {
+                  <div class="dm-help dm-ok">✓ {{ regName() }} is available — ~\${{ regPrice() }}/yr</div>
+                  <div class="dm-links">
+                    <a class="dm-btn dm-btn--primary" [href]="godaddyBuyLink()" target="_blank" rel="noopener noreferrer" data-testid="domain-manager-godaddy-buy">Register on GoDaddy →</a>
+                    <button type="button" class="dm-link dm-link--btn" (click)="useRegistered()">I bought it — connect it</button>
+                  </div>
+                  <div class="dm-help">After buying, GoDaddy → DNS → add the CNAME above. We'll detect it live.</div>
+                }
+                @case ('bad') { <div class="dm-help dm-bad">Taken — try another name.</div> }
+                @case ('checking') { <div class="dm-help">Checking availability…</div> }
+                @default { <div class="dm-help">Type the domain you want, e.g. mybusiness.com</div> }
               }
             }
           </div>
@@ -216,6 +273,25 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
     }
     .dm-link:hover { background: rgba(0,229,255,0.16); }
     .dm-link--btn { font-family: inherit; }
+    .dm-warn { color: #fcd34d; background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.22); border-radius: 8px; padding: 6px 9px; }
+    .dm-watching { color: rgba(0,229,255,0.8); font-style: italic; }
+    .dm-ladder {
+      display: flex; flex-direction: column; gap: 8px; margin-top: 10px;
+      padding: 12px; border-radius: 10px;
+      background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.08);
+    }
+    .dm-step {
+      display: flex; align-items: center; gap: 9px;
+      font-size: 0.72rem; color: rgba(255,255,255,0.5);
+      transition: color 200ms ease;
+    }
+    .dm-step.active { color: #fff; }
+    .dm-step.done { color: #6ee7b7; }
+    .dm-step-ic {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 18px; height: 18px; flex-shrink: 0; font-weight: 700;
+    }
+    .dm-step.done .dm-step-ic { color: #34d399; }
     `,
   ],
 })
@@ -223,6 +299,10 @@ export class DomainManagerComponent {
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastService);
   private readonly destroyRef = inject(DestroyRef);
+
+  constructor() {
+    this.destroyRef.onDestroy(() => this.stopWatch());
+  }
 
   readonly instanceId = input.required<string>();
   readonly appId = input.required<string>();
@@ -249,6 +329,28 @@ export class DomainManagerComponent {
   readonly domain = signal('');
   readonly cnameState = signal<Availability>('idle');
   private domainTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // Live connection watch (polls domain-status until the cert is active)
+  readonly phase = signal<'' | 'awaiting_dns' | 'pointed' | 'certifying' | 'connected'>('');
+  readonly watching = signal(false);
+  private pollHandle: ReturnType<typeof setInterval> | undefined;
+
+  // Register-a-domain (GoDaddy) flow
+  readonly regOpen = signal(false);
+  readonly regName = signal('');
+  readonly regState = signal<Availability>('idle');
+  readonly regPrice = signal(0);
+  private regTimer: ReturnType<typeof setTimeout> | undefined;
+  readonly godaddyBuyLink = computed(
+    () => `https://www.godaddy.com/domainsearch/find?domainToCheck=${encodeURIComponent(this.regName().trim().toLowerCase())}`,
+  );
+
+  /** Apex (2-label) domains can't CNAME at most registrars — surface a nudge. */
+  readonly isApex = computed(() => this.domain().trim().replace(/\.$/, '').split('.').filter(Boolean).length === 2);
+  private readonly PHASE_ORDER = ['awaiting_dns', 'pointed', 'certifying', 'connected'];
+  phaseAtLeast(p: string): boolean {
+    return this.PHASE_ORDER.indexOf(this.phase()) >= this.PHASE_ORDER.indexOf(p) && this.phase() !== '';
+  }
 
   readonly recordName = computed(() => {
     const parts = this.domain().split('.');
@@ -351,20 +453,53 @@ export class DomainManagerComponent {
     const val = v.trim().toLowerCase();
     if (val.length < 4 || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(val)) {
       this.cnameState.set('idle');
+      this.stopWatch();
+      this.phase.set('');
       return;
     }
     this.cnameState.set('checking');
-    this.domainTimer = setTimeout(() => this.checkCname(val), 400);
+    // Debounce, then start LIVE watching: the poll drives both the green/red CNAME state and
+    // the connection ladder, so pointing the domain lights up here without re-typing.
+    this.domainTimer = setTimeout(() => this.startWatch(val), 400);
   }
 
-  private checkCname(val: string): void {
+  /** Begin polling domain-status until the cert is active (live "Connected ✓"). */
+  private startWatch(domain: string): void {
+    this.stopWatch();
+    this.watching.set(true);
+    this.pollStatus(domain);
+    this.pollHandle = setInterval(() => this.pollStatus(domain), 6000);
+  }
+
+  private stopWatch(): void {
+    if (this.pollHandle) clearInterval(this.pollHandle);
+    this.pollHandle = undefined;
+    this.watching.set(false);
+  }
+
+  private pollStatus(domain: string): void {
+    if (this.domain().trim().toLowerCase() !== domain) {
+      this.stopWatch();
+      return;
+    }
     this.api
-      .get<{ ok: boolean; target: string | null }>(
-        `/apps/instances/${this.instanceId()}/cname-check?domain=${encodeURIComponent(val)}`,
+      .get<{ dnsOk: boolean; connected: boolean; phase: string }>(
+        `/apps/instances/${this.instanceId()}/domain-status?domain=${encodeURIComponent(domain)}`,
       )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => this.cnameState.set(r.ok ? 'ok' : 'bad'),
+        next: (r) => {
+          this.cnameState.set(r.dnsOk ? 'ok' : 'bad');
+          this.phase.set(
+            r.phase as '' | 'awaiting_dns' | 'pointed' | 'certifying' | 'connected',
+          );
+          if (r.connected) {
+            this.stopWatch();
+            this.pending.set(null);
+            this.toast.success(`${domain} is connected — live over HTTPS.`);
+            this.changed.emit();
+          }
+        },
         error: () => this.cnameState.set('bad'),
       });
   }
@@ -373,7 +508,7 @@ export class DomainManagerComponent {
     const val = this.domain().trim().toLowerCase();
     if (val.length > 3) {
       this.cnameState.set('checking');
-      this.checkCname(val);
+      this.startWatch(val);
     }
   }
 
@@ -387,14 +522,50 @@ export class DomainManagerComponent {
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => {
+        next: () => {
           this.busy.set(false);
           this.pending.set(domain);
-          this.toast.success(`${domain} attached — certificate ${r.ssl_status}. Live shortly.`);
+          this.toast.success(`${domain} attached — issuing certificate…`);
           this.changed.emit();
+          this.startWatch(domain); // live-poll until the cert goes active → "Connected ✓"
         },
         error: () => this.busy.set(false),
       });
+  }
+
+  // ── Register a domain (GoDaddy) ──
+  onRegName(v: string): void {
+    this.regName.set(v);
+    if (this.regTimer) clearTimeout(this.regTimer);
+    const val = v.trim().toLowerCase();
+    if (!/^[a-z0-9-]+\.[a-z]{2,}$/.test(val)) {
+      this.regState.set('idle');
+      return;
+    }
+    this.regState.set('checking');
+    this.regTimer = setTimeout(() => this.checkAvail(val), 450);
+  }
+
+  private checkAvail(val: string): void {
+    this.api
+      .get<{ available: boolean; price_usd: number }>(
+        `/apps/instances/${this.instanceId()}/domain-availability?domain=${encodeURIComponent(val)}`,
+      )
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.regState.set(r.available ? 'ok' : 'bad');
+          this.regPrice.set(r.price_usd ?? 0);
+        },
+        error: () => this.regState.set('bad'),
+      });
+  }
+
+  /** After buying on GoDaddy, drop the name into the custom-domain field + start the connect flow. */
+  useRegistered(): void {
+    const val = this.regName().trim().toLowerCase();
+    this.regOpen.set(false);
+    this.onDomain(val);
   }
 
   copy(text: string): void {
