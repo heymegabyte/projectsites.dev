@@ -164,9 +164,15 @@ resourceRegistryApi.post('/api/sites/:siteId/resources/reconcile', async (c) => 
     return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
 
   // 4. OPERANDS — reconcile targets ONE environment; default production. Body may carry it too.
+  // A query param that is PRESENT-but-invalid must 400 immediately — never let `??` treat its
+  // `null` like an ABSENT param and silently fall through to the body/production default (that
+  // swallowed `staging` and 502'd inside the reconciler). Only an ABSENT query defers to the body.
+  const rawQueryEnv = c.req.query('environment');
+  const queryEnv = parseEnvironment(rawQueryEnv);
   const environment =
-    parseEnvironment(c.req.query('environment')) ??
-    parseEnvironment(await readBodyEnvironment(c.req.raw.clone()));
+    rawQueryEnv !== undefined && rawQueryEnv !== ''
+      ? queryEnv
+      : (queryEnv ?? parseEnvironment(await readBodyEnvironment(c.req.raw.clone())));
   if (environment === null)
     return c.json(
       { error: { code: 'BAD_REQUEST', message: 'Invalid environment' } },
