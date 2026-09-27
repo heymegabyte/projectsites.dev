@@ -117,6 +117,41 @@ generic, brilliant data platform each site owns.
   multi-user · field-level encryption (permission controls instead) · a separate notification system ·
   multi-base per site · auto-Neon-escalation (modelled but dormant).
 
+## 2026-09-26 RECONCILIATION (Brian — a 2nd design session; SUPERSEDES conflicting 2026-09-25 decisions above)
+
+A second ~27-decision session refined the plan. Where these conflict with the 2026-09-25 "Locked decisions", **THESE WIN.** The loop executes the reconciled plan below. (Context: fires #43–62 drifted by extending the OLD shared-D1 SQL console — stop that; build the per-site platform.)
+
+**Overrides (change a 2026-09-25 decision):**
+- **SQL is NOT fully hidden** — it stays a first-class owner tool TUCKED behind an "Advanced/Developer" toggle; spreadsheet + AI remain primary/front. (Was: "SQL completely hidden; console retired.")
+- **Blank per-site D1; NO tenant-data migration** — the site D1 starts EMPTY for the customer's own use. `form_submissions` + `visitor_events` STAY in the shared platform DB (owner views them via admin dashboards, NOT the Data tab). Ingestion does NOT re-point per-site. (Was: "migrate tenant data into the site D1.")
+- **Lazy provisioning** — a site's D1/KV is created on FIRST need (first Data visit / use), preview only when preview is used. (Was: "provision on create, in parallel.")
+- **No plan gate** — every site gets its own D1+KV + the full platform regardless of plan. (Was: "paid=own DB; free=shared/read-only." Wire a usage meter only later, if ever.)
+- **Per-environment D1** — each site gets a **prod** D1 AND a **preview** D1. (Was: "one D1 per site.")
+
+**New decisions (2026-09-26):**
+- **Owner + role-based team access** — owner AND org members (existing membership roles: owner/admin edit; others read-only/none) use the Data tab on their OWN site's D1. Full access (browse/edit/schema/SQL) — safe because it's an isolated DB they own.
+- **HARD tenant isolation — no unnecessary wildcard access ANYWHERE.** A customer/site edits ONLY its own site's D1 — NEVER the shared platform DB, NEVER another site's D1. Server-RESOLVED bindings (never client-supplied); exec scoped to the owned D1; the shared projectsites.dev DB is off-limits to the editor + customer code. Audit every path + narrow any broad/wildcard access.
+- **Undo = auto-snapshot before destructive + restore** — before each DROP/DELETE/UPDATE/ALTER, auto-create a D1 **Time-Travel** bookmark; one-click "restore to before this" (whole-DB, 30-day). PLUS instant local undo for uncommitted grid edits.
+- **Full builder↔DB integration** — the AI site-builder is database-aware: creates tables in the site D1, generates app code that reads/writes the D1/KV, wires the Worker bindings. Data tab + builder = one full-stack experience.
+- **AI seeds tables on generation** — when a generated app needs data (contact form, products), the pipeline creates those tables in the site's D1 + wires the code.
+- **Manual promote (preview → prod)** — owner explicitly promotes; schema + optionally data.
+- **Prod by default + env switcher** — the Data tab edits the LIVE prod D1 by default; a switcher selects preview.
+- **Immediate teardown on site-delete** — destroys its D1/KV/R2 (backup + confirm, matching greenfield-reset safety).
+- **Onboarding = blank empty state** with "New table" + "Ask AI" buttons — NOT a forced wizard or template gallery.
+- **Grid engine = adopt a permissive OSS data-grid** (evaluate Glide Data Grid / RevoGrid; verify EXACT license = no enterprise-gated features; document the pick) — replaces the hand-rolled `<table>`.
+- **UI priority = gorgeous + beautiful + concise + simple + ADVANCED**, black+cyan, minimal, few gray highlights — do NOT over-invest in hardcore spreadsheet mechanics (virtualization/AutoFill); invest in a stunning, minimal-yet-powerful UI. Advanced actions (CSV/JSON/Copy) behind a dropdown; 3 per-row icons always visible.
+- **Greenfield reset KEPT** — the gated, backed-up, human-confirmed, site-scoped-only Phase-0 reset stands (preserve ALL platform tables; never run from a loop).
+
+**Delegated to AI judgment (Brian: "recommend / you decide / skip"):**
+- **Formulas / linked-records / lookup / rollup = COMPUTED at display** (virtual; NEVER a real D1 column; definitions in the platform metadata store) — honest, no schema drift. [AI rec]
+- **Prod schema-change safety** = impact-preview + auto-snapshot + explicit confirm for simple/non-destructive ALTERs; a table-REBUILD (drop/retype) nudges the owner to do it in preview → promote. Data edits stay frictionless. [AI rec]
+- **Usage/metrics** = ship only the hard near-cap guard + upgrade prompt; skip general usage UI for now. [AI rec]
+- **Audit log + per-row history = SKIP for now.** [Brian]
+
+**Metadata store:** saved views, field/formula/linked-record config, AI prompts, semantic catalog, prefs, comments live in the ISOLATED ProjectSites.dev platform metadata store (keyed by site) — NEVER in the customer's D1 (dropping their tables must never lose UI config).
+
+**Reconciled sequencing (top-down):** **(1) FOUNDATION** — lazy-provision a blank per-site PROD D1 + point Tables/spreadsheet at it (server-resolved binding, hard isolation) + typed inline editing + immediate-save/undo + auto-snapshot-before-destructive. **(2)** builder↔DB + AI table-seeding. **(3)** guided schema builder on the site D1 (impact-preview + safety). **(4)** the gorgeous black+cyan grid on the OSS grid engine + views (grid/kanban/calendar/gallery) + SQL behind Advanced + Back-nav. **(5)** public Form builder + import/export + templates. **(6)** preview env + promote + Time-Travel restore UI + teardown-on-delete + greenfield-reset (gated). **(7 — LATER)** auto REST API + automations, global search/Cmd+K, mobile polish, linked-records/formulas. Interim shared-D1 fires (#43–61) are FROZEN — do not extend that surface; the `data-sql-run` fix (#63, shipped) + this reconciliation are the pivot point.
+
 ## Phased roadmap (the loop ships one verified increment per fire, top-down)
 
 **Phase 0 — Foundation & greenfield reset (gated)**

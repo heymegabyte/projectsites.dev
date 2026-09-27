@@ -127,10 +127,14 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                   Source
                 </a>
                 <span class="meta-pill"><span class="meta-pill-k">License</span> {{ a.license }}</span>
-                <span class="meta-pill"><span class="meta-pill-k">Port</span> {{ a.port }}</span>
-                <span class="meta-pill"><span class="meta-pill-k">RAM</span> {{ a.memoryMB }} MiB</span>
-                @if (a.volumeMB) {
-                  <span class="meta-pill"><span class="meta-pill-k">Disk</span> {{ a.volumeMB }} MiB</span>
+                @if (a.image?.startsWith('cf-native:')) {
+                  <span class="meta-pill"><span class="meta-pill-k">Runtime</span> Cloudflare Worker · edge</span>
+                } @else {
+                  <span class="meta-pill"><span class="meta-pill-k">Port</span> {{ a.port }}</span>
+                  <span class="meta-pill"><span class="meta-pill-k">RAM</span> {{ a.memoryMB }} MiB</span>
+                  @if (a.volumeMB) {
+                    <span class="meta-pill"><span class="meta-pill-k">Disk</span> {{ a.volumeMB }} MiB</span>
+                  }
                 }
               </div>
             </article>
@@ -141,7 +145,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                 <span class="text-[0.66rem] text-text-secondary font-mono">{{ a.env.length }} {{ a.env.length === 1 ? 'key' : 'keys' }} · {{ requiredCount(a) }} required</span>
               </header>
               @if (a.env.length === 0) {
-                <p class="text-[0.78rem] text-text-secondary m-0">No env vars required — container runs with defaults.</p>
+                <p class="text-[0.78rem] text-text-secondary m-0">No env vars required — {{ a.image?.startsWith('cf-native:') ? 'the Worker' : 'the container' }} runs with defaults.</p>
               } @else {
                 <div class="env-table" role="table">
                   <div class="env-row env-row-head" role="row">
@@ -188,11 +192,26 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
             </article>
 
             <article class="card">
-              <h3 class="card-h">Dockerfile</h3>
-              <p class="text-[0.74rem] text-text-secondary leading-relaxed">
-                Container image — pulled at boot:
-              </p>
-              <pre class="code-pre"><code>{{ dockerfilePreview() }}</code></pre>
+              @if (a.image?.startsWith('cf-native:')) {
+                <h3 class="card-h">Runtime</h3>
+                <p class="text-[0.74rem] text-text-secondary leading-relaxed">
+                  Deployed as a real <strong>Cloudflare Worker</strong> on the edge network via
+                  Workers for Platforms — <em>not</em> a container. Each instance runs in the V8
+                  isolate model (no Dockerfile, no image pull, no container cold-start) with its
+                  own D1 database + R2 bucket.
+                </p>
+                <ul class="text-[0.74rem] text-text-secondary leading-relaxed mt-2 space-y-1 list-none p-0">
+                  <li><span class="meta-pill-k">Compute</span> Cloudflare Workers (WfP dispatch)</li>
+                  <li><span class="meta-pill-k">Database</span> Cloudflare D1 (per instance)</li>
+                  <li><span class="meta-pill-k">Storage</span> Cloudflare R2 (per instance)</li>
+                </ul>
+              } @else {
+                <h3 class="card-h">Dockerfile</h3>
+                <p class="text-[0.74rem] text-text-secondary leading-relaxed">
+                  Container image — pulled at boot:
+                </p>
+                <pre class="code-pre"><code>{{ dockerfilePreview() }}</code></pre>
+              }
               <div class="mt-3 flex items-center gap-2 flex-wrap">
                 <a class="meta-link" [href]="a.repo" target="_blank" rel="noopener noreferrer">
                   Upstream README
@@ -861,6 +880,15 @@ export class AppDetailComponent implements OnInit {
   costLines = computed<readonly InfraEstimate[]>(() => {
     const a = this.app();
     if (!a) return [];
+    // CF-native apps run as a real edge Worker (Workers for Platforms) on their own
+    // D1 + R2 — NOT a container. Reflect that in the cost breakdown.
+    if (a.image?.startsWith('cf-native:')) {
+      return [
+        { key: 'worker', label: 'Cloudflare Worker (edge)', provider: 'CF Workers for Platforms', monthlyUsd: Math.max(1, a.estCostMonthly - 1) },
+        { key: 'd1', label: 'D1 database', provider: 'Cloudflare D1', monthlyUsd: 0 },
+        { key: 'r2', label: 'R2 bucket', provider: 'Cloudflare R2', monthlyUsd: 1 },
+      ];
+    }
     const container: InfraEstimate = {
       key: 'container',
       label: 'Container (Cloudflare Workers)',
@@ -1071,7 +1099,11 @@ export class AppDetailComponent implements OnInit {
       next: (r) => {
         this.deploying.set(false);
         const id = r.instance_id;
-        this.toast.success(`${a.name} provisioning — booting container`);
+        this.toast.success(
+          a.image?.startsWith('cf-native:')
+            ? `${a.name} provisioning — deploying Worker + D1 + R2 to the edge`
+            : `${a.name} provisioning — booting container`,
+        );
         if (id) {
           this.router.navigate(['/admin/apps/instances', id]);
         } else {
