@@ -17,6 +17,7 @@ import { GitPanel } from './GitPanel';
 import { CreateMenu } from './CreateMenu';
 import { EditorPanel } from './EditorPanel';
 import { Preview } from './Preview';
+import { DatabasePanel } from './DatabasePanel';
 import { StatusBar } from './StatusBar.client';
 import { openInStackBlitz } from './EditorOverlays.client';
 import useViewport from '~/lib/hooks';
