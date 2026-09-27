@@ -34,6 +34,23 @@ const SAVE_TIMEOUT_MS = 30_000;
 const EDITOR_BASE = 'https://editor.projectsites.dev';
 const ALLOWED_ORIGINS = ['https://editor.projectsites.dev', 'http://localhost:5173'];
 
+// PS_DATA_REQUEST browse-filter operators — mirrors the worker's FILTER_OPS. We only forward an op
+// the worker recognizes (it defaults anything else to `eq`); null/notnull carry no value.
+const PS_FILTER_OPS = new Set([
+  'eq',
+  'ne',
+  'contains',
+  'startswith',
+  'endswith',
+  'gt',
+  'lt',
+  'gte',
+  'lte',
+  'null',
+  'notnull',
+]);
+const PS_FILTER_VALUE_FREE_OPS = new Set(['null', 'notnull']);
+
 export interface BoltEmbedSite {
   readonly id: string;
   readonly slug: string;
@@ -60,12 +77,144 @@ interface PsMessage {
   readonly level?: 'info' | 'success' | 'warning' | 'error';
   /** PS_DATA_REQUEST (AL-004): omit for the table overview, set to browse one table. */
   readonly table?: string;
+  /** PS_DATA_REQUEST: 0-based row offset for the paginated browse grid (default 0). */
+  readonly offset?: number;
+  /** PS_DATA_REQUEST: page size for the paginated browse grid (worker clamps to 1–100; default 25). */
+  readonly limit?: number;
+  /** PS_DATA_REQUEST: server-side sort column (worker allowlist-validates it; else default sort). */
+  readonly orderBy?: string;
+  /** PS_DATA_REQUEST: server-side sort direction for `orderBy` (worker clamps to asc/desc). */
+  readonly dir?: string;
+  /** PS_DATA_REQUEST: multi-column sort `col:dir,…` (worker allowlist-validates each; precedes orderBy/dir). */
+  readonly sort?: string;
+  /** PS_DATA_REQUEST: whole-table search (worker: OR-of-LIKE over allowlisted columns; affects `total`). */
+  readonly search?: string;
+  /** PS_DATA_REQUEST: exact-match filter column (worker allowlist-validates it; else no filter). */
+  readonly filterCol?: string;
+  /** PS_DATA_REQUEST: value for `filterCol` (worker parameterizes it; ignored for null/notnull ops). */
+  readonly filterVal?: string;
+  /**
+   * PS_DATA_REQUEST: comparison operator for `filterCol`
+   * (eq|ne|contains|gt|lt|gte|lte|null|notnull). The worker maps it to a FIXED clause — never
+   * user text — and defaults an absent/unknown op to `eq`. null/notnull are value-free.
+   */
+  readonly filterOp?: string;
+  /**
+   * PS_DATA_REQUEST: a multi-condition filter group as a JSON array of `{col,op,val}` (the worker
+   * shape-hardens + re-validates every leaf against the table allowlist, bounds the count, and joins by
+   * {@link filterCombinator}). When present it takes precedence over the single `filterCol/Op/Val`.
+   */
+  readonly filters?: string;
+  /** PS_DATA_REQUEST: how to join the {@link filters} conditions — `AND` | `OR` (worker default `AND`). */
+  readonly filterCombinator?: string;
+  /** PS_DATA_REQUEST: 0 = skip the COUNT(*) (paging/sorting → reuse cached total); else the worker counts. */
+  readonly count?: number;
+  /** PS_DATA_REQUEST: export the WHOLE current query (routes to /data-overview/:table/export). */
+  readonly exportAll?: boolean;
+  /** PS_DATA_REQUEST: kanban whole-query lane counts — routes to /data-overview/:table/group-counts. */
+  readonly groupBy?: string;
+  /** PS_DATA_REQUEST (chart aggregate): numeric measure column + agg fn (sum|avg|min|max) alongside groupBy. */
+  readonly measure?: string;
+  readonly agg?: string;
+  /** PS_DATA_REQUEST (footer summaries): comma-list of columns → routes to /data-overview/:table/column-aggregates. */
+  readonly columnsAgg?: string;
+  /** PS_DATA_REQUEST (value datalist): one column → routes to /data-overview/:table/column-distinct. */
+  readonly columnDistinct?: string;
+  /** PS_VIEW_REQUEST (saved grid views): `list` | `save` | `delete`. */
+  readonly action?: string;
+  /** PS_VIEW_REQUEST delete: the view id. */
+  readonly viewId?: string;
+  /** PS_VIEW_REQUEST save: the render type — `grid` | `gallery`. */
+  readonly viewType?: string;
+  /**
+   * PS_VIEW_REQUEST save: view display config — card-title/group/date fields + the full column `layout`
+   * (visibility/order/widths/pins/summaries/density). Forwarded opaquely to the worker, which shape-hardens.
+   */
+  readonly viewConfig?: {
+    titleField?: string;
+    groupField?: string;
+    dateField?: string;
+    sorts?: string;
+    layout?: {
+      hidden?: string[];
+      order?: string[];
+      widths?: Record<string, number>;
+      pinned?: string[];
+      summaries?: Record<string, string>;
+      density?: string;
+    };
+  };
+  /** PS_VIEW_REQUEST save: how to join the filter group — `AND` | `OR`. */
+  readonly combinator?: string;
+  /** PS_VIEW_REQUEST save: the single-column sort (worker re-normalizes). */
+  readonly sortCol?: string | null;
+  readonly sortDir?: string | null;
   /** PS_SQL_REQUEST (D1 manager): the SQL to forward — /sql/exec (read) or /sql/exec-write (write). */
   readonly query?: string;
   /** PS_SQL_REQUEST: route to the WRITE endpoint (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE). */
   readonly write?: boolean;
   /** PS_SQL_REQUEST: confirm a destructive write (DROP/ALTER, or unscoped DELETE/UPDATE). */
   readonly confirm?: boolean;
+  /**
+   * PS_SQL_REQUEST: positional bind params for ?1, ?2, … The worker BINDS these (never
+   * concatenates), so the grid's typed row editors (Add/Edit/Delete) can build a parameterized
+   * statement instead of stringifying user values into SQL.
+   */
+  readonly params?: Array<string | number | boolean | null>;
+  /** PS_NL2SQL_REQUEST (AI SQL assistant): the natural-language question to translate to SQL. */
+  readonly question?: string;
+  /** PS_KV_REQUEST (KV inspector): which read op to proxy to /api/admin/kv/*. */
+  readonly op?:
+    | 'namespaces'
+    | 'keys'
+    | 'value'
+    | 'buckets'
+    | 'objects'
+    | 'object'
+    | 'indexes'
+    | 'index'
+    | 'queues'
+    | 'queue'
+    | 'databases'
+    | 'overview'
+    | 'tables'
+    | 'export'
+    | 'explain'
+    | 'profile'
+    | 'insights'
+    | 'put'
+    | 'delete';
+  /** PS_R2_REQUEST: the R2 bucket binding name (required for the objects + object ops). */
+  readonly bucket?: string;
+  /** PS_R2_REQUEST (objects op): grouping delimiter (e.g. `/`) for folder-like prefix navigation. */
+  readonly delimiter?: string;
+  /** PS_VEC_REQUEST: the Vectorize index name (required for the `index` describe op). */
+  readonly name?: string;
+  /** PS_QUEUE_REQUEST: the queue id (required for the `queue` describe op). */
+  readonly queueId?: string;
+  /** PS_D1_REQUEST: the D1 database UUID (required for the `overview` / `tables` / `columns` / `export` ops). */
+  readonly databaseId?: string;
+  /** PS_D1_REQUEST (export op): scope the SQL dump to specific tables. */
+  readonly tables?: string[];
+  /** PS_D1_REQUEST (export op): schema-only / data-only dump. */
+  readonly schemaOnly?: boolean;
+  readonly dataOnly?: boolean;
+  /** PS_D1_REQUEST (export op): resume an in-progress export via a prior `bookmark`. */
+  readonly currentBookmark?: string;
+  /** PS_KV_REQUEST: the KV binding name (required for the keys + value ops). */
+  readonly binding?: string;
+  /** PS_KV_REQUEST (keys op): key-name prefix filter. */
+  readonly prefix?: string;
+  /** PS_KV_REQUEST (keys op): opaque pagination cursor from the previous page. */
+  readonly cursor?: string;
+  /** PS_KV_REQUEST (value / put / delete ops): the exact key. */
+  readonly key?: string;
+  /** PS_KV_REQUEST (put op): the value to write. */
+  readonly value?: string;
+  /** PS_KV_REQUEST (put op): optional expiry in seconds (KV minimum 60). */
+  readonly expirationTtl?: number;
+  /** PS_KV_REQUEST (put op): explicitly remove the expiration (make the key permanent). */
+  readonly clearExpiration?: boolean;
 }
 
 export interface BoltFileEntry {
@@ -123,7 +272,12 @@ export class BoltEmbedService {
    *  Save & Deploy double-published (journey 2026-08-19). */
   private readonly publishedCorrelationIds = new Set<string>();
   /** Optional consumer for `PS_DEPLOY_REQUEST` messages from the editor (item 43). */
-  private deployHandler: ((req: { files: Record<string, string>; chat?: { messages: unknown[]; description?: string; exportDate?: string } }) => void) | null = null;
+  private deployHandler:
+    | ((req: {
+        files: Record<string, string>;
+        chat?: { messages: unknown[]; description?: string; exportDate?: string };
+      }) => void)
+    | null = null;
   /** Toast ids already mirrored to the editor — prevents echo loops (item 44). */
   private readonly mirroredToastIds = new Set<number>();
   /** True while we're showing a toast forwarded FROM the editor — stops
@@ -193,7 +347,8 @@ export class BoltEmbedService {
       frame.src = `${EDITOR_BASE}/?embedded=true&prewarm=true`;
       frame.setAttribute('aria-hidden', 'true');
       frame.tabIndex = -1;
-      frame.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;border:0;opacity:0;pointer-events:none;';
+      frame.style.cssText =
+        'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;border:0;opacity:0;pointer-events:none;';
       // `loading=eager` is the default but we make it explicit — pre-warm is
       // the whole point, lazy would defeat the purpose.
       frame.loading = 'eager';
@@ -276,7 +431,8 @@ export class BoltEmbedService {
       params.set('importChatFrom', `${window.location.origin}/api/sites/by-slug/${site.slug}/chat`);
     }
     if (opts.file) params.set('file', opts.file);
-    if (opts.line && Number.isFinite(opts.line) && opts.line > 0) params.set('line', String(opts.line));
+    if (opts.line && Number.isFinite(opts.line) && opts.line > 0)
+      params.set('line', String(opts.line));
     this.iframeUrl.set(
       this.sanitizer.bypassSecurityTrustResourceUrl(`${EDITOR_BASE}/?${params.toString()}`),
     );
@@ -299,7 +455,12 @@ export class BoltEmbedService {
       return;
     }
     iframe.contentWindow.postMessage(
-      { type: 'PS_OPEN_SNAPSHOT', snapshot_id: snapshotId, slug: site.slug, correlationId: crypto.randomUUID() },
+      {
+        type: 'PS_OPEN_SNAPSHOT',
+        snapshot_id: snapshotId,
+        slug: site.slug,
+        correlationId: crypto.randomUUID(),
+      },
       EDITOR_BASE,
     );
   }
@@ -341,10 +502,7 @@ export class BoltEmbedService {
         window.clearTimeout(timer);
         resolve(files);
       });
-      iframe.contentWindow!.postMessage(
-        { type: 'PS_LIST_FILES', correlationId },
-        EDITOR_BASE,
-      );
+      iframe.contentWindow!.postMessage({ type: 'PS_LIST_FILES', correlationId }, EDITOR_BASE);
     });
   }
 
@@ -420,8 +578,14 @@ export class BoltEmbedService {
   }
 
   private clearTimers(): void {
-    if (this.hardTimeout) { clearTimeout(this.hardTimeout); this.hardTimeout = null; }
-    if (this.softTimeout) { clearTimeout(this.softTimeout); this.softTimeout = null; }
+    if (this.hardTimeout) {
+      clearTimeout(this.hardTimeout);
+      this.hardTimeout = null;
+    }
+    if (this.softTimeout) {
+      clearTimeout(this.softTimeout);
+      this.softTimeout = null;
+    }
   }
 
   private attachMessageListener(): void {
@@ -528,6 +692,75 @@ export class BoltEmbedService {
           const site = this.currentSite;
           const cid = msg.correlationId;
           const table = typeof msg.table === 'string' && msg.table ? msg.table : undefined;
+          // Pagination — forwarded to the worker (which clamps limit 1–100, offset ≥ 0). Defaults
+          // preserve the prior behaviour (first page of 25) when the editor omits them.
+          const browseLimit =
+            typeof msg.limit === 'number' && Number.isFinite(msg.limit)
+              ? Math.max(1, Math.min(100, Math.trunc(msg.limit)))
+              : 25;
+          const browseOffset =
+            typeof msg.offset === 'number' && Number.isFinite(msg.offset)
+              ? Math.max(0, Math.trunc(msg.offset))
+              : 0;
+          // Server-side sort — forwarded when present; the WORKER allowlist-validates orderBy against
+          // the table's columns (and clamps dir to asc/desc), so an unknown column is safely ignored.
+          const browseOrderBy =
+            typeof msg.orderBy === 'string' && msg.orderBy ? msg.orderBy.slice(0, 64) : undefined;
+          const browseDir = msg.dir === 'asc' ? 'asc' : msg.dir === 'desc' ? 'desc' : undefined;
+          // Multi-column sort `col:dir,…` — forwarded as-is; the worker allowlist-validates + bounds each key.
+          const browseSort =
+            typeof msg.sort === 'string' && msg.sort.trim()
+              ? msg.sort.trim().slice(0, 256)
+              : undefined;
+          // Whole-table search — the WORKER runs the OR-of-LIKE over allowlisted columns (parameterized)
+          // and reflects it in `total`; we just forward the trimmed, length-capped needle.
+          const browseSearch =
+            typeof msg.search === 'string' && msg.search.trim()
+              ? msg.search.trim().slice(0, 128)
+              : undefined;
+          // Exact-column filter — the WORKER allowlist-validates filterCol against the table's columns
+          // and parameterizes filterVal; we forward the trimmed, length-capped pair only when both set.
+          const browseFilterCol =
+            typeof msg.filterCol === 'string' && msg.filterCol.trim()
+              ? msg.filterCol.trim().slice(0, 64)
+              : undefined;
+          const browseFilterVal =
+            typeof msg.filterVal === 'string' && msg.filterVal.trim()
+              ? msg.filterVal.trim().slice(0, 200)
+              : undefined;
+          // Comparison operator (eq|ne|contains|gt|lt|gte|lte|null|notnull) — forward only a
+          // worker-recognized op (else the worker defaults to eq anyway). null/notnull are value-free,
+          // so they filter on the column ALONE (no filterVal required).
+          const browseFilterOp =
+            typeof msg.filterOp === 'string' && PS_FILTER_OPS.has(msg.filterOp.trim().toLowerCase())
+              ? msg.filterOp.trim().toLowerCase()
+              : undefined;
+          const browseFilterValueFree = browseFilterOp
+            ? PS_FILTER_VALUE_FREE_OPS.has(browseFilterOp)
+            : false;
+          // Multi-condition filter group — a JSON array of {col,op,val}. Forwarded (taking precedence
+          // over the single-column filter below) when it parses to a NON-EMPTY array within a sane size;
+          // the WORKER re-validates every leaf against the table allowlist, bounds the count, and joins
+          // by filterCombinator. Admin does a cheap sanity check only — the worker is the authority.
+          let browseFilters: string | undefined;
+          if (typeof msg.filters === 'string' && msg.filters.length <= 4000) {
+            try {
+              const parsed: unknown = JSON.parse(msg.filters);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                browseFilters = msg.filters;
+              }
+            } catch {
+              browseFilters = undefined;
+            }
+          }
+          const browseFilterCombinator =
+            typeof msg.filterCombinator === 'string' &&
+            ['and', 'or'].includes(msg.filterCombinator.trim().toLowerCase())
+              ? msg.filterCombinator.trim().toUpperCase()
+              : undefined;
+          // count=0 → the editor is paging/sorting and reuses its cached total; forward the skip so the
+          // worker doesn't run an expensive COUNT(*) on every nav. Any other value → the worker counts.
+          const browseSkipCount = msg.count === 0;
           const reply = (payload: Record<string, unknown>): void => {
             iframe?.contentWindow?.postMessage(
               { type: 'PS_DATA_RESPONSE', correlationId: cid, table, ...payload },
@@ -538,21 +771,502 @@ export class BoltEmbedService {
             reply({ error: 'No site selected' });
             break;
           }
+          // Three routing modes off /data-overview/:table: whole-query EXPORT (/export, all rows),
+          // kanban GROUP-COUNTS (/group-counts, whole-query lane totals), or the paginated browse.
+          // Export + group-counts drop pagination/count; all three share the sort/search/filter params.
+          const isExport = msg.exportAll === true && !!table;
+          const browseGroupBy =
+            typeof msg.groupBy === 'string' && msg.groupBy.trim()
+              ? msg.groupBy.trim().slice(0, 64)
+              : undefined;
+          const isGroupCounts = !!browseGroupBy && !!table && !isExport;
+          // Chart aggregate (optional, paired): a numeric measure column + agg fn. Forwarded to
+          // /group-counts only when BOTH are present; the worker re-validates + falls back to COUNT.
+          const browseMeasure =
+            typeof msg.measure === 'string' && msg.measure.trim()
+              ? msg.measure.trim().slice(0, 64)
+              : undefined;
+          const browseAgg =
+            typeof msg.agg === 'string' && msg.agg.trim()
+              ? msg.agg.trim().slice(0, 8).toLowerCase()
+              : undefined;
+          // Whole-query column summaries (grid footer): a comma-list of columns → /column-aggregates.
+          const browseColumnsAgg =
+            typeof msg.columnsAgg === 'string' && msg.columnsAgg.trim()
+              ? msg.columnsAgg.trim().slice(0, 2000)
+              : undefined;
+          const isColumnAgg = !!browseColumnsAgg && !!table && !isExport && !isGroupCounts;
+          // Value datalist (cell editor): one column → /column-distinct (bounded DISTINCT suggestions).
+          const browseColumnDistinct =
+            typeof msg.columnDistinct === 'string' && msg.columnDistinct.trim()
+              ? msg.columnDistinct.trim().slice(0, 64)
+              : undefined;
+          const isColumnDistinct =
+            !!browseColumnDistinct && !!table && !isExport && !isGroupCounts && !isColumnAgg;
+          // The search + filter query params (shared by all three modes).
+          const filterParams: Record<string, string> = {
+            ...(browseSearch ? { search: browseSearch } : {}),
+            ...(browseFilters
+              ? {
+                  filters: browseFilters,
+                  ...(browseFilterCombinator ? { filterCombinator: browseFilterCombinator } : {}),
+                }
+              : browseFilterCol && (browseFilterValueFree || browseFilterVal)
+                ? {
+                    filterCol: browseFilterCol,
+                    ...(browseFilterOp ? { filterOp: browseFilterOp } : {}),
+                    ...(browseFilterValueFree ? {} : { filterVal: browseFilterVal as string }),
+                  }
+                : {}),
+          };
+          const suffix = isExport
+            ? '/export'
+            : isGroupCounts
+              ? '/group-counts'
+              : isColumnAgg
+                ? '/column-aggregates'
+                : isColumnDistinct
+                  ? '/column-distinct'
+                  : '';
           const path = table
-            ? `/sites/${site.id}/data-overview/${encodeURIComponent(table)}`
+            ? `/sites/${site.id}/data-overview/${encodeURIComponent(table)}${suffix}`
             : `/sites/${site.id}/data-overview`;
           this.api
-            .get<{ data?: unknown }>(path, table ? { limit: '25' } : undefined, { silent: true })
+            .get<{ data?: unknown; total?: number }>(
+              path,
+              table
+                ? isGroupCounts
+                  ? {
+                      groupBy: browseGroupBy as string,
+                      ...(browseMeasure && browseAgg
+                        ? { measure: browseMeasure, agg: browseAgg }
+                        : {}),
+                      ...filterParams,
+                    }
+                  : isColumnAgg
+                    ? { columns: browseColumnsAgg as string, ...filterParams }
+                    : isColumnDistinct
+                      ? { column: browseColumnDistinct as string }
+                      : {
+                          ...(isExport
+                            ? {}
+                            : { limit: String(browseLimit), offset: String(browseOffset) }),
+                          ...(browseSort ? { sort: browseSort } : {}),
+                          ...(browseOrderBy ? { orderBy: browseOrderBy } : {}),
+                          ...(browseOrderBy && browseDir ? { dir: browseDir } : {}),
+                          ...filterParams,
+                          ...(browseSkipCount && !isExport ? { count: '0' } : {}),
+                        }
+                : undefined,
+              { silent: true },
+            )
             .subscribe({
               // Tell the editor whether the D1-manager SQL console is available (super-admin only) —
               // merged into the OVERVIEW reply so it never renders a console that would only 403.
+              // For a browse, forward the worker's `total` (reflects the search filter) so the grid
+              // can page through the MATCHES + show an honest match count.
               next: (res) => {
                 const data = (res?.data ?? null) as Record<string, unknown> | null;
                 reply({
                   data: data && !table ? { ...data, canRunSql: this.superAdmin() } : data,
+                  ...(table && typeof res?.total === 'number' ? { total: res.total } : {}),
                 });
               },
               error: () => reply({ error: 'Failed to load data' }),
+            });
+          break;
+        }
+        case 'PS_VIEW_REQUEST': {
+          // Saved grid views (Data tab) — the editor has no cross-origin session, so we proxy to the
+          // org-gated /api/sites/:id/grid-views endpoints (list/save/delete) and reply PS_VIEW_RESPONSE.
+          // The WORKER re-validates ownership + every filter leaf; we just forward the current session.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const action = msg.action;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_VIEW_RESPONSE', correlationId: cid, action, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ error: 'No site selected' });
+            break;
+          }
+          const viewTable = typeof msg.table === 'string' ? msg.table.trim().slice(0, 64) : '';
+          const base = `/sites/${site.id}/grid-views`;
+          if (action === 'list') {
+            this.api
+              .get<{ data?: { views?: unknown[] } }>(
+                base,
+                viewTable ? { table: viewTable } : undefined,
+                {
+                  silent: true,
+                },
+              )
+              .subscribe({
+                next: (res) => reply({ views: res?.data?.views ?? [] }),
+                error: () => reply({ error: 'Failed to load views' }),
+              });
+          } else if (action === 'save') {
+            if (!viewTable || typeof msg.name !== 'string' || !msg.name.trim()) {
+              reply({ error: 'A view name and table are required' });
+              break;
+            }
+            this.api
+              .post<{ data?: { view?: unknown } }>(
+                base,
+                {
+                  table: viewTable,
+                  name: msg.name.trim().slice(0, 80),
+                  filters: typeof msg.filters === 'string' ? msg.filters : '[]',
+                  combinator: msg.combinator ?? 'AND',
+                  sortCol: msg.sortCol ?? null,
+                  sortDir: msg.sortDir ?? null,
+                  search: msg.search ?? '',
+                  type: msg.viewType ?? 'grid',
+                  config: msg.viewConfig ?? {},
+                },
+                { silent: true },
+              )
+              .subscribe({
+                next: (res) => reply({ view: res?.data?.view ?? null }),
+                error: () => reply({ error: 'Failed to save view' }),
+              });
+          } else if (action === 'update') {
+            if (!msg.viewId || typeof msg.name !== 'string' || !msg.name.trim()) {
+              reply({ error: 'A view id and name are required' });
+              break;
+            }
+            this.api
+              .put<{ data?: { view?: unknown } }>(
+                `${base}/${encodeURIComponent(msg.viewId)}`,
+                {
+                  name: msg.name.trim().slice(0, 80),
+                  filters: typeof msg.filters === 'string' ? msg.filters : '[]',
+                  combinator: msg.combinator ?? 'AND',
+                  sortCol: msg.sortCol ?? null,
+                  sortDir: msg.sortDir ?? null,
+                  search: msg.search ?? '',
+                  type: msg.viewType ?? 'grid',
+                  config: msg.viewConfig ?? {},
+                },
+                { silent: true },
+              )
+              .subscribe({
+                next: (res) => reply({ view: res?.data?.view ?? null }),
+                error: () => reply({ error: 'Failed to update view' }),
+              });
+          } else if (action === 'delete') {
+            if (!msg.viewId) {
+              reply({ error: 'No view id' });
+              break;
+            }
+            this.api
+              .delete<unknown>(`${base}/${encodeURIComponent(msg.viewId)}`, { silent: true })
+              .subscribe({
+                next: () => reply({ deleted: true }),
+                error: () => reply({ error: 'Failed to delete view' }),
+              });
+          } else {
+            reply({ error: 'Unknown view action' });
+          }
+          break;
+        }
+        case 'PS_QUEUE_REQUEST': {
+          // Queues inspector — mirrors the PS_VEC bridge. Proxies read-only queue inspection to
+          // /api/admin/queues/* (super-admin; list + describe only, never send/purge/ack).
+          const iframe = this.iframeEl;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_QUEUE_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          const op = msg.op;
+          let qPath: string;
+          if (op === 'queues') {
+            qPath = '/admin/queues';
+          } else if (op === 'queue') {
+            if (!msg.queueId) {
+              reply({ ok: false, error: 'No queue id' });
+              break;
+            }
+            qPath = `/admin/queues/${encodeURIComponent(msg.queueId)}`;
+          } else {
+            reply({ ok: false, error: 'Unknown Queues op' });
+            break;
+          }
+          this.api.get<Record<string, unknown>>(qPath, undefined, { silent: true }).subscribe({
+            next: (res) => reply({ ok: true, data: res ?? {} }),
+            error: () => reply({ ok: false, error: 'Queues inspector not available' }),
+          });
+          break;
+        }
+        case 'PS_D1_REQUEST': {
+          // D1 manager — mirrors the PS_QUEUE bridge. Proxies read-only D1 resource discovery to
+          // /api/admin/d1/* (super-admin; list + Overview metadata only, never query/write/restore).
+          const iframe = this.iframeEl;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_D1_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          const op = msg.op;
+          const onOk = (res: Record<string, unknown> | null): void =>
+            reply({ ok: true, data: res ?? {} });
+          const onErr = (): void => reply({ ok: false, error: 'D1 manager not available' });
+          if (op === 'databases') {
+            this.api
+              .get<Record<string, unknown>>('/admin/d1/databases', undefined, { silent: true })
+              .subscribe({ next: onOk, error: onErr });
+          } else if (op === 'overview') {
+            if (!msg.databaseId) {
+              reply({ ok: false, error: 'No database id' });
+              break;
+            }
+            this.api
+              .get<
+                Record<string, unknown>
+              >(`/admin/d1/${encodeURIComponent(msg.databaseId)}/overview`, undefined, { silent: true })
+              .subscribe({ next: onOk, error: onErr });
+          } else if (op === 'tables') {
+            // Read-only schema catalog (sqlite_master) — never makes the DB unavailable. Column details
+            // are parsed client-side from each object's CREATE SQL (CF's /query authorizer blocks PRAGMA).
+            if (!msg.databaseId) {
+              reply({ ok: false, error: 'No database id' });
+              break;
+            }
+            this.api
+              .get<
+                Record<string, unknown>
+              >(`/admin/d1/${encodeURIComponent(msg.databaseId)}/tables`, undefined, { silent: true })
+              .subscribe({ next: onOk, error: onErr });
+          } else if (op === 'insights') {
+            // Overview insights — per-table row counts (one bounded round-trip) + structural counts.
+            // Read-only; the client derives the plain-language takeaways. Super-admin + flag-dark.
+            if (!msg.databaseId) {
+              reply({ ok: false, error: 'No database id' });
+              break;
+            }
+            this.api
+              .get<
+                Record<string, unknown>
+              >(`/admin/d1/${encodeURIComponent(msg.databaseId)}/insights`, undefined, { silent: true })
+              .subscribe({ next: onOk, error: onErr });
+          } else if (op === 'export') {
+            // SQL-dump export — a read of the DB into a .sql dump (briefly makes the DB unavailable).
+            // POST the scope + resume bookmark; the endpoint is super-admin + flag-dark server-side.
+            if (!msg.databaseId) {
+              reply({ ok: false, error: 'No database id' });
+              break;
+            }
+            const body: Record<string, unknown> = {};
+            if (msg.tables?.length) body['tables'] = msg.tables;
+            if (msg.schemaOnly) body['schemaOnly'] = true;
+            if (msg.dataOnly) body['dataOnly'] = true;
+            if (msg.currentBookmark) body['currentBookmark'] = msg.currentBookmark;
+            this.api
+              .post<
+                Record<string, unknown>
+              >(`/admin/d1/${encodeURIComponent(msg.databaseId)}/export`, body, { silent: true })
+              .subscribe({ next: onOk, error: onErr });
+          } else if (op === 'explain') {
+            // "Explain this table" — the server re-fetches the table's DDL and returns a Workers-AI
+            // plain-English summary. Read-only (never row data). Super-admin + flag-dark server-side.
+            if (!msg.databaseId || !msg.table) {
+              reply({ ok: false, error: 'A database and table are required' });
+              break;
+            }
+            this.api
+              .post<
+                Record<string, unknown>
+              >(`/admin/d1/${encodeURIComponent(msg.databaseId)}/explain-table`, { table: msg.table }, { silent: true })
+              .subscribe({ next: onOk, error: onErr });
+          } else if (op === 'profile') {
+            // "Profile table" — one bounded single-scan aggregate → per-column stats + scan cost.
+            // Read-only; columns come from the server-fetched DDL. Super-admin + flag-dark server-side.
+            if (!msg.databaseId || !msg.table) {
+              reply({ ok: false, error: 'A database and table are required' });
+              break;
+            }
+            this.api
+              .post<
+                Record<string, unknown>
+              >(`/admin/d1/${encodeURIComponent(msg.databaseId)}/profile-table`, { table: msg.table }, { silent: true })
+              .subscribe({ next: onOk, error: onErr });
+          } else {
+            reply({ ok: false, error: 'Unknown D1 op' });
+          }
+          break;
+        }
+        case 'PS_VEC_REQUEST': {
+          // Vectorize inspector — mirrors the PS_KV/PS_R2 bridge. Proxies read-only index inspection
+          // to /api/admin/vectorize/* (super-admin; list + describe only, never query/insert/delete).
+          const iframe = this.iframeEl;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_VEC_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          const op = msg.op;
+          let vecPath: string;
+          if (op === 'indexes') {
+            vecPath = '/admin/vectorize/indexes';
+          } else if (op === 'index') {
+            if (!msg.name) {
+              reply({ ok: false, error: 'No index name' });
+              break;
+            }
+            vecPath = `/admin/vectorize/indexes/${encodeURIComponent(msg.name)}`;
+          } else {
+            reply({ ok: false, error: 'Unknown Vectorize op' });
+            break;
+          }
+          this.api.get<Record<string, unknown>>(vecPath, undefined, { silent: true }).subscribe({
+            next: (res) => reply({ ok: true, data: res ?? {} }),
+            error: () => reply({ ok: false, error: 'Vectorize inspector not available' }),
+          });
+          break;
+        }
+        case 'PS_R2_REQUEST': {
+          // R2 inspector — mirrors the PS_KV bridge. Proxies read-only object inspection to
+          // /api/admin/r2/* (super-admin, account-level; the worker enforces super-admin + a bucket
+          // allowlist and returns 404-dark when unavailable). Never fetches object bodies.
+          const iframe = this.iframeEl;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_R2_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          const op = msg.op;
+          let r2Path: string;
+          const r2Params: Record<string, string> = {};
+          if (op === 'buckets') {
+            r2Path = '/admin/r2/buckets';
+          } else if (op === 'objects') {
+            if (!msg.bucket) {
+              reply({ ok: false, error: 'No R2 bucket' });
+              break;
+            }
+            r2Path = `/admin/r2/${encodeURIComponent(msg.bucket)}/objects`;
+            if (msg.prefix) r2Params['prefix'] = msg.prefix;
+            if (msg.cursor) r2Params['cursor'] = msg.cursor;
+            if (msg.delimiter) r2Params['delimiter'] = msg.delimiter;
+          } else if (op === 'object') {
+            if (!msg.bucket || !msg.key) {
+              reply({ ok: false, error: 'Missing bucket or key' });
+              break;
+            }
+            r2Path = `/admin/r2/${encodeURIComponent(msg.bucket)}/object`;
+            r2Params['key'] = msg.key;
+          } else {
+            reply({ ok: false, error: 'Unknown R2 op' });
+            break;
+          }
+          this.api
+            .get<Record<string, unknown>>(
+              r2Path,
+              Object.keys(r2Params).length ? r2Params : undefined,
+              {
+                silent: true,
+              },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, data: res ?? {} }),
+              error: () => reply({ ok: false, error: 'R2 inspector not available' }),
+            });
+          break;
+        }
+        case 'PS_KV_REQUEST': {
+          // KV inspector — the embedded editor has no cross-origin session, so it asks US (we hold
+          // the ApiService bearer) to read the platform KV via /api/admin/kv/* (super-admin, read-only,
+          // account-level — not site-scoped). Reply with PS_KV_RESPONSE. Mirrors the PS_SQL bridge; the
+          // worker enforces super-admin + a binding allowlist and returns 404 (dark) when unavailable.
+          const iframe = this.iframeEl;
+          const cid = msg.correlationId;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_KV_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          const op = msg.op;
+          let kvPath: string;
+          const kvParams: Record<string, string> = {};
+          if (op === 'namespaces') {
+            kvPath = '/admin/kv/namespaces';
+          } else if (op === 'keys') {
+            if (!msg.binding) {
+              reply({ ok: false, error: 'No KV binding' });
+              break;
+            }
+            kvPath = `/admin/kv/${encodeURIComponent(msg.binding)}/keys`;
+            if (msg.prefix) kvParams['prefix'] = msg.prefix;
+            if (msg.cursor) kvParams['cursor'] = msg.cursor;
+          } else if (op === 'value') {
+            if (!msg.binding || !msg.key) {
+              reply({ ok: false, error: 'Missing binding or key' });
+              break;
+            }
+            kvPath = `/admin/kv/${encodeURIComponent(msg.binding)}/value`;
+            kvParams['key'] = msg.key;
+          } else if (op === 'put') {
+            // WRITE a value (super-admin, size-capped, audited server-side). KV is eventually consistent.
+            if (!msg.binding || !msg.key || typeof msg.value !== 'string') {
+              reply({ ok: false, error: 'Missing binding, key, or value' });
+              break;
+            }
+            const body: Record<string, unknown> = { key: msg.key, value: msg.value };
+            if (typeof msg.expirationTtl === 'number') body['expirationTtl'] = msg.expirationTtl;
+            if (msg.clearExpiration === true) body['clearExpiration'] = true;
+            this.api
+              .put<
+                Record<string, unknown>
+              >(`/admin/kv/${encodeURIComponent(msg.binding)}/value`, body, { silent: true })
+              .subscribe({
+                next: (res) => reply({ ok: true, data: res ?? {} }),
+                error: () => reply({ ok: false, error: 'The write failed.' }),
+              });
+            break;
+          } else if (op === 'delete') {
+            // DELETE a key (super-admin, audited server-side). KV.delete is idempotent + eventually consistent.
+            if (!msg.binding || !msg.key) {
+              reply({ ok: false, error: 'Missing binding or key' });
+              break;
+            }
+            this.api
+              .delete<
+                Record<string, unknown>
+              >(`/admin/kv/${encodeURIComponent(msg.binding)}/value?key=${encodeURIComponent(msg.key)}`, { silent: true })
+              .subscribe({
+                next: (res) => reply({ ok: true, data: res ?? {} }),
+                error: () => reply({ ok: false, error: 'The delete failed.' }),
+              });
+            break;
+          } else {
+            reply({ ok: false, error: 'Unknown KV op' });
+            break;
+          }
+          this.api
+            .get<Record<string, unknown>>(
+              kvPath,
+              Object.keys(kvParams).length ? kvParams : undefined,
+              {
+                silent: true,
+              },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, data: res ?? {} }),
+              error: () => reply({ ok: false, error: 'KV inspector not available' }),
             });
           break;
         }
@@ -579,7 +1293,13 @@ export class BoltEmbedService {
             break;
           }
           const path = isWrite ? `/sites/${site.id}/sql/exec-write` : `/sites/${site.id}/sql/exec`;
-          const reqBody = isWrite ? { statement: query, confirm: msg.confirm === true } : { query };
+          // Forward positional bind params when present — the worker BINDS them (never
+          // concatenates). Both endpoints accept `params`; the grid's typed row editors rely on
+          // this for parameterized INSERT/UPDATE/DELETE.
+          const params = Array.isArray(msg.params) ? msg.params : undefined;
+          const reqBody = isWrite
+            ? { statement: query, confirm: msg.confirm === true, ...(params ? { params } : {}) }
+            : { query, ...(params ? { params } : {}) };
           this.api
             .post<{
               ok?: boolean;
@@ -589,6 +1309,11 @@ export class BoltEmbedService {
               last_row_id?: number | null;
               needs_confirm?: boolean;
               duration_ms?: number;
+              // D1 query-cost meta (`/sql/exec` returns these) — forwarded so the editor's
+              // SQL console shows rows read/written + an expensive-scan warning. Null when
+              // the runtime omits them (never fabricated as 0).
+              rows_read?: number | null;
+              rows_written?: number | null;
               error?: string;
             }>(path, reqBody, { silent: true })
             .subscribe({
@@ -600,6 +1325,8 @@ export class BoltEmbedService {
                   rows_affected: res?.rows_affected,
                   last_row_id: res?.last_row_id,
                   duration_ms: res?.duration_ms,
+                  rows_read: res?.rows_read ?? null,
+                  rows_written: res?.rows_written ?? null,
                   ...(res?.needs_confirm ? { needs_confirm: true } : {}),
                   ...(res?.error ? { error: res.error } : {}),
                 }),
@@ -622,6 +1349,111 @@ export class BoltEmbedService {
             });
           break;
         }
+        case 'PS_NL2SQL_REQUEST': {
+          // AI SQL assistant — the editor asks US to translate a natural-language question to SQL.
+          // Forward to POST /sites/:id/sql/nl2sql; the worker is super-admin-gated (AL-792), grounds
+          // the model on the REAL server-fetched schema, and returns SQL for REVIEW (never executed).
+          // We hand back { ok, sql, model } or a friendly error; a 403/404/502 maps to a clear message.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const question = typeof msg.question === 'string' ? msg.question : '';
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_NL2SQL_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          this.api
+            .post<{
+              ok?: boolean;
+              sql?: string;
+              model?: string;
+              error?: string;
+            }>(`/sites/${site.id}/sql/nl2sql`, { question }, { silent: true })
+            .subscribe({
+              next: (res) =>
+                reply({
+                  ok: res?.ok ?? true,
+                  sql: res?.sql ?? '',
+                  model: res?.model ?? '',
+                  ...(res?.error ? { error: res.error } : {}),
+                }),
+              error: (e: unknown) => {
+                const status = (e as { status?: number })?.status;
+                reply({
+                  ok: false,
+                  error:
+                    status === 403
+                      ? 'The SQL console is restricted to platform administrators.'
+                      : status === 404
+                        ? 'Site not found.'
+                        : status === 502
+                          ? 'The AI assistant is temporarily unavailable — try again in a moment.'
+                          : status === 400
+                            ? 'Please enter a shorter question.'
+                            : 'Could not generate SQL.',
+                });
+              },
+            });
+          break;
+        }
+        case 'PS_ASK_REQUEST': {
+          // Grounded "Ask your data" — the editor asks US to answer an NL question about ONE overview
+          // table. Forward to POST /sites/:id/data-overview/:table/ask; the worker asks a model for a
+          // TYPED intent, re-validates + compiles it server-side, EXECUTES the parameterized query, and
+          // returns { question, intent, sql, rows, rowsRead }. Owner-gated (ownsSiteData). Reply
+          // PS_ASK_RESPONSE with { ok, data } or a friendly, status-mapped error.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const table = typeof msg.table === 'string' ? msg.table.trim().slice(0, 64) : '';
+          const question = typeof msg.question === 'string' ? msg.question : '';
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_ASK_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!table) {
+            reply({ ok: false, error: 'No table selected' });
+            break;
+          }
+          this.api
+            .post<{
+              data?: unknown;
+            }>(`/sites/${site.id}/data-overview/${encodeURIComponent(table)}/ask`, { question }, { silent: true })
+            .subscribe({
+              next: (res) => reply({ ok: true, data: res?.data ?? null }),
+              error: (e: unknown) => {
+                const status = (e as { status?: number })?.status;
+                // The worker returns typed errors; a 400 (compiler reject) carries a useful message.
+                const typed = (e as { error?: { error?: { message?: string } } })?.error?.error?.message;
+                reply({
+                  ok: false,
+                  error:
+                    status === 404
+                      ? 'Site or table not found.'
+                      : status === 422
+                        ? 'Could not turn that into a query — try rephrasing.'
+                        : status === 400
+                          ? typed || 'That question could not be answered over this table.'
+                          : status === 502
+                            ? 'The assistant is temporarily unavailable — try again in a moment.'
+                            : 'Could not answer that question.',
+                });
+              },
+            });
+          break;
+        }
         case 'PS_TOAST': {
           // Item 44 — editor toast surfaces in the admin toast layer too.
           // suppressMirror prevents the mirror effect from echoing it back.
@@ -630,10 +1462,13 @@ export class BoltEmbedService {
             const kind = msg.kind ?? msg.level ?? 'info';
             const text = msg.message ?? '';
             const id =
-              kind === 'error' ? this.toast.error(text)
-              : kind === 'success' ? this.toast.success(text)
-              : kind === 'warning' ? this.toast.warning(text)
-              : this.toast.info(text);
+              kind === 'error'
+                ? this.toast.error(text)
+                : kind === 'success'
+                  ? this.toast.success(text)
+                  : kind === 'warning'
+                    ? this.toast.warning(text)
+                    : this.toast.info(text);
             this.mirroredToastIds.add(id);
           } finally {
             this.suppressMirror = false;
@@ -653,7 +1488,12 @@ export class BoltEmbedService {
    * consumer is supported at a time — re-registering replaces the prior.
    */
   registerDeployHandler(
-    fn: ((req: { files: Record<string, string>; chat?: { messages: unknown[]; description?: string; exportDate?: string } }) => void) | null,
+    fn:
+      | ((req: {
+          files: Record<string, string>;
+          chat?: { messages: unknown[]; description?: string; exportDate?: string };
+        }) => void)
+      | null,
   ): () => void {
     this.deployHandler = fn;
     return () => {

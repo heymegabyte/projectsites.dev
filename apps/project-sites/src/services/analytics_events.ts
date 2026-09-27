@@ -37,6 +37,26 @@ export const EVENT_TYPES = [
   // AN-CWV: a Core Web Vitals sample from the client RUM beacon. Payload carries
   // {metric: LCP|INP|CLS|FCP|TTFB, value: number, href}. Mirrored to visitor_events.
   'web_vital',
+  // First-party site-health: an uncaught JS error / unhandled rejection on a published
+  // site. Payload carries {message, source, line} (message truncated + deduped + capped
+  // client-side by the app.js beacon). Mirrored to visitor_events.
+  'js_error',
+  // First-party engagement: dwell time on a page (load → first hide), beaconed once on
+  // pagehide. Payload carries {duration_ms, href} (client-bounded 1s–30min). Mirrored to
+  // visitor_events for a future median-time-on-page metric.
+  'page_engagement',
+  // First-party scroll depth: the max % of page height a visit reached, beaconed once on
+  // pagehide. Payload carries {percent, href} (client-clamped 0–100). Mirrored to
+  // visitor_events for the scroll-depth reach funnel + per-page completion metric.
+  'scroll_depth',
+  // First-party connection quality: the visitor's navigator.connection estimate, beaconed
+  // once on load. Payload carries {effective_type, downlink, rtt, save_data, href}
+  // (Chromium-only). Mirrored to visitor_events for the network-quality distribution metric.
+  'network_quality',
+  // First-party page-load waterfall: PerformanceNavigationTiming phase durations, beaconed
+  // once on load. Payload carries {dns, connect, ttfb, transfer, dom, total, href}. Mirrored
+  // to visitor_events for the page-load-breakdown metric.
+  'nav_timing',
 ] as const;
 
 /**

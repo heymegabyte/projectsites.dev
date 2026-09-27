@@ -19,10 +19,12 @@ import type { WebVitalStat } from '../../../services/api.service';
 export interface SlowPageStat {
   path: string;
   lcpP75: number;
-  /** INP + CLS p75 for the SAME page (present only when it cleared the sample floor for
-   *  that metric) — the full per-page CWV picture. Omitted (never 0) when absent. */
+  /** INP + CLS + FCP + TTFB p75 for the SAME page (present only when it cleared the sample
+   *  floor for that metric) — the full per-page performance picture. Omitted (never 0) when absent. */
   inpP75?: number;
   clsP75?: number;
+  fcpP75?: number;
+  ttfbP75?: number;
   samples: number;
 }
 
@@ -31,10 +33,14 @@ export interface WebVitalsBlock {
   lcp: WebVitalStat | null;
   inp: WebVitalStat | null;
   cls: WebVitalStat | null;
+  /** Page-load timing (NOT Core Web Vitals): FCP + TTFB, first-party ms p75. */
+  fcp?: WebVitalStat | null;
+  ttfb?: WebVitalStat | null;
   slowestPages?: SlowPageStat[];
 }
 
 type MetricKey = 'lcp' | 'inp' | 'cls';
+type PageLoadKey = 'ttfb' | 'fcp';
 type Rating = 'good' | 'needs' | 'poor';
 interface MetricTile {
   key: MetricKey;
@@ -103,9 +109,41 @@ interface MetricTile {
         }
       </div>
 
+      @if (hasPageLoad()) {
+        <div class="wv-pageload" data-testid="an-wv-pageload">
+          <div class="wv-pages-h">Page load speed · first-party (every browser)</div>
+          <div class="wv-grid wv-grid-2">
+            @for (m of pageLoad(); track m.key) {
+              <div
+                class="wv-tile"
+                [attr.data-testid]="'an-wv-' + m.key"
+                [attr.data-rating]="m.stat ? plRating(m.key, m.stat.p75) : 'none'"
+              >
+                <div class="wv-metric" [attr.title]="plDefinition(m.key)">{{ m.label }}</div>
+                @if (m.stat; as s) {
+                  <div class="wv-value" [attr.data-testid]="'an-wv-' + m.key + '-value'">{{ plFormat(s.p75) }}</div>
+                  <div class="wv-rating" [attr.data-rating]="plRating(m.key, s.p75)">
+                    <span class="wv-dot" aria-hidden="true"></span>{{ ratingLabel(plRating(m.key, s.p75)) }} · p75
+                  </div>
+                  <div class="wv-samples">{{ s.samples }} {{ s.samples === 1 ? 'sample' : 'samples' }}</div>
+                } @else {
+                  <div class="wv-value wv-empty">—</div>
+                  <div class="wv-measuring" [attr.data-testid]="'an-wv-' + m.key + '-empty'">Measuring — no samples yet</div>
+                }
+              </div>
+            }
+          </div>
+          <p class="wv-note" data-testid="an-wv-pageload-note">
+            First-party page-load timing — <strong>TTFB</strong> (server response) + <strong>FCP</strong> (first paint) —
+            measured in <strong>every</strong> visitor's browser (unlike the Chromium-only Core Web Vitals above). This is
+            the page-speed detail Cloudflare's edge plan doesn't expose; a fresh site legitimately has none until visitors arrive.
+          </p>
+        </div>
+      }
+
       @if (slowestPages().length) {
         <div class="wv-pages" data-testid="an-wv-pages">
-          <div class="wv-pages-h">Slowest pages · LCP / INP / CLS p75</div>
+          <div class="wv-pages-h">Slowest pages · LCP / INP / CLS / FCP / TTFB p75</div>
           <table class="wv-pages-table">
             <tbody>
               @for (p of slowestPages(); track p.path) {
@@ -130,6 +168,22 @@ interface MetricTile {
                     title="CLS p75 for this page"
                   >
                     <span class="wv-m-lbl">CLS</span> {{ p.clsP75 != null ? formatValue('cls', p.clsP75) : '—' }}
+                  </td>
+                  <td
+                    class="wv-page-m"
+                    data-testid="an-wv-page-fcp"
+                    [attr.data-rating]="p.fcpP75 != null ? plRating('fcp', p.fcpP75) : 'none'"
+                    title="FCP p75 for this page (first paint)"
+                  >
+                    <span class="wv-m-lbl">FCP</span> {{ p.fcpP75 != null ? plFormat(p.fcpP75) : '—' }}
+                  </td>
+                  <td
+                    class="wv-page-m"
+                    data-testid="an-wv-page-ttfb"
+                    [attr.data-rating]="p.ttfbP75 != null ? plRating('ttfb', p.ttfbP75) : 'none'"
+                    title="TTFB p75 for this page (server response)"
+                  >
+                    <span class="wv-m-lbl">TTFB</span> {{ p.ttfbP75 != null ? plFormat(p.ttfbP75) : '—' }}
                   </td>
                   <td class="wv-page-samples">{{ p.samples }} {{ p.samples === 1 ? 'sample' : 'samples' }}</td>
                 </tr>
@@ -157,6 +211,8 @@ interface MetricTile {
     .wv-title { font-family: 'Sora', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.02em; font-size: 1rem; color: #fff; }
     .wv-src { font-size: 0.62rem; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 55%, transparent); cursor: help; }
     .wv-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; }
+    .wv-grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .wv-pageload { margin-top: 0.9rem; }
     @media (max-width: 560px) { .wv-grid { grid-template-columns: 1fr; } }
     .wv-tile {
       padding: 0.7rem 0.8rem; border-radius: var(--ps-radius-md, 12px);
@@ -225,6 +281,39 @@ export class WebVitalsCardComponent {
 
   /** Slowest pages by LCP p75 (worst first) — the per-page drilldown, [] when none qualify. */
   readonly slowestPages = computed<SlowPageStat[]>(() => this.webVitals()?.slowestPages ?? []);
+
+  /** Page-load timing tiles (TTFB → FCP): server response first, then first paint. */
+  readonly pageLoad = computed<Array<{ key: PageLoadKey; label: string; stat: WebVitalStat | null }>>(() => {
+    const wv = this.webVitals();
+    return [
+      { key: 'ttfb', label: 'TTFB', stat: wv?.ttfb ?? null },
+      { key: 'fcp', label: 'FCP', stat: wv?.fcp ?? null },
+    ];
+  });
+
+  /** True when FCP or TTFB has samples — else the page-load section hides (honest-empty). */
+  readonly hasPageLoad = computed(() => this.pageLoad().some((m) => m.stat != null));
+
+  /** Format a page-load ms p75 — seconds past 1s, ms below (matches CrUX/PageSpeed). */
+  plFormat(p75: number): string {
+    return p75 >= 1000 ? `${(p75 / 1000).toFixed(2)} s` : `${Math.round(p75)} ms`;
+  }
+
+  /** Google's page-load rating thresholds (FCP + TTFB — distinct from the CWV thresholds). */
+  plRating(key: PageLoadKey, p75: number): Rating {
+    const [good, needs] = { ttfb: [800, 1800], fcp: [1800, 3000] }[key];
+    if (p75 <= good) return 'good';
+    if (p75 <= needs) return 'needs';
+    return 'poor';
+  }
+
+  /** Plain-language definition per page-load metric (tooltip + screen-reader title). */
+  plDefinition(key: PageLoadKey): string {
+    return {
+      ttfb: 'Time To First Byte — how quickly your server started responding (first-party).',
+      fcp: 'First Contentful Paint — when the first text or image appeared on the page.',
+    }[key];
+  }
 
   /**
    * Format a p75 for display. CLS is unitless (2 decimals); LCP/INP are ms, shown

@@ -4,6 +4,10 @@ import { writeAuditLog } from '../services/audit.js';
 import { trackSite } from '../lib/posthog.js';
 import { tryEmitEvent } from '../services/emit_event.js';
 import { grantSiteOwner } from '../services/authz_bootstrap.js';
+import { isFlagOn } from '../modules/feature_flags/services.js';
+import { provisionSiteD1 } from '../services/d1_provisioner.js';
+import { provisionSiteKv } from '../services/kv_provisioner.js';
+import { provisionSiteR2 } from '../services/r2_provisioner.js';
 
 /**
  * The site-creation core extracted from POST /api/sites (so the claim funnel can
@@ -16,6 +20,13 @@ jest.mock('../services/audit.js', () => ({ writeAuditLog: jest.fn() }));
 jest.mock('../lib/posthog.js', () => ({ trackSite: jest.fn() }));
 jest.mock('../services/emit_event.js', () => ({ tryEmitEvent: jest.fn() }));
 jest.mock('../services/authz_bootstrap.js', () => ({ grantSiteOwner: jest.fn() }));
+// Phase 0c.2 wiring: the feature-flag gate + the three per-site provisioners are
+// pulled in via DYNAMIC import inside the provision IIFE — jest.mock intercepts
+// both the static import (for the assertions below) and that dynamic import.
+jest.mock('../modules/feature_flags/services.js', () => ({ isFlagOn: jest.fn() }));
+jest.mock('../services/d1_provisioner.js', () => ({ provisionSiteD1: jest.fn() }));
+jest.mock('../services/kv_provisioner.js', () => ({ provisionSiteKv: jest.fn() }));
+jest.mock('../services/r2_provisioner.js', () => ({ provisionSiteR2: jest.fn() }));
 
 const mockInsert = dbInsert as jest.Mock;
 const mockAudit = writeAuditLog as jest.Mock;
@@ -188,5 +199,108 @@ describe('createSite', () => {
       { actorId: 'user-1' },
     );
     expect(site.status).toBe('draft'); // still returned
+  });
+});
+
+// ── Per-site data-resource provisioning (Data Platform re-arch, Phase 0c.2) ──
+// Every (paid) site gets its OWN D1 + KV + R2, provisioned IN PARALLEL from the
+// site-create pipeline. Gated behind the DARK `per_site_data` flag (default-off →
+// no real Cloudflare resources until promoted). Fail-soft: a provisioner throw
+// never blocks creation; each provisioner is idempotent + records the allocation.
+describe('per-site data provisioning (Phase 0c.2)', () => {
+  const mockFlag = isFlagOn as jest.Mock;
+  const mockD1 = provisionSiteD1 as jest.Mock;
+  const mockKv = provisionSiteKv as jest.Mock;
+  const mockR2 = provisionSiteR2 as jest.Mock;
+
+  /**
+   * A capturing executionCtx — the provision block is `waitUntil`'d, so the
+   * default no-op `execCtx` would let the test finish before the async IIFE
+   * settles. This one collects the promises so the test can await them.
+   */
+  function capturingCtx(): { ctx: ExecutionContext; settle: () => Promise<unknown> } {
+    const promises: Promise<unknown>[] = [];
+    return {
+      ctx: {
+        waitUntil: (p: Promise<unknown>) => void promises.push(p),
+        passThroughOnException: () => {},
+      } as never,
+      settle: () => Promise.allSettled(promises),
+    };
+  }
+
+  beforeEach(() => {
+    mockD1.mockResolvedValue({ ok: true });
+    mockKv.mockResolvedValue({ ok: true });
+    mockR2.mockResolvedValue({ ok: true });
+  });
+
+  it('provisions D1 + KV + R2 in parallel when the per_site_data flag is ON', async () => {
+    mockFlag.mockImplementation((_e: unknown, key: string) =>
+      Promise.resolve(key === 'per_site_data'),
+    );
+    const { ctx, settle } = capturingCtx();
+    const site = await createSite(
+      env,
+      { orgId: 'o', slug: 's', businessName: 'B' },
+      { actorId: 'user-1', executionCtx: ctx },
+    );
+    await settle();
+    // tenantId comes from input.orgId; orgId from the actor (the creating user).
+    const args = { siteId: site.id, tenantId: 'o', orgId: 'user-1' };
+    expect(mockD1).toHaveBeenCalledWith(env, args);
+    expect(mockKv).toHaveBeenCalledWith(env, args);
+    expect(mockR2).toHaveBeenCalledWith(env, args);
+  });
+
+  it('does NOT provision when the per_site_data flag is OFF', async () => {
+    mockFlag.mockResolvedValue(false);
+    const { ctx, settle } = capturingCtx();
+    await createSite(
+      env,
+      { orgId: 'o', slug: 's', businessName: 'B' },
+      { actorId: 'user-1', executionCtx: ctx },
+    );
+    await settle();
+    expect(mockD1).not.toHaveBeenCalled();
+    expect(mockKv).not.toHaveBeenCalled();
+    expect(mockR2).not.toHaveBeenCalled();
+  });
+
+  it('does NOT provision without an executionCtx (no request scope to waitUntil)', async () => {
+    mockFlag.mockResolvedValue(true);
+    await createSite(env, { orgId: 'o', slug: 's', businessName: 'B' }, { actorId: 'user-1' });
+    expect(mockD1).not.toHaveBeenCalled();
+    expect(mockKv).not.toHaveBeenCalled();
+    expect(mockR2).not.toHaveBeenCalled();
+  });
+
+  it('a provisioner rejection never blocks site creation (fail-soft)', async () => {
+    mockFlag.mockImplementation((_e: unknown, key: string) =>
+      Promise.resolve(key === 'per_site_data'),
+    );
+    mockD1.mockRejectedValue(new Error('cf down'));
+    const { ctx, settle } = capturingCtx();
+    const site = await createSite(
+      env,
+      { orgId: 'o', slug: 's', businessName: 'B' },
+      { actorId: 'user-1', executionCtx: ctx },
+    );
+    await settle();
+    expect(site.status).toBe('draft'); // still returned despite the provisioner throw
+  });
+
+  it('passes orgId=null for an anonymous/workflow create (no actorId)', async () => {
+    mockFlag.mockImplementation((_e: unknown, key: string) =>
+      Promise.resolve(key === 'per_site_data'),
+    );
+    const { ctx, settle } = capturingCtx();
+    const site = await createSite(
+      env,
+      { orgId: 'o', slug: 's', businessName: 'B' },
+      { executionCtx: ctx },
+    );
+    await settle();
+    expect(mockD1).toHaveBeenCalledWith(env, { siteId: site.id, tenantId: 'o', orgId: null });
   });
 });

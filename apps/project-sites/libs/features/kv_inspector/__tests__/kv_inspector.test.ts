@@ -38,6 +38,8 @@ interface KvKey {
 interface MockKv {
   list: jest.Mock;
   getWithMetadata: jest.Mock;
+  put: jest.Mock;
+  delete: jest.Mock;
 }
 
 // ─── KV namespace mocks ───────────────────────────────────────────────────────
@@ -45,15 +47,19 @@ interface MockKv {
 const mockCacheKv: MockKv = {
   list: jest.fn(),
   getWithMetadata: jest.fn(),
+  put: jest.fn(),
+  delete: jest.fn(),
 };
 const mockPromptStore: MockKv = {
   list: jest.fn(),
   getWithMetadata: jest.fn(),
+  put: jest.fn(),
+  delete: jest.fn(),
 };
 
 // ─── Deferred import (after mocks) ───────────────────────────────────────────
 
-import { kvInspector } from '../handlers.js';
+import { kvInspector, buildKvPutOptions } from '../handlers.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -86,6 +92,26 @@ function makeEnv(overrides: Partial<AppEnv> = {}): AppEnv {
 
 async function req(app: Hono, path: string, env: AppEnv = makeEnv()): Promise<Response> {
   return app.request(path, {}, env as never);
+}
+
+/** PUT/DELETE helper for the KV write endpoints. */
+async function reqMethod(
+  app: Hono,
+  method: 'PUT' | 'DELETE',
+  path: string,
+  body?: unknown,
+  env: AppEnv = makeEnv(),
+): Promise<Response> {
+  return app.request(
+    path,
+    {
+      method,
+      ...(body !== undefined
+        ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
+        : {}),
+    },
+    env as never,
+  );
 }
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
@@ -257,5 +283,163 @@ describe('GET /api/admin/kv/:binding/value', () => {
     const body = await res.json<{ value: string; truncated: boolean }>();
     expect(body.truncated).toBe(true);
     expect(body.value.length).toBeLessThanOrEqual(65_536 + 100); // capped
+  });
+});
+
+describe('PUT /api/admin/kv/:binding/value — write (create/edit)', () => {
+  it('404 when flag off / unauth / not super-admin (KV never written)', async () => {
+    mockIsFlagOn.mockResolvedValueOnce(false);
+    expect((await reqMethod(appWith('u'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'k', value: 'v' })).status).toBe(404);
+    expect((await reqMethod(appWith(), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'k', value: 'v' })).status).toBe(404);
+    mockDbQueryOne.mockResolvedValueOnce({ is_super_admin: 0 });
+    expect((await reqMethod(appWith('owner'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'k', value: 'v' })).status).toBe(404);
+    expect(mockCacheKv.put).not.toHaveBeenCalled();
+  });
+
+  it('404 for an unknown binding (client-supplied name never reaches KV)', async () => {
+    expect((await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/EVIL_KV/value', { key: 'k', value: 'v' })).status).toBe(404);
+    expect(mockCacheKv.put).not.toHaveBeenCalled();
+  });
+
+  it('400 on a missing key / oversized value / sub-60s TTL', async () => {
+    expect((await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { value: 'v' })).status).toBe(400);
+    expect((await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'k', value: 'x'.repeat(65_537) })).status).toBe(400);
+    expect((await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'k', value: 'v', expirationTtl: 30 })).status).toBe(400);
+    expect(mockCacheKv.put).not.toHaveBeenCalled();
+  });
+
+  it('200 writes the value via the resolved binding + surfaces eventual consistency', async () => {
+    const res = await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'host:acme', value: 'zone123', expirationTtl: 120 });
+    expect(res.status).toBe(200);
+    const body = await res.json<{ ok: boolean; key: string; eventualConsistency: boolean }>();
+    expect(body).toEqual({ ok: true, binding: 'CACHE_KV', key: 'host:acme', eventualConsistency: true });
+    expect(mockCacheKv.put).toHaveBeenCalledWith('host:acme', 'zone123', { expirationTtl: 120 });
+    expect(mockPromptStore.put).not.toHaveBeenCalled(); // only the resolved binding
+  });
+
+  it('502 when the KV write throws (honest failure, never a fake ok)', async () => {
+    mockCacheKv.put.mockRejectedValueOnce(new Error('kv down'));
+    const res = await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'k', value: 'v' });
+    expect(res.status).toBe(502);
+    expect((await res.json<{ ok: boolean }>()).ok).toBe(false);
+  });
+
+  it('PRESERVES existing metadata + expiration on a value edit (no TTL passed)', async () => {
+    // The key already has metadata + a far-future expiration; editing only the value must keep both
+    // (a bare put would wipe metadata + clear the TTL — the epic's "preserve unless explicitly changed").
+    mockCacheKv.getWithMetadata.mockResolvedValueOnce({ value: 'old', metadata: { tenant: 'acme' } });
+    mockCacheKv.list.mockResolvedValueOnce({
+      keys: [{ name: 'host:acme', expiration: 9_999_999_999, metadata: { tenant: 'acme' } }],
+      list_complete: true,
+      cursor: undefined,
+    });
+    const res = await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'host:acme', value: 'new' });
+    expect(res.status).toBe(200);
+    expect(mockCacheKv.put).toHaveBeenCalledWith('host:acme', 'new', {
+      expiration: 9_999_999_999,
+      metadata: { tenant: 'acme' },
+    });
+  });
+
+  it('an explicit new TTL WINS over the preserved expiration (deliberate change)', async () => {
+    mockCacheKv.getWithMetadata.mockResolvedValueOnce({ value: 'old', metadata: { tenant: 'acme' } });
+    mockCacheKv.list.mockResolvedValueOnce({
+      keys: [{ name: 'host:acme', expiration: 9_999_999_999 }],
+      list_complete: true,
+      cursor: undefined,
+    });
+    const res = await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', { key: 'host:acme', value: 'new', expirationTtl: 300 });
+    expect(res.status).toBe(200);
+    // TTL replaces the old expiration; metadata is still preserved.
+    expect(mockCacheKv.put).toHaveBeenCalledWith('host:acme', 'new', {
+      expirationTtl: 300,
+      metadata: { tenant: 'acme' },
+    });
+  });
+
+  it('clearExpiration makes the key PERMANENT — drops the existing expiration, keeps metadata', async () => {
+    mockCacheKv.getWithMetadata.mockResolvedValueOnce({ value: 'old', metadata: { tenant: 'acme' } });
+    mockCacheKv.list.mockResolvedValueOnce({
+      keys: [{ name: 'host:acme', expiration: 9_999_999_999 }],
+      list_complete: true,
+      cursor: undefined,
+    });
+    const res = await reqMethod(appWith('super'), 'PUT', '/api/admin/kv/CACHE_KV/value', {
+      key: 'host:acme',
+      value: 'new',
+      clearExpiration: true,
+    });
+    expect(res.status).toBe(200);
+    // No `expiration`/`expirationTtl` → the key becomes permanent; metadata still preserved.
+    expect(mockCacheKv.put).toHaveBeenCalledWith('host:acme', 'new', { metadata: { tenant: 'acme' } });
+  });
+});
+
+describe('buildKvPutOptions (preserve metadata + expiration unless explicitly changed) — pure', () => {
+  const NOW = 1_000_000;
+
+  it('explicit expirationTtl wins (a deliberate TTL change)', () => {
+    expect(buildKvPutOptions({ expirationTtl: 300, existingExpiration: 9e9, nowSec: NOW })).toEqual({
+      expirationTtl: 300,
+    });
+  });
+
+  it('preserves a future existing expiration when no TTL is passed', () => {
+    expect(buildKvPutOptions({ existingExpiration: NOW + 3600, nowSec: NOW })).toEqual({
+      expiration: NOW + 3600,
+    });
+  });
+
+  it('clearExpiration makes the key permanent — does NOT re-apply the existing expiration', () => {
+    expect(buildKvPutOptions({ clearExpiration: true, existingExpiration: NOW + 3600, nowSec: NOW })).toBeUndefined();
+    // metadata is still preserved even when the expiration is cleared
+    expect(
+      buildKvPutOptions({ clearExpiration: true, existingMetadata: { a: 1 }, existingExpiration: NOW + 3600, nowSec: NOW }),
+    ).toEqual({ metadata: { a: 1 } });
+  });
+
+  it('an explicit new TTL wins over clearExpiration (both set → the concrete TTL)', () => {
+    expect(
+      buildKvPutOptions({ expirationTtl: 120, clearExpiration: true, existingExpiration: NOW + 3600, nowSec: NOW }),
+    ).toEqual({ expirationTtl: 120 });
+  });
+
+  it('does NOT re-apply a past / sub-60s existing expiration (KV floor) — key left permanent', () => {
+    expect(buildKvPutOptions({ existingExpiration: NOW - 10, nowSec: NOW })).toBeUndefined();
+    expect(buildKvPutOptions({ existingExpiration: NOW + 30, nowSec: NOW })).toBeUndefined(); // under +60
+  });
+
+  it('always preserves existing metadata (there is no metadata-edit path)', () => {
+    expect(buildKvPutOptions({ existingMetadata: { a: 1 }, nowSec: NOW })).toEqual({ metadata: { a: 1 } });
+    expect(
+      buildKvPutOptions({ expirationTtl: 120, existingMetadata: { a: 1 }, nowSec: NOW }),
+    ).toEqual({ expirationTtl: 120, metadata: { a: 1 } });
+  });
+
+  it('returns undefined for a plain create (no TTL, no existing meta/expiration)', () => {
+    expect(buildKvPutOptions({ nowSec: NOW })).toBeUndefined();
+    expect(buildKvPutOptions({ existingMetadata: null, nowSec: NOW })).toBeUndefined();
+  });
+});
+
+describe('DELETE /api/admin/kv/:binding/value — delete a key', () => {
+  it('404 when not super-admin / unknown binding (KV never touched)', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ is_super_admin: 0 });
+    expect((await reqMethod(appWith('owner'), 'DELETE', '/api/admin/kv/CACHE_KV/value?key=k')).status).toBe(404);
+    expect((await reqMethod(appWith('super'), 'DELETE', '/api/admin/kv/EVIL/value?key=k')).status).toBe(404);
+    expect(mockCacheKv.delete).not.toHaveBeenCalled();
+  });
+
+  it('400 when no key is given', async () => {
+    expect((await reqMethod(appWith('super'), 'DELETE', '/api/admin/kv/CACHE_KV/value')).status).toBe(400);
+    expect(mockCacheKv.delete).not.toHaveBeenCalled();
+  });
+
+  it('200 deletes the key via the resolved binding', async () => {
+    const res = await reqMethod(appWith('super'), 'DELETE', '/api/admin/kv/PROMPT_STORE/value?key=draft:1');
+    expect(res.status).toBe(200);
+    expect((await res.json<{ ok: boolean }>()).ok).toBe(true);
+    expect(mockPromptStore.delete).toHaveBeenCalledWith('draft:1');
+    expect(mockCacheKv.delete).not.toHaveBeenCalled();
   });
 });

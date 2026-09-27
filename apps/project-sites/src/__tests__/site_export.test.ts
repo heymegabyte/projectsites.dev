@@ -110,10 +110,14 @@ describe('site_export', () => {
     });
 
     it('each call returns a distinct object', () => {
+      // Freeze time so both manifests stamp the SAME `exportedAt` — otherwise the two calls can straddle
+      // a millisecond boundary on a slow CI runner and `toEqual` flakes on the differing timestamp.
+      jest.useFakeTimers({ now: 1_717_000_000_000 });
       const m1 = buildManifest('s1', 'my-site', [file('a.txt', 'x')]);
       const m2 = buildManifest('s1', 'my-site', [file('a.txt', 'x')]);
       expect(m1).toEqual(m2);
       expect(m1).not.toBe(m2);
+      jest.useRealTimers();
     });
 
     it('any file entry produces a valid ExportAsset', () => {

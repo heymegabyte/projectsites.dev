@@ -68,4 +68,33 @@ describe('getDailySeries (per-day traffic series — live visitor_events, includ
     const { days } = await getDailySeries(stubEnv([]), 'site_1');
     expect(days).toEqual([]);
   });
+
+  it('AN-FILTER: threads a drilldown filter into the WHERE + BINDS the value after the window params', async () => {
+    const cap: Cap = { sql: '', params: [] };
+    await getDailySeries(stubEnv([], cap), 'site_1', 30, undefined, undefined, {
+      dim: 'country',
+      value: 'US',
+    });
+    // Same restriction the summary applies (json_extract on the trusted column), value bound `?`.
+    expect(cap.sql).toMatch(/AND json_extract\(metadata, '\$\.country'\) = \?/);
+    // Position: [site_id, window, filterValue] (no tz) — the filter `?` sits after the window clause.
+    expect(cap.params).toEqual(['site_1', '-30 days', 'US']);
+  });
+
+  it('AN-FILTER: applies NO filter clause when none is passed (params + SQL unchanged)', async () => {
+    const cap: Cap = { sql: '', params: [] };
+    await getDailySeries(stubEnv([], cap), 'site_1', 30);
+    expect(cap.sql).not.toMatch(/json_extract/);
+    expect(cap.params).toEqual(['site_1', '-30 days']);
+  });
+
+  it('AN-FILTER: with a tz offset AND a filter, param order is [tz, site, window, filterValue, tz]', async () => {
+    const cap: Cap = { sql: '', params: [] };
+    await getDailySeries(stubEnv([], cap), 'site_1', 30, undefined, -480, {
+      dim: 'path',
+      value: '/pricing',
+    });
+    // SELECT date(created_at, ?) · WHERE site_id=? · created_at>=? · AND path=? · GROUP BY date(created_at, ?)
+    expect(cap.params).toEqual(['-480 minutes', 'site_1', '-30 days', '/pricing', '-480 minutes']);
+  });
 });

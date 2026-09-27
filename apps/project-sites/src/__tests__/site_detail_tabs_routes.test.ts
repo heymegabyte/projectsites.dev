@@ -28,7 +28,7 @@ jest.mock('../services/sysadmin.js', () => ({ isSuperAdmin: jest.fn() }));
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types/env.js';
 import { errorHandler } from '../middleware/error_handler.js';
-import { siteDetailTabs } from '../routes/site_detail_tabs.js';
+import { siteDetailTabs, toBlobCell, serializeSqlRows } from '../routes/site_detail_tabs.js';
 import { dbQuery, dbQueryOne, dbExecute } from '../services/db.js';
 import { writeAuditLog } from '../services/audit.js';
 import { isSuperAdmin } from '../services/sysadmin.js';
@@ -463,16 +463,33 @@ describe('POST /api/sites/:siteId/sql/exec', () => {
 describe('POST /api/sites/:siteId/sql/exec-write (D1 manager writes — AL-872)', () => {
   const PATH = `/api/sites/${SITE}/sql/exec-write`;
 
-  /** D1 mock whose `prepare(...).run()` resolves to a write-meta envelope (or throws). */
+  /** D1 mock whose `prepare(...).run()` resolves to a write-meta envelope (or throws). The
+   *  chainable `.bind(...)` records each call's args in `_boundParams` so the parameterized
+   *  write path (typed row editors — values BOUND, never concatenated) can be asserted. */
   function makeWriteDb(opts: { throws?: boolean } = {}) {
     const run = jest.fn(async () => {
       if (opts.throws) throw new Error('SQLITE_ERROR: syntax error');
       return { success: true, meta: { changes: 3, last_row_id: 42 } };
     });
-    const prepare = jest.fn(() => ({ run }));
-    return { prepare, _run: run } as unknown as D1Database & {
+    const boundParams: unknown[][] = [];
+    const stmt: { run: jest.Mock; bind: jest.Mock } = {
+      run,
+      bind: jest.fn((...args: unknown[]) => {
+        boundParams.push(args);
+        return stmt;
+      }),
+    };
+    const prepare = jest.fn(() => stmt);
+    return {
+      prepare,
+      _run: run,
+      _bind: stmt.bind,
+      _boundParams: boundParams,
+    } as unknown as D1Database & {
       prepare: jest.Mock;
       _run: jest.Mock;
+      _bind: jest.Mock;
+      _boundParams: unknown[][];
     };
   }
 
@@ -584,6 +601,34 @@ describe('POST /api/sites/:siteId/sql/exec-write (D1 manager writes — AL-872)'
     expect(json.ok).toBe(true);
     expect(json.rows_affected).toBe(3);
     expect(json.last_row_id).toBe(42);
+    expect((db as unknown as { _run: jest.Mock })._run).toHaveBeenCalled();
+  });
+
+  it('BINDS positional params on a parameterized INSERT (booleans → 0/1, values never concatenated)', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
+    const db = makeWriteDb();
+    const res = await write(
+      makeApp(AUTH),
+      {
+        statement: 'INSERT INTO "widgets" ("name", "active", "qty") VALUES (?1, ?2, ?3)',
+        params: ["Robert'); DROP TABLE students;--", true, 7],
+      },
+      makeEnv(db),
+    );
+    expect(res.status).toBe(200);
+    const bound = (db as unknown as { _boundParams: unknown[][] })._boundParams;
+    // The injection payload rides as a BOUND param — never interpolated into the SQL — and the
+    // boolean is coerced to SQLite's 0/1 at bind time.
+    expect(bound[0]).toEqual(["Robert'); DROP TABLE students;--", 1, 7]);
+    // Audit log records the param COUNT, never the values.
+    expect(mockWriteAuditLog.mock.calls[0][1].metadata_json).toMatchObject({ param_count: 3 });
+  });
+
+  it('runs a no-param write WITHOUT calling .bind() (keeps the exact prepared-statement path)', async () => {
+    mockDbQueryOne.mockResolvedValueOnce({ id: SITE });
+    const db = makeWriteDb();
+    await write(makeApp(AUTH), { statement: 'CREATE TABLE t2 (id TEXT)' }, makeEnv(db));
+    expect((db as unknown as { _bind: jest.Mock })._bind).not.toHaveBeenCalled();
     expect((db as unknown as { _run: jest.Mock })._run).toHaveBeenCalled();
   });
 });
@@ -741,5 +786,38 @@ describe('DELETE /api/sites/:siteId/integration-providers/:key', () => {
       target_id: SITE,
       metadata_json: { provider: 'stripe' },
     });
+  });
+});
+
+describe('toBlobCell + serializeSqlRows (BLOB → JSON-safe envelope for the SQL console)', () => {
+  it('converts an ArrayBuffer to a { __blob, bytes, hex } envelope (first 16 bytes)', () => {
+    const buf = new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer;
+    expect(toBlobCell(buf)).toEqual({ __blob: true, bytes: 4, hex: '89 50 4e 47' });
+  });
+
+  it('converts a typed-array view (respecting offset/length) and caps the hex preview at 16 bytes', () => {
+    const full = new Uint8Array(Array.from({ length: 20 }, (_, i) => i));
+    const view = full.subarray(0, 20); // 20 bytes → hex preview only the first 16
+    const out = toBlobCell(view) as { __blob: boolean; bytes: number; hex: string };
+    expect(out.__blob).toBe(true);
+    expect(out.bytes).toBe(20);
+    expect(out.hex.split(' ')).toHaveLength(16); // preview bounded
+    expect(out.hex.startsWith('00 01 02')).toBe(true);
+  });
+
+  it('passes non-binary values through unchanged (string/number/null/plain object)', () => {
+    expect(toBlobCell('hello')).toBe('hello');
+    expect(toBlobCell(42)).toBe(42);
+    expect(toBlobCell(null)).toBeNull();
+    expect(toBlobCell({ a: 1 })).toEqual({ a: 1 });
+  });
+
+  it('serializeSqlRows maps every cell + preserves column keys', () => {
+    const rows = [{ id: 1, name: 'x', avatar: new Uint8Array([1, 2, 3]).buffer }];
+    const out = serializeSqlRows(rows);
+    expect(Object.keys(out[0])).toEqual(['id', 'name', 'avatar']);
+    expect(out[0].id).toBe(1);
+    expect(out[0].name).toBe('x');
+    expect(out[0].avatar).toEqual({ __blob: true, bytes: 3, hex: '01 02 03' });
   });
 });

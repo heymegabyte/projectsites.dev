@@ -40,6 +40,7 @@ export interface AnalyticsCsvInput {
     byBrowser?: ReadonlyArray<{ label: string; count: number }>;
     byOs?: ReadonlyArray<{ label: string; count: number }>;
     byUtmSource?: ReadonlyArray<{ label: string; count: number }>;
+    byUtmMedium?: ReadonlyArray<{ label: string; count: number }>;
     byUtmCampaign?: ReadonlyArray<{ label: string; count: number }>;
     byChannel?: ReadonlyArray<{ label: string; count: number }>;
     byConversionKind?: ReadonlyArray<{ label: string; count: number }>;
@@ -48,12 +49,16 @@ export interface AnalyticsCsvInput {
       lcp: WebVitalStat | null;
       inp: WebVitalStat | null;
       cls: WebVitalStat | null;
+      /** Page-load timing (first-party): FCP + TTFB p75, emitted only when measured. */
+      fcp?: WebVitalStat | null;
+      ttfb?: WebVitalStat | null;
     };
   } | null;
   /**
-   * Cloudflare edge delivery (status classes / cache / bandwidth) from
-   * `envelope.delivery`. Rows are emitted ONLY when `has_data` — an unavailable or
-   * empty delivery block contributes nothing (never fake zeros), matching the card.
+   * Cloudflare edge delivery from `envelope.delivery` (status classes / cache / bandwidth
+   * + the connection/content breakdowns: HTTP protocol, TLS, content-type, method, and
+   * verified bots). Rows are emitted ONLY when `has_data` — an unavailable or empty
+   * delivery block contributes nothing (never fake zeros), matching the cards.
    */
   delivery?: {
     has_data: boolean;
@@ -61,6 +66,11 @@ export interface AnalyticsCsvInput {
     by_status_class: ReadonlyArray<{ class: string; count: number }>;
     cache: { hit: number; miss: number; uncacheable: number; hit_ratio_pct: number | null };
     response_bytes: number;
+    protocols?: ReadonlyArray<{ label: string; count: number }>;
+    tls?: ReadonlyArray<{ label: string; count: number }>;
+    content_types?: ReadonlyArray<{ label: string; count: number }>;
+    methods?: ReadonlyArray<{ label: string; count: number }>;
+    verified_bots?: ReadonlyArray<{ label: string; count: number }>;
   } | null;
   /**
    * Busiest-hours buckets ALREADY rotated to the viewer's local time (0–23), typically
@@ -82,7 +92,8 @@ export function buildAnalyticsCsv(input: AnalyticsCsvInput): string {
   lines.push(`summary,unique_visitors,${e.uniques}`);
   lines.push(`summary,total_requests,${e.total_requests}`);
   // Bounce is emitted only when truly measured (session-depth) — never a fake 0.
-  if (t?.bounceRatePercent != null) lines.push(`summary,bounce_rate_percent,${t.bounceRatePercent}`);
+  if (t?.bounceRatePercent != null)
+    lines.push(`summary,bounce_rate_percent,${t.bounceRatePercent}`);
 
   for (const r of e.series ?? []) lines.push(`by_day,${csvEscape(r.date)},${r.page_views}`);
   for (const r of e.top_pages ?? []) lines.push(`top_page,${csvEscape(r.path)},${r.views}`);
@@ -95,27 +106,46 @@ export function buildAnalyticsCsv(input: AnalyticsCsvInput): string {
   for (const r of t?.byBrowser ?? []) lines.push(`browser,${csvEscape(r.label)},${r.count}`);
   for (const r of t?.byOs ?? []) lines.push(`os,${csvEscape(r.label)},${r.count}`);
   // Campaign attribution — tagged visits only (mirrors the "Campaigns & sources" card).
-  for (const r of t?.byUtmSource ?? []) lines.push(`campaign_source,${csvEscape(r.label)},${r.count}`);
+  for (const r of t?.byUtmSource ?? [])
+    lines.push(`campaign_source,${csvEscape(r.label)},${r.count}`);
+  for (const r of t?.byUtmMedium ?? [])
+    lines.push(`campaign_medium,${csvEscape(r.label)},${r.count}`);
   for (const r of t?.byUtmCampaign ?? []) lines.push(`campaign,${csvEscape(r.label)},${r.count}`);
   for (const r of t?.byChannel ?? []) lines.push(`channel,${csvEscape(r.label)},${r.count}`);
-  for (const r of t?.byConversionKind ?? []) lines.push(`conversion,${csvEscape(r.label)},${r.count}`);
+  for (const r of t?.byConversionKind ?? [])
+    lines.push(`conversion,${csvEscape(r.label)},${r.count}`);
 
   const wv = t?.webVitals;
   if (wv?.lcp) lines.push(`web_vital,lcp_p75_ms,${wv.lcp.p75}`);
   if (wv?.inp) lines.push(`web_vital,inp_p75_ms,${wv.inp.p75}`);
   if (wv?.cls) lines.push(`web_vital,cls_p75,${wv.cls.p75}`);
+  // Page-load timing (first-party) — emitted only when measured (never a fake 0).
+  if (wv?.ttfb) lines.push(`web_vital,ttfb_p75_ms,${wv.ttfb.p75}`);
+  if (wv?.fcp) lines.push(`web_vital,fcp_p75_ms,${wv.fcp.p75}`);
 
   // Cloudflare edge delivery — emitted ONLY when there's real edge data (matches the
   // card's honest "not available / no traffic" states; never fabricated zeros).
   const dl = input.delivery;
   if (dl?.has_data) {
     lines.push(`delivery,edge_requests,${dl.total_requests}`);
-    for (const s of dl.by_status_class) lines.push(`delivery,status_${csvEscape(s.class)},${s.count}`);
+    for (const s of dl.by_status_class)
+      lines.push(`delivery,status_${csvEscape(s.class)},${s.count}`);
     lines.push(`delivery,cache_hit,${dl.cache.hit}`);
     lines.push(`delivery,cache_miss,${dl.cache.miss}`);
     lines.push(`delivery,cache_uncacheable,${dl.cache.uncacheable}`);
-    if (dl.cache.hit_ratio_pct != null) lines.push(`delivery,cache_hit_ratio_pct,${dl.cache.hit_ratio_pct}`);
+    if (dl.cache.hit_ratio_pct != null)
+      lines.push(`delivery,cache_hit_ratio_pct,${dl.cache.hit_ratio_pct}`);
     lines.push(`delivery,edge_response_bytes,${dl.response_bytes}`);
+    // Edge connection/content breakdowns (mirror the Delivery card's edge grid) — each
+    // top row as `edge_<dim>,<label>,<count>`. Absent dims contribute nothing.
+    for (const r of dl.protocols ?? [])
+      lines.push(`edge_protocol,${csvEscape(r.label)},${r.count}`);
+    for (const r of dl.tls ?? []) lines.push(`edge_tls,${csvEscape(r.label)},${r.count}`);
+    for (const r of dl.content_types ?? [])
+      lines.push(`edge_content_type,${csvEscape(r.label)},${r.count}`);
+    for (const r of dl.methods ?? []) lines.push(`edge_method,${csvEscape(r.label)},${r.count}`);
+    for (const r of dl.verified_bots ?? [])
+      lines.push(`edge_verified_bot,${csvEscape(r.label)},${r.count}`);
   }
 
   // Busiest hours — local-time buckets (the caller rotated from UTC), `HH:00` labels.
@@ -124,7 +154,9 @@ export function buildAnalyticsCsv(input: AnalyticsCsvInput): string {
   }
 
   for (const u of e.urls_included ?? []) {
-    lines.push(`url_included,${csvEscape(u.hostname)},${u.resolved_zone ? 'resolved' : 'unresolved'}`);
+    lines.push(
+      `url_included,${csvEscape(u.hostname)},${u.resolved_zone ? 'resolved' : 'unresolved'}`,
+    );
   }
 
   return lines.join('\n') + '\n';

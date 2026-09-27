@@ -165,6 +165,109 @@ export interface DeployRequestMessage {
 export interface DataRequestMessage {
   type: 'PS_DATA_REQUEST';
   table?: string;
+
+  /** 0-based row offset for the paginated browse grid (default 0). Ignored for the table overview. */
+  offset?: number;
+
+  /** Page size for the paginated browse grid (the worker clamps to 1–100; default 25). */
+  limit?: number;
+
+  /**
+   * Server-side sort column for the browse grid. The worker ONLY honours it when it's in the table's
+   * column allowlist (else it keeps the default sort) — so this is a display request, never trusted
+   * as SQL. Omit for the table's default order.
+   */
+  orderBy?: string;
+
+  /** Server-side sort direction for {@link orderBy} (default `desc`). */
+  dir?: 'asc' | 'desc';
+
+  /**
+   * MULTI-column server sort as `col:dir,col2:dir2` (priority order) — takes precedence over the single
+   * {@link orderBy}/{@link dir}. Each column is worker allowlist-validated (display request, never trusted
+   * as SQL); bounded to a few keys. Sent by the browse grid + export. Omit for the default order.
+   */
+  sort?: string;
+
+  /**
+   * Whole-table search needle. The worker runs a parameterized OR-of-LIKE over the table's allowlisted
+   * columns and reflects the match count in `total` — so this searches the WHOLE table, not just the
+   * loaded page. Omit / empty → no search.
+   */
+  search?: string;
+
+  /**
+   * Filter column (a table column). The worker allowlist-validates it (else no filter) and applies the
+   * filter per {@link filterOp}. Composes with {@link search} + sort.
+   */
+  filterCol?: string;
+
+  /** Value for {@link filterCol} (parameterized by the worker). Ignored for the `null`/`notnull` ops. */
+  filterVal?: string;
+
+  /**
+   * Comparison operator for {@link filterCol}: `eq | ne | contains | gt | lt | gte | lte | null |
+   * notnull`. The worker maps it to a FIXED, parameterized clause (never user text) and defaults an
+   * absent/unknown op to `eq`. `null`/`notnull` filter on the column alone (no {@link filterVal}).
+   */
+  filterOp?: string;
+
+  /**
+   * A multi-condition filter group as a JSON array of `{col,op,val}`. When present it takes precedence
+   * over the single {@link filterCol}/{@link filterOp}/{@link filterVal}. The worker shape-hardens +
+   * re-validates every leaf against the table's column allowlist, bounds the count, and joins the
+   * conditions by {@link filterCombinator}. Composes with {@link search} + sort.
+   */
+  filters?: string;
+
+  /** How to join the {@link filters} conditions — `AND` | `OR` (worker default `AND`). */
+  filterCombinator?: string;
+
+  /**
+   * Export the WHOLE current query (search + filters + sort) instead of one page — routes to the
+   * `/data-overview/:table/export` endpoint (bounded to the server cap). The response `data` carries all
+   * matching rows + `truncated`. Ignores {@link offset}/{@link limit}/{@link count}.
+   */
+  exportAll?: boolean;
+
+  /**
+   * Kanban whole-query lane counts: when set (an allowlisted column), routes to
+   * `/data-overview/:table/group-counts` and the response `data` carries `groups: [{value,count}]` over
+   * the SAME filtered set (search + filters apply; pagination ignored). Lane totals are honest
+   * (whole-table); the CARDS remain the current page. Omit for a normal browse.
+   */
+  groupBy?: string;
+
+  /**
+   * Chart measure aggregate (paired with {@link groupBy}): when both `measure` (an allowlisted numeric
+   * column) and `agg` (`sum`|`avg`|`min`|`max`) are set, group-counts ALSO returns each group's
+   * `aggregate` so a bar can be "SUM(amount) by status", not just row counts. Omit for COUNT (kanban +
+   * count-mode charts). The worker re-validates the column against the allowlist + the agg whitelist.
+   */
+  measure?: string;
+  agg?: string;
+
+  /**
+   * Whole-query column summaries: a comma-separated list of allowlisted columns → routes to
+   * `/data-overview/:table/column-aggregates`, and the response `data.aggregates` carries `{ col: {count,
+   * filled, sum, avg, min, max} }` over the SAME filtered set (search + filters apply). Powers the grid
+   * footer's "· all" (whole-table) summaries vs the page-only fallback. Omit for a normal browse.
+   */
+  columnsAgg?: string;
+
+  /**
+   * Bounded DISTINCT values of ONE allowlisted column → routes to `/data-overview/:table/column-distinct`
+   * (`?column=`), and the response carries `distinctValues: string[]` + `truncated`. Powers the cell
+   * editor's "pick an existing value" datalist (a select-like hint). Omit for a normal browse.
+   */
+  columnDistinct?: string;
+
+  /**
+   * `0` = skip the server COUNT(*) (paging/sorting doesn't change the total, so the client reuses its
+   * cached total — avoids an expensive exact count on every nav). Omitted / `1` = the worker counts
+   * (table open, search/filter change, post-mutation). Then `total` on the response is `null`.
+   */
+  count?: number;
   correlationId: string;
 }
 
@@ -201,7 +304,57 @@ export interface DataResponseMessage {
      * console reads the shared multi-tenant DB, so it MUST stay super-admin-gated — AL-792).
      */
     canRunSql?: boolean;
+
+    /**
+     * `true` when a bounded result was sliced to the server cap: EXPORT (rows > row cap) OR kanban
+     * group-counts (distinct groups > group cap). The editor labels the partial result honestly.
+     */
+    truncated?: boolean;
+
+    /** Export only: the server row cap ({@link MAX_EXPORT_ROWS}), for an honest "first N rows" message. */
+    cap?: number;
+
+    /**
+     * group-counts only: whole-query lane/bar totals for `groupBy`. Each group carries `count` always,
+     * plus a numeric `aggregate` (SUM/AVG/MIN/MAX of the measure column; null when all-NULL) when a
+     * chart measure+agg was requested. Ordered by the aggregate (desc) when aggregating, else by count.
+     */
+    groups?: Array<{ value: unknown; count: number; aggregate?: number | null }>;
+
+    /** group-counts only: the column the {@link groups} were grouped by. */
+    groupBy?: string;
+
+    /** group-counts only (aggregate mode): the echoed measure column + aggregate function, for honest labels. */
+    measure?: string;
+    agg?: string;
+
+    /**
+     * column-aggregates only: whole-query per-column stats for the grid footer, keyed by column —
+     * `{ col: { count, filled, sum, avg, min, max } }` over the current filtered set (not just the page).
+     */
+    aggregates?: Record<
+      string,
+      { count: number; filled: number; sum: number | null; avg: number | null; min: number | null; max: number | null }
+    >;
+
+    /**
+     * column-distinct only: bounded distinct values of {@link distinctColumn} (the column's whole value
+     * domain, non-null/non-empty, ordered). With {@link truncated} true the column is high-cardinality —
+     * the editor offers NO suggestions (it's a free-text column, not a select). Powers the value datalist.
+     */
+    distinctValues?: string[];
+
+    /** column-distinct only: the column the {@link distinctValues} belong to. */
+    distinctColumn?: string;
   } | null;
+
+  /**
+   * Browse only: the worker's total row count for the CURRENT query (reflects any `search`/filter), so
+   * the grid pages through the matches + shows an honest "N of <total>". `null` when the count was
+   * SKIPPED (a `count=0` page-nav/sort request) → the client keeps its cached total. Absent for the
+   * table overview.
+   */
+  total?: number | null;
   error?: string;
 }
 
@@ -226,6 +379,13 @@ export interface SqlRequestMessage {
 
   /** Required `true` for destructive writes (DROP/ALTER, unscoped DELETE/UPDATE) — the type-to-confirm. */
   confirm?: boolean;
+
+  /**
+   * Positional bind params for `?1, ?2, …` — the worker BINDS these (never concatenates), so the
+   * grid's typed row editors (Add/Edit/Delete) send a parameterized statement instead of
+   * stringifying user values into SQL.
+   */
+  params?: Array<string | number | boolean | null>;
 }
 
 /** Parent → Child: the admin's reply to {@link SqlRequestMessage} (mirrors the sql/exec[-write] envelope). */
@@ -242,9 +402,276 @@ export interface SqlResponseMessage {
   rows_affected?: number;
   last_row_id?: number | null;
 
+  /**
+   * D1 query-cost meta (from `/sql/exec`): rows the query READ (the scan cost D1 bills +
+   * that drives latency) and rows it WROTE. `null` when the runtime omits them — shown as
+   * "—", never a fabricated 0. A large `rows_read` drives the expensive-scan warning.
+   */
+  rows_read?: number | null;
+  rows_written?: number | null;
+
   /** Set when the server refused a destructive write pending `confirm:true` — the UI prompts. */
   needs_confirm?: boolean;
   duration_ms?: number;
+  error?: string;
+}
+
+/**
+ * Child → Parent (AI SQL assistant): a natural-language question the admin
+ * forwards to `POST /sites/:id/sql/nl2sql`. The worker grounds the model on the
+ * REAL server-fetched schema and returns SQL for the user to REVIEW — it is NOT
+ * executed. Super-admin gated server-side (mirrors the SQL console).
+ */
+export interface Nl2SqlRequestMessage {
+  type: 'PS_NL2SQL_REQUEST';
+  question: string;
+  correlationId: string;
+}
+
+/** Parent → Child: the admin's reply to {@link Nl2SqlRequestMessage}. */
+export interface Nl2SqlResponseMessage {
+  type: 'PS_NL2SQL_RESPONSE';
+  correlationId?: string;
+  ok?: boolean;
+
+  /** The generated SQL — dropped into the editor for review, never auto-run. */
+  sql?: string;
+
+  /** The model that produced it (raw id; the UI shows a friendly label). */
+  model?: string;
+  error?: string;
+}
+
+/**
+ * Child → Parent (grounded "Ask your data"): a natural-language question about ONE overview table the
+ * admin forwards to `POST /sites/:id/data-overview/:table/ask`. The worker asks a model for a TYPED
+ * INTENT (never SQL), re-validates it with the server-side compiler, EXECUTES the parameterized query,
+ * and returns the computed rows + the AI's intent + the exact SQL (falsifiable). OWNER-gated
+ * (ownsSiteData). Distinct from {@link Nl2SqlRequestMessage} (super-admin "draft SQL", NOT executed).
+ */
+export interface AskRequestMessage {
+  type: 'PS_ASK_REQUEST';
+  table: string;
+  question: string;
+  correlationId: string;
+}
+
+/** The AI's proposed query intent (editor mirror of the worker's `QueryIntent` — for display only). */
+export interface AskQueryIntent {
+  select: Array<{ col?: string; agg?: string }>;
+  filters?: Array<{ col: string; op: string; val: string }>;
+  combinator?: string;
+  groupBy?: string;
+  orderBy?: Array<{ col?: string; dir?: string }>;
+  limit?: number;
+}
+
+/** Parent → Child: the admin's reply to {@link AskRequestMessage} (mirrors the worker `/ask` envelope). */
+export interface AskResponseMessage {
+  type: 'PS_ASK_RESPONSE';
+  correlationId?: string;
+  ok?: boolean;
+  data?: {
+    question: string;
+    intent: AskQueryIntent;
+    sql: string;
+    rows: Record<string, unknown>[];
+    rowsRead: number | null;
+  };
+  error?: string;
+}
+
+// ── KV Browser bridge messages ────────────────────────────────────────────────
+
+/** KV namespace entry returned by the `namespaces` op. */
+export type KvNamespaceEntry = string;
+
+/** A single KV key descriptor from the `keys` op. */
+export interface KvKeyDescriptor {
+  name: string;
+  expiration?: number;
+  metadata?: unknown;
+}
+
+/**
+ * Child → Parent (KV Browser): ask the admin to proxy a Cloudflare KV
+ * operation on behalf of the editor (the editor has no cross-origin session).
+ *
+ * @remarks
+ * ops:
+ * - `namespaces` — list all KV namespace binding names for the current site.
+ * - `keys`       — list keys in `binding`; respects `prefix` + cursor paging.
+ * - `value`      — fetch the value for a single `key` in `binding`.
+ */
+export interface KvRequestMessage {
+  type: 'PS_KV_REQUEST';
+  correlationId: string;
+  op: 'namespaces' | 'keys' | 'value' | 'put' | 'delete';
+
+  /** Required for `keys` / `value` / `put` / `delete` ops — the KV binding name (e.g. `"KV"`). */
+  binding?: string;
+
+  /** For `keys` op — filter to keys starting with this string. */
+  prefix?: string;
+
+  /** For `keys` op — opaque pagination cursor from the previous page. */
+  cursor?: string;
+
+  /** For `value` / `put` / `delete` ops — the exact key. */
+  key?: string;
+
+  /** For `put` op — the value to write (create/overwrite). Server-side size-capped. */
+  value?: string;
+
+  /** For `put` op — optional expiry in seconds (KV minimum 60); omitted ⇒ the EXISTING expiry is kept. */
+  expirationTtl?: number;
+
+  /**
+   * For `put` op — explicitly REMOVE the key's expiration (make it permanent). The only way to drop a
+   * TTL, since a bare edit now preserves it. Ignored when {@link expirationTtl} is also set (that wins).
+   */
+  clearExpiration?: boolean;
+}
+
+/** Data envelope variants keyed by op. */
+export interface KvNamespacesData {
+  namespaces: string[];
+}
+
+export interface KvKeysData {
+  keys: KvKeyDescriptor[];
+  cursor?: string;
+}
+
+export interface KvValueData {
+  key: string;
+  value: string | null;
+  metadata?: unknown;
+
+  /** True when the value was size-capped by the reader — editing is disabled (can't round-trip). */
+  truncated?: boolean;
+}
+
+/**
+ * Parent → Child (KV Browser): the admin's reply to {@link KvRequestMessage}.
+ * `ok` indicates success; `data` carries the op-specific payload; `error`
+ * is set on failure.
+ */
+export interface KvResponseMessage {
+  type: 'PS_KV_RESPONSE';
+  correlationId: string;
+  ok: boolean;
+  data?: KvNamespacesData | KvKeysData | KvValueData;
+  error?: string;
+}
+
+/** A single R2 object descriptor from the `objects` op. */
+export interface R2ObjectDescriptor {
+  key: string;
+  size: number;
+  uploaded: string | null;
+  contentType: string | null;
+}
+
+/** A saved grid view (the isolated ProjectSites.dev metadata store) — mirrors the worker's `serializeGridView`. */
+export interface SavedGridView {
+  id: string;
+  table: string;
+  name: string;
+  conditions: Array<{ col: string; op: string; val: string }>;
+  combinator: 'AND' | 'OR';
+  sortCol: string | null;
+  sortDir: 'asc' | 'desc' | null;
+  search: string;
+
+  /** Render type — the grid restores this view mode on apply. */
+  type: 'grid' | 'gallery' | 'kanban' | 'chart' | 'calendar';
+
+  /**
+   * View-type display config: gallery/kanban card-title column (`titleField`); kanban/chart group-by
+   * column (`groupField`); calendar date column (`dateField`); + the full column `layout` (field
+   * visibility/order/widths/pins/summaries/density) so applying a view restores its whole arrangement.
+   * All optional; worker shape-hardens.
+   */
+  config: {
+    titleField?: string;
+    groupField?: string;
+    dateField?: string;
+
+    /** Multi-column sort as `col:dir,…` (priority order). The primary also lives in `sortCol`/`sortDir`. */
+    sorts?: string;
+    layout?: SavedGridViewLayout;
+  };
+  updatedAt: string | null;
+}
+
+/** The saved column layout of a grid view — restored on apply (the editor re-validates each field). */
+export interface SavedGridViewLayout {
+  hidden?: string[];
+  order?: string[];
+  widths?: Record<string, number>;
+  pinned?: string[];
+  summaries?: Record<string, string>;
+  density?: string;
+}
+
+/**
+ * Child → Parent (Data tab): manage saved grid views. `list` fetches this table's views; `save`
+ * persists the current query as a named view; `delete` removes one by id. The admin forwards to the
+ * org-gated `/api/sites/:siteId/grid-views` endpoints and replies with {@link ViewResponseMessage}.
+ */
+export interface ViewRequestMessage {
+  type: 'PS_VIEW_REQUEST';
+  action: 'list' | 'save' | 'delete' | 'update';
+  table: string;
+  correlationId: string;
+
+  /** save: the view name. */
+  name?: string;
+
+  /** save: JSON array of `{col,op,val}` (the worker re-validates every leaf). */
+  filters?: string;
+
+  /** save: `AND` | `OR`. */
+  combinator?: string;
+
+  /** save: the single-column sort. */
+  sortCol?: string | null;
+  sortDir?: string | null;
+
+  /** save: the OR-of-LIKE search needle. */
+  search?: string;
+
+  /** save: the render type — `grid` | `gallery` | `kanban` | `chart` | `calendar` (worker whitelists, default grid). */
+  viewType?: string;
+
+  /** save: view display config (`titleField`/`groupField`/`dateField` + `sorts` + the full column `layout`; worker shape-hardens). */
+  viewConfig?: {
+    titleField?: string;
+    groupField?: string;
+    dateField?: string;
+    sorts?: string;
+    layout?: SavedGridViewLayout;
+  };
+
+  /** delete: the view id. */
+  viewId?: string;
+}
+
+/** Parent → Child (Data tab): reply to {@link ViewRequestMessage}. */
+export interface ViewResponseMessage {
+  type: 'PS_VIEW_RESPONSE';
+  correlationId: string;
+  action: 'list' | 'save' | 'delete' | 'update';
+
+  /** list. */
+  views?: SavedGridView[];
+
+  /** save. */
+  view?: SavedGridView | null;
+
+  /** delete. */
+  deleted?: boolean;
   error?: string;
 }
 
@@ -258,6 +685,10 @@ export type ParentToChildMessage =
   | ListFilesMessage
   | DataResponseMessage
   | SqlResponseMessage
+  | Nl2SqlResponseMessage
+  | AskResponseMessage
+  | KvResponseMessage
+  | ViewResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -267,6 +698,10 @@ export type ChildToParentMessage =
   | DeployRequestMessage
   | DataRequestMessage
   | SqlRequestMessage
+  | Nl2SqlRequestMessage
+  | AskRequestMessage
+  | KvRequestMessage
+  | ViewRequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;

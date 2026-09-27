@@ -28,6 +28,8 @@ import {
   getVisitorFunnel,
   summaryToCsv,
   siteOrgId,
+  getCloudflareRumForSite,
+  getSiteOwnHosts,
 } from './service.js';
 import { mintShareToken, verifyShareToken } from './share.js';
 // Reusable server-side validator for an arbitrary ?start&end window (shared with
@@ -35,7 +37,17 @@ import { mintShareToken, verifyShareToken } from './share.js';
 import { parseCustomWindow } from '../analytics/handlers.js';
 // Shifts an absolute window's date bounds into the owner's timezone (UTC-equiv),
 // so the ?start&end filter matches the tz-aware daily buckets.
-import { shiftWindowToTz } from '../visitor_events_core/service.js';
+import {
+  getEntryPagesSummary,
+  getClickSummary,
+  getConciergeEngagementSummary,
+  getExitPagesSummary,
+  getNewVsReturningSummary,
+  getSessionDurationSummary,
+  getWeekdayBreakdown,
+  getReferrerDomains,
+  shiftWindowToTz,
+} from '../visitor_events_core/service.js';
 // Drilldown-filter allowlist schema — validates ?filterDim against the trusted
 // dimension enum so an unknown/injected dimension is rejected here, never in SQL.
 import { AnalyticsFilterSchema, type AnalyticsFilter } from '../visitor_events_core/schemas.js';
@@ -62,10 +74,18 @@ async function requireOwnedSite(
   return { orgId: g.orgId, siteId };
 }
 
-/** Parse a bounded day-window query param (integer 1–365, default 30). */
-function parseWindowDays(c: Context<AppContext>, param: string): number {
-  const raw = Number(c.req.query(param));
-  return Number.isInteger(raw) && raw > 0 && raw <= 365 ? raw : 30;
+/**
+ * Parse a bounded day-window query param (integer 1–365, default 30). Checks the named `param`
+ * first, then falls back to `days` — the self-fetching cards (entry/exit/session-duration) send
+ * `?days=N`, so a route declared with `'windowDays'` still honors their selected window instead of
+ * silently defaulting to 30. Backward-compatible: a valid named param always wins.
+ */
+export function parseWindowDays(c: Context<AppContext>, param: string): number {
+  const pick = (v: string | undefined): number | null => {
+    const n = Number(v);
+    return Number.isInteger(n) && n > 0 && n <= 365 ? n : null;
+  };
+  return pick(c.req.query(param)) ?? pick(c.req.query('days')) ?? 30;
 }
 
 /** 400 for a malformed/reversed ?start&end window (a client error, distinct from authz). */
@@ -150,7 +170,11 @@ siteAnalytics.get('/api/sites/:siteId/analytics/daily', async (c) => {
   const tzRaw = Number.parseInt(c.req.query('tz') ?? '', 10);
   const tz = Number.isInteger(tzRaw) ? tzRaw : undefined;
   const win = cw.window ? shiftWindowToTz(cw.window, tz) : undefined;
-  const series = await getDailySeries(c.env, gate.siteId, days, win, tz);
+  // AN-FILTER — same allowlisted drilldown as the summary, so the chart line matches the filtered
+  // KPIs. Unknown/injected dim → 400 (never reaches SQL); a filter never widens the owner scope.
+  const filter = parseFilter(c);
+  if (filter instanceof Response) return filter;
+  const series = await getDailySeries(c.env, gate.siteId, days, win, tz, filter);
   return c.json(
     cw.window ? { ...series, windowStart: cw.startDisplay, windowEnd: cw.endDisplay } : series,
   );
@@ -174,6 +198,108 @@ siteAnalytics.get('/api/sites/:siteId/analytics/forms', async (c) => {
   const windowDays = parseWindowDays(c, 'windowDays');
   const forms = await getFormAnalytics(c.env, gate.siteId, windowDays);
   return c.json(forms);
+});
+
+// AN — new-vs-returning visitor split (first-party page_engagement `nv` flag, browser-scoped), owner-scoped.
+siteAnalytics.get('/api/sites/:siteId/analytics/visitors', async (c) => {
+  const gate = await requireOwnedSite(c);
+  if (gate instanceof Response) return gate;
+
+  const windowDays = parseWindowDays(c, 'windowDays');
+  const summary = await getNewVsReturningSummary(c.env, gate.siteId, windowDays);
+  return c.json(summary);
+});
+
+// AN — top entry (landing) pages (first-party page_engagement `ep` session-start flag), owner-scoped.
+siteAnalytics.get('/api/sites/:siteId/analytics/entry-pages', async (c) => {
+  const gate = await requireOwnedSite(c);
+  if (gate instanceof Response) return gate;
+
+  const windowDays = parseWindowDays(c, 'windowDays');
+  const summary = await getEntryPagesSummary(c.env, gate.siteId, windowDays);
+  return c.json(summary);
+});
+
+// AN — top exit (last) pages (first-party page_engagement, last per session `sid`), owner-scoped.
+siteAnalytics.get('/api/sites/:siteId/analytics/exit-pages', async (c) => {
+  const gate = await requireOwnedSite(c);
+  if (gate instanceof Response) return gate;
+
+  const windowDays = parseWindowDays(c, 'windowDays');
+  const summary = await getExitPagesSummary(c.env, gate.siteId, windowDays);
+  return c.json(summary);
+});
+
+// AN — most-clicked ELEMENTS (first-party `click` beacon, generic non-conversion interactions
+// grouped by label), owner-scoped. Distinct from outbound clicks (conversions) + navigations.
+siteAnalytics.get('/api/sites/:siteId/analytics/clicks', async (c) => {
+  const gate = await requireOwnedSite(c);
+  if (gate instanceof Response) return gate;
+
+  const windowDays = parseWindowDays(c, 'windowDays');
+  const summary = await getClickSummary(c.env, gate.siteId, windowDays);
+  return c.json(summary);
+});
+
+// AN — session duration (median/avg/longest session LENGTH + distribution), first-party
+// SUM(duration_ms) per session `sid`; distinct from per-page dwell. Owner-scoped.
+siteAnalytics.get('/api/sites/:siteId/analytics/session-duration', async (c) => {
+  const gate = await requireOwnedSite(c);
+  if (gate instanceof Response) return gate;
+
+  const windowDays = parseWindowDays(c, 'windowDays');
+  const summary = await getSessionDurationSummary(c.env, gate.siteId, windowDays);
+  return c.json(summary);
+});
+
+// AN — pageviews by day-of-week (0=Sun…6=Sat), bucketed in the OWNER's local tz (a weekday
+// histogram can't be rotated client-side). Drilldown-filter-aware; owner-scoped (404 non-owned,
+// 400 bad filter). `tzApplied` distinguishes local vs UTC-fallback bucketing (honest).
+siteAnalytics.get('/api/sites/:siteId/analytics/weekday', async (c) => {
+  const gate = await requireOwnedSite(c);
+  if (gate instanceof Response) return gate;
+
+  const cw = parseCustomWindow(c.req.query('start'), c.req.query('end'));
+  if (cw.error) return badWindow(c, cw.error);
+  const days = parseWindowDays(c, 'days');
+  const tzRaw = Number.parseInt(c.req.query('tz') ?? '', 10);
+  const tz = Number.isInteger(tzRaw) ? tzRaw : undefined;
+  const win = cw.window ? shiftWindowToTz(cw.window, tz) : undefined;
+  const filter = parseFilter(c);
+  if (filter instanceof Response) return filter;
+  const summary = await getWeekdayBreakdown(c.env, gate.siteId, days, win, filter, tz);
+  return c.json(summary);
+});
+
+// AN — top EXTERNAL referring domains (where off-site traffic comes from), distinct from the coarse
+// channel bucket. Self/internal referrers are excluded server-side via the site's OWN hosts (resolved
+// from ownership records, never a client value). Owner-scoped (404 non-owned, 400 bad filter).
+siteAnalytics.get('/api/sites/:siteId/analytics/referrers', async (c) => {
+  const gate = await requireOwnedSite(c);
+  if (gate instanceof Response) return gate;
+
+  const cw = parseCustomWindow(c.req.query('start'), c.req.query('end'));
+  if (cw.error) return badWindow(c, cw.error);
+  const days = parseWindowDays(c, 'days');
+  const tzRaw = Number.parseInt(c.req.query('tz') ?? '', 10);
+  const win = cw.window ? shiftWindowToTz(cw.window, Number.isInteger(tzRaw) ? tzRaw : undefined) : undefined;
+  const filter = parseFilter(c);
+  if (filter instanceof Response) return filter;
+  // Exclude the site's OWN hosts so internal navigation is never counted as a referral.
+  const selfHosts = await getSiteOwnHosts(c.env, gate.siteId);
+  const summary = await getReferrerDomains(c.env, gate.siteId, days, win, filter, selfHosts);
+  return c.json(summary);
+});
+
+// AN — AI concierge engagement (opens · messages · unique visitors · messages/open), first-party
+// concierge_open/concierge_message beacon events. Owner-scoped. The card self-hides when opens = 0.
+siteAnalytics.get('/api/sites/:siteId/analytics/concierge', async (c) => {
+  const gate = await requireOwnedSite(c);
+  if (gate instanceof Response) return gate;
+
+  const windowDays = parseWindowDays(c, 'windowDays');
+  const summary = await getConciergeEngagementSummary(c.env, gate.siteId, windowDays);
+  return c.json(summary);
 });
 
 // AN19 — per-site visitor funnel (landing → engaged → converted), owner-scoped.
@@ -230,5 +356,9 @@ siteAnalytics.get('/api/public/analytics/:token', async (c) => {
   if (!owner) return notFound(c);
 
   const summary = await getSiteAnalyticsSummary(c.env, owner, grant.siteId, 30);
-  return c.json({ summary, expiresAt: grant.expEpochMs });
+  // Cloudflare RUM (CF-measured CWV + TTFB) for the site's owned host — an INDEPENDENT second source
+  // to the first-party beacon. Site is trusted from the verified share grant; the host is resolved
+  // server-side. Fail-soft: null when no data / CF error (the report simply omits the CF tiles).
+  const cloudflareRum = await getCloudflareRumForSite(c.env, grant.siteId, 30);
+  return c.json({ summary, cloudflareRum, expiresAt: grant.expEpochMs });
 });

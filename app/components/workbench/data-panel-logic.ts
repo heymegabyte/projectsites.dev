@@ -4,6 +4,9 @@
  * (`DataPanel.tsx`) is a thin view over these helpers + the PS_ admin bridge.
  */
 import type { DataOverviewTable } from '~/lib/embed/embedded-mode';
+import { isoDayKey, blobCellInfo, humanBytes } from './data-cell-format';
+import type { CellAggregates } from './data-aggregates';
+import { buildCreateTable, buildCreateIndex, buildDropIndex, DdlError } from './schema-ddl';
 
 /** Phosphor icon per known table key; a sensible default for anything new. */
 const TABLE_ICONS: Record<string, string> = {
@@ -36,6 +39,13 @@ export function iconForTable(key: string): string {
 export function formatCellValue(value: unknown): string {
   if (value === null || value === undefined || value === '') {
     return '—';
+  }
+
+  // A worker-serialized BLOB → a compact "BLOB · N bytes" label, never a garbled `{}` / raw hex dump.
+  const blob = blobCellInfo(value);
+
+  if (blob) {
+    return `BLOB · ${humanBytes(blob.bytes)}`;
   }
 
   if (typeof value === 'object') {
@@ -128,6 +138,56 @@ export function toCsv(columns: readonly string[], rows: readonly Record<string, 
   return body ? `${head}\r\n${body}` : head;
 }
 
+/** Tab-delimited cell — quotes (doubling embedded `"`) only when the value carries a tab/quote/CR/LF. */
+function tsvCell(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  const s = typeof value === 'object' ? safeJson(value) : String(value);
+
+  return /[\t"\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/**
+ * Serialize rows to a TAB-separated block (header = column labels, CRLF line breaks) — the clipboard's
+ * spreadsheet-native format: pasting TSV drops straight into Google Sheets / Excel cells with no import
+ * dialog. Same escaping discipline as {@link toCsv} but tab-delimited (a cell with a tab/quote/CR/LF is
+ * double-quote-wrapped). Empty rows → header line only. Pure.
+ *
+ * @example toTsv(['a', 'b'], [{ a: '1', b: 'x' }]) // 'A\tB\r\n1\tx'
+ */
+export function toTsv(columns: readonly string[], rows: readonly Record<string, unknown>[]): string {
+  const head = columns.map((c) => tsvCell(columnLabel(c))).join('\t');
+  const body = rows.map((r) => columns.map((c) => tsvCell(r[c])).join('\t')).join('\r\n');
+
+  return body ? `${head}\r\n${body}` : head;
+}
+
+/**
+ * Serialize rows to a pretty-printed JSON array of objects, each projected to `columns` in order. Uses the
+ * RAW column keys (not human labels) for round-trip fidelity, and preserves value TYPES as stored (a number
+ * stays a number, an object/array stays structured — not stringified). A missing key binds JSON `null`.
+ * Empty rows → `[]`. Pure. The developer-facing counterpart to {@link toCsv} / {@link toTsv}.
+ *
+ * @example toJsonRows(['a', 'b'], [{ a: 1, b: 'x' }]) // '[\n  {\n    "a": 1,\n    "b": "x"\n  }\n]'
+ */
+export function toJsonRows(columns: readonly string[], rows: readonly Record<string, unknown>[]): string {
+  return JSON.stringify(
+    rows.map((r) => {
+      const o: Record<string, unknown> = {};
+
+      for (const c of columns) {
+        o[c] = c in r ? r[c] : null;
+      }
+
+      return o;
+    }),
+    null,
+    2,
+  );
+}
+
 /**
  * Filter browse rows by a case-insensitive substring matched across ALL columns.
  * A blank query returns every row (a fresh copy). Pure — never mutates input.
@@ -150,33 +210,6 @@ export function filterRows(
   }
 
   return rows.filter((r) => columns.some((c) => formatCellValue(r[c]).toLowerCase().includes(q)));
-}
-
-/**
- * Ordered `[label, displayValue]` pairs for a single row's detail drill-down —
- * pretty (2-space) JSON for objects, `formatCellValue` for scalars.
- *
- * @param row - one browse row
- * @param columns - columns in display order
- * @returns label/value pairs for a definition-list detail view
- * @example detailEntries({ path: '/' }, ['path']) // [['Path', '/']]
- */
-export function detailEntries(row: Record<string, unknown>, columns: readonly string[]): Array<[string, string]> {
-  return columns.map((c) => {
-    const v = row[c];
-    const val =
-      v !== null && v !== undefined && typeof v === 'object'
-        ? (() => {
-            try {
-              return JSON.stringify(v, null, 2);
-            } catch {
-              return String(v);
-            }
-          })()
-        : formatCellValue(v);
-
-    return [columnLabel(c), val];
-  });
 }
 
 /**
@@ -237,6 +270,50 @@ export function addToSqlHistory(history: readonly string[], query: string, max =
   }
 
   return [q, ...history.filter((h) => h !== q)].slice(0, Math.max(1, max));
+}
+
+/** A user-named, saved SQL query — one-click reusable, distinct from the auto-history. */
+export interface SavedQuery {
+  name: string;
+  query: string;
+}
+
+/**
+ * Add (or update) a NAMED saved query — the manual, reusable-snippet companion to the
+ * auto-history. Dedupes by trimmed name: saving under an existing name OVERWRITES its query
+ * and moves it to the top. A blank name OR blank query is a no-op. Newest first, capped.
+ * Pure — no DOM/I/O (the panel persists the result to localStorage).
+ *
+ * @param saved - existing saved queries, most-recent first
+ * @param name - the label the user gave this query
+ * @param query - the SQL to store
+ * @param max - cap on retained entries (default 50)
+ * @returns the new saved-query list
+ * @example addSavedQuery([], 'actives', 'SELECT 1') // [{name:'actives', query:'SELECT 1'}]
+ * @example addSavedQuery([{name:'a',query:'X'}], 'a', 'Y') // [{name:'a', query:'Y'}]  (overwrite + top)
+ * @example addSavedQuery([{name:'a',query:'X'}], '  ', 'Y') // [{name:'a', query:'X'}]  (blank name = no-op)
+ */
+export function addSavedQuery(saved: readonly SavedQuery[], name: string, query: string, max = 50): SavedQuery[] {
+  const n = (name ?? '').trim();
+  const q = (query ?? '').trim();
+
+  if (!n || !q) {
+    return saved.slice();
+  }
+
+  return [{ name: n, query: q }, ...saved.filter((s) => s.name !== n)].slice(0, Math.max(1, max));
+}
+
+/**
+ * Remove a saved query by exact name; a missing name leaves the list unchanged. Pure.
+ *
+ * @param saved - existing saved queries
+ * @param name - the name to remove
+ * @returns the new list without that entry
+ * @example removeSavedQuery([{name:'a',query:'X'}], 'a') // []
+ */
+export function removeSavedQuery(saved: readonly SavedQuery[], name: string): SavedQuery[] {
+  return saved.filter((s) => s.name !== name);
 }
 
 /**
@@ -305,24 +382,58 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
+/** The max bind params in one exec-write statement (mirrors the worker's `SqlWriteSchema.params` cap). */
+export const CSV_IMPORT_MAX_PARAMS = 200;
+
+/** How many data rows the import UI previews before running. */
+export const CSV_IMPORT_PREVIEW_ROWS = 5;
+
+/** One parameterized multi-row INSERT batch (≤ {@link CSV_IMPORT_MAX_PARAMS} bound values). */
+export interface CsvImportBatch {
+  /** `INSERT INTO "t" ("a", "b") VALUES (?, ?), (?, ?)` — value positions are `?`, never inlined. */
+  readonly statement: string;
+
+  /** Flat, row-major bound values; an empty cell → `null` (never `''` or a stringified NULL). */
+  readonly params: BoundValue[];
+  readonly rowCount: number;
+}
+
+/** A validated, PARAMETERIZED, chunked CSV→table import plan (the import counterpart to {@link toCsv}). */
+export interface CsvImportPlan {
+  readonly table: string;
+  readonly columns: string[];
+
+  /** Total data rows across every batch. */
+  readonly rowCount: number;
+
+  /** Parameterized multi-row INSERTs, each within the exec-write param cap, run sequentially. */
+  readonly batches: CsvImportBatch[];
+
+  /** The first {@link CSV_IMPORT_PREVIEW_ROWS} data rows, for the pre-import preview. */
+  readonly preview: string[][];
+}
+
 /**
- * Build parameter-safe `INSERT` statements from CSV text for `table` — the import counterpart to
- * {@link toCsv}. Row 1 is the header (column names); each later row → one INSERT. Table + column
- * names are identifier-gated (rejects injection via identifiers); values are single-quote-escaped
- * (`'` → `''`); an empty cell becomes `NULL` (not `''`). Non-destructive by nature — only adds rows.
- * Pure — the panel runs the returned statements through its existing write rail.
+ * Build a PARAMETERIZED, chunked INSERT plan from CSV text for `table` — the import counterpart to
+ * {@link toCsv}, run through the panel's existing bound `/sql/exec-write` rail. Row 1 is the header
+ * (column names, identifier-validated); every later row's cells become BOUND values in a multi-row
+ * `INSERT INTO "t" (...) VALUES (?, ?), (?, ?)…`. Values are bound `?`, **NEVER concatenated into
+ * SQL** (the epic's "parameterize values, never concatenate" mandate) — an injection payload rides
+ * as an inert param. An empty cell → bound `null` (not `''`). Rows are chunked so each batch stays
+ * within `maxParams` bind params, so a large CSV imports as several safe statements the caller runs
+ * in sequence. Table + column names are gated by `IDENT_RE` (a hostile identifier is rejected here,
+ * never quoted-in). Pure — no DOM, no I/O.
  *
- * @param csvText - the CSV to import (header + ≥1 data row)
- * @param table - target table name (SQLite identifier)
- * @returns `{ inserts, columns, rowCount }`
- * @throws {CsvImportError} empty/one-row input, bad table/column identifier, or a row whose
- *   column count differs from the header.
- * @example csvToInserts('a,b\n1,', 't').inserts // ['INSERT INTO "t" ("a", "b") VALUES (\'1\', NULL);']
+ * @throws {CsvImportError} empty/one-row input, a bad table/column identifier, a row whose column
+ *   count differs from the header, or a table too wide to import within one parameterized write.
+ * @example buildCsvImportPlan('a,b\n1,', 't').batches[0]
+ *   // → { statement: 'INSERT INTO "t" ("a", "b") VALUES (?, ?)', params: ['1', null], rowCount: 1 }
  */
-export function csvToInserts(
+export function buildCsvImportPlan(
   csvText: string,
   table: string,
-): { inserts: string[]; columns: string[]; rowCount: number } {
+  maxParams: number = CSV_IMPORT_MAX_PARAMS,
+): CsvImportPlan {
   const t = String(table ?? '').trim();
 
   if (!IDENT_RE.test(t)) {
@@ -337,22 +448,186 @@ export function csvToInserts(
 
   const columns = rows[0].map((c) => c.trim());
 
-  if (columns.some((c) => !IDENT_RE.test(c))) {
+  if (columns.length === 0 || columns.some((c) => !IDENT_RE.test(c))) {
     throw new CsvImportError('Every header column must be a valid identifier.');
   }
 
-  const colList = columns.map((c) => `"${c}"`).join(', ');
-  const inserts = rows.slice(1).map((r, idx) => {
+  if (columns.length > maxParams) {
+    throw new CsvImportError(
+      `Too many columns (${columns.length}) to import within one parameterized write (max ${maxParams}).`,
+    );
+  }
+
+  const dataRows = rows.slice(1);
+  dataRows.forEach((r, idx) => {
     if (r.length !== columns.length) {
       throw new CsvImportError(`Row ${idx + 1} has ${r.length} value(s); the header has ${columns.length}.`);
     }
-
-    const vals = r.map((v) => (v === '' ? 'NULL' : `'${v.replace(/'/g, "''")}'`)).join(', ');
-
-    return `INSERT INTO "${t}" (${colList}) VALUES (${vals});`;
   });
 
-  return { inserts, columns, rowCount: inserts.length };
+  const colList = columns.map((c) => `"${c}"`).join(', ');
+  const placeholderRow = `(${columns.map(() => '?').join(', ')})`;
+
+  // Chunk rows so cols × rows-per-batch ≤ maxParams (≥1 row per batch even for a wide table).
+  const rowsPerBatch = Math.max(1, Math.floor(maxParams / columns.length));
+
+  const batches: CsvImportBatch[] = [];
+
+  for (let i = 0; i < dataRows.length; i += rowsPerBatch) {
+    const chunk = dataRows.slice(i, i + rowsPerBatch);
+    const params: BoundValue[] = [];
+
+    for (const r of chunk) {
+      for (const v of r) {
+        params.push(v === '' ? null : v);
+      }
+    }
+
+    batches.push({
+      statement: `INSERT INTO "${t}" (${colList}) VALUES ${chunk.map(() => placeholderRow).join(', ')}`,
+      params,
+      rowCount: chunk.length,
+    });
+  }
+
+  return { table: t, columns, rowCount: dataRows.length, batches, preview: dataRows.slice(0, CSV_IMPORT_PREVIEW_ROWS) };
+}
+
+/**
+ * Build a PARAMETERIZED, chunked INSERT plan from a JSON ARRAY OF OBJECTS for `table` — the JSON sibling
+ * of {@link buildCsvImportPlan} (same {@link CsvImportPlan} shape, so the import preview + `/sql/exec-write`
+ * rail are reused unchanged). Columns are the union of object keys in first-seen order (ragged objects are
+ * fine — a missing key binds `null`). Every value is BOUND, never concatenated: strings/numbers/booleans
+ * bind directly, `null`/`undefined` → `null`, and a nested object/array → its `JSON.stringify` text (SQLite
+ * has no JSON type). Field names are `IDENT_RE`-gated (a hostile key is rejected, never quoted-in). Pure.
+ *
+ * @throws {CsvImportError} invalid JSON, a non-array root, an empty array, a non-object element, no fields,
+ *   a bad field identifier, or more fields than fit one parameterized write.
+ * @example buildJsonImportPlan('[{"a":1},{"a":2}]', 't').batches[0]
+ *   // → { statement: 'INSERT INTO "t" ("a") VALUES (?), (?)', params: [1, 2], rowCount: 2 }
+ */
+export function buildJsonImportPlan(
+  jsonText: string,
+  table: string,
+  maxParams: number = CSV_IMPORT_MAX_PARAMS,
+): CsvImportPlan {
+  const t = String(table ?? '').trim();
+
+  if (!IDENT_RE.test(t)) {
+    throw new CsvImportError('Enter a valid table name (letters, digits, underscore; not starting with a digit).');
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    throw new CsvImportError('Not valid JSON. Paste a JSON array of objects, e.g. [{"a":1},{"a":2}].');
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new CsvImportError('JSON import expects an array of row objects, e.g. [{"name":"Ada"}].');
+  }
+
+  if (parsed.length === 0) {
+    throw new CsvImportError('The JSON array has no rows.');
+  }
+
+  const objs: Record<string, unknown>[] = [];
+  parsed.forEach((el, i) => {
+    if (el === null || typeof el !== 'object' || Array.isArray(el)) {
+      throw new CsvImportError(`Row ${i + 1} is not an object — every array element must be a JSON object.`);
+    }
+
+    objs.push(el as Record<string, unknown>);
+  });
+
+  // Columns = union of keys in first-seen order (ragged objects → missing keys bind null).
+  const columns: string[] = [];
+  const seen = new Set<string>();
+
+  for (const o of objs) {
+    for (const k of Object.keys(o)) {
+      if (!seen.has(k)) {
+        seen.add(k);
+        columns.push(k);
+      }
+    }
+  }
+
+  if (columns.length === 0) {
+    throw new CsvImportError('The JSON objects have no fields to import.');
+  }
+
+  if (columns.some((c) => !IDENT_RE.test(c))) {
+    throw new CsvImportError(
+      'Every field name must be a valid identifier (letters, digits, underscore; not starting with a digit).',
+    );
+  }
+
+  if (columns.length > maxParams) {
+    throw new CsvImportError(
+      `Too many fields (${columns.length}) to import within one parameterized write (max ${maxParams}).`,
+    );
+  }
+
+  // Bind primitives directly; a nested object/array → JSON text; null/undefined → SQL NULL.
+  const toBound = (v: unknown): BoundValue => {
+    if (v === null || v === undefined) {
+      return null;
+    }
+
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+      return v;
+    }
+
+    return JSON.stringify(v);
+  };
+
+  const colList = columns.map((c) => `"${c}"`).join(', ');
+  const placeholderRow = `(${columns.map(() => '?').join(', ')})`;
+  const rowsPerBatch = Math.max(1, Math.floor(maxParams / columns.length));
+  const batches: CsvImportBatch[] = [];
+
+  for (let i = 0; i < objs.length; i += rowsPerBatch) {
+    const chunk = objs.slice(i, i + rowsPerBatch);
+    const params: BoundValue[] = [];
+
+    for (const o of chunk) {
+      for (const c of columns) {
+        params.push(toBound(o[c]));
+      }
+    }
+
+    batches.push({
+      statement: `INSERT INTO "${t}" (${colList}) VALUES ${chunk.map(() => placeholderRow).join(', ')}`,
+      params,
+      rowCount: chunk.length,
+    });
+  }
+
+  // Preview cells are strings (nested values shown as JSON) to match CsvImportPlan.preview: string[][].
+  const previewCell = (v: unknown): string =>
+    v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+  const preview = objs.slice(0, CSV_IMPORT_PREVIEW_ROWS).map((o) => columns.map((c) => previewCell(o[c])));
+
+  return { table: t, columns, rowCount: objs.length, batches, preview };
+}
+
+/** Detect the paste format for the import wizard: a leading `[` ⇒ JSON array, else CSV. */
+export function detectImportFormat(text: string): 'json' | 'csv' {
+  return text.trim().startsWith('[') ? 'json' : 'csv';
+}
+
+/**
+ * Dispatch an import paste to the right parameterized-plan builder by {@link detectImportFormat} — so the
+ * one import panel accepts BOTH a CSV paste and a JSON array of objects with no mode toggle. Same
+ * {@link CsvImportPlan} shape either way (identical preview + `/sql/exec-write` execution path).
+ */
+export function buildImportPlan(text: string, table: string, maxParams: number = CSV_IMPORT_MAX_PARAMS): CsvImportPlan {
+  return detectImportFormat(text) === 'json'
+    ? buildJsonImportPlan(text, table, maxParams)
+    : buildCsvImportPlan(text, table, maxParams);
 }
 
 /**
@@ -376,6 +651,101 @@ export function pkFromTableInfo(rows: readonly Record<string, unknown>[]): strin
     .filter((r) => r.name.length > 0)
     .sort((a, b) => a.pk - b.pk)
     .map((r) => r.name);
+}
+
+/**
+ * The GENERATED (computed) columns from a `pragma_table_xinfo` result — its `hidden` field is 2 for a
+ * VIRTUAL generated column and 3 for a STORED one (0 = ordinary, 1 = an internal hidden column).
+ * SQLite REJECTS writing a generated column's value, so the grid uses this to present those columns
+ * read-only (never a doomed edit) and omit them from INSERT (add / duplicate). Accepts the raw `name`
+ * or the `"column"` alias; a row without a numeric `hidden` is treated as ordinary. Pure.
+ *
+ * @param rows - a pragma_table_xinfo result (each row has `hidden` + `name`/`column`)
+ * @returns the set of generated column names (empty when none, or when `hidden` is absent)
+ * @example generatedFromTableXinfo([{ name: 'a', hidden: 0 }, { name: 'total', hidden: 2 }]) // Set {'total'}
+ * @example generatedFromTableXinfo([{ name: 'hash', hidden: 3 }]) // Set {'hash'}  (STORED)
+ * @example generatedFromTableXinfo([{ name: 'a', hidden: 0 }]) // Set {}
+ */
+export function generatedFromTableXinfo(rows: readonly Record<string, unknown>[]): Set<string> {
+  const out = new Set<string>();
+
+  for (const r of rows ?? []) {
+    const name = String(r?.name ?? r?.column ?? '').trim();
+
+    if (name.length > 0 && Number(r?.hidden) >= 2) {
+      out.add(name);
+    }
+  }
+
+  return out;
+}
+
+/** Default browse page size (rows per request). Matches the worker's `data-overview` default. */
+export const BROWSE_PAGE_SIZE = 25;
+
+/** The page sizes offered by the grid's rows-per-page selector (all within the worker's 1–100 clamp). */
+export const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+
+/**
+ * Clamp a rows-per-page value to an offered {@link PAGE_SIZE_OPTIONS} size — defends the request path
+ * against a stale/garbage value (the worker also clamps 1–100, but the grid should only ever request a
+ * size it can render as a selected option). Unknown / NaN → {@link BROWSE_PAGE_SIZE}. Pure.
+ *
+ * @example clampPageSize(50)  // 50
+ * @example clampPageSize(999) // 25
+ * @example clampPageSize(NaN) // 25
+ */
+export function clampPageSize(n: number): number {
+  return (PAGE_SIZE_OPTIONS as readonly number[]).includes(n) ? n : BROWSE_PAGE_SIZE;
+}
+
+/** Derived display + control state for the paginated browse grid. */
+export interface BrowsePageInfo {
+  /** 1-based index of the first shown row (0 when the page is empty). */
+  from: number;
+
+  /** 1-based index of the last shown row (0 when the page is empty). */
+  to: number;
+
+  /** True when there is a previous page (offset > 0). */
+  hasPrev: boolean;
+
+  /** True when more rows exist beyond this page (offset + shown < total). */
+  hasNext: boolean;
+
+  /** Human range label, e.g. `"26–50 of 1,234"`, `"0 of 1,234"`, or `"No rows"`. */
+  label: string;
+}
+
+/**
+ * Pure pagination math for the browse grid — turns the current `offset`, the number of rows actually
+ * loaded on this page, and the table's `total` row count into a 1-based range + prev/next availability
+ * + an honest label. `hasNext` is derived from `total` (not a fetched "one extra" row), and the label
+ * NEVER implies the page is the whole table (the silent-cap lesson). All inputs are floored/clamped so
+ * a hostile/NaN value can't produce a negative or misleading range. Pure.
+ *
+ * @param offset - 0-based offset of the first row on this page
+ * @param loadedCount - number of rows returned for this page (may be < page size on the last page)
+ * @param total - the table's total row count (from the overview / browse `total`)
+ * @example browsePageInfo(25, 25, 1234) // { from:26, to:50, hasPrev:true, hasNext:true, label:'26–50 of 1,234' }
+ * @example browsePageInfo(0, 0, 0)      // { from:0, to:0, hasPrev:false, hasNext:false, label:'No rows' }
+ */
+export function browsePageInfo(offset: number, loadedCount: number, total: number): BrowsePageInfo {
+  const safeOffset = Math.max(0, Math.floor(Number(offset) || 0));
+  const count = Math.max(0, Math.floor(Number(loadedCount) || 0));
+  const safeTotal = Math.max(0, Math.floor(Number(total) || 0));
+  const from = count > 0 ? safeOffset + 1 : 0;
+  const to = count > 0 ? safeOffset + count : 0;
+  const hasPrev = safeOffset > 0;
+  const hasNext = safeOffset + count < safeTotal;
+  const label =
+    count > 0
+      ? `${from.toLocaleString()}–${to.toLocaleString()} of ${safeTotal.toLocaleString()}`
+      : safeTotal > 0
+        ? `0 of ${safeTotal.toLocaleString()}`
+        : 'No rows';
+
+  return { from, to, hasPrev, hasNext, label };
 }
 
 /** Statement category for the Data console — drives the run affordance + which result view shows. */
@@ -652,9 +1022,7 @@ export interface ExplainHint {
  * @example explainPlanHint([{ id: 1, name: 'x' }]) // null (not a plan)
  */
 export function explainPlanHint(rows: readonly Record<string, unknown>[]): ExplainHint | null {
-  const details = (rows ?? [])
-    .map((r) => (typeof r.detail === 'string' ? r.detail : ''))
-    .filter((d) => d.length > 0);
+  const details = (rows ?? []).map((r) => (typeof r.detail === 'string' ? r.detail : '')).filter((d) => d.length > 0);
 
   if (details.length === 0) {
     return null; // not a query plan → no hint
@@ -677,4 +1045,2576 @@ export function explainPlanHint(rows: readonly Record<string, unknown>[]): Expla
   }
 
   return { level: 'good', message: 'Index-optimized — this query uses an index and avoids full-table scans.' };
+}
+
+/**
+ * The rows-read threshold above which the SQL console flags an expensive scan (mirrors
+ * the admin console's bar). D1 bills + slows on rows READ, so a large scan is the #1
+ * cause of a slow query.
+ */
+export const EXPENSIVE_SCAN_ROWS = 10_000;
+
+/**
+ * True when D1 REPORTED reading a large number of rows — a full-table scan D1 bills for
+ * and that slows down at scale. Fires only on a real reported value (never null =
+ * "not reported", never a small count), so a missing metric never shows a false warning.
+ *
+ * @param rowsRead - the `rows_read` from the query's D1 meta (null when unreported)
+ * @returns true when the query read more than {@link EXPENSIVE_SCAN_ROWS} rows
+ * @example isExpensiveScan(12000) // true
+ * @example isExpensiveScan(500)   // false
+ * @example isExpensiveScan(null)  // false (not reported — never a fabricated warning)
+ */
+export function isExpensiveScan(rowsRead: number | null | undefined): boolean {
+  return typeof rowsRead === 'number' && rowsRead > EXPENSIVE_SCAN_ROWS;
+}
+
+/**
+ * The default row cap the console offers to append to an UNBOUNDED SELECT. Bounds BOTH the
+ * result size streamed to the browser AND the rows D1 scans/bills for on a `SELECT *` against a
+ * large table — the "warn/auto-append LIMIT to a bare SELECT" guard. A first screen, not the
+ * whole table (mirrors the browse grid's page-size philosophy); the operator can still Run the
+ * raw unbounded query.
+ */
+export const DEFAULT_ROW_LIMIT = 500;
+
+/** Advice on bounding an unbounded row-returning query's result size (see {@link analyzeRowLimit}). */
+export interface RowLimitAdvice {
+  /** True when the first statement is a bare `SELECT` / `WITH…SELECT` with NO `LIMIT` — unbounded. */
+  readonly needsLimit: boolean;
+
+  /** The first statement with `LIMIT <limit>` appended, or the input unchanged when not needed. */
+  readonly limitedSql: string;
+
+  /** The limit that would be applied. */
+  readonly limit: number;
+}
+
+/**
+ * Detect an UNBOUNDED row-returning query — a `SELECT` or `WITH…SELECT` with no `LIMIT` — and
+ * produce a `LIMIT`-appended variant so the console can bound result size + scan cost BEFORE
+ * running it (a `SELECT * FROM big_table` otherwise streams every row to the browser and bills for
+ * a full scan). Only the FIRST statement is considered (the console runs one statement, like
+ * {@link explainQuery}). Detection runs on a comment/string-stripped copy so a `'…LIMIT…'` string
+ * literal can't cause a false match; the `LIMIT` is appended to the REAL statement. Conservative +
+ * safe: `EXPLAIN`/`PRAGMA`/`VALUES`/writes are left alone, and ANY existing `LIMIT` (even one in a
+ * subquery) suppresses the offer so a valid query is never turned into a double-`LIMIT` syntax
+ * error. Pure string logic; SQLite's own parser bounds the value at run time.
+ *
+ * @param sql - the editor buffer
+ * @param limit - the row cap to offer (default {@link DEFAULT_ROW_LIMIT})
+ * @example analyzeRowLimit('SELECT * FROM users')         // needsLimit:true  → 'SELECT * FROM users LIMIT 500'
+ * @example analyzeRowLimit('select a from t limit 10')    // needsLimit:false (already bounded)
+ * @example analyzeRowLimit('EXPLAIN QUERY PLAN SELECT 1') // needsLimit:false (not a bare SELECT)
+ * @example analyzeRowLimit('PRAGMA table_info(t)')        // needsLimit:false
+ */
+export function analyzeRowLimit(sql: string, limit: number = DEFAULT_ROW_LIMIT): RowLimitAdvice {
+  const raw = String(sql ?? '');
+
+  // First statement only — mirror explainQuery's split (the console runs one statement).
+  const first = raw
+    .split(';')
+    .map((p) => p.trim())
+    .find((p) => p.length > 0);
+  const unchanged: RowLimitAdvice = { needsLimit: false, limitedSql: raw, limit };
+
+  if (!first) {
+    return unchanged;
+  }
+
+  // Detect on a comment/string-stripped copy so a string literal can't false-match SELECT/LIMIT.
+  const probe = stripSqlCommentsAndStrings(first).trim();
+
+  if (!/^(SELECT|WITH)\b/i.test(probe)) {
+    return unchanged;
+  } // EXPLAIN/PRAGMA/VALUES/writes excluded
+
+  if (/\bLIMIT\b/i.test(probe)) {
+    return unchanged;
+  } // already bounded — never risk a double LIMIT
+
+  return { needsLimit: true, limitedSql: `${first} LIMIT ${limit}`, limit };
+}
+
+/**
+ * The honest write-target descriptor for the D1 SQL console. This is the SSOT behind the
+ * console's safety banner so the facts it shows the user can never drift from a code
+ * comment. The console (super-admin only) runs against the SHARED, multi-tenant PLATFORM
+ * database — a write here affects EVERY tenant's data, which is exactly the fact the
+ * prompt requires we surface "prominently before writes".
+ */
+export interface SqlConsoleTarget {
+  /** Deploy environment the console mutates — always the live production D1. */
+  environment: string;
+
+  /** Human name of the database, stating plainly that it is shared across all tenants. */
+  database: string;
+
+  /** One-line scope warning: whom a write affects + the guardrails that still apply. */
+  scope: string;
+}
+
+/**
+ * Build the write-target descriptor rendered in the SQL console's safety banner. Static
+ * facts (the console always targets the shared production D1), returned as a fresh object
+ * so callers can't mutate a shared singleton.
+ *
+ * @returns the {@link SqlConsoleTarget} shown prominently above the console before writes
+ * @example
+ *   sqlConsoleTarget().database // 'Shared platform database (D1 · all tenants)'
+ */
+export function sqlConsoleTarget(): SqlConsoleTarget {
+  return {
+    environment: 'Production',
+    database: 'Shared platform database (D1 · all tenants)',
+    scope:
+      'Runs against the D1 shared by every site — a write affects all tenants. Protected platform tables are blocked and destructive statements confirm first.',
+  };
+}
+
+/**
+ * One SQL editor buffer in the multi-tab console — an independent query you can keep in
+ * flight and switch between (each tab preserves its own text). Lets an operator hold a
+ * SELECT, an EXPLAIN, and a schema lookup side by side without losing any of them.
+ */
+export interface QueryTab {
+  id: string;
+  title: string;
+  sql: string;
+}
+
+/** Max concurrent query tabs — a soft cap so the strip stays usable + localStorage bounded. */
+export const MAX_QUERY_TABS = 8;
+
+/**
+ * The title for the next new tab: `"Query N"` with the smallest positive N not already
+ * taken by an existing `"Query N"` title (so closing #2 then adding reuses "Query 2").
+ *
+ * @param tabs - the current tabs
+ * @returns the next default tab title
+ * @example nextQueryTabTitle([{ id: 'a', title: 'Query 1', sql: '' }]) // 'Query 2'
+ */
+export function nextQueryTabTitle(tabs: readonly QueryTab[]): string {
+  const used = new Set<number>();
+
+  for (const t of tabs) {
+    const m = /^Query (\d+)$/.exec(t.title);
+
+    if (m) {
+      used.add(Number(m[1]));
+    }
+  }
+
+  let n = 1;
+
+  while (used.has(n)) {
+    n++;
+  }
+
+  return `Query ${n}`;
+}
+
+/**
+ * Append a new tab seeded with `sql`, using the caller-supplied unique `id` (kept pure +
+ * testable — the caller owns id generation). At {@link MAX_QUERY_TABS} the list is returned
+ * unchanged and the last tab stays active, so the caller can surface "tab limit reached".
+ *
+ * @param tabs - current tabs
+ * @param id - a unique id for the new tab
+ * @param sql - initial buffer text (default empty)
+ * @param title - optional explicit title (default the next `"Query N"`)
+ * @returns `{ tabs, activeId }` — the new list + the id that should become active
+ * @example addQueryTab([], 't1').activeId // 't1'
+ */
+export function addQueryTab(
+  tabs: readonly QueryTab[],
+  id: string,
+  sql = '',
+  title?: string,
+): { tabs: QueryTab[]; activeId: string } {
+  if (tabs.length >= MAX_QUERY_TABS) {
+    return { tabs: [...tabs], activeId: tabs[tabs.length - 1]?.id ?? id };
+  }
+
+  const tab: QueryTab = { id, title: title ?? nextQueryTabTitle(tabs), sql };
+
+  return { tabs: [...tabs, tab], activeId: id };
+}
+
+/**
+ * Close the tab with `id`. NEVER returns an empty list — closing the last tab yields a
+ * single fresh empty tab (using `freshId`). The newly-active tab is the closed tab's
+ * neighbor (same index, clamped) so focus stays where the user was.
+ *
+ * @param tabs - current tabs
+ * @param id - the tab to close
+ * @param freshId - id to use if the last tab is closed (a fresh empty tab is created)
+ * @returns `{ tabs, activeId }` — the remaining list + the id to activate
+ * @example closeQueryTab([{id:'a',title:'Query 1',sql:''}], 'a', 'z').tabs.length // 1 (a fresh tab)
+ */
+export function closeQueryTab(
+  tabs: readonly QueryTab[],
+  id: string,
+  freshId: string,
+): { tabs: QueryTab[]; activeId: string } {
+  const idx = tabs.findIndex((t) => t.id === id);
+
+  if (idx === -1) {
+    return { tabs: [...tabs], activeId: tabs[0]?.id ?? freshId };
+  }
+
+  const remaining = tabs.filter((t) => t.id !== id);
+
+  if (remaining.length === 0) {
+    const fresh: QueryTab = { id: freshId, title: 'Query 1', sql: '' };
+    return { tabs: [fresh], activeId: freshId };
+  }
+
+  const nextIdx = Math.min(idx, remaining.length - 1);
+
+  return { tabs: remaining, activeId: remaining[nextIdx]!.id };
+}
+
+/**
+ * Immutably set the `sql` of the tab with `id` (a no-op copy when the id is absent). The
+ * component calls this on every edit so the active tab always mirrors the live editor.
+ *
+ * @param tabs - current tabs
+ * @param id - the tab to update
+ * @param sql - the new buffer text
+ * @returns a new tabs array with that tab's `sql` replaced
+ */
+export function updateQueryTabSql(tabs: readonly QueryTab[], id: string, sql: string): QueryTab[] {
+  return tabs.map((t) => (t.id === id ? { ...t, sql } : t));
+}
+
+/** A grid column-sort direction. */
+export type SortDir = 'asc' | 'desc';
+
+/** The active grid sort — a column key + direction (null = unsorted / original order). */
+export interface GridSort {
+  col: string;
+  dir: SortDir;
+}
+
+/**
+ * Next sort state for a 3-state column-header toggle: unsorted → asc → desc → unsorted.
+ * Clicking a DIFFERENT column starts it at asc. Pure.
+ *
+ * @param current - the active sort (or null when unsorted)
+ * @param col - the clicked column key
+ * @returns the next {@link GridSort} or null (cleared)
+ * @example nextSort(null, 'name') // { col: 'name', dir: 'asc' }
+ * @example nextSort({ col: 'name', dir: 'asc' }, 'name') // { col: 'name', dir: 'desc' }
+ * @example nextSort({ col: 'name', dir: 'desc' }, 'name') // null
+ */
+export function nextSort(current: GridSort | null, col: string): GridSort | null {
+  if (!current || current.col !== col) {
+    return { col, dir: 'asc' };
+  }
+
+  if (current.dir === 'asc') {
+    return { col, dir: 'desc' };
+  }
+
+  return null;
+}
+
+/**
+ * Map the grid's {@link GridSort} to the `PS_DATA_REQUEST` server-sort params (`orderBy`/`dir`). A
+ * null sort → `{}` (the table's DEFAULT server order). The column is a display request only — the
+ * WORKER allowlist-validates it against the table's columns before it can reach SQL — so nothing is
+ * sanitised here. Pure.
+ *
+ * @example sortToParams({ col: 'created_at', dir: 'desc' }) // { orderBy: 'created_at', dir: 'desc' }
+ * @example sortToParams(null) // {}
+ */
+export function sortToParams(sort: GridSort | null): { orderBy?: string; dir?: SortDir } {
+  return sort ? { orderBy: sort.col, dir: sort.dir } : {};
+}
+
+/**
+ * Header-click cycle for a MULTI-column sort: a column not yet in the sort is APPENDED ascending; an
+ * ascending column flips to descending (in place, keeping its priority); a descending column is REMOVED.
+ * So repeated clicks on one column go asc → desc → gone, and clicking successive columns builds a
+ * priority-ordered multi-sort. Immutable (never mutates the input). Pure.
+ *
+ * @example cycleSortMulti([], 'name') // [{ col:'name', dir:'asc' }]
+ * @example cycleSortMulti([{col:'name',dir:'asc'}], 'name') // [{ col:'name', dir:'desc' }]
+ * @example cycleSortMulti([{col:'name',dir:'desc'}], 'name') // []
+ * @example cycleSortMulti([{col:'a',dir:'asc'}], 'b') // [{col:'a',dir:'asc'},{col:'b',dir:'asc'}]
+ */
+export function cycleSortMulti(sorts: readonly GridSort[], col: string): GridSort[] {
+  const i = sorts.findIndex((s) => s.col === col);
+
+  if (i < 0) {
+    return [...sorts, { col, dir: 'asc' }];
+  }
+
+  if (sorts[i].dir === 'asc') {
+    const next = sorts.slice();
+    next[i] = { col, dir: 'desc' };
+
+    return next;
+  }
+
+  return sorts.filter((s) => s.col !== col);
+}
+
+/**
+ * Map an ordered {@link GridSort} list to the `PS_DATA_REQUEST` `sort` param — `col:dir,col2:dir2` (in
+ * priority order). Empty → `{}` (the table's default order). Columns are display requests only — the
+ * WORKER allowlist-validates each before it can reach SQL. Pure.
+ *
+ * @example sortsToParam([{col:'a',dir:'asc'},{col:'b',dir:'desc'}]) // { sort: 'a:asc,b:desc' }
+ * @example sortsToParam([]) // {}
+ */
+export function sortsToParam(sorts: readonly GridSort[]): { sort?: string } {
+  return sorts.length ? { sort: sorts.map((s) => `${s.col}:${s.dir}`).join(',') } : {};
+}
+
+/**
+ * Parse a persisted/param `col:dir,…` sort string back to an ordered {@link GridSort}[] — dir coerced to
+ * asc/desc, blank cols + dupes dropped. The inverse of {@link sortsToParam} for restoring a saved view.
+ * Pure. (Columns are re-validated against the live schema by the caller / worker.)
+ *
+ * @example parseSortSpec('a:asc,b:desc') // [{col:'a',dir:'asc'},{col:'b',dir:'desc'}]
+ */
+export function parseSortSpec(spec: string | null | undefined): GridSort[] {
+  const seen = new Set<string>();
+  const out: GridSort[] = [];
+
+  for (const pair of String(spec ?? '').split(',')) {
+    const [rawCol, rawDir] = pair.split(':');
+    const col = (rawCol ?? '').trim();
+
+    if (col && !seen.has(col)) {
+      seen.add(col);
+      out.push({ col, dir: (rawDir ?? '').trim().toLowerCase() === 'desc' ? 'desc' : 'asc' });
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Map a search box value to the `PS_DATA_REQUEST` `search` param — trimmed, and OMITTED when blank so
+ * an empty box means "no filter" (the default order + full `total`). The worker runs the actual
+ * parameterized OR-of-LIKE over its allowlisted columns, so nothing is escaped here. Pure.
+ *
+ * @example browseSearchParam('  ada ') // { search: 'ada' }
+ * @example browseSearchParam('')       // {}
+ */
+export function browseSearchParam(search: string | null | undefined): { search?: string } {
+  const q = (search ?? '').trim();
+  return q ? { search: q } : {};
+}
+
+/**
+ * Browse-filter comparison operators — mirrors the worker's `FILTER_OPS` (the server is the authority
+ * and re-validates). `null`/`notnull` are value-free (they filter on the column alone).
+ */
+export const FILTER_OPS = [
+  'eq',
+  'ne',
+  'contains',
+  'startswith',
+  'endswith',
+  'gt',
+  'lt',
+  'gte',
+  'lte',
+  'null',
+  'notnull',
+] as const;
+export type FilterOp = (typeof FILTER_OPS)[number];
+
+/** The value-free operators — they need no value input and send none. */
+export const FILTER_VALUE_FREE_OPS: ReadonlySet<FilterOp> = new Set<FilterOp>(['null', 'notnull']);
+
+/** Human labels for the operator dropdown — one source shared by the grid UI and its tests. */
+export const FILTER_OP_OPTIONS: ReadonlyArray<{ value: FilterOp; label: string }> = [
+  { value: 'eq', label: '=' },
+  { value: 'ne', label: '≠' },
+  { value: 'contains', label: 'contains' },
+  { value: 'startswith', label: 'starts with' },
+  { value: 'endswith', label: 'ends with' },
+  { value: 'gt', label: '>' },
+  { value: 'lt', label: '<' },
+  { value: 'gte', label: '≥' },
+  { value: 'lte', label: '≤' },
+  { value: 'null', label: 'is null' },
+  { value: 'notnull', label: 'is not null' },
+];
+
+/** Normalize a raw operator to a known {@link FilterOp}, defaulting blank/unknown to `eq`. Pure. */
+export function normalizeFilterOp(raw: string | null | undefined): FilterOp {
+  const op = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  return (FILTER_OPS as readonly string[]).includes(op) ? (op as FilterOp) : 'eq';
+}
+
+/** True when {@link op} filters on the column alone (needs no value input). Pure. */
+export function filterOpIsValueFree(op: string | null | undefined): boolean {
+  return FILTER_VALUE_FREE_OPS.has(normalizeFilterOp(op));
+}
+
+/**
+ * Whether a column filter is ACTIVE: a column is chosen AND (the operator is value-free OR a non-empty
+ * value is present). Mirrors the worker's `buildColumnFilter` gate, so the UI shows an accurate
+ * "filter applied" state and only sends a request that will actually filter. Pure.
+ */
+export function filterIsActive(
+  col: string | null | undefined,
+  op: string | null | undefined,
+  val: string | null | undefined,
+): boolean {
+  if (!(col ?? '').trim()) {
+    return false;
+  }
+
+  if (filterOpIsValueFree(op)) {
+    return true;
+  }
+
+  return Boolean((val ?? '').trim());
+}
+
+/** The whole-table filter state of the browse grid: a text search + a single-column comparison filter. */
+/** The two combinators that join a multi-condition filter group — mirrors the worker's `FILTER_COMBINATORS`. */
+export const FILTER_COMBINATORS = ['AND', 'OR'] as const;
+export type FilterCombinator = (typeof FILTER_COMBINATORS)[number];
+
+/** Query-cost guard: at most this many conditions per browse (mirrors the worker's `MAX_FILTER_CONDITIONS`). */
+export const MAX_FILTER_CONDITIONS = 20;
+
+/** Normalize a raw combinator to `AND`/`OR`, defaulting blank/unknown to `AND`. Pure. */
+export function normalizeCombinator(raw: string | null | undefined): FilterCombinator {
+  const c = String(raw ?? '')
+    .trim()
+    .toUpperCase();
+  return (FILTER_COMBINATORS as readonly string[]).includes(c) ? (c as FilterCombinator) : 'AND';
+}
+
+/** One condition of the browse filter group: a column, a comparison operator, and a value. */
+export interface FilterCondition {
+  /** Filter column (a table column name), or null when this row has no column chosen yet. */
+  col: string | null;
+
+  /** Comparison operator (see {@link FilterOp}); blank/unknown → `eq`. */
+  op: string;
+
+  /** Value. Applied for value-ops when non-empty; ignored for the value-free `null`/`notnull`. */
+  val: string;
+}
+
+/** A fresh, empty filter condition (column not yet chosen, default `eq` operator). */
+export function blankCondition(): FilterCondition {
+  return { col: null, op: 'eq', val: '' };
+}
+
+/** Append a fresh condition (capped at {@link MAX_FILTER_CONDITIONS}). Pure — returns a new array. */
+export function addCondition(conditions: readonly FilterCondition[]): FilterCondition[] {
+  if (conditions.length >= MAX_FILTER_CONDITIONS) {
+    return [...conditions];
+  }
+
+  return [...conditions, blankCondition()];
+}
+
+/** Remove the condition at {@link index}. Pure — returns a new array. */
+export function removeCondition(conditions: readonly FilterCondition[], index: number): FilterCondition[] {
+  return conditions.filter((_, i) => i !== index);
+}
+
+/** Patch the condition at {@link index} (col/op/val). Pure — returns a new array. */
+export function updateCondition(
+  conditions: readonly FilterCondition[],
+  index: number,
+  patch: Partial<FilterCondition>,
+): FilterCondition[] {
+  return conditions.map((c, i) => (i === index ? { ...c, ...patch } : c));
+}
+
+/**
+ * The subset of conditions that will ACTUALLY filter — a column is chosen AND (the op is value-free OR
+ * the value is non-empty), per {@link filterIsActive} — bounded to {@link MAX_FILTER_CONDITIONS}. Pure.
+ */
+export function activeConditions(conditions: readonly FilterCondition[]): FilterCondition[] {
+  return conditions.filter((c) => filterIsActive(c.col, c.op, c.val)).slice(0, MAX_FILTER_CONDITIONS);
+}
+
+/** Whether the filter group has at least one condition that would actually filter. Pure. */
+export function filterGroupIsActive(conditions: readonly FilterCondition[]): boolean {
+  return conditions.some((c) => filterIsActive(c.col, c.op, c.val));
+}
+
+/** The whole-table filter state of the browse grid: a text search + a multi-condition AND/OR group. */
+export interface BrowseFilters {
+  /** Whole-table OR-of-LIKE needle (see {@link browseSearchParam}). */
+  search: string;
+
+  /** The AND/OR group of column conditions (0..{@link MAX_FILTER_CONDITIONS}). */
+  conditions: FilterCondition[];
+
+  /** How the {@link conditions} are joined — `AND` | `OR` (default `AND`). */
+  combinator: FilterCombinator;
+}
+
+/**
+ * Map the browse {@link BrowseFilters} to the `PS_DATA_REQUEST` filter params. `search` is trimmed +
+ * omitted when blank. The column filter is serialized as a `filters` JSON array of `{col,op,val}` — ONE
+ * source for one-or-many conditions — containing only the {@link activeConditions} (column chosen AND
+ * (value-free op OR non-empty value), matching the worker's `buildColumnFilters`). Each leaf's op is
+ * normalized; value-free ops (`null`/`notnull`) carry an empty `val`. `filterCombinator` is sent only
+ * when it matters (>1 condition AND not the default `AND`). The WORKER re-validates every column against
+ * the allowlist, maps each op to a fixed clause, bounds the count, and parameterizes values — nothing is
+ * escaped here. Pure.
+ *
+ * @example filtersToParams({ search: 'ada', conditions: [{col:'status',op:'eq',val:'active'}], combinator: 'AND' })
+ *   // { search: 'ada', filters: '[{"col":"status","op":"eq","val":"active"}]' }
+ * @example filtersToParams({ search: '', conditions: [{col:'a',op:'gt',val:'1'},{col:'b',op:'null',val:''}], combinator: 'OR' })
+ *   // { filters: '[{"col":"a","op":"gt","val":"1"},{"col":"b","op":"null","val":""}]', filterCombinator: 'OR' }
+ * @example filtersToParams({ search: '', conditions: [{col:'status',op:'eq',val:''}], combinator: 'AND' }) // {} (blank → no filter)
+ */
+export function filtersToParams(f: BrowseFilters): {
+  search?: string;
+  filters?: string;
+  filterCombinator?: string;
+} {
+  const out: { search?: string; filters?: string; filterCombinator?: string } = {
+    ...browseSearchParam(f.search),
+  };
+  const active = activeConditions(f.conditions ?? []);
+
+  if (active.length > 0) {
+    const payload = active.map((c) => {
+      const op = normalizeFilterOp(c.op);
+      return {
+        col: (c.col ?? '').trim(),
+        op,
+        val: filterOpIsValueFree(op) ? '' : (c.val ?? '').trim(),
+      };
+    });
+    out.filters = JSON.stringify(payload);
+
+    const combinator = normalizeCombinator(f.combinator);
+
+    if (payload.length > 1 && combinator !== 'AND') {
+      out.filterCombinator = combinator;
+    }
+  }
+
+  return out;
+}
+
+/** Numeric value of a cell when it's a finite number or a numeric string, else null. */
+function cellAsNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) {
+    return Number(value);
+  }
+
+  return null;
+}
+
+/** Whether a cell has "no value" for sort purposes (always sorted LAST, both directions). */
+function cellIsEmpty(value: unknown): boolean {
+  return value === null || value === undefined || value === '';
+}
+
+/**
+ * Stable, type-aware sort of grid rows by one column. Both cells numeric (finite number or
+ * numeric string) → NUMERIC compare (so '10' sorts after '2', not before). Otherwise a
+ * case-insensitive string compare over {@link formatCellValue} (objects compare by their
+ * compact JSON). null / undefined / '' always sort LAST regardless of direction — they're
+ * "no value", not "smallest". Stable (original index breaks ties). Pure — returns a NEW
+ * array; a null sort returns a copy in original order.
+ *
+ * @param rows - the grid rows
+ * @param sort - the active sort, or null for original order
+ * @returns a new, sorted array
+ * @example sortRows([{ n: '10' }, { n: '2' }], { col: 'n', dir: 'asc' }) // [{n:'2'},{n:'10'}]
+ */
+export function sortRows(rows: readonly Record<string, unknown>[], sort: GridSort | null): Record<string, unknown>[] {
+  if (!sort) {
+    return rows.slice();
+  }
+
+  const { col, dir } = sort;
+  const factor = dir === 'asc' ? 1 : -1;
+
+  return rows
+    .map((row, i) => ({ row, i }))
+    .sort((a, b) => {
+      const va = a.row[col];
+      const vb = b.row[col];
+      const ea = cellIsEmpty(va);
+      const eb = cellIsEmpty(vb);
+
+      if (ea && eb) {
+        return a.i - b.i;
+      }
+
+      if (ea) {
+        return 1;
+      } // empties last, regardless of direction
+
+      if (eb) {
+        return -1;
+      }
+
+      const na = cellAsNumber(va);
+      const nb = cellAsNumber(vb);
+      let cmp: number;
+
+      if (na !== null && nb !== null) {
+        cmp = na - nb;
+      } else {
+        cmp = formatCellValue(va).toLowerCase().localeCompare(formatCellValue(vb).toLowerCase());
+      }
+
+      if (cmp === 0) {
+        return a.i - b.i;
+      } // stable
+
+      return cmp * factor;
+    })
+    .map((d) => d.row);
+}
+
+/**
+ * The RAW text to place on the clipboard for a single cell — NOT the display form. Scalars
+ * copy as their plain string (`42`, `pageview`, `false`); objects as compact JSON; and
+ * null / undefined / '' copy as an EMPTY string (there's nothing meaningful to copy — never
+ * the display em-dash, which would paste a literal "—"). Never throws.
+ *
+ * @param value - the raw cell value
+ * @returns the clipboard text (may be empty)
+ * @example clipboardValue('a@x.com') // 'a@x.com'
+ * @example clipboardValue({ a: 1 })  // '{"a":1}'
+ * @example clipboardValue(null)      // ''
+ */
+export function clipboardValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+
+  // Binary (BLOB) is not meaningfully copyable as cell text → no copy affordance (empty).
+  if (blobCellInfo(value)) {
+    return '';
+  }
+
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  return String(value);
+}
+
+/**
+ * A whole row serialized as pretty (2-space) JSON for the "Copy row" action — the natural
+ * "grab this record" gesture. Never throws (a cyclic row falls back to a shallow string map).
+ *
+ * @param row - one browse/result row
+ * @returns pretty JSON text
+ * @example rowJson({ email: 'a@x.com', n: 2 }) // '{\n  "email": "a@x.com",\n  "n": 2\n}'
+ */
+export function rowJson(row: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(row, null, 2);
+  } catch {
+    const shallow: Record<string, string> = {};
+
+    for (const k of Object.keys(row)) {
+      shallow[k] = String(row[k]);
+    }
+
+    return JSON.stringify(shallow, null, 2);
+  }
+}
+
+/**
+ * Columns to RENDER in the browse grid — all columns minus the hidden set, ORDER PRESERVED.
+ * A stale hidden entry (a column no longer in the table, e.g. left over in localStorage after a
+ * schema change) is simply ignored. Hiding is VIEW-ONLY: the row-detail drill-down and the CSV/
+ * JSON exports still use the full column set, so this never omits data — it's a scan aid for wide
+ * tables that would otherwise force horizontal scrolling.
+ *
+ * @param all - every column the browse response returned, in display order
+ * @param hidden - the columns the user chose to hide
+ * @returns the visible columns, in `all`'s order
+ * @example visibleColumns(['a', 'b', 'c'], ['b']) // ['a', 'c']
+ */
+export function visibleColumns(all: readonly string[], hidden: readonly string[]): string[] {
+  const h = new Set(hidden);
+  return all.filter((c) => !h.has(c));
+}
+
+/** Grid row density — how much vertical padding each row gets (a scan-density pref, like DBeaver/Airtable). */
+export type GridDensity = 'compact' | 'cozy' | 'comfortable';
+export const GRID_DENSITIES: readonly GridDensity[] = ['compact', 'cozy', 'comfortable'];
+
+/** Coerce a raw value to a known {@link GridDensity}; unknown/absent → `cozy` (the historical default). Pure. */
+export function normalizeDensity(raw: string | null | undefined): GridDensity {
+  return raw === 'compact' || raw === 'comfortable' ? raw : 'cozy';
+}
+
+/**
+ * Tailwind padding classes for a grid CELL (`<td>`/header button) at the given density — `cozy` reproduces
+ * the historical `px-3 py-1.5`, `compact` tightens to fit ~2× the rows, `comfortable` loosens for touch.
+ * Pure (returns a stable class string; the caller composes it with truncation/alignment classes).
+ *
+ * @example densityCellClass('compact') // 'px-2 py-0.5'
+ */
+export function densityCellClass(d: GridDensity): string {
+  return d === 'compact' ? 'px-2 py-0.5' : d === 'comfortable' ? 'px-3 py-3' : 'px-3 py-1.5';
+}
+
+/** Padding classes for the narrow checkbox/select CELL at the given density (matches row height). Pure. */
+export function densitySelectCellClass(d: GridDensity): string {
+  return d === 'compact' ? 'px-2 py-0.5' : d === 'comfortable' ? 'px-2 py-3' : 'px-2 py-1.5';
+}
+
+/** Column resize bounds (px): a resized column is clamped to this range so a drag can't hide or balloon it. */
+export const MIN_COL_WIDTH = 60;
+export const MAX_COL_WIDTH = 600;
+
+/** Clamp a drag-derived column width to {@link MIN_COL_WIDTH}..{@link MAX_COL_WIDTH}, rounded; junk → MIN. Pure. */
+export function clampColWidth(px: number): number {
+  if (!Number.isFinite(px)) {
+    return MIN_COL_WIDTH;
+  }
+
+  return Math.max(MIN_COL_WIDTH, Math.min(MAX_COL_WIDTH, Math.round(px)));
+}
+
+/**
+ * Defensive parse of a persisted `{ column: widthPx }` map (from localStorage) → a clean map keeping only
+ * positive finite numeric widths, each clamped via {@link clampColWidth}. Non-object / array / junk → `{}`.
+ * Pure — mirrors the hidden-cols / order defensive-read discipline.
+ *
+ * @example parseColWidths({ a: 200, b: '5', c: -3, d: 9000 }) // { a: 200, d: 600 }  (b/c dropped, d clamped)
+ */
+export function parseColWidths(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+
+  const out: Record<string, number> = {};
+
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+      out[k] = clampColWidth(v);
+    }
+  }
+
+  return out;
+}
+
+/** Per-column footer summary kinds (Airtable-style). `none` = no summary shown for that column. */
+export type SummaryKind = 'none' | 'count' | 'filled' | 'empty' | 'sum' | 'avg' | 'min' | 'max';
+export const SUMMARY_KINDS: readonly SummaryKind[] = ['none', 'count', 'filled', 'empty', 'sum', 'avg', 'min', 'max'];
+
+/** Coerce a raw value to a known {@link SummaryKind}; unknown/absent → `none`. Pure. */
+export function normalizeSummaryKind(raw: unknown): SummaryKind {
+  const k = String(raw ?? '').trim();
+  return (SUMMARY_KINDS as readonly string[]).includes(k) ? (k as SummaryKind) : 'none';
+}
+
+/** Short display label for a summary kind (e.g. `sum` → `Sum`); `none` → `''`. Pure. */
+export function summaryLabel(kind: SummaryKind): string {
+  return kind === 'none' ? '' : kind[0].toUpperCase() + kind.slice(1);
+}
+
+/**
+ * The numeric value of a column summary given its kind + the column's {@link CellAggregates}: `count` =
+ * all cells, `filled` = non-null cells, `empty` = null cells, `sum`/`avg`/`min`/`max` = the numeric stat
+ * (null when the column has no numeric values — the caller then shows an honest "–", never a fake 0).
+ * `none` → null. Pure.
+ *
+ * @example summaryValue('filled', { count: 5, nullCount: 2, ... }) // 3
+ * @example summaryValue('sum', { numericCount: 0, sum: null, ... }) // null (nothing numeric → no sum)
+ */
+export function summaryValue(kind: SummaryKind, agg: CellAggregates): number | null {
+  switch (kind) {
+    case 'count':
+      return agg.count;
+    case 'filled':
+      return agg.count - agg.nullCount;
+    case 'empty':
+      return agg.nullCount;
+    case 'sum':
+      return agg.sum;
+    case 'avg':
+      return agg.avg;
+    case 'min':
+      return agg.min;
+    case 'max':
+      return agg.max;
+    default:
+      return null; // 'none'
+  }
+}
+
+/**
+ * Defensive parse of a persisted `{ column: summaryKind }` map (from localStorage) → a clean map keeping
+ * only real, non-`none` kinds. Non-object / array / junk → `{}`. Pure — mirrors the col-width parse.
+ *
+ * @example parseColSummaries({ amount: 'sum', x: 'bogus', y: 'none' }) // { amount: 'sum' }
+ */
+export function parseColSummaries(raw: unknown): Record<string, SummaryKind> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+
+  const out: Record<string, SummaryKind> = {};
+
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const kind = normalizeSummaryKind(v);
+
+    if (kind !== 'none') {
+      out[k] = kind;
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Apply a persisted column ORDER to the live column set — the display order for the grid + card views.
+ * Robust to schema drift: columns named in `order` that still exist come first (in the saved order),
+ * then any remaining live columns in their original order (so a NEWLY-added column appears at the end,
+ * never hidden), and any `order` entry that no longer exists is dropped. Always returns a permutation of
+ * `all` (same members, reordered). Pure.
+ *
+ * @example orderColumns(['a','b','c'], ['c','a']) // ['c','a','b']  (b unordered → appended)
+ * @example orderColumns(['a','b'], ['x','b'])     // ['b','a']       (x dropped, a appended)
+ * @example orderColumns(['a','b','c'], [])        // ['a','b','c']   (no order → original)
+ */
+export function orderColumns(all: readonly string[], order: readonly string[]): string[] {
+  const allSet = new Set(all);
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const c of order) {
+    if (allSet.has(c) && !seen.has(c)) {
+      out.push(c);
+      seen.add(c);
+    }
+  }
+
+  for (const c of all) {
+    if (!seen.has(c)) {
+      out.push(c);
+      seen.add(c);
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Move `col` one step left (`dir === -1`) or right (`dir === 1`) within the current column order,
+ * clamped at the ends. Normalizes the (possibly partial/stale) saved `order` to a full permutation of
+ * `all` via {@link orderColumns} first, so the result is always a complete, persistable order. An
+ * unknown `col` or a move off either end returns the normalized order unchanged. Pure.
+ *
+ * @example moveColumn(['a','b','c'], [], 'b', -1) // ['b','a','c']
+ * @example moveColumn(['a','b','c'], [], 'a', -1) // ['a','b','c'] (already first → unchanged)
+ */
+export function moveColumn(all: readonly string[], order: readonly string[], col: string, dir: -1 | 1): string[] {
+  const cur = orderColumns(all, order);
+  const i = cur.indexOf(col);
+  const j = i + dir;
+
+  if (i < 0 || j < 0 || j >= cur.length) {
+    return cur;
+  }
+
+  const next = cur.slice();
+  [next[i], next[j]] = [next[j], next[i]];
+
+  return next;
+}
+
+/**
+ * Move pinned columns to the FRONT (stable — each partition keeps its relative order), producing the
+ * frozen-left arrangement: `[...pinned-in-order, ...rest-in-order]`. A pinned name not present in `cols`
+ * is simply absent. Pure. This makes the pinned columns a contiguous LEADING prefix, which is what
+ * {@link pinnedLeftOffsets} + `position:sticky;left` require (a pinned column in the middle can't stick
+ * left without overlapping the columns before it).
+ *
+ * @example applyPins(['a','b','c'], ['c']) // ['c','a','b']
+ */
+export function applyPins(cols: readonly string[], pinned: readonly string[] | ReadonlySet<string>): string[] {
+  const set = pinned instanceof Set ? pinned : new Set(pinned);
+  const front: string[] = [];
+  const rest: string[] = [];
+
+  for (const c of cols) {
+    (set.has(c) ? front : rest).push(c);
+  }
+
+  return [...front, ...rest];
+}
+
+/**
+ * Cumulative left px-offsets for the leading PINNED prefix of `cols` (assumes {@link applyPins} order),
+ * for `position:sticky; left:<offset>`. The first pinned column sits at `leadOffset` (the width of the
+ * select-checkbox column, or 0); each subsequent pinned column adds the previous pinned column's width
+ * (`widths[col]` or `defaultWidth` when it has no explicit width — a pinned column always renders at a
+ * definite width so the offsets are exact). Stops at the first UNPINNED column; non-pinned columns are
+ * omitted (they scroll normally). Pure.
+ *
+ * @example pinnedLeftOffsets(['a','b','c'], new Set(['a','b']), { a: 100 }, 32, 160) // { a: 32, b: 132 }
+ */
+export function pinnedLeftOffsets(
+  cols: readonly string[],
+  pinned: readonly string[] | ReadonlySet<string>,
+  widths: Readonly<Record<string, number>>,
+  leadOffset: number,
+  defaultWidth: number,
+): Record<string, number> {
+  const set = pinned instanceof Set ? pinned : new Set(pinned);
+  const out: Record<string, number> = {};
+  let left = leadOffset;
+
+  for (const c of cols) {
+    if (!set.has(c)) {
+      break; // pinned are the leading prefix — the first unpinned ends the frozen region
+    }
+
+    out[c] = left;
+    left += widths[c] ?? defaultWidth;
+  }
+
+  return out;
+}
+
+/** How the browse rows are rendered: dense grid, Airtable-style cards, a grouped board, or a bar chart. */
+export type ViewMode = 'grid' | 'gallery' | 'kanban' | 'chart' | 'calendar';
+
+/** Coerce a raw value to a known {@link ViewMode}, defaulting to `grid`. Pure. */
+export function normalizeViewMode(raw: string | null | undefined): ViewMode {
+  return raw === 'gallery' || raw === 'kanban' || raw === 'chart' || raw === 'calendar' ? raw : 'grid';
+}
+
+/**
+ * Turn whole-query group counts (from the group-counts endpoint, ordered desc) into bar-chart rows:
+ * a display `label` (null/undefined → "(empty)"), the `count`, and `pct` = count/max×100 for the bar
+ * width. Returns `total` (sum of the returned groups) for an honest "N across M groups" caption. Pure.
+ */
+export function buildChartBars(
+  groups: ReadonlyArray<{ value: unknown; count: number; aggregate?: number | null }>,
+  metric: 'count' | 'aggregate' = 'count',
+): {
+  bars: Array<{ label: string; count: number; value: number; pct: number }>;
+  total: number;
+  max: number;
+} {
+  /*
+   * `value` is the bar's magnitude: the row COUNT, or the numeric AGGREGATE (SUM/AVG/MIN/MAX) when a
+   * measure is selected (null aggregate → 0). `count` is always the row count (shown alongside).
+   */
+  const magnitude = (g: { count: number; aggregate?: number | null }): number =>
+    metric === 'aggregate' ? Number(g.aggregate ?? 0) : g.count;
+  const max = groups.reduce((m, g) => Math.max(m, magnitude(g)), 0);
+  const total = groups.reduce((s, g) => s + magnitude(g), 0);
+  const bars = groups.map((g) => {
+    const value = magnitude(g);
+
+    return {
+      label: g.value === null || g.value === undefined ? '(empty)' : String(g.value),
+      count: g.count,
+      value,
+
+      // Bar width is relative to the max; clamp ≥0 so a negative agg (e.g. MIN of negatives) never inverts.
+      pct: max > 0 ? Math.max(0, Math.round((value / max) * 100)) : 0,
+    };
+  });
+
+  return { bars, total, max };
+}
+
+/**
+ * Columns whose values on the CURRENT PAGE look NUMERIC (every non-null value is a finite number or a
+ * numeric string) — the candidate MEASURE columns for a chart SUM/AVG/MIN/MAX. A column that's all-null
+ * on the page doesn't qualify (nothing to measure). Excludes the group-by column (a measure grouped by
+ * itself is meaningless). Pure; mirrors {@link calendarDateField}'s page-detection discipline so a
+ * non-numeric column is never offered as a measure (SQLite would silently coerce text→0).
+ *
+ * @example numericColumns(['status','amount'], [{status:'a',amount:'12.5'}]) // ['amount']
+ * @example numericColumns(['id','amount'], rows, 'amount')                   // excludes 'amount' (the group)
+ */
+export function numericColumns(
+  columns: readonly string[],
+  rows: readonly Record<string, unknown>[],
+  exclude?: string | null,
+): string[] {
+  const isNum = (v: unknown): boolean =>
+    typeof v === 'number' ? Number.isFinite(v) : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v));
+
+  return columns.filter((c) => {
+    if (c === exclude) {
+      return false;
+    }
+
+    const vals = rows.map((r) => r[c]).filter((v) => v !== null && v !== undefined && v !== '');
+
+    return vals.length > 0 && vals.every(isNum);
+  });
+}
+
+/**
+ * Stable string key for a kanban group value — null/undefined map to a sentinel so an empty-group lane
+ * matches its (null) rows without colliding with a literal "null" string value. Pure.
+ */
+export function kanbanGroupKey(value: unknown): string {
+  return value === null || value === undefined ? '∅' : String(value);
+}
+
+/**
+ * Bucket the CURRENT PAGE's rows by a group field into `key → rows[]` (key via {@link kanbanGroupKey}).
+ * These are the page-subset cards each lane shows; the lane's HONEST total comes from the worker's
+ * whole-query group-count, not from this map. Pure.
+ */
+export function groupPageRows(
+  rows: readonly Record<string, unknown>[],
+  field: string,
+): Map<string, Record<string, unknown>[]> {
+  const m = new Map<string, Record<string, unknown>[]>();
+
+  for (const r of rows) {
+    const k = kanbanGroupKey(r[field]);
+    const bucket = m.get(k);
+
+    if (bucket) {
+      bucket.push(r);
+    } else {
+      m.set(k, [r]);
+    }
+  }
+
+  return m;
+}
+
+/**
+ * The date column driving the calendar view: the configured field when it's a real column (the owner's
+ * explicit pick wins, even if some values aren't dates → those rows just don't place), else AUTO-DETECT
+ * the first column whose page has ≥1 UNAMBIGUOUS ISO date/datetime value (via {@link isoDayKey}, so a
+ * numeric id column is never mistaken for a date). Returns null when nothing qualifies. Pure.
+ *
+ * @example calendarDateField(['id','created_at'], [{id:1,created_at:'2024-01-01'}]) // 'created_at'
+ * @example calendarDateField(['id','name'], [{id:1,name:'x'}])                      // null (no date col)
+ * @example calendarDateField(['id','created_at'], rows, 'name')                     // 'name' (configured wins)
+ */
+export function calendarDateField(
+  columns: readonly string[],
+  rows: readonly Record<string, unknown>[],
+  configured?: string | null,
+): string | null {
+  if (configured && columns.includes(configured)) {
+    return configured;
+  }
+
+  for (const c of columns) {
+    if (rows.some((r) => isoDayKey(r[c]) !== null)) {
+      return c;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Parse a `YYYY-MM-DD` (or `YYYY-MM`) day/month key into a 0-based `{ year, month }`, or null when it
+ * doesn't match. Used to seed the visible month from the data (e.g. the latest bucket's day). Pure.
+ *
+ * @example monthFromDayKey('2024-03-15') // { year: 2024, month: 2 }
+ * @example monthFromDayKey('2024-03')    // { year: 2024, month: 2 }
+ * @example monthFromDayKey('nope')       // null
+ */
+export function monthFromDayKey(key: string | null | undefined): { year: number; month: number } | null {
+  if (typeof key !== 'string') {
+    return null;
+  }
+
+  const m = /^(\d{4})-(\d{2})/.exec(key);
+
+  if (!m) {
+    return null;
+  }
+
+  const year = Number(m[1]);
+  const month = Number(m[2]) - 1; // 0-based
+
+  return month >= 0 && month <= 11 ? { year, month } : null;
+}
+
+/**
+ * Shift a 0-based `{ year, month }` by `delta` months, normalizing year/month rollover in UTC. Pure.
+ *
+ * @example addCalendarMonth(2024, 0, -1)  // { year: 2023, month: 11 }
+ * @example addCalendarMonth(2024, 11, 1)  // { year: 2025, month: 0 }
+ */
+export function addCalendarMonth(year: number, month: number, delta: number): { year: number; month: number } {
+  const d = new Date(Date.UTC(year, month + delta, 1));
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() };
+}
+
+/** One day cell of a calendar month grid. */
+export interface CalendarCell {
+  /** UTC `YYYY-MM-DD` key (matches {@link isoDayKey} + `bucketRowsByDate(..,'day')`). */
+  dayKey: string;
+
+  /** Day-of-month number (1–31). */
+  dayOfMonth: number;
+
+  /** True when this cell belongs to the requested month (false = leading/trailing spill day). */
+  inMonth: boolean;
+}
+
+/**
+ * Build the 42-cell (6 weeks × 7 days, Sunday-first) UTC grid for a 0-based `{year, month}`. The grid
+ * starts on the Sunday on/before the 1st and always has 42 cells so the layout never reflows between
+ * months. All arithmetic is UTC (matches the honest UTC day-keys from {@link isoDayKey} /
+ * `bucketRowsByDate`), so a cell never shifts a day by the viewer's timezone. Pure + deterministic.
+ *
+ * @example monthMatrix(2024, 0)[0].dayKey  // '2023-12-31' (Sunday before Mon Jan 1 2024)
+ * @example monthMatrix(2024, 0)[1]         // { dayKey:'2024-01-01', dayOfMonth:1, inMonth:true }
+ */
+export function monthMatrix(year: number, month: number): CalendarCell[] {
+  const first = new Date(Date.UTC(year, month, 1));
+  const startOffset = first.getUTCDay(); // 0=Sun … 6=Sat
+  const cells: CalendarCell[] = [];
+
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(Date.UTC(year, month, 1 - startOffset + i));
+    cells.push({
+      dayKey: d.toISOString().slice(0, 10),
+      dayOfMonth: d.getUTCDate(),
+      inMonth: d.getUTCMonth() === ((month % 12) + 12) % 12,
+    });
+  }
+
+  return cells;
+}
+
+/**
+ * The card-title column for the gallery: the configured field when it's a real column, else a sensible
+ * default — the first column that isn't an id/`*_id` (a more meaningful title than a raw id), falling
+ * back to the first column. Returns null only for an empty column set. Pure.
+ *
+ * @example galleryTitleField(['id','name','email'])            // 'name'
+ * @example galleryTitleField(['id','name'], 'email')           // 'name' (configured not a column → default)
+ * @example galleryTitleField(['id','name'], 'email' , )        // see above
+ * @example galleryTitleField(['id'])                           // 'id'  (only an id column)
+ */
+export function galleryTitleField(columns: readonly string[], configured?: string | null): string | null {
+  if (columns.length === 0) {
+    return null;
+  }
+
+  if (configured && columns.includes(configured)) {
+    return configured;
+  }
+
+  const nonId = columns.find((c) => !/^id$|_id$/i.test(c));
+
+  return nonId ?? columns[0];
+}
+
+/** The body columns shown under the title on a gallery card — every column except the title, in order. Pure. */
+export function galleryBodyFields(columns: readonly string[], titleField: string | null): string[] {
+  return columns.filter((c) => c !== titleField);
+}
+
+/**
+ * A human title for the record drawer: the value of the resolved title field (see
+ * {@link galleryTitleField}), or `(untitled)` when it's empty/null, or `(record)` when there are no
+ * columns at all. Pure.
+ */
+export function recordTitle(
+  row: Record<string, unknown>,
+  columns: readonly string[],
+  configuredTitleField?: string | null,
+): string {
+  const field = galleryTitleField(columns, configuredTitleField);
+
+  if (!field) {
+    return '(record)';
+  }
+
+  const v = row[field];
+
+  return v === null || v === undefined || v === '' ? '(untitled)' : String(v);
+}
+
+/**
+ * Position + neighbors of the open record within the CURRENT PAGE (`visibleRows`), for the record
+ * drawer's prev/next navigation. `current` is a reference into `rows` (the drawer holds the exact row
+ * object a grid/gallery/kanban/calendar surface passed), so `indexOf` locates it by identity. Returns
+ * `index` (0-based, -1 if absent), `total`, and the `prev`/`next` row objects (null at each end) — so
+ * the caller never steps past the page boundary (crossing pages would need a separate fetch). Pure.
+ *
+ * @example recordNavigation([a, b, c], b) // { index: 1, total: 3, prev: a, next: c }
+ * @example recordNavigation([a, b, c], a) // { index: 0, total: 3, prev: null, next: b }
+ * @example recordNavigation([a, b, c], null) // { index: -1, total: 3, prev: null, next: null }
+ */
+export function recordNavigation(
+  rows: readonly Record<string, unknown>[],
+  current: Record<string, unknown> | null,
+): {
+  index: number;
+  total: number;
+  prev: Record<string, unknown> | null;
+  next: Record<string, unknown> | null;
+} {
+  const total = rows.length;
+  const index = current ? rows.indexOf(current) : -1;
+
+  return {
+    index,
+    total,
+    prev: index > 0 ? rows[index - 1] : null,
+    next: index >= 0 && index < total - 1 ? rows[index + 1] : null,
+  };
+}
+
+/**
+ * A stable fingerprint of a browse view's whole query — search + the ACTIVE filter conditions
+ * (op-normalized, value-free ops blanked) + combinator (only meaningful with >1 condition) + sort +
+ * render type + gallery/kanban config. Two queries that would fetch + render identically produce the
+ * SAME string, so an applied saved view can be compared to the live state to detect "modified" (the
+ * live query has drifted from the view). Mirrors the normalization `filtersToParams` sends. Pure.
+ */
+/** The column-layout shape a view can carry (mirrors the saved-view config layout). */
+export interface ViewLayoutSig {
+  hidden?: string[];
+  order?: string[];
+  widths?: Record<string, number>;
+  pinned?: string[];
+  summaries?: Record<string, string>;
+  density?: string;
+}
+
+/**
+ * A CANONICAL signature of a column layout for the drift fingerprint — arrays kept in order (order is
+ * meaningful for hidden/order/pinned), maps flattened to key-sorted entry pairs (map key order is NOT
+ * meaningful), empties normalized (`[]` / `cozy`). So a sparse live layout `{density:'cozy'}` and an
+ * equivalent saved layout compare equal, but any real rearrangement differs. `null`/absent → null. Pure.
+ */
+export function layoutSignature(l: ViewLayoutSig | null | undefined): unknown {
+  if (!l) {
+    return null;
+  }
+
+  const sortedEntries = (m: Record<string, unknown> | undefined): Array<[string, unknown]> =>
+    m
+      ? Object.keys(m)
+          .sort()
+          .map((k) => [k, m[k]])
+      : [];
+
+  return {
+    hidden: l.hidden ?? [],
+    order: l.order ?? [],
+    pinned: l.pinned ?? [],
+    widths: sortedEntries(l.widths),
+    summaries: sortedEntries(l.summaries),
+    density: l.density ?? 'cozy',
+  };
+}
+
+export function viewQueryFingerprint(q: {
+  search: string;
+  conditions: ReadonlyArray<{ col: string | null; op: string; val: string }>;
+  combinator: string;
+  sortCol: string | null;
+  sortDir: string | null;
+  type: string;
+  titleField: string | null;
+  groupField: string | null;
+  dateField?: string | null;
+  layout?: ViewLayoutSig | null;
+  sorts?: ReadonlyArray<GridSort> | null;
+}): string {
+  const conds = q.conditions
+    .filter((c) => filterIsActive(c.col, c.op, c.val))
+    .map((c) => {
+      const op = normalizeFilterOp(c.op);
+      return { col: (c.col ?? '').trim(), op, val: filterOpIsValueFree(op) ? '' : (c.val ?? '').trim() };
+    });
+  const type = normalizeViewMode(q.type);
+
+  return JSON.stringify({
+    search: (q.search ?? '').trim(),
+    conds,
+
+    // combinator only affects the result when ≥2 conditions are active
+    combinator: conds.length > 1 ? normalizeCombinator(q.combinator) : 'AND',
+    sortCol: q.sortCol || null,
+    sortDir: q.sortCol ? (q.sortDir === 'asc' ? 'asc' : 'desc') : null,
+
+    /*
+     * Full multi-column sort (priority order) — so reordering/adding secondary sorts flags "modified".
+     * Callers that omit it → null (they rely on the single sortCol/sortDir above).
+     */
+    sorts: q.sorts && q.sorts.length ? q.sorts.map((s) => `${s.col}:${s.dir === 'asc' ? 'asc' : 'desc'}`) : null,
+    type,
+
+    /*
+     * titleField only matters for gallery/kanban/calendar; groupField only for kanban/chart;
+     * dateField only for calendar — each nulled elsewhere so an irrelevant field never marks "modified".
+     */
+    titleField: type === 'grid' ? null : q.titleField || null,
+    groupField: type === 'kanban' || type === 'chart' ? q.groupField || null : null,
+    dateField: type === 'calendar' ? q.dateField || null : null,
+
+    /*
+     * Column LAYOUT (visibility/order/widths/pins/summaries/density) — so rearranging a view's columns
+     * honestly flags it "modified" (the badge previously ignored layout). Callers that omit it → null.
+     */
+    layout: layoutSignature(q.layout),
+  });
+}
+
+/**
+ * Toggle a column's visibility. Showing a column is always allowed; HIDING is refused when it
+ * would leave zero visible columns (never a dead-end empty grid). Returns the new hidden set,
+ * ordered by `all` for stable persistence, immutable (never mutates the input).
+ *
+ * @param hidden - the current hidden set
+ * @param col - the column being toggled
+ * @param all - every column in the table (to enforce the last-column guard + ordering)
+ * @returns the next hidden set
+ * @example toggleHiddenColumn([], 'b', ['a', 'b']) // ['b']
+ * @example toggleHiddenColumn(['a'], 'b', ['a', 'b']) // ['a'] — refused; 'b' is the last visible
+ */
+export function toggleHiddenColumn(hidden: readonly string[], col: string, all: readonly string[]): string[] {
+  const set = new Set(hidden);
+
+  if (set.has(col)) {
+    set.delete(col); // showing is always safe
+  } else {
+    const visibleCount = all.filter((c) => !set.has(c)).length;
+
+    if (visibleCount <= 1) {
+      return [...hidden];
+    } // refuse — would empty the grid
+
+    set.add(col);
+  }
+
+  return all.filter((c) => set.has(c));
+}
+
+/*
+ * Typed row editors → parameterized statements.
+ * The grid's "Add row" (and, later, Edit/Delete) build a PARAMETERIZED statement: identifiers are
+ * validated + quoted, values are BOUND via ?1..?N — never concatenated into the SQL (the epic's
+ * "parameterize values, never concatenate" mandate). The worker's /sql/exec-write path binds these
+ * params server-side.
+ */
+
+/** Thrown when a typed row-editor input can't be coerced, or a statement can't be built safely. */
+export class RowMutationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RowMutationError';
+  }
+}
+
+/** Which typed editor a cell uses — maps to how the raw text input is coerced before binding. */
+export type CellInputKind = 'text' | 'number' | 'boolean' | 'date' | 'datetime' | 'null' | 'json';
+
+/**
+ * The selectable cell-input kinds, in display order, as `{ value, label }` — the SINGLE source both the
+ * grid/drawer `<CellEditor>` and the Add-row form render their type `<select>` from (the Add-row form
+ * prepends its own `default` = "omit, use column default" option). One list so the two selects can never
+ * drift apart as kinds are added (a real prior bug class: two hardcoded option lists that diverge).
+ */
+export const CELL_INPUT_KIND_OPTIONS: ReadonlyArray<{ value: CellInputKind; label: string }> = [
+  { value: 'text', label: 'text' },
+  { value: 'number', label: 'number' },
+  { value: 'boolean', label: 'boolean' },
+  { value: 'date', label: 'date' },
+  { value: 'datetime', label: 'datetime' },
+  { value: 'null', label: 'NULL' },
+  { value: 'json', label: 'JSON' },
+];
+
+/** A value ready to bind as a positional SQL param (SQLite storage classes we support from the UI). */
+export type BoundValue = string | number | boolean | null;
+
+/**
+ * Infer the typed-editor `{ kind, value }` to PREFILL for an existing cell value — the inverse of
+ * {@link coerceCellInput}. Used to seed the Edit + Duplicate editors from a browsed row: null/undefined
+ * → `null` editor; number/boolean → their editors; an object → `json` (pretty-printed text); anything
+ * else → `text`. Pure.
+ *
+ * @param value - the raw cell value from a browsed row
+ * @returns the editor `kind` + the string to prefill its input with
+ * @example inferCellEditor(42)          // { kind: 'number', value: '42' }
+ * @example inferCellEditor(null)        // { kind: 'null', value: '' }
+ * @example inferCellEditor({ a: 1 })    // { kind: 'json', value: '{"a":1}' }
+ */
+export function inferCellEditor(value: unknown): { kind: CellInputKind; value: string } {
+  if (value === null || value === undefined) {
+    return { kind: 'null', value: '' };
+  }
+
+  if (typeof value === 'number') {
+    return { kind: 'number', value: String(value) };
+  }
+
+  if (typeof value === 'boolean') {
+    return { kind: 'boolean', value: value ? 'true' : 'false' };
+  }
+
+  if (typeof value === 'object') {
+    let text: string;
+
+    try {
+      text = JSON.stringify(value);
+    } catch {
+      text = String(value);
+    }
+
+    return { kind: 'json', value: text };
+  }
+
+  return { kind: 'text', value: String(value) };
+}
+
+/**
+ * Reformat a stored value for a native `<input type="date">` (which requires `YYYY-MM-DD`). Returns the
+ * value ONLY when it is EXACTLY a `YYYY-MM-DD` calendar date (and a real date) — never truncates a
+ * datetime down to its date part (that would silently drop the time on the next save). Anything else
+ * (a datetime, a number, junk) → `''`, so the caller falls back to a plain text editor (lossless). Pure.
+ *
+ * @example toDateInputValue('2024-01-31')            // '2024-01-31'
+ * @example toDateInputValue('2024-01-31T12:00:00Z')  // ''  (has a time → not a date input)
+ */
+export function toDateInputValue(raw: string): string {
+  const t = (raw ?? '').trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+    return '';
+  }
+
+  const d = new Date(t); // bare ISO date → UTC midnight; NaN for an impossible date (2024-13-45)
+
+  return Number.isNaN(d.getTime()) ? '' : t;
+}
+
+/**
+ * Reformat a stored value for a native `<input type="datetime-local" step="1">` (which wants
+ * `YYYY-MM-DDTHH:MM` or `…:SS`). Accepts a ZONE-LESS datetime with either a `T` or space separator and
+ * normalises the separator to `T`, preserving seconds when present. A ZONE-MARKED value (`Z` / `±HH:MM`)
+ * → `''` (a datetime-local input has no zone; storing it back would silently DROP the zone) so the
+ * caller falls back to a plain text editor — the same "don't guess the zone" honesty as the grid
+ * date formatter. Pure.
+ *
+ * @example toDatetimeLocalValue('2024-01-31 12:30:00')       // '2024-01-31T12:30:00'
+ * @example toDatetimeLocalValue('2024-01-31T12:30')          // '2024-01-31T12:30'
+ * @example toDatetimeLocalValue('2024-01-31T12:30:00Z')      // ''  (zone-marked → text fallback)
+ */
+export function toDatetimeLocalValue(raw: string): string {
+  const t = (raw ?? '').trim();
+  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)$/.exec(t);
+
+  return m ? `${m[1]}T${m[2]}` : '';
+}
+
+/**
+ * Map a SQLite DECLARED column type to the editor kind its values should default to — SQLite type
+ * affinity plus the conventional date/datetime/boolean/json declarations people write even though
+ * SQLite gives them NUMERIC/TEXT storage. Returns `undefined` for TEXT/CHAR/BLOB/unknown (→ value-
+ * inferred). NOTE: the returned kind is a UI INTERPRETATION — SQLite has no date/bool/json storage
+ * class; a date/checkbox widget is an affordance, not a schema guarantee (mirrored in the grid badge).
+ */
+function declaredKindFromType(declaredType: string | undefined): CellInputKind | undefined {
+  if (!declaredType) {
+    return undefined;
+  }
+
+  const t = declaredType.toUpperCase();
+
+  // Order matters: DATETIME/TIMESTAMP before the DATE substring; BOOLEAN before the generic INT rule.
+  if (t.includes('DATETIME') || t.includes('TIMESTAMP')) {
+    return 'datetime';
+  }
+
+  if (t.includes('DATE')) {
+    return 'date';
+  }
+
+  if (t.includes('BOOL')) {
+    return 'boolean';
+  }
+
+  if (t.includes('JSON')) {
+    return 'json';
+  }
+
+  if (
+    t.includes('INT') ||
+    t.includes('REAL') ||
+    t.includes('FLOA') ||
+    t.includes('DOUB') ||
+    t.includes('NUMERIC') ||
+    t.includes('DECIMAL') ||
+    t.includes('NUMBER')
+  ) {
+    return 'number';
+  }
+
+  return undefined;
+}
+
+/**
+ * Choose the `{ kind, value }` to PREFILL a cell editor with, DECLARED-TYPE-FIRST — the type-aware
+ * upgrade of {@link inferCellEditor} (which sees only the value). A `DATE`/`DATETIME` column opens a
+ * native date/datetime picker, a numeric column a number input, etc. — even when the current cell is
+ * NULL (so entering the first value needs no manual type switch; the NULL option stays one click away).
+ *
+ * HONESTY: when a stored value can't be represented in the typed widget without LOSS (a zone-marked
+ * datetime, a non-numeric value in a numeric-typed column, unparseable JSON), it falls back to a plain
+ * text editor rather than silently truncating. When the declared type is absent/TEXT, behaviour is
+ * exactly {@link inferCellEditor}. Pure.
+ *
+ * @param declaredType - the column's declared SQLite type (from `PRAGMA table_xinfo`), or undefined
+ * @param value - the raw cell value from the browsed row
+ * @example editorKindForColumn('DATE', null)                 // { kind: 'date', value: '' }
+ * @example editorKindForColumn('DATETIME', '2024-01-01 09:00:00') // { kind: 'datetime', value: '2024-01-01T09:00:00' }
+ * @example editorKindForColumn('INTEGER', 42)                // { kind: 'number', value: '42' }
+ * @example editorKindForColumn('TEXT', 'hi')                 // { kind: 'text', value: 'hi' }  (== inferCellEditor)
+ */
+export function editorKindForColumn(
+  declaredType: string | undefined,
+  value: unknown,
+): { kind: CellInputKind; value: string } {
+  const declared = declaredKindFromType(declaredType);
+
+  /*
+   * NULL/undefined cell → offer the typed affordance for a known typed column; else the honest `null`
+   * editor. Either way NULL remains selectable, and an empty typed input won't overwrite NULL on save.
+   */
+  if (value === null || value === undefined) {
+    return { kind: declared ?? 'null', value: '' };
+  }
+
+  switch (declared) {
+    case 'date': {
+      const v = toDateInputValue(String(value));
+
+      return v ? { kind: 'date', value: v } : { kind: 'text', value: String(value) };
+    }
+    case 'datetime': {
+      const v = toDatetimeLocalValue(String(value));
+
+      return v ? { kind: 'datetime', value: v } : { kind: 'text', value: String(value) };
+    }
+    case 'number': {
+      if (typeof value === 'number') {
+        return { kind: 'number', value: String(value) };
+      }
+
+      const s = String(value).trim();
+
+      return s !== '' && Number.isFinite(Number(s)) ? { kind: 'number', value: s } : inferCellEditor(value);
+    }
+    case 'boolean': {
+      const s = String(value).trim().toLowerCase();
+
+      if (value === true || s === '1' || s === 'true') {
+        return { kind: 'boolean', value: 'true' };
+      }
+
+      if (value === false || s === '0' || s === 'false') {
+        return { kind: 'boolean', value: 'false' };
+      }
+
+      return inferCellEditor(value);
+    }
+    case 'json': {
+      const s = String(value);
+
+      try {
+        JSON.parse(s);
+
+        return { kind: 'json', value: s };
+      } catch {
+        return inferCellEditor(value);
+      }
+    }
+    default:
+      return inferCellEditor(value);
+  }
+}
+
+/**
+ * Coerce a typed row-editor input into a value ready to BIND (never string-interpolated).
+ * `null` ignores the raw text; `number` rejects blank/NaN; `boolean` accepts true/false/1/0/yes/no;
+ * `json` validates the text parses and binds the ORIGINAL text (SQLite has no JSON type — JSON is
+ * stored as TEXT); `date`/`datetime` validate the shape and bind the string (SQLite has no date type —
+ * stored as TEXT, zone-less as entered); `text` binds the raw string verbatim. Throws on bad input.
+ *
+ * @param kind - the typed editor the cell used
+ * @param raw - the raw text the user typed
+ * @returns the value to bind (string | number | boolean | null)
+ * @throws {RowMutationError} when a number is blank/NaN or JSON is malformed
+ * @example coerceCellInput('number', '42')      // 42
+ * @example coerceCellInput('boolean', 'yes')    // true
+ * @example coerceCellInput('null', 'anything')  // null
+ * @example coerceCellInput('json', '{"a":1}')   // '{"a":1}'
+ */
+export function coerceCellInput(kind: CellInputKind, raw: string): BoundValue {
+  switch (kind) {
+    case 'null':
+      return null;
+    case 'number': {
+      const t = (raw ?? '').trim();
+
+      if (t === '') {
+        throw new RowMutationError('Enter a number, or switch the cell type to NULL.');
+      }
+
+      const n = Number(t);
+
+      if (!Number.isFinite(n)) {
+        throw new RowMutationError(`"${raw}" is not a valid number.`);
+      }
+
+      return n;
+    }
+    case 'boolean': {
+      const t = (raw ?? '').trim().toLowerCase();
+
+      if (t === 'true' || t === '1' || t === 'yes') {
+        return true;
+      }
+
+      if (t === 'false' || t === '0' || t === 'no' || t === '') {
+        return false;
+      }
+
+      throw new RowMutationError(`"${raw}" is not a boolean (use true/false).`);
+    }
+    case 'json': {
+      const t = (raw ?? '').trim();
+
+      if (t === '') {
+        throw new RowMutationError('Enter JSON, or switch the cell type to NULL.');
+      }
+
+      try {
+        JSON.parse(t);
+      } catch {
+        throw new RowMutationError('That is not valid JSON.');
+      }
+
+      return t; // store validated JSON as TEXT
+    }
+    case 'date': {
+      const t = (raw ?? '').trim();
+
+      if (t === '') {
+        throw new RowMutationError('Pick a date, or switch the cell type to NULL.');
+      }
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+        throw new RowMutationError(`"${raw}" is not a YYYY-MM-DD date.`);
+      }
+
+      return t; // SQLite has no DATE type — a calendar date is stored as TEXT
+    }
+    case 'datetime': {
+      const t = (raw ?? '').trim();
+
+      if (t === '') {
+        throw new RowMutationError('Pick a date and time, or switch the cell type to NULL.');
+      }
+
+      if (!/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(t)) {
+        throw new RowMutationError(`"${raw}" is not a YYYY-MM-DDTHH:MM date-time.`);
+      }
+
+      return t; // SQLite has no DATETIME type — stored as TEXT, zone-less exactly as entered
+    }
+    case 'text':
+    default:
+      return raw ?? '';
+  }
+}
+
+/**
+ * Does `s` parse as JSON (any valid JSON — object, array, string, number, bool, null)? Mirrors the
+ * accept-set of {@link coerceCellInput}'s `json` case so the live "not valid JSON yet" hint in the JSON
+ * editor and the on-save validation never disagree. Blank → `false` (nothing to validate yet, the hint
+ * stays hidden). Pure, never throws.
+ *
+ * @example isValidJsonText('{"a":1}')  // true
+ * @example isValidJsonText('42')       // true
+ * @example isValidJsonText('{a:1}')    // false
+ * @example isValidJsonText('')         // false
+ */
+export function isValidJsonText(s: string): boolean {
+  const t = (s ?? '').trim();
+
+  if (t === '') {
+    return false;
+  }
+
+  try {
+    JSON.parse(t);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The value-editor datalist suggestions for a column, given the worker's bounded DISTINCT result. When
+ * the column is HIGH-cardinality (`truncated` — more distinct values than the server cap) it is a
+ * free-text column, NOT a select, so we surface NO suggestions rather than a misleadingly-partial list.
+ * Otherwise the (small, complete) distinct set is the suggestion list. Pure.
+ *
+ * @example distinctSuggestions(['open', 'closed'], false) // ['open', 'closed']
+ * @example distinctSuggestions(['a', 'b', 'c'], true)     // []  (high-cardinality → not select-like)
+ */
+export function distinctSuggestions(values: readonly string[] | undefined, truncated: boolean): string[] {
+  if (truncated || !values || values.length === 0) {
+    return [];
+  }
+
+  return [...values];
+}
+
+/**
+ * The memo key for a column's DISTINCT-values result, unique per (table, column) so the datalist cache
+ * never mixes two tables that share a column name. Uses a newline separator (never present in a SQLite
+ * identifier drawn from the fixed overview allowlist) so `('ab','c')` can't collide with `('a','bc')`. Pure.
+ *
+ * @example distinctCacheKey('form_submissions', 'status') // 'form_submissions\nstatus'
+ */
+export function distinctCacheKey(table: string, col: string): string {
+  return `${table}\n${col}`;
+}
+
+/**
+ * A one-line hint stating EXACTLY what the current cell editor will store — resolving the SQLite
+ * `NULL` vs empty-string `''` ambiguity a blank text field can't express. `null` kind → NULL; `text`
+ * kind with a blank value → the empty string (and points the user at NULL for "no value"). Every other
+ * state → `''` (no hint; the value is unambiguous). Pure — drives an inline hint, never a mutation.
+ *
+ * @example nullabilityHint('null', '')  // 'Saves as NULL (no value).'
+ * @example nullabilityHint('text', '')  // 'Saves as an empty string (""). Use NULL for no value.'
+ * @example nullabilityHint('text', 'x') // ''
+ */
+export function nullabilityHint(kind: CellInputKind, value: string): string {
+  if (kind === 'null') {
+    return 'Saves as NULL (no value).';
+  }
+
+  if (kind === 'text' && value === '') {
+    return 'Saves as an empty string (""). Use NULL for no value.';
+  }
+
+  return '';
+}
+
+/**
+ * Render the AI's proposed query intent as a short human sentence for the "Ask your data" answer — so the
+ * owner can SEE how their question was interpreted (falsifiable, alongside the exact SQL). Display-only;
+ * never re-validates (the server compiler already did). Pure.
+ *
+ * @example describeIntent({ select: [{ agg: 'count' }], groupBy: 'status' }) // 'count · grouped by status'
+ * @example describeIntent({ select: [{ col: 'status' }], filters: [{ col: 'status', op: 'eq', val: 'open' }] })
+ *   // 'status · where status eq open'
+ */
+export function describeIntent(intent: {
+  select?: Array<{ col?: string; agg?: string }>;
+  filters?: Array<{ col: string; op: string; val: string }>;
+  combinator?: string;
+  groupBy?: string;
+  orderBy?: Array<{ col?: string; dir?: string }>;
+  limit?: number;
+}): string {
+  const sel = (intent.select ?? [])
+    .map((f) => (f.agg ? `${f.agg}${f.col ? `(${f.col})` : ''}` : f.col))
+    .filter((s): s is string => typeof s === 'string' && s.length > 0);
+  const parts: string[] = [sel.length ? sel.join(', ') : 'rows'];
+
+  if (intent.groupBy) {
+    parts.push(`grouped by ${intent.groupBy}`);
+  }
+
+  if (intent.filters && intent.filters.length > 0) {
+    const joiner = (intent.combinator ?? 'AND').toUpperCase() === 'OR' ? ' OR ' : ' AND ';
+    parts.push(`where ${intent.filters.map((c) => `${c.col} ${c.op} ${c.val}`.trim()).join(joiner)}`);
+  }
+
+  if (intent.orderBy && intent.orderBy.length > 0) {
+    const terms = intent.orderBy.map((o) => `${o.col ?? ''} ${o.dir ?? 'asc'}`.trim()).filter(Boolean);
+
+    if (terms.length > 0) {
+      parts.push(`sorted by ${terms.join(', ')}`);
+    }
+  }
+
+  if (typeof intent.limit === 'number') {
+    parts.push(`limit ${intent.limit}`);
+  }
+
+  return parts.join(' · ');
+}
+
+/**
+ * Map an "Ask your data" intent → a SAVED-VIEW payload so a computed answer becomes a reusable view
+ * (SUCCESS-STANDARD item 5). Reuses the EXISTING grid-views store + reopen machinery — no new view type,
+ * no contamination: an aggregate-by-column answer saves as a **chart** view grouped by that column; a
+ * projection/filter answer saves as a **grid** view carrying the filters + sort. The returned fields are
+ * exactly the `PS_VIEW_REQUEST` save payload (`filters` is a JSON string; `viewConfig` is the display
+ * config the worker shape-hardens). Pure.
+ *
+ * @example askIntentToSavedView({ select:[{agg:'count'}], groupBy:'status' }, 'count by status')
+ *   // { name:'count by status', viewType:'chart', filters:'[]', combinator:'AND', sortCol:null, sortDir:null, viewConfig:{ groupField:'status' } }
+ */
+export function askIntentToSavedView(
+  intent: {
+    select?: Array<{ col?: string; agg?: string }>;
+    filters?: Array<{ col: string; op: string; val: string }>;
+    combinator?: string;
+    groupBy?: string;
+    orderBy?: Array<{ col?: string; dir?: string }>;
+  },
+  question: string,
+): {
+  name: string;
+  viewType: 'grid' | 'chart';
+  filters: string;
+  combinator: 'AND' | 'OR';
+  sortCol: string | null;
+  sortDir: 'asc' | 'desc' | null;
+  viewConfig: { groupField?: string; sorts?: string };
+} {
+  const name = (question.trim() || 'Saved question').slice(0, 80);
+  const combinator = (intent.combinator ?? 'AND').toUpperCase() === 'OR' ? 'OR' : 'AND';
+  const filters = JSON.stringify((intent.filters ?? []).map((f) => ({ col: f.col, op: f.op, val: f.val })));
+  const hasAgg = (intent.select ?? []).some((f) => !!f?.agg);
+
+  // Aggregate-by-column → a CHART view grouped by that column (the chart view counts per group).
+  if (hasAgg && intent.groupBy) {
+    return {
+      name,
+      viewType: 'chart',
+      filters,
+      combinator,
+      sortCol: null,
+      sortDir: null,
+      viewConfig: { groupField: intent.groupBy },
+    };
+  }
+
+  // Projection / filter → a GRID view; carry the sort (primary in sortCol/Dir, full multi in config.sorts).
+  const ob = (intent.orderBy ?? []).filter(
+    (o): o is { col: string; dir?: string } => typeof o?.col === 'string' && o.col.length > 0,
+  );
+  const primary = ob[0];
+  const sorts = ob.map((o) => `${o.col}:${o.dir === 'desc' ? 'desc' : 'asc'}`).join(',');
+
+  return {
+    name,
+    viewType: 'grid',
+    filters,
+    combinator,
+    sortCol: primary?.col ?? null,
+    sortDir: primary ? (primary.dir === 'desc' ? 'desc' : 'asc') : null,
+    viewConfig: sorts ? { sorts } : {},
+  };
+}
+
+/** One column row in the guided "New table" builder (before it is compiled to DDL). */
+export interface NewColumnDraft {
+  /** Raw column name from the form (validated by the DDL builder — SQLite identifier rules). */
+  readonly name: string;
+
+  /** SQLite storage class the owner picked from the type dropdown. */
+  readonly type: 'TEXT' | 'INTEGER' | 'REAL' | 'BLOB';
+
+  /** Part of the primary key (one → inline `PRIMARY KEY`; many → composite `PRIMARY KEY (…)`). */
+  readonly pk?: boolean;
+
+  /** Emit `NOT NULL`. */
+  readonly notNull?: boolean;
+
+  /** Optional DEFAULT — raw per {@link buildCreateTable}'s two-class heuristic (string vs numeric/keyword). */
+  readonly defaultValue?: string | null;
+}
+
+/**
+ * Compile a guided "New table" form into a reviewable `CREATE TABLE` statement — the pure, testable core
+ * of the schema builder. Blank-named column rows are dropped (they're placeholder rows in the UI), then
+ * {@link buildCreateTable} validates identifiers + uniqueness and quotes every identifier (the SQL-injection
+ * boundary). Returns a human error instead of throwing so the form can surface it inline, and a non-fatal
+ * `warning` when no primary key is chosen (rows would only be identifiable by rowid — grid edit/delete need
+ * a stable key). The DDL is shown to the user BEFORE it runs (falsifiable), then executed via the authorized
+ * super-admin write rail — the model/UI never concatenates raw SQL.
+ */
+export function planCreateTable(
+  name: string,
+  columns: readonly NewColumnDraft[],
+): { ddl: string | null; error: string | null; warning: string | null } {
+  if (!name.trim()) {
+    return { ddl: null, error: 'Enter a table name.', warning: null };
+  }
+
+  // Drop placeholder rows (a blank name = an unfilled row in the UI); validate the rest via the DDL builder.
+  const cols = columns.filter((c) => c.name.trim() !== '');
+
+  if (cols.length === 0) {
+    return { ddl: null, error: 'Add at least one named column.', warning: null };
+  }
+
+  try {
+    const ddl = buildCreateTable({
+      name: name.trim(),
+      columns: cols.map((c) => ({
+        name: c.name.trim(),
+        type: c.type,
+        primaryKey: c.pk,
+        notNull: c.notNull,
+        defaultValue: c.defaultValue ?? null,
+      })),
+    });
+    const warning = cols.some((c) => c.pk)
+      ? null
+      : 'No primary key selected — rows will only be identifiable by rowid, so grid editing and row-delete will be unavailable. Add a primary key for a fully editable table.';
+
+    return { ddl, error: null, warning };
+  } catch (e) {
+    return {
+      ddl: null,
+      error: e instanceof DdlError ? e.message : 'Could not build the CREATE TABLE statement.',
+      warning: null,
+    };
+  }
+}
+
+/**
+ * Suggest a conventional index name for `table` + `columns` (`idx_<table>_<col1>_<col2>`), sanitised to a
+ * safe SQLite identifier (non-`[A-Za-z0-9_]` → `_`, leading digit prefixed with `_`) and length-capped.
+ * Used as the default when the owner leaves the name blank — so indexing is one action (pick columns → create).
+ */
+export function suggestIndexName(table: string, columns: readonly string[]): string {
+  const safe = (s: string): string => s.trim().replace(/[^A-Za-z0-9_]/g, '_');
+  const parts = [table, ...columns].map(safe).filter((s) => s !== '');
+  let name = `idx_${parts.join('_')}`.slice(0, 60);
+
+  // A generated name must be a legal bare identifier (letter/underscore start) for buildCreateIndex.
+  if (!/^[A-Za-z_]/.test(name)) {
+    name = `_${name}`;
+  }
+
+  return name;
+}
+
+/**
+ * Compile a guided "Add index" form into a reviewable `CREATE [UNIQUE] INDEX` — the pure, testable core of
+ * the index builder (schema slice 2, sibling of {@link planCreateTable}). Drops blank column entries, then
+ * {@link buildCreateIndex} validates + quotes every identifier (the injection boundary). Returns a human
+ * error instead of throwing so the form surfaces it inline. Adding an index is NON-destructive (pure perf,
+ * droppable); the DDL is shown BEFORE it runs, then executed via the authorized super-admin write rail.
+ */
+export function planCreateIndex(
+  table: string,
+  name: string,
+  columns: readonly string[],
+  unique: boolean,
+): { ddl: string | null; error: string | null } {
+  if (!table.trim()) {
+    return { ddl: null, error: 'No table selected.' };
+  }
+
+  const cols = columns.filter((c) => c.trim() !== '');
+
+  if (cols.length === 0) {
+    return { ddl: null, error: 'Select at least one column to index.' };
+  }
+
+  // Blank name → the conventional suggestion (so the owner can just pick columns and create).
+  const effectiveName = name.trim() || suggestIndexName(table, cols);
+
+  try {
+    const ddl = buildCreateIndex({ name: effectiveName, table: table.trim(), columns: cols, unique });
+
+    return { ddl, error: null };
+  } catch (e) {
+    return {
+      ddl: null,
+      error: e instanceof DdlError ? e.message : 'Could not build the CREATE INDEX statement.',
+    };
+  }
+}
+
+/** A displayable summary of one `sqlite_master` index row for the open-table index manager. */
+export interface IndexSummary {
+  /** The index name (as stored in sqlite_master). */
+  readonly name: string;
+
+  /** True when the index enforces uniqueness (parsed from the CREATE SQL). */
+  readonly unique: boolean;
+
+  /**
+   * True only for user-created indexes (a non-null `sqlite_master.sql`) — the ONLY ones droppable via
+   * `DROP INDEX`. Auto-indexes backing a UNIQUE/PK constraint have `sql = NULL` and are managed by their
+   * table (dropping them needs an ALTER, not DROP INDEX), so we never offer a drop for those.
+   */
+  readonly droppable: boolean;
+
+  /** Best-effort comma-joined column list parsed from the CREATE SQL (null when unavailable). */
+  readonly columns: string | null;
+}
+
+/**
+ * Summarise one `SELECT name, sql FROM sqlite_master WHERE type='index'` row for the index manager.
+ * `sql` is the full `CREATE [UNIQUE] INDEX …` for user indexes (→ droppable, parseable) and NULL for
+ * constraint-backing auto-indexes (→ not droppable). Pure + defensive (unknown shapes → safe defaults).
+ */
+export function summarizeIndexRow(row: { name?: unknown; sql?: unknown }): IndexSummary {
+  const name = typeof row.name === 'string' ? row.name : String(row.name ?? '');
+  const sql = typeof row.sql === 'string' && row.sql.trim() !== '' ? row.sql : null;
+  const unique = sql !== null && /\bCREATE\s+UNIQUE\s+INDEX\b/i.test(sql);
+
+  // Best-effort columns: the last parenthesised group of the CREATE SQL (`… ON "t" (col, col)`).
+  let columns: string | null = null;
+
+  if (sql) {
+    const m = sql.match(/\(([^()]*)\)\s*$/);
+
+    if (m) {
+      const inner = m[1].replace(/"/g, '').trim();
+      columns = inner === '' ? null : inner;
+    }
+  }
+
+  return { name, unique, droppable: sql !== null, columns };
+}
+
+/**
+ * Compile a `DROP INDEX` for an EXISTING index (schema slice 3, sibling of {@link planCreateIndex}).
+ * The name comes from sqlite_master (a real object), so {@link buildDropIndex} only quotes it (throws
+ * on blank). Returns a human error instead of throwing. Dropping an index is reversible (recreate) and
+ * removes no data — but it IS destructive DDL, so the UI still gates it behind a type-to-confirm.
+ */
+export function planDropIndex(name: string): { ddl: string | null; error: string | null } {
+  try {
+    return { ddl: buildDropIndex(name), error: null };
+  } catch (e) {
+    return {
+      ddl: null,
+      error: e instanceof DdlError ? e.message : 'Could not build the DROP INDEX statement.',
+    };
+  }
+}
+
+/** A parameterized statement: `?1..?N` placeholders in `sql`, values in `params` (bind order). */
+export interface ParameterizedStatement {
+  /** The SQL with quoted identifiers and `?1..?N` placeholders — safe to log/preview. */
+  sql: string;
+
+  /** The values to bind, in `?1..?N` order. Never interpolated into `sql`. */
+  params: BoundValue[];
+}
+
+/**
+ * Build a PARAMETERIZED `INSERT` for the grid's "Add row". Every identifier (table + columns) is
+ * validated against the SQLite identifier grammar and double-quoted; every value becomes a bound
+ * `?N` param — nothing is concatenated. Columns the user leaves at "default" are omitted so column
+ * defaults / autoincrement apply. Pure.
+ *
+ * @param table - the target table name (validated as an identifier)
+ * @param columns - the columns to write (each validated; must be non-empty and match `values`)
+ * @param values - the already-coerced values to bind, aligned to `columns`
+ * @returns `{ sql, params }` — a parameterized INSERT
+ * @throws {RowMutationError} when the table/a column is not a valid identifier, or nothing to insert
+ * @example buildInsertStatement('todos', ['title', 'done'], ['Buy milk', 0])
+ *   // { sql: 'INSERT INTO "todos" ("title", "done") VALUES (?1, ?2)', params: ['Buy milk', 0] }
+ */
+/**
+ * The columns that go into an Add-row INSERT, in table-column order: the ones the user opted to set (a
+ * kind other than `'default'`, which means "omit → use the column default") AND that are NOT generated
+ * (SQLite REJECTS inserting a value into a generated column). Pure — used by both the live preview and
+ * the submit path so they can never diverge.
+ *
+ * @example insertableColumns(['id','name','total'], {name:'text'}, new Set(['total'])) // ['name']
+ */
+export function insertableColumns(
+  columns: readonly string[],
+  kinds: Record<string, CellInputKind | 'default'>,
+  generated: ReadonlySet<string>,
+): string[] {
+  return columns.filter((c) => kinds[c] && kinds[c] !== 'default' && !generated.has(c));
+}
+
+export function buildInsertStatement(
+  table: string,
+  columns: readonly string[],
+  values: readonly BoundValue[],
+): ParameterizedStatement {
+  const t = (table ?? '').trim();
+
+  if (!IDENT_RE.test(t)) {
+    throw new RowMutationError('Pick a table with a valid name before adding a row.');
+  }
+
+  if (columns.length === 0) {
+    throw new RowMutationError('Set at least one column value (or leave all at default) to add a row.');
+  }
+
+  if (columns.length !== values.length) {
+    throw new RowMutationError('Internal: column/value count mismatch.');
+  }
+
+  for (const col of columns) {
+    if (!IDENT_RE.test((col ?? '').trim())) {
+      throw new RowMutationError(`"${col}" is not a valid column name.`);
+    }
+  }
+
+  const colList = columns.map((c) => `"${c.trim()}"`).join(', ');
+  const placeholders = columns.map((_, i) => `?${i + 1}`).join(', ');
+
+  return {
+    sql: `INSERT INTO "${t}" (${colList}) VALUES (${placeholders})`,
+    params: [...values],
+  };
+}
+
+/**
+ * Build a PARAMETERIZED `DELETE` scoped to ONE row by its primary key. Every identifier (table +
+ * PK columns) is validated + double-quoted; every PK value becomes a bound `?N` param — a
+ * whole-table `DELETE` is impossible (a non-empty PK predicate is required). Composite keys are
+ * supported (each PK column ANDed). Pure.
+ *
+ * @param table - the target table (validated as an identifier)
+ * @param pkColumns - the row's primary-key column(s), in order (from `pkFromTableInfo`)
+ * @param row - the row object; each PK column's value is read + bound as the WHERE predicate
+ * @returns `{ sql, params }` — a single-row parameterized DELETE
+ * @throws {RowMutationError} when the table/a PK column is invalid, there is NO primary key, or a
+ *   PK value is null/undefined (the row can't be targeted safely → the caller keeps it read-only)
+ * @example buildDeleteByPk('todos', ['id'], { id: 42, title: 'x' })
+ *   // { sql: 'DELETE FROM "todos" WHERE "id" = ?1', params: [42] }
+ */
+/**
+ * Build a PK `WHERE` predicate (`"col" = ?N AND …`) with bind params starting at `startIndex`.
+ * Shared by DELETE + UPDATE so both target EXACTLY one row by its key. Validates each PK identifier
+ * + requires a scalar (string/number) value for every key column. Pure.
+ *
+ * @param pkColumns - the primary-key column(s), in order
+ * @param row - the row supplying each PK value
+ * @param startIndex - the `?N` index for the FIRST predicate param (1 for DELETE, 2 for UPDATE after SET)
+ * @returns `{ clauses, values }` — the ANDed predicate fragments + their bind values, in order
+ * @throws {RowMutationError} when there is NO primary key, or a PK column is invalid / missing / non-scalar
+ */
+function buildPkPredicate(
+  pkColumns: readonly string[],
+  row: Record<string, unknown>,
+  startIndex: number,
+): { clauses: string[]; values: BoundValue[] } {
+  if (pkColumns.length === 0) {
+    throw new RowMutationError('This table has no primary key, so a row cannot be safely targeted.');
+  }
+
+  const values: BoundValue[] = [];
+  const clauses = pkColumns.map((col, i) => {
+    const c = (col ?? '').trim();
+
+    if (!IDENT_RE.test(c)) {
+      throw new RowMutationError(`"${col}" is not a valid primary-key column.`);
+    }
+
+    const value = row[c];
+
+    if (value === undefined || value === null) {
+      throw new RowMutationError(`This row has no "${c}" value — it cannot be targeted safely.`);
+    }
+
+    // Only string / number are safe, stable PK predicates (a boolean/JSON PK is not a real key).
+    if (typeof value !== 'string' && typeof value !== 'number') {
+      throw new RowMutationError(`"${c}" is not a stable key value — this row can't be targeted safely.`);
+    }
+
+    values.push(value);
+
+    return `"${c}" = ?${startIndex + i}`;
+  });
+
+  return { clauses, values };
+}
+
+export function buildDeleteByPk(
+  table: string,
+  pkColumns: readonly string[],
+  row: Record<string, unknown>,
+): ParameterizedStatement {
+  const t = (table ?? '').trim();
+
+  if (!IDENT_RE.test(t)) {
+    throw new RowMutationError('This table has an unsafe name — delete is disabled.');
+  }
+
+  const { clauses, values } = buildPkPredicate(pkColumns, row, 1);
+
+  return {
+    sql: `DELETE FROM "${t}" WHERE ${clauses.join(' AND ')}`,
+    params: values,
+  };
+}
+
+/** Max rows a single bulk-delete may target — a fat-finger guard + a bound on statement size. */
+export const MAX_BULK_DELETE = 100;
+
+/**
+ * A stable per-row selection key from its PK value(s) — used to track a bulk selection across
+ *  re-sorts/filters. Returns null when the row has no usable PK (→ not selectable). Pure.
+ */
+export function rowPkKey(row: Record<string, unknown>, pkColumns: readonly string[]): string | null {
+  if (pkColumns.length === 0) {
+    return null;
+  }
+
+  const parts: unknown[] = [];
+
+  for (const col of pkColumns) {
+    const v = row[(col ?? '').trim()];
+
+    if (v === undefined || v === null || (typeof v !== 'string' && typeof v !== 'number')) {
+      return null; // no stable scalar key → not safely targetable
+    }
+
+    parts.push(v);
+  }
+
+  return JSON.stringify(parts);
+}
+
+/**
+ * Build a PARAMETERIZED bulk `DELETE` targeting MANY rows by primary key. Single-column PK →
+ * `WHERE "id" IN (?1, ?2, …)`; composite PK → `WHERE ("a"=?1 AND "b"=?2) OR (…) …`. Every identifier
+ * is validated + quoted; every PK value is a bound `?N` — nothing is concatenated, and a non-empty
+ * PK predicate is required so a whole-table wipe is impossible. Capped at {@link MAX_BULK_DELETE}. Pure.
+ *
+ * @param table - the target table (validated as an identifier)
+ * @param pkColumns - the primary-key column(s), in order (from `pkFromTableInfo`)
+ * @param rows - the selected rows (each supplies its PK values)
+ * @param cap - max rows per batch (default {@link MAX_BULK_DELETE})
+ * @returns `{ sql, params }` — a single parameterized bulk DELETE
+ * @throws {RowMutationError} when the table/a PK column is invalid, there is NO primary key, the
+ *   selection is empty or exceeds `cap`, or a row lacks a stable scalar PK value
+ * @example buildBulkDeleteByPk('todos', ['id'], [{ id: 1 }, { id: 2 }])
+ *   // { sql: 'DELETE FROM "todos" WHERE "id" IN (?1, ?2)', params: [1, 2] }
+ */
+export function buildBulkDeleteByPk(
+  table: string,
+  pkColumns: readonly string[],
+  rows: readonly Record<string, unknown>[],
+  cap: number = MAX_BULK_DELETE,
+): ParameterizedStatement {
+  const t = (table ?? '').trim();
+
+  if (!IDENT_RE.test(t)) {
+    throw new RowMutationError('This table has an unsafe name — delete is disabled.');
+  }
+
+  if (pkColumns.length === 0) {
+    throw new RowMutationError('This table has no primary key, so rows cannot be safely targeted.');
+  }
+
+  if (rows.length === 0) {
+    throw new RowMutationError('Select at least one row to delete.');
+  }
+
+  if (rows.length > cap) {
+    throw new RowMutationError(`Select at most ${cap} rows at a time (you selected ${rows.length}).`);
+  }
+
+  const params: BoundValue[] = [];
+
+  // Single-column PK → a clean `IN (…)` list.
+  if (pkColumns.length === 1) {
+    const col = (pkColumns[0] ?? '').trim();
+
+    if (!IDENT_RE.test(col)) {
+      throw new RowMutationError(`"${pkColumns[0]}" is not a valid primary-key column.`);
+    }
+
+    const placeholders = rows.map((row, i) => {
+      const v = row[col];
+
+      if (v === undefined || v === null) {
+        throw new RowMutationError(`A selected row has no "${col}" value — it can't be targeted safely.`);
+      }
+
+      if (typeof v !== 'string' && typeof v !== 'number') {
+        throw new RowMutationError(`"${col}" is not a stable key value on a selected row.`);
+      }
+
+      params.push(v);
+
+      return `?${i + 1}`;
+    });
+
+    return { sql: `DELETE FROM "${t}" WHERE "${col}" IN (${placeholders.join(', ')})`, params };
+  }
+
+  // Composite PK → OR of per-row (col=? AND col=?) groups, param indices threaded across rows.
+  const groups = rows.map((row) => {
+    const { clauses, values } = buildPkPredicate(pkColumns, row, params.length + 1);
+    params.push(...values);
+
+    return `(${clauses.join(' AND ')})`;
+  });
+
+  return { sql: `DELETE FROM "${t}" WHERE ${groups.join(' OR ')}`, params };
+}
+
+/**
+ * Build a PARAMETERIZED single-column `UPDATE` scoped to ONE row by its primary key. The new value
+ * is bound as `?1`; the PK predicate follows (`?2…`) so the statement can only ever affect the one
+ * keyed row. Identifiers are validated + double-quoted; the value is bound, never concatenated. Pure.
+ *
+ * A PK column itself is NOT editable here (it's the predicate — changing identity is out of scope);
+ * attempting it throws so the caller keeps the key read-only.
+ *
+ * @param table - the target table (validated as an identifier)
+ * @param pkColumns - the row's primary-key column(s), in order (from `pkFromTableInfo`)
+ * @param row - the row supplying the PK predicate values
+ * @param setColumn - the (non-PK) column to update (validated as an identifier)
+ * @param setValue - the already-coerced new value to bind
+ * @returns `{ sql, params }` — a single-row, single-column parameterized UPDATE
+ * @throws {RowMutationError} when the table/column is invalid, `setColumn` is a PK column, there is
+ *   no primary key, or a PK value is missing/non-scalar
+ * @example buildUpdateByPk('todos', ['id'], { id: 42 }, 'title', 'Buy oat milk')
+ *   // { sql: 'UPDATE "todos" SET "title" = ?1 WHERE "id" = ?2', params: ['Buy oat milk', 42] }
+ */
+export function buildUpdateByPk(
+  table: string,
+  pkColumns: readonly string[],
+  row: Record<string, unknown>,
+  setColumn: string,
+  setValue: BoundValue,
+): ParameterizedStatement {
+  const t = (table ?? '').trim();
+
+  if (!IDENT_RE.test(t)) {
+    throw new RowMutationError('This table has an unsafe name — edit is disabled.');
+  }
+
+  const setCol = (setColumn ?? '').trim();
+
+  if (!IDENT_RE.test(setCol)) {
+    throw new RowMutationError(`"${setColumn}" is not a valid column name.`);
+  }
+
+  if (pkColumns.some((c) => (c ?? '').trim() === setCol)) {
+    throw new RowMutationError(`"${setCol}" is a primary-key column — the key can't be edited here.`);
+  }
+
+  // SET value is ?1; the PK predicate binds from ?2 onward → the statement targets exactly one row.
+  const { clauses, values } = buildPkPredicate(pkColumns, row, 2);
+
+  return {
+    sql: `UPDATE "${t}" SET "${setCol}" = ?1 WHERE ${clauses.join(' AND ')}`,
+    params: [setValue, ...values],
+  };
+}
+
+// ── AI SQL assistant (natural-language → SQL) ────────────────────────────────
+
+/** Max length of a natural-language question the "Ask AI" box will send. */
+export const MAX_AI_QUESTION_LEN = 1000;
+
+/**
+ * Turn a Workers-AI model id into a short, human label for display next to
+ * AI-generated SQL. Strips the vendor path + runtime-quantization suffixes
+ * (`instruct` / `fp8` / `fast` / `awq` / …) and title-cases the rest, keeping
+ * a trailing size unit uppercased (`70b` → `70B`). Unknown shapes degrade to
+ * the last path segment so it never throws or shows an empty label.
+ *
+ * @param model - the raw model id (e.g. `@cf/meta/llama-3.3-70b-instruct-fp8-fast`)
+ * @returns a friendly label (e.g. `Llama 3.3 70B`); `'AI'` when the id is blank
+ * @example friendlyModelLabel('@cf/meta/llama-3.3-70b-instruct-fp8-fast') // 'Llama 3.3 70B'
+ * @example friendlyModelLabel('') // 'AI'
+ */
+export function friendlyModelLabel(model: string): string {
+  const raw = (model ?? '').trim();
+
+  if (!raw) {
+    return 'AI';
+  }
+
+  const last = raw.split('/').filter(Boolean).pop() ?? raw;
+  const DROP = new Set(['instruct', 'fp8', 'fast', 'awq', 'int8', 'lora', 'chat', 'hf']);
+  const tokens = last
+    .split('-')
+    .filter(Boolean)
+    .filter((t) => !DROP.has(t.toLowerCase()));
+
+  if (tokens.length === 0) {
+    return last;
+  }
+
+  return tokens
+    .map((t) => {
+      // A size token like `70b` / `8m` → uppercase the trailing unit letter.
+      if (/^\d+(?:\.\d+)?[a-z]$/i.test(t)) {
+        return t.slice(0, -1) + t.slice(-1).toUpperCase();
+      }
+
+      // A pure version token (`3.3`) stays as-is; a word gets Title Case.
+      return /^[\d.]+$/.test(t) ? t : t.charAt(0).toUpperCase() + t.slice(1);
+    })
+    .join(' ');
+}
+
+/**
+ * Guard a natural-language question before it is sent to the NL→SQL endpoint.
+ * A blank question just disables the control (no reason surfaced, like Run);
+ * an over-long one returns a human reason so the button explains itself rather
+ * than failing silently (per the "never a doomed/dead control" rule).
+ *
+ * @param question - the raw text from the Ask-AI box
+ * @returns `{ ok, reason? }` — `ok:false` with no reason ⇒ empty; with a reason ⇒ show it
+ * @example canAskAi('  ') // { ok: false }
+ * @example canAskAi('list the 10 newest form submissions') // { ok: true }
+ */
+export function canAskAi(question: string): { ok: boolean; reason?: string } {
+  const q = (question ?? '').trim();
+
+  if (!q) {
+    return { ok: false };
+  }
+
+  if (q.length > MAX_AI_QUESTION_LEN) {
+    return { ok: false, reason: `Question is too long — keep it under ${MAX_AI_QUESTION_LEN} characters.` };
+  }
+
+  return { ok: true };
+}
+
+// ── Query-result mini-charts ─────────────────────────────────────────────────
+
+/** A result is chartable only when it is summary-sized (a big raw dump is not a chart). */
+export const MAX_CHART_ROWS = 60;
+
+/** A chartable result: one label (category) column + one or more numeric value columns. */
+export interface ChartSpec {
+  labelCol: string;
+  valueCols: string[];
+}
+
+/** One `{label, value}` point of a mini-chart series. */
+export interface ChartPoint {
+  label: string;
+  value: number;
+}
+
+/** True when EVERY non-null value in `col` is a finite number (and at least one value exists). */
+function columnIsNumeric(rows: readonly Record<string, unknown>[], col: string): boolean {
+  let sawValue = false;
+
+  for (const r of rows) {
+    const v = r[col];
+
+    if (v === null || v === undefined || v === '') {
+      continue;
+    }
+
+    sawValue = true;
+
+    const ok =
+      typeof v === 'number'
+        ? Number.isFinite(v)
+        : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v));
+
+    if (!ok) {
+      return false;
+    }
+  }
+
+  return sawValue;
+}
+
+/**
+ * Decide whether a SQL result can be rendered as a bar chart, and how. A result is chartable when
+ * it is summary-sized (1..{@link MAX_CHART_ROWS} rows) and has BOTH a label column (the first
+ * non-numeric column, or the first column when all are numeric — e.g. a `year` axis) AND at least
+ * one OTHER numeric column to plot. Pure — inspects the already-fetched rows, never re-queries.
+ *
+ * @returns `{ labelCol, valueCols }` when chartable, else `null` (a raw dump / no numeric / too big)
+ * @example detectChartable(['country','n'], [{country:'US',n:5}]) // { labelCol:'country', valueCols:['n'] }
+ * @example detectChartable(['id'], [{id:1}]) // null (only one numeric column, nothing to plot)
+ */
+export function detectChartable(
+  columns: readonly string[],
+  rows: readonly Record<string, unknown>[],
+): ChartSpec | null {
+  if (columns.length < 2 || rows.length < 1 || rows.length > MAX_CHART_ROWS) {
+    return null;
+  }
+
+  const numeric = columns.filter((c) => columnIsNumeric(rows, c));
+
+  if (numeric.length === 0) {
+    return null;
+  }
+
+  const numericSet = new Set(numeric);
+  const labelCol = columns.find((c) => !numericSet.has(c)) ?? columns[0];
+  const valueCols = numeric.filter((c) => c !== labelCol);
+
+  if (valueCols.length === 0) {
+    return null;
+  }
+
+  return { labelCol, valueCols };
+}
+
+/**
+ * Extract the `{label, value}` series for one value column from the result rows. Null/blank labels
+ * render as `∅`; non-finite values are dropped (never a fabricated 0). Pure.
+ *
+ * @example buildChartSeries([{country:'US',n:5}], 'country', 'n') // [{label:'US', value:5}]
+ */
+export function buildChartSeries(
+  rows: readonly Record<string, unknown>[],
+  labelCol: string,
+  valueCol: string,
+): ChartPoint[] {
+  const out: ChartPoint[] = [];
+
+  for (const r of rows) {
+    const raw = r[labelCol];
+    const label = raw === null || raw === undefined || raw === '' ? '∅' : String(raw);
+    const value = Number(r[valueCol]);
+
+    if (Number.isFinite(value)) {
+      out.push({ label, value });
+    }
+  }
+
+  return out;
 }

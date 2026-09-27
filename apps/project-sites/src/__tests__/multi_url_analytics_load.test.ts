@@ -164,9 +164,10 @@ describe('loadMultiUrlAnalytics — GraphQL happy-path merge across hosts', () =
       },
     } as unknown as Env;
 
-    // Current CF-GraphQL shape (worker be3b12e0): per-day aliases d0..dN, each
-    // `httpRequestsAdaptiveGroups { count sum { visits } }` — count = requests,
-    // sum.visits ≈ page views. paths/geo/refs breakdowns carry `{ count dimensions }`.
+    // Current CF-GraphQL shape: per-day aliases d0..dN each `{ count sum { visits } }`
+    // (count = requests, sum.visits ≈ page views). paths/geo/refs breakdowns now ALSO carry
+    // `sum { visits }`, so top_pages/countries/referrers `views` = visits (NOT request count).
+    // The mock uses visits ≠ count to prove the loader reads sum.visits, not count.
     // Per-host uniques are NOT exposed by this dataset on the zone plan → 0.
     const gql = {
       data: {
@@ -174,9 +175,15 @@ describe('loadMultiUrlAnalytics — GraphQL happy-path merge across hosts', () =
           zones: [
             {
               d0: [{ count: 120, sum: { visits: 100 } }],
-              paths: [{ count: 60, dimensions: { clientRequestPath: '/' } }],
-              geo: [{ count: 90, dimensions: { clientCountryName: 'US' } }],
-              refs: [{ count: 40, dimensions: { clientRequestReferer: 'https://google.com/' } }],
+              paths: [{ count: 60, sum: { visits: 50 }, dimensions: { clientRequestPath: '/' } }],
+              geo: [{ count: 90, sum: { visits: 70 }, dimensions: { clientCountryName: 'US' } }],
+              refs: [
+                {
+                  count: 40,
+                  sum: { visits: 30 },
+                  dimensions: { clientRequestReferer: 'https://google.com/' },
+                },
+              ],
             },
           ],
         },
@@ -196,8 +203,9 @@ describe('loadMultiUrlAnalytics — GraphQL happy-path merge across hosts', () =
     expect(out.series).toEqual([
       { date: '2026-06-01', page_views: 200, requests: 240, unique_visitors: 0 },
     ]);
-    expect(out.top_pages).toEqual([{ path: '/', views: 120 }]); // merged 60 + 60
-    expect(out.top_countries).toEqual([{ country: 'US', views: 180 }]);
+    expect(out.top_pages).toEqual([{ path: '/', views: 100 }]); // 2 hosts × sum.visits 50 (NOT count 60)
+    expect(out.top_countries).toEqual([{ country: 'US', views: 140 }]); // 2 × visits 70 (NOT count 90)
+    expect(out.top_referrers).toEqual([{ referrer: 'google.com', views: 60 }]); // 2 × visits 30 (was mislabeled request count)
     expect(out.urls_included.every((u) => u.resolved_zone)).toBe(true);
   });
 });

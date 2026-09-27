@@ -16,7 +16,12 @@
 import type { Env } from '../../../src/types/env.js';
 import { dbQuery } from '../../../src/services/db.js';
 import {
+  getCachedCloudflareRum,
+  type CloudflareRumSummary,
+} from '../../../src/services/cloudflare_rum.js';
+import {
   getTrafficSummary,
+  filterClause,
   type AnalyticsWindow,
   type AnalyticsFilter,
 } from '../visitor_events_core/service.js';
@@ -53,6 +58,66 @@ export async function siteOrgId(env: Env, siteId: string): Promise<string | null
     [siteId],
   );
   return data[0]?.org_id ?? null;
+}
+
+/**
+ * Cloudflare RUM (CF-measured CWV + Navigation Timing) for a site's OWNED host — for the public
+ * share report + reusable elsewhere. The `siteId` is trusted (the caller has already authorized it,
+ * e.g. via the verified HMAC share grant or an owner check); the host is resolved from the site's
+ * OWN records (primary custom hostname → else `{slug}.projectsites.dev`), NEVER a client value.
+ * Fail-soft: null on no-such-site / no host / CF error, so a share report never 500s or fakes a 0.
+ *
+ * @param env - Worker env (CF creds + DB)
+ * @param siteId - the already-authorized site id
+ * @param days - window length (clamped 1..30)
+ * @returns the CF RUM summary, or null when unavailable
+ */
+export async function getCloudflareRumForSite(
+  env: Env,
+  siteId: string,
+  days: number,
+): Promise<CloudflareRumSummary | null> {
+  const { data } = await dbQuery<{ slug: string; hostname: string | null }>(
+    env.DB,
+    `SELECT s.slug AS slug,
+            (SELECT h.hostname FROM hostnames h
+              WHERE h.site_id = s.id AND h.deleted_at IS NULL
+              ORDER BY COALESCE(h.is_primary, 0) DESC, h.created_at ASC LIMIT 1) AS hostname
+       FROM sites s WHERE s.id = ? AND s.deleted_at IS NULL LIMIT 1`,
+    [siteId],
+  );
+  const row = data[0];
+  if (!row?.slug) return null;
+
+  const host = (row.hostname || `${row.slug}.projectsites.dev`).toLowerCase();
+  // Cached per host per ~5-min window (one CF request per host, not per public-share view).
+  return getCachedCloudflareRum(env, host, days);
+}
+
+/**
+ * The set of a site's OWN hostnames (lowercased, `www.`-stripped) — its `{slug}.projectsites.dev`
+ * subdomain plus every custom hostname it owns. Resolved from OWN records, NEVER a client value. Used
+ * to EXCLUDE self/internal referrers from the referring-domains breakdown, so navigation within the
+ * site is never miscounted as an external referral. Fail-soft to an empty set (→ no exclusion).
+ *
+ * @param siteId - the already-authorized site id
+ * @returns lowercased, www-stripped own-host set
+ */
+export async function getSiteOwnHosts(env: Env, siteId: string): Promise<Set<string>> {
+  const hosts = new Set<string>();
+  const { data } = await dbQuery<{ slug: string | null; hostname: string | null }>(
+    env.DB,
+    `SELECT s.slug AS slug, h.hostname AS hostname
+       FROM sites s
+       LEFT JOIN hostnames h ON h.site_id = s.id AND h.deleted_at IS NULL
+      WHERE s.id = ? AND s.deleted_at IS NULL`,
+    [siteId],
+  );
+  for (const r of data) {
+    if (r.slug) hosts.add(`${r.slug}.projectsites.dev`.toLowerCase());
+    if (r.hostname) hosts.add(r.hostname.toLowerCase().replace(/^www\./, ''));
+  }
+  return hosts;
 }
 
 /** One day of the analytics_daily rollup series. */
@@ -108,8 +173,14 @@ export async function getDailySeries(
   days = 30,
   window?: AnalyticsWindow,
   tzOffsetMinutes?: number,
+  filter?: AnalyticsFilter,
 ): Promise<{ days: DailyPoint[] }> {
   const n = Number.isInteger(days) && days > 0 && days <= 365 ? days : 30;
+  // AN-FILTER — the SAME drilldown restriction the summary + every breakdown applies, so the
+  // chart line stays consistent with the filtered KPIs (a `country=US` drill re-scopes the daily
+  // series too). Appended AFTER the window clause → only NARROWS within the owner-scoped site;
+  // the value is always a BOUND `?` (never concatenated). Empty for no/unknown filter.
+  const f = filterClause(filter);
   // Absolute window → bound literals (created_at >= ? AND < ?); else trailing relative.
   const timeClause = window
     ? 'created_at >= ? AND created_at < ?'
@@ -137,9 +208,9 @@ export async function getDailySeries(
             COUNT(DISTINCT session_id) AS unique_sessions,
             SUM(CASE WHEN event_type = 'conversion' THEN 1 ELSE 0 END) AS conversions
        FROM visitor_events
-      WHERE site_id = ? AND ${timeClause}
+      WHERE site_id = ? AND ${timeClause}${f.sql}
       GROUP BY ${dayExpr} ORDER BY day ASC`,
-    [...dayParam, siteId, ...timeParams, ...dayParam],
+    [...dayParam, siteId, ...timeParams, ...f.params, ...dayParam],
   );
   if (error) return { days: [] };
   return {
@@ -250,10 +321,13 @@ export async function getVisitorFunnel(
   windowDays = 30,
 ): Promise<VisitorFunnel> {
   const n = Number.isInteger(windowDays) && windowDays > 0 && windowDays <= 365 ? windowDays : 30;
-  const { data, error } = await dbQuery<{ pv: number; conv: number }>(
+  const { data, error } = await dbQuery<{ pv: number; conv: number; max_scroll: number; has_scroll: number }>(
     env.DB,
     `SELECT SUM(CASE WHEN event_type = 'pageview' THEN 1 ELSE 0 END) AS pv,
-            MAX(CASE WHEN event_type = 'conversion' THEN 1 ELSE 0 END) AS conv
+            MAX(CASE WHEN event_type = 'conversion' THEN 1 ELSE 0 END) AS conv,
+            MAX(CASE WHEN event_type = 'scroll_depth'
+                     THEN CAST(json_extract(metadata, '$.percent') AS INTEGER) ELSE 0 END) AS max_scroll,
+            MAX(CASE WHEN event_type = 'scroll_depth' THEN 1 ELSE 0 END) AS has_scroll
        FROM visitor_events
       WHERE site_id = ? AND session_id IS NOT NULL
         AND created_at >= datetime('now', ?)
@@ -263,40 +337,64 @@ export async function getVisitorFunnel(
 
   let landing = 0;
   let engaged = 0;
+  let deeplyEngaged = 0;
   let converted = 0;
+  let scrollMeasuredSessions = 0; // sessions that emitted ≥1 scroll_depth sample
   if (!error) {
     for (const r of data) {
       const pv = Number(r.pv) || 0;
       if (pv >= 1) landing += 1;
       if (pv >= 2) engaged += 1;
+      // Deeply engaged = an ENGAGED session (2+ pages) that ALSO scrolled ≥50% on its deepest
+      // page — a guaranteed SUBSET of engaged, so the funnel stays monotonic (no negative drop).
+      if (pv >= 2 && (Number(r.max_scroll) || 0) >= 50) deeplyEngaged += 1;
+      if (Number(r.has_scroll) > 0) scrollMeasuredSessions += 1;
       if (Number(r.conv) > 0) converted += 1;
     }
   }
   const pct = (v: number) => (landing > 0 ? Math.round((v / landing) * 1000) / 10 : 0);
 
+  const stages: Array<{
+    key: 'landing' | 'engaged' | 'deeply_engaged' | 'converted';
+    label: string;
+    sessions: number;
+    percentOfLanding: number;
+  }> = [
+    {
+      key: 'landing',
+      label: 'Landed',
+      sessions: landing,
+      percentOfLanding: landing > 0 ? 100 : 0,
+    },
+    {
+      key: 'engaged',
+      label: 'Engaged (2+ pages)',
+      sessions: engaged,
+      percentOfLanding: pct(engaged),
+    },
+  ];
+  // Only surface the deep-engagement stage when scroll depth is ACTUALLY being measured for
+  // this site (≥1 scroll_depth sample). With zero samples a "0 deeply engaged" would read as
+  // "nobody read deeply" when the truth is "not measured yet" — a lying-empty. Omit instead.
+  if (scrollMeasuredSessions > 0) {
+    stages.push({
+      key: 'deeply_engaged',
+      label: 'Deeply engaged (read 50%+)',
+      sessions: deeplyEngaged,
+      percentOfLanding: pct(deeplyEngaged),
+    });
+  }
+  stages.push({
+    key: 'converted',
+    label: 'Converted',
+    sessions: converted,
+    percentOfLanding: pct(converted),
+  });
+
   return VisitorFunnelSchema.parse({
     siteId,
     windowDays: n,
-    stages: [
-      {
-        key: 'landing',
-        label: 'Landed',
-        sessions: landing,
-        percentOfLanding: landing > 0 ? 100 : 0,
-      },
-      {
-        key: 'engaged',
-        label: 'Engaged (2+ pages)',
-        sessions: engaged,
-        percentOfLanding: pct(engaged),
-      },
-      {
-        key: 'converted',
-        label: 'Converted',
-        sessions: converted,
-        percentOfLanding: pct(converted),
-      },
-    ],
+    stages,
     generatedAt: new Date().toISOString(),
   });
 }

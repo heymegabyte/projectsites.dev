@@ -236,6 +236,49 @@ const READONLY_PREFIX = /^\s*(SELECT|EXPLAIN|WITH|PRAGMA)\b/i;
 const FORBIDDEN_KEYWORDS =
   /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|REINDEX|VACUUM|REPLACE|TRUNCATE)\b/i;
 
+/**
+ * Serialize ONE D1 result cell for JSON transport. A BLOB comes back from D1 as an `ArrayBuffer` (or a
+ * typed-array view); `JSON.stringify` would mangle it to a useless `{}` — indistinguishable from an
+ * empty object. Convert it to a typed envelope `{ __blob: true, bytes, hex }` (hex = first 16 bytes)
+ * so the editor renders a read-only "BLOB · N bytes" chip instead of garbled text. Every non-binary
+ * value passes through unchanged. Pure.
+ */
+export function toBlobCell(value: unknown): unknown {
+  let bytes: Uint8Array | null = null;
+
+  if (value instanceof ArrayBuffer) {
+    bytes = new Uint8Array(value);
+  } else if (ArrayBuffer.isView(value)) {
+    const view = value as ArrayBufferView;
+    bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  }
+
+  if (!bytes) {
+    return value;
+  }
+
+  const hex = Array.from(bytes.subarray(0, 16))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join(' ');
+
+  return { __blob: true, bytes: bytes.byteLength, hex };
+}
+
+/** Map every cell of every SQL result row through {@link toBlobCell} (BLOB → a JSON-safe envelope). Pure. */
+export function serializeSqlRows(
+  rows: ReadonlyArray<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return rows.map((row) => {
+    const out: Record<string, unknown> = {};
+
+    for (const key of Object.keys(row)) {
+      out[key] = toBlobCell(row[key]);
+    }
+
+    return out;
+  });
+}
+
 tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
   const siteId = c.req.param('siteId');
   const orgId = c.get('orgId');
@@ -294,7 +337,9 @@ tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
   try {
     const stmt = c.env.DB.prepare(q);
     const result = await (boundParams.length > 0 ? stmt.bind(...boundParams) : stmt).all();
-    const rows = (result.results ?? []) as Array<Record<string, unknown>>;
+    // Serialize BLOB cells (D1 ArrayBuffer → a typed envelope) so binary never reaches the editor as a
+    // garbled `{}`; column keys are unchanged by the transform.
+    const rows = serializeSqlRows((result.results ?? []) as Array<Record<string, unknown>>);
     const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
     await writeAuditLog(c.env.DB, {
       org_id: orgId,
@@ -330,6 +375,141 @@ tabs.post('/api/sites/:siteId/sql/exec', async (c) => {
   } catch (e) {
     return c.json({ ok: false, error: e instanceof Error ? e.message : 'query failed' }, 400);
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/sites/:siteId/sql/nl2sql — AI SQL assistant (natural language → SQL)
+// Grounds Workers AI (Llama, free) on the REAL server-fetched schema and returns ONE
+// read-only SELECT for the operator to REVIEW. It NEVER executes — the returned SQL is
+// run (if the user chooses) through /sql/exec, which independently enforces the
+// SELECT/EXPLAIN/WITH/PRAGMA allowlist + super-admin gate. Super-admin ONLY (shared DB).
+// ─────────────────────────────────────────────────────────────────────────────
+const Nl2SqlSchema = z.object({ question: z.string().min(1).max(500) });
+
+/** The valid, current Workers AI Llama alias (per model-alias discipline — 70B fp8-fast, free). */
+const NL2SQL_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+
+/**
+ * Build the chat messages for NL→SQL — a strict SQLite-expert system prompt grounded in the real DDL.
+ * Read-only by construction (the model is told to emit ONE SELECT and never mutate); the schema is
+ * bounded so a huge DB can't blow the context. Pure + exported for tests.
+ */
+export function buildNl2SqlMessages(
+  question: string,
+  schemaDdl: string,
+): Array<{ role: 'system' | 'user'; content: string }> {
+  const system =
+    'You are a careful SQLite expert. Translate the user request into ONE single read-only SQLite ' +
+    'SELECT that answers it. Rules: (1) output ONLY the SQL — no prose, no markdown fences, no ' +
+    'explanation; (2) NEVER write or modify data (no INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/REPLACE); ' +
+    '(3) use ONLY tables and columns present in the schema; (4) add a LIMIT of at most 100 unless the ' +
+    'request is an aggregate; (5) if it cannot be answered from this schema, output exactly: ' +
+    '-- cannot answer from this schema';
+  const schema = schemaDdl.trim() ? schemaDdl.trim().slice(0, 12_000) : '(no tables)';
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: `Schema:\n${schema}\n\nRequest: ${question.trim()}\n\nSQL:` },
+  ];
+}
+
+/**
+ * Extract a clean single SQL statement from the model's text — strips a markdown fence, a leading
+ * "sql" language hint, and a trailing semicolon. Best-effort; the read-exec path re-validates the
+ * allowlist regardless, so a stray write can never execute. Pure + exported for tests.
+ */
+export function extractSqlFromAiText(text: string): string {
+  let t = (text ?? '').trim();
+  const fence = /```(?:sql)?\s*([\s\S]*?)```/i.exec(t);
+  if (fence) {
+    t = fence[1].trim();
+  }
+  t = t.replace(/^sql\s*\n/i, '').trim();
+  return t.replace(/;\s*$/, '').trim();
+}
+
+tabs.post('/api/sites/:siteId/sql/nl2sql', async (c) => {
+  const siteId = c.req.param('siteId');
+  const orgId = c.get('orgId');
+  const userId = c.get('userId');
+  if (!orgId || !userId) {
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Sign in required' } }, 401);
+  }
+  if (!(await isSuperAdmin(c.env, userId))) {
+    return c.json(
+      {
+        error: {
+          code: 'FORBIDDEN',
+          message: 'The SQL console is restricted to platform administrators.',
+        },
+      },
+      403,
+    );
+  }
+
+  let body: { question: string };
+  try {
+    body = Nl2SqlSchema.parse(await c.req.json().catch(() => ({})));
+  } catch (e) {
+    return c.json({ ok: false, error: e instanceof Error ? e.message : 'invalid body' }, 400);
+  }
+
+  const site = await dbQueryOne<{ id: string }>(
+    c.env.DB,
+    `SELECT id FROM sites WHERE id = ?1 AND org_id = ?2 AND deleted_at IS NULL`,
+    [siteId, orgId],
+  );
+  if (!site) {
+    return c.json({ ok: false, error: 'site not found' }, 404);
+  }
+
+  // Ground the model on the REAL schema (server-fetched DDL) — NEVER a client-supplied schema.
+  let schemaDdl = '';
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND sql IS NOT NULL ORDER BY name LIMIT 200`,
+    ).all();
+    schemaDdl = ((rows.results ?? []) as Array<{ sql?: unknown }>)
+      .map((r) => String(r.sql ?? ''))
+      .filter(Boolean)
+      .join(';\n');
+  } catch {
+    schemaDdl = '';
+  }
+
+  let sql = '';
+  try {
+    const ai = c.env.AI as {
+      run: (model: string, inputs: unknown) => Promise<{ response?: string } | string>;
+    };
+    const out = await ai.run(NL2SQL_MODEL, {
+      messages: buildNl2SqlMessages(body.question, schemaDdl),
+    });
+    const text = typeof out === 'string' ? out : String(out?.response ?? '');
+    sql = extractSqlFromAiText(text);
+  } catch (e) {
+    return c.json(
+      {
+        ok: false,
+        error: 'AI temporarily unavailable',
+        detail: e instanceof Error ? e.message : 'ai_error',
+      },
+      502,
+    );
+  }
+
+  await writeAuditLog(c.env.DB, {
+    org_id: orgId,
+    actor_id: userId,
+    action: 'site.sql.nl2sql',
+    target_type: 'site',
+    target_id: siteId,
+    // Log the question + model, never row data. The generated SQL is not executed here.
+    message: 'NL→SQL generated',
+    metadata_json: { question: body.question.slice(0, 200), model: NL2SQL_MODEL },
+  });
+
+  // Return the SQL for REVIEW — never executed here (the user runs it through the guarded /sql/exec).
+  return c.json({ ok: true, sql, model: NL2SQL_MODEL });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -547,6 +727,15 @@ tabs.get('/api/sites/:siteId/sql/migrations', async (c) => {
 const SqlWriteSchema = z.object({
   statement: z.string().min(1).max(16_000),
   confirm: z.boolean().optional(),
+  // Positional bind params for ?1, ?2, … — values are BOUND, never concatenated into the
+  // statement (the epic's "parameterize values, never concatenate" mandate). This is what
+  // lets the grid's typed row editors (Add/Edit/Delete) generate a parameterized statement
+  // instead of stringifying user values into SQL. Booleans → 0/1 at bind time (SQLite has no
+  // native boolean). Capped at 200 (an INSERT can carry one param per column of a wide table).
+  params: z
+    .array(z.union([z.string(), z.number(), z.boolean(), z.null()]))
+    .max(200)
+    .optional(),
 });
 
 /**
@@ -609,7 +798,11 @@ tabs.post('/api/sites/:siteId/sql/exec-write', async (c) => {
     );
   }
 
-  let body: { statement: string; confirm?: boolean };
+  let body: {
+    statement: string;
+    confirm?: boolean;
+    params?: Array<string | number | boolean | null>;
+  };
   try {
     body = SqlWriteSchema.parse(await c.req.json().catch(() => ({})));
   } catch (e) {
@@ -664,9 +857,13 @@ tabs.post('/api/sites/:siteId/sql/exec-write', async (c) => {
     return c.json({ ok: false, error: 'site not found' }, 404);
   }
 
+  // Positional bind params — bound (never concatenated), booleans → 0/1. Only call `.bind()`
+  // when params exist so a no-param statement keeps its exact prepared-statement path.
+  const boundParams = (body.params ?? []).map((p) => (typeof p === 'boolean' ? (p ? 1 : 0) : p));
   const t0 = Date.now();
   try {
-    const result = await c.env.DB.prepare(q).run();
+    const stmt = c.env.DB.prepare(q);
+    const result = await (boundParams.length > 0 ? stmt.bind(...boundParams) : stmt).run();
     const meta = (result.meta ?? {}) as { changes?: number; last_row_id?: number };
     await writeAuditLog(c.env.DB, {
       org_id: orgId,
@@ -675,7 +872,14 @@ tabs.post('/api/sites/:siteId/sql/exec-write', async (c) => {
       target_type: 'site',
       target_id: siteId,
       message: destructive ? 'SQL destructive write executed' : 'SQL write executed',
-      metadata_json: { statement: q.slice(0, 200), destructive, rows_affected: meta.changes ?? 0 },
+      // Log the param COUNT, never the values — bind params can carry sensitive data; the
+      // epic mandates redacting sensitive parameter values from the audit trail.
+      metadata_json: {
+        statement: q.slice(0, 200),
+        destructive,
+        rows_affected: meta.changes ?? 0,
+        param_count: boundParams.length,
+      },
     });
     return c.json({
       ok: true,

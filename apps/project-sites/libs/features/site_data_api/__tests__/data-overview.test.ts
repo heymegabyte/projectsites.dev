@@ -10,6 +10,35 @@ import {
   maskEmailValue,
   buildDataSearch,
   buildColumnFilter,
+  buildColumnFilters,
+  parseFilterConditions,
+  MAX_FILTER_CONDITIONS,
+  composeBrowseFilter,
+  MAX_EXPORT_ROWS,
+  validateViewName,
+  normalizeSortDir,
+  serializeGridView,
+  normalizeGridViewType,
+  parseGridViewConfig,
+  parseGridViewLayout,
+  MAX_LAYOUT_ENTRIES,
+  buildGroupCountSql,
+  buildGroupAggregateSql,
+  buildColumnAggregatesSql,
+  buildColumnDistinctSql,
+  MAX_DISTINCT_VALUES,
+  buildOrderByClause,
+  MAX_SORT_KEYS,
+  compileQueryIntent,
+  clampIntentLimit,
+  MAX_INTENT_LIMIT,
+  INTENT_DEFAULT_LIMIT,
+  MAX_SELECT_FIELDS,
+  askSystemPrompt,
+  parseProposedIntent,
+  normalizeGroupAgg,
+  MAX_KANBAN_GROUPS,
+  MAX_GRID_VIEWS_PER_TABLE,
   deletableTableName,
   DELETABLE_OVERVIEW_TABLES,
   editableTableName,
@@ -60,7 +89,9 @@ describe('data-overview registry', () => {
       expect(t.lastActivitySql).toContain('AS ts');
       expect(t.lastActivitySql).toContain('WHERE site_id = ?');
       // A table whose browse hides soft-deleted rows must exclude them from freshness too.
-      expect(t.lastActivitySql.includes('deleted_at IS NULL')).toBe(t.browseSql.includes('deleted_at IS NULL'));
+      expect(t.lastActivitySql.includes('deleted_at IS NULL')).toBe(
+        t.browseSql.includes('deleted_at IS NULL'),
+      );
     }
   });
 
@@ -86,7 +117,16 @@ describe('deletableTableName (owner-delete allowlist — the killswitch boundary
     expect(deletableTableName('form_submissions')).toBe('form_submissions');
   });
   it('returns undefined (read-only) for every other / unknown / hostile key', () => {
-    for (const key of ['visitor_events', 'site_snapshots', 'mcp_connections', 'site_data', 'users', 'sqlite_master', '', 'form_submissions; DROP TABLE sites']) {
+    for (const key of [
+      'visitor_events',
+      'site_snapshots',
+      'mcp_connections',
+      'site_data',
+      'users',
+      'sqlite_master',
+      '',
+      'form_submissions; DROP TABLE sites',
+    ]) {
       expect(deletableTableName(key)).toBeUndefined();
     }
   });
@@ -100,7 +140,14 @@ describe('deletableTableName (owner-delete allowlist — the killswitch boundary
 describe('editable-column allowlist (owner edit boundary — the killswitch)', () => {
   it('resolves ONLY form_submissions as an editable table', () => {
     expect(editableTableName('form_submissions')).toBe('form_submissions');
-    for (const key of ['visitor_events', 'site_snapshots', 'mcp_connections', 'site_data', 'users', '']) {
+    for (const key of [
+      'visitor_events',
+      'site_snapshots',
+      'mcp_connections',
+      'site_data',
+      'users',
+      '',
+    ]) {
       expect(editableTableName(key)).toBeUndefined();
     }
   });
@@ -108,7 +155,15 @@ describe('editable-column allowlist (owner edit boundary — the killswitch)', (
   it('exposes ONLY form_submissions.status (an enum) as editable; PII/structural columns are not', () => {
     expect(editableColumn('form_submissions', 'status')?.type).toBe('enum');
     // PII + structural + unknown columns are read-only (undefined → caller 400s).
-    for (const col of ['email', 'payload', 'id', 'site_id', 'form_name', 'created_at', 'DROP TABLE sites']) {
+    for (const col of [
+      'email',
+      'payload',
+      'id',
+      'site_id',
+      'form_name',
+      'created_at',
+      'DROP TABLE sites',
+    ]) {
       expect(editableColumn('form_submissions', col)).toBeUndefined();
     }
     // Non-editable table → every column undefined.
@@ -232,7 +287,10 @@ describe('buildColumnFilter (browse per-column exact-match filter)', () => {
 
   it('REJECTS a column outside the allowlist (the injection boundary) — no clause', () => {
     expect(buildColumnFilter(cols, 'password', 'x')).toEqual({ clause: '', params: [] });
-    expect(buildColumnFilter(cols, 'status; DROP TABLE sites', 'x')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilter(cols, 'status; DROP TABLE sites', 'x')).toEqual({
+      clause: '',
+      params: [],
+    });
     expect(buildColumnFilter(cols, '"status"', 'x')).toEqual({ clause: '', params: [] });
   });
 
@@ -249,5 +307,868 @@ describe('buildColumnFilter (browse per-column exact-match filter)', () => {
       params: [inject], // the value is a bound param — harmless, never interpolated
     });
     expect(buildColumnFilter(cols, 'status', 'y'.repeat(500)).params[0]).toBe('y'.repeat(200));
+  });
+
+  it('maps each comparison operator to a fixed, parameterized clause (operators are never user text)', () => {
+    expect(buildColumnFilter(cols, 'status', 'new', 'eq')).toEqual({
+      clause: ' AND "status" = ?',
+      params: ['new'],
+    });
+    expect(buildColumnFilter(cols, 'status', 'new', 'ne')).toEqual({
+      clause: ' AND "status" != ?',
+      params: ['new'],
+    });
+    expect(buildColumnFilter(cols, 'status', '5', 'gt')).toEqual({
+      clause: ' AND "status" > ?',
+      params: ['5'],
+    });
+    expect(buildColumnFilter(cols, 'status', '5', 'lt')).toEqual({
+      clause: ' AND "status" < ?',
+      params: ['5'],
+    });
+    expect(buildColumnFilter(cols, 'status', '5', 'gte')).toEqual({
+      clause: ' AND "status" >= ?',
+      params: ['5'],
+    });
+    expect(buildColumnFilter(cols, 'status', '5', 'lte')).toEqual({
+      clause: ' AND "status" <= ?',
+      params: ['5'],
+    });
+  });
+
+  it('contains → LIKE %needle% with wildcards STRIPPED from user input (% / _ never metacharacters)', () => {
+    expect(buildColumnFilter(cols, 'status', 'pen', 'contains')).toEqual({
+      clause: ' AND "status" LIKE ?',
+      params: ['%pen%'],
+    });
+    expect(buildColumnFilter(cols, 'status', 'a%b_c', 'contains').params).toEqual(['%abc%']);
+    // a value that is ENTIRELY wildcards collapses to empty → no clause (never a bare LIKE %%)
+    expect(buildColumnFilter(cols, 'status', '%_%', 'contains')).toEqual({
+      clause: '',
+      params: [],
+    });
+  });
+
+  it('startswith / endswith → anchored LIKE, wildcards STRIPPED (prefix/suffix match)', () => {
+    expect(buildColumnFilter(cols, 'status', 'pen', 'startswith')).toEqual({
+      clause: ' AND "status" LIKE ?',
+      params: ['pen%'], // needle anchored at the START
+    });
+    expect(buildColumnFilter(cols, 'status', 'ing', 'endswith')).toEqual({
+      clause: ' AND "status" LIKE ?',
+      params: ['%ing'], // needle anchored at the END
+    });
+    // user wildcards are stripped (a literal prefix, never a metacharacter)
+    expect(buildColumnFilter(cols, 'status', 'a%b_', 'startswith').params).toEqual(['ab%']);
+    expect(buildColumnFilter(cols, 'status', "x' OR 1=1", 'endswith').params).toEqual([
+      "%x' OR 1=1",
+    ]); // value bound, not concatenated
+    // all-wildcards → inactive (no bare anchored LIKE)
+    expect(buildColumnFilter(cols, 'status', '%%', 'startswith')).toEqual({
+      clause: '',
+      params: [],
+    });
+  });
+
+  it('null / notnull are value-free IS [NOT] NULL clauses (no bound params, value ignored)', () => {
+    expect(buildColumnFilter(cols, 'status', '', 'null')).toEqual({
+      clause: ' AND "status" IS NULL',
+      params: [],
+    });
+    expect(buildColumnFilter(cols, 'status', 'ignored', 'notnull')).toEqual({
+      clause: ' AND "status" IS NOT NULL',
+      params: [],
+    });
+  });
+
+  it('defaults an absent / unknown / mixed-case operator to `eq` (backward-compatible, injection-safe)', () => {
+    expect(buildColumnFilter(cols, 'status', 'new', undefined)).toEqual({
+      clause: ' AND "status" = ?',
+      params: ['new'],
+    });
+    expect(buildColumnFilter(cols, 'status', 'new', 'sqlgibberish')).toEqual({
+      clause: ' AND "status" = ?',
+      params: ['new'],
+    });
+    expect(buildColumnFilter(cols, 'status', 'new', 'EQ')).toEqual({
+      clause: ' AND "status" = ?',
+      params: ['new'],
+    });
+    expect(buildColumnFilter(cols, 'status', 'new', '; DROP TABLE sites')).toEqual({
+      clause: ' AND "status" = ?',
+      params: ['new'],
+    });
+  });
+
+  it('still enforces the column allowlist for every operator (the injection boundary is the column)', () => {
+    expect(buildColumnFilter(cols, 'password', '', 'notnull')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilter(cols, 'password', 'x', 'contains')).toEqual({
+      clause: '',
+      params: [],
+    });
+  });
+
+  it('a value-requiring operator with a blank value yields no clause (null/notnull are the only value-free ops)', () => {
+    expect(buildColumnFilter(cols, 'status', '   ', 'gt')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilter(cols, 'status', '', 'contains')).toEqual({ clause: '', params: [] });
+  });
+});
+
+describe('buildColumnFilters (multi-condition AND/OR filter group)', () => {
+  const cols = ['event_type', 'status', 'age', 'note', 'created_at'];
+
+  it('joins multiple active conditions with AND, wrapped in parens, ANDed onto the base WHERE', () => {
+    expect(
+      buildColumnFilters(
+        cols,
+        [
+          { col: 'status', op: 'eq', val: 'new' },
+          { col: 'age', op: 'gte', val: '18' },
+        ],
+        'AND',
+      ),
+    ).toEqual({ clause: ' AND ("status" = ? AND "age" >= ?)', params: ['new', '18'] });
+  });
+
+  it('joins with OR when the combinator is OR (chosen by key, case-insensitive)', () => {
+    expect(
+      buildColumnFilters(
+        cols,
+        [
+          { col: 'status', op: 'eq', val: 'new' },
+          { col: 'note', op: 'null' },
+        ],
+        'or',
+      ),
+    ).toEqual({ clause: ' AND ("status" = ? OR "note" IS NULL)', params: ['new'] });
+  });
+
+  it('defaults an unknown/absent combinator to AND (never interpolates user text)', () => {
+    const twoConds = [
+      { col: 'status', op: 'eq', val: 'a' },
+      { col: 'event_type', op: 'eq', val: 'b' },
+    ];
+    expect(buildColumnFilters(cols, twoConds, 'XOR); DROP TABLE x--').clause).toBe(
+      ' AND ("status" = ? AND "event_type" = ?)',
+    );
+    expect(buildColumnFilters(cols, twoConds, undefined).clause).toBe(
+      ' AND ("status" = ? AND "event_type" = ?)',
+    );
+  });
+
+  it('a single active condition emits NO needless parens (identical to buildColumnFilter)', () => {
+    expect(buildColumnFilters(cols, [{ col: 'status', op: 'eq', val: 'new' }], 'AND')).toEqual({
+      clause: ' AND "status" = ?',
+      params: ['new'],
+    });
+  });
+
+  it('drops inactive conditions (bad column, value-op with no value) but keeps the active ones', () => {
+    expect(
+      buildColumnFilters(
+        cols,
+        [
+          { col: 'password', op: 'eq', val: 'x' }, // not allowlisted → dropped
+          { col: 'status', op: 'gt', val: '' }, // value-op, blank → dropped
+          { col: 'age', op: 'lt', val: '65' }, // kept
+        ],
+        'AND',
+      ),
+    ).toEqual({ clause: ' AND "age" < ?', params: ['65'] });
+  });
+
+  it('an empty / all-inactive list yields no clause', () => {
+    expect(buildColumnFilters(cols, [], 'AND')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilters(cols, null, 'AND')).toEqual({ clause: '', params: [] });
+    expect(buildColumnFilters(cols, [{ col: 'nope', op: 'eq', val: 'x' }], 'OR')).toEqual({
+      clause: '',
+      params: [],
+    });
+  });
+
+  it('every leaf stays allowlist-gated + parameterized + wildcard-stripped (injection boundary holds per condition)', () => {
+    const { clause, params } = buildColumnFilters(
+      cols,
+      [
+        { col: 'note', op: 'contains', val: "a%_b' OR 1=1" },
+        { col: 'status; DROP TABLE sites', op: 'eq', val: 'x' }, // hostile column → dropped
+      ],
+      'OR',
+    );
+    expect(clause).toBe(' AND "note" LIKE ?'); // hostile column gone; single survivor → no parens
+    expect(params).toEqual(["%ab' OR 1=1%"]); // % and _ stripped; value bound, never interpolated
+  });
+
+  it('bounds the number of conditions to MAX_FILTER_CONDITIONS (query-cost guard)', () => {
+    const many = Array.from({ length: MAX_FILTER_CONDITIONS + 10 }, () => ({
+      col: 'status',
+      op: 'eq' as const,
+      val: 'x',
+    }));
+    const { params } = buildColumnFilters(cols, many, 'AND');
+    expect(params.length).toBe(MAX_FILTER_CONDITIONS);
+  });
+});
+
+describe('parseFilterConditions (?filters= JSON → shape-hardened conditions, never throws)', () => {
+  it('parses a valid JSON array of {col,op,val}', () => {
+    expect(
+      parseFilterConditions(
+        '[{"col":"status","op":"eq","val":"new"},{"col":"age","op":"gt","val":"18"}]',
+      ),
+    ).toEqual([
+      { col: 'status', op: 'eq', val: 'new' },
+      { col: 'age', op: 'gt', val: '18' },
+    ]);
+  });
+
+  it('returns [] for absent / malformed / non-array JSON (fail-soft → no filter, never a throw)', () => {
+    expect(parseFilterConditions(undefined)).toEqual([]);
+    expect(parseFilterConditions('')).toEqual([]);
+    expect(parseFilterConditions('{not json')).toEqual([]);
+    expect(parseFilterConditions('{"col":"status"}')).toEqual([]); // object, not array
+    expect(parseFilterConditions('"just a string"')).toEqual([]);
+  });
+
+  it('coerces missing/non-string fields to safe defaults (col/val → "", op → "eq")', () => {
+    expect(parseFilterConditions('[{"col":"status"},{"op":"gt","val":5},{"foo":1}]')).toEqual([
+      { col: 'status', val: '', op: 'eq' },
+      { col: '', val: '', op: 'gt' }, // numeric val dropped to ''
+      { col: '', val: '', op: 'eq' },
+    ]);
+  });
+
+  it('drops non-object items and bounds to MAX_FILTER_CONDITIONS', () => {
+    const arr = JSON.stringify([
+      ...Array.from({ length: MAX_FILTER_CONDITIONS + 5 }, () => ({
+        col: 'status',
+        op: 'eq',
+        val: 'x',
+      })),
+    ]);
+    expect(parseFilterConditions(arr).length).toBe(MAX_FILTER_CONDITIONS);
+    expect(parseFilterConditions('[1,"two",null,{"col":"status","op":"eq","val":"x"}]')).toEqual([
+      { col: 'status', op: 'eq', val: 'x' },
+    ]);
+  });
+
+  it('round-trips through buildColumnFilters to a safe parameterized clause', () => {
+    const cols = ['status', 'age'];
+    const conds = parseFilterConditions(
+      '[{"col":"status","op":"eq","val":"new"},{"col":"age","op":"gte","val":"21"}]',
+    );
+    expect(buildColumnFilters(cols, conds, 'AND')).toEqual({
+      clause: ' AND ("status" = ? AND "age" >= ?)',
+      params: ['new', '21'],
+    });
+  });
+});
+
+describe('validateViewName (saved-view name boundary)', () => {
+  it('trims + accepts a 1–80 char name', () => {
+    expect(validateViewName('  Active leads ')).toBe('Active leads');
+    expect(validateViewName('x')).toBe('x');
+  });
+
+  it('bounds to 80 chars', () => {
+    expect(validateViewName('y'.repeat(200))).toBe('y'.repeat(80));
+  });
+
+  it('rejects blank / non-string → null', () => {
+    expect(validateViewName('   ')).toBeNull();
+    expect(validateViewName('')).toBeNull();
+    expect(validateViewName(undefined)).toBeNull();
+    expect(validateViewName(42)).toBeNull();
+    expect(validateViewName(null)).toBeNull();
+  });
+});
+
+describe('normalizeSortDir (saved-view sort direction)', () => {
+  it('accepts asc/desc case-insensitively, else null', () => {
+    expect(normalizeSortDir('asc')).toBe('asc');
+    expect(normalizeSortDir('DESC')).toBe('desc');
+    expect(normalizeSortDir(' Asc ')).toBe('asc');
+    expect(normalizeSortDir('sideways')).toBeNull();
+    expect(normalizeSortDir('')).toBeNull();
+    expect(normalizeSortDir(undefined)).toBeNull();
+  });
+});
+
+describe('serializeGridView (stored row → client view; hardens filters, hides bookkeeping)', () => {
+  it('parses filters_json back through the shape-hardener + re-whitelists combinator/sort', () => {
+    const view = serializeGridView({
+      id: 'v1',
+      table_key: 'form_submissions',
+      name: 'New this week',
+      filters_json: '[{"col":"status","op":"eq","val":"new"},{"bad":1}]',
+      combinator: 'or',
+      sort_col: 'created_at',
+      sort_dir: 'DESC',
+      search: 'ada',
+      type: 'gallery',
+      config_json: '{"titleField":"email","junk":1}',
+      updated_at: '2026-09-26T00:00:00Z',
+      org_id: 'org_secret', // must NOT surface
+      created_by: 'org_secret',
+    });
+    expect(view).toEqual({
+      id: 'v1',
+      table: 'form_submissions',
+      name: 'New this week',
+      conditions: [
+        { col: 'status', op: 'eq', val: 'new' },
+        { col: '', op: 'eq', val: '' }, // the malformed leaf is hardened, not dropped, by parseFilterConditions
+      ],
+      combinator: 'OR',
+      sortCol: 'created_at',
+      sortDir: 'desc',
+      search: 'ada',
+      type: 'gallery', // whitelisted
+      config: { titleField: 'email' }, // shape-hardened (junk key dropped)
+      updatedAt: '2026-09-26T00:00:00Z',
+    });
+    // bookkeeping columns never leak into the client object
+    expect(view).not.toHaveProperty('org_id');
+    expect(view).not.toHaveProperty('created_by');
+  });
+
+  it('degrades a corrupt filters_json to [] (never throws) + defaults combinator/sort', () => {
+    const view = serializeGridView({
+      id: 'v2',
+      table_key: 'visitor_events',
+      name: 'All',
+      filters_json: '{not json',
+      combinator: 'bogus',
+      sort_col: null,
+      sort_dir: 'nonsense',
+      search: null,
+    });
+    expect(view.conditions).toEqual([]);
+    expect(view.combinator).toBe('AND');
+    expect(view.sortCol).toBeNull();
+    expect(view.sortDir).toBeNull();
+    expect(view.search).toBe('');
+    expect(view.type).toBe('grid'); // absent type → default grid
+    expect(view.config).toEqual({}); // absent config → {}
+  });
+
+  it('exposes a sane per-table cap constant', () => {
+    expect(MAX_GRID_VIEWS_PER_TABLE).toBeGreaterThan(0);
+    expect(MAX_GRID_VIEWS_PER_TABLE).toBeLessThanOrEqual(200);
+  });
+});
+
+describe('normalizeGridViewType (grid | gallery | kanban | chart | calendar, default grid)', () => {
+  it('whitelists grid/gallery/kanban/chart/calendar (case-insensitive), defaults everything else to grid', () => {
+    expect(normalizeGridViewType('gallery')).toBe('gallery');
+    expect(normalizeGridViewType('GRID')).toBe('grid');
+    expect(normalizeGridViewType(' Gallery ')).toBe('gallery');
+    expect(normalizeGridViewType('kanban')).toBe('kanban');
+    expect(normalizeGridViewType('chart')).toBe('chart');
+    expect(normalizeGridViewType(' KANBAN ')).toBe('kanban');
+    expect(normalizeGridViewType('calendar')).toBe('calendar');
+    expect(normalizeGridViewType(' Calendar ')).toBe('calendar');
+    expect(normalizeGridViewType('timeline')).toBe('grid'); // unknown → default
+    expect(normalizeGridViewType('')).toBe('grid');
+    expect(normalizeGridViewType(undefined)).toBe('grid');
+    expect(normalizeGridViewType(null)).toBe('grid');
+    expect(normalizeGridViewType(42)).toBe('grid');
+  });
+});
+
+describe('parseGridViewConfig (view display config; string OR object; never throws)', () => {
+  it('parses a stored JSON string, keeping only a bounded titleField', () => {
+    expect(parseGridViewConfig('{"titleField":"email"}')).toEqual({ titleField: 'email' });
+    expect(parseGridViewConfig('{"titleField":"  name  ","junk":1}')).toEqual({
+      titleField: 'name',
+    });
+    expect(parseGridViewConfig(`{"titleField":"${'x'.repeat(200)}"}`).titleField).toBe(
+      'x'.repeat(64),
+    );
+  });
+
+  it('accepts an incoming config OBJECT (the POST body), not just a stored string', () => {
+    expect(parseGridViewConfig({ titleField: 'status' })).toEqual({ titleField: 'status' });
+    expect(parseGridViewConfig({ titleField: 5 })).toEqual({}); // non-string dropped
+  });
+
+  it('honors a bounded kanban groupField alongside titleField', () => {
+    expect(parseGridViewConfig('{"titleField":"email","groupField":"status"}')).toEqual({
+      titleField: 'email',
+      groupField: 'status',
+    });
+    expect(parseGridViewConfig({ groupField: '  status  ' })).toEqual({ groupField: 'status' });
+    expect(parseGridViewConfig(`{"groupField":"${'g'.repeat(200)}"}`).groupField).toBe(
+      'g'.repeat(64),
+    );
+    expect(parseGridViewConfig({ groupField: 7 })).toEqual({}); // non-string dropped
+  });
+
+  it('honors a bounded calendar dateField alongside title/group', () => {
+    expect(parseGridViewConfig('{"dateField":"created_at"}')).toEqual({ dateField: 'created_at' });
+    expect(parseGridViewConfig({ titleField: 'name', dateField: '  due_on  ' })).toEqual({
+      titleField: 'name',
+      dateField: 'due_on',
+    });
+    expect(parseGridViewConfig(`{"dateField":"${'d'.repeat(200)}"}`).dateField).toBe(
+      'd'.repeat(64),
+    );
+    expect(parseGridViewConfig({ dateField: 9 })).toEqual({}); // non-string dropped
+  });
+
+  it('shape-hardens a full column layout sub-object (hidden/order/widths/pinned/summaries/density)', () => {
+    const layout = parseGridViewConfig({
+      layout: {
+        hidden: ['a', '', 5, 'b'], // non-strings/empties dropped
+        order: ['b', 'a'],
+        widths: { a: 200, bad: 'x', neg: -1 }, // only positive numbers kept
+        pinned: ['a'],
+        summaries: { a: 'sum', b: 42 }, // non-string value dropped
+        density: 'compact',
+        junk: 'ignored',
+      },
+    }).layout;
+    expect(layout).toEqual({
+      hidden: ['a', 'b'],
+      order: ['b', 'a'],
+      widths: { a: 200 },
+      pinned: ['a'],
+      summaries: { a: 'sum' },
+      density: 'compact',
+    });
+  });
+
+  it('drops an empty/invalid layout (→ no layout key) + bounds array length', () => {
+    expect(parseGridViewConfig({ layout: {} }).layout).toBeUndefined();
+    expect(parseGridViewConfig({ layout: 'nope' }).layout).toBeUndefined();
+    expect(parseGridViewConfig({ layout: { hidden: [] } }).layout).toBeUndefined();
+    const many = Array.from({ length: MAX_LAYOUT_ENTRIES + 50 }, (_, i) => `c${i}`);
+    expect(parseGridViewConfig({ layout: { order: many } }).layout?.order?.length).toBe(
+      MAX_LAYOUT_ENTRIES,
+    );
+  });
+
+  it('parseGridViewLayout keeps title/group/date + layout coexisting', () => {
+    const cfg = parseGridViewConfig({ titleField: 'name', layout: { pinned: ['id'] } });
+    expect(cfg.titleField).toBe('name');
+    expect(cfg.layout).toEqual({ pinned: ['id'] });
+  });
+
+  it('preserves a multi-column `sorts` string (trim; drop non-string; bound to 512; coexist)', () => {
+    expect(parseGridViewConfig({ sorts: 'created_at:desc,name:asc' }).sorts).toBe(
+      'created_at:desc,name:asc',
+    );
+    expect(parseGridViewConfig('{"sorts":"  status:asc  "}').sorts).toBe('status:asc'); // trimmed
+    expect(parseGridViewConfig({ sorts: 42 }).sorts).toBeUndefined(); // non-string dropped
+    expect(parseGridViewConfig({ sorts: '   ' }).sorts).toBeUndefined(); // blank dropped
+    expect(parseGridViewConfig({ sorts: 'x'.repeat(600) }).sorts?.length).toBe(512); // bounded
+    const cfg = parseGridViewConfig({ titleField: 'name', sorts: 'a:asc', layout: { pinned: ['id'] } });
+    expect(cfg).toEqual({ titleField: 'name', sorts: 'a:asc', layout: { pinned: ['id'] } });
+  });
+
+  it('returns {} for malformed / empty / non-object / array (never throws)', () => {
+    expect(parseGridViewConfig('{not json')).toEqual({});
+    expect(parseGridViewConfig('')).toEqual({});
+    expect(parseGridViewConfig(undefined)).toEqual({});
+    expect(parseGridViewConfig(null)).toEqual({});
+    expect(parseGridViewConfig('[1,2,3]')).toEqual({});
+    expect(parseGridViewConfig('"a string"')).toEqual({});
+    expect(parseGridViewConfig({ titleField: '   ' })).toEqual({}); // blank → dropped
+  });
+});
+
+describe('composeBrowseFilter (shared browse+export WHERE-suffix)', () => {
+  const spec = { columns: ['status', 'age', 'note', 'created_at'] };
+  const q =
+    (m: Record<string, string>) =>
+    (k: string): string | undefined =>
+      m[k];
+
+  it('returns an empty clause when neither search nor filter is set', () => {
+    expect(composeBrowseFilter(spec, q({}))).toEqual({ clause: '', params: [] });
+  });
+
+  it('combines the search OR-of-LIKE with the AND/OR filter group (both parameterized)', () => {
+    const { clause, params } = composeBrowseFilter(
+      spec,
+      q({
+        search: 'ada',
+        filters: '[{"col":"status","op":"eq","val":"new"},{"col":"age","op":"gte","val":"18"}]',
+        filterCombinator: 'AND',
+      }),
+    );
+    // search clause first, then the ANDed filter group
+    expect(clause).toContain('LIKE ?');
+    expect(clause).toContain('"status" = ?');
+    expect(clause).toContain('"age" >= ?');
+    expect(params).toEqual(['%ada%', '%ada%', '%ada%', 'new', '18']);
+  });
+
+  it('falls back to the single-column filter when no `filters` JSON is present', () => {
+    expect(
+      composeBrowseFilter(spec, q({ filterCol: 'status', filterVal: 'live', filterOp: 'ne' })),
+    ).toEqual({
+      clause: ' AND "status" != ?',
+      params: ['live'],
+    });
+  });
+
+  it('drops a non-allowlisted column (the injection boundary holds through the shared path)', () => {
+    expect(
+      composeBrowseFilter(spec, q({ filters: '[{"col":"password","op":"eq","val":"x"}]' })),
+    ).toEqual({
+      clause: '',
+      params: [],
+    });
+  });
+});
+
+describe('buildGroupCountSql (whole-query kanban lane counts)', () => {
+  it('derives a GROUP BY count from countSql, injecting the filter clause + a LIMIT', () => {
+    const spec = { countSql: 'SELECT COUNT(*) AS n FROM form_submissions WHERE site_id = ?' };
+    expect(buildGroupCountSql(spec, 'status', ' AND "status" = ?')).toBe(
+      'SELECT "status" AS value, COUNT(*) AS n FROM form_submissions WHERE site_id = ? AND "status" = ? GROUP BY "status" ORDER BY n DESC LIMIT ?',
+    );
+  });
+
+  it('preserves a soft-delete filter (extra clause is injected AFTER `WHERE site_id = ?`)', () => {
+    const spec = {
+      countSql: 'SELECT COUNT(*) AS n FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL',
+    };
+    expect(buildGroupCountSql(spec, 'build_version', '')).toBe(
+      'SELECT "build_version" AS value, COUNT(*) AS n FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL GROUP BY "build_version" ORDER BY n DESC LIMIT ?',
+    );
+  });
+
+  it('exposes a sane group cap', () => {
+    expect(MAX_KANBAN_GROUPS).toBeGreaterThan(0);
+    expect(MAX_KANBAN_GROUPS).toBeLessThanOrEqual(200);
+  });
+});
+
+describe('normalizeGroupAgg (chart measure aggregate whitelist)', () => {
+  it('accepts sum/avg/min/max case-insensitively, rejects everything else', () => {
+    expect(normalizeGroupAgg('sum')).toBe('sum');
+    expect(normalizeGroupAgg(' AVG ')).toBe('avg');
+    expect(normalizeGroupAgg('MIN')).toBe('min');
+    expect(normalizeGroupAgg('max')).toBe('max');
+    expect(normalizeGroupAgg('count')).toBeNull(); // count is the default path, not an agg here
+    expect(normalizeGroupAgg('median')).toBeNull(); // not a SQLite core aggregate we allow
+    expect(normalizeGroupAgg('sum(x)')).toBeNull(); // no raw SQL smuggling
+    expect(normalizeGroupAgg('')).toBeNull();
+    expect(normalizeGroupAgg(undefined)).toBeNull();
+    expect(normalizeGroupAgg(null)).toBeNull();
+  });
+});
+
+describe('buildGroupAggregateSql (whole-query chart measure: SUM/AVG/MIN/MAX per group)', () => {
+  it('adds <AGG>("measure") AS agg + orders by the aggregate desc, then count', () => {
+    const spec = { countSql: 'SELECT COUNT(*) AS n FROM orders WHERE site_id = ?' };
+    expect(buildGroupAggregateSql(spec, 'status', 'sum', 'amount', ' AND "status" = ?')).toBe(
+      'SELECT "status" AS value, COUNT(*) AS n, SUM("amount") AS agg FROM orders WHERE site_id = ? AND "status" = ? GROUP BY "status" ORDER BY agg DESC, n DESC LIMIT ?',
+    );
+  });
+
+  it('maps each whitelisted agg to its uppercase SQL keyword (never raw input)', () => {
+    const spec = { countSql: 'SELECT COUNT(*) AS n FROM orders WHERE site_id = ?' };
+    expect(buildGroupAggregateSql(spec, 'g', 'avg', 'm', '')).toContain('AVG("m") AS agg');
+    expect(buildGroupAggregateSql(spec, 'g', 'min', 'm', '')).toContain('MIN("m") AS agg');
+    expect(buildGroupAggregateSql(spec, 'g', 'max', 'm', '')).toContain('MAX("m") AS agg');
+  });
+
+  it('preserves a soft-delete filter (extra clause injected AFTER `WHERE site_id = ?`)', () => {
+    const spec = {
+      countSql: 'SELECT COUNT(*) AS n FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL',
+    };
+    expect(buildGroupAggregateSql(spec, 'build_version', 'sum', 'bytes', '')).toBe(
+      'SELECT "build_version" AS value, COUNT(*) AS n, SUM("bytes") AS agg FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL GROUP BY "build_version" ORDER BY agg DESC, n DESC LIMIT ?',
+    );
+  });
+});
+
+describe('buildOrderByClause (multi-column browse sort; allowlist-validated)', () => {
+  const cols = ['name', 'created_at', 'status'];
+
+  it('builds a multi-column ORDER BY with coerced directions', () => {
+    expect(buildOrderByClause(cols, 'name:asc,created_at:desc')).toBe('ORDER BY "name" ASC, "created_at" DESC');
+    expect(buildOrderByClause(cols, 'status:desc')).toBe('ORDER BY "status" DESC');
+  });
+
+  it('drops unknown columns, de-dupes (first wins), coerces junk dir → DESC', () => {
+    expect(buildOrderByClause(cols, 'x:asc,name:bogus,name:asc')).toBe('ORDER BY "name" DESC'); // x dropped; name deduped to its first (bogus→DESC)
+    expect(buildOrderByClause(cols, "name'); DROP TABLE t--:asc")).toBe(''); // hostile col not in allowlist → dropped
+  });
+
+  it('bounds the number of sort keys to MAX_SORT_KEYS', () => {
+    const many = ['a', 'b', 'c', 'd', 'e', 'f'];
+    const spec = many.map((c) => `${c}:asc`).join(',');
+    const clause = buildOrderByClause(many, spec);
+    expect(clause.split(',').length).toBe(MAX_SORT_KEYS);
+  });
+
+  it('empty / all-invalid → "" (caller keeps the default order)', () => {
+    expect(buildOrderByClause(cols, '')).toBe('');
+    expect(buildOrderByClause(cols, undefined)).toBe('');
+    expect(buildOrderByClause(cols, 'nope:asc,also_nope:desc')).toBe('');
+  });
+});
+
+describe('buildColumnAggregatesSql (whole-query per-column footer summaries; one ungrouped row)', () => {
+  it('emits COUNT(*) + per-column filled/sum/avg/min/max with positional aliases', () => {
+    const spec = { countSql: 'SELECT COUNT(*) AS n FROM orders WHERE site_id = ?' };
+    expect(buildColumnAggregatesSql(spec, ['amount', 'qty'], '')).toBe(
+      'SELECT COUNT(*) AS n, ' +
+        'COUNT("amount") AS c0, SUM("amount") AS s0, AVG("amount") AS v0, MIN("amount") AS mn0, MAX("amount") AS mx0, ' +
+        'COUNT("qty") AS c1, SUM("qty") AS s1, AVG("qty") AS v1, MIN("qty") AS mn1, MAX("qty") AS mx1 ' +
+        'FROM orders WHERE site_id = ?',
+    );
+  });
+
+  it('with no columns → just COUNT(*) (a bare whole-query count)', () => {
+    const spec = { countSql: 'SELECT COUNT(*) AS n FROM orders WHERE site_id = ?' };
+    expect(buildColumnAggregatesSql(spec, [], '')).toBe(
+      'SELECT COUNT(*) AS n FROM orders WHERE site_id = ?',
+    );
+  });
+
+  it('injects the search/filter clause AFTER `WHERE site_id = ?` (preserving soft-delete)', () => {
+    const spec = {
+      countSql: 'SELECT COUNT(*) AS n FROM site_snapshots WHERE site_id = ? AND deleted_at IS NULL',
+    };
+    expect(buildColumnAggregatesSql(spec, ['bytes'], ' AND "status" = ?')).toBe(
+      'SELECT COUNT(*) AS n, COUNT("bytes") AS c0, SUM("bytes") AS s0, AVG("bytes") AS v0, MIN("bytes") AS mn0, MAX("bytes") AS mx0 ' +
+        'FROM site_snapshots WHERE site_id = ? AND "status" = ? AND deleted_at IS NULL',
+    );
+  });
+});
+
+describe('clampIntentLimit (bounded intent result cap)', () => {
+  it('defaults when absent/invalid, clamps to [1, MAX]', () => {
+    expect(clampIntentLimit(undefined)).toBe(INTENT_DEFAULT_LIMIT);
+    expect(clampIntentLimit(0)).toBe(INTENT_DEFAULT_LIMIT);
+    expect(clampIntentLimit(-5)).toBe(INTENT_DEFAULT_LIMIT);
+    expect(clampIntentLimit(NaN)).toBe(INTENT_DEFAULT_LIMIT);
+    expect(clampIntentLimit(50)).toBe(50);
+    expect(clampIntentLimit(999_999)).toBe(MAX_INTENT_LIMIT);
+  });
+});
+
+describe('compileQueryIntent (grounded intent → parameterized SQLite; the AI/UI → SQL boundary)', () => {
+  const fs = overviewTable('form_submissions')!; // cols: form_name/status/notes/email/created_at (no soft-delete)
+  const sd = overviewTable('site_data')!; // cols: table_name/data_json/created_at (soft-delete)
+
+  it('projection: quotes allowlisted columns, site-scoped, LIMIT bound', () => {
+    const r = compileQueryIntent({ select: [{ col: 'status' }, { col: 'created_at' }] }, fs);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sql).toBe('SELECT "status", "created_at" FROM form_submissions WHERE site_id = ? LIMIT ?');
+    expect(r.params).toEqual([INTENT_DEFAULT_LIMIT]);
+  });
+
+  it('aggregate count + groupBy → grp alias + GROUP BY + ORDER BY n DESC (top-N)', () => {
+    const r = compileQueryIntent({ select: [{ agg: 'count' }], groupBy: 'status' }, fs);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sql).toBe(
+      'SELECT "status" AS grp, COUNT(*) AS n FROM form_submissions WHERE site_id = ? GROUP BY "status" ORDER BY n DESC LIMIT ?',
+    );
+  });
+
+  it('aggregate sum orders by its own alias DESC', () => {
+    const r = compileQueryIntent({ select: [{ agg: 'sum', col: 'created_at' }] }, fs);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sql).toContain('SUM("created_at") AS sum_created_at');
+    expect(r.sql).toContain('ORDER BY sum_created_at DESC');
+  });
+
+  it('filters: values are BOUND (never concatenated); clause injected after site_id', () => {
+    const r = compileQueryIntent(
+      { select: [{ col: 'status' }], filters: [{ col: 'status', op: 'eq', val: "x'; DROP TABLE t;--" }] },
+      fs,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sql).toBe('SELECT "status" FROM form_submissions WHERE site_id = ? AND "status" = ? LIMIT ?');
+    expect(r.params).toEqual(["x'; DROP TABLE t;--", INTENT_DEFAULT_LIMIT]); // injection rides as a bound param
+  });
+
+  it('soft-delete table: the filter is injected BEFORE `AND deleted_at IS NULL`', () => {
+    const r = compileQueryIntent(
+      { select: [{ col: 'table_name' }], filters: [{ col: 'table_name', op: 'eq', val: 'x' }] },
+      sd,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sql).toBe(
+      'SELECT "table_name" FROM site_data WHERE site_id = ? AND "table_name" = ? AND deleted_at IS NULL LIMIT ?',
+    );
+  });
+
+  it('clamps an over-cap limit into params', () => {
+    const r = compileQueryIntent({ select: [{ col: 'status' }], limit: 999_999 }, fs);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.params).toEqual([MAX_INTENT_LIMIT]);
+  });
+
+  it('projection ORDER BY honors only allowlisted columns (drops the rest)', () => {
+    const r = compileQueryIntent(
+      { select: [{ col: 'status' }], orderBy: [{ col: 'created_at', dir: 'desc' }, { col: 'evil', dir: 'asc' }] },
+      fs,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sql).toContain('ORDER BY "created_at" DESC');
+    expect(r.sql).not.toContain('evil');
+  });
+
+  it('REJECTS an unknown column (the injection boundary) — nothing reaches the SQL', () => {
+    expect(compileQueryIntent({ select: [{ col: 'evil; DROP' }] }, fs)).toEqual({
+      ok: false,
+      error: 'unknown column: evil; DROP',
+    });
+    expect(compileQueryIntent({ select: [{ col: 'nope' }] }, fs).ok).toBe(false);
+  });
+
+  it('REJECTS an unknown aggregate', () => {
+    // @ts-expect-error — deliberately invalid aggregate to prove the whitelist rejects it
+    expect(compileQueryIntent({ select: [{ agg: 'evil', col: 'status' }] }, fs).ok).toBe(false);
+  });
+
+  it('REJECTS mixing aggregates + plain columns', () => {
+    expect(compileQueryIntent({ select: [{ agg: 'count' }, { col: 'status' }] }, fs)).toEqual({
+      ok: false,
+      error: 'cannot mix aggregates and plain columns in one query',
+    });
+  });
+
+  it('REJECTS groupBy without an aggregate, and an unknown groupBy column', () => {
+    expect(compileQueryIntent({ select: [{ col: 'status' }], groupBy: 'status' }, fs).ok).toBe(false);
+    expect(compileQueryIntent({ select: [{ agg: 'count' }], groupBy: 'nope' }, fs).ok).toBe(false);
+  });
+
+  it('REJECTS an empty select', () => {
+    expect(compileQueryIntent({ select: [] }, fs)).toEqual({
+      ok: false,
+      error: 'select must specify at least one column or aggregate',
+    });
+  });
+
+  it('REJECTS a MASKED column in select / aggregate / groupBy (PII never leaked), but allows FILTERING it', () => {
+    const masked = { columns: fs.columns, countSql: fs.countSql, maskedColumns: ['email'] };
+    expect(compileQueryIntent({ select: [{ col: 'email' }] }, masked).ok).toBe(false);
+    expect(compileQueryIntent({ select: [{ agg: 'min', col: 'email' }] }, masked).ok).toBe(false);
+    expect(compileQueryIntent({ select: [{ agg: 'count' }], groupBy: 'email' }, masked).ok).toBe(false);
+    // Filtering by a masked column is allowed (WHERE only, never output) — consistent with the browse path.
+    const r = compileQueryIntent(
+      { select: [{ col: 'status' }], filters: [{ col: 'email', op: 'eq', val: 'a@b.co' }] },
+      masked,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sql).toContain('"email" = ?'); // filtered in the WHERE
+    expect(r.sql.startsWith('SELECT "status" FROM')).toBe(true); // email NEVER in the SELECT list
+  });
+
+  it('bounds the select field count (MAX_SELECT_FIELDS)', () => {
+    const many = Array.from({ length: MAX_SELECT_FIELDS + 1 }, () => ({ col: 'status' }));
+    expect(compileQueryIntent({ select: many }, fs).ok).toBe(false);
+  });
+});
+
+describe('askSystemPrompt (NL→intent guidance; not the security boundary)', () => {
+  it('names the table + lists the columns + flags masked columns as filter-only', () => {
+    const p = askSystemPrompt({ key: 'form_submissions', columns: ['status', 'email'], maskedColumns: ['email'] });
+    expect(p).toContain('form_submissions');
+    expect(p).toContain('status, email');
+    expect(p).toMatch(/FILTER on but must NOT select or group by: email/);
+    expect(p).toContain('ONLY the JSON');
+  });
+
+  it('omits the masked-column note when there are none', () => {
+    const p = askSystemPrompt({ key: 'visitor_events', columns: ['path'] });
+    expect(p).not.toMatch(/must NOT select/);
+  });
+});
+
+describe('parseProposedIntent (UNTRUSTED model output → shape-hardened intent; compiler authorizes)', () => {
+  it('parses a well-formed object intent', () => {
+    expect(parseProposedIntent({ select: [{ agg: 'count' }], groupBy: 'status' })).toEqual({
+      select: [{ agg: 'count' }],
+      groupBy: 'status',
+    });
+  });
+
+  it('parses a JSON STRING (some models return .response as text even with json_object)', () => {
+    expect(parseProposedIntent('{"select":[{"col":"status"}]}')).toEqual({ select: [{ col: 'status' }] });
+  });
+
+  it('shape-hardens filters/orderBy/combinator/limit; drops junk fields', () => {
+    const out = parseProposedIntent({
+      select: [{ col: 'status' }],
+      filters: [{ col: 'status', op: 'eq', val: 'open' }, 'garbage', { nope: 1 }],
+      combinator: 'OR',
+      orderBy: [{ col: 'created_at', dir: 'desc' }],
+      limit: 25,
+      evil: 'ignored',
+    });
+    expect(out).toEqual({
+      select: [{ col: 'status' }],
+      filters: [{ col: 'status', op: 'eq', val: 'open' }, { col: '', op: 'eq', val: '' }],
+      combinator: 'OR',
+      orderBy: [{ col: 'created_at', dir: 'desc' }],
+      limit: 25,
+    });
+    expect(out).not.toHaveProperty('evil');
+  });
+
+  it('returns null for garbage / no usable select (the model failed)', () => {
+    expect(parseProposedIntent(null)).toBeNull();
+    expect(parseProposedIntent('not json')).toBeNull();
+    expect(parseProposedIntent(42)).toBeNull();
+    expect(parseProposedIntent({ select: [] })).toBeNull();
+    expect(parseProposedIntent({ select: ['x'] })).toBeNull(); // no usable field objects
+    expect(parseProposedIntent({ notASelect: 1 })).toBeNull();
+  });
+
+  it('a hostile proposal parses but is REJECTED downstream by compileQueryIntent (defense-in-depth)', () => {
+    const spec = overviewTable('form_submissions')!;
+    const intent = parseProposedIntent({ select: [{ col: 'email' }] });
+    expect(intent).toEqual({ select: [{ col: 'email' }] }); // shape-hardening lets it through
+    const masked = { columns: spec.columns, countSql: spec.countSql, maskedColumns: ['email'] };
+    expect(compileQueryIntent(intent!, masked).ok).toBe(false); // the compiler is the boundary
+  });
+});
+
+describe('MAX_EXPORT_ROWS (bounded whole-query export)', () => {
+  it('is a sane bound for a client-side CSV/JSON download', () => {
+    expect(MAX_EXPORT_ROWS).toBeGreaterThanOrEqual(1000);
+    expect(MAX_EXPORT_ROWS).toBeLessThanOrEqual(100000);
+  });
+});
+
+describe('buildColumnDistinctSql (bounded DISTINCT for the value datalist)', () => {
+  it('quotes the column (identifier, never bound), excludes null/empty, orders, LIMIT ?', () => {
+    const spec = { countSql: 'SELECT COUNT(*) AS n FROM form_submissions WHERE site_id = ?' };
+    expect(buildColumnDistinctSql(spec, 'status')).toBe(
+      'SELECT DISTINCT "status" AS v FROM form_submissions WHERE site_id = ? ' +
+        'AND "status" IS NOT NULL AND "status" <> \'\' ORDER BY "status" LIMIT ?',
+    );
+  });
+
+  it('chains its filters AFTER an existing soft-delete predicate (site_id AND deleted_at)', () => {
+    const spec = {
+      countSql: 'SELECT COUNT(*) AS n FROM site_data WHERE site_id = ? AND deleted_at IS NULL',
+    };
+    expect(buildColumnDistinctSql(spec, 'table_name')).toBe(
+      'SELECT DISTINCT "table_name" AS v FROM site_data WHERE site_id = ? AND deleted_at IS NULL ' +
+        'AND "table_name" IS NOT NULL AND "table_name" <> \'\' ORDER BY "table_name" LIMIT ?',
+    );
+  });
+
+  it('MAX_DISTINCT_VALUES is a small, select-like bound (never a full-column scan surfaced as a picker)', () => {
+    expect(MAX_DISTINCT_VALUES).toBeGreaterThanOrEqual(10);
+    expect(MAX_DISTINCT_VALUES).toBeLessThanOrEqual(200);
   });
 });

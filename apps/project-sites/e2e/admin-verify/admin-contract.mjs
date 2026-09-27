@@ -150,6 +150,22 @@ export const ADMIN_CONTRACT = [
     notes: 'sysAdminGuard — seed ps_session.identifier (NOT email) or brian bounces to site-features.' },
   { slug: 'system-services', route: '/admin/system-services', label: 'System Services', kind: 'section', guard: 'sysAdmin', flag: null,
     api: ['/api/super-admin/services'], signal: 'service|status|health|edge|container|probe|registry', shell: 'system-services-shell', minLen: 150, severity: 'hard' },
+  // Data-resource inspectors (KV/R2/Vectorize/Queues) — read-only super-admin browsers for the
+  // prompt's "Other Cloudflare data resources". Component+route shipped but were UNCOVERED (no
+  // contract row) + un-nav-linked; wired here. Flag-dark like `leads` → soft severity (worker 404s
+  // when the flag is off, so the sweep must not hard-fail a legitimately-dark route).
+  { slug: 'kv-inspector', route: '/admin/kv-inspector', label: 'KV Inspector', kind: 'section', guard: 'sysAdmin', flag: 'kv_inspector',
+    api: ['/api/admin/kv/namespaces'], signal: 'kv|namespace|key|value|binding|prefix|read-only', shell: 'kv-inspector', minLen: 80, severity: 'soft',
+    notes: 'Flag-dark + super-admin read-only KV browser. Worker 404s when kv_inspector flag off.' },
+  { slug: 'r2-inspector', route: '/admin/r2-inspector', label: 'R2 Inspector', kind: 'section', guard: 'sysAdmin', flag: 'r2_inspector',
+    api: ['/api/admin/r2/buckets'], signal: 'r2|bucket|object|prefix|storage|download|read-only', shell: 'r2-inspector', minLen: 80, severity: 'soft',
+    notes: 'Flag-dark + super-admin read-only R2 object browser. Worker 404s when r2_inspector flag off.' },
+  { slug: 'vectorize-inspector', route: '/admin/vectorize-inspector', label: 'Vectorize Inspector', kind: 'section', guard: 'sysAdmin', flag: 'vectorize_inspector',
+    api: ['/api/admin/vectorize/indexes'], signal: 'vector|index|dimension|metric|embedding|vectorize', shell: 'vectorize-inspector', minLen: 80, severity: 'soft',
+    notes: 'Flag-dark + super-admin read-only Vectorize index browser. Worker 404s when vectorize_inspector flag off.' },
+  { slug: 'queues-inspector', route: '/admin/queues-inspector', label: 'Queues Inspector', kind: 'section', guard: 'sysAdmin', flag: 'queues_inspector',
+    api: ['/api/admin/queues'], signal: 'queue|message|backlog|consumer|producer|dlq', shell: 'queues-inspector', minLen: 80, severity: 'soft',
+    notes: 'Flag-dark + super-admin read-only Queues browser. Worker 404s when queues_inspector flag off.' },
   { slug: 'leads', route: '/admin/leads', label: 'Lead Scanner', kind: 'section', guard: 'sysAdmin', flag: 'lead_scanner',
     api: [], signal: 'lead|scan|no-?website|outreach|claim|score', shell: 'leads-shell', minLen: 100, severity: 'soft',
     notes: 'Flag-dark + super-admin. Worker 404s when flag off, 403s non-operators.' },

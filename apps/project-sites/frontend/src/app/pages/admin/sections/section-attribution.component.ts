@@ -55,11 +55,21 @@ interface SectionConversions {
         </div>
       } @else {
         <ul class="flex flex-col gap-2 list-none p-0 m-0" data-testid="section-attribution-rows">
-          @for (s of data()!.sections; track s.section) {
-            <li class="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+          @for (s of data()!.sections; track s.section; let i = $index) {
+            <li class="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"
+                [class.border-primary]="i === 0 && s.count > 0">
               <div class="flex items-baseline justify-between gap-3">
-                <span class="text-[0.85rem] font-semibold text-white truncate" [attr.title]="s.section">
-                  {{ s.section }}
+                <span class="flex items-baseline gap-2 min-w-0">
+                  <span class="text-[0.85rem] font-semibold text-white truncate" [attr.title]="s.section">
+                    {{ s.section }}
+                  </span>
+                  @if (i === 0 && s.count > 0) {
+                    <span class="shrink-0 rounded-full bg-primary/15 text-primary text-[0.6rem] font-bold uppercase tracking-wide px-1.5 py-0.5"
+                          data-testid="section-attribution-top"
+                          title="Drives the most calls &amp; directions of any section">
+                      🏆 Top driver
+                    </span>
+                  }
                 </span>
                 <span class="text-[0.8rem] font-bold text-primary tabular-nums whitespace-nowrap">
                   {{ s.percent }}% · {{ s.count }}

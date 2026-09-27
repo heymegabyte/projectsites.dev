@@ -112,4 +112,28 @@ describe('PATCH /api/sites/:siteId/data-overview/:table/:rowId', () => {
     const res = await authed().request(PATCH('s1', 'form_submissions', 'ghost'), patch({ column: 'status', value: 'forwarded' }), env);
     expect(res.status).toBe(404);
   });
+
+  it('updates notes (free text): 200 + parameterized UPDATE with the note value BOUND', async () => {
+    const { env, calls } = mockEnv({ changes: 1 });
+    const note = "called back 3pm — interested; '; DROP TABLE x"; // hostile chars stay a bound param
+    const res = await authed().request(PATCH('site-1', 'form_submissions', 'row-1'), patch({ column: 'notes', value: note }), env);
+    expect(res.status).toBe(200);
+    const uc = updateCall(calls);
+    expect(uc?.sql).toBe('UPDATE form_submissions SET "notes" = ? WHERE id = ? AND site_id = ?');
+    expect(uc?.params).toEqual([note, 'row-1', 'site-1']); // value never interpolated
+  });
+
+  it('clears notes with an empty string: 200 (empty is a valid "clear the note")', async () => {
+    const { env, calls } = mockEnv({ changes: 1 });
+    const res = await authed().request(PATCH('s1', 'form_submissions', 'r1'), patch({ column: 'notes', value: '' }), env);
+    expect(res.status).toBe(200);
+    expect(updateCall(calls)?.params[0]).toBe('');
+  });
+
+  it('400 when a note exceeds the 2000-char cap — never written', async () => {
+    const { env, calls } = mockEnv();
+    const res = await authed().request(PATCH('s1', 'form_submissions', 'r1'), patch({ column: 'notes', value: 'x'.repeat(2001) }), env);
+    expect(res.status).toBe(400);
+    expect(updateCall(calls)).toBeUndefined();
+  });
 });

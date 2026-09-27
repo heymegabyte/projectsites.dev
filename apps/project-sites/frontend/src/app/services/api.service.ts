@@ -612,7 +612,12 @@ export class ApiService {
     return this.get('/admin/domains/summary', undefined, opts);
   }
 
-  searchAddress(query: string, lat?: number, lng?: number, opts?: { silent?: boolean }): Observable<{ data: AddressResult[]; _error?: SearchProviderError }> {
+  searchAddress(
+    query: string,
+    lat?: number,
+    lng?: number,
+    opts?: { silent?: boolean },
+  ): Observable<{ data: AddressResult[]; _error?: SearchProviderError }> {
     const params: Record<string, string> = { q: query };
     if (lat != null) params['lat'] = lat.toString();
     if (lng != null) params['lng'] = lng.toString();
@@ -692,9 +697,7 @@ export class ApiService {
    *
    * @see {@link AutofillResult}
    */
-  autofillSite(
-    name: string,
-  ): Observable<{
+  autofillSite(name: string): Observable<{
     data: AutofillResult;
     meta?: { model: string; latency_ms: number; status: 'ok' | 'error' };
   }> {
@@ -728,9 +731,7 @@ export class ApiService {
   }
 
   /** Upload assets (logo, favicon, images) before site creation */
-  uploadAssets(
-    formData: FormData,
-  ): Observable<{
+  uploadAssets(formData: FormData): Observable<{
     data: {
       upload_id: string;
       assets: { key: string; name: string; size: number; type: string; url: string }[];
@@ -740,9 +741,7 @@ export class ApiService {
   }
 
   /** Get build assets for a site (generated during workflow) */
-  getBuildAssets(
-    siteId: string,
-  ): Observable<{
+  getBuildAssets(siteId: string): Observable<{
     data: { key: string; name: string; type: string; size: number; url: string }[];
   }> {
     return this.get(`/sites/${siteId}/build-assets`);
@@ -811,6 +810,7 @@ export class ApiService {
     windowDays = 30,
     window?: { start: string; end: string },
     tzOffsetMinutes?: number,
+    filter?: { dim: string; value: string },
   ): Observable<SiteAnalyticsSummary> {
     // An absolute window (start/end, YYYY-MM-DD) wins server-side over windowDays;
     // windowDays rides along as the fallback the worker uses when no window is sent.
@@ -821,8 +821,20 @@ export class ApiService {
     }
     // tz shifts the absolute-window bounds into the owner's local day server-side
     // (no-op without a window); the worker re-validates + bounds it.
-    if (typeof tzOffsetMinutes === 'number' && Number.isInteger(tzOffsetMinutes) && tzOffsetMinutes !== 0) {
+    if (
+      typeof tzOffsetMinutes === 'number' &&
+      Number.isInteger(tzOffsetMinutes) &&
+      tzOffsetMinutes !== 0
+    ) {
       params['tz'] = tzOffsetMinutes.toString();
+    }
+    // AN-FILTER — an optional `{dim,value}` drilldown restriction. The server validates
+    // `filterDim` against its allowlist (unknown dimension → 400) and BINDS `filterValue`
+    // as a SQL parameter; both are sent only when a non-empty value is present, and the
+    // server echoes back `appliedFilter` so the UI renders its chip from what was honored.
+    if (filter && filter.dim && filter.value) {
+      params['filterDim'] = filter.dim;
+      params['filterValue'] = filter.value;
     }
     return this.get(`/sites/${siteId}/analytics`, params, { silent: true });
   }
@@ -837,7 +849,10 @@ export class ApiService {
     days = 30,
     window?: { start: string; end: string },
     tzOffsetMinutes?: number,
-  ): Observable<{ days: { day: string; pageviews: number; uniqueSessions: number; conversions: number }[] }> {
+    filter?: { dim: string; value: string },
+  ): Observable<{
+    days: { day: string; pageviews: number; uniqueSessions: number; conversions: number }[];
+  }> {
     const params: Record<string, string> = { days: days.toString() };
     if (window) {
       params['start'] = window.start;
@@ -845,8 +860,19 @@ export class ApiService {
     }
     // Owner-local day bucketing (UTC offset in minutes, e.g. PST = -480); the
     // worker re-validates + bounds it and falls back to UTC when absent/invalid.
-    if (typeof tzOffsetMinutes === 'number' && Number.isInteger(tzOffsetMinutes) && tzOffsetMinutes !== 0) {
+    if (
+      typeof tzOffsetMinutes === 'number' &&
+      Number.isInteger(tzOffsetMinutes) &&
+      tzOffsetMinutes !== 0
+    ) {
       params['tz'] = tzOffsetMinutes.toString();
+    }
+    // AN-FILTER — the SAME drilldown restriction as the summary, so the chart line stays
+    // consistent with the filtered KPIs. Server validates `filterDim` (unknown → 400) + BINDS
+    // `filterValue`; sent only when a non-empty value is present.
+    if (filter && filter.dim && filter.value) {
+      params['filterDim'] = filter.dim;
+      params['filterValue'] = filter.value;
     }
     return this.get(`/sites/${siteId}/analytics/daily`, params, { silent: true });
   }
@@ -1603,10 +1629,49 @@ export interface DeliverySummary {
   has_data: boolean;
   total_requests: number;
   by_status_class: { class: '2xx' | '3xx' | '4xx' | '5xx' | 'other'; count: number }[];
-  top_statuses: { status: number; count: number }[];
-  cache: { hit: number; miss: number; uncacheable: number; hit_ratio_pct: number | null };
+  /** Each top status now carries its edge `bytes` (bandwidth) + `visits` (≈ real visitors who hit it). */
+  top_statuses: { status: number; count: number; bytes: number; visits: number }[];
+  cache: {
+    hit: number;
+    miss: number;
+    uncacheable: number;
+    hit_ratio_pct: number | null;
+    /** Edge bandwidth (bytes) per cache-state — "cache misses served N MB". */
+    hit_bytes: number;
+    miss_bytes: number;
+    uncacheable_bytes: number;
+    /** REAL visitors (CF sum{visits}, sampled) per cache-state — "N visitors hit cache misses". */
+    hit_visits: number;
+    miss_visits: number;
+    uncacheable_visits: number;
+  };
   response_bytes: number;
   range_days: number;
+  /**
+   * Edge connection + content breakdowns from the SAME per-host `httpRequestsAdaptiveGroups`
+   * query (zero extra requests, adaptive-sampled): HTTP protocol version (HTTP/3 vs HTTP/2),
+   * TLS version, response content-type, and HTTP method — each top-6 by edge REQUEST count
+   * (never conflated with first-party pageviews). Optional for back-compat; `[]` when the
+   * zone didn't resolve or the field is unavailable — never fabricated.
+   */
+  protocols?: { label: string; count: number }[];
+  tls?: { label: string; count: number }[];
+  content_types?: { label: string; count: number }[];
+  methods?: { label: string; count: number }[];
+  /**
+   * Cloudflare-VERIFIED bot traffic by category ("Search Engine Crawler", …) from the
+   * same query — the honest, plan-available crawler signal (NOT the gated bot-management
+   * score). Human/unverified traffic (the empty category) is excluded server-side, so
+   * this is ONLY named verified bots; `[]` when a site has seen none.
+   */
+  verified_bots?: { label: string; count: number }[];
+  /**
+   * Count-weighted CF adaptive `sampleInterval` across the site's hosts: ~1 ⇒ effectively FULL data
+   * (unsampled), N ⇒ ~1-in-N sampled (counts are already scaled to the estimate; this is the
+   * CONFIDENCE). `null` when CF omitted it. The card turns this into an honest label
+   * ("≈ full data" vs "sampled ~1:N") instead of a blanket "sampled estimate".
+   */
+  sample_interval?: number | null;
 }
 
 export interface MultiUrlAnalyticsEnvelope {
@@ -1650,8 +1715,9 @@ export interface SiteTrafficSummary {
   /** Pageviews by browser + OS — from the same user-agent enrichment as `byDevice`. */
   byBrowser?: { label: string; count: number }[];
   byOs?: { label: string; count: number }[];
-  /** Tagged-visit pageviews by utm_source / utm_campaign (untagged traffic excluded). */
+  /** Tagged-visit pageviews by utm_source / utm_medium / utm_campaign (untagged traffic excluded). */
   byUtmSource?: { label: string; count: number }[];
+  byUtmMedium?: { label: string; count: number }[];
   byUtmCampaign?: { label: string; count: number }[];
   byChannel: { label: string; count: number }[];
   byCountry: { label: string; count: number }[];
@@ -1669,14 +1735,99 @@ export interface SiteTrafficSummary {
     lcp: WebVitalStat | null;
     inp: WebVitalStat | null;
     cls: WebVitalStat | null;
+    /** Page-load timing (NOT Core Web Vitals): FCP (first paint) + TTFB (server response),
+     *  first-party ms p75 — the real-user page-speed signal Cloudflare's plan won't give
+     *  us at the edge. `null` when no samples yet (never a fabricated 0). */
+    fcp?: WebVitalStat | null;
+    ttfb?: WebVitalStat | null;
     /** Slowest pages by LCP p75 (worst first) — the "which page is slow" drilldown. */
     slowestPages?: Array<{
       path: string;
       lcpP75: number;
       inpP75?: number;
       clsP75?: number;
+      fcpP75?: number;
+      ttfbP75?: number;
       samples: number;
     }>;
+  };
+  /** AN-JSERR — first-party JS-error site-health (uncaught errors / rejections on the
+   *  published site, grouped by message). `total` 0 + `byMessage` [] = a clean site (the
+   *  beacon runs on every page) — never "not measured". Optional for back-compat. */
+  jsErrors?: {
+    total: number;
+    byMessage: { message: string; count: number; samplePath?: string }[];
+  };
+  /** AN-ENGAGE — first-party time-on-page (dwell). `medianMs` is the site-wide MEDIAN (median,
+   *  not mean — dwell is outlier-skewed); `byPage` the per-page medians (longest first, past a
+   *  sample floor). `medianMs` null = no samples yet (card shows "measuring…", never a fake 0). */
+  engagement?: {
+    medianMs: number | null;
+    samples: number;
+    byPage: { path: string; medianMs: number; samples: number }[];
+    /** AN-ENGAGE-DIST — count of visits whose dwell reached ≥10s/30s/60s/180s (monotonic). */
+    distribution?: { s10: number; s30: number; s60: number; s180: number };
+  };
+  /** AN-SCROLL — first-party scroll depth. `medianPercent` is the site-wide MEDIAN max-depth
+   *  (0–100); `reach` counts samples getting ≥25/50/75/100% deep (a monotonic funnel — divide
+   *  by `samples` for reach rates); `byPage` the deepest-read pages (past a sample floor) with
+   *  each page's completion rate. `medianPercent` null = no samples (card shows "measuring…"). */
+  scrollDepth?: {
+    samples: number;
+    medianPercent: number | null;
+    reach: { p25: number; p50: number; p75: number; p100: number };
+    byPage: { path: string; medianPercent: number; samples: number; completionPercent: number }[];
+  };
+  /** AN-NET — first-party visitor connection quality (Chromium-only sample). `byEffectiveType`
+   *  is the distribution across slow-2g/2g/3g/4g; `medianDownlinkMbps`/`medianRttMs` the site
+   *  medians; `saveDataPercent` the share with data-saver on. Medians null = no samples
+   *  (card shows "measuring…", never a fabricated 0). */
+  networkQuality?: {
+    samples: number;
+    byEffectiveType: { type: string; count: number }[];
+    medianDownlinkMbps: number | null;
+    medianRttMs: number | null;
+    saveDataPercent: number | null;
+    /** AN-NET-PAGE — pages whose visitors have the slowest median downlink (mobile-hostile pages). */
+    byPage?: {
+      path: string;
+      medianDownlinkMbps: number;
+      medianRttMs: number | null;
+      samples: number;
+    }[];
+  };
+  /** AN-NAV — first-party page-load waterfall. Median ms per phase (dns/connect/ttfb/transfer/
+   *  dom/total) from the `nav_timing` beacon. A phase is null only with no samples (card shows
+   *  "measuring…", never a fake 0); an honest 0 (cached DNS) is a real value. */
+  navTiming?: {
+    samples: number;
+    dns: number | null;
+    connect: number | null;
+    ttfb: number | null;
+    transfer: number | null;
+    dom: number | null;
+    total: number | null;
+    /** AN-NAV-PAGE — slowest pages by median total load, each with its median server-wait (TTFB). */
+    byPage?: { path: string; ttfb: number | null; total: number; samples: number }[];
+  };
+  /** AN-OUTBOUND — top clicked outbound/contact links (which links, by destination). `total`
+   *  counts every link-click; `byLink` is the top-8 destinations, each with kind + count. */
+  outboundClicks?: {
+    total: number;
+    byLink: { href: string; kind: string | null; count: number }[];
+  };
+  /** AN-FORM — contact-form lead funnel: validated `starts` → confirmed `submits` →
+   *  `completionRatePercent` (null when no starts — never a fabricated 0%), per form. */
+  formFunnel?: {
+    starts: number;
+    submits: number;
+    completionRatePercent: number | null;
+    byForm: {
+      form: string;
+      starts: number;
+      submits: number;
+      completionRatePercent: number | null;
+    }[];
   };
   previous: {
     pageviews: number;
@@ -1709,6 +1860,14 @@ export interface SiteAnalyticsSummary {
   siteId: string;
   windowDays: number;
   traffic: SiteTrafficSummary;
+  /**
+   * The drilldown filter the server actually APPLIED (`{dim,value}`), echoed back so the
+   * dashboard renders its removable chip from the SERVER'S confirmation — never from the
+   * click alone. Absent when no filter was requested (or when one was rejected → 400, in
+   * which case the fetch errors and the chip is not shown). `dim` is one of the server's
+   * allowlisted dimensions (country / device / browser / os / channel / path).
+   */
+  appliedFilter?: { dim: string; value: string };
 }
 
 /**
@@ -1727,10 +1886,14 @@ export interface DataOverviewTable {
   deletable: boolean;
   /**
    * Owner-editable columns for this table, keyed by column name (empty/absent = fully
-   * read-only). Each spec is a UI hint; the server re-validates the column + value on
-   * every PATCH. Currently only `form_submissions.status` (an enum).
+   * read-only). Each spec is a UI hint (a discriminated union: `enum` → a `<select>` of
+   * `options`, `text` → a `<textarea>` bounded by `maxLength`); the server re-validates
+   * the column + value on every PATCH. E.g. `form_submissions.status` (enum) + `notes` (text).
    */
-  editableColumns?: Record<string, { type: string; options: string[] }>;
+  editableColumns?: Record<
+    string,
+    { type: 'enum'; options: string[] } | { type: 'text'; maxLength: number }
+  >;
   /**
    * ISO timestamp of the table's most-recent row (server `MAX(<ts>)`), or null when the
    * table is empty — powers the Overview "last activity" freshness label. Never a

@@ -1,18 +1,184 @@
 # Editor Data Section — Capability Matrix (implementation checklist)
 
+> ⭐ **RE-ARCHITECTURE IN EFFECT (2026-09-25, Brian).** The Data section is being rebuilt into a per-site
+> **Cloudflare-D1 data platform with Airtable-class features + an auxiliary KV manager** (spreadsheet-first,
+> AI-native, SQL hidden). **The authoritative PLAN + phased roadmap is [`data-platform-scope.md`](./data-platform-scope.md)
+> — the Data loop executes against THAT, top-down, starting Phase 0.** This matrix keeps tracking SHIPPED
+> increments; DIRECTION is set by the scope doc. Do not keep extending the OLD shared-D1 / SQL-console
+> surface where the new plan supersedes it.
+
 > Honest source of truth for the "Data" section epic (Editor workbench + admin).
 > **Never present an unsupported operation as a working feature.** Every row's
 > status is one of: **DONE** (shipped + verified), **SLICE** (in-flight this arc),
 > **PLANNED** (feasible, not started), **BLOCKED** (platform can't do it today).
 > Started 2026-09-23 from a 3-agent discovery pass. Update as slices land.
->
-> **⭐ GOVERNING DECISION (ADR-0036, 2026-09-25) — the Data loop's current frontier:**
-> the Data section manages exactly TWO per-site resources — **D1 + KV** (each site its OWN,
-> isolated; KV backed by a `_kv` table inside the per-site D1). **Vectorize / Queues /
-> Workflows / R2 are REMOVED from Data.** R2 mounts into the bolt.diy editor file tree. The
-> loop's job now: (0) remove V/Q/W/R2 → (1) per-site D1+KV provisioning + isolation → (2)
-> fully-featured D1 SQLite editor → (3) fully-featured KV manager. See
-> `docs/decisions/0036-per-site-d1-kv-isolation.md` + Slice order below.
+
+## ★ Brilliant improvements — pending backlog (the Data loop implements from here, ranked)
+
+> Formulated 2026-09-25 (Brian directive: "formulate your most brilliant improvements … implement
+> them + add them to the pending items list"). The core checklist below is ~95% DONE; these are the
+> next-generation, high-value + AI-native + pro-SQLite-manager improvements. Each fire: pick the
+> TOP unbuilt item, implement it end-to-end (worker + editor + tests + prod-verify), tick it here.
+> **Honesty gate still applies** — never a fake button; a blocked capability is surfaced, not faked.
+
+**Tier 1 — AI-native (the emdash "AI does the work, the user confirms" doctrine):**
+1. ~~**AI SQL assistant (natural-language → SQL)**~~ ✅ **DONE 2026-09-25 (both halves)** — see
+   "Recently shipped" below. Plain-English box → schema-grounded read-only SELECT dropped into the
+   editor for REVIEW before Run (never auto-runs). THE highest-value owner-facing D1 feature.
+2. ~~**"Explain this table" (plain-English)**~~ ✅ **DONE 2026-09-25** — see "Recently shipped" below.
+   Workers-AI paragraph describing what a table stores + its relationships, grounded on the REAL
+   server-fetched CREATE SQL; read-only; in the D1Browser schema view.
+3. ~~**Data insights strip**~~ ✅ **DONE 2026-09-25** — see "Recently shipped" below. Like the analytics
+   Highlights strip: ≤5 plain-language takeaways from REAL data, present-data-only (never "0 of…").
+   Shipped on the account-wide **super-admin D1Browser Overview** (the richer multi-DB surface) via a
+   new bounded `GET /api/admin/d1/:id/insights` endpoint → total tables/rows · largest table · empty
+   tables · structural counts (views/indexes/triggers). The owner `/data-overview` already carries its
+   own lighter summary strip (row 233) + per-table freshness (row 234); growth-delta / anomaly flavors
+   remain optional future polish.
+
+**Tier 2 — SQLite-manager polish (DB Browser / Beekeeper / SQLiteStudio parity):**
+4. ~~**Table data profiling**~~ ✅ **DONE 2026-09-25** — see "Recently shipped" below. One-click
+   "📊 Profile" runs ONE bounded single-scan aggregate → row count + per-column null/distinct/min/max
+   (+ avg for numerics) + surfaced scan cost (`rows_read`). Top-5-values deferred (per-column on-demand).
+5. ~~**Relationship (ERD) view**~~ ✅ **DONE 2026-09-25** — see "Recently shipped" below. The prompt's
+   "understandable relationship view": a "◇ Diagram" toggle in the D1Browser Schema header renders a
+   ZERO-DEP SVG node-edge diagram (tables = nodes on a deterministic grid, parsed FKs = arrowed edges to
+   the referenced table) via a pure `buildErdModel(catalog)`. Reuses `parseForeignKeys` (no new backend).
+6. ~~**Query-result mini-charts**~~ ✅ **DONE 2026-09-25** — see "Recently shipped" below. A chartable
+   SQL result (label column + numeric column, summary-sized) gets a "📊 Chart" toggle → a zero-dep
+   horizontal bar chart of the already-fetched rows (no re-query).
+7. ~~**Inline grid cell edit**~~ ✅ **DONE 2026-09-25** — see "Recently shipped" below. Click / Enter /
+   double-click an editable browse-grid cell (`form_submissions.status`/`notes`) → an inline typed
+   editor (enum `<select>` · text `<input>`) appears IN PLACE → commits through the SAME confirmed,
+   audited, double-scoped PATCH as the detail panel (one save path, `performRowUpdate`). Read-only
+   cells keep their copy affordance; keyboard-accessible (not double-click-only).
+8. ~~**Auto-LIMIT + rows-scanned estimate**~~ ✅ **DONE 2026-09-25** — see "Recently shipped" below.
+   Both halves complete: the **EXPLAIN QUERY PLAN** pre-flight + SCAN/index guidance + post-run
+   expensive-scan warning were already shipped (`explainQuery`/`explainPlanHint`/`isExpensiveScan`);
+   this fire added the **auto-LIMIT** guard (`analyzeRowLimit` → a one-click "Add LIMIT 500" chip on a
+   bare `SELECT`/`WITH…SELECT` with no `LIMIT`, bounding result size + scan cost before running).
+
+**Tier 3 — cross-resource + portability:**
+9. **R2 object preview / download** [M] — the R2 inspector is HEAD-only; add a size-capped body GET →
+   inline preview for text/JSON/image, download link otherwise (guarded, safe-types). Prompt-named.
+10. ~~**KV value edit / delete**~~ ✅ **DONE 2026-09-25** — see "Recently shipped" below. The KV
+    inspector is now WRITABLE: guarded PUT (edit/create) + DELETE (type-the-key-to-confirm), super-admin,
+    binding-allowlisted, eventual-consistency disclosed, audited.
+11. **Unified Data search** [M] — one box spanning D1 table names + KV keys + R2 object keys → a merged
+    result list that deep-links into the right adapter.
+12. **Owner data export to emailed CSV / Sheets** [S] — one-click "email me this table as CSV" (SES)
+    for non-technical owners.
+
+**Tier 4 — UX / perf / delight:**
+13. **Cmd+K Data palette** [S] — jump to a table · run a starter · switch resource adapter.
+14. **Virtualized result grid** [M] — windowed rendering for large SQL results (perf).
+15. **Empty-state launchpads** [S] — every empty Data screen offers the one obvious first action
+    (create table / run a starter / import) per `embarrassingly-easy-to-use`.
+
+**Recently shipped from this backlog:**
+- ✅ **#10 KV value edit + delete — DONE 2026-09-25** — the KV inspector was READ-ONLY (the prompt
+  explicitly requires "KV: create/edit/delete"); now it's writable. Worker `PUT` + `DELETE
+  /api/admin/kv/:binding/value` (kv_inspector) — super-admin + flag-dark `gate()`; the binding is
+  validated against the SERVER allowlist (`['CACHE_KV','PROMPT_STORE']` — a client-supplied name never
+  reaches KV, unknown → 404); PUT value **size-capped** at `KV_VALUE_MAX_BYTES` (so the editor can't
+  round-trip a truncated read and drop data) with optional `expirationTtl ≥60s`; write/delete failures →
+  502 (honest); mutations logged with actor + binding + key, **never the value**. Editor `KvBrowser`:
+  **Edit** (textarea + Save, disabled when the read was truncated) + **Delete key** (type-the-exact-key
+  to confirm) + an eventual-consistency note (~60s). Bridge `PS_KV_REQUEST` op `put`/`delete` +
+  `KvValueData.truncated`; Angular proxy → `api.put`/`api.delete`. +11 Jest (gate 404 ×3 · unknown
+  binding 404 · oversized/sub-60s-TTL/missing-key 400 · PUT/DELETE happy via the resolved binding · 502
+  on throw); worker 12664 · editor Vitest 439 · tsc + frontend 0 errors. Deployed worker `6111ce6e`
+  (PUT/DELETE prod-verified 404-gated) + frontend proxy chunk live + editor Pages (auto). **Both `CACHE_KV`
+  + `PROMPT_STORE` are platform caches/config — edits are recoverable; delete is type-to-confirm.**
+- ✅ **#6 Query-result mini-charts — DONE 2026-09-25** — the SQL console's result grid gets a
+  "📊 Chart" toggle whenever the result is chartable: a **zero-dep horizontal bar chart** of the label
+  column vs a numeric column, rendered purely client-side over the already-fetched rows (**no
+  re-query**, no charting dependency, no worker/security surface). Pure `detectChartable` (a summary-
+  sized result — 1..`MAX_CHART_ROWS`=60 rows — with a label column + ≥1 OTHER numeric column;
+  numeric-looking strings counted; a big raw dump / single-numeric / no-numeric → not chartable) +
+  `buildChartSeries` (null labels → ∅, non-finite values dropped — never a fabricated 0). A value-
+  column `<select>` appears when the result has multiple numerics; the chart resets on each new run;
+  bars scale to the max (floor 2%). +7 Vitest (161 total); editor tsc + Vitest 439 + eslint clean.
+  Makes the SQL workspace first-class (Beekeeper/Metabase/TablePlus all chart a result inline).
+- ✅ **#4 Table data profiling — DONE 2026-09-25** — the standout pro-SQLite-manager feature. The
+  D1Browser schema view gets a "📊 Profile" button beside "✨ Explain": it runs ONE bounded
+  single-scan aggregate over the selected table and shows a **column-stats table** — per-column
+  null count · distinct count · min · max (+ avg for numeric columns) — plus the **row count** and
+  the **scan cost** ("scanned N rows" from D1 `meta.rows_read`). New worker route `POST
+  /api/admin/d1/:databaseId/profile-table` (super-admin + flag-dark `gate()`). **Bounded + safe:**
+  columns come from the SERVER-fetched DDL (never client input — `parseProfileColumns`), are quoted +
+  escaped (`quoteIdent`, hostile names can't break out), and capped at `PROFILE_COLUMN_CAP`=40 (rest
+  disclosed as "first 40 columns"); the whole profile is ONE scan (not N queries). Pure module
+  `d1_manager/profile.ts` (parse/quote/build/parseResult) with **10 unit tests** + **7 handler tests**
+  (gate 404 ×3 · bad-identifier 400 · unknown-table 404 · happy 200 w/ server-DDL columns + rows_read ·
+  502 on query fail). Bridge reuses `PS_D1_REQUEST` with `op:'profile'` (`D1ProfileData`). Editor tsc +
+  Vitest 432 + frontend tsc all green.
+- ✅ **#2 "Explain this table" (plain-English) — DONE 2026-09-25** — the D1Browser schema view now
+  has an "✨ Explain" button beside each selected table/view: it asks the server (which re-fetches the
+  table's REAL DDL from `sqlite_master`, never a client-supplied schema) for a Workers-AI plain-English
+  paragraph describing what the table stores + its relationships. **Read-only** — it summarises the
+  SCHEMA (DDL), never row data, never a mutation. New worker route `POST /api/admin/d1/:databaseId/
+  explain-table` (super-admin + flag-dark `gate()`; table name is `D1TableNameSchema`-validated + BOUND
+  as `?1` to the `sqlite_master` lookup, never interpolated; unknown table → 404; AI failure → 502 —
+  never a fabricated summary). Pure `buildExplainTableMessages` (forbids inventing columns) +
+  `extractSummary` (strips fences, caps 1200 chars). Bridge: reuses `PS_D1_REQUEST` with a new
+  `op:'explain'` + `table` (embedded-mode.ts `D1ExplainData`) → Angular proxy case. Honest UI states
+  (busy/error/summary + model label + "verify against the columns below"). +10 Jest; editor tsc +
+  Vitest 432 + frontend tsc all green. **Stale-matrix note:** V1 (`?tab=data` deep-link bounce) and V4
+  (overview stat cards) were BOTH already fixed on origin/main by a concurrent session — verified
+  (`site-detail.component.ts:969-976` restores `?tab=`); the "V1 highest bug" claim was stale.
+- ✅ **#1 AI SQL assistant — COMPLETE (both halves) 2026-09-25** — the first-class differentiator,
+  now end-to-end. **Worker half:** `POST /api/sites/:siteId/sql/nl2sql` (super-admin) grounds Workers
+  AI (Llama 3.3 70B, free) on the REAL server-fetched `sqlite_master` DDL and returns ONE read-only
+  SELECT for the operator to REVIEW — it NEVER executes (the user runs it through the guarded
+  `/sql/exec` allowlist). Server-fetched schema (never client-supplied), read-only system prompt,
+  honest 502 on AI failure, audits the question + model (never row data). Pure `buildNl2SqlMessages`
+  + `extractSqlFromAiText`; +8 Jest; deployed `edaee198`, prod-verified 401-gated. **Editor half
+  (this fire, `a7011b3cd`):** the SQL console opens with a "✨ Ask AI" band — type a question in plain
+  English → the reply is dropped into the editor for REVIEW with a "{model} drafted this — review it,
+  then Run. Nothing runs automatically." note; never auto-executed. Bridge: `PS_NL2SQL_REQUEST/
+  RESPONSE` (embedded-mode.ts) + Angular proxy case (bolt-embed.service.ts, 403/404/502/400 → human
+  errors); UI inside `mode==='sql'` (already super-admin-gated, never a doomed control); latest-ref
+  `updateSql` so the `[]`-deps message effect targets the CURRENT tab without stale capture. Pure
+  `friendlyModelLabel` + `canAskAi` (+`MAX_AI_QUESTION_LEN`); +9 Vitest (154 total). Editor Pages +
+  frontend R2 both deployed + prod-verified (worker 401; editor deploy-success; frontend
+  `chunk-4YLQX2OA.js` live at root with the bridge string).
+- ✅ **Data tab scope grouping (Site vs Platform) — DONE 2026-09-25** — the Editor DataPanel's flat
+  7-tab nav is now grouped into two clearly-labelled scopes: **Site** (Tables — this site's own
+  site_id-scoped data) and **Platform** (SQL · D1 · KV · R2 · Vectors · Queues — the global platform
+  database + account resources, spanning all sites), split by a divider. So an operator plainly sees
+  they can view BOTH the site-assigned data AND the global D1 (Brian directive). Purely visual
+  (`renderModeTab` + `MODE_META`; testids/behaviour unchanged); workbench Vitest 424/424.
+- ✅ **Backups & recovery (D1 Time Travel info) — DONE 2026-09-25** — the account-wide D1Browser now
+  has a "Point-in-time recovery" panel beside the SQL-dump export: it states D1's REAL retention
+  (~30 days paid / 7 days free, verified against CF docs) + the exact `wrangler d1 time-travel restore
+  <db> --timestamp=<ISO>` command (copyable) + the honest caveat that Time Travel has **no REST API**
+  (Wrangler-CLI-only) so it is NOT a one-click button here. Pure `timeTravelInfo()` SSOT + 3 Vitest;
+  no fake control. Completes the prompt's "Backups" pillar honestly.
+- ✅ **Relationship view completed — "Referenced by" (incoming FKs) — DONE 2026-09-25** — the D1Browser
+  schema browser now shows BOTH directions: outgoing FKs (this table → others) AND incoming
+  (`incomingForeignKeys` — the tables that reference the selected one, scanned from the catalog DDL) →
+  the prompt's "understandable relationship view." +2 Vitest.
+
+**Visual-QA findings (owner Data tab — real browser + a11y-tree, 2026-09-25) — pending backlog:**
+> The owner `/admin/sites/:id?tab=data` (`SiteDataBrowserComponent`) is structurally CLEAN (1 h1,
+> landmarks present, 0 empty buttons/links, 0 unlabeled inputs, no overflow @1663, brand fonts) but
+> reads "developer-grade, not owner-friendly." Super-admin inspectors + the bolt DataPanel were gated
+> (E2E key is `is_super_admin:false`). Ranked owner-facing fixes (Angular admin surface, deploys via R2):
+> - **V1. `?tab=` deep-link stability** [S] — a direct `?tab=data` URL bounces to Dashboard; only clicking
+>   the tab holds state. Fix the route/query-param restore so a deep link lands on Data. (Highest — a real bug.)
+> - **V2. NULL → "—" — ✅ DONE 2026-09-25** — the owner grid rendered a literal grey "NULL"; now a muted
+>   em-dash "—" with `title="NULL — no value stored"` + `aria-label="null"` (owner-friendly display, honest
+>   NULL semantics on hover + for screen readers). +1 Karma → 2297. NB: the agent's "stop rendering cells as
+>   buttons" half was REJECTED — those `<button>`s are the shipped click-to-copy affordance (row 82), a
+>   feature, not a bug.
+> - **V3. Real per-table empty states** [S] — empty tables (Form Submissions 0 · Content Store 0) show a blank
+>   grid; replace with a launchpad ("No submissions yet → share your form") per `embarrassingly-easy-to-use`.
+> - **V4. Overview strip → icon stat cards** [S] — the plain "5 tables · 90 records" text → scannable stat cards.
+> - **V5. Loading skeletons + "why-disabled" hint** [S] — grid loading skeletons; a "pick a column first"
+>   placeholder on the filter-value input while it's disabled.
+> - **V6. Verify the Schema tab** — this matrix cites a `?tab=schema` (row 83) but the visual pass found NO
+>   such tab (tabs are Logs/Snapshots/Data/Integrations); confirm whether Schema is super-admin-gated or drifted.
 
 ## Architecture reality (READ FIRST — do not skip)
 
@@ -33,15 +199,43 @@
 - **Editor DataPanel** (`app/components/workbench/DataPanel.tsx` + pure
   `data-panel-logic.ts`, Vitest-covered) talks to the Worker THROUGH the admin
   bridge (`PS_DATA_REQUEST` / `PS_SQL_REQUEST` postMessage). UnoCSS + bolt tokens.
-- **TARGET (ADR-0036):** each site gets its OWN isolated **D1** + **KV** (KV = a `_kv`
-  table inside the per-site D1; the native KV-namespace cap is 1,000/account, so a
-  namespace-per-site does NOT scale). The Data editor targets the SITE's own store; the
-  shared-platform-D1 console stays super-admin-only + OFF the owner surface. Isolation is
-  the WfP binding boundary (a tenant Worker sees only its own D1), NOT `WHERE site_id`.
-- **WfP** (`USER_DISPATCH` dispatch namespace) is **wired but DORMANT** (`wfp_dispatch.ts`
-  uploads a user Worker via the CF REST API + metadata bindings). Per-site D1/KV
-  provisioning (Slice 1) is the PREREQUISITE — no tenant code runs until a site's Worker
-  can be bound to ONLY its own D1 (never the shared platform DB).
+  Deploys to **Pages `bolt-diy`** (separate from the worker/R2 pipeline); tests are
+  **Vitest** (`npm test`), not Karma. **SQL-console parity with the admin console
+  reached (2026-09-25):** table browse + SQL run/history/starters (schema/structure/
+  indexes/FKs) + **parameterized + chunked CSV import** (`buildCsvImportPlan`, WIRED 2026-09-25 — see below)/export + CREATE TABLE + destructive-confirm
+  + **EXPLAIN QUERY PLAN + index guidance** (`explainQuery`/`explainPlanHint`) + **query
+  cost (rows read/written) + expensive-scan warning** (`isExpensiveScan` >10k; `rows_read`/
+  `rows_written` threaded `/sql/exec` → `bolt-embed.service` → `SqlResponseMessage` →
+  DataPanel; honest "—"/omitted when the runtime doesn't report them) + **named saved
+  queries** (`addSavedQuery`/`removeSavedQuery`, localStorage `ps-data-sql-saved`, dedup-by-
+  name, recall LOADS into the editor without auto-running, delete — the manual companion to
+  the auto-history). **Multiple query tabs — DONE (2026-09-25):** independent SQL buffers you
+  switch between (each preserves its own text), localStorage-persisted; the last remaining
+  SQL-workspace item besides a CodeMirror dependency. **Sortable columns — DONE (2026-09-25):**
+  clicking a header in BOTH the browse grid and the SQL result grid sorts it (3-state
+  asc→desc→off toggle + caret + `aria-sort`), via the pure type-aware `sortRows` (numeric when
+  both cells are numbers/numeric-strings, else case-insensitive; null/''/undefined always last;
+  stable). HONEST: the browse grid sorts the LOADED window (it already discloses "showing latest
+  N"); the SQL grid sorts the FULL returned result (reorders exactly what's shown) + the CSV
+  export follows the sorted view. **Copy-to-clipboard — DONE (2026-09-25):** the Editor DataPanel
+  (the admin browser already had this — now the Editor surface reaches parity) gets cell/row copy
+  via pure `clipboardValue` (raw scalar / compact-JSON object / EMPTY for null — never the display
+  em-dash) + `rowJson` (pretty whole-row JSON). Browse row-detail: a "Copy row (JSON)" button + a
+  per-field copy icon; SQL result grid: every non-empty cell is a click-to-copy `<button>`. A
+  polite `aria-live` + toast confirms each copy (token-guarded); `writeClipboard` fail-soft (blocked
+  context → no-op). +6 Vitest. **Column show/hide — DONE (2026-09-25):** the prompt's "column
+  selection" — a "Columns" checklist dropdown in the browse toolbar toggles which columns the grid
+  renders (wide tables no longer force horizontal scroll); per-table + localStorage-persisted
+  (`ps-data-cols-hidden-<table>`), restored on table open. VIEW-ONLY (pure `visibleColumns` +
+  `toggleHiddenColumn`): the row-detail + CSV export keep EVERY column so hiding never omits data,
+  and the last visible column can't be hidden (never a dead-end empty grid; the detail colSpan
+  tracks the visible count). +7 Vitest. Remaining toward a full SQLite manager: **inline typed row
+  edit in the grid** (grid cell → parameterized UPDATE preview) + **server-side full-table sort** (a
+  worker sort param on the browse endpoint, validated against the column allowlist).
+- **WfP** (`USER_DISPATCH` dispatch namespace) is **wired but DORMANT** — flag
+  `user_worker_functions` default-off, zero per-site User Workers deployed,
+  `resolveUserFunctionBindings` not implemented. "User Worker bindings" browsing is
+  BLOCKED until per-site Workers + real D1/KV/R2 provisioning exist.
 - **Consolidation note:** the admin `site-detail.component.ts` SQL tab and the bolt
   DataPanel are intentionally different (power-user vs embedded editor), NOT drift.
 
@@ -61,22 +255,30 @@
 | **Column show/hide** (grid column selection, per-table) | client-side view state (localStorage `ps_datacols_hidden_<siteId>_<table>`) | owner | ✅ DONE (this fire) — a "Columns" disclosure in the Data-tab toolbar toggles which columns the grid renders (wide tables no longer force horizontal scroll); per-(site,table) persisted + private-mode-safe; **refuses to hide the LAST visible column** (no dead-end empty grid); the row-detail JSON + CSV/JSON exports STILL include EVERY column, so hiding is a view-only scan aid that never omits data. +7 Karma specs (default-all / hide-keeps-`columns()` / header-renders-visible-only / show-all / last-column-guard / persistence / per-table isolation) → 1974 total. | view-only — the authoritative `columns()` set (detail + export) is untouched; the picker only renders when a table has >1 column |
 | **Copy affordances** (cell click-to-copy + row JSON) | client-side (`navigator.clipboard`) | owner | ✅ DONE (this fire) — every non-null grid cell is a click-to-copy `<button>` (grab a lead's email/value instantly); the row-detail panel has a "Copy JSON" action; a polite `aria-live` "✓ Copied …" flash confirms each copy (~1.8s, token-guarded). Read-only, frontend-only; `writeClipboard` isolated for spy-testing. +5 Karma specs (string copy + flash / object→JSON / row JSON / cell-button click / aria-live). | read-only — no mutation, no worker/endpoint change; clipboard write fail-soft (blocked context → no-op) |
 | **Schema introspection** (tables/views/triggers · columns/pk/indexes/FKs/DDL) | `sqlite_master` (type IN table/view/trigger) + `PRAGMA table_info/index_list/index_info/foreign_key_list` | superadmin | ✅ DONE — endpoint `GET /api/sites/:siteId/sql/schema` **+ Schema-tab UI** (`SiteSchemaBrowserComponent`, `/admin/sites/:id?tab=schema`, 10 Karma specs): searchable object list (type badge for view/trigger) → columns (type/nullable/default/**PK badge + composite-key order**) · indexes · FKs · copyable CREATE SQL. **Triggers added** — each shows the table it fires on + its CREATE SQL (no columns/indexes/FKs → a note replaces the empty grid); views were already enumerated. **Composite-PK order (this fire)** — a multi-column PK now shows each column's 1-based key POSITION (PK 1 / PK 2) + a "Primary key · (col1, col2) composite" summary (8 platform tables use composite keys); the endpoint already returned the position (`table_info.pk`), the UI had collapsed it to a boolean. Now a complete SQLite schema tree (tables + views + indexes + triggers, composite keys ordered) matching DB Browser / Beekeeper / SQLiteStudio. | PRAGMA args can't bind → enumerate from `sqlite_master`, format-check each identifier; triggers skip the 3 useless PRAGMAs. Not surfaced (0 in the platform D1 → invisible): generated columns, WITHOUT ROWID. +2 Karma (composite-PK order + single-PK stays plain) |
-| Read SQL console | `.prepare().all()` | superadmin | ✅ DONE — Run executes the whole editor OR, when text is highlighted, **just the selected statement** (epic's selection / current-statement execution; the Run label flips to "Run selection"). EXPLAIN respects the selection too; typing/recall drops a stale selection. | 8 000-char cap; SELECT/EXPLAIN/WITH/PRAGMA only; **syntax highlighting / schema-aware completion / multi-tab still pending** — need a code-editor lib (CodeMirror 6), a dependency decision |
+| Read SQL console | `.prepare().all()` | superadmin | ✅ DONE — Run executes the whole editor OR, when text is highlighted, **just the selected statement** (epic's selection / current-statement execution; the Run label flips to "Run selection"). EXPLAIN respects the selection too; typing/recall drops a stale selection. | 8 000-char cap; SELECT/EXPLAIN/WITH/PRAGMA only; **multiple query tabs DONE (2026-09-25)**; **SQLite-aware SYNTAX HIGHLIGHTING DONE (2026-09-25)** — a zero-dep highlighted-textarea overlay (`SqlEditor.tsx` = a `<pre>` of `tokenizeSql` colour spans under a transparent-text `<textarea>`, identical inline typography → glyph-aligned, no scroll-sync; keyword=cyan / string=green / comment=muted / number=amber). Chose the overlay over CodeMirror because bolt.diy lacks `@codemirror/lang-sql` AND a textarea keeps native caret/selection/undo + the console's history/saved/⌘↵ wiring. Pure `tokenizeSql` (10 Vitest, 14/14 standalone; TOTAL — token texts reproduce input). Editor Pages commit `b6d2ac3e6`. **SCHEMA-AWARE COMPLETION DONE (2026-09-25)** — a keyboard-navigable dropdown (↑↓ move · Tab/↵ accept · Esc close · click accept) over the same overlay: pure `sqlCompletions(textBeforeCaret, {tables, columns})` ranks candidates drawn from the **inspected schema** (real table + column identifiers the Data tab already loaded — never a fabricated column) + SQL keywords (prefix beats substring; schema idents rank above keywords; excludes the fully-typed word; capped 8), and pure `applyCompletion` splices the pick + returns the new caret. DataPanel feeds `sqlSchema` = table keys + the de-duped union of every table's columns. +10 Vitest (`currentWord` / prefix-schema-only / column-kind / rank-above-keywords / no-active-word / exclude-typed / cap / `applyCompletion` replace+preserve-tail); 10/10 standalone, tsc clean. Editor Pages commit `d47b24d11`. **AUTO-LIMIT guard DONE (2026-09-25)** — a pure `analyzeRowLimit(sql)` detects a bare `SELECT`/`WITH…SELECT` with NO `LIMIT` (matrix #8) and surfaces a one-click amber **"Add LIMIT 500"** chip beside Run that runs the bounded variant — bounding result size + D1 scan/bill cost BEFORE running, while the operator can still Run the raw unbounded query. Detects on a comment/string-stripped copy (a `'…LIMIT…'` literal can't false-match); conservative (any existing `LIMIT`, incl. a subquery's, suppresses the offer → never a double-`LIMIT` syntax error); first-statement-only (mirrors EXPLAIN). Completes #8's other half (EXPLAIN QUERY PLAN pre-flight + expensive-scan warning were already shipped). +9 Vitest (`analyzeRowLimit`: bare-SELECT / already-limited / CTE / EXPLAIN·PRAGMA·VALUES·writes-excluded / custom-limit / string-literal-no-false-match / first-of-multi / subquery-suppress / blank). Editor Pages auto-deploy. **SQL workspace feature set COMPLETE** (highlighting + completion + tabs + selection-run + params + saved/history/snippets + export + EXPLAIN + cost + auto-LIMIT). |
 | **Bind parameters (`?N` positional)** | `.prepare(q).bind(...params).all()` over a Zod-validated `params[]` | superadmin | ✅ **DONE (this fire)** — the read console now takes **positional bind params**: a "Bind params" JSON-array input (`["vitos", 42]`) binds to `?1`, `?2`, … so an operator filters by a VALUE without concatenating it into SQL (the epic's "parameterize values, never concatenate" as a first-class UI feature). Values are BOUND server-side (`.bind()` only when present; booleans → 0/1 since SQLite has no native bool; ≤50; Zod-typed union of string/number/bool/null); the audit logs only the param **count**, never the values (sensitive-filter redaction). Client guards each block the POST with an inline reason (never a doomed request): invalid-JSON · >50 · **params-but-no-`?`-placeholder**; starters clear stale binds. EXPLAIN honors params too. +5 Jest (bind + boolean→0/1 + no-bind-when-empty + >50-reject + count-only-audit) + 6 Karma (sends `{query,params}` / omits when blank / invalid-JSON-no-POST / no-`?`-guard / >50-guard / starter-clears). Live: worker `e7a61055`, frontend chunk `chunk-BXXDK73H.js` 200 with the `sql-params` + guard markers. | positional `?N` only (SQLite named `:name`/`@name` not exposed); a JSON body can't carry a real BLOB bind (values are string/number/bool/null) |
-| **Saved queries + reusable snippets + history recall** | client-side (localStorage `ps_sql_saved_<siteId>`) | superadmin | ✅ DONE — name + Save the current query for one-click reuse (per-site, dedup-by-name, delete); built-in `sqlStarters` chips; query history is clickable-to-recall (loads into editor, no auto-run) | per-site + private-mode-safe; recall loads (never auto-runs) so the user reviews before running; multi-tab (concurrent buffers) still pending |
+| **Saved queries + reusable snippets + history recall** | client-side (localStorage `ps_sql_saved_<siteId>`) | superadmin | ✅ DONE — name + Save the current query for one-click reuse (per-site, dedup-by-name, delete); built-in `sqlStarters` chips; query history is clickable-to-recall (loads into editor, no auto-run) | per-site + private-mode-safe; recall loads (never auto-runs) so the user reviews before running; **multi-tab (concurrent buffers) DONE (2026-09-25)** — see the query-tabs row |
 | **SQL result export (Copy JSON · Download CSV · Download JSON)** | client-side over the fetched result | superadmin | ✅ DONE — Copy JSON (existing) + **Download CSV + Download JSON** buttons on the result grid, over the shared `toCsv`/`downloadText` (formula-injection-safe `csvEscape`). Exports the FULL result set (every returned row, not just the 200-row render cap). | bounded by the query's own result size (the backend caps the query); no streaming needed at this scale |
-| Write SQL console | `.prepare().run()` | superadmin | DONE | PROTECTED_TABLES + destructive-confirm; single-statement |
+| Write SQL console | `.prepare().run()` | superadmin | DONE | PROTECTED_TABLES + destructive-confirm; single-statement; **now binds positional params (this fire)** — see the Add-row row |
+| **Write-console bind params + Add-row typed editor (Editor)** | `.prepare(q).bind(...params).run()` over `SqlWriteSchema.params` + pure `buildInsertStatement()` | superadmin | ✅ **DONE (this fire, 2026-09-25)** — the WRITE console now BINDS positional params too (mirrors the read console at row 85), which unblocks a safe **"Add row"** typed editor in the Editor browse grid: a per-column type selector (text / number / boolean / NULL / JSON; `default` omits a column so its DB default / autoincrement applies) → a pure `buildInsertStatement()` (quoted identifiers, `?N` placeholders, identifier-validated) → a LIVE parameterized-statement preview → sends `{statement, params}` to `/sql/exec-write`. Values are BOUND (an injection payload rides as a param, never interpolated into SQL); booleans → 0/1; the audit logs the param COUNT only (never values). Gated on `canRunSql` (never a doomed control for a non-superadmin) + hidden for non-browsable tables/views; refreshes the open table on success; errors route back into the form (not the invisible SQL-tab banner). +12 Vitest (`coerceCellInput` null/text/number/boolean/json + `buildInsertStatement` quoting / param-not-interpolated / type-preservation / identifier-reject / empty / count-mismatch) + 2 Jest (write path binds params + booleans→0/1 + audit `param_count`; a no-param write keeps the exact prepared-statement path). Live: worker `c1eddc2a`, Editor Pages `865ad1e8` (commit `7f2945a4a`), Angular admin R2 (bridge `params` passthrough). Prod-verified: `/sql/exec-write` route healthy (403 auth-reject, not 500). **(2026-09-25) Row DELETE-by-PK DONE** — the browse row-detail has a danger-styled "Delete row" (super-admin + resolvable PK): pure `buildDeleteByPk(table,pkCols,row)` (quoted idents + `?N` PK predicate; refuses no-PK / missing-PK / non-scalar-PK → row stays read-only) → PK resolved SERVER-SIDE via `PRAGMA table_info` on its OWN correlation id (never clobbers the SQL-console grid), cached per table → confirm shows the exact statement + bound values → `/sql/exec-write` → refresh on success; "No primary key — read-only" note when a table can't be safely targeted; FK/other errors surfaced via alert (never silent). +7 Vitest (predicate / composite / param-not-interpolated / no-PK / missing-PK / non-scalar / bad-ident). Editor Pages `c1886d4cf`. **(2026-09-25) Row UPDATE-by-PK DONE — D1 row CRUD now COMPLETE (add · edit · delete)** — each NON-PK cell in the row-detail has a pencil → an inline typed editor (text/number/boolean/NULL/JSON, prefilled + type inferred from the current value) → a live parameterized-statement preview → Save builds `UPDATE "t" SET "col"=?1 WHERE pk=?2` (value bound as ?1, PK predicate from ?2 → exactly one row) via `buildUpdateByPk`; refuses editing a PK column (read-only key). Extracted a shared `buildPkPredicate` helper (DELETE + UPDATE, per inverted-abstraction-pyramid); reuses `coerceCellInput` + the cached `browsePkCols`. One editor open at a time; success closes + refreshes; errors route into the editor (never silent). +8 Vitest (SET ?1 + PK ?2 / composite / param-not-interpolated / typed-values / refuse-PK-column / no-PK / missing-PK / bad-ident). Editor Pages `1f73fad4e`. **(2026-09-25) Duplicate-row DONE — the full 4-verb set (add · edit · duplicate · delete) is COMPLETE** — the row-detail "Duplicate" (super-admin) opens the Add-row form PREFILLED from the row via pure `inferCellEditor(value)→{kind,value}` (the inverse of `coerceCellInput`; `startEdit` refactored to it), with the PK column(s) left at 'default' so the DB assigns a fresh key (no UNIQUE collision); the user reviews + Saves through the same parameterized INSERT. +2 Vitest (type→editor map + infer→coerce round-trip). Editor Pages `9751f231f`. **(2026-09-25) BULK row select + delete DONE** — grid row checkboxes + a select-all-on-page header check + a bulk bar ("N selected · Delete selected · Clear") → ONE batched parameterized DELETE via pure `buildBulkDeleteByPk(table,pkCols,rows,cap=100)` (single-PK → `WHERE "id" IN (?1,…)`, composite → OR-of-(AND) groups; every value bound, capped at `MAX_BULK_DELETE`, refuses empty/no-PK/missing-PK/non-scalar/bad-ident). Selection tracked by stable `rowPkKey` (survives re-sort/filter) + CLEARS on every table-switch/re-fetch (no stale-id delete); confirm shows count + statement; success reports "Deleted X of N (some already gone)" from `rows_affected`; a FK/other error is surfaced verbatim (SQLite-atomic → no partial write). +7 Vitest (single-PK IN / composite OR / param-not-interpolated / cap / empty+no-PK+missing+non-scalar+bad-ident) + `rowPkKey` (+1). Editor Pages `cfd1581db`. | **D1 row CRUD + bulk delete complete** (add/edit/duplicate/delete + bulk-delete, all PK-scoped + parameterized). Remaining D1 slices: SQL syntax highlighting DONE (2026-09-25, zero-dep overlay); **schema-aware autocomplete DONE (2026-09-25, zero-dep dropdown over the overlay — see the Read SQL console row)**; remaining = a JSON body can't carry a real BLOB bind (platform/transport limit — not buildable) |
+| **CSV → table import (parameterized + chunked, WIRED)** | pure `buildCsvImportPlan()` → `/sql/exec-write` (`.prepare().bind(...).run()`) | superadmin | ✅ **DONE (2026-09-25)** — the browse toolbar gained an **"Import CSV"** affordance beside Add-row (super-admin, gated on `canRunSql`, hidden for non-browsable tables): paste CSV → live **preview** (row count · columns · the exact parameterized statement) → **Import N rows** runs a multi-row `INSERT INTO "t" (...) VALUES (?, ?), (?, ?)…` through the existing bound write rail → the write-result banner reports "N rows affected · Tables refreshed". **Replaces the OBSOLETE unwired `csvToInserts`** (which single-quote-ESCAPED values INTO the SQL string — a `never-concatenate` deviation + built-unwired dead code) with pure `buildCsvImportPlan()`: values are **BOUND `?`** (a `');DROP…` cell rides as an inert param, never injected SQL), an empty cell → bound `null` (not `''`), table + column names `IDENT_RE`-gated (a hostile identifier is rejected, never quoted-in), and rows are **chunked** so each batch stays within the exec-write 200-param cap. Honest bound: this UI runs the FIRST batch and discloses when more rows remain ("only the first M rows import per run — re-run with the rest"); a promise-based bridge to auto-sequence all batches is the follow-up. +11 Vitest (`buildCsvImportPlan`: bound-not-inlined / empty→null / hostile-value-is-param / chunking / preview / bad-table / bad-header / <2-rows / col-count-mismatch / too-wide). Editor tsc + eslint + prettier clean; verify-by-build (`data-import-csv-form` in `Workbench.client-*.js`). Editor Pages auto-deploy. | super-admin editor import into the SHARED platform D1 (like the rest of the write console); bounded to one exec-write batch per run (≤200 bound params → ~200/columns rows) — larger CSVs import in parts today, auto-sequenced batches are a follow-up; string-affinity values (SQLite coerces per column affinity); a real BLOB can't ride a JSON body (platform limit). Distinct from the PLANNED OWNER `/data-overview` import (row 265). |
+| **Write-target safety banner (env + shared-DB, before writes)** | `sqlConsoleTarget()` SSOT (editor `data-panel-logic.ts`) | superadmin | ✅ **DONE (2026-09-24)** — the epic's "**Display the target account, site, environment, and database prominently before writes**" + "**distinguish shared platform resources**". The DataPanel SQL console runs against the SHARED multi-tenant platform D1 (a write affects EVERY tenant) — that only lived in a code comment. Now a prominent **amber banner** (`data-sql-target`, `role=note`) sits at the TOP of the console naming **Production · Shared platform database (D1 · all tenants)** + the scope warning (a write affects all tenants; protected tables blocked; destructive statements confirm first). Facts come from a pure `sqlConsoleTarget()` helper (SSOT) so the banner can't drift from a stale comment. +3 Vitest (names prod + shared-DB · spells out guardrails · fresh-object-per-call); editor tsc + eslint clean. Frontend-only (no worker change). | static descriptor (the console always targets the shared prod D1); per-tenant D1s are surfaced via the owner `/data-overview` path, which never exposes raw SQL |
 | **Row delete (own rows, PK-stable, allowlisted)** | `DELETE /api/sites/:siteId/data-overview/:table/:rowId` → parameterized `DELETE … WHERE id = ? AND site_id = ?` | owner | ✅ **DONE (this fire)** — the owner can permanently delete their OWN rows from a DELETABLE table (currently **Form Submissions** — deleting spam/test leads). `DELETABLE_OVERVIEW_TABLES` (a `key→real-table` map) is the allowlist boundary AND the killswitch; `form_submissions` browse now SELECTs a stable `id` (kept out of the display columns). Full safety chain: org auth (401) → `ownsSiteData` tenant gate (404, never 403) → allowlist resolves a trusted literal table name (a hostile `:table` never reaches SQL, 400) → parameterized double-scope `WHERE id=? AND site_id=?` → `meta.changes===0` → 404 (never a silent success) → audit-logged (`site_data.row_deleted`). UI: a danger-styled **Delete row** button in the row-detail bar (only for a deletable table + a stable-`id` row) → `ConfirmService` dialog showing the exact parameterized statement → refreshes grid + Overview counts. +11 Jest (5 route: 401/404-tenant/400-readonly/400-hostile/200-parameterized/404-no-match + 6 helper: allowlist boundary) + 6 Karma (button-visibility deletable-only · read-only-hidden · confirm+call+toast+refresh · cancel-noop · readonly/no-id-noop · error-toast). Prod-verified live (non-destructive): 401 · 400 read-only · 404 no-match · 404 tenant-isolation. | HARD delete (`form_submissions` has no `deleted_at`) → explicit confirm required; only `form_submissions` is deletable (others read-only) |
 | **Bulk delete (multi-row select, own rows)** | `POST /api/sites/:siteId/data-overview/:table/bulk-delete` `{ids[]}` → parameterized `DELETE … WHERE id IN (?,…) AND site_id = ?` | owner | ✅ **DONE (this fire)** — grid row checkboxes + a select-all-on-page header check (deletable tables only) + a bulk bar ("N selected · Delete selected · Clear") → `ConfirmService` shows the count + the exact statement → one batched delete (clearing spam/test leads at once). Same safety chain as the single delete PLUS: ids deduped + validated (non-empty strings) + **capped at 100** (400 over-cap), every id a BOUND `?` in the `IN (…)` list (never interpolated), double-scoped by site, and an **honest `{requested, deleted, skipped}`** report (ids matching no row for this site are skipped, not errors). Audit-logged (`site_data.rows_bulk_deleted`, added to the activity-trail filter). Selection CLEARS on every re-fetch (page/table/filter/sort) so a stale id can never be deleted. +11 Jest (401 · tenant-404 · readonly-400 · hostile-400 · empty-400 · invalid-400 · over-cap-400 · parameterized-IN-200 · dedupe · partial) + 6 Karma (bulk call+toast · deletable-only checkboxes · select-all id-only · cancel-noop · clear-on-refetch · partial toast). Prod-verified live (non-destructive): 401 · 400 read-only · 400 empty · 200 `{requested:1,deleted:0,skipped:1}` via a nonexistent id · 404 foreign site. | HARD delete (no `deleted_at`); ≤100/batch; only `form_submissions` deletable |
-| **Row edit (allowlisted typed column)** | `PATCH /api/sites/:siteId/data-overview/:table/:rowId` → parameterized `UPDATE … SET "col" = ? WHERE id = ? AND site_id = ?` | owner | ✅ **DONE (this fire)** — the owner can edit an allowlisted, typed column of their OWN row. First column: **`form_submissions.status`** (an enum — retriage a lead received→forwarded). `EDITABLE_OVERVIEW_COLUMNS` (a per-table `{column → {type,options}}` map) is the boundary + killswitch: only a SAFE, constraint-bounded column is exposed (never PII like email/payload, never a structural column). Safety chain mirrors delete: auth (401) → `ownsSiteData` (404) → `editableTableName` (read-only table → 400) → `editableColumn` (non-editable/hostile column → 400, never reaches SQL) → `validateEditableValue` (out-of-enum → 400, never written) → parameterized double-scope `WHERE id=? AND site_id=?` → `meta.changes===0` → 404 → audit (`site_data.row_updated`). UI: an enum `<select>` + **Save** in the row-detail (only for editable tables/columns), Save-enabled only when changed, `ConfirmService` shows the exact UPDATE, reverts the draft on cancel. **Reversible** (unlike delete). +12 Jest (7 route: 401/tenant-404/readonly-400/column-400/enum-400/parameterized-200/no-match-404 + 5 helper: editable allowlist + enum validation) + 7 Karma. Prod-verified live (non-destructive): 401 · 400×3 (table/column/value) · 404 no-match · 404 tenant. | enum-typed only today (mirrors the D1 CHECK); NULL/number/bool/JSON editors + INSERT (add-row) are the next slice on this same allowlist |
+| **Row edit (allowlisted typed column)** | `PATCH /api/sites/:siteId/data-overview/:table/:rowId` → parameterized `UPDATE … SET "col" = ? WHERE id = ? AND site_id = ?` | owner | ✅ **DONE (this fire)** — the owner can edit an allowlisted, typed column of their OWN row. First column: **`form_submissions.status`** (an enum — retriage a lead received→forwarded). `EDITABLE_OVERVIEW_COLUMNS` (a per-table `{column → {type,options}}` map) is the boundary + killswitch: only a SAFE, constraint-bounded column is exposed (never PII like email/payload, never a structural column). Safety chain mirrors delete: auth (401) → `ownsSiteData` (404) → `editableTableName` (read-only table → 400) → `editableColumn` (non-editable/hostile column → 400, never reaches SQL) → `validateEditableValue` (out-of-enum → 400, never written) → parameterized double-scope `WHERE id=? AND site_id=?` → `meta.changes===0` → 404 → audit (`site_data.row_updated`). UI: an enum `<select>` + **Save** in the row-detail (only for editable tables/columns), Save-enabled only when changed, `ConfirmService` shows the exact UPDATE, reverts the draft on cancel. **Reversible** (unlike delete). +12 Jest (7 route: 401/tenant-404/readonly-400/column-400/enum-400/parameterized-200/no-match-404 + 5 helper: editable allowlist + enum validation) + 7 Karma. Prod-verified live (non-destructive): 401 · 400×3 (table/column/value) · 404 no-match · 404 tenant. **(2026-09-25) Broadened to a TEXT type** — `form_submissions.notes` (owner's private free-text lead annotation ≤2000 chars; migration `0640` ADD COLUMN, applied to prod D1 + verified via pragma_table_info). `EditableColumnSpec` is now a discriminated union (`enum` \| `text`); `validateEditableValue` bounds text length (empty string = clear the note, a first-class action) + binds the value as a `?` param (a `'; DROP…` note is stored literally, never executed); the row-detail renders a maxlength-bound `<textarea>` for text columns beside the enum `<select>`. +4 Jest (notes bound-param · clear · over-cap-400 · union) + 2 Karma (textarea maxlength-bound · saveEdit PATCHes note). | enum + **text** typed today; inline grid-cell editing (epic #7) shipped 2026-09-25 (click/Enter/dblclick an editable cell → in-place enum select / text input → same confirmed PATCH; +11 Karma; fixed a nested-`@for` `$index` row-vs-column shadowing bug); NULL/number/bool/JSON editors + INSERT (add-row) remain the next slice on this same allowlist |
 | **Activity (data-mutation audit trail)** | `GET /api/sites/:siteId/data-activity` → `audit_logs` filtered to `site_data.*` + `json_extract($.site_id)` | owner | ✅ **DONE (this fire)** — answers the epic's "Activity and observability" pillar: a collapsible **"Recent activity"** panel in the Data browser lists the owner's OWN row deletes + edits (actor + safe human summary + table + relative timestamp via the Cycle-29 `compactAge`), newest first. Read-only, org+site-scoped (`ownsSiteData` + `json_extract($.site_id)`), action-allowlisted so app traffic never leaks in; the raw audit `metadata_json` (which may carry a column value) is NEVER returned (only `message`/table/actor/time). Refreshes after each delete/edit; hidden when empty (honest). Distinct path (`/data-activity`, NOT `/data-overview/activity` — the latter is shadowed by the `/data-overview/:table` browse route). +4 Jest (401/404-tenant/mapped-shape+scoped-query/fail-soft-empty) + 3 Karma (panel renders · hidden-when-empty · loads-on-init+refreshes-after-delete). Prod-verified live: 401 · 404 tenant · 200 honest-empty (no mutations for this site). | shows only THIS Data browser's mutations (delete/edit); not app traffic or general audit events |
 | CSV export (bounded) | client-side | owner/superadmin | DONE | filtered rows only |
 | EXPLAIN QUERY PLAN + index hints | `EXPLAIN QUERY PLAN` via `/sql/exec` | superadmin | ✅ DONE — "Explain" button shows the plan (`detail` per step) + an **index hint** (flags a bare full-table `SCAN` / `USE TEMP B-TREE` sort → "add an index"; ✓ when the plan is index-covered) | EXPLAIN plans but never EXECUTES — safe for any query the editor holds |
 | Query cost (rows read/written, D1 duration) + **expensive-scan warning** | D1 `meta` | superadmin | ✅ DONE — `/sql/exec` returns `rows_read/rows_written/d1_duration_ms` AND the SQL console now **displays** "read N · wrote N · D1 Xms" + a ⚠ **expensive-scan warning** above 10k rows read ("add an index") | null (never a fabricated 0) when the runtime omits meta; shown only for a reported value |
 | CSV / JSON row import (preview, conflict) | batched INSERT | owner | PLANNED | 100 KB SQL cap → chunk ≤500 rows/call |
-| SQL import / export (full DB) | `POST /d1/database/{id}/{import,export}` (async, ETag poll) | superadmin | PLANNED | export = **SQL text dump, NOT a .sqlite file**; needs D1 REST creds |
-| Time Travel (bookmark + restore) | `wrangler d1 time-travel` / REST | superadmin | PLANNED | retention **30 d paid / 7 d free**; ≤10 restores/10 min |
+| SQL EXPORT (full/scoped DB) | `POST /d1/database/{id}/export` (CF async polling) via `POST /api/admin/d1/:databaseId/export` (super-admin, flag `d1_manager`) | superadmin | ✅ **WORKER DONE (2026-09-25, flag-dark)** — `d1_manager` gained a bounded-poll export endpoint: kicks off CF's polling export, polls up to 6 back-to-back round-trips/request, returns `{status:complete, signedUrl (valid ~1h), filename}` OR `{status:processing, bookmark}` (client re-POSTs `currentBookmark` to resume — never blocks the Worker) OR honest `error`/`unavailable` (never a fabricated URL). Scopable via `dump_options.tables/no_data/no_schema`. Hostile table name → 400 at the Zod boundary (never reaches CF). **CF caveat surfaced honestly** in the response `note`: export briefly makes the DB **unavailable to serve queries** (per CF docs). +9 Jest (gate/uuid/hostile-table/complete/scoped/processing-bookmark/resume/error/unavailable/db-not-found). Worker deployed + prod-verified 404-dark. **UI DONE (2026-09-25)** — the Editor D1 tab's Overview panel gained an "Export SQL dump…" affordance: a 2-step confirm (button → amber warning "SQL text dump, not .sqlite; briefly makes the DB unavailable; link valid ~1h" → "Start export") → the client polls the async job (`PS_D1` export op → `bolt-embed` POST → the worker endpoint; up to 12×1.5s client resume-polls via the returned bookmark) → a "↓ Download &lt;filename&gt;" link on complete, or honest error / "taking longer" states. Never a fabricated URL — the pure `classifyExportResponse` refuses a URL-less "complete". +5 Vitest; editor+frontend tsc 0; Vitest 400/400; Karma 2272. | SQL text dump, **NOT a native .sqlite file**; DB briefly unavailable during export (CF); a full-DB export of the SHARED platform DB affects all tenants → scope to tables + run at low traffic; stays super-admin + flag-dark (404 in prod → zero accidental-outage risk) |
+| SQL / CSV / JSON row IMPORT | `POST /d1/database/{id}/import` (async) or batched INSERT | superadmin/owner | PLANNED | preview + type mapping + conflict behaviour + validation + chunking; respects statement-size limits |
+| **Resource discovery + database Overview** (list DBs · size · table count · region · read-replication · version) | CF D1 REST `GET /d1/database[/:id]` via `GET /api/admin/d1/*` (super-admin, flag `d1_manager`) | superadmin | ✅ **DONE (2026-09-25)** — mirrors the KV/R2/Vectorize/Queues inspector pattern: `libs/features/d1_manager` lists the account's D1 databases + one DB's Overview metadata (file size, table count, running region, read-replication mode, version). **Proves the worker HAS working D1 REST creds** — `resolveCfCredentials` (the same global key the Vectorize/Queues inspectors call REST with), so the "needs D1 REST creds" caveat on the import/export + Time-Travel rows is really "needs implementation," not "needs a token." Account = `env.CF_ACCOUNT_ID` (never client); `:databaseId` UUID-validated (no REST-path injection); the super-admin gate is authz. Honest `available:false` (never a fabricated empty list) on CF failure, `found:false` on 404, metrics `null` (never a fabricated 0) when omitted. +10 Jest; worker deployed (`2d60735b`), routes prod-verified 404-dark (exact `{error:{code:NOT_FOUND}}` shape, matching the sibling inspectors). **Surfaced IN the Editor Data panel** — a "D1" tab (`D1Browser.tsx` → `PS_D1_REQUEST` bridge → `bolt-embed.service` proxy → `/api/admin/d1/*`): database list → Overview metadata card + honest empty/unavailable states. +5 Vitest (formatBytes/formatCount/dbLabel); editor+frontend tsc 0; pushed (Pages auto-deploy). | account-wide super-admin view (shared platform DBs, like the KV/R2/Vec/Queue inspectors); read-only (no query/write/restore); this is the REST-sourced answer to the Overview + migration rows' "size/usage need D1 REST creds" caveat, at super-admin scope |
+| **Account-wide schema catalog + columns + FKs + indexes** (the `d1_manager` D1Browser) | REST `sqlite_master` SELECT via `GET /api/admin/d1/:databaseId/tables` (super-admin, flag `d1_manager`) + **client-side CREATE-SQL parse** | superadmin | ✅ **DONE (2026-09-25)** — the account-wide D1 tab (`D1Browser.tsx`, sibling of the KV/R2/Vec/Queue inspectors) gained a **Schema browser** under the Overview card: the worker runs ONE static read-only `sqlite_master` SELECT → tables/views/indexes/triggers catalog (+ per-type counts + each object's CREATE SQL); the editor filters/searches the object list and, on selecting a table, **parses its columns from the DDL** (`parseCreateTableColumns` — name/type/NOT NULL/DEFAULT/PK incl. composite 1-based position) since REST blocks PRAGMA; a copyable "CREATE SQL" expander is the always-available source of truth (views/virtual/FTS tables show DDL only). **Indexes + foreign keys added (2026-09-25):** a selected table now also shows its **foreign keys** (`parseForeignKeys` — inline `col REFERENCES t(x)` + table-level `FOREIGN KEY (a,b) REFERENCES t(x,y)` composite-paired + named `CONSTRAINT`; a purple **FK** badge annotates the column grid) and its **indexes** (from the catalog's `type='index'` objects whose `tbl_name` = the table, each parsed by `parseIndexColumns` → column list + **UNIQUE** badge). Honest states: `available:false` (CF fail) / `found:false` (unknown DB) / empty catalog / "column details unavailable — see CREATE SQL". +5 Jest (gate/uuid/catalog-map+counts/CF-404/CF-fail) + 17 Vitest (`parseCreateTableColumns` 5 + **`parseForeignKeys` 4** + **`parseIndexColumns` 3** + `filterSchemaObjects`/`schemaCountsLabel`/`isBrowsableObject`/labels). Worker + editor tsc/eslint/prettier clean; CF `sqlite_master` REST verified against prod D1 (real objects returned). | REST `/query` **blocks PRAGMA** (`SQLITE_AUTH`) → columns/FKs are parsed from CREATE SQL (best-effort; DDL always shown as fallback), indexes from the catalog. Account-wide super-admin view of SHARED platform DBs (like the KV/R2/Vec/Queue inspectors); read-only (no query/write/restore). Now matches the site-scoped Schema tab's (row 83) index/FK detail; generated columns + WITHOUT ROWID still surface only via the raw DDL |
+| **Relationship diagram (ERD)** (the `d1_manager` D1Browser) | pure `buildErdModel(catalog)` over the already-fetched `sqlite_master` objects + `parseForeignKeys` — **no new backend/API** | superadmin | ✅ **DONE (2026-09-25, epic Tier-2 #5)** — the D1Browser Schema header gained a **"◇ Diagram"** toggle that renders a ZERO-DEP SVG **entity-relationship diagram**: every `table` object is a node laid out on a **deterministic grid** (sorted by name → stable across refreshes; `ceil(√n)` columns), every parsed foreign key is an **arrowed edge** pointing at the referenced table (arrowhead marker; hover `title` = `from.col → to.col`), and a self-referencing FK renders a **self-loop badge** (never a zero-length line). Pure `buildErdModel` resolves edge endpoints to node CENTERS so the SVG is a plain `<line>`; it **skips a FK to an absent/system table** (never a dangling edge) and returns an empty model (zero canvas) for a table-less schema. Honest empty state: "No foreign-key relationships — N independent tables" when tables exist but no FKs. Themed with `fill-/stroke-bolt-elements-*` (accent edges, depth-1 node fills), `role=img` + `aria-label` (N tables, M relationships), scroll-contained `max-h-420px`. Reuses the FKs parsed in row 269 — the "understandable relationship view" the prompt asks for. +8 Vitest (`buildErdModel`: tables-only-nodes / name-sorted / FK-edges-with-center-endpoints / self-ref-flag / skip-absent-table / deterministic-grid / edge-count / empty-schema). Editor tsc + eslint + prettier clean; verify-by-build (`data-d1-erd` in `Workbench.client-*.js`). Editor Pages auto-deploy. | Account-wide super-admin view (shared platform DBs); read-only visualization. Grid layout (not force-directed) — deterministic + zero-dep; edges may cross on a dense schema (acceptable for the typical <20-table D1; a future polish could layer/route edges). FK accuracy inherits `parseForeignKeys` (DDL-parsed, since REST blocks PRAGMA). |
+| Time Travel (point-in-time recovery) | `wrangler d1 time-travel` CLI + Worker binding (**NO REST API** — verified against CF docs 2026-09-25) | superadmin | ✅ **INFO SURFACED (2026-09-25)** — the D1Browser "Point-in-time recovery" panel (beside the SQL-dump export) states the real retention + the exact `wrangler d1 time-travel restore <db> --timestamp=<ISO>` command (copyable) + the honest no-REST caveat. A one-click restore is intentionally NOT offered — CF exposes Time Travel only via the CLI/binding, so a REST-driven restore button would be a fake control. `timeTravelInfo()` SSOT + 3 Vitest. | retention **30 d paid / 7 d free** (verified); restore is CLI/binding-only — **no REST endpoint exists**, so it can't be a worker button. The portable-backup alternative that IS available is the SQL-dump export (row 99) |
 | **Migration status (applied ledger)** | `GET /api/sites/:id/sql/migrations` → `SELECT name, applied_at FROM d1_migrations ORDER BY id DESC` | superadmin | ✅ **DONE (this fire)** — an "Applied migrations" panel in the Schema tab (`SiteSchemaBrowserComponent`) lists the wrangler-managed `d1_migrations` ledger (name + applied_at, newest first, ≤500). Full auth chain: 401 unauth → **403 non-super-admin (ledger never read)** → 404 site-not-in-org (`dbQueryOne`) → read → audit (`site.sql.migrations`). Honest: `d1_migrations` absent → `available:false` (never a fake "0 migrations"); a 403/network failure fails soft to "ledger not available", never an error card. +5 Jest (401/403-no-read/404/list+audit/absent→available:false) + 3 Karma (renders newest-first / honest-unavailable / 403→unavailable). Prod-verified live+gated: 401 · 403 (E2E key) · endpoint 200-path locked by Jest. | Applied ledger only. **Drift / pending NOT offered** — the migration FILES aren't present in the running Worker, so applied-vs-pending can't be computed without lying; the UI states this. DB size / usage need D1 REST creds. |
+| **Data insights strip** (D1Browser Overview takeaways) | `GET /api/admin/d1/:databaseId/insights` (super-admin, flag `d1_manager`) — catalog + ONE bounded per-table `COUNT(*)` round-trip | superadmin | ✅ **DONE (2026-09-25, epic Tier-1 #3)** — the account-wide D1Browser Overview gained an **Insights strip** (≤5 plain-language chips) derived from REAL data: total tables/rows · **largest table** (name + count) · **empty tables** (named when 1, counted when >1) · **structural counts** (views/indexes/triggers). The worker reads the server `sqlite_master` catalog → collects table names → builds ONE bounded query of scalar `COUNT(*)` subqueries (server-catalog identifiers, `quoteIdent`-quoted — never a client value; **capped at 40 tables**, `capped` flagged) → parses `c{i}`→`{name,rows}`. Pure `buildRowCountQuery`/`parseRowCounts` (worker) + `buildDataInsights` (editor) keep all logic unit-tested. Honest states: empty DB → structural-only, **no count query fired**; `found:false` on 404; `available:false` on CF fail; an empty table surfaces as a legit `rows:0` (never fabricated). Best-effort in `openDatabase`'s `Promise.all` — the strip simply hides (`insightRows.length === 0`) if insights are absent, never blocking the Overview. Safety chain identical to the sibling d1_manager routes: `gate` (super-admin + flag → 404-dark) → UUID-validated `:databaseId`. +7 Jest (pure builder/parser incl. hostile-name quoting + handler gate-404/counts+total/empty-DB-no-count) + 4 Vitest (`buildDataInsights`: empty→[] · totals+largest+empty+structure · singular grammar · ≤5 cap). Worker 12676 Jest / editor 443 Vitest / frontend 2329 Karma all green; tsc + eslint clean. Also **closed pre-existing drift**: added the missing `d1_manager` **FLAG_DOCS** entry (checklist + explanation + smoke_test) — `feature_flags_docs` suite was chronically red on origin/main, now green. Worker deployed + prod-verified 404-dark; editor auto-deploys via Pages. | Account-wide super-admin view (SHARED platform DBs, like the KV/R2/Vec/Queue inspectors); read-only. Row counts capped at 40 tables (`capped:true` beyond); "largest/empty" are exact per-table `COUNT(*)`, not estimates. Owner-surface growth-delta / anomaly flavors (epic #3) remain optional future polish — the owner `/data-overview` already has its own summary strip (row 233) + per-table freshness (row 234). |
 
 ### D1 platform facts (verified 2026)
 - Query REST `POST /accounts/{acct}/d1/database/{id}/query` (+ `/raw`, batch via array);
@@ -85,110 +287,75 @@
 - SQLite gaps in D1: **no** explicit `BEGIN/COMMIT/ROLLBACK`, `SAVEPOINT`, `ATTACH DATABASE`,
   loadable extensions; FKs **default OFF**. Supported PRAGMAs incl. table_info/table_list/
   index_list/index_info/foreign_key_list/quick_check/foreign_key_check.
+- **PRAGMA path split — verified 2026-09-25 (important):** PRAGMA runs via the **Worker binding**
+  (`env.DB.prepare('PRAGMA table_info(x)').all()`) — that's how the site-scoped Schema tab (row 83)
+  reads columns/indexes/FKs. But the **REST `/query` endpoint** (`POST …/d1/database/{id}/query`,
+  used by the account-wide `d1_manager`) runs under an authorizer that **BLOCKS `PRAGMA` AND the
+  `pragma_table_info()` table-valued function** → `SQLITE_AUTH` (code 7500). `sqlite_master` SELECTs
+  ARE allowed over REST. So an account-wide (REST-sourced) schema browser must read `sqlite_master`
+  and **parse columns from CREATE SQL**, never PRAGMA — see the account-wide schema-catalog row.
 
-## Resources in the "Data" section — DECIDED (ADR-0036, 2026-09-25)
+## Other resources — honest status
 
-**The Data section manages exactly TWO per-site resources: D1 and KV.** Everything else is
-removed from Data.
+| Resource | Inspect/manage via | Status | Hard limitation |
+|---|---|---|---|
+| **KV** | READ-ONLY inspector — binding `list` + `getWithMetadata` via `GET /api/admin/kv/*` (super-admin, flag `kv_inspector`) | ✅ **DONE (read-only)** — namespaces (server allowlist) → prefix search → cursor-paginated keys → value+metadata+TTL panel (64 KiB value cap); `/admin/kv-inspector` behind sysAdminGuard, backend 404-dark; 19 Jest + 12 Karma; deployed. **Also surfaced IN the Editor Data panel (2026-09-25)** — a "KV" tab beside Tables/SQL (`KvBrowser.tsx` → `PS_KV_REQUEST` postMessage bridge → Angular `bolt-embed.service` proxy → the same `/api/admin/kv/*`), so an operator manages D1 **and** KV from one Data surface (the DATA-loop ask). Namespace picker → prefix search + cursor "Load more" → value viewer (JSON pretty-print + metadata + expiration) + honest "read-only · eventually consistent" note; editor+frontend tsc 0 errors, endpoints prod-verified 404-gated, frontend deployed (297/297). Write/delete + bulk deferred. | eventual consistency (disclosed in UI); **shared platform** namespaces only (CACHE_KV/PROMPT_STORE), NOT tenant-owned |
+| **R2** | READ-ONLY inspector — binding `list` + `head` via `GET /api/admin/r2/*` (super-admin, flag `r2_inspector`) | ✅ **DONE (read-only, backend + frontend)** — buckets (server allowlist) → prefix + cursor-paginated objects (≤1000, key/size/uploaded/etag/contentType) → object METADATA via HEAD (never the body → no large-object memory risk); `/admin/r2-inspector` behind sysAdminGuard, backend 404-dark; trace telemetry; 12 Jest + 12 Karma; deployed. **Also surfaced IN the Editor Data panel (2026-09-25)** — an "R2" tab beside Tables/SQL/KV (`R2Browser.tsx` → `PS_R2_REQUEST` postMessage bridge → Angular `bolt-embed.service` proxy → the same `/api/admin/r2/*`), so an operator inspects D1 · KV · R2 from one Data surface (the DATA-loop ask). Bucket picker → prefix search + cursor "Load more" → object metadata panel (size via `formatBytes` / content-type / uploaded-relative / key + preview-safe hint) + honest "read-only · object metadata only (no downloads)" note; +`r2-browser-logic.spec` Vitest; editor+frontend tsc 0 errors; endpoints prod-verified 404-gated; frontend deployed. Upload/download/delete deferred. | `head`-only (bodies not streamed this slice); **shared** SITES_BUCKET only (generated sites + media), NOT tenant-owned; multipart/object-size guards needed before body download |
+| **Vectorize** | READ-ONLY inspector — v2 REST `GET .../vectorize/v2/indexes` + `/indexes/:name` + `/info` via `GET /api/admin/vectorize/*` (super-admin, flag `vectorize_inspector`) | ✅ **DONE (read-only, backend + frontend, 2026-09-25)** — index list → describe panel (dimensions, distance metric, description, timestamps, **vector count** + last-processed mutation from `/info`); `/admin/vectorize-inspector` behind sysAdminGuard, backend **404-dark** (prod-verified: no-auth + authed-non-super-admin both 404). CF creds SERVER-side (`resolveCfCredentials` global key), account = `env.CF_ACCOUNT_ID` (never client); `:name` a validated slug (no REST-path injection). Honest `available:false`/`found:false` (never a fabricated empty list/index). 10 Jest + 6 Karma; chunk MD5 local==prod. **Also surfaced IN the Editor Data panel (2026-09-25)** — a "Vectors" tab beside Tables/SQL/KV/R2 (`VectorizeBrowser.tsx` → `PS_VEC_REQUEST` postMessage bridge → Angular `bolt-embed.service` proxy → the same `/api/admin/vectorize/*`), so an operator inspects D1 · KV · R2 · Vectorize from one Data surface (the DATA-loop ask). Index list (name · dimensions · metric) → describe panel (dimensions / metric / vector count / last mutation); honest `available:false`→"not available (reason)" note; +`vectorize-browser-logic.spec` Vitest; editor+frontend tsc 0 errors; endpoint prod-verified 404-gated; frontend deployed. **Query/upsert/delete NOT exposed** (read-only). | shared PLATFORM indexes (RAG/embeddings), NOT tenant-owned — super-admin debug view (like KV/R2). Query is binding-only (per-index); async mutations (1–2 s) — out of scope for a read-only inspector |
+| **Hyperdrive** | REST config + health | PLANNED | **no** inspect/query API; browser only via an authorized DB connection path |
+| **Durable Objects** | classes/bindings list | BLOCKED (data) | internal SQLite is **RPC-only**, NOT arbitrarily queryable via public API |
+| **Queues** | READ-ONLY inspector — account REST `GET /queues` + `/queues/:id` via `GET /api/admin/queues/*` (super-admin, flag `queues_inspector`) | ✅ **DONE (read-only, backend + frontend, 2026-09-25)** — queue list → describe panel (message retention, delivery delay, **producers + consumers** with worker script/service); `/admin/queues-inspector` behind sysAdminGuard, backend **404-dark** (prod-verified: no-auth + authed-non-super-admin both 404). CF creds SERVER-side (`resolveCfCredentials` global key), account = `env.CF_ACCOUNT_ID` (never client); `:id` a validated slug (no REST-path injection). Honest `available:false`/`found:false` (never fabricated). Prod-verified on the account's **5 real queues** (gitlink-jobs, grants-*, project-sites-workflows-*). 9 Jest + 6 Karma; chunk MD5 local==prod. **Also surfaced IN the Editor Data panel (2026-09-25)** — a "Queues" tab beside Tables/SQL/KV/R2/Vectors (`QueuesBrowser.tsx` → `PS_QUEUE_REQUEST` postMessage bridge → Angular `bolt-embed.service` proxy → the same `/api/admin/queues/*`), so an operator inspects **D1 · KV · R2 · Vectorize · Queues** from one Data surface — completing the read-only resource-adapter set (the DATA-loop ask). Queue list (name · producers/consumers counts) → describe (retention / delivery-delay / producers / consumers / created); honest `available:false`→"not available (reason)" note; +`queues-browser-logic.spec` Vitest; editor+frontend tsc 0 errors; endpoint prod-verified 404-gated; frontend deployed. **Publish/purge/consume NOT exposed** (read-only). | shared PLATFORM pipelines (jobs/workflows), NOT tenant-owned — super-admin debug view (like KV/R2/Vectorize). Pull consumer needs explicit ack; message BODIES not read (metadata only) |
 
-| Resource | In "Data"? | Disposition |
-|---|---|---|
-| **D1** (per-site) | ✅ YES — first-class | Full SQLite editor — requirements below |
-| **KV** (per-site, `_kv`-in-D1) | ✅ YES — first-class | Full KV manager — requirements below |
-| **R2** | ❌ REMOVED | The whole bucket **mounts into the bolt.diy editor file tree** — files, not a data browser |
-| **Vectorize** | ❌ REMOVED | Not a tenant store; only a dormant platform-internal use (`RAG_INDEX`/site-DNA). If ever offered → a WfP-Functions binding, never Data |
-| **Queues** | ❌ REMOVED | Compute, not data → mediated Feature / WfP-Functions |
-| **Workflows** | ❌ REMOVED | Compute, not data → mediated Feature / WfP-Functions (≠ the platform's own `SITE_WORKFLOW`) |
-| **Hyperdrive · Durable Objects** | ❌ out of scope | Not Data-section resources |
+> **Wiring completion (2026-09-25):** all four inspectors above shipped as component+route+spec but
+> were left **unwired** — NONE was in the admin nav, NONE had a `ADMIN_SECTION_LABELS` entry (doc title
+> fell back → WCAG 2.4.2), and NONE had an `admin-contract.mjs` row (4 build-blocking `check:admin-contract`
+> UNCOVERED drift errors). Fixed: 4 Operations nav items (`sysAdminOnly`), 4 section labels (match each
+> `<h1>`), 4 flag-dark contract rows (soft severity — worker 404s when the flag is off), and all 4 routes
+> locked into `admin-nav.model.spec` so they can't be silently dropped again. `check:admin-contract`: 4 → 0.
+> Prod-verified: `main` bundle byte-identical (all 4 routes live). The features remain flag-dark (default
+> off); a super-admin enables each via `/admin/feature-flags`, and each component 404-degrades honestly
+> until then. NOTE: the wiring is verified; the super-admin POPULATED path can't be exercised headless
+> (the E2E key isn't super-admin), but the backends+components were shipped+tested by the originating fires.
 
-The V/Q/W/R2 mockup was archived to `docs/mockups/_archived/`. Removal is Slice 0 below.
+## Slice order (execution)
+1. **Authorized discovery + safe browse** — schema introspection (superadmin) +
+   owner-browse pagination. ✅ backend DONE; **owner UI shipped** — the `/admin/sites/:id`
+   **Data tab** (`SiteDataBrowserComponent`): table picker with live row counts →
+   server-paginated, column-sortable grid → per-row JSON detail, all on real endpoints.
+   **Superadmin Schema tab shipped** — `SiteSchemaBrowserComponent` (searchable table list →
+   columns/indexes/FKs/DDL), consuming the previously-unwired `/sql/schema` endpoint.
+2. Row edit/delete with stable PK predicates (owner). **Row DELETE shipped for
+   `form_submissions`** (this fire) — the owner's most common data-management need is deleting
+   spam/test leads. The `form_submissions` browse now SELECTs a stable `id` (kept OUT of the
+   display columns), and `DELETABLE_OVERVIEW_TABLES` gates which tables expose a delete (only
+   `form_submissions` today; the other 4 overview tables — visitor_events/snapshots/mcp/site_data —
+   stay READ-ONLY, they're system/analytics data or have their own lifecycle). The delete is
+   allowlist-bounded + tenant-gated + parameterized `WHERE id=? AND site_id=?` + affected-rows-checked
+   + audit-logged + confirmed in the UI (HARD delete — `form_submissions` has no `deleted_at`).
+   **Row EDIT shipped for `form_submissions.status`** (this fire) — an allowlisted enum column
+   (`EDITABLE_OVERVIEW_COLUMNS`), edited via a typed `<select>` + confirm + `PATCH`, server-validated
+   against the enum + double-scoped by site + audited (`site_data.row_updated`). Reversible.
+   **Next: broaden the typed editors** — NULL/number/bool/JSON cell editors + INSERT (add-row) on
+   the same allowlist + stable-id plumbing (only enum-typed columns are editable today).
+3. SQL console upgrades — **query-cost + expensive-scan warning ✅ DONE; EXPLAIN QUERY PLAN + index
+   guidance ✅ DONE; plain-language SQLite/D1 error explanations ✅ DONE** (`explainSqlError` maps no-such-
+   table/column/function · syntax · unrecognized-token · UNIQUE/FK-constraint · too-complex → a friendly
+   line, with the RAW error always retained below for debugging; unknown error → raw only, never hidden).
+   **Saved queries + reusable reuse ✅ DONE (this fire)** — user-named, per-site-persisted saved queries
+   (`ps_sql_saved_<siteId>`, dedup-by-name, load-to-review + delete), the built-in `sqlStarters` chips, and
+   **query history is now clickable-to-recall** (loads into the editor without auto-running). **Multi-tab
+   (multiple concurrent editor buffers) ✅ DONE (2026-09-25)** — independent localStorage-persisted SQL
+   buffers you switch between, each preserving its own text. Only CodeMirror-dependent items (syntax
+   highlighting, schema-aware completion) remain in the SQL workspace.
+4. Import (CSV/JSON, chunked) + bounded exports. **Whole-table CSV/JSON export ✅ DONE**
+   (owner grid, paged to a 5k cap via `utils/csv-export`, honest capped note); chunked import +
+   true streaming/async export for >5k rows remain.
+5. D1 REST import/export + Time Travel (needs a scoped D1 REST token — see below).
+6. Resource adapters (KV, R2, Vectorize, …) behind a shared authz/audit/UI base.
 
-## D1 SQLite editor — full requirements (the "fully decked-out" target)
-
-Targets the SITE's OWN per-site D1 (never the shared platform DB). Best-in-class SQLite
-editor — DB Browser / Beekeeper / Outerbase parity:
-
-- **Table browser** — tables/views/indexes/triggers · live row counts · per-table recent-activity. ✅ *(retarget to per-site)*
-- **Row grid** — server-paginated · sortable · text search · per-column exact filter · column show/hide · click-to-copy · row-detail JSON · filtered CSV/JSON export. ✅ *(retarget to per-site)*
-- **Row CRUD (full)** — add row (INSERT) · edit ANY typed cell (text / number / bool / null / JSON / date — not just enums) · delete · bulk delete · inline validation + confirm + undo where possible. ⟳ *(today: enum-only edit + `form_submissions` delete)*
-- **Schema editor** — create / alter / drop table · add / drop / rename column · create / drop index · manage FKs — via UI + DDL. PLANNED
-- **SQL console (full)** — SELECT/DDL/DML · run-selection · positional bind params · saved queries · history recall · EXPLAIN QUERY PLAN + index hints · query cost + expensive-scan warning · plain-language errors · **multi-tab buffers** · **CodeMirror 6 syntax highlighting + schema-aware autocomplete**. ⟳ *(most ✅; multi-tab + CodeMirror pending — a dep decision)*
-- **Import / export** — CSV/JSON import (chunked · preview · conflict) · full SQL-dump export · **D1 Time Travel (bookmark / restore)** · applied-migrations ledger. PLANNED *(needs per-site D1 REST token)*
-- **Isolation** — it's the tenant's OWN DB, so no cross-tenant PROTECTED_TABLES denylist is needed; still protect platform-reserved tables (`_kv`, `d1_migrations`) + confirm destructive ops.
-
-## KV manager — full requirements (fully-featured target)
-
-Targets the site's KV (the `_kv` table in its per-site D1). Best-in-class KV browser:
-
-- **Key browser** — list keys with prefix filter + search · paginated · value preview + metadata + TTL/expiration per key · prefix-as-folder tree.
-- **Value viewer / editor** — view/edit value (text · JSON pretty-print · binary/base64) · edit metadata · set/clear TTL.
-- **CRUD** — put (create/update) · delete · bulk delete · bulk import (JSON/CSV of key→value [+metadata +ttl]) · export (JSON/CSV).
-- **Affordances** — click-to-copy key/value · honest counts · loading / empty / error states · confirm on destructive.
-- **Isolation** — scoped to the site's own `_kv`; a tenant Worker binds only its own store.
-
-### Resource categorization + provenance (Brian, 2026-09-25)
-
-- **These six rows are a 2026-09-23 discovery-pass INVENTORY of "what CF resources
-  COULD be surfaced," NOT a committed product decision.** No ADR, no flag, no rendered
-  tab — only D1 ships. Do not treat the inventory as agreed scope.
-- **Data ≠ Compute — only stores the OWNER browses belong in "Data":**
-  - **DATA (belongs here):** D1 (live) · **R2 / Media-Files** (per-org TODAY,
-    `media/{orgId}/…` + full `/api/media/*` — the #1 real near-term add, needs no WfP) ·
-    **Snapshots** (frozen build versions) · KV (once per-site KV exists).
-  - **COMPUTE / plumbing (does NOT belong in Data → the Functions tab):** Queues +
-    Workflows (in-flight messages / running processes, not stored data) · Durable Objects
-    (RPC-only) · Hyperdrive (a connection, not a store).
-- **Vectorize** is a real store but per-site vectors are speculative for our small-biz
-  output → gate behind an AI-features flag, never default Data. It's already a platform
-  binding (`RAG_INDEX`) accessed FROM a Worker; "doing vectors in a Worker" still means
-  this binding (or a worse brute-force-in-D1 fallback — D1 has no vector index).
-- **Workflows/Queues are NOT alternatives to Workers** — they're Workers-platform
-  primitives (we already run `SITE_WORKFLOW`). Bind them; don't reimplement durability in
-  a Durable Object + alarms.
-- **Exposing compute to tenants — two models (WfP CAN bind Queues/Workflows per-tenant with
-  full isolation; verified against CF docs 2026-09-25):**
-  - **(1) Shared-infra Features (DEFAULT — scales to 1M):** WE run one shared Queue + a
-    handful of `WorkflowEntrypoint` definitions on OUR account, tagged by `site_id`; the owner
-    controls the *automation* (background job / scheduled task / event trigger), never the raw
-    binding. Fits the account caps (few definitions + millions of sleeping instances).
-  - **(2) Raw per-tenant bindings (WfP Functions / code-deploy tier ONLY):** a tenant that
-    deploys its own `functions/` Worker binds its OWN Queue producer + `WorkflowEntrypoint`
-    class, isolated (user Workers accept KV/R2/D1/DO/Queues/Workflows/Hyperdrive/AE bindings via
-    the upload metadata array). **Gated by account caps: 10,000 queues + 500 workflow
-    *definitions* (= Worker scripts) per account** → ~hundreds–10k code-deploy customers per WfP
-    account, NOT 1M; shard across dispatch namespaces/accounts beyond that.
-  - **Why dormant today:** a Workflow is a class IN the tenant's Worker and a Queue consumer IS
-    a Worker — both need the customer running code. Our static-site output has no running Worker,
-    so there is nowhere to host either until WfP Functions ships.
-
-## Slice order (execution — reframed by ADR-0036, 2026-09-25)
-
-> The DONE history in the D1 checklist above (owner browse / search / filter / export /
-> delete / edit / activity + superadmin schema / SQL-console / EXPLAIN / cost / migrations)
-> is RETAINED and STILL VALID — it re-targets from the shared DB to the per-site D1 in
-> Slice 2. The old slices 1–4 are complete; the frontier is now Slices 0–4 below.
-
-- **Slice 0 — Remove V/Q/W/R2 from Data.** Delete the Vectorize/Queues/Workflows/R2 PLANNED
-  status (done in the DECIDED table above); remove the dormant Vectorize footprint
-  (`RAG_INDEX` binding, `site_dna` vector calls, `service-registry` entry, `rag.ts`/AutoRAG
-  doc drift). R2 → a bolt.diy editor file-tree mount (a separate editor slice).
-- **Slice 1 — Per-site D1 + KV provisioning + isolation (PREREQUISITE, ADR-0036).**
-  `provisionSiteResources(siteId)` (CF D1 REST create + base migration incl. `_kv`), persist
-  the D1 id/name on the `sites` row, wire the isolated binding into the WfP upload metadata
-  (ONLY that site's D1). Flag `per_site_data`, default-off. Gate: no tenant code until a
-  Worker provably cannot read another site's DB.
-- **Slice 2 — Fully-featured D1 SQLite editor** against the per-site D1 (requirements
-  above): retarget existing browse/SQL to the site's own DB → full typed CRUD → schema
-  editor → multi-tab + CodeMirror 6 → chunked import/export → Time Travel.
-- **Slice 3 — Fully-featured KV manager** against the per-site `_kv` (requirements above):
-  key browser + value/metadata/TTL editor + CRUD + bulk import/export.
-- **Slice 4 — Backfill** existing shared-D1 rows (`site_data`/`form_submissions`/
-  `visitor_events`, scoped by `site_id`) → each site's new per-site DB. One-way; run with
-  D1 Time Travel as the safety net.
-
-## Decided / still-needs-a-credential
-- **Per-site D1 + KV: DECIDED** (ADR-0036) — one isolated per-site D1, KV backed by its
-  `_kv` table. Supersedes the old "shared DB only" state. Provisioning (Slice 1) is the
-  build; the shared DB + owner row-scoping remain the honest CURRENT state until it lands.
-- **Still needs a scoped CF D1 REST token** (server-side, never the browser) for per-site
-  D1 provisioning + import/export + Time Travel — the Slice-1 credential blocker.
+## Needs a decision / credential (surface, don't fake)
+- **Per-site D1 provisioning** (the "multiple D1 per site" vision) needs a CF D1 REST
+  token + a WfP binding-management pipeline — infra not present. Until then, the Data
+  section manages the shared platform DB (superadmin) + per-site rows (owner).
+- D1 **import/export + Time Travel** REST calls need a least-privilege D1 token stored
+  server-side (never in the browser).

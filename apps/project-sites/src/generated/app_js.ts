@@ -17,9 +17,10 @@
  * 1. **Analytics** — fires a `pageview` to `POST /api/events` on load, a
  *    `conversion` event for outbound / tel: / mailto: / CTA clicks, and (via
  *    `initWebVitals`) `web_vital` events carrying field-measured Core Web Vitals
- *    (LCP / INP / CLS, `{metric, value, href}`) beaconed on page hide. Each metric
- *    is sent ONLY when its PerformanceObserver attached and a real value exists —
- *    an unmeasured vital is omitted, never a fabricated 0. Fire-and-forget `fetch`
+ *    (LCP / INP / CLS) PLUS page-load timing (FCP / TTFB), `{metric, value, href}`,
+ *    beaconed on page hide. Each metric is sent ONLY when its source (a
+ *    PerformanceObserver, or Navigation Timing for TTFB) attached and a real value
+ *    exists — an unmeasured metric is omitted, never a fabricated 0. Fire-and-forget `fetch`
  *    with `keepalive:true`. Body matches `IncomingEventSchema`
  *    (`{eventId, siteId, eventType, timestamp, payload, referer}`).
  * 2. **Form hijack** — capture-phase submit listener + MutationObserver catch every
@@ -116,17 +117,32 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     else document.addEventListener('DOMContentLoaded', fn, { once: true });
   };
 
-  // ── session id (in-memory, cookieless) ───────────────────────────────
-  var SESSION_ID = (function () {
+  // ── session id + entry flag (per-tab, cookieless) ───────────────────
+  // ps_sess holds a per-tab-session UUID (sessionStorage: per-tab, cleared on tab close). It is the
+  // SESSION id for EVERY event this tab sends, so COUNT(DISTINCT session_id) counts real SESSIONS,
+  // not pageloads — a visit that views 5 pages is ONE session, not five (this is what makes the
+  // Visits count + bounce rate honest, instead of ~= pageviews). Absent means this is the session
+  // FIRST page (IS_ENTRY = 1, its landing page); the legacy single-char marker is upgraded to a real
+  // id in place (a mid-session upgrade is not an entry, so IS_ENTRY stays 0). uuid() is a hoisted
+  // function declaration, so it is callable here even though it is defined just below.
+  var IS_ENTRY = 0;
+  var SESSION_KEY;
+  try {
+    SESSION_KEY = sessionStorage.getItem('ps_sess');
+    if (!SESSION_KEY || SESSION_KEY === '1') {
+      IS_ENTRY = SESSION_KEY ? 0 : 1;
+      SESSION_KEY = uuid();
+      sessionStorage.setItem('ps_sess', SESSION_KEY);
+    }
+  } catch (e) { SESSION_KEY = undefined; }
+  // The session_id COLUMN = the per-tab id when storage works, else a fresh per-pageload id so events
+  // still carry a session id. Honest: without sessionStorage a visit cannot be grouped, so THAT
+  // visitor degrades to the old per-pageload behaviour (their pageviews look like separate sessions).
+  var SESSION_ID = SESSION_KEY || (function () {
     try {
       if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
     } catch (e) {}
-    return (
-      'ps-' +
-      Date.now().toString(36) +
-      '-' +
-      Math.random().toString(36).slice(2, 10)
-    );
+    return 'ps-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
   })();
 
   function uuid() {
@@ -202,15 +218,54 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     return null;
   }
 
+  // Generic UI interaction label = data-ps-label / aria-label / trimmed text (the low-cardinality
+  // group key). An unlabelled element (icon-only, no aria) yields '' → skipped, so no blank row is
+  // ever grouped. Capped at 60 chars client-side (server re-truncates).
+  function labelOf(el) {
+    try {
+      var l =
+        el.getAttribute('data-ps-label') ||
+        el.getAttribute('aria-label') ||
+        (el.textContent || '').replace(/\\s+/g, ' ').trim();
+      if (!l) return '';
+      return l.length > 60 ? l.slice(0, 60) : l;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  var psClicks = 0; // per-page generic-click cap (bounds noise + ingest cost)
   function onClick(ev) {
     try {
       var t = ev.target;
+      // 1) Conversion path (unchanged): tel/mailto/sms/outbound/directions links + CTA buttons.
       var a = t && t.closest ? t.closest('a[href],button[data-ps-cta]') : null;
-      if (!a) return;
-      var href = a.getAttribute('href') || '';
-      var kind = a.getAttribute('data-ps-cta') || classifyLink(href);
-      if (!kind) return;
-      track('conversion', { kind: kind, section: sectionOf(a), href: href || undefined });
+      if (a) {
+        var href = a.getAttribute('href') || '';
+        var kind = a.getAttribute('data-ps-cta') || classifyLink(href);
+        if (kind) {
+          track('conversion', { kind: kind, section: sectionOf(a), href: href || undefined });
+          return;
+        }
+      }
+      // 2) Generic interaction path: buttons / role=button / summary / opt-in [data-ps-track].
+      //    Excludes conversions (data-ps-cta, handled above) and anchors (they navigate → a
+      //    pageview already) UNLESS the owner explicitly opts an element in with data-ps-track.
+      //    The first-party "most-clicked elements" signal CF's plan has no dataset for.
+      var el = t && t.closest ? t.closest('button,[role="button"],summary,[data-ps-track]') : null;
+      if (!el || el.getAttribute('data-ps-cta') !== null) return;
+      var trackAttr = el.getAttribute('data-ps-track');
+      if (trackAttr === 'off') return; // explicit opt-out
+      if (el.tagName === 'A' && trackAttr === null) return; // anchor without opt-in → nav/pageview
+      if (psClicks >= 25) return;
+      var label = labelOf(el);
+      if (!label) return;
+      psClicks++;
+      var pth = '/';
+      try {
+        pth = location.pathname;
+      } catch (e) {}
+      track('click', { label: label, section: sectionOf(el), href: pth });
     } catch (e) {}
   }
 
@@ -682,8 +737,9 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
   // OMITTED, never sent as a fabricated 0 (LCP/CLS/INP are Chromium-only APIs).
   function initWebVitals() {
     if (typeof PerformanceObserver === 'undefined') return;
-    var support = { LCP: false, CLS: false, INP: false };
+    var support = { LCP: false, CLS: false, INP: false, FCP: false };
     var lcp = -1;
+    var fcp = -1;
     var clsMax = 0, clsCur = 0, clsFirst = 0, clsLast = 0;
     var inpMap = {}, inpCount = 0;
     var done = false;
@@ -744,6 +800,12 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     });
     if (inpO || fiO) { support.INP = true; }
 
+    // FCP (First Contentful Paint) — page-load speed, not a Core Web Vital but the
+    // real-user "how fast did something appear" signal. From the paint observer.
+    if (obs('paint', null, function (e) {
+      if (e.name === 'first-contentful-paint') { fcp = e.startTime; }
+    })) { support.FCP = true; }
+
     // Beacon once, on the first of visibilitychange:hidden / pagehide (unload-safe
     // via track()'s keepalive fetch).
     function finalize() {
@@ -752,12 +814,192 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
       if (support.LCP && lcp >= 0) { report('LCP', lcp); }
       if (support.CLS) { report('CLS', clsMax); }      // 0 is a real (perfect) CLS
       if (support.INP) { report('INP', inpValue()); }  // omitted when no interaction
+      if (support.FCP && fcp >= 0) { report('FCP', fcp); }
+      // TTFB (Time To First Byte) — server response latency, from Navigation Timing's
+      // responseStart (no observer needed). This is the first-party page-load metric
+      // that Cloudflare's plan won't give us at the edge. Omitted when unavailable.
+      try {
+        var nav = performance.getEntriesByType('navigation')[0];
+        if (nav && nav.responseStart > 0) { report('TTFB', nav.responseStart); }
+      } catch (e) {}
     }
     try {
       window.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'hidden') { finalize(); }
       }, { capture: true });
       window.addEventListener('pagehide', finalize, { capture: true });
+    } catch (e) {}
+  }
+
+  /* ─────────────────── First-party JS-error beacon ─────────────────── */
+  // Uncaught errors + unhandled rejections become a 'js_error' event, so an owner sees
+  // when their LIVE site is throwing (Cloudflare's plan exposes no client-error dataset).
+  // Deduped by message (once/session), capped (<=5/session), message truncated, and
+  // self-guarded (a throw inside the beacon never re-beacons).
+  function initErrorBeacon() {
+    var seen = {};
+    var count = 0;
+    function report(message, source, line) {
+      try {
+        if (!message || count >= 5) { return; }
+        var msg = String(message).slice(0, 300);
+        if (seen[msg]) { return; }
+        seen[msg] = 1;
+        count++;
+        track('js_error', {
+          message: msg,
+          source: source ? String(source).slice(0, 300) : undefined,
+          line: typeof line === 'number' ? line : undefined,
+        });
+      } catch (e) {}
+    }
+    try {
+      window.addEventListener('error', function (e) {
+        // Only real JS errors — resource-load failures (img/script 404) have no '.message'.
+        if (e && e.message) { report(e.message, e.filename, e.lineno); }
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e && e.reason;
+        var m = r && r.message ? r.message : (typeof r === 'string' ? r : 'Unhandled promise rejection');
+        report(m);
+      });
+    } catch (e) {}
+  }
+
+  /* ─────────────────── Time-on-page (engagement) beacon ─────────────────── */
+  // Dwell time = interactive → the FIRST visibilitychange:hidden / pagehide, beaconed once
+  // as a 'page_engagement' event ({duration_ms, href}) via track()'s keepalive fetch. The
+  // first-party engagement signal — how long visitors actually stay — which Cloudflare's plan
+  // has no dataset for. Honest bounds: ignore <1s (bounce/bot noise) and >30min (an abandoned
+  // open tab, not real dwell) so a future median-time-on-page card isn't skewed by non-engagement.
+  // ── new-vs-returning (browser-scoped, cookieless) ─────────────────────
+  // 1 = this browser's FIRST-EVER visit (no localStorage marker yet), 0 = seen before.
+  // undefined when storage is unavailable (private mode / disabled) — the server counts that as
+  // "unknown", never folded into new/returning. First-party; a single timestamp, no PII/no cookie.
+  var NEW_VISITOR;
+  try {
+    NEW_VISITOR = localStorage.getItem('ps_v') ? 0 : 1;
+    if (NEW_VISITOR === 1) { localStorage.setItem('ps_v', String(Date.now())); }
+  } catch (e) { NEW_VISITOR = undefined; }
+
+  // (SESSION_KEY + IS_ENTRY are derived once at the top of this IIFE, alongside the session id, so
+  // the per-tab id is the session_id COLUMN for every event — not just the page_engagement metadata.)
+
+  function initEngagement() {
+    var start = Date.now();
+    var sent = false;
+    function beacon() {
+      if (sent) { return; }
+      sent = true;
+      var dur = Date.now() - start;
+      if (dur < 1000 || dur > 1800000) { return; }
+      track('page_engagement', { duration_ms: dur, href: location.pathname, nv: NEW_VISITOR, ep: IS_ENTRY, sid: SESSION_KEY });
+    }
+    try {
+      window.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') { beacon(); }
+      }, { capture: true });
+      window.addEventListener('pagehide', beacon, { capture: true });
+    } catch (e) {}
+  }
+
+  /* ─────────────────── Scroll-depth beacon ─────────────────── */
+  // Max % of page height a visit reached (initial above-the-fold coverage, then the deepest
+  // point scrolled to), beaconed once on the first visibilitychange:hidden / pagehide as a
+  // 'scroll_depth' event ({percent, href}). First-party content-consumption signal — how far
+  // visitors actually get — which Cloudflare's plan has no dataset for. A page that fits the
+  // viewport (not scrollable) reports 100 (they saw all of it). HONESTY: percent is clamped
+  // 0–100; a page with no measurable height is SKIPPED (never a fabricated sample).
+  function initScrollDepth() {
+    var maxPct = 0;
+    var sent = false;
+    function depthNow() {
+      var doc = document.documentElement || {};
+      var body = document.body || {};
+      var sh = Math.max(doc.scrollHeight || 0, body.scrollHeight || 0);
+      var ch = doc.clientHeight || window.innerHeight || 0;
+      if (sh <= 0 || ch <= 0) { return -1; }
+      if (sh <= ch) { return 100; } // fits the viewport → fully seen, no scroll needed
+      var st = window.pageYOffset || doc.scrollTop || body.scrollTop || 0;
+      var pct = Math.round(((st + ch) / sh) * 100);
+      if (sh - (st + ch) <= 2) { pct = 100; } // 2px bottom tolerance → treat as complete
+      return pct < 0 ? 0 : (pct > 100 ? 100 : pct);
+    }
+    function sample() {
+      var d = depthNow();
+      if (d > maxPct) { maxPct = d; }
+    }
+    function beacon() {
+      if (sent) { return; }
+      sent = true;
+      sample();
+      if (maxPct <= 0) { return; } // nothing measurable → no fabricated sample
+      track('scroll_depth', { percent: maxPct, href: location.pathname });
+    }
+    try {
+      sample(); // initial above-the-fold coverage
+      window.addEventListener('scroll', sample, { passive: true });
+      window.addEventListener('resize', sample, { passive: true });
+      window.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') { beacon(); }
+      }, { capture: true });
+      window.addEventListener('pagehide', beacon, { capture: true });
+    } catch (e) {}
+  }
+
+  /* ─────────────────── Network-quality beacon ─────────────────── */
+  // The visitor's navigator.connection estimate (effectiveType / downlink / rtt / saveData),
+  // beaconed once on load as a 'network_quality' event. First-party signal for "what
+  // connections are my visitors on" — which Cloudflare's plan has no dataset for. HONESTY:
+  // navigator.connection is CHROMIUM-ONLY (Chrome / Edge / Android); on Safari / Firefox the
+  // object is absent and NOTHING is sent (never a fabricated sample), so the metric is an
+  // explicit SUBSET the admin card labels as Chromium-only. Only present, valid fields are sent.
+  function initNetworkQuality() {
+    try {
+      var c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      if (!c) { return; } // not supported → no sample (honest omission)
+      var payload = { href: location.pathname };
+      if (typeof c.effectiveType === 'string' && c.effectiveType) { payload.effective_type = c.effectiveType; }
+      if (typeof c.downlink === 'number' && isFinite(c.downlink) && c.downlink >= 0) { payload.downlink = c.downlink; }
+      if (typeof c.rtt === 'number' && isFinite(c.rtt) && c.rtt >= 0) { payload.rtt = c.rtt; }
+      if (typeof c.saveData === 'boolean') { payload.save_data = c.saveData; }
+      // Only beacon when at least one real connection field was present (never an empty sample).
+      if (payload.effective_type === undefined && payload.downlink === undefined &&
+          payload.rtt === undefined && payload.save_data === undefined) { return; }
+      track('network_quality', payload);
+    } catch (e) {}
+  }
+
+  /* ─────────────────── Page-load waterfall beacon ─────────────────── */
+  // The PerformanceNavigationTiming phase durations (DNS / connect / server-wait / download /
+  // DOM / total), beaconed once after load as a 'nav_timing' event. First-party page-load
+  // breakdown — WHERE the load time goes — which Cloudflare's plan (no edge latency) can't give.
+  // Fires after the load event so loadEventEnd is populated. HONESTY: a phase of 0 is a REAL
+  // value (cached DNS, reused connection), kept as-is; a nonsensical total (≤0 or >600s) or an
+  // unsupported Navigation-Timing API sends NOTHING (never a fabricated sample). Each phase is
+  // clamped ≥0 (clock skew can make a raw diff slightly negative).
+  function initNavTiming() {
+    function beacon() {
+      try {
+        var n = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+        if (!n) { return; } // Navigation Timing L2 unsupported → no sample
+        var total = n.loadEventEnd - n.startTime;
+        if (!(total > 0) || total > 600000) { return; } // not a real, sane load
+        var clamp = function (x) { return x > 0 ? Math.round(x) : 0; };
+        track('nav_timing', {
+          dns: clamp(n.domainLookupEnd - n.domainLookupStart),
+          connect: clamp(n.connectEnd - n.connectStart),
+          ttfb: clamp(n.responseStart - n.requestStart),
+          transfer: clamp(n.responseEnd - n.responseStart),
+          dom: clamp(n.domComplete - n.responseEnd),
+          total: Math.round(total),
+          href: location.pathname
+        });
+      } catch (e) {}
+    }
+    try {
+      if (document.readyState === 'complete') { setTimeout(beacon, 0); }
+      else { window.addEventListener('load', function () { setTimeout(beacon, 0); }, { once: true }); }
     } catch (e) {}
   }
 
@@ -768,6 +1010,21 @@ export const APP_JS = `/*! ProjectSites unified client — analytics + forms + u
     } catch (e) {}
     try {
       initWebVitals();
+    } catch (e) {}
+    try {
+      initErrorBeacon();
+    } catch (e) {}
+    try {
+      initEngagement();
+    } catch (e) {}
+    try {
+      initScrollDepth();
+    } catch (e) {}
+    try {
+      initNetworkQuality();
+    } catch (e) {}
+    try {
+      initNavTiming();
     } catch (e) {}
     try {
       document.addEventListener('click', onClick, true);

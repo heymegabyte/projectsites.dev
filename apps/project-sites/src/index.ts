@@ -126,6 +126,7 @@ import { publicRoutes } from './routes/public.js';
 import features from './routes/features.js';
 import { copilot } from './routes/copilot.js';
 import { siteDetailTabs } from './routes/site_detail_tabs.js';
+import { cloudflareRum } from './routes/cloudflare_rum.js';
 import { siteDna } from './routes/site_dna.js';
 import { emailDeliverabilityRoutes } from './routes/email_deliverability.js';
 import { reviewPublic } from './routes/review_public.js';
@@ -137,6 +138,10 @@ import { integrationHealth } from './routes/integration_health.js';
 import { tokenBurnMeter } from '../libs/features/token_burn_meter/handlers.js'; // #13 per-tenant token-burn meter + budget killswitch (flag: token_burn_meter)
 import { siteAnalytics } from '../libs/features/site_analytics/handlers.js'; // owner-facing per-site analytics summary (flag: site_analytics)
 import { kvInspector } from '../libs/features/kv_inspector/handlers.js'; // read-only super-admin KV inspector (flag: kv_inspector)
+import { d1Manager } from '../libs/features/d1_manager/handlers.js'; // read-only super-admin D1 resource-discovery + Overview (flag: d1_manager)
+import { r2Inspector } from '../libs/features/r2_inspector/handlers.js'; // read-only super-admin R2 object inspector (flag: r2_inspector)
+import { vectorizeInspector } from '../libs/features/vectorize_inspector/handlers.js'; // read-only super-admin Vectorize index inspector (flag: vectorize_inspector)
+import { queuesInspector } from '../libs/features/queues_inspector/handlers.js'; // read-only super-admin Queues inspector (flag: queues_inspector)
 import { domains } from '../libs/features/domains/handlers.js'; // domain search/purchase/register/suggest — extracted from api.ts (route-decomposition installment 1)
 import { notifications } from '../libs/features/notifications/handlers.js'; // in-app notifications inbox (list/mark-read/read-all) — extracted from api.ts (route-decomposition installment 2)
 import { inbox } from '../libs/features/inbox/handlers.js'; // HITL task tray (list/resolve) — extracted from api.ts (route-decomposition installment 3)
@@ -1007,7 +1012,12 @@ app.get('/app.js', (c) =>
 // libs/features/* — viral + billing + audit-chain modules (ideas #33, #34, #36, #46)
 app.route('/', tokenBurnMeter); // /api/usage/budget + /api/admin/usage/budget — #13 per-tenant token-burn meter + budget killswitch (flag: token_burn_meter)
 app.route('/', siteAnalytics); // /api/sites/:siteId/analytics — owner analytics summary (flag: site_analytics). Must precede `api` so the :siteId/analytics suffix wins.
+app.route('/', cloudflareRum); // /api/sites/:siteId/cloudflare-rum — CF Web Analytics RUM (CWV + NavTiming, per owned host). Must precede `api` so the :siteId/cloudflare-rum suffix wins.
 app.route('/', kvInspector); // /api/admin/kv/* — read-only super-admin KV inspector (flag: kv_inspector)
+app.route('/', d1Manager); // /api/admin/d1/* — read-only super-admin D1 resource-discovery + Overview (flag: d1_manager)
+app.route('/', r2Inspector); // /api/admin/r2/* — read-only super-admin R2 object inspector (flag: r2_inspector)
+app.route('/', vectorizeInspector); // /api/admin/vectorize/* — read-only super-admin Vectorize index inspector (flag: vectorize_inspector)
+app.route('/', queuesInspector); // /api/admin/queues/* — read-only super-admin Queues inspector (flag: queues_inspector)
 app.route('/', visitorEvents); // POST /api/v1/events — public beacon ingest (flag: visitor_events_core)
 app.route('/', emailDeliverabilityRoutes); // /api/sites/:siteId/deliverability — SPF/DKIM/DMARC score + fixes (flag: email_deliverability_wizard)
 app.route('/', reviewPublic); // GET/POST /api/review/:id{,/decision} — public reviewer approve/reject (flag: approval_workflow, scoped to review's org)

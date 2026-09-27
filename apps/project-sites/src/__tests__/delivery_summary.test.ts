@@ -14,6 +14,71 @@ import {
   resolveDeliveryZone,
 } from '../services/multi_url_analytics';
 
+describe('buildDeliverySummary — CF adaptive sampleInterval (honesty)', () => {
+  const st = new Map([[200, 100]]);
+  it('surfaces a valid sampleInterval (the confidence of the sampled estimate)', () => {
+    const r = buildDeliverySummary(
+      st,
+      new Map(),
+      0,
+      30,
+      true,
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      3.3,
+    );
+    expect(r.sample_interval).toBeCloseTo(3.3);
+  });
+  it('defaults to null when omitted, and null-guards 0 / negative / non-finite', () => {
+    expect(buildDeliverySummary(st, new Map(), 0, 30).sample_interval).toBeNull();
+    expect(
+      buildDeliverySummary(
+        st,
+        new Map(),
+        0,
+        30,
+        true,
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        0,
+      ).sample_interval,
+    ).toBeNull();
+    expect(
+      buildDeliverySummary(
+        st,
+        new Map(),
+        0,
+        30,
+        true,
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        new Map(),
+        -1,
+      ).sample_interval,
+    ).toBeNull();
+  });
+});
+
 describe('buildDeliverySummary', () => {
   it('correctly buckets status codes and totals from real-world CF data', () => {
     const byStatus = new Map([
@@ -40,8 +105,49 @@ describe('buildDeliverySummary', () => {
     expect(result.by_status_class[0].class).toBe('2xx');
     expect(result.by_status_class[0].count).toBe(87);
 
-    // top_statuses[0] is the highest-count individual status
-    expect(result.top_statuses[0]).toEqual({ status: 200, count: 74 });
+    // top_statuses[0] is the highest-count individual status (bytes/visits default 0 — none passed)
+    expect(result.top_statuses[0]).toEqual({ status: 200, count: 74, bytes: 0, visits: 0 });
+  });
+
+  it('carries per-status bytes + visits into top_statuses when provided', () => {
+    const byStatus = new Map([
+      [200, 100],
+      [404, 20],
+    ]);
+    const byStatusBytes = new Map([
+      [200, 5_000_000],
+      [404, 8_000],
+    ]);
+    const byStatusVisits = new Map([
+      [200, 60],
+      [404, 15],
+    ]);
+    const result = buildDeliverySummary(
+      byStatus,
+      new Map(),
+      0,
+      30,
+      false,
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      byStatusBytes,
+      byStatusVisits,
+    );
+    const s200 = result.top_statuses.find((s) => s.status === 200);
+    const s404 = result.top_statuses.find((s) => s.status === 404);
+    expect(s200).toEqual({ status: 200, count: 100, bytes: 5_000_000, visits: 60 });
+    // The owner-facing signal: 15 REAL visitors hit a 404 (not just 20 raw requests).
+    expect(s404?.visits).toBe(15);
+    expect(s404?.bytes).toBe(8_000);
+  });
+
+  it('defaults per-status bytes + visits to 0 when the maps omit a status (a real measured 0, never fabricated)', () => {
+    const byStatus = new Map([[200, 5]]);
+    const result = buildDeliverySummary(byStatus, new Map(), 0, 7);
+    expect(result.top_statuses[0]).toEqual({ status: 200, count: 5, bytes: 0, visits: 0 });
   });
 
   it('computes cache hit ratio correctly (hit / (hit + miss), not including uncacheable)', () => {
@@ -58,6 +164,80 @@ describe('buildDeliverySummary', () => {
     expect(result.cache.uncacheable).toBe(26879);
     // Math.round(100 * 1475 / (1475 + 3139)) = Math.round(100 * 1475/4614) = Math.round(31.97...) = 32
     expect(result.cache.hit_ratio_pct).toBe(32);
+  });
+
+  it('splits edge bytes by cache-state (hit / miss / uncacheable) from byCacheBytes', () => {
+    const byCache = new Map([
+      ['hit', 100],
+      ['miss', 40],
+      ['none', 10],
+    ]);
+    const byCacheBytes = new Map([
+      ['hit', 5_000_000],
+      ['miss', 8_000_000],
+      ['none', 1_000_000],
+    ]);
+    const result = buildDeliverySummary(
+      new Map(),
+      byCache,
+      14_000_000,
+      30,
+      false,
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      byCacheBytes,
+    );
+    expect(result.cache.hit_bytes).toBe(5_000_000);
+    expect(result.cache.miss_bytes).toBe(8_000_000); // the "you could cache this to save bandwidth" signal
+    expect(result.cache.uncacheable_bytes).toBe(1_000_000); // 'none' → uncacheable bucket
+  });
+
+  it('splits edge VISITS by cache-state (hit / miss / uncacheable) from byCacheVisits', () => {
+    const byCache = new Map([
+      ['hit', 100],
+      ['miss', 40],
+      ['none', 10],
+    ]);
+    // visits ≠ the request counts above — proving the builder reads byCacheVisits, not by_cache.
+    const byCacheVisits = new Map([
+      ['hit', 60],
+      ['miss', 22],
+      ['none', 4],
+    ]);
+    const result = buildDeliverySummary(
+      new Map(),
+      byCache,
+      0,
+      30,
+      false,
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      new Map(),
+      byCacheVisits,
+    );
+    expect(result.cache.hit_visits).toBe(60);
+    expect(result.cache.miss_visits).toBe(22); // "cache misses touched N REAL visitors" (not raw requests)
+    expect(result.cache.uncacheable_visits).toBe(4); // 'none' → uncacheable bucket
+  });
+
+  it('defaults cache bytes + visits to 0 when the maps are omitted (a real 0, never fabricated)', () => {
+    const result = buildDeliverySummary(new Map(), new Map([['hit', 5]]), 0, 7);
+    expect(result.cache.hit_bytes).toBe(0);
+    expect(result.cache.miss_bytes).toBe(0);
+    expect(result.cache.uncacheable_bytes).toBe(0);
+    expect(result.cache.hit_visits).toBe(0);
+    expect(result.cache.miss_visits).toBe(0);
+    expect(result.cache.uncacheable_visits).toBe(0);
   });
 
   it('returns hit_ratio_pct=null (NOT 0) when both hit and miss are zero', () => {
@@ -129,6 +309,53 @@ describe('buildDeliverySummary', () => {
     const resolvedEmpty = buildDeliverySummary(new Map(), new Map(), 0, 7, true);
     expect(resolvedEmpty.zone_resolved).toBe(true);
     expect(resolvedEmpty.has_data).toBe(false);
+  });
+
+  it('folds the edge connection/content breakdowns (protocol/tls/content/method) top-N by count', () => {
+    const result = buildDeliverySummary(
+      new Map([[200, 100]]),
+      new Map(),
+      0,
+      7,
+      true,
+      new Map([
+        ['HTTP/3', 70],
+        ['HTTP/2', 30],
+      ]),
+      new Map([
+        ['TLSv1.3', 99],
+        ['TLSv1.2', 1],
+      ]),
+      new Map([
+        ['js', 60],
+        ['html', 40],
+      ]),
+      new Map([['GET', 100]]),
+      new Map([
+        ['Search Engine Crawler', 42],
+        ['Monitoring & Site Analytics', 8],
+      ]),
+    );
+    expect(result.protocols).toEqual([
+      { label: 'HTTP/3', count: 70 },
+      { label: 'HTTP/2', count: 30 },
+    ]);
+    expect(result.tls[0]).toEqual({ label: 'TLSv1.3', count: 99 });
+    expect(result.content_types.map((r) => r.label)).toEqual(['js', 'html']);
+    expect(result.methods).toEqual([{ label: 'GET', count: 100 }]);
+    expect(result.verified_bots).toEqual([
+      { label: 'Search Engine Crawler', count: 42 },
+      { label: 'Monitoring & Site Analytics', count: 8 },
+    ]);
+  });
+
+  it('defaults the edge breakdowns to [] when the maps are not provided (back-compat)', () => {
+    const r = buildDeliverySummary(new Map([[200, 5]]), new Map(), 0, 7);
+    expect(r.protocols).toEqual([]);
+    expect(r.tls).toEqual([]);
+    expect(r.content_types).toEqual([]);
+    expect(r.methods).toEqual([]);
+    expect(r.verified_bots).toEqual([]);
   });
 });
 

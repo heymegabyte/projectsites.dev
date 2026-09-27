@@ -125,7 +125,11 @@ async function cfFetch(
   c: CfCreds,
   path: string,
   init?: RequestInit & { body?: string | FormData },
-): Promise<{ ok: boolean; status: number; json: { success?: boolean; result?: unknown; errors?: unknown } }> {
+): Promise<{
+  ok: boolean;
+  status: number;
+  json: { success?: boolean; result?: unknown; errors?: unknown };
+}> {
   // Retry transient CF-API 5xx — the provisioning API intermittently 500s under load,
   // which otherwise surfaces as a flaky launch failure. Up to 3 attempts w/ backoff.
   // Skip retry for FormData bodies (not safely replayable) beyond the first attempt.
@@ -236,7 +240,11 @@ async function deployWorker(
     body: form,
   });
   if (!r.json.success) {
-    throw new CfProvisionError('WORKER_DEPLOY_FAILED', `Worker deploy failed for ${name}`, r.status);
+    throw new CfProvisionError(
+      'WORKER_DEPLOY_FAILED',
+      `Worker deploy failed for ${name}`,
+      r.status,
+    );
   }
   return { name };
 }
@@ -351,7 +359,10 @@ export async function provisionPayloadStack(
 ): Promise<PayloadStack> {
   const c = creds(env);
   const short = ctx.instanceId.slice(0, 8);
-  const base = `payload-${ctx.slug}-${short}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 54);
+  const base = `payload-${ctx.slug}-${short}`
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .slice(0, 54);
   // Host selection. DEFAULT = standalone workers.dev, whose edge asset layer serves
   // /_next/static → STYLED Payload (verified). WfP dispatch → {slug}.cms.projectsites.dev
   // is branded BUT a dispatched worker (USER_DISPATCH.get().fetch()) bypasses the edge
@@ -500,7 +511,11 @@ async function uploadPayloadAssets(
     body: JSON.stringify({ manifest: manifest.assets }),
   });
   if (!start.json.success) {
-    throw new CfProvisionError('WORKER_DEPLOY_FAILED', `assets-upload-session failed`, start.status);
+    throw new CfProvisionError(
+      'WORKER_DEPLOY_FAILED',
+      `assets-upload-session failed`,
+      start.status,
+    );
   }
   const result = start.json.result as { jwt?: string; buckets?: string[][] } | undefined;
   let jwt = result?.jwt ?? null;
@@ -516,15 +531,23 @@ async function uploadPayloadAssets(
     for (const hash of bucket) {
       const a = byHash[hash];
       if (!a) continue;
-      form.append(hash, new Blob([u8ToBase64(a.content)], { type: assetContentType(a.path) }), hash);
+      form.append(
+        hash,
+        new Blob([u8ToBase64(a.content)], { type: assetContentType(a.path) }),
+        hash,
+      );
     }
     const up = await fetch(`${CF_BASE}/accounts/${c.accountId}/workers/assets/upload?base64=true`, {
       method: 'POST',
       headers: { authorization: `Bearer ${jwt}` },
       body: form,
     });
-    const upJson = (await up.json().catch(() => ({}))) as { success?: boolean; result?: { jwt?: string } };
-    if (!upJson.success) throw new CfProvisionError('WORKER_DEPLOY_FAILED', 'asset bucket upload failed', up.status);
+    const upJson = (await up.json().catch(() => ({}))) as {
+      success?: boolean;
+      result?: { jwt?: string };
+    };
+    if (!upJson.success)
+      throw new CfProvisionError('WORKER_DEPLOY_FAILED', 'asset bucket upload failed', up.status);
     if (upJson.result?.jwt) jwt = upJson.result.jwt;
   }
   return jwt;
@@ -546,7 +569,8 @@ export async function deployRealPayloadWorker(
   },
 ): Promise<{ ok: boolean; error?: string }> {
   const bundle = await readPayloadBundle(env);
-  if (!bundle) return { ok: false, error: 'payload bundle not staged in R2 (payload-bundle/v1.zip)' };
+  if (!bundle)
+    return { ok: false, error: 'payload bundle not staged in R2 (payload-bundle/v1.zip)' };
   const { files, manifest } = bundle;
   const c = creds(env);
   const scriptPathStr = scriptPath(c.accountId, ctx.name, ctx.namespace);

@@ -1,5 +1,6 @@
 import { Component, DestroyRef, effect, inject, OnInit, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { RouterLink } from '@angular/router';
 
 import { AdminStateService } from '../admin-state.service';
 import {
@@ -25,6 +26,7 @@ import {
 @Component({
   selector: 'app-admin-activation-funnel',
   standalone: true,
+  imports: [RouterLink],
   template: `
     <div class="px-6 pt-5 pb-8 max-md:px-4" data-testid="activation-funnel">
       <div class="flex items-start justify-between gap-4 flex-wrap">
@@ -52,7 +54,10 @@ import {
         >
           <p class="text-[0.85rem] text-[#9fe8f5] m-0">
             The activation funnel is a <strong class="text-white">platform-wide</strong> view for platform admins.
-            Your own site's traffic, forms, and visitor journey are in the other Analytics tabs.
+            Your own site's landing → engaging → converting journey is the
+            <a [routerLink]="[]" [queryParams]="{ tab: 'visitor' }" queryParamsHandling="merge"
+               class="text-white font-semibold underline underline-offset-2"
+               data-testid="funnel-visitor-link">Visitor funnel</a>, and your traffic and forms are in the other tabs.
           </p>
         </div>
       } @else if (loading()) {

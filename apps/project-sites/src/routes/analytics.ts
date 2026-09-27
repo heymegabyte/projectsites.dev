@@ -29,10 +29,65 @@ import { recordVisitorEvent } from '../../libs/features/visitor_events_core/serv
  * (adds `error`/`scroll`), so the guard both filters AND narrows to a valid
  * `VisitorEventType` before we call `recordVisitorEvent`.
  */
-const VISITOR_MIRROR_TYPES = ['conversion', 'form_start', 'form_submit', 'web_vital'] as const;
+const VISITOR_MIRROR_TYPES = [
+  'conversion',
+  'form_start',
+  'form_submit',
+  'web_vital',
+  'js_error',
+  'page_engagement',
+  'scroll_depth',
+  'network_quality',
+  'nav_timing',
+  // Generic UI interaction (button / role=button / summary / opt-in [data-ps-track]) — the
+  // first-party "most-clicked elements" signal; distinct from outbound clicks (conversions) and
+  // page navigations (pageviews), which the beacon emits on separate paths.
+  'click',
+  // AI concierge usage (app.js universal-runtime FAB): `concierge_open` on panel open,
+  // `concierge_message` per visitor question. Previously LOST (only the un-provisioned
+  // analytics_events store held them) — mirror them so concierge engagement is measurable.
+  'concierge_open',
+  'concierge_message',
+] as const;
 type VisitorMirrorType = (typeof VISITOR_MIRROR_TYPES)[number];
 const isVisitorMirrorType = (t: string): t is VisitorMirrorType =>
   (VISITOR_MIRROR_TYPES as readonly string[]).includes(t);
+
+/**
+ * Server-side re-guard for one `nav_timing` phase: a finite, non-negative, bounded (≤600s)
+ * millisecond duration, rounded. A 0 is HONEST (cached DNS / reused connection) and kept —
+ * only non-finite / negative / absurd values are dropped (→ undefined, omitted from metadata),
+ * so the median never sees a fabricated or hostile phase.
+ */
+function navPhase(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 600_000
+    ? Math.round(v)
+    : undefined;
+}
+
+/**
+ * Server-side normalize the DESTINATION of a click conversion into a clean, groupable link for
+ * the "top links clicked" report. These are the OWNER's own outbound targets (their phone /
+ * email / social / booking links) — NOT visitor PII. Kept: `tel:` / `mailto:` / `sms:` whole
+ * (short, the owner's contact) and `http(s)` normalized to `origin + pathname` (query + fragment
+ * STRIPPED so tracking params are never stored and same-page links group cleanly). Anything else
+ * (relative `#`, `javascript:`, a CTA button with no href) → undefined, so only real external /
+ * contact links are recorded. Length-capped defensively.
+ */
+export function normalizeClickHref(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || !raw) return undefined;
+  const href = raw.slice(0, 500);
+  if (/^(tel:|mailto:|sms:)/i.test(href)) return href.slice(0, 200);
+  if (/^https?:\/\//i.test(href)) {
+    try {
+      const u = new URL(href);
+      return `${u.origin}${u.pathname}`.slice(0, 200);
+    } catch {
+      return (href.split(/[?#]/)[0] ?? href).slice(0, 200);
+    }
+  }
+  return undefined;
+}
 
 export const analyticsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -218,6 +273,25 @@ analyticsRoutes.post('/api/events', async (c) => {
               form?: unknown;
               metric?: unknown;
               value?: unknown;
+              message?: unknown;
+              source?: unknown;
+              line?: unknown;
+              duration_ms?: unknown;
+              percent?: unknown;
+              effective_type?: unknown;
+              downlink?: unknown;
+              rtt?: unknown;
+              save_data?: unknown;
+              dns?: unknown;
+              connect?: unknown;
+              ttfb?: unknown;
+              transfer?: unknown;
+              dom?: unknown;
+              total?: unknown;
+              nv?: unknown;
+              ep?: unknown;
+              sid?: unknown;
+              label?: unknown;
             }
           | undefined;
         // web_vital carries {metric, value}: validate against the known CWV set + a
@@ -237,17 +311,118 @@ analyticsRoutes.post('/api/events', async (c) => {
           }
         }
         // Conversions carry kind/section/channel (AN27 attribution); form events
-        // carry the form key (AN17 completion); web_vital carries {metric, value}.
+        // carry the form key (AN17 completion); web_vital carries {metric, value};
+        // js_error carries {message, source, line} (site-health signal).
         const metadata: Record<string, unknown> =
           mirrorType === 'conversion'
             ? {
                 kind: typeof p?.kind === 'string' ? p.kind : undefined,
                 section: typeof p?.section === 'string' ? p.section : undefined,
                 channel: typeof p?.channel === 'string' ? p.channel : undefined,
+                // AN-OUTBOUND — the click DESTINATION (owner's own outbound/contact link),
+                // server-normalized (query stripped, never a tracking param) for the top-links report.
+                href: normalizeClickHref(p?.href),
               }
             : mirrorType === 'web_vital'
               ? { metric: cwvMetric, value: cwvValue }
-              : { form: typeof p?.form === 'string' ? p.form : undefined };
+              : mirrorType === 'js_error'
+                ? {
+                    // Server-side defense: only the typed fields, re-truncated (the client
+                    // already caps). Never persist arbitrary payload; a hostile message is a
+                    // bound string, never executed.
+                    message: typeof p?.message === 'string' ? p.message.slice(0, 300) : undefined,
+                    source: typeof p?.source === 'string' ? p.source.slice(0, 300) : undefined,
+                    line:
+                      typeof p?.line === 'number' && Number.isFinite(p.line) ? p.line : undefined,
+                  }
+                : mirrorType === 'page_engagement'
+                  ? {
+                      // Server-side re-guard: dwell must be a finite, sane duration (the client
+                      // already bounds 1s–30min); anything else is dropped so a median never skews.
+                      duration_ms:
+                        typeof p?.duration_ms === 'number' &&
+                        Number.isFinite(p.duration_ms) &&
+                        p.duration_ms >= 0 &&
+                        p.duration_ms <= 1_800_000
+                          ? Math.round(p.duration_ms)
+                          : undefined,
+                      // New-vs-returning: browser-scoped flag (1 = new / 0 = returning); anything
+                      // else omitted → the aggregator counts it as "unknown", never new/returning.
+                      nv: p?.nv === 0 || p?.nv === 1 ? p.nv : undefined,
+                      // Entry page: 1 = the session's first (landing) page; else omitted so only
+                      // entry pages carry the flag (the aggregator filters ep = 1).
+                      ep: p?.ep === 1 ? 1 : undefined,
+                      // Session id (per-tab, from sessionStorage) — groups a visit's page_engagements so
+                      // the exit-pages aggregator can pick each session's LAST page. Bound + length-capped;
+                      // a non-string is omitted (that visit just isn't grouped, never fabricated).
+                      sid: typeof p?.sid === 'string' && p.sid ? p.sid.slice(0, 64) : undefined,
+                    }
+                  : mirrorType === 'scroll_depth'
+                    ? {
+                        // Server-side re-guard: max scroll depth is a finite 0–100 percent (the
+                        // client already clamps); anything else is dropped so the funnel + median
+                        // never see a fabricated or out-of-range sample.
+                        percent:
+                          typeof p?.percent === 'number' &&
+                          Number.isFinite(p.percent) &&
+                          p.percent >= 0 &&
+                          p.percent <= 100
+                            ? Math.round(p.percent)
+                            : undefined,
+                      }
+                    : mirrorType === 'network_quality'
+                      ? {
+                          // Server-side re-guard on the navigator.connection estimate:
+                          // effective_type must be a known class; downlink/rtt finite + non-negative;
+                          // save_data a real boolean. Anything else is dropped so the distribution +
+                          // medians never see a fabricated or hostile value.
+                          effective_type:
+                            typeof p?.effective_type === 'string' &&
+                            ['slow-2g', '2g', '3g', '4g'].includes(p.effective_type)
+                              ? p.effective_type
+                              : undefined,
+                          downlink:
+                            typeof p?.downlink === 'number' &&
+                            Number.isFinite(p.downlink) &&
+                            p.downlink >= 0
+                              ? p.downlink
+                              : undefined,
+                          rtt:
+                            typeof p?.rtt === 'number' && Number.isFinite(p.rtt) && p.rtt >= 0
+                              ? Math.round(p.rtt)
+                              : undefined,
+                          save_data: typeof p?.save_data === 'boolean' ? p.save_data : undefined,
+                        }
+                      : mirrorType === 'nav_timing'
+                        ? {
+                            // Each PerformanceNavigationTiming phase, re-guarded by navPhase
+                            // (finite, 0–600s, rounded; an honest 0 is kept).
+                            dns: navPhase(p?.dns),
+                            connect: navPhase(p?.connect),
+                            ttfb: navPhase(p?.ttfb),
+                            transfer: navPhase(p?.transfer),
+                            dom: navPhase(p?.dom),
+                            total: navPhase(p?.total),
+                          }
+                        : mirrorType === 'concierge_open' || mirrorType === 'concierge_message'
+                          ? // Concierge events carry no payload — they're counted by event_type +
+                            // session_id (unique visitors) alone, so no metadata is stored.
+                            {}
+                          : mirrorType === 'click'
+                            ? {
+                                // Generic interaction: re-guard the label (the group key) + section.
+                                // A non-string/empty label is dropped so the aggregator never groups
+                                // a fabricated or empty row; both are length-capped defensively.
+                                label:
+                                  typeof p?.label === 'string' && p.label.trim()
+                                    ? p.label.trim().slice(0, 80)
+                                    : undefined,
+                                section:
+                                  typeof p?.section === 'string'
+                                    ? p.section.slice(0, 80)
+                                    : undefined,
+                              }
+                            : { form: typeof p?.form === 'string' ? p.form : undefined };
         await recordVisitorEvent(
           env,
           { orgId: site.org_id, siteId: site.id },

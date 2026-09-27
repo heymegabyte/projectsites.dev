@@ -26,7 +26,8 @@ export const routes: Routes = [
   },
   {
     path: 'pricing',
-    loadComponent: () => import('./pages/pricing/pricing.component').then((m) => m.PricingComponent),
+    loadComponent: () =>
+      import('./pages/pricing/pricing.component').then((m) => m.PricingComponent),
   },
   {
     // AN48 — public, no-auth read-only analytics view. The HMAC token in the URL
@@ -51,8 +52,7 @@ export const routes: Routes = [
   },
   {
     path: 'auth/sign-up',
-    loadComponent: () =>
-      import('./pages/auth/sign-up.component').then((m) => m.SignUpComponent),
+    loadComponent: () => import('./pages/auth/sign-up.component').then((m) => m.SignUpComponent),
   },
   {
     path: 'auth/sessions',
@@ -205,12 +205,12 @@ export const routes: Routes = [
             (m) => m.AdminAnalyticsDashboardComponent,
           ),
       },
-                  {
+      {
         path: 'billing',
         loadComponent: () =>
           import('./pages/admin/sections/billing.component').then((m) => m.AdminBillingComponent),
       },
-                              {
+      {
         // API Tokens folded into Settings (2026-08-12) — this standalone route
         // redirects to the #api-tokens tab. Backend GET|POST|DELETE /api/v1-tokens
         // stays flag-gated on public_api_v1; the embedded tab self-gates too.
@@ -233,6 +233,51 @@ export const routes: Routes = [
           ),
       },
       {
+        // Super-Admin KV Inspector — read-only browser for the shared platform KV
+        // namespaces (CACHE_KV/PROMPT_STORE). Backend GET /api/admin/kv/* is
+        // super-admin + `kv_inspector`-flag gated (404-dark when off); sysAdminGuard
+        // hides the route from normal owners.
+        path: 'kv-inspector',
+        canActivate: [sysAdminGuard],
+        loadComponent: () =>
+          import('./pages/admin/sections/kv-inspector.component').then(
+            (m) => m.KvInspectorComponent,
+          ),
+      },
+      {
+        // Super-Admin R2 Inspector — read-only browser for the shared platform R2
+        // bucket (SITES_BUCKET). Backend GET /api/admin/r2/* is super-admin +
+        // `r2_inspector`-flag gated (404-dark when off); sysAdminGuard hides the route.
+        path: 'r2-inspector',
+        canActivate: [sysAdminGuard],
+        loadComponent: () =>
+          import('./pages/admin/sections/r2-inspector.component').then(
+            (m) => m.R2InspectorComponent,
+          ),
+      },
+      {
+        // Read-only super-admin Vectorize index inspector — the account's Cloudflare
+        // Vectorize indexes (RAG/embeddings). Backend GET /api/admin/vectorize/* is
+        // super-admin + `vectorize_inspector`-flag gated (404-dark); sysAdminGuard hides it.
+        path: 'vectorize-inspector',
+        canActivate: [sysAdminGuard],
+        loadComponent: () =>
+          import('./pages/admin/sections/vectorize-inspector.component').then(
+            (m) => m.VectorizeInspectorComponent,
+          ),
+      },
+      {
+        // Read-only super-admin Queues inspector — the account's Cloudflare Queues
+        // (job/workflow pipelines). Backend GET /api/admin/queues/* is super-admin +
+        // `queues_inspector`-flag gated (404-dark); sysAdminGuard hides the route.
+        path: 'queues-inspector',
+        canActivate: [sysAdminGuard],
+        loadComponent: () =>
+          import('./pages/admin/sections/queues-inspector.component').then(
+            (m) => m.QueuesInspectorComponent,
+          ),
+      },
+      {
         // Super-Admin lead scanner (#9) — Places no-website scan → scored leads →
         // mint outreach claim links. Flag-dark (`lead_scanner`) + super-admin only;
         // the worker route 404s when the flag is off and 403s non-operators.
@@ -252,12 +297,12 @@ export const routes: Routes = [
             (m) => m.AdminSiteFeaturesComponent,
           ),
       },
-                              {
+      {
         path: 'forms',
         loadComponent: () =>
           import('./pages/admin/sections/forms.component').then((m) => m.AdminFormsComponent),
       },
-                  {
+      {
         // Interactive API explorer (OpenAPI 3.1). Shell hosts the left-rail
         // endpoint nav + a `<router-outlet>`; per-endpoint detail is its own
         // lazy chunk so the overview reader never pays for the Try-It UI.
@@ -289,8 +334,8 @@ export const routes: Routes = [
       // Static redirectTo can't carry a #fragment (it lands on /admin/settings General,
       // not the AI Chat tab). Settings reads the fragment to open its 'ai-chat' tab, so
       // use a functional redirect that preserves it (same fix as /admin/mcp).
-                  // Old name kept for any deep links / bookmarks → the Traces tab under Logs.
-                  {
+      // Old name kept for any deep links / bookmarks → the Traces tab under Logs.
+      {
         // Voice — phone numbers, unified call+SMS conversations timeline,
         // browser-mic test console, agent prompt editor + immutable
         // safety meta-prompt, MCP attachments, share surface. Top-level
@@ -299,10 +344,10 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./pages/admin/sections/voice.component').then((m) => m.VoiceComponent),
       },
-            // /admin/mcp → the MCP tab inside Settings. `settings` is a flat route (no
+      // /admin/mcp → the MCP tab inside Settings. `settings` is a flat route (no
       // children), so the old `redirectTo: 'settings/mcp'` 404'd; settings reads the
       // `#mcp` fragment to open the MCP tab, so redirect there with the fragment.
-            {
+      {
         path: 'settings',
         loadComponent: () =>
           import('./pages/admin/sections/settings.component').then((m) => m.AdminSettingsComponent),
@@ -607,7 +652,8 @@ export const routes: Routes = [
     // changelog announcement all pre-existed; this route was the missing piece
     // (/roadmap previously soft-404'd to the not-found page). Lazy-loaded.
     path: 'roadmap',
-    loadComponent: () => import('./pages/roadmap/roadmap.component').then((m) => m.RoadmapComponent),
+    loadComponent: () =>
+      import('./pages/roadmap/roadmap.component').then((m) => m.RoadmapComponent),
   },
   {
     // Public press kit — 8-slide 1920×1080 cinematic picture walkthrough,

@@ -42,6 +42,9 @@ describe('AdminAnalyticsComponent (site-reactive load)', () => {
             // loadNetwork() runs on mount (zone-level, fail-soft) — stub so
             // detectChanges() doesn't crash on an undefined ApiService method.
             getNetworkAnalytics: jasmine.createSpy('getNetworkAnalytics').and.returnValue(of({ data: null })),
+            // The self-fetching <app-cloudflare-rum-card> child calls api.get on render — stub it
+            // (honest available:false) so the parent's detectChanges() doesn't crash.
+            get: jasmine.createSpy('get').and.returnValue(of({ available: false })),
           },
         },
         { provide: ToastService, useValue: { error: jasmine.createSpy('error'), success: jasmine.createSpy('success') } },
@@ -451,7 +454,7 @@ describe('AdminAnalyticsComponent (CSV export is formula-injection-safe)', () =>
     TestBed.configureTestingModule({
       imports: [AdminAnalyticsComponent],
       providers: [
-        { provide: ApiService, useValue: { getMultiUrlAnalytics: () => of({ data: null }), listSiteUrls: () => of({ data: [] }), getCloudflareCredentialStatus: () => of({ data: null }) } },
+        { provide: ApiService, useValue: { getMultiUrlAnalytics: () => of({ data: null }), listSiteUrls: () => of({ data: [] }), getCloudflareCredentialStatus: () => of({ data: null }), get: () => of({ available: false }) } },
         { provide: ToastService, useValue: { error: () => 0, success: () => 0 } },
         { provide: PromptService, useValue: { prompt: () => Promise.resolve(null) } },
         { provide: Router, useValue: { navigateByUrl: () => 0, navigate: () => Promise.resolve(true) } },
@@ -506,6 +509,7 @@ describe('AdminAnalyticsComponent (top-pages/countries cyan mini-empty cohesion)
         {
           provide: ApiService,
           useValue: {
+            get: () => of({ available: false }),
             getMultiUrlAnalytics: () => of({ data: null }),
             listSiteUrls: () => of({ data: [] }),
             getCloudflareCredentialStatus: () => of({ data: null }),
@@ -553,6 +557,7 @@ describe('AdminAnalyticsComponent — bounded auto-refresh retry (error-recovery
       imports: [AdminAnalyticsComponent],
       providers: [
         { provide: ApiService, useValue: {
+          get: () => of({ available: false }),
           getMultiUrlAnalytics: getAnalytics,
           listSiteUrls: () => of({ data: [] }),
           getCloudflareCredentialStatus: () => of({ data: null }),
@@ -754,6 +759,7 @@ describe('AdminAnalyticsComponent (range-switch race — last-write-wins)', () =
         {
           provide: ApiService,
           useValue: {
+            get: () => of({ available: false }),
             getMultiUrlAnalytics: getAnalytics,
             getSiteAnalytics: () => of(null),
             getSiteAnalyticsDaily: () => of({ days: [] }),
@@ -799,7 +805,7 @@ describe('AdminAnalyticsComponent (Top referrers — accurate channel labels)', 
     TestBed.configureTestingModule({
       imports: [AdminAnalyticsComponent],
       providers: [
-        { provide: ApiService, useValue: { getMultiUrlAnalytics: () => of({ data: null }), listSiteUrls: () => of({ data: [] }), getCloudflareCredentialStatus: () => of({ data: null }) } },
+        { provide: ApiService, useValue: { getMultiUrlAnalytics: () => of({ data: null }), listSiteUrls: () => of({ data: [] }), getCloudflareCredentialStatus: () => of({ data: null }), get: () => of({ available: false }) } },
         { provide: ToastService, useValue: { error: () => 0, success: () => 0 } },
         { provide: PromptService, useValue: { prompt: () => Promise.resolve(null) } },
         { provide: Router, useValue: { navigateByUrl: () => 0, navigate: () => Promise.resolve(true) } },
@@ -912,6 +918,7 @@ describe('AdminAnalyticsComponent (bounce rate — true D1 value wins over edge 
         {
           provide: ApiService,
           useValue: {
+            get: () => of({ available: false }),
             getMultiUrlAnalytics: jasmine.createSpy('getMultiUrlAnalytics').and.returnValue(of({ data: null })),
             listSiteUrls: jasmine.createSpy('listSiteUrls').and.returnValue(of({ data: [] })),
             getCloudflareCredentialStatus: jasmine.createSpy('getCloudflareCredentialStatus').and.returnValue(of({ data: null })),
@@ -1007,6 +1014,7 @@ describe('AdminAnalyticsComponent — custom absolute date window', () => {
         {
           provide: ApiService,
           useValue: {
+            get: () => of({ available: false }),
             getMultiUrlAnalytics: () => of({ data: null }),
             listSiteUrls: () => of({ data: [] }),
             getCloudflareCredentialStatus: () => of({ data: null }),
@@ -1135,6 +1143,7 @@ describe('AdminAnalyticsComponent — comparison-period deltas', () => {
         {
           provide: ApiService,
           useValue: {
+            get: () => of({ available: false }),
             getMultiUrlAnalytics: () => of({ data: null }),
             listSiteUrls: () => of({ data: [] }),
             getCloudflareCredentialStatus: () => of({ data: null }),
@@ -1284,5 +1293,115 @@ describe('AdminAnalyticsComponent — comparison-period deltas', () => {
   it('conversionKindDeltas is empty with no siteTraffic (nothing to compare)', () => {
     const c = build();
     expect(c.conversionKindDeltas()).toEqual({});
+  });
+});
+
+/**
+ * Guards the drilldown filter UI (AN-FILTER): clicking a breakdown row restricts the
+ * whole summary to `{dim,value}` via the server-validated `?filterDim&filterValue`; the
+ * removable chip renders from the SERVER-echoed `appliedFilter` (never the click alone);
+ * clicking the active row toggles it off; clearing reloads unfiltered.
+ */
+describe('AdminAnalyticsComponent (drilldown filter — AN-FILTER)', () => {
+  let selectedSite: WritableSignal<{ id: string } | null>;
+  let getSite: jasmine.Spy;
+  let fx: ComponentFixture<AdminAnalyticsComponent>;
+
+  const traffic = (over: Record<string, unknown> = {}) => ({
+    pageviews: 5, uniqueSessions: 3, conversions: 0, bounceRatePercent: null,
+    topPaths: [], byType: [], byDevice: [], byBrowser: [], byOs: [],
+    byUtmSource: [], byUtmCampaign: [], byChannel: [], byCountry: [], byHour: [],
+    byConversionKind: [], webVitals: null,
+    previous: { pageviews: 0, uniqueSessions: 0, conversions: 0 }, windowDays: 30, ...over,
+  });
+
+  function build(): AdminAnalyticsComponent {
+    selectedSite = signal<{ id: string } | null>({ id: 'site-f' });
+    getSite = jasmine.createSpy('getSiteAnalytics').and.returnValue(of(null));
+    TestBed.configureTestingModule({
+      imports: [AdminAnalyticsComponent],
+      providers: [
+        { provide: ApiService, useValue: {
+          get: () => of({ available: false }),
+          getMultiUrlAnalytics: () => of({ data: null }),
+          listSiteUrls: () => of({ data: [] }),
+          getCloudflareCredentialStatus: () => of({ data: null }),
+          getSiteAnalytics: getSite,
+          getSiteAnalyticsDaily: () => of({ days: [] }),
+          addSiteUrl: () => of({}),
+          getNetworkAnalytics: () => of({ data: null }),
+        } },
+        { provide: ToastService, useValue: { error: () => 0, success: () => 0 } },
+        { provide: PromptService, useValue: { prompt: () => Promise.resolve(null) } },
+        { provide: Router, useValue: { navigateByUrl: () => 0, navigate: () => Promise.resolve(true) } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } } } },
+        { provide: AdminStateService, useValue: { selectedSite } },
+      ],
+    });
+    fx = TestBed.createComponent(AdminAnalyticsComponent);
+    fx.detectChanges();
+    return fx.componentInstance;
+  }
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('applyDrill sets the filter + reloads with {dim,value} as the 5th getSiteAnalytics arg', () => {
+    const c = build();
+    getSite.calls.reset();
+    c.applyDrill({ dim: 'device', value: 'mobile' });
+    expect(c.filter()).toEqual({ dim: 'device', value: 'mobile' });
+    // 5th positional arg (index 4) is the filter forwarded as ?filterDim&filterValue.
+    expect(getSite.calls.mostRecent().args[4]).toEqual({ dim: 'device', value: 'mobile' });
+  });
+
+  it('applyDrill toggles the filter OFF when the active row is clicked again', () => {
+    const c = build();
+    c.applyDrill({ dim: 'country', value: 'US' });
+    expect(c.filter()).toEqual({ dim: 'country', value: 'US' });
+    c.applyDrill({ dim: 'country', value: 'US' });
+    expect(c.filter()).withContext('same row again clears the filter').toBeNull();
+  });
+
+  it('renders the removable chip from the SERVER-echoed appliedFilter (never the click alone)', () => {
+    const c = build();
+    getSite.and.returnValue(of({
+      siteId: 'site-f', windowDays: 30, traffic: traffic(),
+      appliedFilter: { dim: 'device', value: 'mobile' },
+    }));
+    c.applyDrill({ dim: 'device', value: 'mobile' });
+    fx.detectChanges();
+    expect(c.appliedFilter()).toEqual({ dim: 'device', value: 'mobile' });
+    const chip = (fx.nativeElement as HTMLElement).querySelector('[data-testid="an-filter-chip"]');
+    expect(chip).withContext('chip renders when the server confirmed a filter').toBeTruthy();
+    expect(chip!.textContent).toContain('Device');
+    expect(chip!.textContent).toContain('mobile');
+  });
+
+  it('does NOT render the chip when the server echoes no appliedFilter', () => {
+    const c = build();
+    getSite.and.returnValue(of({ siteId: 'site-f', windowDays: 30, traffic: traffic() }));
+    c.reload();
+    fx.detectChanges();
+    expect(c.appliedFilter()).toBeNull();
+    expect((fx.nativeElement as HTMLElement).querySelector('[data-testid="an-filter-chip"]')).toBeNull();
+  });
+
+  it('clearFilter clears the filter + reloads unfiltered (5th arg undefined)', () => {
+    const c = build();
+    c.filter.set({ dim: 'os', value: 'iOS' });
+    getSite.calls.reset();
+    c.clearFilter();
+    expect(c.filter()).toBeNull();
+    expect(getSite.calls.mostRecent().args[4]).withContext('unfiltered reload sends no filter').toBeUndefined();
+  });
+
+  it('isDrilled matches the active filter; filterDimLabel humanizes the dimension', () => {
+    const c = build();
+    c.filter.set({ dim: 'path', value: '/about' });
+    expect(c.isDrilled('path', '/about')).toBeTrue();
+    expect(c.isDrilled('path', '/')).withContext('same dim, different value').toBeFalse();
+    expect(c.isDrilled('country', '/about')).withContext('same value, different dim').toBeFalse();
+    expect(c.filterDimLabel('os')).toBe('OS');
+    expect(c.filterDimLabel('path')).toBe('Page');
+    expect(c.isFiltered()).toBeTrue();
   });
 });

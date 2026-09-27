@@ -11,8 +11,13 @@
  * browser, so this covers all recorded pageviews. Every count is a real tracked
  * pageview; an unclassified UA buckets as "unknown" (a real bucket, never dropped),
  * and a site with no pageviews shows an explicit empty state, never a fabricated 0.
+ *
+ * DRILLDOWN: each row is an accessible toggle button that emits `drill` ({dim,value}) so
+ * the parent dashboard can restrict the ENTIRE summary to that device/browser/os value
+ * (the server validates the dimension + binds the value). The row bound to the parent's
+ * `activeFilter` shows `aria-pressed`; clicking it again toggles the filter off.
  */
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 
 /** One `{ label, count }` breakdown row (device/browser/os), as the server returns it. */
 export interface TechCount {
@@ -54,13 +59,23 @@ interface TechGroup {
                 <ul class="tech-list">
                   @for (r of g.rows; track r.label) {
                     <li class="tech-row" [attr.data-testid]="'an-tech-row-' + g.key">
-                      <div class="tech-row-head">
-                        <span class="tech-label" [attr.title]="r.label">{{ r.label }}</span>
-                        <span class="tech-count">{{ r.count }} <span class="tech-pct">· {{ pct(r.count, g.total) }}%</span></span>
-                      </div>
-                      <div class="tech-bar" aria-hidden="true">
-                        <div class="tech-bar-fill" [style.width.%]="barWidth(r.count, g.max)"></div>
-                      </div>
+                      <button
+                        type="button"
+                        class="tech-drill"
+                        [class.is-active]="isActive(g.key, r.label)"
+                        [attr.data-testid]="'an-tech-drill-' + g.key"
+                        [attr.aria-pressed]="isActive(g.key, r.label)"
+                        [attr.aria-label]="'Filter analytics by ' + g.label + ' ' + r.label + ' — ' + r.count + ' pageviews'"
+                        (click)="drill.emit({ dim: g.key, value: r.label })"
+                      >
+                        <div class="tech-row-head">
+                          <span class="tech-label" [attr.title]="r.label">{{ r.label }}</span>
+                          <span class="tech-count">{{ r.count }} <span class="tech-pct">· {{ pct(r.count, g.total) }}%</span></span>
+                        </div>
+                        <div class="tech-bar" aria-hidden="true">
+                          <div class="tech-bar-fill" [style.width.%]="barWidth(r.count, g.max)"></div>
+                        </div>
+                      </button>
                     </li>
                   }
                 </ul>
@@ -89,6 +104,13 @@ interface TechGroup {
     @media (max-width: 640px) { .tech-grid { grid-template-columns: 1fr; } }
     .tech-col-h { font-size: 0.64rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: color-mix(in oklch, var(--ps-ink, #f4f4ff) 58%, transparent); margin-bottom: 0.5rem; }
     .tech-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+    .tech-drill {
+      display: block; width: 100%; text-align: left; background: none; border: 0; font: inherit; color: inherit;
+      padding: 0.2rem 0.35rem; margin: -0.2rem -0.35rem; border-radius: 8px; cursor: pointer; transition: background 0.14s ease;
+    }
+    .tech-drill:hover { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 8%, transparent); }
+    .tech-drill:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 1px; }
+    .tech-drill.is-active { background: color-mix(in oklch, var(--ps-accent, #00e5ff) 16%, transparent); box-shadow: inset 2px 0 0 var(--ps-accent, #00e5ff); }
     .tech-row-head { display: flex; justify-content: space-between; gap: 0.6rem; margin-bottom: 0.2rem; }
     .tech-label { font-size: 0.78rem; color: #fff; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: capitalize; }
     .tech-count { font-size: 0.72rem; font-weight: 600; color: var(--ps-accent, #00e5ff); font-variant-numeric: tabular-nums; flex-shrink: 0; }
@@ -107,6 +129,16 @@ export class TechBreakdownComponent {
   readonly os = input<TechCount[]>([]);
   /** Window length, for the "last N days" freshness label. */
   readonly windowDays = input<number>(30);
+  /** The parent's active drilldown filter — a matching row shows `aria-pressed`. */
+  readonly activeFilter = input<{ dim: string; value: string } | null>(null);
+  /** Emitted when a row is clicked — the parent restricts the summary to `{dim,value}`. */
+  readonly drill = output<{ dim: 'device' | 'browser' | 'os'; value: string }>();
+
+  /** True when the parent filter targets THIS dimension + value (drives `aria-pressed`). */
+  isActive(dim: 'device' | 'browser' | 'os', value: string): boolean {
+    const f = this.activeFilter();
+    return !!f && f.dim === dim && f.value === value;
+  }
 
   /** Top non-zero rows for one dimension, sorted by count desc, capped at 6. */
   private top(rows: TechCount[]): TechCount[] {

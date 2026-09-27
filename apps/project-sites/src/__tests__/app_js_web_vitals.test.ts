@@ -76,6 +76,17 @@ describe('app.js Core Web Vitals beacon (initWebVitals)', () => {
       expect(body).toMatch(/if\s*\(support\.INP\)/);
     });
 
+    it('measures FCP (paint observer) + TTFB (Navigation Timing) and reports them honestly', () => {
+      const body = webVitalsBody();
+      // FCP from the paint observer's first-contentful-paint entry, reported only when present.
+      expect(body).toMatch(/obs\('paint'/);
+      expect(body).toContain('first-contentful-paint');
+      expect(body).toMatch(/if\s*\(support\.FCP && fcp >= 0\)/);
+      // TTFB from Navigation Timing responseStart (no observer), reported only when > 0.
+      expect(body).toContain("getEntriesByType('navigation')");
+      expect(body).toMatch(/report\('TTFB', nav\.responseStart\)/);
+    });
+
     it('never reports a NaN or negative value (report guards value < 0 and NaN)', () => {
       expect(webVitalsBody()).toMatch(/if\s*\(value < 0 \|\| value !== value\)\s*return;/);
     });

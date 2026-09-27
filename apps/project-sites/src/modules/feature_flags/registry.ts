@@ -73,6 +73,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  per_site_data: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Per-site data-resource provisioning (Data Platform re-arch, Phase 0c — docs/data-platform-scope.md).\n\n• On site-create (services/site_create.ts) provisions a DEDICATED Cloudflare D1 + KV namespace + R2 bucket for the site IN PARALLEL (Promise.all), each recorded in site_database_allocations. Uses the server-side global key (resolveCfCredentials) + env.CF_ACCOUNT_ID; each provisioner is idempotent (reuses an existing allocation — never a duplicate on retry) + fails soft (never blocks site creation).\n• Off (default, DARK) → no per-site resources are created; sites stay on the shared platform D1/KV/R2. On → new sites get their own resources.\n• Backend-only wiring; the spreadsheet Data UI over per-site resources is later phases.',
+    key: 'per_site_data',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   research_cache: {
     default_enabled: false,
     default_rollout_percent: 0,
@@ -434,6 +443,42 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     description:
       'Read-only, super-admin platform debugging tool for the two shared KV namespaces (CACHE_KV = host/analytics cache, PROMPT_STORE = prompt hot-patch).\n\n• Worker: libs/features/kv_inspector/handlers.ts serves GET /api/admin/kv/namespaces, /api/admin/kv/:binding/keys (cursor-paginated, ≤1000), /api/admin/kv/:binding/value (64 KiB cap + truncated flag).\n• :binding validated against a SERVER allowlist (CACHE_KV|PROMPT_STORE) — client-supplied names never reach KV; unknown → 404.\n• Read-only (no write/delete). Super-admin only; flag off → 404 (never leak existence).\n• Admin surface: /admin/kv-inspector (System Administrator). Values are eventually consistent (disclosed in the UI).',
     key: 'kv_inspector',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  d1_manager: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Read-only, super-admin D1 resource-discovery + Overview surface for the Cloudflare account\'s D1 databases.\n\n• Worker: libs/features/d1_manager/handlers.ts serves GET /api/admin/d1/databases (list: id/name/created/version) + /api/admin/d1/:databaseId/overview (metadata: file size, table count, region, read-replication, version) via the Cloudflare D1 REST API.\n• Cloudflare credentials stay SERVER-side (resolveCfCredentials); account id is env.CF_ACCOUNT_ID, never client-supplied. :databaseId is a validated UUID (no REST-path injection); the super-admin gate is the authz boundary (account-wide platform view, not per-tenant).\n• Reads only (no data mutation): list + overview + SQL-DUMP EXPORT. POST /api/admin/d1/:databaseId/export runs CF\'s async polling export → a portable .sql text dump (full, or scoped via dump_options.tables/no_data/no_schema), resumable via the returned bookmark. Export briefly makes the DB unavailable to serve queries (a CF platform behaviour, surfaced honestly in the response note), so it stays super-admin + flag-dark. No write/DDL/Time-Travel restore (the raw SQL console + restore are separate). Super-admin only; flag off → 404 (never leak existence). Honest "not available" (never a fabricated URL/empty list) when creds/API fail.\n• Surfaced in the Editor Data panel D1 Overview strip + /admin/data (System Administrator).',
+    key: 'd1_manager',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  r2_inspector: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Read-only, super-admin platform debugging tool for the shared R2 bucket (SITES_BUCKET = generated site output + media).\n\n• Worker: libs/features/r2_inspector/handlers.ts serves GET /api/admin/r2/buckets, /api/admin/r2/:bucket/objects (prefix + cursor-paginated, ≤1000), /api/admin/r2/:bucket/object (metadata via HEAD — never the body).\n• :bucket validated against a SERVER allowlist (SITES_BUCKET) — client-supplied names never reach R2; unknown → 404.\n• Read-only (no put/delete, no body download). Super-admin only; flag off → 404 (never leak existence).\n• Admin surface: /admin/r2-inspector (System Administrator). SITES_BUCKET is SHARED platform infra, not tenant-owned.',
+    key: 'r2_inspector',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  vectorize_inspector: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Read-only, super-admin platform debugging tool for the account Cloudflare Vectorize indexes (RAG / embeddings — shared platform infra, not tenant-owned).\n\n• Worker: libs/features/vectorize_inspector/handlers.ts serves GET /api/admin/vectorize/indexes (list) + /api/admin/vectorize/indexes/:name (describe: dimensions, distance metric, description, vector count + last-processed mutation via v2 REST /info).\n• Cloudflare credentials stay SERVER-side (worker global key via resolveCfCredentials); account id is env.CF_ACCOUNT_ID, never client-supplied. :name validated as a slug (no REST-path injection); the super-admin gate is the authz boundary.\n• Read-only (no insert/query/delete). Super-admin only; flag off → 404 (never leak existence). Honest "not available" (never a fabricated empty list) when creds/API fail.\n• Admin surface: /admin/vectorize-inspector (System Administrator).',
+    key: 'vectorize_inspector',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
+  queues_inspector: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Read-only, super-admin platform debugging tool for the account Cloudflare Queues (job / workflow pipelines — shared platform infra, not tenant-owned).\n\n• Worker: libs/features/queues_inspector/handlers.ts serves GET /api/admin/queues (list) + /api/admin/queues/:id (describe: delivery delay, message retention, producers + consumers with worker script/service).\n• Cloudflare credentials stay SERVER-side (worker global key via resolveCfCredentials); account id is env.CF_ACCOUNT_ID, never client-supplied. :id validated as a slug/hex (no REST-path injection); the super-admin gate is the authz boundary.\n• Read-only (no publish/purge/delete). Super-admin only; flag off → 404 (never leak existence). Honest "not available" (never a fabricated empty list) when creds/API fail.\n• Admin surface: /admin/queues-inspector (System Administrator).',
+    key: 'queues_inspector',
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },

@@ -174,6 +174,44 @@ export async function createSite(
     }
   }
 
+  // Per-site data-resource provisioning (Data Platform re-arch, Phase 0c — docs/data-platform-scope.md).
+  // Every (paid) site gets its OWN D1 + KV + R2, provisioned IN PARALLEL. Flag-gated behind
+  // `per_site_data` (experimental, default-off → DARK: no real Cloudflare resources are created until
+  // the flag is promoted). Fail-soft: a CF/provisioning hiccup NEVER blocks site creation, and each
+  // provisioner is idempotent + records into `site_database_allocations`, so a later retry converges.
+  if (ctx.executionCtx) {
+    const provision = (async () => {
+      try {
+        const { isFlagOn } = await import('../modules/feature_flags/services.js');
+        if (
+          !(await isFlagOn(env, 'per_site_data', {
+            orgId: ctx.actorId ?? undefined,
+            siteId: site.id,
+          }))
+        )
+          return;
+        const [{ provisionSiteD1 }, { provisionSiteKv }, { provisionSiteR2 }] = await Promise.all([
+          import('./d1_provisioner.js'),
+          import('./kv_provisioner.js'),
+          import('./r2_provisioner.js'),
+        ]);
+        const args = { orgId: ctx.actorId ?? null, siteId: site.id, tenantId: input.orgId };
+        await Promise.all([
+          provisionSiteD1(env, args),
+          provisionSiteKv(env, args),
+          provisionSiteR2(env, args),
+        ]);
+      } catch {
+        /* fail-soft — a provisioning / CF outage never blocks site creation (idempotent retry later) */
+      }
+    })();
+    try {
+      ctx.executionCtx.waitUntil(provision);
+    } catch {
+      void provision;
+    }
+  }
+
   // Authz relationship bootstrap (§29/ADR-0005): make the creating user the OWNER
   // of this site in the authorization graph, so the (deferred) requireAuthz
   // ('can_publish') guard passes once OpenFGA is live. Skipped for an anonymous /

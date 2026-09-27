@@ -35,6 +35,7 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../../src/types/env.js';
 import { writeAuditLog } from '../../../src/services/audit.js';
+import { runObservedWorkersAI } from '../../../src/lib/workers_ai.js';
 
 type AppContext = { Bindings: Env; Variables: Variables };
 
@@ -123,10 +124,12 @@ export const SITE_DATA_OVERVIEW_TABLES: readonly OverviewTable[] = [
     countSql: `SELECT COUNT(*) AS n FROM form_submissions WHERE site_id = ?`,
     lastActivitySql: `SELECT MAX(created_at) AS ts FROM form_submissions WHERE site_id = ?`,
     // PII-safe: no payload / ip_address / user_agent; email is masked below.
-    // `id` is selected as the stable delete key (a random UUID, not PII) but kept
+    // `id` is selected as the stable delete/edit key (a random UUID, not PII) but kept
     // OUT of `columns` so it's never a rendered / sortable / searchable column.
-    browseSql: `SELECT id, form_name, status, email, created_at FROM form_submissions WHERE site_id = ? ORDER BY created_at DESC LIMIT ?`,
-    columns: ['form_name', 'status', 'email', 'created_at'],
+    // `notes` is the OWNER's own free-text annotation on a lead (not lead-supplied PII)
+    // — displayed + owner-editable via the typed TEXT editor (EDITABLE_OVERVIEW_COLUMNS).
+    browseSql: `SELECT id, form_name, status, notes, email, created_at FROM form_submissions WHERE site_id = ? ORDER BY created_at DESC LIMIT ?`,
+    columns: ['form_name', 'status', 'notes', 'email', 'created_at'],
     maskEmail: true,
     deletable: true,
   },
@@ -202,13 +205,15 @@ export function deletableTableName(key: string): string | undefined {
     : undefined;
 }
 
-/** How one owner-editable overview column is typed + validated. */
-export interface EditableColumnSpec {
-  /** Only 'enum' today — a fixed option set mirroring the D1 CHECK constraint. */
-  type: 'enum';
-  /** Allowed values; anything outside is a 400 (never written). */
-  options: readonly string[];
-}
+/**
+ * How one owner-editable overview column is typed + validated. A discriminated union:
+ * `enum` (a fixed option set mirroring a D1 CHECK constraint) or `text` (bounded free
+ * text, e.g. an owner's private note on a lead). The `type` discriminant drives BOTH the
+ * server validator ({@link validateEditableValue}) and the row-detail editor the UI renders.
+ */
+export type EditableColumnSpec =
+  | { type: 'enum'; options: readonly string[] }
+  | { type: 'text'; maxLength: number };
 
 /**
  * Per-table, per-column EDIT allowlist for the owner Data browser — the boundary AND
@@ -225,6 +230,9 @@ export const EDITABLE_OVERVIEW_COLUMNS: Readonly<
 > = {
   form_submissions: {
     status: { type: 'enum', options: ['received', 'forwarded', 'partial', 'failed'] },
+    // Owner's private free-text note on a lead ("called back 3pm — interested"). Bounded
+    // ≤2000 chars; empty string is valid (clears the note). Not lead-supplied PII.
+    notes: { type: 'text', maxLength: 2000 },
   },
 };
 
@@ -255,23 +263,32 @@ export function editableColumn(key: string, column: string): EditableColumnSpec 
 }
 
 /**
- * Validate a candidate value against a column's edit spec. Enum: the value (coerced
- * to string) must be one of `options`. Returns the string to bind, or an error reason.
+ * Validate a candidate value against a column's edit spec. Enum: the value (coerced to
+ * string) must be one of `options`. Text: any string ≤ `maxLength` (empty = clear the
+ * note; null/undefined coerce to ''). Returns the string to bind, or an error reason.
  *
  * @example validateEditableValue({type:'enum',options:['a','b']}, 'a') // { ok:true, value:'a' }
  * @example validateEditableValue({type:'enum',options:['a']}, 'x')     // { ok:false, reason:… }
+ * @example validateEditableValue({type:'text',maxLength:5}, 'hello')   // { ok:true, value:'hello' }
+ * @example validateEditableValue({type:'text',maxLength:2}, 'nope')    // { ok:false, reason:… }
  */
 export function validateEditableValue(
   spec: EditableColumnSpec,
   raw: unknown,
 ): { ok: true; value: string } | { ok: false; reason: string } {
-  const value = String(raw ?? '');
-  if (spec.type === 'enum') {
-    return spec.options.includes(value)
+  if (spec.type === 'text') {
+    // Free text: an empty string is VALID (clears the note) — coerce null/undefined → ''
+    // so "clear the note" is a first-class action. Reject only over-length.
+    const value = raw == null ? '' : String(raw);
+    return value.length <= spec.maxLength
       ? { ok: true, value }
-      : { ok: false, reason: `Value must be one of: ${spec.options.join(', ')}` };
+      : { ok: false, reason: `Must be ${spec.maxLength} characters or fewer` };
   }
-  return { ok: false, reason: 'Unsupported column type' };
+  // enum: the value (coerced to string) must be one of the allowed options.
+  const value = String(raw ?? '');
+  return spec.options.includes(value)
+    ? { ok: true, value }
+    : { ok: false, reason: `Value must be one of: ${spec.options.join(', ')}` };
 }
 
 /**
@@ -322,24 +339,377 @@ export function buildDataSearch(
  * SQL-injection boundary — same set that gates orderBy + search); anything else, or
  * an empty value, yields no clause. The value is parameterized (never concatenated)
  * and bounded to 200 chars. Complements the OR-of-LIKE `buildDataSearch` with a
- * precise single-column `= ?` for triaging (e.g. `status = new`).
+ * precise single-column comparison for triaging (e.g. `status = new`, `age >= 18`).
+ *
+ * The `?filterOp=` operator is chosen from a fixed WHITELIST by KEY — the SQL
+ * comparator is never taken from user text, so it's not an injection surface (the
+ * column allowlist + parameterized value remain the boundaries). Value-free ops
+ * (`null`/`notnull`) ignore `rawVal`; `contains` strips LIKE wildcards from the
+ * needle (matching `buildDataSearch`) and wraps it `%needle%`. An unknown/absent op
+ * defaults to `eq` (backward-compatible).
  *
  * @param columns - the table's safe column allowlist
  * @param rawCol - the client `?filterCol=` value
  * @param rawVal - the client `?filterVal=` value
- * @returns `{ clause, params }` — `clause` is ` AND "col" = ?` (or ''); one param
- * @example buildColumnFilter(['status','path'], 'status', 'new') // { clause: ' AND "status" = ?', params: ['new'] }
+ * @param rawOp - the client `?filterOp=` value (one of {@link FILTER_OPS}; default `eq`)
+ * @returns `{ clause, params }` — `clause` is ` AND "col" <op> ?` (or IS [NOT] NULL, or '')
+ * @example buildColumnFilter(['status'], 'status', 'new') // { clause: ' AND "status" = ?', params: ['new'] }
+ * @example buildColumnFilter(['age'], 'age', '18', 'gte') // { clause: ' AND "age" >= ?', params: ['18'] }
+ * @example buildColumnFilter(['note'], 'note', '', 'null') // { clause: ' AND "note" IS NULL', params: [] }
  */
+export const FILTER_OPS = [
+  'eq',
+  'ne',
+  'contains',
+  'startswith',
+  'endswith',
+  'gt',
+  'lt',
+  'gte',
+  'lte',
+  'null',
+  'notnull',
+] as const;
+export type FilterOp = (typeof FILTER_OPS)[number];
+
+/** Map a raw `?filterOp=` string to a whitelisted {@link FilterOp}; unknown/absent → `eq`. */
+function normalizeFilterOp(raw: string | undefined | null): FilterOp {
+  const op = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  return (FILTER_OPS as readonly string[]).includes(op) ? (op as FilterOp) : 'eq';
+}
+
+/**
+ * The bare SQL predicate for ONE filter condition (e.g. `"col" = ?`, `"col" IS NULL`) with NO leading
+ * `AND` — or `''` when the condition is inactive (column not allowlisted, or a value-op with no value).
+ * This is the shared leaf used by both the single-column {@link buildColumnFilter} and the multi-condition
+ * {@link buildColumnFilters}. Injection-safe: the column MUST be in the allowlist (the boundary), the
+ * comparator comes from a fixed switch (never user text), and every value is a bound `?` param.
+ */
+function buildFilterLeaf(
+  columns: readonly string[],
+  rawCol: string | undefined | null,
+  rawVal: string | undefined | null,
+  rawOp?: string | undefined | null,
+): { pred: string; params: string[] } {
+  const col = String(rawCol ?? '').trim();
+  if (!col || !columns.includes(col)) return { pred: '', params: [] };
+  const op = normalizeFilterOp(rawOp);
+
+  // Value-free operators — never look at rawVal.
+  if (op === 'null') return { pred: `"${col}" IS NULL`, params: [] };
+  if (op === 'notnull') return { pred: `"${col}" IS NOT NULL`, params: [] };
+
+  const val = String(rawVal ?? '')
+    .trim()
+    .slice(0, 200);
+  if (!val) return { pred: '', params: [] };
+
+  // LIKE-based ops: strip the user's own `%`/`_` wildcards (matching buildDataSearch) → a LITERAL match,
+  // then anchor per op. Injection-safe (bound `?`); a needle that's all-wildcards → inactive.
+  if (op === 'contains' || op === 'startswith' || op === 'endswith') {
+    const needle = val.replace(/[%_]/g, '');
+    if (!needle) return { pred: '', params: [] };
+    const pattern =
+      op === 'startswith' ? `${needle}%` : op === 'endswith' ? `%${needle}` : `%${needle}%`;
+    return { pred: `"${col}" LIKE ?`, params: [pattern] };
+  }
+
+  // Comparison operators — the comparator string comes from a fixed switch, never from user text.
+  switch (op) {
+    case 'ne':
+      return { pred: `"${col}" != ?`, params: [val] };
+    case 'gt':
+      return { pred: `"${col}" > ?`, params: [val] };
+    case 'lt':
+      return { pred: `"${col}" < ?`, params: [val] };
+    case 'gte':
+      return { pred: `"${col}" >= ?`, params: [val] };
+    case 'lte':
+      return { pred: `"${col}" <= ?`, params: [val] };
+    case 'eq':
+    default:
+      return { pred: `"${col}" = ?`, params: [val] };
+  }
+}
+
 export function buildColumnFilter(
   columns: readonly string[],
   rawCol: string | undefined | null,
   rawVal: string | undefined | null,
+  rawOp?: string | undefined | null,
 ): { clause: string; params: string[] } {
-  const col = String(rawCol ?? '').trim();
-  if (!col || !columns.includes(col)) return { clause: '', params: [] };
-  const val = String(rawVal ?? '').trim().slice(0, 200);
-  if (!val) return { clause: '', params: [] };
-  return { clause: ` AND "${col}" = ?`, params: [val] };
+  const { pred, params } = buildFilterLeaf(columns, rawCol, rawVal, rawOp);
+  return pred ? { clause: ` AND ${pred}`, params } : { clause: '', params: [] };
+}
+
+/** The two combinators that join a multi-condition filter group. Chosen by KEY — never user text. */
+export const FILTER_COMBINATORS = ['AND', 'OR'] as const;
+export type FilterCombinator = (typeof FILTER_COMBINATORS)[number];
+
+/** Map a raw `?filterCombinator=` string to a whitelisted {@link FilterCombinator}; unknown/absent → `AND`. */
+function normalizeCombinator(raw: string | undefined | null): FilterCombinator {
+  const c = String(raw ?? '')
+    .trim()
+    .toUpperCase();
+  return (FILTER_COMBINATORS as readonly string[]).includes(c) ? (c as FilterCombinator) : 'AND';
+}
+
+/** Query-cost guard: at most this many conditions per browse (the grid UI caps the builder to match). */
+export const MAX_FILTER_CONDITIONS = 20;
+
+/** One condition of a multi-condition filter group. */
+export interface FilterConditionInput {
+  col?: string | null;
+  val?: string | null;
+  op?: string | null;
+}
+
+/**
+ * Compile a flat list of filter conditions into ONE parameterized clause joined by a single
+ * `combinator` (`(a AND b AND c)` or `(a OR b OR c)`), ANDed onto the base `WHERE site_id = ?` — so
+ * `total` still reflects the filtered set. Inactive conditions (bad column / value-op with no value)
+ * are dropped; an all-inactive / empty list yields no clause. A single active condition emits no
+ * needless parens. Bounded to {@link MAX_FILTER_CONDITIONS}. Every leaf goes through
+ * {@link buildFilterLeaf} (allowlist + fixed comparator + bound params) so it is injection-safe.
+ *
+ * @example buildColumnFilters(['a','b'], [{col:'a',op:'gt',val:'1'},{col:'b',op:'null'}], 'OR')
+ *   // { clause: ' AND ("a" > ? OR "b" IS NULL)', params: ['1'] }
+ */
+export function buildColumnFilters(
+  columns: readonly string[],
+  conditions: ReadonlyArray<FilterConditionInput> | null | undefined,
+  rawCombinator?: string | undefined | null,
+): { clause: string; params: string[] } {
+  if (!Array.isArray(conditions) || conditions.length === 0) return { clause: '', params: [] };
+  const combinator = normalizeCombinator(rawCombinator);
+  const preds: string[] = [];
+  const params: string[] = [];
+  for (const cond of conditions.slice(0, MAX_FILTER_CONDITIONS)) {
+    const leaf = buildFilterLeaf(columns, cond?.col, cond?.val, cond?.op);
+    if (leaf.pred) {
+      preds.push(leaf.pred);
+      params.push(...leaf.params);
+    }
+  }
+  if (preds.length === 0) return { clause: '', params: [] };
+  if (preds.length === 1) return { clause: ` AND ${preds[0]}`, params };
+  return { clause: ` AND (${preds.join(` ${combinator} `)})`, params };
+}
+
+/**
+ * Parse the `?filters=` JSON query param into a bounded, shape-validated condition array. NEVER throws
+ * (a malformed value yields `[]` → no filter). Only string `col`/`val`/`op` are kept; everything else is
+ * coerced away. The server re-validates each `col` against the table allowlist + each `op` against the
+ * operator whitelist downstream (this is shape-hardening, not authorization).
+ */
+export function parseFilterConditions(
+  raw: string | undefined | null,
+): Array<{ col: string; val: string; op: string }> {
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out: Array<{ col: string; val: string; op: string }> = [];
+  for (const item of parsed.slice(0, MAX_FILTER_CONDITIONS)) {
+    if (item && typeof item === 'object') {
+      const rec = item as Record<string, unknown>;
+      out.push({
+        col: typeof rec.col === 'string' ? rec.col : '',
+        val: typeof rec.val === 'string' ? rec.val : '',
+        op: typeof rec.op === 'string' ? rec.op : 'eq',
+      });
+    }
+  }
+  return out;
+}
+
+/** Max saved views per (site, table) — bounds the metadata store + the views dropdown. */
+export const MAX_GRID_VIEWS_PER_TABLE = 50;
+
+/** A saved-view name: trimmed, 1–80 chars. Returns the clean name, or null when invalid. */
+export function validateViewName(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const name = raw.trim().slice(0, 80);
+  return name.length > 0 ? name : null;
+}
+
+/** Normalize a saved-view sort direction to `asc`/`desc`, or null (no sort). */
+export function normalizeSortDir(raw: unknown): 'asc' | 'desc' | null {
+  const d = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  return d === 'asc' || d === 'desc' ? d : null;
+}
+
+/**
+ * Shape a stored `editor_grid_views` row into the client view object: `filters_json` is parsed back
+ * through {@link parseFilterConditions} (so a corrupt stored value degrades to `[]`, never throws), the
+ * combinator is re-whitelisted, and sort is re-normalized. `org_id`/`created_by` are NOT returned (the
+ * client already scopes by session; they're server-side bookkeeping).
+ */
+/** The render types a saved view can carry — mirrors the editor's `ViewMode`. */
+export const GRID_VIEW_TYPES = ['grid', 'gallery', 'kanban', 'chart', 'calendar'] as const;
+export type GridViewType = (typeof GRID_VIEW_TYPES)[number];
+
+/** Coerce a raw view type to a whitelisted {@link GridViewType}; unknown/absent → `grid`. */
+export function normalizeGridViewType(raw: unknown): GridViewType {
+  const t = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  return (GRID_VIEW_TYPES as readonly string[]).includes(t) ? (t as GridViewType) : 'grid';
+}
+
+/**
+ * Parse a saved view's display config into a bounded, shape-hardened object — accepts EITHER the stored
+ * `config_json` string OR an incoming config object (the POST body). NEVER throws (malformed → `{}`).
+ * Honored keys: `titleField` (gallery/kanban card-title column), `groupField` (kanban/chart group-by
+ * column), `dateField` (calendar date column), each a string ≤64 chars; unknown keys are dropped. The
+ * editor re-validates each against the live columns at render (a stale field falls back to a default) —
+ * this is shape-hardening, not authorization.
+ */
+/** The saved column-layout sub-object of a grid view (field visibility/order/widths/pins/summaries/density). */
+export interface GridViewLayout {
+  hidden?: string[];
+  order?: string[];
+  widths?: Record<string, number>;
+  pinned?: string[];
+  summaries?: Record<string, string>;
+  density?: string;
+}
+
+/** Max entries kept in any layout array/map — a bloat/abuse bound (a table can't have this many columns). */
+export const MAX_LAYOUT_ENTRIES = 200;
+
+/** Bounded string[] (non-empty strings, each ≤64 chars, ≤MAX entries), or undefined when empty/not-an-array. */
+function boundedStringArray(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v
+    .filter((s): s is string => typeof s === 'string' && s.length > 0)
+    .slice(0, MAX_LAYOUT_ENTRIES)
+    .map((s) => s.slice(0, 64));
+  return out.length ? out : undefined;
+}
+
+/**
+ * Shape-harden a saved view's column LAYOUT (from config_json / POST body): bounded string arrays for
+ * hidden/order/pinned, a positive-number widths map, a summaries map (kind strings), and a density string.
+ * Bounds every array/map to {@link MAX_LAYOUT_ENTRIES} + caps key/value lengths — enough to stop bloat/abuse.
+ * The EDITOR re-validates the semantics on apply (invalid summary kinds dropped, unknown density → default,
+ * stale columns ignored), so this is size/type-hardening, not authorization. NEVER throws. Pure.
+ */
+export function parseGridViewLayout(raw: unknown): GridViewLayout | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const rec = raw as Record<string, unknown>;
+  const out: GridViewLayout = {};
+  const hidden = boundedStringArray(rec.hidden);
+  if (hidden) out.hidden = hidden;
+  const order = boundedStringArray(rec.order);
+  if (order) out.order = order;
+  const pinned = boundedStringArray(rec.pinned);
+  if (pinned) out.pinned = pinned;
+  if (rec.widths && typeof rec.widths === 'object' && !Array.isArray(rec.widths)) {
+    const w: Record<string, number> = {};
+    for (const [k, val] of Object.entries(rec.widths as Record<string, unknown>).slice(
+      0,
+      MAX_LAYOUT_ENTRIES,
+    )) {
+      if (typeof val === 'number' && Number.isFinite(val) && val > 0) w[k.slice(0, 64)] = val;
+    }
+    if (Object.keys(w).length) out.widths = w;
+  }
+  if (rec.summaries && typeof rec.summaries === 'object' && !Array.isArray(rec.summaries)) {
+    const s: Record<string, string> = {};
+    for (const [k, val] of Object.entries(rec.summaries as Record<string, unknown>).slice(
+      0,
+      MAX_LAYOUT_ENTRIES,
+    )) {
+      if (typeof val === 'string' && val.length <= 16) s[k.slice(0, 64)] = val;
+    }
+    if (Object.keys(s).length) out.summaries = s;
+  }
+  if (typeof rec.density === 'string' && rec.density.length <= 16) out.density = rec.density;
+  return Object.keys(out).length ? out : undefined;
+}
+
+export function parseGridViewConfig(raw: unknown): {
+  titleField?: string;
+  groupField?: string;
+  dateField?: string;
+  sorts?: string;
+  layout?: GridViewLayout;
+} {
+  let obj: unknown = raw;
+  if (typeof raw === 'string') {
+    if (!raw) return {};
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
+  const rec = obj as Record<string, unknown>;
+  const out: {
+    titleField?: string;
+    groupField?: string;
+    dateField?: string;
+    sorts?: string;
+    layout?: GridViewLayout;
+  } = {};
+  if (typeof rec.titleField === 'string' && rec.titleField.trim()) {
+    out.titleField = rec.titleField.trim().slice(0, 64);
+  }
+  if (typeof rec.groupField === 'string' && rec.groupField.trim()) {
+    out.groupField = rec.groupField.trim().slice(0, 64);
+  }
+  if (typeof rec.dateField === 'string' && rec.dateField.trim()) {
+    out.dateField = rec.dateField.trim().slice(0, 64);
+  }
+  // Multi-column sort as a `col:dir,…` string (the editor parses + re-validates each column on apply).
+  if (typeof rec.sorts === 'string' && rec.sorts.trim()) {
+    out.sorts = rec.sorts.trim().slice(0, 512);
+  }
+  const layout = parseGridViewLayout(rec.layout);
+  if (layout) {
+    out.layout = layout;
+  }
+  return out;
+}
+
+export function serializeGridView(row: Record<string, unknown>): {
+  id: string;
+  table: string;
+  name: string;
+  conditions: Array<{ col: string; val: string; op: string }>;
+  combinator: FilterCombinator;
+  sortCol: string | null;
+  sortDir: 'asc' | 'desc' | null;
+  search: string;
+  type: GridViewType;
+  config: { titleField?: string; groupField?: string; dateField?: string; sorts?: string; layout?: GridViewLayout };
+  updatedAt: string | null;
+} {
+  return {
+    id: String(row.id ?? ''),
+    table: String(row.table_key ?? ''),
+    name: String(row.name ?? ''),
+    conditions: parseFilterConditions(
+      typeof row.filters_json === 'string' ? row.filters_json : '[]',
+    ),
+    combinator: normalizeCombinator(typeof row.combinator === 'string' ? row.combinator : 'AND'),
+    sortCol: typeof row.sort_col === 'string' && row.sort_col ? row.sort_col : null,
+    sortDir: normalizeSortDir(row.sort_dir),
+    search: typeof row.search === 'string' ? row.search : '',
+    type: normalizeGridViewType(row.type),
+    config: parseGridViewConfig(row.config_json),
+    updatedAt: typeof row.updated_at === 'string' ? row.updated_at : null,
+  };
 }
 
 /**
@@ -573,6 +943,501 @@ siteDataApi.get('/api/sites/:siteId/data-overview', async (c) => {
   return c.json({ data: { tables } });
 });
 
+/** Max rows a single export returns — bounded; truncation is detected with a `LIMIT MAX+1` fetch. */
+export const MAX_EXPORT_ROWS = 10000;
+
+/**
+ * Compose the parameterized WHERE-suffix (whole-table search OR-of-LIKE + the AND/OR column-filter
+ * group) shared by the browse + export routes, read from the request query. `spec.columns` is the
+ * injection boundary (the `filters=`/`filterCol=` column MUST be allowlisted); every value is a bound
+ * param. Returns the ` AND …` clause + its params (both empty when neither a search nor a filter is set).
+ * Extracting this keeps browse + export from drifting apart (a filter fix lands in one place).
+ */
+export function composeBrowseFilter(
+  spec: { columns: readonly string[] },
+  query: (key: string) => string | undefined | null,
+): { clause: string; params: string[] } {
+  const { clause: searchClause, params: searchParams } = buildDataSearch(
+    spec.columns,
+    query('search'),
+  );
+  const parsed = parseFilterConditions(query('filters'));
+  const { clause: filterClause, params: filterParams } =
+    parsed.length > 0
+      ? buildColumnFilters(spec.columns, parsed, query('filterCombinator'))
+      : buildColumnFilter(spec.columns, query('filterCol'), query('filterVal'), query('filterOp'));
+  return { clause: `${searchClause}${filterClause}`, params: [...searchParams, ...filterParams] };
+}
+
+/** Max distinct groups a kanban group-count returns — bounded; `LIMIT MAX+1` detects overflow. */
+export const MAX_KANBAN_GROUPS = 50;
+
+/**
+ * Build the WHOLE-QUERY group-count SQL for a kanban board: derive `SELECT "<groupBy>" AS value,
+ * COUNT(*) AS n … GROUP BY "<groupBy>" ORDER BY n DESC LIMIT ?` from the table's `countSql` (which
+ * already carries the right FROM + `WHERE site_id = ?` + soft-delete filter), injecting the shared
+ * search/filter `extraClause` so the counts reflect the SAME filtered set the grid shows. `groupBy`
+ * MUST be pre-validated against `spec.columns` by the caller (the allowlist is the injection boundary,
+ * exactly like the browse `orderBy`); the value is quoted, never a bound param (SQLite can't bind an
+ * identifier). Pure.
+ */
+export function buildGroupCountSql(
+  spec: { countSql: string },
+  groupBy: string,
+  extraClause: string,
+): string {
+  const base = spec.countSql.replace(
+    /SELECT\s+COUNT\(\*\)\s+AS\s+n/i,
+    `SELECT "${groupBy}" AS value, COUNT(*) AS n`,
+  );
+  const withExtra = extraClause
+    ? base.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`)
+    : base;
+  return `${withExtra} GROUP BY "${groupBy}" ORDER BY n DESC LIMIT ?`;
+}
+
+/** The whole-query aggregate functions a chart measure can use (fixed whitelist → SQL keyword). */
+export const GROUP_AGGS = ['sum', 'avg', 'min', 'max'] as const;
+export type GroupAgg = (typeof GROUP_AGGS)[number];
+
+/** Coerce a raw `?agg=` to a whitelisted {@link GroupAgg}, or null (→ the endpoint falls back to COUNT). */
+export function normalizeGroupAgg(raw: unknown): GroupAgg | null {
+  const a = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  return (GROUP_AGGS as readonly string[]).includes(a) ? (a as GroupAgg) : null;
+}
+
+/**
+ * Build the WHOLE-QUERY group-AGGREGATE SQL for a chart measure: like {@link buildGroupCountSql} but also
+ * computes `<AGG>("<measure>") AS agg` per group and orders by that aggregate (desc), so a bar can be
+ * "SUM(amount) by status", not just row counts. BOTH `groupBy` and `measure` MUST be pre-validated
+ * against `spec.columns` (the allowlist is the injection boundary — identifiers are quoted, never bound);
+ * `agg` MUST be a {@link GroupAgg} (mapped to a fixed uppercase SQL keyword, never interpolated raw).
+ * SQLite is loosely typed: SUM/AVG over a non-numeric column coerce text→0, so the CLIENT only offers
+ * numeric-looking columns as measures — this builder assumes the measure is a sensible numeric column.
+ * Pure.
+ */
+export function buildGroupAggregateSql(
+  spec: { countSql: string },
+  groupBy: string,
+  agg: GroupAgg,
+  measure: string,
+  extraClause: string,
+): string {
+  const fn = agg.toUpperCase(); // SUM | AVG | MIN | MAX (from the fixed whitelist, never raw input)
+  const base = spec.countSql.replace(
+    /SELECT\s+COUNT\(\*\)\s+AS\s+n/i,
+    `SELECT "${groupBy}" AS value, COUNT(*) AS n, ${fn}("${measure}") AS agg`,
+  );
+  const withExtra = extraClause
+    ? base.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`)
+    : base;
+  return `${withExtra} GROUP BY "${groupBy}" ORDER BY agg DESC, n DESC LIMIT ?`;
+}
+
+/**
+ * Build the WHOLE-QUERY column-aggregate SQL: ONE ungrouped row computing `COUNT(*) AS n` plus, per
+ * requested column `i`, `COUNT("col") AS c<i>` (non-null count = "filled"), `SUM`/`AVG`/`MIN`/`MAX AS
+ * s/v/mn/mx<i>` — so the grid footer can show a summary over the ENTIRE filtered table, not just the
+ * loaded page. Positional aliases (`c0`,`s0`,…) map back to `columns[i]`, avoiding any quoting of the
+ * alias. Every `columns` entry MUST be pre-validated against `spec.columns` by the caller (the allowlist
+ * is the injection boundary — identifiers are quoted, never bound). The shared search/filter
+ * `extraClause` is injected so the aggregate reflects the SAME set the grid shows. Pure.
+ */
+export function buildColumnAggregatesSql(
+  spec: { countSql: string },
+  columns: readonly string[],
+  extraClause: string,
+): string {
+  const parts = ['COUNT(*) AS n'];
+  columns.forEach((col, i) => {
+    parts.push(
+      `COUNT("${col}") AS c${i}`,
+      `SUM("${col}") AS s${i}`,
+      `AVG("${col}") AS v${i}`,
+      `MIN("${col}") AS mn${i}`,
+      `MAX("${col}") AS mx${i}`,
+    );
+  });
+  const base = spec.countSql.replace(
+    /SELECT\s+COUNT\(\*\)\s+AS\s+n/i,
+    `SELECT ${parts.join(', ')}`,
+  );
+  return extraClause
+    ? base.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`)
+    : base;
+}
+
+/** Max distinct values suggested for a low-cardinality column's value editor (a select-like hint, not an enum). */
+export const MAX_DISTINCT_VALUES = 50;
+
+/**
+ * Build a BOUNDED `DISTINCT` query for ONE allowlisted column — powers the cell editor's "pick an
+ * existing value" datalist (Airtable single-select feel over a raw D1 column). `col` MUST already be
+ * allowlist-validated by the caller (quoted here, NEVER bound — an identifier can't be a SQL parameter;
+ * this is the injection boundary). Non-null + non-empty values only, ordered, `LIMIT ?` — the caller
+ * binds `MAX+1` and treats an over-cap result as "high-cardinality → offer no suggestions" (an honest
+ * select-like heuristic, never a full column scan surfaced to the user). Does NOT apply the grid's
+ * search/filter — the suggestion set is the column's whole value domain, not the filtered slice. Pure.
+ *
+ * @example buildColumnDistinctSql({ countSql: 'SELECT COUNT(*) AS n FROM form_submissions WHERE site_id = ?' }, 'status')
+ *   // SELECT DISTINCT "status" AS v FROM form_submissions WHERE site_id = ? AND "status" IS NOT NULL AND "status" <> '' ORDER BY "status" LIMIT ?
+ */
+export function buildColumnDistinctSql(spec: { countSql: string }, col: string): string {
+  const base = spec.countSql.replace(/SELECT\s+COUNT\(\*\)\s+AS\s+n/i, `SELECT DISTINCT "${col}" AS v`);
+
+  return `${base} AND "${col}" IS NOT NULL AND "${col}" <> '' ORDER BY "${col}" LIMIT ?`;
+}
+
+/** Max sort keys honored in a multi-column browse sort (a sane bound; more would rarely help + costs). */
+export const MAX_SORT_KEYS = 4;
+
+/**
+ * Build a MULTI-COLUMN `ORDER BY` clause from a `col:dir,col2:dir2` sort spec — the server side of the
+ * grid's multi-sort. Each column MUST be in the allowlist (the injection boundary — quoted, never bound);
+ * `dir` is coerced to `ASC`/`DESC` (never raw); duplicate columns keep only the first; unknown columns are
+ * dropped; bounded to {@link MAX_SORT_KEYS}. Returns `'ORDER BY "a" ASC, "b" DESC'` or `''` when nothing is
+ * valid (the caller then keeps the table's default order). Pure.
+ *
+ * @example buildOrderByClause(['a','b'], 'a:asc,b:desc') // 'ORDER BY "a" ASC, "b" DESC'
+ * @example buildOrderByClause(['a'], 'x:asc,a:desc')     // 'ORDER BY "a" DESC'  (x dropped)
+ * @example buildOrderByClause(['a'], '')                 // ''  (default order)
+ */
+export function buildOrderByClause(columns: readonly string[], sortParam: string | undefined | null): string {
+  const seen = new Set<string>();
+  const terms: string[] = [];
+
+  for (const pair of String(sortParam ?? '').split(',')) {
+    const [rawCol, rawDir] = pair.split(':');
+    const col = (rawCol ?? '').trim();
+    if (!col || seen.has(col) || !columns.includes(col)) {
+      continue;
+    }
+    seen.add(col);
+    const dir = (rawDir ?? '').trim().toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+    terms.push(`"${col}" ${dir}`);
+    if (terms.length >= MAX_SORT_KEYS) {
+      break;
+    }
+  }
+
+  return terms.length ? `ORDER BY ${terms.join(', ')}` : '';
+}
+
+/* ───────────────────────── Grounded "Ask your data" — deterministic intent compiler ─────────────────
+ * The SECURITY-CRITICAL core of slice 5: a strict typed query intent (which an AI proposes, or a UI
+ * builds) is compiled DETERMINISTICALLY into parameterized SQLite over an ALLOWLISTED overview table.
+ * The model never emits SQL — it emits an intent that this pure function validates + compiles. Every
+ * identifier is re-validated against `spec.columns` (the injection boundary) + quoted, every value is
+ * BOUND (via the reused `buildColumnFilters`), the result is site-scoped + LIMIT-bounded. Pure. */
+
+/** Default + hard-max row cap for a compiled intent (bounded results — never an unbounded scan). */
+export const INTENT_DEFAULT_LIMIT = 100;
+export const MAX_INTENT_LIMIT = 1000;
+
+/** Max SELECT fields in one intent (bounds a hostile/huge select list; columns are allowlisted anyway). */
+export const MAX_SELECT_FIELDS = 64;
+
+/** Aggregate functions an intent may request (a fixed whitelist — never raw input). */
+export const INTENT_AGGS = ['count', 'sum', 'avg', 'min', 'max'] as const;
+export type IntentAgg = (typeof INTENT_AGGS)[number];
+
+/** One SELECT field: a plain column (projection) OR an aggregate (`count` may omit `col` → COUNT(*)). */
+export interface QueryIntentField {
+  col?: string;
+  agg?: IntentAgg;
+}
+
+/** A strict, typed query intent over ONE allowlisted overview table (the AI/UI → SQL contract). */
+export interface QueryIntent {
+  select: QueryIntentField[];
+  filters?: FilterConditionInput[];
+  combinator?: string | null;
+  groupBy?: string;
+  orderBy?: Array<{ col?: string; dir?: string }>;
+  limit?: number;
+}
+
+/** Compile result: a parameterized statement to run as `.bind(siteId, ...params)`, or a typed refusal. */
+export type CompiledQuery =
+  | { ok: true; sql: string; params: Array<string | number> }
+  | { ok: false; error: string };
+
+/** Clamp an intent's requested row limit to `[1, MAX_INTENT_LIMIT]`, defaulting when absent/invalid. Pure. */
+export function clampIntentLimit(limit: number | undefined | null): number {
+  if (typeof limit !== 'number' || !Number.isFinite(limit) || limit < 1) {
+    return INTENT_DEFAULT_LIMIT;
+  }
+
+  return Math.min(Math.floor(limit), MAX_INTENT_LIMIT);
+}
+
+/**
+ * Compile a typed {@link QueryIntent} into parameterized SQLite over `spec` (an allowlisted overview
+ * table). Two modes, never mixed: PROJECTION (plain columns) or AGGREGATE (count/sum/avg/min/max, with an
+ * optional single `groupBy`). Every column is re-validated against `spec.columns` + quoted (never bound);
+ * every aggregate against {@link INTENT_AGGS}; filter VALUES are bound via {@link buildColumnFilters}; the
+ * query is always site-scoped (`WHERE site_id = ?` first, from `spec.countSql`) + LIMIT-bounded. Returns
+ * `{ sql, params }` — run as `.bind(siteId, ...params)` — or `{ ok:false, error }` for an invalid intent.
+ * Pure; performs NO I/O and never executes.
+ *
+ * @example compileQueryIntent({ select:[{agg:'count'}], groupBy:'status' }, spec)
+ *   // SELECT "status" AS grp, COUNT(*) AS n FROM form_submissions WHERE site_id = ? GROUP BY "status" ORDER BY n DESC LIMIT ?
+ */
+export function compileQueryIntent(
+  intent: QueryIntent,
+  spec: { columns: readonly string[]; countSql: string; maskedColumns?: readonly string[] },
+): CompiledQuery {
+  const cols = spec.columns;
+  // Masked columns (e.g. `email` on form_submissions) may be FILTERED on (WHERE, like the browse path)
+  // but never SELECTed or GROUPed — that would leak the raw PII the browse route deliberately masks
+  // (directly, or via the `grp` alias). Strictly safe: reject them in any output position.
+  const masked = spec.maskedColumns ?? [];
+  const select = Array.isArray(intent.select) ? intent.select : [];
+
+  if (select.length === 0) {
+    return { ok: false, error: 'select must specify at least one column or aggregate' };
+  }
+
+  if (select.length > MAX_SELECT_FIELDS) {
+    return { ok: false, error: `select is limited to ${MAX_SELECT_FIELDS} fields` };
+  }
+
+  const hasAgg = select.some((f) => !!f?.agg);
+  const hasPlain = select.some((f) => f && !f.agg);
+
+  if (hasAgg && hasPlain) {
+    return { ok: false, error: 'cannot mix aggregates and plain columns in one query' };
+  }
+
+  const selectExprs: string[] = [];
+  let firstAggAlias = '';
+
+  for (const f of select) {
+    if (f?.agg) {
+      if (!INTENT_AGGS.includes(f.agg)) {
+        return { ok: false, error: `unknown aggregate: ${String(f.agg)}` };
+      }
+
+      if (f.col !== undefined && !cols.includes(f.col)) {
+        return { ok: false, error: `unknown column: ${String(f.col)}` };
+      }
+
+      if (f.col !== undefined && masked.includes(f.col)) {
+        return { ok: false, error: `column "${f.col}" is masked and cannot be selected or grouped` };
+      }
+
+      let expr: string;
+
+      if (f.agg === 'count') {
+        expr = f.col ? `COUNT("${f.col}") AS count_${f.col}` : 'COUNT(*) AS n';
+      } else {
+        if (!f.col) {
+          return { ok: false, error: `aggregate ${f.agg} requires a column` };
+        }
+
+        expr = `${f.agg.toUpperCase()}("${f.col}") AS ${f.agg}_${f.col}`;
+      }
+
+      selectExprs.push(expr);
+
+      if (!firstAggAlias) {
+        firstAggAlias = expr.slice(expr.lastIndexOf(' AS ') + 4);
+      }
+    } else {
+      if (!f?.col) {
+        return { ok: false, error: 'a projection field requires a column' };
+      }
+
+      if (!cols.includes(f.col)) {
+        return { ok: false, error: `unknown column: ${String(f.col)}` };
+      }
+
+      if (masked.includes(f.col)) {
+        return { ok: false, error: `column "${f.col}" is masked and cannot be selected or grouped` };
+      }
+
+      selectExprs.push(`"${f.col}"`);
+    }
+  }
+
+  let groupByClause = '';
+
+  if (intent.groupBy) {
+    if (!hasAgg) {
+      return { ok: false, error: 'groupBy requires an aggregate select' };
+    }
+
+    if (!cols.includes(intent.groupBy)) {
+      return { ok: false, error: `unknown groupBy column: ${String(intent.groupBy)}` };
+    }
+
+    if (masked.includes(intent.groupBy)) {
+      return { ok: false, error: `column "${intent.groupBy}" is masked and cannot be selected or grouped` };
+    }
+
+    selectExprs.unshift(`"${intent.groupBy}" AS grp`);
+    groupByClause = ` GROUP BY "${intent.groupBy}"`;
+  }
+
+  // Filters — reuse the tested compiler (allowlist-validated columns, fixed comparators, BOUND values).
+  const { clause: filterClause, params: filterParams } = buildColumnFilters(
+    cols,
+    intent.filters,
+    intent.combinator,
+  );
+
+  let sql = spec.countSql.replace(/SELECT\s+COUNT\(\*\)\s+AS\s+n/i, `SELECT ${selectExprs.join(', ')}`);
+
+  if (filterClause) {
+    sql = sql.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${filterClause}`);
+  }
+
+  sql += groupByClause;
+
+  // ORDER BY: aggregate → the primary aggregate alias DESC (top-N); projection → the intent's sort keys.
+  if (hasAgg) {
+    if (firstAggAlias) {
+      sql += ` ORDER BY ${firstAggAlias} DESC`;
+    }
+  } else if (Array.isArray(intent.orderBy) && intent.orderBy.length > 0) {
+    const sortParam = intent.orderBy
+      .map((o) => `${(o?.col ?? '').trim()}:${(o?.dir ?? 'asc').trim()}`)
+      .join(',');
+    const orderBy = buildOrderByClause(cols, sortParam);
+
+    if (orderBy) {
+      sql += ` ${orderBy}`;
+    }
+  }
+
+  sql += ' LIMIT ?';
+
+  return { ok: true, sql, params: [...filterParams, clampIntentLimit(intent.limit)] };
+}
+
+/** Model + question bound for the NL "Ask your data" step (hard schema reasoning → the stronger model). */
+export const DATA_ASK_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+export const MAX_ASK_QUESTION_LEN = 500;
+
+/**
+ * The system prompt for the NL→intent step: tells the model to emit ONLY a JSON {@link QueryIntent} for
+ * this table, using ONLY the authorized columns, and that masked columns may be FILTERED but never
+ * SELECTed/grouped. This is GUIDANCE, not the security boundary — the model output is re-validated by
+ * {@link compileQueryIntent} server-side, so a disobedient/attacked model can never widen access. Pure.
+ */
+export function askSystemPrompt(spec: {
+  key: string;
+  columns: readonly string[];
+  maskedColumns?: readonly string[];
+}): string {
+  const masked = spec.maskedColumns ?? [];
+
+  return [
+    `You convert a question about the "${spec.key}" table into a STRICT JSON query intent. Output ONLY the JSON object — no prose, no code fences.`,
+    `Available columns: ${spec.columns.join(', ')}.`,
+    masked.length
+      ? `Sensitive columns you may FILTER on but must NOT select or group by: ${masked.join(', ')}.`
+      : '',
+    'Shape: {"select":[{"col"?:string,"agg"?:"count"|"sum"|"avg"|"min"|"max"}],"filters"?:[{"col":string,"op":"eq"|"ne"|"contains"|"gt"|"lt"|"gte"|"lte"|"null"|"notnull","val":string}],"combinator"?:"AND"|"OR","groupBy"?:string,"orderBy"?:[{"col":string,"dir":"asc"|"desc"}],"limit"?:number}.',
+    'Rules: use ONLY the listed columns. For "count by X" use select [{"agg":"count"}] + groupBy:"X". For a list use plain columns in select. NEVER mix aggregates with plain columns.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * Shape-harden an UNTRUSTED model output into a {@link QueryIntent} (or `null` when there's no usable
+ * query). Accepts a parsed object OR a JSON string (some models return `.response` as text even with
+ * `json_object`). This ONLY hardens the shape — {@link compileQueryIntent} performs the AUTHORIZATION
+ * (allowlist columns, aggregate whitelist, masked-column + limit enforcement), so nothing here needs to
+ * trust the model. Bounded to the same field/condition/sort caps as the compiler. Pure, never throws.
+ */
+export function parseProposedIntent(raw: unknown): QueryIntent | null {
+  let obj: unknown = raw;
+
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  if (!obj || typeof obj !== 'object') {
+    return null;
+  }
+
+  const rec = obj as Record<string, unknown>;
+  const select: QueryIntentField[] = [];
+
+  for (const f of (Array.isArray(rec.select) ? rec.select : []).slice(0, MAX_SELECT_FIELDS)) {
+    if (f && typeof f === 'object') {
+      const fr = f as Record<string, unknown>;
+      const field: QueryIntentField = {};
+
+      if (typeof fr.col === 'string') {
+        field.col = fr.col;
+      }
+
+      if (typeof fr.agg === 'string') {
+        field.agg = fr.agg as IntentAgg; // the compiler validates against INTENT_AGGS
+      }
+
+      if (field.col !== undefined || field.agg !== undefined) {
+        select.push(field);
+      }
+    }
+  }
+
+  if (select.length === 0) {
+    return null; // no usable select → the model did not produce a query
+  }
+
+  const intent: QueryIntent = { select };
+
+  if (Array.isArray(rec.filters)) {
+    intent.filters = rec.filters
+      .slice(0, MAX_FILTER_CONDITIONS)
+      .filter((x) => x && typeof x === 'object')
+      .map((x) => {
+        const xr = x as Record<string, unknown>;
+
+        return {
+          col: typeof xr.col === 'string' ? xr.col : '',
+          op: typeof xr.op === 'string' ? xr.op : 'eq',
+          val: typeof xr.val === 'string' ? xr.val : '',
+        };
+      });
+  }
+
+  if (typeof rec.combinator === 'string') {
+    intent.combinator = rec.combinator;
+  }
+
+  if (typeof rec.groupBy === 'string') {
+    intent.groupBy = rec.groupBy;
+  }
+
+  if (Array.isArray(rec.orderBy)) {
+    intent.orderBy = rec.orderBy
+      .slice(0, MAX_SORT_KEYS)
+      .filter((x) => x && typeof x === 'object')
+      .map((x) => {
+        const xr = x as Record<string, unknown>;
+
+        return { col: typeof xr.col === 'string' ? xr.col : '', dir: typeof xr.dir === 'string' ? xr.dir : 'asc' };
+      });
+  }
+
+  if (typeof rec.limit === 'number') {
+    intent.limit = rec.limit;
+  }
+
+  return intent;
+}
+
 /**
  * Browse the most-recent rows of one overview table. Read-only; only the table's
  * safe-column allowlist is selected (never PII payloads or encrypted tokens);
@@ -593,19 +1458,17 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
   const offset = Math.max(0, Number.parseInt(String(c.req.query('offset') ?? '0'), 10) || 0);
   const orderBy = c.req.query('orderBy');
   const dir = String(c.req.query('dir') ?? '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  // `count=0` skips the COUNT(*) — the client reuses its cached total when only paging/sorting (the
+  // query, hence the count, is unchanged). Avoids an expensive exact count on EVERY nav (grid spec).
+  // Default (any other value / absent) still counts, so existing callers are unchanged.
+  const wantCount = c.req.query('count') !== '0';
 
-  // Optional parameterized text search (OR-of-LIKE) + a precise single-column
-  // exact-match filter, both injected after `WHERE site_id = ?` on BOTH the browse
-  // AND count queries so `total` reflects the filtered set. Columns are allowlist-
-  // validated (the injection boundary); values are parameterized + bounded.
-  const { clause: searchClause, params: searchParams } = buildDataSearch(spec.columns, c.req.query('search'));
-  const { clause: filterClause, params: filterParams } = buildColumnFilter(
-    spec.columns,
-    c.req.query('filterCol'),
-    c.req.query('filterVal'),
+  // Parameterized text search (OR-of-LIKE) + the AND/OR column-filter group, injected after
+  // `WHERE site_id = ?` on BOTH the browse AND count queries so `total` reflects the filtered set.
+  // Shared with the export route via composeBrowseFilter (allowlist-validated columns; bound values).
+  const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) =>
+    c.req.query(k),
   );
-  const extraClause = `${searchClause}${filterClause}`;
-  const extraParams = [...searchParams, ...filterParams];
   const withSearch = (sql: string): string =>
     extraClause ? sql.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`) : sql;
 
@@ -613,32 +1476,444 @@ siteDataApi.get('/api/sites/:siteId/data-overview/:table', async (c) => {
   // orderBy (in the column allowlist) rebuilds the ORDER BY with that validated
   // identifier; anything else keeps the spec's default sort, so an unknown/hostile
   // column string can never reach the SQL (allowlist is the injection boundary).
+  // Multi-column sort (`?sort=col:dir,…`) takes precedence over the single `orderBy`/`dir` (kept for
+  // backward compat + export); an empty/all-invalid sort falls back to single, then the spec default.
+  const multiOrderBy = buildOrderByClause(spec.columns, c.req.query('sort'));
   const base = withSearch(spec.browseSql);
-  const browseSql =
-    orderBy && spec.columns.includes(orderBy)
-      ? `${base.replace(/\s+ORDER BY\s+.+\s+LIMIT\s+\?\s*$/i, '')} ORDER BY "${orderBy}" ${dir} LIMIT ? OFFSET ?`
+  const stripOrderBy = (sql: string): string => sql.replace(/\s+ORDER BY\s+.+\s+LIMIT\s+\?\s*$/i, '');
+  const browseSql = multiOrderBy
+    ? `${stripOrderBy(base)} ${multiOrderBy} LIMIT ? OFFSET ?`
+    : orderBy && spec.columns.includes(orderBy)
+      ? `${stripOrderBy(base)} ORDER BY "${orderBy}" ${dir} LIMIT ? OFFSET ?`
       : base.replace(/\s+LIMIT\s+\?\s*$/i, ' LIMIT ? OFFSET ?');
 
   let rows: Record<string, unknown>[] = [];
-  let total = 0;
+  // `null` = not counted this request (client reuses its cached total). A number = the exact count.
+  let total: number | null = wantCount ? 0 : null;
   try {
-    const [browseRes, countRes] = await Promise.all([
-      c.env.DB.prepare(browseSql).bind(siteId, ...extraParams, limit, offset).all(),
-      c.env.DB.prepare(withSearch(spec.countSql)).bind(siteId, ...extraParams).first<{ n: number }>(),
-    ]);
-    rows = (browseRes.results || []) as Record<string, unknown>[];
-    total = countRes?.n ?? 0;
+    if (wantCount) {
+      const [browseRes, countRes] = await Promise.all([
+        c.env.DB.prepare(browseSql)
+          .bind(siteId, ...extraParams, limit, offset)
+          .all(),
+        c.env.DB.prepare(withSearch(spec.countSql))
+          .bind(siteId, ...extraParams)
+          .first<{ n: number }>(),
+      ]);
+      rows = (browseRes.results || []) as Record<string, unknown>[];
+      total = countRes?.n ?? 0;
+    } else {
+      // Paging/sorting only — skip the COUNT(*); the client keeps its cached total.
+      const browseRes = await c.env.DB.prepare(browseSql)
+        .bind(siteId, ...extraParams, limit, offset)
+        .all();
+      rows = (browseRes.results || []) as Record<string, unknown>[];
+    }
   } catch {
     rows = []; // fail-soft: a missing/renamed table returns empty, never 500
-    total = 0;
+    total = wantCount ? 0 : null;
   }
   if (spec.maskEmail) {
     rows = rows.map((r) => ('email' in r ? { ...r, email: maskEmailValue(r['email']) } : r));
   }
 
-  // `data.{table,columns,rows}` is preserved for the existing consumer; `total`,
-  // `limit`, `offset` are additive for the paginated grid.
+  // `data.{table,columns,rows}` is preserved for the existing consumer; `total` (null when the count
+  // was skipped), `limit`, `offset` are additive for the paginated grid.
   return c.json({ data: { table: spec.key, columns: spec.columns, rows }, total, limit, offset });
+});
+
+/**
+ * Export the WHOLE current query (search + AND/OR filter group + sort) — NOT just the visible page —
+ * as bounded rows the editor formats to CSV/JSON client-side. Same auth + safe-column allowlist +
+ * masked email as the browse (export is safe by construction — it can only ever emit the same columns
+ * the grid shows). Bounded to {@link MAX_EXPORT_ROWS}; a `LIMIT MAX+1` fetch detects overflow so the
+ * response can flag `truncated` HONESTLY (the editor tells the owner + suggests narrowing) rather than
+ * silently drop rows. Fail-soft: a missing/renamed table exports empty, never 500.
+ */
+siteDataApi.get('/api/sites/:siteId/data-overview/:table/export', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+  const spec = overviewTable(table);
+  if (!spec) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Unknown table' } }, 400);
+  }
+
+  const orderBy = c.req.query('orderBy');
+  const dir = String(c.req.query('dir') ?? '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) =>
+    c.req.query(k),
+  );
+  const withSearch = (sql: string): string =>
+    extraClause ? sql.replace(/WHERE site_id = \?/i, `WHERE site_id = ?${extraClause}`) : sql;
+  const base = withSearch(spec.browseSql);
+  // Same ORDER BY rebuild as the browse (multi-sort precedence → single → default), `LIMIT ?` only (no offset).
+  const multiOrderBy = buildOrderByClause(spec.columns, c.req.query('sort'));
+  const stripOrderBy = (sql: string): string => sql.replace(/\s+ORDER BY\s+.+\s+LIMIT\s+\?\s*$/i, '');
+  const exportSql = multiOrderBy
+    ? `${stripOrderBy(base)} ${multiOrderBy} LIMIT ?`
+    : orderBy && spec.columns.includes(orderBy)
+      ? `${stripOrderBy(base)} ORDER BY "${orderBy}" ${dir} LIMIT ?`
+      : base.replace(/\s+LIMIT\s+\?\s*$/i, ' LIMIT ?');
+
+  let rows: Record<string, unknown>[] = [];
+  try {
+    // LIMIT MAX+1 → if we get MAX+1 back, there are more matches than the cap ⇒ truncated.
+    const res = await c.env.DB.prepare(exportSql)
+      .bind(siteId, ...extraParams, MAX_EXPORT_ROWS + 1)
+      .all();
+    rows = (res.results || []) as Record<string, unknown>[];
+  } catch {
+    rows = []; // fail-soft: missing/renamed table exports empty, never 500
+  }
+  const truncated = rows.length > MAX_EXPORT_ROWS;
+  if (truncated) {
+    rows = rows.slice(0, MAX_EXPORT_ROWS);
+  }
+  if (spec.maskEmail) {
+    rows = rows.map((r) => ('email' in r ? { ...r, email: maskEmailValue(r['email']) } : r));
+  }
+
+  return c.json({
+    data: { table: spec.key, columns: spec.columns, rows, truncated, cap: MAX_EXPORT_ROWS },
+  });
+});
+
+/**
+ * WHOLE-QUERY group counts for a kanban board: `[{ value, count }]` per distinct value of `?groupBy=`
+ * over the SAME filtered set the grid shows (search + filter group via composeBrowseFilter) — NOT just
+ * the loaded page, so lane totals are HONEST (per the page-vs-whole-query rule). `groupBy` MUST be an
+ * allowlisted column (else 400 — the injection boundary). Bounded to {@link MAX_KANBAN_GROUPS} via a
+ * `LIMIT MAX+1` fetch → `truncated` when there are more distinct groups than the cap. Same auth + safe
+ * columns as the browse; fail-soft (missing/renamed table → empty groups, never 500).
+ */
+siteDataApi.get('/api/sites/:siteId/data-overview/:table/group-counts', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+  const spec = overviewTable(table);
+  if (!spec) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Unknown table' } }, 400);
+  }
+
+  const groupBy = String(c.req.query('groupBy') ?? '').trim();
+  if (!groupBy || !spec.columns.includes(groupBy)) {
+    return c.json(
+      { error: { code: 'BAD_REQUEST', message: 'A valid groupBy column is required' } },
+      400,
+    );
+  }
+
+  // Optional chart MEASURE + AGG (sum/avg/min/max over an allowlisted numeric column). Both must
+  // validate together, else we fall back to the COUNT-only path (kanban + count-mode charts). The
+  // measure column is allowlist-checked exactly like groupBy (the injection boundary); a bad measure
+  // or a missing/unknown agg silently degrades to COUNT rather than erroring.
+  const measureRaw = String(c.req.query('measure') ?? '').trim();
+  const agg = normalizeGroupAgg(c.req.query('agg'));
+  const measure = agg && measureRaw && spec.columns.includes(measureRaw) ? measureRaw : null;
+
+  const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) =>
+    c.req.query(k),
+  );
+  const sql =
+    agg && measure
+      ? buildGroupAggregateSql(spec, groupBy, agg, measure, extraClause)
+      : buildGroupCountSql(spec, groupBy, extraClause);
+
+  let groups: Array<{ value: unknown; count: number; aggregate?: number | null }> = [];
+  try {
+    const res = await c.env.DB.prepare(sql)
+      .bind(siteId, ...extraParams, MAX_KANBAN_GROUPS + 1)
+      .all();
+    groups = ((res.results || []) as Record<string, unknown>[]).map((r) => ({
+      value: r.value ?? null,
+      count: Number(r.n ?? 0),
+      // Only when aggregating: the numeric aggregate (null when the group's measure was all-NULL).
+      ...(agg && measure
+        ? { aggregate: r.agg === null || r.agg === undefined ? null : Number(r.agg) }
+        : {}),
+    }));
+  } catch {
+    groups = []; // fail-soft: missing/renamed table → no groups, never 500
+  }
+  const truncated = groups.length > MAX_KANBAN_GROUPS;
+  if (truncated) {
+    groups = groups.slice(0, MAX_KANBAN_GROUPS);
+  }
+
+  return c.json({
+    data: {
+      table: spec.key,
+      groupBy,
+      groups,
+      truncated,
+      cap: MAX_KANBAN_GROUPS,
+      ...(agg && measure ? { agg, measure } : {}),
+    },
+  });
+});
+
+/**
+ * WHOLE-QUERY per-column aggregates for the grid summary footer: `{ aggregates: { col: { count, filled,
+ * sum, avg, min, max } } }` over the SAME filtered set the grid shows (search + filter group), NOT just
+ * the loaded page — so a footer "Sum" is the whole-table total, honestly labelled. `?columns=a,b,c` are
+ * each re-validated against the allowlist (the injection boundary); unknown columns are dropped, and the
+ * empty set → `{}` (no query). ONE ungrouped SELECT. Same auth + fail-soft as the browse.
+ */
+siteDataApi.get('/api/sites/:siteId/data-overview/:table/column-aggregates', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+  const spec = overviewTable(table);
+  if (!spec) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Unknown table' } }, 400);
+  }
+
+  // Allowlist-validate every requested column (the injection boundary), de-duped, bounded to the table's
+  // column count. An empty/all-invalid set returns no aggregates (never an unbounded or hostile query).
+  const requested = String(c.req.query('columns') ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  const cols = [...new Set(requested)]
+    .filter((col) => spec.columns.includes(col))
+    .slice(0, spec.columns.length);
+
+  const aggregates: Record<
+    string,
+    {
+      count: number;
+      filled: number;
+      sum: number | null;
+      avg: number | null;
+      min: number | null;
+      max: number | null;
+    }
+  > = {};
+
+  if (cols.length > 0) {
+    const { clause: extraClause, params: extraParams } = composeBrowseFilter(spec, (k) =>
+      c.req.query(k),
+    );
+    const sql = buildColumnAggregatesSql(spec, cols, extraClause);
+
+    try {
+      const row = (await c.env.DB.prepare(sql)
+        .bind(siteId, ...extraParams)
+        .first()) as Record<string, unknown> | null;
+      const n = Number(row?.n ?? 0);
+      const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+      cols.forEach((col, i) => {
+        aggregates[col] = {
+          count: n,
+          filled: Number(row?.[`c${i}`] ?? 0),
+          sum: num(row?.[`s${i}`]),
+          avg: num(row?.[`v${i}`]),
+          min: num(row?.[`mn${i}`]),
+          max: num(row?.[`mx${i}`]),
+        };
+      });
+    } catch {
+      // fail-soft: missing/renamed table → no aggregates (the editor falls back to the page summary)
+    }
+  }
+
+  return c.json({ data: { table: spec.key, aggregates } });
+});
+
+/**
+ * BOUNDED distinct values of ONE allowlisted column → `{ column, values: string[], truncated }`. Powers
+ * the cell editor's "pick an existing value" datalist. `?column=` is re-validated against the table's
+ * allowlist (the injection boundary → 400 when unknown). Fetches `MAX_DISTINCT_VALUES + 1` so the client
+ * can tell a low-cardinality column (offer suggestions) from a high-cardinality one (`truncated` → the
+ * editor shows none — it's a free-text column, not a select). Same auth + fail-soft as the browse; does
+ * NOT apply the grid filter (the suggestion set is the whole value domain, not the filtered slice).
+ */
+siteDataApi.get('/api/sites/:siteId/data-overview/:table/column-distinct', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+  const spec = overviewTable(table);
+  if (!spec) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Unknown table' } }, 400);
+  }
+
+  const column = String(c.req.query('column') ?? '').trim();
+  if (!column || !spec.columns.includes(column)) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'A valid column is required' } }, 400);
+  }
+
+  let values: string[] = [];
+  let truncated = false;
+  try {
+    const res = await c.env.DB.prepare(buildColumnDistinctSql(spec, column))
+      .bind(siteId, MAX_DISTINCT_VALUES + 1)
+      .all();
+    const raw = ((res.results || []) as Record<string, unknown>[]).map((r) => r.v);
+    truncated = raw.length > MAX_DISTINCT_VALUES;
+    values = raw.slice(0, MAX_DISTINCT_VALUES).map((v) => String(v));
+  } catch {
+    values = []; // fail-soft: missing/renamed table → no suggestions (editor keeps a plain text input)
+  }
+
+  return c.json({ data: { table: spec.key, column, values, truncated, cap: MAX_DISTINCT_VALUES } });
+});
+
+/**
+ * Grounded "Ask your data" EXECUTOR — run a typed {@link QueryIntent} (proposed by the AI pipeline or a
+ * UI builder) against ONE allowlisted overview table. Safety chain: org auth (401) → {@link ownsSiteData}
+ * tenant gate (404, never a 403 leak) → {@link overviewTable} allowlist (400 unknown) →
+ * {@link compileQueryIntent} — the deterministic, injection-safe compiler (400 with the TYPED reason on an
+ * invalid intent: masked-column selects, unknown columns/aggregates, mixed modes) → BOUND execution
+ * (`site_id` + the compiler's params bound; every identifier was allowlist-validated + quoted). Echoes the
+ * executed SQL for transparency. Read-only (SELECT), LIMIT-bounded by the compiler. `email` on
+ * `form_submissions` is passed as a masked column, so it can be FILTERED but never SELECTed/GROUPed
+ * (the executor never leaks the PII the browse route masks). Fail-soft: a runtime SQL error → 502, never
+ * a fabricated empty result.
+ */
+siteDataApi.post('/api/sites/:siteId/data-overview/:table/query', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+  const spec = overviewTable(table);
+  if (!spec) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Unknown table' } }, 400);
+  }
+
+  const body = (await c.req.json().catch(() => null)) as QueryIntent | null;
+  if (!body || typeof body !== 'object') {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'A query intent body is required' } }, 400);
+  }
+
+  const compiled = compileQueryIntent(body, {
+    columns: spec.columns,
+    countSql: spec.countSql,
+    maskedColumns: spec.maskEmail ? ['email'] : [],
+  });
+  if (!compiled.ok) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: compiled.error } }, 400);
+  }
+
+  let rows: Record<string, unknown>[] = [];
+  let rowsRead: number | null = null;
+  try {
+    const res = await c.env.DB.prepare(compiled.sql)
+      .bind(siteId, ...compiled.params)
+      .all();
+    rows = (res.results ?? []) as Record<string, unknown>[];
+    rowsRead = (res.meta as { rows_read?: number } | undefined)?.rows_read ?? null;
+  } catch {
+    return c.json({ error: { code: 'QUERY_FAILED', message: 'The query could not be executed.' } }, 502);
+  }
+
+  return c.json({ data: { table: spec.key, sql: compiled.sql, rows, rowsRead } });
+});
+
+/**
+ * Grounded "Ask your data" — NL question → typed intent → SQL → answer. Same safety chain as `/query`,
+ * PLUS an AI step in the middle: the question + the table's AUTHORIZED schema (masked columns noted as
+ * filter-only) go to a CF-hosted model via {@link runObservedWorkersAI} (observed + cost-ledgered) with
+ * `response_format: json_object`; the model proposes a {@link QueryIntent} (NEVER SQL). Its output is
+ * UNTRUSTED — {@link parseProposedIntent} shape-hardens it, then {@link compileQueryIntent} AUTHORIZES it
+ * (allowlist columns, whitelist aggregates, masked-column + LIMIT enforcement) exactly as the manual
+ * `/query` path does, so an attacked/disobedient model can never widen access. FALSIFIABLE: the response
+ * returns the question, the AI's proposed intent, the exact executed SQL, and the computed rows. Failure
+ * modes are honest + typed: model down → 502, unparseable → 422, unauthorized intent → 400 (with the
+ * rejected intent echoed), runtime SQL error → 502. Read-only, LIMIT-bounded.
+ */
+siteDataApi.post('/api/sites/:siteId/data-overview/:table/ask', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const { siteId, table } = c.req.param();
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+  const spec = overviewTable(table);
+  if (!spec) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Unknown table' } }, 400);
+  }
+
+  const body = (await c.req.json().catch(() => null)) as { question?: unknown } | null;
+  const question = body && typeof body.question === 'string' ? body.question.trim() : '';
+  if (!question) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'A question is required' } }, 400);
+  }
+  if (question.length > MAX_ASK_QUESTION_LEN) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: `Question must be ≤ ${MAX_ASK_QUESTION_LEN} chars` } }, 400);
+  }
+
+  const maskedColumns = spec.maskEmail ? ['email'] : [];
+
+  // AI step: propose an intent (never SQL). Observed + cost-ledgered; the customer question is untrusted
+  // input, and the schema we send excludes nothing but flags masked columns as filter-only.
+  let proposed: unknown;
+  try {
+    const result = await runObservedWorkersAI(
+      c.env,
+      DATA_ASK_MODEL,
+      {
+        messages: [
+          { role: 'system', content: askSystemPrompt({ key: spec.key, columns: spec.columns, maskedColumns }) },
+          { role: 'user', content: question },
+        ],
+        response_format: { type: 'json_object' },
+        max_tokens: 512,
+        temperature: 0.1,
+      },
+      { distinctId: orgId, promptId: 'data_ask', traceId: c.get('requestId') ?? undefined },
+    );
+    proposed = (result as { response?: unknown } | null)?.response;
+  } catch {
+    return c.json({ error: { code: 'AI_UNAVAILABLE', message: 'The assistant is unavailable right now.' } }, 502);
+  }
+
+  const intent = parseProposedIntent(proposed);
+  if (!intent) {
+    return c.json(
+      { error: { code: 'UNPARSEABLE', message: 'Could not turn that into a query — try rephrasing.' } },
+      422,
+    );
+  }
+
+  // Re-validate the model's proposal exactly like a manual intent — the security boundary is HERE, not
+  // the model. An unauthorized/hostile proposal (e.g. selecting a masked column) is rejected before SQL.
+  const compiled = compileQueryIntent(intent, {
+    columns: spec.columns,
+    countSql: spec.countSql,
+    maskedColumns,
+  });
+  if (!compiled.ok) {
+    return c.json({ error: { code: 'BAD_REQUEST', message: compiled.error }, data: { question, intent } }, 400);
+  }
+
+  let rows: Record<string, unknown>[] = [];
+  let rowsRead: number | null = null;
+  try {
+    const res = await c.env.DB.prepare(compiled.sql)
+      .bind(siteId, ...compiled.params)
+      .all();
+    rows = (res.results ?? []) as Record<string, unknown>[];
+    rowsRead = (res.meta as { rows_read?: number } | undefined)?.rows_read ?? null;
+  } catch {
+    return c.json({ error: { code: 'QUERY_FAILED', message: 'The query could not be executed.' } }, 502);
+  }
+
+  return c.json({ data: { question, intent, sql: compiled.sql, rows, rowsRead } });
 });
 
 /**
@@ -665,7 +1940,12 @@ siteDataApi.delete('/api/sites/:siteId/data-overview/:table/:rowId', async (c) =
   const realTable = deletableTableName(table);
   if (!realTable) {
     return c.json(
-      { error: { code: 'BAD_REQUEST', message: 'This table is read-only and cannot be edited here' } },
+      {
+        error: {
+          code: 'BAD_REQUEST',
+          message: 'This table is read-only and cannot be edited here',
+        },
+      },
       400,
     );
   }
@@ -723,7 +2003,12 @@ siteDataApi.post('/api/sites/:siteId/data-overview/:table/bulk-delete', async (c
   const realTable = deletableTableName(table);
   if (!realTable) {
     return c.json(
-      { error: { code: 'BAD_REQUEST', message: 'This table is read-only and cannot be edited here' } },
+      {
+        error: {
+          code: 'BAD_REQUEST',
+          message: 'This table is read-only and cannot be edited here',
+        },
+      },
       400,
     );
   }
@@ -737,7 +2022,9 @@ siteDataApi.post('/api/sites/:siteId/data-overview/:table/bulk-delete', async (c
     );
   }
   // Dedupe + keep only non-empty strings (a hostile/blank id is dropped, never bound).
-  const ids = [...new Set(rawIds.filter((x): x is string => typeof x === 'string' && x.length > 0))];
+  const ids = [
+    ...new Set(rawIds.filter((x): x is string => typeof x === 'string' && x.length > 0)),
+  ];
   if (ids.length === 0) {
     return c.json({ error: { code: 'BAD_REQUEST', message: 'No valid row ids provided' } }, 400);
   }
@@ -801,12 +2088,20 @@ siteDataApi.patch('/api/sites/:siteId/data-overview/:table/:rowId', async (c) =>
   const realTable = editableTableName(table);
   if (!realTable) {
     return c.json(
-      { error: { code: 'BAD_REQUEST', message: 'This table is read-only and cannot be edited here' } },
+      {
+        error: {
+          code: 'BAD_REQUEST',
+          message: 'This table is read-only and cannot be edited here',
+        },
+      },
       400,
     );
   }
 
-  const body = (await c.req.json().catch(() => null)) as { column?: unknown; value?: unknown } | null;
+  const body = (await c.req.json().catch(() => null)) as {
+    column?: unknown;
+    value?: unknown;
+  } | null;
   const column = typeof body?.column === 'string' ? body.column : '';
   const spec = editableColumn(table, column);
   if (!spec) {
@@ -844,6 +2139,227 @@ siteDataApi.patch('/api/sites/:siteId/data-overview/:table/:rowId', async (c) =>
 });
 
 /**
+ * Saved GRID VIEWS — the isolated ProjectSites.dev metadata store for the Data tab. A saved view names
+ * a table's whole-table query (search + AND/OR filter group + single-column sort). Stored in the
+ * PLATFORM `editor_grid_views` table — NEVER in the customer's own tables — scoped by BOTH site_id AND
+ * org_id (`ownsSiteData` → 404 on foreign). Reads fail-soft (missing table → empty list) so a
+ * not-yet-migrated environment degrades to "no saved views", never a 500.
+ */
+siteDataApi.get('/api/sites/:siteId/grid-views', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const siteId = c.req.param('siteId');
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+  const table = String(c.req.query('table') ?? '').trim();
+  const cols =
+    'id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, type, config_json, updated_at';
+  try {
+    const res = table
+      ? await c.env.DB.prepare(
+          `SELECT ${cols} FROM editor_grid_views WHERE site_id = ? AND org_id = ? AND table_key = ? ORDER BY name COLLATE NOCASE ASC`,
+        )
+          .bind(siteId, orgId, table)
+          .all()
+      : await c.env.DB.prepare(
+          `SELECT ${cols} FROM editor_grid_views WHERE site_id = ? AND org_id = ? ORDER BY table_key, name COLLATE NOCASE ASC`,
+        )
+          .bind(siteId, orgId)
+          .all();
+    const views = ((res.results ?? []) as Record<string, unknown>[]).map(serializeGridView);
+    return c.json({ data: { views } });
+  } catch {
+    return c.json({ data: { views: [] } }); // not-yet-migrated / transient → honest empty, never 500
+  }
+});
+
+/**
+ * Save a new grid view. Body: `{ table, name, filters, combinator, sortCol, sortDir, search }`. The
+ * server re-validates everything: name 1–80 chars, table non-empty, filters shape-hardened via
+ * `parseFilterConditions` (stored as JSON — the browse endpoint re-validates each column against the
+ * table allowlist at query time, so a stale column just drops), combinator whitelisted, sort
+ * re-normalized. Bounded to {@link MAX_GRID_VIEWS_PER_TABLE} per (site, table). Returns the created view.
+ */
+siteDataApi.post('/api/sites/:siteId/grid-views', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const siteId = c.req.param('siteId');
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+  const body = await c.req
+    .json<Record<string, unknown>>()
+    .catch(() => ({}) as Record<string, unknown>);
+  const name = validateViewName(body.name);
+  const table = String(body.table ?? '').trim();
+  if (!name || !table)
+    return c.json(
+      { error: { code: 'BAD_REQUEST', message: 'A view name and table are required' } },
+      400,
+    );
+
+  // Shape-harden the filter group (drops non-string fields, bounds the count); combinator + sort re-normalized.
+  const filtersJson = JSON.stringify(
+    parseFilterConditions(JSON.stringify(Array.isArray(body.filters) ? body.filters : [])),
+  );
+  const combinator = normalizeCombinator(
+    typeof body.combinator === 'string' ? body.combinator : 'AND',
+  );
+  const sortCol =
+    typeof body.sortCol === 'string' && body.sortCol.trim()
+      ? body.sortCol.trim().slice(0, 64)
+      : null;
+  const sortDir = normalizeSortDir(body.sortDir);
+  const search = typeof body.search === 'string' ? body.search.trim().slice(0, 128) : '';
+  // View render type + display config (gallery: {titleField}). Both re-validated server-side: type is
+  // whitelisted (default grid), config is shape-hardened + re-stringified (never the raw client blob).
+  const viewType = normalizeGridViewType(body.type);
+  const configJson = JSON.stringify(parseGridViewConfig(body.config));
+
+  try {
+    const countRow = await c.env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM editor_grid_views WHERE site_id = ? AND org_id = ? AND table_key = ?',
+    )
+      .bind(siteId, orgId, table)
+      .first<{ n: number }>();
+    if ((countRow?.n ?? 0) >= MAX_GRID_VIEWS_PER_TABLE)
+      return c.json(
+        {
+          error: {
+            code: 'LIMIT',
+            message: `At most ${MAX_GRID_VIEWS_PER_TABLE} saved views per table`,
+          },
+        },
+        400,
+      );
+
+    const id = crypto.randomUUID();
+    await c.env.DB.prepare(
+      'INSERT INTO editor_grid_views (id, site_id, org_id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, type, config_json, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    )
+      .bind(
+        id,
+        siteId,
+        orgId,
+        table,
+        name,
+        filtersJson,
+        combinator,
+        sortCol,
+        sortDir,
+        search,
+        viewType,
+        configJson,
+        orgId,
+      )
+      .run();
+
+    const row = await c.env.DB.prepare(
+      'SELECT id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, type, config_json, updated_at FROM editor_grid_views WHERE id = ?',
+    )
+      .bind(id)
+      .first<Record<string, unknown>>();
+    return c.json({ data: { view: row ? serializeGridView(row) : null } }, 201);
+  } catch {
+    return c.json({ error: { code: 'SAVE_FAILED', message: 'Could not save the view' } }, 500);
+  }
+});
+
+/**
+ * Update an existing saved view IN PLACE — its name + whole query (filters / combinator / sort /
+ * search) + render type/config. The bound TABLE is immutable (a view belongs to its `table_key`, so
+ * `body.table` is ignored). Double-scoped by site_id + org_id — a foreign/unknown id updates nothing
+ * → 404 (never a silent success). Same server-side re-validation as the create path.
+ */
+siteDataApi.put('/api/sites/:siteId/grid-views/:viewId', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const siteId = c.req.param('siteId');
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+  const viewId = c.req.param('viewId');
+  const body = await c.req
+    .json<Record<string, unknown>>()
+    .catch(() => ({}) as Record<string, unknown>);
+  const name = validateViewName(body.name);
+  if (!name)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'A view name is required' } }, 400);
+
+  const filtersJson = JSON.stringify(
+    parseFilterConditions(JSON.stringify(Array.isArray(body.filters) ? body.filters : [])),
+  );
+  const combinator = normalizeCombinator(
+    typeof body.combinator === 'string' ? body.combinator : 'AND',
+  );
+  const sortCol =
+    typeof body.sortCol === 'string' && body.sortCol.trim()
+      ? body.sortCol.trim().slice(0, 64)
+      : null;
+  const sortDir = normalizeSortDir(body.sortDir);
+  const search = typeof body.search === 'string' ? body.search.trim().slice(0, 128) : '';
+  const viewType = normalizeGridViewType(body.type);
+  const configJson = JSON.stringify(parseGridViewConfig(body.config));
+
+  try {
+    const result = await c.env.DB.prepare(
+      `UPDATE editor_grid_views SET name = ?, filters_json = ?, combinator = ?, sort_col = ?, sort_dir = ?, search = ?, type = ?, config_json = ?, updated_at = datetime('now') WHERE id = ? AND site_id = ? AND org_id = ?`,
+    )
+      .bind(
+        name,
+        filtersJson,
+        combinator,
+        sortCol,
+        sortDir,
+        search,
+        viewType,
+        configJson,
+        viewId,
+        siteId,
+        orgId,
+      )
+      .run();
+    if (Number(result.meta?.changes ?? 0) === 0)
+      return c.json({ error: { code: 'NOT_FOUND', message: 'View not found' } }, 404);
+
+    const row = await c.env.DB.prepare(
+      'SELECT id, table_key, name, filters_json, combinator, sort_col, sort_dir, search, type, config_json, updated_at FROM editor_grid_views WHERE id = ?',
+    )
+      .bind(viewId)
+      .first<Record<string, unknown>>();
+    return c.json({ data: { view: row ? serializeGridView(row) : null } });
+  } catch {
+    return c.json({ error: { code: 'UPDATE_FAILED', message: 'Could not update the view' } }, 500);
+  }
+});
+
+/** Delete a saved view by id (double-scoped by site_id + org_id — a foreign id deletes nothing). */
+siteDataApi.delete('/api/sites/:siteId/grid-views/:viewId', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId)
+    return c.json({ error: { code: 'UNAUTHORIZED', message: 'Must be authenticated' } }, 401);
+  const siteId = c.req.param('siteId');
+  if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
+
+  const viewId = c.req.param('viewId');
+  try {
+    await c.env.DB.prepare(
+      'DELETE FROM editor_grid_views WHERE id = ? AND site_id = ? AND org_id = ?',
+    )
+      .bind(viewId, siteId, orgId)
+      .run();
+    return c.json({ data: { deleted: true } });
+  } catch {
+    return c.json({ error: { code: 'DELETE_FAILED', message: 'Could not delete the view' } }, 500);
+  }
+});
+
+/**
  * Recent data-management activity for the site — the owner's OWN mutations made from THIS
  * Data browser (row deletes + status edits), read from the append-only `audit_logs`.
  *
@@ -865,7 +2381,13 @@ siteDataApi.get('/api/sites/:siteId/data-activity', async (c) => {
   if (!(await ownsSiteData(c.env.DB, siteId, orgId)))
     return c.json({ error: { code: 'NOT_FOUND', message: 'Site not found' } }, 404);
 
-  let events: Array<{ action: string; table: string; message: string; actor: string | null; at: string }> = [];
+  let events: Array<{
+    action: string;
+    table: string;
+    message: string;
+    actor: string | null;
+    at: string;
+  }> = [];
   try {
     // `org_id` is indexed (idx_audit_logs_org); the action allowlist + LIMIT bound the scan.
     // `json_extract($.site_id)` scopes to THIS site (the delete/edit handlers set it); siteId

@@ -66,15 +66,63 @@ export interface DeliverySummary {
     class: '2xx' | '3xx' | '4xx' | '5xx' | 'other';
     count: number;
   }>;
-  readonly top_statuses: ReadonlyArray<{ status: number; count: number }>;
+  /**
+   * Top status codes by request count, EACH now carrying its edge bandwidth (`bytes`, the
+   * bandwidth that status consumed) + `visits` (≈ how many real visitors hit it — so an owner
+   * sees "N visitors got a 404", not just a raw request count). Adaptive-sampled like all edge
+   * data; 0 is a real measured 0 here (a status with no bytes/visits sampled), never fabricated.
+   */
+  readonly top_statuses: ReadonlyArray<{
+    status: number;
+    count: number;
+    bytes: number;
+    visits: number;
+  }>;
   readonly cache: {
     readonly hit: number;
     readonly miss: number;
     readonly uncacheable: number;
     readonly hit_ratio_pct: number | null;
+    /** Edge bandwidth (bytes) per cache-state — same buckets as the counts. Lets the card say
+     *  "cache misses served N MB". Adaptive-sampled; a real 0 is honest (no bytes in that state). */
+    readonly hit_bytes: number;
+    readonly miss_bytes: number;
+    readonly uncacheable_bytes: number;
+    /** REAL visitors (CF `sum{visits}`) per cache-state — the human companion to the byte savings
+     *  ("cache MISSES touched N visitors"). Same buckets as the counts; adaptive-sampled, a real 0
+     *  is honest (no visits in that state). Distinct from the request `count` (assets inflate it). */
+    readonly hit_visits: number;
+    readonly miss_visits: number;
+    readonly uncacheable_visits: number;
   };
   readonly response_bytes: number;
   readonly range_days: number;
+  /**
+   * Edge connection + content breakdowns from `httpRequestsAdaptiveGroups` (verified
+   * available on our plan, adaptive-sampled): HTTP protocol version (HTTP/3 vs HTTP/2),
+   * TLS version, response content-type, and HTTP method — each top-6 by request count.
+   * Empty arrays when the zone didn't resolve (subdomain paths still resolve the shared
+   * zone). These are edge REQUEST counts, never conflated with first-party pageviews.
+   */
+  readonly protocols: ReadonlyArray<{ label: string; count: number }>;
+  readonly tls: ReadonlyArray<{ label: string; count: number }>;
+  readonly content_types: ReadonlyArray<{ label: string; count: number }>;
+  readonly methods: ReadonlyArray<{ label: string; count: number }>;
+  /**
+   * Cloudflare-VERIFIED bot traffic by category (`verifiedBotCategory`: "Search Engine
+   * Crawler", "Monitoring & Site Analytics", …) — the honest, plan-available crawler
+   * signal (distinct from the gated Bot-Management score). The empty-string bucket
+   * (human/unverified traffic) is excluded, so this is ONLY named verified bots; `[]`
+   * when a site has seen none. Lets an owner confirm search engines are crawling them.
+   */
+  readonly verified_bots: ReadonlyArray<{ label: string; count: number }>;
+  /**
+   * The count-weighted CF adaptive `sampleInterval` across the owner's hosts: ~1 ⇒ effectively
+   * FULL data (unsampled), N ⇒ ~1-in-N sampled (the counts are already scaled to the estimate;
+   * this quantifies the CONFIDENCE). `null` when CF omitted it. The UI turns this into an honest
+   * label ("≈ full data" vs "sampled ~1:N") instead of a blanket "sampled estimate".
+   */
+  readonly sample_interval: number | null;
 }
 
 export interface MultiUrlAnalytics {
@@ -84,6 +132,13 @@ export interface MultiUrlAnalytics {
   readonly uniques: number;
   readonly total_requests: number;
   readonly series: ReadonlyArray<SeriesPoint>;
+  /**
+   * Top paths / countries / referrers. `views` = pageview-ish "visits" (CF's `sum.visits`, which
+   * this file already uses as its day-level pageview proxy) on the CF-zone path, or the real
+   * first-party pageview COUNT on the D1 subdomain path — NEVER raw HTTP request count (which
+   * would conflate requests with visits per the analytics correctness mandate). CF `visits` is
+   * adaptive-SAMPLED; the UI labels these as views/estimated, not exact request counts.
+   */
   readonly top_pages: ReadonlyArray<{ path: string; views: number }>;
   readonly top_countries: ReadonlyArray<{ country: string; views: number }>;
   readonly top_referrers: ReadonlyArray<{ referrer: string; views: number }>;
@@ -242,12 +297,23 @@ export async function resolveZoneForHostname(
 interface CfGroup {
   count?: number;
   sum?: { visits?: number; edgeResponseBytes?: number };
+  /** CF adaptive sampling ratio for the group: ~1 = unsampled (full data), N = 1-in-N sampled
+   *  (the `count` is already scaled to the estimated total; this is the CONFIDENCE, surfaced honestly). */
+  avg?: { sampleInterval?: number };
   dimensions?: {
     clientRequestPath?: string;
     clientCountryName?: string;
     clientRequestReferer?: string;
     edgeResponseStatus?: string;
     cacheStatus?: string;
+    // Edge connection + content dimensions (verified available on our plan via a live
+    // probe 2026-09-24): HTTP version, TLS version, response content-type, HTTP method.
+    clientRequestHTTPProtocol?: string;
+    clientSSLProtocol?: string;
+    edgeResponseContentTypeName?: string;
+    clientRequestHTTPMethodName?: string;
+    // CF-verified bot category (probe 2026-09-24: available; "" = human/unverified).
+    verifiedBotCategory?: string;
   };
 }
 interface CfGraphQlResponse {
@@ -328,7 +394,7 @@ async function loadHostAggregate(
     )
     .join('\n          ');
   const breakdown = (name: string, dim: string, limit: number) =>
-    `${name}: httpRequestsAdaptiveGroups(limit: ${limit}, filter: { datetime_geq: "${recent.since}", datetime_leq: "${recent.until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { ${dim} } }`;
+    `${name}: httpRequestsAdaptiveGroups(limit: ${limit}, filter: { datetime_geq: "${recent.since}", datetime_leq: "${recent.until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { visits } dimensions { ${dim} } }`;
 
   const query = /* GraphQL */ `
     query MultiUrlTraffic($zoneTag: String!, $host: String!) {
@@ -410,20 +476,25 @@ async function loadHostAggregate(
       agg.page_views += views;
       agg.by_day.set(w.date, { page_views: views, requests, unique_visitors: 0 });
     }
+    // Top paths/countries/referrers use sum.visits (CF's pageview-ish "visits"), NOT count (raw
+    // HTTP requests incl. assets/subrequests/retries) — consistent with the day-level pageviews
+    // above (which already use sum.visits) and honest with the `views` field these feed. Ranking
+    // by count_DESC in the query, but only visits>0 rows are surfaced, so an asset with many
+    // requests but no real visits never mislabels the "top pages" list as a high-view page.
     for (const row of zoneRow.paths ?? []) {
       const path = String(row.dimensions?.clientRequestPath ?? '/');
-      const c = Number(row.count ?? 0);
-      if (c > 0) agg.top_paths.set(path, (agg.top_paths.get(path) ?? 0) + c);
+      const v = Number(row.sum?.visits ?? 0);
+      if (v > 0) agg.top_paths.set(path, (agg.top_paths.get(path) ?? 0) + v);
     }
     for (const row of zoneRow.geo ?? []) {
       const country = String(row.dimensions?.clientCountryName ?? 'Unknown');
-      const c = Number(row.count ?? 0);
-      if (c > 0) agg.top_countries.set(country, (agg.top_countries.get(country) ?? 0) + c);
+      const v = Number(row.sum?.visits ?? 0);
+      if (v > 0) agg.top_countries.set(country, (agg.top_countries.get(country) ?? 0) + v);
     }
     for (const row of zoneRow.refs ?? []) {
       const referrer = safeHost(String(row.dimensions?.clientRequestReferer ?? '')) || '(direct)';
-      const c = Number(row.count ?? 0);
-      if (c > 0) agg.top_referrers.set(referrer, (agg.top_referrers.get(referrer) ?? 0) + c);
+      const v = Number(row.sum?.visits ?? 0);
+      if (v > 0) agg.top_referrers.set(referrer, (agg.top_referrers.get(referrer) ?? 0) + v);
     }
     return agg;
   } catch (err) {
@@ -462,8 +533,30 @@ const SHARED_ZONE_ID = '9ceaa211750dd31899fd5d1bf8d1ec46';
 interface HostDelivery {
   resolved: boolean;
   by_status: Map<number, number>;
+  /** Per-status edge bandwidth (status → sum{edgeResponseBytes}) — same status query, extra sums. */
+  by_status_bytes: Map<number, number>;
+  /** Per-status visits (status → sum{visits}) — "how many REAL visitors hit this status". */
+  by_status_visits: Map<number, number>;
   by_cache: Map<string, number>;
+  /** Per-cache-state edge bandwidth (cacheStatus → sum{edgeResponseBytes}) — same cache query,
+   *  already fetched; surfaces "cache misses served N MB you could cache" instead of discarding it. */
+  by_cache_bytes: Map<string, number>;
+  /** Per-cache-state REAL visitors (cacheStatus → sum{visits}) — "cache misses touched N visitors",
+   *  the human companion to the byte savings. Same cache query, one extra sum. */
+  by_cache_visits: Map<string, number>;
+  /** Edge connection + content breakdowns (label → request count), all per-host CF-sampled. */
+  by_protocol: Map<string, number>;
+  by_tls: Map<string, number>;
+  by_content: Map<string, number>;
+  by_method: Map<string, number>;
+  /** CF-verified bot traffic by category (empty-string human bucket excluded). */
+  by_verified_bot: Map<string, number>;
   response_bytes: number;
+  /** Count-weighted CF adaptive `sampleInterval` for this host (~1 = full data, N = 1-in-N sampled),
+   *  and the request count it was averaged over (for a further weighted merge across hosts). null when
+   *  the CF response omits it. Surfaced honestly so we never imply a sampled estimate is exact. */
+  sample_interval: number | null;
+  sample_weight: number;
 }
 
 /**
@@ -498,9 +591,20 @@ async function loadHostDelivery(
 ): Promise<HostDelivery> {
   const empty: HostDelivery = {
     by_cache: new Map(),
+    by_cache_bytes: new Map(),
+    by_cache_visits: new Map(),
+    by_content: new Map(),
+    by_method: new Map(),
+    by_protocol: new Map(),
     by_status: new Map(),
+    by_status_bytes: new Map(),
+    by_status_visits: new Map(),
+    by_tls: new Map(),
+    by_verified_bot: new Map(),
     resolved: false,
     response_bytes: 0,
+    sample_interval: null,
+    sample_weight: 0,
   };
   const zone = await resolveDeliveryZone(env, auth, hostname);
   if (!zone) return empty;
@@ -513,8 +617,13 @@ async function loadHostDelivery(
     query HostDelivery($zoneTag: String!, $host: String!) {
       viewer {
         zones(filter: { zoneTag: $zoneTag }) {
-          status: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { edgeResponseStatus } }
-          cache: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { edgeResponseBytes } dimensions { cacheStatus } }
+          status: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count avg { sampleInterval } sum { edgeResponseBytes visits } dimensions { edgeResponseStatus } }
+          cache: httpRequestsAdaptiveGroups(limit: 30, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count sum { edgeResponseBytes visits } dimensions { cacheStatus } }
+          protocol: httpRequestsAdaptiveGroups(limit: 10, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { clientRequestHTTPProtocol } }
+          tls: httpRequestsAdaptiveGroups(limit: 10, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { clientSSLProtocol } }
+          content: httpRequestsAdaptiveGroups(limit: 15, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { edgeResponseContentTypeName } }
+          method: httpRequestsAdaptiveGroups(limit: 10, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { clientRequestHTTPMethodName } }
+          bots: httpRequestsAdaptiveGroups(limit: 12, filter: { datetime_geq: "${since}", datetime_leq: "${until}", clientRequestHTTPHost: $host }, orderBy: [count_DESC]) { count dimensions { verifiedBotCategory } }
         }
       }
     }
@@ -557,21 +666,80 @@ async function loadHostDelivery(
     if (!zoneRow) return { ...empty, resolved: true };
     const agg: HostDelivery = {
       by_cache: new Map(),
+      by_cache_bytes: new Map(),
+      by_cache_visits: new Map(),
+      by_content: new Map(),
+      by_method: new Map(),
+      by_protocol: new Map(),
       by_status: new Map(),
+      by_status_bytes: new Map(),
+      by_status_visits: new Map(),
+      by_tls: new Map(),
+      by_verified_bot: new Map(),
       resolved: true,
       response_bytes: 0,
+      sample_interval: null,
+      sample_weight: 0,
     };
+    // Count-weighted CF adaptive sampleInterval across the status rows (the primary aggregate query).
+    let siNum = 0;
+    let siDen = 0;
     for (const row of zoneRow.status ?? []) {
       const s = Number(row.dimensions?.edgeResponseStatus ?? 0);
       const c = Number(row.count ?? 0);
-      if (s > 0 && c > 0) agg.by_status.set(s, (agg.by_status.get(s) ?? 0) + c);
+      const si = Number(row.avg?.sampleInterval ?? 0);
+      if (c > 0 && si > 0) {
+        siNum += c * si;
+        siDen += c;
+      }
+      if (s > 0 && c > 0) {
+        agg.by_status.set(s, (agg.by_status.get(s) ?? 0) + c);
+        agg.by_status_bytes.set(
+          s,
+          (agg.by_status_bytes.get(s) ?? 0) + Number(row.sum?.edgeResponseBytes ?? 0),
+        );
+        agg.by_status_visits.set(
+          s,
+          (agg.by_status_visits.get(s) ?? 0) + Number(row.sum?.visits ?? 0),
+        );
+      }
+    }
+    if (siDen > 0) {
+      agg.sample_interval = siNum / siDen;
+      agg.sample_weight = siDen;
     }
     for (const row of zoneRow.cache ?? []) {
       const cs = String(row.dimensions?.cacheStatus ?? 'unknown');
       const c = Number(row.count ?? 0);
+      const b = Number(row.sum?.edgeResponseBytes ?? 0);
+      const v = Number(row.sum?.visits ?? 0);
       if (c > 0) agg.by_cache.set(cs, (agg.by_cache.get(cs) ?? 0) + c);
-      agg.response_bytes += Number(row.sum?.edgeResponseBytes ?? 0);
+      if (b > 0) agg.by_cache_bytes.set(cs, (agg.by_cache_bytes.get(cs) ?? 0) + b);
+      if (v > 0) agg.by_cache_visits.set(cs, (agg.by_cache_visits.get(cs) ?? 0) + v);
+      agg.response_bytes += b;
     }
+    // Fold the four edge connection/content dimensions. Each value is trusted (it comes
+    // FROM Cloudflare, not the client); skip the "UNK"/"none"/empty sentinels CF emits for
+    // an unclassifiable request so a breakdown never shows a meaningless bucket as a real one.
+    const foldDim = (
+      rows: CfGroup[] | undefined,
+      into: Map<string, number>,
+      key: keyof NonNullable<CfGroup['dimensions']>,
+    ): void => {
+      for (const row of rows ?? []) {
+        const raw = String(row.dimensions?.[key] ?? '').trim();
+        const c = Number(row.count ?? 0);
+        if (!raw || raw === 'UNK' || raw === 'none' || raw === 'empty' || c <= 0) continue;
+        into.set(raw, (into.get(raw) ?? 0) + c);
+      }
+    };
+    foldDim(zoneRow.protocol, agg.by_protocol, 'clientRequestHTTPProtocol');
+    foldDim(zoneRow.tls, agg.by_tls, 'clientSSLProtocol');
+    foldDim(zoneRow.content, agg.by_content, 'edgeResponseContentTypeName');
+    foldDim(zoneRow.method, agg.by_method, 'clientRequestHTTPMethodName');
+    // verifiedBotCategory: the empty-string bucket (human/unverified) is skipped by
+    // foldDim, so this yields ONLY named CF-verified bot categories.
+    foldDim(zoneRow.bots, agg.by_verified_bot, 'verifiedBotCategory');
     return agg;
   } catch (err) {
     console.warn(
@@ -903,15 +1071,48 @@ export async function loadMultiUrlAnalytics(
       filteredUrls.map((u) => loadHostDelivery(env, auth, u.hostname, days)),
     );
     const mergedStatus = new Map<number, number>();
+    const mergedStatusBytes = new Map<number, number>();
+    const mergedStatusVisits = new Map<number, number>();
     const mergedCache = new Map<string, number>();
+    const mergedCacheBytes = new Map<string, number>();
+    const mergedCacheVisits = new Map<string, number>();
+    const mergedProtocol = new Map<string, number>();
+    const mergedTls = new Map<string, number>();
+    const mergedContent = new Map<string, number>();
+    const mergedMethod = new Map<string, number>();
+    const mergedVerifiedBot = new Map<string, number>();
+    const mergeInto = (into: Map<string, number>, from: Map<string, number>): void => {
+      for (const [k, c] of from) into.set(k, (into.get(k) ?? 0) + c);
+    };
     let mergedBytes = 0;
+    // Count-weighted CF sampleInterval across the owned hosts (a busier host dominates the estimate).
+    let siNum = 0;
+    let siDen = 0;
     for (const dv of deliveries) {
+      if (dv.sample_interval != null && dv.sample_weight > 0) {
+        siNum += dv.sample_interval * dv.sample_weight;
+        siDen += dv.sample_weight;
+      }
       for (const [s, c] of dv.by_status) mergedStatus.set(s, (mergedStatus.get(s) ?? 0) + c);
+      for (const [s, b] of dv.by_status_bytes)
+        mergedStatusBytes.set(s, (mergedStatusBytes.get(s) ?? 0) + b);
+      for (const [s, v] of dv.by_status_visits)
+        mergedStatusVisits.set(s, (mergedStatusVisits.get(s) ?? 0) + v);
       for (const [k, c] of dv.by_cache) mergedCache.set(k, (mergedCache.get(k) ?? 0) + c);
+      for (const [k, b] of dv.by_cache_bytes)
+        mergedCacheBytes.set(k, (mergedCacheBytes.get(k) ?? 0) + b);
+      for (const [k, v] of dv.by_cache_visits)
+        mergedCacheVisits.set(k, (mergedCacheVisits.get(k) ?? 0) + v);
+      mergeInto(mergedProtocol, dv.by_protocol);
+      mergeInto(mergedTls, dv.by_tls);
+      mergeInto(mergedContent, dv.by_content);
+      mergeInto(mergedMethod, dv.by_method);
+      mergeInto(mergedVerifiedBot, dv.by_verified_bot);
       mergedBytes += dv.response_bytes;
     }
     const deliveryRangeDays = Math.min(Math.max(days, 1), CF_MAX_WINDOW_DAYS);
     const deliveryZoneResolved = deliveries.some((dv) => dv.resolved);
+    const mergedSampleInterval = siDen > 0 ? siNum / siDen : null;
 
     envelope = {
       any_real_data: aggregates.some((a) => a.resolved && a.total_requests > 0),
@@ -921,6 +1122,16 @@ export async function loadMultiUrlAnalytics(
         mergedBytes,
         deliveryRangeDays,
         deliveryZoneResolved,
+        mergedProtocol,
+        mergedTls,
+        mergedContent,
+        mergedMethod,
+        mergedVerifiedBot,
+        mergedStatusBytes,
+        mergedStatusVisits,
+        mergedCacheBytes,
+        mergedCacheVisits,
+        mergedSampleInterval,
       ),
       pageviews: aggregates.reduce((sum, a) => sum + a.page_views, 0),
       // HONEST window: the CF path covers ≤CF_MAX_WINDOW_DAYS daily windows regardless of the
@@ -1020,15 +1231,40 @@ export function buildDeliverySummary(
   responseBytes: number,
   rangeDays: number,
   zoneResolved = false,
+  byProtocol: ReadonlyMap<string, number> = new Map(),
+  byTls: ReadonlyMap<string, number> = new Map(),
+  byContent: ReadonlyMap<string, number> = new Map(),
+  byMethod: ReadonlyMap<string, number> = new Map(),
+  byVerifiedBot: ReadonlyMap<string, number> = new Map(),
+  byStatusBytes: ReadonlyMap<number, number> = new Map(),
+  byStatusVisits: ReadonlyMap<number, number> = new Map(),
+  byCacheBytes: ReadonlyMap<string, number> = new Map(),
+  byCacheVisits: ReadonlyMap<string, number> = new Map(),
+  sampleInterval: number | null = null,
 ): DeliverySummary {
+  /** A label→count map → its top-`n` rows, highest first, zero-counts dropped. */
+  const topLabels = (
+    m: ReadonlyMap<string, number>,
+    n = 6,
+  ): Array<{ label: string; count: number }> =>
+    [...m.entries()]
+      .filter(([, c]) => c > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, n)
+      .map(([label, count]) => ({ count, label }));
   let total = 0;
   const classCounts = new Map<StatusClass, number>();
-  const topStatuses: Array<{ status: number; count: number }> = [];
+  const topStatuses: Array<{ status: number; count: number; bytes: number; visits: number }> = [];
   for (const [status, count] of byStatus) {
     total += count;
     const cls = statusClass(status);
     classCounts.set(cls, (classCounts.get(cls) ?? 0) + count);
-    topStatuses.push({ count, status });
+    topStatuses.push({
+      count,
+      status,
+      bytes: byStatusBytes.get(status) ?? 0,
+      visits: byStatusVisits.get(status) ?? 0,
+    });
   }
   const by_status_class = [...classCounts.entries()]
     .filter(([, count]) => count > 0)
@@ -1045,6 +1281,25 @@ export function buildDeliverySummary(
     else uncacheable += count;
   }
   const cacheable = hit + miss;
+  // Edge bandwidth per cache-state (same state buckets as the counts) — surfaces "your cache
+  // MISSES served N MB" (bandwidth you could save by caching), from bytes CF already returned.
+  let hitBytes = 0;
+  let missBytes = 0;
+  let uncacheableBytes = 0;
+  for (const [state, bytes] of byCacheBytes) {
+    if (CACHE_HIT_STATES.has(state)) hitBytes += bytes;
+    else if (CACHE_MISS_STATES.has(state)) missBytes += bytes;
+    else uncacheableBytes += bytes;
+  }
+  // REAL visitors per cache-state (same buckets) — the human companion to the byte savings.
+  let hitVisits = 0;
+  let missVisits = 0;
+  let uncacheableVisits = 0;
+  for (const [state, visits] of byCacheVisits) {
+    if (CACHE_HIT_STATES.has(state)) hitVisits += visits;
+    else if (CACHE_MISS_STATES.has(state)) missVisits += visits;
+    else uncacheableVisits += visits;
+  }
 
   return {
     by_status_class,
@@ -1053,13 +1308,28 @@ export function buildDeliverySummary(
       hit_ratio_pct: cacheable > 0 ? Math.round((100 * hit) / cacheable) : null,
       miss,
       uncacheable,
+      hit_bytes: hitBytes,
+      miss_bytes: missBytes,
+      uncacheable_bytes: uncacheableBytes,
+      hit_visits: hitVisits,
+      miss_visits: missVisits,
+      uncacheable_visits: uncacheableVisits,
     },
+    content_types: topLabels(byContent),
     has_data: total > 0,
+    methods: topLabels(byMethod),
+    protocols: topLabels(byProtocol),
     range_days: rangeDays,
     response_bytes: responseBytes,
+    tls: topLabels(byTls),
     top_statuses: topStatuses.slice(0, 8),
     total_requests: total,
+    verified_bots: topLabels(byVerifiedBot),
     zone_resolved: zoneResolved,
+    sample_interval:
+      typeof sampleInterval === 'number' && Number.isFinite(sampleInterval) && sampleInterval > 0
+        ? sampleInterval
+        : null,
   };
 }
 

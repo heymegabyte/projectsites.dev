@@ -17,8 +17,18 @@ import {
   type TrafficSummary,
   type PathCountSchema,
   type WebVitals,
+  type JsErrorSummary,
+  type EngagementSummary,
+  type ScrollDepthSummary,
+  type NetworkQualitySummary,
+  type NavTimingSummary,
+  type OutboundClicksSummary,
+  type FormFunnelSummary,
+  type FormFunnelEntry,
   type LabelCount,
   type HourCount,
+  type WeekdaySummary,
+  type ReferrerDomainsSummary,
   type AnalyticsFilter,
   type AnalyticsFilterDimension,
 } from './schemas.js';
@@ -197,6 +207,18 @@ const CWV_THRESHOLDS: Record<(typeof CWV_METRICS)[number], readonly [number, num
   CLS: [0.1, 0.25],
 };
 
+/**
+ * Page-load timing metrics (NOT Core Web Vitals — kept separate so the CWV rating story
+ * stays clean): FCP (first paint) + TTFB (server response). Both ms. Google's thresholds
+ * `[good-max, needs-max]`. These fill the edge-latency gap Cloudflare's plan won't give
+ * us, measured first-party in `app.js` (Navigation Timing + the paint observer).
+ */
+const PAGELOAD_METRICS = ['FCP', 'TTFB'] as const;
+const PAGELOAD_THRESHOLDS: Record<(typeof PAGELOAD_METRICS)[number], readonly [number, number]> = {
+  FCP: [1800, 3000],
+  TTFB: [800, 1800],
+};
+
 /** Min LCP samples a page needs before it's ranked in "slowest pages" (p75 reliability). */
 const MIN_PATH_SAMPLES = 5;
 
@@ -277,7 +299,7 @@ const FILTER_DIMENSION_SQL = {
  * dim (defense in depth — the column is only ever pulled from the trusted
  * {@link FILTER_DIMENSION_SQL} map, so it is a literal; the value is always bound `?`).
  */
-function filterClause(filter?: AnalyticsFilter): {
+export function filterClause(filter?: AnalyticsFilter): {
   readonly sql: string;
   readonly params: unknown[];
 } {
@@ -390,34 +412,56 @@ export async function getWebVitalsSummary(
        FROM visitor_events
       WHERE site_id = ? AND event_type = 'web_vital'
         AND ${win.time}
-        AND json_extract(metadata, '$.metric') IN ('LCP', 'INP', 'CLS')
+        AND json_extract(metadata, '$.metric') IN ('LCP', 'INP', 'CLS', 'FCP', 'TTFB')
       ORDER BY created_at DESC
       LIMIT 50000`,
     win.params,
   );
-  const empty: WebVitals = { lcp: null, inp: null, cls: null, slowestPages: [] };
+  const empty: WebVitals = {
+    lcp: null,
+    inp: null,
+    cls: null,
+    fcp: null,
+    ttfb: null,
+    slowestPages: [],
+  };
   if (error) return empty;
 
   const buckets: Record<(typeof CWV_METRICS)[number], number[]> = { LCP: [], INP: [], CLS: [] };
+  const plBuckets: Record<(typeof PAGELOAD_METRICS)[number], number[]> = { FCP: [], TTFB: [] };
   const lcpByPath = new Map<string, number[]>();
   const inpByPath = new Map<string, number[]>();
   const clsByPath = new Map<string, number[]>();
+  const fcpByPath = new Map<string, number[]>();
+  const ttfbByPath = new Map<string, number[]>();
   const pushByPath = (map: Map<string, number[]>, path: string, v: number): void => {
     const arr = map.get(path);
     if (arr) arr.push(v);
     else map.set(path, [v]);
   };
   for (const row of data) {
-    const m = row.metric as (typeof CWV_METRICS)[number] | null;
+    const m = row.metric;
     const v = Number(row.value);
-    if (!(m && m in buckets && Number.isFinite(v) && v >= 0)) continue;
-    buckets[m].push(v);
+    if (!(m && Number.isFinite(v) && v >= 0)) continue;
+    if (m in plBuckets) {
+      plBuckets[m as (typeof PAGELOAD_METRICS)[number]].push(v);
+      // Also bucket FCP/TTFB PER PAGE so the slowest-pages drilldown shows the full
+      // per-page picture (LCP · INP · CLS · FCP · TTFB), gated on the same sample floor.
+      if (typeof row.path === 'string' && row.path) {
+        if (m === 'FCP') pushByPath(fcpByPath, row.path, v);
+        else if (m === 'TTFB') pushByPath(ttfbByPath, row.path, v);
+      }
+      continue; // FCP/TTFB are page-load timing, not CWV — no CWV-bucket, no LCP ranking
+    }
+    if (!(m in buckets)) continue;
+    const cm = m as (typeof CWV_METRICS)[number];
+    buckets[cm].push(v);
     // Bucket EACH metric per page so the "slowest pages" drilldown shows the full
     // per-page CWV picture (LCP · INP · CLS), not LCP alone.
     if (typeof row.path === 'string' && row.path) {
-      if (m === 'LCP') pushByPath(lcpByPath, row.path, v);
-      else if (m === 'INP') pushByPath(inpByPath, row.path, v);
-      else if (m === 'CLS') pushByPath(clsByPath, row.path, v);
+      if (cm === 'LCP') pushByPath(lcpByPath, row.path, v);
+      else if (cm === 'INP') pushByPath(inpByPath, row.path, v);
+      else if (cm === 'CLS') pushByPath(clsByPath, row.path, v);
     }
   }
   const stat = (metric: (typeof CWV_METRICS)[number]) => {
@@ -428,6 +472,21 @@ export async function getWebVitalsSummary(
     // Distribution behind the p75 — classify each real sample against Google's
     // thresholds so the card shows the SPREAD (a good p75 can still hide a poor tail).
     const [good, needs] = CWV_THRESHOLDS[metric];
+    const dist = { good: 0, needs: 0, poor: 0 };
+    for (const v of vals) {
+      if (v <= good) dist.good++;
+      else if (v <= needs) dist.needs++;
+      else dist.poor++;
+    }
+    return { p75, samples: vals.length, dist };
+  };
+  // Page-load timing (FCP/TTFB): integer-ms p75 + good/needs/poor distribution against
+  // the page-load thresholds. Null (never a fabricated 0) when a metric has no samples.
+  const plStat = (metric: (typeof PAGELOAD_METRICS)[number]) => {
+    const vals = plBuckets[metric];
+    if (vals.length === 0) return null;
+    const p75 = Math.round(percentile(vals, 75));
+    const [good, needs] = PAGELOAD_THRESHOLDS[metric];
     const dist = { good: 0, needs: 0, poor: 0 };
     for (const v of vals) {
       if (v <= good) dist.good++;
@@ -454,11 +513,20 @@ export async function getWebVitalsSummary(
       lcpP75: Math.round(percentile(vals, 75)),
       inpP75: pathP75(inpByPath, path),
       clsP75: pathP75(clsByPath, path, true),
+      fcpP75: pathP75(fcpByPath, path),
+      ttfbP75: pathP75(ttfbByPath, path),
       samples: vals.length,
     }))
     .sort((a, b) => b.lcpP75 - a.lcpP75)
     .slice(0, 5);
-  return { lcp: stat('LCP'), inp: stat('INP'), cls: stat('CLS'), slowestPages };
+  return {
+    lcp: stat('LCP'),
+    inp: stat('INP'),
+    cls: stat('CLS'),
+    fcp: plStat('FCP'),
+    ttfb: plStat('TTFB'),
+    slowestPages,
+  };
 }
 
 /**
@@ -496,6 +564,858 @@ export async function getConversionKinds(
 ): Promise<LabelCount[]> {
   const { clause, params } = currentWindow(siteId, windowDays, window, filter);
   return conversionKindsForClause(env, clause, params);
+}
+
+/**
+ * AN-OUTBOUND — the WHICH-LINKS companion to {@link getConversionKinds} (which gives the
+ * by-CATEGORY counts). Groups `conversion` events by their stored click DESTINATION (`$.href`,
+ * the owner's own server-normalized outbound/contact link) → the top links visitors actually
+ * click, each with its kind (call / email / outbound / directions). Answers "are people tapping
+ * my phone number / booking link / Instagram?". Only conversions that CARRY an href are counted
+ * (CTA-button clicks with no href stay in the by-kind card). Fail-soft: a query error OR no rows
+ * yields `{ total: 0, byLink: [] }`. `total` is the count across ALL link-clicks (not just the
+ * top-8 shown), so the card can say "N link clicks · top 8".
+ */
+export async function getOutboundClicksSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<OutboundClicksSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ href: string | null; kind: string | null; n: number }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.href') AS href,
+            MAX(json_extract(metadata, '$.kind')) AS kind,
+            COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'conversion'
+        AND json_extract(metadata, '$.href') IS NOT NULL
+      GROUP BY href ORDER BY n DESC LIMIT 50`,
+    params,
+  );
+  if (error) return { total: 0, byLink: [] };
+  let total = 0;
+  const byLink = [];
+  for (const r of data) {
+    if (typeof r.href !== 'string' || !r.href) continue;
+    const count = Number(r.n) || 0;
+    total += count;
+    if (byLink.length < 8) {
+      byLink.push({ href: r.href, kind: typeof r.kind === 'string' ? r.kind : null, count });
+    }
+  }
+  return { total, byLink };
+}
+
+/** Most-clicked UI ELEMENTS (generic interactions), first-party `click` beacon. */
+export interface ClickSummary {
+  /** Total tracked interactions over the window (sum across ALL labels, not just the shown set). */
+  readonly total: number;
+  /** Top interaction labels by count, descending (the shown set, capped at 10). */
+  readonly byLabel: ReadonlyArray<{ label: string; count: number }>;
+}
+
+/**
+ * Most-clicked ELEMENTS over the window, from the first-party `click` beacon's `label` (the
+ * element's data-ps-label / aria-label / trimmed text). Answers "which buttons + interactions do
+ * visitors actually use?" — a metric CF's plan has NO dataset for, and one distinct from outbound
+ * clicks (conversions) and page views (navigations); the beacon only emits `click` for
+ * non-conversion, non-anchor interactions carrying a stable label, so an empty/blank row is never
+ * grouped. `total` sums ALL labels (honest, not just the top-10 shown). Fail-soft: a query error
+ * yields the empty summary (the card shows "measuring…", never a fabricated 0).
+ */
+export async function getClickSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<ClickSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ label: string | null; n: number }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.label') AS label,
+            COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'click'
+        AND json_extract(metadata, '$.label') IS NOT NULL
+      GROUP BY label ORDER BY n DESC LIMIT 50`,
+    params,
+  );
+  if (error) return { total: 0, byLabel: [] };
+  let total = 0;
+  const byLabel: Array<{ label: string; count: number }> = [];
+  for (const r of data) {
+    if (typeof r.label !== 'string' || !r.label) continue;
+    const count = Number(r.n) || 0;
+    if (count <= 0) continue;
+    total += count;
+    if (byLabel.length < 10) byLabel.push({ label: r.label, count });
+  }
+  return { total, byLabel };
+}
+
+/**
+ * AN-FORM — the contact-form LEAD FUNNEL over the window. Counts `form_start` (validated
+ * submit attempts) and `form_submit` (server-confirmed successes) from `visitor_events`,
+ * grouped by the form key (`json_extract(metadata,'$.form')`, set by the beacon to the
+ * form's id/name, or 'contact'). One tenant-scoped query (`currentWindow` supplies the
+ * `site_id = ?` + time-window + optional drilldown predicate — the SAME authz clause every
+ * sibling uses, so a non-owned site is never read). Reads `visitor_events` DIRECTLY, so it
+ * works in BOTH the live + rollup summary paths (like conversions/outbound; the daily
+ * rollup carries none of these funnel events).
+ *
+ * @remarks Fail-soft — a missing table / query error yields an empty summary (never throws
+ * into the summary assembly). `completionRatePercent` is null when there are no starts (no
+ * attempts → no rate, never a fabricated 0%); clamped to 100 when confirmed submits exceed
+ * validated starts (a submit whose start fell in a prior window — data anomaly, not >100%).
+ */
+export async function getFormFunnelSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<FormFunnelSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{
+    form: string | null;
+    starts: number;
+    submits: number;
+  }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.form') AS form,
+            SUM(CASE WHEN event_type = 'form_start' THEN 1 ELSE 0 END) AS starts,
+            SUM(CASE WHEN event_type = 'form_submit' THEN 1 ELSE 0 END) AS submits
+       FROM visitor_events
+      WHERE ${clause} AND event_type IN ('form_start', 'form_submit')
+      GROUP BY form ORDER BY starts DESC, submits DESC LIMIT 20`,
+    params,
+  );
+  if (error) return { starts: 0, submits: 0, completionRatePercent: null, byForm: [] };
+  // completion% = submits/starts, null when no starts, clamped ≤100 for the submit-without-
+  // start anomaly (a start beacon lost, or the start landed in a prior window).
+  const rate = (submits: number, starts: number): number | null =>
+    starts > 0 ? Math.min(100, Math.round((submits / starts) * 100)) : null;
+  let totalStarts = 0;
+  let totalSubmits = 0;
+  const byForm: FormFunnelEntry[] = [];
+  for (const r of data) {
+    const starts = Number(r.starts) || 0;
+    const submits = Number(r.submits) || 0;
+    if (starts === 0 && submits === 0) continue;
+    totalStarts += starts;
+    totalSubmits += submits;
+    byForm.push({
+      form: typeof r.form === 'string' && r.form ? r.form : 'contact',
+      starts,
+      submits,
+      completionRatePercent: rate(submits, starts),
+    });
+  }
+  return {
+    starts: totalStarts,
+    submits: totalSubmits,
+    completionRatePercent: rate(totalSubmits, totalStarts),
+    byForm,
+  };
+}
+
+/**
+ * AN-JSERR — first-party JS-error site-health over the window: uncaught errors /
+ * unhandled rejections from the `js_error` beacon (mirrored into `visitor_events`),
+ * grouped by message (worst first, top 8 displayed) + a sample path each. Queried
+ * DIRECTLY (works in BOTH the live + rollup summary paths, like CWV/conversions). Owner
+ * scope rides the `currentWindow` predicate's bound `site_id` — never a client filter.
+ *
+ * @remarks Fail-soft — a missing table / query error yields the empty CLEAN summary
+ * (`{total:0, byMessage:[]}`). `total` sums every grouped message (capped 100 distinct);
+ * `byMessage` is the top 8 for display. An empty result = a clean site, NEVER "not
+ * measured" (the beacon runs on every page).
+ */
+export async function getJsErrorSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<JsErrorSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{
+    message: string | null;
+    n: number;
+    sample_path: string | null;
+  }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.message') AS message,
+            COUNT(*) AS n,
+            MAX(path) AS sample_path
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'js_error'
+      GROUP BY message ORDER BY n DESC LIMIT 100`,
+    params,
+  );
+  if (error) return { total: 0, byMessage: [] };
+  const groups = data
+    .filter((r) => typeof r.message === 'string' && r.message)
+    .map((r) => ({
+      message: r.message as string,
+      count: Number(r.n),
+      samplePath: typeof r.sample_path === 'string' && r.sample_path ? r.sample_path : undefined,
+    }));
+  const total = groups.reduce((s, g) => s + g.count, 0);
+  return { total, byMessage: groups.slice(0, 8) };
+}
+
+/**
+ * AN-ENGAGE — first-party time-on-page (dwell) over the window: MEDIAN `duration_ms` from
+ * the `page_engagement` beacon (mirrored into `visitor_events`), site-wide + per page (top
+ * by dwell, past the {@link MIN_PATH_SAMPLES} floor). Median, NOT mean — dwell is
+ * outlier-skewed. Queried DIRECTLY (works in BOTH summary paths, like CWV/js_error). Owner
+ * scope rides the `currentWindow` bound `site_id`. Durations bounded 50k rows.
+ *
+ * @remarks Fail-soft — a missing table / query error yields the empty (null-median)
+ * summary. `medianMs` is `null` when there are no samples (never a fabricated 0 — the beacon
+ * runs on every page, so 0 is not "no data").
+ */
+export async function getEngagementSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<EngagementSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ path: string | null; duration: number }>(
+    env.DB,
+    `SELECT path, CAST(json_extract(metadata, '$.duration_ms') AS INTEGER) AS duration
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'page_engagement'
+        AND json_extract(metadata, '$.duration_ms') IS NOT NULL
+      LIMIT 50000`,
+    params,
+  );
+  if (error)
+    return {
+      medianMs: null,
+      samples: 0,
+      byPage: [],
+      distribution: { s10: 0, s30: 0, s60: 0, s180: 0 },
+    };
+  const all: number[] = [];
+  const byPath = new Map<string, number[]>();
+  for (const r of data) {
+    const d = Number(r.duration);
+    if (!Number.isFinite(d) || d < 0) continue;
+    all.push(d);
+    if (typeof r.path === 'string' && r.path) {
+      const arr = byPath.get(r.path);
+      if (arr) arr.push(d);
+      else byPath.set(r.path, [d]);
+    }
+  }
+  if (all.length === 0)
+    return {
+      medianMs: null,
+      samples: 0,
+      byPage: [],
+      distribution: { s10: 0, s30: 0, s60: 0, s180: 0 },
+    };
+  const byPage = [...byPath.entries()]
+    .filter(([, vals]) => vals.length >= MIN_PATH_SAMPLES)
+    .map(([path, vals]) => ({
+      path,
+      medianMs: Math.round(percentile(vals, 50)),
+      samples: vals.length,
+    }))
+    .sort((a, b) => b.medianMs - a.medianMs)
+    .slice(0, 8);
+  // AN-ENGAGE-DIST — dwell thresholds in ms; monotonic by construction (a visit past 60s is
+  // also past 30s). Counts of visits reaching each threshold — the spread the median hides.
+  const distribution = {
+    s10: all.filter((d) => d >= 10_000).length,
+    s30: all.filter((d) => d >= 30_000).length,
+    s60: all.filter((d) => d >= 60_000).length,
+    s180: all.filter((d) => d >= 180_000).length,
+  };
+  return { medianMs: Math.round(percentile(all, 50)), samples: all.length, byPage, distribution };
+}
+
+/** Result of {@link getNewVsReturningSummary}. */
+export interface NewVsReturningSummary {
+  /** Page visits from a browser recording its FIRST-EVER visit (localStorage marker was absent). */
+  readonly newVisits: number;
+  /** Page visits from a browser seen before (marker present). */
+  readonly returningVisits: number;
+  /** Page visits where the flag couldn't be determined (private mode / storage disabled) — NEVER folded into new/returning. */
+  readonly unknownVisits: number;
+}
+
+/**
+ * New-vs-returning page-visit split from the first-party `page_engagement` beacon's browser-scoped
+ * `nv` flag (1 = the browser's first-ever visit, 0 = seen before, absent = couldn't determine).
+ * Browser-scoped + honest: a new device or cleared storage counts as new; `unknownVisits` is surfaced
+ * separately, never folded into either bucket. Fail-soft: a query error yields all-zero.
+ */
+export async function getNewVsReturningSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<NewVsReturningSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ nv: number | null; n: number }>(
+    env.DB,
+    `SELECT json_extract(metadata, '$.nv') AS nv, COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'page_engagement'
+      GROUP BY nv`,
+    params,
+  );
+  const out = { newVisits: 0, returningVisits: 0, unknownVisits: 0 };
+  if (error) return out;
+  for (const r of data) {
+    const n = Number(r.n) || 0;
+    // Null-check FIRST — Number(null) === 0 would misfold "unknown" into returning.
+    if (r.nv === null || r.nv === undefined) out.unknownVisits += n;
+    else if (Number(r.nv) === 1) out.newVisits += n;
+    else if (Number(r.nv) === 0) out.returningVisits += n;
+    else out.unknownVisits += n;
+  }
+  return out;
+}
+
+/** Result of {@link getConciergeEngagementSummary} — AI concierge usage over the window. */
+export interface ConciergeEngagementSummary {
+  /** Times the concierge panel was OPENED (COUNT of `concierge_open`). */
+  readonly opens: number;
+  /** Messages visitors sent to the concierge (COUNT of `concierge_message`). */
+  readonly messages: number;
+  /** Distinct tab-sessions that opened it — the unique visitors who engaged. */
+  readonly uniqueVisitors: number;
+  /** Messages per open (engagement depth), 1 decimal; `null` when there are no opens (never a fabricated 0). */
+  readonly messagesPerOpen: number | null;
+}
+
+/**
+ * AI concierge engagement over the window, from the first-party `concierge_open` / `concierge_message`
+ * beacon events (mirrored into `visitor_events`). Answers "are visitors using the AI assistant, and how
+ * deeply?" — a metric CF has no dataset for. Owner scope rides the `currentWindow` bound `site_id`.
+ * Fail-soft: a query error yields all-zero. The CARD self-hides when `opens = 0` (honest — the concierge
+ * is optional; no fabricated engagement + no empty-card clutter for sites where it isn't used).
+ */
+export async function getConciergeEngagementSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<ConciergeEngagementSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ event_type: string; n: number; u: number }>(
+    env.DB,
+    `SELECT event_type, COUNT(*) AS n, COUNT(DISTINCT session_id) AS u
+       FROM visitor_events
+      WHERE ${clause} AND event_type IN ('concierge_open', 'concierge_message')
+      GROUP BY event_type`,
+    params,
+  );
+  const out = { opens: 0, messages: 0, uniqueVisitors: 0, messagesPerOpen: null as number | null };
+  if (error) return out;
+  for (const r of data) {
+    if (r.event_type === 'concierge_open') {
+      out.opens = Number(r.n) || 0;
+      out.uniqueVisitors = Number(r.u) || 0;
+    } else if (r.event_type === 'concierge_message') {
+      out.messages = Number(r.n) || 0;
+    }
+  }
+  out.messagesPerOpen = out.opens > 0 ? Math.round((out.messages / out.opens) * 10) / 10 : null;
+  return out;
+}
+
+/** Result of {@link getEntryPagesSummary} — top entry (landing) pages by session-start count. */
+export interface EntryPagesSummary {
+  /** Top landing pages (session's first page) by count, descending, capped at 20. */
+  readonly pages: ReadonlyArray<{ path: string; count: number }>;
+}
+
+/**
+ * Top ENTRY (landing) pages over the window, from the first-party `page_engagement` beacon's
+ * session-scoped `ep` flag (1 = the tab-session's first page). Answers "where do visitors land?" —
+ * a metric CF's plan has no dataset for. Fail-soft: a query error yields the empty summary (the card
+ * shows "measuring…", never a fabricated 0).
+ */
+export async function getEntryPagesSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<EntryPagesSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ path: string | null; n: number }>(
+    env.DB,
+    `SELECT path, COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'page_engagement'
+        AND json_extract(metadata, '$.ep') = 1
+      GROUP BY path
+      ORDER BY n DESC
+      LIMIT 20`,
+    params,
+  );
+  if (error) return { pages: [] };
+  const pages: Array<{ path: string; count: number }> = [];
+  for (const r of data) {
+    const count = Number(r.n) || 0;
+    if (typeof r.path === 'string' && r.path && count > 0) pages.push({ path: r.path, count });
+  }
+  return { pages };
+}
+
+/** Top exit (last) pages over the window — the complement to entry pages. */
+export interface ExitPagesSummary {
+  /** Top exit pages (the session's LAST page) by count, descending, capped at 20. */
+  readonly pages: ReadonlyArray<{ path: string; count: number }>;
+}
+
+/**
+ * Top EXIT (last) pages over the window — the LAST first-party `page_engagement` per tab-session
+ * (grouped by the session-scoped `sid` beacon field). Answers "where do visitors leave from?" — the
+ * complement to entry pages; a metric CF's plan has no dataset for. A window function (ROW_NUMBER)
+ * picks each session's last engagement; sessions with no `sid` (storage unavailable) are excluded,
+ * never guessed. Fail-soft: a query error yields the empty summary (the card shows "measuring…",
+ * never a fabricated 0).
+ */
+export async function getExitPagesSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<ExitPagesSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  // Exit page = each session's LAST page_engagement. The INNER query is already site-scoped by
+  // `clause` (tenant isolation); the window function only ranks within that scoped set, so the
+  // outer query never crosses a tenant boundary.
+  const { data, error } = await dbQuery<{ path: string | null; n: number }>(
+    env.DB,
+    `SELECT path, COUNT(*) AS n
+       FROM (
+         SELECT path,
+                ROW_NUMBER() OVER (
+                  PARTITION BY json_extract(metadata, '$.sid')
+                  ORDER BY created_at DESC, rowid DESC
+                ) AS rn
+           FROM visitor_events
+          WHERE ${clause} AND event_type = 'page_engagement'
+            AND json_extract(metadata, '$.sid') IS NOT NULL
+       )
+      WHERE rn = 1
+      GROUP BY path
+      ORDER BY n DESC
+      LIMIT 20`,
+    params,
+  );
+  if (error) return { pages: [] };
+  const pages: Array<{ path: string; count: number }> = [];
+  for (const r of data) {
+    const count = Number(r.n) || 0;
+    if (typeof r.path === 'string' && r.path && count > 0) pages.push({ path: r.path, count });
+  }
+  return { pages };
+}
+
+/** Result of {@link getSessionDurationSummary} — session-LENGTH statistics (distinct from per-page dwell). */
+export interface SessionDurationSummary {
+  /** Number of tab-sessions with ≥1 measured `page_engagement` — the denominator. 0 when none. */
+  readonly sessions: number;
+  /** Median total session duration in ms (SUM of per-page dwell across the session). `null` (never a fabricated 0) when there are no sessions. */
+  readonly medianMs: number | null;
+  /** Mean total session duration in ms. `null` when no sessions. */
+  readonly avgMs: number | null;
+  /** The single longest session's total duration in ms. `null` when no sessions. */
+  readonly maxMs: number | null;
+  /** Monotonic distribution — sessions lasting ≥30s / ≥1m / ≥3m / ≥5m (a ≥5m session is also ≥3m). */
+  readonly distribution: { s30: number; s60: number; s180: number; s300: number };
+}
+
+/** Empty session-duration summary — honest "measuring…" (null median), never a fabricated 0. */
+function emptySessionDuration(): SessionDurationSummary {
+  return {
+    sessions: 0,
+    medianMs: null,
+    avgMs: null,
+    maxMs: null,
+    distribution: { s30: 0, s60: 0, s180: 0, s300: 0 },
+  };
+}
+
+/**
+ * AN-SESSION-DURATION — first-party SESSION LENGTH over the window: the total time a visitor spends
+ * across a whole tab-session, = SUM of every `page_engagement` `duration_ms` sharing that session's
+ * `sid`. Distinct from {@link getEngagementSummary} (per-PAGE dwell) — a 3-page visit sums all three
+ * pages into ONE session length (GA ships both "time on page" AND "session duration"; this is the
+ * latter). The SQL groups per `sid` (one total per session, bounded 50k), then JS computes the MEDIAN
+ * (dwell is outlier-skewed, so median not mean), the mean, the longest, and a ≥30s/≥1m/≥3m/≥5m
+ * distribution.
+ *
+ * TENANT ISOLATION: the query is site-scoped by `currentWindow`'s bound `site_id` BEFORE the
+ * `GROUP BY sid`, so a session total never mixes tenants. Sessions with no `sid` (storage unavailable)
+ * are excluded, never guessed.
+ *
+ * @remarks Fail-soft — a missing table / query error yields the empty (null-median) summary. `medianMs`
+ * is `null` when there are no sessions (never a fabricated 0 — the beacon runs on every page).
+ */
+export async function getSessionDurationSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<SessionDurationSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ total: number }>(
+    env.DB,
+    `SELECT SUM(CAST(json_extract(metadata, '$.duration_ms') AS INTEGER)) AS total
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'page_engagement'
+        AND json_extract(metadata, '$.sid') IS NOT NULL
+        AND json_extract(metadata, '$.duration_ms') IS NOT NULL
+      GROUP BY json_extract(metadata, '$.sid')
+      LIMIT 50000`,
+    params,
+  );
+  if (error) return emptySessionDuration();
+  const totals: number[] = [];
+  for (const r of data) {
+    const t = Number(r.total);
+    if (Number.isFinite(t) && t >= 0) totals.push(t);
+  }
+  if (totals.length === 0) return emptySessionDuration();
+  const sum = totals.reduce((a, b) => a + b, 0);
+  const max = totals.reduce((m, t) => (t > m ? t : m), 0); // reduce (not spread) — up to 50k values
+  const distribution = {
+    s30: totals.filter((t) => t >= 30_000).length,
+    s60: totals.filter((t) => t >= 60_000).length,
+    s180: totals.filter((t) => t >= 180_000).length,
+    s300: totals.filter((t) => t >= 300_000).length,
+  };
+  return {
+    sessions: totals.length,
+    medianMs: Math.round(percentile(totals, 50)),
+    avgMs: Math.round(sum / totals.length),
+    maxMs: max,
+    distribution,
+  };
+}
+
+/** Empty scroll-depth summary — honest "measuring…" (null median), never a fabricated 0. */
+function emptyScrollDepth(): ScrollDepthSummary {
+  return {
+    samples: 0,
+    medianPercent: null,
+    reach: { p25: 0, p50: 0, p75: 0, p100: 0 },
+    byPage: [],
+  };
+}
+
+/**
+ * AN-SCROLL — first-party scroll depth over the window, from the `scroll_depth` beacon
+ * (mirrored into `visitor_events`). Each row is ONE pageview's MAX depth reached (0–100).
+ * Returns the site-wide MEDIAN max-depth, a monotonic reach funnel (how many samples got
+ * ≥25/50/75/100% deep), and the deepest-read pages (past {@link MIN_PATH_SAMPLES}) with each
+ * page's completion rate. Fail-soft: a query error OR no samples yields the empty summary
+ * (null median) — the card shows "measuring…", NEVER a fabricated 0. Median (not mean) because
+ * depth is bimodal (bounce-at-top vs read-to-bottom). Percent is clamped 0–100 defensively.
+ */
+export async function getScrollDepthSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<ScrollDepthSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ path: string | null; pct: number }>(
+    env.DB,
+    `SELECT path, CAST(json_extract(metadata, '$.percent') AS INTEGER) AS pct
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'scroll_depth'
+        AND json_extract(metadata, '$.percent') IS NOT NULL
+      LIMIT 50000`,
+    params,
+  );
+  if (error) return emptyScrollDepth();
+  const all: number[] = [];
+  const byPath = new Map<string, number[]>();
+  for (const r of data) {
+    let p = Number(r.pct);
+    if (!Number.isFinite(p)) continue;
+    p = p < 0 ? 0 : p > 100 ? 100 : p;
+    all.push(p);
+    if (typeof r.path === 'string' && r.path) {
+      const arr = byPath.get(r.path);
+      if (arr) arr.push(p);
+      else byPath.set(r.path, [p]);
+    }
+  }
+  if (all.length === 0) return emptyScrollDepth();
+  const reach = {
+    p25: all.filter((p) => p >= 25).length,
+    p50: all.filter((p) => p >= 50).length,
+    p75: all.filter((p) => p >= 75).length,
+    p100: all.filter((p) => p >= 100).length,
+  };
+  const byPage = [...byPath.entries()]
+    .filter(([, vals]) => vals.length >= MIN_PATH_SAMPLES)
+    .map(([path, vals]) => ({
+      path,
+      medianPercent: Math.round(percentile(vals, 50)),
+      samples: vals.length,
+      completionPercent: Math.round((100 * vals.filter((p) => p >= 100).length) / vals.length),
+    }))
+    .sort((a, b) => b.medianPercent - a.medianPercent)
+    .slice(0, 8);
+  return { samples: all.length, medianPercent: Math.round(percentile(all, 50)), reach, byPage };
+}
+
+/** Empty network-quality summary — honest "measuring…" (null medians), never a fabricated 0. */
+function emptyNetworkQuality(): NetworkQualitySummary {
+  return {
+    samples: 0,
+    byEffectiveType: [],
+    medianDownlinkMbps: null,
+    medianRttMs: null,
+    saveDataPercent: null,
+    byPage: [],
+  };
+}
+
+/** effectiveType classes worst→best, so the distribution renders slow-first (attention-first). */
+const NETWORK_CLASS_ORDER = ['slow-2g', '2g', '3g', '4g'] as const;
+
+/**
+ * AN-NET — first-party visitor connection quality over the window, from the `network_quality`
+ * beacon (`navigator.connection`, mirrored into `visitor_events`). Returns the distribution
+ * across 4g/3g/2g/slow-2g, the site-wide MEDIAN downlink (Mbps) + rtt (ms), and the share of
+ * visits with the browser data-saver on. Fail-soft: a query error OR no samples yields the
+ * empty summary (null medians) — the card shows "measuring…", NEVER a fabricated 0. Median
+ * (not mean) because the browser's estimates are coarse + skewed. HONESTY: the sample is
+ * Chromium-only (Chrome/Edge/Android report `navigator.connection`; Safari/Firefox don't), so
+ * `samples` is a SUBSET of visitors — the card states this so the split is never read as "all".
+ */
+export async function getNetworkQualitySummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<NetworkQualitySummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{
+    path: string | null;
+    etype: string | null;
+    downlink: number | null;
+    rtt: number | null;
+    save_data: number | null;
+  }>(
+    env.DB,
+    `SELECT path,
+            json_extract(metadata, '$.effective_type') AS etype,
+            json_extract(metadata, '$.downlink')       AS downlink,
+            CAST(json_extract(metadata, '$.rtt') AS INTEGER) AS rtt,
+            json_extract(metadata, '$.save_data')      AS save_data
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'network_quality'
+      LIMIT 50000`,
+    params,
+  );
+  if (error) return emptyNetworkQuality();
+  const byType = new Map<string, number>();
+  const downlinks: number[] = [];
+  const rtts: number[] = [];
+  // Per-page connection samples (path → downlink Mbps + rtt ms) for the slowest-connection-pages drill.
+  const pageDownlink = new Map<string, number[]>();
+  const pageRtt = new Map<string, number[]>();
+  let saveDataTrue = 0;
+  let saveDataKnown = 0;
+  let samples = 0;
+  for (const r of data) {
+    samples++;
+    if (
+      typeof r.etype === 'string' &&
+      (NETWORK_CLASS_ORDER as readonly string[]).includes(r.etype)
+    ) {
+      byType.set(r.etype, (byType.get(r.etype) ?? 0) + 1);
+    }
+    const d = Number(r.downlink);
+    if (Number.isFinite(d) && d >= 0) downlinks.push(d);
+    const rt = Number(r.rtt);
+    if (Number.isFinite(rt) && rt >= 0) rtts.push(rt);
+    if (typeof r.path === 'string' && r.path) {
+      if (Number.isFinite(d) && d >= 0) {
+        const arr = pageDownlink.get(r.path);
+        if (arr) arr.push(d);
+        else pageDownlink.set(r.path, [d]);
+      }
+      if (Number.isFinite(rt) && rt >= 0) {
+        const arr = pageRtt.get(r.path);
+        if (arr) arr.push(rt);
+        else pageRtt.set(r.path, [rt]);
+      }
+    }
+    // save_data is stored as a JSON boolean → SQLite 1/0; count only rows that carry it.
+    if (r.save_data === 1 || r.save_data === 0) {
+      saveDataKnown++;
+      if (r.save_data === 1) saveDataTrue++;
+    }
+  }
+  if (samples === 0) return emptyNetworkQuality();
+  const byEffectiveType = NETWORK_CLASS_ORDER.filter((t) => (byType.get(t) ?? 0) > 0).map((t) => ({
+    type: t,
+    count: byType.get(t) as number,
+  }));
+  // Slowest-connection pages: gated on ≥MIN_PATH_SAMPLES downlink samples (the ranking key is a
+  // reliable median), lowest median downlink first (the pages whose audience is on the slowest links).
+  const byPage = [...pageDownlink.entries()]
+    .filter(([, dls]) => dls.length >= MIN_PATH_SAMPLES)
+    .map(([path, dls]) => {
+      const rttArr = pageRtt.get(path) ?? [];
+      return {
+        path,
+        medianDownlinkMbps: Math.round(percentile(dls, 50) * 10) / 10,
+        medianRttMs: rttArr.length ? Math.round(percentile(rttArr, 50)) : null,
+        samples: dls.length,
+      };
+    })
+    .sort((a, b) => a.medianDownlinkMbps - b.medianDownlinkMbps)
+    .slice(0, 8);
+  return {
+    samples,
+    byEffectiveType,
+    medianDownlinkMbps: downlinks.length ? Math.round(percentile(downlinks, 50) * 10) / 10 : null,
+    medianRttMs: rtts.length ? Math.round(percentile(rtts, 50)) : null,
+    saveDataPercent: saveDataKnown ? Math.round((100 * saveDataTrue) / saveDataKnown) : null,
+    byPage,
+  };
+}
+
+/** Empty page-load summary — honest "measuring…" (null medians), never a fabricated 0. */
+function emptyNavTiming(): NavTimingSummary {
+  return {
+    samples: 0,
+    dns: null,
+    connect: null,
+    ttfb: null,
+    transfer: null,
+    dom: null,
+    total: null,
+    byPage: [],
+  };
+}
+
+/** The nav-timing phases, in the load order they render as a waterfall. */
+const NAV_PHASES = ['dns', 'connect', 'ttfb', 'transfer', 'dom', 'total'] as const;
+
+/**
+ * AN-NAV — first-party page-load WATERFALL over the window, from the `nav_timing` beacon
+ * (PerformanceNavigationTiming, mirrored into `visitor_events`). Returns the site-wide MEDIAN
+ * of each load phase (ms): dns · connect · ttfb · transfer · dom · total — so an owner sees
+ * WHERE their load time goes. Fail-soft: a query error OR no samples yields the empty summary
+ * (all-null) — the card shows "measuring…", NEVER a fabricated 0. Each phase's median is over
+ * the rows that CARRY that phase (a phase is always present when the beacon fires, but a value
+ * can be an honest 0 — cached DNS / reused connection — which IS counted). Median (not mean)
+ * because page-load timings are right-skewed by slow tails.
+ */
+export async function getNavTimingSummary(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+): Promise<NavTimingSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<Record<string, number | null> & { path: string | null }>(
+    env.DB,
+    `SELECT path,
+            CAST(json_extract(metadata, '$.dns')      AS INTEGER) AS dns,
+            CAST(json_extract(metadata, '$.connect')  AS INTEGER) AS connect,
+            CAST(json_extract(metadata, '$.ttfb')     AS INTEGER) AS ttfb,
+            CAST(json_extract(metadata, '$.transfer') AS INTEGER) AS transfer,
+            CAST(json_extract(metadata, '$.dom')      AS INTEGER) AS dom,
+            CAST(json_extract(metadata, '$.total')    AS INTEGER) AS total
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'nav_timing'
+        AND json_extract(metadata, '$.total') IS NOT NULL
+      LIMIT 50000`,
+    params,
+  );
+  if (error) return emptyNavTiming();
+  const cols: Record<string, number[]> = {
+    dns: [],
+    connect: [],
+    ttfb: [],
+    transfer: [],
+    dom: [],
+    total: [],
+  };
+  // Per-page samples for the slowest-pages drilldown: path → total-load ms + TTFB ms.
+  const pageTotal = new Map<string, number[]>();
+  const pageTtfb = new Map<string, number[]>();
+  let samples = 0;
+  for (const r of data) {
+    samples++;
+    for (const phase of NAV_PHASES) {
+      const v = Number(r[phase]);
+      // A phase value of 0 is a real datum (cached DNS, reused connection) — keep it; only
+      // non-finite / negative values are excluded so a median is never skewed by junk.
+      if (Number.isFinite(v) && v >= 0) cols[phase].push(v);
+    }
+    if (typeof r.path === 'string' && r.path) {
+      const t = Number(r.total);
+      if (Number.isFinite(t) && t >= 0) {
+        const arr = pageTotal.get(r.path);
+        if (arr) arr.push(t);
+        else pageTotal.set(r.path, [t]);
+      }
+      const tt = Number(r.ttfb);
+      if (Number.isFinite(tt) && tt >= 0) {
+        const arr = pageTtfb.get(r.path);
+        if (arr) arr.push(tt);
+        else pageTtfb.set(r.path, [tt]);
+      }
+    }
+  }
+  if (samples === 0) return emptyNavTiming();
+  const med = (arr: number[]): number | null =>
+    arr.length ? Math.round(percentile(arr, 50)) : null;
+  // Slowest pages by median total load (past the shared per-path sample floor), each carrying
+  // its median TTFB (server wait) — worst-first, top 8. Mirrors the CWV slowest-pages drilldown.
+  const byPage = [...pageTotal.entries()]
+    .filter(([, totals]) => totals.length >= MIN_PATH_SAMPLES)
+    .map(([path, totals]) => ({
+      path,
+      total: Math.round(percentile(totals, 50)),
+      ttfb: med(pageTtfb.get(path) ?? []),
+      samples: totals.length,
+    }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 8);
+  return {
+    samples,
+    dns: med(cols.dns),
+    connect: med(cols.connect),
+    ttfb: med(cols.ttfb),
+    transfer: med(cols.transfer),
+    dom: med(cols.dom),
+    total: med(cols.total),
+    byPage,
+  };
 }
 
 /**
@@ -575,6 +1495,132 @@ export async function getHourlyBreakdown(
   return data
     .filter((r) => r.hour != null && r.hour >= 0 && r.hour <= 23)
     .map((r) => ({ hour: Number(r.hour), count: Number(r.n) }));
+}
+
+/**
+ * Pageviews by day-of-week (0 = Sunday … 6 = Saturday) over the window — the "busiest
+ * days" insight, complementing {@link getHourlyBreakdown}. Unlike hour-of-day (a 24-bucket
+ * ring the frontend can rotate by a fixed offset), a weekday histogram CANNOT be shifted
+ * client-side — a late-night visit crosses into a different LOCAL weekday — so the bucketing
+ * is done tz-correct HERE in SQL. `tzOffsetMinutes` is east-positive (PST = -480); local =
+ * UTC + offset ⇒ `datetime(created_at, '+<offset> minutes')`. The offset is validated to an
+ * integer within ±14h, so it is a trusted numeric literal (never a user string); a 0 /
+ * invalid / absent offset falls back to the UTC weekday and reports `tzApplied:false`, so
+ * the UI never implies a local precision we didn't compute. Only real pageviews count
+ * (`event_type='pageview'`; bots dropped at ingest). Filter-aware (via `currentWindow`) and
+ * owner-scoped by `site_id`. Absent weekdays are omitted (UI renders them as 0). Fail-soft.
+ *
+ * @param tzOffsetMinutes - the viewer's UTC offset in minutes, east-positive (from `?tz`).
+ * @returns `{ byWeekday, tzApplied }` — `tzApplied` distinguishes local vs UTC bucketing.
+ */
+export async function getWeekdayBreakdown(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+  tzOffsetMinutes?: number,
+): Promise<WeekdaySummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const tzOk =
+    typeof tzOffsetMinutes === 'number' &&
+    Number.isInteger(tzOffsetMinutes) &&
+    tzOffsetMinutes !== 0 &&
+    tzOffsetMinutes >= -840 &&
+    tzOffsetMinutes <= 840;
+  // Validated integer → safe to inline (the ONLY interpolation is `<int> minutes`).
+  const dayExpr = tzOk
+    ? `strftime('%w', datetime(created_at, '${tzOffsetMinutes >= 0 ? '+' : ''}${tzOffsetMinutes} minutes'))`
+    : `strftime('%w', created_at)`;
+  const { data, error } = await dbQuery<{ wd: number | null; n: number }>(
+    env.DB,
+    `SELECT CAST(${dayExpr} AS INTEGER) AS wd, COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'pageview'
+      GROUP BY wd ORDER BY wd`,
+    params,
+  );
+  if (error) return { byWeekday: [], tzApplied: false };
+  const byWeekday = data
+    .filter((r) => r.wd != null && r.wd >= 0 && r.wd <= 6)
+    .map((r) => ({ weekday: Number(r.wd), count: Number(r.n) }));
+  return { byWeekday, tzApplied: tzOk };
+}
+
+/** How many distinct raw referrers the domain scan reads before merging (bounds query cost); a
+ *  larger count merges more of the long tail. Hitting it sets `capped` so the UI discloses it. */
+const REFERRER_SCAN_CAP = 500;
+/** Cap on referring domains returned (top-N). */
+const REFERRER_DOMAINS_LIMIT = 15;
+
+/**
+ * Reduce a raw referrer URL to its registrable-ish host (lowercased, `www.` stripped) — the unit a
+ * "top referring sites" list groups by. SQLite has no URL parser, so this runs in JS over the stored
+ * `referrer` column (reusing the platform's `URL` parsing, same as {@link enrichVisitor}). Pure.
+ *
+ * @param url - the raw stored referrer (may be empty / malformed)
+ * @returns the lowercased host without a leading `www.`, or `null` when absent/unparseable
+ * @example referrerToDomain('https://www.Google.com/search?q=x') // 'google.com'
+ * @example referrerToDomain('android-app://com.example') // null (no http host)
+ */
+export function referrerToDomain(url: string | null | undefined): string | null {
+  const raw = (url ?? '').trim();
+  if (!raw) return null;
+  let host = '';
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    host = u.hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (!host) return null;
+  return host.startsWith('www.') ? host.slice(4) : host;
+}
+
+/**
+ * Top EXTERNAL referring domains over the window — "where off-site traffic comes from", distinct
+ * from the coarse {@link deriveChannel} bucket. Reads the top raw referrers (bounded by
+ * {@link REFERRER_SCAN_CAP}), reduces each to a domain in JS ({@link referrerToDomain}), EXCLUDES the
+ * site's OWN hosts (`selfHosts`, resolved server-side from ownership records — so internal navigation
+ * is never miscounted as a referral), merges counts by domain, and returns the top
+ * {@link REFERRER_DOMAINS_LIMIT}. Pageviews only, filter-aware ({@link currentWindow}), owner-scoped.
+ * Fail-soft to an empty summary. `capped` discloses when the long tail may be undercounted.
+ *
+ * @param selfHosts - the site's own lowercased hostnames to exclude (e.g. `slug.projectsites.dev` + custom domains)
+ */
+export async function getReferrerDomains(
+  env: Env,
+  siteId: string,
+  windowDays = 30,
+  window?: AnalyticsWindow,
+  filter?: AnalyticsFilter,
+  selfHosts: ReadonlySet<string> = new Set(),
+): Promise<ReferrerDomainsSummary> {
+  const { clause, params } = currentWindow(siteId, windowDays, window, filter);
+  const { data, error } = await dbQuery<{ referrer: string | null; n: number }>(
+    env.DB,
+    `SELECT referrer, COUNT(*) AS n
+       FROM visitor_events
+      WHERE ${clause} AND event_type = 'pageview'
+        AND referrer IS NOT NULL AND referrer != ''
+      GROUP BY referrer ORDER BY n DESC LIMIT ${REFERRER_SCAN_CAP}`,
+    params,
+  );
+  if (error) return { domains: [], capped: false };
+
+  const counts = new Map<string, number>();
+  for (const r of data) {
+    const domain = referrerToDomain(r.referrer);
+    if (!domain || selfHosts.has(domain)) continue; // drop unparseable + the site's OWN hosts
+    counts.set(domain, (counts.get(domain) ?? 0) + (Number(r.n) || 0));
+  }
+  const domains: LabelCount[] = [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, REFERRER_DOMAINS_LIMIT);
+
+  return { domains, capped: data.length >= REFERRER_SCAN_CAP };
 }
 
 /** UTM campaign parameters the campaign breakdown may GROUP BY — an allowlist so the
@@ -668,14 +1714,25 @@ export async function getTrafficSummary(
     byBrowser,
     byOs,
     byUtmSource,
+    byUtmMedium,
     byUtmCampaign,
     byHour,
+    jsErrors,
+    engagement,
+    scrollDepth,
+    networkQuality,
+    navTiming,
+    outboundClicks,
+    formFunnel,
   ] = await Promise.all([
     scalar(
       env,
       `SELECT COUNT(*) AS n FROM visitor_events WHERE ${w} AND event_type = 'pageview'`,
       wParams,
     ),
+    // uniqueSessions ("Visits"). `session_id` is a PER-TAB-SESSION id (app.js sources it from the
+    // persisted `ps_sess` UUID, 2026-09-25) — so this counts real sessions, not page loads. Older
+    // rows (pre-fix) carry per-pageload ids, so the number corrects as fresh traffic accrues.
     scalar(env, `SELECT COUNT(DISTINCT session_id) AS n FROM visitor_events WHERE ${w}`, wParams),
     scalar(
       env,
@@ -746,11 +1803,26 @@ export async function getTrafficSummary(
     // AN-TECH — browser + OS split (same AN1 user-agent enrichment as $.device).
     getDimensionBreakdown(env, siteId, 'browser', windowDays, window, filter),
     getDimensionBreakdown(env, siteId, 'os', windowDays, window, filter),
-    // AN-UTM — campaign attribution (source + campaign; tagged visits only, untagged excluded).
+    // AN-UTM — campaign attribution (source + medium + campaign; tagged visits only, untagged excluded).
     getCampaignBreakdown(env, siteId, 'utmSource', windowDays, window, filter),
+    getCampaignBreakdown(env, siteId, 'utmMedium', windowDays, window, filter),
     getCampaignBreakdown(env, siteId, 'utmCampaign', windowDays, window, filter),
     // AN-HOUR — pageviews by hour-of-day (UTC; frontend rotates to local).
     getHourlyBreakdown(env, siteId, windowDays, window, filter),
+    // AN-JSERR — first-party JS-error site-health (queried directly; not in the rollup).
+    getJsErrorSummary(env, siteId, windowDays, window, filter),
+    // AN-ENGAGE — first-party time-on-page median (queried directly; not in the rollup).
+    getEngagementSummary(env, siteId, windowDays, window, filter),
+    // AN-SCROLL — first-party scroll depth (queried directly; not in the rollup).
+    getScrollDepthSummary(env, siteId, windowDays, window, filter),
+    // AN-NET — first-party visitor connection quality (queried directly; not in the rollup).
+    getNetworkQualitySummary(env, siteId, windowDays, window, filter),
+    // AN-NAV — first-party page-load waterfall (queried directly; not in the rollup).
+    getNavTimingSummary(env, siteId, windowDays, window, filter),
+    // AN-OUTBOUND — top clicked outbound/contact links (queried directly; not in the rollup).
+    getOutboundClicksSummary(env, siteId, windowDays, window, filter),
+    // AN-FORM — contact-form lead funnel (queried directly; the rollup has no funnel events).
+    getFormFunnelSummary(env, siteId, windowDays, window, filter),
   ]);
 
   const topPaths: Array<z.infer<typeof PathCountSchema>> = topPathRows
@@ -783,11 +1855,19 @@ export async function getTrafficSummary(
     byBrowser,
     byOs,
     byUtmSource,
+    byUtmMedium,
     byUtmCampaign,
     byHour,
     byChannel,
     byCountry,
     webVitals,
+    jsErrors,
+    engagement,
+    scrollDepth,
+    networkQuality,
+    navTiming,
+    outboundClicks,
+    formFunnel,
     byConversionKind,
     previous: {
       pageviews: prevPageviews,
@@ -878,8 +1958,16 @@ export async function getTrafficSummaryFromRollup(
     byBrowser,
     byOs,
     byUtmSource,
+    byUtmMedium,
     byUtmCampaign,
     byHour,
+    jsErrors,
+    engagement,
+    scrollDepth,
+    networkQuality,
+    navTiming,
+    outboundClicks,
+    formFunnel,
   ] = await Promise.all([
     sumScalars(curStart, null),
     sumScalars(prevStart, prevEnd),
@@ -895,9 +1983,24 @@ export async function getTrafficSummaryFromRollup(
     getDimensionBreakdown(env, siteId, 'browser', windowDays),
     getDimensionBreakdown(env, siteId, 'os', windowDays),
     getCampaignBreakdown(env, siteId, 'utmSource', windowDays),
+    getCampaignBreakdown(env, siteId, 'utmMedium', windowDays),
     getCampaignBreakdown(env, siteId, 'utmCampaign', windowDays),
     // AN-HOUR — pageviews by hour-of-day (UTC; not in the rollup → read live).
     getHourlyBreakdown(env, siteId, windowDays),
+    // AN-JSERR — first-party JS-error site-health (queried live; not in the rollup).
+    getJsErrorSummary(env, siteId, windowDays),
+    // AN-ENGAGE — first-party time-on-page median (queried live; not in the rollup).
+    getEngagementSummary(env, siteId, windowDays),
+    // AN-SCROLL — first-party scroll depth (queried live; not in the rollup).
+    getScrollDepthSummary(env, siteId, windowDays),
+    // AN-NET — first-party visitor connection quality (queried live; not in the rollup).
+    getNetworkQualitySummary(env, siteId, windowDays),
+    // AN-NAV — first-party page-load waterfall (queried live; not in the rollup).
+    getNavTimingSummary(env, siteId, windowDays),
+    // AN-OUTBOUND — top clicked outbound/contact links (queried live; not in the rollup).
+    getOutboundClicksSummary(env, siteId, windowDays),
+    // AN-FORM — contact-form lead funnel (queried live; the rollup has no funnel events).
+    getFormFunnelSummary(env, siteId, windowDays),
   ]);
 
   return TrafficSummarySchema.parse({
@@ -917,11 +2020,19 @@ export async function getTrafficSummaryFromRollup(
     byBrowser,
     byOs,
     byUtmSource,
+    byUtmMedium,
     byUtmCampaign,
     byHour,
     byChannel: channelRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     byCountry: countryRows.map((r) => ({ label: String(r.k ?? 'unknown'), count: Number(r.c) })),
     webVitals,
+    jsErrors,
+    engagement,
+    scrollDepth,
+    networkQuality,
+    navTiming,
+    outboundClicks,
+    formFunnel,
     byConversionKind,
     previous: {
       pageviews: prev.pageviews,

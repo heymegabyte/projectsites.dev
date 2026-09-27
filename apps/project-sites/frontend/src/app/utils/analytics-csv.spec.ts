@@ -18,6 +18,7 @@ const BASE: AnalyticsCsvInput = {
     byBrowser: [{ label: 'Chrome', count: 61 }],
     byOs: [{ label: 'iOS', count: 44 }],
     byUtmSource: [{ label: 'instagram', count: 18 }],
+    byUtmMedium: [{ label: 'cpc', count: 9 }],
     byUtmCampaign: [{ label: 'spring-sale', count: 12 }],
     byChannel: [{ label: 'organic', count: 55 }],
     byConversionKind: [{ label: 'call', count: 9 }],
@@ -90,9 +91,10 @@ describe('buildAnalyticsCsv', () => {
     expect(browser).toBeLessThan(os);
   });
 
-  it('exports the campaign attribution rows (utm_source + utm_campaign) from tagged visits', () => {
+  it('exports the campaign attribution rows (utm_source + utm_medium + utm_campaign) from tagged visits', () => {
     const r = rows(buildAnalyticsCsv(BASE));
     expect(r).toContain('campaign_source,instagram,18');
+    expect(r).toContain('campaign_medium,cpc,9');
     expect(r).toContain('campaign,spring-sale,12');
   });
 
@@ -167,6 +169,56 @@ describe('buildAnalyticsCsv', () => {
     });
     expect(empty).not.toContain('delivery,');
     expect(buildAnalyticsCsv(BASE)).not.toContain('delivery,'); // absent → no rows
+  });
+
+  it('includes the edge connection/content + verified-bot breakdowns (mirrors the delivery card)', () => {
+    const r = rows(
+      buildAnalyticsCsv({
+        ...BASE,
+        delivery: {
+          has_data: true,
+          total_requests: 340,
+          by_status_class: [{ class: '2xx', count: 315 }],
+          cache: { hit: 7, miss: 25, uncacheable: 308, hit_ratio_pct: 22 },
+          response_bytes: 1000,
+          protocols: [
+            { label: 'HTTP/3', count: 147 },
+            { label: 'HTTP/2', count: 163 },
+          ],
+          tls: [{ label: 'TLSv1.3', count: 314 }],
+          content_types: [{ label: 'js', count: 160 }],
+          methods: [{ label: 'GET', count: 289 }],
+          verified_bots: [{ label: 'Search Engine Crawler', count: 23 }],
+        },
+      }),
+    );
+    expect(r).toContain('edge_protocol,HTTP/3,147');
+    expect(r).toContain('edge_tls,TLSv1.3,314');
+    expect(r).toContain('edge_content_type,js,160');
+    expect(r).toContain('edge_method,GET,289');
+    expect(r).toContain('edge_verified_bot,Search Engine Crawler,23');
+  });
+
+  it('exports first-party page-load timing (TTFB + FCP) only when measured (null → omitted)', () => {
+    const r = rows(
+      buildAnalyticsCsv({
+        ...BASE,
+        traffic: {
+          ...BASE.traffic!,
+          webVitals: {
+            lcp: { p75: 2372, samples: 12 },
+            inp: null,
+            cls: null,
+            ttfb: { p75: 420, samples: 30 },
+            fcp: { p75: 1600, samples: 30 },
+          },
+        },
+      }),
+    );
+    expect(r).toContain('web_vital,ttfb_p75_ms,420');
+    expect(r).toContain('web_vital,fcp_p75_ms,1600');
+    // BASE's webVitals has no ttfb/fcp → those rows are omitted (never a fake 0).
+    expect(rows(buildAnalyticsCsv(BASE)).some((l) => l.startsWith('web_vital,ttfb'))).toBeFalse();
   });
 
   it('escapes cells that would break the CSV grid', () => {

@@ -1,5 +1,6 @@
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
 
 import { AdminActivationFunnelComponent } from './activation-funnel.component';
@@ -46,6 +47,9 @@ function setup(value = of(resp()), claimsRows: unknown[] = [], publishesRows: un
         useValue: { getActivationFunnel, getClaimsBySource, getPublishesBySource },
       },
       { provide: AdminStateService, useValue: state },
+      // The template's `[routerLink]` (visitor-tab link) needs the router context — provide it so
+      // RouterLink resolves ActivatedRoute (else NG0201 in the non-super-admin render).
+      provideRouter([]),
     ],
   });
   const fixture: ComponentFixture<AdminActivationFunnelComponent> =

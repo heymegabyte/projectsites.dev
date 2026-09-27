@@ -32,7 +32,13 @@ on:
         type: boolean
 
 env:
-  NODE_VERSION: '20.19.0'
+  # Node 22.20 LTS — the documented runtime floor (global stack: "Node 22"), chosen to satisfy
+  # TWO constraints at once: (1) node:sqlite (added 22.5, flag-gated) — Node 20 lacked it, so the
+  # 7 real-SQLite reconcile/provisioner suites (helpers/d1_sqlite) threw at COLLECTION and silently
+  # skipped Deploy-to-Production; (2) the Angular CLI's engine floor of **>= 22.12** (22.11 is
+  # rejected with exit 3 in the frontend build). 22.20 clears both. node:sqlite stays behind
+  # --experimental-sqlite (set in the test-unit job's NODE_OPTIONS below). See data-platform-scope.md #13.
+  NODE_VERSION: '22.20.0'
 
 jobs:
   # ─── Stage 1: Auto-fix + Lint + Typecheck ──────────────────
@@ -107,7 +113,11 @@ jobs:
       # Heap headroom for the heavy route_malformed_json_boundary suite (imports the full
       # ../index worker → crashed a worker on the lower-RAM CI runner). Kept as a safety
       # margin even though --coverage (the main heap pressure) is now OFF the deploy gate.
-      NODE_OPTIONS: '--max-old-space-size=4096'
+      # --experimental-sqlite: Node 22 gates the built-in `node:sqlite` behind this flag; the
+      # 7 real-SQLite reconcile/provisioner suites (helpers/d1_sqlite) import it at module load,
+      # so without the flag they throw at collection and fail the deploy gate. Jest workers
+      # inherit NODE_OPTIONS, so the flag reaches every test process.
+      NODE_OPTIONS: '--max-old-space-size=4096 --experimental-sqlite'
     steps:
       - uses: actions/checkout@v4
 

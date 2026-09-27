@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { of, throwError } from 'rxjs';
-import { PublicAnalyticsComponent } from './public-analytics.component';
+import { PublicAnalyticsComponent, cwvOverallRating } from './public-analytics.component';
 import { ApiService } from '../services/api.service';
 
 const SUMMARY = {
@@ -50,6 +50,53 @@ describe('PublicAnalyticsComponent (AN48 public read-only view)', () => {
     expect(f.nativeElement.textContent).withContext('no unique-people claim').not.toContain('Unique visitors');
   });
 
+  it('renders first-party engagement + performance when they have real samples (formatted)', () => {
+    const rich = {
+      summary: {
+        ...SUMMARY.summary,
+        traffic: {
+          pageviews: 1234,
+          uniqueSessions: 567,
+          engagement: { medianMs: 80000, samples: 340 }, // 1m 20s
+          scrollDepth: { medianPercent: 62, samples: 200 },
+          navTiming: { total: 820, samples: 120 },
+        },
+      },
+      expiresAt: 2_000_000_000_000,
+    };
+    const { f } = make({ get: jasmine.createSpy('get').and.returnValue(of(rich)) });
+    const text = f.nativeElement.textContent;
+    expect(text).toContain('Avg. time on page');
+    expect(text).toContain('1m 20s');
+    expect(text).toContain('Median scroll depth');
+    expect(text).toContain('62%');
+    expect(text).toContain('Median page load');
+    expect(text).toContain('820ms');
+  });
+
+  it('OMITS engagement/scroll/load when there are no samples (never a fabricated 0)', () => {
+    const empty = {
+      summary: {
+        ...SUMMARY.summary,
+        traffic: {
+          pageviews: 1234,
+          uniqueSessions: 567,
+          engagement: { medianMs: null, samples: 0 },
+          scrollDepth: { medianPercent: null, samples: 0 },
+          navTiming: { total: null, samples: 0 },
+        },
+      },
+      expiresAt: 2_000_000_000_000,
+    };
+    const { f } = make({ get: jasmine.createSpy('get').and.returnValue(of(empty)) });
+    const text = f.nativeElement.textContent;
+    expect(text).not.toContain('Avg. time on page');
+    expect(text).not.toContain('Median scroll depth');
+    expect(text).not.toContain('Median page load');
+    // the base stats still render
+    expect(text).toContain('Pageviews');
+  });
+
   it('shows the friendly expired/invalid message when the endpoint 404s', () => {
     const { f } = make({
       get: jasmine.createSpy('get').and.returnValue(throwError(() => new Error('404'))),
@@ -61,5 +108,100 @@ describe('PublicAnalyticsComponent (AN48 public read-only view)', () => {
     const { f, get } = make({ token: '' });
     expect(get).not.toHaveBeenCalled();
     expect(f.nativeElement.querySelector('[data-testid="public-analytics-error"]')).toBeTruthy();
+  });
+
+  it('renders a "Page speed" verdict from Core Web Vitals when measured', () => {
+    const rich = {
+      summary: {
+        ...SUMMARY.summary,
+        traffic: {
+          pageviews: 1234,
+          uniqueSessions: 567,
+          webVitals: {
+            lcp: { p75: 1800, samples: 80 }, // good
+            inp: { p75: 150, samples: 80 }, // good
+            cls: { p75: 0.05, samples: 80 }, // good
+          },
+        },
+      },
+      expiresAt: 2_000_000_000_000,
+    };
+    const { f } = make({ get: jasmine.createSpy('get').and.returnValue(of(rich)) });
+    const text = f.nativeElement.textContent;
+    expect(text).toContain('Page speed');
+    expect(text).toContain('Good');
+  });
+
+  it('OMITS "Page speed" when no CWV field samples exist (never a fabricated rating)', () => {
+    const empty = {
+      summary: {
+        ...SUMMARY.summary,
+        traffic: { pageviews: 1234, uniqueSessions: 567, webVitals: { lcp: null, inp: null, cls: null } },
+      },
+      expiresAt: 2_000_000_000_000,
+    };
+    const { f } = make({ get: jasmine.createSpy('get').and.returnValue(of(empty)) });
+    expect(f.nativeElement.textContent).not.toContain('Page speed');
+  });
+
+  it('renders Cloudflare RUM tiles (verdict + server response) — labelled Cloudflare, independent source', () => {
+    const withCf = {
+      summary: SUMMARY.summary,
+      cloudflareRum: {
+        webVitals: {
+          lcp: { p75: 1248, samples: 20 },
+          inp: { p75: 40, samples: 20 },
+          cls: { p75: 0.02, samples: 20 },
+        },
+        navTiming: { ttfb: { p75: 14, samples: 10 } },
+      },
+      expiresAt: 2_000_000_000_000,
+    };
+    const { f } = make({ get: jasmine.createSpy('get').and.returnValue(of(withCf)) });
+    const t = f.nativeElement.textContent as string;
+    expect(t).withContext('CF verdict labelled Cloudflare').toContain('Page speed · Cloudflare');
+    expect(t).withContext('CF verdict value').toContain('Good');
+    expect(t).withContext('CF TTFB tile (new metric)').toContain('Server response · Cloudflare');
+    expect(t).toContain('14ms');
+  });
+
+  it('OMITS Cloudflare tiles when cloudflareRum is null / has no samples (never a fabricated 0)', () => {
+    const noCf = { summary: SUMMARY.summary, cloudflareRum: null, expiresAt: 2_000_000_000_000 };
+    const { f } = make({ get: jasmine.createSpy('get').and.returnValue(of(noCf)) });
+    expect(f.nativeElement.textContent).not.toContain('Cloudflare');
+
+    // present-but-empty (0 samples) → still omitted
+    const emptyCf = {
+      summary: SUMMARY.summary,
+      cloudflareRum: { webVitals: { lcp: null, inp: null, cls: null }, navTiming: { ttfb: { p75: null, samples: 0 } } },
+      expiresAt: 2_000_000_000_000,
+    };
+    const { f: f2 } = make({ get: jasmine.createSpy('get').and.returnValue(of(emptyCf)) });
+    expect(f2.nativeElement.textContent).not.toContain('Cloudflare');
+  });
+});
+
+describe('cwvOverallRating (public "Page speed" verdict — Google pass model)', () => {
+  const stat = (p75: number) => ({ p75, samples: 50 });
+  it('Good only when EVERY measured core metric is good', () => {
+    expect(cwvOverallRating({ lcp: stat(1800), inp: stat(150), cls: stat(0.05) })).toBe('Good');
+  });
+  it('Poor when ANY measured metric is poor', () => {
+    expect(cwvOverallRating({ lcp: stat(5000), inp: stat(150), cls: stat(0.05) })).toBe('Poor');
+  });
+  it('Needs improvement when the worst measured metric is "needs" (no poor)', () => {
+    expect(cwvOverallRating({ lcp: stat(3000), cls: stat(0.05) })).toBe('Needs improvement');
+  });
+  it('ignores unmeasured metrics (null / 0 samples) — rates only what has data', () => {
+    expect(cwvOverallRating({ lcp: stat(1800), inp: null, cls: { p75: 0.05, samples: 0 } })).toBe('Good');
+  });
+  it('null when NO core metric has samples, or the block is absent', () => {
+    expect(cwvOverallRating({ lcp: null, inp: null, cls: null })).toBeNull();
+    expect(cwvOverallRating(undefined)).toBeNull();
+  });
+  it('uses Google thresholds at the boundaries (LCP ≤2500 good, ≤4000 needs)', () => {
+    expect(cwvOverallRating({ lcp: stat(2500) })).toBe('Good');
+    expect(cwvOverallRating({ lcp: stat(2501) })).toBe('Needs improvement');
+    expect(cwvOverallRating({ lcp: stat(4001) })).toBe('Poor');
   });
 });
