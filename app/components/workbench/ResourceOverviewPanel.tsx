@@ -38,6 +38,7 @@ import {
   type ResourceOverviewEntry,
 } from '~/lib/embed/embedded-mode';
 import { ResourceDetailPanel, type ResourceDetailTarget } from './ResourceDetailPanel';
+import { NamespaceSummary } from './NamespaceSummary';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -477,6 +478,16 @@ export const ResourceOverviewPanel = memo(() => {
           <EmptyLaunchpad onReconcile={reconcile} reconciling={reconciling} />
         ) : (
           <div className="flex-1 overflow-auto modern-scrollbar px-4 py-4 space-y-6" data-testid="resources-groups">
+            {/* Per-site WfP-namespace SUMMARY — a prominent rollup of every resource in the namespace,
+                derived from the SAME inventory (no extra fetch). The at-a-glance accounting sits above
+                the per-kind cards. */}
+            <NamespaceSummary
+              resources={overview.resources}
+              environment={overview.environment}
+              onReconcile={reconcile}
+              reconciling={reconciling}
+            />
+
             {groups.map((group) => (
               <ResourceGroupSection key={group.key} group={group} onComingSoon={setNotice} onOpen={openDetail} />
             ))}
@@ -528,14 +539,25 @@ const Header = memo(
     canReconcile: boolean;
     subtitle: string;
   }) => (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0">
-      <div className="i-ph:stack-duotone text-xl text-bolt-elements-textSecondary shrink-0" />
-      <div className="min-w-0">
-        <h2 className="text-sm font-semibold text-bolt-elements-textPrimary">Resources</h2>
+    <div className="relative flex items-center gap-3 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0 overflow-hidden">
+      {/* Subtle brand wash behind the header — sets the cinematic black+cyan tone from the first pixel. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 opacity-60"
+        style={{
+          background:
+            'linear-gradient(90deg, color-mix(in oklch, #00e5ff 8%, transparent), transparent 40%)',
+        }}
+      />
+      <div className="relative flex items-center justify-center h-9 w-9 rounded-xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08] shrink-0">
+        <div className="i-ph:stack-duotone text-xl text-bolt-elements-item-contentAccent" />
+      </div>
+      <div className="relative min-w-0">
+        <h2 className="text-sm font-semibold text-bolt-elements-textPrimary tracking-tight">Resources</h2>
         <p className="text-[10px] text-bolt-elements-textTertiary truncate">{subtitle}</p>
       </div>
 
-      <div className="ml-auto flex items-center gap-2 shrink-0">
+      <div className="relative ml-auto flex items-center gap-2 shrink-0">
         {/* Environment selector — preview | production */}
         <div
           className="flex items-center rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-0.5"
@@ -698,16 +720,20 @@ const ResourceGroupSection = memo(
   }) => (
     <section data-testid="resources-group">
       <div className="flex items-center gap-2 mb-2.5">
-        <div className={classNames(iconForKind(group.kind), 'text-base text-bolt-elements-item-contentAccent shrink-0')} />
+        <div className="flex items-center justify-center h-6 w-6 rounded-lg border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/[0.06] shrink-0">
+          <div className={classNames(iconForKind(group.kind), 'text-sm text-bolt-elements-item-contentAccent')} />
+        </div>
         <h3 className="text-xs font-semibold uppercase tracking-wider text-bolt-elements-textSecondary">
           {titleForKind(group.kind)}
         </h3>
-        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary uppercase tracking-wider">
+        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary uppercase tracking-wider">
+          <div className="i-ph:git-branch text-[9px]" />
           {humanizeToken(group.environment)}
         </span>
-        <span className="text-[10px] text-bolt-elements-textTertiary">
+        <span className="text-[10px] text-bolt-elements-textTertiary tabular-nums">
           {group.entries.length} item{group.entries.length === 1 ? '' : 's'}
         </span>
+        <div className="flex-1 h-px bg-gradient-to-r from-bolt-elements-borderColor/60 to-transparent ml-1" aria-hidden="true" />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -751,13 +777,13 @@ const ResourceCard = memo(
     return (
       <div
         className={classNames(
-          'rounded-xl border p-3.5 flex flex-col gap-2.5 transition-colors',
+          'group relative overflow-hidden rounded-xl border p-3.5 flex flex-col gap-2.5 transition-all duration-150 motion-reduce:transition-none',
           drifted
             ? 'border-amber-400/50 bg-amber-400/[0.04]'
             : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2',
           availability === 'available' && 'opacity-80',
           openable &&
-            'cursor-pointer hover:border-bolt-elements-item-contentAccent/60 hover:bg-bolt-elements-background-depth-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+            'cursor-pointer hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 hover:border-bolt-elements-item-contentAccent/60 hover:bg-bolt-elements-background-depth-3 hover:shadow-lg hover:shadow-bolt-elements-item-contentAccent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
         )}
         data-testid="resources-card"
         data-availability={availability}
@@ -777,18 +803,40 @@ const ResourceCard = memo(
             : undefined
         }
       >
+        {/* Cinematic left accent rail — cyan when connected, amber when drifted, muted otherwise. */}
+        <span
+          aria-hidden="true"
+          className={classNames(
+            'absolute left-0 top-0 bottom-0 w-0.5',
+            drifted
+              ? 'bg-amber-400/70'
+              : availability === 'connected'
+                ? 'bg-bolt-elements-item-contentAccent/70'
+                : 'bg-bolt-elements-borderColor',
+          )}
+        />
+
         {/* Top row — kind icon + concept + drift badge */}
         <div className="flex items-start gap-2.5">
           <div
             className={classNames(
-              iconForKind(entry.resource_kind),
-              'text-2xl shrink-0',
+              'flex items-center justify-center h-9 w-9 rounded-xl shrink-0 transition-colors',
               availability === 'connected'
-                ? 'text-bolt-elements-item-contentAccent'
-                : 'text-bolt-elements-textTertiary',
+                ? 'border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/[0.08]'
+                : 'border border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-1',
             )}
             aria-hidden="true"
-          />
+          >
+            <div
+              className={classNames(
+                iconForKind(entry.resource_kind),
+                'text-xl',
+                availability === 'connected'
+                  ? 'text-bolt-elements-item-contentAccent'
+                  : 'text-bolt-elements-textTertiary',
+              )}
+            />
+          </div>
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-bolt-elements-textPrimary truncate" title={entry.resource_concept}>
               {entry.resource_concept || titleForKind(entry.resource_kind)}
