@@ -59,6 +59,17 @@ import {
   type ProvisionInput,
   type ProvisionMutateResult,
 } from '../provision_mutation.js';
+import {
+  runCloneMutation,
+  runPromoteMutation,
+  runTeardownMutation,
+  type CloneInput,
+  type CloneMutateResult,
+  type PromoteInput,
+  type PromoteMutateResult,
+  type TeardownInput,
+  type TeardownMutateResult,
+} from '../lifecycle_mutation.js';
 import { recordQueryHistory } from '../query_history.js';
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
@@ -204,7 +215,10 @@ export type D1MutateInput =
   | D1MigrationsInput
   | D1TimeTravelInfoInput
   | D1RestoreInput
-  | ProvisionInput;
+  | ProvisionInput
+  | TeardownInput
+  | PromoteInput
+  | CloneInput;
 
 /**
  * What a successful `exec` returns: the honestly-classified effect, D1's GROUND-TRUTH meta (`rowsRead`/
@@ -320,7 +334,10 @@ export type D1MutateResult =
   | D1MigrationsResult
   | D1TimeTravelInfoResult
   | D1RestoreResult
-  | ProvisionMutateResult;
+  | ProvisionMutateResult
+  | TeardownMutateResult
+  | PromoteMutateResult
+  | CloneMutateResult;
 
 /** SQLite keywords whose statement MUTATES the database. */
 const MUTATING_KEYWORDS: ReadonlySet<string> = new Set([
@@ -510,6 +527,10 @@ class D1Adapter
       'time_travel_info',
       'restore',
       'provision',
+      // Lifecycle (FIRE 5): promote (preview → prod), teardown (protected D1 → honest refusal), clone (n/a).
+      'promote',
+      'teardown',
+      'clone',
     ] as const,
     verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
@@ -721,6 +742,18 @@ class D1Adapter
     // provision bridge (idempotency → quota → provisioner → registry record → recoverable partial).
     if (input && input.action === 'provision') {
       return runProvisionMutation(cid, scope, 'd1', input);
+    }
+
+    // LIFECYCLE (FIRE 5) — teardown/promote/clone resolve + re-scope their OWN owned rows in the lifecycle
+    // service (they don't operate on `scope.resourceId`), so they run before the resolved-id denylist check.
+    if (input && input.action === 'teardown') {
+      return runTeardownMutation(cid, scope, 'd1', input);
+    }
+    if (input && input.action === 'promote') {
+      return runPromoteMutation(cid, scope, 'd1', input);
+    }
+    if (input && input.action === 'clone') {
+      return runCloneMutation(cid, scope, 'd1', input);
     }
 
     const databaseId = scope.resourceId;

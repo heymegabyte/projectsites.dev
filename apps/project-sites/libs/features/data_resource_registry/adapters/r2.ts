@@ -87,6 +87,20 @@ import {
   type ProvisionInput,
   type ProvisionMutateResult,
 } from '../provision_mutation.js';
+import {
+  runCloneMutation,
+  runPromoteMutation,
+  runR2PresignMutation,
+  runTeardownMutation,
+  type CloneInput,
+  type CloneMutateResult,
+  type PresignInput,
+  type PresignMutateResult,
+  type PromoteInput,
+  type PromoteMutateResult,
+  type TeardownInput,
+  type TeardownMutateResult,
+} from '../lifecycle_mutation.js';
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
 
@@ -316,7 +330,11 @@ export type R2MutateInput =
   | R2UploadPartInput
   | R2CompleteMultipartUploadInput
   | R2AbortMultipartUploadInput
-  | ProvisionInput;
+  | ProvisionInput
+  | TeardownInput
+  | CloneInput
+  | PromoteInput
+  | PresignInput;
 
 /** What an R2 `put` returns: the key written + whether it overwrote a prior object + a metadata echo. */
 export interface R2PutResult {
@@ -390,7 +408,9 @@ export interface R2AbortMultipartUploadResult {
   readonly aborted: true;
 }
 
-/** The discriminated result union a successful `mutate` returns. */
+/** The discriminated result union a successful `mutate` returns. The lifecycle result shapes
+ * ({@link PresignMutateResult}/{@link TeardownMutateResult}/{@link PromoteMutateResult}/{@link CloneMutateResult})
+ * are shared with d1/kv via the lifecycle bridge — one shape, no per-adapter duplicate (drift-detection). */
 export type R2MutateResult =
   | R2PutResult
   | R2DeleteResult
@@ -398,7 +418,11 @@ export type R2MutateResult =
   | R2UploadPartResult
   | R2CompleteMultipartUploadResult
   | R2AbortMultipartUploadResult
-  | ProvisionMutateResult;
+  | ProvisionMutateResult
+  | PresignMutateResult
+  | TeardownMutateResult
+  | PromoteMutateResult
+  | CloneMutateResult;
 
 /**
  * ONE readable bucket-configuration setting (the `bucket_config` READ verb). Two honest shapes:
@@ -599,6 +623,12 @@ class R2Adapter
       'complete_multipart_upload',
       'abort_multipart_upload',
       'provision',
+      // Lifecycle (FIRE 5): scoped download/upload URLs + teardown/promote/clone.
+      'preview_url',
+      'upload_url',
+      'teardown',
+      'promote',
+      'clone',
     ] as const,
     verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
@@ -857,6 +887,21 @@ class R2Adapter
     // provisioner → registry record → recoverable partial).
     if (input && input.action === 'provision') {
       return runProvisionMutation(cid, scope, 'r2', input);
+    }
+
+    // LIFECYCLE (FIRE 5) — teardown/clone/promote delegate to the shared lifecycle bridge; preview_url/
+    // upload_url mint a short-lived SCOPED S3 URL for ONE object (never account credentials — INV-6).
+    if (input && (input.action === 'preview_url' || input.action === 'upload_url')) {
+      return runR2PresignMutation(cid, scope, input);
+    }
+    if (input && input.action === 'teardown') {
+      return runTeardownMutation(cid, scope, 'r2', input);
+    }
+    if (input && input.action === 'promote') {
+      return runPromoteMutation(cid, scope, 'r2', input);
+    }
+    if (input && input.action === 'clone') {
+      return runCloneMutation(cid, scope, 'r2', input);
     }
 
     // MULTIPART lifecycle — validate the request HONESTLY (key + part bounds), then report

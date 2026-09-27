@@ -55,6 +55,9 @@ import {
   type ResourceDetailResult,
 } from '~/lib/embed/embedded-mode';
 import { fieldTypeFor, type FieldKind } from './field-types';
+import { LifecycleActions } from './LifecycleActions';
+import { EnvAssignmentGrid } from './EnvAssignmentGrid';
+import { R2Browser } from './R2Browser';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,11 +98,22 @@ interface Pending {
 }
 
 /** The outcome of a mutate round-trip, rendered inline under the write controls (honest, never faked). */
-type MutateOutcome =
+export type MutateOutcome =
   | { kind: 'success'; action: string; result: Record<string, unknown> }
   | { kind: 'confirmation'; action: string; message: string }
   | { kind: 'not_available'; action: string; message: string }
   | { kind: 'error'; action: string; message: string };
+
+/**
+ * The uniform mutate function the detail panel hands to its lifecycle/R2 children: run a NAMED mutation via
+ * the bridge (`PS_RES_MUTATE_REQUEST`), returning a classified {@link MutateOutcome}. NEVER names a CF id —
+ * only the kind + action + bounded `input` (+ confirm for destructive/billable ops).
+ */
+export type ResourceMutateFn = (
+  action: string,
+  input?: Record<string, unknown>,
+  confirm?: boolean,
+) => Promise<MutateOutcome>;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -112,9 +126,9 @@ const DISABLED_404 = 'not enabled';
  * is a UI hint, never the authority. Keep in lock-step with the adapters' `supports.mutations` blocks.
  */
 const MUTATIONS_FOR_KIND: Record<string, readonly string[]> = {
-  d1: ['exec', 'provision'],
-  kv: ['put', 'delete', 'provision'],
-  r2: ['put', 'delete', 'provision'],
+  d1: ['exec', 'provision', 'promote', 'teardown', 'clone'],
+  kv: ['put', 'delete', 'provision', 'promote', 'teardown', 'clone'],
+  r2: ['put', 'delete', 'provision', 'promote', 'teardown', 'clone'],
   vectorize: ['upsert', 'delete'],
   workflow: ['start', 'pause', 'resume', 'restart', 'terminate'],
   durable_object: ['status_probe', 'reset'],
@@ -122,6 +136,13 @@ const MUTATIONS_FOR_KIND: Record<string, readonly string[]> = {
   connection: [],
   analytics_engine: [],
 };
+
+/**
+ * The lifecycle mutations rendered by the dedicated {@link LifecycleActions} strip (not the generic write
+ * controls) — teardown/promote/clone + the environment grid. Filtered OUT of the generic `WriteControls`
+ * so they render as first-class lifecycle actions with their own copy + confirm dialogs.
+ */
+const LIFECYCLE_ACTIONS: ReadonlySet<string> = new Set(['promote', 'teardown', 'clone']);
 
 /** Actions that DESTROY / irreversibly change existing state → gated behind a confirm dialog + `confirm:true`. */
 const DESTRUCTIVE_ACTIONS: ReadonlySet<string> = new Set([
@@ -133,6 +154,7 @@ const DESTRUCTIVE_ACTIONS: ReadonlySet<string> = new Set([
   'restart',
   'purge',
   'revoke',
+  'teardown',
 ]);
 
 /** The provisioning action (creates real, billable CF infra) — always confirm-gated. */
@@ -699,11 +721,25 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
         />
       )}
 
+      {/* Lifecycle strip (FIRE 5): promote / teardown / clone + the preview↔production environment grid.
+          Rendered for provisionable kinds (d1/kv/r2) once the panel has settled, below the write controls. */}
+      {showWrite && mutations.some((m) => LIFECYCLE_ACTIONS.has(m)) && (
+        <LifecycleActions kind={target.kind} mutations={mutations} mutate={mutate} onMutated={refresh}>
+          <EnvAssignmentGrid kind={target.kind} environment={target.environment} />
+        </LifecycleActions>
+      )}
+
       {state.status === 'loading' && <Spinner label={child ? `Loading ${child.label}…` : 'Loading…'} />}
       {state.status === 'disabled' && <DisabledCard />}
       {state.status === 'error' && <ErrorCard message={state.message} onRetry={refresh} />}
 
-      {state.status === 'ready' &&
+      {/* R2 object browser (FIRE 5): an S3-style browser (prefix nav + upload + download + delete via
+          short-lived SCOPED presigned URLs) replaces the generic object list for R2 at the top level. When
+          drilling into ONE object (child) the generic key-value inspector still renders below. */}
+      {state.status === 'ready' && !child && target.kind.toLowerCase().includes('r2') && !notRegistered ? (
+        <R2Browser target={target} mutate={mutate} />
+      ) : (
+        state.status === 'ready' &&
         (state.result.ok ? (
           <ResultView
             result={state.result}
@@ -713,7 +749,8 @@ export const ResourceDetailPanel = memo(({ target, onBack }: { target: ResourceD
           />
         ) : (
           <AdapterErrorCard result={state.result} onRetry={refresh} />
-        ))}
+        ))
+      )}
     </div>
   );
 });
@@ -877,7 +914,10 @@ const WriteControls = memo(
     if (has('put') && (k.includes('kv') || k.includes('r2'))) bespoke.add('put');
     if (has('delete') && (k.includes('kv') || k.includes('r2') || k.includes('vector'))) bespoke.add('delete');
     if (has('exec') && k.includes('d1')) bespoke.add('exec');
-    const genericActions = mutations.filter((m) => m !== PROVISION_ACTION && !bespoke.has(m));
+    // Lifecycle actions (promote/teardown/clone) render in the dedicated LifecycleActions strip, not here.
+    const genericActions = mutations.filter(
+      (m) => m !== PROVISION_ACTION && !bespoke.has(m) && !LIFECYCLE_ACTIONS.has(m),
+    );
 
     return (
       <div className="shrink-0 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/40 px-4 py-3 space-y-3" data-testid="resource-detail-write">

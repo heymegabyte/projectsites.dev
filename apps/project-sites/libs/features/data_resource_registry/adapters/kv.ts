@@ -41,6 +41,17 @@ import {
   type ProvisionInput,
   type ProvisionMutateResult,
 } from '../provision_mutation.js';
+import {
+  runCloneMutation,
+  runPromoteMutation,
+  runTeardownMutation,
+  type CloneInput,
+  type CloneMutateResult,
+  type PromoteInput,
+  type PromoteMutateResult,
+  type TeardownInput,
+  type TeardownMutateResult,
+} from '../lifecycle_mutation.js';
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
 
@@ -207,7 +218,14 @@ export interface KvBulkDeleteResult {
 }
 
 /** The discriminated named-mutation union for the kv adapter — NEVER a generic `{ command }` field. */
-export type KvMutateInput = KvPutInput | KvDeleteInput | KvBulkDeleteInput | ProvisionInput;
+export type KvMutateInput =
+  | KvPutInput
+  | KvDeleteInput
+  | KvBulkDeleteInput
+  | ProvisionInput
+  | TeardownInput
+  | PromoteInput
+  | CloneInput;
 
 /** What a KV `put` returns: the key written + whether it overwrote a prior value + TTL/metadata echoes. */
 export interface KvPutResult {
@@ -230,7 +248,14 @@ export interface KvDeleteResult {
 }
 
 /** The discriminated result union a successful `mutate` returns. */
-export type KvMutateResult = KvPutResult | KvDeleteResult | KvBulkDeleteResult | ProvisionMutateResult;
+export type KvMutateResult =
+  | KvPutResult
+  | KvDeleteResult
+  | KvBulkDeleteResult
+  | ProvisionMutateResult
+  | TeardownMutateResult
+  | PromoteMutateResult
+  | CloneMutateResult;
 
 /** Mint a correlation id for one adapter call (structured-logging: every envelope carries one). */
 function correlationId(): string {
@@ -297,7 +322,7 @@ class KvAdapter
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: ['put', 'delete', 'bulk_delete', 'provision'] as const,
+    mutations: ['put', 'delete', 'bulk_delete', 'provision', 'promote', 'teardown', 'clone'] as const,
     verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
@@ -529,6 +554,18 @@ class KvAdapter
     // provisioner → registry record → recoverable partial).
     if (input && input.action === 'provision') {
       return runProvisionMutation(cid, scope, 'kv', input);
+    }
+
+    // LIFECYCLE (FIRE 5) — teardown/promote/clone resolve + re-scope their OWN owned rows in the lifecycle
+    // service (they don't operate on `scope.resourceId`). Promote copies KV values preview → production.
+    if (input && input.action === 'teardown') {
+      return runTeardownMutation(cid, scope, 'kv', input);
+    }
+    if (input && input.action === 'promote') {
+      return runPromoteMutation(cid, scope, 'kv', input);
+    }
+    if (input && input.action === 'clone') {
+      return runCloneMutation(cid, scope, 'kv', input);
     }
 
     // BULK_DELETE — remove MANY keys in ONE CF bulk request. Destructive → confirm gate REPORTS the count.

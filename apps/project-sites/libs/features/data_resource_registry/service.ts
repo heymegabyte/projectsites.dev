@@ -60,7 +60,7 @@ const UNSUPPORTED_KINDS: ReadonlySet<ResourceRef['kind']> = new Set(['queue']);
  * kinds have no shared-id denylist YET (their shared shims are prefix-scoped, not id-collisions) —
  * an empty set means "nothing denied for this kind". Kept here so the fence is one lookup.
  */
-function forbiddenIdsForKind(kind: ResourceRef['kind']): ReadonlySet<string> {
+export function forbiddenIdsForKind(kind: ResourceRef['kind']): ReadonlySet<string> {
   if (kind === 'd1') return FORBIDDEN_DB_IDS;
   return EMPTY_DENYLIST;
 }
