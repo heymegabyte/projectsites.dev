@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, effect, inject, signal } from '@angular/core';
 
 import { BoltEmbedService } from '../../../services/bolt-embed.service';
 import { AdminStateService } from '../admin-state.service';
@@ -50,11 +50,14 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
       z-index: 2;
       overflow: hidden;
       background: #060610;
-      /* Opaque from frame 1 — NO entry fade-in. The old `animation: edFade` ramped
+      /* Opaque from frame 1 — NO entry fade-in. The old 'animation: edFade' ramped
          opacity 0→1 over 260ms, and during that ramp the booting iframe flashed
          through the semi-transparent veil (the "flash during presentation"). A
          loading COVER must be solid the instant it mounts, never fade in. */
       opacity: 1;
+      /* Never intercept the cursor — the loader is purely visual, so clicks pass
+         straight through to the editor at ALL times (Brian: no cursor pointer events). */
+      pointer-events: none;
       will-change: opacity;
       /* Fade-OUT only (Angular's animate.leave adds .ed-veil--leaving when the
          workspace is ready, holding the element in the DOM until this settles).
@@ -169,28 +172,32 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
           </div>
         </div>
       </div>
-    } @else if (!bolt.editorReady()) {
-      <div class="ed-veil" animate.leave="ed-veil--leaving" role="status" aria-live="polite" aria-busy="true">
-        <div class="ed-aurora" aria-hidden="true"></div>
-        <div class="ed-veil-card">
-          <div class="ed-mark" aria-hidden="true">
-            <span class="ed-ring"></span>
-            <span class="ed-core"></span>
-            <svg class="ed-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M13 2 4.5 13.2a.6.6 0 0 0 .48.96H11l-1 7.84 8.5-11.2a.6.6 0 0 0-.48-.96H12l1-7.84Z"/>
-            </svg>
-          </div>
-          <div class="ed-headline">Booting your AI editor</div>
-          <div class="ed-sub">{{ bolt.loadingStage() }}<span class="ed-dots"><i></i><i></i><i></i></span></div>
-          <div class="ed-footnote">First visit only — subsequent opens are instant.</div>
-        </div>
-      </div>
     }
+    <!-- The loading veil now lives at the TOP LEVEL of the shell (admin.component,
+         sibling of the iframe) so nothing can overlap it — see `.bolt-veil` there. -->
   `,
 })
 export class AdminEditorComponent {
   state = inject(AdminStateService);
   bolt = inject(BoltEmbedService);
+
+  /**
+   * Latch: once the editor has READIED during THIS visit, keep the loading veil
+   * gone even if `bolt.editorReady()` momentarily flaps back to false (a background
+   * re-boot / site re-selection). The cover must fade out EXACTLY ONCE per visit —
+   * never flash back in. `AdminEditorComponent` is re-created when the user leaves +
+   * returns to /admin/editor, so this resets naturally for a genuinely new visit
+   * (and if the iframe is already warm, `editorReady()` is true on init → the veil
+   * never shows). The HARD_TIMEOUT in BoltEmbedService still force-readies, so the
+   * latch can't strand the veil. (Brian 2026-09-27 — loader fades in→out, no flicker.)
+   */
+  // Seed from the CURRENT ready state so a warm re-entry (iframe already booted,
+  // editorReady already true) renders the veil at opacity:0 from frame 1 — no flash
+  // before the effect runs. A cold boot starts false → veil visible → fades on ready.
+  private readonly readiedOnce = signal(this.bolt.editorReady());
+  private readonly _veilLatch = effect(() => {
+    if (this.bolt.editorReady()) this.readiedOnce.set(true);
+  });
 
   openPalette(): void {
     document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'k', metaKey: true }));

@@ -391,8 +391,16 @@ export class AdminComponent implements OnInit, OnDestroy {
     // Keep the editor's D1-manager SQL console gate in sync — bolt-embed can't inject the
     // AdminComponent-scoped state, so we push isSuperAdmin (hydrated from /api/auth/me) here.
     this.bolt.superAdmin.set(this.state.isSuperAdmin());
-    if (this.isEditorRoute()) {
-      this.bolt.bootForSite(site ?? null);
+    // Boot ONLY when on the editor route AND a real site is selected. We must NOT call
+    // bootForSite(null) from this effect: selectedSite() transiently flips to null during
+    // initial load and the 30s sites-refresh, and a null boot runs teardown() → editorReady
+    // resets to false → the loading veil RE-SHOWS after it already dismissed. That is the exact
+    // "fades out, then fades in, then fades out again" flicker. bootForSite is same-slug
+    // idempotent, so a stable site boots + dismisses the veil EXACTLY ONCE; only a genuine site
+    // switch re-veils. Real teardown (sign-out / unmount) is owned by ngOnDestroy, so guarding
+    // the transient null here loses no cleanup. (Brian 2026-09-27 — loader double-fade fix.)
+    if (this.isEditorRoute() && site) {
+      this.bolt.bootForSite(site);
     }
   });
 
