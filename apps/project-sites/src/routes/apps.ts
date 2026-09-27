@@ -1247,6 +1247,25 @@ async function verifyPointed(domain: string): Promise<{ ok: boolean; target: str
   return { ok: flattened, target: cname ?? (flattened ? 'projectsites.dev (flattened)' : null) };
 }
 
+/** CF custom-hostname state for `domain` (looked up by NAME — no stored cf_id). `ssl_status`
+ *  'active' = the cert is issued + the domain is ACTIVATED. Soft: returns 'none' on any hiccup. */
+async function cfHostnameStatus(env: Env, domain: string): Promise<{ status: string; ssl_status: string }> {
+  try {
+    const r = await fetch(
+      `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/custom_hostnames?hostname=${encodeURIComponent(domain)}`,
+      { headers: { Authorization: `Bearer ${env.CF_API_TOKEN}` } },
+    );
+    if (!r.ok) return { status: 'none', ssl_status: 'none' };
+    const j = (await r.json()) as { result?: Array<{ status?: string; ssl?: { status?: string } }> };
+    const rec = j.result?.[0];
+    return rec
+      ? { status: rec.status ?? 'pending', ssl_status: rec.ssl?.status ?? 'pending' }
+      : { status: 'none', ssl_status: 'none' };
+  } catch {
+    return { status: 'none', ssl_status: 'none' };
+  }
+}
+
 /**
  * `GET /api/apps/instances/:id/cname-check?domain=` — Read-only: is `domain` pointed at
  * projectsites.dev yet (literal CNAME OR flattened A-match)? Powers the live green/red status.
@@ -1440,14 +1459,38 @@ apps.get('/api/apps/instances/:id/domains', async (c) => {
        WHERE instance_id = ? ORDER BY is_primary DESC, created_at ASC`,
     [row.id],
   );
-  return c.json({
-    domains: (data ?? []).map((d) => ({
-      domain: d.domain,
-      primary: d.is_primary === 1,
-      status: d.status,
-      ssl_status: d.ssl_status,
-    })),
-  });
+  const rows = data ?? [];
+  // Refresh each domain's LIVE state: pointed (DNS) + activated (CF cert), never stale DB values.
+  const domains = await Promise.all(
+    rows.map(async (d) => {
+      const [pointed, cf] = await Promise.all([
+        verifyPointed(d.domain),
+        cfHostnameStatus(c.env, d.domain),
+      ]);
+      return {
+        domain: d.domain,
+        primary: d.is_primary === 1,
+        pointed: pointed.ok,
+        activated: cf.ssl_status === 'active',
+        status: cf.status !== 'none' ? cf.status : d.status,
+        ssl_status: cf.ssl_status !== 'none' ? cf.ssl_status : d.ssl_status,
+      };
+    }),
+  );
+  // Persist the fresh cert state so the row stops drifting (best-effort, after the response).
+  c.executionCtx.waitUntil(
+    (async () => {
+      const now = new Date().toISOString();
+      for (const d of domains) {
+        await dbExecute(
+          c.env.DB,
+          `UPDATE app_instance_domains SET status = ?, ssl_status = ?, updated_at = ? WHERE instance_id = ? AND domain = ?`,
+          [d.status, d.ssl_status, now, row.id, d.domain],
+        ).catch(() => undefined);
+      }
+    })(),
+  );
+  return c.json({ domains });
 });
 
 /**
