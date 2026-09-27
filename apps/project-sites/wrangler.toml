@@ -198,7 +198,12 @@ routes = [
   { pattern = "analytics.projectsites.dev", zone_name = "projectsites.dev" },
   { pattern = "logs.projectsites.dev", zone_name = "projectsites.dev" },
   { pattern = "webhooks.projectsites.dev", zone_name = "projectsites.dev" },
-  { pattern = "links.projectsites.dev", zone_name = "projectsites.dev" }
+  { pattern = "links.projectsites.dev", zone_name = "projectsites.dev" },
+  # ── Cloudflare-for-SaaS custom hostnames (customer domains CNAME'd here) enter this zone
+  #    but do NOT match *.projectsites.dev, so the Worker never ran → 522. A zone-wide */*
+  #    route captures them so serveAppInstance handles them. More-specific routes above still
+  #    win for our own hosts; the Worker routes every request by Host either way. ──
+  { pattern = "*/*", zone_name = "projectsites.dev" }
 ]
 
 [env.production.vars]

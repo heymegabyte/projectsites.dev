@@ -1595,7 +1595,10 @@ apps.get('/api/apps/instances/:id/domain-status', async (c) => {
   } catch {
     /* soft — the client polls again */
   }
-  const connected = dnsOk && sslStatus === 'active';
+  // SSL active is AUTHORITATIVE — Cloudflare issues the cert only AFTER the CNAME validates, so
+  // it implies DNS is pointed. Gating on the (flaky) DoH `dnsOk` too would flip "connected" back
+  // to false on a transient empty DoH read (seen live 2026-09-27). Trust CF's cert state.
+  const connected = sslStatus === 'active';
   const phase = connected
     ? 'connected'
     : !dnsOk
