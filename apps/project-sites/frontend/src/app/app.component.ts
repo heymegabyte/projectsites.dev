@@ -24,6 +24,7 @@ import { ApiService } from './services/api.service';
 import { MetaService } from './services/meta.service';
 import { AppShellService, type AppLanguage } from './services/app-shell.service';
 import { TelemetryService } from './services/telemetry.service';
+import { BoltEmbedService } from './services/bolt-embed.service';
 
 @Component({
   selector: 'app-root',
@@ -79,6 +80,34 @@ import { TelemetryService } from './services/telemetry.service';
       }
       <router-outlet />
     </main>
+    <!-- TOP-LEVEL editor loading veil — rendered at the app ROOT with MAXIMUM z-index so
+         nothing (the admin shell, tab strip, or the bolt.diy iframe) can EVER overlap it.
+         Shows only on the editor route; opacity-toggled to fade out the instant the bolt
+         editor reports loaded via postMessage (bolt.editorReady). pointer-events:none —
+         purely visual, never blocks the cursor. -->
+    @if (isEditorRoute()) {
+      <div
+        class="app-editor-veil"
+        [class.app-editor-veil--gone]="bolt.editorReady()"
+        role="status"
+        aria-live="polite"
+        [attr.aria-busy]="!bolt.editorReady()"
+      >
+        <div class="app-editor-veil__aurora" aria-hidden="true"></div>
+        <div class="app-editor-veil__card">
+          <div class="app-editor-veil__mark" aria-hidden="true">
+            <span class="app-editor-veil__ring"></span>
+            <span class="app-editor-veil__core"></span>
+            <svg class="app-editor-veil__glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2 4.5 13.2a.6.6 0 0 0 .48.96H11l-1 7.84 8.5-11.2a.6.6 0 0 0-.48-.96H12l1-7.84Z"/>
+            </svg>
+          </div>
+          <div class="app-editor-veil__headline">Booting your AI editor</div>
+          <div class="app-editor-veil__sub">{{ bolt.loadingStage() }}<span class="app-editor-veil__dots"><i></i><i></i><i></i></span></div>
+          <div class="app-editor-veil__footnote">First visit only — subsequent opens are instant.</div>
+        </div>
+      </div>
+    }
   `,
   styles: [`
     .app {
@@ -152,6 +181,75 @@ import { TelemetryService } from './services/telemetry.service';
     /* The skip-link target receives focus programmatically (never via Tab — it's
        tabindex=-1), so the region outline would just be visual noise. */
     #main-content:focus { outline: none; }
+
+    /* ── Top-level editor loading veil (Brian 2026-09-27) ──────────────────────────
+       At the app ROOT with MAX z-index + position:fixed so nothing overlaps it;
+       pointer-events:none (purely visual). Fades out when the bolt editor postMessages
+       loaded (bolt.editorReady → .app-editor-veil--gone). Keeps the status messages. */
+    .app-editor-veil {
+      position: fixed;
+      inset: 0;
+      z-index: 2147483647;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+      background: #060610;
+      pointer-events: none;
+      opacity: 1;
+      will-change: opacity;
+      transition: opacity 520ms cubic-bezier(0.7, 0, 0.84, 0);
+    }
+    .app-editor-veil--gone { opacity: 0; }
+    .app-editor-veil__aurora {
+      position: absolute; inset: -25%;
+      background:
+        radial-gradient(38% 34% at 22% 28%, rgba(0,229,255,0.18), transparent 60%),
+        radial-gradient(34% 30% at 78% 30%, rgba(124,58,237,0.20), transparent 62%),
+        radial-gradient(46% 40% at 50% 88%, rgba(0,229,255,0.10), transparent 66%);
+      filter: blur(26px) saturate(1.15);
+      animation: appVeilDrift 14s cubic-bezier(0.4,0,0.2,1) infinite;
+    }
+    .app-editor-veil__card {
+      position: relative; display: flex; flex-direction: column; align-items: center; gap: 0.7rem;
+      padding: 2.1rem 2.6rem 1.8rem; border-radius: 24px;
+      background: linear-gradient(180deg, rgba(14,14,40,0.62), rgba(6,6,16,0.62));
+      border: 1px solid rgba(0,229,255,0.12);
+      box-shadow: 0 30px 80px -32px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.05);
+      backdrop-filter: blur(14px) saturate(1.1); -webkit-backdrop-filter: blur(14px) saturate(1.1);
+      text-align: center;
+    }
+    .app-editor-veil__mark { position: relative; width: 76px; height: 76px; margin-bottom: 0.2rem; }
+    .app-editor-veil__ring {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: conic-gradient(from 0deg, transparent 0deg, rgba(0,229,255,0.95) 130deg, rgba(124,58,237,0.95) 250deg, transparent 360deg);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
+      mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3.5px));
+      animation: appVeilSpin 2.4s linear infinite;
+    }
+    .app-editor-veil__core {
+      position: absolute; inset: 13px; border-radius: 50%;
+      background: radial-gradient(circle at 34% 28%, rgba(0,229,255,0.34), rgba(124,58,237,0.16) 68%, transparent 82%);
+      animation: appVeilBreathe 3s cubic-bezier(0.4,0,0.2,1) infinite;
+    }
+    .app-editor-veil__glyph {
+      position: absolute; inset: 0; margin: auto; width: 30px; height: 30px; color: #00E5FF;
+      filter: drop-shadow(0 0 9px rgba(0,229,255,0.55));
+      animation: appVeilBreathe 3s cubic-bezier(0.4,0,0.2,1) infinite;
+    }
+    .app-editor-veil__headline { font-family: 'Sora', system-ui, sans-serif; font-weight: 600; font-size: 1.08rem; color: #f4f4ff; letter-spacing: -0.02em; }
+    .app-editor-veil__sub { display: inline-flex; align-items: baseline; font-size: 0.78rem; color: rgba(244,244,255,0.66); font-family: 'JetBrains Mono', ui-monospace, monospace; }
+    .app-editor-veil__dots { display: inline-flex; margin-left: 1px; }
+    .app-editor-veil__dots i { width: 3px; height: 3px; margin-left: 2px; border-radius: 50%; background: rgba(0,229,255,0.85); align-self: center; animation: appVeilDot 1.2s cubic-bezier(0.4,0,0.2,1) infinite; }
+    .app-editor-veil__dots i:nth-child(2) { animation-delay: 0.16s; }
+    .app-editor-veil__dots i:nth-child(3) { animation-delay: 0.32s; }
+    .app-editor-veil__footnote { font-size: 0.7rem; color: rgba(244,244,255,0.4); margin-top: 0.5rem; }
+    @keyframes appVeilSpin { to { transform: rotate(360deg); } }
+    @keyframes appVeilBreathe { 0%,100% { transform: scale(0.94); opacity: 0.85; } 50% { transform: scale(1.06); opacity: 1; } }
+    @keyframes appVeilDrift { 0%,100% { transform: translate3d(0,0,0) scale(1); } 33% { transform: translate3d(3%,-2%,0) scale(1.06); } 66% { transform: translate3d(-3%,2%,0) scale(1.03); } }
+    @keyframes appVeilDot { 0%,100% { opacity: 0.3; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-2px); } }
+    @media (prefers-reduced-motion: reduce) {
+      .app-editor-veil, .app-editor-veil__aurora, .app-editor-veil__core, .app-editor-veil__glyph, .app-editor-veil__dots i { animation: none; }
+      .app-editor-veil__ring { animation-duration: 4s; }
+    }
   `],
 })
 export class AppComponent implements OnInit, OnDestroy {
@@ -163,11 +261,22 @@ export class AppComponent implements OnInit, OnDestroy {
   private translate = inject(TranslateService);
   private appShell = inject(AppShellService);
   private telemetry = inject(TelemetryService);
+  /**
+   * Root singleton (providedIn:'root'). Its `editorReady` signal is flipped by the bolt.diy
+   * editor's postMessage (PS_APP_RUNNING / PS_BOLT_FILES_LOADED, via BoltEmbedService's window
+   * listener) and `loadingStage` carries the status text. The TOP-LEVEL editor veil below reads
+   * both — it lives at the app root with maximum z-index so nothing (iframe, shell, toast) can
+   * ever overlap it, and fades out the instant the editor reports loaded.
+   */
+  bolt = inject(BoltEmbedService);
 
   showHeader = signal(true);
   showCommandPalette = signal(false);
   showShortcuts = signal(false);
   inAdmin = signal(false);
+  /** True on `/admin/editor*` — gates the top-level editor loading veil (rendered at the app
+   * root, max z-index) so it shows only while the editor is the active surface. */
+  isEditorRoute = signal(false);
   /** True while a LAZY route chunk is downloading (a cold deep-link to a heavy route like
    * `/create` takes ~3s to hydrate) — drives an instant loading skeleton so the funnel
    * destination never shows a dead-blank. NEVER set for the homepage (`/`) so its delicate
@@ -371,12 +480,14 @@ export class AppComponent implements OnInit, OnDestroy {
     // Set initial value
     this.showHeader.set(!this.isHeaderlessRoute(this.router.url));
     this.inAdmin.set(this.router.url.startsWith('/admin'));
+    this.isEditorRoute.set(this.router.url.split('?')[0].startsWith('/admin/editor'));
     // Listen for route changes
     this.router.events
       .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
       .subscribe(e => {
         this.showHeader.set(!this.isHeaderlessRoute(e.urlAfterRedirects));
         this.inAdmin.set(e.urlAfterRedirects.startsWith('/admin'));
+        this.isEditorRoute.set(e.urlAfterRedirects.split('?')[0].startsWith('/admin/editor'));
         // Closing the global palette when entering /admin prevents the
         // double-palette regression even if a user toggled it elsewhere.
         if (e.urlAfterRedirects.startsWith('/admin')) this.showCommandPalette.set(false);
