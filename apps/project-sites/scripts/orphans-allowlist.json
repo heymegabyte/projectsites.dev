@@ -1,37 +1,5 @@
 {
   "_README": "Baseline allowlist for scripts/detect-orphans.mjs. Each entry SUPPRESSES one known-intentional (or accepted-baseline) orphan so `npm run detect:orphans` exits 0 until a NEW, un-accepted orphan appears. knip-style 'unused' is not always dead — an entry here is a deliberate acceptance, not a blanket mute. Match key = `type` + `path`. Ratchet DOWN over time: every time one of these is wired or removed, delete its entry so the detector then ENFORCES that it stays connected. Adding a NEW major code unit without wiring it = a new finding = build fail (interconnectedness gate).",
-  "allow": [
-    {
-      "type": "EDITOR_PANEL",
-      "path": "app/components/workbench/FunctionsPanel.tsx",
-      "reason": "Pre-existing baseline (559 lines, only .spec.ts references). The Functions tab UI built ahead of its render wiring — see docs/FUNCTIONS-CONVERGENCE.md. Accepted as a known orphan so the gate starts green; wire it into a PanelLayer (selectedView === 'functions') in Workbench.client.tsx, then remove this entry.",
-      "owner": "brian@megabyte.space",
-      "added": "2026-09-27",
-      "remove_when": "FunctionsPanel is rendered from Workbench.client.tsx."
-    },
-    {
-      "type": "EDITOR_PANEL",
-      "path": "app/components/workbench/extensions/tabs/ProblemsTab.tsx",
-      "reason": "Pre-existing baseline. A workbench 'Problems' tab in extensions/tabs/ built but never mounted (only a JSDoc @link mentions it). The whole extensions/tabs/ dir (ProblemsTab + LogsTab) is currently unwired. Accepted as a known orphan so the gate starts green; either wire it into the workbench tab strip or delete the dir, then remove this entry.",
-      "owner": "brian@megabyte.space",
-      "added": "2026-09-27",
-      "remove_when": "ProblemsTab is rendered or the extensions/tabs dir is removed."
-    },
-    {
-      "type": "EDITOR_PANEL",
-      "path": "app/components/workbench/extensions/tabs/LogsTab.tsx",
-      "reason": "Pre-existing baseline. A workbench 'Logs' tab in extensions/tabs/ built but never mounted — the live logs surface is EventLogsTab (@settings/tabs/event-logs), a different component; this one is only referenced by a JSDoc @link. Accepted as a known orphan so the gate starts green; wire it or delete the extensions/tabs dir, then remove this entry.",
-      "owner": "brian@megabyte.space",
-      "added": "2026-09-27",
-      "remove_when": "LogsTab is rendered or the extensions/tabs dir is removed."
-    },
-    {
-      "type": "MCP_TOOL",
-      "path": "apps/project-sites/src/services/mcp_pkce.ts",
-      "reason": "Pre-existing baseline. RFC 7636 PKCE helpers (generateCodeVerifier/codeChallengeS256/verifyPkce) with unit tests, but routes/mcp_oauth.ts reimplements PKCE inline instead of importing them — so the dedicated module is imported only by its test. Accepted as a known duplicate-orphan; the correct fix is to make mcp_oauth.ts USE these helpers (dedupe), then remove this entry.",
-      "owner": "brian@megabyte.space",
-      "added": "2026-09-27",
-      "remove_when": "routes/mcp_oauth.ts imports the shared PKCE helpers from services/mcp_pkce.ts."
-    }
-  ]
+  "_status": "Empty by design (2026-09-27) — every baseline orphan was resolved per the interconnectedness rule: FunctionsPanel DELETED (superseded by code-defined Functions, ADR-0035); ProblemsTab + LogsTab DELETED (Problems/Logs bottom-panel tabs stripped in ef9b812a3/d9a371012 — the component files were the leftover); mcp_pkce WIRED (routes/mcp_oauth.ts now imports generateCodeVerifier instead of an inline copy). A new unwired major unit = a new finding = build fail; add a deliberate entry here only with an accurate `remove_when`.",
+  "allow": []
 }
