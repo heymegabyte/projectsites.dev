@@ -256,6 +256,50 @@ export const DataR2HeadObjectInput = z
   .strict();
 
 /**
+ * `data_r2_put_object` — write ONE SMALL object's bytes (optional content-type + http/custom metadata) to the
+ * OWNED site's own dedicated R2 bucket (the FIRST WRITE slice, MCP parity with the Data tab's R2 put). A caller
+ * names ONLY the OWNED `site_id` + the `key` + the `body` (NEVER a CF bucket name — server-resolved) plus
+ * optional `content_type` / `http_metadata` / `custom_metadata` / `confirm` and the environment. ⚠️ OVERWRITE is
+ * destructive of the prior object: `confirm:true` is REQUIRED to overwrite an EXISTING object — without it the
+ * dispatcher returns `confirmation required` and REPORTS the key + that it exists, changing nothing (a brand-new
+ * object needs no confirm). LARGE/multipart objects are NOT embedded — a body over the inline cap is rejected
+ * with a note that a short-lived SCOPED (signed) upload URL is required (a later pass), never buffered inline.
+ * `.strict()` rejects any attempt to smuggle a `bucket`/`bucketName`/`accountId`. Ownership + isolation +
+ * `per_site_r2` flag-gate + `data:write` scope are enforced server-side. NOTE: this writes the customer's OWN R2
+ * objects, NOT the platform's deployed-site static assets (a separate surface).
+ */
+export const DataR2PutObjectInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(1024),
+    body: z.string().max(25 * 1024 * 1024),
+    content_type: z.string().max(256).optional(),
+    http_metadata: z.record(z.unknown()).optional(),
+    custom_metadata: z.record(z.unknown()).optional(),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_r2_delete_object` — DELETE ONE object from the OWNED site's own R2 bucket (the FIRST WRITE slice, MCP
+ * parity with the Data tab's R2 delete). A caller names ONLY the OWNED `site_id` + the `key` (NEVER a CF bucket
+ * name — server-resolved) plus `confirm` and the environment. ⚠️ DESTRUCTIVE: `confirm:true` is REQUIRED —
+ * without it the dispatcher returns `confirmation required` and REPORTS the key + whether it currently exists,
+ * deleting nothing. `.strict()` rejects any attempt to smuggle a `bucket`/`bucketName`/`accountId`. Ownership +
+ * isolation + `per_site_r2` flag-gate + `data:write` scope are enforced server-side. Delete is idempotent —
+ * removing an already-absent object is an honest `existed:false` success.
+ */
+export const DataR2DeleteObjectInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(1024),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
  * `data_vectorize_list` — summarise the OWNED site's own metadata NAMESPACE inside the shared Vectorize index
  * (MCP parity with the Data tab's Vectorize surface). A caller names ONLY the OWNED `site_id` (NEVER a CF index
  * name AND never a namespace — BOTH are server-derived: the index from the registry, the namespace from the
@@ -476,6 +520,8 @@ export type DataKvPutArgs = z.infer<typeof DataKvPutInput>;
 export type DataKvDeleteArgs = z.infer<typeof DataKvDeleteInput>;
 export type DataR2ListObjectsArgs = z.infer<typeof DataR2ListObjectsInput>;
 export type DataR2HeadObjectArgs = z.infer<typeof DataR2HeadObjectInput>;
+export type DataR2PutObjectArgs = z.infer<typeof DataR2PutObjectInput>;
+export type DataR2DeleteObjectArgs = z.infer<typeof DataR2DeleteObjectInput>;
 export type DataVectorizeListArgs = z.infer<typeof DataVectorizeListInput>;
 export type DataVectorizeDescribeArgs = z.infer<typeof DataVectorizeDescribeInput>;
 export type DataConnectionsListArgs = z.infer<typeof DataConnectionsListInput>;

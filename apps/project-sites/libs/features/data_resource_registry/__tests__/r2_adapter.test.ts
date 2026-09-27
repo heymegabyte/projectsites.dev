@@ -13,7 +13,8 @@
  *   (e) get() rejects an empty key → code 'invalid_key' (no fetch)
  *   (f) get() returns METADATA ONLY (size/etag/contentType + custom) — never object bytes, metadataOnly:true
  *   (g) head() maps 200→exists:true, 404→exists:false, 5xx→retryable error
- *   (h) mutate() returns code 'not_implemented' (never throws, never fetches)
+ *   (h) mutate() with an unknown/undefined action → code 'invalid_action' (never throws, never fetches);
+ *       the put/delete write contract lives in r2_adapter_mutate.test.ts
  *   (i) site-isolation: the adapter only ever hits scope.resourceId's bucket path
  */
 
@@ -63,14 +64,14 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-// ─── (h) mutate() always returns not_implemented ────────────────────────────────
+// ─── (h) mutate() with an unknown action rejects (write contract is in r2_adapter_mutate.test.ts) ──
 
 describe('r2Adapter.mutate()', () => {
-  it('(h) returns not_implemented code — never throws, never fetches', async () => {
+  it('(h) an unknown/undefined action → invalid_action — never throws, never fetches', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await r2Adapter.mutate(scope, undefined as any);
     expect(result.ok).toBe(false);
-    expect(result.error?.code).toBe('not_implemented');
+    expect(result.error?.code).toBe('invalid_action');
     expect(result.error?.retryable).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });

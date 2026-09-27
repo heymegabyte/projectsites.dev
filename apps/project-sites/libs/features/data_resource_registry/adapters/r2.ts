@@ -1,14 +1,25 @@
 /**
  * @module libs/features/data_resource_registry/adapters/r2
- * @description The `r2` {@link ResourceAdapter} — Data & Resource Platform §5, Phase 3 (R2 read) slice.
+ * @description The `r2` {@link ResourceAdapter} — Data & Resource Platform §5, Phase 3 (R2 read) slice
+ * PLUS the first WRITE slice (`mutate({action:'put'|'delete'})`), mirroring the `kv` adapter exactly.
  *
  * Implements the read verbs against a site's OWN dedicated Cloudflare R2 bucket: `list` (its objects,
  * prefix + continuation-token paginated + honest `truncated`/`cursor`, NEVER a fabricated total),
  * `head` (bucket existence probe), `get` (ONE object's METADATA — size/etag/content-type/uploaded +
- * http + custom metadata — NOT the object bytes this pass). `mutate` returns a typed `not_implemented`
- * envelope (this pass is READ-ONLY) — never a raw throw, never a `runAnything` mega-verb
- * (tool-design-as-api). put/delete/bulk_delete/provision/destroy land in the write pass (append to
- * `supports.mutations` + implement `mutate` in the same fire).
+ * http + custom metadata — NOT the object bytes) — PLUS the first WRITE slice: `mutate` is a
+ * discriminated NAMED-mutation union (never a `runAnything`/`{command}` mega-verb — tool-design-as-api):
+ * `put` writes one SMALL object's bytes (optional content-type + http/custom metadata), `delete` removes
+ * one object. Both are guarded — an OVERWRITE (put over an existing object) and a DELETE are destructive
+ * of the prior object, so each REQUIRES an explicit `confirm:true`; without it `mutate` returns a typed
+ * `confirmation_required` envelope that REPORTS what WOULD change (the key + whether it exists) and writes
+ * NOTHING (SECURITY-INVARIANTS INV-9/INV-11). bulk_delete/provision/destroy remain future verbs.
+ *
+ * LARGE / MULTIPART objects are NOT embedded (directive + INV-6/§Static-Assets): `put` caps inline bytes
+ * at {@link PUT_MAX_INLINE_BYTES}; a larger object returns a typed `object_too_large` envelope whose
+ * message NOTES that a short-lived SCOPED upload URL (a signed R2 URL, a LATER pass) is required — the
+ * adapter NEVER buffers an arbitrarily large body into a JSON request nor embeds raw bytes, and the
+ * account-wide R2 credentials NEVER reach the client. The multipart/presigned-upload path is an honest
+ * future increment; this pass writes small objects directly and is explicit about the boundary.
  *
  * ISOLATION — the same structural guarantee as `site_data_db.ts` / the `d1` + `kv` adapters:
  *  - Every verb operates ONLY on the `scope.resourceId` it was minted with. For R2 that id is the
@@ -139,9 +150,77 @@ export interface R2GetData {
   readonly metadataOnly: true;
 }
 
-/** Placeholder mutate payloads — this pass is read-only; put/delete/provision land later. */
-type R2MutateInput = never;
-type R2MutateResult = never;
+/**
+ * Max object bytes `put` will accept INLINE. A larger object is NOT embedded — it returns
+ * `object_too_large` noting a short-lived SCOPED (signed) upload URL is required (a later pass). This
+ * keeps the adapter from buffering an arbitrarily large body into a JSON request (INV-6 / directive) and
+ * keeps `put` a shape an MCP tool can safely return. R2 objects can be far larger (multipart to 5 TiB);
+ * that path is presigned-URL, not inline-bytes.
+ */
+const PUT_MAX_INLINE_BYTES = 25 * 1024 * 1024;
+
+/** Hard bound on an object key's length (R2 keys are ≤1024 bytes UTF-8). */
+const KEY_MAX_BYTES = 1024;
+
+/**
+ * The `put` mutation input: write ONE SMALL object's bytes to the site's OWN R2 bucket, with optional
+ * content-type + http/custom metadata. `confirm` is REQUIRED when the object already exists (an overwrite
+ * is destructive of the prior object — INV-9/INV-11): without it, `mutate` returns `confirmation_required`
+ * and REPORTS the key + that it exists, changing nothing. Bodies larger than {@link PUT_MAX_INLINE_BYTES}
+ * are rejected with `object_too_large` (use a signed upload URL — a later pass), NEVER embedded.
+ */
+export interface R2PutInput {
+  readonly action: 'put';
+  readonly key: string;
+  /** The object bytes to store, as a string body (this inline path is for SMALL objects only). */
+  readonly body: string;
+  /** Optional content-type to store on the object (defaults to application/octet-stream). */
+  readonly contentType?: string;
+  /** Optional HTTP metadata (cache-control, content-disposition, …) stored on the object. */
+  readonly httpMetadata?: Record<string, unknown>;
+  /** Optional custom metadata map stored alongside the object. */
+  readonly customMetadata?: Record<string, unknown>;
+  /** Must be `true` to overwrite an EXISTING object (a new object needs no confirm). */
+  readonly confirm?: boolean;
+}
+
+/**
+ * The `delete` mutation input: remove ONE object from the site's OWN R2 bucket. DESTRUCTIVE — `confirm`
+ * is REQUIRED (INV-9/INV-11): without it, `mutate` returns `confirmation_required` and REPORTS the key +
+ * whether it currently exists, deleting nothing.
+ */
+export interface R2DeleteInput {
+  readonly action: 'delete';
+  readonly key: string;
+  /** Must be `true` to actually delete (destructive-op gate). */
+  readonly confirm?: boolean;
+}
+
+/** The discriminated named-mutation union for the r2 adapter — NEVER a generic `{ command }` field. */
+export type R2MutateInput = R2PutInput | R2DeleteInput;
+
+/** What an R2 `put` returns: the key written + whether it overwrote a prior object + a metadata echo. */
+export interface R2PutResult {
+  readonly action: 'put';
+  readonly key: string;
+  /** True when an object already existed at this key (this write overwrote it). */
+  readonly overwritten: boolean;
+  /** The content-type stored on the object. */
+  readonly contentType: string;
+  /** True when http and/or custom metadata was stored alongside the object. */
+  readonly metadataStored: boolean;
+}
+
+/** What an R2 `delete` returns: the key + whether it existed before (honest, not a fabricated success). */
+export interface R2DeleteResult {
+  readonly action: 'delete';
+  readonly key: string;
+  /** True when the object existed and was removed; false when it was already absent (delete is idempotent). */
+  readonly existed: boolean;
+}
+
+/** The discriminated result union a successful `mutate` returns. */
+export type R2MutateResult = R2PutResult | R2DeleteResult;
 
 /** Mint a correlation id for one adapter call (structured-logging: every envelope carries one). */
 function correlationId(): string {
@@ -167,19 +246,6 @@ function restError<T>(cid: string, status: number | undefined, message: string):
   };
 }
 
-/** The typed `not_implemented` envelope every read-only-pass-unfilled verb returns. */
-function notImplemented<T>(verb: string): AdapterResult<T> {
-  return {
-    correlationId: correlationId(),
-    error: {
-      code: 'not_implemented',
-      message: `The r2 adapter '${verb}' verb is not implemented yet.`,
-      retryable: false,
-    },
-    ok: false,
-  };
-}
-
 /** Clamp a requested page `limit` into `[1, 1000]`, defaulting to 100 for a missing/invalid value. */
 function clampLimit(limit: number | undefined): number {
   if (typeof limit !== 'number' || !Number.isFinite(limit)) return LIST_LIMIT_DEFAULT;
@@ -198,8 +264,10 @@ function metaOrUndefined(raw: unknown): Record<string, unknown> | undefined {
 }
 
 /**
- * The `r2` adapter. `list`/`head`/`get` are live (read-only, `get` = METADATA only); `mutate` returns
- * `not_implemented`. `supports` declares that honestly so the UI + MCP never offer a verb that would 501.
+ * The `r2` adapter. `list`/`head`/`get` are live (read-only, `get` = METADATA only); `mutate` implements
+ * the `put` + `delete` named mutations (destructive/overwrite gated on `confirm:true`; large objects use a
+ * signed URL, not inline bytes). `supports` declares this honestly so the UI + MCP only ever offer a verb
+ * that runs.
  */
 class R2Adapter
   implements ResourceAdapter<R2ListData, R2HeadData, R2GetData, R2MutateInput, R2MutateResult>
@@ -207,14 +275,15 @@ class R2Adapter
   readonly kind = 'r2' as const;
 
   /**
-   * Honest capability declaration (CAPABILITY-MATRIX.md): r2 serves both environments and all three read
-   * verbs. `mutations: []` — this pass is read-only; put/delete/bulk_delete/provision/destroy land in the
-   * write pass (append them here + implement `mutate` in the same fire).
+   * Honest capability declaration (CAPABILITY-MATRIX.md): r2 serves both environments, all three read
+   * verbs, and the `put`/`delete` named mutations (the first WRITE slice — SMALL objects inline; large
+   * objects need a signed upload URL, a later pass). bulk_delete/provision/destroy land later — append them
+   * here as they are implemented so the UI/MCP never offer an unwired verb.
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: [] as const,
-    verbs: ['list', 'head', 'get'] as const,
+    mutations: ['put', 'delete'] as const,
+    verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
   /**
@@ -425,9 +494,203 @@ class R2Adapter
     };
   }
 
-  /** Not implemented in this read pass — put/delete/bulk_delete/provision/destroy land in the write pass. */
-  async mutate(_scope: ResolvedScope, _input: R2MutateInput): Promise<AdapterResult<R2MutateResult>> {
-    return notImplemented<R2MutateResult>('mutate');
+  /**
+   * Probe whether ONE object currently EXISTS in the site's OWN R2 bucket (a cheap `HEAD` on the objects
+   * endpoint). Returns `true`/`false` on a definitive answer, or `undefined` when the probe itself failed
+   * (auth/5xx/network) — the caller must NOT interpret an indeterminate probe as "absent" (that would let
+   * an overwrite skip its confirm gate on a transient blip). Used to decide whether a `put`/`delete` needs
+   * `confirm:true` and to report the honest before-state. Operates ONLY on `scope.resourceId`'s bucket.
+   */
+  private async objectExists(scope: ResolvedScope, key: string): Promise<boolean | undefined> {
+    const encoded = encodeURIComponent(key);
+    let res: Response;
+    try {
+      res = await fetch(
+        `${CF_API_BASE}/accounts/${scope.accountId}/r2/buckets/${encodeURIComponent(scope.resourceId)}/objects/${encoded}`,
+        { headers: { ...cfAuthHeaders(scope.auth) }, method: 'HEAD' },
+      );
+    } catch {
+      return undefined; // network failure — indeterminate, never "absent".
+    }
+    if (res.status === 404) return false;
+    if (res.ok) return true;
+    return undefined; // auth/5xx — indeterminate.
+  }
+
+  /**
+   * Run a NAMED mutation against the site's OWN R2 bucket (the FIRST write slice). `put` writes one SMALL
+   * object's bytes (optional content-type + http/custom metadata); `delete` removes one object. Both operate
+   * ONLY on `scope.resourceId` (server-resolved upstream — this adapter accepts NO bucket name and cannot be
+   * redirected). Guarding (SECURITY-INVARIANTS INV-9/INV-11): a `delete`, and a `put` that would OVERWRITE an
+   * existing object, are destructive of the prior object and REQUIRE `confirm:true`; without it the mutation
+   * returns a typed `confirmation_required` envelope that REPORTS what WOULD change (the key + whether it
+   * exists) and writes NOTHING. An indeterminate existence probe FAILS CLOSED for the confirm gate. LARGE
+   * objects are refused with `object_too_large` (a signed upload URL is a later pass) — never buffered inline,
+   * never embedded. Every payload is validated here (key non-empty + bounded, body a string within the inline
+   * cap). Returns a typed {@link R2MutateResult} describing what actually changed.
+   *
+   * @param scope - the server-resolved scope; `scope.resourceId` is the ONLY bucket this can write
+   * @param input - the discriminated `{ action:'put'|'delete', … }` mutation
+   */
+  async mutate(scope: ResolvedScope, input: R2MutateInput): Promise<AdapterResult<R2MutateResult>> {
+    const cid = correlationId();
+
+    if (!input || (input.action !== 'put' && input.action !== 'delete')) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_action', message: 'Unknown R2 mutation action.', retryable: false },
+        ok: false,
+      };
+    }
+
+    const key = input.key;
+    if (typeof key !== 'string' || key.length === 0) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_key', message: 'Object key is missing or empty.', retryable: false },
+        ok: false,
+      };
+    }
+    if (new TextEncoder().encode(key).length > KEY_MAX_BYTES) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'invalid_key',
+          message: `Object key exceeds the ${KEY_MAX_BYTES}-byte R2 limit.`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+    const encoded = encodeURIComponent(key);
+    const bucketPath = `${CF_API_BASE}/accounts/${scope.accountId}/r2/buckets/${encodeURIComponent(scope.resourceId)}/objects/${encoded}`;
+
+    if (input.action === 'delete') {
+      // DESTRUCTIVE — require confirm. Report whether the object exists so the caller knows what they're removing.
+      if (input.confirm !== true) {
+        const exists = await this.objectExists(scope, key);
+        return {
+          correlationId: cid,
+          error: {
+            code: 'confirmation_required',
+            message: `Deleting R2 object "${key}" is destructive${
+              exists === true
+                ? ' (the object currently exists)'
+                : exists === false
+                  ? ' (the object does not currently exist)'
+                  : ''
+            }. Re-run with confirm:true to delete it.`,
+            retryable: false,
+          },
+          ok: false,
+        };
+      }
+      // Probe existence BEFORE the delete so the result honestly reports whether it existed (delete is
+      // idempotent — deleting an absent object still succeeds). An indeterminate probe → report existed:false
+      // conservatively; the delete still runs.
+      const existedBefore = await this.objectExists(scope, key);
+      let res: Response;
+      try {
+        res = await fetch(bucketPath, { headers: { ...cfAuthHeaders(scope.auth) }, method: 'DELETE' });
+      } catch (err) {
+        return restError<R2MutateResult>(cid, undefined, err instanceof Error ? err.message : 'CF request failed');
+      }
+      // A 404 on delete means the object was already gone — an idempotent success, not an error.
+      if (!res.ok && res.status !== 404) {
+        return restError<R2MutateResult>(cid, res.status, `CF R2 delete returned HTTP ${res.status}`);
+      }
+      return {
+        correlationId: cid,
+        data: { action: 'delete', existed: existedBefore === true, key },
+        ok: true,
+      };
+    }
+
+    // action === 'put'
+    const body = input.body;
+    if (typeof body !== 'string') {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_body', message: 'A string body is required for put.', retryable: false },
+        ok: false,
+      };
+    }
+    // LARGE object → NOT embedded. A signed, short-lived SCOPED upload URL is required (a later pass) —
+    // the adapter never buffers an arbitrarily large body into a JSON request, never embeds raw bytes.
+    if (new TextEncoder().encode(body).length > PUT_MAX_INLINE_BYTES) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'object_too_large',
+          message: `Object exceeds the ${Math.floor(
+            PUT_MAX_INLINE_BYTES / (1024 * 1024),
+          )} MiB inline-upload limit. Large/multipart uploads require a short-lived scoped upload URL (a signed R2 URL), not embedded bytes.`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+
+    // Determine overwrite state to gate the confirm + report the honest before-state. An INDETERMINATE
+    // probe fails CLOSED for the confirm gate (treat as "might exist") so a transient blip can't let an
+    // unconfirmed overwrite through.
+    const existsBefore = await this.objectExists(scope, key);
+    if (existsBefore !== false && input.confirm !== true) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'confirmation_required',
+          message: `R2 object "${key}" already exists — writing overwrites the current object. Re-run with confirm:true to overwrite.`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+
+    // CF R2 object PUT: the raw body is the object bytes; content-type rides the request content-type header;
+    // custom metadata rides as `x-amz-meta-*` headers on the R2 REST data plane. We send small objects only.
+    const contentType =
+      typeof input.contentType === 'string' && input.contentType.length > 0
+        ? input.contentType
+        : 'application/octet-stream';
+    const headers: Record<string, string> = { ...cfAuthHeaders(scope.auth), 'content-type': contentType };
+    const hasCustom = input.customMetadata !== undefined && input.customMetadata !== null;
+    if (hasCustom) {
+      for (const [k, v] of Object.entries(input.customMetadata as Record<string, unknown>)) {
+        // Only string-serializable values; skip anything non-primitive rather than fail the write.
+        if (v !== null && typeof v !== 'object') headers[`x-amz-meta-${k}`] = String(v);
+      }
+    }
+    const hasHttp = input.httpMetadata !== undefined && input.httpMetadata !== null;
+    if (hasHttp) {
+      const http = input.httpMetadata as Record<string, unknown>;
+      if (typeof http['cacheControl'] === 'string') headers['cache-control'] = http['cacheControl'] as string;
+      if (typeof http['contentDisposition'] === 'string')
+        headers['content-disposition'] = http['contentDisposition'] as string;
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(bucketPath, { body, headers, method: 'PUT' });
+    } catch (err) {
+      return restError<R2MutateResult>(cid, undefined, err instanceof Error ? err.message : 'CF request failed');
+    }
+    if (!res.ok) {
+      const json = (await res.json().catch(() => null)) as { errors?: unknown } | null;
+      const detail = json?.errors ? JSON.stringify(json.errors) : `HTTP ${res.status}`;
+      return restError<R2MutateResult>(cid, res.status, `CF R2 put failed: ${detail}`);
+    }
+    return {
+      correlationId: cid,
+      data: {
+        action: 'put',
+        contentType,
+        key,
+        metadataStored: hasCustom || hasHttp,
+        overwritten: existsBefore === true,
+      },
+      ok: true,
+    };
   }
 }
 

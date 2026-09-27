@@ -54,6 +54,8 @@ import {
   DataKvDeleteInput,
   DataR2ListObjectsInput,
   DataR2HeadObjectInput,
+  DataR2PutObjectInput,
+  DataR2DeleteObjectInput,
   DataVectorizeListInput,
   DataVectorizeDescribeInput,
   DataConnectionsListInput,
@@ -570,6 +572,44 @@ export const PLATFORM_MCP_TOOLS = [
       properties: {
         site_id: { type: 'string' },
         key: { type: 'string', maxLength: 1024 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_r2_put_object',
+    description:
+      "Write ONE SMALL object's bytes to your site's OWN dedicated R2 bucket (your object store, NOT the platform's deployed-site static assets), with an optional content_type + http_metadata + custom_metadata. Returns { key, overwritten, contentType, metadataStored }. ⚠️ DESTRUCTIVE OVERWRITE GUARD: writing over an EXISTING object overwrites it, so it REQUIRES confirm:true — without confirm on an existing key you get an error that REPORTS the key + that it already exists and NOTHING is written (a brand-new object needs no confirm). ⛔ LARGE / multipart objects are NOT accepted inline — a body over the inline cap is rejected with a note that a short-lived SCOPED (signed) upload URL is required (a later capability); this tool never embeds large bytes. You name only the site_id + key + body (+ optional environment) — never an R2 bucket name; the bucket is resolved server-side and isolated to your site.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        key: { type: 'string', maxLength: 1024 },
+        body: { type: 'string' },
+        content_type: { type: 'string', maxLength: 256 },
+        http_metadata: { type: 'object' },
+        custom_metadata: { type: 'object' },
+        confirm: { type: 'boolean' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'key', 'body'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_r2_delete_object',
+    description:
+      "Delete ONE object from your site's OWN dedicated R2 bucket. Returns { key, existed }. ⚠️ DESTRUCTIVE: this permanently removes the object, so it REQUIRES confirm:true — without confirm you get an error that REPORTS the key + whether it currently exists and NOTHING is deleted. Delete is idempotent: removing an already-absent object is an honest existed:false success. You name only the site_id + key (+ optional environment) — never an R2 bucket name; the bucket is resolved server-side and isolated to your site.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        key: { type: 'string', maxLength: 1024 },
+        confirm: { type: 'boolean' },
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id', 'key'],
@@ -1499,6 +1539,81 @@ export async function dispatchPlatformTool(
         httpMetadata: result.data?.httpMetadata,
         customMetadata: result.data?.customMetadata,
         metadataOnly: true,
+      });
+    }
+
+    case 'data_r2_put_object': {
+      // Flag-gated on the reserved per_site_r2 flag (dark → err, mirroring the Data-tab R2 404).
+      if (!(await isFlagOn(env, PER_SITE_R2_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site R2 is not enabled for this account.');
+      }
+      const { site_id, key, body, content_type, http_metadata, custom_metadata, confirm, environment } =
+        DataR2PutObjectInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF bucket name —
+      // the caller named only site_id; the bucket is server-resolved from the registry.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveR2Scope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // The adapter enforces the destructive-OVERWRITE gate (existing object needs confirm:true) AND the
+      // large-object guard (a body over the inline cap → object_too_large, never embedded, use a signed URL).
+      const result = await r2Adapter.mutate(scoped.scope, {
+        action: 'put',
+        body,
+        confirm,
+        contentType: content_type,
+        customMetadata: custom_metadata,
+        httpMetadata: http_metadata,
+        key,
+      });
+      if (!result.ok) {
+        // Surface the confirm-required report / object_too_large / CF failure as isError — never a silent write.
+        return err(result.error?.message ?? 'Could not write the R2 object.');
+      }
+      const data = result.data as { overwritten?: boolean; contentType?: string; metadataStored?: boolean } | undefined;
+      return ok({
+        site_id,
+        environment,
+        bucketName: scoped.scope.resourceId,
+        key,
+        action: 'put',
+        overwritten: data?.overwritten ?? false,
+        content_type: data?.contentType,
+        metadata_stored: data?.metadataStored ?? false,
+      });
+    }
+
+    case 'data_r2_delete_object': {
+      if (!(await isFlagOn(env, PER_SITE_R2_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site R2 is not enabled for this account.');
+      }
+      const { site_id, key, confirm, environment } = DataR2DeleteObjectInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveR2Scope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // The adapter enforces the destructive-DELETE gate: no confirm:true → a `confirmation_required`
+      // error that REPORTS the key + whether it exists (nothing deleted).
+      const result = await r2Adapter.mutate(scoped.scope, { action: 'delete', confirm, key });
+      if (!result.ok) {
+        return err(result.error?.message ?? 'Could not delete the R2 object.');
+      }
+      const data = result.data as { existed?: boolean } | undefined;
+      return ok({
+        site_id,
+        environment,
+        bucketName: scoped.scope.resourceId,
+        key,
+        action: 'delete',
+        existed: data?.existed ?? false,
       });
     }
 
