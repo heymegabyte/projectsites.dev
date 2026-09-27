@@ -40,6 +40,7 @@ import { d1Adapter } from './adapters/d1.js';
 import { kvAdapter } from './adapters/kv.js';
 import { r2Adapter } from './adapters/r2.js';
 import { vectorizeAdapter } from './adapters/vectorize.js';
+import { workflowAdapter } from './adapters/workflow.js';
 import type { ResourceAdapter, ResolvedScope } from './adapter.js';
 import {
   type ResourceEnvironment,
@@ -70,6 +71,12 @@ const IMPLEMENTED_ADAPTERS: Partial<
   // map entry only head-checks a connection row if one already exists. Its `head` reads `mcp_connections`
   // via `scope.db` (attached in `scopeForRow`), not a CF REST API. Honest, never fabricated.
   connection: connectionAdapter,
+  // workflow: read-only adapter wired. Workflows are `shared_platform` (code-deployed definitions), NOT
+  // per-site — there is no CF API to create a per-site workflow definition, and `readAllocationSources`
+  // records NO workflow allocation source, so a blank site never gets a `workflow` registry row. This map
+  // entry only head-drift-checks a `workflow` row if one already exists (its `head` probes the workflow
+  // DEFINITION via the CF Workflows REST API bound to the resolved workflow name). Honest, never fabricated.
+  workflow: workflowAdapter,
 };
 
 /** One recorded allocation: which kind, and the CF id/name the source row actually holds. */

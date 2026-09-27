@@ -278,6 +278,43 @@ export const DataConnectionDescribeInput = z
   })
   .strict();
 
+/**
+ * `data_workflows_list` — list the OWNED site's workflow RUN INSTANCES (id/status/timestamps), MCP parity
+ * with the Backend tab's Workflows surface. A caller names ONLY the OWNED `site_id` (NEVER a CF workflow
+ * name AND never an account id — the workflow name is server-resolved from the site's registry row) plus an
+ * optional `cursor`/`limit` and the environment. `limit` is LENIENT (a positive int) because the adapter
+ * CLAMPS it to `[1, 100]` (matching CF's per_page cap) rather than REJECTING an over-limit request.
+ * `.strict()` rejects any attempt to smuggle a `workflow`/`workflowName`/`accountId`/`instanceId`.
+ * Ownership + isolation + `per_site_workflows` flag-gate are enforced server-side in the dispatcher,
+ * mirroring the per-site D1/KV/R2/Vectorize surfaces. Workflows are platform-owned definitions (not
+ * per-site); per-site workflow provisioning is NOT wired → honest 'not provisioned' until the site has a
+ * workflow row. NEVER an optimistic run status — the adapter surfaces the ACTUAL CF status.
+ */
+export const DataWorkflowsListInput = z
+  .object({
+    site_id: z.string().min(1),
+    cursor: z.string().max(4096).optional(),
+    limit: z.number().int().positive().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_workflow_get_instance` — read ONE run instance's status + SANITIZED steps from the OWNED site's
+ * workflow. A caller names ONLY the OWNED `site_id` + the instance `id` (scoped to the site's resolved
+ * workflow — a foreign instance can't be read even if its id is guessed) plus the optional environment.
+ * `.strict()` rejects unknown keys (no `workflow`/`accountId` smuggling). ⛔ Step output/error are SANITIZED
+ * (secret-shaped keys redacted + truncated) — a raw credential/PII payload is never dumped. A missing
+ * instance is an honest `found:false`, never an error. The status is the ACTUAL CF status, never optimistic.
+ */
+export const DataWorkflowGetInstanceInput = z
+  .object({
+    site_id: z.string().min(1),
+    id: z.string().min(1).max(256),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
 export type ListSitesArgs = z.infer<typeof ListSitesInput>;
 export type GetSiteArgs = z.infer<typeof GetSiteInput>;
 export type BuildStatusArgs = z.infer<typeof BuildStatusInput>;
@@ -296,3 +333,5 @@ export type DataVectorizeListArgs = z.infer<typeof DataVectorizeListInput>;
 export type DataVectorizeDescribeArgs = z.infer<typeof DataVectorizeDescribeInput>;
 export type DataConnectionsListArgs = z.infer<typeof DataConnectionsListInput>;
 export type DataConnectionDescribeArgs = z.infer<typeof DataConnectionDescribeInput>;
+export type DataWorkflowsListArgs = z.infer<typeof DataWorkflowsListInput>;
+export type DataWorkflowGetInstanceArgs = z.infer<typeof DataWorkflowGetInstanceInput>;

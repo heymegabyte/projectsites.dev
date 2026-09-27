@@ -32,6 +32,7 @@ import { kvAdapter } from '../data_resource_registry/adapters/kv.js';
 import { r2Adapter } from '../data_resource_registry/adapters/r2.js';
 import { vectorizeAdapter } from '../data_resource_registry/adapters/vectorize.js';
 import { connectionAdapter } from '../data_resource_registry/adapters/connection.js';
+import { workflowAdapter } from '../data_resource_registry/adapters/workflow.js';
 import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 import {
   ListSitesInput,
@@ -52,6 +53,8 @@ import {
   DataVectorizeDescribeInput,
   DataConnectionsListInput,
   DataConnectionDescribeInput,
+  DataWorkflowsListInput,
+  DataWorkflowGetInstanceInput,
 } from './schemas.js';
 
 /** Flag gating the Data & Resource Platform MCP tools (registry read surface). */
@@ -104,6 +107,19 @@ const PER_SITE_VECTORIZE_FLAG = 'per_site_vectorize';
  * masked-host/status.
  */
 const PER_SITE_CONNECTIONS_FLAG = 'per_site_connections';
+
+/**
+ * Flag gating the per-site Workflows READ tools — the reserved `per_site_workflows` flag
+ * (CAPABILITY-MATRIX.md § Workflows / SECURITY-INVARIANTS.md). DARK → the tools err (mirroring the Backend-tab
+ * Workflows surface's 404), never leak. Workflows are `shared_platform` (code-deployed definitions), NOT
+ * per-site — there is no CF API to create a per-site workflow definition; per-site workflow provisioning is
+ * NOT wired (the reconciler records no workflow allocation source), so a blank site resolves no `workflow`
+ * registry row → the tools honestly report the workflow is not provisioned. Mirrors `PER_SITE_R2_FLAG`
+ * exactly — a runtime gate CONSTANT (referenced via the constant, so the orphan-flag-gate checker, which only
+ * scans literal `isFlagOn(env,'x')` strings, does not require a registry row). The tools NEVER optimistically
+ * claim a run finished — they surface the ACTUAL CF instance status.
+ */
+const PER_SITE_WORKFLOWS_FLAG = 'per_site_workflows';
 
 /** Mirrors DOMAINS.SITES_SUFFIX — the public site subdomain suffix. */
 const SITES_SUFFIX = '.projectsites.dev';
@@ -517,6 +533,39 @@ export const PLATFORM_MCP_TOOLS = [
     name: 'data_connection_describe',
     description:
       "Read ONE connection's metadata (id, name, type, MASKED host, status, timestamps) from your site's OWN connections. Returns { found, connection:{ id, name, type, maskedHost, status, ... }, secretsRedacted:true } — metadata ONLY, NEVER a password, token, or connection string. A missing connection is an honest found:false. Scoped to the site_id you own; a connection outside your site is never returned even if its id is guessed.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        id: { type: 'string', maxLength: 256 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_workflows_list',
+    description:
+      "List the RUN INSTANCES of your site's workflow (the same per-site Workflows the editor's Backend tab shows). Returns each run's { id, status, createdOn, modifiedOn } newest-first + a pagination cursor (no fake total). Status is the ACTUAL Cloudflare status (queued/running/paused/errored/terminated/complete) — never an optimistic guess that a run finished. You name only the site_id (+ optional environment) — never a Cloudflare workflow name and never an account id; the workflow is resolved server-side and isolated to your site. Workflows are platform-owned definitions (there is no per-site workflow-definition API); honest 'not provisioned' until your site has a workflow.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        cursor: { type: 'string', maxLength: 4096 },
+        limit: { type: 'number', minimum: 1, maximum: 100, default: 25 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_workflow_get_instance',
+    description:
+      "Read ONE workflow run instance's status + STEPS from your site's workflow. Returns { found, workflowName, instanceId, status, steps:[{name, type, status, start, end, outputPreview, errorPreview}], outputSanitized:true }. The status is the ACTUAL Cloudflare status — never optimistically claimed complete. Step output/error are SANITIZED — secret-shaped keys are redacted and long payloads truncated, so a credential or PII in a step's output is NEVER dumped. A missing instance is an honest found:false. Scoped to the site_id you own; the workflow is server-resolved, and an instance outside your site's workflow is never returned even if its id is guessed.",
     requiredScope: 'data:read' as const,
     inputSchema: {
       type: 'object',
@@ -1328,6 +1377,79 @@ export async function dispatchPlatformTool(
       });
     }
 
+    case 'data_workflows_list': {
+      // Flag-gated on the reserved per_site_workflows flag (dark → err, mirroring the Backend-tab Workflows 404).
+      if (
+        !(await isFlagOn(env, PER_SITE_WORKFLOWS_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site Workflows are not enabled for this account.');
+      }
+      const { site_id, cursor, limit, environment } = DataWorkflowsListInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF workflow name/account —
+      // the caller named only site_id; the workflow name is server-resolved from the registry.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveWorkflowScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // CLAMP (never reject) to the SAME [1, 100] bound CF pages at; the adapter clamps too.
+      const result = await workflowAdapter.list(scoped.scope, {
+        cursor,
+        limit: typeof limit === 'number' ? Math.max(1, Math.min(100, Math.trunc(limit))) : undefined,
+      });
+      if (!result.ok) return err(result.error?.message ?? 'Could not list workflow runs.');
+      return ok({
+        site_id,
+        environment,
+        workflowName: result.data?.workflowName,
+        count: result.data?.instances.length ?? 0,
+        cursor: result.data?.cursor,
+        instances: result.data?.instances ?? [],
+      });
+    }
+
+    case 'data_workflow_get_instance': {
+      if (
+        !(await isFlagOn(env, PER_SITE_WORKFLOWS_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site Workflows are not enabled for this account.');
+      }
+      const { site_id, id, environment } = DataWorkflowGetInstanceInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveWorkflowScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // The adapter binds BOTH the resolved workflow name AND the instance id, so a foreign instance is never
+      // returned. Status is the ACTUAL CF status (never optimistic); steps are SANITIZED (secrets redacted).
+      const result = await workflowAdapter.get(scoped.scope, { id });
+      if (!result.ok) return err(result.error?.message ?? 'Could not read the workflow run.');
+      return ok({
+        site_id,
+        environment,
+        workflowName: result.data?.workflowName,
+        instanceId: result.data?.instanceId,
+        found: result.data?.found ?? false,
+        status: result.data?.status,
+        createdOn: result.data?.createdOn,
+        modifiedOn: result.data?.modifiedOn,
+        steps: result.data?.steps ?? [],
+        outputSanitized: true,
+      });
+    }
+
     default:
       return err(`Tool '${name}' is advertised but not yet wired.`);
   }
@@ -1477,6 +1599,58 @@ async function resolveVectorizeScope(
       environment,
       orgId,
       // The SHARED index name (server-resolved). The adapter derives the site's namespace from siteId.
+      resourceId: resolved.resourceId,
+      siteId,
+    },
+  };
+}
+
+/**
+ * Resolve a site's Workflow scope into a {@link ResolvedScope} for the workflow adapter, SERVER-SIDE. The
+ * caller already proved org ownership (the dispatcher's `WHERE id=? AND org_id=?` gate); this maps the OWNED
+ * `(site, environment, kind='workflow')` to its registry-recorded CF workflow NAME via `resolveResourceRef`
+ * (the same resolver the routes use — no CF workflow name is ever accepted from the client), then attaches
+ * server-side credentials + account. The CF Workflows instances API is account-level for that name, but the
+ * name itself is resolved from the OWNED site's row — a caller can address no other workflow. The account-wide
+ * CF credentials NEVER reach the client. An honest failure (per-site Workflow provisioning is NOT wired — the
+ * reconciler records no workflow allocation source, so a blank site has no `workflow` registry row) returns a
+ * typed, user-safe message — NEVER a fabricated workflow. Mirrors {@link resolveVectorizeScope} exactly.
+ */
+async function resolveWorkflowScope(
+  env: Env,
+  siteId: string,
+  orgId: string,
+  environment: 'preview' | 'production',
+): Promise<
+  | { ok: true; scope: import('../data_resource_registry/adapter.js').ResolvedScope }
+  | { ok: false; message: string }
+> {
+  // The ownership gate already passed in the dispatcher; pass an always-true guard so the resolver does not
+  // re-query (it still re-scopes the registry lookup on siteId + orgId + kind='workflow').
+  const resolved = await resolveResourceRef(
+    env,
+    siteId,
+    { environment, kind: 'workflow' },
+    { orgId, ownsSite: async () => true },
+  );
+  if (!resolved.ok) {
+    // not_registered = per-site Workflow not provisioned yet (definitions are code-deployed, not per-site). Honest.
+    if (resolved.reason === 'not_registered') {
+      return { message: 'This site does not have a workflow yet.', ok: false };
+    }
+    return { message: 'Could not open the site workflow.', ok: false };
+  }
+  const auth = await resolveCfCredentials(env, orgId);
+  if (!auth) return { message: 'Could not open the site workflow.', ok: false };
+  return {
+    ok: true,
+    scope: {
+      accessPolicy: resolved.accessPolicy,
+      accountId: resolved.accountId,
+      auth,
+      environment,
+      orgId,
+      // The workflow NAME (server-resolved). The adapter binds instance ops to this name.
       resourceId: resolved.resourceId,
       siteId,
     },
