@@ -42,8 +42,14 @@ const TTS_MODEL = '@cf/myshell-ai/melotts';
  * cached object carries its real content-type (served from R2 metadata below).
  */
 const ELEVENLABS_MODEL = 'eleven_turbo_v2_5';
-/** Default ElevenLabs voice (Rachel) — same id the voice_agent + media rails use. */
-const ELEVENLABS_VOICE = '21m00Tcm4TlvDq8ikWAM';
+/**
+ * ElevenLabs voice — a `premade` voice (Sarah — mature, reassuring, confident) that
+ * is usable on the FREE ElevenLabs tier. The old default (Rachel `21m00Tcm4TlvDq8ikWAM`)
+ * is a LIBRARY voice → free accounts get 402 `paid_plan_required` on it, which forced a
+ * silent MeloTTS fallback. `ELEVENLABS_VOICE_ID` env overrides it (e.g. a custom voice on
+ * a paid plan). Premade voices work on free + paid, so this is the safe default.
+ */
+const ELEVENLABS_VOICE_DEFAULT = 'EXAVITQu4vr4xnSDxMaL';
 const R2_PREFIX = 'page-audio';
 
 /** Synthesized audio + its real MIME type (WAV from MeloTTS, MP3 from ElevenLabs). */
@@ -133,9 +139,10 @@ async function summarizeForAudio(env: Env, text: string): Promise<string> {
 async function synthesizeElevenLabs(env: Env, text: string): Promise<SynthesizedAudio | null> {
   const key = (env.ELEVENLABS_API_KEY ?? '').trim();
   if (!key) return null;
+  const voice = (env.ELEVENLABS_VOICE_ID ?? '').trim() || ELEVENLABS_VOICE_DEFAULT;
   try {
     const res = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(ELEVENLABS_VOICE)}`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}`,
       {
         method: 'POST',
         headers: {
