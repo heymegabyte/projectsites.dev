@@ -356,6 +356,57 @@ export const DataVectorizeDescribeInput = z
   .strict();
 
 /**
+ * `data_vectorize_upsert` — write vectors to the OWNED site's own metadata NAMESPACE inside the shared Vectorize
+ * index (a WRITE slice, MCP parity with the Data tab's Vectorize upsert). A caller names ONLY the OWNED
+ * `site_id` + the `vectors` (NEVER a CF index name AND NEVER a namespace — the index is server-resolved, the
+ * namespace server-DERIVED from the site id and FORCED onto every vector). Each vector is `{ id, values[],
+ * metadata? }`; a caller-supplied `namespace` is not part of the schema (`.strict()`) and, even if smuggled,
+ * the adapter overwrites it — a vector can never land in a foreign partition (INV-1). `values` is a non-empty
+ * array of finite numbers; the adapter clamps the batch to at most 1000 vectors. Upsert is insert-or-overwrite
+ * by id WITHIN the site's own namespace (no confirm needed — the destructive gate is on delete). Ownership +
+ * isolation + `per_site_vectorize` flag-gate + `data:write` scope are enforced server-side.
+ */
+export const DataVectorizeUpsertInput = z
+  .object({
+    site_id: z.string().min(1),
+    vectors: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1).max(512),
+            values: z.array(z.number().finite()).min(1),
+            metadata: z.record(z.unknown()).optional(),
+          })
+          .strict(),
+      )
+      .min(1, 'Provide at least one vector as {id, values}.')
+      .max(1000, 'An upsert may include at most 1000 vectors.'),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_vectorize_delete` — DELETE vectors BY ID from the OWNED site's own namespace (a WRITE slice, MCP parity
+ * with the Data tab's Vectorize delete-by-ids). A caller names ONLY the OWNED `site_id` + the `ids` (NEVER a CF
+ * index name AND NEVER a namespace — server-resolved/derived) plus `confirm` and the environment. ⚠️
+ * DESTRUCTIVE: `confirm:true` is REQUIRED — without it the dispatcher returns `confirmation required` REPORTING
+ * how many of the requested ids are in the site's namespace (the count that WOULD be removed), deleting
+ * nothing. ISOLATION: the adapter first confirms which requested ids live in the site's OWN namespace and
+ * deletes ONLY those — a foreign id (even if its id is guessed) is NEVER deleted (CF's delete_by_ids has no
+ * namespace filter, so the adapter enforces it). `.strict()` rejects any attempt to smuggle an `index`/
+ * `namespace`/`accountId`. Ownership + isolation + `per_site_vectorize` flag-gate + `data:write` scope are
+ * enforced server-side.
+ */
+export const DataVectorizeDeleteInput = z
+  .object({
+    site_id: z.string().min(1),
+    ids: z.array(z.string().min(1).max(512)).min(1, 'Provide at least one vector id.').max(1000),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
  * `data_connections_list` — list the OWNED site's outbound connections to EXTERNAL providers (Hyperdrive /
  * external DB + `mcp_connections` OAuth/paste-key links), MCP parity with the Data tab's Connections
  * surface. A caller names ONLY the OWNED `site_id` plus the optional environment. `.strict()` rejects any
@@ -548,6 +599,8 @@ export type DataR2PutObjectArgs = z.infer<typeof DataR2PutObjectInput>;
 export type DataR2DeleteObjectArgs = z.infer<typeof DataR2DeleteObjectInput>;
 export type DataVectorizeListArgs = z.infer<typeof DataVectorizeListInput>;
 export type DataVectorizeDescribeArgs = z.infer<typeof DataVectorizeDescribeInput>;
+export type DataVectorizeUpsertArgs = z.infer<typeof DataVectorizeUpsertInput>;
+export type DataVectorizeDeleteArgs = z.infer<typeof DataVectorizeDeleteInput>;
 export type DataConnectionsListArgs = z.infer<typeof DataConnectionsListInput>;
 export type DataConnectionDescribeArgs = z.infer<typeof DataConnectionDescribeInput>;
 export type DataWorkflowsListArgs = z.infer<typeof DataWorkflowsListInput>;

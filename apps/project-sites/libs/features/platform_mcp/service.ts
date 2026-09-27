@@ -60,6 +60,8 @@ import {
   DataR2DeleteObjectInput,
   DataVectorizeListInput,
   DataVectorizeDescribeInput,
+  DataVectorizeUpsertInput,
+  DataVectorizeDeleteInput,
   DataConnectionsListInput,
   DataConnectionDescribeInput,
   DataWorkflowsListInput,
@@ -664,6 +666,53 @@ export const PLATFORM_MCP_TOOLS = [
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_vectorize_upsert',
+    description:
+      "Write (insert-or-overwrite) vectors into your site's OWN namespace inside the shared Vectorize index (the same per-site Vectorize the editor's Data tab manages). vectors = [{ id, values:[…floats], metadata? }]. Returns { namespace, count, mutationId? }. ⛔ ISOLATION: every vector is FORCE-SCOPED to your site's server-derived namespace — you can NOT set a namespace, and any namespace you try to attach is stripped and overwritten, so a vector can NEVER land in another site's partition. Upsert replaces a same-id vector in full (no merge). ⏳ Vectorize writes are ASYNC — the mutationId confirms acceptance; vectors become queryable a few seconds later (never claimed instantly). You name only the site_id + vectors (+ optional environment) — never a Cloudflare index name and never a namespace; both are resolved/derived server-side and isolated to your site. Honest 'not provisioned' until your site has a Vectorize namespace.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        vectors: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 1000,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', maxLength: 512 },
+              values: { type: 'array', items: { type: 'number' }, minItems: 1 },
+              metadata: { type: 'object' },
+            },
+            required: ['id', 'values'],
+            additionalProperties: false,
+          },
+        },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'vectors'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_vectorize_delete',
+    description:
+      "Delete vectors BY ID from your site's OWN namespace inside the shared Vectorize index. ids = [\"…\"]. Returns { namespace, deleted, skipped, mutationId? }. ⚠️ DESTRUCTIVE: this permanently removes the vectors, so it REQUIRES confirm:true — without confirm you get an error REPORTING how many of your requested ids are in YOUR namespace and would be removed, and NOTHING is deleted. ⛔ ISOLATION: only ids confirmed to live in your site's namespace are ever deleted — a foreign id (even if you guess another site's vector id) is NEVER deleted (Cloudflare's delete-by-ids has no namespace filter, so the platform confirms namespace membership first). skipped = requested ids that weren't in your namespace. ⏳ Vectorize deletes are ASYNC — the mutationId confirms acceptance; removal reflects a few seconds later. You name only the site_id + ids (+ optional environment) — never a Cloudflare index name and never a namespace; both are resolved/derived server-side and isolated to your site.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        ids: { type: 'array', items: { type: 'string', maxLength: 512 }, minItems: 1, maxItems: 1000 },
+        confirm: { type: 'boolean' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'ids'],
       additionalProperties: false,
     },
   },
@@ -1769,6 +1818,83 @@ export async function dispatchPlatformTool(
         count: result.data?.vectors.length ?? 0,
         vectors: result.data?.vectors ?? [],
         metadataOnly: true,
+      });
+    }
+
+    case 'data_vectorize_upsert': {
+      // Flag-gated on the reserved per_site_vectorize flag (dark → err, mirroring the Data-tab Vectorize 404).
+      if (
+        !(await isFlagOn(env, PER_SITE_VECTORIZE_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site Vectorize is not enabled for this account.');
+      }
+      const { site_id, vectors, environment } = DataVectorizeUpsertInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF index name/namespace —
+      // the caller named only site_id + vectors; the index is server-resolved, the namespace server-derived
+      // and FORCED onto every vector by the adapter (a caller can never target a foreign partition).
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveVectorizeScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      const result = await vectorizeAdapter.mutate(scoped.scope, {
+        action: 'upsert',
+        vectors: vectors.map((v) => ({ id: v.id, values: v.values, metadata: v.metadata })),
+      });
+      if (!result.ok) return err(result.error?.message ?? 'Could not upsert the vectors.');
+      const data = result.data as { namespace?: string; count?: number; mutationId?: string } | undefined;
+      return ok({
+        site_id,
+        environment,
+        indexName: scoped.scope.resourceId,
+        namespace: data?.namespace,
+        action: 'upsert',
+        count: data?.count ?? 0,
+        ...(data?.mutationId ? { mutationId: data.mutationId } : {}),
+      });
+    }
+
+    case 'data_vectorize_delete': {
+      if (
+        !(await isFlagOn(env, PER_SITE_VECTORIZE_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site Vectorize is not enabled for this account.');
+      }
+      const { site_id, ids, confirm, environment } = DataVectorizeDeleteInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveVectorizeScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // The adapter enforces BOTH the namespace-isolation (only in-namespace ids are deleted; a foreign id is
+      // never sent to CF) AND the destructive gate: no confirm:true → a `confirmation_required` error that
+      // REPORTS the in-namespace id count that would be removed (nothing deleted).
+      const result = await vectorizeAdapter.mutate(scoped.scope, { action: 'delete', confirm, ids });
+      if (!result.ok) return err(result.error?.message ?? 'Could not delete the vectors.');
+      const data = result.data as
+        | { namespace?: string; deleted?: number; skipped?: number; mutationId?: string }
+        | undefined;
+      return ok({
+        site_id,
+        environment,
+        indexName: scoped.scope.resourceId,
+        namespace: data?.namespace,
+        action: 'delete',
+        deleted: data?.deleted ?? 0,
+        skipped: data?.skipped ?? 0,
+        ...(data?.mutationId ? { mutationId: data.mutationId } : {}),
       });
     }
 

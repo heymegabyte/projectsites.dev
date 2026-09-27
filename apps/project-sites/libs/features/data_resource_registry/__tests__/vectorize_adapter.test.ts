@@ -16,7 +16,8 @@
  *   (e) NAMESPACE ISOLATION: a foreign-namespace vector in CF's result is NEVER returned; only bytes-free
  *       id+metadata are surfaced (never raw vector values)
  *   (f) get() clamps ids to <= 100 and dedupes
- *   (g) mutate() returns code 'not_implemented' (never throws, never fetches)
+ *   (g) mutate() with no/unknown action returns 'invalid_action' (never throws, never fetches). The
+ *       upsert/delete WRITE slice is covered in vectorize_adapter_mutate.test.ts.
  *   (h) site-isolation: every verb only ever hits scope.resourceId's index path (never another index)
  *   (i) the derived namespace matches `site-<first8-of-siteId>`
  */
@@ -81,14 +82,14 @@ describe('siteNamespace()', () => {
   });
 });
 
-// ─── (g) mutate() always returns not_implemented ────────────────────────────────
+// ─── (g) mutate() with no/unknown action → invalid_action (WRITE slice tested separately) ─────────
 
-describe('vectorizeAdapter.mutate()', () => {
-  it('(g) returns not_implemented code — never throws, never fetches', async () => {
+describe('vectorizeAdapter.mutate() (read-suite guard)', () => {
+  it('(g) with no/unknown action returns invalid_action — never throws, never fetches', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await vectorizeAdapter.mutate(scope, undefined as any);
     expect(result.ok).toBe(false);
-    expect(result.error?.code).toBe('not_implemented');
+    expect(result.error?.code).toBe('invalid_action');
     expect(result.error?.retryable).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });

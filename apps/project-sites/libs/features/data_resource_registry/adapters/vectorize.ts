@@ -6,9 +6,23 @@
  * index: `list` (the site's namespace summary — index name/dimensions/metric/metadata-indexes + the
  * server-derived namespace), `head` (index/namespace existence + config probe), `get` (index describe +
  * NAMESPACE-SCOPED `get-by-ids` — fetch specific vectors' metadata, filtered to the site's namespace so a
- * foreign vector is NEVER returned). `mutate` returns a typed `not_implemented` envelope (this pass is
- * READ-ONLY) — never a raw throw, never a `runAnything` mega-verb (tool-design-as-api). upsert/delete/
- * query-write land in the write pass (append to `supports.mutations` + implement `mutate` in the same fire).
+ * foreign vector is NEVER returned) — PLUS the WRITE slice: `mutate({action:'upsert'|'delete'})`. `mutate`
+ * is a discriminated NAMED-mutation union (never a `runAnything`/`{command}` mega-verb — tool-design-as-api):
+ * `upsert` writes vectors, `delete` removes vectors by id. BOTH are FORCE-SCOPED to the site's server-derived
+ * namespace (see ISOLATION) — a caller can never write or delete into another site's partition.
+ *
+ * WRITE ISOLATION — the namespace is the tenant boundary, and it is FORCED, never trusted:
+ *  - `upsert`: every vector's `namespace` field is OVERWRITTEN with the server-derived namespace before it is
+ *    sent to CF. A caller-supplied `namespace`/`values`-adjacent namespace is stripped and replaced — so an
+ *    upserted vector ALWAYS lands in the site's own partition, never a foreign one, regardless of input.
+ *  - `delete`: CF's `delete_by_ids` has NO namespace filter (unlike `get_by_ids`), so a bare delete would let
+ *    a caller remove ANOTHER site's vector by guessing its id. To make cross-site delete IMPOSSIBLE, the
+ *    adapter first runs a NAMESPACE-SCOPED `get_by_ids` (the site's own namespace as the filter) to learn
+ *    which of the requested ids actually live in THIS site's namespace, then deletes ONLY those — a foreign
+ *    id simply isn't in the confirmed set and is never sent to `delete_by_ids`. `delete` REQUIRES
+ *    `confirm:true` (destructive of the prior vector — INV-9/INV-11); without it `mutate` returns a typed
+ *    `confirmation_required` envelope that REPORTS how many ids WOULD be removed (the in-namespace count) and
+ *    deletes NOTHING.
  *
  * ISOLATION — the same structural guarantee as `site_data_db.ts` / the `d1` + `kv` + `r2` adapters, with the
  * Vectorize twist that per-site isolation is a NAMESPACE (metadata partition) inside ONE shared index, NOT a
@@ -17,9 +31,10 @@
  *    `resolveResourceRef`, `resource_id_or_name` = `projectsites-rag`) — NEVER a caller-supplied index.
  *  - The site's NAMESPACE is DERIVED SERVER-SIDE from `scope.siteId` ({@link siteNamespace}, matching the
  *    write-side `site-<id.slice(0,8)>` convention in `site_dna.ts`/`advanced_features.ts`) — it is NEVER
- *    accepted from the caller. Every namespace-scoped verb (`get`'s `get-by-ids`, a future `query`/`upsert`)
- *    sends this derived namespace as the CF `namespace` filter, so one site can only ever see/query its OWN
- *    partition of the shared index. A request can supply NO index name and NO namespace.
+ *    accepted from the caller. Every namespace-scoped verb (`get`'s `get-by-ids`, `mutate`'s `upsert` +
+ *    `delete`) forces this derived namespace as the CF `namespace` filter/field, so one site can only ever
+ *    see/query/write/delete its OWN partition of the shared index. A request can supply NO index name and NO
+ *    namespace.
  *  - Execution goes through the CF **Vectorize v2 REST API**
  *    (`/accounts/{acct}/vectorize/v2/indexes/{name}/...`) bound to `scope.resourceId` — the account-wide CF
  *    credentials are NEVER sent to a client. (A Worker's `RAG_INDEX` binding is the SHARED index; the
@@ -131,9 +146,81 @@ export interface VectorizeGetData {
   readonly metadataOnly: true;
 }
 
-/** Placeholder mutate payloads — this pass is read-only; upsert/delete/query-write land later. */
-type VectorizeMutateInput = never;
-type VectorizeMutateResult = never;
+/** Hard bound on how many ids one `delete` may request (keeps the confirm-probe + delete payload small). */
+const DELETE_IDS_MAX = 1000;
+/** Hard bound on how many vectors one `upsert` may write in a single call. */
+const UPSERT_VECTORS_MAX = 1000;
+
+/** One vector to upsert — id + float `values`, plus optional metadata. The namespace is FORCED, never accepted. */
+export interface VectorizeUpsertVector {
+  readonly id: string;
+  /** The embedding — an array of finite numbers. */
+  readonly values: readonly number[];
+  /** Optional metadata map stored alongside the vector. */
+  readonly metadata?: Record<string, unknown>;
+  /**
+   * A caller MAY include a `namespace` field, but it is IGNORED and OVERWRITTEN with the site's server-derived
+   * namespace before the vector is sent to CF — a caller can never place a vector in a foreign partition.
+   */
+  readonly namespace?: string;
+}
+
+/**
+ * The `upsert` mutation input: write vectors to the site's OWN namespace. Every vector's `namespace` is FORCED
+ * to the server-derived value (INV-1 — no caller-supplied namespace). Insert-or-overwrite by id (CF upsert
+ * replaces a same-id vector in full). Upsert is NOT gated on `confirm` — it is additive/overwrite-by-own-id
+ * within the site's own partition, mirroring KV `put` on a NEW key; the destructive gate is on `delete`.
+ */
+export interface VectorizeUpsertInput {
+  readonly action: 'upsert';
+  /** The vectors to write (each forced into the site's namespace). At least one; clamped to the max. */
+  readonly vectors: readonly VectorizeUpsertVector[];
+}
+
+/**
+ * The `delete` mutation input: remove vectors BY ID from the site's OWN namespace. DESTRUCTIVE — `confirm` is
+ * REQUIRED (INV-9/INV-11): without it, `mutate` returns `confirmation_required` and REPORTS how many of the
+ * requested ids actually live in the site's namespace (the count that WOULD be removed), deleting nothing.
+ * Isolation: only ids CONFIRMED to be in the site's own namespace (via a namespace-scoped probe) are ever
+ * deleted — a foreign id is never sent to CF's `delete_by_ids`.
+ */
+export interface VectorizeDeleteInput {
+  readonly action: 'delete';
+  /** The vector ids to remove (only those in the site's own namespace are actually deleted). */
+  readonly ids: readonly string[];
+  /** Must be `true` to actually delete (destructive-op gate). */
+  readonly confirm?: boolean;
+}
+
+/** The discriminated named-mutation union for the vectorize adapter — NEVER a generic `{ command }` field. */
+export type VectorizeMutateInput = VectorizeUpsertInput | VectorizeDeleteInput;
+
+/** What a successful `upsert` returns: how many vectors were written + the (forced) namespace + CF mutation id. */
+export interface VectorizeUpsertResult {
+  readonly action: 'upsert';
+  /** The site's OWN namespace every vector was forced into (echoed for the caller's audit). */
+  readonly namespace: string;
+  /** How many vectors were sent to CF (after clamping). */
+  readonly count: number;
+  /** CF's async mutation id for the upsert, when present (Vectorize writes are eventually-applied). */
+  readonly mutationId?: string;
+}
+
+/** What a successful `delete` returns: how many in-namespace ids were removed + how many were skipped. */
+export interface VectorizeDeleteResult {
+  readonly action: 'delete';
+  /** The site's OWN namespace the delete was scoped to. */
+  readonly namespace: string;
+  /** How many of the requested ids were confirmed in the site's namespace and deleted. */
+  readonly deleted: number;
+  /** How many requested ids were NOT in the site's namespace (foreign/absent) and were SKIPPED, not deleted. */
+  readonly skipped: number;
+  /** CF's async mutation id for the delete, when present (absent when nothing was in-namespace to delete). */
+  readonly mutationId?: string;
+}
+
+/** The discriminated result union a successful `mutate` returns. */
+export type VectorizeMutateResult = VectorizeUpsertResult | VectorizeDeleteResult;
 
 /** Mint a correlation id for one adapter call (structured-logging: every envelope carries one). */
 function correlationId(): string {
@@ -159,17 +246,20 @@ function restError<T>(cid: string, status: number | undefined, message: string):
   };
 }
 
-/** The typed `not_implemented` envelope every read-only-pass-unfilled verb returns. */
-function notImplemented<T>(verb: string): AdapterResult<T> {
-  return {
-    correlationId: correlationId(),
-    error: {
-      code: 'not_implemented',
-      message: `The vectorize adapter '${verb}' verb is not implemented yet.`,
-      retryable: false,
-    },
-    ok: false,
-  };
+/** Clamp a requested delete `ids` list to at most {@link DELETE_IDS_MAX} well-formed string ids (deduped, order-kept). */
+function clampDeleteIds(ids: readonly string[] | undefined): string[] {
+  if (!Array.isArray(ids)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of ids) {
+    if (typeof raw !== 'string') continue;
+    const id = raw.trim();
+    if (id.length === 0 || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+    if (out.length >= DELETE_IDS_MAX) break;
+  }
+  return out;
 }
 
 /** Clamp a requested `ids` list to at most {@link GET_BY_IDS_MAX} well-formed string ids (deduped order-kept). */
@@ -238,8 +328,10 @@ async function fetchIndexConfig(
 
 /**
  * The `vectorize` adapter. `list`/`head`/`get` are live (read-only; per-site isolation is a server-derived
- * NAMESPACE inside the shared index); `mutate` returns `not_implemented`. `supports` declares that honestly so
- * the UI + MCP never offer a verb that would 501.
+ * NAMESPACE inside the shared index); `mutate` implements the `upsert` + `delete` named mutations, BOTH
+ * force-scoped to the site's server-derived namespace (a caller can never write/delete a foreign partition),
+ * `delete` gated on `confirm:true`. `supports` declares this honestly so the UI + MCP only ever offer a verb
+ * that runs.
  */
 class VectorizeAdapter
   implements
@@ -254,15 +346,16 @@ class VectorizeAdapter
   readonly kind = 'vectorize' as const;
 
   /**
-   * Honest capability declaration (CAPABILITY-MATRIX.md): vectorize serves both environments and all three
-   * read verbs (each namespace-scoped where it addresses vectors). `mutations: []` — this pass is read-only;
-   * upsert/delete_by_ids/query-write (all namespace-scoped) land in the write pass (append them here +
-   * implement `mutate` in the same fire).
+   * Honest capability declaration (CAPABILITY-MATRIX.md): vectorize serves both environments, all three read
+   * verbs (each namespace-scoped where it addresses vectors), and the `upsert`/`delete` named mutations — both
+   * FORCE-SCOPED to the site's server-derived namespace (a caller can never write/delete another site's
+   * partition). `delete` is destructive → gated on `confirm:true`. query-write lands later; append it here +
+   * implement in the same fire so the UI/MCP never offer an unwired verb.
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: [] as const,
-    verbs: ['list', 'head', 'get'] as const,
+    mutations: ['upsert', 'delete'] as const,
+    verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
   /**
@@ -491,12 +584,227 @@ class VectorizeAdapter
     };
   }
 
-  /** Not implemented in this read pass — upsert/delete_by_ids/query-write (namespace-scoped) land later. */
-  async mutate(
-    _scope: ResolvedScope,
-    _input: VectorizeMutateInput,
-  ): Promise<AdapterResult<VectorizeMutateResult>> {
-    return notImplemented<VectorizeMutateResult>('mutate');
+  /**
+   * NAMESPACE-SCOPED existence probe: of `ids`, return the subset that actually live in the site's OWN
+   * namespace. Runs a `get_by_ids` with the site's derived namespace as the CF filter, so CF returns only
+   * in-namespace vectors; we defensively re-filter by namespace too. Returns `undefined` when the probe itself
+   * fails (auth/5xx/network) — the caller must NOT interpret an indeterminate probe as "none in namespace"
+   * (that would let a delete silently no-op on a transient blip). This is what makes cross-site delete
+   * IMPOSSIBLE: a foreign id is never confirmed, so it's never deleted.
+   */
+  private async confirmedNamespaceIds(
+    scope: ResolvedScope,
+    ids: readonly string[],
+    namespace: string,
+  ): Promise<string[] | undefined> {
+    if (ids.length === 0) return [];
+    let res: Response;
+    try {
+      res = await fetch(
+        `${CF_API_BASE}/accounts/${scope.accountId}/vectorize/v2/indexes/${encodeURIComponent(scope.resourceId)}/get_by_ids`,
+        {
+          body: JSON.stringify({ ids, namespace }),
+          headers: { ...cfAuthHeaders(scope.auth), 'content-type': 'application/json' },
+          method: 'POST',
+        },
+      );
+    } catch {
+      return undefined; // network failure — indeterminate, never "none".
+    }
+    if (!res.ok) return undefined; // auth/5xx/4xx — indeterminate, never "none".
+    const json = (await res.json().catch(() => null)) as {
+      result?: Array<{ id?: string; namespace?: string }>;
+    } | null;
+    const raw = Array.isArray(json?.result) ? json.result : [];
+    const requested = new Set(ids);
+    // Only ids CF reported AND whose namespace matches the site's own (defense-in-depth) count as confirmed.
+    return raw
+      .filter(
+        (v) =>
+          typeof v?.id === 'string' &&
+          requested.has(v.id) &&
+          (v.namespace === undefined || v.namespace === namespace),
+      )
+      .map((v) => v.id as string);
+  }
+
+  /**
+   * Run a NAMED mutation against the site's OWN Vectorize NAMESPACE (the WRITE slice). `upsert` writes vectors
+   * (each vector's namespace FORCED to the server-derived value — a caller-supplied namespace is stripped +
+   * overwritten, so a vector can never land in a foreign partition); `delete` removes vectors BY ID, but ONLY
+   * those confirmed to be in the site's own namespace (a namespace-scoped probe first learns which requested
+   * ids are in-namespace — a foreign id is never sent to `delete_by_ids`, so cross-site delete is impossible).
+   * Both operate ONLY on `scope.resourceId` (the shared index, server-resolved upstream) + the derived
+   * namespace — this adapter accepts NO index name and NO namespace and cannot be redirected (INV-1/INV-9).
+   * `delete` is DESTRUCTIVE and REQUIRES `confirm:true`: without it, `mutate` returns a typed
+   * `confirmation_required` envelope that REPORTS the in-namespace id count that WOULD be removed and deletes
+   * NOTHING (INV-9/INV-11). CF Vectorize writes are ASYNC — a successful result carries CF's `mutationId`;
+   * vectors become queryable a few seconds later (never claimed instantly-applied).
+   *
+   * @param scope - the server-resolved scope; `scope.resourceId` is the ONLY (shared) index this can address,
+   *                the namespace is derived from `scope.siteId` — neither is caller-supplied
+   * @param input - the discriminated `{ action:'upsert'|'delete', … }` mutation
+   */
+  async mutate(scope: ResolvedScope, input: VectorizeMutateInput): Promise<AdapterResult<VectorizeMutateResult>> {
+    const cid = correlationId();
+    const namespace = siteNamespace(scope.siteId);
+
+    if (!input || (input.action !== 'upsert' && input.action !== 'delete')) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_action', message: 'Unknown Vectorize mutation action.', retryable: false },
+        ok: false,
+      };
+    }
+
+    // ── upsert ────────────────────────────────────────────────────────────────────
+    if (input.action === 'upsert') {
+      const rawVectors = Array.isArray(input.vectors) ? input.vectors : [];
+      if (rawVectors.length === 0) {
+        return {
+          correlationId: cid,
+          error: { code: 'invalid_vectors', message: 'At least one vector is required for upsert.', retryable: false },
+          ok: false,
+        };
+      }
+      // Validate + FORCE the namespace on every vector. A caller-supplied namespace is IGNORED + overwritten —
+      // the vector always lands in the site's own partition (INV-1). Clamp the batch size.
+      const clamped = rawVectors.slice(0, UPSERT_VECTORS_MAX);
+      const forced: Array<{ id: string; values: number[]; namespace: string; metadata?: Record<string, unknown> }> = [];
+      for (const v of clamped) {
+        const id = typeof v?.id === 'string' ? v.id.trim() : '';
+        if (id.length === 0) {
+          return {
+            correlationId: cid,
+            error: { code: 'invalid_vector_id', message: 'Every vector needs a non-empty string id.', retryable: false },
+            ok: false,
+          };
+        }
+        if (!Array.isArray(v.values) || v.values.length === 0 || !v.values.every((n: unknown) => typeof n === 'number' && Number.isFinite(n))) {
+          return {
+            correlationId: cid,
+            error: {
+              code: 'invalid_vector_values',
+              message: `Vector "${id}" needs a non-empty array of finite numeric values.`,
+              retryable: false,
+            },
+            ok: false,
+          };
+        }
+        forced.push({
+          id,
+          // FORCED namespace — the isolation guarantee. Any caller-supplied `v.namespace` is discarded.
+          namespace,
+          values: [...v.values],
+          ...(v.metadata && typeof v.metadata === 'object' ? { metadata: v.metadata as Record<string, unknown> } : {}),
+        });
+      }
+
+      // CF Vectorize v2 upsert takes an NDJSON body (one vector object per line).
+      const ndjson = forced.map((v) => JSON.stringify(v)).join('\n');
+      let res: Response;
+      try {
+        res = await fetch(
+          `${CF_API_BASE}/accounts/${scope.accountId}/vectorize/v2/indexes/${encodeURIComponent(scope.resourceId)}/upsert`,
+          {
+            body: ndjson,
+            headers: { ...cfAuthHeaders(scope.auth), 'content-type': 'application/x-ndjson' },
+            method: 'POST',
+          },
+        );
+      } catch (err) {
+        return restError<VectorizeMutateResult>(cid, undefined, err instanceof Error ? err.message : 'CF request failed');
+      }
+      if (!res.ok) {
+        return restError<VectorizeMutateResult>(cid, res.status, `CF Vectorize upsert returned HTTP ${res.status}`);
+      }
+      const json = (await res.json().catch(() => null)) as { result?: { mutationId?: string } } | null;
+      return {
+        correlationId: cid,
+        data: {
+          action: 'upsert',
+          count: forced.length,
+          namespace,
+          ...(json?.result?.mutationId ? { mutationId: json.result.mutationId } : {}),
+        },
+        ok: true,
+      };
+    }
+
+    // ── delete ────────────────────────────────────────────────────────────────────
+    const requestedIds = clampDeleteIds(input.ids);
+    if (requestedIds.length === 0) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_ids', message: 'At least one vector id is required for delete.', retryable: false },
+        ok: false,
+      };
+    }
+
+    // NAMESPACE ISOLATION for delete: CF's delete_by_ids has NO namespace filter, so we first CONFIRM which of
+    // the requested ids actually live in the site's OWN namespace. Only those are ever deleted — a foreign id
+    // is never sent to delete_by_ids, making cross-site delete impossible. An indeterminate probe → fail the
+    // op (never delete on an ambiguous probe).
+    const confirmed = await this.confirmedNamespaceIds(scope, requestedIds, namespace);
+    if (confirmed === undefined) {
+      return restError<VectorizeMutateResult>(cid, undefined, 'Could not verify the vectors’ namespace before delete.');
+    }
+    const skipped = requestedIds.length - confirmed.length;
+
+    // DESTRUCTIVE — require confirm. Report how many in-namespace ids WOULD be removed so the caller knows the
+    // blast radius. A foreign/absent id is already excluded from `confirmed`, so the reported count is honest.
+    if (input.confirm !== true) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'confirmation_required',
+          message: `Deleting Vectorize vectors is destructive — ${confirmed.length} of ${requestedIds.length} requested id(s) are in this site's namespace and would be removed${
+            skipped > 0 ? ` (${skipped} not in your namespace, would be skipped)` : ''
+          }. Re-run with confirm:true to delete.`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+
+    // Nothing in the site's namespace to delete → an honest no-op success (idempotent), never a CF call that
+    // could touch a foreign id.
+    if (confirmed.length === 0) {
+      return {
+        correlationId: cid,
+        data: { action: 'delete', deleted: 0, namespace, skipped },
+        ok: true,
+      };
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(
+        `${CF_API_BASE}/accounts/${scope.accountId}/vectorize/v2/indexes/${encodeURIComponent(scope.resourceId)}/delete_by_ids`,
+        {
+          body: JSON.stringify({ ids: confirmed }),
+          headers: { ...cfAuthHeaders(scope.auth), 'content-type': 'application/json' },
+          method: 'POST',
+        },
+      );
+    } catch (err) {
+      return restError<VectorizeMutateResult>(cid, undefined, err instanceof Error ? err.message : 'CF request failed');
+    }
+    if (!res.ok) {
+      return restError<VectorizeMutateResult>(cid, res.status, `CF Vectorize delete_by_ids returned HTTP ${res.status}`);
+    }
+    const json = (await res.json().catch(() => null)) as { result?: { mutationId?: string } } | null;
+    return {
+      correlationId: cid,
+      data: {
+        action: 'delete',
+        deleted: confirmed.length,
+        namespace,
+        skipped,
+        ...(json?.result?.mutationId ? { mutationId: json.result.mutationId } : {}),
+      },
+      ok: true,
+    };
   }
 }
 
