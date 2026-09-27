@@ -17,9 +17,12 @@
  *    history, saved queries, EXPLAIN cost hint, typed result grid) RE-POINTED at the site's OWN D1 via
  *    the per-site adapter (`PS_RES_MUTATE { kind:'d1', action:'exec' }` → `data_d1_exec`), NEVER the
  *    super-admin shared-D1 `/sql/*` path. Mutating statements are confirm-gated; `rowsWritten` is truth.
- *  - **KV manager** — the site's OWN KV, a **$10/mo Stripe add-on**. Until purchased this is an honest
- *    LOCKED-UPSELL card (never a dead/mock control) — the buy button is the seam for FIRE 3's entitlement
- *    + checkout + provision-on-purchase wiring.
+ *  - **KV manager** — the site's OWN KV, a **$10/mo Stripe add-on**. Until unlocked this is an honest
+ *    LOCKED-UPSELL card (never a dead/mock control); once unlocked it renders the REAL per-site KV browser
+ *    ({@link KvBrowser}, `PS_RES_DETAIL/MUTATE { kind:'kv' }`) — list/get/put/delete keys against the
+ *    site's OWN server-resolved KV namespace, DARK behind `per_site_kv` (a 404 → honest "not enabled yet",
+ *    never a dead control). The Stripe checkout + provision-on-purchase backend is FIRE 3's wiring; this
+ *    fire recycles the honest gate + the real UI behind it.
  *
  * Isolation is SERVER-resolved for every sub-view: the worker resolves the site's CF ids from the
  * registry for the OWNED site+environment; this panel never sees or sends a CF id it could tamper with
@@ -31,6 +34,7 @@ import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { classNames } from '~/utils/classNames';
 import { SiteTablesPanel } from './SiteTablesPanel';
 import { SqlNavigator } from './SqlNavigator';
+import { KvBrowser } from './KvBrowser';
 
 // ── Sub-nav model ────────────────────────────────────────────────────────────
 
@@ -199,22 +203,46 @@ export const DatabasePanel = memo(() => {
 
 DatabasePanel.displayName = 'DatabasePanel';
 
-// ── KV manager (locked-upsell until the $10/mo add-on is purchased) ────────────
+// ── KV manager (honest $10/mo locked-upsell gate → the REAL per-site KV browser once unlocked) ────
+
+/** localStorage key remembering that the owner unlocked the KV add-on (so it survives sub-nav switches). */
+const KV_UNLOCKED_KEY = 'ps_database_kv_unlocked';
+
+function readKvUnlocked(): boolean {
+  try {
+    return localStorage.getItem(KV_UNLOCKED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeKvUnlocked(on: boolean): void {
+  try {
+    localStorage.setItem(KV_UNLOCKED_KEY, on ? '1' : '0');
+  } catch {
+    // localStorage unavailable (private mode) — the unlock still holds for the session
+  }
+}
 
 /**
- * The site's OWN Cloudflare KV — a **$10/mo Stripe add-on** (per the resource model). Until it's
- * purchased this renders an HONEST locked-upsell card, never a dead/mock control (SECURITY-INVARIANTS
- * INV-3 — never call an unsupported control complete). The Unlock button is the seam for FIRE 3's
- * entitlement check + Stripe checkout + provision-on-purchase (BOTH prod + preview KV). Clicking it
- * today surfaces an inline "coming soon" note rather than dead-air the click.
+ * The KV manager gate. The site's OWN Cloudflare KV is a **$10/mo Stripe add-on** (per the resource
+ * model). Until unlocked this renders an HONEST locked-upsell card — never a dead/mock control
+ * (SECURITY-INVARIANTS INV-3). Once unlocked it mounts the REAL {@link KvBrowser}, which manages the
+ * site's OWN server-resolved KV namespace (`PS_RES_DETAIL/MUTATE { kind:'kv' }`) and itself renders an
+ * honest "not enabled yet" state while `per_site_kv` is dark. This fire recycles the gate + the real UI
+ * behind it; the Stripe checkout + provision-on-purchase backend is FIRE 3.
  */
 const KvManager = memo(() => {
-  const [note, setNote] = useState<string | null>(null);
+  const [unlocked, setUnlocked] = useState<boolean>(() => readKvUnlocked());
 
   const onUnlock = useCallback(() => {
-    setNote('Key-value storage checkout is landing shortly — this is where you’ll add it in one click.');
-    setTimeout(() => setNote(null), 3600);
+    setUnlocked(true);
+    writeKvUnlocked(true);
   }, []);
+
+  if (unlocked) {
+    return <KvBrowser />;
+  }
 
   return (
     <div className="h-full flex flex-col items-center justify-center gap-4 p-8 text-center" data-testid="database-kv">
@@ -259,16 +287,14 @@ const KvManager = memo(() => {
         </li>
       </ul>
 
-      {note && (
-        <div
-          className="mt-1 border border-bolt-elements-borderColor rounded-md bg-bolt-elements-background-depth-2 px-3 py-2 text-[11px] text-bolt-elements-textSecondary flex items-center gap-2"
-          data-testid="database-kv-note"
-          role="status"
-        >
-          <div className="i-ph:sparkle text-bolt-elements-item-contentAccent" />
-          <span>{note}</span>
-        </div>
-      )}
+      <div
+        className="mt-1 border border-bolt-elements-borderColor rounded-md bg-bolt-elements-background-depth-2 px-3 py-2 text-[11px] text-bolt-elements-textSecondary flex items-center gap-2"
+        data-testid="database-kv-note"
+        role="status"
+      >
+        <div className="i-ph:sparkle text-bolt-elements-item-contentAccent" />
+        <span>Unlock to open the key browser — your site&rsquo;s KV turns on automatically once billing lands.</span>
+      </div>
     </div>
   );
 });

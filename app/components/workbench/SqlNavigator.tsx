@@ -20,6 +20,14 @@
  * site's OWN tables (`PS_SITEDB_TABLES_REQUEST`) so autocomplete only ever suggests identifiers that
  * actually exist — never a fabricated column, never a shared-platform table.
  *
+ * Ask (AI SQL assistant): the "Ask AI" toggle recycles the retired DataPanel AskPanel's grounded-NL idea
+ * onto the per-site path. It reads the site's OWN full schema (tables + `PRAGMA table_info` columns over the
+ * per-site bridge — never the shared DB), asks the PLATFORM AI (`/api/llmcall` → ProjectSites AI when
+ * `PS_BOLT_AI=true`, never per-user keys) for a single SQLite statement grounded ONLY on those real
+ * identifiers, and DROPS the SQL into the editor for review — it is NEVER auto-run. The user runs it through
+ * the SAME per-site exec path above, so writes are still confirm-gated. Pure prompt/extraction logic lives
+ * in `./sql-ask-logic` for unit testing.
+ *
  * DARK behind the `per_site_data` flag: a 404 becomes a friendly "not enabled yet" state (INV-3), never
  * a scary error. Style follows `docs/ULTIMATE-UI-DIRECTION.md` — black + cyan, cinematic, honest states,
  * WCAG 2.2 AA (≥24px targets, focus-visible rings, `role="status"` on async regions).
@@ -34,6 +42,7 @@ import {
   type ParentToChildMessage,
   type ResMutateResponseMessage,
   type SiteDbTablesResponseMessage,
+  type SiteDbRowsResponseMessage,
 } from '~/lib/embed/embedded-mode';
 import {
   addToSqlHistory,
@@ -47,6 +56,14 @@ import {
 import { classifyCell } from './data-cell-format';
 import type { SqlSchema } from './sql-complete';
 import { SqlEditor } from './SqlEditor';
+import { DEFAULT_MODEL, DEFAULT_PROVIDER } from '~/utils/constants';
+import {
+  buildAskSystemPrompt,
+  extractSqlFromModel,
+  formatSchemaForPrompt,
+  type AskColumn,
+  type AskTableSchema,
+} from './sql-ask-logic';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -172,6 +189,13 @@ export const SqlNavigator = memo(() => {
   // The completion schema — the site's OWN tables (never shared-platform tables).
   const [schema, setSchema] = useState<SqlSchema | undefined>(undefined);
 
+  // ── Ask (AI SQL assistant) — NL → SQL grounded on the site's OWN schema, run through the per-site path ──
+  const [askOpen, setAskOpen] = useState(false);
+  const [askQuestion, setAskQuestion] = useState('');
+  const [askBusy, setAskBusy] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
+  const [askNote, setAskNote] = useState<string | null>(null);
+
   const pendingRef = useRef<Map<string, Pending>>(new Map());
   const lastConfirmSqlRef = useRef('');
 
@@ -263,6 +287,112 @@ export const SqlNavigator = memo(() => {
       return next;
     });
   }, []);
+
+  // ── Ask (AI SQL assistant): gather the site's OWN schema → platform AI → drop SQL into the editor ──
+
+  /**
+   * Read the site's OWN full schema (each table's columns via `PRAGMA table_info`, over the per-site
+   * bridge) so the model is grounded ONLY on identifiers that exist. Fetches columns per table in
+   * parallel; a table whose columns can't be read is still passed by name (better than dropping it).
+   */
+  const gatherSchema = useCallback(async (): Promise<AskTableSchema[]> => {
+    const tablesReply = (await request({
+      type: 'PS_SITEDB_TABLES_REQUEST',
+      correlationId: nextCorrelationId(),
+    })) as SiteDbTablesResponseMessage;
+
+    if (!tablesReply.ok || (tablesReply.enabled === false)) {
+      throw new Error(tablesReply.error ?? 'Could not read your database schema.');
+    }
+
+    const names = (tablesReply.tables ?? []).map((t) => t.name);
+
+    const withColumns = await Promise.all(
+      names.map(async (name): Promise<AskTableSchema> => {
+        try {
+          const rowsReply = (await request({
+            type: 'PS_SITEDB_ROWS_REQUEST',
+            correlationId: nextCorrelationId(),
+            table: name,
+            limit: 1,
+            offset: 0,
+          })) as SiteDbRowsResponseMessage;
+
+          const columns = (rowsReply.columns ?? []) as AskColumn[];
+          return { name, columns };
+        } catch {
+          return { name, columns: [] };
+        }
+      }),
+    );
+
+    return withColumns;
+  }, [request]);
+
+  /**
+   * Ask the platform AI for a SQLite statement grounded on the site's schema, then DROP it into the editor
+   * for review (never auto-run). The user runs it via the normal per-site exec path (confirm-gated writes).
+   * Uses `/api/llmcall` which, when `PS_BOLT_AI=true`, routes to ProjectSites AI (the platform model) rather
+   * than per-user keys — so no CF id and no shared-DB path is ever touched.
+   */
+  const askSql = useCallback(async () => {
+    const q = askQuestion.trim();
+
+    if (!q || askBusy) {
+      return;
+    }
+
+    if (!isEmbedded) {
+      setAskError('Open this from the ProjectSites admin to use the AI assistant.');
+      return;
+    }
+
+    setAskBusy(true);
+    setAskError(null);
+    setAskNote(null);
+
+    try {
+      const tables = await gatherSchema();
+      const system = buildAskSystemPrompt(formatSchemaForPrompt(tables));
+
+      const res = await fetch('/api/llmcall', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system,
+          message: q,
+          model: DEFAULT_MODEL,
+          provider: DEFAULT_PROVIDER,
+          streamOutput: false,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { message?: string };
+        throw new Error(body.message ?? `The assistant is unavailable (HTTP ${res.status}).`);
+      }
+
+      const data = (await res.json()) as { text?: string; error?: boolean; message?: string };
+
+      if (data.error || typeof data.text !== 'string') {
+        throw new Error(data.message ?? 'The assistant did not return SQL.');
+      }
+
+      const generated = extractSqlFromModel(data.text);
+
+      if (!generated) {
+        throw new Error('The assistant did not return SQL. Try rephrasing your question.');
+      }
+
+      setSql(generated);
+      setAskNote('SQL is ready in the editor — review it, then Run. Writes ask before they change data.');
+      setAskOpen(false);
+    } catch (err) {
+      setAskError(err instanceof Error ? err.message : 'The assistant could not answer that.');
+    } finally {
+      setAskBusy(false);
+    }
+  }, [askQuestion, askBusy, gatherSchema]);
 
   // ── Execute one statement against the site's OWN D1 ────────────────────────
   const runQuery = useCallback(
@@ -440,6 +570,24 @@ export const SqlNavigator = memo(() => {
           >
             <div className="i-ph:plus" /> New table
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAskOpen((v) => !v);
+              setAskError(null);
+            }}
+            data-testid="database-sql-ask-toggle"
+            aria-expanded={askOpen}
+            title="Ask in plain English — the AI writes the SQL from your site's own tables"
+            className={classNames(
+              'min-h-[24px] text-[10px] rounded-full px-2.5 py-0.5 border flex items-center gap-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+              askOpen
+                ? 'border-[#00e5ff]/60 bg-[#00e5ff]/10 text-[#00E5FF]'
+                : 'border-[#00e5ff]/40 text-[#00E5FF] hover:bg-[#00e5ff]/10',
+            )}
+          >
+            <div className="i-ph:sparkle" /> Ask AI
+          </button>
           {history.length > 0 && (
             <button
               type="button"
@@ -549,6 +697,75 @@ export const SqlNavigator = memo(() => {
                 </button>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Ask AI — plain-English → SQL grounded on the site's OWN schema, dropped into the editor to review */}
+        {askOpen && (
+          <div
+            data-testid="database-sql-ask"
+            className="rounded-md border border-[#00e5ff]/30 bg-[#00e5ff]/[0.04] p-2.5 space-y-2"
+          >
+            <div className="flex items-center gap-1.5 text-[11px] font-medium text-bolt-elements-textSecondary">
+              <div className="i-ph:sparkle text-[#00E5FF]" /> Ask your database
+            </div>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={askQuestion}
+                onChange={(e) => setAskQuestion(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void askSql();
+                  }
+                }}
+                placeholder="e.g. show the 10 most recent orders"
+                data-testid="database-sql-ask-input"
+                aria-label="Ask a question about your database in plain English"
+                spellCheck={false}
+                className="min-w-0 flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1 text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:border-[#00e5ff]/50"
+              />
+              <button
+                type="button"
+                onClick={() => void askSql()}
+                disabled={askBusy || !askQuestion.trim()}
+                data-testid="database-sql-ask-submit"
+                className={classNames(
+                  'min-h-[24px] flex shrink-0 items-center gap-1 rounded px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00e5ff]',
+                  askBusy || !askQuestion.trim()
+                    ? 'cursor-not-allowed bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary'
+                    : 'cursor-pointer bg-[#00e5ff]/15 text-[#00E5FF] hover:bg-[#00e5ff]/25',
+                )}
+              >
+                <div className={askBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:arrow-right'} />
+                <span className="min-w-[6ch] text-center">{askBusy ? 'Writing…' : 'Write SQL'}</span>
+              </button>
+            </div>
+            <p className="text-[9px] italic text-bolt-elements-textTertiary">
+              The AI reads your site&rsquo;s own tables + columns and drafts the SQL into the editor. You review it and
+              press Run — nothing runs automatically, and writes ask before they change data.
+            </p>
+            {askError && (
+              <div
+                className="rounded border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] text-red-400"
+                role="alert"
+                data-testid="database-sql-ask-error"
+              >
+                {askError}
+              </div>
+            )}
+          </div>
+        )}
+
+        {askNote && (
+          <div
+            className="flex items-center gap-2 rounded-md border border-[#00e5ff]/30 bg-[#00e5ff]/[0.06] px-2.5 py-1.5 text-[11px] text-bolt-elements-textSecondary"
+            data-testid="database-sql-ask-note"
+            role="status"
+          >
+            <div className="i-ph:check-circle text-[#00E5FF] shrink-0" />
+            <span>{askNote}</span>
           </div>
         )}
       </div>

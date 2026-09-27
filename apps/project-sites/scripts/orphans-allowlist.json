@@ -3,14 +3,6 @@
   "allow": [
     {
       "type": "EDITOR_PANEL",
-      "path": "app/components/workbench/DataPanel.tsx",
-      "reason": "INTENTIONALLY orphaned-pending-recycle RIGHT NOW. The Data tab's SQL/Table editor is being re-architected onto per-site D1 (docs/data-platform-scope.md). DataPanel is the canonical case that motivated this detector — the exact 'substantial code disconnected from the UI' near-miss. NOTE: it currently reads as wired (imported in Workbench.client.tsx), so the detector may not flag it today; this entry is a pre-registered SENTINEL. ⚠️ MUST BE REMOVED from this allowlist the moment the SQL/Table editor is recycled — deleting it re-arms the detector to ENFORCE the reconnection (a re-orphaned DataPanel then fails the gate).",
-      "owner": "brian@megabyte.space",
-      "added": "2026-09-27",
-      "remove_when": "SQL/Table editor recycled onto per-site D1 (Data Platform re-arch)."
-    },
-    {
-      "type": "EDITOR_PANEL",
       "path": "app/components/workbench/FunctionsPanel.tsx",
       "reason": "Pre-existing baseline (559 lines, only .spec.ts references). The Functions tab UI built ahead of its render wiring — see docs/FUNCTIONS-CONVERGENCE.md. Accepted as a known orphan so the gate starts green; wire it into a PanelLayer (selectedView === 'functions') in Workbench.client.tsx, then remove this entry.",
       "owner": "brian@megabyte.space",

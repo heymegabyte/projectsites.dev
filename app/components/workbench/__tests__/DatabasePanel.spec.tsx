@@ -15,8 +15,9 @@
  * Cases:
  *  1. Default sub-nav — Table-view + KV manager buttons render; SQL navigator is hidden (tucked).
  *  2. Advanced toggle — turning it on reveals the SQL navigator button + surface; the pref persists.
- *  3. KV manager — shows the $10/mo locked-upsell card with an Unlock control (never a live browser).
- *  4. SQL navigator — the run control + textarea render once Advanced is on.
+ *  3. KV manager — shows the $10/mo locked-upsell card with an Unlock control (never a dead control).
+ *  4. KV manager — clicking Unlock swaps the upsell for the REAL per-site KV browser (recycled KvBrowser).
+ *  5. SQL navigator — the run control + textarea render once Advanced is on; the AI "Ask" toggle is present.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent, within } from '@testing-library/react';
@@ -116,7 +117,7 @@ describe('DatabasePanel — consolidated per-site data surface', () => {
     expect(screen.getByTestId('database-subnav-sql')).toBeTruthy();
   });
 
-  it('KV manager shows the $10/mo locked-upsell (honest, not a live browser)', () => {
+  it('KV manager shows the $10/mo locked-upsell (honest, not a dead control)', () => {
     render(<DatabasePanel />);
 
     fireEvent.click(screen.getByTestId('database-subnav-kv'));
@@ -124,19 +125,39 @@ describe('DatabasePanel — consolidated per-site data surface', () => {
     const kv = screen.getByTestId('database-kv');
     expect(within(kv).getByText('$10')).toBeTruthy();
     expect(within(kv).getByTestId('database-kv-unlock')).toBeTruthy();
-
-    // Clicking Unlock surfaces a note (seam for FIRE 3 checkout), never dead-air.
-    fireEvent.click(screen.getByTestId('database-kv-unlock'));
-    expect(screen.getByTestId('database-kv-note')).toBeTruthy();
+    // The honest note is always present on the locked card (never dead-air).
+    expect(within(kv).getByTestId('database-kv-note')).toBeTruthy();
   });
 
-  it('SQL navigator renders the query textarea + run control once Advanced is on', () => {
+  it('KV manager swaps the upsell for the REAL per-site KV browser once unlocked', () => {
+    render(<DatabasePanel />);
+
+    fireEvent.click(screen.getByTestId('database-subnav-kv'));
+    fireEvent.click(screen.getByTestId('database-kv-unlock'));
+
+    // The locked-upsell card is gone; the real per-site KV browser is mounted (recycled KvBrowser).
+    expect(screen.queryByTestId('database-kv')).toBeNull();
+    expect(screen.getByTestId('database-kv-browser')).toBeTruthy();
+    // The browser lists keys over the per-site bridge (PS_RES_DETAIL kind:'kv', action:'list').
+    const listCall = postToParentSpy.mock.calls.find(
+      (c) => (c[0] as { type?: string; kind?: string })?.type === 'PS_RES_DETAIL_REQUEST',
+    );
+    expect(listCall).toBeTruthy();
+    expect((listCall?.[0] as { kind?: string })?.kind).toBe('kv');
+    // The unlock persists.
+    expect(store.ps_database_kv_unlocked).toBe('1');
+  });
+
+  it('SQL navigator renders the query textarea + run control + AI Ask toggle once Advanced is on', () => {
     store.ps_database_advanced = '1';
     render(<DatabasePanel />);
 
     fireEvent.click(screen.getByTestId('database-subnav-sql'));
 
     expect(screen.getByTestId('database-sql-textarea')).toBeTruthy();
+    // The recycled AI SQL assistant ("Ask AI") is present in the navigator toolbar.
+    expect(screen.getByTestId('database-sql-ask-toggle')).toBeTruthy();
+
     const run = screen.getByTestId('database-sql-run');
     // Run is disabled until there's SQL to execute.
     expect((run as HTMLButtonElement).disabled).toBe(true);
