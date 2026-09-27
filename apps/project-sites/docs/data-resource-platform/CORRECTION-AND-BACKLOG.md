@@ -20,6 +20,20 @@ tab** whose sub-nav is a button bar **Table-view · SQL navigator · KV manager*
 **per-site** D1 (+ its KV/R2), with the shared-platform-D1 surface (Visitor Events / Snapshots /
 `form_submissions` / `/data-overview`) **removed** from the editor.
 
+### ✅ SUPERSEDING CORRECTION (Brian 2026-09-27, FIRE: Resources) — Resources is its OWN tab, KEPT
+
+The "fold `resources` INTO `Database`" line above is **superseded**. The editor now ships **two**
+data tabs: **Database** (the per-site D1-centric editor — Table-view · SQL navigator · KV manager,
+FIRE 1) AND **Resources** (its own top tab — the FULL per-site Cloudflare asset console). The
+shared-platform-D1 `Data` tab stays removed (FIRE 1 stands). **Resources is KEPT**, not folded:
+`ResourceOverviewPanel` (inventory per kind × env with honest connected / available-to-add /
+unsupported states + preview↔production env selector + Reconcile) drills into `ResourceDetailPanel`
+(generic inspect + the manage actions each adapter's `supports.mutations` declares; destructive ops
+confirm-gated; unsupported CF capabilities render an honest "not available", never a mock control).
+It VIEWS + MANAGES every WfP-namespaced CF asset: D1 / KV / R2 / Durable Objects / Workflows /
+Queues / Vectorize / bindings / connections / observability. Every CF id is server-resolved for the
+authed site+env (SECURITY-INVARIANTS INV-1/INV-2) — the panel never sees or sends one.
+
 ---
 
 ## 1. UI CONSOLIDATION SPEC (exact — Fire 1)
@@ -73,6 +87,7 @@ tab** whose sub-nav is a button bar **Table-view · SQL navigator · KV manager*
 - **DONE (Fire 1)** — Renamed `data`→**Database**, ONE tab, sub-nav BUTTON bar (Table-view · SQL navigator · KV manager) + remembered Advanced/Developer toggle that tucks SQL. New `app/components/workbench/DatabasePanel.tsx`; `Workbench.client.tsx` TOP_TABS collapsed to one `database` entry + one consolidated PanelLayer; stale persisted `data`/`resources` views normalize to `database` (never a blank body).
 - **DONE (Fire 1)** — Removed shared-platform-D1 editor surface: `DataPanel` (Visitor Events / Snapshots / `form_submissions` / `/data-overview` + super-admin `/sql`) de-referenced from the editor (import + PanelLayer dropped; nothing in `app/` imports it now). File RETAINED for Fire 2's grid-engine harvest.
 - **DONE (Fire 1, Table-view)** — Folded `SiteTablesPanel` in as the Database tab's **Table-view** (per-site D1 `PS_SITEDB_*`). SQL navigator runs the per-site adapter via `PS_RES_MUTATE {kind:'d1',action:'exec'}` (NOT shared `/sql`), confirm-gated for mutating SQL, `rowsWritten` = ground truth. **STILL Fire 2**: harvest `DataPanel`'s mature grid engine (views · `<CellEditor>` · saved-views) onto the per-site path (inline edit + local undo).
+- **DONE (FIRE: Resources) — Resources tab KEPT as its OWN top tab.** `Workbench.client.tsx` `TOP_TABS` gains a `resources` entry (`i-ph:stack-duotone`) beside `database`; a dedicated `PanelLayer` mounts `ResourceOverviewPanel`; the stale-view normalize effect NO LONGER redirects `resources`→`database` (it's a live tab again — only `data`→`database` + `functions`→`code` remain). UI-only slice: the panels (`ResourceOverviewPanel` + `ResourceDetailPanel` with the supports-driven `WriteControls`), the `PS_RES_OVERVIEW_*` / `PS_RES_RECONCILE_*` / `PS_RES_DETAIL_*` / `PS_RES_MUTATE_*` bridge (both `app/lib/embed/embedded-mode.ts` + the Angular `bolt-embed.service.ts`), and all 9 adapters already existed from Phases 0–8b — **ZERO bridge / Angular / worker-registry changes**. Manage-action matrix (from `MUTATIONS_FOR_KIND`, server-re-validated): D1 `exec`+`provision`; KV `put`/`delete`/`provision`; R2 `put`/`delete`/`provision`; Vectorize `upsert`/`delete`; Workflows `start`/`pause`/`resume`/`restart`/`terminate`; Durable Objects `status_probe`/`reset`; Queues `send`; Connections + Analytics-Engine = **read-only / honest not-available** (no CF mutation surface). Destructive ops confirm-gated; unsupported CF capabilities render an honest "not available", never a mock. New `ResourceOverviewPanel.spec.tsx` (3 tests: mounts+requests inventory, renders inventory+env-selector, honest dark-flag disabled card). Editor `tsc --noEmit` clean.
 
 ### 2B. Per-site D1 core (the read/edit engine)
 
