@@ -15,6 +15,15 @@
  *    drop column (drop is confirm-gated) / create index. Compiles SAFE statements via the pure `schema-ddl`
  *    generators and runs them through the SAME per-site exec rail (`PS_RES_MUTATE { kind:'d1', action:'exec' }`)
  *    with the SQL previewed first. No SQL knowledge required (embarrassingly-easy bar).
+ *  - **Import** (FIRE 6) — CSV/JSON → the site's OWN D1 ({@link ImportPanel}): drop/paste a file, auto-detect
+ *    columns + types, map them to a new or existing table, preview, then a chunked PARAMETERIZED batch INSERT
+ *    through the SAME per-site exec rail. Values are BOUND (never concatenated); the safety keystone lives in the
+ *    pure, unit-tested `data-ingest-logic`.
+ *  - **Seed with AI** (FIRE 6) — fill a table with realistic sample rows ({@link AiSeedPanel}): pick a table, the
+ *    platform AI (`/api/llmcall`, DeepSeek) generates rows matching the real schema, previewed then confirm-inserted
+ *    through the per-site rail (param-bound).
+ *  - **Forms** (FIRE 6) — a simple form builder ({@link FormBuilder}): define fields → create a backing table +
+ *    store a form definition in the site's OWN D1 (the public-render + submit endpoint is a documented follow-up).
  *  - **History** — D1 Time-Travel restore ({@link TimeTravelPanel}): see the live bookmark, label a point, and
  *    RESTORE the whole database to a bookmark or a chosen date-time (confirm-gated, honest "restores to <time>").
  *    Uses `PS_RES_MUTATE { kind:'d1', action:'time_travel_info' | 'restore' }` → the worker's REAL CF REST
@@ -45,10 +54,13 @@ import { SchemaBuilder } from './SchemaBuilder';
 import { TimeTravelPanel } from './TimeTravelPanel';
 import { SqlNavigator } from './SqlNavigator';
 import { KvBrowser } from './KvBrowser';
+import { ImportPanel } from './ImportPanel';
+import { AiSeedPanel } from './AiSeedPanel';
+import { FormBuilder } from './FormBuilder';
 
 // ── Sub-nav model ────────────────────────────────────────────────────────────
 
-type SubView = 'table' | 'schema' | 'history' | 'sql' | 'kv';
+type SubView = 'table' | 'schema' | 'import' | 'seed' | 'forms' | 'history' | 'sql' | 'kv';
 
 interface SubNavItem {
   value: SubView;
@@ -62,6 +74,9 @@ interface SubNavItem {
 const SUB_NAV: readonly SubNavItem[] = [
   { value: 'table', label: 'Table-view', icon: 'i-ph:table-duotone' },
   { value: 'schema', label: 'Schema', icon: 'i-ph:blueprint-duotone' },
+  { value: 'import', label: 'Import', icon: 'i-ph:upload-simple-duotone' },
+  { value: 'seed', label: 'Seed with AI', icon: 'i-ph:sparkle-duotone' },
+  { value: 'forms', label: 'Forms', icon: 'i-ph:list-checks-duotone' },
   { value: 'history', label: 'History', icon: 'i-ph:clock-counter-clockwise-duotone' },
   { value: 'sql', label: 'SQL navigator', icon: 'i-ph:terminal-window-duotone', advanced: true },
   { value: 'kv', label: 'KV manager', icon: 'i-ph:key-duotone' },
@@ -209,6 +224,9 @@ export const DatabasePanel = memo(() => {
       <div className="relative flex-1 overflow-hidden">
         {subView === 'table' && <SiteTablesPanel onCreateTable={() => setSubView('schema')} />}
         {subView === 'schema' && <SchemaBuilder />}
+        {subView === 'import' && <ImportPanel />}
+        {subView === 'seed' && <AiSeedPanel />}
+        {subView === 'forms' && <FormBuilder />}
         {subView === 'history' && <TimeTravelPanel />}
         {subView === 'sql' && advanced && <SqlNavigator />}
         {subView === 'kv' && <KvManager />}

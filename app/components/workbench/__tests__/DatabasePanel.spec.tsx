@@ -167,4 +167,50 @@ describe('DatabasePanel — consolidated per-site data surface', () => {
     });
     expect((screen.getByTestId('database-sql-run') as HTMLButtonElement).disabled).toBe(false);
   });
+
+  // ── FIRE 6: Import / Seed / Forms entry points ────────────────────────────────
+
+  it('exposes the FIRE-6 Import, Seed-with-AI, and Forms sub-nav entry points', () => {
+    render(<DatabasePanel />);
+
+    expect(screen.getByTestId('database-subnav-import')).toBeTruthy();
+    expect(screen.getByTestId('database-subnav-seed')).toBeTruthy();
+    expect(screen.getByTestId('database-subnav-forms')).toBeTruthy();
+  });
+
+  it('mounts the Import panel (file dropzone + paste) when Import is selected', () => {
+    render(<DatabasePanel />);
+
+    fireEvent.click(screen.getByTestId('database-subnav-import'));
+
+    // The import surface mounts with its dropzone + paste affordance (the first-run launchpad).
+    expect(screen.getByTestId('import-panel')).toBeTruthy();
+    expect(screen.getByTestId('import-dropzone')).toBeTruthy();
+    expect(screen.getByTestId('import-choose-file')).toBeTruthy();
+  });
+
+  it('mounts the AI-seed panel + asks the per-site bridge for the table list when Seed is selected', () => {
+    render(<DatabasePanel />);
+
+    fireEvent.click(screen.getByTestId('database-subnav-seed'));
+
+    // The seed surface mounts and asks the per-site bridge for the table list (server-resolved D1).
+    expect(screen.getByTestId('ai-seed-panel')).toBeTruthy();
+    const tablesCall = postToParentSpy.mock.calls.find(
+      (c) => (c[0] as { type?: string })?.type === 'PS_SITEDB_TABLES_REQUEST',
+    );
+    expect(tablesCall).toBeTruthy();
+  });
+
+  it('mounts the Form builder (title + fields + create) when Forms is selected', () => {
+    render(<DatabasePanel />);
+
+    fireEvent.click(screen.getByTestId('database-subnav-forms'));
+
+    expect(screen.getByTestId('form-builder-panel')).toBeTruthy();
+    expect(screen.getByTestId('form-title')).toBeTruthy();
+    expect(screen.getByTestId('form-add-field')).toBeTruthy();
+    // The default fields render as editable rows (embarrassingly-easy: not a blank form).
+    expect(screen.getByTestId('form-field-0')).toBeTruthy();
+  });
 });
