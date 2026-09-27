@@ -294,51 +294,45 @@ export class AppComponent implements OnInit, OnDestroy {
    * full-viewport (safe). Kept as viewport px because the veil is `position: fixed`.
    */
   protected veilRect = signal<{ top: number; left: number; width: number; height: number } | null>(null);
-  private veilResizeObs?: ResizeObserver;
   /**
-   * While on the editor route, keep the veil sized to the bolt iframe's slot. Re-measures on
-   * show, on window resize, and whenever the iframe reflows (the sidebar collapse/expand +
-   * full-width toggle resize the content column → the iframe → this observer). The iframe's
-   * `getBoundingClientRect()` already yields {top: topbar-height, left: sidebar-width, …}, so
-   * matching it excludes the top navbar + side nav exactly. Cleans up its listeners on re-run.
+   * While on the editor route, keep the veil sized to the bolt iframe's slot (the editor content
+   * area: BELOW the top navbar, RIGHT OF the side nav). The iframe mounts a few SECONDS after the
+   * route flips (lazy chunk + WebContainer boot), so a one-shot measure misses it and the veil
+   * stays full-viewport — hence a per-FRAME poll that re-measures until the slot is known AND
+   * tracks the sidebar collapse/expand reflow, stopping once the editor is ready (veil fading).
+   * The iframe's `getBoundingClientRect()` yields {top: topbar-height, left: sidebar-width, …},
+   * so matching it excludes the top navbar + side nav exactly. `null` → full-viewport fallback.
    */
   private readonly _veilRectSync = effect((onCleanup) => {
     const on = this.isEditorRoute();
-    this.veilResizeObs?.disconnect();
-    this.veilResizeObs = undefined;
     if (!on || typeof document === 'undefined') {
       this.veilRect.set(null);
       return;
     }
-    const measure = (): void => {
+    let raf = 0;
+    const tick = (): void => {
       const frame = document.querySelector('.bolt-frame') as HTMLElement | null;
       const r = frame?.getBoundingClientRect();
-      if (r && r.width > 8 && r.height > 8 && r.top < window.innerHeight) {
-        this.veilRect.set({
+      if (r && r.width > 8 && r.height > 8 && r.top < window.innerHeight && r.left < window.innerWidth) {
+        const next = {
           top: Math.max(0, Math.round(r.top)),
           left: Math.max(0, Math.round(r.left)),
           width: Math.round(r.width),
           height: Math.round(r.height),
-        });
-      } else {
-        this.veilRect.set(null); // iframe not laid out yet → full-viewport fallback
+        };
+        const cur = this.veilRect();
+        if (!cur || cur.top !== next.top || cur.left !== next.left || cur.width !== next.width || cur.height !== next.height) {
+          this.veilRect.set(next);
+        }
+      }
+      // Keep polling while the veil is up (iframe may still be mounting / the sidebar may
+      // reflow); stop once the editor reports ready — the veil is fading out then anyway.
+      if (!this.bolt.editorReady()) {
+        raf = requestAnimationFrame(tick);
       }
     };
-    measure();
-    requestAnimationFrame(measure);
-    const settleTimer = setTimeout(measure, 150);
-    window.addEventListener('resize', measure);
-    const frame = document.querySelector('.bolt-frame');
-    if (frame && typeof ResizeObserver !== 'undefined') {
-      this.veilResizeObs = new ResizeObserver(measure);
-      this.veilResizeObs.observe(frame);
-    }
-    onCleanup(() => {
-      clearTimeout(settleTimer);
-      window.removeEventListener('resize', measure);
-      this.veilResizeObs?.disconnect();
-      this.veilResizeObs = undefined;
-    });
+    raf = requestAnimationFrame(tick);
+    onCleanup(() => cancelAnimationFrame(raf));
   });
   /** True while a LAZY route chunk is downloading (a cold deep-link to a heavy route like
    * `/create` takes ~3s to hydrate) — drives an instant loading skeleton so the funnel
