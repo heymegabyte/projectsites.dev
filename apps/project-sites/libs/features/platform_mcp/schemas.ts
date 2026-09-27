@@ -720,3 +720,27 @@ export const DataBackendInventoryInput = z
   })
   .strict();
 export type DataBackendInventoryArgs = z.infer<typeof DataBackendInventoryInput>;
+
+/**
+ * `data_provision_resource` — PROVISION a per-site DEDICATED resource (the provisioning wire-up:
+ * `not_registered` → live dedicated D1/KV/R2). A caller names ONLY the OWNED `site_id` + the `kind`
+ * (`d1` | `kv` | `r2`) + `confirm` (NEVER a CF id/account — the id is what provisioning PRODUCES,
+ * server-side). ⚠️ Provisioning creates REAL, BILLABLE Cloudflare infrastructure, so `confirm:true` is
+ * REQUIRED — without it the dispatcher returns a confirmation error and CREATES NOTHING. IDEMPOTENT:
+ * if the site already has this resource, the existing allocation is returned and nothing is created.
+ * Before creating, the platform checks the REAL Cloudflare account quota — at cap → an honest
+ * `quota_at_cap` error (a shared resource is NEVER substituted silently). A partial failure (the CF
+ * resource was created but the registry record failed) is reported so it is RECOVERABLE (re-run is
+ * idempotent). `.strict()` rejects any attempt to smuggle a `resourceId`/`databaseId`/`namespaceId`/
+ * `bucket`/`accountId`. Ownership + isolation + `data_resource_platform` flag-gate + `data:write` scope
+ * are enforced server-side.
+ */
+export const DataProvisionResourceInput = z
+  .object({
+    site_id: z.string().min(1),
+    kind: z.enum(['d1', 'kv', 'r2']),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+export type DataProvisionResourceArgs = z.infer<typeof DataProvisionResourceInput>;

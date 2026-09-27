@@ -51,6 +51,11 @@ import {
 } from '../../../../src/services/site_data_db.js';
 
 import type { AdapterResult, ResolvedScope, ResourceAdapter } from '../adapter.js';
+import {
+  runProvisionMutation,
+  type ProvisionInput,
+  type ProvisionMutateResult,
+} from '../provision_mutation.js';
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
 
@@ -126,7 +131,7 @@ export interface D1ExecInput {
 }
 
 /** The discriminated named-mutation union for the d1 adapter — NEVER a generic `{ sql }` bare field. */
-export type D1MutateInput = D1ExecInput;
+export type D1MutateInput = D1ExecInput | ProvisionInput;
 
 /**
  * What a successful `exec` returns: the honestly-classified effect, D1's GROUND-TRUTH meta (`rowsRead`/
@@ -150,7 +155,7 @@ export interface D1ExecResult {
 }
 
 /** The discriminated result union a successful `mutate` returns. */
-export type D1MutateResult = D1ExecResult;
+export type D1MutateResult = D1ExecResult | ProvisionMutateResult;
 
 /** SQLite keywords whose statement MUTATES the database. */
 const MUTATING_KEYWORDS: ReadonlySet<string> = new Set([
@@ -329,7 +334,7 @@ class D1Adapter
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: ['exec'] as const,
+    mutations: ['exec', 'provision'] as const,
     verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
@@ -534,6 +539,14 @@ class D1Adapter
    */
   async mutate(scope: ResolvedScope, input: D1MutateInput): Promise<AdapterResult<D1MutateResult>> {
     const cid = correlationId();
+
+    // PROVISION runs BEFORE the resolved-id checks: it CREATES the database, so `scope.resourceId` is
+    // empty (the id is the output) and the shared-id denylist doesn't apply yet. Delegated to the shared
+    // provision bridge (idempotency → quota → provisioner → registry record → recoverable partial).
+    if (input && input.action === 'provision') {
+      return runProvisionMutation(cid, scope, 'd1', input);
+    }
+
     const databaseId = scope.resourceId;
     const forbidden = refuseSharedId<D1MutateResult>(cid, databaseId);
     if (forbidden) return forbidden;

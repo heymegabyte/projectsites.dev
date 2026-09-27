@@ -34,6 +34,11 @@
 import { cfAuthHeaders } from '../../../../src/services/cf_credentials.js';
 
 import type { AdapterResult, ResolvedScope, ResourceAdapter } from '../adapter.js';
+import {
+  runProvisionMutation,
+  type ProvisionInput,
+  type ProvisionMutateResult,
+} from '../provision_mutation.js';
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
 
@@ -144,7 +149,7 @@ export interface KvDeleteInput {
 }
 
 /** The discriminated named-mutation union for the kv adapter — NEVER a generic `{ command }` field. */
-export type KvMutateInput = KvPutInput | KvDeleteInput;
+export type KvMutateInput = KvPutInput | KvDeleteInput | ProvisionInput;
 
 /** What a KV `put` returns: the key written + whether it overwrote a prior value + TTL/metadata echoes. */
 export interface KvPutResult {
@@ -167,7 +172,7 @@ export interface KvDeleteResult {
 }
 
 /** The discriminated result union a successful `mutate` returns. */
-export type KvMutateResult = KvPutResult | KvDeleteResult;
+export type KvMutateResult = KvPutResult | KvDeleteResult | ProvisionMutateResult;
 
 /** Mint a correlation id for one adapter call (structured-logging: every envelope carries one). */
 function correlationId(): string {
@@ -216,7 +221,7 @@ class KvAdapter
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: ['put', 'delete'] as const,
+    mutations: ['put', 'delete', 'provision'] as const,
     verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
@@ -442,6 +447,13 @@ class KvAdapter
    */
   async mutate(scope: ResolvedScope, input: KvMutateInput): Promise<AdapterResult<KvMutateResult>> {
     const cid = correlationId();
+
+    // PROVISION runs BEFORE the put/delete handling: it CREATES the namespace, so `scope.resourceId` is
+    // empty (the id is the output). Delegated to the shared provision bridge (idempotency → quota →
+    // provisioner → registry record → recoverable partial).
+    if (input && input.action === 'provision') {
+      return runProvisionMutation(cid, scope, 'kv', input);
+    }
 
     if (!input || (input.action !== 'put' && input.action !== 'delete')) {
       return {

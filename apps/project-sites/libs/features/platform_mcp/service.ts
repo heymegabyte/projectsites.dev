@@ -77,8 +77,10 @@ import {
   DataAnalyticsListInput,
   DataAnalyticsQuerySummaryInput,
   DataBackendInventoryInput,
+  DataProvisionResourceInput,
 } from './schemas.js';
 import { getBackendInventory } from '../data_resource_registry/backend_inventory.js';
+import { provisionResource } from '../data_resource_registry/service.js';
 
 /** Flag gating the Data & Resource Platform MCP tools (registry read surface). */
 const DATA_RESOURCE_FLAG = 'data_resource_platform';
@@ -958,6 +960,23 @@ export const PLATFORM_MCP_TOOLS = [
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_provision_resource',
+    description:
+      "PROVISION a per-site DEDICATED Cloudflare resource for one of your sites — turn 'not provisioned' into a live, isolated D1 database, KV namespace, or R2 bucket. kind = 'd1' | 'kv' | 'r2'. Returns { kind, resourceId, registryRowId, created, displayName }. ⚠️ This creates REAL, BILLABLE Cloudflare infrastructure, so it REQUIRES confirm:true — without confirm you get a confirmation error and NOTHING is created. ✅ IDEMPOTENT: if your site already has that resource, the existing one is returned and nothing new is created (never a duplicate). Before creating, the platform checks the REAL Cloudflare account capacity — if the account is at its quota for that kind you get an honest 'quota reached' error (a shared resource is NEVER substituted silently). If the resource is created but recording it fails, you get a recoverable partial-state error (re-run to finish — it reuses the created resource). You name only the site_id + kind (+ optional environment) — never a Cloudflare id; the id is generated server-side and isolated to your site.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        kind: { type: 'string', enum: ['d1', 'kv', 'r2'] },
+        confirm: { type: 'boolean' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'kind'],
       additionalProperties: false,
     },
   },
@@ -2498,6 +2517,68 @@ export async function dispatchPlatformTool(
       // ⛔ Secret NAMES + last-change ONLY — the reader never SELECTs value_encrypted; no value can leak.
       const inv = await getBackendInventory(env, site_id, orgId, environment);
       return ok(inv);
+    }
+
+    case 'data_provision_resource': {
+      // Flag-gated on the umbrella data_resource_platform flag (dark → err, mirroring the Data-tab 404).
+      if (
+        !(await isFlagOn(env, DATA_RESOURCE_FLAG, { orgId, siteId: String(args.site_id ?? '') }))
+      ) {
+        return err('The Data & Resource platform is not enabled for this account.');
+      }
+      const { site_id, kind, confirm, environment } = DataProvisionResourceInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF id — the caller
+      // named only site_id + kind; the resource id is GENERATED server-side + isolated to the owned site.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      // provisionResource owns the whole flow: idempotent (existing → reuse, create nothing) → REAL
+      // account quota check (at cap → honest err, never a silent shared substitution) → the (previously
+      // inert) provisioner → registry record → RECOVERABLE partial on a half-provision. confirm:true is
+      // REQUIRED (billable infra). Ownership already proven above → pass an always-true guard (it still
+      // re-scopes every read on site+org).
+      const result = await provisionResource(env, site_id, kind, {
+        confirm,
+        environment,
+        orgId,
+        ownsSite: async () => true,
+      });
+      if (result.ok) {
+        return ok({
+          site_id,
+          environment,
+          kind,
+          resourceId: result.resourceId,
+          registryRowId: result.registryRowId,
+          created: result.created,
+          displayName: result.displayName,
+        });
+      }
+      // Honest, typed refusal (confirm/quota/partial/etc.) — a record_failed names the created id so the
+      // partial state is recoverable; a foreign site is 404-on-foreign (never leak existence).
+      switch (result.reason) {
+        case 'confirmation_required':
+          return err(
+            `Provisioning a dedicated ${kind.toUpperCase()} resource creates real, billable Cloudflare infrastructure. Re-run with confirm:true to create it.`,
+          );
+        case 'quota_at_cap':
+          return err(
+            `The Cloudflare account ${kind.toUpperCase()} quota has been reached — cannot provision a new dedicated ${kind.toUpperCase()} resource. (A shared resource is never substituted silently.)`,
+          );
+        case 'quota_check_failed':
+          return err('Could not verify Cloudflare account capacity; provisioning was not attempted. Try again shortly.');
+        case 'record_failed':
+          return err(
+            `The ${kind.toUpperCase()} resource was CREATED (id/name: ${result.resourceId}) but recording it failed — recoverable: re-run data_provision_resource to finish (it reuses the created resource). Detail: ${result.detail}`,
+          );
+        case 'not_owned':
+          return err('Site not found.');
+        default:
+          return err(`Could not provision the dedicated ${kind.toUpperCase()} resource.`);
+      }
     }
 
     default:

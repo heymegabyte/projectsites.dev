@@ -21,8 +21,13 @@ import type { Env } from '../../../src/types/env.js';
 import { dbInsert, dbQuery, dbQueryOne } from '../../../src/services/db.js';
 import { assertSiteOwned } from '../../../src/services/site_ownership.js';
 import { FORBIDDEN_DB_IDS } from '../../../src/services/site_data_db.js';
+import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
+import { provisionSiteD1 } from '../../../src/services/d1_provisioner.js';
+import { provisionSiteKv } from '../../../src/services/kv_provisioner.js';
+import { provisionSiteR2 } from '../../../src/services/r2_provisioner.js';
 import { uuidv7 } from '../../../src/lib/uuid.js';
 
+import { checkAccountResourceQuota, type ProvisionableKind } from './quota.js';
 import {
   type RecordResourceInput,
   RecordResourceInputSchema,
@@ -351,5 +356,224 @@ export async function resolveResourceRef(
     registryRowId: row.id,
     resourceId: row.resource_id_or_name,
     resourceKind: parsedRef.kind,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// provisionResource — the PROVISIONING wire-up (not_registered → live dedicated)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The per-kind display + access-policy metadata used when recording a freshly-provisioned row. */
+const PROVISION_META: Record<
+  ProvisionableKind,
+  { readonly accessPolicy: ResourceRecord['accessPolicy']; readonly label: string }
+> = {
+  d1: { accessPolicy: 'no_direct', label: 'D1 database' }, // per-site D1 reached via REST/service binding (INV-8)
+  kv: { accessPolicy: 'site_scoped', label: 'KV namespace' },
+  r2: { accessPolicy: 'site_scoped', label: 'R2 bucket' },
+};
+
+/**
+ * The typed outcome of {@link provisionResource}. Every non-success is an HONEST, typed reason — a
+ * `record_failed` carries the created CF id so the PARTIAL state is recoverable (never a silent
+ * half-provision). `quota_at_cap` names the kind so the caller can render an honest "account D1 quota
+ * reached" — NEVER a silent shared substitution.
+ */
+export type ProvisionResourceResult =
+  | {
+      readonly ok: true;
+      /** The site's dedicated CF id (D1 uuid / KV namespace id) or name (R2 bucket). */
+      readonly resourceId: string;
+      /** The registry `site_resource_registry.id` recorded for it. */
+      readonly registryRowId: string;
+      /** true when THIS call freshly created the resource; false when an existing allocation was reused. */
+      readonly created: boolean;
+      /** Human display name of the provisioned resource. */
+      readonly displayName: string;
+    }
+  | {
+      // The provisioner succeeded (a REAL CF resource + allocation exist) but the registry record
+      // failed — a RECOVERABLE partial state: re-running provisionResource is idempotent (it reuses the
+      // allocation) and will retry the record. The caller MUST surface this, never treat it as clean.
+      readonly ok: false;
+      readonly reason: 'record_failed';
+      /** The created CF id/name — the resource EXISTS; only the registry row is missing. */
+      readonly resourceId: string;
+      readonly detail: string;
+    }
+  | {
+      readonly ok: false;
+      readonly reason:
+        | 'unsupported_kind' // a kind with no live provisioner (only d1/kv/r2 provision here)
+        | 'unauthorized' // no authed org
+        | 'not_owned' // site+env not owned by the caller's org (404-on-foreign in the route)
+        | 'confirmation_required' // confirm:true is REQUIRED — provisioning creates billable infra
+        | 'quota_at_cap' // account is at cap for this kind — refuse, NEVER silently share
+        | 'quota_check_failed' // could not read the account count — fail closed, do not provision
+        | 'no_cf_credentials'
+        | 'no_account_id'
+        | 'provision_failed'; // the CF create itself failed (records nothing)
+      readonly status?: number;
+    };
+
+/** Invoke the right provisioner for a kind — each is idempotent (reuses an existing allocation). */
+async function runProvisioner(
+  env: Env,
+  kind: ProvisionableKind,
+  args: { siteId: string; tenantId: string; orgId: string | null },
+): Promise<
+  | { ok: true; resourceId: string; displayName: string; reused: boolean }
+  | { ok: false; reason: string; status?: number }
+> {
+  if (kind === 'd1') {
+    const r = await provisionSiteD1(env, args);
+    return r.ok
+      ? { displayName: r.databaseName, ok: true, resourceId: r.databaseId, reused: r.reused }
+      : { ok: false, reason: r.reason, status: r.status };
+  }
+  if (kind === 'kv') {
+    const r = await provisionSiteKv(env, args);
+    return r.ok
+      ? { displayName: r.namespaceName, ok: true, resourceId: r.namespaceId, reused: r.reused }
+      : { ok: false, reason: r.reason, status: r.status };
+  }
+  const r = await provisionSiteR2(env, args);
+  return r.ok
+    ? { displayName: r.bucketName, ok: true, resourceId: r.bucketName, reused: r.reused }
+    : { ok: false, reason: r.reason, status: r.status };
+}
+
+/**
+ * PROVISION a per-site DEDICATED resource — the wire-up that turns `not_registered` into a live,
+ * registry-recorded, tenancy=`dedicated` allocation by calling the (previously inert) provisioner.
+ *
+ * The flow (SECURITY-INVARIANTS + the directive):
+ *   1. AUTH        — `orgId` from the authed context (never the client). `confirm:true` REQUIRED
+ *                    (provisioning creates REAL billable CF infra — approval-required, INV-11).
+ *   2. SUPPORT     — only `d1`/`kv`/`r2` have a live provisioner; anything else → `unsupported_kind`.
+ *   3. OWNERSHIP   — `ownsSite(env, orgId, siteId)` (default {@link assertSiteOwned}) else `not_owned`
+ *                    (the route renders 404 — never leak existence).
+ *   4. IDEMPOTENT  — if the site ALREADY has this resource (a live registry row for the kind), return
+ *                    it and CREATE NOTHING (no duplicate CF resource, no duplicate row).
+ *   5. QUOTA       — BEFORE creating, check the REAL account count via the CF API. At cap → honest
+ *                    `quota_at_cap` (NEVER a silent shared substitution). Indeterminate → fail closed.
+ *   6. CREATE      — call the idempotent provisioner (creates the CF resource + the allocation row).
+ *   7. RECORD      — `recordResource` a tenancy=`dedicated` registry row. If the provisioner succeeded
+ *                    but the record fails → return `record_failed` WITH the created id so the partial
+ *                    state is RECOVERABLE (re-run is idempotent), never a silent half-provision.
+ *
+ * The caller MUST have proven org ownership upstream when passing an always-true `ownsSite` (the MCP
+ * dispatcher does its own `WHERE id=? AND org_id=?`); otherwise the default guard enforces it.
+ *
+ * @param env - worker env (DB + CF_ACCOUNT_ID + creds source)
+ * @param siteId - the OWNED site (server-side; NEVER a client-supplied CF id)
+ * @param kind - the provisionable account_resource kind (`d1` | `kv` | `r2`)
+ * @param opts.environment - 'preview' | 'production' (the registry row's environment)
+ * @param opts.orgId - the caller's authed org (`c.get('orgId')`); `undefined` → `unauthorized`
+ * @param opts.confirm - MUST be `true` — provisioning creates billable infra
+ * @param opts.tenantId - the allocation's tenant (defaults to `orgId ?? siteId`)
+ * @param opts.ownsSite - injectable ownership guard (default {@link assertSiteOwned})
+ * @returns a typed {@link ProvisionResourceResult}
+ */
+export async function provisionResource(
+  env: Env,
+  siteId: string,
+  kind: ProvisionableKind,
+  opts: {
+    environment: ResourceRef['environment'];
+    orgId?: string | undefined;
+    confirm?: boolean;
+    tenantId?: string | null;
+    ownsSite?: OwnershipGuard;
+  },
+): Promise<ProvisionResourceResult> {
+  const orgId = opts.orgId;
+  const environment = opts.environment;
+  const ownsSite = opts.ownsSite ?? assertSiteOwned;
+
+  // 1. AUTH + confirm gate — provisioning creates REAL billable infra (INV-11 approval-required).
+  if (!orgId) return { ok: false, reason: 'unauthorized' };
+  if (opts.confirm !== true) return { ok: false, reason: 'confirmation_required' };
+
+  // 2. SUPPORT — only the three kinds with a live provisioner.
+  const meta = PROVISION_META[kind];
+  if (!meta) return { ok: false, reason: 'unsupported_kind' };
+
+  // 3. OWNERSHIP — the site must belong to the caller's org (404-on-foreign in the route).
+  if (!(await ownsSite(env, orgId, siteId))) {
+    return { ok: false, reason: 'not_owned' };
+  }
+
+  // 4. IDEMPOTENT — an existing live registry row for this kind means it's already provisioned. Return
+  //    it and CREATE NOTHING (no double-provision). Belt-and-braces with the provisioner's own reuse.
+  const existing = await dbQueryOne<{ id: string; resource_id_or_name: string | null; resource_display_name: string | null }>(
+    env.DB,
+    `SELECT id, resource_id_or_name, resource_display_name FROM site_resource_registry
+       WHERE site_id = ? AND org_id = ? AND environment = ? AND resource_kind = ?
+         AND resource_concept = 'account_resource' AND deleted_at IS NULL
+         AND resource_id_or_name IS NOT NULL
+       ORDER BY created_at LIMIT 1`,
+    [siteId, orgId, environment, kind],
+  );
+  if (existing?.resource_id_or_name) {
+    return {
+      created: false,
+      displayName: existing.resource_display_name ?? existing.resource_id_or_name,
+      ok: true,
+      registryRowId: existing.id,
+      resourceId: existing.resource_id_or_name,
+    };
+  }
+
+  // 5. QUOTA — count the REAL account resources BEFORE creating. A per-site WfP namespace does NOT
+  //    raise account-wide D1/KV/R2 limits, so this is the only honest capacity signal. At cap → refuse
+  //    with a typed error (NEVER a silent shared binding). Indeterminate probe → fail closed.
+  const auth = await resolveCfCredentials(env, orgId);
+  if (!auth) return { ok: false, reason: 'no_cf_credentials' };
+  const account = env.CF_ACCOUNT_ID;
+  if (!account) return { ok: false, reason: 'no_account_id' };
+
+  const quota = await checkAccountResourceQuota(auth, account, kind);
+  if (!quota.ok) return { ok: false, reason: 'quota_check_failed', status: quota.status };
+  if (quota.atCap) return { ok: false, reason: 'quota_at_cap' };
+
+  // 6. CREATE — the idempotent provisioner creates the CF resource + records the allocation row.
+  const tenantId = opts.tenantId ?? orgId ?? siteId;
+  const prov = await runProvisioner(env, kind, { orgId, siteId, tenantId });
+  if (!prov.ok) {
+    return {
+      ok: false,
+      reason: prov.reason === 'no_account_id' ? 'no_account_id' : 'provision_failed',
+      status: prov.status,
+    };
+  }
+
+  // 7. RECORD — a tenancy=dedicated registry row. If THIS fails after the CF resource exists, report a
+  //    RECOVERABLE partial state (the id is live; re-running provisionResource reuses it + retries the
+  //    record) — never a silent half-provision (the directive's "keep provision + record recoverable").
+  const recorded = await recordResource(env, {
+    accessPolicy: meta.accessPolicy,
+    deletionProtected: true,
+    environment,
+    lifecycleState: 'active',
+    orgId,
+    provisioningMethod: 'eager',
+    resourceConcept: 'account_resource',
+    resourceDisplayName: prov.displayName,
+    resourceIdOrName: prov.resourceId,
+    resourceKind: kind,
+    siteId,
+    tenancy: 'dedicated',
+  });
+  if (!recorded.ok) {
+    return { detail: recorded.error, ok: false, reason: 'record_failed', resourceId: prov.resourceId };
+  }
+
+  return {
+    created: !prov.reused,
+    displayName: prov.displayName,
+    ok: true,
+    registryRowId: recorded.id,
+    resourceId: prov.resourceId,
   };
 }

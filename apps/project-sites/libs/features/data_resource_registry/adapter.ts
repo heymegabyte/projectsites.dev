@@ -73,6 +73,20 @@ export interface ResolvedScope {
    * contract.
    */
   readonly ingestEnabled?: boolean;
+  /**
+   * The worker env, present ONLY for the `mutate({action:'provision'})` PROVISIONING verb (d1/kv/r2). A
+   * provision creates a NEW CF resource, so — unlike every read/write verb that operates on an
+   * ALREADY-resolved `resourceId` — it needs the DB + creds source to run the provisioner + quota check +
+   * registry record (`service.provisionResource`). Server-attached (never caller-supplied); every non-provision
+   * verb ignores it — additive, never widens their contract. For a provision scope `resourceId` may be empty
+   * (the id is what provision PRODUCES).
+   */
+  readonly env?: import('../../../src/types/env.js').Env;
+  /**
+   * The allocation tenant for a `provision` (defaults to `orgId`). Server-attached, never caller-supplied;
+   * only the provision verb reads it.
+   */
+  readonly tenantId?: string;
 }
 
 /**

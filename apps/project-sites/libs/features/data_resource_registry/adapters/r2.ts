@@ -59,6 +59,11 @@
 import { cfAuthHeaders } from '../../../../src/services/cf_credentials.js';
 
 import type { AdapterResult, ResolvedScope, ResourceAdapter } from '../adapter.js';
+import {
+  runProvisionMutation,
+  type ProvisionInput,
+  type ProvisionMutateResult,
+} from '../provision_mutation.js';
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
 
@@ -197,7 +202,7 @@ export interface R2DeleteInput {
 }
 
 /** The discriminated named-mutation union for the r2 adapter — NEVER a generic `{ command }` field. */
-export type R2MutateInput = R2PutInput | R2DeleteInput;
+export type R2MutateInput = R2PutInput | R2DeleteInput | ProvisionInput;
 
 /** What an R2 `put` returns: the key written + whether it overwrote a prior object + a metadata echo. */
 export interface R2PutResult {
@@ -220,7 +225,7 @@ export interface R2DeleteResult {
 }
 
 /** The discriminated result union a successful `mutate` returns. */
-export type R2MutateResult = R2PutResult | R2DeleteResult;
+export type R2MutateResult = R2PutResult | R2DeleteResult | ProvisionMutateResult;
 
 /** Mint a correlation id for one adapter call (structured-logging: every envelope carries one). */
 function correlationId(): string {
@@ -282,7 +287,7 @@ class R2Adapter
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: ['put', 'delete'] as const,
+    mutations: ['put', 'delete', 'provision'] as const,
     verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
@@ -534,6 +539,13 @@ class R2Adapter
    */
   async mutate(scope: ResolvedScope, input: R2MutateInput): Promise<AdapterResult<R2MutateResult>> {
     const cid = correlationId();
+
+    // PROVISION runs BEFORE the put/delete handling: it CREATES the bucket, so `scope.resourceId` is
+    // empty (the name is the output). Delegated to the shared provision bridge (idempotency → quota →
+    // provisioner → registry record → recoverable partial).
+    if (input && input.action === 'provision') {
+      return runProvisionMutation(cid, scope, 'r2', input);
+    }
 
     if (!input || (input.action !== 'put' && input.action !== 'delete')) {
       return {
