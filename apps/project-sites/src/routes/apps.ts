@@ -1210,9 +1210,46 @@ apps.patch('/api/apps/instances/:id/env', async (c) => {
   return c.json({ ok: true, status: 'starting' });
 });
 
+/** DoH A-record lookup (Google `dns.google` — reliable clean JSON from Workers; retried once
+ *  on an empty/failed response since a transient empty would false-negative the A-match). */
+async function dohARecords(name: string): Promise<string[]> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(name)}&type=A`);
+      if (r.ok) {
+        const j = (await r.json()) as { Answer?: Array<{ type: number; data: string }> };
+        const ips = (j.Answer ?? []).filter((a) => a.type === 1).map((a) => a.data);
+        if (ips.length > 0) return ips;
+      }
+    } catch {
+      /* retry */
+    }
+  }
+  return [];
+}
+
 /**
- * `GET /api/apps/instances/:id/cname-check?domain=` — Read-only: does `domain` CNAME to
- * projectsites.dev yet? Powers the domain-manager's live green/red CNAME status. Safe (DoH).
+ * Is `domain` pointed at projectsites.dev? TRUE when EITHER it has a literal CNAME to
+ * projectsites.dev (registrars that expose CNAMEs — GoDaddy/Namecheap) OR its A records match
+ * projectsites.dev's (registrars that FLATTEN the CNAME at apex/authoritative — Cloudflare).
+ * The A-match arm is essential: a Cloudflare-hosted domain resolves to CF anycast IPs with NO
+ * literal CNAME record, so a CNAME-only check wrongly reports "not pointed". (Found live via
+ * test-me.megabyte.space, 2026-09-27.)
+ */
+async function verifyPointed(domain: string): Promise<{ ok: boolean; target: string | null }> {
+  const cname = await checkCnameTarget(domain);
+  if (cname && /(^|\.)projectsites\.dev$/.test(cname.toLowerCase())) {
+    return { ok: true, target: cname };
+  }
+  const [domA, platA] = await Promise.all([dohARecords(domain), dohARecords('projectsites.dev')]);
+  const plat = new Set(platA);
+  const flattened = domA.length > 0 && domA.some((ip) => plat.has(ip));
+  return { ok: flattened, target: cname ?? (flattened ? 'projectsites.dev (flattened)' : null) };
+}
+
+/**
+ * `GET /api/apps/instances/:id/cname-check?domain=` — Read-only: is `domain` pointed at
+ * projectsites.dev yet (literal CNAME OR flattened A-match)? Powers the live green/red status.
  */
 apps.get('/api/apps/instances/:id/cname-check', async (c) => {
   const { orgId } = requireAuth(c);
@@ -1221,8 +1258,7 @@ apps.get('/api/apps/instances/:id/cname-check', async (c) => {
   const domain = (c.req.query('domain') ?? '').trim().toLowerCase();
   if (!domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain))
     throw badRequest('Provide a valid domain.');
-  const target = await checkCnameTarget(domain);
-  const ok = !!target && /(^|\.)projectsites\.dev$/.test(target.toLowerCase());
+  const { ok, target } = await verifyPointed(domain);
   return c.json({ domain, target, ok, expected: 'projectsites.dev' });
 });
 
@@ -1319,14 +1355,25 @@ apps.post('/api/apps/instances/:id/domains', async (c) => {
   if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain) || domain.endsWith('.projectsites.dev')) {
     throw badRequest('Enter a custom domain you own (not a *.projectsites.dev subdomain).');
   }
-  // Gate on a real CNAME → projectsites.dev before issuing a cert (HTTP-DV needs it resolving).
-  const target = await checkCnameTarget(domain);
-  if (!target || !/(^|\.)projectsites\.dev$/.test(target.toLowerCase())) {
-    throw badRequest(
-      `${domain} is not pointed at projectsites.dev yet — add a CNAME record first, then retry.`,
-    );
+  // NOTE: no hard DNS pre-gate. Cloudflare's custom-hostname validation IS the authority — it
+  // issues the cert only once the CNAME resolves (HTTP-DV), so we create the hostname now and
+  // let the live domain-status ladder surface the real cert progress. A best-effort DoH check
+  // (`verifyPointed`) drives the UI hint but must never false-negative-block the attach (found
+  // live 2026-09-27: recursive DoH is negative-cached / flattening hides the literal CNAME).
+  let cf: Awaited<ReturnType<typeof createCustomHostname>>;
+  try {
+    cf = await createCustomHostname(c.env, domain);
+  } catch (err) {
+    // Map CF's "no quota" (SSL for SaaS not provisioned on the zone) to a clean, actionable
+    // message instead of leaking the raw CF JSON to the owner.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/quota|1404|SSL for SaaS/i.test(msg)) {
+      throw badRequest(
+        'Custom domains need SSL for SaaS enabled on this account. The DNS is verified — an admin must turn on Cloudflare for SaaS (custom hostnames) to issue the certificate.',
+      );
+    }
+    throw err;
   }
-  const cf = await createCustomHostname(c.env, domain);
   await setAppHost(c.env, domain, {
     instanceId: row.id,
     appSlug: row.app_slug,
@@ -1525,8 +1572,9 @@ apps.get('/api/apps/instances/:id/domain-status', async (c) => {
   if (!row) throw notFound('app_instance not found');
   const domain = (c.req.query('domain') ?? '').trim().toLowerCase().replace(/\.$/, '');
   if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) throw badRequest('Provide a valid domain.');
-  const target = await checkCnameTarget(domain);
-  const dnsOk = !!target && /(^|\.)projectsites\.dev$/.test(target.toLowerCase());
+  const pointed = await verifyPointed(domain);
+  const target = pointed.target;
+  const dnsOk = pointed.ok;
   let chStatus = 'none';
   let sslStatus = 'none';
   try {

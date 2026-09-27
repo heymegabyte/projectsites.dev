@@ -854,17 +854,57 @@ describe('GET /api/apps/instances/:id/cname-check', () => {
     expect((await res.json()) as { ok: boolean }).toMatchObject({ ok: true });
   });
 
-  it('ok:false when the CNAME is missing / wrong target', async () => {
+  it('ok:false when no CNAME + A records do not match projectsites.dev', async () => {
     mockDbQueryOne.mockResolvedValue(instanceRow());
     mockCname.mockResolvedValue(null);
-    const res = await req(
-      makeApp(AUTH),
-      '/api/apps/instances/inst-1/cname-check?domain=cms.acme.com',
-      { method: 'GET' },
-      makeEnv(),
-    );
-    expect(res.status).toBe(200);
-    expect((await res.json()) as { ok: boolean }).toMatchObject({ ok: false });
+    // dns.google A-match: domain resolves elsewhere, platform elsewhere → no overlap.
+    const realFetch = global.fetch;
+    global.fetch = jest.fn(async (url: string | URL | Request) => {
+      const u = String(url);
+      const ips = u.includes('projectsites.dev') ? ['203.0.113.1'] : ['198.51.100.9'];
+      return new Response(JSON.stringify({ Answer: ips.map((data) => ({ type: 1, data })) }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+    try {
+      const res = await req(
+        makeApp(AUTH),
+        '/api/apps/instances/inst-1/cname-check?domain=cms.acme.com',
+        { method: 'GET' },
+        makeEnv(),
+      );
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { ok: boolean }).toMatchObject({ ok: false });
+    } finally {
+      global.fetch = realFetch;
+    }
+  });
+
+  it('ok:true via FLATTENED A-match when there is no literal CNAME (Cloudflare-hosted domain)', async () => {
+    // The bug the live exercise found: a CF-flattened domain has NO literal CNAME, but its A
+    // records equal projectsites.dev's. Verification must accept that.
+    mockDbQueryOne.mockResolvedValue(instanceRow());
+    mockCname.mockResolvedValue(null); // no literal CNAME (flattened)
+    const realFetch = global.fetch;
+    global.fetch = jest.fn(async () =>
+      // Both the domain AND projectsites.dev resolve to the same CF anycast IPs.
+      new Response(
+        JSON.stringify({ Answer: [{ type: 1, data: '104.21.28.71' }, { type: 1, data: '172.67.144.156' }] }),
+        { status: 200 },
+      ),
+    ) as unknown as typeof fetch;
+    try {
+      const res = await req(
+        makeApp(AUTH),
+        '/api/apps/instances/inst-1/cname-check?domain=test-me.megabyte.space',
+        { method: 'GET' },
+        makeEnv(),
+      );
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { ok: boolean }).toMatchObject({ ok: true });
+    } finally {
+      global.fetch = realFetch;
+    }
   });
 });
 
@@ -889,9 +929,30 @@ describe('GET /api/apps/instances/:id/domain-availability', () => {
 });
 
 describe('custom domains (attach · list · primary · detach)', () => {
-  it('rejects attach when the CNAME is not pointed yet', async () => {
+  it('does NOT hard-gate on the DoH pre-check — CF validation is the authority (creates the hostname)', async () => {
+    // Live-exercise lesson (2026-09-27): recursive DoH is negative-cached / flattening hides the
+    // literal CNAME, so a DoH pre-gate false-negative-blocks a genuinely-pointed domain. Attach
+    // now always creates the CF custom hostname; CF issues the cert only once DNS validates.
     mockDbQueryOne.mockResolvedValue(instanceRow());
-    mockCname.mockResolvedValue(null);
+    mockCname.mockResolvedValue(null); // DoH says "no CNAME"…
+    mockCreateHost.mockResolvedValue({ cf_id: 'cf-x', status: 'pending', ssl_status: 'pending' });
+    mockDbQuery.mockResolvedValue({ data: [{ n: 0 }], error: null });
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/domains',
+      jsonInit('POST', { domain: 'cms.acme.com' }),
+      makeEnv(),
+    );
+    expect(res.status).toBe(200); // …but attach still proceeds — CF is the gate.
+    expect(mockCreateHost).toHaveBeenCalledWith(expect.anything(), 'cms.acme.com');
+  });
+
+  it('maps CF "no SSL-for-SaaS quota" to a clean, actionable error', async () => {
+    mockDbQueryOne.mockResolvedValue(instanceRow());
+    mockCname.mockResolvedValue('proxy.projectsites.dev');
+    mockCreateHost.mockRejectedValue(
+      new Error('Failed to create custom hostname: {"errors":[{"code":1404,"message":"No quota has been allocated"}]}'),
+    );
     const res = await req(
       makeApp(AUTH),
       '/api/apps/instances/inst-1/domains',
@@ -899,7 +960,8 @@ describe('custom domains (attach · list · primary · detach)', () => {
       makeEnv(),
     );
     expect(res.status).toBe(400);
-    expect(mockCreateHost).not.toHaveBeenCalled();
+    const json = (await res.json()) as { error: { message: string } };
+    expect(json.error.message).toMatch(/SSL for SaaS/i);
   });
 
   it('attaches a pointed domain: provisions the CF hostname + persists it as primary', async () => {
