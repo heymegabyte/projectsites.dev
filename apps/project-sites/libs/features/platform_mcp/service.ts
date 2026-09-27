@@ -50,6 +50,8 @@ import {
   DataListTablesInput,
   DataReadTableInput,
   DataD1ExecInput,
+  DataD1ExplainInput,
+  DataD1MigrationsInput,
   DataKvListKeysInput,
   DataKvGetInput,
   DataKvPutInput,
@@ -498,6 +500,38 @@ export const PLATFORM_MCP_TOOLS = [
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id', 'sql'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_d1_explain',
+    description:
+      "Get the QUERY PLAN for a read statement against your site's OWN dedicated database — run EXPLAIN QUERY PLAN <sql> to see how D1/SQLite will execute it (index use, scans, joins). Pass positional params for bound VALUES (?) — identifiers can't be parameterized. Returns { effect, plan:[{id,parent,detail}], duration_ms }. ⚠️ READ-ONLY: this ONLY explains a read (SELECT / WITH…SELECT / VALUES) statement — a data-mutating statement (INSERT/UPDATE/DELETE/CREATE/ALTER/DROP/…) is REFUSED with an error and NOTHING runs (use data_d1_exec to run a write). No confirm needed. You name only the site_id + sql (+ optional params/environment) — never a database id; the database is resolved server-side and isolated to your site.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        sql: { type: 'string', maxLength: 100000 },
+        params: { type: 'array', maxItems: 100 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'sql'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_d1_migrations',
+    description:
+      "List the applied database migrations for your site's OWN dedicated database (read from the d1_migrations table). Returns { table_present, migrations:[{id,name,applied_at}], duration_ms }, newest-first. A brand-new site database that was never migrated has no d1_migrations table → an honest table_present:false with an empty list (never an error, never a fabricated history). READ-ONLY, no confirm. You name only the site_id (+ optional environment) — never a database id; the database is resolved server-side and isolated to your site.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
       additionalProperties: false,
     },
   },
@@ -1565,6 +1599,105 @@ export async function dispatchPlatformTool(
         rows_read: data?.rowsRead ?? 0,
         rows_written: data?.rowsWritten ?? 0,
         changed_db: data?.changedDb ?? false,
+      });
+    }
+
+    case 'data_d1_explain': {
+      // Flag-gated on the SAME flag the db/tables endpoint uses (dark → err, mirroring its 404).
+      if (!(await isFlagOn(env, PER_SITE_DATA_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site data is not enabled for this account.');
+      }
+      const { site_id, sql, params, environment } = DataD1ExplainInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF/db id — the caller
+      // named only site_id; resolveSiteDataDb server-resolves + isolates + denylists the database.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const resolved = await resolveSiteDataDb(env, site_id, { orgId });
+      if (!resolved || !resolved.ok) return err('Could not open the site database.');
+      const auth = await resolveCfCredentials(env, orgId);
+      const accountId = env.CF_ACCOUNT_ID;
+      if (!auth || !accountId) return err('Could not open the site database.');
+      // The adapter REFUSES to explain a mutating statement (explain_refused_mutating) — surfaced as isError.
+      const result = await d1Adapter.mutate(
+        {
+          accessPolicy: 'no_direct',
+          accountId,
+          auth,
+          environment,
+          orgId,
+          resourceId: resolved.databaseId,
+          siteId: site_id,
+        },
+        { action: 'explain', params, sql },
+      );
+      if (!result.ok) {
+        return err(result.error?.message ?? 'Could not explain the SQL statement.');
+      }
+      const data = result.data as
+        | { effect?: string; plan?: unknown[]; durationMs?: number }
+        | undefined;
+      return ok({
+        site_id,
+        environment,
+        databaseId: resolved.databaseId,
+        action: 'explain',
+        effect: data?.effect ?? 'read_only',
+        plan: data?.plan ?? [],
+        duration_ms: data?.durationMs,
+      });
+    }
+
+    case 'data_d1_migrations': {
+      // Flag-gated on the SAME flag the db/tables endpoint uses (dark → err, mirroring its 404).
+      if (!(await isFlagOn(env, PER_SITE_DATA_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site data is not enabled for this account.');
+      }
+      const { site_id, environment } = DataD1MigrationsInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF/db id — the caller
+      // named only site_id; resolveSiteDataDb server-resolves + isolates + denylists the database.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const resolved = await resolveSiteDataDb(env, site_id, { orgId });
+      if (!resolved || !resolved.ok) return err('Could not open the site database.');
+      const auth = await resolveCfCredentials(env, orgId);
+      const accountId = env.CF_ACCOUNT_ID;
+      if (!auth || !accountId) return err('Could not open the site database.');
+      // A blank per-site D1 with no d1_migrations table returns an HONEST empty history (never an error).
+      const result = await d1Adapter.mutate(
+        {
+          accessPolicy: 'no_direct',
+          accountId,
+          auth,
+          environment,
+          orgId,
+          resourceId: resolved.databaseId,
+          siteId: site_id,
+        },
+        { action: 'migrations' },
+      );
+      if (!result.ok) {
+        return err(result.error?.message ?? 'Could not read the migration history.');
+      }
+      const data = result.data as
+        | { tablePresent?: boolean; migrations?: unknown[]; durationMs?: number }
+        | undefined;
+      return ok({
+        site_id,
+        environment,
+        databaseId: resolved.databaseId,
+        action: 'migrations',
+        table_present: data?.tablePresent ?? false,
+        count: data?.migrations?.length ?? 0,
+        migrations: data?.migrations ?? [],
+        duration_ms: data?.durationMs,
       });
     }
 

@@ -171,6 +171,40 @@ export const DataD1ExecInput = z
   .strict();
 
 /**
+ * `data_d1_explain` — run `EXPLAIN QUERY PLAN <sql>` for ONE READ statement against the OWNED site's own D1
+ * (D1 polish, READ-ONLY). A caller names ONLY the OWNED `site_id` + the `sql` (NEVER a CF/database id — the db
+ * is server-resolved from `site_database_allocations`) plus optional bound `params` and the environment. ⚠️ The
+ * adapter REFUSES to explain a MUTATING statement: the inner SQL is classified by its leading keyword and
+ * anything not read-only returns an `explain_refused_mutating` error (nothing runs) — the plan is a debugging
+ * aid for SELECTs, never a path around the exec confirm gate. Returns the plan rows + D1's query timing. No
+ * confirm is needed (read-only). `.strict()` rejects any attempt to smuggle a `databaseId`/`accountId`.
+ * Ownership + isolation + `per_site_data` flag-gate + `data:read` scope are enforced server-side.
+ */
+export const DataD1ExplainInput = z
+  .object({
+    site_id: z.string().min(1),
+    sql: z.string().min(1).max(100_000),
+    params: z.array(z.unknown()).max(100).optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_d1_migrations` — read the OWNED site's own D1 applied-migration history from `d1_migrations`
+ * (D1 polish, READ-ONLY). A caller names ONLY the OWNED `site_id` (NEVER a CF/database id — the db is
+ * server-resolved from `site_database_allocations`) plus the optional environment. A blank per-site D1 that was
+ * never migrated has no `d1_migrations` table → an HONEST empty history (`tablePresent:false`, `migrations:[]`),
+ * never an error. `.strict()` rejects any attempt to smuggle a `databaseId`/`accountId`. Ownership + isolation +
+ * `per_site_data` flag-gate + `data:read` scope are enforced server-side.
+ */
+export const DataD1MigrationsInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
  * `data_kv_list_keys` — list keys in the OWNED site's own dedicated KV namespace (MCP parity with the
  * Data tab's KV surface). A caller names ONLY the OWNED `site_id` (NEVER a CF namespace id — the
  * namespace is server-resolved from `site_database_allocations`) plus optional prefix/cursor/limit and
@@ -674,6 +708,8 @@ export type DataReconcileResourcesArgs = z.infer<typeof DataReconcileResourcesIn
 export type DataListTablesArgs = z.infer<typeof DataListTablesInput>;
 export type DataReadTableArgs = z.infer<typeof DataReadTableInput>;
 export type DataD1ExecArgs = z.infer<typeof DataD1ExecInput>;
+export type DataD1ExplainArgs = z.infer<typeof DataD1ExplainInput>;
+export type DataD1MigrationsArgs = z.infer<typeof DataD1MigrationsInput>;
 export type DataKvListKeysArgs = z.infer<typeof DataKvListKeysInput>;
 export type DataKvGetArgs = z.infer<typeof DataKvGetInput>;
 export type DataKvPutArgs = z.infer<typeof DataKvPutInput>;

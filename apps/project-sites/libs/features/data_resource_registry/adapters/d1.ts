@@ -3,9 +3,12 @@
  * @description The `d1` {@link ResourceAdapter} — Data & Resource Platform §5, Phase 2 (read + gated WRITE).
  *
  * Implements the read verbs against a site's OWN Cloudflare D1: `list` (its tables), `head` (existence
- * probe), `get` (one table's columns + a row page) — PLUS the gated WRITE slice: `mutate({action:'exec'})`,
- * a single PARAMETERIZED SQL statement run through the same CF REST D1 `/query` plane. `mutate` is a
- * discriminated NAMED-mutation union (never a `runAnything`/`{command}` mega-verb — tool-design-as-api).
+ * probe), `get` (one table's columns + a row page) — PLUS the `mutate` NAMED-action union: `exec` (a single
+ * gated PARAMETERIZED statement), `provision` (create a dedicated D1), and the READ-ONLY polish actions
+ * `explain` (`EXPLAIN QUERY PLAN` for a read statement, refusing to explain a mutating one) and `migrations`
+ * (the applied-migration history from `d1_migrations`, honest-empty when the table is absent). All run
+ * through the same CF REST D1 `/query` plane. `mutate` is a discriminated NAMED-mutation union (never a
+ * `runAnything`/`{command}` mega-verb — tool-design-as-api).
  *
  * SQL CLASSIFICATION — honest, NOT a false "sandboxed read-only" claim (PHASED-PLAN.md: "distinguish
  * potentially mutating SQL; do not pretend a simple regex reliably makes arbitrary SQL read-only"). The
@@ -130,8 +133,29 @@ export interface D1ExecInput {
   readonly confirm?: boolean;
 }
 
+/**
+ * The `explain` action input: run `EXPLAIN QUERY PLAN <sql>` for ONE **read** statement (D1 polish — the
+ * planner view). This is READ-ONLY, needs NO confirm, and REFUSES to explain a MUTATING statement:
+ * {@link classifySql} classifies the inner SQL and anything that is not `read_only` returns a typed
+ * `explain_refused_mutating` error (nothing runs) — the plan is a debugging aid for SELECTs, never a way to
+ * sneak a write past the confirm gate. `params[]` are bound VALUES only (an EXPLAIN can carry the same `?`
+ * placeholders the real query would).
+ */
+export interface D1ExplainInput {
+  readonly action: 'explain';
+  /** A single READ statement (SELECT/PRAGMA-free/WITH…SELECT/VALUES) to explain. A mutating statement is refused. */
+  readonly sql: string;
+  /** Bound parameter VALUES (positional `?`), never identifiers — mirrors the query being explained. */
+  readonly params?: readonly unknown[];
+}
+
+/** The `migrations` action input: read the site D1's applied-migration history (read-only, no confirm). */
+export interface D1MigrationsInput {
+  readonly action: 'migrations';
+}
+
 /** The discriminated named-mutation union for the d1 adapter — NEVER a generic `{ sql }` bare field. */
-export type D1MutateInput = D1ExecInput | ProvisionInput;
+export type D1MutateInput = D1ExecInput | D1ExplainInput | D1MigrationsInput | ProvisionInput;
 
 /**
  * What a successful `exec` returns: the honestly-classified effect, D1's GROUND-TRUTH meta (`rowsRead`/
@@ -152,10 +176,62 @@ export interface D1ExecResult {
   readonly rowsWritten: number;
   /** D1-reported whether the database changed (ground truth). */
   readonly changedDb: boolean;
+  /** D1-reported query wall-time in ms (from the `/query` meta), when present. */
+  readonly durationMs?: number;
+}
+
+/** One row of an `EXPLAIN QUERY PLAN` — SQLite's planner output (`id`/`parent`/`detail`). */
+export interface D1ExplainPlanRow {
+  readonly id: number;
+  readonly parent: number;
+  readonly detail: string;
+}
+
+/**
+ * What a successful `explain` returns: the classified (always `read_only`) effect, the plan rows SQLite
+ * produced for the inner SELECT, and D1's reported timing. Read-only — no `rows_written`/`changed_db`.
+ */
+export interface D1ExplainResult {
+  readonly action: 'explain';
+  /** Always `read_only` here — a non-read statement is refused before it runs. */
+  readonly effect: SqlEffect;
+  /** The `EXPLAIN QUERY PLAN` rows (`id`/`parent`/`detail`) SQLite produced for the statement. */
+  readonly plan: readonly D1ExplainPlanRow[];
+  /** D1-reported query wall-time in ms (from the `/query` meta), when present. */
+  readonly durationMs?: number;
+}
+
+/** One applied-migration record from the site D1's `d1_migrations` table. */
+export interface D1MigrationRow {
+  /** The migration id (SQLite rowid), when present. */
+  readonly id?: number;
+  /** The migration file/name that was applied. */
+  readonly name: string;
+  /** When the migration was applied (D1 stores this as a text timestamp), when present. */
+  readonly appliedAt?: string;
+}
+
+/**
+ * What a successful `migrations` returns: the applied-migration history. When the site D1 has no
+ * `d1_migrations` table (a blank per-site D1 that was never migrated by wrangler), this is an HONEST empty
+ * `migrations: []` with `tablePresent: false` — never an error, never a fabricated list.
+ */
+export interface D1MigrationsResult {
+  readonly action: 'migrations';
+  /** True when the `d1_migrations` table exists in this D1 (false → honest empty history). */
+  readonly tablePresent: boolean;
+  /** Applied migrations, newest-first by `applied_at`; `[]` when the table is absent or empty. */
+  readonly migrations: readonly D1MigrationRow[];
+  /** D1-reported query wall-time in ms (from the `/query` meta), when present. */
+  readonly durationMs?: number;
 }
 
 /** The discriminated result union a successful `mutate` returns. */
-export type D1MutateResult = D1ExecResult | ProvisionMutateResult;
+export type D1MutateResult =
+  | D1ExecResult
+  | D1ExplainResult
+  | D1MigrationsResult
+  | ProvisionMutateResult;
 
 /** SQLite keywords whose statement MUTATES the database. */
 const MUTATING_KEYWORDS: ReadonlySet<string> = new Set([
@@ -328,13 +404,14 @@ class D1Adapter
 
   /**
    * Honest capability declaration (CAPABILITY-MATRIX.md): d1 serves both environments, all three read verbs,
-   * and the `exec` named mutation (a single gated PARAMETERIZED statement). provision/seed/destroy named
-   * mutations land later — append them here + implement in the same fire so the UI/MCP never offer an
-   * unwired verb.
+   * and the named `mutate` actions — `exec` (a single gated PARAMETERIZED statement), `provision`, plus the
+   * READ-ONLY polish actions `explain` (`EXPLAIN QUERY PLAN` for a read statement) and `migrations` (the
+   * applied-migration history). seed/destroy land later — append them here + implement in the same fire so
+   * the UI/MCP never offer an unwired verb.
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: ['exec', 'provision'] as const,
+    mutations: ['exec', 'explain', 'migrations', 'provision'] as const,
     verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
@@ -551,6 +628,15 @@ class D1Adapter
     const forbidden = refuseSharedId<D1MutateResult>(cid, databaseId);
     if (forbidden) return forbidden;
 
+    // READ-ONLY polish actions (no confirm): EXPLAIN QUERY PLAN + migration history. Both operate on the
+    // already-denylist-checked resolved id and never write, so they run before the exec-only gate below.
+    if (input && input.action === 'explain') {
+      return this.runExplain(cid, scope, input);
+    }
+    if (input && input.action === 'migrations') {
+      return this.runMigrations(cid, scope);
+    }
+
     if (!input || input.action !== 'exec') {
       return {
         correlationId: cid,
@@ -624,11 +710,145 @@ class D1Adapter
           action: 'exec',
           changedDb: meta.changed_db === true,
           destructive,
+          durationMs: meta.duration,
           effect,
           rows: results,
           rowsRead: meta.rows_read ?? 0,
           rowsWritten: meta.rows_written ?? 0,
         },
+        ok: true,
+      };
+    } catch (err) {
+      return queryError<D1MutateResult>(cid, err);
+    }
+  }
+
+  /**
+   * Run `EXPLAIN QUERY PLAN <sql>` for ONE read statement — the D1 planner-view polish (READ-ONLY, no
+   * confirm). Operates ONLY on `scope.resourceId` (server-resolved upstream; INV-9). The inner statement is
+   * classified by {@link classifySql}: anything NOT `read_only` returns a typed `explain_refused_mutating`
+   * error and runs NOTHING — the plan is a debugging aid for SELECTs, never a path around the exec confirm
+   * gate. Multiple statements are refused. Only bound `params[]` VALUES are interpolated. Returns the plan
+   * rows (`id`/`parent`/`detail`) + D1's reported timing.
+   *
+   * NOTE: `EXPLAIN QUERY PLAN` is a query prefix (not a `PRAGMA`, not a table-valued function), so it runs
+   * over the CF REST `/query` plane unlike `PRAGMA`/`pragma_table_info()` (SQLITE_AUTH-blocked over REST;
+   * memory `d1-rest-query-blocks-pragma`).
+   *
+   * @param cid - the correlation id for this adapter call
+   * @param scope - the server-resolved scope; `scope.resourceId` is the ONLY database this can read
+   * @param input - the discriminated `{ action:'explain', sql, params? }` action
+   */
+  private async runExplain(
+    cid: string,
+    scope: ResolvedScope,
+    input: D1ExplainInput,
+  ): Promise<AdapterResult<D1MutateResult>> {
+    const sql = input.sql;
+    if (typeof sql !== 'string' || stripSqlNoiseIsEmpty(sql)) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_sql', message: 'SQL statement is missing or empty.', retryable: false },
+        ok: false,
+      };
+    }
+    if (isMultiStatement(sql)) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'multi_statement',
+          message: 'Only a single SQL statement per call is supported (the D1 REST query API is single-statement).',
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+    const params = input.params ?? [];
+    if (!Array.isArray(params)) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_params', message: 'params must be an array of bound values.', retryable: false },
+        ok: false,
+      };
+    }
+
+    // REFUSE to explain anything the classifier does not prove read-only (a mutating/destructive/unknown
+    // statement) — the plan is for SELECTs; this is never a bypass of the exec confirm gate. Fail CLOSED.
+    const effect = classifySql(sql);
+    if (effect !== 'read_only') {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'explain_refused_mutating',
+          message:
+            'EXPLAIN is only available for a read (SELECT/WITH…SELECT/VALUES) statement — this SQL is classified as potentially data-mutating and will not be explained. Use exec (with confirm) to run a write.',
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+
+    const db = makeSiteDataExecutor(scope.auth, scope.accountId, scope.resourceId);
+    try {
+      const { results, meta } = await db.query<{ id?: number; parent?: number; detail?: string }>(
+        `EXPLAIN QUERY PLAN ${sql}`,
+        params,
+      );
+      const plan: D1ExplainPlanRow[] = results.map((r) => ({
+        detail: typeof r.detail === 'string' ? r.detail : String(r.detail ?? ''),
+        id: typeof r.id === 'number' ? r.id : 0,
+        parent: typeof r.parent === 'number' ? r.parent : 0,
+      }));
+      return {
+        correlationId: cid,
+        data: { action: 'explain', durationMs: meta.duration, effect: 'read_only', plan },
+        ok: true,
+      };
+    } catch (err) {
+      return queryError<D1MutateResult>(cid, err);
+    }
+  }
+
+  /**
+   * Read the site D1's applied-migration history from `d1_migrations` — READ-ONLY polish (no confirm).
+   * Operates ONLY on `scope.resourceId` (server-resolved upstream; INV-9). A blank per-site D1 that wrangler
+   * never migrated has NO `d1_migrations` table → this returns an HONEST empty `{ tablePresent:false,
+   * migrations:[] }`, never an error and never a fabricated list (per the honest-empty discipline). Reads via
+   * a plain `sqlite_master` existence check + a `SELECT` (never `PRAGMA` — SQLITE_AUTH-blocked over REST).
+   *
+   * @param cid - the correlation id for this adapter call
+   * @param scope - the server-resolved scope; `scope.resourceId` is the ONLY database this can read
+   */
+  private async runMigrations(
+    cid: string,
+    scope: ResolvedScope,
+  ): Promise<AdapterResult<D1MutateResult>> {
+    const db = makeSiteDataExecutor(scope.auth, scope.accountId, scope.resourceId);
+    try {
+      // Existence probe first (a missing table is honest-empty, not a query error).
+      const { results: present } = await db.query<{ name: string }>(
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'd1_migrations' LIMIT 1`,
+      );
+      if (present.length === 0) {
+        return {
+          correlationId: cid,
+          data: { action: 'migrations', migrations: [], tablePresent: false },
+          ok: true,
+        };
+      }
+      const { results, meta } = await db.query<{ id?: number; name?: string; applied_at?: string }>(
+        `SELECT id, name, applied_at FROM d1_migrations ORDER BY applied_at DESC, id DESC`,
+      );
+      const migrations: D1MigrationRow[] = results
+        .filter((r) => typeof r.name === 'string' && r.name.length > 0)
+        .map((r) => ({
+          ...(typeof r.id === 'number' ? { id: r.id } : {}),
+          name: r.name as string,
+          ...(typeof r.applied_at === 'string' ? { appliedAt: r.applied_at } : {}),
+        }));
+      return {
+        correlationId: cid,
+        data: { action: 'migrations', durationMs: meta.duration, migrations, tablePresent: true },
         ok: true,
       };
     } catch (err) {
