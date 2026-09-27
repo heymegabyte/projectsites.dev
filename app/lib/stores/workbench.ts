@@ -43,6 +43,15 @@ export type ArtifactUpdateState = Pick<ArtifactState, 'title' | 'closed'>;
 
 type Artifacts = MapStore<Record<string, ArtifactState>>;
 
+/**
+ * Editor top-tab view.
+ *
+ * `'database'` is the ONE consolidated data surface (Table-view · SQL navigator · KV manager,
+ * per-site D1 only). `'functions'`, `'data'`, and `'resources'` are LEGACY values kept only so a
+ * previously-persisted `currentView` still type-checks — the Workbench normalizes each of them to a
+ * live tab on mount (`'functions'`→`'code'`, `'data'`/`'resources'`→`'database'`) so a returning
+ * user never lands on a blank panel. No tab renders them anymore.
+ */
 export type WorkbenchViewType = 'chat' | 'code' | 'preview' | 'functions' | 'data' | 'database' | 'resources';
 
 export class WorkbenchStore {

@@ -13,9 +13,7 @@ import { workbenchStore, type WorkbenchViewType } from '~/lib/stores/workbench';
 import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
 import { renderLogger } from '~/utils/logger';
-import { DataPanel } from './DataPanel';
-import { SiteTablesPanel } from './SiteTablesPanel';
-import { ResourceOverviewPanel } from './ResourceOverviewPanel';
+import { DatabasePanel } from './DatabasePanel';
 import { CreateMenu } from './CreateMenu';
 import { EditorPanel } from './EditorPanel';
 import { Preview } from './Preview';
@@ -55,13 +53,19 @@ type TopTab = { value: WorkbenchViewType; text: string; icon: string };
  */
 const CHAT_TAB: TopTab = { value: 'chat', text: 'Chat', icon: 'i-ph:chat-circle-dots-duotone' };
 
-/** Top editor tabs — order drives the tab strip left-to-right. */
+/**
+ * Top editor tabs — order drives the tab strip left-to-right.
+ *
+ * The old three data tabs (`Data` → shared-platform-D1 `DataPanel`, `Database` → per-site
+ * `SiteTablesPanel`, `Resources` → per-site resource console) are consolidated into ONE **Database**
+ * tab whose sub-nav (Table-view · SQL navigator · KV manager) targets the site's OWN per-site D1 only.
+ * The shared-platform-D1 surface (Visitor Events / Snapshots / form_submissions / `/data-overview`)
+ * is removed from the editor. (Brian 2026-09-27 — FIRE 1.)
+ */
 const TOP_TABS: TopTab[] = [
   { value: 'code', text: 'Code', icon: 'i-ph:code-duotone' },
   { value: 'preview', text: 'Preview', icon: 'i-ph:eye-duotone' },
-  { value: 'data', text: 'Data', icon: 'i-ph:chart-bar-duotone' },
   { value: 'database', text: 'Database', icon: 'i-ph:database-duotone' },
-  { value: 'resources', text: 'Resources', icon: 'i-ph:stack-duotone' },
 ];
 
 /**
@@ -157,6 +161,21 @@ export const Workbench = memo(
         setSelectedView('code');
       }
     }, [isSmallViewport, selectedView]);
+
+    /*
+     * Normalize stale persisted views to a live tab so a returning user never lands on a blank
+     * panel. The `Data` and `Resources` tabs were consolidated into `Database` (Brian 2026-09-27),
+     * and the earlier `Functions` tab folds to `Code`. A `currentView` persisted from before the
+     * consolidation still type-checks (the legacy values remain in WorkbenchViewType) but no tab
+     * renders it — snap it to the surviving surface.
+     */
+    useEffect(() => {
+      if (selectedView === 'data' || selectedView === 'resources') {
+        setSelectedView('database');
+      } else if (selectedView === 'functions') {
+        setSelectedView('code');
+      }
+    }, [selectedView]);
 
     useEffect(() => {
       workbenchStore.setDocuments(files);
@@ -512,14 +531,17 @@ export const Workbench = memo(
                     <PanelLayer active={selectedView === 'preview'}>
                       <Preview setSelectedElement={setSelectedElement} />
                     </PanelLayer>
-                    <PanelLayer active={selectedView === 'data'}>
-                      <DataPanel />
-                    </PanelLayer>
-                    <PanelLayer active={selectedView === 'database'}>
-                      <SiteTablesPanel />
-                    </PanelLayer>
-                    <PanelLayer active={selectedView === 'resources'}>
-                      <ResourceOverviewPanel />
+                    {/* ONE consolidated Database panel — Table-view · SQL navigator · KV manager,
+                        all on the site's OWN per-site D1 (+ its KV). Replaces the former three tabs
+                        (Data / Database / Resources); the shared-platform-D1 surface is gone from the
+                        editor. Stale persisted `data`/`resources` views normalize to `database` below,
+                        so this layer also owns them. (Brian 2026-09-27 — FIRE 1.) */}
+                    <PanelLayer
+                      active={
+                        selectedView === 'database' || selectedView === 'data' || selectedView === 'resources'
+                      }
+                    >
+                      <DatabasePanel />
                     </PanelLayer>
                     {/* Chat panel — a first-class tab panel, tablet/mobile only.
                         It cross-fades via the SAME PanelLayer mechanism as Code /

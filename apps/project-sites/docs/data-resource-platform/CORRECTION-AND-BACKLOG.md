@@ -70,9 +70,9 @@ tab** whose sub-nav is a button bar **Table-view · SQL navigator · KV manager*
 
 ### 2A. Consolidation (URGENT)
 
-- **NOT-DONE** — Rename `data`→`Database`, one tab, sub-nav button bar (Table-view/SQL/KV). *(Fire 1)*
-- **NOT-DONE** — Remove shared-platform-D1 editor surface (Visitor Events/Snapshots/`form_submissions`/`/data-overview`). *(Fire 1)*
-- **NOT-DONE** — Fold `SiteTablesPanel` + resource per-site-D1 path into the one tab; re-point the mature grid engine at the per-site adapter. *(Fire 1–2)*
+- **DONE (Fire 1)** — Renamed `data`→**Database**, ONE tab, sub-nav BUTTON bar (Table-view · SQL navigator · KV manager) + remembered Advanced/Developer toggle that tucks SQL. New `app/components/workbench/DatabasePanel.tsx`; `Workbench.client.tsx` TOP_TABS collapsed to one `database` entry + one consolidated PanelLayer; stale persisted `data`/`resources` views normalize to `database` (never a blank body).
+- **DONE (Fire 1)** — Removed shared-platform-D1 editor surface: `DataPanel` (Visitor Events / Snapshots / `form_submissions` / `/data-overview` + super-admin `/sql`) de-referenced from the editor (import + PanelLayer dropped; nothing in `app/` imports it now). File RETAINED for Fire 2's grid-engine harvest.
+- **DONE (Fire 1, Table-view)** — Folded `SiteTablesPanel` in as the Database tab's **Table-view** (per-site D1 `PS_SITEDB_*`). SQL navigator runs the per-site adapter via `PS_RES_MUTATE {kind:'d1',action:'exec'}` (NOT shared `/sql`), confirm-gated for mutating SQL, `rowsWritten` = ground truth. **STILL Fire 2**: harvest `DataPanel`'s mature grid engine (views · `<CellEditor>` · saved-views) onto the per-site path (inline edit + local undo).
 
 ### 2B. Per-site D1 core (the read/edit engine)
 
@@ -134,7 +134,7 @@ tab** whose sub-nav is a button bar **Table-view · SQL navigator · KV manager*
 
 ## 3. ORDERED FIRE-LIST (multi-agent loop — one coherent slice per fire, disjoint files)
 
-1. **UI consolidation (URGENT, visible).** `Workbench.client.tsx` TOP_TABS + PanelLayers → one `Database` tab; new `DatabasePanel.tsx` sub-nav (Table-view/SQL/KV + Advanced toggle); remove `DataPanel` shared-D1 surface (Visitor Events/Snapshots/`/data-overview`/super-admin `/sql`) from the editor; mount `SiteTablesPanel` as Table-view. *Slice = UI only; adapters already exist.*
+1. **✅ DONE — UI consolidation (URGENT, visible).** `Workbench.client.tsx` TOP_TABS + PanelLayers → one `Database` tab; new `DatabasePanel.tsx` sub-nav (Table-view · SQL navigator · KV manager + remembered Advanced toggle); removed `DataPanel` shared-D1 surface (Visitor Events/Snapshots/`/data-overview`/super-admin `/sql`) from the editor (de-referenced, file kept for Fire 2 harvest); mounted `SiteTablesPanel` as Table-view; SQL navigator on per-site `PS_RES_MUTATE {kind:'d1',action:'exec'}`; KV manager = honest $10/mo locked-upsell. **UI-only slice — adapters already existed; ZERO Angular-bridge / `embedded-mode.ts` changes** (per-site `PS_SITEDB_*` + `PS_RES_MUTATE` paths were already wired). Editor `tsc` clean; DatabasePanel spec (5) + SiteTablesPanel (15) + ResourceDetailPanel (10) + field-types (63) all green. Committed on branch `worktree-agent-a7fdba071f50b86c4` (rebased onto `feat/apps-deploy-panel`). **DEPLOY DEFERRED** (concurrent-session dirty tree; land in a clean window).
 2. **Per-site grid engine re-point.** Harvest `DataPanel`'s grid engine (`data-panel-logic.ts`, `<CellEditor>`, views, saved-views) onto the per-site adapter path (`data_read_table`/`data_d1_exec`); typed inline edit + immediate-save + local undo on the OWNED D1. *+ parity: it already rides `data_*` MCP.*
 3. **KV manager + $10/mo gate.** KV manager UI (list/get/put/delete/bulk/TTL) on `data_kv_*`; Stripe `$10/mo` add-on entitlement + locked-upsell + provision-on-purchase (prod+preview). *(UI + billing + `data_provision_resource` + tests.)*
 4. **Schema builder + Time-Travel restore UI + first field types.** Guided DDL on the per-site D1 (`schema-ddl.ts`, impact-preview+confirm+rebuild) + owner Time-Travel restore UI (`data_d1_time_travel_info`/`data_d1_restore`) + select/date field types.
