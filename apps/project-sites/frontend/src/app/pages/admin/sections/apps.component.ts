@@ -232,7 +232,13 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
               [attr.data-testid]="'apps-card-' + app.id"
               [attr.aria-label]="app.name + ' — ' + app.tagline">
               <header class="app-card-head">
-                <div class="app-glyph" aria-hidden="true">{{ app.glyph }}</div>
+                <div class="app-glyph" aria-hidden="true">
+                  @if (app.logo) {
+                    <img class="app-logo" [src]="app.logo" [alt]="app.name + ' logo'" loading="lazy" decoding="async" />
+                  } @else {
+                    {{ app.glyph }}
+                  }
+                </div>
                 <div class="min-w-0 flex-1">
                   <div class="app-name-row">
                     <div class="app-name">{{ app.name }}</div>
@@ -554,7 +560,9 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       background: color-mix(in oklch, var(--ps-accent, #00E5FF) 8%, transparent);
       border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 18%, transparent);
       border-radius: var(--ps-radius-sm, 10px);
+      overflow: hidden;
     }
+    .app-logo { width: 60%; height: 60%; object-fit: contain; display: block; }
     .app-name-row {
       display: flex; align-items: center; gap: 8px;
       min-width: 0; flex-wrap: wrap;

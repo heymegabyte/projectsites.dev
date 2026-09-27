@@ -19,6 +19,7 @@ import { RevealDirective } from '../../../directives/reveal.directive';
 import { RollingCounterComponent } from '../../../components/rolling-counter/rolling-counter.component';
 import { HlmInputDirective } from '../../../ui';
 import { AppSecretInputComponent } from './app-secret-input.component';
+import { APP_SCREENSHOTS } from './app-screenshots.data';
 import {
   APPS_CATALOG,
   isAppSupported,
@@ -82,7 +83,13 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
         <!-- ─────────────────── HEADER ─────────────────── -->
         <header class="detail-head" appReveal>
           <div class="head-main">
-            <div class="head-glyph" aria-hidden="true">{{ a.glyph }}</div>
+            <div class="head-glyph" aria-hidden="true">
+              @if (a.logo) {
+                <img class="head-logo" [src]="a.logo" [alt]="a.name + ' logo'" loading="eager" decoding="async" />
+              } @else {
+                {{ a.glyph }}
+              }
+            </div>
             <div class="min-w-0 flex-1">
               <div class="kicker">{{ categoryLabel(a) }}</div>
               <h2 class="section-h text-2xl font-bold text-white m-0 mt-1">{{ a.name }}</h2>
@@ -99,6 +106,27 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
             </div>
           </div>
         </header>
+
+        <!-- ─────────────────── SCREENSHOT CAROUSEL ─────────────────── -->
+        @if (screenshots().length) {
+          <section class="shots-card" appReveal [attr.aria-label]="'Screenshots of ' + a.name">
+            <div class="shots-track" #shotsTrack>
+              @for (shot of screenshots(); track shot; let i = $index) {
+                <img class="shot" [src]="shot" [alt]="a.name + ' preview ' + (i + 1)"
+                     loading="lazy" decoding="async"
+                     (error)="$any($event.target).style.display='none'" />
+              }
+            </div>
+            @if (screenshots().length > 1) {
+              <button type="button" class="shots-nav shots-prev" (click)="scrollShots(shotsTrack, -1)" aria-label="Previous image">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+              </button>
+              <button type="button" class="shots-nav shots-next" (click)="scrollShots(shotsTrack, 1)" aria-label="Next image">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+            }
+          </section>
+        }
 
         <!-- ─────────────────── TWO-COLUMN LAYOUT ─────────────────── -->
         <div class="grid-2col">
@@ -544,7 +572,45 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       background: color-mix(in oklch, var(--ps-accent, #00E5FF) 10%, transparent);
       border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 24%, transparent);
       border-radius: var(--ps-radius-sm, 12px);
+      overflow: hidden;
     }
+    .head-logo { width: 62%; height: 62%; object-fit: contain; display: block; }
+
+    /* ─── Screenshot carousel ─── */
+    .shots-card {
+      position: relative;
+      border-radius: var(--ps-radius-xl, 22px);
+      border: 1px solid rgba(255,255,255,0.06);
+      background: var(--ps-surface-1, rgba(13,13,40,0.62));
+      overflow: hidden;
+    }
+    .shots-track {
+      display: flex; gap: 12px; overflow-x: auto;
+      scroll-snap-type: x mandatory; scroll-behavior: smooth;
+      padding: 14px; scrollbar-width: thin;
+    }
+    .shots-track::-webkit-scrollbar { height: 8px; }
+    .shots-track::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+    .shot {
+      scroll-snap-align: center; flex: 0 0 auto;
+      height: clamp(200px, 42vh, 420px); width: auto; max-width: 100%;
+      border-radius: var(--ps-radius-sm, 10px);
+      border: 1px solid rgba(255,255,255,0.08);
+      object-fit: contain; background: #0b0b16;
+    }
+    .shots-nav {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      width: 40px; height: 40px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: rgba(6,6,16,0.72); border: 1px solid rgba(255,255,255,0.14);
+      color: #fff; cursor: pointer; backdrop-filter: blur(6px);
+      transition: background 140ms ease, border-color 140ms ease;
+    }
+    .shots-nav:hover { background: rgba(0,229,255,0.25); border-color: var(--ps-accent, #00E5FF); }
+    .shots-nav:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
+    .shots-prev { left: 10px; }
+    .shots-next { right: 10px; }
+    @media (prefers-reduced-motion: reduce) { .shots-track { scroll-behavior: auto; } }
 
     .tag-row { display: flex; flex-wrap: wrap; gap: 4px; }
     .tag-pill {
@@ -1468,6 +1534,28 @@ export class AppDetailComponent implements OnInit {
 
   categoryLabel(a: CatalogApp): string {
     return a.category.charAt(0).toUpperCase() + a.category.slice(1);
+  }
+
+  /** Per-service carousel images: explicit captured screenshots first, then the repo's GitHub
+   *  social card — a reliable "telling image" available for EVERY service, zero hosting. */
+  readonly screenshots = computed<string[]>(() => {
+    const a = this.app();
+    if (!a) return [];
+    const shots = [...(a.screenshots ?? []), ...(APP_SCREENSHOTS[a.id] ?? [])];
+    const gh = this.githubOgCard(a.repo);
+    if (gh && !shots.includes(gh)) shots.push(gh);
+    // De-dupe while preserving order (an app may repeat its og image + card).
+    return [...new Set(shots)];
+  });
+
+  private githubOgCard(repo: string): string | null {
+    const m = /github\.com\/([^/]+)\/([^/#?]+)/.exec(repo ?? '');
+    return m ? `https://opengraph.githubassets.com/1/${m[1]}/${m[2].replace(/\.git$/, '')}` : null;
+  }
+
+  /** Scroll the screenshot track by ~one frame (prev/next buttons); scroll-snap centers it. */
+  scrollShots(track: HTMLElement, dir: number): void {
+    track.scrollBy({ left: dir * track.clientWidth * 0.9, behavior: 'smooth' });
   }
 
   requiredCount(a: CatalogApp): number {

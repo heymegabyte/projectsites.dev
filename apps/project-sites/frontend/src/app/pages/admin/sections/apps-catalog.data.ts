@@ -106,8 +106,14 @@ export interface CatalogApp {
   readonly homepage: string;
   /** Upstream repo. */
   readonly repo: string;
-  /** Inline SVG glyph or emoji marker for the catalog card. */
+  /** Inline SVG glyph or emoji marker for the catalog card (fallback when `logo` is unset). */
   readonly glyph: string;
+  /** Real brand logo (path/URL to an image, e.g. `/app-logos/payload.svg`). Rendered in place
+   *  of the emoji `glyph` on the catalog card + detail head when present. */
+  readonly logo?: string;
+  /** High-resolution screenshots / telling images shown as a scrollable carousel on the detail
+   *  page. Captured per-service; empty = no carousel rendered. */
+  readonly screenshots?: readonly string[];
   /** License — surfaced in the detail page for compliance. */
   readonly license: string;
   /** Tags surfaced as small chips below the tagline. */
@@ -448,6 +454,7 @@ export const APPS_CATALOG: ReadonlyArray<CatalogApp> = [
     homepage: 'https://payloadcms.com',
     repo: 'https://github.com/payloadcms/payload',
     glyph: '🗂️',
+    logo: '/app-logos/payload.svg',
     license: 'MIT',
     tags: ['cms', 'headless', 'typescript', 'd1', 'r2', 'cf-worker'],
     supported: true,
