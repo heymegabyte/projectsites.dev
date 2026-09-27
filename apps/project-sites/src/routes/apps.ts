@@ -1513,7 +1513,29 @@ apps.post('/api/apps/instances/:id/domains/primary', async (c) => {
     `SELECT id FROM app_instance_domains WHERE instance_id = ? AND domain = ?`,
     [row.id, domain],
   );
-  if (!owned) throw notFound('That domain is not attached to this instance.');
+  // Selecting the PLATFORM host as primary simply clears every custom-domain primary flag —
+  // `activeHost` then falls back to the built-in `*.cms`/`*.app` subdomain. The platform host is
+  // never a row in `app_instance_domains`, so accept it explicitly rather than 404-ing.
+  if (!owned) {
+    if (!/\.(cms|app)\.projectsites\.dev$/.test(domain)) {
+      throw notFound('That domain is not attached to this instance.');
+    }
+    await dbExecute(
+      c.env.DB,
+      `UPDATE app_instance_domains SET is_primary = 0 WHERE instance_id = ?`,
+      [row.id],
+    );
+    await auditService.writeAuditLog(c.env.DB, {
+      org_id: orgId,
+      actor_id: userId,
+      action: 'apps.instance.domain_primary_set',
+      target_type: 'app_instance',
+      target_id: row.id,
+      metadata_json: { domain, primary: 'platform' },
+      request_id: c.get('requestId'),
+    });
+    return c.json({ ok: true, domain, primary: 'platform' });
+  }
   await dbExecute(
     c.env.DB,
     `UPDATE app_instance_domains SET is_primary = 0 WHERE instance_id = ?`,

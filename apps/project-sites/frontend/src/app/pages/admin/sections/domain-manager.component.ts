@@ -82,20 +82,28 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
             </button>
           </div>
 
-          <!-- ── Connected domains (multi-domain + primary) ── -->
-          @if (domains().length) {
-            <div class="dm-sec">
-              <div class="dm-sec-h">Connected domains</div>
-              <div class="dm-domains">
-                @for (d of domains(); track d.domain) {
-                  <div class="dm-dom" [class.is-primary]="d.primary" data-testid="domain-manager-domain-row">
-                    <div class="dm-dom-head">
-                      <span class="dm-dom-name">{{ d.domain }}</span>
-                      @if (d.primary) { <span class="dm-dom-badge">Primary</span> }
+          <!-- ── Connected domains (platform host + custom domains + primary) ── -->
+          <div class="dm-sec">
+            <div class="dm-sec-h">Connected domains</div>
+            <div class="dm-domains">
+              @for (d of rows(); track d.domain) {
+                <div class="dm-dom" [class.is-primary]="d.primary"
+                     [attr.data-testid]="d.isPlatform ? 'domain-manager-platform-row' : 'domain-manager-domain-row'">
+                  <div class="dm-dom-head">
+                    <span class="dm-dom-name">{{ d.domain }}</span>
+                    @if (d.isPlatform) { <span class="dm-dom-badge dm-dom-badge--muted">Default</span> }
+                    @if (d.primary) { <span class="dm-dom-badge">Primary</span> }
+                    @if (!d.isPlatform) {
                       <button type="button" class="dm-dom-rm" (click)="removeDomain(d.domain)" [disabled]="busy()"
                               [attr.aria-label]="'Detach ' + d.domain">✕</button>
-                    </div>
-                    <div class="dm-dom-status">
+                    }
+                  </div>
+                  <div class="dm-dom-status">
+                    @if (d.isPlatform) {
+                      <span class="dm-stat ok" title="Built-in subdomain — always connected">
+                        🔒 built-in host — always connected
+                      </span>
+                    } @else {
                       <span class="dm-stat" [class.ok]="d.pointed" [class.bad]="!d.pointed"
                             [title]="d.pointed ? 'CNAME resolves to projectsites.dev' : 'Add a CNAME → projectsites.dev'">
                         {{ d.pointed ? '✓' : '○' }} CNAME {{ d.pointed ? 'pointed' : 'not pointed' }}
@@ -103,16 +111,17 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
                       <span class="dm-stat" [class.ok]="d.activated" [title]="'Certificate: ' + d.ssl_status">
                         {{ d.activated ? '🔒 activated' : '⏳ ' + (d.ssl_status || 'pending') }}
                       </span>
-                      @if (!d.primary) {
-                        <button type="button" class="dm-dom-act" (click)="setPrimary(d.domain)" [disabled]="busy()"
-                                [attr.aria-label]="'Make ' + d.domain + ' the primary URL'">Set primary</button>
-                      }
-                    </div>
+                    }
+                    @if (!d.primary) {
+                      <button type="button" class="dm-dom-act" (click)="setPrimary(d.domain)" [disabled]="busy()"
+                              [attr.aria-label]="'Make ' + d.domain + ' the primary URL'"
+                              data-testid="domain-manager-set-primary">Set primary</button>
+                    }
                   </div>
-                }
-              </div>
+                </div>
+              }
             </div>
-          }
+          </div>
 
           <!-- ── Custom domain (owner already has one) ── -->
           <div class="dm-sec">
