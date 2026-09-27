@@ -12,6 +12,7 @@
  * - `media:write`    — upload/delete media
  * - `forms:read`     — list form submissions
  * - `analytics:read` — read analytics data
+ * - `data:read`      — list/reconcile a site's Data & Resource Platform resources
  * - `me:read`        — read own profile (always granted to any valid token)
  *
  * @packageDocumentation
@@ -27,6 +28,7 @@ export const VALID_SCOPES = [
   'media:write',
   'forms:read',
   'analytics:read',
+  'data:read',
   'me:read',
 ] as const;
 

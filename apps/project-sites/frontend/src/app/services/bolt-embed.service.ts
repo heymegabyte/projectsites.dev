@@ -216,6 +216,24 @@ interface PsMessage {
   readonly expirationTtl?: number;
   /** PS_KV_REQUEST (put op): explicitly remove the expiration (make the key permanent). */
   readonly clearExpiration?: boolean;
+  /** PS_RES_OVERVIEW_REQUEST / PS_RES_RECONCILE_REQUEST: which environment's resources to list/reconcile. */
+  readonly environment?: string;
+}
+
+/**
+ * One resource row in the PS_RES_OVERVIEW_RESPONSE inventory — mirrors the worker's
+ * `GET /api/sites/:siteId/resources` `data.resources[]` shape (editor mirror of `ResourceOverviewEntry`).
+ */
+interface ResourceOverviewEntry {
+  readonly id: string;
+  readonly resource_kind: string;
+  readonly resource_concept: string;
+  readonly environment: string;
+  readonly tenancy: string;
+  readonly lifecycle_state: string;
+  readonly drift_code?: string;
+  readonly binding_name?: string;
+  readonly last_sync_at?: string;
 }
 
 export interface BoltFileEntry {
@@ -1394,6 +1412,95 @@ export class BoltEmbedService {
                   reply({ ok: false, enabled: false });
                 } else {
                   reply({ ok: false, error: 'Failed to load rows' });
+                }
+              },
+            });
+          break;
+        }
+        case 'PS_RES_OVERVIEW_REQUEST': {
+          // Resource overview — the embedded editor has no cross-origin session, so it asks US (we hold
+          // currentSite + the ApiService bearer) to list the site's platform resources for an environment
+          // via GET /api/sites/:id/resources. Reply with PS_RES_OVERVIEW_RESPONSE. Dark behind its flag →
+          // the worker returns a 404 whose message says the feature is not enabled; we translate that to
+          // `{ok:false, enabled:false}`. Mirrors the PS_SITEDB bridge.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const environment = typeof msg.environment === 'string' && msg.environment ? msg.environment : undefined;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_OVERVIEW_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          // The worker wraps the payload in `{ data: { resources: [...] } }` — unwrap it.
+          this.api
+            .get<{ data?: { resources?: ResourceOverviewEntry[] } }>(
+              `/sites/${site.id}/resources`,
+              environment ? { environment } : undefined,
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, environment, resources: res?.data?.resources ?? [] }),
+              // Dark-flag: a real 404 whose body message says "not enabled" is the killswitch, not a
+              // failure — tell the editor to hide the surface, not show an error.
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, error: 'Failed to load resources' });
+                }
+              },
+            });
+          break;
+        }
+        case 'PS_RES_RECONCILE_REQUEST': {
+          // Resource overview — reconcile the site's resources against desired state for an environment via
+          // POST /api/sites/:id/resources/reconcile. Reply with PS_RES_RECONCILE_RESPONSE. Same dark-flag
+          // translation as PS_RES_OVERVIEW_REQUEST. Mirrors the PS_SITEDB bridge.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const environment = typeof msg.environment === 'string' && msg.environment ? msg.environment : undefined;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RES_RECONCILE_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          // The worker wraps the payload in `{ data: { reconciled, drift } }` — unwrap it.
+          this.api
+            .post<{ data?: { reconciled?: number; drift?: unknown[] } }>(
+              `/sites/${site.id}/resources/reconcile`,
+              environment ? { environment } : {},
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, reconciled: res?.data?.reconciled, drift: res?.data?.drift }),
+              // Dark-flag: same "not enabled" 404 killswitch translation as the overview request.
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                } else {
+                  reply({ ok: false, error: 'Failed to reconcile resources' });
                 }
               },
             });

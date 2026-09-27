@@ -92,9 +92,34 @@ export const SetDomainInput = z.object({
     ),
 });
 
+/**
+ * `data_list_resources` + `data_reconcile_resources` — the Data & Resource Platform
+ * MCP surface. A caller names ONLY the OWNED `site_id` (never a CF id) + the
+ * environment; `environment` defaults to production. `.strict()` rejects any attempt
+ * to smuggle a `resourceId`/`databaseId`/`accountId`. Ownership + isolation are
+ * enforced server-side in the dispatcher (org-scope + 404-on-foreign), mirroring the
+ * per-site D1 Tables surface.
+ */
+export const DataListResourcesInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/** Reconcile the registry against CF ground truth for the OWNED site + environment. */
+export const DataReconcileResourcesInput = z
+  .object({
+    site_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
 export type ListSitesArgs = z.infer<typeof ListSitesInput>;
 export type GetSiteArgs = z.infer<typeof GetSiteInput>;
 export type BuildStatusArgs = z.infer<typeof BuildStatusInput>;
 export type DeploySiteArgs = z.infer<typeof DeploySiteInput>;
 export type TailLogsArgs = z.infer<typeof TailLogsInput>;
 export type SetDomainArgs = z.infer<typeof SetDomainInput>;
+export type DataListResourcesArgs = z.infer<typeof DataListResourcesInput>;
+export type DataReconcileResourcesArgs = z.infer<typeof DataReconcileResourcesInput>;

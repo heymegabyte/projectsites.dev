@@ -19,6 +19,8 @@ import type { ApiTokenRow } from '../../../src/services/api_tokens.js';
 import { hasScope } from '../../../src/services/api_tokens.js';
 import { provisionCustomDomain, checkCnameTarget } from '../../../src/services/domains.js';
 import { getOrgEntitlements } from '../../../src/services/billing.js';
+import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
+import { listResources } from '../data_resource_registry/service.js';
 import {
   ListSitesInput,
   GetSiteInput,
@@ -26,7 +28,12 @@ import {
   DeploySiteInput,
   TailLogsInput,
   SetDomainInput,
+  DataListResourcesInput,
+  DataReconcileResourcesInput,
 } from './schemas.js';
+
+/** Flag gating the Data & Resource Platform MCP tools (registry read surface). */
+const DATA_RESOURCE_FLAG = 'data_resource_platform';
 
 /** Mirrors DOMAINS.SITES_SUFFIX — the public site subdomain suffix. */
 const SITES_SUFFIX = '.projectsites.dev';
@@ -256,6 +263,36 @@ export const PLATFORM_MCP_TOOLS = [
       type: 'object',
       properties: { site_id: { type: 'string' }, hostname: { type: 'string' } },
       required: ['site_id', 'hostname'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_list_resources',
+    description:
+      "List the Cloudflare resources (D1, KV, R2, Durable Objects, Workflows, Vectorize, Analytics Engine, connections) allocated to one of your sites — from the authoritative registry, per environment. Honestly empty until the registry is reconciled. You name only the site_id + environment, never a Cloudflare id.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_reconcile_resources',
+    description:
+      "Reconcile the resource registry for one of your sites and report drift per resource kind (missing-on-CF, id mismatch, binding mismatch, orphan-on-CF). Returns each kind's registered count, last-sync time, and any drift codes. Scoped to the site_id you own + environment.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
       additionalProperties: false,
     },
   },
@@ -612,6 +649,88 @@ export async function dispatchPlatformTool(
         // provisionCustomDomain throws user-safe conflicts (domain cap / already registered).
         return err(e instanceof Error ? e.message : 'Failed to connect the domain.');
       }
+    }
+
+    case 'data_list_resources': {
+      // Flag-gated (dark → err, mirroring the 404 the per-site-data routes return).
+      if (!(await isFlagOn(env, DATA_RESOURCE_FLAG, {}))) {
+        return err('The data resource platform is not enabled for this account.');
+      }
+      const { site_id, environment } = DataListResourcesInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF id —
+      // the caller named only site_id; the site must belong to THIS org.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      // Real registry read for the OWNED site + env — honestly empty until reconcile seeds it.
+      const resources = await listResources(env, site_id, environment);
+      return ok({ site_id, environment, count: resources.length, resources });
+    }
+
+    case 'data_reconcile_resources': {
+      if (!(await isFlagOn(env, DATA_RESOURCE_FLAG, {}))) {
+        return err('The data resource platform is not enabled for this account.');
+      }
+      const { site_id, environment } = DataReconcileResourcesInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      // Reconcile = read the authoritative registry rows and summarise drift PER KIND from
+      // what the registry actually stores (driftCode/driftDetail/lastSyncAt/lifecycleState).
+      // No CF id is ever named or fabricated; an empty table yields an honest empty summary.
+      const resources = await listResources(env, site_id, environment);
+      const byKind: Record<
+        string,
+        {
+          kind: string;
+          registered: number;
+          last_sync_at: string | null;
+          drift: Array<{
+            registry_row_id: string;
+            concept: string;
+            lifecycle_state: string;
+            drift_code: string;
+            drift_detail: string | null;
+          }>;
+        }
+      > = {};
+      for (const r of resources) {
+        const entry = (byKind[r.resourceKind] ??= {
+          kind: r.resourceKind,
+          registered: 0,
+          last_sync_at: null,
+          drift: [],
+        });
+        entry.registered += 1;
+        // Track the most-recent sync timestamp seen for this kind.
+        if (r.lastSyncAt && (!entry.last_sync_at || r.lastSyncAt > entry.last_sync_at)) {
+          entry.last_sync_at = r.lastSyncAt;
+        }
+        if (r.driftCode) {
+          entry.drift.push({
+            registry_row_id: r.id,
+            concept: r.resourceConcept,
+            lifecycle_state: r.lifecycleState,
+            drift_code: r.driftCode,
+            drift_detail: r.driftDetail ?? null,
+          });
+        }
+      }
+      const kinds = Object.values(byKind);
+      const totalDrift = kinds.reduce((n, k) => n + k.drift.length, 0);
+      return ok({
+        site_id,
+        environment,
+        reconciled: resources.length,
+        drift_count: totalDrift,
+        kinds,
+      });
     }
 
     default:

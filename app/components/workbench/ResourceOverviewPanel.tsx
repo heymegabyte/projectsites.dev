@@ -1,0 +1,804 @@
+/**
+ * @file Resources Overview — the editor "Resources" tab's per-site platform-resource inventory.
+ *
+ * @remarks
+ * Shows a business owner every Cloudflare primitive their site is wired to (D1 databases, KV
+ * namespaces, R2 buckets, queues, Workers-for-Platforms functions, …) for a chosen environment
+ * (preview | production), GROUPED by resource kind × environment. Each card carries the kind icon,
+ * the Worker binding it's exposed under, its lifecycle state, its tenancy, a DRIFT badge when the
+ * server flagged it out of desired state, and the last successful sync. A one-click "Reconcile"
+ * button asks the server to bring the resources back to desired state, then refreshes.
+ *
+ * The embedded editor has no cross-origin session, so it CANNOT fetch the worker directly — it talks
+ * to the parent admin (which holds the bearer + `selectedSite`) over `postMessage`. Two bridge pairs:
+ *   - `PS_RES_OVERVIEW_REQUEST`  → `GET  /api/sites/:siteId/resources?environment=…`   → { resources }
+ *   - `PS_RES_RECONCILE_REQUEST` → `POST /api/sites/:siteId/resources/reconcile`        → { reconciled, drift }
+ * Both are DARK behind the surface's flag (a 404 whose message includes "not enabled" → the admin
+ * replies `{ ok:false, enabled:false }`) — when off, this panel shows a friendly "not enabled yet"
+ * state, never a scary error.
+ *
+ * READ + reconcile only: this is a status surface, not a provisioning form. Resources the site
+ * COULD add (server-known, not yet connected) render as muted "available to add" cards with a
+ * coming-soon note rather than a dead click; anything the platform can't manage shows an
+ * "unsupported" chip. Empty registry → an empty-state launchpad whose one obvious action is Reconcile.
+ *
+ * Style mirrors the sibling `./SiteTablesPanel` + `./Preview` EXACTLY (UnoCSS `bolt-elements-*`
+ * tokens, phosphor `i-ph:*` icons, black + cyan, ≥24px targets, aria-labels, focus-visible rings,
+ * prefers-reduced-motion via `motion-reduce:*`).
+ */
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { classNames } from '~/utils/classNames';
+import {
+  isEmbedded,
+  postToParent,
+  onParentMessage,
+  type ParentToChildMessage,
+  type ResOverviewResponseMessage,
+  type ResReconcileResponseMessage,
+  type ResourceOverviewEntry,
+} from '~/lib/embed/embedded-mode';
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+/** The environments the resource inventory can be scoped to (the env selector). */
+type ResourceEnvironment = 'preview' | 'production';
+
+const ENVIRONMENTS: { value: ResourceEnvironment; label: string }[] = [
+  { value: 'preview', label: 'Preview' },
+  { value: 'production', label: 'Production' },
+];
+
+type OverviewState =
+  | { status: 'loading' }
+  | { status: 'disabled' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; environment: string; resources: ResourceOverviewEntry[] };
+
+/** A promise pending a bridge reply, resolved by correlationId when the parent answers. */
+interface Pending {
+  resolve: (msg: ParentToChildMessage) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const REQUEST_TIMEOUT_MS = 20_000;
+const DISABLED_404 = 'not enabled';
+
+/** Monotonic per-module fallback so every request gets a unique correlationId. */
+let correlationCounter = 0;
+function nextCorrelationId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `res_${++correlationCounter}`;
+}
+
+/**
+ * Map a raw `resource_kind` to a phosphor icon. Best-effort + case-insensitive substring match, so
+ * new kinds still render a sensible glyph; unknown kinds fall back to a generic cube. Distinct
+ * icons per family (database / key-value / storage / queue / function / …) let the owner scan the
+ * inventory at a glance.
+ */
+function iconForKind(kind: string): string {
+  const k = (kind || '').toLowerCase();
+
+  if (k.includes('d1') || k.includes('database') || k.includes('sql')) {
+    return 'i-ph:database-duotone';
+  }
+
+  if (k.includes('kv') || k.includes('key')) {
+    return 'i-ph:key-duotone';
+  }
+
+  if (k.includes('r2') || k.includes('bucket') || k.includes('storage') || k.includes('object')) {
+    return 'i-ph:cloud-duotone';
+  }
+
+  if (k.includes('queue')) {
+    return 'i-ph:queue-duotone';
+  }
+
+  if (k.includes('function') || k.includes('worker') || k.includes('wfp') || k.includes('dispatch')) {
+    return 'i-ph:function-duotone';
+  }
+
+  if (k.includes('do') || k.includes('durable')) {
+    return 'i-ph:cube-duotone';
+  }
+
+  if (k.includes('vectorize') || k.includes('vector') || k.includes('index')) {
+    return 'i-ph:graph-duotone';
+  }
+
+  if (k.includes('ai') || k.includes('model')) {
+    return 'i-ph:sparkle-duotone';
+  }
+
+  if (k.includes('workflow')) {
+    return 'i-ph:flow-arrow-duotone';
+  }
+
+  if (k.includes('secret') || k.includes('env') || k.includes('var')) {
+    return 'i-ph:lock-key-duotone';
+  }
+
+  return 'i-ph:cube-duotone';
+}
+
+/** A human title for a `resource_kind` — strips separators + Title-Cases each word. */
+function titleForKind(kind: string): string {
+  const raw = (kind || 'Resource').replace(/[_-]+/g, ' ').trim();
+
+  if (!raw) {
+    return 'Resource';
+  }
+
+  return raw
+    .split(/\s+/)
+    .map((w) => (w.length <= 3 ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ');
+}
+
+/**
+ * Classify a resource for the card's visual treatment. A `connected` resource is bound + live; an
+ * `available` resource is server-known but not yet wired (muted, coming-soon); `unsupported` is a
+ * resource the platform can't manage. Derived from `lifecycle_state` so the server drives it.
+ */
+type Availability = 'connected' | 'available' | 'unsupported';
+function availabilityFor(entry: ResourceOverviewEntry): Availability {
+  const s = (entry.lifecycle_state || '').toLowerCase();
+
+  if (s.includes('unsupported') || s.includes('unavailable')) {
+    return 'unsupported';
+  }
+
+  if (s.includes('available') || s.includes('not_connected') || s.includes('unbound') || s.includes('proposed')) {
+    return 'available';
+  }
+
+  return 'connected';
+}
+
+/** Title-Case a lifecycle/tenancy token for display (`not_connected` → "Not Connected"). */
+function humanizeToken(token: string): string {
+  const raw = (token || '').replace(/[_-]+/g, ' ').trim();
+
+  if (!raw) {
+    return '';
+  }
+
+  return raw
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+/** Format an ISO timestamp as a compact relative "N ago"; falls back to the raw string. */
+function relativeTime(iso: string | undefined): string {
+  if (!iso) {
+    return 'never synced';
+  }
+
+  const then = Date.parse(iso);
+
+  if (Number.isNaN(then)) {
+    return iso;
+  }
+
+  const secondsAgo = Math.max(0, Math.round((Date.now() - then) / 1000));
+
+  if (secondsAgo < 60) {
+    return 'just now';
+  }
+
+  const minutes = Math.round(secondsAgo / 60);
+
+  if (minutes < 60) {
+    return `${minutes} min ago`;
+  }
+
+  const hours = Math.round(minutes / 60);
+
+  if (hours < 24) {
+    return `${hours} hr${hours === 1 ? '' : 's'} ago`;
+  }
+
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+/** A stable group key + label for the kind × environment grouping. */
+interface ResourceGroup {
+  key: string;
+  kind: string;
+  environment: string;
+  entries: ResourceOverviewEntry[];
+}
+
+/** Group a flat resource list by `resource_kind` then `environment`, sorted for a stable render. */
+function groupResources(resources: ResourceOverviewEntry[]): ResourceGroup[] {
+  const map = new Map<string, ResourceGroup>();
+
+  for (const entry of resources) {
+    const kind = entry.resource_kind || 'resource';
+    const environment = entry.environment || 'default';
+    const key = `${kind}::${environment}`;
+
+    let group = map.get(key);
+
+    if (!group) {
+      group = { key, kind, environment, entries: [] };
+      map.set(key, group);
+    }
+
+    group.entries.push(entry);
+  }
+
+  return [...map.values()].sort((a, b) =>
+    a.kind === b.kind ? a.environment.localeCompare(b.environment) : a.kind.localeCompare(b.kind),
+  );
+}
+
+// ── Component ────────────────────────────────────────────────────────────────
+
+/**
+ * The Resources Overview panel — mounted as the workbench "Resources" tab. Loads the site's
+ * platform-resource inventory for the selected environment on mount + on Refresh, and offers a
+ * one-click Reconcile that heals drift then refreshes.
+ */
+export const ResourceOverviewPanel = memo(() => {
+  const [environment, setEnvironment] = useState<ResourceEnvironment>('production');
+  const [overview, setOverview] = useState<OverviewState>({ status: 'loading' });
+  const [reconciling, setReconciling] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  /*
+   * The repo has a known empty-deps stale-ref bug: a single `onParentMessage` listener registered
+   * once in `useEffect([])` closes over the FIRST render's state (see MEMORY §[]-deps stale-ref and
+   * the sibling SiteTablesPanel). We register ONE listener and read the LATEST pending map through a
+   * ref inside the handler, so replies always resolve against the live pending set — regardless of
+   * how many renders have happened. Cleaned up on unmount (unsubscribe + reject anything in flight).
+   */
+  const pendingRef = useRef<Map<string, Pending>>(new Map());
+
+  /**
+   * Send a bridge message + await the reply matched by correlationId. Rejects on timeout so a
+   * dropped parent never hangs the UI. Resolves with the raw `ParentToChildMessage`.
+   */
+  const request = useCallback((message: Parameters<typeof postToParent>[0]): Promise<ParentToChildMessage> => {
+    return new Promise<ParentToChildMessage>((resolve, reject) => {
+      const correlationId = (message as { correlationId: string }).correlationId;
+      const timer = setTimeout(() => {
+        pendingRef.current.delete(correlationId);
+        reject(new Error('The request timed out. Check the admin connection and retry.'));
+      }, REQUEST_TIMEOUT_MS);
+
+      pendingRef.current.set(correlationId, { resolve, reject, timer });
+      postToParent(message);
+    });
+  }, []);
+
+  // Register exactly ONE parent-message listener; resolve by correlationId via the live ref.
+  useEffect(() => {
+    const unsubscribe = onParentMessage((msg) => {
+      if (msg.type !== 'PS_RES_OVERVIEW_RESPONSE' && msg.type !== 'PS_RES_RECONCILE_RESPONSE') {
+        return;
+      }
+
+      const correlationId = msg.correlationId;
+
+      if (!correlationId) {
+        return;
+      }
+
+      const pending = pendingRef.current.get(correlationId);
+
+      if (!pending) {
+        return;
+      }
+
+      clearTimeout(pending.timer);
+      pendingRef.current.delete(correlationId);
+      pending.resolve(msg);
+    });
+
+    return () => {
+      unsubscribe();
+
+      // Reject anything still in flight on unmount so no promise dangles.
+      for (const [, pending] of pendingRef.current) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error('cancelled'));
+      }
+
+      pendingRef.current.clear();
+    };
+  }, []);
+
+  /** Load (or reload) the resource inventory for the given environment. */
+  const loadOverview = useCallback(
+    async (env: ResourceEnvironment) => {
+      setOverview({ status: 'loading' });
+
+      if (!isEmbedded) {
+        setOverview({
+          status: 'error',
+          message: 'Open this from the ProjectSites admin to see your resources.',
+        });
+        return;
+      }
+
+      try {
+        const reply = (await request({
+          type: 'PS_RES_OVERVIEW_REQUEST',
+          correlationId: nextCorrelationId(),
+          environment: env,
+        })) as ResOverviewResponseMessage;
+
+        if (!reply.ok) {
+          // Dark-flag 404 → friendly disabled state, not an error card.
+          if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+            setOverview({ status: 'disabled' });
+            return;
+          }
+
+          setOverview({ status: 'error', message: reply.error || 'Could not load your resources.' });
+          return;
+        }
+
+        setOverview({
+          status: 'ready',
+          environment: reply.environment ?? env,
+          resources: reply.resources ?? [],
+        });
+      } catch (err) {
+        setOverview({
+          status: 'error',
+          message: err instanceof Error ? err.message : 'Could not load your resources.',
+        });
+      }
+    },
+    [request],
+  );
+
+  // On mount + whenever the environment changes: load the inventory.
+  useEffect(() => {
+    void loadOverview(environment);
+  }, [environment, loadOverview]);
+
+  /** Reconcile the site's resources to desired state for the current environment, then refresh. */
+  const reconcile = useCallback(async () => {
+    if (!isEmbedded || reconciling) {
+      return;
+    }
+
+    setReconciling(true);
+    setNotice(null);
+
+    try {
+      const reply = (await request({
+        type: 'PS_RES_RECONCILE_REQUEST',
+        correlationId: nextCorrelationId(),
+        environment,
+      })) as ResReconcileResponseMessage;
+
+      if (!reply.ok) {
+        if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+          setOverview({ status: 'disabled' });
+          return;
+        }
+
+        setNotice(reply.error || 'Reconcile could not finish. Please try again.');
+        return;
+      }
+
+      const reconciled = reply.reconciled ?? 0;
+      const residual = Array.isArray(reply.drift) ? reply.drift.length : 0;
+      setNotice(
+        residual > 0
+          ? `Reconciled ${reconciled} resource${reconciled === 1 ? '' : 's'} — ${residual} still need attention.`
+          : reconciled > 0
+            ? `Reconciled ${reconciled} resource${reconciled === 1 ? '' : 's'} — everything is in sync.`
+            : 'Everything was already in sync.',
+      );
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Reconcile could not finish. Please try again.');
+    } finally {
+      setReconciling(false);
+      // Refresh the inventory to reflect the reconcile outcome.
+      void loadOverview(environment);
+    }
+  }, [environment, reconciling, request, loadOverview]);
+
+  const groups = useMemo(
+    () => (overview.status === 'ready' ? groupResources(overview.resources) : []),
+    [overview],
+  );
+
+  const driftCount = useMemo(
+    () =>
+      overview.status === 'ready' ? overview.resources.filter((r) => Boolean(r.drift_code)).length : 0,
+    [overview],
+  );
+
+  const totalCount = overview.status === 'ready' ? overview.resources.length : 0;
+
+  return (
+    <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary">
+      <Header
+        environment={environment}
+        onEnvironment={setEnvironment}
+        onRefresh={() => void loadOverview(environment)}
+        onReconcile={reconcile}
+        reconciling={reconciling}
+        canReconcile={overview.status === 'ready' || overview.status === 'error'}
+        subtitle={
+          overview.status === 'ready'
+            ? totalCount === 0
+              ? 'No resources yet · your platform infrastructure'
+              : `${totalCount} resource${totalCount === 1 ? '' : 's'}${driftCount > 0 ? ` · ${driftCount} drifted` : ''} · your platform infrastructure`
+            : 'Your platform infrastructure'
+        }
+      />
+
+      {overview.status === 'loading' && <Spinner label="Loading your resources…" />}
+      {overview.status === 'disabled' && <DisabledCard />}
+      {overview.status === 'error' && (
+        <ErrorCard message={overview.message} onRetry={() => void loadOverview(environment)} />
+      )}
+
+      {overview.status === 'ready' &&
+        (groups.length === 0 ? (
+          <EmptyLaunchpad onReconcile={reconcile} reconciling={reconciling} />
+        ) : (
+          <div className="flex-1 overflow-auto modern-scrollbar px-4 py-4 space-y-6" data-testid="resources-groups">
+            {groups.map((group) => (
+              <ResourceGroupSection key={group.key} group={group} onComingSoon={setNotice} />
+            ))}
+          </div>
+        ))}
+
+      {/* Inline notice — reconcile result / coming-soon / non-fatal error (never a dead click). */}
+      {notice && (
+        <div
+          className="border-t border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-4 py-2 text-[11px] text-bolt-elements-textSecondary flex items-center gap-2"
+          data-testid="resources-notice"
+          role="status"
+        >
+          <div className="i-ph:info text-bolt-elements-item-contentAccent shrink-0" />
+          <span className="flex-1">{notice}</span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            aria-label="Dismiss"
+            className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded hover:bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+          >
+            <div className="i-ph:x text-xs" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+});
+
+ResourceOverviewPanel.displayName = 'ResourceOverviewPanel';
+
+// ── Header ───────────────────────────────────────────────────────────────────
+
+const Header = memo(
+  ({
+    environment,
+    onEnvironment,
+    onRefresh,
+    onReconcile,
+    reconciling,
+    canReconcile,
+    subtitle,
+  }: {
+    environment: ResourceEnvironment;
+    onEnvironment: (env: ResourceEnvironment) => void;
+    onRefresh: () => void;
+    onReconcile: () => void;
+    reconciling: boolean;
+    canReconcile: boolean;
+    subtitle: string;
+  }) => (
+    <div className="flex items-center gap-3 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0">
+      <div className="i-ph:stack-duotone text-xl text-bolt-elements-textSecondary shrink-0" />
+      <div className="min-w-0">
+        <h2 className="text-sm font-semibold text-bolt-elements-textPrimary">Resources</h2>
+        <p className="text-[10px] text-bolt-elements-textTertiary truncate">{subtitle}</p>
+      </div>
+
+      <div className="ml-auto flex items-center gap-2 shrink-0">
+        {/* Environment selector — preview | production */}
+        <div
+          className="flex items-center rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-0.5"
+          role="group"
+          aria-label="Environment"
+        >
+          {ENVIRONMENTS.map((env) => {
+            const active = environment === env.value;
+            return (
+              <button
+                key={env.value}
+                type="button"
+                onClick={() => onEnvironment(env.value)}
+                aria-pressed={active}
+                data-testid={`resources-env-${env.value}`}
+                className={classNames(
+                  'min-h-[24px] px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+                  active
+                    ? 'bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1'
+                    : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
+                )}
+              >
+                {env.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Reconcile — heal drift, then refresh. Label reserves its widest state so it never resizes. */}
+        <button
+          type="button"
+          onClick={onReconcile}
+          disabled={reconciling || !canReconcile}
+          data-testid="resources-reconcile"
+          title="Reconcile resources to their desired state"
+          className="min-h-[24px] text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+        >
+          <div
+            className={classNames(
+              reconciling ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:arrows-counter-clockwise',
+              'text-sm shrink-0',
+            )}
+          />
+          <span className="min-w-[9ch] text-center">{reconciling ? 'Reconciling…' : 'Reconcile'}</span>
+        </button>
+
+        {/* Refresh */}
+        <button
+          type="button"
+          onClick={onRefresh}
+          aria-label="Refresh"
+          title="Refresh"
+          className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+        >
+          <div className="i-ph:arrows-clockwise text-sm" />
+        </button>
+      </div>
+    </div>
+  ),
+);
+
+Header.displayName = 'ResourceOverviewPanel.Header';
+
+// ── Shared: spinner + error + disabled ───────────────────────────────────────
+
+const Spinner = memo(({ label }: { label: string }) => (
+  <div
+    className="flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center"
+    role="status"
+    aria-live="polite"
+    data-testid="resources-loading"
+  >
+    <div className="i-ph:circle-notch text-2xl text-bolt-elements-item-contentAccent animate-spin motion-reduce:animate-none" />
+    <p className="text-xs text-bolt-elements-textSecondary">{label}</p>
+  </div>
+));
+
+Spinner.displayName = 'ResourceOverviewPanel.Spinner';
+
+const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => void }) => (
+  <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" data-testid="resources-error">
+    <div className="i-ph:warning-circle text-3xl text-red-400" />
+    <p className="text-xs text-bolt-elements-textSecondary max-w-[280px]">{message}</p>
+    <button
+      type="button"
+      onClick={onRetry}
+      className="min-h-[24px] mt-1 text-[11px] font-medium px-3 py-1.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+    >
+      <div className="i-ph:arrow-clockwise" /> Retry
+    </button>
+  </div>
+));
+
+ErrorCard.displayName = 'ResourceOverviewPanel.ErrorCard';
+
+const DisabledCard = memo(() => (
+  <div
+    className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
+    data-testid="resources-disabled"
+  >
+    <div className="i-ph:lock-key text-3xl text-bolt-elements-textTertiary" />
+    <p className="text-sm font-medium text-bolt-elements-textSecondary">Resources isn't enabled yet</p>
+    <p className="text-[11px] text-bolt-elements-textTertiary max-w-[260px]">
+      Your platform resource view is on the way. Once it's turned on, every database, bucket, and
+      function your site uses shows up here — nothing to set up.
+    </p>
+  </div>
+));
+
+DisabledCard.displayName = 'ResourceOverviewPanel.DisabledCard';
+
+// ── Empty launchpad ──────────────────────────────────────────────────────────
+
+const EmptyLaunchpad = memo(
+  ({ onReconcile, reconciling }: { onReconcile: () => void; reconciling: boolean }) => (
+    <div
+      className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center"
+      data-testid="resources-empty"
+    >
+      <div className="i-ph:stack text-4xl text-bolt-elements-textTertiary" />
+      <div className="space-y-1">
+        <p className="text-sm font-semibold text-bolt-elements-textPrimary">No resources yet</p>
+        <p className="text-[11px] text-bolt-elements-textTertiary max-w-[300px]">
+          When your site uses a database, storage bucket, queue, or function, it appears here.
+          Reconcile to detect and connect everything your site needs.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onReconcile}
+        disabled={reconciling}
+        data-testid="resources-empty-reconcile"
+        className="min-h-[24px] text-[12px] font-semibold px-3.5 py-2 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-1 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+      >
+        <div
+          className={classNames(
+            reconciling ? 'i-ph:circle-notch animate-spin motion-reduce:animate-none' : 'i-ph:arrows-counter-clockwise',
+            'shrink-0',
+          )}
+        />
+        <span className="min-w-[9ch] text-center">{reconciling ? 'Reconciling…' : 'Reconcile'}</span>
+      </button>
+    </div>
+  ),
+);
+
+EmptyLaunchpad.displayName = 'ResourceOverviewPanel.EmptyLaunchpad';
+
+// ── Group section (kind × environment) ───────────────────────────────────────
+
+const ResourceGroupSection = memo(
+  ({ group, onComingSoon }: { group: ResourceGroup; onComingSoon: (label: string) => void }) => (
+    <section data-testid="resources-group">
+      <div className="flex items-center gap-2 mb-2.5">
+        <div className={classNames(iconForKind(group.kind), 'text-base text-bolt-elements-item-contentAccent shrink-0')} />
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-bolt-elements-textSecondary">
+          {titleForKind(group.kind)}
+        </h3>
+        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary uppercase tracking-wider">
+          {humanizeToken(group.environment)}
+        </span>
+        <span className="text-[10px] text-bolt-elements-textTertiary">
+          {group.entries.length} item{group.entries.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {group.entries.map((entry) => (
+          <ResourceCard key={entry.id} entry={entry} onComingSoon={onComingSoon} />
+        ))}
+      </div>
+    </section>
+  ),
+);
+
+ResourceGroupSection.displayName = 'ResourceOverviewPanel.ResourceGroupSection';
+
+// ── Resource card ────────────────────────────────────────────────────────────
+
+const ResourceCard = memo(
+  ({ entry, onComingSoon }: { entry: ResourceOverviewEntry; onComingSoon: (label: string) => void }) => {
+    const availability = availabilityFor(entry);
+    const drifted = Boolean(entry.drift_code);
+
+    const availabilityChip =
+      availability === 'connected'
+        ? { label: 'Connected', cls: 'text-emerald-400 border-emerald-400/40 bg-emerald-400/10', icon: 'i-ph:plugs-connected' }
+        : availability === 'available'
+          ? { label: 'Available to add', cls: 'text-bolt-elements-textTertiary border-bolt-elements-borderColor bg-bolt-elements-background-depth-2', icon: 'i-ph:plus-circle' }
+          : { label: 'Unsupported', cls: 'text-amber-400/90 border-amber-400/40 bg-amber-400/10', icon: 'i-ph:prohibit' };
+
+    const isAddable = availability === 'available';
+
+    return (
+      <div
+        className={classNames(
+          'rounded-xl border p-3.5 flex flex-col gap-2.5 transition-colors',
+          drifted
+            ? 'border-amber-400/50 bg-amber-400/[0.04]'
+            : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2',
+          availability === 'available' && 'opacity-80',
+        )}
+        data-testid="resources-card"
+        data-availability={availability}
+        data-drift={drifted ? entry.drift_code : undefined}
+      >
+        {/* Top row — kind icon + concept + drift badge */}
+        <div className="flex items-start gap-2.5">
+          <div
+            className={classNames(
+              iconForKind(entry.resource_kind),
+              'text-2xl shrink-0',
+              availability === 'connected'
+                ? 'text-bolt-elements-item-contentAccent'
+                : 'text-bolt-elements-textTertiary',
+            )}
+            aria-hidden="true"
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-bolt-elements-textPrimary truncate" title={entry.resource_concept}>
+              {entry.resource_concept || titleForKind(entry.resource_kind)}
+            </p>
+            <p className="text-[10px] text-bolt-elements-textTertiary truncate">{titleForKind(entry.resource_kind)}</p>
+          </div>
+          {drifted && (
+            <span
+              className="shrink-0 inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-amber-400/50 bg-amber-400/15 text-amber-300"
+              data-testid="resources-drift-badge"
+              title={`Drift: ${entry.drift_code}`}
+            >
+              <div className="i-ph:warning text-[9px]" />
+              {humanizeToken(entry.drift_code as string)}
+            </span>
+          )}
+        </div>
+
+        {/* Binding name */}
+        {entry.binding_name ? (
+          <div className="flex items-center gap-1.5 min-w-0" title={`Binding: ${entry.binding_name}`}>
+            <div className="i-ph:plug text-[11px] text-bolt-elements-textTertiary shrink-0" />
+            <code className="text-[11px] font-mono text-bolt-elements-textSecondary truncate">{entry.binding_name}</code>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-[10px] text-bolt-elements-textTertiary italic">
+            <div className="i-ph:plug text-[11px] shrink-0" />
+            No binding
+          </div>
+        )}
+
+        {/* Chips — lifecycle + tenancy + availability */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 text-bolt-elements-textTertiary">
+            <div className="i-ph:circle-half text-[9px]" />
+            {humanizeToken(entry.lifecycle_state) || 'Unknown'}
+          </span>
+          <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 text-bolt-elements-textTertiary">
+            <div className="i-ph:users-three text-[9px]" />
+            {humanizeToken(entry.tenancy) || 'Tenancy n/a'}
+          </span>
+          <span className={classNames('inline-flex items-center gap-1 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full border', availabilityChip.cls)}>
+            <div className={classNames(availabilityChip.icon, 'text-[9px]')} />
+            {availabilityChip.label}
+          </span>
+        </div>
+
+        {/* Footer — last sync + optional add affordance */}
+        <div className="flex items-center gap-2 mt-0.5 pt-2 border-t border-bolt-elements-borderColor/50">
+          <div className="i-ph:clock-clockwise text-[11px] text-bolt-elements-textTertiary shrink-0" />
+          <span className="text-[10px] text-bolt-elements-textTertiary flex-1 truncate" title={entry.last_sync_at}>
+            {relativeTime(entry.last_sync_at)}
+          </span>
+          {isAddable && (
+            <button
+              type="button"
+              onClick={() => onComingSoon(`Adding ${entry.resource_concept || titleForKind(entry.resource_kind)} is coming next.`)}
+              data-testid="resources-add"
+              className="min-h-[24px] text-[10px] font-medium px-2 py-1 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-background-depth-1 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors flex items-center gap-1 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            >
+              <div className="i-ph:plus" /> Add
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  },
+);
+
+ResourceCard.displayName = 'ResourceOverviewPanel.ResourceCard';

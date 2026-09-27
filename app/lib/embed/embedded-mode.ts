@@ -567,6 +567,96 @@ export interface SiteDbRowsResponseMessage {
   error?: string;
 }
 
+// ── Resource-overview bridge messages ──────────────────────────────────────────
+
+/**
+ * Child → Parent (resource overview): list the site's platform resources (the per-site D1/KV/R2/queue/
+ * function inventory) for the given environment. The embedded editor has no cross-origin session, so the
+ * admin (which holds `selectedSite` + the bearer) calls `GET /api/sites/:siteId/resources` and replies
+ * with {@link ResOverviewResponseMessage}. Gated server-side by its dark flag (a 404 whose message
+ * includes "not enabled" → `{ok:false, enabled:false}`).
+ */
+export interface ResOverviewRequestMessage {
+  type: 'PS_RES_OVERVIEW_REQUEST';
+  correlationId: string;
+
+  /** Which environment's resources to list (e.g. `production` | `preview`). Omit for the default. */
+  environment?: string;
+}
+
+/**
+ * Child → Parent (resource overview): reconcile the site's resources against the desired state for the
+ * given environment. The admin calls `POST /api/sites/:siteId/resources/reconcile` and replies with
+ * {@link ResReconcileResponseMessage}. Same dark-flag translation as {@link ResOverviewRequestMessage}.
+ */
+export interface ResReconcileRequestMessage {
+  type: 'PS_RES_RECONCILE_REQUEST';
+  correlationId: string;
+
+  /** Which environment to reconcile (e.g. `production` | `preview`). Omit for the default. */
+  environment?: string;
+}
+
+/** One resource row in the {@link ResOverviewResponseMessage} inventory. */
+export interface ResourceOverviewEntry {
+  id: string;
+  resource_kind: string;
+  resource_concept: string;
+  environment: string;
+  tenancy: string;
+  lifecycle_state: string;
+
+  /** Set when the resource has drifted from desired state (the drift taxonomy code). */
+  drift_code?: string;
+
+  /** The Worker binding name this resource is exposed under, when bound. */
+  binding_name?: string;
+
+  /** ISO timestamp of the last successful sync/reconcile, when known. */
+  last_sync_at?: string;
+}
+
+/**
+ * Parent → Child (resource overview): the admin's reply to {@link ResOverviewRequestMessage} (mirrors the
+ * worker's `data` envelope — `{ resources:[…] }`). `enabled` is `false` when the surface's flag is dark
+ * (the 404 "not enabled"); `error` carries any other failure (no site selected, network, 4xx).
+ */
+export interface ResOverviewResponseMessage {
+  type: 'PS_RES_OVERVIEW_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** Echoed environment the resources belong to. */
+  environment?: string;
+
+  /** The site's platform resource inventory for the environment. */
+  resources?: ResourceOverviewEntry[];
+
+  /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/**
+ * Parent → Child (resource overview): the admin's reply to {@link ResReconcileRequestMessage} (mirrors
+ * the worker's `data` envelope — `{ reconciled, drift }`). `error` is set when the authed call failed.
+ */
+export interface ResReconcileResponseMessage {
+  type: 'PS_RES_RECONCILE_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** How many resources were reconciled to desired state. */
+  reconciled?: number;
+
+  /** The residual drift after reconciliation (resource-specific shapes). */
+  drift?: unknown[];
+
+  /** `false` when the surface's flag is off (the dark-flag 404) → the surface stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
 // ── KV Browser bridge messages ────────────────────────────────────────────────
 
 /** KV namespace entry returned by the `namespaces` op. */
@@ -775,6 +865,8 @@ export type ParentToChildMessage =
   | AskResponseMessage
   | SiteDbTablesResponseMessage
   | SiteDbRowsResponseMessage
+  | ResOverviewResponseMessage
+  | ResReconcileResponseMessage
   | KvResponseMessage
   | ViewResponseMessage
   | PSToastMessage;
@@ -790,6 +882,8 @@ export type ChildToParentMessage =
   | AskRequestMessage
   | SiteDbTablesRequestMessage
   | SiteDbRowsRequestMessage
+  | ResOverviewRequestMessage
+  | ResReconcileRequestMessage
   | KvRequestMessage
   | ViewRequestMessage
   | PSErrorMessage
