@@ -315,7 +315,7 @@ interface WorkerMediaAssetRow {
 
 /**
  * Map a worker `media_assets` row → the {@link EditorMediaAsset} shape the editor consumes.
- * `url` points at the authed raw-stream route (`/api/media/assets/:id/raw`) so the `<img>` +
+ * `url` points at the authed raw-stream route (`/api/media/assets/:id/raw`) so the image tag +
  * open-in-new work; `contentType`/`size`/`uploaded` are renamed from the DB column names.
  */
 function mapMediaAsset(row: WorkerMediaAssetRow): EditorMediaAsset {
