@@ -1,0 +1,146 @@
+# Editor "Database" Tab — Correction & Feature Backlog
+
+> **Authoritative correction per Brian's 2026-09-27 directive.** Consolidates the three editor
+> data tabs into ONE **Database** tab, removes the shared-platform-D1 surface entirely, and
+> enumerates every scope-doc feature as DONE / NOT-DONE with an ordered multi-agent fire-list.
+>
+> Sources: `docs/data-platform-scope.md` (154KB north-star + 2026-09-26 reconciliation + git/R2
+> model), `docs/data-resource-platform/{PROGRESS-LEDGER,CAPABILITY-STATUS,MCP-TOOLS}.md` (the
+> registry arc — 9 adapters + 45 `data_*` MCP tools, all DARK), and the live editor code.
+
+---
+
+## 0. The correction in one line
+
+Today the editor ships **three** data tabs — `data` (**Data** → `DataPanel.tsx`, the mature but
+**WRONG-TARGET** shared-platform-D1 surface), `database` (**Database** → `SiteTablesPanel.tsx`,
+the correct read-only per-site D1 seed), and `resources` (**Resources** → `ResourceOverviewPanel`
++ `ResourceDetailPanel`, the generic per-site-resource console). Brian's target: **ONE `Database`
+tab** whose sub-nav is a button bar **Table-view · SQL navigator · KV manager**, all pointed at the
+**per-site** D1 (+ its KV/R2), with the shared-platform-D1 surface (Visitor Events / Snapshots /
+`form_submissions` / `/data-overview`) **removed** from the editor.
+
+---
+
+## 1. UI CONSOLIDATION SPEC (exact — Fire 1)
+
+### 1.1 Target shape
+
+- **One top tab:** rename `data` → **`Database`** (icon `i-ph:database-duotone`). DELETE the separate
+  `database` and `resources` top tabs.
+- **Inside it, a sub-nav BUTTON bar** (segmented, black+cyan, `≥24px`, `aria-pressed`, keyboard-navigable):
+  - **Table-view** — the per-site D1 spreadsheet/grid (browse/edit/schema/views), from `SiteTablesPanel` folded onto the per-site adapter path.
+  - **SQL navigator** — per-site D1 SQL workspace, behind a personal remembered **"Advanced/Developer"** toggle (per 2026-09-26 override: SQL is NOT hidden, it's tucked).
+  - **KV manager** — the site's own KV; **locked-upsell** until the **$10/mo Stripe add-on** is purchased (see §1.4).
+  - (R2 / Vectorize / Connections / Workers ride the resource console reachable from this tab; see backlog — R2 "S3 browser" is spec'd as a Data-section surface, not the editor Files panel per the newest 2026-09-26 model.)
+- **Everything targets the per-site D1 (+ KV/R2)** via the resolved-server-side binding
+  (`resolveSiteDataDb` → `site_database_allocations`, flag `per_site_data`). **NO** shared platform DB.
+
+### 1.2 EXACT files + current lines + change
+
+| File | Current | Change |
+|---|---|---|
+| `app/components/workbench/Workbench.client.tsx` | L59–65 `TOP_TABS`: `{value:'data',text:'Data',…}`, `{value:'database',text:'Database',…}`, `{value:'resources',text:'Resources',…}` | Collapse to ONE entry: `{ value:'database', text:'Database', icon:'i-ph:database-duotone' }`. Remove the `data` + `resources` entries. |
+| `app/components/workbench/Workbench.client.tsx` | L515–523: `<PanelLayer active={selectedView==='data'}><DataPanel/></PanelLayer>`, `…'database'…<SiteTablesPanel/>`, `…'resources'…<ResourceOverviewPanel/>` | Replace all three with ONE `<PanelLayer active={selectedView==='database'}><DatabasePanel/></PanelLayer>` mounting a new consolidated container that renders the sub-nav + the active sub-surface. |
+| `app/components/workbench/Workbench.client.tsx` | L16–18 imports `DataPanel`, `SiteTablesPanel`, `ResourceOverviewPanel` | Drop the `DataPanel` import; import the new `DatabasePanel`. (Keep `ResourceOverviewPanel`/`ResourceDetailPanel` — reused inside the resource console.) |
+| `app/components/workbench/DatabasePanel.tsx` | **new** | Container: sub-nav button bar (`Table-view`/`SQL navigator`/`KV manager`) + Advanced toggle; owns `subView` state; renders `SiteTablesPanel` (Table-view), a per-site `SqlNavigator`, and a per-site `KvManager` (gated). |
+| `app/components/workbench/DataPanel.tsx` (7104 lines) | The FROZEN shared-D1 surface: `mode: 'tables'\|'sql'\|'kv'` (L436), reads `PS_DATA_REQUEST`→`/api/sites/:id/data-overview` + `PS_SQL_REQUEST`→super-admin shared-D1 `/sql/*`; Visitor Events / Snapshots / `form_submissions`. | **Remove from the editor.** Harvest its mature grid logic (`data-panel-logic.ts`, `data-cell-format.ts`, views grid/gallery/kanban/calendar/chart, `<CellEditor>`, saved-views) as the ENGINE re-pointed at the per-site adapter path; do NOT keep its shared-`/data-overview` + super-admin-`/sql` reads. Delete Visitor Events / Snapshots / data-overview modes. |
+| `app/components/workbench/SiteTablesPanel.tsx` (843 lines) | Read-only per-site D1 (`PS_SITEDB_*` → `/api/sites/:siteId/db/tables[/:table]`, flag `per_site_data`). | FOLD IN as the Database tab's **Table-view**; wire the harvested edit/schema/views engine onto its per-site path. |
+| `app/components/workbench/ResourceOverviewPanel.tsx` (861) + `ResourceDetailPanel.tsx` (1647) | The `resources` tab's generic per-kind inventory + drill-in + `WriteControls` (`PS_RES_*` → `/api/sites/:siteId/resources/*`). | FOLD the per-site-D1 read/detail/write path into the Database sub-nav; keep the generic console for KV/R2/Workers etc. reachable from within the Database tab. |
+
+### 1.3 Remove entirely (shared-platform-D1 in the editor)
+
+- DataPanel's **Visitor Events**, **Snapshots**, `form_submissions`, and all **`/data-overview`** modes.
+- The super-admin shared-D1 **`PS_SQL_REQUEST`→`/sql/exec*`** path (SQL navigator instead runs the per-site `data_d1_exec` adapter).
+- (Platform per-site data — `visitor_events`/`form_submissions` — STAYS in the master D1, surfaced via `/admin` dashboards, NOT this tab. Per scope-doc 2026-09-26 override.)
+
+### 1.4 KV $10/mo Stripe opt-in gate (mechanism — currently UNSHIPPED)
+
+- **Discoverable state:** `per_site_kv` exists ONLY as a plain feature flag
+  (`src/modules/feature_flags/registry.ts` L518, default OFF/experimental). There is **NO** Stripe
+  entitlement / add-on / upsell / checkout wiring anywhere in the codebase (grep-confirmed).
+- **To build:** a per-site KV add-on entitlement (Stripe `$10/mo`), checked server-side before the
+  KV adapter provisions/serves; the KV manager shows a **locked upsell card** (buy → Stripe checkout
+  → entitlement → `data_provision_resource kind:kv` provisions BOTH prod+preview KV) until paid. Model
+  after the existing `services/billing.ts` entitlements + the confirm-gated `data_provision_resource`.
+
+---
+
+## 2. FEATURE BACKLOG (every presumed scope-doc feature; DONE cross-refs the registry arc)
+
+### 2A. Consolidation (URGENT)
+
+- **NOT-DONE** — Rename `data`→`Database`, one tab, sub-nav button bar (Table-view/SQL/KV). *(Fire 1)*
+- **NOT-DONE** — Remove shared-platform-D1 editor surface (Visitor Events/Snapshots/`form_submissions`/`/data-overview`). *(Fire 1)*
+- **NOT-DONE** — Fold `SiteTablesPanel` + resource per-site-D1 path into the one tab; re-point the mature grid engine at the per-site adapter. *(Fire 1–2)*
+
+### 2B. Per-site D1 core (the read/edit engine)
+
+- **DONE (adapter+MCP)** — per-site D1 list/read/paginate: `data_list_tables`/`data_read_table`, `/api/sites/:siteId/db/tables[/:table]` LIVE behind `per_site_data`. Read-only grid folded (`SiteTablesPanel`).
+- **DONE (adapter+MCP)** — gated parameterized row write (`data_d1_exec`, classifier read/mutating/destructive, confirm-gated, `rows_written`).
+- **DONE (adapter+MCP)** — EXPLAIN + migration history (`data_d1_explain`/`data_d1_migrations`); query history (`data_d1_query_history`, migration `0644`).
+- **PARTIAL** — typed inline cell editing / immediate-save + undo on the PER-SITE grid. The mature editor engine (`<CellEditor>`, views, saved-views) exists but is wired to the SHARED path in `DataPanel`; must be re-pointed. *(Fire 2)*
+- **NOT-DONE** — instant local undo for uncommitted grid edits on the per-site path. *(Fire 2)*
+
+### 2C. Resource lifecycle (clone / delete / export / import / promote / env-grid)
+
+- **DONE (adapter+MCP)** — provision (`data_provision_resource`, confirm-gated, quota-checked, idempotent) for D1/KV/R2.
+- **DONE (adapter+MCP, generic)** — delete/mutate via `/resources/:kind/mutate` + `WriteControls`.
+- **DONE** — per-row / whole-query CSV+JSON export in the grid (shipped in the shared surface; re-point to per-site).
+- **NOT-DONE** — **clone (single resource)** D1/R2 within the site namespace. *(Fire 5)*
+- **NOT-DONE** — mapped **import** (CSV/Excel/JSON header+type mapping, NULL/conflict, resumable). *(Fire 6)*
+- **NOT-DONE** — **promote (preview→prod)** — schema + optional data, explicit owner action. *(Fire 5)*
+- **NOT-DONE** — **environment-assignment grid** mapping each allocated D1/KV/R2 to preview/prod. *(Fire 5)*
+- **NOT-DONE** — **immediate teardown on site-delete** (destroy D1/KV/R2 + backup + confirm). *(Fire 5)*
+- **NOT-DONE** — greenfield reset (gated, site-scoped-only, human-confirmed). *(Fire 8, gated)*
+
+### 2D. Git / code browser (per-site R2 repo)
+
+- **NOT-DONE (all — zero code)** — per-site WfP dispatch namespace + prod/preview Workers (git-ref = env, advancing prod ref auto-deploys). *(Fire 7)*
+- **NOT-DONE** — real interoperable git repo in the site's OWN R2 (isomorphic-git over R2; editor files ARE the repo; saves/deploys = commits; prod+preview refs + named restore points, no branch/PR). *(Fire 7)*
+- **NOT-DONE** — "Snapshots" side item → a full **CODE git browser**: commit history, diffs, checkout/restore a commit, compare preview↔prod. *(Fire 7)*
+
+### 2E. Snapshots / Time-Travel UI (D1 DATA versioning — SEPARATE from git)
+
+- **DONE (adapter+MCP)** — D1 Time-Travel info + restore (`data_d1_time_travel_info`/`data_d1_restore`, confirm-gated whole-DB revert; auto-snapshot-before-destructive intent realized).
+- **NOT-DONE** — owner-facing **Time-Travel restore UI** (pick a point/bookmark, one-click restore) in the Database tab. *(Fire 4)*
+- **SKIP (Brian)** — per-row change history / audit log.
+
+### 2F. KV opt-in billing
+
+- **DONE (adapter+MCP)** — KV list/get/put/delete + bulk + TTL/metadata (`data_kv_*`, DARK behind `per_site_kv`).
+- **NOT-DONE** — **KV manager UI** in the Database tab. *(Fire 3)*
+- **NOT-DONE** — **$10/mo Stripe add-on** entitlement + locked-upsell gate + provision-on-purchase (BOTH prod+preview KV). *(Fire 3)*
+
+### 2G. Views / schema-builder / AI-seeding
+
+- **DONE (shared surface, re-point needed)** — rich views **grid · gallery · kanban · chart · calendar** + saved views (CRUD + drift badge + layout capture) + record drawer + column reorder/resize/pin/hide/density/summaries. `view-models.ts`/`field-types.ts`/`schema-ddl.ts` foundations tested.
+- **NOT-DONE** — guided **schema builder** on the per-site D1 (create tables, add/rename/retype cols, relations; DDL preview + impact + confirm + rebuild-when-ALTER-can't). `schema-ddl.ts` is inert. *(Fire 4)*
+- **NOT-DONE** — first field types on the per-site grid: typed primitives + single/multi-select + date (linked-records/lookup/rollup/formulas/attachments/rating LATER, computed-at-display). *(Fire 4)*
+- **NOT-DONE** — **AI seeds tables on generation** (builder↔DB: pipeline creates tables + wires Worker bindings + app code). *(Fire 6)*
+- **NOT-DONE** — AI copilot: NL query / NL edits / insights / formula-gen / conversational chat / data-cleaning; AI-first onboarding. *(Fire 6, later slices)*
+
+### 2H. Other spec'd-but-unshipped
+
+- **NOT-DONE** — **R2 "S3 browser"** for the site's namespace buckets (list buckets + stats + browse + create/delete). Adapter LIVE-code; owner UI missing. *(Fire 5)*
+- **NOT-DONE** — public **Form builder** (owner builds → embeds → rows land in per-site D1). *(Fire 6)*
+- **NOT-DONE** — automations (row → email/webhook), auto REST API per table + shareable links. *(later)*
+- **NOT-DONE** — global search + **Cmd+K** palette. *(later)*
+- **NOT-DONE** — 2-way Google Sheets sync, external API/DB scheduled sync, table templates. *(later)*
+- **NOT-DONE** — Workers-in-Data console (prod+preview Worker status/bindings/deploy). *(Fire 7)*
+- **DONE (adapter+MCP, honest not_available)** — Vectorize/Connections/Workflows/DO/Queues/Analytics-Engine/backend-inventory read+write layers (all DARK; editor UIs pending — Backend tab, out of Database-tab scope).
+
+---
+
+## 3. ORDERED FIRE-LIST (multi-agent loop — one coherent slice per fire, disjoint files)
+
+1. **UI consolidation (URGENT, visible).** `Workbench.client.tsx` TOP_TABS + PanelLayers → one `Database` tab; new `DatabasePanel.tsx` sub-nav (Table-view/SQL/KV + Advanced toggle); remove `DataPanel` shared-D1 surface (Visitor Events/Snapshots/`/data-overview`/super-admin `/sql`) from the editor; mount `SiteTablesPanel` as Table-view. *Slice = UI only; adapters already exist.*
+2. **Per-site grid engine re-point.** Harvest `DataPanel`'s grid engine (`data-panel-logic.ts`, `<CellEditor>`, views, saved-views) onto the per-site adapter path (`data_read_table`/`data_d1_exec`); typed inline edit + immediate-save + local undo on the OWNED D1. *+ parity: it already rides `data_*` MCP.*
+3. **KV manager + $10/mo gate.** KV manager UI (list/get/put/delete/bulk/TTL) on `data_kv_*`; Stripe `$10/mo` add-on entitlement + locked-upsell + provision-on-purchase (prod+preview). *(UI + billing + `data_provision_resource` + tests.)*
+4. **Schema builder + Time-Travel restore UI + first field types.** Guided DDL on the per-site D1 (`schema-ddl.ts`, impact-preview+confirm+rebuild) + owner Time-Travel restore UI (`data_d1_time_travel_info`/`data_d1_restore`) + select/date field types.
+5. **Resource lifecycle + R2 S3 browser.** clone-single-resource · promote(preview→prod) · env-assignment grid · teardown-on-delete for D1/R2 + the R2 namespace S3 browser UI. *(UI + parity MCP verbs + adapter mutate + tests.)*
+6. **Import + AI table-seeding + Form builder.** Mapped CSV/Excel/JSON import; builder↔DB AI table-seeding (pipeline + bindings); public Form builder → per-site D1 rows.
+7. **Git/code platform.** Per-site WfP namespace + prod/preview Workers (ref=env, auto-deploy) + isomorphic-git-over-R2 repo + the CODE git browser (history/diff/checkout-restore/compare) + Workers-in-Data console.
+8. **Greenfield reset (GATED).** Site-scoped-only reset (backup + enumerated delete-list + human "execute"; preserve ALL platform tables; never from a loop).
+
+**Doc path:** `apps/project-sites/docs/data-resource-platform/CORRECTION-AND-BACKLOG.md`
