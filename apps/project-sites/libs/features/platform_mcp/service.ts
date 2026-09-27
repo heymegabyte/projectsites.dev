@@ -52,6 +52,8 @@ import {
   DataD1ExecInput,
   DataD1ExplainInput,
   DataD1MigrationsInput,
+  DataD1TimeTravelInfoInput,
+  DataD1RestoreInput,
   DataKvListKeysInput,
   DataKvGetInput,
   DataKvPutInput,
@@ -533,6 +535,40 @@ export const PLATFORM_MCP_TOOLS = [
       type: 'object',
       properties: {
         site_id: { type: 'string' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_d1_time_travel_info',
+    description:
+      "Read the current Time Travel backup bookmark for your site's OWN dedicated database, plus the point-in-time-recovery window (30 days on the paid plan). D1 Time Travel continuously backs up the database — no snapshots to configure. Optionally pass an ISO 8601 timestamp to get the nearest bookmark AT OR BEFORE that instant (the exact point data_d1_restore would restore to). Returns { available, bookmark, as_of, retention_days, duration_ms }. READ-ONLY, no confirm. You name only the site_id (+ optional timestamp/environment) — never a database id; the database is resolved server-side and isolated to your site.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        timestamp: { type: 'string' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_d1_restore',
+    description:
+      "Restore your site's OWN dedicated database to an earlier point in time via D1 Time Travel. ⚠️ DESTRUCTIVE + WHOLE-DATABASE: EVERY table is reverted to the target and any changes made after it are permanently lost — this requires confirm:true, and without it you get a warning REPORTING that it is a whole-database restore within the 30-day recovery window and NOTHING runs. Provide EXACTLY ONE target: a bookmark (from data_d1_time_travel_info) OR an ISO 8601 timestamp (not both, not neither). Returns { restored, bookmark, previous_bookmark, message } — previous_bookmark is the undo handle (restore to it to reverse this restore). You name only the site_id + target (+ confirm/environment) — never a database id; the database is resolved server-side and isolated to your site.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        bookmark: { type: 'string' },
+        timestamp: { type: 'string' },
+        confirm: { type: 'boolean' },
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id'],
@@ -1766,6 +1802,109 @@ export async function dispatchPlatformTool(
         count: data?.migrations?.length ?? 0,
         migrations: data?.migrations ?? [],
         duration_ms: data?.durationMs,
+      });
+    }
+
+    case 'data_d1_time_travel_info': {
+      // Flag-gated on the SAME flag the db/tables endpoint uses (dark → err, mirroring its 404).
+      if (!(await isFlagOn(env, PER_SITE_DATA_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site data is not enabled for this account.');
+      }
+      const { site_id, timestamp, environment } = DataD1TimeTravelInfoInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF/db id — the caller
+      // named only site_id; resolveSiteDataDb server-resolves + isolates + denylists the database.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const resolved = await resolveSiteDataDb(env, site_id, { orgId });
+      if (!resolved || !resolved.ok) return err('Could not open the site database.');
+      const auth = await resolveCfCredentials(env, orgId);
+      const accountId = env.CF_ACCOUNT_ID;
+      if (!auth || !accountId) return err('Could not open the site database.');
+      // Real CF REST Time Travel read (GET …/time_travel/bookmark) — never a fabricated bookmark.
+      const result = await d1Adapter.mutate(
+        {
+          accessPolicy: 'no_direct',
+          accountId,
+          auth,
+          environment,
+          orgId,
+          resourceId: resolved.databaseId,
+          siteId: site_id,
+        },
+        { action: 'time_travel_info', timestamp },
+      );
+      if (!result.ok) {
+        return err(result.error?.message ?? 'Could not read the Time Travel bookmark.');
+      }
+      const data = result.data as
+        | { available?: boolean; bookmark?: string; asOf?: string; retentionDays?: number; durationMs?: number }
+        | undefined;
+      return ok({
+        site_id,
+        environment,
+        databaseId: resolved.databaseId,
+        action: 'time_travel_info',
+        available: data?.available ?? true,
+        bookmark: data?.bookmark,
+        as_of: data?.asOf,
+        retention_days: data?.retentionDays ?? 30,
+        duration_ms: data?.durationMs,
+      });
+    }
+
+    case 'data_d1_restore': {
+      // Flag-gated on the SAME flag the db/tables endpoint uses (dark → err, mirroring its 404).
+      if (!(await isFlagOn(env, PER_SITE_DATA_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site data is not enabled for this account.');
+      }
+      const { site_id, bookmark, timestamp, confirm, environment } = DataD1RestoreInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF/db id — the caller
+      // named only site_id; resolveSiteDataDb server-resolves + isolates + denylists the database.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const resolved = await resolveSiteDataDb(env, site_id, { orgId });
+      if (!resolved || !resolved.ok) return err('Could not open the site database.');
+      const auth = await resolveCfCredentials(env, orgId);
+      const accountId = env.CF_ACCOUNT_ID;
+      if (!auth || !accountId) return err('Could not open the site database.');
+      // The adapter gates on confirm:true (whole-DB warning) + requires exactly one target — surfaced as isError.
+      // A real CF REST restore (POST …/time_travel/restore) runs only when both guards pass.
+      const result = await d1Adapter.mutate(
+        {
+          accessPolicy: 'no_direct',
+          accountId,
+          auth,
+          environment,
+          orgId,
+          resourceId: resolved.databaseId,
+          siteId: site_id,
+        },
+        { action: 'restore', bookmark, timestamp, confirm },
+      );
+      if (!result.ok) {
+        // Surface the confirm-required / invalid-target warning (or a CF failure) — never a silent restore.
+        return err(result.error?.message ?? 'Could not restore the site database.');
+      }
+      const data = result.data as
+        | { restored?: boolean; bookmark?: string; previousBookmark?: string; message?: string }
+        | undefined;
+      return ok({
+        site_id,
+        environment,
+        databaseId: resolved.databaseId,
+        action: 'restore',
+        restored: data?.restored ?? false,
+        bookmark: data?.bookmark,
+        previous_bookmark: data?.previousBookmark,
+        message: data?.message,
       });
     }
 

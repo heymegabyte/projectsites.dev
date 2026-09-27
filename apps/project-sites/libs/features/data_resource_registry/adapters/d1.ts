@@ -20,9 +20,9 @@
  * A MUTATING statement requires an explicit `confirm:true`; without it `mutate` returns a typed
  * `confirmation_required` envelope that REPORTS the detected statement kind and executes NOTHING
  * (SECURITY-INVARIANTS INV-9/INV-11). A DESTRUCTIVE statement is additionally FLAGGED and its message
- * NOTES that D1 Time Travel (30-day PITR) is the recovery path — the caller restores to a pre-write
- * timestamp via `wrangler d1 time-travel restore`, since the CF REST plane does not expose a bookmark
- * create call here. The classifier is BEST-EFFORT: the leading-keyword parse decides the confirm gate,
+ * NOTES that D1 Time Travel (30-day PITR) is the recovery path — the caller can restore to a pre-write
+ * timestamp with the `restore` action (below), which DOES run against the CF REST Time Travel plane.
+ * The classifier is BEST-EFFORT: the leading-keyword parse decides the confirm gate,
  * but the GROUND TRUTH of what changed is D1's own `rows_written` / `changed_db` meta on the result —
  * this adapter NEVER claims the classifier sandboxes arbitrary SQL, it relies on parameterized exec +
  * that meta. Identifiers can't be REST-parameterized, so DDL/DML that names a table is the caller's
@@ -66,6 +66,13 @@ const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
 const GET_LIMIT_MIN = 1;
 const GET_LIMIT_MAX = 200;
 const GET_LIMIT_DEFAULT = 50;
+
+/**
+ * D1 Time Travel point-in-time-recovery window, in days. 30 on Workers Paid (7 on Free) — surfaced as the
+ * honest recovery horizon in `time_travel_info` + the destructive-restore warning. Kept as a named constant so
+ * the number is one lookup, never a magic literal drifting between the two Time Travel handlers.
+ */
+const TIME_TRAVEL_RETENTION_DAYS = 30;
 
 /** What a D1 `head` returns: whether the database exists + a little CF metadata when it does. */
 export interface D1HeadData {
@@ -154,8 +161,49 @@ export interface D1MigrationsInput {
   readonly action: 'migrations';
 }
 
+/**
+ * The `time_travel_info` action input: READ the site D1's current Time Travel bookmark + the 30-day PITR
+ * window (READ-ONLY, no confirm). Optionally names a `timestamp` (ISO 8601) to look up the nearest bookmark
+ * AT OR BEFORE that instant — the exact value {@link D1RestoreInput} would restore to. No caller CF id: the
+ * database is `scope.resourceId` (server-resolved upstream; INV-9). This is a real CF REST call
+ * (`GET …/time_travel/bookmark`) — Time Travel IS exposed by the D1 REST API (verified against CF docs),
+ * so this returns the LIVE bookmark, never a fabricated one.
+ */
+export interface D1TimeTravelInfoInput {
+  readonly action: 'time_travel_info';
+  /**
+   * Optional ISO 8601 timestamp. When present, returns the nearest bookmark AT OR BEFORE it (the value a
+   * `restore` to that timestamp would land on); when absent, returns the CURRENT bookmark.
+   */
+  readonly timestamp?: string;
+}
+
+/**
+ * The `restore` action input: restore the site's OWN D1 to a point in time via CF REST Time Travel — a
+ * DESTRUCTIVE, WHOLE-DATABASE operation (every table is reverted; changes after the target are lost). Exactly
+ * ONE of `bookmark` | `timestamp` is required (CF treats them as mutually-exclusive query params). `confirm`
+ * MUST be `true` — without it `mutate` returns a typed `confirmation_required` envelope that WARNS it is a
+ * whole-DB restore within the 30-day window and runs NOTHING (INV-9/INV-11). No caller CF id: the database is
+ * `scope.resourceId` (server-resolved upstream). This is a real CF REST call (`POST …/time_travel/restore`).
+ */
+export interface D1RestoreInput {
+  readonly action: 'restore';
+  /** A bookmark (from `time_travel_info`) to restore to. Required if `timestamp` is not given (mutually exclusive). */
+  readonly bookmark?: string;
+  /** An ISO 8601 timestamp to restore to. Required if `bookmark` is not given (mutually exclusive). */
+  readonly timestamp?: string;
+  /** MUST be `true` — a whole-DB restore is destructive; without it nothing runs (`confirmation_required`). */
+  readonly confirm?: boolean;
+}
+
 /** The discriminated named-mutation union for the d1 adapter — NEVER a generic `{ sql }` bare field. */
-export type D1MutateInput = D1ExecInput | D1ExplainInput | D1MigrationsInput | ProvisionInput;
+export type D1MutateInput =
+  | D1ExecInput
+  | D1ExplainInput
+  | D1MigrationsInput
+  | D1TimeTravelInfoInput
+  | D1RestoreInput
+  | ProvisionInput;
 
 /**
  * What a successful `exec` returns: the honestly-classified effect, D1's GROUND-TRUTH meta (`rowsRead`/
@@ -226,11 +274,51 @@ export interface D1MigrationsResult {
   readonly durationMs?: number;
 }
 
+/**
+ * What a successful `time_travel_info` returns: the LIVE current (or as-of-timestamp) bookmark + the honest
+ * 30-day PITR window. `available:true` always here — Time Travel IS exposed by the D1 REST API (verified), so
+ * the read is real. `bookmark` is CF's opaque bookmark string (feed it back to a `restore`). `retentionDays`
+ * is 30 (Workers Paid default; the honest recovery horizon). NEVER a fabricated bookmark.
+ */
+export interface D1TimeTravelInfoResult {
+  readonly action: 'time_travel_info';
+  /** True — the D1 REST Time Travel API is available (read succeeded). Kept explicit for honest UI/MCP copy. */
+  readonly available: boolean;
+  /** CF's opaque bookmark for the current (or as-of-`timestamp`) database state — feed back to `restore`. */
+  readonly bookmark?: string;
+  /** Echo of the `timestamp` the bookmark was looked up at (absent → the current bookmark). */
+  readonly asOf?: string;
+  /** The point-in-time recovery window in days (30 on Workers Paid — the honest recovery horizon). */
+  readonly retentionDays: number;
+  /** D1-reported query wall-time in ms, when CF returns it. */
+  readonly durationMs?: number;
+}
+
+/**
+ * What a successful `restore` returns: CF's post-restore bookmark, the PREVIOUS bookmark (the undo handle — a
+ * restore can itself be reverted by restoring to `previousBookmark`), and CF's human message. `restored:true`
+ * confirms the whole-DB revert ran. NEVER a fabricated success — this is CF's real
+ * `POST …/time_travel/restore` response.
+ */
+export interface D1RestoreResult {
+  readonly action: 'restore';
+  /** True when CF confirmed the restore ran (the whole database was reverted to the target point). */
+  readonly restored: boolean;
+  /** CF's new bookmark representing the database state AFTER the restore. */
+  readonly bookmark?: string;
+  /** CF's bookmark for the state BEFORE the restore — the UNDO handle (restore to this to revert the restore). */
+  readonly previousBookmark?: string;
+  /** CF's human-readable message describing the restore result. */
+  readonly message?: string;
+}
+
 /** The discriminated result union a successful `mutate` returns. */
 export type D1MutateResult =
   | D1ExecResult
   | D1ExplainResult
   | D1MigrationsResult
+  | D1TimeTravelInfoResult
+  | D1RestoreResult
   | ProvisionMutateResult;
 
 /** SQLite keywords whose statement MUTATES the database. */
@@ -404,14 +492,24 @@ class D1Adapter
 
   /**
    * Honest capability declaration (CAPABILITY-MATRIX.md): d1 serves both environments, all three read verbs,
-   * and the named `mutate` actions — `exec` (a single gated PARAMETERIZED statement), `provision`, plus the
-   * READ-ONLY polish actions `explain` (`EXPLAIN QUERY PLAN` for a read statement) and `migrations` (the
-   * applied-migration history). seed/destroy land later — append them here + implement in the same fire so
-   * the UI/MCP never offer an unwired verb.
+   * and the named `mutate` actions — `exec` (a single gated PARAMETERIZED statement), `provision`, the READ-ONLY
+   * polish actions `explain` (`EXPLAIN QUERY PLAN` for a read statement) + `migrations` (the applied-migration
+   * history), and the Time Travel actions `time_travel_info` (READ the live bookmark + 30-day PITR window) +
+   * `restore` (DESTRUCTIVE whole-DB point-in-time restore, `confirm:true`-gated). Time Travel IS exposed by the
+   * D1 REST API (verified against CF docs — `GET/POST …/time_travel/bookmark|restore`), so both run for real.
+   * seed/destroy land later — append them here + implement in the same fire so the UI/MCP never offer an
+   * unwired verb.
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: ['exec', 'explain', 'migrations', 'provision'] as const,
+    mutations: [
+      'exec',
+      'explain',
+      'migrations',
+      'time_travel_info',
+      'restore',
+      'provision',
+    ] as const,
     verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
@@ -636,6 +734,14 @@ class D1Adapter
     if (input && input.action === 'migrations') {
       return this.runMigrations(cid, scope);
     }
+    // Time Travel: READ the live bookmark + PITR window (read-only, no confirm) …
+    if (input && input.action === 'time_travel_info') {
+      return this.runTimeTravelInfo(cid, scope, input);
+    }
+    // … and the DESTRUCTIVE whole-DB point-in-time restore (confirm:true-gated).
+    if (input && input.action === 'restore') {
+      return this.runRestore(cid, scope, input);
+    }
 
     if (!input || input.action !== 'exec') {
       return {
@@ -854,6 +960,181 @@ class D1Adapter
     } catch (err) {
       return queryError<D1MutateResult>(cid, err);
     }
+  }
+
+  /**
+   * READ the site D1's current (or as-of-`timestamp`) Time Travel bookmark + the 30-day PITR window — READ-ONLY,
+   * no confirm. Operates ONLY on `scope.resourceId` (server-resolved upstream; INV-9). Time Travel IS exposed by
+   * the CF D1 REST API (verified against CF docs), so this is a REAL call to
+   * `GET /accounts/{acct}/d1/database/{id}/time_travel/bookmark` (optional `?timestamp=` ISO 8601 → nearest
+   * bookmark AT OR BEFORE it) — never a fabricated bookmark. `available:true` on success; a CF failure maps to a
+   * typed retryable error. NOTE: unlike `list`/`get`/`exec` this uses the Time Travel REST plane (a plain fetch
+   * with `cfAuthHeaders`, like `head`), NOT the `/query` executor — Time Travel is not a SQL statement.
+   *
+   * @param cid - the correlation id for this adapter call
+   * @param scope - the server-resolved scope; `scope.resourceId` is the ONLY database this can probe
+   * @param input - `{ action:'time_travel_info', timestamp? }` — an optional ISO 8601 as-of instant
+   */
+  private async runTimeTravelInfo(
+    cid: string,
+    scope: ResolvedScope,
+    input: D1TimeTravelInfoInput,
+  ): Promise<AdapterResult<D1MutateResult>> {
+    const databaseId = scope.resourceId;
+    let url = `${CF_API_BASE}/accounts/${scope.accountId}/d1/database/${databaseId}/time_travel/bookmark`;
+    if (typeof input.timestamp === 'string' && input.timestamp.length > 0) {
+      url += `?timestamp=${encodeURIComponent(input.timestamp)}`;
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: { ...cfAuthHeaders(scope.auth), 'content-type': 'application/json' },
+        method: 'GET',
+      });
+    } catch (err) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'cf_request_failed',
+          message: err instanceof Error ? err.message : 'CF Time Travel request failed',
+          retryable: true,
+        },
+        ok: false,
+      };
+    }
+
+    if (!res.ok) {
+      return {
+        correlationId: cid,
+        error: {
+          code: res.status === 401 || res.status === 403 ? 'cf_unauthorized' : 'cf_server_error',
+          message: `CF D1 Time Travel bookmark returned HTTP ${res.status}`,
+          retryable: res.status >= 500 || res.status === 401 || res.status === 403,
+        },
+        ok: false,
+      };
+    }
+
+    const json = (await res.json().catch(() => null)) as {
+      result?: { bookmark?: string };
+    } | null;
+    return {
+      correlationId: cid,
+      data: {
+        action: 'time_travel_info',
+        available: true,
+        ...(json?.result?.bookmark ? { bookmark: json.result.bookmark } : {}),
+        ...(input.timestamp ? { asOf: input.timestamp } : {}),
+        retentionDays: TIME_TRAVEL_RETENTION_DAYS,
+      },
+      ok: true,
+    };
+  }
+
+  /**
+   * RESTORE the site's OWN D1 to a point in time via CF REST Time Travel — a DESTRUCTIVE, WHOLE-DATABASE revert
+   * (every table returns to the target state; changes after it are LOST). Operates ONLY on `scope.resourceId`
+   * (server-resolved upstream; INV-9). Guards, in order:
+   *  1. `confirm:true` REQUIRED — without it returns a typed `confirmation_required` envelope that WARNS this is
+   *     a whole-DB restore within the 30-day window and runs NOTHING (INV-9/INV-11).
+   *  2. EXACTLY ONE of `bookmark` | `timestamp` required — CF treats them as mutually-exclusive query params;
+   *     zero or both is a typed `invalid_restore_target` error (nothing runs).
+   * Only then does it call `POST /accounts/{acct}/d1/database/{id}/time_travel/restore?bookmark=…|timestamp=…`
+   * (a REAL CF call — never a fabricated success). CF's response carries the new + previous bookmarks (the undo
+   * handle) + a message. A CF failure maps to a typed retryable error.
+   *
+   * @param cid - the correlation id for this adapter call
+   * @param scope - the server-resolved scope; `scope.resourceId` is the ONLY database this can restore
+   * @param input - `{ action:'restore', bookmark?|timestamp?, confirm }`
+   */
+  private async runRestore(
+    cid: string,
+    scope: ResolvedScope,
+    input: D1RestoreInput,
+  ): Promise<AdapterResult<D1MutateResult>> {
+    // Guard 1 — a whole-DB restore is destructive: confirm:true or nothing runs (INV-9/INV-11).
+    if (input.confirm !== true) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'confirmation_required',
+          message:
+            `Restoring is a DESTRUCTIVE, WHOLE-DATABASE point-in-time recovery: every table is reverted to the ` +
+            `target and any changes made after it are permanently lost. D1 Time Travel keeps ${TIME_TRAVEL_RETENTION_DAYS} ` +
+            `days of history; the restore returns a previous_bookmark you can restore to if you need to undo it. ` +
+            `Re-run with confirm:true to execute this restore.`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+
+    // Guard 2 — CF requires EXACTLY ONE of bookmark|timestamp (mutually-exclusive query params).
+    const hasBookmark = typeof input.bookmark === 'string' && input.bookmark.length > 0;
+    const hasTimestamp = typeof input.timestamp === 'string' && input.timestamp.length > 0;
+    if (hasBookmark === hasTimestamp) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'invalid_restore_target',
+          message:
+            'Provide EXACTLY ONE restore target: a bookmark (from time_travel_info) OR an ISO 8601 timestamp — not both, not neither.',
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+
+    const query = hasBookmark
+      ? `?bookmark=${encodeURIComponent(input.bookmark as string)}`
+      : `?timestamp=${encodeURIComponent(input.timestamp as string)}`;
+    const url = `${CF_API_BASE}/accounts/${scope.accountId}/d1/database/${scope.resourceId}/time_travel/restore${query}`;
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: { ...cfAuthHeaders(scope.auth), 'content-type': 'application/json' },
+        method: 'POST',
+      });
+    } catch (err) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'cf_request_failed',
+          message: err instanceof Error ? err.message : 'CF Time Travel restore request failed',
+          retryable: true,
+        },
+        ok: false,
+      };
+    }
+
+    if (!res.ok) {
+      return {
+        correlationId: cid,
+        error: {
+          code: res.status === 401 || res.status === 403 ? 'cf_unauthorized' : 'cf_server_error',
+          message: `CF D1 Time Travel restore returned HTTP ${res.status}`,
+          retryable: res.status >= 500 || res.status === 401 || res.status === 403,
+        },
+        ok: false,
+      };
+    }
+
+    const json = (await res.json().catch(() => null)) as {
+      result?: { bookmark?: string; previous_bookmark?: string; message?: string };
+    } | null;
+    return {
+      correlationId: cid,
+      data: {
+        action: 'restore',
+        restored: true,
+        ...(json?.result?.bookmark ? { bookmark: json.result.bookmark } : {}),
+        ...(json?.result?.previous_bookmark ? { previousBookmark: json.result.previous_bookmark } : {}),
+        ...(json?.result?.message ? { message: json.result.message } : {}),
+      },
+      ok: true,
+    };
   }
 }
 

@@ -205,6 +205,44 @@ export const DataD1MigrationsInput = z
   .strict();
 
 /**
+ * `data_d1_time_travel_info` — READ the OWNED site's own D1 current Time Travel bookmark + the 30-day PITR
+ * window (D1 recovery, READ-ONLY). A caller names ONLY the OWNED `site_id` (NEVER a CF/database id — the db is
+ * server-resolved from `site_database_allocations`) plus an optional ISO 8601 `timestamp` (→ the nearest bookmark
+ * AT OR BEFORE it, the value a restore to that instant would land on) and the environment. Time Travel IS exposed
+ * by the CF D1 REST API (verified) so this returns the LIVE bookmark, never a fabricated one. `.strict()` rejects
+ * any attempt to smuggle a `databaseId`/`accountId`. Ownership + isolation + `per_site_data` flag-gate +
+ * `data:read` scope are enforced server-side.
+ */
+export const DataD1TimeTravelInfoInput = z
+  .object({
+    site_id: z.string().min(1),
+    timestamp: z.string().min(1).optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_d1_restore` — restore the OWNED site's own D1 to a point in time via CF REST Time Travel (D1 recovery,
+ * DESTRUCTIVE WHOLE-DATABASE write). A caller names ONLY the OWNED `site_id` (NEVER a CF/database id — the db is
+ * server-resolved) plus EXACTLY ONE of `bookmark` (from `data_d1_time_travel_info`) | `timestamp` (ISO 8601), a
+ * REQUIRED `confirm`, and the environment. ⚠️ The adapter gates on `confirm:true` — without it the tool returns a
+ * `confirmation required` warning that this reverts the WHOLE database within the 30-day window and runs nothing;
+ * and requires exactly one target (zero/both → error). This is a real CF REST call
+ * (`POST …/time_travel/restore`) — never a fabricated success. `.strict()` rejects any attempt to smuggle a
+ * `databaseId`/`accountId`. Ownership + isolation + `per_site_data` flag-gate + `data:write` scope are enforced
+ * server-side.
+ */
+export const DataD1RestoreInput = z
+  .object({
+    site_id: z.string().min(1),
+    bookmark: z.string().min(1).optional(),
+    timestamp: z.string().min(1).optional(),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
  * `data_kv_list_keys` — list keys in the OWNED site's own dedicated KV namespace (MCP parity with the
  * Data tab's KV surface). A caller names ONLY the OWNED `site_id` (NEVER a CF namespace id — the
  * namespace is server-resolved from `site_database_allocations`) plus optional prefix/cursor/limit and
