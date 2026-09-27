@@ -43,7 +43,18 @@ export type ArtifactUpdateState = Pick<ArtifactState, 'title' | 'closed'>;
 
 type Artifacts = MapStore<Record<string, ArtifactState>>;
 
-export type WorkbenchViewType = 'chat' | 'code' | 'preview' | 'functions' | 'data' | 'git';
+// `functions` + `data` are LEGACY values kept so a stale persisted currentView normalizes cleanly
+// (Workbench.client.tsx snaps `data`→`database`, `functions`→`code`); `database` (consolidated per-site
+// data surface) + `resources` (per-site CF resource console) are the live FIRE 1 views.
+export type WorkbenchViewType =
+  | 'chat'
+  | 'code'
+  | 'preview'
+  | 'functions'
+  | 'data'
+  | 'database'
+  | 'resources'
+  | 'git';
 
 export class WorkbenchStore {
   /**

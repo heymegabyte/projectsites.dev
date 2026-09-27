@@ -184,7 +184,12 @@ interface PsMessage {
     | 'profile'
     | 'insights'
     | 'put'
-    | 'delete';
+    | 'delete'
+    // PS_RESET_REQUEST (Danger Zone / greenfield reset — FIRE 8): preview the delete-list, or execute the wipe.
+    | 'preview'
+    | 'execute';
+  /** PS_RESET_REQUEST (execute op): the type-to-confirm text (site slug or "RESET"); re-validated server-side. */
+  readonly confirmText?: string;
   /** PS_R2_REQUEST: the R2 bucket binding name (required for the objects + object ops). */
   readonly bucket?: string;
   /** PS_R2_REQUEST (objects op): grouping delimiter (e.g. `/`) for folder-like prefix navigation. */
@@ -220,7 +225,31 @@ interface PsMessage {
   readonly path?: string;
   /** PS_CODE_HISTORY_REQUEST (Code tab, FIRE 7): how many commits to walk back (worker clamps 1–100). */
   readonly depth?: number;
+  /** PS_RES_* (Resource console, FIRE 7): the target environment (e.g. `production` | `preview`); the worker server-resolves the CF id. */
+  readonly environment?: string;
+  /** PS_RES_DETAIL/MUTATE_REQUEST (Resource console, FIRE 7): the resource KIND (e.g. `d1` | `kv` | `r2`); never a CF id. */
+  readonly resourceKind?: string;
+  /** PS_RES_DETAIL_REQUEST (Resource console, FIRE 7): the safe, non-identifier detail params (never a CF id). */
+  readonly detailParams?: {
+    table?: string;
+    key?: string;
+    prefix?: string;
+    cursor?: string;
+    id?: string;
+    limit?: number;
+    offset?: number;
+    ids?: string[];
+  };
+  /** PS_RES_MUTATE_REQUEST (Resource console, FIRE 7): the mutation's safe, non-identifier operands (never a CF id). */
+  readonly input?: Record<string, unknown>;
 }
+
+/**
+ * One row of the per-site resource overview (PS_RES_OVERVIEW_RESPONSE, FIRE 7). The admin only relays
+ * the worker's `{ data: { resources: [...] } }` to the editor, so this is a permissive shape — the
+ * editor's ResourceOverviewPanel owns the strict rendering contract.
+ */
+type ResourceOverviewEntry = Record<string, unknown>;
 
 export interface BoltFileEntry {
   readonly path: string;
@@ -1952,6 +1981,55 @@ export class BoltEmbedService {
           } finally {
             this.suppressMirror = false;
           }
+          break;
+        }
+        case 'PS_RESET_REQUEST': {
+          // Danger Zone (FIRE 8) — the embedded editor has no cross-origin session, so it asks US (we
+          // hold currentSite + the ApiService bearer) to PREVIEW or EXECUTE a per-site greenfield reset.
+          // We inject the SELECTED site's id; the worker resolves the site's OWN dedicated D1/KV/R2
+          // server-side (never the shared platform DB, never another site) and re-checks every gate
+          // (flag, ownership, forbidden-db denylist, confirm:true + confirmText). Reply PS_RESET_RESPONSE.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const op = msg.op === 'execute' ? 'execute' : 'preview';
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_RESET_RESPONSE', correlationId: cid, op, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          const path = op === 'execute' ? `/sites/${site.id}/data/reset` : `/sites/${site.id}/data/reset/preview`;
+          // Execute carries the explicit confirmation the WORKER re-validates (confirm:true + the
+          // slug/"RESET" text). Preview carries no body — it only takes a backup + reads the delete-list.
+          const reqBody =
+            op === 'execute'
+              ? { confirm: msg.confirm === true, confirmText: typeof msg.confirmText === 'string' ? msg.confirmText : '' }
+              : {};
+          this.api.post<Record<string, unknown>>(path, reqBody, { silent: true }).subscribe({
+            next: (res) => reply({ ok: true, data: res }),
+            error: (e: unknown) => {
+              const status = (e as { status?: number })?.status;
+              const code = (e as { error?: { error?: { code?: string } } })?.error?.error?.code;
+              reply({
+                ok: false,
+                error:
+                  status === 404
+                    ? 'Per-site reset is not available for this site.'
+                    : code === 'FORBIDDEN_TARGET'
+                      ? 'This site is not eligible for a per-site reset.'
+                      : code === 'CONFIRMATION_REQUIRED'
+                        ? 'Type the site slug (or "RESET") to confirm.'
+                        : code === 'BACKUP_FAILED'
+                          ? 'Could not take a recovery backup — reset aborted. Nothing was deleted.'
+                          : 'Reset failed.',
+              });
+            },
+          });
           break;
         }
         default:

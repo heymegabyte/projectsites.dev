@@ -50,7 +50,7 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
       z-index: 2;
       overflow: hidden;
       background: #060610;
-      /* Opaque from frame 1 — NO entry fade-in. The old `animation: edFade` ramped
+      /* Opaque from frame 1 — NO entry fade-in. The old 'animation: edFade' ramped
          opacity 0→1 over 260ms, and during that ramp the booting iframe flashed
          through the semi-transparent veil (the "flash during presentation"). A
          loading COVER must be solid the instant it mounts, never fade in. */

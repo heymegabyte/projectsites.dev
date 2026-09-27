@@ -1108,6 +1108,63 @@ export interface CodeHistoryResponseMessage {
   error?: string;
 }
 
+/**
+ * Child → Parent (Danger Zone — FIRE 8): the embedded editor asks the admin (which holds the bearer +
+ * `selectedSite`) to PREVIEW or EXECUTE a per-site greenfield reset. The child NEVER supplies a site
+ * id — the admin injects the currently-selected site's id server-side, and the worker resolves the
+ * site's OWN dedicated D1/KV/R2 (never the shared platform DB, never another site).
+ *
+ * - `op: 'preview'` — take a backup bookmark + return the EXACT delete-list (per-site D1 tables + row
+ *   counts, KV key count, R2 object count). No deletion.
+ * - `op: 'execute'` — backup-first, then wipe. Requires `confirm: true` AND `confirmText` (the site
+ *   slug, or the literal `RESET`) — the worker re-checks BOTH, so the UI gate is defense-in-depth.
+ */
+export interface ResetRequestMessage {
+  type: 'PS_RESET_REQUEST';
+  correlationId: string;
+  op: 'preview' | 'execute';
+  /** Execute only — must be `true`; a missing/false value is refused by the worker. */
+  confirm?: boolean;
+  /** Execute only — the type-to-confirm text (the site slug, or `RESET`). Re-validated server-side. */
+  confirmText?: string;
+}
+
+/** The honest per-surface delete-list returned by a `preview` (and echoed on a successful `execute`). */
+export interface ResetPreviewData {
+  available: boolean;
+  reason?: string;
+  d1?: {
+    databaseId: string | null;
+    databaseName: string | null;
+    tables: { name: string; rowCount: number | null }[];
+    tablesAvailable: boolean;
+  };
+  kv?: { namespaceId: string | null; namespaceName: string | null; keyCount: number; keysAvailable: boolean };
+  r2?: { bucket: string | null; objectCount: number; objectsAvailable: boolean };
+  /** The D1 Time-Travel recovery receipt — surfaced up-front so the owner can copy it before confirming. */
+  backupBookmark?: string | null;
+  recoveryHint?: string | null;
+}
+
+/**
+ * Parent → Child (Danger Zone): the admin's reply to {@link ResetRequestMessage}. `ok` indicates the
+ * authed worker call succeeded; `data` carries the preview delete-list (preview) or the wipe result
+ * (`droppedTables`, `kvDeleted`, `r2Deleted`, `backupBookmark`); `error` is set on failure.
+ */
+export interface ResetResponseMessage {
+  type: 'PS_RESET_RESPONSE';
+  correlationId: string;
+  ok: boolean;
+  op?: 'preview' | 'execute';
+  data?: ResetPreviewData & {
+    droppedTables?: string[];
+    kvDeleted?: number;
+    r2Deleted?: number;
+    partialErrors?: string[];
+  };
+  error?: string;
+}
+
 export type ParentToChildMessage =
   | SubmitPromptMessage
   | ImportFilesMessage
@@ -1131,6 +1188,7 @@ export type ParentToChildMessage =
   | CodeTreeResponseMessage
   | CodeFileResponseMessage
   | CodeHistoryResponseMessage
+  | ResetResponseMessage
   | PSToastMessage;
 export type ChildToParentMessage =
   | BoltReadyMessage
@@ -1153,6 +1211,7 @@ export type ChildToParentMessage =
   | CodeTreeRequestMessage
   | CodeFileRequestMessage
   | CodeHistoryRequestMessage
+  | ResetRequestMessage
   | PSErrorMessage
   | PSTelemetryMessage
   | PSToastMessage;
