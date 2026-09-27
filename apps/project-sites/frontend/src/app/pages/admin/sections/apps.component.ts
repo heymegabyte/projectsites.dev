@@ -107,6 +107,9 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
           <kbd class="search-kbd" aria-hidden="true">⌘/</kbd>
         </label>
 
+        <!-- Lifecycle tab list + Categories filter on ONE inline row: Categories sits
+             beside the strip with a left gap and stretches to the strip's height. -->
+        <div class="lifecycle-row">
         <!-- Lifecycle pill row (Live vs Coming soon) -->
         <div class="lifecycle-strip" role="tablist" hlmTablist aria-label="App lifecycle">
           <button
@@ -187,6 +190,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
               </ul>
             </div>
           }
+        </div>
         </div>
       </div>
 
@@ -601,6 +605,12 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     @media (prefers-reduced-motion: reduce) {
       .status-pill--live::before { animation: none; }
     }
+
+    /* Lifecycle tab list + Categories filter share ONE inline row — Categories sits
+       beside the strip (12px left gap) and stretches to the SAME height as the strip
+       (align-items:stretch → .cat-filter → .cat-trigger fill the row's cross-size).
+       flex-wrap keeps it graceful when the viewport is narrow. */
+    .lifecycle-row { display: flex; align-items: stretch; flex-wrap: wrap; gap: 12px; }
 
     /* Lifecycle pill row (above category chip strip) */
     .lifecycle-strip {
