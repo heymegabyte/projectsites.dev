@@ -58,7 +58,7 @@ vi.mock('~/utils/classNames', () => ({
   classNames: (...a: unknown[]) => a.filter((x) => typeof x === 'string').join(' '),
 }));
 
-import { ResourceDetailPanel } from './ResourceDetailPanel';
+import { ResourceDetailPanel, buildCsv } from './ResourceDetailPanel';
 
 // ─── Bridge helpers ──────────────────────────────────────────────────────────────
 
@@ -201,5 +201,129 @@ describe('honest outcomes', () => {
 
     await waitFor(() => expect(screen.getByTestId('resource-mutate-outcome')).toBeTruthy());
     expect(screen.getByTestId('resource-mutate-outcome').textContent).toContain('Confirmation needed');
+  });
+});
+
+// ── 5. Rich cell formatting (generic collection rows) ───────────────────────────────
+
+describe('rich cell formatting', () => {
+  it('formats numbers, json, booleans, and null in the collection table', async () => {
+    render(<ResourceDetailPanel target={{ kind: 'kv', environment: 'production' }} onBack={() => {}} />);
+
+    await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
+    // A generic collection with a numeric, a nested-object (json), a boolean, and a null field.
+    replyToLast('PS_RES_DETAIL_RESPONSE', {
+      ok: true,
+      result: {
+        ok: true,
+        data: {
+          items: [{ count: 1234567, meta: { a: 1 }, active: false, note: null }],
+        },
+      },
+    });
+
+    await waitFor(() => expect(screen.getByTestId('resource-detail-table')).toBeTruthy());
+    const cells = screen.getByTestId('resource-detail-row').querySelectorAll('td');
+
+    // number → locale-grouped, json → pretty-printed (shared field-type formatter), boolean false →
+    // "false" (not hidden the way SQLite ✓ would), null → em-dash.
+    expect(cells[0].textContent).toBe((1234567).toLocaleString());
+    expect(cells[1].textContent).toBe(JSON.stringify({ a: 1 }, null, 2));
+    expect(cells[2].textContent).toBe('false');
+    expect(cells[3].textContent).toBe('—');
+    // The null cell advertises "null" via its title (honest empty, not a real value).
+    expect(cells[3].getAttribute('title')).toBe('null');
+  });
+});
+
+// ── 6. Row-detail drawer (open / Esc-close / focus-restore) ─────────────────────────
+
+describe('row-detail drawer', () => {
+  it('opens the drawer on row click, closes on Esc, and restores focus to the row', async () => {
+    render(<ResourceDetailPanel target={{ kind: 'kv', environment: 'production' }} onBack={() => {}} />);
+
+    await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
+    replyToLast('PS_RES_DETAIL_RESPONSE', {
+      ok: true,
+      result: { ok: true, data: { items: [{ id: 'row-a', value: 42 }] } },
+    });
+
+    await waitFor(() => expect(screen.getByTestId('resource-detail-row')).toBeTruthy());
+    const row = screen.getByTestId('resource-detail-row') as HTMLElement;
+
+    // Focus + click the row → the drawer opens showing the row's full field set.
+    act(() => row.focus());
+    fireEvent.click(row);
+
+    await waitFor(() => expect(screen.getByTestId('resource-detail-row-drawer')).toBeTruthy());
+    const drawer = screen.getByTestId('resource-detail-row-drawer');
+    expect(drawer.textContent).toContain('Id');
+    expect(drawer.textContent).toContain('row-a');
+    expect(drawer.textContent).toContain('Value');
+    expect(drawer.getAttribute('title')).toBeNull(); // sanity: it's the drawer, not a cell
+
+    // Esc closes the drawer and restores focus to the invoking row.
+    act(() => {
+      fireEvent.keyDown(window, { key: 'Escape' });
+    });
+
+    await waitFor(() => expect(screen.queryByTestId('resource-detail-row-drawer')).toBeNull());
+    expect(document.activeElement).toBe(row);
+  });
+
+  it('closes the drawer via the close button', async () => {
+    render(<ResourceDetailPanel target={{ kind: 'kv', environment: 'production' }} onBack={() => {}} />);
+
+    await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
+    replyToLast('PS_RES_DETAIL_RESPONSE', {
+      ok: true,
+      result: { ok: true, data: { items: [{ id: 'row-b' }] } },
+    });
+
+    await waitFor(() => expect(screen.getByTestId('resource-detail-row')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('resource-detail-row'));
+
+    await waitFor(() => expect(screen.getByTestId('resource-detail-row-drawer')).toBeTruthy());
+    fireEvent.click(screen.getByLabelText('Close'));
+
+    await waitFor(() => expect(screen.queryByTestId('resource-detail-row-drawer')).toBeNull());
+  });
+});
+
+// ── 7. CSV export (RFC-4180) ────────────────────────────────────────────────────────
+
+describe('CSV export', () => {
+  it('buildCsv quotes values containing commas, quotes, and newlines (RFC-4180)', () => {
+    const csv = buildCsv(
+      ['name', 'note', 'qty'],
+      [
+        { name: 'Ada, Lovelace', note: 'she said "hi"', qty: 3 },
+        { name: 'line1\nline2', note: null, qty: 0 },
+      ],
+    );
+
+    const lines = csv.split('\n');
+    // Header (no special chars → unquoted).
+    expect(lines[0]).toBe('name,note,qty');
+    // Comma → quoted; embedded double-quote → doubled + wrapped.
+    expect(lines[1]).toBe('"Ada, Lovelace","she said ""hi""",3');
+    // A newline inside a field quotes it, so the record spans two physical lines; null → empty.
+    expect(csv).toContain('"line1\nline2",,0');
+    // Trailing newline terminates the last record.
+    expect(csv.endsWith('\n')).toBe(true);
+  });
+
+  it('renders an Export CSV button on a collection view', async () => {
+    render(<ResourceDetailPanel target={{ kind: 'kv', environment: 'production' }} onBack={() => {}} />);
+
+    await waitFor(() => expect(last()?.type).toBe('PS_RES_DETAIL_REQUEST'));
+    replyToLast('PS_RES_DETAIL_RESPONSE', {
+      ok: true,
+      result: { ok: true, data: { items: [{ id: 'x', n: 1 }] } },
+    });
+
+    await waitFor(() => expect(screen.getByTestId('resource-detail-export-csv')).toBeTruthy());
+    // Clicking is fail-soft even without URL.createObjectURL in jsdom (never throws).
+    expect(() => fireEvent.click(screen.getByTestId('resource-detail-export-csv'))).not.toThrow();
   });
 });

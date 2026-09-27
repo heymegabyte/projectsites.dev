@@ -54,6 +54,7 @@ import {
   type ResMutateResponseMessage,
   type ResourceDetailResult,
 } from '~/lib/embed/embedded-mode';
+import { fieldTypeFor, type FieldKind } from './field-types';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -302,6 +303,110 @@ function renderCell(value: unknown): string {
   }
 
   return String(value);
+}
+
+/**
+ * Infer a {@link FieldKind} from a RAW value (no schema exists for a generic adapter collection, unlike
+ * SiteTablesPanel's SQLite `PRAGMA` types) so the shared field-type formatters render numbers/bools/json
+ * nicely across ANY kind's rows. Best-effort: a JS number/boolean maps directly; an object/array is JSON;
+ * an ISO-ish date string reads as a date; everything else is text (which stringifies).
+ */
+function kindForValue(value: unknown): FieldKind {
+  if (typeof value === 'number') {
+    return 'number';
+  }
+
+  if (typeof value === 'boolean') {
+    return 'boolean';
+  }
+
+  if (value !== null && typeof value === 'object') {
+    return 'json';
+  }
+
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2})?/.test(value)) {
+    return 'date';
+  }
+
+  return 'text';
+}
+
+/**
+ * Format a generic cell for display: null/undefined → `null` sentinel (the caller renders a muted em-dash);
+ * a JS `true`/`false` → `true`/`false` (never the SQLite `✓`/`''` affordance, which would silently hide a
+ * `false`); otherwise the shared field-type formatter, with a String() fallback so it NEVER throws.
+ */
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'null';
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+
+  const kind = kindForValue(value);
+
+  try {
+    const formatted = fieldTypeFor(kind).format(value);
+    return formatted === '' ? String(value) : formatted;
+  } catch {
+    return String(value);
+  }
+}
+
+/** Escape one field for RFC-4180 CSV (quote when it contains a comma, quote, CR, or LF; double inner quotes). */
+function csvField(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  const s = typeof value === 'object' ? safeJson(value) : String(value);
+
+  if (/[",\n\r]/.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+
+  return s;
+}
+
+/** JSON.stringify that never throws (cyclic/oddball values fall back to String()). */
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * Build an RFC-4180 CSV from the CURRENTLY-LOADED rows over the given column set + trigger a client-side
+ * download. Header row + one row per record, CRLF-free cells quoted per {@link csvField}. Fail-soft: a
+ * sandboxed frame with no `URL.createObjectURL` just no-ops (the table still shows the data).
+ */
+export function buildCsv(columns: string[], rows: Record<string, unknown>[]): string {
+  const header = columns.map((c) => csvField(c)).join(',');
+  const body = rows.map((row) => columns.map((c) => csvField(row[c])).join(',')).join('\n');
+  return `${header}\n${body}\n`;
+}
+
+/** Download the current collection page as a CSV file named for the collection field. */
+function exportCollectionCsv(field: string, columns: string[], rows: Record<string, unknown>[]): void {
+  const csv = buildCsv(columns, rows);
+
+  try {
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${field || 'rows'}-1-${rows.length}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch {
+    // download unavailable (sandboxed) — fail soft; the table still shows the data
+  }
 }
 
 /** Humanize a token for a label (`resource_kind` → "Resource Kind"). */
@@ -1173,9 +1278,17 @@ const ResultView = memo(
     const data = result.data;
     const collection = useMemo(() => findCollection(data), [data]);
     const scalars = useMemo(() => scalarEntries(data, collection?.field ?? null), [data, collection]);
+    /** The collection row whose full field set is open in the side drawer (null = drawer closed). */
+    const [detailRow, setDetailRow] = useState<Record<string, unknown> | null>(null);
+
+    // Close the drawer whenever the underlying data changes (a refetch / child switch) so it never
+    // shows a row that no longer exists in the current result.
+    useEffect(() => {
+      setDetailRow(null);
+    }, [data]);
 
     return (
-      <div className="flex-1 overflow-auto modern-scrollbar px-4 py-4 space-y-4" data-testid="resource-detail">
+      <div className="relative flex-1 overflow-auto modern-scrollbar px-4 py-4 space-y-4" data-testid="resource-detail">
         {/* Scalar summary — the resource/child's own key-values (dimensions, counts, name, status). */}
         {scalars.length > 0 && (
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="resource-detail-scalars">
@@ -1200,12 +1313,16 @@ const ResultView = memo(
               rows={collection.rows}
               childParamsForRow={childParamsForRow}
               onInspectChild={onInspectChild}
+              onOpenRow={setDetailRow}
             />
           )
         ) : scalars.length === 0 ? (
           // No collection AND no scalars — show the raw payload rather than a blank pane (never a dead end).
           <RawJson data={data} />
         ) : null}
+
+        {/* Row-detail drawer — the clicked row's FULL field set, keyboard-closeable, focus-restoring. */}
+        {detailRow && <RowDrawer row={detailRow} onClose={() => setDetailRow(null)} />}
       </div>
     );
   },
@@ -1219,11 +1336,13 @@ const CollectionTable = memo(
     rows,
     childParamsForRow,
     onInspectChild,
+    onOpenRow,
   }: {
     field: string;
     rows: Record<string, unknown>[];
     childParamsForRow: (row: Record<string, unknown>) => { label: string; params: DetailParams } | null;
     onInspectChild: (child: { label: string; params: DetailParams }) => void;
+    onOpenRow: (row: Record<string, unknown>) => void;
   }) => {
     // Columns = union of keys across the first rows (bounded), stable order (first-seen).
     const columns = useMemo(() => {
@@ -1238,6 +1357,19 @@ const CollectionTable = memo(
       return seen.slice(0, 12);
     }, [rows]);
 
+    // CSV exports EVERY column of the loaded rows (not the 12-column display cap), so nothing is silently dropped.
+    const csvColumns = useMemo(() => {
+      const seen: string[] = [];
+
+      for (const row of rows) {
+        for (const k of Object.keys(row)) {
+          if (!seen.includes(k)) seen.push(k);
+        }
+      }
+
+      return seen;
+    }, [rows]);
+
     return (
       <section>
         <div className="flex items-center gap-2 mb-2">
@@ -1246,6 +1378,16 @@ const CollectionTable = memo(
           <span className="text-[10px] text-bolt-elements-textTertiary">
             {rows.length} {rows.length === 1 ? 'item' : 'items'}
           </span>
+          <button
+            type="button"
+            onClick={() => exportCollectionCsv(field, csvColumns, rows)}
+            data-testid="resource-detail-export-csv"
+            aria-label="Export the loaded rows as CSV"
+            title="Export the loaded rows as CSV"
+            className="ml-auto min-h-[24px] text-[10px] font-medium px-2 py-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors flex items-center gap-1 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+          >
+            <div className="i-ph:download-simple" /> Export CSV
+          </button>
         </div>
 
         <div className="overflow-auto modern-scrollbar rounded-lg border border-bolt-elements-borderColor">
@@ -1263,29 +1405,47 @@ const CollectionTable = memo(
             <tbody>
               {rows.map((row, i) => {
                 const child = childParamsForRow(row);
-                const clickable = Boolean(child);
 
                 return (
                   <tr
                     key={i}
-                    className={classNames(
-                      'border-b border-bolt-elements-borderColor/50 last:border-b-0',
-                      clickable
-                        ? 'hover:bg-bolt-elements-background-depth-2 cursor-pointer focus-within:bg-bolt-elements-background-depth-2'
-                        : '',
-                    )}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onOpenRow(row)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onOpenRow(row);
+                      }
+                    }}
+                    aria-label={`View row ${i + 1} details`}
+                    className="border-b border-bolt-elements-borderColor/50 last:border-b-0 hover:bg-bolt-elements-background-depth-2 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent"
                     data-testid="resource-detail-row"
                   >
-                    {columns.map((col) => (
-                      <td key={col} className="text-[11px] font-mono text-bolt-elements-textSecondary px-3 py-1.5 max-w-[240px] truncate" title={renderCell(row[col])}>
-                        {renderCell(row[col])}
-                      </td>
-                    ))}
+                    {columns.map((col) => {
+                      const value = row[col];
+                      const isNull = value === null || value === undefined;
+                      return (
+                        <td
+                          key={col}
+                          className={classNames(
+                            'text-[11px] font-mono px-3 py-1.5 max-w-[240px] truncate',
+                            isNull ? 'text-bolt-elements-textTertiary italic' : 'text-bolt-elements-textSecondary',
+                          )}
+                          title={isNull ? 'null' : formatValue(value)}
+                        >
+                          {isNull ? '—' : formatValue(value)}
+                        </td>
+                      );
+                    })}
                     <td className="px-2 py-1.5 text-right">
-                      {clickable && child && (
+                      {child && (
                         <button
                           type="button"
-                          onClick={() => onInspectChild(child)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onInspectChild(child);
+                          }}
                           aria-label={`Open ${child.label}`}
                           title={`Open ${child.label}`}
                           className="min-h-[24px] min-w-[24px] inline-flex items-center justify-center rounded text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
@@ -1306,6 +1466,88 @@ const CollectionTable = memo(
 );
 
 CollectionTable.displayName = 'ResourceDetailPanel.CollectionTable';
+
+/**
+ * Row-detail drawer — mirrors {@link SiteTablesPanel}'s `RowDrawer`: a right-aligned side panel showing the
+ * clicked collection row's FULL key/value set. Esc + a close button + the scrim close it; focus is restored
+ * to the invoking row on unmount (the row keeps its DOM focus target). `role=dialog` + `aria-modal` +
+ * `aria-label` for a11y. Cell values format via the shared field-type formatter (null → muted em-dash).
+ */
+const RowDrawer = memo(({ row, onClose }: { row: Record<string, unknown>; onClose: () => void }) => {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  /** The element focused when the drawer opened — restored on close so keyboard focus never gets lost. */
+  const restoreRef = useRef<Element | null>(null);
+
+  // Esc closes; capture the previously-focused element on open + restore it on unmount; focus the close button.
+  useEffect(() => {
+    restoreRef.current = typeof document !== 'undefined' ? document.activeElement : null;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', onKey);
+    closeRef.current?.focus();
+
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      const el = restoreRef.current;
+      if (el && typeof (el as HTMLElement).focus === 'function') {
+        (el as HTMLElement).focus();
+      }
+    };
+  }, [onClose]);
+
+  const entries = useMemo(() => Object.entries(row), [row]);
+
+  return (
+    <div className="absolute inset-0 z-20 flex justify-end" role="dialog" aria-modal="true" aria-label="Row detail">
+      <button type="button" aria-label="Close row detail" onClick={onClose} className="absolute inset-0 bg-black/40 cursor-default" />
+      <div
+        className="animated fadeInRight relative w-[min(420px,80%)] h-full bg-bolt-elements-background-depth-2 border-l border-bolt-elements-borderColor shadow-2xl flex flex-col motion-reduce:animate-none"
+        data-testid="resource-detail-row-drawer"
+      >
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0">
+          <div className="i-ph:rows-duotone text-bolt-elements-item-contentAccent" aria-hidden="true" />
+          <h3 className="text-sm font-semibold text-bolt-elements-textPrimary flex-1">Row detail</h3>
+          <button
+            ref={closeRef}
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            title="Close"
+            className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded hover:bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+          >
+            <div className="i-ph:x text-sm" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto modern-scrollbar p-4 space-y-3">
+          {entries.map(([key, value]) => {
+            const isNull = value === null || value === undefined;
+            return (
+              <div key={key} className="space-y-0.5">
+                <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary font-medium">{humanize(key)}</span>
+                <div
+                  className={classNames(
+                    'text-xs font-mono break-words whitespace-pre-wrap rounded bg-bolt-elements-background-depth-1 border border-bolt-elements-borderColor px-2.5 py-1.5',
+                    isNull ? 'text-bolt-elements-textTertiary italic' : 'text-bolt-elements-textSecondary',
+                  )}
+                >
+                  {isNull ? '—' : formatValue(value)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+RowDrawer.displayName = 'ResourceDetailPanel.RowDrawer';
 
 const RawJson = memo(({ data }: { data: unknown }) => {
   const text = useMemo(() => {
