@@ -20,7 +20,8 @@
  *   (g) SANITIZE: a step output carrying a secret-shaped key is REDACTED; raw values are never dumped
  *   (h) get() empty/missing id → invalid_id error, no fetch
  *   (i) INSTANCE-ID SITE-SCOPING: get() binds BOTH the resolved workflow name AND the instance id in the URL
- *   (j) mutate() returns code 'not_implemented' (never throws, never fetches)
+ *   (j) mutate() is now IMPLEMENTED (start/pause/resume/restart/terminate) — the write slice is covered in
+ *       workflow_adapter_mutate.test.ts; here we only assert `supports` advertises the mutate verb + mutations
  *   (k) site-isolation: every verb only ever hits scope.resourceId's workflow path (never another workflow)
  */
 
@@ -95,16 +96,18 @@ describe('sanitizeStepPayload()', () => {
   });
 });
 
-// ─── (j) mutate() always returns not_implemented ────────────────────────────────
+// ─── (j) mutate() is implemented — supports now advertises the write verbs ────────
 
-describe('workflowAdapter.mutate()', () => {
-  it('(j) returns not_implemented code — never throws, never fetches', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await workflowAdapter.mutate(scope, undefined as any);
-    expect(result.ok).toBe(false);
-    expect(result.error?.code).toBe('not_implemented');
-    expect(result.error?.retryable).toBe(false);
-    expect(fetchMock).not.toHaveBeenCalled();
+describe('workflowAdapter.supports (mutate implemented)', () => {
+  it('(j) declares the mutate verb + the five named mutations (write slice in *_mutate.test.ts)', () => {
+    expect(workflowAdapter.supports.verbs).toContain('mutate');
+    expect([...workflowAdapter.supports.mutations]).toEqual([
+      'start',
+      'pause',
+      'resume',
+      'restart',
+      'terminate',
+    ]);
   });
 });
 

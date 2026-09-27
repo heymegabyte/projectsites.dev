@@ -66,6 +66,8 @@ import {
   DataConnectionDescribeInput,
   DataWorkflowsListInput,
   DataWorkflowGetInstanceInput,
+  DataWorkflowStartInput,
+  DataWorkflowControlInput,
   DataDurableObjectsListInput,
   DataDurableObjectDescribeInput,
   DataQueuesListInput,
@@ -777,6 +779,40 @@ export const PLATFORM_MCP_TOOLS = [
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id', 'id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_workflow_start',
+    description:
+      "Start a NEW run instance of your site's workflow (the same per-site Workflows the editor's Backend tab shows), optionally with a params object passed to the run. Returns { workflowName, instanceId, status, created:true }. The status is the ACTUAL Cloudflare status of the fresh run (queued/running) — never an optimistic claim that it finished. Starting a run CREATES state (it does not change or discard an existing run), so NO confirm is needed. You name only the site_id (+ optional params/environment) — never a Cloudflare workflow name and never an account id; the workflow is resolved server-side and isolated to your site. Honest 'not provisioned' until your site has a workflow.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        params: { type: 'object' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_workflow_control',
+    description:
+      "Control ONE run instance of your site's workflow: op = pause | resume | restart | terminate. Returns { workflowName, instanceId, status, action } — the status is the ACTUAL Cloudflare status AFTER the op (running ≠ complete), never optimistic. ⚠️ restart RE-RUNS the run from the beginning — any side effect it already performed (emails, charges, writes) can HAPPEN AGAIN and its prior step outputs are discarded — and terminate is DESTRUCTIVE + IRREVERSIBLE (the run is stopped and its in-flight state discarded; it cannot be resumed): BOTH require confirm:true, and without confirm you get an error WARNING about the replay/discard and NOTHING runs. pause/resume are reversible and need no confirm. You name only the site_id + instanceId + op (+ optional confirm/environment) — never a Cloudflare workflow name and never an account id; the workflow is resolved server-side and the instance is bound under it, so you can never act on another site's run even if you guess its id.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        instanceId: { type: 'string' },
+        op: { type: 'string', enum: ['pause', 'resume', 'restart', 'terminate'] },
+        confirm: { type: 'boolean' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'instanceId', 'op'],
       additionalProperties: false,
     },
   },
@@ -2049,6 +2085,78 @@ export async function dispatchPlatformTool(
         modifiedOn: result.data?.modifiedOn,
         steps: result.data?.steps ?? [],
         outputSanitized: true,
+      });
+    }
+
+    case 'data_workflow_start': {
+      // Flag-gated on the reserved per_site_workflows flag (dark → err, mirroring the Backend-tab Workflows 404).
+      if (
+        !(await isFlagOn(env, PER_SITE_WORKFLOWS_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site Workflows are not enabled for this account.');
+      }
+      const { site_id, params, environment } = DataWorkflowStartInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF workflow name/account —
+      // the caller named only site_id; the workflow name is server-resolved from the registry.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveWorkflowScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // start CREATES a new run instance — no confirm (it doesn't change/discard an existing run). The adapter
+      // returns the ACTUAL CF instance id + status (queued/running — never an optimistic complete).
+      const result = await workflowAdapter.mutate(scoped.scope, {
+        action: 'start',
+        ...(params ? { params } : {}),
+      });
+      if (!result.ok) return err(result.error?.message ?? 'Could not start the workflow run.');
+      return ok({
+        site_id,
+        environment,
+        workflowName: result.data?.workflowName,
+        instanceId: result.data?.instanceId,
+        status: result.data?.status,
+        action: 'start',
+        created: result.data?.created ?? false,
+      });
+    }
+
+    case 'data_workflow_control': {
+      if (
+        !(await isFlagOn(env, PER_SITE_WORKFLOWS_FLAG, {
+          orgId,
+          siteId: String(args.site_id ?? ''),
+        }))
+      ) {
+        return err('Per-site Workflows are not enabled for this account.');
+      }
+      const { site_id, instanceId, op, confirm, environment } = DataWorkflowControlInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveWorkflowScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // The adapter binds the op to BOTH the resolved workflow name AND the instance id (foreign instance
+      // impossible), owns the destructive gate (restart/terminate need confirm:true → a confirmation_required
+      // error that WARNS about the replay/discard when confirm is absent), and returns the ACTUAL CF status.
+      const result = await workflowAdapter.mutate(scoped.scope, { action: op, instanceId, confirm });
+      if (!result.ok) return err(result.error?.message ?? `Could not ${op} the workflow run.`);
+      return ok({
+        site_id,
+        environment,
+        workflowName: result.data?.workflowName,
+        instanceId: result.data?.instanceId,
+        status: result.data?.status,
+        action: op,
       });
     }
 

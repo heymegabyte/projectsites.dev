@@ -474,6 +474,46 @@ export const DataWorkflowGetInstanceInput = z
   .strict();
 
 /**
+ * `data_workflow_start` — CREATE + START a new run INSTANCE of the OWNED site's resolved workflow (a WRITE slice,
+ * MCP parity with the Backend tab's Workflows trigger). A caller names ONLY the OWNED `site_id` (NEVER a CF
+ * workflow name AND never an account id — the workflow name is server-resolved from the site's registry row) plus
+ * an OPTIONAL `params` object (the new run's event payload) and the environment. Starting a run CREATES state — it
+ * is NOT state-changing/destructive of an existing run — so it needs NO `confirm`. `.strict()` rejects any attempt
+ * to smuggle a `workflow`/`workflowName`/`accountId`/`instanceId`. Ownership + isolation + `per_site_workflows`
+ * flag-gate + `data:write` scope are enforced server-side. The result carries the ACTUAL CF instance id + status
+ * (a fresh run is queued/running — NEVER an optimistic complete).
+ */
+export const DataWorkflowStartInput = z
+  .object({
+    site_id: z.string().min(1),
+    params: z.record(z.unknown()).optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_workflow_control` — pause / resume / restart / terminate ONE run instance of the OWNED site's resolved
+ * workflow (a WRITE slice, MCP parity with the Backend tab's run controls). A caller names ONLY the OWNED
+ * `site_id` + the `instanceId` + the `op` (NEVER a CF workflow name/account — the workflow is server-resolved and
+ * the instance is bound under it, so a foreign instance can't be acted on even if its id is guessed) plus optional
+ * `confirm` and the environment. ⚠️ `restart` REPLAYS the run's side effects from step 0 + discards prior step
+ * outputs; `terminate` DISCARDS the run's in-flight state irreversibly — each REQUIRES `confirm:true`: without it
+ * the dispatcher returns `confirmation required` WARNING about the replay/discard, changing nothing. `pause`/
+ * `resume` are reversible → no confirm. `.strict()` rejects any attempt to smuggle a `workflow`/`accountId`.
+ * Ownership + isolation + `per_site_workflows` flag-gate + `data:write` scope are enforced server-side. The result
+ * carries the ACTUAL CF instance status AFTER the op — never optimistic.
+ */
+export const DataWorkflowControlInput = z
+  .object({
+    site_id: z.string().min(1),
+    instanceId: z.string().min(1).max(256),
+    op: z.enum(['pause', 'resume', 'restart', 'terminate']),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
  * `data_durable_objects_list` — list the OWNED site's Durable Object CLASS namespaces (id/class/script),
  * MCP parity with the Backend tab's Durable Objects surface. A caller names ONLY the OWNED `site_id` (NEVER
  * a CF namespace id AND never an account id — the namespace is server-resolved from the site's registry row)
@@ -605,6 +645,8 @@ export type DataConnectionsListArgs = z.infer<typeof DataConnectionsListInput>;
 export type DataConnectionDescribeArgs = z.infer<typeof DataConnectionDescribeInput>;
 export type DataWorkflowsListArgs = z.infer<typeof DataWorkflowsListInput>;
 export type DataWorkflowGetInstanceArgs = z.infer<typeof DataWorkflowGetInstanceInput>;
+export type DataWorkflowStartArgs = z.infer<typeof DataWorkflowStartInput>;
+export type DataWorkflowControlArgs = z.infer<typeof DataWorkflowControlInput>;
 export type DataDurableObjectsListArgs = z.infer<typeof DataDurableObjectsListInput>;
 export type DataDurableObjectDescribeArgs = z.infer<typeof DataDurableObjectDescribeInput>;
 export type DataQueuesListArgs = z.infer<typeof DataQueuesListInput>;

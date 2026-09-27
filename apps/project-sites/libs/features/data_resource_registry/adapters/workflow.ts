@@ -5,9 +5,15 @@
  * **Workflow RUNS** (instances) of the platform-bound workflow definitions. Implements the read verbs:
  * `list` (the workflow's recent RUN INSTANCES — id/status/timestamps), `head` (does the workflow
  * DEFINITION exist + its config), `get` (ONE run instance's status + STEPS — sanitized, secrets never
- * dumped). `mutate` returns a typed `not_implemented` envelope (this pass is READ-ONLY) — never a raw
- * throw, never a `runAnything` mega-verb (tool-design-as-api). trigger/pause/resume/restart/terminate
- * land in the write pass (append to `supports.mutations` + implement `mutate` in the same fire).
+ * dumped) — PLUS the WRITE slice: `mutate({action:'start'|'pause'|'resume'|'restart'|'terminate'})`.
+ * `mutate` is a discriminated NAMED-mutation union (never a `runAnything`/`{command}` mega-verb —
+ * tool-design-as-api): `start` CREATES a new run instance (optional params); `pause`/`resume` toggle one
+ * in-flight run (reversible → no confirm); `restart`/`terminate` are STATE-CHANGING/DESTRUCTIVE
+ * (restart REPLAYS side effects from step 0 + discards prior step outputs; terminate DISCARDS the run's
+ * in-flight state irreversibly) so each REQUIRES an explicit `confirm:true` — without it `mutate` returns a
+ * typed `confirmation_required` envelope that WARNS about the replay/discard and does NOTHING
+ * (SECURITY-INVARIANTS INV-9/INV-11). Every mutation returns the ACTUAL CF instance status AFTER the op
+ * (running != complete — NEVER an optimistic guess). All ops bind to the SAME server-resolved workflow name.
  *
  * ⛔ HONEST CF REALITY — THE LOAD-BEARING FACTS OF THIS SLICE (CAPABILITY-MATRIX.md § Workflows):
  *  - **Workflows are `shared_platform`, NOT per-site.** The 6 workflow bindings (`SITE_WORKFLOW`, …) are
@@ -155,9 +161,96 @@ export interface WorkflowGetData {
   readonly outputSanitized: true;
 }
 
-/** Placeholder mutate payloads — this pass is read-only; trigger/pause/resume/restart/terminate land later. */
-type WorkflowMutateInput = never;
-type WorkflowMutateResult = never;
+/**
+ * The `start` mutation input: create + START a new run INSTANCE of the site's resolved workflow, optionally
+ * with a JSON `params` payload the workflow's `run()` receives as its event. This CREATES state (a new run) —
+ * NOT state-changing/destructive of an existing run — so it needs NO `confirm` (mirrors KV `put` on a NEW key).
+ * The result carries the ACTUAL CF instance id + status (a fresh run is `queued`/`running`, NEVER an optimistic
+ * `complete`).
+ */
+export interface WorkflowStartInput {
+  readonly action: 'start';
+  /** Optional JSON params passed to the new run (the workflow's event payload). */
+  readonly params?: Record<string, unknown>;
+}
+
+/**
+ * The `pause` mutation input: pause ONE in-flight run instance (CF `PATCH …/instances/{id}` `status:pause`).
+ * Pausing is REVERSIBLE (a later `resume` continues the run) — it discards no persisted state and replays no
+ * side effect — so it needs NO `confirm`. Binds to the site's resolved workflow + the instance id.
+ */
+export interface WorkflowPauseInput {
+  readonly action: 'pause';
+  /** The run instance id to pause (scoped to the site's resolved workflow; never a raw name). */
+  readonly instanceId: string;
+}
+
+/**
+ * The `resume` mutation input: resume ONE paused run instance (CF `PATCH …/instances/{id}` `status:resume`).
+ * Resuming is the inverse of pause — it discards no state and replays no side effect — so it needs NO `confirm`.
+ */
+export interface WorkflowResumeInput {
+  readonly action: 'resume';
+  /** The run instance id to resume (scoped to the site's resolved workflow; never a raw name). */
+  readonly instanceId: string;
+}
+
+/**
+ * The `restart` mutation input: restart ONE run instance from the beginning (CF `PATCH …/instances/{id}`
+ * `status:restart`). ⚠️ STATE-CHANGING + SIDE-EFFECT-REPLAYING — a restart re-runs the workflow's steps from
+ * step 0, so any non-idempotent side effect the run already performed (an email sent, a charge made, a row
+ * written) can HAPPEN AGAIN, and the run's prior step outputs are discarded. It therefore REQUIRES
+ * `confirm:true` (INV-9/INV-11); without it, `mutate` returns a typed `confirmation_required` envelope that
+ * WARNS about the side-effect replay and does NOTHING.
+ */
+export interface WorkflowRestartInput {
+  readonly action: 'restart';
+  /** The run instance id to restart (scoped to the site's resolved workflow; never a raw name). */
+  readonly instanceId: string;
+  /** Must be `true` — a restart replays side effects + discards prior step outputs (destructive gate). */
+  readonly confirm?: boolean;
+}
+
+/**
+ * The `terminate` mutation input: permanently terminate ONE run instance (CF `PATCH …/instances/{id}`
+ * `status:terminate`). ⚠️ DESTRUCTIVE + IRREVERSIBLE — the run is stopped and its in-flight state is DISCARDED;
+ * a terminated run cannot be resumed. It therefore REQUIRES `confirm:true` (INV-9/INV-11); without it, `mutate`
+ * returns a typed `confirmation_required` envelope that WARNS the run's state will be discarded and does NOTHING.
+ */
+export interface WorkflowTerminateInput {
+  readonly action: 'terminate';
+  /** The run instance id to terminate (scoped to the site's resolved workflow; never a raw name). */
+  readonly instanceId: string;
+  /** Must be `true` — terminate discards the run's in-flight state irreversibly (destructive gate). */
+  readonly confirm?: boolean;
+}
+
+/** The discriminated named-mutation union for the workflow adapter — NEVER a generic `{ command }` field. */
+export type WorkflowMutateInput =
+  | WorkflowStartInput
+  | WorkflowPauseInput
+  | WorkflowResumeInput
+  | WorkflowRestartInput
+  | WorkflowTerminateInput;
+
+/**
+ * What a workflow `mutate` returns: the action taken + the instance it acted on + the ACTUAL CF instance status
+ * AFTER the op (running ≠ complete — NEVER an optimistic guess). `start` additionally reports it created a new
+ * run. The status is exactly what CF reports the instance's lifecycle to be right now — a paused instance reads
+ * `paused`, a terminated one `terminated`, a just-started one `queued`/`running`.
+ */
+export interface WorkflowMutateResult {
+  /** The action performed. */
+  readonly action: 'start' | 'pause' | 'resume' | 'restart' | 'terminate';
+  /** The workflow name the op ran against (server-resolved). */
+  readonly workflowName: string;
+  /** The run instance id acted on — the freshly-created id for `start`, the requested id otherwise. */
+  readonly instanceId: string;
+  /** The ACTUAL CF instance status AFTER the op — never optimistically coerced (running ≠ complete). */
+  readonly status: WorkflowInstanceStatus;
+  /** True ONLY for `start` — a NEW run instance was created (the other actions act on an existing instance). */
+  readonly created?: boolean;
+}
 
 /** Mint a correlation id for one adapter call (structured-logging: every envelope carries one). */
 function correlationId(): string {
@@ -178,19 +271,6 @@ function restError<T>(cid: string, status: number | undefined, message: string):
       code: isAuth ? 'cf_unauthorized' : isServer ? 'cf_server_error' : 'cf_request_failed',
       message,
       retryable: isAuth || isServer || status === undefined,
-    },
-    ok: false,
-  };
-}
-
-/** The typed `not_implemented` envelope every read-only-pass-unfilled verb returns. */
-function notImplemented<T>(verb: string): AdapterResult<T> {
-  return {
-    correlationId: correlationId(),
-    error: {
-      code: 'not_implemented',
-      message: `The workflow adapter '${verb}' verb is not implemented yet.`,
-      retryable: false,
     },
     ok: false,
   };
@@ -323,15 +403,16 @@ class WorkflowAdapter
   readonly kind = 'workflow' as const;
 
   /**
-   * Honest capability declaration (CAPABILITY-MATRIX.md: Workflows = ✅ runs, read-heavy): serves both
-   * environments + all three read verbs. `mutations: []` — this pass is read-only; trigger/terminate/
-   * resume/pause/restart (all keyed to the resolved workflow name) land in the write pass (append them
-   * here + implement `mutate` in the same fire).
+   * Honest capability declaration (CAPABILITY-MATRIX.md: Workflows = runs, read-heavy + run-instance ops):
+   * serves both environments, all three read verbs, and the `start`/`pause`/`resume`/`restart`/`terminate`
+   * named mutations — all keyed to the SAME server-resolved workflow name. `restart`/`terminate` are
+   * destructive/state-changing → gated on `confirm:true`. `supports` declares this honestly so the UI + MCP
+   * only ever offer a verb that runs.
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: [] as const,
-    verbs: ['list', 'head', 'get'] as const,
+    mutations: ['start', 'pause', 'resume', 'restart', 'terminate'] as const,
+    verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
   /**
@@ -558,12 +639,163 @@ class WorkflowAdapter
     };
   }
 
-  /** Not implemented in this read pass — trigger/pause/resume/restart/terminate land in the write pass. */
-  async mutate(
-    _scope: ResolvedScope,
-    _input: WorkflowMutateInput,
-  ): Promise<AdapterResult<WorkflowMutateResult>> {
-    return notImplemented<WorkflowMutateResult>('mutate');
+  /**
+   * Run a NAMED mutation against the site's OWN resolved workflow (the WRITE slice). `start` CREATES a new run
+   * instance (CF `POST …/instances`, optional params body); `pause`/`resume` toggle ONE in-flight run (CF
+   * `PATCH …/instances/{id}` `status:pause|resume`); `restart`/`terminate` are STATE-CHANGING/DESTRUCTIVE
+   * (`PATCH …/instances/{id}` `status:restart|terminate`). All ops bind ONLY to `scope.resourceId` (the workflow
+   * name, server-resolved upstream — this adapter accepts NO workflow name/account and cannot be redirected,
+   * INV-1/INV-9). Instance ops also bind the requested instance id under that name, so a caller can never act on
+   * another site's workflow OR a foreign instance.
+   *
+   * GUARDING (INV-9/INV-11): `restart` REPLAYS the run's side effects from step 0 + discards prior step outputs;
+   * `terminate` DISCARDS the run's in-flight state irreversibly — each REQUIRES `confirm:true`. Without it,
+   * `mutate` returns a typed `confirmation_required` envelope that WARNS about the replay/discard and runs
+   * NOTHING. `start`/`pause`/`resume` are non-destructive (create / reversible toggle) and need no confirm.
+   *
+   * HONESTY: the returned `status` is the ACTUAL CF instance status AFTER the op — NEVER an optimistic guess
+   * (`verify-against-source-of-truth`). A just-started run reads `queued`/`running`, a paused one `paused`, a
+   * terminated one `terminated`; the adapter returns exactly what CF reports (a state-changing PATCH may not be
+   * fully reflected instantly — the status is whatever CF says right now, never a claimed terminal state).
+   *
+   * @param scope - the server-resolved scope; `scope.resourceId` is the ONLY workflow this can address
+   * @param input - the discriminated `{ action, … }` mutation
+   */
+  async mutate(scope: ResolvedScope, input: WorkflowMutateInput): Promise<AdapterResult<WorkflowMutateResult>> {
+    const cid = correlationId();
+    const workflowName = scope.resourceId;
+
+    if (
+      !input ||
+      (input.action !== 'start' &&
+        input.action !== 'pause' &&
+        input.action !== 'resume' &&
+        input.action !== 'restart' &&
+        input.action !== 'terminate')
+    ) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_action', message: 'Unknown workflow mutation action.', retryable: false },
+        ok: false,
+      };
+    }
+
+    // ── start ─ create + START a new run instance (no confirm — this CREATES state, it doesn't change/discard) ─
+    if (input.action === 'start') {
+      const body =
+        input.params && typeof input.params === 'object' ? JSON.stringify({ params: input.params }) : '{}';
+      let res: Response;
+      try {
+        res = await fetch(
+          `${CF_API_BASE}/accounts/${scope.accountId}/workflows/${encodeURIComponent(workflowName)}/instances`,
+          {
+            body,
+            headers: { ...cfAuthHeaders(scope.auth), 'content-type': 'application/json' },
+            method: 'POST',
+          },
+        );
+      } catch (err) {
+        return restError<WorkflowMutateResult>(
+          cid,
+          undefined,
+          err instanceof Error ? err.message : 'CF request failed',
+        );
+      }
+      if (!res.ok) {
+        return restError<WorkflowMutateResult>(
+          cid,
+          res.status,
+          `CF Workflows instance create returned HTTP ${res.status}`,
+        );
+      }
+      const json = (await res.json().catch(() => null)) as {
+        result?: { id?: unknown; status?: unknown } | null;
+      } | null;
+      const instanceId = typeof json?.result?.id === 'string' ? json.result.id : '';
+      if (instanceId.length === 0) {
+        return restError<WorkflowMutateResult>(cid, res.status, 'CF Workflows instance create returned no id');
+      }
+      return {
+        correlationId: cid,
+        // The ACTUAL CF status of the freshly-created run (queued/running) — never optimistically complete.
+        data: { action: 'start', created: true, instanceId, status: toStatus(json?.result?.status), workflowName },
+        ok: true,
+      };
+    }
+
+    // ── pause | resume | restart | terminate ─ act on ONE existing instance under the resolved workflow ──────
+    const instanceId = input.instanceId;
+    if (typeof instanceId !== 'string' || instanceId.length === 0) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_id', message: 'Workflow instance id is missing or empty.', retryable: false },
+        ok: false,
+      };
+    }
+
+    // DESTRUCTIVE/STATE-CHANGING gate: restart REPLAYS side effects from step 0 + discards prior step outputs;
+    // terminate DISCARDS the run's in-flight state irreversibly. Each REQUIRES confirm:true — without it, WARN
+    // about the exact consequence and change NOTHING (INV-9/INV-11). pause/resume are reversible → no confirm.
+    if (input.action === 'restart' && input.confirm !== true) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'confirmation_required',
+          message: `Restarting workflow run "${instanceId}" re-runs it from the beginning — any side effect it already performed (emails, charges, writes) can HAPPEN AGAIN and its prior step outputs are discarded. Re-run with confirm:true to restart.`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+    if (input.action === 'terminate' && input.confirm !== true) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'confirmation_required',
+          message: `Terminating workflow run "${instanceId}" is destructive + irreversible — the run is stopped and its in-flight state is discarded (a terminated run cannot be resumed). Re-run with confirm:true to terminate.`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+
+    // CF `PATCH …/instances/{id}` with { status: 'pause'|'resume'|'restart'|'terminate' }.
+    let res: Response;
+    try {
+      res = await fetch(
+        `${CF_API_BASE}/accounts/${scope.accountId}/workflows/${encodeURIComponent(
+          workflowName,
+        )}/instances/${encodeURIComponent(instanceId)}`,
+        {
+          body: JSON.stringify({ status: input.action }),
+          headers: { ...cfAuthHeaders(scope.auth), 'content-type': 'application/json' },
+          method: 'PATCH',
+        },
+      );
+    } catch (err) {
+      return restError<WorkflowMutateResult>(
+        cid,
+        undefined,
+        err instanceof Error ? err.message : 'CF request failed',
+      );
+    }
+    if (!res.ok) {
+      return restError<WorkflowMutateResult>(
+        cid,
+        res.status,
+        `CF Workflows instance ${input.action} returned HTTP ${res.status}`,
+      );
+    }
+    const json = (await res.json().catch(() => null)) as {
+      result?: { id?: unknown; status?: unknown } | null;
+    } | null;
+    return {
+      correlationId: cid,
+      // The ACTUAL CF status AFTER the op — a state-changing PATCH may not be fully reflected instantly, so this
+      // is whatever CF reports RIGHT NOW (paused/terminated/…), never an optimistically claimed terminal state.
+      data: { action: input.action, instanceId, status: toStatus(json?.result?.status), workflowName },
+      ok: true,
+    };
   }
 }
 
