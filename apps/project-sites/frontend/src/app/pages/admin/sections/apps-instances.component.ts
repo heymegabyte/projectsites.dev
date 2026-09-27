@@ -23,7 +23,7 @@ import { HlmInputDirective } from '../../../ui';
 import { ErrorCardComponent } from '../../../components/states';
 import { APPS_CATALOG, findApp, type CatalogApp } from './apps-catalog.data';
 
-type InstanceStatus = 'provisioning' | 'running' | 'error' | 'stopped';
+type InstanceStatus = 'provisioning' | 'starting' | 'running' | 'error' | 'stopped';
 
 interface AppInstance {
   readonly id: string;
@@ -85,6 +85,7 @@ function adaptCostEstimate(
 
 const STATUS_META: Readonly<Record<InstanceStatus, { label: string; color: string }>> = {
   provisioning: { label: 'Provisioning', color: '#fbbf24' },
+  starting:     { label: 'Starting',     color: '#fbbf24' },
   running:      { label: 'Running',      color: '#34d399' },
   error:        { label: 'Error',        color: '#fca5a5' },
   stopped:      { label: 'Stopped',      color: 'rgba(255,255,255,0.5)' },
@@ -675,10 +676,18 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
           </div>
 
           <div class="action-row">
-            <button class="btn-ghost" type="button" (click)="restart()" [disabled]="busy()">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/></svg>
-              Restart
-            </button>
+            @if (i.status === 'stopped') {
+              <!-- Stop↔Start toggle: a stopped instance shows Start (not Restart). -->
+              <button class="btn-primary" type="button" (click)="start()" [disabled]="busy()">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+                Start
+              </button>
+            } @else if (i.status === 'running' || i.status === 'error') {
+              <button class="btn-ghost" type="button" (click)="restart()" [disabled]="busy()">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/></svg>
+                Restart
+              </button>
+            }
             @if (i.status === 'running') {
               <button class="btn-ghost" type="button" (click)="stop()" [disabled]="busy()">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
@@ -689,6 +698,11 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
               Destroy
             </button>
+            @if (busy()) {
+              <span class="action-progress" role="status" aria-live="polite">
+                <span class="act-spinner" aria-hidden="true"></span>{{ busyLabel() || 'Working…' }}
+              </span>
+            }
           </div>
         </header>
 
@@ -717,6 +731,12 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
                   <span aria-hidden="true">{{ i.status === 'running' ? '✅' : '◦' }}</span> Live on the edge
                 </li>
               </ul>
+              @if (i.status === 'provisioning') {
+                <p class="provision-note" role="status" aria-live="polite">
+                  <span class="act-spinner" aria-hidden="true"></span>
+                  Generally accessible in under a minute — this page updates automatically the moment it's live.
+                </p>
+              }
               @if (i.status === 'running') {
                 <a class="btn-ghost mt-3" [href]="'https://' + i.hostname" target="_blank" rel="noopener noreferrer">
                   Open {{ i.hostname }}
@@ -899,7 +919,28 @@ export class AppInstancesComponent implements OnInit, OnDestroy {
       .status-pill[data-status="provisioning"] .status-dot { animation: none; }
     }
 
-    .action-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .action-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .action-progress {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.68rem; color: var(--ps-accent, #00E5FF);
+      padding-left: 4px;
+    }
+    .act-spinner {
+      width: 11px; height: 11px; flex-shrink: 0;
+      border: 2px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 35%, transparent);
+      border-top-color: var(--ps-accent, #00E5FF);
+      border-radius: 50%;
+      animation: act-spin 700ms linear infinite;
+    }
+    @keyframes act-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .act-spinner { animation: none; } }
+    .provision-note {
+      display: flex; align-items: center; gap: 8px;
+      margin: 0.75rem 0 0 0;
+      font-size: 0.74rem; line-height: 1.4;
+      color: var(--ps-accent, #00E5FF);
+    }
 
     .grid-2col {
       display: grid; gap: 1.25rem;
@@ -1061,6 +1102,8 @@ export class AppInstanceDetailComponent implements OnInit, OnDestroy {
   loadErrorRef = signal('');
   logsLoading = signal<boolean>(false);
   busy = signal<boolean>(false);
+  /** Human progress label shown next to the grayed-out action buttons (Starting…/Stopping…/…). */
+  busyLabel = signal<string>('');
 
   /** Pre-formatted log block — kept off the template to preserve whitespace. */
   joinedLogs = computed<string>(() => this.logs().map((l) => this.formatLog(l)).join(''));
@@ -1153,7 +1196,7 @@ export class AppInstanceDetailComponent implements OnInit, OnDestroy {
 
   private maybeStartPolling(): void {
     const status = this.instance()?.status;
-    const shouldPoll = status === 'provisioning' || status === 'running';
+    const shouldPoll = status === 'provisioning' || status === 'starting' || status === 'running';
     if (shouldPoll && !this.pollHandle) {
       this.pollHandle = setInterval(() => { this.refreshLogs(); this.load(); }, 5_000);
     } else if (!shouldPoll && this.pollHandle) {
@@ -1177,10 +1220,21 @@ export class AppInstanceDetailComponent implements OnInit, OnDestroy {
 
   restart(): void {
     const i = this.instance(); if (!i || this.busy()) return;
-    this.busy.set(true);
+    this.busy.set(true); this.busyLabel.set('Restarting…');
     this.api.post(`/apps/instances/${i.id}/restart`, {}).subscribe({
-      next: () => { this.busy.set(false); this.toast.success('Restart triggered'); this.load(); },
-      error: () => this.busy.set(false),
+      next: () => { this.busy.set(false); this.busyLabel.set(''); this.toast.success('Restart triggered'); this.load(); },
+      error: () => { this.busy.set(false); this.busyLabel.set(''); },
+    });
+  }
+
+  /** Start a stopped instance — the Stop↔Start toggle. Uses the restart endpoint (which for
+   *  CF-native re-probes the Worker → running; for containers boots it) and shows "Starting…". */
+  start(): void {
+    const i = this.instance(); if (!i || this.busy()) return;
+    this.busy.set(true); this.busyLabel.set('Starting…');
+    this.api.post(`/apps/instances/${i.id}/restart`, {}).subscribe({
+      next: () => { this.busy.set(false); this.busyLabel.set(''); this.toast.success('Starting instance'); this.load(); },
+      error: () => { this.busy.set(false); this.busyLabel.set(''); },
     });
   }
 
@@ -1196,10 +1250,10 @@ export class AppInstanceDetailComponent implements OnInit, OnDestroy {
       danger: false,
     });
     if (!ok) return;
-    this.busy.set(true);
+    this.busy.set(true); this.busyLabel.set('Stopping…');
     this.api.post(`/apps/instances/${i.id}/stop`, {}).subscribe({
-      next: () => { this.busy.set(false); this.toast.success('Stopped'); this.load(); },
-      error: () => this.busy.set(false),
+      next: () => { this.busy.set(false); this.busyLabel.set(''); this.toast.success('Stopped'); this.load(); },
+      error: () => { this.busy.set(false); this.busyLabel.set(''); },
     });
   }
 
@@ -1220,14 +1274,14 @@ export class AppInstanceDetailComponent implements OnInit, OnDestroy {
   }
 
   private performDestroy(id: string): void {
-    this.busy.set(true);
+    this.busy.set(true); this.busyLabel.set('Destroying…');
     this.api.delete(`/apps/instances/${id}`).subscribe({
       next: () => {
-        this.busy.set(false);
+        this.busy.set(false); this.busyLabel.set('');
         this.toast.success('Instance destroyed');
         this.router.navigate(['/admin/apps/instances']);
       },
-      error: () => this.busy.set(false),
+      error: () => { this.busy.set(false); this.busyLabel.set(''); },
     });
   }
 
@@ -1253,10 +1307,10 @@ export class AppInstanceDetailComponent implements OnInit, OnDestroy {
       this.toast.error(`Fill required env before restart: ${missing.join(', ')}`);
       return;
     }
-    this.busy.set(true);
+    this.busy.set(true); this.busyLabel.set('Saving…');
     this.api.patch(`/apps/instances/${i.id}/env`, { env_overrides: this.envValues }).subscribe({
-      next: () => { this.busy.set(false); this.toast.success(this.catalogApp()?.image?.startsWith('cf-native:') ? 'Env saved — redeploying Worker' : 'Env saved — restarting container'); this.load(); },
-      error: () => this.busy.set(false),
+      next: () => { this.busy.set(false); this.busyLabel.set(''); this.toast.success(this.catalogApp()?.image?.startsWith('cf-native:') ? 'Env saved — redeploying Worker' : 'Env saved — restarting container'); this.load(); },
+      error: () => { this.busy.set(false); this.busyLabel.set(''); },
     });
   }
 }

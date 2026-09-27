@@ -8,6 +8,7 @@ import {
   type OnInit,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService } from '../../../services/api.service';
@@ -65,7 +66,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
 @Component({
   selector: 'app-admin-app-detail',
   standalone: true,
-  imports: [FormsModule, RouterLink, RevealDirective, RollingCounterComponent, HlmInputDirective],
+  imports: [FormsModule, RouterLink, RevealDirective, RollingCounterComponent, HlmInputDirective, DatePipe],
   template: `
     <div class="p-7 flex-1 overflow-y-auto animate-fade-in max-md:p-4 space-y-6">
 
@@ -242,11 +243,21 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                     placeholder="my-{{ a.id }}"
                     aria-label="Subdomain"
                     [pattern]="subdomainPattern"
+                    [attr.aria-invalid]="(subdomainValid() === false)"
                     data-testid="apps-deploy-subdomain" />
                   <span class="subdomain-suffix">{{ a.image?.startsWith('cf-native:') ? '.cms.projectsites.dev' : '.app.projectsites.dev' }}</span>
+                  @if (subdomainValid() === true && subdomainAvailable() === true && subdomainTouched()) {
+                    <span class="subdomain-check-icon subdomain-check-icon--valid" aria-hidden="true">✓</span>
+                  } @else if (subdomainValid() === false || subdomainAvailable() === false) {
+                    <span class="subdomain-check-icon subdomain-check-icon--invalid" aria-hidden="true">✕</span>
+                  }
                 </div>
                 @if (subdomainError()) {
                   <span class="form-help form-help--err">{{ subdomainError() }}</span>
+                } @else if (subdomainCheckMessage()) {
+                  <span class="form-help form-help--err" [attr.aria-live]="'polite'" role="status">{{ subdomainCheckMessage() }}</span>
+                } @else if (subdomainValid() === true && subdomainAvailable() === true) {
+                  <span class="form-help form-help--ok" [attr.aria-live]="'polite'" role="status">✓ Available</span>
                 } @else {
                   <span class="form-help">Lowercase letters, digits, dashes. 3-40 chars.</span>
                 }
@@ -301,12 +312,78 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
 
               @if (!readyToDeploy() && !deploying()) {
                 <span class="form-help form-help--muted" data-testid="apps-deploy-help">
-                  @if (canDeploy() && missingRequiredEnv().length > 0) {
+                  @if (canDeploy() && subdomainAvailable() === true && subdomainValid() === true && missingRequiredEnv().length > 0) {
                     Set required env: <strong>{{ missingRequiredEnv().join(', ') }}</strong>.
+                  } @else if (!canDeploy() || subdomainValid() === false || subdomainAvailable() === false) {
+                    Fix subdomain to unlock deploy.
                   } @else {
                     Fix the form to unlock deploy.
                   }
                 </span>
+              }
+
+              <!-- Instances Table -->
+              @if (instances().length > 0) {
+                <div class="instances-section">
+                  <h4 class="instances-h">Active Instances</h4>
+                  <div class="instances-table">
+                    <div class="instances-row instances-row-head">
+                      <div class="instances-col">Subdomain</div>
+                      <div class="instances-col">Status</div>
+                      <div class="instances-col">Created</div>
+                      <div class="instances-col instances-col-menu"></div>
+                    </div>
+                    @for (inst of instances(); track inst.id) {
+                      <div class="instances-row">
+                        <div class="instances-col">
+                          <code class="instances-code">{{ inst.subdomain }}</code>
+                        </div>
+                        <div class="instances-col">
+                          <span class="instances-pill instances-pill--{{ inst.status }}">{{ inst.status }}</span>
+                        </div>
+                        <div class="instances-col instances-col-time">
+                          {{ inst.created_at | date: 'short' }}
+                        </div>
+                        <div class="instances-col instances-col-menu">
+                          <button
+                            class="instances-menu-btn"
+                            [attr.aria-label]="'Menu for ' + inst.subdomain"
+                            (click)="openMenuInstanceId() === inst.id ? openMenuInstanceId.set(null) : openMenuInstanceId.set(inst.id)"
+                            type="button">
+                            ⋮
+                          </button>
+                          @if (openMenuInstanceId() === inst.id) {
+                            <div class="instances-menu" role="menu">
+                              <button
+                                class="instances-menu-item"
+                                (click)="openInstanceLive(inst)"
+                                type="button"
+                                role="menuitem">
+                                Open
+                              </button>
+                              <button
+                                class="instances-menu-item instances-menu-item--danger"
+                                (click)="deleteInstance(inst.id)"
+                                type="button"
+                                role="menuitem">
+                                Delete
+                              </button>
+                              <button
+                                class="instances-menu-item"
+                                (click)="cloneInstance(inst)"
+                                type="button"
+                                role="menuitem">
+                                Clone
+                              </button>
+                            </div>
+                          }
+                        </div>
+                      </div>
+                    }
+                  </div>
+                </div>
+              } @else if (supported()) {
+                <div class="instances-empty">No instances launched yet</div>
               }
               } @else {
                 <div class="soon-panel" data-testid="apps-deploy-soon" role="status">
@@ -736,6 +813,90 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     @keyframes spin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
 
+    /* ─── Subdomain validity ─── */
+    .subdomain-input {
+      position: relative;
+    }
+    .subdomain-check-icon {
+      position: absolute; right: 0.7rem; top: 50%; transform: translateY(-50%);
+      font-weight: 700; font-size: 0.9rem; margin-right: 4px;
+    }
+    .subdomain-check-icon--valid { color: #34d399; }
+    .subdomain-check-icon--invalid { color: #fca5a5; }
+    .form-help--ok { color: #34d399; }
+
+    /* ─── Instances table ─── */
+    .instances-section {
+      display: flex; flex-direction: column; gap: 0.6rem; margin-top: 1.1rem;
+    }
+    .instances-h {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: rgba(255,255,255,0.55); font-weight: 700; margin: 0;
+    }
+    .instances-table {
+      display: flex; flex-direction: column; gap: 0; overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.06); border-radius: var(--ps-radius-sm, 8px);
+    }
+    .instances-row {
+      display: grid;
+      grid-template-columns: 1fr 120px 140px 40px;
+      gap: 0.6rem; align-items: center;
+      padding: 0.65rem 0.85rem;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      font-size: 0.74rem;
+    }
+    .instances-row:last-child { border-bottom: none; }
+    .instances-row-head {
+      background: rgba(255,255,255,0.03);
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em;
+      color: rgba(255,255,255,0.48); font-weight: 700;
+      padding: 0.5rem 0.85rem;
+    }
+    .instances-col { display: flex; align-items: center; min-width: 0; }
+    .instances-col-time { color: rgba(255,255,255,0.6); font-size: 0.7rem; }
+    .instances-col-menu { justify-content: flex-end; position: relative; }
+    .instances-code {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.72rem; color: var(--ps-accent, #00E5FF);
+      background: rgba(0,229,255,0.08);
+      padding: 2px 6px; border-radius: 4px; word-break: break-all;
+    }
+    .instances-pill {
+      display: inline-flex; align-items: center;
+      padding: 2px 7px; border-radius: 999px;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.6rem; font-weight: 600; white-space: nowrap;
+      background: rgba(52,211,153,0.1); color: #34d399; border: 1px solid rgba(52,211,153,0.28);
+    }
+    .instances-pill--error { background: rgba(248,113,113,0.1); color: #fecaca; border-color: rgba(248,113,113,0.3); }
+    .instances-menu-btn {
+      background: none; border: none; color: rgba(255,255,255,0.6); cursor: pointer;
+      font-size: 1.2rem; padding: 4px 8px; border-radius: 6px;
+      transition: color 140ms ease, background 140ms ease;
+    }
+    .instances-menu-btn:hover { color: var(--ps-accent, #00E5FF); background: rgba(255,255,255,0.04); }
+    .instances-menu-btn:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
+    .instances-menu {
+      position: absolute; top: 100%; right: 0; z-index: 99950; margin-top: 4px;
+      background: var(--ps-surface-1, rgba(13,13,40,0.92)); border: 1px solid rgba(255,255,255,0.1);
+      border-radius: var(--ps-radius-sm, 8px); box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      min-width: 120px; overflow: hidden;
+    }
+    .instances-menu-item {
+      display: block; width: 100%; text-align: left;
+      padding: 0.6rem 0.85rem; background: none; border: none;
+      font-size: 0.74rem; color: rgba(255,255,255,0.8); cursor: pointer;
+      transition: background 140ms ease, color 140ms ease;
+    }
+    .instances-menu-item:hover { background: rgba(255,255,255,0.08); color: var(--ps-accent, #00E5FF); }
+    .instances-menu-item--danger:hover { background: rgba(248,113,113,0.15); color: #fecaca; }
+    .instances-empty {
+      font-size: 0.74rem; color: rgba(255,255,255,0.5); padding: 0.8rem 1rem;
+      text-align: center; font-style: italic;
+    }
+
     .notice {
       display: flex; gap: 0.6rem; align-items: flex-start;
       font-size: 0.82rem; line-height: 1.5;
@@ -873,8 +1034,14 @@ export class AppDetailComponent implements OnInit {
   subdomain = '';
   deploying = signal<boolean>(false);
 
-  private subdomainTouched = signal<boolean>(false);
+  subdomainTouched = signal<boolean>(false);
   private subdomainSignal = signal<string>('');
+  private subdomainCheckTimer: any;
+  subdomainValid = signal<boolean | null>(null);
+  subdomainAvailable = signal<boolean | null>(null);
+  subdomainCheckMessage = signal<string>('');
+  instances = signal<Array<{ id: string; app_id: string; subdomain: string; host: string; status: string; created_at: string }>>([]);
+  openMenuInstanceId = signal<string | null>(null);
 
   /** Per-line cost breakdown — container + every infra provider. */
   costLines = computed<readonly InfraEstimate[]>(() => {
@@ -979,8 +1146,12 @@ export class AppDetailComponent implements OnInit {
     return a.env.filter((e) => e.required && !e.auto && !(o[e.key] ?? '').trim()).map((e) => e.key);
   });
 
-  /** Deploy-ready only when the subdomain is valid AND every required user-var is set. */
-  readonly readyToDeploy = computed<boolean>(() => this.canDeploy() && this.missingRequiredEnv().length === 0);
+  /** Deploy-ready only when subdomain is valid+available AND every required user-var is set. */
+  readonly readyToDeploy = computed<boolean>(() => {
+    const available = this.subdomainAvailable();
+    const valid = this.subdomainValid();
+    return this.canDeploy() && (available === true && valid === true) && this.missingRequiredEnv().length === 0;
+  });
 
   /** Live (deployable today) vs Soon (catalog placeholder — no runtime container yet). */
   readonly supported = computed<boolean>(() => {
@@ -997,21 +1168,113 @@ export class AppDetailComponent implements OnInit {
       const found = APPS_CATALOG.find((a) => a.id === id) ?? null;
       this.app.set(found);
       if (found) {
-        this.subdomain = `${found.id}-${this.shortSlug()}`;
-        this.subdomainSignal.set(this.subdomain);
         // Pre-fill the editable env inputs with each user-provided var's default.
         const seed: Record<string, string> = {};
         for (const e of found.env) {
           if (!e.auto) seed[e.key] = e.default ?? '';
         }
         this.envOverrides.set(seed);
+
+        // Auto-pick subdomain from API
+        this.checkAndSetSubdomain(found.id);
       }
     });
+  }
+
+  private checkAndSetSubdomain(appId: string): void {
+    const seed = `${appId}-${this.shortSlug()}`;
+    this.api.get<{ suggestion: string }>(`/apps/slug-check?app_id=${encodeURIComponent(appId)}&subdomain=${encodeURIComponent(seed)}`).subscribe({
+      next: (r) => {
+        this.subdomain = r.suggestion ?? seed;
+        this.subdomainSignal.set(this.subdomain);
+      },
+      error: () => {
+        // Fallback on error
+        this.subdomain = seed;
+        this.subdomainSignal.set(this.subdomain);
+      },
+    });
+    // Fetch instances for this app
+    this.fetchInstances(appId);
+  }
+
+  private fetchInstances(appId: string): void {
+    this.api.get<any>('/apps/instances').subscribe({
+      next: (r: any) => {
+        const filtered = (r.instances ?? []).filter((i: any) => i.app_id === appId);
+        this.instances.set(filtered);
+      },
+      error: () => {
+        console.warn('[apps] failed to fetch instances');
+        this.instances.set([]);
+      },
+    });
+  }
+
+  deleteInstance(instanceId: string): void {
+    const ok = confirm('Delete this instance?');
+    if (!ok) return;
+    this.api.delete(`/apps/instances/${instanceId}`).subscribe({
+      next: () => {
+        this.toast.success('Instance deleted.');
+        const appId = this.app()?.id;
+        if (appId) this.fetchInstances(appId);
+      },
+      error: () => {
+        console.warn('[apps] delete instance failed', instanceId);
+      },
+    });
+  }
+
+  cloneInstance(instance: any): void {
+    this.subdomain = instance.subdomain;
+    this.subdomainSignal.set(this.subdomain);
+    this.openMenuInstanceId.set(null);
+    this.toast.info('Subdomain prefilled. Customize and Deploy.');
+  }
+
+  openInstanceLive(instance: any): void {
+    window.open(`https://${instance.host}`, '_blank');
+    this.openMenuInstanceId.set(null);
   }
 
   onSubdomainChange(value: string): void {
     this.subdomainTouched.set(true);
     this.subdomainSignal.set(value);
+
+    // Clear old timer and reset validity
+    if (this.subdomainCheckTimer) clearTimeout(this.subdomainCheckTimer);
+    this.subdomainValid.set(null);
+    this.subdomainAvailable.set(null);
+
+    // Return early if basic validation fails
+    if (!value.trim() || value.length < 3 || value.length > 40 || !/^[a-z0-9-]+$/.test(value) || value.startsWith('-') || value.endsWith('-')) {
+      return;
+    }
+
+    // Debounced check (350ms)
+    this.subdomainCheckTimer = setTimeout(() => {
+      const appId = this.app()?.id;
+      if (!appId) return;
+      this.api.get<{ available: boolean; valid: boolean; suggestion?: string }>(`/apps/slug-check?app_id=${encodeURIComponent(appId)}&subdomain=${encodeURIComponent(value)}`).subscribe({
+        next: (r) => {
+          this.subdomainValid.set(r.valid);
+          this.subdomainAvailable.set(r.available);
+          if (!r.available) {
+            this.subdomainCheckMessage.set('Subdomain taken.');
+          } else if (!r.valid) {
+            this.subdomainCheckMessage.set('Invalid subdomain.');
+          } else {
+            this.subdomainCheckMessage.set('');
+          }
+        },
+        error: () => {
+          this.subdomainValid.set(false);
+          this.subdomainAvailable.set(false);
+          this.subdomainCheckMessage.set('Error checking availability.');
+        },
+      });
+    }, 350);
   }
 
   /**
