@@ -27,7 +27,9 @@ import {
   resolveSiteDataDb,
   SiteDataD1Error,
 } from '../../../src/services/site_data_db.js';
-import { listResources } from '../data_resource_registry/service.js';
+import { listResources, resolveResourceRef } from '../data_resource_registry/service.js';
+import { kvAdapter } from '../data_resource_registry/adapters/kv.js';
+import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 import {
   ListSitesInput,
   GetSiteInput,
@@ -39,6 +41,8 @@ import {
   DataReconcileResourcesInput,
   DataListTablesInput,
   DataReadTableInput,
+  DataKvListKeysInput,
+  DataKvGetInput,
 } from './schemas.js';
 
 /** Flag gating the Data & Resource Platform MCP tools (registry read surface). */
@@ -49,6 +53,14 @@ const DATA_RESOURCE_FLAG = 'data_resource_platform';
  * uses (`site_db_handlers.ts`). DARK → the tools err (mirroring the endpoint's 404), never leak.
  */
 const PER_SITE_DATA_FLAG = 'per_site_data';
+
+/**
+ * Flag gating the per-site KV READ tools — the reserved `per_site_kv` flag (CAPABILITY-MATRIX.md /
+ * SECURITY-INVARIANTS.md INV-10). DARK → the tools err (mirroring the Data-tab KV surface's 404),
+ * never leak. Per-site KV provisioning is backend-ready but INERT, so a blank site resolves no
+ * namespace → the tools honestly report the namespace is not provisioned.
+ */
+const PER_SITE_KV_FLAG = 'per_site_kv';
 
 /** Mirrors DOMAINS.SITES_SUFFIX — the public site subdomain suffix. */
 const SITES_SUFFIX = '.projectsites.dev';
@@ -341,6 +353,40 @@ export const PLATFORM_MCP_TOOLS = [
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id', 'table'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_kv_list_keys',
+    description:
+      "List keys in one of your sites' OWN dedicated KV namespace (the same per-site KV the editor's Data tab shows). Cursor-paginated: pass the returned cursor for the next page; list_complete tells you when there are no more (no fake total). Optional prefix filter. You name only the site_id (+ optional environment) — never a KV namespace id; the namespace is resolved server-side and isolated to your site. Honest 'not provisioned' until your site has a KV namespace.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        prefix: { type: 'string', maxLength: 512 },
+        cursor: { type: 'string', maxLength: 2048 },
+        limit: { type: 'number', minimum: 1, maximum: 1000, default: 100 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_kv_get',
+    description:
+      "Read one key's value + metadata from your site's OWN KV namespace. Returns { found, value, metadata }; a missing key is an honest found:false (KV is eventually-consistent — a just-written key can 404 briefly). Scoped to the site_id you own; the namespace is server-resolved, never named by you.",
+    requiredScope: 'data:read' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        key: { type: 'string', maxLength: 512 },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'key'],
       additionalProperties: false,
     },
   },
@@ -866,7 +912,116 @@ export async function dispatchPlatformTool(
       }
     }
 
+    case 'data_kv_list_keys': {
+      // Flag-gated on the reserved per_site_kv flag (dark → err, mirroring the Data-tab KV 404).
+      if (!(await isFlagOn(env, PER_SITE_KV_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site KV is not enabled for this account.');
+      }
+      const { site_id, prefix, cursor, limit, environment } = DataKvListKeysInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF namespace id —
+      // the caller named only site_id; the namespace is server-resolved from the registry.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveKvScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // CLAMP (never reject) to the SAME [1, 1000] bound CF KV pages at; the adapter clamps too.
+      const result = await kvAdapter.list(scoped.scope, {
+        cursor,
+        limit: typeof limit === 'number' ? Math.max(1, Math.min(1000, Math.trunc(limit))) : undefined,
+        prefix,
+      });
+      if (!result.ok) return err(result.error?.message ?? 'Could not list KV keys.');
+      return ok({
+        site_id,
+        environment,
+        namespaceId: scoped.scope.resourceId,
+        count: result.data?.keys.length ?? 0,
+        list_complete: result.data?.listComplete ?? true,
+        cursor: result.data?.cursor,
+        keys: result.data?.keys ?? [],
+      });
+    }
+
+    case 'data_kv_get': {
+      if (!(await isFlagOn(env, PER_SITE_KV_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site KV is not enabled for this account.');
+      }
+      const { site_id, key, environment } = DataKvGetInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveKvScope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      const result = await kvAdapter.get(scoped.scope, { key });
+      if (!result.ok) return err(result.error?.message ?? 'Could not read the KV value.');
+      return ok({
+        site_id,
+        environment,
+        namespaceId: scoped.scope.resourceId,
+        key,
+        found: result.data?.found ?? false,
+        value: result.data?.value,
+        metadata: result.data?.metadata,
+        ...(result.data?.truncated ? { truncated: true } : {}),
+      });
+    }
+
     default:
       return err(`Tool '${name}' is advertised but not yet wired.`);
   }
+}
+
+/**
+ * Resolve a site's OWN dedicated KV namespace into a {@link ResolvedScope} for the kv adapter, SERVER-SIDE.
+ * The caller already proved org ownership (the dispatcher's `WHERE id=? AND org_id=?` gate); this maps the
+ * OWNED `(site, environment, kind='kv')` to its registry-recorded CF namespace id via `resolveResourceRef`
+ * (the same resolver the routes use — no CF id is ever accepted from the client), then attaches server-side
+ * credentials + account. An honest failure (per-site KV is INERT until provisioned, so a blank site has no
+ * `kv` registry row) returns a typed, user-safe message — NEVER a fabricated namespace.
+ */
+async function resolveKvScope(
+  env: Env,
+  siteId: string,
+  orgId: string,
+  environment: 'preview' | 'production',
+): Promise<
+  | { ok: true; scope: import('../data_resource_registry/adapter.js').ResolvedScope }
+  | { ok: false; message: string }
+> {
+  // The ownership gate already passed in the dispatcher; pass an always-true guard so the resolver does
+  // not re-query (it still re-scopes the registry lookup on siteId + orgId + kind='kv').
+  const resolved = await resolveResourceRef(
+    env,
+    siteId,
+    { environment, kind: 'kv' },
+    { orgId, ownsSite: async () => true },
+  );
+  if (!resolved.ok) {
+    // not_registered = per-site KV not provisioned yet (backend-ready but INERT). Honest, not a leak.
+    if (resolved.reason === 'not_registered') {
+      return { message: 'This site does not have a KV namespace yet.', ok: false };
+    }
+    return { message: 'Could not open the site KV namespace.', ok: false };
+  }
+  const auth = await resolveCfCredentials(env, orgId);
+  if (!auth) return { message: 'Could not open the site KV namespace.', ok: false };
+  return {
+    ok: true,
+    scope: {
+      accessPolicy: resolved.accessPolicy,
+      accountId: resolved.accountId,
+      auth,
+      environment,
+      orgId,
+      resourceId: resolved.resourceId,
+      siteId,
+    },
+  };
 }

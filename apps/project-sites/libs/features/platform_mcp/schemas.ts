@@ -147,6 +147,39 @@ export const DataReadTableInput = z
   })
   .strict();
 
+/**
+ * `data_kv_list_keys` — list keys in the OWNED site's own dedicated KV namespace (MCP parity with the
+ * Data tab's KV surface). A caller names ONLY the OWNED `site_id` (NEVER a CF namespace id — the
+ * namespace is server-resolved from `site_database_allocations`) plus optional prefix/cursor/limit and
+ * the environment. `limit` is LENIENT (positive int) because the dispatcher CLAMPS it to `[1, 1000]`
+ * (matching CF KV's page cap) rather than REJECTING an over-limit request. `.strict()` rejects any
+ * attempt to smuggle a `namespaceId`/`accountId`. Ownership + isolation + `per_site_kv` flag-gate are
+ * enforced server-side in the dispatcher, mirroring the per-site D1 Tables surface.
+ */
+export const DataKvListKeysInput = z
+  .object({
+    site_id: z.string().min(1),
+    prefix: z.string().max(512).optional(),
+    cursor: z.string().max(2048).optional(),
+    limit: z.number().int().positive().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_kv_get` — read one key's value + metadata from the OWNED site's own KV namespace. A caller
+ * names ONLY the OWNED `site_id` + the exact `key` (never a CF namespace id — server-resolved) plus the
+ * optional environment. `.strict()` rejects unknown keys (no `namespaceId` smuggling). A missing key is
+ * an honest `found:false` from the dispatcher (KV is eventually-consistent), never an error.
+ */
+export const DataKvGetInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(512),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
 export type ListSitesArgs = z.infer<typeof ListSitesInput>;
 export type GetSiteArgs = z.infer<typeof GetSiteInput>;
 export type BuildStatusArgs = z.infer<typeof BuildStatusInput>;
@@ -157,3 +190,5 @@ export type DataListResourcesArgs = z.infer<typeof DataListResourcesInput>;
 export type DataReconcileResourcesArgs = z.infer<typeof DataReconcileResourcesInput>;
 export type DataListTablesArgs = z.infer<typeof DataListTablesInput>;
 export type DataReadTableArgs = z.infer<typeof DataReadTableInput>;
+export type DataKvListKeysArgs = z.infer<typeof DataKvListKeysInput>;
+export type DataKvGetArgs = z.infer<typeof DataKvGetInput>;

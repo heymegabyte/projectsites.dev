@@ -36,6 +36,7 @@ import { dbQueryOne, dbUpdate } from '../../../src/services/db.js';
 import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
 
 import { d1Adapter } from './adapters/d1.js';
+import { kvAdapter } from './adapters/kv.js';
 import type { ResourceAdapter, ResolvedScope } from './adapter.js';
 import {
   type ResourceEnvironment,
@@ -55,6 +56,7 @@ const IMPLEMENTED_ADAPTERS: Partial<
   Record<ResourceKind, ResourceAdapter<unknown, unknown, unknown, unknown, unknown>>
 > = {
   d1: d1Adapter,
+  kv: kvAdapter,
 };
 
 /** One recorded allocation: which kind, and the CF id/name the source row actually holds. */
