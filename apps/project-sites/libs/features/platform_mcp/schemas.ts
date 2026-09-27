@@ -432,6 +432,76 @@ export const DataR2DeleteObjectInput = z
   .strict();
 
 /**
+ * `data_r2_multipart_create` — BEGIN a multipart upload for ONE LARGE object in the OWNED site's own dedicated R2
+ * bucket (MCP parity with the Data tab's multipart create). A caller names ONLY the OWNED `site_id` + the `key`
+ * (NEVER a CF bucket name — server-resolved) plus optional content-type/metadata + environment. Returns an
+ * `upload_id` the caller threads through part uploads + completion — OR an honest `multipart_not_available` when
+ * the per-site REST bucket has no wired multipart transport (never a fabricated upload_id, never a credential).
+ * ⛔ LARGE PART BYTES ARE NEVER CARRIED IN AN MCP ARGUMENT: parts transfer through a SERVER-SIDE proxy (the
+ * Worker relays one part at a time under a scoped token — SECURITY-INVARIANTS INV-6); this tool returns only the
+ * transfer HANDLE (`upload_id` + limits), not object bytes. `.strict()` rejects a smuggled `bucket`/`accountId`.
+ * Ownership + isolation + `per_site_r2` flag-gate + `data:write` scope are enforced server-side.
+ */
+export const DataR2MultipartCreateInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(1024),
+    content_type: z.string().max(256).optional(),
+    http_metadata: z.record(z.unknown()).optional(),
+    custom_metadata: z.record(z.unknown()).optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_r2_multipart_complete` — ASSEMBLE the uploaded parts into the FINAL object for an in-flight multipart
+ * upload in the OWNED site's own R2 bucket (MCP parity). A caller names ONLY the OWNED `site_id` + `key` +
+ * `upload_id` + the collected `parts[]` ({part_number, etag} — the small handles returned by each part upload,
+ * NEVER object bytes) plus `confirm` + environment. ⚠️ OVERWRITE is destructive: `confirm:true` is REQUIRED when
+ * an object already EXISTS at `key` — without it the dispatcher returns `confirmation required` and REPORTS the
+ * key + that it exists, assembling nothing. `parts[]` must be non-empty, ≤10000, strictly ascending by
+ * part_number. Returns `multipart_not_available` (honest) until the transport is wired. `.strict()` rejects a
+ * smuggled `bucket`/`accountId`. Ownership + isolation + `per_site_r2` flag-gate + `data:write` scope server-side.
+ */
+export const DataR2MultipartCompleteInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(1024),
+    upload_id: z.string().min(1),
+    parts: z
+      .array(
+        z
+          .object({
+            part_number: z.number().int().min(1).max(10_000),
+            etag: z.string().min(1),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(10_000),
+    confirm: z.boolean().optional(),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
+ * `data_r2_multipart_abort` — CANCEL an in-flight multipart upload + discard its uploaded parts in the OWNED
+ * site's own R2 bucket (MCP parity). A caller names ONLY the OWNED `site_id` + `key` + `upload_id` + environment.
+ * IDEMPOTENT cleanup: aborting an already-gone/unknown upload is an honest success (no live object is touched, so
+ * no confirm is needed). Returns `multipart_not_available` (honest) until the transport is wired. `.strict()`
+ * rejects a smuggled `bucket`/`accountId`. Ownership + isolation + `per_site_r2` flag-gate + `data:write` scope
+ * are enforced server-side.
+ */
+export const DataR2MultipartAbortInput = z
+  .object({
+    site_id: z.string().min(1),
+    key: z.string().min(1).max(1024),
+    upload_id: z.string().min(1),
+    environment: z.enum(['preview', 'production']).default('production'),
+  })
+  .strict();
+
+/**
  * `data_r2_bucket_config` — READ the OWNED site's R2 bucket configuration (CORS + object-lifecycle rules +
  * public-access + custom-domain settings). A caller names ONLY the OWNED `site_id` (NEVER a CF bucket name —
  * server-resolved) plus the optional environment. `.strict()` rejects any attempt to smuggle a

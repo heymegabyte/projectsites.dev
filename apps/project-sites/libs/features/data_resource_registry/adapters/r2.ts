@@ -18,8 +18,31 @@
  * at {@link PUT_MAX_INLINE_BYTES}; a larger object returns a typed `object_too_large` envelope whose
  * message NOTES that a short-lived SCOPED upload URL (a signed R2 URL, a LATER pass) is required — the
  * adapter NEVER buffers an arbitrarily large body into a JSON request nor embeds raw bytes, and the
- * account-wide R2 credentials NEVER reach the client. The multipart/presigned-upload path is an honest
- * future increment; this pass writes small objects directly and is explicit about the boundary.
+ * account-wide R2 credentials NEVER reach the client.
+ *
+ * MULTIPART UPLOAD LIFECYCLE (`create_multipart_upload` → `upload_part` → `complete`/`abort`):
+ *  - **The honest CF reality (CAPABILITY-MATRIX §R2 + INV-6/INV-7):** a per-site bucket here is reached via
+ *    the CF **REST** API (`/accounts/{acct}/r2/buckets/{bucket}/...`) — a Worker can't statically bind
+ *    thousands of per-site buckets. That management REST API does NOT expose the multipart lifecycle
+ *    (CreateMultipartUpload / UploadPart / CompleteMultipartUpload / AbortMultipartUpload). Those verbs
+ *    exist on TWO surfaces the per-site REST path does not have: (a) the **S3-compatible API**, which
+ *    requires **R2 S3 access-key credentials** that INV-6 keeps out of the Worker AND must never reach the
+ *    client; and (b) the **Worker R2 binding** (`env.BUCKET.createMultipartUpload(...)`), which needs a
+ *    static binding this per-site model lacks. So for the per-site REST bucket the lifecycle honestly
+ *    reports **`multipart_not_available`** (never a fabricated `uploadId`, never a creds-bearing URL) with a
+ *    documented `approach` — the wired path is a scoped, single-bucket S3 token minted SERVER-SIDE (or a
+ *    binding on the shared shim), used only inside the Worker.
+ *  - **`upload_part` is a SERVER-SIDE PROXY of exactly ONE part** (the Worker relays one part's bytes, never
+ *    the whole object) — the SECURITY-INVARIANTS transfer model: bytes flow through the Worker under
+ *    server-held creds, so no account credential is ever handed to the caller. The MCP layer carries only a
+ *    transfer HANDLE (`uploadId` + `partNumber`), not large bytes in a tool argument (see the MCP note).
+ *  - **Static limits are enforced BEFORE any transfer** — part-size (≥5 MiB non-final, ≤5 GiB), part-count
+ *    (≤10 000), ascending `parts[]` on complete — so an upload CF would reject mid-flight is refused up
+ *    front, honestly, rather than failing silently after bytes moved.
+ *  - **`complete` is overwrite-gated** (INV-9/INV-11): assembling parts over an EXISTING object requires
+ *    `confirm:true`; **`abort` is idempotent** cleanup (no confirm; discards only uncommitted parts).
+ * This pass writes the full typed lifecycle + guards; the concrete transport is wired when a scoped S3
+ * token / shim binding lands (the `multipart_not_available` envelope names exactly that).
  *
  * ISOLATION — the same structural guarantee as `site_data_db.ts` / the `d1` + `kv` adapters:
  *  - Every verb operates ONLY on the `scope.resourceId` it was minted with. For R2 that id is the
@@ -201,8 +224,99 @@ export interface R2DeleteInput {
   readonly confirm?: boolean;
 }
 
+// ─── Multipart upload lifecycle (large-object path — see the MULTIPART section below) ──────────────
+
+/**
+ * CF R2 multipart limits (S3-compatible / R2-binding semantics, verified against R2's documented bounds):
+ *  - a part (every part EXCEPT the last) must be ≥ {@link MULTIPART_MIN_PART_BYTES} (5 MiB);
+ *  - a part must be ≤ {@link MULTIPART_MAX_PART_BYTES} (5 GiB);
+ *  - an upload may have at most {@link MULTIPART_MAX_PARTS} parts (10 000);
+ *  - the object's total size ceiling is ~5 TiB (implied by parts × max-part).
+ * These are enforced HONESTLY at the boundary (a request that violates a static bound is rejected with a
+ * typed `part_size_invalid` / `part_count_invalid` BEFORE any transfer is attempted) so the surface never
+ * silently accepts an upload CF would reject mid-flight.
+ */
+const MULTIPART_MIN_PART_BYTES = 5 * 1024 * 1024;
+const MULTIPART_MAX_PART_BYTES = 5 * 1024 * 1024 * 1024;
+const MULTIPART_MIN_PART_NUMBER = 1;
+const MULTIPART_MAX_PARTS = 10_000;
+
+/**
+ * `create_multipart_upload`: begin a multipart upload for ONE large object at `key` in the site's OWN R2
+ * bucket. Returns an `uploadId` the caller threads through `upload_part` + `complete_multipart_upload`. This
+ * does NOT overwrite anything yet (the object only materializes at `complete`), so it needs no confirm.
+ */
+export interface R2CreateMultipartUploadInput {
+  readonly action: 'create_multipart_upload';
+  readonly key: string;
+  /** Optional content-type stored on the FINAL assembled object (defaults to application/octet-stream). */
+  readonly contentType?: string;
+  /** Optional HTTP metadata stored on the final object. */
+  readonly httpMetadata?: Record<string, unknown>;
+  /** Optional custom metadata stored on the final object. */
+  readonly customMetadata?: Record<string, unknown>;
+}
+
+/**
+ * `upload_part`: upload ONE part's bytes for an in-flight multipart upload. The adapter proxies exactly ONE
+ * part (never buffers the whole object) — `partNumber` in `[1, 10000]`, `body` within the R2 part-size
+ * bounds (a non-final part ≥5 MiB; every part ≤5 GiB). Success returns the part's ETag, which the caller
+ * collects and passes back in `complete_multipart_upload.parts[]`. `isFinalPart` relaxes the ≥5 MiB floor
+ * for the last part (R2 allows a smaller final part). NEVER embeds the whole object — one part at a time.
+ */
+export interface R2UploadPartInput {
+  readonly action: 'upload_part';
+  readonly key: string;
+  readonly uploadId: string;
+  /** 1-based part index, `[1, 10000]`. */
+  readonly partNumber: number;
+  /** THIS part's bytes (one part only — never the whole object). */
+  readonly body: string;
+  /** True when this is the LAST part (relaxes the ≥5 MiB per-part floor, which R2 waives for the final part). */
+  readonly isFinalPart?: boolean;
+}
+
+/** One completed part the caller collected from `upload_part` — its 1-based number + returned ETag. */
+export interface R2CompletedPart {
+  readonly partNumber: number;
+  readonly etag: string;
+}
+
+/**
+ * `complete_multipart_upload`: assemble the uploaded parts into the FINAL object at `key`. DESTRUCTIVE when
+ * an object already EXISTS at `key` (completion overwrites it — INV-9/INV-11): without `confirm:true` on an
+ * existing key, `mutate` returns `confirmation_required` and REPORTS the key + that it exists, assembling
+ * nothing. `parts[]` must be non-empty, ≤10 000, and ascending by `partNumber` — validated at the boundary.
+ */
+export interface R2CompleteMultipartUploadInput {
+  readonly action: 'complete_multipart_upload';
+  readonly key: string;
+  readonly uploadId: string;
+  readonly parts: readonly R2CompletedPart[];
+  /** Must be `true` to complete when an object ALREADY exists at `key` (overwrite gate); a new key needs none. */
+  readonly confirm?: boolean;
+}
+
+/**
+ * `abort_multipart_upload`: cancel an in-flight multipart upload + discard its uploaded parts. IDEMPOTENT
+ * cleanup — aborting an already-gone/unknown upload is an honest success, never an error. Needs no confirm
+ * (it only discards uncommitted parts; no live object is touched).
+ */
+export interface R2AbortMultipartUploadInput {
+  readonly action: 'abort_multipart_upload';
+  readonly key: string;
+  readonly uploadId: string;
+}
+
 /** The discriminated named-mutation union for the r2 adapter — NEVER a generic `{ command }` field. */
-export type R2MutateInput = R2PutInput | R2DeleteInput | ProvisionInput;
+export type R2MutateInput =
+  | R2PutInput
+  | R2DeleteInput
+  | R2CreateMultipartUploadInput
+  | R2UploadPartInput
+  | R2CompleteMultipartUploadInput
+  | R2AbortMultipartUploadInput
+  | ProvisionInput;
 
 /** What an R2 `put` returns: the key written + whether it overwrote a prior object + a metadata echo. */
 export interface R2PutResult {
@@ -224,8 +338,67 @@ export interface R2DeleteResult {
   readonly existed: boolean;
 }
 
+/**
+ * What a successful `create_multipart_upload` returns: the `uploadId` to thread through part uploads +
+ * completion, plus how the caller transfers part bytes (`partTransport` — see the MULTIPART docs). NEVER
+ * an account credential (INV-6). When multipart is not wired for the per-site REST bucket, `mutate` returns
+ * a typed `multipart_not_available` error instead (never a fabricated `uploadId`).
+ */
+export interface R2CreateMultipartUploadResult {
+  readonly action: 'create_multipart_upload';
+  readonly key: string;
+  /** The opaque multipart upload id (from R2) — thread it through `upload_part` + `complete`/`abort`. */
+  readonly uploadId: string;
+  /** How part bytes are transferred: `server_proxy` = call `upload_part` (Worker relays one part). */
+  readonly partTransport: 'server_proxy';
+  /** The documented part bounds so the caller can chunk correctly (min non-final / max / max count). */
+  readonly limits: {
+    readonly minPartBytes: number;
+    readonly maxPartBytes: number;
+    readonly maxParts: number;
+  };
+}
+
+/** What a successful `upload_part` returns: the part number + its ETag (collected for `complete`). */
+export interface R2UploadPartResult {
+  readonly action: 'upload_part';
+  readonly key: string;
+  readonly uploadId: string;
+  readonly partNumber: number;
+  /** The uploaded part's ETag — pass back in `complete_multipart_upload.parts[]`. */
+  readonly etag: string;
+}
+
+/** What a successful `complete_multipart_upload` returns: the assembled object's key + whether it overwrote. */
+export interface R2CompleteMultipartUploadResult {
+  readonly action: 'complete_multipart_upload';
+  readonly key: string;
+  /** True when an object already existed at this key (completion overwrote it). */
+  readonly overwritten: boolean;
+  /** The assembled object's ETag, when CF reports it. */
+  readonly etag?: string;
+  /** The number of parts assembled. */
+  readonly partCount: number;
+}
+
+/** What a successful `abort_multipart_upload` returns: the key + uploadId (idempotent cleanup). */
+export interface R2AbortMultipartUploadResult {
+  readonly action: 'abort_multipart_upload';
+  readonly key: string;
+  readonly uploadId: string;
+  /** Always true — abort is idempotent (aborting an already-gone upload still succeeds). */
+  readonly aborted: true;
+}
+
 /** The discriminated result union a successful `mutate` returns. */
-export type R2MutateResult = R2PutResult | R2DeleteResult | ProvisionMutateResult;
+export type R2MutateResult =
+  | R2PutResult
+  | R2DeleteResult
+  | R2CreateMultipartUploadResult
+  | R2UploadPartResult
+  | R2CompleteMultipartUploadResult
+  | R2AbortMultipartUploadResult
+  | ProvisionMutateResult;
 
 /**
  * ONE readable bucket-configuration setting (the `bucket_config` READ verb). Two honest shapes:
@@ -369,9 +542,37 @@ function metaOrUndefined(raw: unknown): Record<string, unknown> | undefined {
 }
 
 /**
+ * Build the honest `multipart_not_available` envelope. The per-site bucket is reached via the CF REST
+ * management API, which does NOT expose the multipart lifecycle; the S3-compatible multipart API needs R2
+ * S3 credentials INV-6 keeps out of the Worker (and out of the client), and there is no static Worker R2
+ * binding for a per-site bucket. So — rather than fabricate an `uploadId` or a creds-bearing URL — we
+ * report `not_available` with the documented server-side approach. NEVER an account credential.
+ */
+function multipartNotAvailable<T>(cid: string, verb: string): AdapterResult<T> {
+  return {
+    correlationId: cid,
+    error: {
+      code: 'multipart_not_available',
+      message:
+        `Multipart ${verb} is not wired for this per-site R2 bucket yet. The bucket is reached via the ` +
+        `Cloudflare REST API, which does not expose the multipart lifecycle; the S3-compatible multipart ` +
+        `API requires R2 S3 credentials that are never held in the Worker or sent to the client. When ` +
+        `enabled, parts transfer through a SERVER-SIDE proxy (the Worker relays one part at a time under a ` +
+        `scoped, single-bucket token) — never inline bytes in a tool argument, never an account credential.`,
+      retryable: false,
+    },
+    ok: false,
+  };
+}
+
+/**
  * The `r2` adapter. `list`/`head`/`get` are live (read-only, `get` = METADATA only); `mutate` implements
  * the `put` + `delete` named mutations (destructive/overwrite gated on `confirm:true`; large objects use a
- * signed URL, not inline bytes). Two additional READ-ONLY surfaces: {@link R2Adapter.bucketConfig} (read the
+ * signed URL, not inline bytes) PLUS the multipart-upload lifecycle
+ * (`create_multipart_upload`/`upload_part`/`complete_multipart_upload`/`abort_multipart_upload`) — which
+ * enforces the CF part-size/count limits + overwrite gate honestly and returns a typed
+ * `multipart_not_available` (never a fabricated uploadId/credential) until the server-side transport is
+ * wired for the per-site REST bucket (see the MULTIPART docs). Two additional READ-ONLY surfaces: {@link R2Adapter.bucketConfig} (read the
  * bucket's CORS/lifecycle/public-access/custom-domain settings — honest `requiresPlatformAdmin` per setting,
  * never a fake control) and {@link R2Adapter.previewUrl} (a short-lived SCOPED preview/download URL for one
  * object — NEVER account credentials; honest `not_available` + approach when signed-URL minting isn't wired).
@@ -390,7 +591,15 @@ class R2Adapter
    */
   readonly supports = {
     environments: ['preview', 'production'] as const,
-    mutations: ['put', 'delete', 'provision'] as const,
+    mutations: [
+      'put',
+      'delete',
+      'create_multipart_upload',
+      'upload_part',
+      'complete_multipart_upload',
+      'abort_multipart_upload',
+      'provision',
+    ] as const,
     verbs: ['list', 'head', 'get', 'mutate'] as const,
   };
 
@@ -650,6 +859,19 @@ class R2Adapter
       return runProvisionMutation(cid, scope, 'r2', input);
     }
 
+    // MULTIPART lifecycle — validate the request HONESTLY (key + part bounds), then report
+    // multipart_not_available (the per-site REST bucket has no wired multipart transport; see MULTIPART docs).
+    // The explicit discriminant check (not a Set.has) narrows the union so `mutateMultipart` is type-safe.
+    if (
+      input &&
+      (input.action === 'create_multipart_upload' ||
+        input.action === 'upload_part' ||
+        input.action === 'complete_multipart_upload' ||
+        input.action === 'abort_multipart_upload')
+    ) {
+      return this.mutateMultipart(cid, scope, input);
+    }
+
     if (!input || (input.action !== 'put' && input.action !== 'delete')) {
       return {
         correlationId: cid,
@@ -806,6 +1028,204 @@ class R2Adapter
       },
       ok: true,
     };
+  }
+
+  /**
+   * Validate a multipart key + return an `invalid_key` envelope when bad (non-empty + ≤1024 bytes UTF-8),
+   * else `undefined`. Shared by every multipart verb — a bad key is refused BEFORE any not-available check.
+   */
+  private invalidMultipartKey(cid: string, key: unknown): AdapterResult<R2MutateResult> | undefined {
+    if (typeof key !== 'string' || key.length === 0) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_key', message: 'Object key is missing or empty.', retryable: false },
+        ok: false,
+      };
+    }
+    if (new TextEncoder().encode(key).length > KEY_MAX_BYTES) {
+      return {
+        correlationId: cid,
+        error: {
+          code: 'invalid_key',
+          message: `Object key exceeds the ${KEY_MAX_BYTES}-byte R2 limit.`,
+          retryable: false,
+        },
+        ok: false,
+      };
+    }
+    return undefined;
+  }
+
+  /**
+   * Run a MULTIPART-lifecycle mutation. Each verb validates its input HONESTLY at the boundary — key bounds,
+   * uploadId presence, part number/size bounds, part-count + ascending `parts[]`, and (on complete) the
+   * destructive-overwrite confirm gate — and refuses an invalid request with the precise typed error. Only a
+   * VALID request then reaches `multipart_not_available` (the per-site REST bucket has no wired multipart
+   * transport — the S3 multipart API needs creds INV-6 keeps server-side; see the MULTIPART docs). This
+   * order means the CF limits + gates are REAL + testable now, and the concrete transport drops in later
+   * without changing the contract. NEVER returns an account credential; NEVER embeds the whole object.
+   *
+   * @param cid - the correlation id for this adapter call
+   * @param scope - the server-resolved scope; `scope.resourceId` is the ONLY bucket this can address
+   * @param input - the discriminated multipart mutation
+   */
+  private async mutateMultipart(
+    cid: string,
+    scope: ResolvedScope,
+    input:
+      | R2CreateMultipartUploadInput
+      | R2UploadPartInput
+      | R2CompleteMultipartUploadInput
+      | R2AbortMultipartUploadInput,
+  ): Promise<AdapterResult<R2MutateResult>> {
+    // `scope.resourceId` is the ONLY bucket any multipart verb could ever touch (server-resolved upstream);
+    // this adapter accepts no bucket name and cannot be redirected — the isolation guarantee is structural.
+    void scope;
+    const badKey = this.invalidMultipartKey(cid, input.key);
+    if (badKey) return badKey;
+
+    if (input.action === 'create_multipart_upload') {
+      // No overwrite yet (the object materializes only at complete) → no confirm needed. Honest not-available.
+      return multipartNotAvailable<R2MutateResult>(cid, 'create');
+    }
+
+    // upload_part / complete / abort all require a non-empty uploadId.
+    if (typeof input.uploadId !== 'string' || input.uploadId.length === 0) {
+      return {
+        correlationId: cid,
+        error: { code: 'invalid_upload_id', message: 'A multipart uploadId is required.', retryable: false },
+        ok: false,
+      };
+    }
+
+    if (input.action === 'upload_part') {
+      // Part number bounds [1, 10000].
+      if (
+        !Number.isInteger(input.partNumber) ||
+        input.partNumber < MULTIPART_MIN_PART_NUMBER ||
+        input.partNumber > MULTIPART_MAX_PARTS
+      ) {
+        return {
+          correlationId: cid,
+          error: {
+            code: 'part_number_invalid',
+            message: `partNumber must be an integer in [${MULTIPART_MIN_PART_NUMBER}, ${MULTIPART_MAX_PARTS}].`,
+            retryable: false,
+          },
+          ok: false,
+        };
+      }
+      if (typeof input.body !== 'string') {
+        return {
+          correlationId: cid,
+          error: { code: 'invalid_body', message: 'A string body is required for upload_part.', retryable: false },
+          ok: false,
+        };
+      }
+      const partBytes = new TextEncoder().encode(input.body).length;
+      // Every part ≤5 GiB; a NON-final part ≥5 MiB (R2 waives the floor for the last part only).
+      if (partBytes > MULTIPART_MAX_PART_BYTES) {
+        return {
+          correlationId: cid,
+          error: {
+            code: 'part_size_invalid',
+            message: `A part must be ≤${Math.floor(MULTIPART_MAX_PART_BYTES / (1024 * 1024 * 1024))} GiB.`,
+            retryable: false,
+          },
+          ok: false,
+        };
+      }
+      if (input.isFinalPart !== true && partBytes < MULTIPART_MIN_PART_BYTES) {
+        return {
+          correlationId: cid,
+          error: {
+            code: 'part_size_invalid',
+            message: `Every part except the last must be ≥${Math.floor(
+              MULTIPART_MIN_PART_BYTES / (1024 * 1024),
+            )} MiB (set isFinalPart:true for the last part).`,
+            retryable: false,
+          },
+          ok: false,
+        };
+      }
+      // A valid single part — the server-side proxy is not wired yet. Honest not-available (never fake ETag).
+      return multipartNotAvailable<R2MutateResult>(cid, 'upload_part');
+    }
+
+    if (input.action === 'complete_multipart_upload') {
+      const parts = input.parts;
+      if (!Array.isArray(parts) || parts.length === 0) {
+        return {
+          correlationId: cid,
+          error: { code: 'part_count_invalid', message: 'complete requires a non-empty parts[].', retryable: false },
+          ok: false,
+        };
+      }
+      if (parts.length > MULTIPART_MAX_PARTS) {
+        return {
+          correlationId: cid,
+          error: {
+            code: 'part_count_invalid',
+            message: `A multipart upload may have at most ${MULTIPART_MAX_PARTS} parts.`,
+            retryable: false,
+          },
+          ok: false,
+        };
+      }
+      // Parts must be ascending by partNumber, each with a non-empty etag, each in [1, 10000].
+      let prev = 0;
+      for (const p of parts) {
+        if (
+          !p ||
+          !Number.isInteger(p.partNumber) ||
+          p.partNumber < MULTIPART_MIN_PART_NUMBER ||
+          p.partNumber > MULTIPART_MAX_PARTS ||
+          typeof p.etag !== 'string' ||
+          p.etag.length === 0
+        ) {
+          return {
+            correlationId: cid,
+            error: {
+              code: 'part_invalid',
+              message: 'Each part needs an integer partNumber in range and a non-empty etag.',
+              retryable: false,
+            },
+            ok: false,
+          };
+        }
+        if (p.partNumber <= prev) {
+          return {
+            correlationId: cid,
+            error: {
+              code: 'part_order_invalid',
+              message: 'parts[] must be strictly ascending by partNumber (no gaps duplicated).',
+              retryable: false,
+            },
+            ok: false,
+          };
+        }
+        prev = p.partNumber;
+      }
+      // DESTRUCTIVE when an object already exists at key — completion overwrites it. Require confirm.
+      // An INDETERMINATE existence probe fails CLOSED (treat as "might exist") so a blip can't skip the gate.
+      const existsBefore = await this.objectExists(scope, input.key);
+      if (existsBefore !== false && input.confirm !== true) {
+        return {
+          correlationId: cid,
+          error: {
+            code: 'confirmation_required',
+            message: `R2 object "${input.key}" already exists — completing this multipart upload overwrites the current object. Re-run with confirm:true to overwrite.`,
+            retryable: false,
+          },
+          ok: false,
+        };
+      }
+      // A valid, confirmed (or new-key) completion — assembly transport is not wired yet. Honest not-available.
+      return multipartNotAvailable<R2MutateResult>(cid, 'complete');
+    }
+
+    // action === 'abort_multipart_upload' — idempotent cleanup, no confirm, no overwrite risk. Not-available.
+    return multipartNotAvailable<R2MutateResult>(cid, 'abort');
   }
 
   /**

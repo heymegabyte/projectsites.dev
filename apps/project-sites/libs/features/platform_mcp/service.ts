@@ -64,6 +64,9 @@ import {
   DataR2HeadObjectInput,
   DataR2PutObjectInput,
   DataR2DeleteObjectInput,
+  DataR2MultipartCreateInput,
+  DataR2MultipartCompleteInput,
+  DataR2MultipartAbortInput,
   DataR2BucketConfigInput,
   DataR2PreviewUrlInput,
   DataVectorizeListInput,
@@ -748,6 +751,74 @@ export const PLATFORM_MCP_TOOLS = [
         environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
       },
       required: ['site_id', 'key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_r2_multipart_create',
+    description:
+      "BEGIN a multipart upload for ONE LARGE object in your site's OWN dedicated R2 bucket (for objects too big for data_r2_put_object's inline cap). Returns { upload_id, partTransport, limits } — thread the upload_id through part uploads + data_r2_multipart_complete. ⛔ LARGE PART BYTES ARE NEVER CARRIED IN THIS OR ANY MCP TOOL: parts transfer through a SERVER-SIDE proxy (the Worker relays one part at a time under a scoped, single-bucket token); this tool returns only the transfer HANDLE + the part-size/count limits (min 5 MiB non-final part, max 5 GiB/part, max 10000 parts). Honest boundary: until the per-site multipart transport is wired you get a clear multipart_not_available error (never a fabricated upload_id, never a credential). You name only the site_id + key (+ optional content_type/http_metadata/custom_metadata/environment) — never an R2 bucket name; the bucket is resolved server-side and isolated to your site. (Your OWN R2 bucket, NOT the platform's deployed-site static assets.)",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        key: { type: 'string', maxLength: 1024 },
+        content_type: { type: 'string', maxLength: 256 },
+        http_metadata: { type: 'object' },
+        custom_metadata: { type: 'object' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'key'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_r2_multipart_complete',
+    description:
+      "ASSEMBLE the uploaded parts into the FINAL object for an in-flight multipart upload in your site's OWN R2 bucket. Pass the upload_id + the collected parts:[{ part_number, etag }] (the small handles each part upload returned — NEVER object bytes). Returns { key, overwritten, etag?, partCount }. ⚠️ OVERWRITE is destructive: if an object already EXISTS at key, completion overwrites it, so it REQUIRES confirm:true — without confirm on an existing key you get an error that REPORTS the key + that it exists and NOTHING is assembled (a brand-new key needs no confirm). parts[] must be non-empty, at most 10000, and STRICTLY ASCENDING by part_number. Honest boundary: until the transport is wired you get a clear multipart_not_available error. You name only the site_id + key + upload_id + parts (+ optional confirm/environment) — never an R2 bucket name; the bucket is resolved server-side and isolated to your site.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        key: { type: 'string', maxLength: 1024 },
+        upload_id: { type: 'string' },
+        parts: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 10000,
+          items: {
+            type: 'object',
+            properties: {
+              part_number: { type: 'integer', minimum: 1, maximum: 10000 },
+              etag: { type: 'string' },
+            },
+            required: ['part_number', 'etag'],
+            additionalProperties: false,
+          },
+        },
+        confirm: { type: 'boolean' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'key', 'upload_id', 'parts'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'data_r2_multipart_abort',
+    description:
+      "CANCEL an in-flight multipart upload + discard its uploaded parts in your site's OWN R2 bucket. Pass the upload_id. Returns { key, upload_id, aborted }. IDEMPOTENT cleanup: aborting an already-gone or unknown upload is an honest success (no live object is touched, so no confirm is needed). Honest boundary: until the transport is wired you get a clear multipart_not_available error. You name only the site_id + key + upload_id (+ optional environment) — never an R2 bucket name; the bucket is resolved server-side and isolated to your site.",
+    requiredScope: 'data:write' as const,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        site_id: { type: 'string' },
+        key: { type: 'string', maxLength: 1024 },
+        upload_id: { type: 'string' },
+        environment: { type: 'string', enum: ['preview', 'production'], default: 'production' },
+      },
+      required: ['site_id', 'key', 'upload_id'],
       additionalProperties: false,
     },
   },
@@ -2240,6 +2311,121 @@ export async function dispatchPlatformTool(
         key,
         action: 'delete',
         existed: data?.existed ?? false,
+      });
+    }
+
+    case 'data_r2_multipart_create': {
+      // Flag-gated on the reserved per_site_r2 flag (dark → err, mirroring the Data-tab R2 404).
+      if (!(await isFlagOn(env, PER_SITE_R2_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site R2 is not enabled for this account.');
+      }
+      const { site_id, key, content_type, http_metadata, custom_metadata, environment } =
+        DataR2MultipartCreateInput.parse(args);
+      // Ownership + isolation: org-scope via token.org_id, 404-on-foreign. NEVER a CF bucket name —
+      // the caller named only site_id; the bucket is server-resolved from the registry.
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveR2Scope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // The adapter validates the key + returns { uploadId, partTransport, limits } when wired, or an
+      // honest multipart_not_available (never a fabricated uploadId, never a credential — INV-6). LARGE
+      // PART BYTES are NEVER carried in this MCP argument: create returns only the transfer handle.
+      const result = await r2Adapter.mutate(scoped.scope, {
+        action: 'create_multipart_upload',
+        contentType: content_type,
+        customMetadata: custom_metadata,
+        httpMetadata: http_metadata,
+        key,
+      });
+      if (!result.ok) return err(result.error?.message ?? 'Could not begin the multipart upload.');
+      const data = result.data as
+        | { uploadId?: string; partTransport?: string; limits?: unknown }
+        | undefined;
+      return ok({
+        site_id,
+        environment,
+        bucketName: scoped.scope.resourceId,
+        key,
+        action: 'create_multipart_upload',
+        upload_id: data?.uploadId,
+        partTransport: data?.partTransport,
+        limits: data?.limits,
+      });
+    }
+
+    case 'data_r2_multipart_complete': {
+      if (!(await isFlagOn(env, PER_SITE_R2_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site R2 is not enabled for this account.');
+      }
+      const { site_id, key, upload_id, parts, confirm, environment } =
+        DataR2MultipartCompleteInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveR2Scope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // The adapter enforces the destructive-OVERWRITE gate (existing object → confirm:true) + validates the
+      // parts[] (non-empty, ≤10000, strictly ascending) BEFORE the honest multipart_not_available. The MCP
+      // parts carry only { part_number, etag } handles — never object bytes.
+      const result = await r2Adapter.mutate(scoped.scope, {
+        action: 'complete_multipart_upload',
+        confirm,
+        key,
+        parts: parts.map((p) => ({ etag: p.etag, partNumber: p.part_number })),
+        uploadId: upload_id,
+      });
+      if (!result.ok) return err(result.error?.message ?? 'Could not complete the multipart upload.');
+      const data = result.data as
+        | { overwritten?: boolean; etag?: string; partCount?: number }
+        | undefined;
+      return ok({
+        site_id,
+        environment,
+        bucketName: scoped.scope.resourceId,
+        key,
+        action: 'complete_multipart_upload',
+        overwritten: data?.overwritten ?? false,
+        etag: data?.etag,
+        partCount: data?.partCount,
+      });
+    }
+
+    case 'data_r2_multipart_abort': {
+      if (!(await isFlagOn(env, PER_SITE_R2_FLAG, { orgId, siteId: String(args.site_id ?? '') }))) {
+        return err('Per-site R2 is not enabled for this account.');
+      }
+      const { site_id, key, upload_id, environment } = DataR2MultipartAbortInput.parse(args);
+      const owned = await dbQueryOne<{ id: string }>(
+        db,
+        `SELECT id FROM sites WHERE id = ? AND org_id = ? AND deleted_at IS NULL`,
+        [site_id, orgId],
+      );
+      if (!owned) return err('Site not found.');
+      const scoped = await resolveR2Scope(env, site_id, orgId, environment);
+      if (!scoped.ok) return err(scoped.message);
+      // Idempotent cleanup (no confirm — no live object touched). Honest multipart_not_available until wired.
+      const result = await r2Adapter.mutate(scoped.scope, {
+        action: 'abort_multipart_upload',
+        key,
+        uploadId: upload_id,
+      });
+      if (!result.ok) return err(result.error?.message ?? 'Could not abort the multipart upload.');
+      const data = result.data as { aborted?: boolean } | undefined;
+      return ok({
+        site_id,
+        environment,
+        bucketName: scoped.scope.resourceId,
+        key,
+        upload_id,
+        action: 'abort_multipart_upload',
+        aborted: data?.aborted ?? true,
       });
     }
 
