@@ -80,9 +80,33 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
             </button>
           </div>
 
+          <!-- ── Connected domains (multi-domain + primary) ── -->
+          @if (domains().length) {
+            <div class="dm-sec">
+              <div class="dm-sec-h">Connected domains</div>
+              <div class="dm-domains">
+                @for (d of domains(); track d.domain) {
+                  <div class="dm-dom" [class.is-primary]="d.primary" data-testid="domain-manager-domain-row">
+                    <span class="dm-dom-dot" [attr.data-ssl]="d.ssl_status" aria-hidden="true"></span>
+                    <span class="dm-dom-name">{{ d.domain }}</span>
+                    @if (d.primary) {
+                      <span class="dm-dom-badge">Primary</span>
+                    } @else {
+                      <button type="button" class="dm-dom-act" (click)="setPrimary(d.domain)" [disabled]="busy()"
+                              [attr.aria-label]="'Make ' + d.domain + ' the primary URL'">Set primary</button>
+                    }
+                    <span class="dm-dom-ssl" [title]="'Certificate: ' + d.ssl_status">{{ d.ssl_status === 'active' ? '🔒' : '⏳' }}</span>
+                    <button type="button" class="dm-dom-rm" (click)="removeDomain(d.domain)" [disabled]="busy()"
+                            [attr.aria-label]="'Detach ' + d.domain">✕</button>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+
           <!-- ── Custom domain ── -->
           <div class="dm-sec">
-            <div class="dm-sec-h">Custom domain</div>
+            <div class="dm-sec-h">Add a custom domain</div>
             <div class="dm-slug-row">
               <input class="dm-input dm-input--wide" [ngModel]="domain()" (ngModelChange)="onDomain($event)"
                      placeholder="projectsites.megabyte.space" aria-label="Custom domain" spellcheck="false" autocapitalize="off"
@@ -292,6 +316,24 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
       width: 18px; height: 18px; flex-shrink: 0; font-weight: 700;
     }
     .dm-step.done .dm-step-ic { color: #34d399; }
+    .dm-domains { display: flex; flex-direction: column; gap: 6px; }
+    .dm-dom {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 9px; border-radius: 8px;
+      background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.08);
+      font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.7rem;
+    }
+    .dm-dom.is-primary { border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.06); }
+    .dm-dom-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: rgba(255,255,255,0.3); }
+    .dm-dom-dot[data-ssl="active"] { background: #34d399; box-shadow: 0 0 6px rgba(52,211,153,0.7); }
+    .dm-dom-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fff; }
+    .dm-dom-badge { font-size: 0.56rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6ee7b7; padding: 1px 6px; border-radius: 999px; background: rgba(52,211,153,0.14); }
+    .dm-dom-act { font-size: 0.62rem; color: var(--ps-accent, #00E5FF); background: none; border: none; cursor: pointer; white-space: nowrap; }
+    .dm-dom-act:hover:not(:disabled) { text-decoration: underline; }
+    .dm-dom-act:disabled { opacity: 0.5; }
+    .dm-dom-ssl { flex-shrink: 0; }
+    .dm-dom-rm { color: rgba(255,255,255,0.4); background: none; border: none; cursor: pointer; font-size: 0.8rem; padding: 0 2px; flex-shrink: 0; }
+    .dm-dom-rm:hover:not(:disabled) { color: #fca5a5; }
     `,
   ],
 })
@@ -315,7 +357,12 @@ export class DomainManagerComponent {
 
   readonly open = signal(false);
   readonly busy = signal(false);
-  readonly activeHost = computed(() => this.host());
+  /** Attached custom domains (multi-domain + primary), loaded when the popover opens. */
+  readonly domains = signal<
+    ReadonlyArray<{ domain: string; primary: boolean; status: string; ssl_status: string }>
+  >([]);
+  /** The trigger surfaces the PRIMARY custom domain when one is set, else the platform host. */
+  readonly activeHost = computed(() => this.domains().find((d) => d.primary)?.domain ?? this.host());
   /** A custom domain awaiting DNS/cert — shown in a muted "pending" style on the trigger. */
   readonly pending = signal<string | null>(null);
 
@@ -373,10 +420,56 @@ export class DomainManagerComponent {
     ev.stopPropagation();
     const next = !this.open();
     this.open.set(next);
-    if (next && !this.slug()) {
-      // Seed the slug from the active host's first label.
-      this.slug.set(this.host().split('.')[0] ?? '');
+    if (next) {
+      if (!this.slug()) this.slug.set(this.host().split('.')[0] ?? '');
+      this.loadDomains();
     }
+  }
+
+  private loadDomains(): void {
+    this.api
+      .get<{ domains: Array<{ domain: string; primary: boolean; status: string; ssl_status: string }> }>(
+        `/apps/instances/${this.instanceId()}/domains`,
+      )
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => this.domains.set(r.domains ?? []),
+        error: () => undefined,
+      });
+  }
+
+  setPrimary(domain: string): void {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.api
+      .post(`/apps/instances/${this.instanceId()}/domains/primary`, { domain })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.busy.set(false);
+          this.toast.success(`${domain} is now the primary URL`);
+          this.loadDomains();
+          this.changed.emit();
+        },
+        error: () => this.busy.set(false),
+      });
+  }
+
+  removeDomain(domain: string): void {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.api
+      .delete(`/apps/instances/${this.instanceId()}/domains?domain=${encodeURIComponent(domain)}`)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.busy.set(false);
+          this.toast.success(`${domain} detached`);
+          this.loadDomains();
+          this.changed.emit();
+        },
+        error: () => this.busy.set(false),
+      });
   }
 
   @HostListener('document:click')
@@ -497,6 +590,7 @@ export class DomainManagerComponent {
             this.stopWatch();
             this.pending.set(null);
             this.toast.success(`${domain} is connected — live over HTTPS.`);
+            this.loadDomains();
             this.changed.emit();
           }
         },
@@ -527,6 +621,7 @@ export class DomainManagerComponent {
           this.pending.set(domain);
           this.toast.success(`${domain} attached — issuing certificate…`);
           this.changed.emit();
+          this.loadDomains();
           this.startWatch(domain); // live-poll until the cert goes active → "Connected ✓"
         },
         error: () => this.busy.set(false),

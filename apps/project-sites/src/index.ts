@@ -2075,6 +2075,12 @@ app.all('*', async (c) => {
     // misses, so normal site traffic pays no extra KV read.
     const appHost = await resolveAppHost(c.env, hostname);
     if (appHost) {
+      // A renamed host leaves a `redirectTo` marker → 301 to the new URL (SEO-safe rename),
+      // preserving the path + query so deep links keep working.
+      if (appHost.redirectTo) {
+        const u = new URL(c.req.url);
+        return c.redirect(`https://${appHost.redirectTo}${u.pathname}${u.search}`, 301);
+      }
       return serveAppBySubdomain(appHost.subdomain);
     }
 

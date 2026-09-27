@@ -41,6 +41,7 @@ import {
   checkCnameTarget,
   createCustomHostname,
   checkDomainAvailability,
+  deleteCustomHostname,
 } from '../services/domains.js';
 
 export const apps = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -1259,8 +1260,25 @@ apps.post('/api/apps/instances/:id/slug', async (c) => {
     [row.id],
   );
   if (upErr) throw internalError(`Failed to rename subdomain: ${upErr}`);
-  // Re-point the KV host map (best-effort; serveAppInstance also resolves by the subdomain column).
-  await clearAppHost(c.env, defaultAppHostname(row.subdomain)).catch(() => undefined);
+  // Re-point the KV host map, and leave a 301 on the OLD host so existing links don't break
+  // (SEO-safe rename; serveAppInstance honors `redirectTo`). serveAppInstance resolves the NEW
+  // host by the subdomain column.
+  const newDefaultHost = instancePublicHost({ ...row, subdomain: next }, cfHost);
+  await setAppHost(c.env, defaultAppHostname(row.subdomain), {
+    instanceId: row.id,
+    appSlug: row.app_slug,
+    orgId,
+    subdomain: row.subdomain,
+    redirectTo: newDefaultHost,
+  }).catch(() => undefined);
+  // Also leave a redirect on the cms/app host form (in case that's what was linked).
+  await setAppHost(c.env, instancePublicHost(row, cfHost), {
+    instanceId: row.id,
+    appSlug: row.app_slug,
+    orgId,
+    subdomain: row.subdomain,
+    redirectTo: newDefaultHost,
+  }).catch(() => undefined);
   await setAppHost(c.env, defaultAppHostname(next), {
     instanceId: row.id,
     appSlug: row.app_slug,
@@ -1315,6 +1333,35 @@ apps.post('/api/apps/instances/:id/domains', async (c) => {
     orgId,
     subdomain: row.subdomain,
   }).catch(() => undefined);
+  // Persist to the domains table (multi-domain + primary). First domain becomes primary.
+  const existing = await dbQuery<{ n: number }>(
+    c.env.DB,
+    `SELECT COUNT(*) AS n FROM app_instance_domains WHERE instance_id = ?`,
+    [row.id],
+  );
+  const isFirst = (existing.data?.[0]?.n ?? 0) === 0;
+  const nowIso = new Date().toISOString();
+  await dbExecute(
+    c.env.DB,
+    `INSERT INTO app_instance_domains
+       (id, instance_id, org_id, domain, cf_hostname_id, is_primary, status, ssl_status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(domain) DO UPDATE SET
+       cf_hostname_id = excluded.cf_hostname_id, status = excluded.status,
+       ssl_status = excluded.ssl_status, updated_at = excluded.updated_at`,
+    [
+      crypto.randomUUID(),
+      row.id,
+      orgId,
+      domain,
+      cf.cf_id,
+      isFirst ? 1 : 0,
+      cf.status,
+      cf.ssl_status,
+      nowIso,
+      nowIso,
+    ],
+  );
   await auditService.writeAuditLog(c.env.DB, {
     org_id: orgId,
     actor_id: userId,
@@ -1325,6 +1372,121 @@ apps.post('/api/apps/instances/:id/domains', async (c) => {
     request_id: c.get('requestId'),
   });
   return c.json({ ok: true, domain, ssl_status: cf.ssl_status, status: cf.status });
+});
+
+/**
+ * `GET /api/apps/instances/:id/domains` — List the instance's attached custom domains
+ * (multi-domain + primary flag). The platform host is always available separately.
+ */
+apps.get('/api/apps/instances/:id/domains', async (c) => {
+  const { orgId } = requireAuth(c);
+  const row = await loadInstance(c.env, orgId, c.req.param('id'));
+  if (!row) throw notFound('app_instance not found');
+  const { data } = await dbQuery<{
+    domain: string;
+    is_primary: number;
+    status: string;
+    ssl_status: string;
+  }>(
+    c.env.DB,
+    `SELECT domain, is_primary, status, ssl_status FROM app_instance_domains
+       WHERE instance_id = ? ORDER BY is_primary DESC, created_at ASC`,
+    [row.id],
+  );
+  return c.json({
+    domains: (data ?? []).map((d) => ({
+      domain: d.domain,
+      primary: d.is_primary === 1,
+      status: d.status,
+      ssl_status: d.ssl_status,
+    })),
+  });
+});
+
+/**
+ * `POST /api/apps/instances/:id/domains/primary` — Mark one attached domain PRIMARY (the URL
+ * the admin surfaces). Clears the flag on the instance's other domains (single primary).
+ */
+apps.post('/api/apps/instances/:id/domains/primary', async (c) => {
+  const { userId, orgId } = requireAuth(c);
+  const row = await loadInstance(c.env, orgId, c.req.param('id'));
+  if (!row) throw notFound('app_instance not found');
+  const body = z
+    .object({ domain: z.string().min(4).max(253) })
+    .parse(await c.req.json().catch(() => ({})));
+  const domain = body.domain.trim().toLowerCase();
+  const owned = await dbQueryOne<{ id: string }>(
+    c.env.DB,
+    `SELECT id FROM app_instance_domains WHERE instance_id = ? AND domain = ?`,
+    [row.id, domain],
+  );
+  if (!owned) throw notFound('That domain is not attached to this instance.');
+  await dbExecute(c.env.DB, `UPDATE app_instance_domains SET is_primary = 0 WHERE instance_id = ?`, [
+    row.id,
+  ]);
+  await dbExecute(
+    c.env.DB,
+    `UPDATE app_instance_domains SET is_primary = 1, updated_at = ? WHERE instance_id = ? AND domain = ?`,
+    [new Date().toISOString(), row.id, domain],
+  );
+  await auditService.writeAuditLog(c.env.DB, {
+    org_id: orgId,
+    actor_id: userId,
+    action: 'apps.instance.domain_primary_set',
+    target_type: 'app_instance',
+    target_id: row.id,
+    metadata_json: { domain },
+    request_id: c.get('requestId'),
+  });
+  return c.json({ ok: true, domain });
+});
+
+/**
+ * `DELETE /api/apps/instances/:id/domains?domain=` — Detach a custom domain: delete the CF
+ * custom hostname, clear the KV host map, and remove the row. Reversible re-attach.
+ */
+apps.delete('/api/apps/instances/:id/domains', async (c) => {
+  const { userId, orgId } = requireAuth(c);
+  const row = await loadInstance(c.env, orgId, c.req.param('id'));
+  if (!row) throw notFound('app_instance not found');
+  const domain = (c.req.query('domain') ?? '').trim().toLowerCase();
+  const owned = await dbQueryOne<{ cf_hostname_id: string | null; is_primary: number }>(
+    c.env.DB,
+    `SELECT cf_hostname_id, is_primary FROM app_instance_domains WHERE instance_id = ? AND domain = ?`,
+    [row.id, domain],
+  );
+  if (!owned) throw notFound('That domain is not attached to this instance.');
+  if (owned.cf_hostname_id) await deleteCustomHostname(c.env, owned.cf_hostname_id).catch(() => undefined);
+  await clearAppHost(c.env, domain).catch(() => undefined);
+  await dbExecute(c.env.DB, `DELETE FROM app_instance_domains WHERE instance_id = ? AND domain = ?`, [
+    row.id,
+    domain,
+  ]);
+  // If the primary was removed, promote the next-oldest domain so one stays primary.
+  if (owned.is_primary === 1) {
+    const nextDomain = await dbQueryOne<{ domain: string }>(
+      c.env.DB,
+      `SELECT domain FROM app_instance_domains WHERE instance_id = ? ORDER BY created_at ASC LIMIT 1`,
+      [row.id],
+    );
+    if (nextDomain) {
+      await dbExecute(
+        c.env.DB,
+        `UPDATE app_instance_domains SET is_primary = 1 WHERE instance_id = ? AND domain = ?`,
+        [row.id, nextDomain.domain],
+      );
+    }
+  }
+  await auditService.writeAuditLog(c.env.DB, {
+    org_id: orgId,
+    actor_id: userId,
+    action: 'apps.instance.domain_detached',
+    target_type: 'app_instance',
+    target_id: row.id,
+    metadata_json: { domain },
+    request_id: c.get('requestId'),
+  });
+  return c.json({ ok: true, domain });
 });
 
 /**

@@ -25,6 +25,8 @@ export const AppHostMappingSchema = z
     appSlug: z.string().min(1),
     orgId: z.string().min(1),
     subdomain: z.string().min(1),
+    /** When set, this host was RENAMED — the serving path 301s to this new host (SEO-safe). */
+    redirectTo: z.string().min(1).optional(),
   })
   .strict();
 
