@@ -32,9 +32,25 @@ const MAX_INPUT = 12000;
 const MAX_SUMMARY = 700;
 /** Summarizer model — free/instant FP8 Llama per model-routing. */
 const SUMMARY_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
-/** OSS TTS model — MeloTTS (MIT) on Workers AI. */
+/** OSS TTS model — MeloTTS (MIT) on Workers AI (fallback rail). */
 const TTS_MODEL = '@cf/myshell-ai/melotts';
+/**
+ * Preferred premium TTS — ElevenLabs (Brian directive 2026-09-27). When
+ * `ELEVENLABS_API_KEY` is set we synthesize the spoken summary with ElevenLabs
+ * (warmer, more natural voice) and fall back to MeloTTS on any fault so a
+ * broken/keyless path never breaks the widget. ElevenLabs returns MP3, so the
+ * cached object carries its real content-type (served from R2 metadata below).
+ */
+const ELEVENLABS_MODEL = 'eleven_turbo_v2_5';
+/** Default ElevenLabs voice (Rachel) — same id the voice_agent + media rails use. */
+const ELEVENLABS_VOICE = '21m00Tcm4TlvDq8ikWAM';
 const R2_PREFIX = 'page-audio';
+
+/** Synthesized audio + its real MIME type (WAV from MeloTTS, MP3 from ElevenLabs). */
+interface SynthesizedAudio {
+  readonly bytes: Uint8Array;
+  readonly contentType: string;
+}
 
 const wavKey = (slug: string, hash: string): string => `${R2_PREFIX}/${slug}/${hash}.wav`;
 const txtKey = (slug: string, hash: string): string => `${R2_PREFIX}/${slug}/${hash}.txt`;
@@ -106,18 +122,87 @@ async function summarizeForAudio(env: Env, text: string): Promise<string> {
 }
 
 /**
- * Speak text with MeloTTS (OSS) → WAV bytes.
+ * Speak text with ElevenLabs (preferred) → MP3 bytes. Returns `null` (never
+ * throws) on a missing key or any ElevenLabs fault so the caller falls back to
+ * MeloTTS. Same call signature the media + voice_agent rails use.
+ *
+ * @param env - Worker bindings (uses `ELEVENLABS_API_KEY`).
+ * @param text - The (already-summarized) spoken text.
+ * @returns MP3 audio + `audio/mpeg` content-type, or `null` to fall back.
+ */
+async function synthesizeElevenLabs(env: Env, text: string): Promise<SynthesizedAudio | null> {
+  const key = (env.ELEVENLABS_API_KEY ?? '').trim();
+  if (!key) return null;
+  try {
+    const res = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(ELEVENLABS_VOICE)}`,
+      {
+        method: 'POST',
+        headers: {
+          'xi-api-key': key,
+          'Content-Type': 'application/json',
+          Accept: 'audio/mpeg',
+        },
+        body: JSON.stringify({
+          text,
+          model_id: ELEVENLABS_MODEL,
+          voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        }),
+      },
+    );
+    if (!res.ok) {
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          message: 'page_audio.elevenlabs_non_2xx',
+          status: res.status,
+        }),
+      );
+      return null;
+    }
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.byteLength < 512) return null; // reject an empty/broken clip → fall back
+    return { bytes: buf, contentType: 'audio/mpeg' };
+  } catch (err) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        message: 'page_audio.elevenlabs_threw',
+        error: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+      }),
+    );
+    return null;
+  }
+}
+
+/**
+ * Speak text with MeloTTS (OSS) → WAV bytes. Fallback rail when ElevenLabs is
+ * absent/faulting.
  *
  * @param env - Worker bindings (needs `AI`).
  * @param text - The (already-summarized) spoken text.
- * @returns WAV audio bytes.
+ * @returns WAV audio + `audio/wav` content-type.
  * @throws `PAGE_AUDIO_TTS_EMPTY` when the model returns no audio.
  */
-async function synthesizeWav(env: Env, text: string): Promise<Uint8Array> {
+async function synthesizeMeloTts(env: Env, text: string): Promise<SynthesizedAudio> {
   const result = (await env.AI.run(TTS_MODEL, { prompt: text, lang: 'en' })) as { audio?: string };
   const b64 = result && typeof result.audio === 'string' ? result.audio : '';
   if (!b64) throw new Error('PAGE_AUDIO_TTS_EMPTY');
-  return Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+  return {
+    bytes: Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)),
+    contentType: 'audio/wav',
+  };
+}
+
+/**
+ * Synthesize the spoken summary: ElevenLabs first (Brian directive), MeloTTS
+ * fallback. Returns the audio bytes + real content-type so a cached MP3 is
+ * served as `audio/mpeg` (a `.wav`-named object still plays — the browser reads
+ * the content-type, not the extension).
+ */
+async function synthesizeAudio(env: Env, text: string): Promise<SynthesizedAudio> {
+  const eleven = await synthesizeElevenLabs(env, text);
+  return eleven ?? (await synthesizeMeloTts(env, text));
 }
 
 /**
@@ -169,10 +254,12 @@ export async function getOrCreatePageAudio(
       );
       return { audioUrl: null, summary: null, cached: false };
     }
-    const wav = await synthesizeWav(env, summary);
-    await env.SITES_BUCKET.put(wavKey(args.slug, hash), wav, {
+    const audio = await synthesizeAudio(env, summary);
+    await env.SITES_BUCKET.put(wavKey(args.slug, hash), audio.bytes, {
       httpMetadata: {
-        contentType: 'audio/wav',
+        // Real MIME (ElevenLabs → audio/mpeg, MeloTTS → audio/wav). The serve
+        // route reads this back so an MP3 in a `.wav`-named object plays.
+        contentType: audio.contentType,
         cacheControl: 'public, max-age=31536000, immutable',
       },
     });

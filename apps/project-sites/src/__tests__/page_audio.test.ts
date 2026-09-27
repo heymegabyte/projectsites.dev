@@ -65,4 +65,67 @@ describe('getOrCreatePageAudio — fail-soft + observable', () => {
     expect(r.audioUrl).toContain('/api/page-audio/demo-site/a/');
     expect(warn).not.toHaveBeenCalled();
   });
+
+  it('ElevenLabs preferred when ELEVENLABS_API_KEY set → uses ElevenLabs, stores audio/mpeg, MeloTTS NOT called', async () => {
+    // ElevenLabs returns MP3 bytes; MeloTTS (env.AI.run for the TTS model) must NOT be hit.
+    const fetchSpy = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response(new Uint8Array(1024), { status: 200, headers: { 'content-type': 'audio/mpeg' } }),
+      );
+    // Capture the content-type of the AUDIO object put (the `.wav` key), not the `.txt` sidecar.
+    let audioContentType: string | undefined;
+    const env = {
+      AI: {
+        run: (model: string) => {
+          if (model.includes('llama')) return Promise.resolve({ response: 'A warm spoken summary.' });
+          throw new Error('MeloTTS must not be called when ElevenLabs succeeds');
+        },
+      },
+      ELEVENLABS_API_KEY: 'test-key',
+      SITES_BUCKET: {
+        head: () => Promise.resolve(null),
+        get: () => Promise.resolve(null),
+        put: (key: string, _v: unknown, opts?: { httpMetadata?: { contentType?: string } }) => {
+          if (key.endsWith('.wav')) audioContentType = opts?.httpMetadata?.contentType;
+          return Promise.resolve({});
+        },
+      },
+      DB: {},
+    } as unknown as Env;
+    const r = await getOrCreatePageAudio(env, ARGS);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining('api.elevenlabs.io/v1/text-to-speech/'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(audioContentType).toBe('audio/mpeg');
+    expect(r.audioUrl).toContain('/api/page-audio/demo-site/a/');
+    fetchSpy.mockRestore();
+  });
+
+  it('ElevenLabs faults → falls back to MeloTTS (no throw, audio still produced)', async () => {
+    const fetchSpy = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('rate limited', { status: 429 }));
+    const env = {
+      AI: {
+        run: (model: string) =>
+          Promise.resolve(
+            model.includes('llama')
+              ? { response: 'A warm spoken summary.' }
+              : { audio: Buffer.from('RIFFwav').toString('base64') },
+          ),
+      },
+      ELEVENLABS_API_KEY: 'test-key',
+      SITES_BUCKET: {
+        head: () => Promise.resolve(null),
+        get: () => Promise.resolve(null),
+        put: () => Promise.resolve({}),
+      },
+      DB: {},
+    } as unknown as Env;
+    const r = await getOrCreatePageAudio(env, ARGS);
+    expect(r.audioUrl).toContain('/api/page-audio/demo-site/a/'); // MeloTTS fallback produced audio
+    fetchSpy.mockRestore();
+  });
 });
