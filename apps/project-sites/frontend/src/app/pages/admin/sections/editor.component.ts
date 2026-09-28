@@ -1,4 +1,6 @@
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { BoltEmbedService } from '../../../services/bolt-embed.service';
 import { AdminStateService } from '../admin-state.service';
@@ -10,14 +12,22 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
  * admin sub-route change. This component renders:
  *
  *  - empty-site state (no site selected)
+ *  - "site not found" state when a `/admin/editor/:siteId` deep-link names a site
+ *    the caller doesn't own / that doesn't exist (a coherent panel + a link back to
+ *    the sites grid — NEVER a raw admin-404).
  *  - ONE cinematic loading veil (animated mark only — no progress/segment bar)
  *    that stays up across the WHOLE boot and fades the instant the workspace is
  *    truly ready (BoltEmbedService.editorReady). It's the SOLE loader: the
  *    in-iframe bolt loader is suppressed when embedded, so nothing flashes
  *    inside the iframe when this veil fades.
+ *
+ * Deep-link: a `:siteId` route param (from `/admin/editor/:siteId`) is read from
+ * ActivatedRoute and passed to {@link AdminStateService.selectSiteById}, so opening
+ * or sharing an editor URL selects THAT site. Bare `/admin/editor` (no param) leaves
+ * the current selection alone (falls back to `selectedSite() ?? sites()[0]`).
  */
 @Component({
-  imports: [OnboardingChecklistComponent],
+  imports: [OnboardingChecklistComponent, RouterLink],
   selector: 'app-admin-editor',
   standalone: true,
   styles: [`
@@ -153,7 +163,28 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
   `],
   template: `
     <h1 class="sr-only">Site editor</h1>
-    @if (!state.selectedSite()) {
+    @if (showNotFound()) {
+      <!-- A /admin/editor/:siteId deep-link named a site this account can't open.
+           A coherent recovery panel — NOT the raw admin-404, NOT a doomed blank. -->
+      <div class="p-7 max-w-[820px] mx-auto">
+        <div class="empty-state-pretty" data-testid="editor-site-not-found">
+          <div class="empty-glyph">
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="1.4">
+              <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>
+            </svg>
+          </div>
+          <h3 class="glow-h-grad text-2xl font-semibold m-0">We couldn't find that site</h3>
+          <p class="text-[0.92rem] text-text-secondary max-w-[480px] mx-auto m-0 leading-relaxed">
+            The editor link points to a site that isn't in your account (it may have been
+            deleted, or belongs to a different workspace). Open one of your sites to keep going.
+          </p>
+          <div class="flex gap-2 justify-center mt-1">
+            <a class="btn-primary" routerLink="/admin/sites">View your sites</a>
+            <button class="btn-ghost" (click)="state.newSite()">+ Create a new site</button>
+          </div>
+        </div>
+      </div>
+    } @else if (!state.selectedSite()) {
       <div class="p-7 max-w-[820px] mx-auto space-y-6">
         <app-onboarding-checklist />
         <div class="empty-state-pretty">
@@ -180,6 +211,43 @@ import { OnboardingChecklistComponent } from '../onboarding-checklist.component'
 export class AdminEditorComponent {
   state = inject(AdminStateService);
   bolt = inject(BoltEmbedService);
+  private route = inject(ActivatedRoute);
+
+  /**
+   * The `:siteId` from the route (`/admin/editor/:siteId`), or null on the bare
+   * `/admin/editor`. Driven by the param STREAM (not the snapshot) so an in-place param
+   * change (SPA nav between two editor deep-links) re-selects without re-creating the
+   * component. `route.paramMap` replays synchronously on subscribe, so this is set
+   * before the first change-detection reads {@link showNotFound}.
+   */
+  private readonly deepLinkId = signal<string | null>(null);
+
+  /**
+   * Consume the `:siteId` param → select THAT site. Runs on subscribe (initial value)
+   * AND any later param change. Only fires selection when an id is actually present, so
+   * bare `/admin/editor` never overrides the persisted/first-site selection. Sites load
+   * async, so an unknown id here is expected before load — {@link showNotFound} gates on
+   * `state.loading()` so it never flashes "not found" before the list resolves.
+   */
+  private readonly _deepLinkSub = this.route.paramMap
+    .pipe(takeUntilDestroyed())
+    .subscribe((pm) => {
+      const id = pm.get('siteId');
+      this.deepLinkId.set(id);
+      if (id) this.state.selectSiteById(id);
+    });
+
+  /**
+   * True when a deep-linked `:siteId` doesn't match any loaded site AFTER the site list
+   * has resolved — the signal to show the coherent "site not found" recovery panel
+   * instead of the (misleading) welcome empty state or a raw 404. Never true while the
+   * list is still loading (avoids a not-found flash) or on the bare `/admin/editor`.
+   */
+  readonly showNotFound = computed(() => {
+    const id = this.deepLinkId();
+    if (!id || this.state.loading()) return false;
+    return !this.state.sites().some((s) => s.id === id);
+  });
 
   /**
    * Latch: once the editor has READIED during THIS visit, keep the loading veil

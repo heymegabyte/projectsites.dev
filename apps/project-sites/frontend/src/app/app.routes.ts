@@ -116,6 +116,17 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./pages/admin/sections/editor.component').then((m) => m.AdminEditorComponent),
       },
+      {
+        // Deep-linkable editor — `/admin/editor/:siteId` opens THAT site's editor
+        // (sharing / bookmarking an editor URL). Same component as bare `/admin/editor`;
+        // AdminEditorComponent reads `:siteId` and calls AdminStateService.selectSiteById.
+        // Without this route the param URL fell through to the admin `**` 404 before the
+        // async site list resolved (the reported bug). `isEditorPath()` already treats
+        // `/admin/editor/*` as the editor route, so the persistent iframe lifts correctly.
+        path: 'editor/:siteId',
+        loadComponent: () =>
+          import('./pages/admin/sections/editor.component').then((m) => m.AdminEditorComponent),
+      },
       { path: 'dashboard', redirectTo: '', pathMatch: 'full' },
       {
         // Team invite acceptance landing — reads ?token=… and POSTs to backend.

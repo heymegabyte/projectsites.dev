@@ -223,6 +223,33 @@ export class AdminStateService {
     });
   }
 
+  /**
+   * Select a site by id — the deep-link path for `/admin/editor/:siteId` (sharing /
+   * opening an editor URL). Sites load async, so this is safe to call BEFORE the list
+   * resolves: it pins {@link selectedSiteId} immediately, and once `sites()` populates
+   * the {@link selectedSite} computed matches the id (falling back to `sites[0]` for an
+   * unknown/unowned id, exactly like the bare `/admin/editor` route).
+   *
+   * @param id the site id from the route param.
+   * @returns `true` when the id matches a currently-loaded site; `false` when it
+   *   doesn't (unknown, unowned, or the list hasn't loaded yet). The caller uses the
+   *   return value + {@link loading} to decide between selecting it and a coherent
+   *   "site not found" state — never a raw 404.
+   */
+  selectSiteById(id: string): boolean {
+    const match = this.sites().find((s) => s.id === id) ?? null;
+    this.selectedSiteId.set(id);
+    persistSelectedSite(id);
+    if (match) {
+      this.telemetry.track('admin.site.selected', {
+        site_id: match.id,
+        status: match.status,
+        plan: match.plan,
+      });
+    }
+    return !!match;
+  }
+
   deleteSite(site: Site, cancelSub: boolean): void {
     this.api.deleteSiteWithOptions(site.id, cancelSub).subscribe({
       next: () => {

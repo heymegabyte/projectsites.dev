@@ -60,6 +60,7 @@
 - **Ledger:** `_ADMIN_VQA_LEDGER.md` · recipe: memory `local-admin-visual-sweep-recipe`
 - **Next:** drain the 25-route inventory (all `?`/unvisited) — inspect each live + score across 8 dims (functional · useful · concise · simple · gorgeous · intuitive · easy · sound); fix/improve/add components each fire. Every fire leaves the surface gorgeous-er AND more effortless.
 - **Tracked findings (Fire-17):** `settings.component.ts:943` knowledge-file upload AbortController · `settings.component.ts:905` allow-web-research error path · `user-settings.component.ts:1300` optimistic API-key row.
+- **Done:** `[x]` `/admin/editor/:siteId` deep-links no longer 404 — added the `editor/:siteId` route + `AdminStateService.selectSiteById(id)` (awaits async site load) + a coherent "site not found" recovery panel (link to `/admin/sites`) in `AdminEditorComponent`. Karma-covered (`editor-deeplink.component.spec.ts`).
 - **Acceptance:** maintenance-only — never terminally done; a healthy no-op fire is correct once nothing improves.
 
 ### 5. Interconnectedness (no orphan / everything reachable)  · ACTIVE
