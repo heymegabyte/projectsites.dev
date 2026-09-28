@@ -371,7 +371,7 @@ describe('SiteTablesPanel — tables present + row grid', () => {
     expect(cellTexts.some((t) => t.includes('Second post'))).toBe(true);
   });
 
-  it('renders the export CSV button when rows are present', async () => {
+  it('renders the export menu (CSV/TSV/JSON) when rows are present', async () => {
     render(<SiteTablesPanel />);
 
     await waitFor(() => {
@@ -402,10 +402,16 @@ describe('SiteTablesPanel — tables present + row grid', () => {
       );
     });
 
+    const rowsReq = postToParentSpy.mock.calls
+      .map((c) => c[0])
+      .find((m: unknown) => (m as { type?: string })?.type === 'PS_SITEDB_ROWS_REQUEST') as
+      | { correlationId: string }
+      | undefined;
+
     await act(async () => {
       fireReply({
         type: 'PS_SITEDB_ROWS_RESPONSE',
-        correlationId: lastCorrelationId(),
+        correlationId: rowsReq?.correlationId,
         ok: true,
         table: 'orders',
         columns: [{ name: 'id', type: 'INTEGER', notnull: 1, pk: 1 }],
@@ -416,7 +422,16 @@ describe('SiteTablesPanel — tables present + row grid', () => {
       });
     });
 
+    // The Export trigger is present; clicking it reveals CSV / TSV / JSON menu items.
+    expect(screen.getByTestId('sitedb-export')).toBeTruthy();
+
+    await act(async () => {
+      screen.getByTestId('sitedb-export').click();
+    });
+
     expect(screen.getByTestId('sitedb-export-csv')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-export-tsv')).toBeTruthy();
+    expect(screen.getByTestId('sitedb-export-json')).toBeTruthy();
   });
 
   it('renders the empty-table state when rows array is empty', async () => {

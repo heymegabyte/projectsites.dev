@@ -1,5 +1,6 @@
 /**
- * @file Site Tables — editable grid over a site's OWN dedicated per-site Cloudflare D1.
+ * @file Site Tables — a compact, gorgeous Notion/Airtable/NocoDB-grade editable grid over a site's
+ * OWN dedicated per-site Cloudflare D1.
  *
  * @remarks
  * This is the editor "Database" tab's per-site Table-view. It reads AND edits the customer's OWN
@@ -15,28 +16,36 @@
  *   - `PS_SITEDB_ROWS_REQUEST`    → `GET /api/sites/:siteId/db/tables/:table?limit&offset` (browse rows)
  *   - `PS_RES_MUTATE_REQUEST` `{kind:'d1',action:'exec'}` → `POST /api/sites/:siteId/resources/d1/mutate`
  *     — a SINGLE PARAMETERIZED statement against the site's OWN D1 (the same server-resolved path the
- *     SQL navigator uses). Reads (`pragma_table_xinfo`) run un-gated; the inline-edit `UPDATE … WHERE
- *     pk=?` classifies as mutating and is sent with `confirm:true`. The worker binds `params[]` as
- *     VALUES; the id is resolved server-side. All are DARK behind the `per_site_data` flag (404) —
+ *     SQL navigator uses). Reads (`pragma_table_xinfo`) run un-gated; a write (`UPDATE`/`INSERT`/
+ *     `DELETE`/DDL) classifies as mutating and is sent with `confirm:true`. The worker binds `params[]`
+ *     as VALUES; the id is resolved server-side. All are DARK behind the `per_site_data` flag (404) —
  *     when off, this panel shows a friendly "not enabled" state, never a scary error.
  *
- * FIRE 2 — TYPED INLINE CELL EDIT + LOCAL UNDO on the OWNED D1 (harvests the mature grid ENGINE from
- * `data-panel-logic.ts` + `data-cell-format.ts` + `<CellEditor>`, re-pointed off the shared-D1
- * super-admin `/sql` path onto the per-site adapter path):
- *   - Click any editable cell → a typed `<CellEditor>` (text / number / boolean / date / datetime /
- *     JSON / NULL) prefilled from the cell's DECLARED column type. Save → OPTIMISTIC local update +
- *     a server-side `UPDATE "t" SET "col"=?1 WHERE <pk>=?…` (`buildUpdateByPk`, param-bound, PK
- *     predicate) → on error, ROLL BACK the optimistic change + surface the real error; on success,
- *     an **Undo** toast re-issues the reverse UPDATE (embarrassingly-easy bar).
- *   - Honest locks: a PRIMARY-KEY column, a GENERATED (computed) column, or a table with NO resolvable
- *     PK is non-editable, each with a clear reason (never a doomed edit) — matching the shared grid UX.
+ * THE GRID ENGINE. Rather than reimplement sort/filter/search/pagination, this panel WIRES the mature,
+ * unit-tested engine from `./data-panel-logic` (`cycleSortMulti` · `sortRows` · `FilterCondition` +
+ * `FILTER_OPS` + `filtersToParams`-shape client filter · `filterRows` · `PAGE_SIZE_OPTIONS` +
+ * `clampPageSize` · `toCsv`/`toTsv`/`toJsonRows` whole-table export · `visibleColumns`/`orderColumns`/
+ * `moveColumn` · `normalizeDensity`/`densityCellClass` · `normalizeViewMode` + gallery helpers) and the
+ * typed field system from `./field-types` (boolean checkbox, rating stars, select chips). Filtering /
+ * sorting / paging happen CLIENT-side over the loaded page (the browse endpoint returns up to the whole
+ * table for small per-site DBs); everything remains honest — hidden columns still export, the row count
+ * reflects the filtered set with the true total one hover away.
+ *
+ * Row + column CRUD and AI-native standouts route through the SAME per-site exec bridge:
+ *   - add-row → parameterized `INSERT`; delete-row / bulk-delete → `DELETE … WHERE pk=?` per row.
+ *   - add/drop column → `buildAddColumn`/`buildDropColumn` DDL through the bridge (guided builder for the
+ *     richer create-table flow via {@link SiteTablesPanelProps.onCreateTable}).
+ *   - AI generate-column / natural-language filter / fill-cells → `/api/llmcall` (ProjectSites AI when
+ *     `PS_BOLT_AI`), grounded on the real schema, applied through the bridge — AI is enhancement, never
+ *     blocking, and every generated write is param-bound + undoable.
  *
  * Style matches the editor conventions exactly (UnoCSS `bolt-elements-*` tokens, phosphor `i-ph:*`
- * icons) — mirrors `./DatabasePanel`'s SqlNavigator + `./Preview`.
+ * icons, black `#060610` + cyan `#00E5FF`) — mirrors `./DatabasePanel`'s SqlNavigator + `./Preview`.
  */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { classNames } from '~/utils/classNames';
+import { DEFAULT_MODEL, DEFAULT_PROVIDER } from '~/utils/constants';
 import {
   isEmbedded,
   postToParent,
@@ -57,10 +66,44 @@ import {
   pkFromTableInfo,
   RowMutationError,
   rowPkKey,
+  // ── grid engine ──
+  cycleSortMulti,
+  sortRows,
+  filterRows,
+  toCsv,
+  toTsv,
+  toJsonRows,
+  PAGE_SIZE_OPTIONS,
+  clampPageSize,
+  visibleColumns,
+  orderColumns,
+  moveColumn,
+  normalizeDensity,
+  densityCellClass,
+  normalizeViewMode,
+  galleryTitleField,
+  galleryBodyFields,
+  FILTER_OP_OPTIONS,
+  filterOpIsValueFree,
+  normalizeFilterOp,
+  filterIsActive,
+  blankCondition,
+  addCondition,
+  removeCondition,
+  updateCondition,
+  MAX_FILTER_CONDITIONS,
+  type GridSort,
+  type GridDensity,
+  type ViewMode,
+  type FilterCondition,
+  type FilterOp,
   type BoundValue,
   type CellInputKind,
 } from './data-panel-logic';
+import { FIELD_TYPES, fieldTypeFor, type FieldKind } from './field-types';
 import { classifyCell } from './data-cell-format';
+import { buildAddColumn, buildDropColumn, quoteIdent, type ColumnSpec } from './schema-ddl';
+import { formatSchemaForPrompt, extractSqlFromModel } from './sql-ask-logic';
 import { CellEditor } from './CellEditor';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -102,20 +145,32 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>;
 }
 
-/** The last committed edit, for one-click local Undo (re-issues the reverse UPDATE). */
-interface UndoEntry {
-  table: string;
-  column: string;
-
-  /** The row's PK identity (so we re-target the same row even after a refresh). */
-  pkKey: string;
-
-  /** The value BEFORE the edit — Undo restores this. */
-  previous: unknown;
-
-  /** The value AFTER the edit — for the toast label. */
-  next: unknown;
-}
+/** The last committed mutation, for one-click local Undo (re-issues the reverse statement). */
+type UndoEntry =
+  | {
+      kind: 'cell';
+      table: string;
+      column: string;
+      /** The row's PK identity (so we re-target the same row even after a refresh). */
+      pkKey: string;
+      previous: unknown;
+      next: unknown;
+    }
+  | {
+      /** A row was inserted — undo DELETEs it by the returned/predicted PK. */
+      kind: 'insert';
+      table: string;
+      pkCols: string[];
+      pkValues: Record<string, BoundValue>;
+      label: string;
+    }
+  | {
+      /** One or more rows were deleted — undo re-INSERTs them verbatim. */
+      kind: 'delete';
+      table: string;
+      rows: Record<string, unknown>[];
+      label: string;
+    };
 
 /** The result of one per-site `d1.exec` round-trip (rows for a read, rowsWritten for a write). */
 interface ExecResult {
@@ -127,11 +182,31 @@ interface ExecResult {
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 25;
-const ROW_HEIGHT = 34; // px — matched to the grid row padding below
+/** Browse window: pull a generous page so client-side filter/sort/paginate sees the (small) table. */
+const FETCH_LIMIT = 500;
 const REQUEST_TIMEOUT_MS = 20_000;
 const DISABLED_404 = 'Per-site data is not enabled';
 const UNDO_WINDOW_MS = 8000;
+const DEFAULT_PAGE_SIZE = 50;
+
+/** Per-density row heights (px) for the virtualizer — tuned to `densityCellClass`. */
+const ROW_HEIGHT_FOR: Record<GridDensity, number> = { compact: 28, cozy: 34, comfortable: 46 };
+
+/** Default rendered column width (px). */
+const COL_WIDTH = 180;
+
+/** SQLite storage class → the Airtable field kind we render/edit it as (a best-effort default). */
+const FIELD_KIND_OPTIONS: ReadonlyArray<{ value: FieldKind; label: string }> = [
+  { value: 'text', label: 'Text' },
+  { value: 'longText', label: 'Long text' },
+  { value: 'number', label: 'Number' },
+  { value: 'boolean', label: 'Checkbox' },
+  { value: 'date', label: 'Date' },
+  { value: 'singleSelect', label: 'Single select' },
+  { value: 'multiSelect', label: 'Multi select' },
+  { value: 'rating', label: 'Rating' },
+  { value: 'json', label: 'JSON' },
+];
 
 /** Monotonic per-module counter so every request gets a unique correlationId. */
 let correlationCounter = 0;
@@ -144,33 +219,58 @@ function nextCorrelationId(): string {
   return `sitedb_${++correlationCounter}`;
 }
 
-/** Escape one field for RFC-4180 CSV (quote when it contains a comma, quote, or newline). */
-function csvField(value: unknown): string {
-  if (value === null || value === undefined) {
-    return '';
+/**
+ * Infer the rich Airtable field kind for a column from its DECLARED SQLite type + a sample value — a
+ * zero-round-trip heuristic that drives the typed cell RENDERER (checkbox / stars / chips) and the
+ * "type" the inline editor seeds. Honest + conservative: only maps to a rich kind when the signal is
+ * unambiguous (BOOLEAN/BOOL → boolean, RATING/STARS → rating, a JSON-array string → multiSelect,
+ * REAL/INT/NUM → number, DATE → date), else plain text. Pure.
+ */
+function fieldKindForColumn(col: ColumnInfo, sample: unknown): FieldKind {
+  const t = (col.type || '').toUpperCase();
+
+  if (/BOOL/.test(t)) {
+    return 'boolean';
   }
 
-  const s = String(value);
-
-  if (/[",\n\r]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
+  if (/RATING|STARS/.test(t)) {
+    return 'rating';
   }
 
-  return s;
+  if (/DATE|TIME/.test(t)) {
+    return 'date';
+  }
+
+  if (/INT|REAL|FLOA|DOUB|NUM|DEC/.test(t)) {
+    return 'number';
+  }
+
+  // A stored JSON array (multi-select storage) renders as chips.
+  if (typeof sample === 'string') {
+    const s = sample.trim();
+
+    if (s.startsWith('[') && s.endsWith(']')) {
+      try {
+        if (Array.isArray(JSON.parse(s))) {
+          return 'multiSelect';
+        }
+      } catch {
+        /* not JSON — fall through */
+      }
+    }
+  }
+
+  return 'text';
 }
 
-/** Build a CSV string from the current page + trigger a client-side download. */
-function exportPageCsv(page: TablePage): void {
-  const header = page.columns.map((c) => csvField(c.name)).join(',');
-  const body = page.rows.map((row) => page.columns.map((c) => csvField(row[c.name])).join(',')).join('\n');
-  const csv = `${header}\n${body}\n`;
-
+/** A generic client-side download of `text` as `filename` (fail-soft in sandboxed frames). */
+function downloadText(text: string, filename: string, mime: string): void {
   try {
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([text], { type: `${mime};charset=utf-8` });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${page.table}-${page.offset + 1}-${page.offset + page.rows.length}.csv`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -181,44 +281,76 @@ function exportPageCsv(page: TablePage): void {
 }
 
 /**
- * Derive a small, CONSTRAINED enum option set for a column from the CURRENTLY-LOADED page rows — a
- * zero-round-trip, honest "enum-ish" affordance: when a column's non-null string/number values on the page
- * form a SMALL distinct set (≤ {@link ENUM_MAX_DISTINCT}, ≥2), the cell editor offers a real `<select>`
- * dropdown of those values (with an "Other…" escape) instead of an open text box. This never claims the set
- * is exhaustive — it's derived from the visible page, and "Other…" always allows a value outside it. Returns
- * `[]` (→ plain free text) for high-cardinality columns, all-null columns, or non-text/number values.
+ * Client-side substring + column-condition filter over the loaded rows, then a multi-column stable
+ * sort. Mirrors the worker's filter/sort semantics via the shared engine helpers so what the grid
+ * shows always matches what a server-side query would return. Pure.
  */
-const ENUM_MAX_DISTINCT = 8;
+function applyGridQuery(
+  rows: readonly Record<string, unknown>[],
+  columns: readonly string[],
+  search: string,
+  conditions: readonly FilterCondition[],
+  combinator: 'AND' | 'OR',
+  sorts: readonly GridSort[],
+): Record<string, unknown>[] {
+  // 1. whole-row substring search (engine helper).
+  let out = filterRows(rows, columns, search);
 
-function enumOptionsForColumn(rows: readonly Record<string, unknown>[], column: string): string[] {
-  const distinct = new Set<string>();
+  // 2. column conditions (each active condition applies one comparison).
+  const active = conditions.filter((c) => filterIsActive(c.col, c.op, c.val));
 
-  for (const row of rows) {
-    const v = row[column];
-
-    if (v === null || v === undefined) {
-      continue;
-    }
-
-    // Only simple scalar columns are enum candidates (skip objects/arrays/JSON blobs).
-    if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') {
-      return [];
-    }
-
-    const s = String(v);
-
-    if (s.length > 40) {
-      return [];
-    } // long values aren't an enum
-
-    distinct.add(s);
-
-    if (distinct.size > ENUM_MAX_DISTINCT) {
-      return [];
-    } // too many distinct → free text
+  if (active.length > 0) {
+    out = out.filter((row) => {
+      const results = active.map((c) => matchCondition(row[c.col as string], normalizeFilterOp(c.op), c.val));
+      return combinator === 'OR' ? results.some(Boolean) : results.every(Boolean);
+    });
   }
 
-  return distinct.size >= 2 ? [...distinct].sort((a, b) => a.localeCompare(b)) : [];
+  // 3. multi-column sort — apply from LAST priority to FIRST so the first sort wins (stable).
+  for (let i = sorts.length - 1; i >= 0; i--) {
+    out = sortRows(out, sorts[i]);
+  }
+
+  return out;
+}
+
+/** Evaluate one filter condition against a raw cell value (client mirror of the worker's ops). */
+function matchCondition(value: unknown, op: FilterOp, rawVal: string): boolean {
+  if (op === 'null') {
+    return value === null || value === undefined || value === '';
+  }
+
+  if (op === 'notnull') {
+    return !(value === null || value === undefined || value === '');
+  }
+
+  const cell = value === null || value === undefined ? '' : String(value);
+  const needle = rawVal ?? '';
+
+  switch (op) {
+    case 'eq':
+      return cell === needle;
+    case 'ne':
+      return cell !== needle;
+    case 'contains':
+      return cell.toLowerCase().includes(needle.toLowerCase());
+    case 'startswith':
+      return cell.toLowerCase().startsWith(needle.toLowerCase());
+    case 'endswith':
+      return cell.toLowerCase().endsWith(needle.toLowerCase());
+    case 'gt':
+    case 'lt':
+    case 'gte':
+    case 'lte': {
+      const a = Number(cell);
+      const b = Number(needle);
+      const numeric = Number.isFinite(a) && Number.isFinite(b);
+      const cmp = numeric ? a - b : cell.localeCompare(needle);
+      return op === 'gt' ? cmp > 0 : op === 'lt' ? cmp < 0 : op === 'gte' ? cmp >= 0 : cmp <= 0;
+    }
+    default:
+      return true;
+  }
 }
 
 /** A short, human label for a value in the Undo toast (truncated so long text never overflows). */
@@ -257,374 +389,341 @@ export interface SiteTablesPanelProps {
 
 export const SiteTablesPanel = memo(
   ({ onCreateTable, onSeedWithAi, onImportCsv, onNewTableSql }: SiteTablesPanelProps = {}) => {
-  const [tables, setTables] = useState<TablesState>({ status: 'loading' });
-  const [selectedTable, setSelectedTable] = useState<string | null>(null);
-  const [rows, setRows] = useState<RowsState>({ status: 'idle' });
-  const [offset, setOffset] = useState(0);
-  const [detailRow, setDetailRow] = useState<Record<string, unknown> | null>(null);
-  const [comingSoon, setComingSoon] = useState<string | null>(null);
+    const [tables, setTables] = useState<TablesState>({ status: 'loading' });
+    const [selectedTable, setSelectedTable] = useState<string | null>(null);
+    const [rows, setRows] = useState<RowsState>({ status: 'idle' });
+    const [detailRow, setDetailRow] = useState<Record<string, unknown> | null>(null);
+    const [comingSoon, setComingSoon] = useState<string | null>(null);
 
-  // Cached total so page-nav shows a stable "of N" without a re-count round-trip.
-  const [cachedTotal, setCachedTotal] = useState<number | null>(null);
+    // ── Inline-edit engine state (per-site UPDATE by PK) ──────────────────────
+    /** The PK column(s) resolved for the open table (empty → read-only, no safe UPDATE target). */
+    const [pkCols, setPkCols] = useState<string[]>([]);
 
-  // ── Inline-edit engine state (per-site UPDATE by PK) ──────────────────────
-  /** The PK column(s) resolved for the open table (empty → read-only, no safe UPDATE target). */
-  const [pkCols, setPkCols] = useState<string[]>([]);
+    /** GENERATED (computed) columns for the open table — SQLite rejects writing them (read-only). */
+    const [generatedCols, setGeneratedCols] = useState<Set<string>>(new Set());
 
-  /** GENERATED (computed) columns for the open table — SQLite rejects writing them (read-only). */
-  const [generatedCols, setGeneratedCols] = useState<Set<string>>(new Set());
+    /** The cell currently being edited (row PK identity + column), or null. */
+    const [editing, setEditing] = useState<{ pkKey: string; column: string } | null>(null);
+    const [editKind, setEditKind] = useState<CellInputKind>('text');
+    const [editValue, setEditValue] = useState('');
+    const [editError, setEditError] = useState('');
+    const [editBusy, setEditBusy] = useState(false);
 
-  /** The cell currently being edited (row PK identity + column), or null. */
-  const [editing, setEditing] = useState<{ pkKey: string; column: string } | null>(null);
-  const [editKind, setEditKind] = useState<CellInputKind>('text');
-  const [editValue, setEditValue] = useState('');
-  const [editError, setEditError] = useState('');
-  const [editBusy, setEditBusy] = useState(false);
+    /** The last committed mutation, for one-click local Undo; auto-clears after the window. */
+    const [undo, setUndo] = useState<UndoEntry | null>(null);
+    const [undoBusy, setUndoBusy] = useState(false);
+    const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /** The last committed edit, for one-click local Undo; auto-clears after the window. */
-  const [undo, setUndo] = useState<UndoEntry | null>(null);
-  const [undoBusy, setUndoBusy] = useState(false);
-  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // ── Grid engine view state (per open table) ───────────────────────────────
+    const [sorts, setSorts] = useState<GridSort[]>([]);
+    const [search, setSearch] = useState('');
+    const [conditions, setConditions] = useState<FilterCondition[]>([]);
+    const [combinator, setCombinator] = useState<'AND' | 'OR'>('AND');
+    const [filterBarOpen, setFilterBarOpen] = useState(false);
+    const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+    const [pageIndex, setPageIndex] = useState(0);
+    const [hiddenCols, setHiddenCols] = useState<string[]>([]);
+    const [colOrder, setColOrder] = useState<string[]>([]);
+    const [colMenuOpen, setColMenuOpen] = useState(false);
+    const [density, setDensity] = useState<GridDensity>('cozy');
+    const [viewMode, setViewMode] = useState<ViewMode>('grid');
+    const [selectedRowKeys, setSelectedRowKeys] = useState<Set<string>>(new Set());
+    const [bulkBusy, setBulkBusy] = useState(false);
+    const [addingRow, setAddingRow] = useState(false);
 
-  /*
-   * The repo has a known empty-deps stale-ref bug: a single `onParentMessage` listener
-   * registered once in a `useEffect([])` closes over the FIRST render's state. We register
-   * ONE listener and read the LATEST pending map through a ref inside the handler, so replies
-   * always resolve against the live pending set regardless of how many renders have happened.
-   */
-  const pendingRef = useRef<Map<string, Pending>>(new Map());
+    /*
+     * The repo has a known empty-deps stale-ref bug: a single `onParentMessage` listener
+     * registered once in a `useEffect([])` closes over the FIRST render's state. We register
+     * ONE listener and read the LATEST pending map through a ref inside the handler, so replies
+     * always resolve against the live pending set regardless of how many renders have happened.
+     */
+    const pendingRef = useRef<Map<string, Pending>>(new Map());
 
-  /**
-   * Send a bridge message + await the reply matched by correlationId. Rejects on timeout so a
-   * dropped parent never hangs the UI. Resolves with the raw `ParentToChildMessage`.
-   */
-  const request = useCallback((message: Parameters<typeof postToParent>[0]): Promise<ParentToChildMessage> => {
-    return new Promise<ParentToChildMessage>((resolve, reject) => {
-      const correlationId = (message as { correlationId: string }).correlationId;
-      const timer = setTimeout(() => {
-        pendingRef.current.delete(correlationId);
-        reject(new Error('The request timed out. Check the admin connection and retry.'));
-      }, REQUEST_TIMEOUT_MS);
+    /**
+     * Send a bridge message + await the reply matched by correlationId. Rejects on timeout so a
+     * dropped parent never hangs the UI. Resolves with the raw `ParentToChildMessage`.
+     */
+    const request = useCallback((message: Parameters<typeof postToParent>[0]): Promise<ParentToChildMessage> => {
+      return new Promise<ParentToChildMessage>((resolve, reject) => {
+        const correlationId = (message as { correlationId: string }).correlationId;
+        const timer = setTimeout(() => {
+          pendingRef.current.delete(correlationId);
+          reject(new Error('The request timed out. Check the admin connection and retry.'));
+        }, REQUEST_TIMEOUT_MS);
 
-      pendingRef.current.set(correlationId, { resolve, reject, timer });
-      postToParent(message);
-    });
-  }, []);
+        pendingRef.current.set(correlationId, { resolve, reject, timer });
+        postToParent(message);
+      });
+    }, []);
 
-  // Register exactly ONE parent-message listener; resolve by correlationId via the live ref.
-  useEffect(() => {
-    const unsubscribe = onParentMessage((msg) => {
-      if (
-        msg.type !== 'PS_SITEDB_TABLES_RESPONSE' &&
-        msg.type !== 'PS_SITEDB_ROWS_RESPONSE' &&
-        msg.type !== 'PS_RES_MUTATE_RESPONSE'
-      ) {
-        return;
-      }
-
-      const correlationId = msg.correlationId;
-
-      if (!correlationId) {
-        return;
-      }
-
-      const pending = pendingRef.current.get(correlationId);
-
-      if (!pending) {
-        return;
-      }
-
-      clearTimeout(pending.timer);
-      pendingRef.current.delete(correlationId);
-      pending.resolve(msg);
-    });
-
-    return () => {
-      unsubscribe();
-
-      // Reject anything still in flight on unmount so no promise dangles.
-      for (const [, pending] of pendingRef.current) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error('cancelled'));
-      }
-
-      pendingRef.current.clear();
-
-      if (undoTimerRef.current) {
-        clearTimeout(undoTimerRef.current);
-      }
-    };
-  }, []);
-
-  /**
-   * Run ONE parameterized SQL statement against the site's OWN D1 via the resource-mutate bridge
-   * (`kind:'d1', action:'exec'`). `confirm` is `true` for a mutating statement (the worker
-   * classifies + requires it) and `false`/omitted for a read (e.g. `pragma_table_xinfo`). Resolves
-   * to a normalized `{ ok, rows?, rowsWritten?, error? }`; never throws (transport errors → `ok:false`).
-   */
-  const execSql = useCallback(
-    async (sql: string, params: readonly unknown[], confirm: boolean): Promise<ExecResult> => {
-      let reply: ResMutateResponseMessage;
-
-      try {
-        reply = (await request({
-          type: 'PS_RES_MUTATE_REQUEST',
-          correlationId: nextCorrelationId(),
-          kind: 'd1',
-          action: 'exec',
-          input: { sql, params },
-          confirm,
-        })) as ResMutateResponseMessage;
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : 'The database could not be reached.' };
-      }
-
-      if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
-        return { ok: false, error: DISABLED_404 };
-      }
-
-      if (reply.error) {
-        return { ok: false, error: reply.error };
-      }
-
-      const result = reply.result;
-
-      if (!result) {
-        return { ok: false, error: 'No response from the database. Retry in a moment.' };
-      }
-
-      if (!result.ok) {
-        return { ok: false, error: result.error?.message ?? 'The statement could not run.' };
-      }
-
-      const data = (result.data ?? {}) as { rows?: Record<string, unknown>[]; rowsWritten?: number };
-
-      return { ok: true, rows: data.rows ?? [], rowsWritten: data.rowsWritten ?? 0 };
-    },
-    [request],
-  );
-
-  /** Load (or reload) the table list. */
-  const loadTables = useCallback(async () => {
-    setTables({ status: 'loading' });
-
-    if (!isEmbedded) {
-      setTables({ status: 'error', message: 'Open this from the ProjectSites admin to browse your data.' });
-      return;
-    }
-
-    try {
-      const reply = (await request({
-        type: 'PS_SITEDB_TABLES_REQUEST',
-        correlationId: nextCorrelationId(),
-      })) as SiteDbTablesResponseMessage;
-
-      if (!reply.ok) {
-        // Dark-flag 404 → friendly disabled state, not an error card.
-        if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
-          setTables({ status: 'disabled' });
+    // Register exactly ONE parent-message listener; resolve by correlationId via the live ref.
+    useEffect(() => {
+      const unsubscribe = onParentMessage((msg) => {
+        if (
+          msg.type !== 'PS_SITEDB_TABLES_RESPONSE' &&
+          msg.type !== 'PS_SITEDB_ROWS_RESPONSE' &&
+          msg.type !== 'PS_RES_MUTATE_RESPONSE'
+        ) {
           return;
         }
 
-        setTables({ status: 'error', message: reply.error || 'Could not load your tables.' });
+        const correlationId = msg.correlationId;
 
+        if (!correlationId) {
+          return;
+        }
+
+        const pending = pendingRef.current.get(correlationId);
+
+        if (!pending) {
+          return;
+        }
+
+        clearTimeout(pending.timer);
+        pendingRef.current.delete(correlationId);
+        pending.resolve(msg);
+      });
+
+      return () => {
+        unsubscribe();
+
+        // Reject anything still in flight on unmount so no promise dangles.
+        for (const [, pending] of pendingRef.current) {
+          clearTimeout(pending.timer);
+          pending.reject(new Error('cancelled'));
+        }
+
+        pendingRef.current.clear();
+
+        if (undoTimerRef.current) {
+          clearTimeout(undoTimerRef.current);
+        }
+      };
+    }, []);
+
+    /**
+     * Run ONE parameterized SQL statement against the site's OWN D1 via the resource-mutate bridge
+     * (`kind:'d1', action:'exec'`). `confirm` is `true` for a mutating statement (the worker
+     * classifies + requires it) and `false`/omitted for a read (e.g. `pragma_table_xinfo`). Resolves
+     * to a normalized `{ ok, rows?, rowsWritten?, error? }`; never throws (transport errors → `ok:false`).
+     */
+    const execSql = useCallback(
+      async (sql: string, params: readonly unknown[], confirm: boolean): Promise<ExecResult> => {
+        let reply: ResMutateResponseMessage;
+
+        try {
+          reply = (await request({
+            type: 'PS_RES_MUTATE_REQUEST',
+            correlationId: nextCorrelationId(),
+            kind: 'd1',
+            action: 'exec',
+            input: { sql, params },
+            confirm,
+          })) as ResMutateResponseMessage;
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : 'The database could not be reached.' };
+        }
+
+        if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+          return { ok: false, error: DISABLED_404 };
+        }
+
+        if (reply.error) {
+          return { ok: false, error: reply.error };
+        }
+
+        const result = reply.result;
+
+        if (!result) {
+          return { ok: false, error: 'No response from the database. Retry in a moment.' };
+        }
+
+        if (!result.ok) {
+          return { ok: false, error: result.error?.message ?? 'The statement could not run.' };
+        }
+
+        const data = (result.data ?? {}) as { rows?: Record<string, unknown>[]; rowsWritten?: number };
+
+        return { ok: true, rows: data.rows ?? [], rowsWritten: data.rowsWritten ?? 0 };
+      },
+      [request],
+    );
+
+    /** Load (or reload) the table list. */
+    const loadTables = useCallback(async () => {
+      setTables({ status: 'loading' });
+
+      if (!isEmbedded) {
+        setTables({ status: 'error', message: 'Open this from the ProjectSites admin to browse your data.' });
         return;
       }
-
-      setTables({
-        status: 'ready',
-        databaseId: reply.databaseId ?? '',
-        provisioned: reply.provisioned ?? false,
-        tables: reply.tables ?? [],
-      });
-    } catch (err) {
-      setTables({ status: 'error', message: err instanceof Error ? err.message : 'Could not load your tables.' });
-    }
-  }, [request]);
-
-  /**
-   * Resolve which columns are GENERATED (computed) for a table via `pragma_table_xinfo` over the
-   * per-site exec path (read-only — runs without confirm). Generated columns can't be written, so the
-   * grid presents them read-only. Best-effort: a failure just leaves the set empty (edit still gates
-   * on PK, so a rejected write surfaces honestly rather than silently).
-   */
-  const loadGeneratedCols = useCallback(
-    async (table: string) => {
-      try {
-        /*
-         * pragma_table_xinfo carries `hidden` (2 = VIRTUAL, 3 = STORED generated). The table name binds
-         * as a VALUE to the pragma table-function (D1 supports parameterizing the pragma argument).
-         */
-        const res = await execSql('SELECT name, hidden FROM pragma_table_xinfo(?1)', [table], false);
-
-        if (res.ok && res.rows) {
-          setGeneratedCols(generatedFromTableXinfo(res.rows));
-        } else {
-          setGeneratedCols(new Set());
-        }
-      } catch {
-        setGeneratedCols(new Set());
-      }
-    },
-    [execSql],
-  );
-
-  /** Load one page of rows for the given table + offset. */
-  const loadRows = useCallback(
-    async (table: string, pageOffset: number) => {
-      setRows({ status: 'loading' });
 
       try {
         const reply = (await request({
-          type: 'PS_SITEDB_ROWS_REQUEST',
+          type: 'PS_SITEDB_TABLES_REQUEST',
           correlationId: nextCorrelationId(),
-          table,
-          limit: PAGE_SIZE,
-          offset: pageOffset,
-        })) as SiteDbRowsResponseMessage;
+        })) as SiteDbTablesResponseMessage;
 
         if (!reply.ok) {
-          setRows({ status: 'error', message: reply.error || `Could not load "${table}".` });
+          // Dark-flag 404 → friendly disabled state, not an error card.
+          if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+            setTables({ status: 'disabled' });
+            return;
+          }
+
+          setTables({ status: 'error', message: reply.error || 'Could not load your tables.' });
+
           return;
         }
 
-        const total = reply.total ?? reply.rows?.length ?? 0;
-        const columns = reply.columns ?? [];
-        setCachedTotal(total);
-
-        // Resolve PK from the column pk flags (server sends `pk` per PRAGMA table_info).
-        setPkCols(pkFromTableInfo(columns as unknown as Record<string, unknown>[]));
-        setRows({
+        setTables({
           status: 'ready',
-          page: {
-            table: reply.table ?? table,
-            columns,
-            rows: reply.rows ?? [],
-            limit: reply.limit ?? PAGE_SIZE,
-            offset: reply.offset ?? pageOffset,
-            total,
-          },
+          databaseId: reply.databaseId ?? '',
+          provisioned: reply.provisioned ?? false,
+          tables: reply.tables ?? [],
         });
       } catch (err) {
-        setRows({ status: 'error', message: err instanceof Error ? err.message : `Could not load "${table}".` });
+        setTables({ status: 'error', message: err instanceof Error ? err.message : 'Could not load your tables.' });
       }
-    },
-    [request],
-  );
+    }, [request]);
 
-  // On mount: load the table list.
-  useEffect(() => {
-    void loadTables();
-  }, [loadTables]);
+    /**
+     * Resolve which columns are GENERATED (computed) for a table via `pragma_table_xinfo` over the
+     * per-site exec path (read-only — runs without confirm). Generated columns can't be written, so the
+     * grid presents them read-only. Best-effort: a failure just leaves the set empty (edit still gates
+     * on PK, so a rejected write surfaces honestly rather than silently).
+     */
+    const loadGeneratedCols = useCallback(
+      async (table: string) => {
+        try {
+          const res = await execSql('SELECT name, hidden FROM pragma_table_xinfo(?1)', [table], false);
 
-  // On table select / page change: load rows.
-  useEffect(() => {
-    if (selectedTable) {
-      void loadRows(selectedTable, offset);
-    }
-  }, [selectedTable, offset, loadRows]);
-
-  const openTable = useCallback(
-    (name: string) => {
-      setDetailRow(null);
-      setOffset(0);
-      setCachedTotal(null);
-      setGeneratedCols(new Set());
-      setEditing(null);
-      setSelectedTable(name);
-      void loadGeneratedCols(name);
-    },
-    [loadGeneratedCols],
-  );
-
-  const backToList = useCallback(() => {
-    setSelectedTable(null);
-    setRows({ status: 'idle' });
-    setDetailRow(null);
-    setOffset(0);
-    setEditing(null);
-    setPkCols([]);
-    setGeneratedCols(new Set());
-  }, []);
-
-  const flashComingSoon = useCallback((label: string) => {
-    setComingSoon(label);
-    setTimeout(() => setComingSoon((cur) => (cur === label ? null : cur)), 3200);
-  }, []);
-
-  // ── Quick-fill actions (Load sample data · Seed with AI) ──────────────────
-  /** Which quick-fill action is in flight (disables its button + shows a spinner), or null. */
-  const [quickFill, setQuickFill] = useState<null | 'sample' | 'seed'>(null);
-
-  /**
-   * "📊 Load sample data" — ask the admin (via the per-site bridge) to seed the site's OWN D1 with a
-   * ready-made starter dataset. Toasts the outcome + refreshes the table list so the new tables appear.
-   */
-  const loadSampleData = useCallback(async () => {
-    if (quickFill) {
-      return;
-    }
-
-    setQuickFill('sample');
-
-    try {
-      const reply = await requestDbLoadSample({});
-
-      if (!reply.ok) {
-        if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
-          setTables({ status: 'disabled' });
-          return;
+          if (res.ok && res.rows) {
+            setGeneratedCols(generatedFromTableXinfo(res.rows));
+          } else {
+            setGeneratedCols(new Set());
+          }
+        } catch {
+          setGeneratedCols(new Set());
         }
+      },
+      [execSql],
+    );
 
-        postToastToParent('error', reply.error || 'Could not load the sample data.');
+    /** Load one page of rows for the given table. Pulls a generous window for client-side query. */
+    const loadRows = useCallback(
+      async (table: string) => {
+        setRows({ status: 'loading' });
 
-        return;
+        try {
+          const reply = (await request({
+            type: 'PS_SITEDB_ROWS_REQUEST',
+            correlationId: nextCorrelationId(),
+            table,
+            limit: FETCH_LIMIT,
+            offset: 0,
+          })) as SiteDbRowsResponseMessage;
+
+          if (!reply.ok) {
+            setRows({ status: 'error', message: reply.error || `Could not load "${table}".` });
+            return;
+          }
+
+          const total = reply.total ?? reply.rows?.length ?? 0;
+          const columns = reply.columns ?? [];
+
+          // Resolve PK from the column pk flags (server sends `pk` per PRAGMA table_info).
+          setPkCols(pkFromTableInfo(columns as unknown as Record<string, unknown>[]));
+          setRows({
+            status: 'ready',
+            page: {
+              table: reply.table ?? table,
+              columns,
+              rows: reply.rows ?? [],
+              limit: reply.limit ?? FETCH_LIMIT,
+              offset: reply.offset ?? 0,
+              total,
+            },
+          });
+        } catch (err) {
+          setRows({ status: 'error', message: err instanceof Error ? err.message : `Could not load "${table}".` });
+        }
+      },
+      [request],
+    );
+
+    // On mount: load the table list.
+    useEffect(() => {
+      void loadTables();
+    }, [loadTables]);
+
+    // On table select: load rows.
+    useEffect(() => {
+      if (selectedTable) {
+        void loadRows(selectedTable);
       }
+    }, [selectedTable, loadRows]);
 
-      const tablesCreated = reply.tablesCreated ?? reply.tables?.length ?? 0;
-      const rowsInserted = reply.rowsInserted ?? 0;
-      postToastToParent(
-        'success',
-        tablesCreated > 0
-          ? `Loaded ${tablesCreated} sample table${tablesCreated === 1 ? '' : 's'}${rowsInserted > 0 ? ` with ${rowsInserted} rows` : ''}.`
-          : 'Sample data loaded.',
-      );
-      await loadTables();
+    /** Reset all per-table grid view state to defaults (fresh table = fresh query). */
+    const resetGridView = useCallback(() => {
+      setSorts([]);
+      setSearch('');
+      setConditions([]);
+      setCombinator('AND');
+      setFilterBarOpen(false);
+      setPageIndex(0);
+      setHiddenCols([]);
+      setColOrder([]);
+      setColMenuOpen(false);
+      setViewMode('grid');
+      setSelectedRowKeys(new Set());
+      setAddingRow(false);
+    }, []);
 
-      // Jump straight into the first created table (embarrassingly-easy: land on real data).
-      const first = reply.tables?.[0];
+    const openTable = useCallback(
+      (name: string) => {
+        setDetailRow(null);
+        setGeneratedCols(new Set());
+        setEditing(null);
+        resetGridView();
+        setSelectedTable(name);
+        void loadGeneratedCols(name);
+      },
+      [loadGeneratedCols, resetGridView],
+    );
 
-      if (first) {
-        openTable(first);
-      }
-    } catch (err) {
-      postToastToParent('error', err instanceof Error ? err.message : 'Could not load the sample data.');
-    } finally {
-      setQuickFill(null);
-    }
-  }, [quickFill, loadTables, openTable]);
+    const backToList = useCallback(() => {
+      setSelectedTable(null);
+      setRows({ status: 'idle' });
+      setDetailRow(null);
+      setEditing(null);
+      setPkCols([]);
+      setGeneratedCols(new Set());
+      resetGridView();
+    }, [resetGridView]);
 
-  /**
-   * "✨ Seed with AI" — ask the admin to fill a table with realistic AI-generated rows. From the empty
-   * state it prefers the parent's richer AI-seed panel ({@link onSeedWithAi}); the toolbar version (with a
-   * table already open) seeds THAT table inline via the bridge. Toasts the outcome + refreshes the rows.
-   */
-  const seedWithAi = useCallback(
-    async (table?: string) => {
-      // When a dedicated panel is available and no specific table is targeted, open it (richer flow).
-      if (onSeedWithAi && !table) {
-        onSeedWithAi();
-        return;
-      }
+    const flashComingSoon = useCallback((label: string) => {
+      setComingSoon(label);
+      setTimeout(() => setComingSoon((cur) => (cur === label ? null : cur)), 3200);
+    }, []);
 
+    // ── Quick-fill actions (Load sample data · Seed with AI) ──────────────────
+    /** Which quick-fill action is in flight (disables its button + shows a spinner), or null. */
+    const [quickFill, setQuickFill] = useState<null | 'sample' | 'seed'>(null);
+
+    /**
+     * "📊 Load sample data" — ask the admin (via the per-site bridge) to seed the site's OWN D1 with a
+     * ready-made starter dataset. Toasts the outcome + refreshes the table list so the new tables appear.
+     */
+    const loadSampleData = useCallback(async () => {
       if (quickFill) {
         return;
       }
 
-      setQuickFill('seed');
+      setQuickFill('sample');
 
       try {
-        const reply = await requestDbAiSeed({ table });
+        const reply = await requestDbLoadSample({});
 
         if (!reply.ok) {
           if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
@@ -632,166 +731,199 @@ export const SiteTablesPanel = memo(
             return;
           }
 
-          postToastToParent('error', reply.error || 'AI could not seed the table.');
+          postToastToParent('error', reply.error || 'Could not load the sample data.');
 
           return;
         }
 
-        const rows = reply.rowsInserted ?? 0;
-        const seeded = reply.table ?? table;
+        const tablesCreated = reply.tablesCreated ?? reply.tables?.length ?? 0;
+        const rowsInserted = reply.rowsInserted ?? 0;
         postToastToParent(
           'success',
-          seeded
-            ? `Added ${rows} AI-generated row${rows === 1 ? '' : 's'} to ${seeded}.`
-            : `Added ${rows} AI-generated row${rows === 1 ? '' : 's'}.`,
+          tablesCreated > 0
+            ? `Loaded ${tablesCreated} sample table${tablesCreated === 1 ? '' : 's'}${rowsInserted > 0 ? ` with ${rowsInserted} rows` : ''}.`
+            : 'Sample data loaded.',
         );
+        await loadTables();
 
-        // Refresh: re-load the open table's rows if it was the target, else the table list.
-        if (selectedTable && (!seeded || seeded === selectedTable)) {
-          await loadRows(selectedTable, offset);
-        } else {
-          await loadTables();
+        // Jump straight into the first created table (embarrassingly-easy: land on real data).
+        const first = reply.tables?.[0];
+
+        if (first) {
+          openTable(first);
         }
       } catch (err) {
-        postToastToParent('error', err instanceof Error ? err.message : 'AI could not seed the table.');
+        postToastToParent('error', err instanceof Error ? err.message : 'Could not load the sample data.');
       } finally {
         setQuickFill(null);
       }
-    },
-    [onSeedWithAi, quickFill, selectedTable, offset, loadRows, loadTables],
-  );
+    }, [quickFill, loadTables, openTable]);
 
-  // ── Edit helpers ──────────────────────────────────────────────────────────
-
-  /** A column is editable only when there's a resolvable PK, it isn't part of the PK, and isn't generated. */
-  const editableColumn = useCallback(
-    (col: string): { editable: boolean; reason?: string } => {
-      if (pkCols.length === 0) {
-        return {
-          editable: false,
-          reason: 'This table has no primary key, so a cell can’t be safely targeted for edit.',
-        };
-      }
-
-      if (pkCols.includes(col)) {
-        return { editable: false, reason: 'Primary-key column — the key can’t be edited here.' };
-      }
-
-      if (generatedCols.has(col)) {
-        return { editable: false, reason: 'Generated column — its value is computed by the database.' };
-      }
-
-      return { editable: true };
-    },
-    [pkCols, generatedCols],
-  );
-
-  /** Open the typed editor for one cell — seed kind + value from the column's DECLARED type. */
-  const startEdit = useCallback(
-    (row: Record<string, unknown>, col: ColumnInfo) => {
-      const gate = editableColumn(col.name);
-
-      if (!gate.editable) {
-        return;
-      }
-
-      const pkKey = rowPkKey(row, pkCols);
-
-      if (pkKey === null) {
-        return;
-      }
-
-      setEditError('');
-
-      const { kind, value } = editorKindForColumn(col.type, row[col.name]);
-      setEditKind(kind);
-      setEditValue(value);
-      setEditing({ pkKey, column: col.name });
-    },
-    [editableColumn, pkCols],
-  );
-
-  const cancelEdit = useCallback(() => {
-    setEditing(null);
-    setEditError('');
-  }, []);
-
-  const clearUndo = useCallback(() => {
-    if (undoTimerRef.current) {
-      clearTimeout(undoTimerRef.current);
-      undoTimerRef.current = null;
-    }
-
-    setUndo(null);
-  }, []);
-
-  const armUndo = useCallback((entry: UndoEntry) => {
-    if (undoTimerRef.current) {
-      clearTimeout(undoTimerRef.current);
-    }
-
-    setUndo(entry);
-    undoTimerRef.current = setTimeout(() => setUndo(null), UNDO_WINDOW_MS);
-  }, []);
-
-  /**
-   * Commit the open cell edit: OPTIMISTICALLY update the local grid, send a param-bound
-   * `UPDATE … WHERE pk=?` to the site's OWN D1, and on failure ROLL BACK + surface the error. On
-   * success, arm a one-click local Undo (the reverse UPDATE).
-   */
-  const submitEdit = useCallback(
-    async (row: Record<string, unknown>, col: ColumnInfo) => {
-      if (rows.status !== 'ready') {
-        return;
-      }
-
-      const table = rows.page.table;
-
-      let value: BoundValue;
-
-      try {
-        value = coerceCellInput(editKind, editValue);
-      } catch (e) {
-        setEditError(e instanceof RowMutationError ? e.message : 'Could not read the value.');
-        return;
-      }
-
-      let stmt: { sql: string; params: BoundValue[] };
-
-      try {
-        stmt = buildUpdateByPk(table, pkCols, row, col.name, value);
-      } catch (e) {
-        setEditError(e instanceof RowMutationError ? e.message : 'Could not build the statement.');
-        return;
-      }
-
-      const previous = row[col.name];
-      const pkKey = rowPkKey(row, pkCols);
-
-      // Optimistic: patch the row in place immediately (by PK identity) so the UI responds instantly.
-      setRows((cur) => {
-        if (cur.status !== 'ready') {
-          return cur;
+    /**
+     * "✨ Seed with AI" — ask the admin to fill a table with realistic AI-generated rows. From the empty
+     * state it prefers the parent's richer AI-seed panel ({@link onSeedWithAi}); the toolbar version (with a
+     * table already open) seeds THAT table inline via the bridge. Toasts the outcome + refreshes the rows.
+     */
+    const seedWithAi = useCallback(
+      async (table?: string) => {
+        // When a dedicated panel is available and no specific table is targeted, open it (richer flow).
+        if (onSeedWithAi && !table) {
+          onSeedWithAi();
+          return;
         }
 
-        return {
-          status: 'ready',
-          page: {
-            ...cur.page,
-            rows: cur.page.rows.map((r) => (rowPkKey(r, pkCols) === pkKey ? { ...r, [col.name]: value } : r)),
-          },
-        };
-      });
-      setDetailRow((cur) => (cur && rowPkKey(cur, pkCols) === pkKey ? { ...cur, [col.name]: value } : cur));
-      setEditBusy(true);
+        if (quickFill) {
+          return;
+        }
+
+        setQuickFill('seed');
+
+        try {
+          const reply = await requestDbAiSeed({ table });
+
+          if (!reply.ok) {
+            if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+              setTables({ status: 'disabled' });
+              return;
+            }
+
+            postToastToParent('error', reply.error || 'AI could not seed the table.');
+
+            return;
+          }
+
+          const inserted = reply.rowsInserted ?? 0;
+          const seeded = reply.table ?? table;
+          postToastToParent(
+            'success',
+            seeded
+              ? `Added ${inserted} AI-generated row${inserted === 1 ? '' : 's'} to ${seeded}.`
+              : `Added ${inserted} AI-generated row${inserted === 1 ? '' : 's'}.`,
+          );
+
+          // Refresh: re-load the open table's rows if it was the target, else the table list.
+          if (selectedTable && (!seeded || seeded === selectedTable)) {
+            await loadRows(selectedTable);
+          } else {
+            await loadTables();
+          }
+        } catch (err) {
+          postToastToParent('error', err instanceof Error ? err.message : 'AI could not seed the table.');
+        } finally {
+          setQuickFill(null);
+        }
+      },
+      [onSeedWithAi, quickFill, selectedTable, loadRows, loadTables],
+    );
+
+    // ── Edit helpers ──────────────────────────────────────────────────────────
+
+    /** A column is editable only when there's a resolvable PK, it isn't part of the PK, and isn't generated. */
+    const editableColumn = useCallback(
+      (col: string): { editable: boolean; reason?: string } => {
+        if (pkCols.length === 0) {
+          return {
+            editable: false,
+            reason: 'This table has no primary key, so a cell can’t be safely targeted for edit.',
+          };
+        }
+
+        if (pkCols.includes(col)) {
+          return { editable: false, reason: 'Primary-key column — the key can’t be edited here.' };
+        }
+
+        if (generatedCols.has(col)) {
+          return { editable: false, reason: 'Generated column — its value is computed by the database.' };
+        }
+
+        return { editable: true };
+      },
+      [pkCols, generatedCols],
+    );
+
+    /** Open the typed editor for one cell — seed kind + value from the column's DECLARED type. */
+    const startEdit = useCallback(
+      (row: Record<string, unknown>, col: ColumnInfo) => {
+        const gate = editableColumn(col.name);
+
+        if (!gate.editable) {
+          return;
+        }
+
+        const pkKey = rowPkKey(row, pkCols);
+
+        if (pkKey === null) {
+          return;
+        }
+
+        setEditError('');
+
+        const { kind, value } = editorKindForColumn(col.type, row[col.name]);
+        setEditKind(kind);
+        setEditValue(value);
+        setEditing({ pkKey, column: col.name });
+      },
+      [editableColumn, pkCols],
+    );
+
+    const cancelEdit = useCallback(() => {
+      setEditing(null);
       setEditError('');
+    }, []);
 
-      const res = await execSql(stmt.sql, stmt.params, true);
+    const clearUndo = useCallback(() => {
+      if (undoTimerRef.current) {
+        clearTimeout(undoTimerRef.current);
+        undoTimerRef.current = null;
+      }
 
-      setEditBusy(false);
+      setUndo(null);
+    }, []);
 
-      if (!res.ok) {
-        // Roll back the optimistic change + keep the editor open with the real error.
+    const armUndo = useCallback((entry: UndoEntry) => {
+      if (undoTimerRef.current) {
+        clearTimeout(undoTimerRef.current);
+      }
+
+      setUndo(entry);
+      undoTimerRef.current = setTimeout(() => setUndo(null), UNDO_WINDOW_MS);
+    }, []);
+
+    /**
+     * Commit the open cell edit: OPTIMISTICALLY update the local grid, send a param-bound
+     * `UPDATE … WHERE pk=?` to the site's OWN D1, and on failure ROLL BACK + surface the error. On
+     * success, arm a one-click local Undo (the reverse UPDATE).
+     */
+    const submitEdit = useCallback(
+      async (row: Record<string, unknown>, col: ColumnInfo) => {
+        if (rows.status !== 'ready') {
+          return;
+        }
+
+        const table = rows.page.table;
+
+        let value: BoundValue;
+
+        try {
+          value = coerceCellInput(editKind, editValue);
+        } catch (e) {
+          setEditError(e instanceof RowMutationError ? e.message : 'Could not read the value.');
+          return;
+        }
+
+        let stmt: { sql: string; params: BoundValue[] };
+
+        try {
+          stmt = buildUpdateByPk(table, pkCols, row, col.name, value);
+        } catch (e) {
+          setEditError(e instanceof RowMutationError ? e.message : 'Could not build the statement.');
+          return;
+        }
+
+        const previous = row[col.name];
+        const pkKey = rowPkKey(row, pkCols);
+
+        // Optimistic: patch the row in place immediately (by PK identity) so the UI responds instantly.
         setRows((cur) => {
           if (cur.status !== 'ready') {
             return cur;
@@ -801,244 +933,973 @@ export const SiteTablesPanel = memo(
             status: 'ready',
             page: {
               ...cur.page,
-              rows: cur.page.rows.map((r) => (rowPkKey(r, pkCols) === pkKey ? { ...r, [col.name]: previous } : r)),
+              rows: cur.page.rows.map((r) => (rowPkKey(r, pkCols) === pkKey ? { ...r, [col.name]: value } : r)),
             },
           };
         });
-        setDetailRow((cur) => (cur && rowPkKey(cur, pkCols) === pkKey ? { ...cur, [col.name]: previous } : cur));
-        setEditError(res.error || 'The edit could not be saved.');
+        setDetailRow((cur) => (cur && rowPkKey(cur, pkCols) === pkKey ? { ...cur, [col.name]: value } : cur));
+        setEditBusy(true);
+        setEditError('');
+
+        const res = await execSql(stmt.sql, stmt.params, true);
+
+        setEditBusy(false);
+
+        if (!res.ok) {
+          // Roll back the optimistic change + keep the editor open with the real error.
+          setRows((cur) => {
+            if (cur.status !== 'ready') {
+              return cur;
+            }
+
+            return {
+              status: 'ready',
+              page: {
+                ...cur.page,
+                rows: cur.page.rows.map((r) => (rowPkKey(r, pkCols) === pkKey ? { ...r, [col.name]: previous } : r)),
+              },
+            };
+          });
+          setDetailRow((cur) => (cur && rowPkKey(cur, pkCols) === pkKey ? { ...cur, [col.name]: previous } : cur));
+          setEditError(res.error || 'The edit could not be saved.');
+
+          return;
+        }
+
+        // Committed — close the editor + arm Undo.
+        setEditing(null);
+
+        if (pkKey !== null) {
+          armUndo({ kind: 'cell', table, column: col.name, pkKey, previous, next: value });
+        }
+      },
+      [rows, editKind, editValue, pkCols, execSql, armUndo],
+    );
+
+    /**
+     * Toggle a BOOLEAN cell directly from the grid (checkbox) — a one-click optimistic write, no editor.
+     * Same optimistic + rollback + undo contract as {@link submitEdit}. No-op for a non-editable column.
+     */
+    const toggleBooleanCell = useCallback(
+      async (row: Record<string, unknown>, col: ColumnInfo) => {
+        if (rows.status !== 'ready' || !editableColumn(col.name).editable) {
+          return;
+        }
+
+        const cur = row[col.name];
+        const isOn = cur === 1 || cur === true || cur === '1' || cur === 'true';
+        const next: BoundValue = isOn ? 0 : 1;
+        const previous = cur;
+        const pkKey = rowPkKey(row, pkCols);
+        const table = rows.page.table;
+
+        let stmt: { sql: string; params: BoundValue[] };
+
+        try {
+          stmt = buildUpdateByPk(table, pkCols, row, col.name, next);
+        } catch {
+          return;
+        }
+
+        setRows((s) => {
+          if (s.status !== 'ready') {
+            return s;
+          }
+
+          return {
+            status: 'ready',
+            page: {
+              ...s.page,
+              rows: s.page.rows.map((r) => (rowPkKey(r, pkCols) === pkKey ? { ...r, [col.name]: next } : r)),
+            },
+          };
+        });
+
+        const res = await execSql(stmt.sql, stmt.params, true);
+
+        if (!res.ok) {
+          setRows((s) => {
+            if (s.status !== 'ready') {
+              return s;
+            }
+
+            return {
+              status: 'ready',
+              page: {
+                ...s.page,
+                rows: s.page.rows.map((r) => (rowPkKey(r, pkCols) === pkKey ? { ...r, [col.name]: previous } : r)),
+              },
+            };
+          });
+          postToastToParent('error', res.error || 'Could not update the checkbox.');
+
+          return;
+        }
+
+        if (pkKey !== null) {
+          armUndo({ kind: 'cell', table, column: col.name, pkKey, previous, next });
+        }
+      },
+      [rows, editableColumn, pkCols, execSql, armUndo],
+    );
+
+    /** Undo the last committed mutation (cell / insert / delete) by re-issuing its reverse statement. */
+    const doUndo = useCallback(async () => {
+      if (!undo || rows.status !== 'ready') {
+        return;
+      }
+
+      const liveTable = rows.page.table;
+      setUndoBusy(true);
+
+      try {
+        if (undo.kind === 'cell') {
+          const currentRow = rows.page.rows.find((r) => rowPkKey(r, pkCols) === undo.pkKey);
+
+          if (!currentRow || undo.table !== liveTable) {
+            return;
+          }
+
+          let stmt: { sql: string; params: BoundValue[] };
+
+          try {
+            stmt = buildUpdateByPk(undo.table, pkCols, currentRow, undo.column, undo.previous as BoundValue);
+          } catch {
+            return;
+          }
+
+          const res = await execSql(stmt.sql, stmt.params, true);
+
+          if (res.ok) {
+            const restored = undo.previous;
+            const targetKey = undo.pkKey;
+            const targetCol = undo.column;
+            setRows((cur) =>
+              cur.status !== 'ready'
+                ? cur
+                : {
+                    status: 'ready',
+                    page: {
+                      ...cur.page,
+                      rows: cur.page.rows.map((r) =>
+                        rowPkKey(r, pkCols) === targetKey ? { ...r, [targetCol]: restored } : r,
+                      ),
+                    },
+                  },
+            );
+          }
+        } else if (undo.kind === 'insert' && undo.table === liveTable && undo.pkCols.length > 0) {
+          // Reverse an insert → DELETE the row by its PK values.
+          const preds = undo.pkCols.map((c, i) => `${quoteIdent(c)} = ?${i + 1}`).join(' AND ');
+          const params = undo.pkCols.map((c) => undo.pkValues[c]);
+          const res = await execSql(`DELETE FROM ${quoteIdent(undo.table)} WHERE ${preds}`, params, true);
+
+          if (res.ok) {
+            await loadRows(liveTable);
+          }
+        } else if (undo.kind === 'delete' && undo.table === liveTable && undo.rows.length > 0) {
+          // Reverse a delete → re-INSERT the removed rows verbatim.
+          for (const r of undo.rows) {
+            const cols = Object.keys(r);
+            const placeholders = cols.map((_, i) => `?${i + 1}`).join(', ');
+            const colList = cols.map((c) => quoteIdent(c)).join(', ');
+            await execSql(
+              `INSERT INTO ${quoteIdent(undo.table)} (${colList}) VALUES (${placeholders})`,
+              cols.map((c) => r[c] as BoundValue),
+              true,
+            );
+          }
+
+          await loadRows(liveTable);
+        }
+      } finally {
+        setUndoBusy(false);
+        clearUndo();
+      }
+    }, [undo, rows, pkCols, execSql, clearUndo, loadRows]);
+
+    // ── Derived grid data (visible columns · filtered/sorted rows · current page) ────────
+    const allColumns = rows.status === 'ready' ? rows.page.columns : [];
+    const allColumnNames = useMemo(() => allColumns.map((c) => c.name), [allColumns]);
+
+    /** Column display order (persisted order applied, new columns appended) minus hidden. */
+    const orderedNames = useMemo(() => orderColumns(allColumnNames, colOrder), [allColumnNames, colOrder]);
+    const shownNames = useMemo(() => visibleColumns(orderedNames, hiddenCols), [orderedNames, hiddenCols]);
+    const shownColumns = useMemo(
+      () => shownNames.map((n) => allColumns.find((c) => c.name === n)).filter((c): c is ColumnInfo => Boolean(c)),
+      [shownNames, allColumns],
+    );
+
+    /** The full filtered + sorted row set (across the loaded window). */
+    const processedRows = useMemo(() => {
+      if (rows.status !== 'ready') {
+        return [];
+      }
+
+      return applyGridQuery(rows.page.rows, allColumnNames, search, conditions, combinator, sorts);
+    }, [rows, allColumnNames, search, conditions, combinator, sorts]);
+
+    const filteredCount = processedRows.length;
+    const loadedTotal = rows.status === 'ready' ? rows.page.total : 0;
+    const pageCount = Math.max(1, Math.ceil(filteredCount / pageSize));
+    const safePageIndex = Math.min(pageIndex, pageCount - 1);
+
+    /** The rows on the current page (post-filter/sort). */
+    const pageRows = useMemo(
+      () => processedRows.slice(safePageIndex * pageSize, safePageIndex * pageSize + pageSize),
+      [processedRows, safePageIndex, pageSize],
+    );
+
+    // Any filter/search/sort/pagesize change resets to page 0 (never strand the user past the end).
+    useEffect(() => {
+      setPageIndex(0);
+    }, [search, conditions, combinator, sorts, pageSize]);
+
+    /** Column-header click → cycle multi-sort (shift optional; every click extends/flips/removes). */
+    const onSortColumn = useCallback((col: string) => {
+      setSorts((cur) => cycleSortMulti(cur, col));
+    }, []);
+
+    /** The sort direction shown on a header (its index in the priority list, or null). */
+    const sortFor = useCallback(
+      (col: string): { dir: 'asc' | 'desc'; priority: number } | null => {
+        const i = sorts.findIndex((s) => s.col === col);
+        return i < 0 ? null : { dir: sorts[i].dir, priority: i + 1 };
+      },
+      [sorts],
+    );
+
+    // ── Row selection + bulk delete ───────────────────────────────────────────
+    const canMutateRows = pkCols.length > 0;
+
+    const toggleRowSelected = useCallback((key: string) => {
+      setSelectedRowKeys((cur) => {
+        const next = new Set(cur);
+
+        if (next.has(key)) {
+          next.delete(key);
+        } else {
+          next.add(key);
+        }
+
+        return next;
+      });
+    }, []);
+
+    const toggleSelectAll = useCallback(() => {
+      setSelectedRowKeys((cur) => {
+        const pageKeys = pageRows.map((r) => rowPkKey(r, pkCols)).filter((k): k is string => k !== null);
+        const allSelected = pageKeys.length > 0 && pageKeys.every((k) => cur.has(k));
+
+        if (allSelected) {
+          const next = new Set(cur);
+          pageKeys.forEach((k) => next.delete(k));
+
+          return next;
+        }
+
+        return new Set([...cur, ...pageKeys]);
+      });
+    }, [pageRows, pkCols]);
+
+    /** Delete one row by its PK (row-menu action). Optimistic-free: reload after the write; undoable. */
+    const deleteRow = useCallback(
+      async (row: Record<string, unknown>) => {
+        if (rows.status !== 'ready' || !canMutateRows) {
+          return;
+        }
+
+        const table = rows.page.table;
+        const preds = pkCols.map((c, i) => `${quoteIdent(c)} = ?${i + 1}`).join(' AND ');
+        const params = pkCols.map((c) => row[c] as BoundValue);
+        setBulkBusy(true);
+        const res = await execSql(`DELETE FROM ${quoteIdent(table)} WHERE ${preds}`, params, true);
+        setBulkBusy(false);
+
+        if (!res.ok) {
+          postToastToParent('error', res.error || 'Could not delete the row.');
+          return;
+        }
+
+        armUndo({ kind: 'delete', table, rows: [row], label: '1 row' });
+        await loadRows(table);
+      },
+      [rows, canMutateRows, pkCols, execSql, armUndo, loadRows],
+    );
+
+    /** Delete every selected row (one param-bound DELETE per row). Undoable as a batch re-INSERT. */
+    const deleteSelected = useCallback(async () => {
+      if (rows.status !== 'ready' || !canMutateRows || selectedRowKeys.size === 0) {
+        return;
+      }
+
+      const table = rows.page.table;
+      const toDelete = rows.page.rows.filter((r) => {
+        const k = rowPkKey(r, pkCols);
+        return k !== null && selectedRowKeys.has(k);
+      });
+
+      setBulkBusy(true);
+
+      let failed = 0;
+
+      for (const row of toDelete) {
+        const preds = pkCols.map((c, i) => `${quoteIdent(c)} = ?${i + 1}`).join(' AND ');
+        const params = pkCols.map((c) => row[c] as BoundValue);
+        const res = await execSql(`DELETE FROM ${quoteIdent(table)} WHERE ${preds}`, params, true);
+
+        if (!res.ok) {
+          failed++;
+        }
+      }
+
+      setBulkBusy(false);
+      setSelectedRowKeys(new Set());
+
+      if (failed > 0) {
+        postToastToParent('error', `${failed} row${failed === 1 ? '' : 's'} could not be deleted.`);
+      } else {
+        armUndo({ kind: 'delete', table, rows: toDelete, label: `${toDelete.length} rows` });
+      }
+
+      await loadRows(table);
+    }, [rows, canMutateRows, selectedRowKeys, pkCols, execSql, armUndo, loadRows]);
+
+    // ── Add row (parameterized INSERT of a blank/typed record) ────────────────
+    /**
+     * Insert a new blank row. Non-PK, non-generated columns are set to NULL (owner fills them by editing);
+     * an INTEGER PRIMARY KEY autoincrements (omitted from the INSERT). Reloads + arms undo (delete by PK).
+     */
+    const addRow = useCallback(async () => {
+      if (rows.status !== 'ready' || !canMutateRows || addingRow) {
+        return;
+      }
+
+      const table = rows.page.table;
+      const cols = rows.page.columns;
+
+      // Columns to INSERT: skip an INTEGER PK (autoincrements) + generated columns.
+      const insertCols = cols.filter((c) => {
+        if (generatedCols.has(c.name)) {
+          return false;
+        }
+
+        const isIntPk = c.pk === 1 && /INT/i.test(c.type || '');
+
+        return !isIntPk;
+      });
+
+      if (insertCols.length === 0) {
+        // Every column is an autoincrement PK → a bare DEFAULT VALUES insert.
+        setAddingRow(true);
+        const res = await execSql(`INSERT INTO ${quoteIdent(table)} DEFAULT VALUES`, [], true);
+        setAddingRow(false);
+
+        if (!res.ok) {
+          postToastToParent('error', res.error || 'Could not add a row.');
+          return;
+        }
+
+        await loadRows(table);
 
         return;
       }
 
-      // Committed — close the editor + arm Undo.
-      setEditing(null);
-
-      if (pkKey !== null) {
-        armUndo({ table, column: col.name, pkKey, previous, next: value });
-      }
-    },
-    [rows, editKind, editValue, pkCols, execSql, armUndo],
-  );
-
-  /** Undo the last committed edit: re-issue the reverse UPDATE (previous value) + patch the grid. */
-  const doUndo = useCallback(async () => {
-    if (!undo) {
-      return;
-    }
-
-    // Find the current row (by PK identity) to build a correct WHERE predicate.
-    const currentRow =
-      rows.status === 'ready' ? rows.page.rows.find((r) => rowPkKey(r, pkCols) === undo.pkKey) : undefined;
-
-    if (!currentRow || undo.table !== (rows.status === 'ready' ? rows.page.table : '')) {
-      // The row scrolled out / table changed — the reverse target is gone; just dismiss.
-      clearUndo();
-      return;
-    }
-
-    let stmt: { sql: string; params: BoundValue[] };
-
-    try {
-      stmt = buildUpdateByPk(undo.table, pkCols, currentRow, undo.column, undo.previous as BoundValue);
-    } catch {
-      clearUndo();
-      return;
-    }
-
-    setUndoBusy(true);
-
-    const res = await execSql(stmt.sql, stmt.params, true);
-    setUndoBusy(false);
-
-    if (res.ok) {
-      const restored = undo.previous;
-      const targetKey = undo.pkKey;
-      const targetCol = undo.column;
-      setRows((cur) => {
-        if (cur.status !== 'ready') {
-          return cur;
+      const colList = insertCols.map((c) => quoteIdent(c.name)).join(', ');
+      const placeholders = insertCols.map((_, i) => `?${i + 1}`).join(', ');
+      const params: BoundValue[] = insertCols.map((c) => {
+        // A NOT NULL column with no default needs a seed value; text→'', number→0, else NULL.
+        if (c.notnull === 1) {
+          return /INT|REAL|NUM|DEC|FLOA|DOUB/i.test(c.type || '') ? 0 : '';
         }
 
-        return {
-          status: 'ready',
-          page: {
-            ...cur.page,
-            rows: cur.page.rows.map((r) => (rowPkKey(r, pkCols) === targetKey ? { ...r, [targetCol]: restored } : r)),
-          },
-        };
+        return null;
       });
-      setDetailRow((cur) => (cur && rowPkKey(cur, pkCols) === targetKey ? { ...cur, [targetCol]: restored } : cur));
-    }
 
-    /*
-     * Whether or not the reverse write succeeded, drop the toast (a failed undo shows nothing new;
-     * the grid still holds the applied edit, and the user can edit again).
-     */
-    clearUndo();
-  }, [undo, rows, pkCols, execSql, clearUndo]);
+      setAddingRow(true);
+      const res = await execSql(
+        `INSERT INTO ${quoteIdent(table)} (${colList}) VALUES (${placeholders})`,
+        params,
+        true,
+      );
+      setAddingRow(false);
 
-  /**
-   * Per-column enum options derived from the loaded page — an editable, non-PK, non-generated column whose
-   * page values form a small distinct set gets a `<select>` in its cell editor (see {@link enumOptionsForColumn}).
-   * Recomputed only when the page changes, so scrolling/editing is cheap.
-   */
-  const columnOptions = useMemo<Record<string, string[]>>(() => {
-    if (rows.status !== 'ready') {
-      return {};
-    }
-
-    const out: Record<string, string[]> = {};
-
-    for (const col of rows.page.columns) {
-      if (!editableColumn(col.name).editable) {
-        continue;
+      if (!res.ok) {
+        postToastToParent('error', res.error || 'Could not add a row.');
+        return;
       }
 
-      const opts = enumOptionsForColumn(rows.page.rows, col.name);
+      postToastToParent('success', 'Added a new row — click any cell to fill it in.');
+      await loadRows(table);
+    }, [rows, canMutateRows, addingRow, generatedCols, execSql, loadRows]);
 
-      if (opts.length > 0) {
-        out[col.name] = opts;
-      }
-    }
+    // ── Add / drop column via DDL through the per-site bridge ──────────────────
+    const [addColOpen, setAddColOpen] = useState(false);
 
-    return out;
-  }, [rows, editableColumn]);
-
-  return (
-    <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary">
-      <Header
-        onRefresh={selectedTable ? () => void loadRows(selectedTable, offset) : () => void loadTables()}
-        editable={selectedTable !== null && pkCols.length > 0}
-        onSeedWithAi={() => void seedWithAi(selectedTable ?? undefined)}
-        seeding={quickFill === 'seed'}
-        subtitle={
-          selectedTable
-            ? pkCols.length > 0
-              ? 'Click a cell to edit · your database'
-              : 'Browsing one table (no primary key — read-only)'
-            : tables.status === 'ready'
-              ? `${tables.tables.length} table${tables.tables.length === 1 ? '' : 's'} · your database`
-              : 'Your dedicated database'
+    const addColumn = useCallback(
+      async (name: string, kind: FieldKind) => {
+        if (rows.status !== 'ready') {
+          return { ok: false, error: 'No table open.' };
         }
-      />
 
-      {/* Table list ↔ browse view */}
-      {!selectedTable ? (
-        <TableListView
-          state={tables}
-          onOpen={openTable}
-          onRetry={() => void loadTables()}
-          onComingSoon={flashComingSoon}
-          onCreateTable={onCreateTable}
-          onNewTableSql={onNewTableSql}
-          onSeedWithAi={() => void seedWithAi()}
-          onLoadSample={() => void loadSampleData()}
-          onImportCsv={onImportCsv}
-          quickFill={quickFill}
-        />
-      ) : (
-        <BrowseView
-          table={selectedTable}
-          state={rows}
-          offset={offset}
-          cachedTotal={cachedTotal}
-          editableColumn={editableColumn}
-          editing={editing}
-          editKind={editKind}
-          editValue={editValue}
-          editError={editError}
-          editBusy={editBusy}
-          pkCols={pkCols}
-          columnOptions={columnOptions}
-          onBack={backToList}
-          onPrev={() => setOffset((o) => Math.max(0, o - PAGE_SIZE))}
-          onNext={() => setOffset((o) => o + PAGE_SIZE)}
-          onRowClick={setDetailRow}
-          onStartEdit={startEdit}
-          onEditKindChange={setEditKind}
-          onEditValueChange={setEditValue}
-          onEditSave={submitEdit}
-          onEditCancel={cancelEdit}
-          onRetry={() => void loadRows(selectedTable, offset)}
-        />
-      )}
+        const table = rows.page.table;
+        const spec: ColumnSpec = { name, type: FIELD_TYPES[kind].sqliteType };
 
-      {/* One-click Undo toast (embarrassingly-easy: every mutation is reversible) */}
-      {undo && (
-        <div
-          className="border-t border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-4 py-2 text-[11px] text-bolt-elements-textSecondary flex items-center gap-2"
-          data-testid="sitedb-undo"
-          role="status"
-        >
-          <div className="i-ph:check-circle text-emerald-400" />
-          <span className="min-w-0 truncate">
-            Saved <span className="font-mono text-bolt-elements-textPrimary">{undo.column}</span> ={' '}
-            <span className="font-mono text-bolt-elements-textPrimary">{undoValueLabel(undo.next)}</span>
-          </span>
-          <button
-            type="button"
-            onClick={() => void doUndo()}
-            disabled={undoBusy}
-            data-testid="sitedb-undo-button"
-            className="ml-auto min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded border border-bolt-elements-item-contentAccent/60 bg-bolt-elements-background-depth-3 text-bolt-elements-item-contentAccent enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+        let sql: string;
+
+        try {
+          sql = buildAddColumn(table, spec);
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : 'Invalid column.' };
+        }
+
+        const res = await execSql(sql, [], true);
+
+        if (!res.ok) {
+          return { ok: false, error: res.error };
+        }
+
+        postToastToParent('success', `Added column “${name}”.`);
+        await loadGeneratedCols(table);
+        await loadRows(table);
+
+        return { ok: true };
+      },
+      [rows, execSql, loadGeneratedCols, loadRows],
+    );
+
+    const dropColumn = useCallback(
+      async (col: string) => {
+        if (rows.status !== 'ready') {
+          return;
+        }
+
+        const table = rows.page.table;
+        const res = await execSql(buildDropColumn(table, col), [], true);
+
+        if (!res.ok) {
+          postToastToParent('error', res.error || `Could not drop “${col}”.`);
+          return;
+        }
+
+        postToastToParent('success', `Dropped column “${col}”.`);
+        await loadGeneratedCols(table);
+        await loadRows(table);
+      },
+      [rows, execSql, loadGeneratedCols, loadRows],
+    );
+
+    // ── Whole-table export (CSV / TSV / JSON via the engine helpers) ──────────
+    /** Export the WHOLE filtered/sorted set (not just the page) via the shared serializers. */
+    const exportData = useCallback(
+      (format: 'csv' | 'tsv' | 'json') => {
+        if (rows.status !== 'ready') {
+          return;
+        }
+
+        const cols = allColumnNames;
+        const data = processedRows;
+        const table = rows.page.table;
+
+        if (format === 'csv') {
+          downloadText(toCsv(cols, data), `${table}.csv`, 'text/csv');
+        } else if (format === 'tsv') {
+          downloadText(toTsv(cols, data), `${table}.tsv`, 'text/tab-separated-values');
+        } else {
+          downloadText(toJsonRows(cols, data), `${table}.json`, 'application/json');
+        }
+
+        postToastToParent('success', `Exported ${data.length} row${data.length === 1 ? '' : 's'} as ${format.toUpperCase()}.`);
+      },
+      [rows, allColumnNames, processedRows],
+    );
+
+    // ── AI-native: gather schema for grounding ─────────────────────────────────
+    const gatherSchemaOutline = useCallback((): string => {
+      if (rows.status !== 'ready') {
+        return '(no table open)';
+      }
+
+      return formatSchemaForPrompt([
+        {
+          name: rows.page.table,
+          columns: rows.page.columns.map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, pk: c.pk })),
+        },
+      ]);
+    }, [rows]);
+
+    /** One `/api/llmcall` round-trip returning the model text, or throwing a human error. */
+    const callAi = useCallback(async (system: string, message: string): Promise<string> => {
+      if (!isEmbedded) {
+        throw new Error('Open this from the ProjectSites admin to use AI.');
+      }
+
+      const res = await fetch('/api/llmcall', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ system, message, model: DEFAULT_MODEL, provider: DEFAULT_PROVIDER, streamOutput: false }),
+      });
+
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { message?: string };
+        throw new Error(body.message ?? `AI is unavailable (HTTP ${res.status}).`);
+      }
+
+      const data = (await res.json()) as { text?: string; error?: boolean; message?: string };
+
+      if (data.error || typeof data.text !== 'string') {
+        throw new Error(data.message ?? 'AI did not return a result.');
+      }
+
+      return data.text;
+    }, []);
+
+    const [aiBusy, setAiBusy] = useState<null | 'filter' | 'column' | 'fill'>(null);
+    const [aiPanel, setAiPanel] = useState<null | 'filter' | 'column' | 'fill'>(null);
+    const [aiError, setAiError] = useState('');
+
+    /**
+     * AI natural-language filter: "orders over $100 last week" → a `{conditions,combinator,sorts}` plan
+     * applied to the grid. The model is grounded on the real schema + asked for STRICT JSON so it can
+     * never touch unknown columns. AI is enhancement — a parse failure surfaces honestly, never blocks.
+     */
+    const aiFilter = useCallback(
+      async (question: string) => {
+        const q = question.trim();
+
+        if (!q || aiBusy) {
+          return;
+        }
+
+        setAiBusy('filter');
+        setAiError('');
+
+        const system = [
+          'You translate a plain-English request into a JSON filter+sort plan for a database grid.',
+          'The available columns are in the schema below — use ONLY those column names.',
+          'Return ONLY minified JSON, no prose, of the shape:',
+          '{"conditions":[{"col":"<column>","op":"<op>","val":"<value>"}],"combinator":"AND|OR","sorts":[{"col":"<column>","dir":"asc|desc"}]}',
+          `Valid ops: ${['eq', 'ne', 'contains', 'startswith', 'endswith', 'gt', 'lt', 'gte', 'lte', 'null', 'notnull'].join(', ')}.`,
+          'For null/notnull, use an empty val. If no sort is implied, use an empty sorts array.',
+          '',
+          'SCHEMA:',
+          gatherSchemaOutline(),
+        ].join('\n');
+
+        try {
+          const text = await callAi(system, q);
+          const jsonText = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '');
+          const plan = JSON.parse(jsonText) as {
+            conditions?: Array<{ col?: string; op?: string; val?: string }>;
+            combinator?: string;
+            sorts?: Array<{ col?: string; dir?: string }>;
+          };
+
+          const known = new Set(allColumnNames);
+          const nextConditions: FilterCondition[] = (plan.conditions ?? [])
+            .filter((c) => c.col && known.has(c.col))
+            .slice(0, MAX_FILTER_CONDITIONS)
+            .map((c) => ({ col: c.col as string, op: normalizeFilterOp(c.op), val: c.val ?? '' }));
+
+          const nextSorts: GridSort[] = (plan.sorts ?? [])
+            .filter((s) => s.col && known.has(s.col))
+            .map((s) => ({ col: s.col as string, dir: s.dir === 'desc' ? 'desc' : 'asc' }));
+
+          if (nextConditions.length === 0 && nextSorts.length === 0) {
+            setAiError('AI could not map that to the current columns. Try naming a column.');
+            return;
+          }
+
+          setConditions(nextConditions.length ? nextConditions : [blankCondition()]);
+          setCombinator(plan.combinator?.toUpperCase() === 'OR' ? 'OR' : 'AND');
+          setSorts(nextSorts);
+          setFilterBarOpen(true);
+          setAiPanel(null);
+          postToastToParent('success', 'AI applied a filter — tweak or clear it anytime.');
+        } catch (err) {
+          setAiError(err instanceof Error ? err.message : 'AI could not build that filter.');
+        } finally {
+          setAiBusy(null);
+        }
+      },
+      [aiBusy, allColumnNames, gatherSchemaOutline, callAi],
+    );
+
+    /**
+     * AI generate-column: describe a column ("estimated delivery date") → the model picks a name + type +
+     * a SQLite expression to backfill it. We ADD the typed column, then backfill via a single `UPDATE`
+     * using the model's expression (grounded on the schema, reviewed by the runner's confirm gate).
+     */
+    const aiGenerateColumn = useCallback(
+      async (description: string) => {
+        const d = description.trim();
+
+        if (!d || aiBusy || rows.status !== 'ready') {
+          return;
+        }
+
+        setAiBusy('column');
+        setAiError('');
+
+        const table = rows.page.table;
+        const system = [
+          'You design ONE new SQLite column for an existing table and a backfill expression.',
+          'Return ONLY minified JSON: {"name":"<snake_case>","type":"TEXT|INTEGER|REAL","expr":"<sqlite expression over existing columns, or a constant>"}',
+          'The column name must be a valid SQLite identifier not already in the table.',
+          'The expr must reference ONLY existing columns (see schema) or be a literal. Keep it a single scalar expression.',
+          '',
+          'SCHEMA:',
+          gatherSchemaOutline(),
+        ].join('\n');
+
+        try {
+          const text = await callAi(system, d);
+          const jsonText = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '');
+          const plan = JSON.parse(jsonText) as { name?: string; type?: string; expr?: string };
+
+          if (!plan.name) {
+            throw new Error('AI did not return a column name.');
+          }
+
+          const kind: FieldKind =
+            plan.type === 'INTEGER' ? 'number' : plan.type === 'REAL' ? 'number' : 'text';
+          const added = await addColumn(plan.name, kind);
+
+          if (!added.ok) {
+            throw new Error(added.error || 'Could not add the column.');
+          }
+
+          // Backfill via the model's expression (best-effort; a bad expr surfaces as a toast).
+          if (plan.expr && plan.expr.trim()) {
+            const res = await execSql(
+              `UPDATE ${quoteIdent(table)} SET ${quoteIdent(plan.name)} = (${plan.expr})`,
+              [],
+              true,
+            );
+
+            if (!res.ok) {
+              postToastToParent('warning', `Column added, but the AI backfill failed: ${res.error ?? ''}`);
+            }
+          }
+
+          await loadRows(table);
+          setAiPanel(null);
+          postToastToParent('success', `AI added column “${plan.name}”.`);
+        } catch (err) {
+          setAiError(err instanceof Error ? err.message : 'AI could not generate that column.');
+        } finally {
+          setAiBusy(null);
+        }
+      },
+      [aiBusy, rows, gatherSchemaOutline, callAi, addColumn, execSql, loadRows],
+    );
+
+    /**
+     * AI fill selected cells: for the chosen column + the currently-selected rows, ask the model to
+     * generate a value per row (grounded on the row's other fields), then write each via a param-bound
+     * UPDATE. Enhancement-only — no selection or a parse failure surfaces honestly.
+     */
+    const aiFillColumn = useCallback(
+      async (column: string, instruction: string) => {
+        if (aiBusy || rows.status !== 'ready' || !column) {
+          return;
+        }
+
+        const table = rows.page.table;
+        const targets = rows.page.rows.filter((r) => {
+          const k = rowPkKey(r, pkCols);
+          return k !== null && selectedRowKeys.has(k);
+        });
+
+        if (targets.length === 0) {
+          setAiError('Select one or more rows first (checkbox), then AI-fill.');
+          return;
+        }
+
+        setAiBusy('fill');
+        setAiError('');
+
+        const system = [
+          `You fill the "${column}" field for each record. Return ONLY minified JSON: an array of values, one per record, in order.`,
+          instruction.trim() ? `Instruction: ${instruction.trim()}` : '',
+          'Base each value on the record fields provided. Values must be plain scalars (string or number).',
+        ]
+          .filter(Boolean)
+          .join('\n');
+
+        const message = JSON.stringify(targets.map((r) => ({ ...r })));
+
+        try {
+          const text = await callAi(system, message);
+          const jsonText = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '');
+          const values = JSON.parse(jsonText) as unknown[];
+
+          if (!Array.isArray(values) || values.length === 0) {
+            throw new Error('AI did not return values.');
+          }
+
+          let written = 0;
+
+          for (let i = 0; i < targets.length && i < values.length; i++) {
+            const v = values[i];
+            const bound: BoundValue =
+              v === null || v === undefined
+                ? null
+                : typeof v === 'number' || typeof v === 'boolean'
+                  ? v
+                  : String(v);
+
+            let stmt: { sql: string; params: BoundValue[] };
+
+            try {
+              stmt = buildUpdateByPk(table, pkCols, targets[i], column, bound);
+            } catch {
+              continue;
+            }
+
+            const res = await execSql(stmt.sql, stmt.params, true);
+
+            if (res.ok) {
+              written++;
+            }
+          }
+
+          await loadRows(table);
+          setAiPanel(null);
+          setSelectedRowKeys(new Set());
+          postToastToParent('success', `AI filled ${written} cell${written === 1 ? '' : 's'} in “${column}”.`);
+        } catch (err) {
+          setAiError(err instanceof Error ? err.message : 'AI could not fill those cells.');
+        } finally {
+          setAiBusy(null);
+        }
+      },
+      [aiBusy, rows, pkCols, selectedRowKeys, callAi, execSql, loadRows],
+    );
+
+    const rowHeight = ROW_HEIGHT_FOR[density];
+    const selectedOnPage = pageRows.filter((r) => {
+      const k = rowPkKey(r, pkCols);
+      return k !== null && selectedRowKeys.has(k);
+    }).length;
+
+    return (
+      <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary">
+        <Header
+          onRefresh={selectedTable ? () => void loadRows(selectedTable) : () => void loadTables()}
+          editable={selectedTable !== null && pkCols.length > 0}
+          onSeedWithAi={() => void seedWithAi(selectedTable ?? undefined)}
+          seeding={quickFill === 'seed'}
+          subtitle={
+            selectedTable
+              ? pkCols.length > 0
+                ? 'Click a cell to edit · your database'
+                : 'Browsing one table (no primary key — read-only)'
+              : tables.status === 'ready'
+                ? `${tables.tables.length} table${tables.tables.length === 1 ? '' : 's'} · your database`
+                : 'Your dedicated database'
+          }
+        />
+
+        {/* Table list ↔ browse view */}
+        {!selectedTable ? (
+          <TableListView
+            state={tables}
+            onOpen={openTable}
+            onRetry={() => void loadTables()}
+            onComingSoon={flashComingSoon}
+            onCreateTable={onCreateTable}
+            onNewTableSql={onNewTableSql}
+            onSeedWithAi={() => void seedWithAi()}
+            onLoadSample={() => void loadSampleData()}
+            onImportCsv={onImportCsv}
+            quickFill={quickFill}
+          />
+        ) : (
+          <BrowseView
+            table={selectedTable}
+            state={rows}
+            // engine-derived
+            allColumns={allColumns}
+            shownColumns={shownColumns}
+            shownNames={shownNames}
+            orderedNames={orderedNames}
+            hiddenCols={hiddenCols}
+            pageRows={pageRows}
+            filteredCount={filteredCount}
+            loadedTotal={loadedTotal}
+            pageIndex={safePageIndex}
+            pageCount={pageCount}
+            pageSize={pageSize}
+            density={density}
+            rowHeight={rowHeight}
+            viewMode={viewMode}
+            sorts={sorts}
+            sortFor={sortFor}
+            search={search}
+            conditions={conditions}
+            combinator={combinator}
+            filterBarOpen={filterBarOpen}
+            colMenuOpen={colMenuOpen}
+            selectedRowKeys={selectedRowKeys}
+            selectedOnPage={selectedOnPage}
+            canMutateRows={canMutateRows}
+            bulkBusy={bulkBusy}
+            addingRow={addingRow}
+            addColOpen={addColOpen}
+            aiPanel={aiPanel}
+            aiBusy={aiBusy}
+            aiError={aiError}
+            // edit engine
+            editableColumn={editableColumn}
+            editing={editing}
+            editKind={editKind}
+            editValue={editValue}
+            editError={editError}
+            editBusy={editBusy}
+            pkCols={pkCols}
+            generatedCols={generatedCols}
+            // handlers
+            onBack={backToList}
+            onSetSearch={setSearch}
+            onSortColumn={onSortColumn}
+            onSetPageSize={(n) => setPageSize(clampPageSize(n))}
+            onPrevPage={() => setPageIndex((p) => Math.max(0, p - 1))}
+            onNextPage={() => setPageIndex((p) => Math.min(pageCount - 1, p + 1))}
+            onToggleFilterBar={() => setFilterBarOpen((o) => !o)}
+            onToggleColMenu={() => setColMenuOpen((o) => !o)}
+            onToggleHidden={(col) =>
+              setHiddenCols((cur) => (cur.includes(col) ? cur.filter((c) => c !== col) : [...cur, col]))
+            }
+            onMoveColumn={(col, dir) => setColOrder((cur) => moveColumn(allColumnNames, cur, col, dir))}
+            onSetDensity={setDensity}
+            onSetViewMode={setViewMode}
+            onAddCondition={() => setConditions((c) => addCondition(c))}
+            onRemoveCondition={(i) => setConditions((c) => removeCondition(c, i))}
+            onUpdateCondition={(i, patch) => setConditions((c) => updateCondition(c, i, patch))}
+            onSetCombinator={setCombinator}
+            onClearFilters={() => {
+              setConditions([]);
+              setSearch('');
+              setSorts([]);
+            }}
+            onRowClick={setDetailRow}
+            onStartEdit={startEdit}
+            onToggleBoolean={toggleBooleanCell}
+            onEditKindChange={setEditKind}
+            onEditValueChange={setEditValue}
+            onEditSave={submitEdit}
+            onEditCancel={cancelEdit}
+            onToggleRowSelected={toggleRowSelected}
+            onToggleSelectAll={toggleSelectAll}
+            onDeleteRow={deleteRow}
+            onDeleteSelected={deleteSelected}
+            onClearSelection={() => setSelectedRowKeys(new Set())}
+            onAddRow={addRow}
+            onOpenAddCol={() => setAddColOpen(true)}
+            onCloseAddCol={() => setAddColOpen(false)}
+            onAddColumn={addColumn}
+            onDropColumn={dropColumn}
+            onExport={exportData}
+            onOpenAi={(which) => {
+              setAiError('');
+              setAiPanel(which);
+            }}
+            onCloseAi={() => setAiPanel(null)}
+            onAiFilter={aiFilter}
+            onAiGenerateColumn={aiGenerateColumn}
+            onAiFillColumn={aiFillColumn}
+            onSeedWithAi={() => void seedWithAi(selectedTable)}
+            onRetry={() => void loadRows(selectedTable)}
+          />
+        )}
+
+        {/* One-click Undo toast (embarrassingly-easy: every mutation is reversible) */}
+        {undo && (
+          <div
+            className="border-t border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-4 py-2 text-[11px] text-bolt-elements-textSecondary flex items-center gap-2"
+            data-testid="sitedb-undo"
+            role="status"
           >
-            <div className={undoBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:arrow-counter-clockwise'} />
-            <span className="min-w-[4ch] text-center">{undoBusy ? 'Undoing…' : 'Undo'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={clearUndo}
-            aria-label="Dismiss"
-            className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded hover:bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            <div className="i-ph:check-circle text-emerald-400" />
+            <span className="min-w-0 truncate">
+              {undo.kind === 'cell' ? (
+                <>
+                  Saved <span className="font-mono text-bolt-elements-textPrimary">{undo.column}</span> ={' '}
+                  <span className="font-mono text-bolt-elements-textPrimary">{undoValueLabel(undo.next)}</span>
+                </>
+              ) : undo.kind === 'insert' ? (
+                <>Added a row</>
+              ) : (
+                <>
+                  Deleted <span className="font-mono text-bolt-elements-textPrimary">{undo.label}</span>
+                </>
+              )}
+            </span>
+            <button
+              type="button"
+              onClick={() => void doUndo()}
+              disabled={undoBusy}
+              data-testid="sitedb-undo-button"
+              className="ml-auto min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded border border-bolt-elements-item-contentAccent/60 bg-bolt-elements-background-depth-3 text-bolt-elements-item-contentAccent enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            >
+              <div className={undoBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:arrow-counter-clockwise'} />
+              <span className="min-w-[4ch] text-center">{undoBusy ? 'Undoing…' : 'Undo'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={clearUndo}
+              aria-label="Dismiss"
+              className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded hover:bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            >
+              <div className="i-ph:x text-xs" />
+            </button>
+          </div>
+        )}
+
+        {/* Coming-soon inline note (never a dead click) */}
+        {comingSoon && (
+          <div
+            className="border-t border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-4 py-2 text-[11px] text-bolt-elements-textSecondary flex items-center gap-2"
+            data-testid="sitedb-coming-soon"
+            role="status"
           >
-            <div className="i-ph:x text-xs" />
-          </button>
-        </div>
-      )}
+            <div className="i-ph:sparkle text-bolt-elements-item-contentAccent" />
+            <span>
+              <span className="text-bolt-elements-textPrimary font-medium">{comingSoon}</span> is coming next.
+            </span>
+          </div>
+        )}
 
-      {/* Coming-soon inline note (never a dead click) */}
-      {comingSoon && (
-        <div
-          className="border-t border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-4 py-2 text-[11px] text-bolt-elements-textSecondary flex items-center gap-2"
-          data-testid="sitedb-coming-soon"
-          role="status"
-        >
-          <div className="i-ph:sparkle text-bolt-elements-item-contentAccent" />
-          <span>
-            <span className="text-bolt-elements-textPrimary font-medium">{comingSoon}</span> is coming next — table
-            creation and AI edits land in the following update.
-          </span>
-        </div>
-      )}
-
-      {/* Row detail drawer */}
-      {detailRow && rows.status === 'ready' && (
-        <RowDrawer
-          row={detailRow}
-          columns={rows.page.columns}
-          editableColumn={editableColumn}
-          editing={editing}
-          editKind={editKind}
-          editValue={editValue}
-          editError={editError}
-          editBusy={editBusy}
-          pkCols={pkCols}
-          columnOptions={columnOptions}
-          onStartEdit={startEdit}
-          onEditKindChange={setEditKind}
-          onEditValueChange={setEditValue}
-          onEditSave={submitEdit}
-          onEditCancel={cancelEdit}
-          onClose={() => {
-            setDetailRow(null);
-            setEditing(null);
-          }}
-        />
-      )}
-    </div>
-  );
-});
+        {/* Row detail drawer */}
+        {detailRow && rows.status === 'ready' && (
+          <RowDrawer
+            row={detailRow}
+            columns={rows.page.columns}
+            editableColumn={editableColumn}
+            editing={editing}
+            editKind={editKind}
+            editValue={editValue}
+            editError={editError}
+            editBusy={editBusy}
+            pkCols={pkCols}
+            canMutateRows={canMutateRows}
+            onDeleteRow={deleteRow}
+            onStartEdit={startEdit}
+            onEditKindChange={setEditKind}
+            onEditValueChange={setEditValue}
+            onEditSave={submitEdit}
+            onEditCancel={cancelEdit}
+            onClose={() => {
+              setDetailRow(null);
+              setEditing(null);
+            }}
+          />
+        )}
+      </div>
+    );
+  },
+);
 
 SiteTablesPanel.displayName = 'SiteTablesPanel';
 
@@ -1070,7 +1931,6 @@ const Header = memo(
             editable
           </span>
         )}
-        {/* Seed with AI — moved out of the removed nav into the toolbar. Label reserves its widest state. */}
         <button
           type="button"
           onClick={onSeedWithAi}
@@ -1131,7 +1991,7 @@ const ErrorCard = memo(({ message, onRetry }: { message: string; onRetry: () => 
 
 ErrorCard.displayName = 'SiteTablesPanel.ErrorCard';
 
-// ── Loading skeleton (Airtable/Notion pattern: a REAL header row + pending body rows beat a spinner) ──
+// ── Loading skeleton ────────────────────────────────────────────────────────
 
 const TableListSkeleton = memo(() => (
   <div className="flex-1 overflow-hidden p-3" data-testid="sitedb-skeleton" aria-busy="true" aria-live="polite">
@@ -1140,10 +2000,7 @@ const TableListSkeleton = memo(() => (
     </div>
     <div className="space-y-1.5 mt-1">
       {Array.from({ length: 7 }).map((_, i) => (
-        <div
-          key={i}
-          className="flex items-center gap-2 px-2 py-2 rounded-md bg-bolt-elements-background-depth-2/60"
-        >
+        <div key={i} className="flex items-center gap-2 px-2 py-2 rounded-md bg-bolt-elements-background-depth-2/60">
           <div className="i-ph:table text-sm text-bolt-elements-textTertiary/40 shrink-0" aria-hidden />
           <div
             className="h-3 rounded bg-bolt-elements-background-depth-3 motion-safe:animate-pulse"
@@ -1158,13 +2015,11 @@ const TableListSkeleton = memo(() => (
 
 TableListSkeleton.displayName = 'SiteTablesPanel.TableListSkeleton';
 
-// ── Empty launchpad (Airtable/Notion: the first-run empty table is onboarding, not a dead end) ──────
+// ── Empty launchpad ──────────────────────────────────────────────────────────
 
-/** One primary action tile in the gorgeous empty-state launchpad. */
 interface LaunchTile {
   key: 'seed' | 'sample' | 'newtable' | 'import';
   icon: string;
-  glyph: string;
   title: string;
   desc: string;
   primary?: boolean;
@@ -1174,29 +2029,25 @@ const LAUNCH_TILES: readonly LaunchTile[] = [
   {
     key: 'seed',
     icon: 'i-ph:sparkle-duotone',
-    glyph: '✨',
-    title: 'Seed with AI',
+    title: 'Use AI to load sample data',
     desc: 'Generate a table full of realistic rows from a short description.',
     primary: true,
   },
   {
     key: 'sample',
     icon: 'i-ph:table-duotone',
-    glyph: '📊',
     title: 'Load sample data',
     desc: 'Drop in a ready-made starter dataset to explore right away.',
   },
   {
     key: 'newtable',
     icon: 'i-ph:plus-square-duotone',
-    glyph: '＋',
-    title: 'New table',
+    title: 'Create Table',
     desc: 'Design a table yourself with a guided, no-SQL schema builder.',
   },
   {
     key: 'import',
     icon: 'i-ph:upload-simple-duotone',
-    glyph: '⬆',
     title: 'Import CSV',
     desc: 'Bring your own data — upload a CSV or JSON file into a table.',
   },
@@ -1226,14 +2077,15 @@ const EmptyLaunchpad = memo(
     return (
       <div className="flex-1 overflow-auto modern-scrollbar" data-testid="sitedb-empty">
         <div className="min-h-full flex flex-col items-center justify-center gap-6 p-8 text-center">
-          {/* Hero mark + copy */}
           <div className="flex flex-col items-center gap-3">
             <div className="relative flex items-center justify-center h-16 w-16 rounded-2xl border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.08]">
               <div className="i-ph:database-duotone text-3xl text-bolt-elements-item-contentAccent" aria-hidden />
               <div
                 aria-hidden="true"
                 className="pointer-events-none absolute -inset-2 rounded-3xl opacity-40 blur-xl"
-                style={{ background: 'radial-gradient(circle, color-mix(in oklch, #00e5ff 40%, transparent), transparent 70%)' }}
+                style={{
+                  background: 'radial-gradient(circle, color-mix(in oklch, #00e5ff 40%, transparent), transparent 70%)',
+                }}
               />
             </div>
             <div className="space-y-1.5">
@@ -1247,10 +2099,10 @@ const EmptyLaunchpad = memo(
             </div>
           </div>
 
-          {/* Action tiles — Airtable/Notion card grid; one visually-dominant primary (Seed with AI). */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-[520px]">
             {LAUNCH_TILES.map((tile) => {
-              const busy = (tile.key === 'seed' && quickFill === 'seed') || (tile.key === 'sample' && quickFill === 'sample');
+              const busy =
+                (tile.key === 'seed' && quickFill === 'seed') || (tile.key === 'sample' && quickFill === 'sample');
               const disabled = quickFill !== null;
 
               return (
@@ -1371,7 +2223,9 @@ const TableListView = memo(
         <EmptyLaunchpad
           onSeedWithAi={onSeedWithAi}
           onLoadSample={onLoadSample}
-          onCreateTable={() => (onCreateTable ? onCreateTable() : onNewTableSql ? onNewTableSql() : onComingSoon('New table'))}
+          onCreateTable={() =>
+            onCreateTable ? onCreateTable() : onNewTableSql ? onNewTableSql() : onComingSoon('New table')
+          }
           onImportCsv={() => (onImportCsv ? onImportCsv() : onComingSoon('Import CSV'))}
           quickFill={quickFill}
         />
@@ -1380,21 +2234,33 @@ const TableListView = memo(
 
     return (
       <div className="flex-1 overflow-auto modern-scrollbar" data-testid="sitedb-table-list">
-        <div className="flex items-center gap-2 px-3 py-1.5">
+        {/* Toolbar: always offer both AI-seed AND Create Table so you can always browse/seed. */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor sticky top-0 bg-bolt-elements-background-depth-1 z-10">
           <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary">
             Tables ({state.tables.length})
           </span>
-          {onCreateTable && (
+          <div className="ml-auto flex items-center gap-1.5">
             <button
               type="button"
-              onClick={onCreateTable}
-              data-testid="sitedb-new-table-inline"
-              title="Build a new table"
-              className="ml-auto min-h-[24px] text-[11px] font-medium px-2 py-0.5 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              onClick={onSeedWithAi}
+              data-testid="sitedb-list-seed-ai"
+              title="Generate a table of realistic rows with AI"
+              className="min-h-[24px] text-[11px] font-medium px-2 py-0.5 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/20 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
             >
-              <div className="i-ph:plus" /> New table
+              <div className="i-ph:sparkle" /> <span>Use AI</span>
             </button>
-          )}
+            {(onCreateTable || onNewTableSql) && (
+              <button
+                type="button"
+                onClick={() => (onCreateTable ? onCreateTable() : onNewTableSql!())}
+                data-testid="sitedb-new-table-inline"
+                title="Build a new table"
+                className="min-h-[24px] text-[11px] font-medium px-2 py-0.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              >
+                <div className="i-ph:plus" /> <span>Create Table</span>
+              </button>
+            )}
+          </div>
         </div>
         {state.tables.map((t) => (
           <button
@@ -1416,9 +2282,8 @@ const TableListView = memo(
 
 TableListView.displayName = 'SiteTablesPanel.TableListView';
 
-// ── Browse view (virtualized grid) ──────────────────────────────────────────
+// ── Shared edit-engine prop bundle ──────────────────────────────────────────
 
-/** Shared props for the inline-edit engine, threaded into BrowseView + RowDrawer. */
 interface EditProps {
   editableColumn: (col: string) => { editable: boolean; reason?: string };
   editing: { pkKey: string; column: string } | null;
@@ -1427,12 +2292,6 @@ interface EditProps {
   editError: string;
   editBusy: boolean;
   pkCols: string[];
-
-  /**
-   * Per-column CONSTRAINED enum options derived from the loaded page (see {@link enumOptionsForColumn}). When a
-   * column maps to a small distinct set, the cell editor renders a `<select>` (+ "Other…") instead of free text.
-   */
-  columnOptions: Record<string, string[]>;
   onStartEdit: (row: Record<string, unknown>, col: ColumnInfo) => void;
   onEditKindChange: (kind: CellInputKind) => void;
   onEditValueChange: (value: string) => void;
@@ -1440,219 +2299,1272 @@ interface EditProps {
   onEditCancel: () => void;
 }
 
-const BrowseView = memo(
-  ({
-    table,
-    state,
-    offset,
-    cachedTotal,
-    onBack,
-    onPrev,
-    onNext,
-    onRowClick,
-    onRetry,
-    editableColumn,
-    editing,
-    editKind,
-    editValue,
-    editError,
-    editBusy,
-    pkCols,
-    columnOptions,
-    onStartEdit,
-    onEditKindChange,
-    onEditValueChange,
-    onEditSave,
-    onEditCancel,
-  }: {
-    table: string;
-    state: RowsState;
-    offset: number;
-    cachedTotal: number | null;
-    onBack: () => void;
-    onPrev: () => void;
-    onNext: () => void;
-    onRowClick: (row: Record<string, unknown>) => void;
-    onRetry: () => void;
-  } & EditProps) => {
-    const scrollRef = useRef<HTMLDivElement>(null);
-    const page = state.status === 'ready' ? state.page : null;
+// ── Typed cell render (checkbox / stars / chips / link / text) ───────────────
 
-    const columns = page?.columns ?? [];
-    const rows = page?.rows ?? [];
-    const total = page?.total ?? cachedTotal ?? 0;
+const RatingStars = memo(({ value }: { value: unknown }) => {
+  const n = Math.max(0, Math.min(5, Math.round(Number(value) || 0)));
 
-    const rowVirtualizer = useVirtualizer({
-      count: rows.length,
-      getScrollElement: () => scrollRef.current,
-      estimateSize: () => ROW_HEIGHT,
-      overscan: 12,
-    });
+  return (
+    <span className="text-[#f5c451] tracking-tight" aria-label={`${n} of 5`} title={`${n} / 5`}>
+      {'★'.repeat(n)}
+      <span className="text-bolt-elements-textTertiary/40">{'★'.repeat(5 - n)}</span>
+    </span>
+  );
+});
 
-    // Reset scroll to the top whenever a new page loads.
-    useEffect(() => {
-      if (scrollRef.current) {
-        scrollRef.current.scrollTop = 0;
-      }
-    }, [offset, table]);
+RatingStars.displayName = 'SiteTablesPanel.RatingStars';
 
-    const hasPrev = offset > 0;
-    const hasNext = offset + rows.length < total;
+const SelectChips = memo(({ value }: { value: unknown }) => {
+  const label = fieldTypeFor('multiSelect').format(value);
+  const items = label ? label.split(', ').filter(Boolean) : [];
+
+  if (items.length === 0) {
+    return <span className="text-bolt-elements-textTertiary/60">—</span>;
+  }
+
+  return (
+    <span className="flex flex-wrap gap-1 items-center">
+      {items.map((it, i) => (
+        <span
+          key={`${it}-${i}`}
+          className="inline-flex items-center rounded-full px-1.5 py-px text-[10px] bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent border border-bolt-elements-item-contentAccent/25"
+        >
+          {it}
+        </span>
+      ))}
+    </span>
+  );
+});
+
+SelectChips.displayName = 'SiteTablesPanel.SelectChips';
+
+/** Render a single cell's VALUE by its inferred field kind (checkbox / stars / chips / classified). */
+function CellValue({
+  value,
+  fieldKind,
+  editable,
+  onToggle,
+}: {
+  value: unknown;
+  fieldKind: FieldKind;
+  editable: boolean;
+  onToggle?: () => void;
+}) {
+  if (fieldKind === 'boolean') {
+    const on = value === 1 || value === true || value === '1' || value === 'true';
 
     return (
-      <div className="flex-1 flex flex-col min-h-0" data-testid="sitedb-browse">
-        {/* Breadcrumb + actions */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor shrink-0">
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label="Back to tables"
-            title="Back to tables"
-            className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded hover:bg-bolt-elements-item-backgroundActive text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-          >
-            <div className="i-ph:arrow-left text-sm" />
-          </button>
-          <div className="i-ph:table text-sm text-bolt-elements-textTertiary shrink-0" />
-          <span className="text-xs font-mono text-bolt-elements-textPrimary truncate flex-1">{table}</span>
-          {page && rows.length > 0 && (
+      <span
+        role={editable ? 'checkbox' : undefined}
+        aria-checked={editable ? on : undefined}
+        aria-label={editable ? 'Toggle value' : undefined}
+        tabIndex={editable ? 0 : undefined}
+        data-testid="sitedb-cell-checkbox"
+        onClick={
+          editable
+            ? (e) => {
+                e.stopPropagation();
+                onToggle?.();
+              }
+            : undefined
+        }
+        onKeyDown={
+          editable
+            ? (e) => {
+                if (e.key === ' ' || e.key === 'Enter') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggle?.();
+                }
+              }
+            : undefined
+        }
+        className={classNames(
+          'inline-flex items-center justify-center h-4 w-4 rounded border transition-colors',
+          on
+            ? 'bg-bolt-elements-item-contentAccent/80 border-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1'
+            : 'border-bolt-elements-borderColor text-transparent',
+          editable ? 'cursor-pointer hover:border-bolt-elements-item-contentAccent' : '',
+        )}
+      >
+        <div className="i-ph:check text-[10px]" />
+      </span>
+    );
+  }
+
+  if (fieldKind === 'rating') {
+    return value === null || value === undefined || value === '' ? (
+      <span className="text-bolt-elements-textTertiary/60">—</span>
+    ) : (
+      <RatingStars value={value} />
+    );
+  }
+
+  if (fieldKind === 'multiSelect') {
+    return <SelectChips value={value} />;
+  }
+
+  const classified = classifyCell(value);
+
+  if (classified.href) {
+    return (
+      <a
+        href={classified.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="truncate text-bolt-elements-item-contentAccent hover:underline"
+        title={classified.title ?? classified.display}
+      >
+        {classified.display}
+      </a>
+    );
+  }
+
+  return (
+    <span className={classNames('truncate', classified.className)} title={classified.title}>
+      {classified.kind === 'null' ? '—' : classified.display}
+    </span>
+  );
+}
+
+// ── Browse view ──────────────────────────────────────────────────────────────
+
+interface BrowseViewProps extends EditProps {
+  table: string;
+  state: RowsState;
+  allColumns: ColumnInfo[];
+  shownColumns: ColumnInfo[];
+  shownNames: string[];
+  orderedNames: string[];
+  hiddenCols: string[];
+  pageRows: Record<string, unknown>[];
+  filteredCount: number;
+  loadedTotal: number;
+  pageIndex: number;
+  pageCount: number;
+  pageSize: number;
+  density: GridDensity;
+  rowHeight: number;
+  viewMode: ViewMode;
+  sorts: GridSort[];
+  sortFor: (col: string) => { dir: 'asc' | 'desc'; priority: number } | null;
+  search: string;
+  conditions: FilterCondition[];
+  combinator: 'AND' | 'OR';
+  filterBarOpen: boolean;
+  colMenuOpen: boolean;
+  selectedRowKeys: Set<string>;
+  selectedOnPage: number;
+  canMutateRows: boolean;
+  bulkBusy: boolean;
+  addingRow: boolean;
+  addColOpen: boolean;
+  aiPanel: null | 'filter' | 'column' | 'fill';
+  aiBusy: null | 'filter' | 'column' | 'fill';
+  aiError: string;
+  generatedCols: Set<string>;
+  onBack: () => void;
+  onSetSearch: (s: string) => void;
+  onSortColumn: (col: string) => void;
+  onSetPageSize: (n: number) => void;
+  onPrevPage: () => void;
+  onNextPage: () => void;
+  onToggleFilterBar: () => void;
+  onToggleColMenu: () => void;
+  onToggleHidden: (col: string) => void;
+  onMoveColumn: (col: string, dir: -1 | 1) => void;
+  onSetDensity: (d: GridDensity) => void;
+  onSetViewMode: (v: ViewMode) => void;
+  onAddCondition: () => void;
+  onRemoveCondition: (i: number) => void;
+  onUpdateCondition: (i: number, patch: Partial<FilterCondition>) => void;
+  onSetCombinator: (c: 'AND' | 'OR') => void;
+  onClearFilters: () => void;
+  onRowClick: (row: Record<string, unknown>) => void;
+  onToggleBoolean: (row: Record<string, unknown>, col: ColumnInfo) => void;
+  onToggleRowSelected: (key: string) => void;
+  onToggleSelectAll: () => void;
+  onDeleteRow: (row: Record<string, unknown>) => void;
+  onDeleteSelected: () => void;
+  onClearSelection: () => void;
+  onAddRow: () => void;
+  onOpenAddCol: () => void;
+  onCloseAddCol: () => void;
+  onAddColumn: (name: string, kind: FieldKind) => Promise<{ ok: boolean; error?: string }>;
+  onDropColumn: (col: string) => void;
+  onExport: (format: 'csv' | 'tsv' | 'json') => void;
+  onOpenAi: (which: 'filter' | 'column' | 'fill') => void;
+  onCloseAi: () => void;
+  onAiFilter: (question: string) => void;
+  onAiGenerateColumn: (description: string) => void;
+  onAiFillColumn: (column: string, instruction: string) => void;
+  onSeedWithAi: () => void;
+  onRetry: () => void;
+}
+
+const BrowseView = memo((props: BrowseViewProps) => {
+  const {
+    table,
+    state,
+    shownColumns,
+    pageRows,
+    filteredCount,
+    loadedTotal,
+    pageIndex,
+    pageCount,
+    pageSize,
+    density,
+    rowHeight,
+    viewMode,
+    sortFor,
+    search,
+    conditions,
+    combinator,
+    filterBarOpen,
+    colMenuOpen,
+    selectedRowKeys,
+    selectedOnPage,
+    canMutateRows,
+    bulkBusy,
+    addingRow,
+    addColOpen,
+    allColumns,
+    shownNames,
+    hiddenCols,
+    aiPanel,
+    aiBusy,
+    aiError,
+    pkCols,
+    generatedCols,
+    onBack,
+    onSetSearch,
+    onSortColumn,
+    onSetPageSize,
+    onPrevPage,
+    onNextPage,
+    onToggleFilterBar,
+    onToggleColMenu,
+    onToggleHidden,
+    onMoveColumn,
+    onSetDensity,
+    onSetViewMode,
+    onAddCondition,
+    onRemoveCondition,
+    onUpdateCondition,
+    onSetCombinator,
+    onClearFilters,
+    onRowClick,
+    onToggleBoolean,
+    onToggleRowSelected,
+    onToggleSelectAll,
+    onDeleteRow,
+    onDeleteSelected,
+    onClearSelection,
+    onAddRow,
+    onOpenAddCol,
+    onCloseAddCol,
+    onAddColumn,
+    onDropColumn,
+    onExport,
+    onOpenAi,
+    onCloseAi,
+    onAiFilter,
+    onAiGenerateColumn,
+    onAiFillColumn,
+    onRetry,
+  } = props;
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const activeFilters = conditions.filter((c) => filterIsActive(c.col, c.op, c.val)).length;
+
+  const rowVirtualizer = useVirtualizer({
+    count: pageRows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => rowHeight,
+    overscan: 12,
+  });
+
+  // Reset scroll to the top whenever the page/table changes.
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
+    }
+  }, [pageIndex, table]);
+
+  const allPageSelected =
+    pageRows.length > 0 &&
+    pageRows.every((r) => {
+      const k = rowPkKey(r, pkCols);
+      return k !== null && selectedRowKeys.has(k);
+    });
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0" data-testid="sitedb-browse">
+      {/* ── Breadcrumb row ── */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-bolt-elements-borderColor shrink-0">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back to tables"
+          title="Back to tables"
+          className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded hover:bg-bolt-elements-item-backgroundActive text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+        >
+          <div className="i-ph:arrow-left text-sm" />
+        </button>
+        <div className="i-ph:table text-sm text-bolt-elements-textTertiary shrink-0" />
+        <span className="text-xs font-mono text-bolt-elements-textPrimary truncate flex-1">{table}</span>
+        {/* View toggle: Grid | Gallery */}
+        <div className="flex items-center rounded-md border border-bolt-elements-borderColor overflow-hidden shrink-0" role="group" aria-label="View mode">
+          {(['grid', 'gallery'] as const).map((v) => (
             <button
+              key={v}
               type="button"
-              onClick={() => exportPageCsv(page)}
-              data-testid="sitedb-export-csv"
-              title="Export the current page as CSV"
-              className="min-h-[24px] text-[10px] font-medium px-2 py-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors flex items-center gap-1 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              onClick={() => onSetViewMode(v)}
+              data-testid={`sitedb-view-${v}`}
+              aria-pressed={viewMode === v}
+              title={v === 'grid' ? 'Grid view' : 'Gallery view'}
+              className={classNames(
+                'min-h-[24px] px-2 py-1 text-[11px] flex items-center gap-1 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
+                viewMode === v
+                  ? 'bg-bolt-elements-item-backgroundAccent/20 text-bolt-elements-item-contentAccent'
+                  : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
+              )}
             >
-              <div className="i-ph:download-simple" /> Export CSV
+              <div className={v === 'grid' ? 'i-ph:table' : 'i-ph:squares-four'} />
             </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Toolbar row: search · filter · columns · density · AI · export · add ── */}
+      <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-bolt-elements-borderColor shrink-0 bg-bolt-elements-background-depth-1">
+        {/* Search */}
+        <div className="relative">
+          <div className="i-ph:magnifying-glass absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-bolt-elements-textTertiary pointer-events-none" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => onSetSearch(e.target.value)}
+            placeholder="Search rows…"
+            data-testid="sitedb-search"
+            aria-label="Search rows"
+            className="min-h-[24px] w-[150px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 pl-6 pr-2 py-1 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-item-contentAccent"
+          />
+        </div>
+
+        {/* Filter toggle */}
+        <ToolbarButton
+          testId="sitedb-filter-toggle"
+          icon="i-ph:funnel"
+          label="Filter"
+          active={filterBarOpen || activeFilters > 0}
+          badge={activeFilters > 0 ? String(activeFilters) : undefined}
+          onClick={onToggleFilterBar}
+        />
+
+        {/* Columns menu */}
+        <div className="relative">
+          <ToolbarButton
+            testId="sitedb-columns-toggle"
+            icon="i-ph:columns"
+            label="Columns"
+            active={colMenuOpen || hiddenCols.length > 0}
+            badge={hiddenCols.length > 0 ? `${shownNames.length}/${allColumns.length}` : undefined}
+            onClick={onToggleColMenu}
+          />
+          {colMenuOpen && (
+            <ColumnsMenu
+              columns={allColumns}
+              shownNames={shownNames}
+              onToggleHidden={onToggleHidden}
+              onMoveColumn={onMoveColumn}
+              onClose={onToggleColMenu}
+            />
           )}
         </div>
 
-        {state.status === 'loading' && <Spinner label={`Loading "${table}"…`} />}
-        {state.status === 'error' && <ErrorCard message={state.message} onRetry={onRetry} />}
+        {/* Density */}
+        <div className="flex items-center rounded-md border border-bolt-elements-borderColor overflow-hidden" role="group" aria-label="Row density">
+          {(['compact', 'cozy', 'comfortable'] as const).map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => onSetDensity(d)}
+              data-testid={`sitedb-density-${d}`}
+              aria-pressed={density === d}
+              title={`${d[0].toUpperCase()}${d.slice(1)} rows`}
+              className={classNames(
+                'min-h-[24px] px-1.5 py-1 text-[11px] flex items-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
+                density === d
+                  ? 'bg-bolt-elements-item-backgroundAccent/20 text-bolt-elements-item-contentAccent'
+                  : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary',
+              )}
+            >
+              <div className={d === 'compact' ? 'i-ph:rows' : d === 'cozy' ? 'i-ph:list' : 'i-ph:list-plus'} />
+            </button>
+          ))}
+        </div>
 
-        {page && state.status === 'ready' && (
-          <>
-            {rows.length === 0 ? (
-              <div
-                className="flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center"
-                data-testid="sitedb-table-empty"
-              >
-                <div className="i-ph:tray text-3xl text-bolt-elements-textTertiary" />
-                <p className="text-xs text-bolt-elements-textSecondary">
-                  <span className="font-mono text-bolt-elements-textPrimary">{table}</span> has no rows yet
-                </p>
-              </div>
-            ) : (
-              <div ref={scrollRef} className="flex-1 overflow-auto modern-scrollbar min-h-0" data-testid="sitedb-grid">
-                {/* Sticky column header */}
-                <div
-                  className="sticky top-0 z-10 flex bg-bolt-elements-background-depth-2 border-b border-bolt-elements-borderColor"
-                  role="row"
+        <div className="w-px h-4 bg-bolt-elements-borderColor mx-0.5" aria-hidden />
+
+        {/* AI actions */}
+        <ToolbarButton testId="sitedb-ai-filter" icon="i-ph:sparkle" label="AI filter" accent onClick={() => onOpenAi('filter')} />
+        <ToolbarButton testId="sitedb-ai-column" icon="i-ph:magic-wand" label="AI column" accent onClick={() => onOpenAi('column')} />
+        {selectedRowKeys.size > 0 && (
+          <ToolbarButton testId="sitedb-ai-fill" icon="i-ph:pen-nib" label="AI fill" accent onClick={() => onOpenAi('fill')} />
+        )}
+
+        <div className="ml-auto flex items-center gap-1.5">
+          {/* Export menu */}
+          {pageRows.length > 0 && (
+            <ExportMenu onExport={onExport} />
+          )}
+          {/* Add column */}
+          {canMutateRows && (
+            <ToolbarButton testId="sitedb-add-column" icon="i-ph:plus-circle" label="Column" onClick={onOpenAddCol} />
+          )}
+          {/* Add row */}
+          {canMutateRows && (
+            <button
+              type="button"
+              onClick={onAddRow}
+              disabled={addingRow}
+              data-testid="sitedb-add-row"
+              title="Add a new row"
+              className="min-h-[24px] text-[11px] font-semibold px-2 py-1 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/20 disabled:opacity-50 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+            >
+              <div className={addingRow ? 'i-ph:circle-notch animate-spin' : 'i-ph:plus'} />
+              <span className="min-w-[6ch] text-center">{addingRow ? 'Adding…' : 'New row'}</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Filter bar */}
+      {filterBarOpen && (
+        <FilterBar
+          columns={allColumns}
+          conditions={conditions}
+          combinator={combinator}
+          onAddCondition={onAddCondition}
+          onRemoveCondition={onRemoveCondition}
+          onUpdateCondition={onUpdateCondition}
+          onSetCombinator={onSetCombinator}
+          onClear={onClearFilters}
+        />
+      )}
+
+      {/* Bulk-select action bar */}
+      {selectedRowKeys.size > 0 && (
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 border-b border-bolt-elements-borderColor bg-bolt-elements-item-backgroundAccent/10 text-[11px] shrink-0"
+          data-testid="sitedb-bulk-bar"
+          role="status"
+        >
+          <span className="text-bolt-elements-item-contentAccent font-medium">
+            {selectedRowKeys.size} selected
+          </span>
+          <button
+            type="button"
+            onClick={onDeleteSelected}
+            disabled={bulkBusy}
+            data-testid="sitedb-bulk-delete"
+            className="min-h-[24px] text-[11px] font-semibold px-2 py-0.5 rounded border border-red-400/50 bg-red-400/10 text-red-300 enabled:hover:bg-red-400/20 disabled:opacity-50 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 cursor-pointer"
+          >
+            <div className={bulkBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:trash'} /> Delete
+          </button>
+          <button
+            type="button"
+            onClick={onClearSelection}
+            className="ml-auto text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary cursor-pointer"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* AI panel */}
+      {aiPanel && (
+        <AiPanel
+          mode={aiPanel}
+          busy={aiBusy}
+          error={aiError}
+          columns={allColumns.filter((c) => !generatedCols.has(c.name) && !pkCols.includes(c.name))}
+          selectedCount={selectedRowKeys.size}
+          onClose={onCloseAi}
+          onFilter={onAiFilter}
+          onGenerateColumn={onAiGenerateColumn}
+          onFillColumn={onAiFillColumn}
+        />
+      )}
+
+      {/* Add-column dialog */}
+      {addColOpen && <AddColumnForm onAdd={onAddColumn} onClose={onCloseAddCol} />}
+
+      {state.status === 'loading' && <Spinner label={`Loading "${table}"…`} />}
+      {state.status === 'error' && <ErrorCard message={state.message} onRetry={onRetry} />}
+
+      {state.status === 'ready' && (
+        <>
+          {filteredCount === 0 ? (
+            <div
+              className="flex-1 flex flex-col items-center justify-center gap-2 p-8 text-center"
+              data-testid="sitedb-table-empty"
+            >
+              <div className="i-ph:tray text-3xl text-bolt-elements-textTertiary" />
+              <p className="text-xs text-bolt-elements-textSecondary">
+                {search || activeFilters > 0 ? (
+                  <>No rows match your filter.</>
+                ) : (
+                  <>
+                    <span className="font-mono text-bolt-elements-textPrimary">{table}</span> has no rows yet
+                  </>
+                )}
+              </p>
+              {search || activeFilters > 0 ? (
+                <button
+                  type="button"
+                  onClick={onClearFilters}
+                  className="min-h-[24px] text-[11px] text-bolt-elements-item-contentAccent hover:underline cursor-pointer"
                 >
-                  {columns.map((col) => {
-                    const gate = editableColumn(col.name);
-                    return (
-                      <div
-                        key={col.name}
-                        role="columnheader"
-                        className="shrink-0 w-[180px] px-3 py-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary font-medium truncate border-r border-bolt-elements-borderColor/40 flex items-center gap-1"
-                        title={
-                          gate.editable ? `${col.name} · ${col.type || 'ANY'}` : `${col.name} · ${gate.reason ?? ''}`
+                  Clear filters
+                </button>
+              ) : (
+                canMutateRows && (
+                  <button
+                    type="button"
+                    onClick={onAddRow}
+                    className="min-h-[24px] mt-1 text-[11px] font-medium px-3 py-1.5 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/10 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/20 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <div className="i-ph:plus" /> Add the first row
+                  </button>
+                )
+              )}
+            </div>
+          ) : viewMode === 'gallery' ? (
+            <GalleryView
+              columns={shownColumns}
+              rows={pageRows}
+              onRowClick={onRowClick}
+            />
+          ) : (
+            <div ref={scrollRef} className="flex-1 overflow-auto modern-scrollbar min-h-0" data-testid="sitedb-grid">
+              {/* Sticky header (frozen select + first column) */}
+              <div
+                className="sticky top-0 z-20 flex bg-bolt-elements-background-depth-2 border-b border-bolt-elements-borderColor"
+                role="row"
+              >
+                {canMutateRows && (
+                  <div
+                    className={classNames(
+                      'sticky left-0 z-30 shrink-0 w-[36px] flex items-center justify-center border-r border-bolt-elements-borderColor/40 bg-bolt-elements-background-depth-2',
+                      densityCellClass(density),
+                    )}
+                    role="columnheader"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={allPageSelected}
+                      onChange={onToggleSelectAll}
+                      aria-label="Select all rows on this page"
+                      data-testid="sitedb-select-all"
+                      className="h-3 w-3 accent-[#00E5FF] cursor-pointer"
+                    />
+                  </div>
+                )}
+                {shownColumns.map((col, idx) => {
+                  const gate = props.editableColumn(col.name);
+                  const s = sortFor(col.name);
+                  const frozen = idx === 0;
+
+                  return (
+                    <div
+                      key={col.name}
+                      role="columnheader"
+                      onClick={() => onSortColumn(col.name)}
+                      title={
+                        gate.editable
+                          ? `${col.name} · ${col.type || 'ANY'} · click to sort`
+                          : `${col.name} · ${gate.reason ?? ''}`
+                      }
+                      style={{ width: COL_WIDTH, left: frozen && canMutateRows ? 36 : undefined }}
+                      className={classNames(
+                        'group/hdr shrink-0 text-[10px] uppercase tracking-wider font-medium truncate border-r border-bolt-elements-borderColor/40 flex items-center gap-1 cursor-pointer select-none transition-colors',
+                        densityCellClass(density),
+                        s
+                          ? 'text-bolt-elements-item-contentAccent bg-bolt-elements-item-backgroundAccent/[0.07]'
+                          : 'text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
+                        frozen ? 'sticky z-30 bg-bolt-elements-background-depth-2' : '',
+                      )}
+                    >
+                      {col.pk === 1 && (
+                        <div className="i-ph:key text-[10px] text-bolt-elements-item-contentAccent shrink-0" />
+                      )}
+                      <span className="truncate">{col.name}</span>
+                      {!col.pk && !gate.editable && (
+                        <div
+                          className="i-ph:lock-simple text-[9px] text-bolt-elements-textTertiary/70 shrink-0"
+                          title={gate.reason}
+                        />
+                      )}
+                      {/* Sort caret: active shows dir (+ priority pill for multi-sort); idle reveals a faint hint on hover. */}
+                      {s ? (
+                        <span
+                          className="ml-auto flex items-center gap-0.5 text-bolt-elements-item-contentAccent shrink-0"
+                          data-testid={`sitedb-sort-${col.name}`}
+                        >
+                          <div className={s.dir === 'asc' ? 'i-ph:caret-up text-[10px]' : 'i-ph:caret-down text-[10px]'} />
+                          {props.sorts.length > 1 && (
+                            <span className="inline-flex items-center justify-center h-3 min-w-3 px-0.5 rounded-full bg-bolt-elements-item-contentAccent/25 text-[8px] leading-none">
+                              {s.priority}
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <div className="i-ph:arrows-down-up ml-auto text-[9px] text-bolt-elements-textTertiary/0 group-hover/hdr:text-bolt-elements-textTertiary/50 shrink-0 transition-colors" />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Virtualized body */}
+              <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative', width: '100%' }}>
+                {rowVirtualizer.getVirtualItems().map((vItem) => {
+                  const row = pageRows[vItem.index];
+
+                  return (
+                    <GridRow
+                      key={vItem.key}
+                      row={row}
+                      columns={shownColumns}
+                      density={density}
+                      top={vItem.start}
+                      height={vItem.size}
+                      canMutateRows={canMutateRows}
+                      selected={(() => {
+                        const k = rowPkKey(row, pkCols);
+                        return k !== null && selectedRowKeys.has(k);
+                      })()}
+                      onToggleSelect={() => {
+                        const k = rowPkKey(row, pkCols);
+
+                        if (k !== null) {
+                          onToggleRowSelected(k);
                         }
-                      >
-                        {col.pk === 1 && (
-                          <div className="i-ph:key text-[10px] text-bolt-elements-item-contentAccent shrink-0" />
-                        )}
-                        <span className="truncate">{col.name}</span>
-                        {!col.pk && !gate.editable && (
-                          <div
-                            className="i-ph:lock-simple text-[9px] text-bolt-elements-textTertiary/70 shrink-0"
-                            title={gate.reason}
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Virtualized body */}
-                <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative', width: '100%' }}>
-                  {rowVirtualizer.getVirtualItems().map((vItem) => {
-                    const row = rows[vItem.index];
-                    return (
-                      <GridRow
-                        key={vItem.key}
-                        row={row}
-                        columns={columns}
-                        top={vItem.start}
-                        height={vItem.size}
-                        onRowClick={onRowClick}
-                        editableColumn={editableColumn}
-                        editing={editing}
-                        editKind={editKind}
-                        editValue={editValue}
-                        editError={editError}
-                        editBusy={editBusy}
-                        pkCols={pkCols}
-                        columnOptions={columnOptions}
-                        onStartEdit={onStartEdit}
-                        onEditKindChange={onEditKindChange}
-                        onEditValueChange={onEditValueChange}
-                        onEditSave={onEditSave}
-                        onEditCancel={onEditCancel}
-                      />
-                    );
-                  })}
-                </div>
+                      }}
+                      onDeleteRow={() => onDeleteRow(row)}
+                      onRowClick={onRowClick}
+                      onToggleBoolean={onToggleBoolean}
+                      editableColumn={props.editableColumn}
+                      editing={props.editing}
+                      editKind={props.editKind}
+                      editValue={props.editValue}
+                      editError={props.editError}
+                      editBusy={props.editBusy}
+                      pkCols={pkCols}
+                      onStartEdit={props.onStartEdit}
+                      onEditKindChange={props.onEditKindChange}
+                      onEditValueChange={props.onEditValueChange}
+                      onEditSave={props.onEditSave}
+                      onEditCancel={props.onEditCancel}
+                    />
+                  );
+                })}
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Pagination footer */}
-            {rows.length > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2 border-t border-bolt-elements-borderColor text-[11px] text-bolt-elements-textTertiary shrink-0">
-                <span data-testid="sitedb-page-info">
-                  Showing {offset + 1} to {offset + rows.length} of {total}
+          {/* ── Pagination footer with page-size selector ── */}
+          {filteredCount > 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 border-t border-bolt-elements-borderColor text-[11px] text-bolt-elements-textTertiary shrink-0">
+              <span data-testid="sitedb-page-info">
+                Showing {pageIndex * pageSize + 1} to {Math.min((pageIndex + 1) * pageSize, filteredCount)} of{' '}
+                {filteredCount}
+                {filteredCount !== loadedTotal && <span className="text-bolt-elements-textTertiary/60"> (filtered from {loadedTotal})</span>}
+              </span>
+
+              <label className="ml-3 flex items-center gap-1">
+                <span className="sr-only">Rows per page</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => onSetPageSize(Number(e.target.value))}
+                  data-testid="sitedb-page-size"
+                  aria-label="Rows per page"
+                  className="min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
+                >
+                  {PAGE_SIZE_OPTIONS.map((n) => (
+                    <option key={n} value={n}>
+                      {n} / page
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="ml-auto flex items-center gap-1">
+                <span className="text-bolt-elements-textTertiary/70" data-testid="sitedb-page-count">
+                  Page {pageIndex + 1} of {pageCount}
                 </span>
-                <div className="ml-auto flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={onPrev}
-                    disabled={!hasPrev}
-                    aria-label="Previous page"
-                    className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary enabled:hover:bg-bolt-elements-background-depth-3 enabled:hover:text-bolt-elements-textPrimary disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-                  >
-                    <div className="i-ph:caret-left text-sm" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onNext}
-                    disabled={!hasNext}
-                    aria-label="Next page"
-                    className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary enabled:hover:bg-bolt-elements-background-depth-3 enabled:hover:text-bolt-elements-textPrimary disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-                  >
-                    <div className="i-ph:caret-right text-sm" />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={onPrevPage}
+                  disabled={pageIndex <= 0}
+                  aria-label="Previous page"
+                  data-testid="sitedb-prev-page"
+                  className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary enabled:hover:bg-bolt-elements-background-depth-3 enabled:hover:text-bolt-elements-textPrimary disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                >
+                  <div className="i-ph:caret-left text-sm" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onNextPage}
+                  disabled={pageIndex >= pageCount - 1}
+                  aria-label="Next page"
+                  data-testid="sitedb-next-page"
+                  className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary enabled:hover:bg-bolt-elements-background-depth-3 enabled:hover:text-bolt-elements-textPrimary disabled:opacity-40 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                >
+                  <div className="i-ph:caret-right text-sm" />
+                </button>
               </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+});
+
+BrowseView.displayName = 'SiteTablesPanel.BrowseView';
+
+// ── Toolbar button ───────────────────────────────────────────────────────────
+
+const ToolbarButton = memo(
+  ({
+    testId,
+    icon,
+    label,
+    active,
+    accent,
+    badge,
+    onClick,
+  }: {
+    testId: string;
+    icon: string;
+    label: string;
+    active?: boolean;
+    accent?: boolean;
+    badge?: string;
+    onClick: () => void;
+  }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid={testId}
+      title={label}
+      className={classNames(
+        'min-h-[24px] text-[11px] font-medium px-2 py-1 rounded border transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer',
+        active
+          ? 'border-bolt-elements-item-contentAccent/60 bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent'
+          : accent
+            ? 'border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-backgroundAccent/[0.06] text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/15'
+            : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3',
+      )}
+    >
+      <div className={classNames(icon, 'text-[13px]')} />
+      <span>{label}</span>
+      {badge && (
+        <span className="ml-0.5 rounded-full bg-bolt-elements-item-contentAccent/25 px-1 text-[9px] text-bolt-elements-item-contentAccent">
+          {badge}
+        </span>
+      )}
+    </button>
+  ),
+);
+
+ToolbarButton.displayName = 'SiteTablesPanel.ToolbarButton';
+
+// ── Export menu ──────────────────────────────────────────────────────────────
+
+const ExportMenu = memo(({ onExport }: { onExport: (format: 'csv' | 'tsv' | 'json') => void }) => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <ToolbarButton testId="sitedb-export" icon="i-ph:download-simple" label="Export" onClick={() => setOpen((o) => !o)} />
+      {open && (
+        <>
+          <button type="button" aria-hidden className="fixed inset-0 z-30 cursor-default" onClick={() => setOpen(false)} />
+          <div
+            className="absolute right-0 top-full mt-1 z-40 w-40 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-xl py-1"
+            data-testid="sitedb-export-menu"
+            role="menu"
+          >
+            {(['csv', 'tsv', 'json'] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onExport(f);
+                  setOpen(false);
+                }}
+                data-testid={`sitedb-export-${f}`}
+                className="w-full text-left px-3 py-1.5 text-[11px] text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundActive hover:text-bolt-elements-textPrimary flex items-center gap-2 cursor-pointer"
+              >
+                <div className="i-ph:file text-bolt-elements-textTertiary" /> Whole table as {f.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+});
+
+ExportMenu.displayName = 'SiteTablesPanel.ExportMenu';
+
+// ── Columns show/hide + reorder menu ────────────────────────────────────────
+
+const ColumnsMenu = memo(
+  ({
+    columns,
+    shownNames,
+    onToggleHidden,
+    onMoveColumn,
+    onClose,
+  }: {
+    columns: ColumnInfo[];
+    shownNames: string[];
+    onToggleHidden: (col: string) => void;
+    onMoveColumn: (col: string, dir: -1 | 1) => void;
+    onClose: () => void;
+  }) => {
+    const shown = new Set(shownNames);
+
+    return (
+      <>
+        <button type="button" aria-hidden className="fixed inset-0 z-30 cursor-default" onClick={onClose} />
+        <div
+          className="absolute left-0 top-full mt-1 z-40 w-56 max-h-[320px] overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-xl py-1"
+          data-testid="sitedb-columns-menu"
+          role="menu"
+        >
+          <p className="px-3 py-1 text-[9px] uppercase tracking-wider text-bolt-elements-textTertiary">Show / hide · reorder</p>
+          {columns.map((col, i) => (
+            <div
+              key={col.name}
+              className="flex items-center gap-1.5 px-2 py-1 hover:bg-bolt-elements-item-backgroundActive"
+              data-testid="sitedb-column-menu-row"
+            >
+              <label className="flex items-center gap-1.5 flex-1 min-w-0 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={shown.has(col.name)}
+                  onChange={() => onToggleHidden(col.name)}
+                  data-testid={`sitedb-col-toggle-${col.name}`}
+                  className="h-3 w-3 accent-[#00E5FF] cursor-pointer shrink-0"
+                />
+                <span className="text-[11px] font-mono text-bolt-elements-textPrimary truncate">{col.name}</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => onMoveColumn(col.name, -1)}
+                disabled={i === 0}
+                aria-label={`Move ${col.name} left`}
+                data-testid={`sitedb-col-left-${col.name}`}
+                className="min-h-[20px] min-w-[20px] flex items-center justify-center rounded text-bolt-elements-textTertiary enabled:hover:text-bolt-elements-item-contentAccent disabled:opacity-30 cursor-pointer"
+              >
+                <div className="i-ph:arrow-up text-[11px]" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onMoveColumn(col.name, 1)}
+                disabled={i === columns.length - 1}
+                aria-label={`Move ${col.name} right`}
+                data-testid={`sitedb-col-right-${col.name}`}
+                className="min-h-[20px] min-w-[20px] flex items-center justify-center rounded text-bolt-elements-textTertiary enabled:hover:text-bolt-elements-item-contentAccent disabled:opacity-30 cursor-pointer"
+              >
+                <div className="i-ph:arrow-down text-[11px]" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  },
+);
+
+ColumnsMenu.displayName = 'SiteTablesPanel.ColumnsMenu';
+
+// ── Filter bar (multi-condition AND/OR group) ───────────────────────────────
+
+const FilterBar = memo(
+  ({
+    columns,
+    conditions,
+    combinator,
+    onAddCondition,
+    onRemoveCondition,
+    onUpdateCondition,
+    onSetCombinator,
+    onClear,
+  }: {
+    columns: ColumnInfo[];
+    conditions: FilterCondition[];
+    combinator: 'AND' | 'OR';
+    onAddCondition: () => void;
+    onRemoveCondition: (i: number) => void;
+    onUpdateCondition: (i: number, patch: Partial<FilterCondition>) => void;
+    onSetCombinator: (c: 'AND' | 'OR') => void;
+    onClear: () => void;
+  }) => (
+    <div
+      className="px-3 py-2 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/60 shrink-0 space-y-1.5"
+      data-testid="sitedb-filter-bar"
+    >
+      {conditions.length === 0 && (
+        <p className="text-[11px] text-bolt-elements-textTertiary">No filters yet — add a condition to narrow the rows.</p>
+      )}
+      {conditions.map((c, i) => {
+        const valueFree = filterOpIsValueFree(c.op);
+
+        return (
+          <div key={i} className="flex items-center gap-1.5" data-testid="sitedb-filter-condition">
+            {i === 0 ? (
+              <span className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary w-[54px] shrink-0">Where</span>
+            ) : (
+              <select
+                value={combinator}
+                onChange={(e) => onSetCombinator(e.target.value as 'AND' | 'OR')}
+                aria-label="Combine conditions"
+                data-testid="sitedb-filter-combinator"
+                className="w-[54px] shrink-0 min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[10px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
+              >
+                <option value="AND">And</option>
+                <option value="OR">Or</option>
+              </select>
             )}
-          </>
+            <select
+              value={c.col ?? ''}
+              onChange={(e) => onUpdateCondition(i, { col: e.target.value || null })}
+              aria-label="Filter column"
+              data-testid="sitedb-filter-col"
+              className="min-h-[24px] max-w-[140px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
+            >
+              <option value="">column…</option>
+              {columns.map((col) => (
+                <option key={col.name} value={col.name}>
+                  {col.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={c.op}
+              onChange={(e) => onUpdateCondition(i, { op: e.target.value })}
+              aria-label="Filter operator"
+              data-testid="sitedb-filter-op"
+              className="min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
+            >
+              {FILTER_OP_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            {!valueFree && (
+              <input
+                type="text"
+                value={c.val}
+                onChange={(e) => onUpdateCondition(i, { val: e.target.value })}
+                placeholder="value"
+                aria-label="Filter value"
+                data-testid="sitedb-filter-val"
+                className="min-h-[24px] w-[120px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-item-contentAccent"
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => onRemoveCondition(i)}
+              aria-label="Remove condition"
+              data-testid="sitedb-filter-remove"
+              className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded text-bolt-elements-textTertiary hover:text-red-300 cursor-pointer"
+            >
+              <div className="i-ph:x text-[11px]" />
+            </button>
+          </div>
+        );
+      })}
+      <div className="flex items-center gap-2 pt-0.5">
+        <button
+          type="button"
+          onClick={onAddCondition}
+          disabled={conditions.length >= MAX_FILTER_CONDITIONS}
+          data-testid="sitedb-filter-add"
+          className="min-h-[24px] text-[11px] font-medium px-2 py-0.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-background-depth-3 disabled:opacity-40 transition-colors flex items-center gap-1 cursor-pointer"
+        >
+          <div className="i-ph:plus" /> Add condition
+        </button>
+        {conditions.length > 0 && (
+          <button
+            type="button"
+            onClick={onClear}
+            data-testid="sitedb-filter-clear"
+            className="min-h-[24px] text-[11px] text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary cursor-pointer"
+          >
+            Clear all
+          </button>
+        )}
+      </div>
+    </div>
+  ),
+);
+
+FilterBar.displayName = 'SiteTablesPanel.FilterBar';
+
+// ── AI panel (filter / column / fill) ────────────────────────────────────────
+
+const AiPanel = memo(
+  ({
+    mode,
+    busy,
+    error,
+    columns,
+    selectedCount,
+    onClose,
+    onFilter,
+    onGenerateColumn,
+    onFillColumn,
+  }: {
+    mode: 'filter' | 'column' | 'fill';
+    busy: null | 'filter' | 'column' | 'fill';
+    error: string;
+    columns: ColumnInfo[];
+    selectedCount: number;
+    onClose: () => void;
+    onFilter: (q: string) => void;
+    onGenerateColumn: (d: string) => void;
+    onFillColumn: (col: string, instruction: string) => void;
+  }) => {
+    const [text, setText] = useState('');
+    const [fillCol, setFillCol] = useState(columns[0]?.name ?? '');
+    const isBusy = busy === mode;
+
+    const title = mode === 'filter' ? 'AI filter' : mode === 'column' ? 'AI generate column' : 'AI fill selected cells';
+    const placeholder =
+      mode === 'filter'
+        ? 'e.g. orders over $100 in the last week, newest first'
+        : mode === 'column'
+          ? 'e.g. a "status" column: active if last_seen within 30 days'
+          : 'e.g. write a friendly one-line summary from the other fields';
+
+    const submit = () => {
+      if (mode === 'filter') {
+        onFilter(text);
+      } else if (mode === 'column') {
+        onGenerateColumn(text);
+      } else {
+        onFillColumn(fillCol, text);
+      }
+    };
+
+    return (
+      <div
+        className="px-3 py-2.5 border-b border-bolt-elements-borderColor bg-bolt-elements-item-backgroundAccent/[0.06] shrink-0 space-y-1.5"
+        data-testid="sitedb-ai-panel"
+      >
+        <div className="flex items-center gap-1.5">
+          <div className="i-ph:sparkle-duotone text-bolt-elements-item-contentAccent text-sm" />
+          <span className="text-[11px] font-semibold text-bolt-elements-item-contentAccent">{title}</span>
+          {mode === 'fill' && (
+            <span className="text-[10px] text-bolt-elements-textTertiary">· {selectedCount} row{selectedCount === 1 ? '' : 's'} selected</span>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close AI panel"
+            className="ml-auto min-h-[24px] min-w-[24px] flex items-center justify-center rounded text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary cursor-pointer"
+          >
+            <div className="i-ph:x text-[11px]" />
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {mode === 'fill' && (
+            <select
+              value={fillCol}
+              onChange={(e) => setFillCol(e.target.value)}
+              aria-label="Column to fill"
+              data-testid="sitedb-ai-fill-col"
+              className="min-h-[24px] max-w-[140px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
+            >
+              {columns.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            placeholder={placeholder}
+            aria-label={title}
+            data-testid="sitedb-ai-input"
+            className="flex-1 min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1 text-[11px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-item-contentAccent"
+          />
+          <button
+            type="button"
+            onClick={submit}
+            disabled={isBusy}
+            data-testid="sitedb-ai-submit"
+            className="min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 transition-colors flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+          >
+            <div className={isBusy ? 'i-ph:circle-notch animate-spin' : 'i-ph:sparkle'} />
+            <span className="min-w-[5ch] text-center">{isBusy ? 'Working…' : 'Apply'}</span>
+          </button>
+        </div>
+        {error && (
+          <p className="text-[10px] text-red-400" role="alert" data-testid="sitedb-ai-error">
+            {error}
+          </p>
         )}
       </div>
     );
   },
 );
 
-BrowseView.displayName = 'SiteTablesPanel.BrowseView';
+AiPanel.displayName = 'SiteTablesPanel.AiPanel';
 
-// ── One grid row (its own component so an open editor doesn't re-render the whole page) ─────────────
+// ── Add-column form ───────────────────────────────────────────────────────────
 
-const GridRow = memo(
-  ({
+const AddColumnForm = memo(
+  ({ onAdd, onClose }: { onAdd: (name: string, kind: FieldKind) => Promise<{ ok: boolean; error?: string }>; onClose: () => void }) => {
+    const [name, setName] = useState('');
+    const [kind, setKind] = useState<FieldKind>('text');
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+
+    const submit = async () => {
+      if (!name.trim() || busy) {
+        return;
+      }
+
+      setBusy(true);
+      setError('');
+      const res = await onAdd(name.trim(), kind);
+      setBusy(false);
+
+      if (res.ok) {
+        onClose();
+      } else {
+        setError(res.error || 'Could not add the column.');
+      }
+    };
+
+    return (
+      <div
+        className="px-3 py-2.5 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/60 shrink-0 space-y-1.5"
+        data-testid="sitedb-add-column-form"
+      >
+        <div className="flex items-center gap-1.5">
+          <div className="i-ph:plus-circle text-bolt-elements-item-contentAccent text-sm" />
+          <span className="text-[11px] font-semibold text-bolt-elements-textPrimary">New column</span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Cancel"
+            className="ml-auto min-h-[24px] min-w-[24px] flex items-center justify-center rounded text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary cursor-pointer"
+          >
+            <div className="i-ph:x text-[11px]" />
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                void submit();
+              }
+            }}
+            placeholder="column_name"
+            aria-label="Column name"
+            data-testid="sitedb-add-column-name"
+            className="flex-1 min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1 text-[11px] font-mono text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-item-contentAccent"
+          />
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as FieldKind)}
+            aria-label="Column type"
+            data-testid="sitedb-add-column-type"
+            className="min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1.5 py-0.5 text-[11px] text-bolt-elements-textPrimary focus:outline-none cursor-pointer"
+          >
+            {FIELD_KIND_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={busy || !name.trim()}
+            data-testid="sitedb-add-column-submit"
+            className="min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer"
+          >
+            <div className={busy ? 'i-ph:circle-notch animate-spin' : 'i-ph:check'} /> Add
+          </button>
+        </div>
+        {error && (
+          <p className="text-[10px] text-red-400" role="alert" data-testid="sitedb-add-column-error">
+            {error}
+          </p>
+        )}
+      </div>
+    );
+  },
+);
+
+AddColumnForm.displayName = 'SiteTablesPanel.AddColumnForm';
+
+// ── One grid row ─────────────────────────────────────────────────────────────
+
+interface GridRowProps extends EditProps {
+  row: Record<string, unknown>;
+  columns: ColumnInfo[];
+  density: GridDensity;
+  top: number;
+  height: number;
+  canMutateRows: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
+  onDeleteRow: () => void;
+  onRowClick: (row: Record<string, unknown>) => void;
+  onToggleBoolean: (row: Record<string, unknown>, col: ColumnInfo) => void;
+}
+
+const GridRow = memo((props: GridRowProps) => {
+  const {
     row,
     columns,
+    density,
     top,
     height,
+    canMutateRows,
+    selected,
+    onToggleSelect,
+    onDeleteRow,
     onRowClick,
+    onToggleBoolean,
     editableColumn,
     editing,
     editKind,
@@ -1660,104 +3572,221 @@ const GridRow = memo(
     editError,
     editBusy,
     pkCols,
-    columnOptions,
     onStartEdit,
     onEditKindChange,
     onEditValueChange,
     onEditSave,
     onEditCancel,
-  }: {
-    row: Record<string, unknown>;
-    columns: ColumnInfo[];
-    top: number;
-    height: number;
-    onRowClick: (row: Record<string, unknown>) => void;
-  } & EditProps) => {
-    const thisKey = rowPkKey(row, pkCols);
+  } = props;
 
-    return (
-      <div
-        role="row"
-        data-testid="sitedb-grid-row"
-        className="absolute left-0 flex w-full items-stretch border-b border-bolt-elements-borderColor/30 hover:bg-bolt-elements-item-backgroundActive transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent"
-        style={{ top: 0, height: `${height}px`, transform: `translateY(${top}px)` }}
-      >
-        {columns.map((col) => {
-          const value = row[col.name];
-          const classified = classifyCell(value);
-          const gate = editableColumn(col.name);
-          const isEditingThis =
-            editing !== null && thisKey !== null && editing.pkKey === thisKey && editing.column === col.name;
+  const thisKey = rowPkKey(row, pkCols);
 
-          if (isEditingThis) {
-            return (
-              <div
-                key={col.name}
-                role="cell"
-                className="shrink-0 w-[280px] px-2 py-1 border-r border-bolt-elements-borderColor/20 bg-bolt-elements-background-depth-2 z-20"
-                data-testid="sitedb-cell-editing"
-              >
-                <CellEditor
-                  label={col.name}
-                  editKind={editKind}
-                  onKindChange={onEditKindChange}
-                  editValue={editValue}
-                  onValueChange={onEditValueChange}
-                  options={columnOptions[col.name]}
-                  previewSql={null}
-                  editError={editError}
-                  editBusy={editBusy}
-                  onSave={() => onEditSave(row, col)}
-                  onCancel={onEditCancel}
-                />
-              </div>
-            );
-          }
+  return (
+    <div
+      role="row"
+      data-testid="sitedb-grid-row"
+      className={classNames(
+        'group/row absolute left-0 flex w-full items-stretch border-b border-bolt-elements-borderColor/30 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
+        selected ? 'bg-bolt-elements-item-backgroundAccent/10' : 'hover:bg-bolt-elements-item-backgroundActive',
+      )}
+      style={{ top: 0, height: `${height}px`, transform: `translateY(${top}px)` }}
+    >
+      {/* Frozen select checkbox */}
+      {canMutateRows && (
+        <div
+          className={classNames(
+            'sticky left-0 z-10 shrink-0 w-[36px] flex items-center justify-center border-r border-bolt-elements-borderColor/20',
+            selected ? 'bg-bolt-elements-item-backgroundAccent/10' : 'bg-bolt-elements-background-depth-1 group-hover/row:bg-bolt-elements-item-backgroundActive',
+            densityCellClass(density),
+          )}
+        >
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            onClick={(e) => e.stopPropagation()}
+            aria-label="Select row"
+            data-testid="sitedb-row-select"
+            className="h-3 w-3 accent-[#00E5FF] cursor-pointer"
+          />
+        </div>
+      )}
 
+      {columns.map((col, idx) => {
+        const value = row[col.name];
+        const gate = editableColumn(col.name);
+        const fieldKind = fieldKindForColumn(col, value);
+        const isEditingThis =
+          editing !== null && thisKey !== null && editing.pkKey === thisKey && editing.column === col.name;
+        const frozen = idx === 0;
+
+        if (isEditingThis) {
           return (
             <div
               key={col.name}
               role="cell"
-              tabIndex={0}
-              onClick={() => (gate.editable ? onStartEdit(row, col) : onRowClick(row))}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-
-                  if (gate.editable) {
-                    onStartEdit(row, col);
-                  } else {
-                    onRowClick(row);
-                  }
-                }
-              }}
-              title={
-                gate.editable
-                  ? 'Click to edit'
-                  : classified.kind === 'null'
-                    ? (gate.reason ?? 'null')
-                    : `${classified.title ?? classified.display} · ${gate.reason ?? ''}`
-              }
-              data-testid="sitedb-grid-cell"
-              className={classNames(
-                'group relative shrink-0 w-[180px] px-3 py-1.5 text-xs font-mono truncate border-r border-bolt-elements-borderColor/20 flex items-center gap-1',
-                classified.className,
-                gate.editable ? 'cursor-text hover:bg-bolt-elements-item-backgroundActive' : 'cursor-pointer',
-              )}
+              className="shrink-0 w-[280px] px-2 py-1 border-r border-bolt-elements-borderColor/20 bg-bolt-elements-background-depth-2 z-20"
+              data-testid="sitedb-cell-editing"
             >
-              <span className="truncate">{classified.kind === 'null' ? '—' : classified.display}</span>
-              {gate.editable && (
-                <div className="i-ph:pencil-simple text-[10px] text-bolt-elements-textTertiary opacity-0 group-hover:opacity-70 ml-auto shrink-0" />
-              )}
+              <CellEditor
+                label={col.name}
+                editKind={editKind}
+                onKindChange={onEditKindChange}
+                editValue={editValue}
+                onValueChange={onEditValueChange}
+                previewSql={null}
+                editError={editError}
+                editBusy={editBusy}
+                onSave={() => onEditSave(row, col)}
+                onCancel={onEditCancel}
+              />
             </div>
           );
-        })}
+        }
+
+        // A boolean cell toggles directly (no editor); other editable cells open the typed editor.
+        const clickHandler = () => {
+          if (fieldKind === 'boolean' && gate.editable) {
+            return; // handled by the checkbox itself
+          }
+
+          if (gate.editable) {
+            onStartEdit(row, col);
+          } else {
+            onRowClick(row);
+          }
+        };
+
+        return (
+          <div
+            key={col.name}
+            role="cell"
+            tabIndex={0}
+            onClick={clickHandler}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                if (fieldKind === 'boolean' && gate.editable) {
+                  return;
+                }
+
+                e.preventDefault();
+
+                if (gate.editable) {
+                  onStartEdit(row, col);
+                } else {
+                  onRowClick(row);
+                }
+              }
+            }}
+            title={gate.editable ? 'Click to edit' : (gate.reason ?? '')}
+            data-testid="sitedb-grid-cell"
+            style={{ width: COL_WIDTH, left: frozen && canMutateRows ? 36 : undefined }}
+            className={classNames(
+              'group relative shrink-0 text-xs font-mono truncate border-r border-bolt-elements-borderColor/20 flex items-center gap-1',
+              densityCellClass(density),
+              gate.editable && fieldKind !== 'boolean' ? 'cursor-text hover:bg-bolt-elements-item-backgroundActive' : 'cursor-pointer',
+              frozen ? 'sticky z-10 bg-bolt-elements-background-depth-1 group-hover/row:bg-bolt-elements-item-backgroundActive' : '',
+            )}
+          >
+            <CellValue
+              value={value}
+              fieldKind={fieldKind}
+              editable={gate.editable}
+              onToggle={() => onToggleBoolean(row, col)}
+            />
+            {gate.editable && fieldKind !== 'boolean' && (
+              <div className="i-ph:pencil-simple text-[10px] text-bolt-elements-textTertiary opacity-0 group-hover:opacity-70 ml-auto shrink-0" />
+            )}
+          </div>
+        );
+      })}
+
+      {/* Hover-reveal row actions (delete) */}
+      {canMutateRows && (
+        <div className="sticky right-0 z-10 shrink-0 flex items-center px-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteRow();
+            }}
+            aria-label="Delete row"
+            title="Delete row"
+            data-testid="sitedb-row-delete"
+            className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded text-bolt-elements-textTertiary hover:text-red-300 hover:bg-red-400/10 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red-400"
+          >
+            <div className="i-ph:trash text-[11px]" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+});
+
+GridRow.displayName = 'SiteTablesPanel.GridRow';
+
+// ── Gallery view (Airtable-style cards) ──────────────────────────────────────
+
+const GalleryView = memo(
+  ({
+    columns,
+    rows,
+    onRowClick,
+  }: {
+    columns: ColumnInfo[];
+    rows: Record<string, unknown>[];
+    onRowClick: (row: Record<string, unknown>) => void;
+  }) => {
+    const names = columns.map((c) => c.name);
+    const titleField = galleryTitleField(names);
+    const bodyFields = galleryBodyFields(names, titleField).slice(0, 6);
+
+    return (
+      <div className="flex-1 overflow-auto modern-scrollbar p-3" data-testid="sitedb-gallery">
+        <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+          {rows.map((row, i) => {
+            const titleVal = titleField ? row[titleField] : null;
+            const title = titleVal === null || titleVal === undefined || titleVal === '' ? '(untitled)' : String(titleVal);
+
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onRowClick(row)}
+                data-testid="sitedb-gallery-card"
+                className="text-left rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 hover:border-bolt-elements-item-contentAccent/40 hover:bg-bolt-elements-background-depth-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer flex flex-col gap-1.5"
+              >
+                <div className="text-[12px] font-semibold text-bolt-elements-textPrimary truncate">{title}</div>
+                <div className="space-y-1">
+                  {bodyFields.map((field) => {
+                    const col = columns.find((c) => c.name === field);
+
+                    if (!col) {
+                      return null;
+                    }
+
+                    const fieldKind = fieldKindForColumn(col, row[field]);
+
+                    return (
+                      <div key={field} className="flex items-start gap-1.5 text-[11px]">
+                        <span className="text-bolt-elements-textTertiary shrink-0 w-[70px] truncate">{field}</span>
+                        <span className="min-w-0 flex-1 truncate font-mono">
+                          <CellValue value={row[field]} fieldKind={fieldKind} editable={false} />
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
     );
   },
 );
 
-GridRow.displayName = 'SiteTablesPanel.GridRow';
+GalleryView.displayName = 'SiteTablesPanel.GalleryView';
 
 // ── Row detail drawer ──────────────────────────────────────────────────────
 
@@ -1773,7 +3802,8 @@ const RowDrawer = memo(
     editError,
     editBusy,
     pkCols,
-    columnOptions,
+    canMutateRows,
+    onDeleteRow,
     onStartEdit,
     onEditKindChange,
     onEditValueChange,
@@ -1783,8 +3813,10 @@ const RowDrawer = memo(
     row: Record<string, unknown>;
     columns: ColumnInfo[];
     onClose: () => void;
+    canMutateRows: boolean;
+    onDeleteRow: (row: Record<string, unknown>) => void;
   } & EditProps) => {
-    // Esc closes the drawer; restore is inherent (grid row keeps DOM focus target).
+    // Esc closes the drawer.
     useEffect(() => {
       const onKey = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
@@ -1801,12 +3833,7 @@ const RowDrawer = memo(
 
     return (
       <div className="absolute inset-0 z-20 flex justify-end" role="dialog" aria-modal="true" aria-label="Row detail">
-        <button
-          type="button"
-          aria-label="Close row detail"
-          onClick={onClose}
-          className="absolute inset-0 bg-black/40 cursor-default"
-        />
+        <button type="button" aria-label="Close row detail" onClick={onClose} className="absolute inset-0 bg-black/40 cursor-default" />
         <div
           className="animated fadeInRight relative w-[min(420px,80%)] h-full bg-bolt-elements-background-depth-2 border-l border-bolt-elements-borderColor shadow-2xl flex flex-col"
           data-testid="sitedb-row-drawer"
@@ -1814,6 +3841,21 @@ const RowDrawer = memo(
           <div className="flex items-center gap-2 px-4 py-3 border-b border-bolt-elements-borderColor shrink-0">
             <div className="i-ph:rows text-bolt-elements-textSecondary" />
             <h3 className="text-sm font-semibold text-bolt-elements-textPrimary flex-1">Row detail</h3>
+            {canMutateRows && (
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteRow(row);
+                  onClose();
+                }}
+                aria-label="Delete row"
+                title="Delete this row"
+                data-testid="sitedb-drawer-delete"
+                className="min-h-[24px] min-w-[24px] flex items-center justify-center rounded text-bolt-elements-textTertiary hover:text-red-300 hover:bg-red-400/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 cursor-pointer"
+              >
+                <div className="i-ph:trash text-sm" />
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -1860,7 +3902,6 @@ const RowDrawer = memo(
                         onKindChange={onEditKindChange}
                         editValue={editValue}
                         onValueChange={onEditValueChange}
-                        options={columnOptions[col.name]}
                         previewSql={null}
                         editError={editError}
                         editBusy={editBusy}
