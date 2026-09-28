@@ -151,7 +151,7 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
   },
   r2_buckets: {
     checklist: [
-      "Per-site R2 bucket manager in the editor Resources → Buckets tab",
+      'Per-site R2 bucket manager in the editor Resources → Buckets tab',
       'Create/list/delete buckets + browse/upload/download/delete objects',
       'Bucket CRUD via CF R2 REST; object ops via R2 S3 API (SigV4) or an actionable needs-creds message',
       'Server-resolved isolation: site-prefixed names + ownsSiteData IDOR guard + FORBIDDEN_BUCKET_NAMES denylist',

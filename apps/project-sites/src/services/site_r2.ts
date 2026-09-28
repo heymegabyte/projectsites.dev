@@ -77,7 +77,12 @@ export type SiteR2Failure =
 /** Result wrapper: `ok` + payload, or a typed reason (+ optional CF/S3 status + message). */
 export type SiteR2Result<T> =
   | ({ readonly ok: true } & T)
-  | { readonly ok: false; readonly reason: SiteR2Failure; readonly status?: number; readonly message?: string };
+  | {
+      readonly ok: false;
+      readonly reason: SiteR2Failure;
+      readonly status?: number;
+      readonly message?: string;
+    };
 
 // ── Naming ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -125,7 +130,11 @@ async function cfR2Fetch(
   account: string,
   path: string,
   init?: RequestInit,
-): Promise<{ ok: boolean; status: number; json: { success?: boolean; result?: unknown; errors?: unknown } }> {
+): Promise<{
+  ok: boolean;
+  status: number;
+  json: { success?: boolean; result?: unknown; errors?: unknown };
+}> {
   let res: Response | undefined;
   for (let attempt = 0; attempt < 3; attempt++) {
     res = await fetch(`${CF_API_BASE}/accounts/${account}/r2/buckets${path}`, {
@@ -274,7 +283,12 @@ export async function provisionSiteR2(
       (e) => e.code === 10004 || /already exists|already owned/i.test(String(e.message ?? '')),
     );
   if (!created.json.success && !alreadyExists) {
-    return { message: describeErrors(created.json.errors), ok: false, reason: 'cf_error', status: created.status };
+    return {
+      message: describeErrors(created.json.errors),
+      ok: false,
+      reason: 'cf_error',
+      status: created.status,
+    };
   }
 
   // 4. Record the allocation.
@@ -336,7 +350,8 @@ export async function deleteSiteR2(
   allocation: SiteR2Allocation,
   orgId: string | null,
 ): Promise<SiteR2Result<{ deleted: true; objectsDeleted: number }>> {
-  if (FORBIDDEN_BUCKET_NAMES.has(allocation.bucketName)) return { ok: false, reason: 'forbidden_bucket' };
+  if (FORBIDDEN_BUCKET_NAMES.has(allocation.bucketName))
+    return { ok: false, reason: 'forbidden_bucket' };
   const cf = await resolveCf(env, orgId);
   if (!cf.ok) return { ok: false, reason: cf.reason };
 
@@ -350,11 +365,24 @@ export async function deleteSiteR2(
     objectsDeleted = emptied.objectsDeleted;
   }
 
-  const del = await cfR2Fetch(cf.auth, cf.account, `/${allocation.bucketName}`, { method: 'DELETE' });
+  const del = await cfR2Fetch(cf.auth, cf.account, `/${allocation.bucketName}`, {
+    method: 'DELETE',
+  });
   if (!del.json.success) {
     // Non-empty + no S3 creds is the common cause — give an actionable reason.
-    if (!s3) return { message: 'Bucket may still contain objects; R2 S3 credentials are required to empty it first.', ok: false, reason: 'needs_s3_credentials' };
-    return { message: describeErrors(del.json.errors), ok: false, reason: 'cf_error', status: del.status };
+    if (!s3)
+      return {
+        message:
+          'Bucket may still contain objects; R2 S3 credentials are required to empty it first.',
+        ok: false,
+        reason: 'needs_s3_credentials',
+      };
+    return {
+      message: describeErrors(del.json.errors),
+      ok: false,
+      reason: 'cf_error',
+      status: del.status,
+    };
   }
 
   await dbExecute(
@@ -378,29 +406,51 @@ export async function setSiteR2PublicAccess(
     `UPDATE site_r2_allocations
         SET public_access = ?, public_base_url = ?, updated_at = datetime('now')
       WHERE id = ? AND site_id = ?`,
-    [makePublic ? 1 : 0, makePublic ? publicBaseUrlFor(allocation.bucketName) : null, allocation.id, siteId],
+    [
+      makePublic ? 1 : 0,
+      makePublic ? publicBaseUrlFor(allocation.bucketName) : null,
+      allocation.id,
+      siteId,
+    ],
   );
-  return { ...allocation, publicAccess: makePublic, publicBaseUrl: makePublic ? publicBaseUrlFor(allocation.bucketName) : null };
+  return {
+    ...allocation,
+    publicAccess: makePublic,
+    publicBaseUrl: makePublic ? publicBaseUrlFor(allocation.bucketName) : null,
+  };
 }
 
 /** The copyable "address bundle" for a bucket — S3 endpoint + binding name + public URL. */
 export function bucketAddress(
   env: Env,
   allocation: SiteR2Allocation,
-): { s3Endpoint: string; bucketName: string; bindingName: string; publicUrl: string | null; accountId: string | null } {
+): {
+  s3Endpoint: string;
+  bucketName: string;
+  bindingName: string;
+  publicUrl: string | null;
+  accountId: string | null;
+} {
   const account = env.CF_ACCOUNT_ID ?? null;
   return {
     accountId: account,
     bindingName: bindingNameFor(allocation.displayName),
     bucketName: allocation.bucketName,
     publicUrl: allocation.publicAccess ? allocation.publicBaseUrl : null,
-    s3Endpoint: account ? `https://${account}.r2.cloudflarestorage.com` : 'https://<account-id>.r2.cloudflarestorage.com',
+    s3Endpoint: account
+      ? `https://${account}.r2.cloudflarestorage.com`
+      : 'https://<account-id>.r2.cloudflarestorage.com',
   };
 }
 
 /** The `wrangler.toml` binding name an owner would use for this bucket (UPPER_SNAKE of the short name). */
 function bindingNameFor(displayName: string): string {
-  const base = displayName.trim().toUpperCase().replace(/[^A-Z0-9]/g, '_').replace(/_{2,}/g, '_').replace(/^_+|_+$/g, '');
+  const base = displayName
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^_+|_+$/g, '');
   return `${base || 'BUCKET'}_R2`;
 }
 
@@ -436,7 +486,8 @@ interface S3Config {
 export function getS3Config(env: Env): S3Config | null {
   const account = env.CF_ACCOUNT_ID;
   const accessKeyId = (env as unknown as { R2_S3_ACCESS_KEY_ID?: string }).R2_S3_ACCESS_KEY_ID;
-  const secretAccessKey = (env as unknown as { R2_S3_SECRET_ACCESS_KEY?: string }).R2_S3_SECRET_ACCESS_KEY;
+  const secretAccessKey = (env as unknown as { R2_S3_SECRET_ACCESS_KEY?: string })
+    .R2_S3_SECRET_ACCESS_KEY;
   if (!account || !accessKeyId || !secretAccessKey) return null;
   return { accessKeyId, endpoint: `https://${account}.r2.cloudflarestorage.com`, secretAccessKey };
 }
@@ -458,7 +509,13 @@ async function sha256Hex(data: string | Uint8Array): Promise<string> {
 
 /** HMAC-SHA256, returning the raw signature bytes (chained through the SigV4 signing key derivation). */
 async function hmac(key: ArrayBuffer | Uint8Array, msg: string): Promise<ArrayBuffer> {
-  const cryptoKey = await crypto.subtle.importKey('raw', key as BufferSource, { hash: 'SHA-256', name: 'HMAC' }, false, ['sign']);
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    key as BufferSource,
+    { hash: 'SHA-256', name: 'HMAC' },
+    false,
+    ['sign'],
+  );
   return crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(msg));
 }
 
@@ -472,7 +529,10 @@ function encodeS3Path(key: string): string {
   return key
     .split('/')
     .map((seg) =>
-      encodeURIComponent(seg).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`),
+      encodeURIComponent(seg).replace(
+        /[!'()*]/g,
+        (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+      ),
     )
     .join('/');
 }
@@ -485,7 +545,11 @@ async function s3Fetch(
   s3: S3Config,
   method: string,
   path: string,
-  opts: { query?: Record<string, string>; body?: ArrayBuffer | Uint8Array | string; contentType?: string } = {},
+  opts: {
+    query?: Record<string, string>;
+    body?: ArrayBuffer | Uint8Array | string;
+    contentType?: string;
+  } = {},
 ): Promise<Response> {
   const url = new URL(s3.endpoint + path);
   const query = opts.query ?? {};
@@ -513,10 +577,19 @@ async function s3Fetch(
   const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
   const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
   const canonicalUri = encodeS3Path(url.pathname);
-  const canonicalRequest = [method, canonicalUri, sortedQuery, canonicalHeaders, signedHeaders, payloadHash].join('\n');
+  const canonicalRequest = [
+    method,
+    canonicalUri,
+    sortedQuery,
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join('\n');
 
   const scope = `${dateStamp}/${S3_REGION}/${S3_SERVICE}/aws4_request`;
-  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, await sha256Hex(canonicalRequest)].join('\n');
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, await sha256Hex(canonicalRequest)].join(
+    '\n',
+  );
 
   const kDate = await hmac(new TextEncoder().encode(`AWS4${s3.secretAccessKey}`), dateStamp);
   const kRegion = await hmac(kDate, S3_REGION);
@@ -533,7 +606,11 @@ async function s3Fetch(
   };
   if (opts.contentType) headers['content-type'] = opts.contentType;
 
-  return fetch(url.toString(), { body: method === 'GET' || method === 'HEAD' ? undefined : (bodyBytes as BodyInit), headers, method });
+  return fetch(url.toString(), {
+    body: method === 'GET' || method === 'HEAD' ? undefined : (bodyBytes as BodyInit),
+    headers,
+    method,
+  });
 }
 
 /** Minimal XML text extractor for S3 ListObjectsV2 responses (no XML lib in Workers). */
@@ -565,25 +642,38 @@ export async function listSiteR2Objects(
   env: Env,
   bucketName: string,
   opts: { prefix?: string; cursor?: string; maxKeys?: number; delimiter?: string } = {},
-): Promise<SiteR2Result<{ objects: SiteR2Object[]; prefixes: string[]; cursor?: string; truncated: boolean }>> {
+): Promise<
+  SiteR2Result<{ objects: SiteR2Object[]; prefixes: string[]; cursor?: string; truncated: boolean }>
+> {
   const s3 = getS3Config(env);
   if (!s3) return { ok: false, reason: 'needs_s3_credentials' };
-  const query: Record<string, string> = { 'list-type': '2', 'max-keys': String(Math.min(Math.max(opts.maxKeys ?? 100, 1), 1000)) };
+  const query: Record<string, string> = {
+    'list-type': '2',
+    'max-keys': String(Math.min(Math.max(opts.maxKeys ?? 100, 1), 1000)),
+  };
   if (opts.prefix) query.prefix = opts.prefix;
   if (opts.delimiter) query.delimiter = opts.delimiter;
   if (opts.cursor) query['continuation-token'] = opts.cursor;
 
   const res = await s3Fetch(s3, 'GET', `/${bucketName}`, { query });
-  if (!res.ok) return { message: `S3 list failed (HTTP ${res.status})`, ok: false, reason: 's3_error', status: res.status };
+  if (!res.ok)
+    return {
+      message: `S3 list failed (HTTP ${res.status})`,
+      ok: false,
+      reason: 's3_error',
+      status: res.status,
+    };
   const xml = await res.text();
 
-  const objects: SiteR2Object[] = xmlAll(xml, 'Contents').map((frag) => ({
-    contentType: null,
-    etag: xmlFirst(frag, 'ETag')?.replace(/&quot;|"/g, ''),
-    key: xmlUnescape(xmlFirst(frag, 'Key') ?? ''),
-    size: Number(xmlFirst(frag, 'Size') ?? 0),
-    uploadedAt: xmlFirst(frag, 'LastModified') ?? null,
-  })).filter((o) => o.key);
+  const objects: SiteR2Object[] = xmlAll(xml, 'Contents')
+    .map((frag) => ({
+      contentType: null,
+      etag: xmlFirst(frag, 'ETag')?.replace(/&quot;|"/g, ''),
+      key: xmlUnescape(xmlFirst(frag, 'Key') ?? ''),
+      size: Number(xmlFirst(frag, 'Size') ?? 0),
+      uploadedAt: xmlFirst(frag, 'LastModified') ?? null,
+    }))
+    .filter((o) => o.key);
   const prefixes = xmlAll(xml, 'CommonPrefixes')
     .map((frag) => xmlUnescape(xmlFirst(frag, 'Prefix') ?? ''))
     .filter(Boolean);
@@ -603,7 +693,13 @@ export async function putSiteR2Object(
   const s3 = getS3Config(env);
   if (!s3) return { ok: false, reason: 'needs_s3_credentials' };
   const res = await s3Fetch(s3, 'PUT', `/${bucketName}/${key}`, { body, contentType });
-  if (!res.ok) return { message: `S3 upload failed (HTTP ${res.status})`, ok: false, reason: 's3_error', status: res.status };
+  if (!res.ok)
+    return {
+      message: `S3 upload failed (HTTP ${res.status})`,
+      ok: false,
+      reason: 's3_error',
+      status: res.status,
+    };
   return { key, ok: true, size: body.byteLength };
 }
 
@@ -616,23 +712,47 @@ export async function getSiteR2Object(
   const s3 = getS3Config(env);
   if (!s3) return { ok: false, reason: 'needs_s3_credentials' };
   const res = await s3Fetch(s3, 'GET', `/${bucketName}/${key}`);
-  if (!res.ok) return { message: `S3 get failed (HTTP ${res.status})`, ok: false, reason: 's3_error', status: res.status };
+  if (!res.ok)
+    return {
+      message: `S3 get failed (HTTP ${res.status})`,
+      ok: false,
+      reason: 's3_error',
+      status: res.status,
+    };
   const body = await res.arrayBuffer();
-  return { body, contentType: res.headers.get('content-type') ?? 'application/octet-stream', ok: true, size: body.byteLength };
+  return {
+    body,
+    contentType: res.headers.get('content-type') ?? 'application/octet-stream',
+    ok: true,
+    size: body.byteLength,
+  };
 }
 
 /** Delete one object (S3 DeleteObject). */
-export async function deleteSiteR2Object(env: Env, bucketName: string, key: string): Promise<SiteR2Result<{ deleted: true }>> {
+export async function deleteSiteR2Object(
+  env: Env,
+  bucketName: string,
+  key: string,
+): Promise<SiteR2Result<{ deleted: true }>> {
   const s3 = getS3Config(env);
   if (!s3) return { ok: false, reason: 'needs_s3_credentials' };
   const res = await s3Fetch(s3, 'DELETE', `/${bucketName}/${key}`);
   // S3 DeleteObject returns 204 even for a missing key — that's fine (idempotent).
-  if (!res.ok && res.status !== 204) return { message: `S3 delete failed (HTTP ${res.status})`, ok: false, reason: 's3_error', status: res.status };
+  if (!res.ok && res.status !== 204)
+    return {
+      message: `S3 delete failed (HTTP ${res.status})`,
+      ok: false,
+      reason: 's3_error',
+      status: res.status,
+    };
   return { deleted: true, ok: true };
 }
 
 /** Empty a bucket (list → delete all) via S3 — used before {@link deleteSiteR2}. */
-async function emptyBucketViaS3(s3: S3Config, bucketName: string): Promise<SiteR2Result<{ objectsDeleted: number }>> {
+async function emptyBucketViaS3(
+  s3: S3Config,
+  bucketName: string,
+): Promise<SiteR2Result<{ objectsDeleted: number }>> {
   let deleted = 0;
   let cursor: string | undefined;
   // Loop pages until the bucket is empty (bounded — a runaway bucket caps at 100 pages × 1000).
@@ -640,13 +760,23 @@ async function emptyBucketViaS3(s3: S3Config, bucketName: string): Promise<SiteR
     const query: Record<string, string> = { 'list-type': '2', 'max-keys': '1000' };
     if (cursor) query['continuation-token'] = cursor;
     const listRes = await s3Fetch(s3, 'GET', `/${bucketName}`, { query });
-    if (!listRes.ok) return { message: `S3 list failed (HTTP ${listRes.status})`, ok: false, reason: 's3_error', status: listRes.status };
+    if (!listRes.ok)
+      return {
+        message: `S3 list failed (HTTP ${listRes.status})`,
+        ok: false,
+        reason: 's3_error',
+        status: listRes.status,
+      };
     const xml = await listRes.text();
     const keys = xmlAll(xml, 'Contents')
       .map((frag) => xmlUnescape(xmlFirst(frag, 'Key') ?? ''))
       .filter(Boolean);
     for (const key of keys) {
-      const del = await s3Fetch(s3, 'DELETE', `/${bucketName}/${encodeS3Path(key).replace(/^\//, '')}`);
+      const del = await s3Fetch(
+        s3,
+        'DELETE',
+        `/${bucketName}/${encodeS3Path(key).replace(/^\//, '')}`,
+      );
       if (del.ok || del.status === 204) deleted++;
     }
     if (xmlFirst(xml, 'IsTruncated') !== 'true') break;
@@ -688,7 +818,13 @@ export async function promoteSiteR2(
     for (const obj of listed.objects) {
       const got = await getSiteR2Object(env, source.bucketName, obj.key);
       if (!got.ok) continue;
-      const put = await putSiteR2Object(env, prod.allocation.bucketName, obj.key, got.body, got.contentType);
+      const put = await putSiteR2Object(
+        env,
+        prod.allocation.bucketName,
+        obj.key,
+        got.body,
+        got.contentType,
+      );
       if (put.ok) copied++;
     }
     if (!listed.truncated || !listed.cursor) break;
