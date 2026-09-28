@@ -313,7 +313,7 @@ main > div > h2 + p + button.btn-accent {
 }
 // Flat generic cards — strip border-radius, border, box-shadow. Higher
 // specificity (+!important) beats the _polish.scss hover shadow too.
-[class*="-card"]:not(.density-card):not(.card-light):not(.site-favicon-tile) {
+[class*="-card"]:not(.density-card):not(.card-light):not(.site-favicon-tile):not(.shots-card):not(.rec-card) {
   border-radius: 0 !important;
   border: none !important;
 }
@@ -323,7 +323,7 @@ main > div > h2 + p + button.btn-accent {
 // focusable flat card (e.g. the dashboard `.sec-card` nav anchors) showed NO
 // keyboard focus indicator (WCAG 2.4.7 fail). Skipping the reset when focused
 // lets the global glow ring land. Non-focus appearance is unchanged.
-[class*="-card"]:not(.density-card):not(.card-light):not(.site-favicon-tile):not(:focus-visible) {
+[class*="-card"]:not(.density-card):not(.card-light):not(.site-favicon-tile):not(.shots-card):not(.rec-card):not(:focus-visible) {
   box-shadow: none !important;
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -337,7 +337,7 @@ main > div > h2 + p + button.btn-accent {
       0 0 0 1px var(--ps-accent-line) inset !important;
   }
   // Flat generic cards keep only the lift on hover — no shadow/border re-added.
-  [class*="-card"]:not(.density-card):not(.card-light):not(.site-favicon-tile):hover {
+  [class*="-card"]:not(.density-card):not(.card-light):not(.site-favicon-tile):not(.shots-card):not(.rec-card):hover {
     transform: translateY(-2px);
     border: none !important;
     box-shadow: none !important;

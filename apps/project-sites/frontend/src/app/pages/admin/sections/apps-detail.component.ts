@@ -579,6 +579,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       background: var(--ps-surface-1, rgba(13,13,40,0.62));
       border: 1px solid rgba(255,255,255,0.06);
       border-radius: var(--ps-radius-xl, 22px);
+      box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.05);
     }
     .head-glyph {
       flex-shrink: 0;
@@ -599,6 +600,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       border: 1px solid rgba(255,255,255,0.06);
       background: var(--ps-surface-1, rgba(13,13,40,0.62));
       overflow: hidden;
+      box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.05);
     }
     .shots-track {
       display: flex; gap: 12px; overflow-x: auto;
@@ -666,12 +668,16 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       .grid-2col { grid-template-columns: 1fr; }
     }
 
+    /* Consistent container elevation across the page: a soft, deep, diffuse drop shadow
+       (subtle on the dark bg) + a 1px top inner highlight that catches light on the top
+       edge (premium). Applied to every top-level container so they read as one layered
+       system. Radius hierarchy: 22px full-width blocks (head/carousel/recs), 14px cards. */
     .card {
       background: var(--ps-surface-1, rgba(13,13,40,0.62));
       border: 1px solid rgba(255,255,255,0.06);
       border-radius: var(--ps-radius-lg, 14px);
       padding: 1.2rem;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+      box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.05);
     }
 
     .feature-list {
@@ -1190,6 +1196,9 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       border-radius: var(--ps-radius-xl, 22px);
       background: color-mix(in oklch, var(--ps-accent, #00E5FF) 4%, transparent);
       padding: 1.1rem 1.2rem 1.2rem;
+      box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.7),
+        0 0 40px -26px color-mix(in oklch, var(--ps-accent, #00E5FF) 80%, transparent),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
     }
     .rec-head { display: flex; align-items: flex-start; gap: 0.7rem; margin-bottom: 0.9rem; }
     .rec-spark {
@@ -1207,9 +1216,10 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       background: rgba(255,255,255,0.03);
       border: 1px solid rgba(255,255,255,0.08);
       color: var(--ps-ink, #fff);
-      transition: transform 0.333s ease, border-color 0.333s ease, background 0.333s ease;
+      box-shadow: 0 6px 20px -12px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      transition: transform 0.333s ease, border-color 0.333s ease, background 0.333s ease, box-shadow 0.333s ease;
     }
-    .rec-card:hover { transform: translateY(-2px); border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 45%, transparent); background: rgba(255,255,255,0.05); }
+    .rec-card:hover { transform: translateY(-2px); border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 45%, transparent); background: rgba(255,255,255,0.05); box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
     .rec-card:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
     .rec-glyph { flex-shrink: 0; font-size: 1.35rem; line-height: 1; }
     .rec-body { display: flex; flex-direction: column; gap: 0.1rem; flex: 1; }
@@ -1223,14 +1233,15 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     @media (max-width: 560px) { .pager { grid-template-columns: 1fr; } }
     .pager-cell {
       display: flex; align-items: center; gap: 0.8rem; text-decoration: none;
-      padding: 0.9rem 1rem; border-radius: 16px;
+      padding: 0.9rem 1rem; border-radius: 14px;
       background: rgba(255,255,255,0.03);
       border: 1px solid rgba(255,255,255,0.08);
       color: var(--ps-ink, #fff);
-      transition: transform 0.333s ease, border-color 0.333s ease, background 0.333s ease;
+      box-shadow: 0 6px 20px -12px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      transition: transform 0.333s ease, border-color 0.333s ease, background 0.333s ease, box-shadow 0.333s ease;
     }
     .pager-next { justify-content: flex-end; text-align: right; }
-    .pager-cell:hover { border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 45%, transparent); background: rgba(255,255,255,0.05); }
+    .pager-cell:hover { transform: translateY(-2px); border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 45%, transparent); background: rgba(255,255,255,0.05); box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
     .pager-cell:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
     .pager-arrow { flex-shrink: 0; font-size: 1.1rem; color: var(--ps-accent, #00E5FF); transition: transform 0.333s ease; }
     .pager-prev:hover .pager-arrow { transform: translateX(-3px); }
