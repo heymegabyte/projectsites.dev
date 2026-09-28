@@ -193,6 +193,7 @@ import { promptStudio } from '../libs/features/prompt_studio/handlers.js'; // pr
 import { promptSchedule } from '../libs/features/prompt_schedule/handlers.js'; // time-windowed prompt-variant activation (flag: prompt_schedule)
 import { contentImport } from '../libs/features/content_import/handlers.js'; // parse platform exports → normalized items (flag: content_import)
 import { sitePublishSchedule } from '../libs/features/site_publish_schedule/handlers.js'; // scheduled site go-live (flag: scheduled_publish)
+import { durablePreview } from '../libs/features/durable_preview/handlers.js'; // Preview working-tree + release records (flag: durable_preview)
 import { aiGatewayGuardrails } from '../libs/features/ai_gateway_guardrails/handlers.js'; // Llama Guard middleware (flag: ai_gateway_guardrails)
 import { wireframePlanning } from '../libs/features/wireframe_planning/handlers.js'; // pre-gen wireframe plan (flag: wireframe_planning)
 import { cmdkAiActionsRouter } from '../libs/features/cmdk_ai_actions/handlers.js'; // Cmd+K AI actions (flag: cmdk_ai_actions)
@@ -1124,6 +1125,7 @@ app.route('/', promptStudio); // /api/prompt-studio/* (flag: prompt_studio)
 app.route('/', promptSchedule); // /api/prompt-schedules/* (flag: prompt_schedule) — time-windowed prompt-variant activation
 app.route('/', contentImport); // /api/content-import/parse (flag: content_import) — parse platform exports → normalized items
 app.route('/', sitePublishSchedule); // /api/sites/:id/publish-schedule (flag: scheduled_publish) — scheduled site go-live
+app.route('/', durablePreview); // /api/sites/:id/preview-state + /releases (flag: durable_preview) — Preview working-tree + release records
 app.route('/', aiGatewayGuardrails); // /api/guardrails/* (flag: ai_gateway_guardrails)
 app.route('/', wireframePlanning); // /api/wireframe/* (flag: wireframe_planning)
 app.route('/', cmdkAiActionsRouter); // /api/cmdk/resolve (flag: cmdk_ai_actions)

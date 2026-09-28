@@ -703,6 +703,21 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Disable the flag → the routes 404 and the cron sweep is a no-op',
     ],
   },
+  durable_preview: {
+    checklist: [
+      'Per-site Preview working-tree record: main base SHA, MONOTONIC draft revision, tree digest, preview deploy revision, last error',
+      'Save/generate upserts the working tree ONLY — never a commit, deploy, or Production change',
+      'Append-only immutable release log: frozen snapshot id, commit SHA, artifact digest, CF deployment id, actor, outcome',
+      'Org- + site-scoped, Zod-validated; additive tables (migration 0646); existing sites need no redeploy',
+    ],
+    explanation:
+      'The server-side state for the editor Promote → Production release workflow (main-only Preview/Promote/Production). A per-site working-tree record captures the current Preview draft (main base SHA the draft is on, a monotonic draft revision bumped on every save, a digest of the working tree, the preview deploy revision, and the last error); an append-only release log records each authorized Promote (frozen snapshot id, commit SHA, artifact digest so promoted bytes can be proved equal to the frozen Preview revision, actual CF deployment id, actor, outcome). This slice is state + API only — the Promote button UI + promote transaction are later slices. When off, the routes 404 and nothing writes; normal build → publish is unchanged.',
+    smoke_test: [
+      'POST /api/sites/:id/preview-state (authed) with {tree_digest, base_main_sha?} → 200 {working_tree}; draft_revision increments on each save',
+      'GET /api/sites/:id/preview-state returns the record; GET /api/sites/:id/releases returns the (initially empty) release history',
+      'Disable the flag → the routes 404; a foreign site → 404 (never 403)',
+    ],
+  },
   referral_loop: {
     checklist: [
       'In-product refer-a-friend with tracked codes/links',

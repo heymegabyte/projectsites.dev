@@ -5,7 +5,7 @@
 > state + ordered slices + verification results. **Re-inspect the repo every fire; never assume
 > a prior attempt landed.** Keep this file SMALL; delete it + consolidate into docs when done.
 
-## STATUS: iteration 2 (Slice 1 + Slice 2 LANDED — release workflow underway)
+## STATUS: iteration 3 (Slice 1 + Slice 2 + Slice 3 LANDED — release workflow underway)
 
 - **Slice 1 (D1 CRUD backend) — DONE, already committed** (verified 2026-09-28: `clampColumnType`/
   `buildAddColumnSql`/`buildInsertRowSql`/etc. present in `src/services/site_data_db.ts`; the 9 per-site
@@ -62,10 +62,17 @@
    (Code panel now owns a stale `git` view so it never renders blank); updated the `WorkbenchViewType`
    comment. `GitPanel`/`git-browser-logic` PRESERVED (spec green). No route/bookmark redirect needed —
    `git` was a client-only tab value, not a URL; git history stays reachable via the Code-view Project hub.
-3. **Durable Preview model** (worker): per-site working-tree record (main base SHA, monotonic draft
-   revision, file manifest/content hashes, save time, preview deploy revision, error) + immutable
-   release records (frozen snapshot id, commit SHA, artifact digest, deployment id, actor, ts,
-   outcome). R2 payloads + existing D1 for metadata. Migration = additive (no silent redeploy).
+3. ~~**Durable Preview model** (worker)~~ — DONE 2026-09-28 (see VERIFICATION LOG). New feature module
+   `libs/features/durable_preview/` (manifest + schemas + service + handlers + tests) behind flag
+   `durable_preview` (DARK). Additive migration `0646_durable_preview_model.sql` creates two tables:
+   `site_working_tree` (per-site UNIQUE; base_main_sha · monotonic draft_revision · tree_digest ·
+   preview_deploy_revision · last_error) + `site_releases` (append-only immutable; snapshot_id ·
+   commit_sha · artifact_digest · deployment_id · actor · draft_revision · outcome · created_at).
+   `upsertWorkingTree` (Preview-only — no commit/deploy/Production) + `appendRelease` (append-only) +
+   org-scoped readers. Routes: POST/GET `/api/sites/:id/preview-state`, GET `/api/sites/:id/releases`
+   (assertSiteOwned + isFlagOn guarded → 404 dark). REMAINING EXTERNAL STEP: apply migration 0646 to
+   prod D1 (`wrangler d1 migrations apply project-sites-db-production --remote`) — additive/idempotent,
+   safe; the flag stays DARK so nothing reads/writes until enabled.
 4. **Editor Source Control view** beside the file explorer: changed-file count+status (A/M/D/R),
    diffs vs last committed main base, badges/gutter markers, release history, restore-to-Preview,
    "main" indicator + Preview/Production sync status, conflict notices.
@@ -97,8 +104,38 @@ failed" retry · idempotent promote · edits-during-promote → new draft · .gi
 - `cd apps/project-sites && npx tsc --noEmit` (worker) → GREEN (no output).
 - `npx vitest run app/components/workbench/GitPanel.spec.tsx` → GREEN (4/4) — preserved component still works.
 - No worker jest touched this slice (change is editor-only).
+- Commit SHA: 82f61fb22 (Slice 2, landed on origin).
+
+### 2026-09-28 — Slice 3: Durable Preview model (worker, additive state + API)
+- Origin state at start: `8169fc121` (local == origin/main; Slice 2 `82f61fb22` present; newer WfP
+  Units 1-4 present). No preview/release/promote migration on origin — clean to add. A concurrent
+  session's dirty files (`app/components/workbench/*`, `frontend/*`) were preserved untouched (Slice 3
+  is worker-only — no collision).
+- New feature module `libs/features/durable_preview/`:
+  - `feature.manifest.ts` — flag `durable_preview`, lifecycle alpha, apiRoutes, unitTests (exists on disk).
+  - `schemas.ts` — Zod (`.strict()`): WorkingTreeSchema, ReleaseSchema, UpsertWorkingTreeSchema, responses.
+  - `service.ts` — `upsertWorkingTree` (Preview-only, monotonic draft_revision, NO commit/deploy/release),
+    `appendRelease` (append-only immutable), `getWorkingTree`/`listReleases` (org-scoped). `FLAG_KEY`.
+  - `handlers.ts` — Hono sub-app, `guard` (auth+flag→404 dark), `assertSiteOwned` (IDOR→404), zValidator.
+  - `__tests__/durable_preview.test.ts` — real-SQLite harness runs the ACTUAL migration DDL.
+- `migrations/0646_durable_preview_model.sql` — additive, idempotent (`CREATE TABLE IF NOT EXISTS`):
+  `site_working_tree` (per-site UNIQUE working-tree record) + `site_releases` (append-only release log).
+- Flag registered: `src/modules/feature_flags/registry.ts` (durable_preview DARK) + `docs.ts`
+  (checklist/explanation/smoke_test). Mounted in `src/index.ts` (import + `app.route('/', durablePreview)`).
+  FEATURES.md row added.
+- VERIFY (all green before commit):
+  - `npx tsc --noEmit` → GREEN (exit 0, no output).
+  - `npx jest libs/features/durable_preview` → 7/7 PASS (migration creates both tables; upsert writes
+    base SHA + draft revision + digest and creates NO release row; monotonic revision on re-save;
+    append-release records all immutable fields, append-only newest-first; org-scoped reads; IDOR gate).
+  - `npm run validate:features` → PASS (0 violations; 39 manifests, flag cross-check OK).
+  - `npx jest durable_preview feature_flags registry flag` → 45 suites / 679 tests PASS
+    (incl. flag_route_coherence — new flag+route coherent).
+  - `npx jest route_malformed_json_boundary` → 7/7 PASS (full-worker `../index` import loads the mount).
 - Commit SHA: <filled at commit>.
-- NEXT UNMET SLICE → **Slice 3: Durable Preview model (worker)** — per-site working-tree record (main
-  base SHA, monotonic draft revision, file manifest/content hashes, save time, preview deploy revision,
-  error) + immutable release records (frozen snapshot id, commit SHA, artifact digest, deployment id,
-  actor, ts, outcome). Additive D1 migration (no silent redeploy).
+- REMAINING EXTERNAL STEP: apply migration 0646 to prod D1
+  (`wrangler d1 migrations apply project-sites-db-production --remote`) — additive/idempotent + flag DARK.
+- NEXT UNMET SLICE → **Slice 4: Editor Source Control view** (beside the file explorer): changed-file
+  count+status (A/M/D/R), diffs vs last committed main base, badges/gutter markers, release history,
+  restore-to-Preview, "main" indicator + Preview/Production sync status, conflict notices. REUSE the
+  preserved `git-browser-logic.ts` (Slice 2) + the new `durable_preview` release/working-tree API.

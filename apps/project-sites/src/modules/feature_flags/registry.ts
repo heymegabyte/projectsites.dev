@@ -446,6 +446,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  durable_preview: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Durable Preview model — server-side state for the editor Promote → Production release workflow (main-only). Save/generate mutates a per-site PREVIEW working tree; Production changes only via an authorized Promote (a later slice).\n\n• isFlagOn-gated — off 404, unauth 401. Org- + site-scoped, Zod-validated.\n• POST /api/sites/:id/preview-state upserts the per-site working-tree record (main base SHA, MONOTONIC draft revision, tree digest, preview deploy revision, last error) — Preview ONLY, never a commit/deploy/Production change; GET reads it. GET /api/sites/:id/releases lists the append-only immutable release history (frozen snapshot id, commit SHA, artifact digest, CF deployment id, actor, outcome).\n• Additive tables (site_working_tree + site_releases, migration 0646). Off → the routes 404 and nothing writes; migrating existing sites needs no redeploy.',
+    key: 'durable_preview',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   // Multi-tenant + agency (items 9-13)
   // CWV (items 14-19, 15 already shipped)
   // GEO (items 20-24, 20-22 already stable)

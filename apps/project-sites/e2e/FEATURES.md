@@ -12,6 +12,7 @@
 
 | Feature | Spec | Owner | Status | Notes |
 |---------|------|-------|--------|-------|
+| Durable Preview model — working-tree + release records | `src/__tests__` → `libs/features/durable_preview/__tests__/durable_preview.test.ts` | convergence | GREEN | Slice 3 (state+API only) — real-SQLite migration + upsert-working-tree (Preview only, no commit/deploy) + append-release immutable + assertSiteOwned IDOR gate. Browser E2E ships with the Promote-button UI slice (flag: `durable_preview`, DARK). |
 | Media API — soft-delete gate | `media/media-coverage.spec.ts` | test-writer | GREEN | MEDIA-07 — unauth reject, authed nonexistent→404, fake-delete never drops real assets (verified live on prod) |
 | Media API — list auth gate | `media/media-coverage.spec.ts` | test-writer | GREEN | MEDIA-08 — unauth reject, authed→200 + `assets[]` envelope (verified live on prod) |
 | Media API — write endpoints reject unauth | `media/media-coverage.spec.ts` | test-writer | GREEN | MEDIA-09 — stock-search / generate-image / upload all reject unauthenticated callers |
