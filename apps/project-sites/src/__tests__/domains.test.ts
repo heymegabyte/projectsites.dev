@@ -107,7 +107,12 @@ describe('createCustomHostname', () => {
       json: async () => ({
         success: true,
         result: [
-          { id: 'cf-existing-9', hostname: 'dup.example.com', status: 'active', ssl: { status: 'active' } },
+          {
+            id: 'cf-existing-9',
+            hostname: 'dup.example.com',
+            status: 'active',
+            ssl: { status: 'active' },
+          },
         ],
       }),
       text: async () => '',

@@ -121,7 +121,12 @@ export async function findCustomHostnameByName(
     if (!res.ok) return undefined;
     const body = (await res.json()) as {
       success?: boolean;
-      result?: Array<{ id?: string; hostname?: string; status?: string; ssl?: { status?: string } }>;
+      result?: Array<{
+        id?: string;
+        hostname?: string;
+        status?: string;
+        ssl?: { status?: string };
+      }>;
     };
     const match = (body.result ?? []).find((h) => h.hostname === hostname) ?? body.result?.[0];
     if (!match?.id) return undefined;
