@@ -1382,6 +1382,22 @@ apps.post('/api/apps/instances/:id/domains', async (c) => {
   if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain) || domain.endsWith('.projectsites.dev')) {
     throw badRequest('Enter a custom domain you own (not a *.projectsites.dev subdomain).');
   }
+  // If this domain is already attached to a DIFFERENT instance, say so plainly — an explicit
+  // "already attached elsewhere" error (the UI surfaces it in red) beats silently re-homing it.
+  // A re-attach to the SAME instance falls through to the idempotent path below.
+  const claimed = await dbQueryOne<{ instance_id: string; subdomain: string | null }>(
+    c.env.DB,
+    `SELECT d.instance_id AS instance_id, i.subdomain AS subdomain
+       FROM app_instance_domains d
+       LEFT JOIN app_instances i ON i.id = d.instance_id
+      WHERE d.domain = ?`,
+    [domain],
+  );
+  if (claimed && claimed.instance_id !== row.id) {
+    throw badRequest(
+      `${domain} is already attached to another site${claimed.subdomain ? ` (${claimed.subdomain})` : ''}. Detach it there first, then attach it here.`,
+    );
+  }
   // NOTE: no hard DNS pre-gate. Cloudflare's custom-hostname validation IS the authority — it
   // issues the cert only once the CNAME resolves (HTTP-DV), so we create the hostname now and
   // let the live domain-status ladder surface the real cert progress. A best-effort DoH check
@@ -1397,6 +1413,13 @@ apps.post('/api/apps/instances/:id/domains', async (c) => {
     if (/quota|1404|SSL for SaaS/i.test(msg)) {
       throw badRequest(
         'Custom domains need SSL for SaaS enabled on this account. The DNS is verified — an admin must turn on Cloudflare for SaaS (custom hostnames) to issue the certificate.',
+      );
+    }
+    // The hostname already exists on the zone but we couldn't reuse it (idempotent lookup missed) —
+    // still tell the owner plainly it already exists rather than leaking the raw CF JSON.
+    if (/\b1406\b|duplicate custom hostname/i.test(msg)) {
+      throw badRequest(
+        `${domain} is already registered as a custom domain on the platform. If it's yours, detach it from the other site first.`,
       );
     }
     throw err;

@@ -1059,7 +1059,7 @@ describe('custom domains (attach · list · primary · detach)', () => {
     // Live-exercise lesson (2026-09-27): recursive DoH is negative-cached / flattening hides the
     // literal CNAME, so a DoH pre-gate false-negative-blocks a genuinely-pointed domain. Attach
     // now always creates the CF custom hostname; CF issues the cert only once DNS validates.
-    mockDbQueryOne.mockResolvedValue(instanceRow());
+    mockDbQueryOne.mockResolvedValueOnce(instanceRow()).mockResolvedValue(null); // loadInstance → row; claimed-elsewhere → none
     mockCname.mockResolvedValue(null); // DoH says "no CNAME"…
     mockCreateHost.mockResolvedValue({ cf_id: 'cf-x', status: 'pending', ssl_status: 'pending' });
     mockDbQuery.mockResolvedValue({ data: [{ n: 0 }], error: null });
@@ -1074,7 +1074,7 @@ describe('custom domains (attach · list · primary · detach)', () => {
   });
 
   it('maps CF "no SSL-for-SaaS quota" to a clean, actionable error', async () => {
-    mockDbQueryOne.mockResolvedValue(instanceRow());
+    mockDbQueryOne.mockResolvedValueOnce(instanceRow()).mockResolvedValue(null); // loadInstance → row; claimed-elsewhere → none
     mockCname.mockResolvedValue('proxy.projectsites.dev');
     mockCreateHost.mockRejectedValue(
       new Error(
@@ -1093,7 +1093,7 @@ describe('custom domains (attach · list · primary · detach)', () => {
   });
 
   it('attaches a pointed domain: provisions the CF hostname + persists it as primary', async () => {
-    mockDbQueryOne.mockResolvedValue(instanceRow());
+    mockDbQueryOne.mockResolvedValueOnce(instanceRow()).mockResolvedValue(null); // loadInstance → row; claimed-elsewhere → none
     mockCname.mockResolvedValue('proxy.projectsites.dev');
     mockCreateHost.mockResolvedValue({ cf_id: 'cf-1', status: 'pending', ssl_status: 'pending' });
     mockDbQuery.mockResolvedValue({ data: [{ n: 0 }], error: null }); // 0 existing → primary
@@ -1111,6 +1111,23 @@ describe('custom domains (attach · list · primary · detach)', () => {
     );
     expect(insertCall?.[2]?.[5]).toBe(1);
     expect(mockAudit.mock.calls[0][1]).toMatchObject({ action: 'apps.instance.domain_attached' });
+  });
+
+  it('rejects a domain already attached to ANOTHER instance with a clear "already attached" error', async () => {
+    mockDbQueryOne.mockResolvedValueOnce(instanceRow()); // loadInstance → inst-1
+    mockDbQueryOne.mockResolvedValueOnce({ instance_id: 'other-inst', subdomain: 'other-site' }); // claimed elsewhere
+    mockCname.mockResolvedValue('proxy.projectsites.dev');
+    const res = await req(
+      makeApp(AUTH),
+      '/api/apps/instances/inst-1/domains',
+      jsonInit('POST', { domain: 'cms.acme.com' }),
+      makeEnv(),
+    );
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { message: string } };
+    expect(json.error.message).toMatch(/already attached to another site/i);
+    expect(json.error.message).toContain('other-site');
+    expect(mockCreateHost).not.toHaveBeenCalled(); // short-circuits before touching CF
   });
 
   it('lists attached domains with their primary + ssl state', async () => {

@@ -154,12 +154,17 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
                   @if (alreadyAttached()) {
                     <div class="dm-help dm-ok">Already connected — see the list above.</div>
                   } @else {
-                    <div class="dm-help dm-ok">✓ Pointed to projectsites.dev — ready to connect.</div>
+                    @if (!attachError()) {
+                      <div class="dm-help dm-ok">✓ Pointed to projectsites.dev — ready to connect.</div>
+                    }
                     <button type="button" class="dm-attach" (click)="attach()" [disabled]="busy()"
                             data-testid="domain-manager-attach">
                       @if (busy()) { <span class="dm-spin"></span> Connecting… }
                       @else { Attach domain — {{ domain() }} }
                     </button>
+                    @if (attachError()) {
+                      <div class="dm-attach-err" role="alert" data-testid="domain-manager-attach-error">✕ {{ attachError() }}</div>
+                    }
                   }
                 }
                 @case ('checking') { <div class="dm-help">Checking DNS…</div> }
@@ -313,6 +318,12 @@ type Availability = 'idle' | 'checking' | 'ok' | 'bad';
     .dm-attach:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; }
     .dm-attach .dm-spin { border-color: rgba(6,6,16,0.35); border-top-color: var(--ps-bg, #060610); }
     @media (prefers-reduced-motion: reduce) { .dm-attach { transition: none; } .dm-attach:hover:not(:disabled) { transform: none; } }
+    /* Attach failure — highlighted prominently in red (e.g. "already attached to another site"). */
+    .dm-attach-err {
+      margin-top: 8px; padding: 8px 10px; border-radius: 8px;
+      background: rgba(248,113,113,0.12); border: 1px solid rgba(248,113,113,0.45);
+      color: #fca5a5; font-size: 12px; font-weight: 600; line-height: 1.4;
+    }
 
     .dm-instructions { display: flex; flex-direction: column; gap: 8px; }
     .dm-record {
@@ -445,6 +456,8 @@ export class DomainManagerComponent {
   // Custom domain
   readonly domain = signal('');
   readonly cnameState = signal<Availability>('idle');
+  /** Server-side attach failure (e.g. "already attached elsewhere") — surfaced inline in red. */
+  readonly attachError = signal('');
   private domainTimer: ReturnType<typeof setTimeout> | undefined;
 
   // Table status poll — refreshes each attached row's cert state in place while the popover is
@@ -654,6 +667,7 @@ export class DomainManagerComponent {
 
   onDomain(v: string): void {
     this.domain.set(v);
+    this.attachError.set(''); // clear a prior failure the moment they edit the domain
     if (this.domainTimer) clearTimeout(this.domainTimer);
     const val = v.trim().toLowerCase();
     if (val.length < 4 || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(val)) {
@@ -706,10 +720,15 @@ export class DomainManagerComponent {
     if (this.cnameState() !== 'ok' || this.busy() || this.alreadyAttached()) return;
     const domain = this.domain().trim().toLowerCase();
     this.busy.set(true);
+    this.attachError.set('');
+    // `silent` suppresses the generic status-code toast — we surface the SERVER's specific reason
+    // ("already attached to another site", etc.) inline in red instead of a vague "unexpected error".
     this.api
-      .post<{ ok: boolean; ssl_status: string }>(`/apps/instances/${this.instanceId()}/domains`, {
-        domain,
-      })
+      .post<{ ok: boolean; ssl_status: string }>(
+        `/apps/instances/${this.instanceId()}/domains`,
+        { domain },
+        { silent: true },
+      )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
@@ -723,8 +742,17 @@ export class DomainManagerComponent {
           // Re-list, then table-poll until the new row's cert goes active (updates the row in place).
           this.loadDomains(() => this.startTablePoll());
         },
-        error: () => this.busy.set(false),
+        error: (err: unknown) => {
+          this.busy.set(false);
+          this.attachError.set(this.serverMessage(err, `Could not attach ${domain}. Please try again.`));
+        },
       });
+  }
+
+  /** Pull the RFC7807 `{error:{message}}` reason out of an HttpErrorResponse, else a fallback. */
+  private serverMessage(err: unknown, fallback: string): string {
+    const e = err as { error?: { error?: { message?: string } } } | undefined;
+    return e?.error?.error?.message ?? fallback;
   }
 
   // ── Buy a domain (registered through us on Cloudflare, at cost) ──
