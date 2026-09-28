@@ -39,8 +39,9 @@ import {
   isEmbedded,
   postToParent,
   onParentMessage,
+  requestDbQuery,
   type ParentToChildMessage,
-  type ResMutateResponseMessage,
+  type SiteDbQueryResponseMessage,
   type SiteDbTablesResponseMessage,
   type SiteDbRowsResponseMessage,
 } from '~/lib/embed/embedded-mode';
@@ -56,7 +57,7 @@ import {
   type SavedQuery,
   type ExplainHint,
 } from './data-panel-logic';
-import { classifyCell } from './data-cell-format';
+import { DataGrid } from './DataGrid';
 import type { SqlSchema } from './sql-complete';
 import { SqlEditor } from './SqlEditor';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from '~/utils/constants';
@@ -102,6 +103,39 @@ function nextCorrelationId(): string {
   return `sqlnav_${++correlationCounter}`;
 }
 
+/**
+ * The leading SQL statement verb (SELECT / INSERT / UPDATE / DELETE / CREATE / DROP / ALTER / PRAGMA / …),
+ * uppercased — drives the result "classification" pill. Strips a leading block/line comment first. Pure.
+ */
+function classifySql(sql: string): string {
+  const stripped = sql
+    .trim()
+    .replace(/^\/\*[\s\S]*?\*\//, '')
+    .replace(/^(?:--[^\n]*\n\s*)+/, '')
+    .trim();
+
+  return (stripped.split(/\s+/, 1)[0] ?? '').toUpperCase();
+}
+
+/**
+ * A destructive statement the console confirms before running (mirrors the Table-view's type-to-confirm):
+ * any DROP / TRUNCATE / ALTER, and a DELETE/UPDATE with no WHERE (touches every row). INSERT/CREATE/SELECT
+ * run immediately. Pure — safe SQL string inspection only (the statement still runs on the site's OWN D1).
+ */
+function isDestructiveSql(sql: string): boolean {
+  const verb = classifySql(sql);
+
+  if (verb === 'DROP' || verb === 'TRUNCATE' || verb === 'ALTER') {
+    return true;
+  }
+
+  if (verb === 'DELETE' || verb === 'UPDATE') {
+    return !/\bWHERE\b/i.test(sql);
+  }
+
+  return false;
+}
+
 /** A promise pending a bridge reply, resolved by correlationId when the parent answers. */
 interface Pending {
   resolve: (msg: ParentToChildMessage) => void;
@@ -109,7 +143,11 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>;
 }
 
-/** The typed result the d1 `exec` adapter returns (mirrors the worker's `data_d1_exec` success data). */
+/**
+ * The normalized SQL-console result. Sourced from `POST /api/sites/:siteId/db/query` (the per-site D1
+ * console endpoint) via {@link requestDbQuery} — `rows` + D1 `meta` mapped to the display fields below.
+ * `classification` is the leading statement verb (derived client-side for the effect pill).
+ */
 interface SqlExecData {
   classification?: string;
   rows?: Record<string, unknown>[];
@@ -117,6 +155,12 @@ interface SqlExecData {
   rowsWritten?: number;
   rowsRead?: number;
   durationMs?: number;
+
+  /** Total rows the query matched before the server-side cap (may exceed `rows.length`). */
+  rowCount?: number;
+
+  /** `true` when the result was capped server-side (the grid shows a "first N rows" note). */
+  truncated?: boolean;
 }
 
 type SqlState =
@@ -208,7 +252,10 @@ export const SqlNavigator = memo(() => {
   // ── ONE parent-message listener; resolve by correlationId via the live ref (empty-deps stale-ref safe) ──
   useEffect(() => {
     const unsubscribe = onParentMessage((msg) => {
-      if (msg.type !== 'PS_RES_MUTATE_RESPONSE' && msg.type !== 'PS_SITEDB_TABLES_RESPONSE') {
+      // The local `request` plumbing handles the schema reads (tables + per-table columns). The SQL run
+      // itself resolves through `requestDbQuery` (its own self-contained bridge listener). Accepting ROWS
+      // here fixes a latent drop: `gatherSchema` awaited PS_SITEDB_ROWS_RESPONSE that was never resolved.
+      if (msg.type !== 'PS_SITEDB_TABLES_RESPONSE' && msg.type !== 'PS_SITEDB_ROWS_RESPONSE') {
         return;
       }
 
@@ -403,7 +450,7 @@ export const SqlNavigator = memo(() => {
     }
   }, [askQuestion, askBusy, gatherSchema]);
 
-  // ── Execute one statement against the site's OWN D1 ────────────────────────
+  // ── Execute one statement against the site's OWN D1 (POST /db/query) ────────
   const runQuery = useCallback(
     async (rawSql: string, confirm: boolean, wasExplain: boolean) => {
       const trimmed = rawSql.trim();
@@ -417,6 +464,19 @@ export const SqlNavigator = memo(() => {
         return;
       }
 
+      // Client-side safety gate — a destructive statement asks for confirmation first (mirrors the
+      // Table-view). The write still runs on the site's OWN isolated D1; this only prevents an accidental
+      // DROP / mass-DELETE. EXPLAIN and an already-confirmed re-run never gate.
+      if (!confirm && !wasExplain && isDestructiveSql(trimmed)) {
+        lastConfirmSqlRef.current = trimmed;
+        setState({
+          status: 'confirm',
+          message: `This ${classifySql(trimmed)} statement changes data and can’t be undone. Run it?`,
+        });
+
+        return;
+      }
+
       // Record the run on SEND (so a failed query stays re-runnable). Not for EXPLAIN (it's a helper action).
       if (!wasExplain) {
         recordHistory(trimmed);
@@ -426,65 +486,51 @@ export const SqlNavigator = memo(() => {
       setState({ status: 'running' });
 
       try {
-        const reply = (await request({
-          type: 'PS_RES_MUTATE_REQUEST',
-          correlationId: nextCorrelationId(),
-          kind: 'd1',
-          action: 'exec',
-          input: { sql: trimmed },
-          confirm,
-        })) as ResMutateResponseMessage;
+        // Purpose-built per-site SQL console endpoint: runs ONE statement against the site's OWN D1
+        // (server-resolved id, shared-platform ids denylisted) and returns rows + D1 meta, or the real
+        // SQL error verbatim. No classify/confirm round-trip — the console runs what you type.
+        const reply: SiteDbQueryResponseMessage = await requestDbQuery({ sql: trimmed });
 
-        // Transport failure (no site selected, network, 4xx) OR dark-flag 404.
+        // Dark-flag 404 → friendly "not enabled yet" state (INV-3), never a scary error.
         if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
           setState({ status: 'disabled' });
           return;
         }
 
-        if (reply.error) {
-          setState({ status: 'error', message: reply.error });
+        // A real SQL error is surfaced verbatim — seeing the exact error IS the point of a console.
+        if (!reply.ok || reply.error) {
+          setState({ status: 'error', message: reply.error || 'The statement could not run.' });
           return;
         }
 
-        const result = reply.result;
-
-        if (!result) {
-          setState({ status: 'error', message: 'No response from the database. Retry in a moment.' });
-          return;
-        }
-
-        // A typed error rides in result (not transport `error`) — e.g. confirmation_required / not_available.
-        if (!result.ok) {
-          const code = result.error?.code ?? '';
-          const message = result.error?.message ?? 'The statement could not run.';
-
-          if (code === 'confirmation_required' || /confirm/i.test(message)) {
-            setState({ status: 'confirm', message });
-            return;
-          }
-
-          setState({ status: 'error', message });
-
-          return;
-        }
-
-        const data = (result.data ?? {}) as SqlExecData;
+        const rows = reply.rows ?? [];
 
         // Enrich the completion schema with any columns this result exposed (real identifiers only).
-        if (data.columns && data.columns.length > 0) {
-          const cols = data.columns.map((c) => c.name);
+        if (rows.length > 0) {
+          const cols = Object.keys(rows[0]);
           setSchema((prev) => {
             const merged = new Set([...(prev?.columns ?? []), ...cols]);
             return { tables: prev?.tables ?? [], columns: [...merged] };
           });
         }
 
+        const meta = reply.meta ?? {};
+        const data: SqlExecData = {
+          classification: classifySql(trimmed),
+          rows,
+          rowCount: reply.rowCount ?? rows.length,
+          truncated: reply.truncated,
+          rowsWritten: typeof meta.rows_written === 'number' ? meta.rows_written : undefined,
+          rowsRead: typeof meta.rows_read === 'number' ? meta.rows_read : undefined,
+          durationMs: typeof meta.duration === 'number' ? Math.round(meta.duration) : undefined,
+        };
+
         setState({ status: 'ready', data, wasExplain });
       } catch (err) {
         setState({ status: 'error', message: err instanceof Error ? err.message : 'The statement could not run.' });
       }
     },
-    [request, recordHistory],
+    [recordHistory],
   );
 
   const run = useCallback(() => void runQuery(sql, false, false), [sql, runQuery]);
@@ -1004,7 +1050,16 @@ const SqlResult = memo(({ data, wasExplain }: { data: SqlExecData; wasExplain: b
             className="px-2 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary tabular-nums"
             data-testid="database-sql-row-count"
           >
-            {rows.length.toLocaleString()} {rows.length === 1 ? 'row' : 'rows'}
+            {(data.rowCount ?? rows.length).toLocaleString()} {(data.rowCount ?? rows.length) === 1 ? 'row' : 'rows'}
+          </span>
+        )}
+        {data.truncated && (
+          <span
+            className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-200 tabular-nums"
+            data-testid="database-sql-truncated"
+            title="The result was capped for a safe preview. Add a tighter WHERE/LIMIT to see the rest."
+          >
+            first {rows.length.toLocaleString()} shown
           </span>
         )}
         {typeof data.rowsRead === 'number' && data.rowsRead > 0 && (
@@ -1063,50 +1118,15 @@ const SqlResult = memo(({ data, wasExplain }: { data: SqlExecData; wasExplain: b
           </p>
         </div>
       ) : (
-        <div className="overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
-          <table className="min-w-full text-xs font-mono border-collapse tabular-nums">
-            <thead>
-              <tr className="bg-bolt-elements-background-depth-2">
-                {columnNames.map((name) => (
-                  <th
-                    key={name}
-                    className="sticky top-0 z-10 text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary font-medium border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 whitespace-nowrap after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-bolt-elements-item-contentAccent/25"
-                  >
-                    {name}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, ri) => (
-                <tr
-                  key={ri}
-                  className="odd:bg-bolt-elements-background-depth-1 even:bg-bolt-elements-background-depth-2/30 hover:bg-bolt-elements-item-backgroundAccent/10 transition-colors motion-reduce:transition-none"
-                >
-                  {columnNames.map((name) => {
-                    const classified = classifyCell(row[name]);
-                    return (
-                      <td
-                        key={name}
-                        className={classNames(
-                          'px-3 py-1.5 border-b border-bolt-elements-borderColor/30 whitespace-nowrap max-w-[280px] truncate',
-                          classified.className,
-                        )}
-                        title={classified.kind === 'null' ? 'null' : (classified.title ?? classified.display)}
-                      >
-                        {classified.kind === 'null' ? (
-                          <span className="text-bolt-elements-textTertiary/50">—</span>
-                        ) : (
-                          classified.display
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        // The SAME grid form the Table-view uses — typed cells, sortable headers, search, pagination,
+        // and honest whole-result export — so a SQL result reads exactly like a browsed table.
+        <DataGrid
+          columns={columnNames}
+          rows={rows}
+          testId="database-sql-result-grid"
+          exportName="query-result"
+          maxHeightClass="max-h-[48vh]"
+        />
       )}
     </div>
   );

@@ -575,5 +575,94 @@ export function buildCreateTableSql(plan: AiTablePlan): { sql: string; table: st
   return { sql, table: plan.table };
 }
 
+/** Clamp an arbitrary type string to an allowed SQLite affinity ({@link ALLOWED_COL_TYPES}); default TEXT. */
+export function clampColumnType(type: unknown): string {
+  const up = String(type ?? '').toUpperCase();
+  return ALLOWED_COL_TYPES.has(up) ? up : 'TEXT';
+}
+
+/**
+ * Build a safe `ALTER TABLE … ADD COLUMN` statement for the grid's "add column" action. Both
+ * identifiers MUST pass {@link isSafeIdent}; the type is clamped to {@link ALLOWED_COL_TYPES}. The
+ * new column is ALWAYS nullable — SQLite cannot ADD a `NOT NULL` column to a populated table without
+ * a DEFAULT, so P1 keeps added columns nullable (the owner backfills + tightens later). Returns
+ * `null` on a hostile identifier (caller renders a clean 400).
+ *
+ * @example buildAddColumnSql('customers', 'phone', 'text') // ALTER TABLE "customers" ADD COLUMN "phone" TEXT
+ * @example buildAddColumnSql('t', '1bad', 'TEXT')          // null (leading digit)
+ */
+export function buildAddColumnSql(table: string, column: string, type: string): string | null {
+  if (!isSafeIdent(table) || !isSafeIdent(column)) return null;
+  return `ALTER TABLE ${quoteIdent(table)} ADD COLUMN ${quoteIdent(column)} ${clampColumnType(type)}`;
+}
+
+/**
+ * Build a safe `ALTER TABLE … RENAME COLUMN … TO …` statement (SQLite 3.25+, supported by D1). All
+ * three identifiers MUST pass {@link isSafeIdent}. Returns `null` on any hostile identifier.
+ */
+export function buildRenameColumnSql(table: string, from: string, to: string): string | null {
+  if (!isSafeIdent(table) || !isSafeIdent(from) || !isSafeIdent(to)) return null;
+  return `ALTER TABLE ${quoteIdent(table)} RENAME COLUMN ${quoteIdent(from)} TO ${quoteIdent(to)}`;
+}
+
+/**
+ * Build a safe `ALTER TABLE … DROP COLUMN …` statement (SQLite 3.35+, supported by D1). Both
+ * identifiers MUST pass {@link isSafeIdent}. SQLite itself refuses to drop a PK / the last column /
+ * an indexed column — that error surfaces from the executor as a clean 502, we do not pre-guess it.
+ * Returns `null` on a hostile identifier.
+ */
+export function buildDropColumnSql(table: string, column: string): string | null {
+  if (!isSafeIdent(table) || !isSafeIdent(column)) return null;
+  return `ALTER TABLE ${quoteIdent(table)} DROP COLUMN ${quoteIdent(column)}`;
+}
+
+/**
+ * Build an `INSERT` for one row from a validated column→value map. Only keys matching a REAL,
+ * {@link isSafeIdent}-valid, non-primary-key column of the table are used (an extra/hostile key can
+ * never inject a column); the autoincrement PK is left to SQLite. Returns `null` when no usable
+ * column remains (caller renders a clean 400) so an empty/garbage body never emits `INSERT () VALUES ()`.
+ *
+ * @param table   - target table (caller validated with {@link isSafeIdent}; confirmed to exist)
+ * @param columns - the table's introspected columns (from {@link introspectColumns})
+ * @param values  - client-supplied column→value map
+ */
+export function buildInsertRowSql(
+  table: string,
+  columns: SiteTableColumn[],
+  values: Record<string, unknown>,
+): { sql: string; params: unknown[] } | null {
+  const insertable = new Set(columns.filter((c) => isSafeIdent(c.name) && c.pk !== 1).map((c) => c.name));
+  const used = Object.keys(values).filter((k) => insertable.has(k));
+  if (used.length === 0) return null;
+  const cols = used.map(quoteIdent).join(', ');
+  const placeholders = used.map(() => '?').join(', ');
+  return {
+    params: used.map((k) => toBindable(values[k])),
+    sql: `INSERT INTO ${quoteIdent(table)} (${cols}) VALUES (${placeholders})`,
+  };
+}
+
+/**
+ * Build an `UPDATE … WHERE rowid = ?` for one row from a validated column→value map. Only REAL,
+ * non-PK columns present in `values` are set (a hostile/extra key is dropped); the row is targeted
+ * by its stable SQLite `rowid` (the browse surface exposes it as `_rowid`). Returns `null` when no
+ * usable column remains. The `rowid` bind is appended LAST so the params align to the SQL.
+ */
+export function buildUpdateRowSql(
+  table: string,
+  columns: SiteTableColumn[],
+  values: Record<string, unknown>,
+  rowid: number,
+): { sql: string; params: unknown[] } | null {
+  const updatable = new Set(columns.filter((c) => isSafeIdent(c.name) && c.pk !== 1).map((c) => c.name));
+  const used = Object.keys(values).filter((k) => updatable.has(k));
+  if (used.length === 0) return null;
+  const assignments = used.map((k) => `${quoteIdent(k)} = ?`).join(', ');
+  return {
+    params: [...used.map((k) => toBindable(values[k])), rowid],
+    sql: `UPDATE ${quoteIdent(table)} SET ${assignments} WHERE rowid = ?`,
+  };
+}
+
 /** The re-exported deterministic per-site D1 name (`ps-site-{id}`) — for logging / display. */
 export { siteD1Name };

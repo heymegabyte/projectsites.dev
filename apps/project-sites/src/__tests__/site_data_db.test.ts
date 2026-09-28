@@ -17,7 +17,13 @@
  */
 import { createD1Sqlite } from './helpers/d1_sqlite.js';
 import {
+  buildAddColumnSql,
   buildCreateTableSql,
+  buildDropColumnSql,
+  buildInsertRowSql,
+  buildRenameColumnSql,
+  buildUpdateRowSql,
+  clampColumnType,
   createSampleData,
   FORBIDDEN_DB_IDS,
   insertSeedRows,
@@ -394,5 +400,109 @@ describe('createSampleData', () => {
     expect(res.skipped).toContain('customers');
     expect(res.tables).not.toContain('customers');
     expect(res.rowCounts['customers']).toBeUndefined();
+  });
+});
+
+describe('clampColumnType', () => {
+  it.each([
+    ['text', 'TEXT'],
+    ['integer', 'INTEGER'],
+    ['Real', 'REAL'],
+    ['NUMERIC', 'NUMERIC'],
+    ['blob', 'BLOB'],
+  ])('clamps %s → %s', (input, expected) => {
+    expect(clampColumnType(input)).toBe(expected);
+  });
+  it.each(['HACK', '', undefined, null, 'varchar(255)'])('defaults %s → TEXT', (input) => {
+    expect(clampColumnType(input)).toBe('TEXT');
+  });
+});
+
+describe('buildAddColumnSql', () => {
+  it('builds a nullable ADD COLUMN with a clamped, uppercased type', () => {
+    expect(buildAddColumnSql('customers', 'phone', 'text')).toBe(
+      'ALTER TABLE "customers" ADD COLUMN "phone" TEXT',
+    );
+    expect(buildAddColumnSql('t', 'qty', 'integer')).toBe(
+      'ALTER TABLE "t" ADD COLUMN "qty" INTEGER',
+    );
+    expect(buildAddColumnSql('t', 'c', 'HACK')).toBe('ALTER TABLE "t" ADD COLUMN "c" TEXT'); // clamped
+  });
+  it('never emits NOT NULL (P1 columns are nullable so ADD always succeeds on a populated table)', () => {
+    expect(buildAddColumnSql('t', 'c', 'TEXT')).not.toContain('NOT NULL');
+  });
+  it('returns null on a hostile table or column identifier', () => {
+    expect(buildAddColumnSql('bad; DROP', 'c', 'TEXT')).toBeNull();
+    expect(buildAddColumnSql('t', '1bad', 'TEXT')).toBeNull();
+    expect(buildAddColumnSql('t', 'a b', 'TEXT')).toBeNull();
+  });
+});
+
+describe('buildRenameColumnSql', () => {
+  it('builds a RENAME COLUMN with all three identifiers quoted', () => {
+    expect(buildRenameColumnSql('orders', 'total', 'amount')).toBe(
+      'ALTER TABLE "orders" RENAME COLUMN "total" TO "amount"',
+    );
+  });
+  it('returns null when any identifier is hostile', () => {
+    expect(buildRenameColumnSql('bad;', 'a', 'b')).toBeNull();
+    expect(buildRenameColumnSql('t', 'a-b', 'b')).toBeNull();
+    expect(buildRenameColumnSql('t', 'a', 'b c')).toBeNull();
+  });
+});
+
+describe('buildDropColumnSql', () => {
+  it('builds a DROP COLUMN with quoted identifiers', () => {
+    expect(buildDropColumnSql('customers', 'city')).toBe('ALTER TABLE "customers" DROP COLUMN "city"');
+  });
+  it('returns null on a hostile identifier', () => {
+    expect(buildDropColumnSql('t', 'drop; --')).toBeNull();
+    expect(buildDropColumnSql('1t', 'c')).toBeNull();
+  });
+});
+
+describe('buildInsertRowSql', () => {
+  const cols: SiteTableColumn[] = [
+    { name: 'id', notnull: 0, pk: 1, type: 'INTEGER' },
+    { name: 'name', notnull: 1, pk: 0, type: 'TEXT' },
+    { name: 'age', notnull: 0, pk: 0, type: 'INTEGER' },
+  ];
+
+  it('binds only real, non-PK columns present in the payload (drops PK + hallucinated keys)', () => {
+    const built = buildInsertRowSql('people', cols, { age: 30, id: 999, injected: 'x', name: 'Ada' });
+    expect(built).not.toBeNull();
+    expect(built!.sql).toBe('INSERT INTO "people" ("age", "name") VALUES (?, ?)');
+    expect(built!.params).toEqual([30, 'Ada']); // order follows the payload keys
+    expect(built!.sql).not.toContain('injected');
+    expect(built!.sql).not.toMatch(/"id"/);
+  });
+  it('serialises object/array cells to JSON text before binding', () => {
+    const built = buildInsertRowSql('people', cols, { name: { nested: true } });
+    expect(built!.params).toEqual([JSON.stringify({ nested: true })]);
+  });
+  it('returns null when the payload has no writable columns', () => {
+    expect(buildInsertRowSql('people', cols, { id: 1, injected: 'x' })).toBeNull();
+    expect(buildInsertRowSql('people', cols, {})).toBeNull();
+  });
+});
+
+describe('buildUpdateRowSql', () => {
+  const cols: SiteTableColumn[] = [
+    { name: 'id', notnull: 0, pk: 1, type: 'INTEGER' },
+    { name: 'name', notnull: 1, pk: 0, type: 'TEXT' },
+    { name: 'age', notnull: 0, pk: 0, type: 'INTEGER' },
+  ];
+
+  it('builds a SET … WHERE rowid = ? with the rowid bound LAST', () => {
+    const built = buildUpdateRowSql('people', cols, { age: 7, name: 'Bo' }, 42);
+    expect(built).not.toBeNull();
+    expect(built!.sql).toBe('UPDATE "people" SET "age" = ?, "name" = ? WHERE rowid = ?');
+    expect(built!.params).toEqual([7, 'Bo', 42]); // values first, rowid last
+  });
+  it('drops the PK + hallucinated keys; null when nothing writable remains', () => {
+    const built = buildUpdateRowSql('people', cols, { id: 5, name: 'X', injected: 'y' }, 1);
+    expect(built!.sql).toBe('UPDATE "people" SET "name" = ? WHERE rowid = ?');
+    expect(built!.params).toEqual(['X', 1]);
+    expect(buildUpdateRowSql('people', cols, { id: 5 }, 1)).toBeNull();
   });
 });

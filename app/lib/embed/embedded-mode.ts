@@ -567,6 +567,58 @@ export interface SiteDbRowsResponseMessage {
   error?: string;
 }
 
+/**
+ * Child → Parent (per-site D1 SQL console): run ONE raw SQL statement against the site's OWN dedicated
+ * D1. The admin (which holds `selectedSite` + the bearer) calls `POST /api/sites/:siteId/db/query` with
+ * `{ sql, params }` and replies with {@link SiteDbQueryResponseMessage}. The statement only ever touches
+ * the owner's OWN isolated D1 (server-resolved id, shared-platform ids denylisted), so arbitrary SQL is
+ * safe. Gated server-side by the `per_site_data` flag (DARK → 404 → `enabled:false`).
+ */
+export interface SiteDbQueryRequestMessage {
+  type: 'PS_SITEDB_QUERY_REQUEST';
+  correlationId: string;
+
+  /** The single SQL statement to run against the site's OWN D1. */
+  sql: string;
+
+  /** Optional positional bind params (primitives only) — values are bound, never interpolated. */
+  params?: (string | number | boolean | null)[];
+}
+
+/**
+ * Parent → Child (per-site D1 SQL console): the admin's reply to {@link SiteDbQueryRequestMessage}
+ * (mirrors the worker's `data` envelope — `{ rows, meta, rowCount, truncated }`). A real SQL error rides
+ * in `error` (the worker returns it verbatim — seeing the real error IS the point of a console).
+ * `enabled:false` when the `per_site_data` flag is dark (the 404 "not enabled").
+ */
+export interface SiteDbQueryResponseMessage {
+  type: 'PS_SITEDB_QUERY_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The rows the statement returned (empty for a write / DDL); capped server-side (see `truncated`). */
+  rows?: Record<string, unknown>[];
+
+  /** The number of rows returned before any cap. */
+  rowCount?: number;
+
+  /** `true` when the result was capped server-side (the grid shows a "first N rows" note). */
+  truncated?: boolean;
+
+  /** D1 execution meta (`rows_read` / `rows_written` / `duration` / `changes` / `last_row_id`). */
+  meta?: {
+    rows_read?: number;
+    rows_written?: number;
+    duration?: number;
+    changes?: number;
+    last_row_id?: number;
+  };
+
+  /** `false` when the `per_site_data` flag is off (the dark-flag 404) → the console stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
 // ── Resource-overview bridge messages ──────────────────────────────────────────
 
 /**
@@ -1643,6 +1695,7 @@ export type ParentToChildMessage =
   | AskResponseMessage
   | SiteDbTablesResponseMessage
   | SiteDbRowsResponseMessage
+  | SiteDbQueryResponseMessage
   | ResOverviewResponseMessage
   | ResReconcileResponseMessage
   | ResDetailResponseMessage
@@ -1674,6 +1727,7 @@ export type ChildToParentMessage =
   | AskRequestMessage
   | SiteDbTablesRequestMessage
   | SiteDbRowsRequestMessage
+  | SiteDbQueryRequestMessage
   | ResOverviewRequestMessage
   | ResReconcileRequestMessage
   | ResDetailRequestMessage
@@ -2199,6 +2253,25 @@ export function requestDbAiSeed(
       environment: input.environment,
     },
     'PS_DB_AI_SEED_RESULT',
+  );
+}
+
+/**
+ * Run ONE raw SQL statement against the site's OWN dedicated D1 (the SQL console). Resolves with the
+ * parent's {@link SiteDbQueryResponseMessage} — `{ rows, meta, rowCount, truncated }` on success, a
+ * verbatim `error` on a SQL error, or `enabled:false` when the `per_site_data` flag is dark.
+ */
+export function requestDbQuery(
+  input: { sql: string; params?: (string | number | boolean | null)[] },
+): Promise<SiteDbQueryResponseMessage> {
+  return requestFromParent<SiteDbQueryResponseMessage>(
+    {
+      type: 'PS_SITEDB_QUERY_REQUEST',
+      correlationId: nextBridgeCorrelationId(),
+      sql: input.sql,
+      params: input.params,
+    },
+    'PS_SITEDB_QUERY_RESPONSE',
   );
 }
 

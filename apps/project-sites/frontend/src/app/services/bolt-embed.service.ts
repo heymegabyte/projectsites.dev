@@ -155,6 +155,12 @@ interface PsMessage {
   readonly sortDir?: string | null;
   /** PS_SQL_REQUEST (D1 manager): the SQL to forward — /sql/exec (read) or /sql/exec-write (write). */
   readonly query?: string;
+  /**
+   * PS_SITEDB_QUERY_REQUEST (Data Platform SQL console): the raw single-statement SQL to run against the
+   * site's OWN per-site D1 via POST /api/sites/:id/db/query. Distinct from {@link query} (the shared-D1
+   * PS_SQL_REQUEST path). Bind params travel in {@link params}; the worker BINDS them, never concatenates.
+   */
+  readonly sql?: string;
   /** PS_SQL_REQUEST: route to the WRITE endpoint (CREATE/DROP/ALTER/INSERT/UPDATE/DELETE). */
   readonly write?: boolean;
   /** PS_SQL_REQUEST: confirm a destructive write (DROP/ALTER, or unscoped DELETE/UPDATE). */
@@ -1732,6 +1738,76 @@ export class BoltEmbedService {
                 } else {
                   reply({ ok: false, error: 'Failed to load rows' });
                 }
+              },
+            });
+          break;
+        }
+        case 'PS_SITEDB_QUERY_REQUEST': {
+          // Data Platform (per-site D1) — run a raw single-statement SQL console query against the site's
+          // OWN dedicated D1 via POST /api/sites/:id/db/query. The embedded editor has no cross-origin
+          // session, so it asks US (we hold currentSite + the ApiService bearer). Same server-side isolation
+          // + lazy provisioning as PS_SITEDB_TABLES/ROWS. Reply with PS_SITEDB_QUERY_RESPONSE. Mirrors the
+          // PS_SITEDB bridge. Dark behind `per_site_data` → a 404 whose body says "not enabled" maps to
+          // `{ok:false, enabled:false}`; a real SQL error is HTTP 400 whose message we surface VERBATIM
+          // (that is the whole point of a console).
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const sql = typeof msg.sql === 'string' ? msg.sql : '';
+          const params = Array.isArray(msg.params) ? msg.params : undefined;
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_SITEDB_QUERY_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!sql) {
+            reply({ ok: false, error: 'Missing SQL' });
+            break;
+          }
+          // The worker wraps success in `{ data: { rows, meta, rowCount, truncated } }` — unwrap it.
+          this.api
+            .post<{
+              data?: {
+                rows?: Record<string, unknown>[];
+                meta?: unknown;
+                rowCount?: number;
+                truncated?: boolean;
+              };
+            }>(`/sites/${site.id}/db/query`, { sql, params }, { silent: true })
+            .subscribe({
+              next: (res) =>
+                reply({
+                  ok: true,
+                  rows: res?.data?.rows ?? [],
+                  rowCount: res?.data?.rowCount ?? res?.data?.rows?.length ?? 0,
+                  truncated: !!res?.data?.truncated,
+                  meta: res?.data?.meta,
+                }),
+              error: (err: unknown) => {
+                // Dark-flag / not-owned: a real 404 whose body message says "not enabled" is the
+                // `per_site_data` killswitch — tell the editor to hide the surface, not show an error.
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                  return;
+                }
+                // A SQL error (HTTP 400 `{ok:false,error:{code:'SQL_ERROR',message}}`) — or any other
+                // failure — is surfaced VERBATIM so the console shows the real database message.
+                const message =
+                  err instanceof HttpErrorResponse &&
+                  typeof err.error?.error?.message === 'string'
+                    ? err.error.error.message
+                    : 'The query failed.';
+                reply({ ok: false, error: message });
               },
             });
           break;

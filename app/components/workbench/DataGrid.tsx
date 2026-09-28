@@ -1,0 +1,356 @@
+/**
+ * @file DataGrid — a compact, read-only Notion/Airtable-grade grid, shared by the editor "Database"
+ * tab's surfaces so a rows-of-data result ALWAYS renders in the same gorgeous form.
+ *
+ * @remarks
+ * This is the SHARED presentational grid for read-only row sets. The Table-view
+ * ({@link ./SiteTablesPanel}) owns the full EDITABLE per-site grid (inline edit, add/delete, DDL); this
+ * one is its read-only sibling for surfaces that display query results — the SQL console's result set
+ * ({@link ./SqlNavigator}) chief among them. It deliberately WIRES the same mature, unit-tested engine
+ * both use — `filterRows` · `sortRows` · `cycleSortMulti` · `PAGE_SIZE_OPTIONS`/`clampPageSize` from
+ * `./data-panel-logic`, and the typed cell renderer `classifyCell` from `./data-cell-format` — so a SQL
+ * result looks and behaves EXACTLY like a browsed table: sticky sortable headers, whole-set substring
+ * search, client-side pagination, and honest whole-result export (CSV/JSON/Copy export the full filtered
+ * set, not just the visible page). No editing — a result set (which may join many tables) has no single
+ * safe write target; the Table-view is where rows are edited.
+ *
+ * Style mirrors `./SiteTablesPanel` + `./SqlNavigator` exactly (UnoCSS `bolt-elements-*` tokens, phosphor
+ * `i-ph:*` icons, black `#060610` + cyan `#00E5FF`).
+ */
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { classNames } from '~/utils/classNames';
+import {
+  cycleSortMulti,
+  sortRows,
+  filterRows,
+  PAGE_SIZE_OPTIONS,
+  clampPageSize,
+  type GridSort,
+} from './data-panel-logic';
+import { classifyCell } from './data-cell-format';
+
+export interface DataGridProps {
+  /** Column display order (usually the query's select list, or `Object.keys(rows[0])`). */
+  columns: string[];
+
+  /** The row set to render (already fetched; client-side filter/sort/paginate happen here). */
+  rows: Record<string, unknown>[];
+
+  /** Root `data-testid` (the table gets `${testId}-table`, the search `${testId}-search`, etc.). */
+  testId?: string;
+
+  /** Max grid body height (Tailwind class) so the grid scrolls within its panel. */
+  maxHeightClass?: string;
+
+  /** Initial page size (clamped to {@link PAGE_SIZE_OPTIONS}); default 50. */
+  initialPageSize?: number;
+
+  /** Optional label for the export filename stem (default `result`). */
+  exportName?: string;
+}
+
+/** A generic client-side download of `text` as `filename` (fail-soft in sandboxed frames). */
+function downloadText(text: string, filename: string, mime: string): void {
+  try {
+    const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch {
+    // download unavailable (sandboxed) — fail soft; the grid still shows the data
+  }
+}
+
+/** RFC-4180 CSV: quote a field iff it contains a comma, quote, CR, or LF; double internal quotes. */
+function csvCell(value: unknown): string {
+  const s = value === null || value === undefined ? '' : String(value);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/** Serialize the full (filtered + sorted) set to CSV — headers + one row per record. */
+function toCsvText(columns: string[], rows: Record<string, unknown>[]): string {
+  const head = columns.map(csvCell).join(',');
+  const body = rows.map((r) => columns.map((c) => csvCell(r[c])).join(',')).join('\r\n');
+  return body ? `${head}\r\n${body}` : head;
+}
+
+/** Serialize the full set to tab-separated text (for a clipboard paste into a spreadsheet). */
+function toTsvText(columns: string[], rows: Record<string, unknown>[]): string {
+  const clean = (v: unknown) => (v === null || v === undefined ? '' : String(v).replace(/[\t\r\n]/g, ' '));
+  const head = columns.join('\t');
+  const body = rows.map((r) => columns.map((c) => clean(r[c])).join('\t')).join('\n');
+  return body ? `${head}\n${body}` : head;
+}
+
+export const DataGrid = memo(
+  ({ columns, rows, testId = 'data-grid', maxHeightClass = 'max-h-[52vh]', initialPageSize = 50, exportName = 'result' }: DataGridProps) => {
+    const [sorts, setSorts] = useState<GridSort[]>([]);
+    const [search, setSearch] = useState('');
+    const [pageSize, setPageSize] = useState<number>(clampPageSize(initialPageSize));
+    const [pageIndex, setPageIndex] = useState(0);
+    const [copied, setCopied] = useState(false);
+    const [exportOpen, setExportOpen] = useState(false);
+    const exportRef = useRef<HTMLDivElement | null>(null);
+
+    // A fresh result set (new columns/rows identity) resets the view so stale sort/search never linger.
+    useEffect(() => {
+      setSorts([]);
+      setSearch('');
+      setPageIndex(0);
+    }, [columns, rows]);
+
+    // Any search/sort/pagesize change returns to page 0 (never strand the user past the end).
+    useEffect(() => {
+      setPageIndex(0);
+    }, [search, sorts, pageSize]);
+
+    // Close the export menu on an outside click.
+    useEffect(() => {
+      if (!exportOpen) {
+        return;
+      }
+
+      const onDown = (e: MouseEvent) => {
+        if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+          setExportOpen(false);
+        }
+      };
+
+      document.addEventListener('mousedown', onDown);
+
+      return () => document.removeEventListener('mousedown', onDown);
+    }, [exportOpen]);
+
+    /** The full filtered + multi-column-sorted set (across every row, not just the page). */
+    const processed = useMemo(() => {
+      let out = filterRows(rows, columns, search);
+
+      // Apply sorts from LAST priority to FIRST so the first sort wins (stable multi-sort).
+      for (let i = sorts.length - 1; i >= 0; i--) {
+        out = sortRows(out, sorts[i]);
+      }
+
+      return out;
+    }, [rows, columns, search, sorts]);
+
+    const total = processed.length;
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    const safePageIndex = Math.min(pageIndex, pageCount - 1);
+    const pageRows = useMemo(
+      () => processed.slice(safePageIndex * pageSize, safePageIndex * pageSize + pageSize),
+      [processed, safePageIndex, pageSize],
+    );
+
+    const onSortColumn = useCallback((col: string) => setSorts((cur) => cycleSortMulti(cur, col)), []);
+
+    const sortFor = useCallback(
+      (col: string): { dir: 'asc' | 'desc'; priority: number } | null => {
+        const i = sorts.findIndex((s) => s.col === col);
+        return i < 0 ? null : { dir: sorts[i].dir, priority: i + 1 };
+      },
+      [sorts],
+    );
+
+    const exportCsv = useCallback(() => {
+      downloadText(toCsvText(columns, processed), `${exportName}.csv`, 'text/csv');
+      setExportOpen(false);
+    }, [columns, processed, exportName]);
+
+    const exportJson = useCallback(() => {
+      downloadText(JSON.stringify(processed, null, 2), `${exportName}.json`, 'application/json');
+      setExportOpen(false);
+    }, [processed, exportName]);
+
+    const copyTsv = useCallback(async () => {
+      try {
+        await navigator.clipboard.writeText(toTsvText(columns, processed));
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1600);
+      } catch {
+        // clipboard blocked — fall back to a download so the data is never trapped
+        downloadText(toCsvText(columns, processed), `${exportName}.csv`, 'text/csv');
+      }
+
+      setExportOpen(false);
+    }, [columns, processed, exportName]);
+
+    if (columns.length === 0) {
+      return null;
+    }
+
+    const rangeStart = total === 0 ? 0 : safePageIndex * pageSize + 1;
+    const rangeEnd = Math.min(total, (safePageIndex + 1) * pageSize);
+
+    return (
+      <div data-testid={testId}>
+        {/* Toolbar — search · count · export */}
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[160px]">
+            <div className="i-ph:magnifying-glass absolute left-2 top-1/2 -translate-y-1/2 text-bolt-elements-textTertiary text-sm" aria-hidden />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search results…"
+              aria-label="Search results"
+              data-testid={`${testId}-search`}
+              className="w-full rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 py-1.5 pl-8 pr-2 text-xs text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:border-bolt-elements-item-contentAccent focus:outline-none"
+            />
+          </div>
+
+          <span
+            className="px-2 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary tabular-nums text-[10px]"
+            data-testid={`${testId}-count`}
+          >
+            {total.toLocaleString()} {total === 1 ? 'row' : 'rows'}
+            {search && rows.length !== total ? ` of ${rows.length.toLocaleString()}` : ''}
+          </span>
+
+          <div className="relative" ref={exportRef}>
+            <button
+              type="button"
+              onClick={() => setExportOpen((o) => !o)}
+              className="flex items-center gap-1 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 py-1.5 text-[11px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-bolt-elements-item-contentAccent/60 transition-colors"
+              aria-haspopup="menu"
+              aria-expanded={exportOpen}
+              data-testid={`${testId}-export`}
+            >
+              <div className={classNames(copied ? 'i-ph:check' : 'i-ph:download-simple', 'text-sm')} aria-hidden />
+              {copied ? 'Copied' : 'Export'}
+            </button>
+            {exportOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-lg"
+              >
+                <button type="button" role="menuitem" onClick={exportCsv} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundAccent/10 hover:text-bolt-elements-textPrimary">
+                  <div className="i-ph:file-csv text-sm" aria-hidden /> CSV
+                </button>
+                <button type="button" role="menuitem" onClick={exportJson} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundAccent/10 hover:text-bolt-elements-textPrimary">
+                  <div className="i-ph:brackets-curly text-sm" aria-hidden /> JSON
+                </button>
+                <button type="button" role="menuitem" onClick={copyTsv} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundAccent/10 hover:text-bolt-elements-textPrimary">
+                  <div className="i-ph:copy text-sm" aria-hidden /> Copy
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Grid */}
+        <div className={classNames('overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]', maxHeightClass)}>
+          <table className="min-w-full text-xs font-mono border-collapse tabular-nums" data-testid={`${testId}-table`}>
+            <thead>
+              <tr className="bg-bolt-elements-background-depth-2">
+                {columns.map((name) => {
+                  const s = sortFor(name);
+                  return (
+                    <th
+                      key={name}
+                      onClick={() => onSortColumn(name)}
+                      title={`Sort by ${name}`}
+                      className="sticky top-0 z-10 cursor-pointer select-none text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary font-medium border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 whitespace-nowrap hover:text-bolt-elements-item-contentAccent after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-bolt-elements-item-contentAccent/25"
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        {name}
+                        {s && (
+                          <span className="inline-flex items-center text-bolt-elements-item-contentAccent">
+                            <div className={classNames(s.dir === 'asc' ? 'i-ph:arrow-up' : 'i-ph:arrow-down', 'text-[10px]')} aria-hidden />
+                            {sorts.length > 1 && <span className="text-[9px]">{s.priority}</span>}
+                          </span>
+                        )}
+                      </span>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.map((row, ri) => (
+                <tr
+                  key={ri}
+                  className="odd:bg-bolt-elements-background-depth-1 even:bg-bolt-elements-background-depth-2/30 hover:bg-bolt-elements-item-backgroundAccent/10 transition-colors motion-reduce:transition-none"
+                >
+                  {columns.map((name) => {
+                    const classified = classifyCell(row[name]);
+                    return (
+                      <td
+                        key={name}
+                        className={classNames(
+                          'px-3 py-1.5 border-b border-bolt-elements-borderColor/30 whitespace-nowrap max-w-[280px] truncate',
+                          classified.className,
+                        )}
+                        title={classified.kind === 'null' ? 'null' : (classified.title ?? classified.display)}
+                      >
+                        {classified.kind === 'null' ? (
+                          <span className="text-bolt-elements-textTertiary/50">—</span>
+                        ) : (
+                          classified.display
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pager */}
+        {total > pageSize && (
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-bolt-elements-textTertiary">
+            <span className="tabular-nums">
+              {rangeStart.toLocaleString()}–{rangeEnd.toLocaleString()} of {total.toLocaleString()}
+            </span>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1">
+                <span className="sr-only">Rows per page</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(clampPageSize(Number(e.target.value)))}
+                  aria-label="Rows per page"
+                  data-testid={`${testId}-pagesize`}
+                  className="rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-1.5 py-1 text-[11px] text-bolt-elements-textSecondary focus:border-bolt-elements-item-contentAccent focus:outline-none"
+                >
+                  {PAGE_SIZE_OPTIONS.map((n) => (
+                    <option key={n} value={n}>
+                      {n} / page
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => setPageIndex((i) => Math.max(0, i - 1))}
+                disabled={safePageIndex === 0}
+                aria-label="Previous page"
+                className="rounded-md border border-bolt-elements-borderColor px-2 py-1 disabled:opacity-40 enabled:hover:border-bolt-elements-item-contentAccent/60"
+              >
+                <div className="i-ph:caret-left" aria-hidden />
+              </button>
+              <span className="tabular-nums">
+                {safePageIndex + 1} / {pageCount}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPageIndex((i) => Math.min(pageCount - 1, i + 1))}
+                disabled={safePageIndex >= pageCount - 1}
+                aria-label="Next page"
+                className="rounded-md border border-bolt-elements-borderColor px-2 py-1 disabled:opacity-40 enabled:hover:border-bolt-elements-item-contentAccent/60"
+              >
+                <div className="i-ph:caret-right" aria-hidden />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  },
+);
+
+DataGrid.displayName = 'DataGrid';

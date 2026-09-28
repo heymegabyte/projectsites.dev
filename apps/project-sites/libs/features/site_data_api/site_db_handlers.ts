@@ -9,23 +9,33 @@
  *
  * Distinct from `handlers.ts` (`siteDataApi`): that surface reads PLATFORM tables
  * (`form_submissions`, `visitor_events`, `site_data`) from the SHARED master D1 scoped by
- * `site_id`. This surface reads the customer's OWN dedicated D1 (blank at first) — never the shared
- * DB, never another site's DB (`resolveSiteDataDb` server-resolves the id + denylists the shared
- * platform ids). CRUD / create-table / typed inline editing / undo / Time-Travel snapshots land in
- * later slices; this fire ships provision + isolation + list/browse.
+ * `site_id`. This surface reads AND WRITES the customer's OWN dedicated D1 (blank at first) — never
+ * the shared DB, never another site's DB (`resolveSiteDataDb` server-resolves the id + denylists the
+ * shared platform ids). P1 (this slice) ships the full grid/console CRUD; typed undo / Time-Travel
+ * snapshots / ERD land in later slices.
  *
- * | Method | Path                                        | Auth  | Purpose                                     |
- * | ------ | ------------------------------------------- | ----- | ------------------------------------------- |
- * | GET    | /api/sites/:siteId/db/tables                | orgId | List the site's OWN tables (lazy-provision) |
- * | GET    | /api/sites/:siteId/db/tables/:table         | orgId | Browse one table's rows (paginated)         |
- * | POST   | /api/sites/:siteId/db/sample-data           | orgId | Seed 3 related sample tables (non-destructive) |
- * | POST   | /api/sites/:siteId/db/ai-seed               | orgId | AI-generate rows for a table / CREATE from prompt |
- * | GET    | /api/sites/:siteId/build-files              | orgId | List the site's published R2 build files    |
+ * | Method | Path                                                | Auth  | Purpose                                        |
+ * | ------ | --------------------------------------------------- | ----- | ---------------------------------------------- |
+ * | GET    | /api/sites/:siteId/db/tables                        | orgId | List the site's OWN tables (lazy-provision)    |
+ * | GET    | /api/sites/:siteId/db/tables/:table                 | orgId | Browse one table's rows (paginated; `_rowid`)  |
+ * | POST   | /api/sites/:siteId/db/tables                        | orgId | Create a table (manual: name + typed columns)  |
+ * | DELETE | /api/sites/:siteId/db/tables/:table                 | orgId | Drop a table                                   |
+ * | POST   | /api/sites/:siteId/db/tables/:table/rows            | orgId | Insert one row                                 |
+ * | PATCH  | /api/sites/:siteId/db/tables/:table/rows/:rowid     | orgId | Update one row (by `_rowid`)                   |
+ * | DELETE | /api/sites/:siteId/db/tables/:table/rows/:rowid     | orgId | Delete one row (by `_rowid`)                   |
+ * | POST   | /api/sites/:siteId/db/tables/:table/columns         | orgId | Add one (nullable) column                      |
+ * | PATCH  | /api/sites/:siteId/db/tables/:table/columns/:column | orgId | Rename a column                                |
+ * | DELETE | /api/sites/:siteId/db/tables/:table/columns/:column | orgId | Drop a column                                  |
+ * | POST   | /api/sites/:siteId/db/sample-data                   | orgId | Seed 3 related sample tables (non-destructive) |
+ * | POST   | /api/sites/:siteId/db/ai-seed                       | orgId | AI-generate rows for a table / CREATE from prompt |
+ * | POST   | /api/sites/:siteId/db/query                         | orgId | Raw single-statement SQL console (row-capped)  |
+ * | GET    | /api/sites/:siteId/build-files                      | orgId | List the site's published R2 build files       |
  *
  * Every route: (1) 401 if unauthenticated; (2) **404 (dark) when the `per_site_data` flag is off** —
  * per `feature-flags` never 403, never leak existence; (3) `ownsSiteData` IDOR guard (404 on a
- * foreign/missing site); (4) then and only then resolves the per-site D1. Table names are validated
- * against `isSafeIdent` (D1 REST cannot bind an identifier) and confirmed to exist before browsing.
+ * foreign/missing site); (4) then and only then resolves the per-site D1. Table + column names are
+ * validated against `isSafeIdent` (D1 REST cannot bind an identifier) and confirmed to exist before
+ * mutating; every value is bound, never interpolated; rows are targeted by their stable `rowid`.
  *
  * The `sample-data` + `ai-seed` WRITE routes execute through the SAME per-site executor
  * (`resolveSiteDataDb`) — the write plane was already live (the D1 REST `/query` endpoint is
@@ -41,7 +51,12 @@ import type { Env, Variables } from '../../../src/types/env.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
 import { dbQueryOne } from '../../../src/services/db.js';
 import {
+  buildAddColumnSql,
   buildCreateTableSql,
+  buildDropColumnSql,
+  buildInsertRowSql,
+  buildRenameColumnSql,
+  buildUpdateRowSql,
   createSampleData,
   insertSeedRows,
   introspectColumns,
@@ -319,7 +334,10 @@ siteDbApi.get('/api/sites/:siteId/db/tables/:table', async (c) => {
 
     const [countRes, rowsRes, colRes] = await Promise.all([
       resolved.db.query<{ n: number }>(`SELECT COUNT(*) AS n FROM ${q}`),
-      resolved.db.query(`SELECT * FROM ${q} LIMIT ? OFFSET ?`, [limit, offset]),
+      // `_rowid` is the stable per-row key the grid targets for inline edit + delete (rows may have
+      // no user-facing PK). The pragma `columns` list below does NOT include it, so the grid renders
+      // only real columns and keeps `_rowid` as a hidden handle.
+      resolved.db.query(`SELECT rowid AS _rowid, * FROM ${q} LIMIT ? OFFSET ?`, [limit, offset]),
       resolved.db.query<{ name: string; type: string; notnull: number; pk: number }>(
         `SELECT name, type, "notnull", pk FROM pragma_table_info(?)`,
         [table],
@@ -495,6 +513,291 @@ siteDbApi.post('/api/sites/:siteId/db/ai-seed', async (c) => {
         { error: { code: 'DATA_STORE_ERROR', message: 'Could not seed the table.' }, ok: false },
         502,
       );
+    throw err;
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// P1 grid/console CRUD — structured mutations + a raw SQL console, all through the SAME per-site
+// executor (`gateAndResolve` → `resolveSiteDataDb`), so every write is org-owned, flag-dark-404'd,
+// FORBIDDEN_DB_IDS-guarded, and identifier-safe. The D1 REST `/query` plane is single-statement
+// read-OR-write, so no new transport is needed — only safe SQL builders + the gate.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Body for `POST /db/tables` — a manually-defined table (name + typed columns). */
+const CreateTableBodySchema = z
+  .object({
+    table: z.string().min(1).max(64),
+    columns: z
+      .array(
+        z
+          .object({
+            name: z.string().min(1).max(64),
+            type: z.string().max(16).optional(),
+            notnull: z.boolean().optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(64),
+  })
+  .strict();
+
+/** Body for row insert/update — a column→value map (unknown keys are dropped by the SQL builder). */
+const RowValuesBodySchema = z.object({ values: z.record(z.string(), z.unknown()) }).strict();
+
+/** Body for `POST /db/tables/:table/columns` — one new (nullable) column. */
+const AddColumnBodySchema = z
+  .object({ name: z.string().min(1).max(64), type: z.string().max(16).optional() })
+  .strict();
+
+/** Body for `PATCH /db/tables/:table/columns/:column` — the new column name. */
+const RenameColumnBodySchema = z.object({ name: z.string().min(1).max(64) }).strict();
+
+/** Body for the raw SQL console — one statement + optional bound params (primitives only). */
+const RawQueryBodySchema = z
+  .object({
+    sql: z.string().min(1).max(10_000),
+    params: z.array(z.union([z.string(), z.number(), z.boolean(), z.null()])).max(100).optional(),
+  })
+  .strict();
+
+/** Cap the rows a single console query streams back to the client (payload safety). */
+const MAX_CONSOLE_ROWS = 500;
+
+/** Uniform 502 for a per-site D1 error (the DB itself failed, not the request). */
+function dataStoreError(c: Context<AppContext>, message: string) {
+  return c.json({ error: { code: 'DATA_STORE_ERROR', message }, ok: false }, 502);
+}
+
+/**
+ * Extend {@link gateAndResolve} with a table check: validate `table` against {@link isSafeIdent}
+ * (D1 REST cannot bind an identifier), confirm it exists in THIS site's DB (clean 404, never a raw
+ * SQL error), and return the executor + the live column set (so row/column mutators don't
+ * re-introspect). Returns a `Response` the caller returns verbatim on any gate/validation failure.
+ * DB reads here can throw {@link SiteDataD1Error}; callers wrap the call in try/catch → 502.
+ */
+async function gateResolveAndRequireTable(
+  c: Context<AppContext>,
+  siteId: string,
+  table: string,
+): Promise<{ db: SiteDataD1; columns: SiteTableColumn[] } | Response> {
+  if (!isSafeIdent(table))
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid table name' }, ok: false }, 400);
+  const gate = await gateAndResolve(c, siteId);
+  if (gate instanceof Response) return gate;
+  const tables = await listSiteTables(gate.db);
+  if (!tables.includes(table))
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Table not found' }, ok: false }, 404);
+  const columns = await introspectColumns(gate.db, table);
+  return { columns, db: gate.db };
+}
+
+/** POST — create a table from a manual definition (name + typed columns). 409 if it already exists. */
+siteDbApi.post('/api/sites/:siteId/db/tables', async (c) => {
+  const { siteId } = c.req.param();
+  const gate = await gateAndResolve(c, siteId);
+  if (gate instanceof Response) return gate;
+
+  const parsed = CreateTableBodySchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid table definition' }, ok: false }, 400);
+
+  const built = buildCreateTableSql({
+    columns: parsed.data.columns.map((col) => ({
+      name: col.name,
+      notnull: col.notnull,
+      type: col.type ?? 'TEXT',
+    })),
+    table: parsed.data.table,
+  });
+  if (!built)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid table or column name' }, ok: false }, 400);
+
+  try {
+    if ((await listSiteTables(gate.db)).includes(built.table))
+      return c.json({ error: { code: 'CONFLICT', message: 'A table with that name already exists' }, ok: false }, 409);
+    await gate.db.query(built.sql);
+    return c.json(
+      { data: { columns: await introspectColumns(gate.db, built.table), table: built.table }, ok: true },
+      201,
+    );
+  } catch (err) {
+    if (err instanceof SiteDataD1Error) return dataStoreError(c, 'Could not create the table.');
+    throw err;
+  }
+});
+
+/** DELETE — drop a table (destructive; the UI gates this behind type-to-confirm). */
+siteDbApi.delete('/api/sites/:siteId/db/tables/:table', async (c) => {
+  const { siteId, table } = c.req.param();
+  try {
+    const gate = await gateResolveAndRequireTable(c, siteId, table);
+    if (gate instanceof Response) return gate;
+    await gate.db.query(`DROP TABLE IF EXISTS ${quoteIdent(table)}`);
+    return c.json({ data: { dropped: true, table }, ok: true });
+  } catch (err) {
+    if (err instanceof SiteDataD1Error) return dataStoreError(c, 'Could not drop the table.');
+    throw err;
+  }
+});
+
+/** POST — insert one row (only real, non-PK columns from the payload are written). */
+siteDbApi.post('/api/sites/:siteId/db/tables/:table/rows', async (c) => {
+  const { siteId, table } = c.req.param();
+  try {
+    const gate = await gateResolveAndRequireTable(c, siteId, table);
+    if (gate instanceof Response) return gate;
+    const parsed = RowValuesBodySchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success)
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid row payload' }, ok: false }, 400);
+    const built = buildInsertRowSql(table, gate.columns, parsed.data.values);
+    if (!built)
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'No writable columns in payload' }, ok: false }, 400);
+    const res = await gate.db.query(built.sql, built.params);
+    return c.json({ data: { inserted: Number(res.meta.rows_written ?? 0) || 1, table }, ok: true }, 201);
+  } catch (err) {
+    if (err instanceof SiteDataD1Error) return dataStoreError(c, 'Could not insert the row.');
+    throw err;
+  }
+});
+
+/** PATCH — update one row by its stable SQLite `rowid` (the `_rowid` the browse surface exposes). */
+siteDbApi.patch('/api/sites/:siteId/db/tables/:table/rows/:rowid', async (c) => {
+  const { siteId, table, rowid } = c.req.param();
+  const rowidNum = Number.parseInt(rowid, 10);
+  if (!Number.isInteger(rowidNum))
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid row id' }, ok: false }, 400);
+  try {
+    const gate = await gateResolveAndRequireTable(c, siteId, table);
+    if (gate instanceof Response) return gate;
+    const parsed = RowValuesBodySchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success)
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid row payload' }, ok: false }, 400);
+    const built = buildUpdateRowSql(table, gate.columns, parsed.data.values, rowidNum);
+    if (!built)
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'No writable columns in payload' }, ok: false }, 400);
+    const res = await gate.db.query(built.sql, built.params);
+    return c.json({ data: { table, updated: Number(res.meta.rows_written ?? 0) }, ok: true });
+  } catch (err) {
+    if (err instanceof SiteDataD1Error) return dataStoreError(c, 'Could not update the row.');
+    throw err;
+  }
+});
+
+/** DELETE — remove one row by its stable SQLite `rowid`. */
+siteDbApi.delete('/api/sites/:siteId/db/tables/:table/rows/:rowid', async (c) => {
+  const { siteId, table, rowid } = c.req.param();
+  const rowidNum = Number.parseInt(rowid, 10);
+  if (!Number.isInteger(rowidNum))
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid row id' }, ok: false }, 400);
+  try {
+    const gate = await gateResolveAndRequireTable(c, siteId, table);
+    if (gate instanceof Response) return gate;
+    const res = await gate.db.query(`DELETE FROM ${quoteIdent(table)} WHERE rowid = ?`, [rowidNum]);
+    return c.json({ data: { deleted: Number(res.meta.rows_written ?? 0), table }, ok: true });
+  } catch (err) {
+    if (err instanceof SiteDataD1Error) return dataStoreError(c, 'Could not delete the row.');
+    throw err;
+  }
+});
+
+/** POST — add one (nullable) column to a table. 409 if the column already exists. */
+siteDbApi.post('/api/sites/:siteId/db/tables/:table/columns', async (c) => {
+  const { siteId, table } = c.req.param();
+  try {
+    const gate = await gateResolveAndRequireTable(c, siteId, table);
+    if (gate instanceof Response) return gate;
+    const parsed = AddColumnBodySchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success)
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid column definition' }, ok: false }, 400);
+    if (gate.columns.some((col) => col.name === parsed.data.name))
+      return c.json({ error: { code: 'CONFLICT', message: 'A column with that name already exists' }, ok: false }, 409);
+    const sql = buildAddColumnSql(table, parsed.data.name, parsed.data.type ?? 'TEXT');
+    if (!sql)
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid column name' }, ok: false }, 400);
+    await gate.db.query(sql);
+    return c.json({ data: { columns: await introspectColumns(gate.db, table), table }, ok: true }, 201);
+  } catch (err) {
+    if (err instanceof SiteDataD1Error) return dataStoreError(c, 'Could not add the column.');
+    throw err;
+  }
+});
+
+/** PATCH — rename a column. */
+siteDbApi.patch('/api/sites/:siteId/db/tables/:table/columns/:column', async (c) => {
+  const { siteId, table, column } = c.req.param();
+  if (!isSafeIdent(column))
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid column name' }, ok: false }, 400);
+  try {
+    const gate = await gateResolveAndRequireTable(c, siteId, table);
+    if (gate instanceof Response) return gate;
+    if (!gate.columns.some((col) => col.name === column))
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Column not found' }, ok: false }, 404);
+    const parsed = RenameColumnBodySchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success)
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid column name' }, ok: false }, 400);
+    if (gate.columns.some((col) => col.name === parsed.data.name))
+      return c.json({ error: { code: 'CONFLICT', message: 'A column with that name already exists' }, ok: false }, 409);
+    const sql = buildRenameColumnSql(table, column, parsed.data.name);
+    if (!sql)
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid column name' }, ok: false }, 400);
+    await gate.db.query(sql);
+    return c.json({ data: { columns: await introspectColumns(gate.db, table), table }, ok: true });
+  } catch (err) {
+    if (err instanceof SiteDataD1Error) return dataStoreError(c, 'Could not rename the column.');
+    throw err;
+  }
+});
+
+/** DELETE — drop a column (SQLite refuses to drop a PK / last / indexed column → surfaces as 502). */
+siteDbApi.delete('/api/sites/:siteId/db/tables/:table/columns/:column', async (c) => {
+  const { siteId, table, column } = c.req.param();
+  if (!isSafeIdent(column))
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid column name' }, ok: false }, 400);
+  try {
+    const gate = await gateResolveAndRequireTable(c, siteId, table);
+    if (gate instanceof Response) return gate;
+    if (!gate.columns.some((col) => col.name === column))
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Column not found' }, ok: false }, 404);
+    const sql = buildDropColumnSql(table, column);
+    if (!sql)
+      return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid column name' }, ok: false }, 400);
+    await gate.db.query(sql);
+    return c.json({ data: { columns: await introspectColumns(gate.db, table), table }, ok: true });
+  } catch (err) {
+    if (err instanceof SiteDataD1Error) return dataStoreError(c, 'Could not drop the column.');
+    throw err;
+  }
+});
+
+/**
+ * POST — the raw SQL console. Runs ONE statement against the site's OWN isolated D1 (never shared,
+ * FORBIDDEN_DB_IDS-guarded upstream), so arbitrary SQL only ever touches the owner's own data. Rows
+ * are capped at {@link MAX_CONSOLE_ROWS}; a SQL error is surfaced verbatim (400) because seeing the
+ * real error IS the point of a console.
+ */
+siteDbApi.post('/api/sites/:siteId/db/query', async (c) => {
+  const { siteId } = c.req.param();
+  const gate = await gateAndResolve(c, siteId);
+  if (gate instanceof Response) return gate;
+  const parsed = RawQueryBodySchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success)
+    return c.json({ error: { code: 'BAD_REQUEST', message: 'Invalid query' }, ok: false }, 400);
+  try {
+    const res = await gate.db.query(parsed.data.sql, parsed.data.params ?? []);
+    return c.json({
+      data: {
+        meta: res.meta,
+        rowCount: res.results.length,
+        rows: res.results.slice(0, MAX_CONSOLE_ROWS),
+        truncated: res.results.length > MAX_CONSOLE_ROWS,
+      },
+      ok: true,
+    });
+  } catch (err) {
+    if (err instanceof SiteDataD1Error)
+      return c.json({ error: { code: 'SQL_ERROR', message: err.message }, ok: false }, 400);
     throw err;
   }
 });
