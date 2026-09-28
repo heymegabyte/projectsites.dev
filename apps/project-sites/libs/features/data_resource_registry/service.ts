@@ -18,7 +18,7 @@
  * @packageDocumentation
  */
 import type { Env } from '../../../src/types/env.js';
-import { dbInsert, dbQuery, dbQueryOne } from '../../../src/services/db.js';
+import { dbExecute, dbInsert, dbQuery, dbQueryOne } from '../../../src/services/db.js';
 import { assertSiteOwned } from '../../../src/services/site_ownership.js';
 import { FORBIDDEN_DB_IDS } from '../../../src/services/site_data_db.js';
 import { resolveCfCredentials } from '../../../src/services/cf_credentials.js';
@@ -576,4 +576,52 @@ export async function provisionResource(
     registryRowId: recorded.id,
     resourceId: prov.resourceId,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// clearSiteWfpRegistry — WfP Site Hosting Unit 5 teardown (registry-clear half)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Result of {@link clearSiteWfpRegistry} — fail-soft; never a throw. */
+export interface ClearSiteWfpRegistryResult {
+  /** false when the D1 write errored (swallowed — teardown never blocks delete/archive). */
+  readonly ok: boolean;
+  /** Number of registry rows soft-deleted (`changes`); 0 on a no-op OR an error. */
+  readonly cleared: number;
+}
+
+/**
+ * Soft-delete a site's `wfp_namespace` registry rows on teardown (site delete/archive) —
+ * the registry-clear half of WfP Site Hosting Unit 5. Both the `preview` and `production`
+ * slot rows are cleared in ONE `UPDATE` (scoped to the site + the `wfp_namespace` concept),
+ * so a torn-down site leaves no live slot row for the Unit-3 serving preference to find.
+ *
+ * Soft-delete (sets `deleted_at`), NEVER a hard `DELETE` — the registry is an audit surface;
+ * the `deleted_at IS NULL` guard makes a re-run an idempotent no-op (0 changes). This clears
+ * ONLY the WfP slot rows a site owns; per-site D1/KV/R2 allocation rows (other concepts) are
+ * NOT touched (their teardown is a separate deliberate step, not a byproduct of a site delete).
+ *
+ * Fail-soft by construction: a D1 error resolves `{ ok:false, cleared:0 }` — it NEVER throws,
+ * so the caller's delete/archive path can never be blocked by a registry-clear failure.
+ *
+ * @param env - worker env (D1 `DB`).
+ * @param siteId - the site being torn down (server-side; the caller proved ownership).
+ * @returns a {@link ClearSiteWfpRegistryResult} — always resolves.
+ *
+ * @remarks Impure: one D1 `UPDATE`.
+ * @example
+ * const r = await clearSiteWfpRegistry(env, siteId); // { ok: true, cleared: 2 }
+ */
+export async function clearSiteWfpRegistry(
+  env: Env,
+  siteId: string,
+): Promise<ClearSiteWfpRegistryResult> {
+  const { error, changes } = await dbExecute(
+    env.DB,
+    `UPDATE site_resource_registry
+        SET deleted_at = datetime('now'), updated_at = datetime('now')
+      WHERE site_id = ? AND resource_concept = ? AND deleted_at IS NULL`,
+    [siteId, 'wfp_namespace'],
+  );
+  return { ok: error === null, cleared: error === null ? changes : 0 };
 }

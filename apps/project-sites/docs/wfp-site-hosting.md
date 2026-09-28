@@ -114,8 +114,33 @@ lone 200.
    `src/__tests__/wfp_lifecycle_wiring.test.ts` (7 cases: flag-off no-call byte-identical, flag-on preview slot,
    flag-on production slot, flag-on both slots, deploy-failure no-throw, deploy-throw swallowed, no-orgId skip).
    tsc + full Jest (865 suites / 13,717 tests) green. **coupled**
-5. **Teardown** — on site delete/archive, delete BOTH slots + clear the registry row (reuse
-   `deleteSiteFunctionsWorker`). **coupled**
+5. ✅ **Teardown** — DONE (2026-09-28). `teardownSiteWfp(env, siteId, {orgId})`
+   (`src/services/wfp_site_hosting.ts`) is the thin, flag-gated, fail-soft teardown hook the site
+   delete/archive paths call to remove a site's WfP footprint: it deletes BOTH dispatch slots
+   (production `site-<id>` AND preview `site-<id>-preview`) from the shared `USER_DISPATCH` namespace
+   via `deleteSiteFunctionsWorker` (REUSED, not reimplemented — the SAME best-effort/never-throws CF
+   DELETE Functions uses), then clears the site's `wfp_namespace` registry rows via the new
+   `clearSiteWfpRegistry(env, siteId)` (`libs/features/data_resource_registry/service.ts` — one
+   `UPDATE … SET deleted_at` soft-delete over both preview+production rows, scoped to the site + the
+   `wfp_namespace` concept, `deleted_at IS NULL`-guarded so a re-run is a no-op; typed
+   `{ok, cleared}`, fail-soft). **Flag-gated FIRST** (`site_wfp_hosting`, per-site) so a flag-off
+   delete/archive makes ZERO WfP/registry calls (byte-identical). **Idempotent** — deleting an
+   absent slot is a no-op success (CF 404 swallowed) + `clearSiteWfpRegistry` re-runs to 0 changes.
+   **Fail-soft** — a slot-delete throw OR a registry-clear throw is swallowed; `teardownSiteWfp`
+   NEVER throws into delete/archive (each step independently guarded, absolute outer try/catch).
+   Wired into THREE lifecycle points, each ADDITIVE + fire-and-forget: (a) `DELETE /api/sites/:id`
+   (guarded by the route's existing `requireOwnedSite`); (b) `DELETE /api/admin/account` (snapshots
+   the org's live site ids BEFORE the archive batch, then tears each down); (c) `resolveAbuseReport`
+   takedown (`libs/features/abuse_takedown/service.ts`, after the successful archive, using the
+   report's `org_id` as the flag scope). The two api.ts call sites go through a `runTeardownWfp`
+   wrapper that prefers `ctx.waitUntil` but guards the THROWING `c.executionCtx` getter (unit-test
+   runtimes have no ExecutionContext) so scheduling never throws into the delete. `serveSiteFromR2`
+   is UNTOUCHED (byte-identical). Unit tests `src/__tests__/wfp_teardown.test.ts` (6 cases: flag-off
+   no-call byte-identical, flag-on both-slots+registry-clear, idempotent absent-slot no-op,
+   slot-delete-throw swallowed, registry-clear-throw swallowed, no-orgId skip) +
+   `libs/features/data_resource_registry/__tests__/clear_site_wfp.test.ts` (3 cases: soft-delete
+   shape, fail-soft D1 error, idempotent 0-rows). tsc clean; full Jest **868 suites / 13,734 tests**
+   green. Commit `c6c81481f`. **coupled**
 6. **Owner UI (admin, Angular + Spartan, brand tokens)** — a Preview/Publish + **WfP deploy-status**
    surface (status pill: provisioning/preview-live/published; the preview URL + the prod URL; a
    Publish/Promote action; the four states empty/loading/error/success). Reachable from the site
@@ -127,21 +152,24 @@ lone 200.
 ## Acceptance
 
 - Flag OFF → `serveSiteFromR2` behavior byte-identical; every existing site unchanged. **✅ MET** — the
-  flag-gate is the FIRST check in BOTH the serving preference (Unit 3) AND the lifecycle hook (Unit 4); a
-  flag-off site reads one flag then falls through to the untouched R2 path / makes ZERO WfP calls (unit-tested
-  byte-identical on both surfaces).
+  flag-gate is the FIRST check in the serving preference (Unit 3), the lifecycle hook (Unit 4), AND the
+  teardown hook (Unit 5); a flag-off site reads one flag then falls through to the untouched R2 path /
+  makes ZERO WfP calls on build, publish, delete, AND archive (unit-tested byte-identical on all surfaces).
+  `serveSiteFromR2` remains untouched through Unit 5.
 - Flag ON, new site → its preview slot serves a **styled 200 via dispatch**; on publish the prod slot
   serves a styled 200; on delete both slots + registry are gone (404). **◐ IMPL COMPLETE — end-to-end
-  prod-verify PENDING one external step.** Units 1-4 wire the full lifecycle (build → preview slot; publish →
-  prod slot; Unit-3 dispatch serves it with `x-ps-serve: wfp`), and Unit 4 deployed to production
-  (`wrangler deploy --env production`). The remaining check requires WfP to be PROVISIONED on the account:
+  prod-verify PENDING one external step.** Units 1-5 wire the FULL lifecycle (build → preview slot; publish →
+  prod slot; Unit-3 dispatch serves it with `x-ps-serve: wfp`; **delete/archive → Unit-5 `teardownSiteWfp`
+  deletes both slots + clears the registry** so the next request 404s / falls to R2), and Units 1-4 deployed
+  to production (`wrangler deploy --env production`). The remaining check requires WfP to be PROVISIONED on the account:
   `isWfpConfigured(env)` is currently FALSE on prod (the `USER_DISPATCH` binding / dispatch namespace
   `project-sites-endpoints` + `CF_API_TOKEN` are not yet all set), so `deploySiteToWfp` fail-softs
   `wfp_not_configured` and no slot is ever deployed — every site correctly stays on R2. Once WfP is provisioned
   (add the `[[dispatch_namespaces]]` binding to `wrangler.toml` + set the CF token secret), flip
   `site_wfp_hosting` ON for one test site with an R2 build, run a publish (or call `deploySiteToWfp` directly),
   then WebFetch its subdomain → assert **200 + styled HTML + `x-ps-serve: wfp`**. This is the sole external
-  gate; the code path is complete + unit-proven. (Teardown Unit 5 + owner UI Unit 6 are separate work units.)
+  gate; the code path is complete + unit-proven. (Teardown Unit 5 is DONE — delete/archive tears down both
+  slots + registry, unit-proven; owner UI Unit 6 is the next work unit.)
 - Portability preserved (the site deliverable still deploys to bare CF; no platform-only bindings baked in).
   **✅ MET** — nothing platform-only is baked into the site's own build; the WfP slot is a serving substrate on
   the platform side (the serving shim + `ASSETS` binding are added at deploy time, not written into the R2 build).

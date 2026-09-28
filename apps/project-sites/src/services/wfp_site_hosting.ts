@@ -29,8 +29,15 @@
 import type { Env } from '../types/env.js';
 import { dbQueryOne } from './db.js';
 import { assertSiteOwned } from './site_ownership.js';
-import { isWfpConfigured, siteFunctionsScriptName } from './wfp_dispatch.js';
-import { recordResource } from '../../libs/features/data_resource_registry/service.js';
+import {
+  deleteSiteFunctionsWorker,
+  isWfpConfigured,
+  siteFunctionsScriptName,
+} from './wfp_dispatch.js';
+import {
+  clearSiteWfpRegistry,
+  recordResource,
+} from '../../libs/features/data_resource_registry/service.js';
 
 const CF_BASE = 'https://api.cloudflare.com/client/v4';
 
@@ -491,6 +498,100 @@ export async function deploySiteWfpSlotsOnLifecycle(
     return { attempted, results };
   } catch {
     // Absolute fail-soft: the lifecycle hook must never break the build/publish path.
+    return summary;
+  }
+}
+
+// ─── Work Unit 5 — teardown (docs/wfp-site-hosting.md §Work units 5) ───────────
+
+/** Options for {@link teardownSiteWfp}. */
+export interface TeardownSiteWfpOptions {
+  /** The site's owning org (`c.get('orgId')` / the resolved owner). Undefined → skip. */
+  readonly orgId: string | undefined;
+}
+
+/** Summary of a teardown — never a throw; every branch resolves. */
+export interface TeardownSiteWfpSummary {
+  /** Did the flag gate pass so a teardown was actually attempted? */
+  readonly attempted: boolean;
+  /** How many dispatch slots were deleted (0 or 2 — production + preview). */
+  readonly slotsDeleted: number;
+  /** How many registry rows were soft-deleted by the registry-clear. */
+  readonly registryCleared: number;
+}
+
+/**
+ * Teardown hook: on site DELETE or ARCHIVE, remove the site's entire WfP footprint —
+ * delete BOTH dispatch slots (production `site-<id>` AND preview `site-<id>-preview`)
+ * from the shared `USER_DISPATCH` namespace, and clear its `wfp_namespace` registry rows.
+ * This is the Unit-5 wiring the delete/archive paths call; it is ADDITIVE + FAIL-SOFT.
+ *
+ * - **Flag-gated FIRST** (`site_wfp_hosting`, per-site scope) so a flag-off delete/archive
+ *   is byte-identical — one flag read, then it returns `{ attempted:false }` having made
+ *   ZERO WfP/registry calls. Only when the flag is ON does it tear the slots + registry down.
+ * - **Reuse, not reimplementation** (doc §Reuse): the namespace slot delete goes through
+ *   `deleteSiteFunctionsWorker` (best-effort, never-throws) — the SAME helper Functions uses —
+ *   and the registry-clear through {@link clearSiteWfpRegistry}. No CF DELETE is reimplemented.
+ * - **Idempotent**: `deleteSiteFunctionsWorker` DELETEs an absent slot as a no-op success (CF
+ *   404 is swallowed), and `clearSiteWfpRegistry` re-runs to 0 changes — so a re-teardown of an
+ *   already-torn-down site is a clean no-op.
+ * - **Fail-soft**: a slot-delete throw OR a registry-clear throw is swallowed — this NEVER
+ *   throws into the delete/archive path, so a teardown miss can never block a site delete.
+ *
+ * @param env - Worker env (D1 `DB`, WfP creds; flag store).
+ * @param siteId - the site being deleted/archived.
+ * @param opts - `{ orgId }`.
+ * @returns a {@link TeardownSiteWfpSummary} — always resolves, never throws.
+ *
+ * @remarks Impure: reads a flag, and (flag-on) issues CF REST DELETEs + one D1 UPDATE.
+ * @example
+ * // site delete/archive — fire-and-forget, fail-soft:
+ * ctx.waitUntil(teardownSiteWfp(env, siteId, { orgId }));
+ */
+export async function teardownSiteWfp(
+  env: Env,
+  siteId: string,
+  opts: TeardownSiteWfpOptions,
+): Promise<TeardownSiteWfpSummary> {
+  const summary: TeardownSiteWfpSummary = {
+    attempted: false,
+    slotsDeleted: 0,
+    registryCleared: 0,
+  };
+  try {
+    // Unowned → nothing to scope a flag or an owned teardown to. Skip silently.
+    if (!opts.orgId) return summary;
+
+    // Flag gate FIRST — a flag-off delete/archive makes ZERO WfP/registry calls (byte-identical).
+    const { isFlagOn } = await import('../modules/feature_flags/services.js');
+    if (!(await isFlagOn(env, 'site_wfp_hosting', { orgId: opts.orgId, siteId }))) {
+      return summary;
+    }
+
+    // Flag ON — delete BOTH dispatch slots + clear the registry. Each step is independently
+    // guarded so one failure never strands the others (a slot-delete throw still lets the
+    // registry clear run, and vice versa). Nothing here re-throws into the delete/archive path.
+    let slotsDeleted = 0;
+    for (const preview of [false, true]) {
+      try {
+        await deleteSiteFunctionsWorker(env, siteId, { preview });
+        slotsDeleted += 1;
+      } catch {
+        // deleteSiteFunctionsWorker is best-effort; swallow even an unexpected throw.
+      }
+    }
+
+    let registryCleared = 0;
+    try {
+      const cleared = await clearSiteWfpRegistry(env, siteId);
+      registryCleared = cleared.cleared;
+    } catch {
+      // clearSiteWfpRegistry is fail-soft; swallow even an unexpected throw.
+    }
+
+    return { attempted: true, slotsDeleted, registryCleared };
+  } catch {
+    // Absolute fail-soft: teardown must never break the delete/archive path.
     return summary;
   }
 }

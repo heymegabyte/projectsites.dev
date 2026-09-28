@@ -163,6 +163,31 @@ import { loadCfCredentials, resolveCfCredentials } from '../services/cf_credenti
 import { z } from 'zod';
 import { crawlSiteForImport, estimateRebuildMinutes } from '../services/import_crawler.js';
 import { checkBuildLimit, resolveActiveOrgPlan } from '../services/build_limits.js';
+import { teardownSiteWfp } from '../services/wfp_site_hosting.js';
+
+/**
+ * Fire the WfP Unit-5 teardown for a site off the response path (site delete/archive).
+ * Prefers `ctx.waitUntil` so the teardown finishes after the response, but `c.executionCtx`
+ * is a THROWING getter when a request carries no ExecutionContext (unit tests) — so read it
+ * inside try/catch and fall back to an un-awaited fire-and-forget. `teardownSiteWfp` is itself
+ * flag-gated + fail-soft; this wrapper only ensures the SCHEDULING never throws into delete/archive.
+ */
+function runTeardownWfp(
+  c: { env: Env; executionCtx?: ExecutionContext },
+  siteId: string,
+  orgId: string | undefined,
+): void {
+  const p = teardownSiteWfp(c.env, siteId, { orgId }).catch(() => {
+    /* fail-soft: a teardown miss never affects the delete/archive */
+  });
+  try {
+    // `executionCtx` is optional AND a throwing getter with no ctx — the catch covers both.
+    c.executionCtx?.waitUntil(p);
+  } catch {
+    // No ExecutionContext (tests / non-fetch runtime) — let it run un-awaited.
+    void p;
+  }
+}
 // The batch readiness endpoint reuses the SAME live scorer as the per-item
 // readiness (the prod_readiness_score feature module) so the readiness badge and
 // the readiness panel never disagree. No duplicate scorer (per the site_doctor
@@ -1663,6 +1688,13 @@ api.delete('/api/sites/:id', async (c) => {
   if (slug) {
     await c.env.CACHE_KV.delete(`host:${slug}${DOMAINS.SITES_SUFFIX}`).catch(() => {});
   }
+
+  // WfP Site Hosting Unit 5 — tear down the site's WfP footprint (both dispatch slots +
+  // its registry rows). Flag-gated + fail-soft: a flag-off delete makes ZERO WfP calls, and
+  // a teardown miss NEVER blocks the delete (fire-and-forget off the response path).
+  // `c.executionCtx` is a THROWING getter when the request has no ExecutionContext (unit
+  // tests), so read it inside try/catch and fall back to an un-awaited fire-and-forget.
+  runTeardownWfp(c, siteId, orgId);
 
   let subscriptionCanceled = false;
   if (cancelSubscription && site.plan === 'paid') {
@@ -4490,6 +4522,15 @@ api.delete('/api/admin/account', async (c) => {
 
   const nowIso = new Date().toISOString();
 
+  // Snapshot the org's LIVE site ids BEFORE the archive batch (the `deleted_at IS NULL`
+  // filter that selects them for archive still matches now) so WfP Unit-5 teardown can run
+  // per-site after the batch archives them. Fail-soft: a read error just skips teardown.
+  const { data: liveSites } = await dbQuery<{ id: string }>(
+    c.env.DB,
+    'SELECT id FROM sites WHERE org_id = ? AND deleted_at IS NULL',
+    [orgId],
+  );
+
   // Soft-delete the account across all three tables in ONE atomic D1 batch (implicit
   // transaction): (1) archive the org's sites, (2) revoke the user's sessions, (3)
   // soft-delete the user record. As three separate error-ignoring dbExecute calls, a
@@ -4510,6 +4551,13 @@ api.delete('/api/admin/account', async (c) => {
       userId,
     ),
   ]);
+
+  // WfP Site Hosting Unit 5 — tear down each archived site's WfP footprint (both dispatch
+  // slots + registry rows). Flag-gated + fail-soft per site: a flag-off account-delete makes
+  // ZERO WfP calls, and a teardown miss NEVER blocks the account deletion (fire-and-forget).
+  for (const s of liveSites) {
+    runTeardownWfp(c, s.id, orgId);
+  }
 
   // 4. Best-effort: cancel the org subscription at period end. A Stripe failure
   //    must never block the account deletion (mirrors DELETE /api/sites/:id).

@@ -12,6 +12,7 @@
 
 import type { Env } from '../../../src/types/env.js';
 import { dbInsert, dbQuery, dbQueryOne, dbExecute } from '../../../src/services/db.js';
+import { teardownSiteWfp } from '../../../src/services/wfp_site_hosting.js';
 import type { AbuseReport, AbuseReportSubmit } from './schemas.js';
 
 /** Registry flag key gating this feature. */
@@ -80,9 +81,9 @@ export async function resolveAbuseReport(
   note: string | undefined,
   resolvedBy: string,
 ): Promise<AbuseReport | null> {
-  const report = await dbQueryOne<{ id: string; site_id: string | null }>(
+  const report = await dbQueryOne<{ id: string; site_id: string | null; org_id: string | null }>(
     env.DB,
-    'SELECT id, site_id FROM abuse_reports WHERE id = ? AND deleted_at IS NULL AND status IN (?, ?) LIMIT 1',
+    'SELECT id, site_id, org_id FROM abuse_reports WHERE id = ? AND deleted_at IS NULL AND status IN (?, ?) LIMIT 1',
     [reportId, 'pending', 'reviewing'],
   );
   if (!report) return null;
@@ -106,6 +107,14 @@ export async function resolveAbuseReport(
         `abuse_takedown: failed to archive site ${report.site_id} for report ${reportId}: ${archiveError}`,
       );
     }
+
+    // WfP Site Hosting Unit 5 — tear down the taken-down site's WfP footprint (both dispatch
+    // slots + registry rows). Flag-gated + fail-soft internally; the extra `.catch` guarantees a
+    // teardown miss NEVER fails the takedown (the archive above already succeeded). The report's
+    // `org_id` (set from the resolved site at report time) is the correct flag scope.
+    await teardownSiteWfp(env, report.site_id, { orgId: report.org_id ?? undefined }).catch(
+      () => {},
+    );
   }
 
   const newStatus = action === 'takedown' ? 'upheld_takedown' : 'dismissed';
