@@ -143,7 +143,23 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
     typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search).get('slug') ?? undefined
       : undefined;
-  const primaryUrl = primarySiteUrl(siteSlug ?? querySlug);
+  /*
+   * PIN the slug the first moment it's known (atom or `?slug`) and keep it for the
+   * whole editor session, so the site's primary URL stays HARDCODED in the address
+   * bar and never blanks back to a domain-less path if the atom transiently clears
+   * (a background re-boot / site re-selection) or the iframe URL loses its `?slug`.
+   * Only ever advances to a NEW non-empty slug (a genuine site switch), never to
+   * `undefined`. (Brian 2026-09-27 — "primary URL hardcoded in the Preview URL bar".)
+   */
+  const [pinnedSlug, setPinnedSlug] = useState<string | undefined>(siteSlug ?? querySlug);
+  useEffect(() => {
+    const next = siteSlug ?? querySlug;
+
+    if (next && next !== pinnedSlug) {
+      setPinnedSlug(next);
+    }
+  }, [siteSlug, querySlug, pinnedSlug]);
+  const primaryUrl = primarySiteUrl(pinnedSlug);
   const primaryHost = primaryUrl?.replace(/^https?:\/\//, '');
 
   /*
