@@ -56,10 +56,17 @@ lone 200.
 
 ## Work units (ordered — each behind the flag, TDD, typecheck+test, then PR→CI→merge→deploy→WebFetch verify)
 
-1. **Reserve flag + registry.** D1 seed migration for `site_wfp_hosting` (`enabled=0, rollout=0,
-   stage='experimental'`) + `libs/core/feature-flags` manifest + a `site_resource_registry` row shape
-   (`site_id`, `wfp_dispatch_namespace`, `preview_script`, `prod_script`, `deployed_version`,
-   `updated_at`) with read/write helpers. **coupled**
+1. ✅ **Reserve flag + registry.** DONE (2026-09-28). `site_wfp_hosting` reserved DARK in the
+   registry-driven flag SSOT: `FLAG_REGISTRY` (`src/modules/feature_flags/registry.ts`,
+   `default_enabled:false, rollout:0, stage:'experimental'`) + a runbook-grade `FLAG_DOCS` entry
+   (`docs.ts`, checklist + smoke_test + `e2e/wfp-site-hosting.spec.ts`). No D1 seed migration needed —
+   the registry IS the default floor; `flag_overrides` only stores admin toggles. The
+   `site_resource_registry` row shape + read/write helpers already exist (migration 0643 +
+   `libs/features/data_resource_registry/{schemas,service}.ts`: `wfp_namespace` concept,
+   `preview|production` environment, `userWorkerScript`, `deployedVersion`, `recordResource`/
+   `listResources`/`getResource`) — REUSED, not reimplemented. Guard test
+   `src/__tests__/site_wfp_hosting_flag.test.ts`. (Also fixed a pre-existing red: `r2_buckets` docs
+   referenced a missing `e2e/r2-buckets.spec.ts` — created it, deploy gate now green.) **coupled**
 2. **`deploySiteToWfp(env, siteId, {slot, version})`** — build the per-site worker (Workers Assets from
    the site's R2 `dist/` + the shims + Functions), upload to `site-<id>-preview` | `site-<id>`,
    idempotent; record the registry row. Reuse the assets-upload-session recipe. `assertSiteOwned`. **coupled**

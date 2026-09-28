@@ -166,6 +166,25 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
     ],
     e2e_tests: ['e2e/r2-buckets.spec.ts'],
   },
+  site_wfp_hosting: {
+    checklist: [
+      'Every new site born on a WfP dispatch namespace — a preview slot + a production slot',
+      'Additive serving branch: flag ON + WfP prod script present → dispatch; ELSE the byte-identical R2 path',
+      'Fail-soft: any WfP miss/error falls back to R2 (a bad dispatch never dark-serves)',
+      'Per-site Worker carries its OWN static assets (Workers Static Assets) so /assets/* + chunks 200 through dispatch',
+      'Reuses project-sites-endpoints (USER_DISPATCH) + wfp_dispatch.ts + the assets-upload-session recipe',
+      'Each slot recorded in site_resource_registry (wfp_namespace concept, preview|production, script, version)',
+      'Off (default, DARK) → serveSiteFromR2 byte-identical + every existing site unchanged',
+    ],
+    explanation:
+      'WfP site hosting makes a Cloudflare Workers-for-Platforms dispatch namespace the SERVE substrate for generated sites, replacing the R2-static-direct hot path. Each site gets two slots on the shared project-sites-endpoints namespace: site-<id>-preview and site-<id>. The per-site Worker carries the site’s own dist/ via Workers Static Assets (the assets-upload-session recipe proven in the Payload provisioner) so hashed /assets/* chunks resolve through dispatch instead of 404ing. The serving change is a purely additive branch in site_serving.ts, gated on this flag AND a present WfP prod script, and fails soft to R2 on any dispatch error — so with the flag OFF serveSiteFromR2 is byte-identical and every existing site is unchanged. Portability is preserved: the site deliverable still deploys to bare Cloudflare with no platform-only bindings baked in.',
+    smoke_test: [
+      'Enable + create a site → its preview slot serves a STYLED 200 via dispatch (verify /assets/* chunks 200, not 404)',
+      'Publish → the production slot serves a styled 200 via dispatch; delete → both slots + the registry rows are gone (404)',
+      'Off → the site serves from R2 exactly as today (serveSiteFromR2 unchanged); no per-site Worker is uploaded',
+    ],
+    e2e_tests: ['e2e/wfp-site-hosting.spec.ts'],
+  },
   // ── Restored 2026-08-13 (1:1 with registry.ts): docs for the 33 over-pruned dark-launch flags.
   abuse_takedown: {
     checklist: [

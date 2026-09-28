@@ -109,6 +109,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  site_wfp_hosting: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'WfP site hosting — every new generated site born on a Cloudflare Workers-for-Platforms dispatch namespace (a PREVIEW slot site-<id>-preview + a PRODUCTION slot site-<id>), so the dispatched per-site Worker becomes the serve substrate instead of the R2-static-direct path (docs/wfp-site-hosting.md).\n\n• ADDITIVE + fail-soft: the serving change is a NEW branch in site_serving.ts — flag ON + a WfP prod script present → dispatchToUserWorker(); ELSE the byte-identical current R2 path. Any WfP miss/error falls back to R2, so a bad dispatch never dark-serves.\n• Reuses the shared namespace project-sites-endpoints (USER_DISPATCH) + wfp_dispatch.ts + the assets-upload-session recipe (the per-site Worker carries its OWN static assets via Workers Static Assets so /assets/* + hashed chunks 200 through dispatch, never a naive 404). The site_resource_registry (migration 0643) records each slot row (wfp_namespace concept, preview|production environment, userWorkerScript, deployedVersion).\n• Off (default, DARK) → serveSiteFromR2 stays byte-identical + every existing site is unchanged; no per-site Worker is uploaded. On → new sites deploy a preview slot after build + a production slot on publish; delete tears both slots + the registry rows down.',
+    key: 'site_wfp_hosting',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   abuse_takedown: {
     default_enabled: false,
     default_rollout_percent: 0,
