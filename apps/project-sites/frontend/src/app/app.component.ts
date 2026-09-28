@@ -17,7 +17,7 @@ import { BgOrbsComponent } from './components/bg-orbs/bg-orbs.component';
 import { EasterEggsComponent } from './components/easter-eggs/easter-eggs.component';
 import { CommandPaletteComponent } from './components/command-palette/command-palette.component';
 import { ShortcutsOverlayComponent } from './components/shortcuts-overlay/shortcuts-overlay.component';
-import { InstallPromptComponent } from './components/install-prompt/install-prompt.component';
+import { InstallPromptService } from './services/install-prompt.service';
 import { TranslateService } from '@ngx-translate/core';
 import { AuthService } from './services/auth.service';
 import { ApiService } from './services/api.service';
@@ -28,7 +28,7 @@ import { TelemetryService } from './services/telemetry.service';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, HeaderComponent, ToastComponent, NetworkStatusBannerComponent, BgOrbsComponent, EasterEggsComponent, CommandPaletteComponent, ShortcutsOverlayComponent, InstallPromptComponent],
+  imports: [RouterOutlet, HeaderComponent, ToastComponent, NetworkStatusBannerComponent, BgOrbsComponent, EasterEggsComponent, CommandPaletteComponent, ShortcutsOverlayComponent],
   template: `
     <a class="skip-link" href="#main-content">Skip to main content</a>
     <app-network-status-banner />
@@ -45,12 +45,9 @@ import { TelemetryService } from './services/telemetry.service';
       <app-easter-eggs />
     }
     <app-toast />
-    <!-- A2HS install prompt (#25) — pure enhancement, no critical path.
-         Deferred off the initial bundle; only renders when genuinely
-         installable and not previously dismissed. -->
-    @defer (on idle) {
-      <app-install-prompt />
-    }
+    <!-- A2HS PWA install (#25) is no longer a floating chip — the NotificationBell
+         surfaces it as an in-app "Install Project Sites" App Notification with an
+         Install action. InstallPromptService (injected below) captures the event. -->
     @if (showCommandPalette() && !inAdmin()) {
       <app-command-palette
         (closed)="showCommandPalette.set(false)"
@@ -163,6 +160,9 @@ export class AppComponent implements OnInit, OnDestroy {
   private translate = inject(TranslateService);
   private appShell = inject(AppShellService);
   private telemetry = inject(TelemetryService);
+  // Eagerly instantiated so InstallPromptService captures `beforeinstallprompt` at
+  // boot; the NotificationBell reads its mode() to render the Install App Notification.
+  readonly installPrompt = inject(InstallPromptService);
   showHeader = signal(true);
   showCommandPalette = signal(false);
   showShortcuts = signal(false);

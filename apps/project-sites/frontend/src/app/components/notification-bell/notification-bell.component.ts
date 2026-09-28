@@ -1,7 +1,8 @@
-import { Component, type OnInit, signal, inject, type OnDestroy, HostListener, ViewChild, ElementRef } from '@angular/core';
+import { Component, type OnInit, signal, computed, inject, type OnDestroy, HostListener, ViewChild, ElementRef } from '@angular/core';
 import { Router } from '@angular/router';
 import { ApiService } from '../../services/api.service';
 import { AuthService } from '../../services/auth.service';
+import { InstallPromptService } from '../../services/install-prompt.service';
 import { interval, Subscription, switchMap, filter } from 'rxjs';
 
 interface Notification {
@@ -23,9 +24,9 @@ interface Notification {
       <button
         #bellBtn
         class="bell-btn"
-        [class.has-unread]="unreadCount() > 0"
+        [class.has-unread]="displayUnread() > 0"
         (click)="toggleDropdown()"
-        [attr.aria-label]="'Notifications' + (unreadCount() > 0 ? ', ' + unreadCount() + ' unread' : '')"
+        [attr.aria-label]="'Notifications' + (displayUnread() > 0 ? ', ' + displayUnread() + ' unread' : '')"
         aria-haspopup="true"
         [attr.aria-expanded]="isOpen()"
       >
@@ -33,8 +34,8 @@ interface Notification {
           <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
           <path d="M13.73 21a2 2 0 01-3.46 0"/>
         </svg>
-        @if (unreadCount() > 0) {
-          <span class="badge" [attr.aria-hidden]="true">{{ unreadCount() > 9 ? '9+' : unreadCount() }}</span>
+        @if (displayUnread() > 0) {
+          <span class="badge" [attr.aria-hidden]="true">{{ displayUnread() > 9 ? '9+' : displayUnread() }}</span>
           <span class="ring-pulse" aria-hidden="true"></span>
         }
       </button>
@@ -48,7 +49,7 @@ interface Notification {
             }
           </div>
 
-          @if (notifications().length === 0) {
+          @if (displayNotifications().length === 0) {
             <div class="empty-state">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#3e3e5a" stroke-width="1.5">
                 <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -58,25 +59,44 @@ interface Notification {
             </div>
           } @else {
             <div class="notification-list">
-              @for (notif of notifications(); track notif.id) {
-                <button
-                  type="button"
-                  class="notification-item"
-                  [class.unread]="!notif.read"
-                  (click)="handleClick(notif)"
-                >
-                  <div class="notif-icon" [attr.data-type]="notif.type">
-                    {{ typeIcon(notif.type) }}
-                  </div>
-                  <div class="notif-content">
-                    <span class="notif-title">{{ notif.title }}</span>
-                    <span class="notif-message">{{ notif.message }}</span>
-                    <span class="notif-time">{{ timeAgo(notif.created_at) }}</span>
-                  </div>
-                  @if (!notif.read) {
+              @for (notif of displayNotifications(); track notif.id) {
+                @if (notif.type === 'install') {
+                  <!-- Install Project Sites — an in-app App Notification with an Install
+                       action (native beforeinstallprompt) or the iOS Share→A2HS hint. -->
+                  <div class="notification-item install-notif unread" data-testid="notif-install">
+                    <div class="notif-icon" data-type="install">⤓</div>
+                    <div class="notif-content">
+                      <span class="notif-title">{{ notif.title }}</span>
+                      <span class="notif-message">{{ notif.message }}</span>
+                      <div class="install-actions">
+                        @if (install.mode() === 'native') {
+                          <button type="button" class="install-cta" (click)="doInstall()" data-testid="notif-install-accept">Install</button>
+                        }
+                        <button type="button" class="install-dismiss-btn" (click)="dismissInstall()" data-testid="notif-install-dismiss">Dismiss</button>
+                      </div>
+                    </div>
                     <span class="unread-dot"></span>
-                  }
-                </button>
+                  </div>
+                } @else {
+                  <button
+                    type="button"
+                    class="notification-item"
+                    [class.unread]="!notif.read"
+                    (click)="handleClick(notif)"
+                  >
+                    <div class="notif-icon" [attr.data-type]="notif.type">
+                      {{ typeIcon(notif.type) }}
+                    </div>
+                    <div class="notif-content">
+                      <span class="notif-title">{{ notif.title }}</span>
+                      <span class="notif-message">{{ notif.message }}</span>
+                      <span class="notif-time">{{ timeAgo(notif.created_at) }}</span>
+                    </div>
+                    @if (!notif.read) {
+                      <span class="unread-dot"></span>
+                    }
+                  </button>
+                }
               }
             </div>
           }
@@ -244,6 +264,31 @@ interface Notification {
       letter-spacing: 0.04em;
       font-variant-numeric: tabular-nums;
     }
+    /* Install Project Sites — in-app App Notification variant (has actions, not click-through). */
+    .install-notif { cursor: default; }
+    .install-notif .notif-icon { color: #00E5FF; font-size: 16px; }
+    .install-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    .install-cta {
+      font-size: 12px; font-weight: 700; padding: 6px 14px; border-radius: 8px;
+      border: none; cursor: pointer;
+      color: #060610; background: #00E5FF;
+      transition: filter var(--ps-dur-fast, 140ms) ease, transform var(--ps-dur-fast, 140ms) ease, box-shadow var(--ps-dur-base, 220ms) ease;
+    }
+    .install-cta:hover { filter: brightness(1.08); transform: translateY(-1px); box-shadow: 0 4px 14px -4px rgba(0,229,255,0.5); }
+    .install-cta:focus-visible { outline: 2px solid #f0f0f8; outline-offset: 2px; }
+    .install-dismiss-btn {
+      font-size: 11px; font-weight: 600; padding: 6px 12px; border-radius: 8px;
+      cursor: pointer;
+      color: #94a3b8; background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      transition: color var(--ps-dur-fast, 140ms) ease, background var(--ps-dur-fast, 140ms) ease, border-color var(--ps-dur-fast, 140ms) ease;
+    }
+    .install-dismiss-btn:hover { color: #f0f0f8; background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.14); }
+    .install-dismiss-btn:focus-visible { outline: 2px solid #00E5FF; outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) {
+      .install-cta { transition: none; }
+      .install-cta:hover { transform: none; }
+    }
     .unread-dot {
       width: 8px; height: 8px; border-radius: 50%; background: #00E5FF;
       flex-shrink: 0; margin-top: 6px;
@@ -268,6 +313,8 @@ interface Notification {
 export class NotificationBellComponent implements OnInit, OnDestroy {
   private api = inject(ApiService);
   private auth = inject(AuthService);
+  /** PWA install (A2HS) state — surfaced as an in-app "Install Project Sites" notification. */
+  readonly install = inject(InstallPromptService);
   private router = inject(Router);
   private pollSub?: Subscription;
 
@@ -285,6 +332,37 @@ export class NotificationBellComponent implements OnInit, OnDestroy {
   }
   notifications = signal<Notification[]>([]);
   unreadCount = signal(0);
+
+  /**
+   * A synthetic "Install Project Sites" notification, present only while the PWA is
+   * installable (Chromium `beforeinstallprompt` captured, or returning-visitor iOS
+   * Safari) and not dismissed — surfaces A2HS install as an in-app App Notification
+   * with an Install action instead of a floating chip. (Brian 2026-09-27.)
+   */
+  private installNotif = computed<Notification | null>(() => {
+    const m = this.install.mode();
+    if (!m) return null;
+    return {
+      id: '__install__',
+      type: 'install',
+      title: 'Install Project Sites',
+      message:
+        m === 'ios'
+          ? 'Tap the Share button, then “Add to Home Screen” — launches like a native app.'
+          : 'Add it to your home screen — launches like a native app, works offline.',
+      action_url: null,
+      read: 0,
+      created_at: '',
+    };
+  });
+  /** Server notifications with the install App Notification pinned on top when present. */
+  readonly displayNotifications = computed<Notification[]>(() => {
+    const inst = this.installNotif();
+    const server = this.notifications();
+    return inst ? [inst, ...server] : server;
+  });
+  /** Unread badge count including the install notification when it's showing. */
+  readonly displayUnread = computed(() => this.unreadCount() + (this.installNotif() ? 1 : 0));
 
   ngOnInit(): void {
     if (!this.auth.isLoggedIn()) return;
@@ -349,6 +427,16 @@ export class NotificationBellComponent implements OnInit, OnDestroy {
     const updated = this.notifications().map((n) => ({ ...n, read: 1 }));
     this.notifications.set(updated);
     this.unreadCount.set(0);
+  }
+
+  /** Trigger the native PWA install sheet from the Install App Notification (user gesture). */
+  doInstall(): void {
+    void this.install.install();
+  }
+
+  /** Dismiss the Install App Notification for good (remembered in localStorage). */
+  dismissInstall(): void {
+    this.install.dismiss();
   }
 
   typeIcon(type: string): string {
