@@ -291,14 +291,18 @@ textarea.outline-none:focus-visible {
 // Cursor follower + click ripple
 .cursor-follower {
   position: fixed;
+  top: 0; left: 0; // anchor at origin — JS drives position via `transform: translate3d(...)`
   width: 24px; height: 24px;
   border-radius: 50%;
   background: rgba(0, 229, 255, 0.08);
   border: 1px solid rgba(0, 229, 255, 0.15);
   pointer-events: none;
   z-index: 99999;
-  transform: translate(-50%, -50%);
-  will-change: transform, width, height;
+  // JS animates POSITION via a composited transform (translate3d + a -50%,-50% centering) on this
+  // element's OWN GPU layer, so the follower is fluid 60fps even over the heavy-painting WebGL boot
+  // veil. (Was left/top → forced layout+paint every frame + shared the veil's paint layer → choke.)
+  transform: translate3d(0, 0, 0) translate(-50%, -50%);
+  will-change: transform;
   transition: width 0.15s ease, height 0.15s ease, background 0.15s ease, opacity 0.15s ease;
   opacity: 0;
   mix-blend-mode: screen;

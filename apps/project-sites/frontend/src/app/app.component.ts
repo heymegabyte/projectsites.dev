@@ -492,8 +492,11 @@ export class AppComponent implements OnInit, OnDestroy {
     const animate = () => {
       followerX += (mouseX - followerX) * 0.15;
       followerY += (mouseY - followerY) * 0.15;
-      follower.style.left = followerX + 'px';
-      follower.style.top = followerY + 'px';
+      // Move via a COMPOSITED transform (not left/top) so the follower lives on its own GPU
+      // layer and stays fluid 60fps even while a heavy-repainting element (the WebGL boot veil)
+      // is on screen. left/top forced layout+paint every frame AND shared the veil's paint layer
+      // → the choke. translate(-50%,-50%) keeps it centered on the cursor (matches the CSS).
+      follower.style.transform = `translate3d(${followerX}px, ${followerY}px, 0) translate(-50%, -50%)`;
       this.cursorAnimationId = requestAnimationFrame(animate);
     };
     this.cursorAnimationId = requestAnimationFrame(animate);
