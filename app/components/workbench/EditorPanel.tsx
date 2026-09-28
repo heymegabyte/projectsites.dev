@@ -39,6 +39,7 @@ const DEFAULT_TERMINAL_SIZE = DEFAULT_BOTTOM_PANEL_SIZE;
 import { Search } from './Search'; // <-- Ensure Search is imported
 import { classNames } from '~/utils/classNames'; // <-- Import classNames if not already present
 import { LockManager } from './LockManager'; // <-- Import LockManager
+import { ProjectHub } from './ProjectHub'; // Code-view command center (deploy / snapshots / git)
 
 interface EditorPanelProps {
   files?: FileMap;
@@ -217,8 +218,9 @@ export const EditorPanel = memo(
               collapsible
               className="border-r border-bolt-elements-borderColor"
             >
-              <div className="h-full">
-                <Tabs.Root defaultValue="files" className="flex flex-col h-full">
+              <div className="h-full flex flex-col">
+                <ProjectHub />
+                <Tabs.Root defaultValue="files" className="flex flex-col flex-1 min-h-0">
                   <PanelHeader className="w-full text-sm font-medium text-bolt-elements-textSecondary px-1">
                     <div className="h-full flex-shrink-0 flex items-center justify-between w-full">
                       <Tabs.List className="h-full flex-shrink-0 flex items-center">
