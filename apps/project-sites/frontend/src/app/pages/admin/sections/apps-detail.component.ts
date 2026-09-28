@@ -401,7 +401,12 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
               <!-- Instances Table -->
               @if (instances().length > 0) {
                 <div class="instances-section">
-                  <h4 class="instances-h">Active Instances</h4>
+                  <div class="instances-head">
+                    <h4 class="instances-h">Active Instances ({{ instances().length }})</h4>
+                    <a class="instances-manage" [routerLink]="['/admin/apps/instances']">
+                      Manage all →
+                    </a>
+                  </div>
                   <div class="instances-table">
                     <div class="instances-row instances-row-head">
                       <div class="instances-col">Subdomain</div>
@@ -430,6 +435,12 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                           </button>
                           @if (openMenuInstanceId() === inst.id) {
                             <div class="instances-menu" role="menu">
+                              <a
+                                class="instances-menu-item"
+                                [routerLink]="['/admin/apps/instances', inst.id]"
+                                role="menuitem">
+                                Manage
+                              </a>
                               <button
                                 class="instances-menu-item"
                                 (click)="openInstanceLive(inst)"
@@ -990,11 +1001,21 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     .instances-section {
       display: flex; flex-direction: column; gap: 0.6rem; margin-top: 1.1rem;
     }
+    .instances-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    }
     .instances-h {
       font-family: 'JetBrains Mono', ui-monospace, monospace;
       font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.1em;
       color: rgba(255,255,255,0.55); font-weight: 700; margin: 0;
     }
+    .instances-manage {
+      font-size: 0.72rem; font-weight: 600; color: var(--ps-accent, #00e5ff);
+      text-decoration: none; white-space: nowrap; padding: 2px 4px; border-radius: 6px;
+      transition: opacity 0.15s ease;
+    }
+    .instances-manage:hover { text-decoration: underline; opacity: 0.85; }
+    .instances-manage:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
     .instances-table {
       display: flex; flex-direction: column; gap: 0; overflow: hidden;
       border: 1px solid rgba(255,255,255,0.06); border-radius: var(--ps-radius-sm, 8px);
@@ -1203,7 +1224,7 @@ export class AppDetailComponent implements OnInit {
   subdomainCheckMessage = signal<string>('');
   /** True while a debounced availability round-trip is in flight (drives the neutral "Checking…" state). */
   subdomainChecking = signal<boolean>(false);
-  instances = signal<Array<{ id: string; app_id: string; subdomain: string; host: string; status: string; created_at: string }>>([]);
+  instances = signal<Array<{ id: string; app_id: string; app_slug?: string; subdomain: string; host: string; status: string; created_at: string }>>([]);
   openMenuInstanceId = signal<string | null>(null);
 
   /** Per-line cost breakdown — container + every infra provider. */
@@ -1419,7 +1440,13 @@ export class AppDetailComponent implements OnInit {
   private fetchInstances(appId: string): void {
     this.api.get<any>('/apps/instances').subscribe({
       next: (r: any) => {
-        const filtered = (r.instances ?? []).filter((i: any) => i.app_id === appId);
+        // Instances carry `app_slug` (the catalog id, e.g. 'payload'); `app_id` is null on
+        // the read side. Match on app_slug first (fall back to app_id) — mirrors the working
+        // apps-instances page. Filtering on the null app_id was why launched instances showed
+        // "No instances launched yet".
+        const filtered = (r.instances ?? []).filter(
+          (i: any) => (i.app_slug ?? i.app_id) === appId,
+        );
         this.instances.set(filtered);
       },
       error: () => {
