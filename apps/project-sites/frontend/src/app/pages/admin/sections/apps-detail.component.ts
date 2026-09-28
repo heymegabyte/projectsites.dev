@@ -347,6 +347,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                 }
               </label>
 
+              @if (provisioning().length) {
               <div class="checklist">
                 <div class="checklist-h">Provisioning</div>
                 @for (item of provisioning(); track item.key) {
@@ -363,6 +364,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                   </div>
                 }
               </div>
+              }
 
               <div class="cost-breakdown">
                 <div class="cost-h">Monthly estimate</div>
@@ -600,7 +602,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     .shots-track:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: -2px; border-radius: var(--ps-radius-sm, 10px); }
     .shot {
       scroll-snap-align: center; flex: 0 0 100%;
-      height: clamp(200px, 42vh, 420px); width: 100%; max-width: 100%;
+      height: clamp(200px, 38vh, 380px); width: 100%; max-width: 100%;
       border-radius: var(--ps-radius-sm, 10px);
       border: 1px solid rgba(255,255,255,0.08);
       object-fit: contain; background: #0b0b16;
@@ -650,7 +652,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     a.tag-pill--link:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
 
     .grid-2col {
-      display: grid; gap: 1.25rem;
+      display: grid; gap: 1.6rem;
       grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
     }
     @media (max-width: 1000px) {
@@ -1087,7 +1089,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
 
     /* ─── Instances table ─── */
     .instances-section {
-      display: flex; flex-direction: column; gap: 0.6rem; margin-top: 1.1rem;
+      display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.75rem;
     }
     .instances-head {
       display: flex; align-items: center; justify-content: space-between; gap: 1rem;
