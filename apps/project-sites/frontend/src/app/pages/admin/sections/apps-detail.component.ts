@@ -424,12 +424,13 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                           <button
                             class="instances-menu-btn"
                             [attr.aria-label]="'Menu for ' + inst.subdomain"
-                            (click)="openMenuInstanceId() === inst.id ? openMenuInstanceId.set(null) : openMenuInstanceId.set(inst.id)"
+                            (click)="toggleInstanceMenu(inst.id, $event)"
                             type="button">
                             ⋮
                           </button>
                           @if (openMenuInstanceId() === inst.id) {
-                            <div class="instances-menu" role="menu">
+                            <div class="instances-menu" role="menu"
+                                 [style.top.px]="menuPos().top" [style.right.px]="menuPos().right">
                               <a
                                 class="instances-menu-item"
                                 [routerLink]="['/admin/apps/instances', inst.id]"
@@ -1055,7 +1056,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     .instances-menu-btn:hover { color: var(--ps-accent, #00E5FF); background: rgba(255,255,255,0.04); }
     .instances-menu-btn:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
     .instances-menu {
-      position: absolute; top: 100%; right: 0; z-index: 99950; margin-top: 4px;
+      position: fixed; z-index: 99950;
       background: var(--ps-surface-1, rgba(13,13,40,0.92)); border: 1px solid rgba(255,255,255,0.1);
       border-radius: var(--ps-radius-sm, 8px); box-shadow: 0 8px 24px rgba(0,0,0,0.4);
       min-width: 120px; overflow: hidden;
@@ -1220,6 +1221,23 @@ export class AppDetailComponent implements OnInit {
   subdomainChecking = signal<boolean>(false);
   instances = signal<Array<{ id: string; app_id: string; app_slug?: string; subdomain: string; host: string; status: string; created_at: string }>>([]);
   openMenuInstanceId = signal<string | null>(null);
+  /** Fixed-overlay coords for the open ⋮ menu — captured from the button so the instances
+   *  table's `overflow:hidden` (rounded corners) never crops the dropdown. */
+  menuPos = signal<{ top: number; right: number }>({ top: 0, right: 0 });
+
+  /** Toggle a row's ⋮ menu; anchor it as a viewport-fixed overlay under the button. */
+  toggleInstanceMenu(id: string, ev: Event): void {
+    if (this.openMenuInstanceId() === id) {
+      this.openMenuInstanceId.set(null);
+      return;
+    }
+    const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+    this.menuPos.set({
+      top: Math.round(rect.bottom + 4),
+      right: Math.round(window.innerWidth - rect.right),
+    });
+    this.openMenuInstanceId.set(id);
+  }
 
   /** Per-line cost breakdown — container + every infra provider. */
   costLines = computed<readonly InfraEstimate[]>(() => {
@@ -1389,6 +1407,19 @@ export class AppDetailComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    // A fixed-position ⋮ menu detaches from its button on scroll — close it on ANY
+    // scroll (capture phase catches the inner scrollable panel too, not just window)
+    // or resize so it never floats orphaned. Cleaned up on destroy.
+    const closeInstanceMenu = () => {
+      if (this.openMenuInstanceId()) this.openMenuInstanceId.set(null);
+    };
+    document.addEventListener('scroll', closeInstanceMenu, true);
+    window.addEventListener('resize', closeInstanceMenu);
+    this.destroyRef.onDestroy(() => {
+      document.removeEventListener('scroll', closeInstanceMenu, true);
+      window.removeEventListener('resize', closeInstanceMenu);
+    });
+
     // Subscribe (not snapshot) so prev/next nav — which re-uses THIS component
     // with a new `:id` — re-resolves the app instead of showing the old one.
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((pm) => {
