@@ -1,5 +1,5 @@
 ---
-description: Advance every active ProjectSites workstream by one verified slice — reads apps/project-sites/_RUN_THE_LOOP.md, fans out fresh worktree-isolated agents, verifies, deploys, prod-verifies, commits to main, ticks the queue. Fires when Brian says "run the loop".
+description: Advance every active ProjectSites workstream by one verified slice — reads root _LOOP.md (master: mission/protocol/lanes/tasks) + apps/project-sites/_RUN_THE_LOOP.md (live queue), fans out fresh worktree-isolated agents, verifies, deploys, prod-verifies, commits to main, ticks the queue. Fires when Brian says "run the loop".
 argument-hint: "[workstream name/number, or 'all' (default)]"
 ---
 
@@ -8,7 +8,7 @@ argument-hint: "[workstream name/number, or 'all' (default)]"
 One deliberate fire of the ProjectSites convergence loop. Advance the **next unmet unit** of each ACTIVE workstream in `apps/project-sites/_RUN_THE_LOOP.md` (default `all`; or just `$ARGUMENTS`). **One coherent slice per workstream per fire** — never split across follow-ups; never start a large pass in a context-saturated session.
 
 ## 0 — Orient (cheap; NEVER read giant ledgers in the main thread)
-- Read `apps/project-sites/_RUN_THE_LOOP.md` — the queue. It names each workstream's Next unit + ledger + acceptance + invariants.
+- Read root **`_LOOP.md`** — the MASTER: prime directive · one-fire protocol · invariants · the 11-lane roster · the task collection by dimension (§4). Then read `apps/project-sites/_RUN_THE_LOOP.md` — the LIVE QUEUE (each workstream's Next unit + ledger + acceptance). `_LOOP.md` is the mission; `_RUN_THE_LOOP.md` is the current state.
 - `git fetch origin main -q && git pull --rebase origin main` — a concurrent session may have progressed work; re-inspect the ACTUAL repo, never assume a prior attempt landed.
 - Do NOT read `_LOOP_LEDGER.md` / `_APP_COMPLETION.md` / `.claude/loop.md` wholesale in the main thread (context thrash). Delegate any deep inventory read to a fresh `Explore` agent with a ≤150-line output cap; hold conclusions only.
 
