@@ -363,6 +363,19 @@ export const TimeTravelPanel = memo(() => {
   const restoreIso = useMemo(() => datetimeLocalToIso(restoreAt), [restoreAt]);
   const restoreAtValid = restoreIso !== null && isWithinWindow(restoreIso);
 
+  // Scrubber bounds + the currently-selected instant (ms) — drives the range slider across the whole
+  // 30-day recovery window at 1-minute resolution (CF D1 Time Travel is minute-precise).
+  const nowMs = useMemo(() => Date.now(), []);
+  const windowStartMs = useMemo(() => Date.parse(windowStartIso()), []);
+  const selectedMs = useMemo(() => {
+    const parsed = restoreIso ? Date.parse(restoreIso) : Number.NaN;
+    if (Number.isNaN(parsed)) {
+      return nowMs;
+    }
+
+    return Math.min(nowMs, Math.max(windowStartMs, parsed));
+  }, [restoreIso, nowMs, windowStartMs]);
+
   // Point-in-time save/restore is possible only when CF Time Travel exposed a live bookmark.
   // The panel still ALWAYS renders (never a dead end) — this only gates the save/restore controls.
   const canTimeTravel = info.ok !== false && info.available !== false && !!info.bookmark;
@@ -476,22 +489,70 @@ export const TimeTravelPanel = memo(() => {
             )}
           </section>
 
-          {/* Restore to a date-time — only once CF Time Travel is active. */}
+          {/* Time-travel scrubber — restore to ANY MINUTE in the last N days (CF D1 Time Travel is minute-precise). */}
           {canTimeTravel && (
-            <section className="space-y-2">
+            <section className="space-y-3" data-testid="tt-scrubber">
               <div className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary flex items-center gap-1.5">
-                <div className="i-ph:calendar-blank" /> Restore to a date &amp; time
+                <div className="i-ph:rewind-duotone" /> Time travel — pick a minute to restore
               </div>
               <p className="text-[11px] text-bolt-elements-textTertiary">
-                Pick any moment in the last {info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS} days. Your database
-                returns to exactly how it was then.
+                Cloudflare Time Travel is minute-precise: scrub to any moment in the last{' '}
+                {info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS} days and your database returns to exactly how it
+                was then.
               </p>
+
+              {/* Live readout of the selected instant */}
+              <div className="rounded-lg border border-amber-400/30 bg-amber-400/[0.05] px-3 py-2 flex items-center gap-3">
+                <div className="i-ph:clock-clockwise-duotone text-lg text-amber-300 shrink-0" aria-hidden />
+                <div className="min-w-0">
+                  <p className="text-[13px] font-semibold text-bolt-elements-textPrimary tabular-nums" data-testid="tt-scrubber-readout">
+                    {new Date(selectedMs).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                  </p>
+                  <p className="text-[10px] text-bolt-elements-textTertiary">
+                    {(() => {
+                      const mins = Math.max(0, Math.round((nowMs - selectedMs) / 60_000));
+                      const label =
+                        mins < 1
+                          ? 'now'
+                          : mins < 60
+                            ? `${mins} min ago`
+                            : mins < 60 * 48
+                              ? `${Math.round(mins / 60)} hr ago`
+                              : `${Math.round(mins / (60 * 24))} days ago`;
+                      return label;
+                    })()}{' '}
+                    · {info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS}-day window
+                  </p>
+                </div>
+              </div>
+
+              {/* Scrubber slider across the whole recovery window, 1-minute resolution */}
+              <div className="space-y-1">
+                <input
+                  type="range"
+                  min={windowStartMs}
+                  max={nowMs}
+                  step={60_000}
+                  value={selectedMs}
+                  onChange={(e) => setRestoreAt(toDatetimeLocalValue(Number(e.target.value)))}
+                  aria-label="Scrub to a restore point"
+                  data-testid="tt-scrubber-range"
+                  className="w-full accent-[color:var(--bolt-elements-item-contentAccent)] cursor-pointer"
+                />
+                <div className="flex justify-between text-[9px] text-bolt-elements-textTertiary tabular-nums">
+                  <span>{info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS} days ago</span>
+                  <span>now</span>
+                </div>
+              </div>
+
+              {/* Precise entry (minute step) + the change-snapshot action */}
               <div className="flex items-center gap-2">
                 <input
                   type="datetime-local"
                   value={restoreAt}
                   min={minLocal}
                   max={nowLocal}
+                  step={60}
                   onChange={(e) => setRestoreAt(e.target.value)}
                   data-testid="tt-restore-datetime"
                   className="flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-[12px] text-bolt-elements-textPrimary focus:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
@@ -503,7 +564,7 @@ export const TimeTravelPanel = memo(() => {
                   data-testid="tt-restore-at"
                   className="min-h-[24px] text-[12px] font-semibold px-3 py-1.5 rounded-lg border border-amber-400/50 bg-amber-400/10 text-amber-300 enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer"
                 >
-                  <div className="i-ph:clock-counter-clockwise" /> Restore to this time
+                  <div className="i-ph:clock-counter-clockwise" /> Change snapshot
                 </button>
               </div>
               {restoreAt && !restoreAtValid && (
@@ -588,7 +649,7 @@ const Header = memo(({ retentionDays, onRefresh }: { retentionDays: number; onRe
     <div className="min-w-0">
       <h2 className="text-sm font-semibold text-bolt-elements-textPrimary">History &amp; restore</h2>
       <p className="text-[10px] text-bolt-elements-textTertiary truncate">
-        Auto-protected hourly for the last {retentionDays} days — jump to any point, or save a named snapshot
+        Auto-protected continuously — restore to any minute in the last {retentionDays} days, or save a snapshot
       </p>
     </div>
     <button
