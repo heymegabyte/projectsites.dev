@@ -733,6 +733,123 @@ export interface SiteDbDropTableResponseMessage {
   error?: string;
 }
 
+/**
+ * Child → Parent (per-site D1 — add column): the admin `POST /api/sites/:siteId/db/tables/:table/columns`
+ * with `{ name, type }` and replies with {@link SiteDbAddColumnResponseMessage}. Adds ONE nullable column to
+ * a table in the site's OWN dedicated D1 (server-resolved id, shared-platform ids denylisted). Gated
+ * server-side by the `per_site_data` flag (DARK → 404 → `enabled:false`). Mirrors
+ * {@link SiteDbCreateTableRequestMessage}.
+ */
+export interface SiteDbAddColumnRequestMessage {
+  type: 'PS_SITEDB_ADD_COLUMN_REQUEST';
+  correlationId: string;
+
+  /** The table to add the column to (the worker re-validates the identifier server-side). */
+  table: string;
+
+  /** The new column's name (the worker validates it's a safe identifier + not already taken). */
+  name: string;
+
+  /**
+   * The new column's SQLite storage class — TEXT / INTEGER / REAL (the worker re-validates). Named
+   * `columnType` (not `type`) so it never collides with the message-discriminant `type` above.
+   */
+  columnType: 'TEXT' | 'INTEGER' | 'REAL';
+}
+
+/**
+ * Parent → Child (per-site D1 — add column): the admin's reply to {@link SiteDbAddColumnRequestMessage}.
+ * `ok:true` when the column was added. A real DDL/validation error rides in `error` (surfaced verbatim).
+ * `enabled:false` when the `per_site_data` flag is dark (the 404 "not enabled").
+ */
+export interface SiteDbAddColumnResponseMessage {
+  type: 'PS_SITEDB_ADD_COLUMN_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The added column's name (echoed by the worker on success). */
+  column?: string;
+
+  /** `false` when the `per_site_data` flag is off (the dark-flag 404) → the control stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/**
+ * Child → Parent (per-site D1 — rename column): the admin `PATCH
+ * /api/sites/:siteId/db/tables/:table/columns/:column` with `{ name }` and replies with
+ * {@link SiteDbRenameColumnResponseMessage}. Renames ONE column in a table in the site's OWN dedicated D1.
+ * Gated server-side by the `per_site_data` flag (DARK → 404 → `enabled:false`). Mirrors
+ * {@link SiteDbCreateTableRequestMessage}.
+ */
+export interface SiteDbRenameColumnRequestMessage {
+  type: 'PS_SITEDB_RENAME_COLUMN_REQUEST';
+  correlationId: string;
+
+  /** The table holding the column (the worker re-validates the identifier server-side). */
+  table: string;
+
+  /** The current column name to rename (the worker re-validates it exists). */
+  column: string;
+
+  /** The new column name (the worker validates it's a safe identifier + not already taken). */
+  name: string;
+}
+
+/**
+ * Parent → Child (per-site D1 — rename column): the admin's reply to
+ * {@link SiteDbRenameColumnRequestMessage}. `ok:true` when the column was renamed. A real error rides in
+ * `error` (surfaced verbatim). `enabled:false` when the `per_site_data` flag is dark (the 404 "not enabled").
+ */
+export interface SiteDbRenameColumnResponseMessage {
+  type: 'PS_SITEDB_RENAME_COLUMN_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The new column name (echoed by the worker on success). */
+  column?: string;
+
+  /** `false` when the `per_site_data` flag is off (the dark-flag 404) → the control stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/**
+ * Child → Parent (per-site D1 — drop column): the admin `DELETE
+ * /api/sites/:siteId/db/tables/:table/columns/:column` and replies with
+ * {@link SiteDbDropColumnResponseMessage}. Drops ONE column from a table in the site's OWN dedicated D1.
+ * Gated server-side by the `per_site_data` flag (DARK → 404 → `enabled:false`). Mirrors
+ * {@link SiteDbDropTableRequestMessage}.
+ */
+export interface SiteDbDropColumnRequestMessage {
+  type: 'PS_SITEDB_DROP_COLUMN_REQUEST';
+  correlationId: string;
+
+  /** The table holding the column (the worker re-validates the identifier server-side). */
+  table: string;
+
+  /** The column to drop (the worker re-validates the identifier server-side). */
+  column: string;
+}
+
+/**
+ * Parent → Child (per-site D1 — drop column): the admin's reply to {@link SiteDbDropColumnRequestMessage}.
+ * `ok:true` when the column was dropped. A real error rides in `error` (surfaced verbatim). `enabled:false`
+ * when the `per_site_data` flag is dark (the 404 "not enabled").
+ */
+export interface SiteDbDropColumnResponseMessage {
+  type: 'PS_SITEDB_DROP_COLUMN_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The dropped column's name (echoed by the worker on success). */
+  column?: string;
+
+  /** `false` when the `per_site_data` flag is off (the dark-flag 404) → the control stays hidden. */
+  enabled?: boolean;
+  error?: string;
+}
+
 // ── Resource-overview bridge messages ──────────────────────────────────────────
 
 /**
@@ -1963,6 +2080,9 @@ export type ParentToChildMessage =
   | SiteDbSearchResponseMessage
   | SiteDbCreateTableResponseMessage
   | SiteDbDropTableResponseMessage
+  | SiteDbAddColumnResponseMessage
+  | SiteDbRenameColumnResponseMessage
+  | SiteDbDropColumnResponseMessage
   | ResOverviewResponseMessage
   | ResReconcileResponseMessage
   | ResDetailResponseMessage
@@ -2001,6 +2121,9 @@ export type ChildToParentMessage =
   | SiteDbSearchRequestMessage
   | SiteDbCreateTableRequestMessage
   | SiteDbDropTableRequestMessage
+  | SiteDbAddColumnRequestMessage
+  | SiteDbRenameColumnRequestMessage
+  | SiteDbDropColumnRequestMessage
   | ResOverviewRequestMessage
   | ResReconcileRequestMessage
   | ResDetailRequestMessage
@@ -2600,6 +2723,68 @@ export function requestDbDropTable(input: { table: string }): Promise<SiteDbDrop
       table: input.table,
     },
     'PS_SITEDB_DROP_TABLE_RESPONSE',
+  );
+}
+
+/**
+ * Add ONE nullable column to a table in the site's OWN dedicated D1 via
+ * `POST /api/sites/:siteId/db/tables/:table/columns`. Resolves with the parent's
+ * {@link SiteDbAddColumnResponseMessage} — `ok:true` on success, a verbatim `error` on a DDL/validation
+ * failure, or `enabled:false` when the `per_site_data` flag is dark.
+ */
+export function requestDbAddColumn(
+  input: { table: string; name: string; type: 'TEXT' | 'INTEGER' | 'REAL' },
+): Promise<SiteDbAddColumnResponseMessage> {
+  return requestFromParent<SiteDbAddColumnResponseMessage>(
+    {
+      type: 'PS_SITEDB_ADD_COLUMN_REQUEST',
+      correlationId: nextBridgeCorrelationId(),
+      table: input.table,
+      name: input.name,
+      columnType: input.type,
+    },
+    'PS_SITEDB_ADD_COLUMN_RESPONSE',
+  );
+}
+
+/**
+ * Rename ONE column in a table in the site's OWN dedicated D1 via
+ * `PATCH /api/sites/:siteId/db/tables/:table/columns/:column`. Resolves with the parent's
+ * {@link SiteDbRenameColumnResponseMessage} — `ok:true` on success, a verbatim `error` on failure, or
+ * `enabled:false` when the `per_site_data` flag is dark.
+ */
+export function requestDbRenameColumn(
+  input: { table: string; column: string; name: string },
+): Promise<SiteDbRenameColumnResponseMessage> {
+  return requestFromParent<SiteDbRenameColumnResponseMessage>(
+    {
+      type: 'PS_SITEDB_RENAME_COLUMN_REQUEST',
+      correlationId: nextBridgeCorrelationId(),
+      table: input.table,
+      column: input.column,
+      name: input.name,
+    },
+    'PS_SITEDB_RENAME_COLUMN_RESPONSE',
+  );
+}
+
+/**
+ * Drop ONE column from a table in the site's OWN dedicated D1 via
+ * `DELETE /api/sites/:siteId/db/tables/:table/columns/:column`. Resolves with the parent's
+ * {@link SiteDbDropColumnResponseMessage} — `ok:true` on success, a verbatim `error` on failure, or
+ * `enabled:false` when the `per_site_data` flag is dark.
+ */
+export function requestDbDropColumn(
+  input: { table: string; column: string },
+): Promise<SiteDbDropColumnResponseMessage> {
+  return requestFromParent<SiteDbDropColumnResponseMessage>(
+    {
+      type: 'PS_SITEDB_DROP_COLUMN_REQUEST',
+      correlationId: nextBridgeCorrelationId(),
+      table: input.table,
+      column: input.column,
+    },
+    'PS_SITEDB_DROP_COLUMN_RESPONSE',
   );
 }
 

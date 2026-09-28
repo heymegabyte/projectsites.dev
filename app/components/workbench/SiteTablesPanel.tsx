@@ -31,10 +31,12 @@
  * table for small per-site DBs); everything remains honest — hidden columns still export, the row count
  * reflects the filtered set with the true total one hover away.
  *
- * Row + column CRUD and AI-native standouts route through the SAME per-site exec bridge:
- *   - add-row → parameterized `INSERT`; delete-row / bulk-delete → `DELETE … WHERE pk=?` per row.
- *   - add/drop column → `buildAddColumn`/`buildDropColumn` DDL through the bridge (guided builder for the
- *     richer create-table flow via {@link SiteTablesPanelProps.onCreateTable}).
+ * Row CRUD and AI-native standouts route through the per-site exec bridge; table + column DDL uses the
+ * dedicated REST endpoints:
+ *   - add-row → parameterized `INSERT`; delete-row / bulk-delete → `DELETE … WHERE pk=?` per row (exec bridge).
+ *   - add / rename / drop column → the dedicated `POST|PATCH|DELETE /db/tables/:table/columns[/:column]`
+ *     bridge ({@link requestDbAddColumn}/{@link requestDbRenameColumn}/{@link requestDbDropColumn}) — NOT the
+ *     exec-SQL path; mirrors the create/drop-TABLE flow via {@link SiteTablesPanelProps.onCreateTable}.
  *   - AI generate-column / natural-language filter / fill-cells → `/api/llmcall` (ProjectSites AI when
  *     `PS_BOLT_AI`), grounded on the real schema, applied through the bridge — AI is enhancement, never
  *     blocking, and every generated write is param-bound + undoable.
@@ -56,6 +58,9 @@ import {
   requestDbSearch,
   requestDbCreateTable,
   requestDbDropTable,
+  requestDbAddColumn,
+  requestDbRenameColumn,
+  requestDbDropColumn,
   type ParentToChildMessage,
   type SiteDbTablesResponseMessage,
   type SiteDbRowsResponseMessage,
@@ -106,7 +111,7 @@ import {
 } from './data-panel-logic';
 import { FIELD_TYPES, fieldTypeFor, type FieldKind } from './field-types';
 import { classifyCell } from './data-cell-format';
-import { buildAddColumn, buildDropColumn, buildRenameColumn, quoteIdent, type ColumnSpec } from './schema-ddl';
+import { quoteIdent } from './schema-ddl';
 import { formatSchemaForPrompt, extractSqlFromModel } from './sql-ask-logic';
 import { CellEditor } from './CellEditor';
 
@@ -1426,9 +1431,13 @@ export const SiteTablesPanel = memo(
     const [addColOpen, setAddColOpen] = useState(false);
 
     const addColumn = useCallback(
-      async (name: string, kind: FieldKind, defaultValue?: string) => {
+      async (name: string, kind: FieldKind) => {
         if (rows.status !== 'ready') {
           return { ok: false, error: 'No table open.' };
+        }
+
+        if (!isEmbedded) {
+          return { ok: false, error: 'Open this from the ProjectSites admin to add a column.' };
         }
 
         // Guard duplicates client-side (the worker would reject too, but this is instant + friendlier).
@@ -1439,34 +1448,32 @@ export const SiteTablesPanel = memo(
         }
 
         const table = rows.page.table;
-        const trimmedDefault = defaultValue?.trim();
-        const spec: ColumnSpec = {
-          name,
-          type: FIELD_TYPES[kind].sqliteType,
-          defaultValue: trimmedDefault ? trimmedDefault : null,
-        };
 
-        let sql: string;
+        // Dedicated `POST /db/tables/:table/columns` bridge (adds ONE nullable column) — NOT the exec-SQL
+        // path. Mirrors createTable: dark flag → DISABLED_404, verbatim server error surfaced inline.
+        let reply: Awaited<ReturnType<typeof requestDbAddColumn>>;
 
         try {
-          sql = buildAddColumn(table, spec);
-        } catch (e) {
-          return { ok: false, error: e instanceof Error ? e.message : 'Invalid column.' };
+          reply = await requestDbAddColumn({ table, name, type: FIELD_TYPES[kind].sqliteType });
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : 'The column could not be added.' };
         }
 
-        const res = await execSql(sql, [], true);
-
-        if (!res.ok) {
-          return { ok: false, error: res.error };
+        if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+          return { ok: false, error: DISABLED_404 };
         }
 
-        postToastToParent('success', `Added column “${name}”.`);
+        if (!reply.ok) {
+          return { ok: false, error: reply.error || 'The column could not be added.' };
+        }
+
+        postToastToParent('success', `Added column “${reply.column ?? name}”.`);
         await loadGeneratedCols(table);
         await loadRows(table);
 
         return { ok: true };
       },
-      [rows, execSql, loadGeneratedCols, loadRows],
+      [rows, loadGeneratedCols, loadRows],
     );
 
     const dropColumn = useCallback(
@@ -1475,25 +1482,48 @@ export const SiteTablesPanel = memo(
           return;
         }
 
-        const table = rows.page.table;
-        const res = await execSql(buildDropColumn(table, col), [], true);
-
-        if (!res.ok) {
-          postToastToParent('error', res.error || `Could not drop “${col}”.`);
+        if (!isEmbedded) {
+          postToastToParent('error', 'Open this from the ProjectSites admin to drop a column.');
           return;
         }
 
-        postToastToParent('success', `Dropped column “${col}”.`);
+        const table = rows.page.table;
+
+        // Dedicated `DELETE /db/tables/:table/columns/:column` bridge — NOT the exec-SQL path.
+        let reply: Awaited<ReturnType<typeof requestDbDropColumn>>;
+
+        try {
+          reply = await requestDbDropColumn({ table, column: col });
+        } catch (err) {
+          postToastToParent('error', err instanceof Error ? err.message : `Could not drop “${col}”.`);
+          return;
+        }
+
+        if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+          postToastToParent('error', 'Per-site data is not enabled.');
+          return;
+        }
+
+        if (!reply.ok) {
+          postToastToParent('error', reply.error || `Could not drop “${col}”.`);
+          return;
+        }
+
+        postToastToParent('success', `Dropped column “${reply.column ?? col}”.`);
         await loadGeneratedCols(table);
         await loadRows(table);
       },
-      [rows, execSql, loadGeneratedCols, loadRows],
+      [rows, loadGeneratedCols, loadRows],
     );
 
     const renameColumn = useCallback(
       async (from: string, to: string) => {
         if (rows.status !== 'ready') {
           return { ok: false, error: 'No table open.' };
+        }
+
+        if (!isEmbedded) {
+          return { ok: false, error: 'Open this from the ProjectSites admin to rename a column.' };
         }
 
         const next = to.trim();
@@ -1515,27 +1545,30 @@ export const SiteTablesPanel = memo(
 
         const table = rows.page.table;
 
-        let sql: string;
+        // Dedicated `PATCH /db/tables/:table/columns/:column` bridge — NOT the exec-SQL path.
+        let reply: Awaited<ReturnType<typeof requestDbRenameColumn>>;
 
         try {
-          sql = buildRenameColumn(table, from, next);
-        } catch (e) {
-          return { ok: false, error: e instanceof Error ? e.message : 'Invalid column name.' };
+          reply = await requestDbRenameColumn({ table, column: from, name: next });
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : 'The column could not be renamed.' };
         }
 
-        const res = await execSql(sql, [], true);
-
-        if (!res.ok) {
-          return { ok: false, error: res.error };
+        if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+          return { ok: false, error: DISABLED_404 };
         }
 
-        postToastToParent('success', `Renamed “${from}” to “${next}”.`);
+        if (!reply.ok) {
+          return { ok: false, error: reply.error || 'The column could not be renamed.' };
+        }
+
+        postToastToParent('success', `Renamed “${from}” to “${reply.column ?? next}”.`);
         await loadGeneratedCols(table);
         await loadRows(table);
 
         return { ok: true };
       },
-      [rows, execSql, loadGeneratedCols, loadRows],
+      [rows, loadGeneratedCols, loadRows],
     );
 
     // ── Whole-table export (CSV / TSV / JSON via the engine helpers) ──────────
@@ -3032,7 +3065,7 @@ interface BrowseViewProps extends EditProps {
   onAddRow: () => void;
   onOpenAddCol: () => void;
   onCloseAddCol: () => void;
-  onAddColumn: (name: string, kind: FieldKind, defaultValue?: string) => Promise<{ ok: boolean; error?: string }>;
+  onAddColumn: (name: string, kind: FieldKind) => Promise<{ ok: boolean; error?: string }>;
   onDropColumn: (col: string) => void;
   onRenameColumn: (from: string, to: string) => Promise<{ ok: boolean; error?: string }>;
   onExport: (format: 'csv' | 'tsv' | 'json') => void;
@@ -4240,12 +4273,11 @@ const AddColumnForm = memo(
     onAdd,
     onClose,
   }: {
-    onAdd: (name: string, kind: FieldKind, defaultValue?: string) => Promise<{ ok: boolean; error?: string }>;
+    onAdd: (name: string, kind: FieldKind) => Promise<{ ok: boolean; error?: string }>;
     onClose: () => void;
   }) => {
     const [name, setName] = useState('');
     const [kind, setKind] = useState<FieldKind>('text');
-    const [defaultValue, setDefaultValue] = useState('');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
 
@@ -4259,7 +4291,7 @@ const AddColumnForm = memo(
 
       setBusy(true);
       setError('');
-      const res = await onAdd(trimmed, kind, defaultValue);
+      const res = await onAdd(trimmed, kind);
       setBusy(false);
 
       if (res.ok) {
@@ -4315,21 +4347,6 @@ const AddColumnForm = memo(
               </option>
             ))}
           </select>
-          <input
-            type="text"
-            value={defaultValue}
-            onChange={(e) => setDefaultValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                void submit();
-              }
-            }}
-            placeholder="default (optional)"
-            aria-label="Default value (optional)"
-            data-testid="sitedb-add-column-default"
-            className="w-[120px] min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1 text-[11px] font-mono text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-item-contentAccent"
-          />
           <button
             type="button"
             onClick={() => void submit()}

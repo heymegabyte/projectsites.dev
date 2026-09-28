@@ -184,6 +184,23 @@ interface PsMessage {
    * (`name` — the new table's name — reuses the shared `name` field above.)
    */
   readonly columns?: Array<{ name?: string; type?: string }>;
+  /**
+   * PS_SITEDB_RENAME_COLUMN_REQUEST / PS_SITEDB_DROP_COLUMN_REQUEST (Data Platform — column ops): the
+   * CURRENT column name. Add/rename forward the NEW name in the shared {@link name} field; rename/drop
+   * identify the target column here. The worker re-validates + quotes both identifiers server-side.
+   */
+  readonly column?: string;
+  /**
+   * PS_SITEDB_RENAME_COLUMN_REQUEST (alternate): the desired new column name, when a caller prefers an
+   * explicit field over reusing {@link name}. The handler falls back to {@link name} when absent.
+   */
+  readonly newName?: string;
+  /**
+   * PS_SITEDB_ADD_COLUMN_REQUEST (Data Platform — add column): the new column's SQLite storage class —
+   * TEXT / INTEGER / REAL. Named `columnType` (not `type`) so it never collides with the message
+   * discriminant {@link type}.
+   */
+  readonly columnType?: string;
   /** PS_NL2SQL_REQUEST (AI SQL assistant): the natural-language question to translate to SQL. */
   readonly question?: string;
   /** PS_KV_REQUEST (KV inspector): which read op to proxy to /api/admin/kv/*. */
@@ -1934,6 +1951,175 @@ export class BoltEmbedService {
                   typeof err.error?.error?.message === 'string'
                     ? err.error.error.message
                     : 'The table could not be dropped.';
+                reply({ ok: false, error: message });
+              },
+            });
+          break;
+        }
+        case 'PS_SITEDB_ADD_COLUMN_REQUEST': {
+          // Data Platform (per-site D1) — add ONE nullable column to a table via
+          // POST /api/sites/:id/db/tables/:table/columns. The embedded editor has no cross-origin session, so
+          // it asks US (we hold currentSite + the ApiService bearer). Same server-side isolation as
+          // PS_SITEDB_CREATE_TABLE. Reply with PS_SITEDB_ADD_COLUMN_RESPONSE. Mirrors the create-table bridge:
+          // dark behind `per_site_data` → a 404 whose body says "not enabled" maps to {ok:false,enabled:false};
+          // a DDL/validation error is HTTP 400 whose message we surface VERBATIM.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const table = typeof msg.table === 'string' ? msg.table : '';
+          const name = typeof msg.name === 'string' ? msg.name : '';
+          const columnType = typeof msg.columnType === 'string' ? msg.columnType : '';
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_SITEDB_ADD_COLUMN_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!table || !name) {
+            reply({ ok: false, error: 'A column needs a table and a name' });
+            break;
+          }
+          this.api
+            .post<{ column?: string; data?: { column?: string } }>(
+              `/sites/${site.id}/db/tables/${encodeURIComponent(table)}/columns`,
+              { name, type: columnType },
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, column: res?.column ?? res?.data?.column ?? name }),
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                  return;
+                }
+                const message =
+                  err instanceof HttpErrorResponse &&
+                  typeof err.error?.error?.message === 'string'
+                    ? err.error.error.message
+                    : 'The column could not be added.';
+                reply({ ok: false, error: message });
+              },
+            });
+          break;
+        }
+        case 'PS_SITEDB_RENAME_COLUMN_REQUEST': {
+          // Data Platform (per-site D1) — rename ONE column via
+          // PATCH /api/sites/:id/db/tables/:table/columns/:column. The embedded editor has no cross-origin
+          // session, so it asks US (we hold currentSite + the ApiService bearer). Same server-side isolation as
+          // PS_SITEDB_CREATE_TABLE. Reply with PS_SITEDB_RENAME_COLUMN_RESPONSE. Mirrors the create-table
+          // bridge: dark behind `per_site_data` → a 404 whose body says "not enabled" maps to
+          // {ok:false,enabled:false}; any other failure is surfaced VERBATIM. The desired new name rides in
+          // `name` (or the explicit `newName` fallback).
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const table = typeof msg.table === 'string' ? msg.table : '';
+          const column = typeof msg.column === 'string' ? msg.column : '';
+          const name =
+            typeof msg.name === 'string' && msg.name
+              ? msg.name
+              : typeof msg.newName === 'string'
+                ? msg.newName
+                : '';
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_SITEDB_RENAME_COLUMN_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!table || !column || !name) {
+            reply({ ok: false, error: 'A rename needs a table, a column, and a new name' });
+            break;
+          }
+          this.api
+            .patch<{ column?: string; data?: { column?: string } }>(
+              `/sites/${site.id}/db/tables/${encodeURIComponent(table)}/columns/${encodeURIComponent(column)}`,
+              { name },
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, column: res?.column ?? res?.data?.column ?? name }),
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                  return;
+                }
+                const message =
+                  err instanceof HttpErrorResponse &&
+                  typeof err.error?.error?.message === 'string'
+                    ? err.error.error.message
+                    : 'The column could not be renamed.';
+                reply({ ok: false, error: message });
+              },
+            });
+          break;
+        }
+        case 'PS_SITEDB_DROP_COLUMN_REQUEST': {
+          // Data Platform (per-site D1) — drop ONE column via
+          // DELETE /api/sites/:id/db/tables/:table/columns/:column. The embedded editor has no cross-origin
+          // session, so it asks US (we hold currentSite + the ApiService bearer). Same server-side isolation as
+          // PS_SITEDB_DROP_TABLE. Reply with PS_SITEDB_DROP_COLUMN_RESPONSE. Mirrors the drop-table bridge:
+          // dark behind `per_site_data` → a 404 whose body says "not enabled" maps to {ok:false,enabled:false};
+          // any other failure is surfaced VERBATIM.
+          const iframe = this.iframeEl;
+          const site = this.currentSite;
+          const cid = msg.correlationId;
+          const table = typeof msg.table === 'string' ? msg.table : '';
+          const column = typeof msg.column === 'string' ? msg.column : '';
+          const reply = (payload: Record<string, unknown>): void => {
+            iframe?.contentWindow?.postMessage(
+              { type: 'PS_SITEDB_DROP_COLUMN_RESPONSE', correlationId: cid, ...payload },
+              EDITOR_BASE,
+            );
+          };
+          if (!site) {
+            reply({ ok: false, error: 'No site selected' });
+            break;
+          }
+          if (!table || !column) {
+            reply({ ok: false, error: 'Missing table or column' });
+            break;
+          }
+          this.api
+            .delete<{ column?: string; data?: { column?: string } }>(
+              `/sites/${site.id}/db/tables/${encodeURIComponent(table)}/columns/${encodeURIComponent(column)}`,
+              { silent: true },
+            )
+            .subscribe({
+              next: (res) => reply({ ok: true, column: res?.column ?? res?.data?.column ?? column }),
+              error: (err: unknown) => {
+                if (
+                  err instanceof HttpErrorResponse &&
+                  err.status === 404 &&
+                  typeof err.error?.error?.message === 'string' &&
+                  err.error.error.message.includes('not enabled')
+                ) {
+                  reply({ ok: false, enabled: false });
+                  return;
+                }
+                const message =
+                  err instanceof HttpErrorResponse &&
+                  typeof err.error?.error?.message === 'string'
+                    ? err.error.error.message
+                    : 'The column could not be dropped.';
                 reply({ ok: false, error: message });
               },
             });
