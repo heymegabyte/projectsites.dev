@@ -94,7 +94,20 @@ export const DataGrid = memo(
     const [pageSize, setPageSize] = useState<number>(clampPageSize(initialPageSize));
     const [pageIndex, setPageIndex] = useState(0);
     const [copied, setCopied] = useState(false);
+    const [copiedCell, setCopiedCell] = useState<string | null>(null);
     const [exportOpen, setExportOpen] = useState(false);
+
+    /** Click any result cell to copy its raw value — the SQL console's most-wanted micro-action. */
+    const copyCell = useCallback((key: string, value: unknown) => {
+      const text = value === null || value === undefined ? '' : String(value);
+      try {
+        void navigator.clipboard.writeText(text);
+        setCopiedCell(key);
+        setTimeout(() => setCopiedCell((c) => (c === key ? null : c)), 1100);
+      } catch {
+        /* clipboard blocked (sandboxed) — no-op; the value is still visible + hover-titled */
+      }
+    }, []);
     const exportRef = useRef<HTMLDivElement | null>(null);
 
     // A fresh result set (new columns/rows identity) resets the view so stale sort/search never linger.
@@ -278,16 +291,38 @@ export const DataGrid = memo(
                 >
                   {columns.map((name) => {
                     const classified = classifyCell(row[name]);
+                    const cellKey = `${ri}:${name}`;
+                    const isCopied = copiedCell === cellKey;
                     return (
                       <td
                         key={name}
+                        onClick={() => copyCell(cellKey, row[name])}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            copyCell(cellKey, row[name]);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Copy ${name}`}
                         className={classNames(
-                          'px-3 py-1.5 border-b border-bolt-elements-borderColor/30 whitespace-nowrap max-w-[280px] truncate',
+                          'px-3 py-1.5 border-b border-bolt-elements-borderColor/30 whitespace-nowrap max-w-[280px] truncate cursor-pointer',
+                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent',
+                          isCopied && 'ring-2 ring-inset ring-bolt-elements-item-contentAccent/70',
                           classified.className,
                         )}
-                        title={classified.kind === 'null' ? 'null' : (classified.title ?? classified.display)}
+                        title={
+                          classified.kind === 'null'
+                            ? 'null · click to copy'
+                            : `${classified.title ?? classified.display} · click to copy`
+                        }
                       >
-                        {classified.kind === 'null' ? (
+                        {isCopied ? (
+                          <span className="inline-flex items-center gap-1 text-bolt-elements-item-contentAccent">
+                            <div className="i-ph:check text-xs" aria-hidden /> Copied
+                          </span>
+                        ) : classified.kind === 'null' ? (
                           <span className="text-bolt-elements-textTertiary/50">—</span>
                         ) : (
                           classified.display
