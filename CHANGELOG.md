@@ -5,6 +5,12 @@ implementation notes preserved below.
 
 ---
 
+## 2026-09-28
+
+- **New:** The editor's **Code** view now has a **Project hub** button above Files / Search / Locks. One click opens a panel to deploy to production, take / restore / delete project snapshots, and view git history + your GitHub link — all in one place. Restores auto-save a backup first, and deletes can be undone.
+
+---
+
 # Admin Dashboard Overhaul — Turn 7
 
 **Status:** Full 20-item recommendations list shipped this turn plus the
