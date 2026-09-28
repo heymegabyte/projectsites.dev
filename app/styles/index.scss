@@ -135,10 +135,31 @@ header.border-transparent {
   --bolt-elements-borderColor: rgba(0, 229, 255, 0.1);
   --bolt-elements-borderColorActive: #00e5ff;
 
-  /* Accent — cyan everywhere accent.* was used */
-  --bolt-elements-button-primary-background: rgba(0, 229, 255, 0.12);
-  --bolt-elements-button-primary-backgroundHover: rgba(0, 229, 255, 0.22);
-  --bolt-elements-button-primary-text: #00e5ff;
+  /* ── Buttons — FILLED brand values (Brian 2026-09-27 white-button fix) ─────
+     The vendor dark-theme (variables.scss) sets button-secondary-background to
+     alpha-white.5 + button-secondary-text to solid white — that reads as a SOLID
+     WHITE / unfilled control on the black canvas (the reported bug). This block
+     never remapped the secondary/danger tokens, so they fell through to that
+     white. Set EVERY button token to a filled brand value here so no vendor
+     button can render white/transparent-that-reads-white. This is token-level
+     (god-tier #5 blanket override) — reaches every component that reads these
+     tokens (Button.tsx, Dialog, ChatAlert, DeployAlert, LockManager, …). */
+
+  /* Primary — SOLID cyan fill with dark ink (AA: #060610 on #00e5ff ≈ 12.9:1) */
+  --bolt-elements-button-primary-background: #00e5ff;
+  --bolt-elements-button-primary-backgroundHover: #4deeff;
+  --bolt-elements-button-primary-text: #060610;
+
+  /* Secondary — elevated near-black fill (NOT white), brand ink, cyan-tinted edge */
+  --bolt-elements-button-secondary-background: #131322;
+  --bolt-elements-button-secondary-backgroundHover: #1a1a30;
+  --bolt-elements-button-secondary-text: #f4f4ff;
+  --bolt-elements-button-secondary-backgroundActive: #1a1a30;
+
+  /* Danger — semantic red stays red (destructive is NOT the bug) */
+  --bolt-elements-button-danger-background: rgba(255, 92, 121, 0.16);
+  --bolt-elements-button-danger-backgroundHover: rgba(255, 92, 121, 0.28);
+  --bolt-elements-button-danger-text: #ff5c79;
 
   --bolt-elements-item-contentAccent: #00e5ff;
   --bolt-elements-item-backgroundAccent: rgba(0, 229, 255, 0.12);

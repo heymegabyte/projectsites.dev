@@ -252,9 +252,11 @@ export const SqlNavigator = memo(() => {
   // ── ONE parent-message listener; resolve by correlationId via the live ref (empty-deps stale-ref safe) ──
   useEffect(() => {
     const unsubscribe = onParentMessage((msg) => {
-      // The local `request` plumbing handles the schema reads (tables + per-table columns). The SQL run
-      // itself resolves through `requestDbQuery` (its own self-contained bridge listener). Accepting ROWS
-      // here fixes a latent drop: `gatherSchema` awaited PS_SITEDB_ROWS_RESPONSE that was never resolved.
+      /*
+       * The local `request` plumbing handles the schema reads (tables + per-table columns). The SQL run
+       * itself resolves through `requestDbQuery` (its own self-contained bridge listener). Accepting ROWS
+       * here fixes a latent drop: `gatherSchema` awaited PS_SITEDB_ROWS_RESPONSE that was never resolved.
+       */
       if (msg.type !== 'PS_SITEDB_TABLES_RESPONSE' && msg.type !== 'PS_SITEDB_ROWS_RESPONSE') {
         return;
       }
@@ -385,11 +387,101 @@ export const SqlNavigator = memo(() => {
     return withColumns;
   }, [request]);
 
+  // ── Execute one statement against the site's OWN D1 (POST /db/query) ────────
+  const runQuery = useCallback(
+    async (rawSql: string, confirm: boolean, wasExplain: boolean) => {
+      const trimmed = rawSql.trim();
+
+      if (!trimmed) {
+        return;
+      }
+
+      if (!isEmbedded) {
+        setState({ status: 'error', message: 'Open this from the ProjectSites admin to run SQL.' });
+        return;
+      }
+
+      /*
+       * Client-side safety gate — a destructive statement asks for confirmation first (mirrors the
+       * Table-view). The write still runs on the site's OWN isolated D1; this only prevents an accidental
+       * DROP / mass-DELETE. EXPLAIN and an already-confirmed re-run never gate.
+       */
+      if (!confirm && !wasExplain && isDestructiveSql(trimmed)) {
+        lastConfirmSqlRef.current = trimmed;
+        setState({
+          status: 'confirm',
+          message: `This ${classifySql(trimmed)} statement changes data and can’t be undone. Run it?`,
+        });
+
+        return;
+      }
+
+      // Record the run on SEND (so a failed query stays re-runnable). Not for EXPLAIN (it's a helper action).
+      if (!wasExplain) {
+        recordHistory(trimmed);
+      }
+
+      lastConfirmSqlRef.current = trimmed;
+      setState({ status: 'running' });
+
+      try {
+        /*
+         * Purpose-built per-site SQL console endpoint: runs ONE statement against the site's OWN D1
+         * (server-resolved id, shared-platform ids denylisted) and returns rows + D1 meta, or the real
+         * SQL error verbatim. No classify/confirm round-trip — the console runs what you type.
+         */
+        const reply: SiteDbQueryResponseMessage = await requestDbQuery({ sql: trimmed });
+
+        // Dark-flag 404 → friendly "not enabled yet" state (INV-3), never a scary error.
+        if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
+          setState({ status: 'disabled' });
+          return;
+        }
+
+        // A real SQL error is surfaced verbatim — seeing the exact error IS the point of a console.
+        if (!reply.ok || reply.error) {
+          setState({ status: 'error', message: reply.error || 'The statement could not run.' });
+          return;
+        }
+
+        const rows = reply.rows ?? [];
+
+        // Enrich the completion schema with any columns this result exposed (real identifiers only).
+        if (rows.length > 0) {
+          const cols = Object.keys(rows[0]);
+          setSchema((prev) => {
+            const merged = new Set([...(prev?.columns ?? []), ...cols]);
+            return { tables: prev?.tables ?? [], columns: [...merged] };
+          });
+        }
+
+        const meta = reply.meta ?? {};
+        const data: SqlExecData = {
+          classification: classifySql(trimmed),
+          rows,
+          rowCount: reply.rowCount ?? rows.length,
+          truncated: reply.truncated,
+          rowsWritten: typeof meta.rows_written === 'number' ? meta.rows_written : undefined,
+          rowsRead: typeof meta.rows_read === 'number' ? meta.rows_read : undefined,
+          durationMs: typeof meta.duration === 'number' ? Math.round(meta.duration) : undefined,
+        };
+
+        setState({ status: 'ready', data, wasExplain });
+      } catch (err) {
+        setState({ status: 'error', message: err instanceof Error ? err.message : 'The statement could not run.' });
+      }
+    },
+    [recordHistory],
+  );
+
+  const run = useCallback(() => void runQuery(sql, false, false), [sql, runQuery]);
+
   /**
-   * Ask the platform AI for a SQLite statement grounded on the site's schema, then DROP it into the editor
-   * for review (never auto-run). The user runs it via the normal per-site exec path (confirm-gated writes).
-   * Uses `/api/llmcall` which, when `PS_BOLT_AI=true`, routes to ProjectSites AI (the platform model) rather
-   * than per-user keys — so no CF id and no shared-DB path is ever touched.
+   * Ask the platform AI for a SQLite statement grounded on the site's schema, drop it into the editor, AND
+   * immediately RUN it so the answer (rows / the matching tables) shows up — Brian asked "show me any table
+   * that starts with cus" and expected the table to appear, not just see SQL. The query stays visible in the
+   * editor and results render below; writes still confirm-gate through {@link runQuery}. Uses `/api/llmcall`
+   * which, when `PS_BOLT_AI=true`, routes to ProjectSites AI (the platform model) — no CF id, no shared DB.
    */
   const askSql = useCallback(async () => {
     const q = askQuestion.trim();
@@ -440,100 +532,40 @@ export const SqlNavigator = memo(() => {
         throw new Error('The assistant did not return SQL. Try rephrasing your question.');
       }
 
+      // Show the SQL in the editor AND run it so the result appears immediately (writes still confirm-gate).
       setSql(generated);
-      setAskNote('SQL is ready in the editor — review it, then Run. Writes ask before they change data.');
+      setAskNote('Ran the SQL the AI wrote — results are below, and the query is in the editor to tweak.');
       setAskOpen(false);
+      void runQuery(generated, false, false);
     } catch (err) {
       setAskError(err instanceof Error ? err.message : 'The assistant could not answer that.');
     } finally {
       setAskBusy(false);
     }
-  }, [askQuestion, askBusy, gatherSchema]);
+  }, [askQuestion, askBusy, gatherSchema, runQuery]);
 
-  // ── Execute one statement against the site's OWN D1 (POST /db/query) ────────
-  const runQuery = useCallback(
-    async (rawSql: string, confirm: boolean, wasExplain: boolean) => {
-      const trimmed = rawSql.trim();
+  /**
+   * Open a table by name from a results grid (Fix: clicking a `name` cell in a `sqlite_master` table list
+   * drills into that table). Formulates `SELECT * FROM "<name>" LIMIT 500` and runs it — the value is
+   * validated against the site's OWN known tables (from the completion schema) so a stray cell can never
+   * inject SQL, and the identifier is double-quoted. Only wired for the `name` column (see the results grid).
+   */
+  const openTableFromResult = useCallback(
+    (column: string, value: string) => {
+      const name = (value ?? '').trim();
+      const known = schema?.tables ?? [];
 
-      if (!trimmed) {
+      // Guard: only drill into a REAL table from this site's schema, and only from a name-like column.
+      if (column !== 'name' || !name || !known.includes(name)) {
         return;
       }
 
-      if (!isEmbedded) {
-        setState({ status: 'error', message: 'Open this from the ProjectSites admin to run SQL.' });
-        return;
-      }
-
-      // Client-side safety gate — a destructive statement asks for confirmation first (mirrors the
-      // Table-view). The write still runs on the site's OWN isolated D1; this only prevents an accidental
-      // DROP / mass-DELETE. EXPLAIN and an already-confirmed re-run never gate.
-      if (!confirm && !wasExplain && isDestructiveSql(trimmed)) {
-        lastConfirmSqlRef.current = trimmed;
-        setState({
-          status: 'confirm',
-          message: `This ${classifySql(trimmed)} statement changes data and can’t be undone. Run it?`,
-        });
-
-        return;
-      }
-
-      // Record the run on SEND (so a failed query stays re-runnable). Not for EXPLAIN (it's a helper action).
-      if (!wasExplain) {
-        recordHistory(trimmed);
-      }
-
-      lastConfirmSqlRef.current = trimmed;
-      setState({ status: 'running' });
-
-      try {
-        // Purpose-built per-site SQL console endpoint: runs ONE statement against the site's OWN D1
-        // (server-resolved id, shared-platform ids denylisted) and returns rows + D1 meta, or the real
-        // SQL error verbatim. No classify/confirm round-trip — the console runs what you type.
-        const reply: SiteDbQueryResponseMessage = await requestDbQuery({ sql: trimmed });
-
-        // Dark-flag 404 → friendly "not enabled yet" state (INV-3), never a scary error.
-        if (reply.enabled === false || (reply.error && reply.error.includes(DISABLED_404))) {
-          setState({ status: 'disabled' });
-          return;
-        }
-
-        // A real SQL error is surfaced verbatim — seeing the exact error IS the point of a console.
-        if (!reply.ok || reply.error) {
-          setState({ status: 'error', message: reply.error || 'The statement could not run.' });
-          return;
-        }
-
-        const rows = reply.rows ?? [];
-
-        // Enrich the completion schema with any columns this result exposed (real identifiers only).
-        if (rows.length > 0) {
-          const cols = Object.keys(rows[0]);
-          setSchema((prev) => {
-            const merged = new Set([...(prev?.columns ?? []), ...cols]);
-            return { tables: prev?.tables ?? [], columns: [...merged] };
-          });
-        }
-
-        const meta = reply.meta ?? {};
-        const data: SqlExecData = {
-          classification: classifySql(trimmed),
-          rows,
-          rowCount: reply.rowCount ?? rows.length,
-          truncated: reply.truncated,
-          rowsWritten: typeof meta.rows_written === 'number' ? meta.rows_written : undefined,
-          rowsRead: typeof meta.rows_read === 'number' ? meta.rows_read : undefined,
-          durationMs: typeof meta.duration === 'number' ? Math.round(meta.duration) : undefined,
-        };
-
-        setState({ status: 'ready', data, wasExplain });
-      } catch (err) {
-        setState({ status: 'error', message: err instanceof Error ? err.message : 'The statement could not run.' });
-      }
+      const next = `SELECT * FROM "${name}" LIMIT ${DEFAULT_ROW_LIMIT};`;
+      setSql(next);
+      void runQuery(next, false, false);
     },
-    [recordHistory],
+    [schema, runQuery],
   );
-
-  const run = useCallback(() => void runQuery(sql, false, false), [sql, runQuery]);
 
   // "Bare SELECT with no LIMIT" advice — drives BOTH the always-on LIMIT 500 button and the amber nudge.
   const rowLimitAdvice = useMemo(() => analyzeRowLimit(sql), [sql]);
@@ -777,7 +809,8 @@ export const SqlNavigator = memo(() => {
             className="rounded-md border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.05] p-2.5 space-y-2 motion-safe:animate-[fadeIn_140ms_ease-out]"
           >
             <div className="flex items-center gap-1.5 text-[11px] font-medium text-bolt-elements-textSecondary">
-              <div className="i-ph:sparkle-duotone text-bolt-elements-item-contentAccent" aria-hidden /> Ask your database
+              <div className="i-ph:sparkle-duotone text-bolt-elements-item-contentAccent" aria-hidden /> Ask your
+              database
             </div>
             <div className="flex items-center gap-1.5">
               <input
@@ -917,7 +950,10 @@ export const SqlNavigator = memo(() => {
             data-testid="database-sql-idle"
           >
             <div className="flex items-center justify-center h-14 w-14 rounded-2xl border border-bolt-elements-item-contentAccent/25 bg-bolt-elements-item-contentAccent/[0.06]">
-              <div className="i-ph:terminal-window-duotone text-2xl text-bolt-elements-item-contentAccent" aria-hidden />
+              <div
+                className="i-ph:terminal-window-duotone text-2xl text-bolt-elements-item-contentAccent"
+                aria-hidden
+              />
             </div>
             <p className="text-xs text-bolt-elements-textSecondary max-w-[300px]">
               Write a query and press Run. Reads return rows; writes ask you to confirm before they change data.
@@ -990,7 +1026,9 @@ export const SqlNavigator = memo(() => {
           </div>
         )}
 
-        {state.status === 'ready' && <SqlResult data={state.data} wasExplain={state.wasExplain} />}
+        {state.status === 'ready' && (
+          <SqlResult data={state.data} wasExplain={state.wasExplain} onOpenValue={openTableFromResult} />
+        )}
       </div>
     </div>
   );
@@ -1004,132 +1042,147 @@ SqlNavigator.displayName = 'SqlNavigator';
  * Render one exec result: a rows grid for reads, or the ground-truth `rowsWritten` for writes. After an
  * EXPLAIN, an index hint (`explainPlanHint`) teaches whether the query is index-optimized.
  */
-const SqlResult = memo(({ data, wasExplain }: { data: SqlExecData; wasExplain: boolean }) => {
-  const rows = useMemo(() => data.rows ?? [], [data.rows]);
+const SqlResult = memo(
+  ({
+    data,
+    wasExplain,
+    onOpenValue,
+  }: {
+    data: SqlExecData;
+    wasExplain: boolean;
 
-  const columnNames = useMemo(() => {
-    if (data.columns && data.columns.length > 0) {
-      return data.columns.map((c) => c.name);
-    }
+    /** Drill-in handler for a table-name result cell (wired to the `name` column of a `sqlite_master` list). */
+    onOpenValue?: (column: string, value: string) => void;
+  }) => {
+    const rows = useMemo(() => data.rows ?? [], [data.rows]);
 
-    return rows.length > 0 ? Object.keys(rows[0]) : [];
-  }, [data.columns, rows]);
+    const columnNames = useMemo(() => {
+      if (data.columns && data.columns.length > 0) {
+        return data.columns.map((c) => c.name);
+      }
 
-  const wrote = typeof data.rowsWritten === 'number' && data.rowsWritten > 0;
-  const planHint: ExplainHint | null = useMemo(() => (wasExplain ? explainPlanHint(rows) : null), [wasExplain, rows]);
+      return rows.length > 0 ? Object.keys(rows[0]) : [];
+    }, [data.columns, rows]);
 
-  // Show the returned row count for reads (not writes — those report rowsWritten, and not EXPLAIN plans).
-  const showRowCount = !wrote && !wasExplain && rows.length > 0;
+    const wrote = typeof data.rowsWritten === 'number' && data.rowsWritten > 0;
+    const planHint: ExplainHint | null = useMemo(() => (wasExplain ? explainPlanHint(rows) : null), [wasExplain, rows]);
 
-  const hintClass =
-    planHint?.level === 'good'
-      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-      : planHint?.level === 'warn'
-        ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
-        : 'border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-contentAccent/10 text-bolt-elements-item-contentAccent';
+    // Show the returned row count for reads (not writes — those report rowsWritten, and not EXPLAIN plans).
+    const showRowCount = !wrote && !wasExplain && rows.length > 0;
 
-  return (
-    <div className="p-3" data-testid="database-sql-result">
-      {/* Effect summary strip — classification + ground-truth cost meta */}
-      <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px]">
-        {data.classification && (
-          <span className="uppercase tracking-wider px-2 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary">
-            {data.classification}
-          </span>
-        )}
-        {wrote && (
-          <span
-            className="px-2 py-0.5 rounded-full bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent"
-            data-testid="database-sql-rows-written"
-          >
-            {data.rowsWritten} row{data.rowsWritten === 1 ? '' : 's'} written
-          </span>
-        )}
-        {showRowCount && (
-          <span
-            className="px-2 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary tabular-nums"
-            data-testid="database-sql-row-count"
-          >
-            {(data.rowCount ?? rows.length).toLocaleString()} {(data.rowCount ?? rows.length) === 1 ? 'row' : 'rows'}
-          </span>
-        )}
-        {data.truncated && (
-          <span
-            className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-200 tabular-nums"
-            data-testid="database-sql-truncated"
-            title="The result was capped for a safe preview. Add a tighter WHERE/LIMIT to see the rest."
-          >
-            first {rows.length.toLocaleString()} shown
-          </span>
-        )}
-        {typeof data.rowsRead === 'number' && data.rowsRead > 0 && (
-          <span
-            className="px-2 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary tabular-nums"
-            data-testid="database-sql-rows-read"
-          >
-            {data.rowsRead.toLocaleString()} read
-          </span>
-        )}
-        {typeof data.durationMs === 'number' && (
-          <span className="text-bolt-elements-textTertiary tabular-nums">{data.durationMs} ms</span>
-        )}
-        {isExpensiveScan(data.rowsRead) && (
-          <span
-            className="flex items-center gap-1 text-amber-300"
-            data-testid="database-sql-scan-warn"
+    const hintClass =
+      planHint?.level === 'good'
+        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+        : planHint?.level === 'warn'
+          ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+          : 'border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-contentAccent/10 text-bolt-elements-item-contentAccent';
+
+    return (
+      <div className="p-3" data-testid="database-sql-result">
+        {/* Effect summary strip — classification + ground-truth cost meta */}
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px]">
+          {data.classification && (
+            <span className="uppercase tracking-wider px-2 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary">
+              {data.classification}
+            </span>
+          )}
+          {wrote && (
+            <span
+              className="px-2 py-0.5 rounded-full bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent"
+              data-testid="database-sql-rows-written"
+            >
+              {data.rowsWritten} row{data.rowsWritten === 1 ? '' : 's'} written
+            </span>
+          )}
+          {showRowCount && (
+            <span
+              className="px-2 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary tabular-nums"
+              data-testid="database-sql-row-count"
+            >
+              {(data.rowCount ?? rows.length).toLocaleString()} {(data.rowCount ?? rows.length) === 1 ? 'row' : 'rows'}
+            </span>
+          )}
+          {data.truncated && (
+            <span
+              className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-200 tabular-nums"
+              data-testid="database-sql-truncated"
+              title="The result was capped for a safe preview. Add a tighter WHERE/LIMIT to see the rest."
+            >
+              first {rows.length.toLocaleString()} shown
+            </span>
+          )}
+          {typeof data.rowsRead === 'number' && data.rowsRead > 0 && (
+            <span
+              className="px-2 py-0.5 rounded-full bg-bolt-elements-background-depth-2 text-bolt-elements-textTertiary tabular-nums"
+              data-testid="database-sql-rows-read"
+            >
+              {data.rowsRead.toLocaleString()} read
+            </span>
+          )}
+          {typeof data.durationMs === 'number' && (
+            <span className="text-bolt-elements-textTertiary tabular-nums">{data.durationMs} ms</span>
+          )}
+          {isExpensiveScan(data.rowsRead) && (
+            <span
+              className="flex items-center gap-1 text-amber-300"
+              data-testid="database-sql-scan-warn"
+              role="status"
+              title="This query read a large number of rows — add an index on the column(s) you filter or join by to keep it fast at scale."
+            >
+              <div className="i-ph:warning" aria-hidden /> expensive scan — {data.rowsRead!.toLocaleString()} rows read
+            </span>
+          )}
+        </div>
+
+        {/* EXPLAIN index hint */}
+        {planHint && (
+          <div
+            className={classNames('mb-2 flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-[11px]', hintClass)}
+            data-testid="database-sql-plan-hint"
             role="status"
-            title="This query read a large number of rows — add an index on the column(s) you filter or join by to keep it fast at scale."
           >
-            <div className="i-ph:warning" aria-hidden /> expensive scan — {data.rowsRead!.toLocaleString()} rows read
-          </span>
+            <div
+              className={classNames(
+                'mt-0.5 shrink-0',
+                planHint.level === 'good'
+                  ? 'i-ph:check-circle'
+                  : planHint.level === 'warn'
+                    ? 'i-ph:warning'
+                    : 'i-ph:info',
+              )}
+              aria-hidden
+            />
+            <span>{planHint.message}</span>
+          </div>
+        )}
+
+        {rows.length === 0 ? (
+          <div
+            className="flex flex-col items-center justify-center gap-2 p-6 text-center"
+            data-testid="database-sql-noresults"
+          >
+            <div className="i-ph:check-circle text-2xl text-bolt-elements-item-contentAccent" />
+            <p className="text-xs text-bolt-elements-textSecondary">
+              {wrote ? 'Done. Your change was applied.' : 'The statement ran — it returned no rows.'}
+            </p>
+          </div>
+        ) : (
+          /*
+           * The SAME grid form the Table-view uses — typed cells, sortable headers, search, pagination,
+           * and honest whole-result export — so a SQL result reads exactly like a browsed table.
+           */
+          <DataGrid
+            columns={columnNames}
+            rows={rows}
+            testId="database-sql-result-grid"
+            exportName="query-result"
+            maxHeightClass="max-h-[48vh]"
+            onOpenValue={onOpenValue}
+          />
         )}
       </div>
-
-      {/* EXPLAIN index hint */}
-      {planHint && (
-        <div
-          className={classNames('mb-2 flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-[11px]', hintClass)}
-          data-testid="database-sql-plan-hint"
-          role="status"
-        >
-          <div
-            className={classNames(
-              'mt-0.5 shrink-0',
-              planHint.level === 'good'
-                ? 'i-ph:check-circle'
-                : planHint.level === 'warn'
-                  ? 'i-ph:warning'
-                  : 'i-ph:info',
-            )}
-            aria-hidden
-          />
-          <span>{planHint.message}</span>
-        </div>
-      )}
-
-      {rows.length === 0 ? (
-        <div
-          className="flex flex-col items-center justify-center gap-2 p-6 text-center"
-          data-testid="database-sql-noresults"
-        >
-          <div className="i-ph:check-circle text-2xl text-bolt-elements-item-contentAccent" />
-          <p className="text-xs text-bolt-elements-textSecondary">
-            {wrote ? 'Done. Your change was applied.' : 'The statement ran — it returned no rows.'}
-          </p>
-        </div>
-      ) : (
-        // The SAME grid form the Table-view uses — typed cells, sortable headers, search, pagination,
-        // and honest whole-result export — so a SQL result reads exactly like a browsed table.
-        <DataGrid
-          columns={columnNames}
-          rows={rows}
-          testId="database-sql-result-grid"
-          exportName="query-result"
-          maxHeightClass="max-h-[48vh]"
-        />
-      )}
-    </div>
-  );
-});
+    );
+  },
+);
 
 SqlResult.displayName = 'SqlNavigator.SqlResult';

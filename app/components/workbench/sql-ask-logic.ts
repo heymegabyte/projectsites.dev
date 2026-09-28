@@ -66,24 +66,75 @@ export function formatSchemaForPrompt(tables: readonly AskTableSchema[]): string
 export function buildAskSystemPrompt(schemaOutline: string): string {
   return [
     "You are a careful SQLite assistant embedded in a website builder's database console.",
-    "The user asks a question in plain English about THEIR OWN site database; you translate it into ONE SQLite statement that runs against Cloudflare D1 (SQLite dialect).",
+    'The user asks a question in plain English about THEIR OWN site database; you translate it into ONE SQLite statement that runs against Cloudflare D1 (SQLite dialect).',
     '',
-    "RULES:",
+    'RULES:',
     '- Use ONLY the tables and columns in the schema below. Never invent a table or column that is not listed.',
     '- Return ONLY the SQL statement — no explanation, no markdown, no comments, no trailing prose.',
     '- Prefer a single statement. For a read, prefer SELECT with a sensible LIMIT (e.g. LIMIT 100) unless the user asks for an aggregate or a specific count.',
     '- Writes (INSERT/UPDATE/DELETE/CREATE/ALTER/DROP) are allowed when the user clearly asks for one; the user will review the SQL and confirm before it runs.',
-    '- If the question cannot be answered from the schema, return: SELECT \'Cannot answer from the current schema\' AS note;',
+    '- SCHEMA / META questions — "what tables exist", "list tables", "any table that starts with cus", "which tables", "show me the columns of X" — MUST query the SQLite catalog `sqlite_master`, NOT a data table. It always exists even when the database is empty.',
+    "  * List every table: SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;",
+    "  * Tables whose name starts with a prefix (e.g. \"cus\"): SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'cus%' ORDER BY name;",
+    '  * Return a single leading `name` column for a table list so the console can make each result clickable.',
+    "- If the question cannot be answered from the schema, return: SELECT 'Cannot answer from the current schema' AS note;",
     '',
-    'SCHEMA (the site\'s OWN database — these are the only tables/columns that exist):',
+    "SCHEMA (the site's OWN database — these are the only tables/columns that exist):",
     schemaOutline,
   ].join('\n');
 }
 
 /**
+ * The keywords that mark a statement start (also used to detect the beginning of a SQL statement in prose).
+ */
+const SQL_KEYWORDS = 'SELECT|WITH|INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP|PRAGMA|EXPLAIN|VALUES';
+
+/**
+ * Reduce a SQL blob to the FIRST runnable statement: keep everything up to and including the first
+ * top-level `;` (semicolons inside quotes/parens are ignored), then drop any trailing prose the model
+ * appended after it. A trailing `;` is fine (the runner tolerates it); text after the `;` is stripped so
+ * "SELECT …; This lists your tables." runs as just the SELECT. When there's no top-level `;`, the whole
+ * (already keyword-anchored) blob is returned. Pure.
+ */
+function firstStatement(sql: string): string {
+  const s = sql.trim();
+  let depth = 0;
+  let quote: string | null = null;
+
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+
+    if (quote) {
+      // Handle a doubled quote escape ('' or "") — skip the second char, stay in the string.
+      if (c === quote && s[i + 1] === quote) {
+        i++;
+      } else if (c === quote) {
+        quote = null;
+      }
+
+      continue;
+    }
+
+    if (c === "'" || c === '"' || c === '`') {
+      quote = c;
+    } else if (c === '(') {
+      depth++;
+    } else if (c === ')') {
+      depth = Math.max(0, depth - 1);
+    } else if (c === ';' && depth === 0) {
+      // Keep through the terminating semicolon; discard anything the model wrote after it.
+      return s.slice(0, i + 1).trim();
+    }
+  }
+
+  return s;
+}
+
+/**
  * Extract a runnable SQL statement from a model reply. Handles the common shapes: a ```sql fenced block, a
- * generic ``` fenced block, or a bare statement possibly wrapped in prose. Returns the trimmed SQL (without
- * fences), or an empty string when nothing SQL-like is found.
+ * generic ``` fenced block, or a bare statement possibly wrapped in prose — and always narrows to the FIRST
+ * statement so trailing model commentary after a `;` never rides into the editor. Returns the trimmed SQL
+ * (without fences), or an empty string when nothing SQL-like is found.
  */
 export function extractSqlFromModel(raw: string): string {
   if (!raw) {
@@ -96,14 +147,14 @@ export function extractSqlFromModel(raw: string): string {
   const sqlFence = /```sql\s*([\s\S]*?)```/i.exec(text);
 
   if (sqlFence && sqlFence[1].trim()) {
-    return sqlFence[1].trim();
+    return firstStatement(sqlFence[1].trim());
   }
 
   // 2. Any generic ``` fenced block.
   const anyFence = /```\s*([\s\S]*?)```/.exec(text);
 
   if (anyFence && anyFence[1].trim()) {
-    return anyFence[1].trim();
+    return firstStatement(anyFence[1].trim());
   }
 
   /*
@@ -113,16 +164,17 @@ export function extractSqlFromModel(raw: string): string {
    * leading group captures the allowed prefix (start / newline+ws / colon+ws) so we can slice from the
    * keyword itself.
    */
-  const KEYWORDS = 'SELECT|WITH|INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP|PRAGMA|EXPLAIN';
-  const stmt = new RegExp(`(^\\s*|\\n\\s*|:\\s+)(${KEYWORDS})\\b`, 'i').exec(text);
+  const stmt = new RegExp(`(^\\s*|\\n\\s*|:\\s+)(${SQL_KEYWORDS})\\b`, 'i').exec(text);
 
   if (stmt && typeof stmt.index === 'number') {
     // Slice from the keyword itself (skip the matched leading prefix — start / newline / colon).
     const kwOffset = stmt.index + stmt[1].length;
-    return text.slice(kwOffset).replace(/^\s+/, '').trim();
+    return firstStatement(text.slice(kwOffset).replace(/^\s+/, '').trim());
   }
 
-  // 4. Nothing SQL-like at a statement position — return the trimmed text so the caller surfaces an honest
-  // "couldn't parse" (the runner would reject it anyway; we never fabricate SQL).
+  /*
+   * 4. Nothing SQL-like at a statement position — return the trimmed text so the caller surfaces an honest
+   * "couldn't parse" (the runner would reject it anyway; we never fabricate SQL).
+   */
   return text;
 }

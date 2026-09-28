@@ -7,12 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import {
-  buildAskSystemPrompt,
-  extractSqlFromModel,
-  formatSchemaForPrompt,
-  type AskTableSchema,
-} from './sql-ask-logic';
+import { buildAskSystemPrompt, extractSqlFromModel, formatSchemaForPrompt, type AskTableSchema } from './sql-ask-logic';
 
 describe('formatSchemaForPrompt', () => {
   it('reports an empty database honestly (so the model never invents tables)', () => {
@@ -55,6 +50,20 @@ describe('buildAskSystemPrompt', () => {
     expect(prompt).toContain('Never invent a table or column');
     expect(prompt).toContain('TABLE orders ( id INTEGER )');
   });
+
+  it('tells the model to answer SCHEMA/META questions via sqlite_master (the "tables starting with cus" case)', () => {
+    const prompt = buildAskSystemPrompt('TABLE customers ( id INTEGER )');
+    expect(prompt).toContain('sqlite_master');
+
+    // The prefix-match example the model follows for "any table that starts with cus".
+    expect(prompt).toContain("name LIKE 'cus%'");
+
+    // The "list every table" example.
+    expect(prompt).toContain("type='table'");
+
+    // Guides toward a single leading `name` column so the console can make results clickable.
+    expect(prompt).toContain('`name` column');
+  });
 });
 
 describe('extractSqlFromModel', () => {
@@ -74,7 +83,7 @@ describe('extractSqlFromModel', () => {
   });
 
   it('extracts write statements too (the runner confirm-gates them)', () => {
-    const raw = 'UPDATE orders SET status = \'shipped\' WHERE id = 5;';
+    const raw = "UPDATE orders SET status = 'shipped' WHERE id = 5;";
     expect(extractSqlFromModel(raw)).toBe("UPDATE orders SET status = 'shipped' WHERE id = 5;");
   });
 
@@ -84,5 +93,31 @@ describe('extractSqlFromModel', () => {
 
   it('returns the trimmed text when nothing SQL-like is present (caller surfaces an honest error)', () => {
     expect(extractSqlFromModel('I cannot help with that.')).toBe('I cannot help with that.');
+  });
+
+  it('extracts the sqlite_master schema query for a "tables starting with cus" answer', () => {
+    const raw = "```sql\nSELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'cus%' ORDER BY name;\n```";
+    expect(extractSqlFromModel(raw)).toBe(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'cus%' ORDER BY name;",
+    );
+  });
+
+  it('narrows to the FIRST statement, dropping trailing model commentary after the semicolon', () => {
+    const raw = "SELECT name FROM sqlite_master WHERE type='table'; This lists all of your tables.";
+    expect(extractSqlFromModel(raw)).toBe("SELECT name FROM sqlite_master WHERE type='table';");
+  });
+
+  it('drops trailing prose that follows a fenced statement', () => {
+    const raw = '```sql\nSELECT * FROM customers LIMIT 100;\n```\nThat returns the first 100 customers.';
+    expect(extractSqlFromModel(raw)).toBe('SELECT * FROM customers LIMIT 100;');
+  });
+
+  it('keeps a semicolon that lives inside a string literal (no premature cut)', () => {
+    const raw = "SELECT 'a; b' AS note;";
+    expect(extractSqlFromModel(raw)).toBe("SELECT 'a; b' AS note;");
+  });
+
+  it('handles a bare statement with no trailing semicolon unchanged', () => {
+    expect(extractSqlFromModel('SELECT count(*) FROM orders')).toBe('SELECT count(*) FROM orders');
   });
 });

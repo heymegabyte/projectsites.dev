@@ -47,6 +47,21 @@ export interface DataGridProps {
 
   /** Optional label for the export filename stem (default `result`). */
   exportName?: string;
+
+  /**
+   * Optional drill-in handler. When set, a cell in the openable column (see {@link openableColumn}) renders
+   * as a cyan, clickable "open" affordance that calls `onOpenValue(column, value)` INSTEAD of copy — used by
+   * the SQL navigator to turn a `sqlite_master` table-name list into a click-to-browse action. Cells in every
+   * OTHER column keep their normal click-to-copy behavior. Optional — omitting it leaves the grid unchanged.
+   */
+  onOpenValue?: (column: string, value: string) => void;
+
+  /**
+   * The column whose cells become the clickable "open" affordance when {@link onOpenValue} is set.
+   * Defaults to `name` (the `SELECT name FROM sqlite_master …` table-list convention). Ignored when
+   * `onOpenValue` is not provided.
+   */
+  openableColumn?: string;
 }
 
 /** A generic client-side download of `text` as `filename` (fail-soft in sandboxed frames). */
@@ -76,6 +91,7 @@ function csvCell(value: unknown): string {
 function toCsvText(columns: string[], rows: Record<string, unknown>[]): string {
   const head = columns.map(csvCell).join(',');
   const body = rows.map((r) => columns.map((c) => csvCell(r[c])).join(',')).join('\r\n');
+
   return body ? `${head}\r\n${body}` : head;
 }
 
@@ -84,11 +100,21 @@ function toTsvText(columns: string[], rows: Record<string, unknown>[]): string {
   const clean = (v: unknown) => (v === null || v === undefined ? '' : String(v).replace(/[\t\r\n]/g, ' '));
   const head = columns.join('\t');
   const body = rows.map((r) => columns.map((c) => clean(r[c])).join('\t')).join('\n');
+
   return body ? `${head}\n${body}` : head;
 }
 
 export const DataGrid = memo(
-  ({ columns, rows, testId = 'data-grid', maxHeightClass = 'max-h-[52vh]', initialPageSize = 50, exportName = 'result' }: DataGridProps) => {
+  ({
+    columns,
+    rows,
+    testId = 'data-grid',
+    maxHeightClass = 'max-h-[52vh]',
+    initialPageSize = 50,
+    exportName = 'result',
+    onOpenValue,
+    openableColumn = 'name',
+  }: DataGridProps) => {
     const [sorts, setSorts] = useState<GridSort[]>([]);
     const [search, setSearch] = useState('');
     const [pageSize, setPageSize] = useState<number>(clampPageSize(initialPageSize));
@@ -100,6 +126,7 @@ export const DataGrid = memo(
     /** Click any result cell to copy its raw value — the SQL console's most-wanted micro-action. */
     const copyCell = useCallback((key: string, value: unknown) => {
       const text = value === null || value === undefined ? '' : String(value);
+
       try {
         void navigator.clipboard.writeText(text);
         setCopiedCell(key);
@@ -204,7 +231,10 @@ export const DataGrid = memo(
         {/* Toolbar — search · count · export */}
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-[160px]">
-            <div className="i-ph:magnifying-glass absolute left-2 top-1/2 -translate-y-1/2 text-bolt-elements-textTertiary text-sm" aria-hidden />
+            <div
+              className="i-ph:magnifying-glass absolute left-2 top-1/2 -translate-y-1/2 text-bolt-elements-textTertiary text-sm"
+              aria-hidden
+            />
             <input
               type="text"
               value={search}
@@ -241,13 +271,28 @@ export const DataGrid = memo(
                 role="menu"
                 className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-lg"
               >
-                <button type="button" role="menuitem" onClick={exportCsv} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundAccent/10 hover:text-bolt-elements-textPrimary">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={exportCsv}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundAccent/10 hover:text-bolt-elements-textPrimary"
+                >
                   <div className="i-ph:file-csv text-sm" aria-hidden /> CSV
                 </button>
-                <button type="button" role="menuitem" onClick={exportJson} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundAccent/10 hover:text-bolt-elements-textPrimary">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={exportJson}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundAccent/10 hover:text-bolt-elements-textPrimary"
+                >
                   <div className="i-ph:brackets-curly text-sm" aria-hidden /> JSON
                 </button>
-                <button type="button" role="menuitem" onClick={copyTsv} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundAccent/10 hover:text-bolt-elements-textPrimary">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={copyTsv}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-bolt-elements-textSecondary hover:bg-bolt-elements-item-backgroundAccent/10 hover:text-bolt-elements-textPrimary"
+                >
                   <div className="i-ph:copy text-sm" aria-hidden /> Copy
                 </button>
               </div>
@@ -256,7 +301,12 @@ export const DataGrid = memo(
         </div>
 
         {/* Grid */}
-        <div className={classNames('overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]', maxHeightClass)}>
+        <div
+          className={classNames(
+            'overflow-auto modern-scrollbar rounded-md border border-bolt-elements-borderColor shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]',
+            maxHeightClass,
+          )}
+        >
           <table className="min-w-full text-xs font-mono border-collapse tabular-nums" data-testid={`${testId}-table`}>
             <thead>
               <tr className="bg-bolt-elements-background-depth-2">
@@ -273,7 +323,13 @@ export const DataGrid = memo(
                         {name}
                         {s && (
                           <span className="inline-flex items-center text-bolt-elements-item-contentAccent">
-                            <div className={classNames(s.dir === 'asc' ? 'i-ph:arrow-up' : 'i-ph:arrow-down', 'text-[10px]')} aria-hidden />
+                            <div
+                              className={classNames(
+                                s.dir === 'asc' ? 'i-ph:arrow-up' : 'i-ph:arrow-down',
+                                'text-[10px]',
+                              )}
+                              aria-hidden
+                            />
                             {sorts.length > 1 && <span className="text-[9px]">{s.priority}</span>}
                           </span>
                         )}
@@ -293,6 +349,39 @@ export const DataGrid = memo(
                     const classified = classifyCell(row[name]);
                     const cellKey = `${ri}:${name}`;
                     const isCopied = copiedCell === cellKey;
+
+                    /*
+                     * Openable cell: when a drill-in handler is wired for this column and the value is a real
+                     * string, the cell IS the "open" action (cyan, clickable) — it takes precedence over copy.
+                     */
+                    const rawValue = row[name];
+                    const isOpenable =
+                      !!onOpenValue &&
+                      name === openableColumn &&
+                      typeof rawValue === 'string' &&
+                      rawValue.trim().length > 0;
+
+                    if (isOpenable) {
+                      const value = String(rawValue);
+                      return (
+                        <td
+                          key={name}
+                          className="px-3 py-1.5 border-b border-bolt-elements-borderColor/30 whitespace-nowrap max-w-[280px]"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => onOpenValue!(name, value)}
+                            data-testid={`${testId}-open`}
+                            title={`Open ${value} — browse this table`}
+                            className="inline-flex max-w-full items-center gap-1 truncate rounded text-left font-medium text-bolt-elements-item-contentAccent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                          >
+                            <div className="i-ph:table shrink-0 text-xs" aria-hidden />
+                            <span className="truncate">{value}</span>
+                          </button>
+                        </td>
+                      );
+                    }
+
                     return (
                       <td
                         key={name}
