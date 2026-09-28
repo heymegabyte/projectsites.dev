@@ -189,6 +189,7 @@ subdir_inventory:
   domain: { status: covered, specs: [domain/domain-flows.spec.ts] }
   domain-stack: { status: covered, specs: [domain-stack/domain-stack.spec.ts] }
   editor: { status: covered, specs: [editor/editor-lifecycle.spec.ts] }
+  promote_workflow: { status: gap, specs: [promote-workflow.e2e.ts] }  # TDD-RED — Preview→Promote→Production: 6 scenarios gated on E2E_API_KEY. RED until promote-to-production button + /api/sites/:id/releases ship. Auth: setupRealDataPage Pathway A. Asserts: editor mounts · source-control diff view · promote-to-production click · promote-status success (data-state attr) · /releases count increments · button disabled/absent in clean state.
   env: { status: covered, specs: [env/env-extras.spec.ts] }
   flags: { status: covered, specs: [flags/all-flags.spec.ts] }
   fortress: { status: covered, specs: [_fortress/admin-detail/adversarial.spec.ts, _fortress/admin-detail/happy-path.spec.ts, _fortress/auth/adversarial.spec.ts, _fortress/auth/happy-path.spec.ts, _fortress/billing/adversarial.spec.ts, _fortress/billing/happy-path.spec.ts, _fortress/feature-flags/adversarial.spec.ts, _fortress/feature-flags/happy-path.spec.ts, _fortress/site-create/adversarial.spec.ts, _fortress/site-create/happy-path.spec.ts] }
