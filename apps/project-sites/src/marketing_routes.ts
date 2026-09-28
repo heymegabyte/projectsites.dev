@@ -94,9 +94,9 @@ export const MARKETING_META: Readonly<Record<string, MarketingMeta>> = {
       'Tell us about your business and our AI builds a professional, SEO-ready website in minutes — hosted, SSL secured, and live. No coding required.',
   },
   '/pricing': {
-    title: 'Pricing — Plans for Your AI-Built Website | ProjectSites',
+    title: 'Pricing — Pay Exact Cost Plus $50/mo | ProjectSites',
     description:
-      'Simple pricing for AI-generated websites: a free tier to start, then one flat plan with hosting, SSL, a custom domain, and analytics all included.',
+      'Transparent pricing: you pay the exact metered Cloudflare cost of your site (Worker, D1, R2, snapshots, AI, voice) plus a flat $50 per month per site. No hidden markup, no membership fees.',
   },
   '/search': {
     title: 'Find Your Business — Start an AI Website | ProjectSites',

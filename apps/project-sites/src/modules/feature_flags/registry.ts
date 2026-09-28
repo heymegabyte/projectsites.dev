@@ -46,6 +46,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  pricing_engine: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'Cost-metering + pricing engine (PRICING-MODEL.md Wave 1). Gates GET /api/sites/:id/cost + GET /api/apps/instances/:id/cost — owner-scoped read-only rollups pricing each site/instance CF resource (Worker requests+CPU, D1 rows+storage, R2 ops+storage incl. sites/ snapshots) at published unit prices + the flat $50/site platform fee. Server-resolves resources from site_database_allocations / app_instances (never client-supplied). Off (default, DARK) then both endpoints 404 (never 403). Wave 2 adds the Super-admin pricing_config table + live wiring.',
+    key: 'pricing_engine',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   approval_workflow: {
     default_enabled: false,
     default_rollout_percent: 0,

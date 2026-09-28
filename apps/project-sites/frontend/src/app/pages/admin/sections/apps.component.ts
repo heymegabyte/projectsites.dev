@@ -314,6 +314,11 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                   </span>
                 }
               </footer>
+              <div class="cost-range" [title]="'Idle (scale-to-zero) vs typical AI-estimated monthly — ' + app.name">
+                <span class="cost-range-seg"><span aria-hidden="true">Idle $</span>{{ app.scaleToZeroMonthly }}</span>
+                <span class="cost-range-dot" aria-hidden="true">·</span>
+                <span class="cost-range-seg"><span aria-hidden="true">Typical ~$</span>{{ app.aiEstimatedMonthly }}</span>
+              </div>
             </a>
           }
         </div>
@@ -737,6 +742,13 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       font-size: 0.66rem; font-weight: 700;
       color: var(--ps-accent, #00E5FF);
     }
+    /* Compact idle-vs-typical price line under the footer. */
+    .cost-range {
+      display: flex; align-items: baseline; gap: 6px; margin-top: 6px;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.62rem; color: rgba(255,255,255,0.5);
+    }
+    .cost-range-dot { color: rgba(255,255,255,0.3); }
     .installs-pill svg { opacity: 0.85; }
 
     /* ─── Buttons (parity with sibling sections) ─── */

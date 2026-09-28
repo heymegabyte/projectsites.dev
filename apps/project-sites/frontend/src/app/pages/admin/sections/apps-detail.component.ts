@@ -367,13 +367,27 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
               }
 
               <div class="cost-breakdown">
-                <div class="cost-h">Monthly estimate</div>
+                <a class="cost-h cost-h--link" routerLink="/pricing"
+                   aria-label="How we price — see the pricing breakdown"
+                   data-testid="apps-detail-pricing-link">
+                  Monthly estimate
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9"/></svg>
+                </a>
+                <p class="cost-note">Estimated — a function of your actual usage.</p>
                 @for (line of costLines(); track line.key) {
                   <div class="cost-line">
                     <span class="cost-line-label">{{ line.label }}</span>
                     <span class="cost-line-value">$<app-rolling-counter [value]="line.monthlyUsd" /></span>
                   </div>
                 }
+                <div class="cost-line cost-line--alt">
+                  <span class="cost-line-label">Idle (scale-to-zero)</span>
+                  <span class="cost-line-value"><span aria-hidden="true">$</span>{{ a.scaleToZeroMonthly }}/mo</span>
+                </div>
+                <div class="cost-line cost-line--alt">
+                  <span class="cost-line-label">Typical (AI-estimated)</span>
+                  <span class="cost-line-value"><span aria-hidden="true">~$</span>{{ a.aiEstimatedMonthly }}/mo</span>
+                </div>
                 <div class="cost-total" role="group" [attr.aria-label]="costTotalLabel()">
                   <span class="cost-total-label" aria-hidden="true">Total</span>
                   <span class="cost-total-value" aria-hidden="true">$<app-rolling-counter [value]="totalCost()" /><span class="cost-unit">/mo</span></span>
@@ -992,10 +1006,26 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.1em;
       color: rgba(255,255,255,0.55); font-weight: 700; margin-bottom: 6px;
     }
+    /* Heading doubles as the link to the full pricing breakdown. */
+    .cost-h--link {
+      display: inline-flex; align-items: center; gap: 5px;
+      text-decoration: none; cursor: pointer;
+      transition: color 140ms ease;
+    }
+    .cost-h--link:hover { color: var(--ps-accent, #00E5FF); }
+    .cost-h--link:focus-visible { outline: var(--ps-ring-focus, 2px solid #00E5FF); outline-offset: 2px; border-radius: 4px; }
+    .cost-h--link svg { opacity: 0.7; }
+    .cost-note {
+      margin: 0 0 8px; font-size: 0.66rem; line-height: 1.4;
+      color: rgba(255,255,255,0.5);
+    }
     .cost-line {
       display: flex; justify-content: space-between; align-items: baseline;
       font-size: 0.74rem; padding: 4px 0;
     }
+    /* Idle + AI-estimated rows — a hairline separates them from the CF breakdown above. */
+    .cost-line--alt { border-top: 1px dashed rgba(255,255,255,0.08); }
+    .cost-line--alt:first-of-type { margin-top: 4px; padding-top: 8px; }
     .cost-line-label { color: rgba(255,255,255,0.7); }
     .cost-line-value {
       font-family: 'JetBrains Mono', ui-monospace, monospace;

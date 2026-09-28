@@ -101,8 +101,8 @@ export const PAGE_META: Record<string, PageMeta> = {
     // Was MISSING → client nav to /pricing fell back to the homepage title on the
     // hydrated tab (crawlers were fine — the server injects this). Mirrors
     // MARKETING_META['/pricing'].
-    title: 'Pricing — Plans for Your AI-Built Website | ProjectSites',
-    description: 'Simple pricing for AI-generated websites: a free tier to start, then one flat plan with hosting, SSL, a custom domain, and analytics all included.',
+    title: 'Pricing — Pay Exact Cost Plus $50/mo | ProjectSites',
+    description: 'Transparent pricing: you pay the exact metered Cloudflare cost of your site (Worker, D1, R2, snapshots, AI, voice) plus a flat $50 per month per site. No hidden markup, no membership fees.',
   },
   'auth/sign-up': {
     // Was MISSING → /auth/sign-up client nav showed the homepage title. Mirrors

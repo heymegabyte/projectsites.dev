@@ -102,6 +102,14 @@ export interface CatalogApp {
   readonly memoryMB: number;
   /** Estimated monthly cost USD at small-to-medium usage. */
   readonly estCostMonthly: number;
+  /** Idle / provisioned-but-unused monthly cost USD (scale-to-zero). Worker-based apps
+   *  ~$0-1 (idle D1/R2 storage, no compute); container apps ~$1-2 (storage; hibernates
+   *  at 30m idle). Printed as "Idle (scale-to-zero)". */
+  readonly scaleToZeroMonthly: number;
+  /** Realistic normal-usage monthly USD "according to AI" — an AI-estimated typical bill
+   *  for this app's resource profile. Seeded from `estCostMonthly`. Printed as
+   *  "Typical (AI-estimated)". */
+  readonly aiEstimatedMonthly: number;
   /** Upstream homepage. */
   readonly homepage: string;
   /** Upstream repo. */
@@ -169,6 +177,8 @@ export const APPS_CATALOG: ReadonlyArray<CatalogApp> = [
     memoryMB: 256,
     volumeMB: 0,
     estCostMonthly: 6,
+    scaleToZeroMonthly: 1,
+    aiEstimatedMonthly: 6,
     homepage: 'https://umami.is',
     repo: 'https://github.com/umami-software/umami',
     glyph: '📊',
@@ -214,6 +224,8 @@ export const APPS_CATALOG: ReadonlyArray<CatalogApp> = [
     memoryMB: 256,
     volumeMB: 0,
     estCostMonthly: 7,
+    scaleToZeroMonthly: 1,
+    aiEstimatedMonthly: 7,
     homepage: 'https://listmonk.app',
     repo: 'https://github.com/knadh/listmonk',
     glyph: '📧',
@@ -249,6 +261,8 @@ export const APPS_CATALOG: ReadonlyArray<CatalogApp> = [
     memoryMB: 512,
     volumeMB: 256,
     estCostMonthly: 12,
+    scaleToZeroMonthly: 2,
+    aiEstimatedMonthly: 12,
     homepage: 'https://openwebui.com',
     repo: 'https://github.com/open-webui/open-webui',
     glyph: '🤖',
@@ -288,6 +302,8 @@ export const APPS_CATALOG: ReadonlyArray<CatalogApp> = [
     ],
     memoryMB: 768,
     estCostMonthly: 18,
+    scaleToZeroMonthly: 1,
+    aiEstimatedMonthly: 18,
     homepage: 'https://lobehub.com',
     repo: 'https://github.com/lobehub/lobe-chat',
     glyph: '💬',
@@ -322,6 +338,8 @@ export const APPS_CATALOG: ReadonlyArray<CatalogApp> = [
     memoryMB: 1024,
     volumeMB: 512,
     estCostMonthly: 24,
+    scaleToZeroMonthly: 2,
+    aiEstimatedMonthly: 24,
     homepage: 'https://langflow.org',
     repo: 'https://github.com/langflow-ai/langflow',
     glyph: '🕸️',
@@ -354,6 +372,8 @@ export const APPS_CATALOG: ReadonlyArray<CatalogApp> = [
     ],
     memoryMB: 768,
     estCostMonthly: 18,
+    scaleToZeroMonthly: 1,
+    aiEstimatedMonthly: 18,
     homepage: 'https://litellm.ai',
     repo: 'https://github.com/BerriAI/litellm',
     glyph: '🔀',
@@ -386,6 +406,8 @@ export const APPS_CATALOG: ReadonlyArray<CatalogApp> = [
     memoryMB: 768,
     volumeMB: 1024,
     estCostMonthly: 17,
+    scaleToZeroMonthly: 2,
+    aiEstimatedMonthly: 17,
     homepage: 'https://phoenix.arize.com',
     repo: 'https://github.com/Arize-ai/phoenix',
     glyph: '🔭',
@@ -418,6 +440,8 @@ export const APPS_CATALOG: ReadonlyArray<CatalogApp> = [
     ],
     memoryMB: 512,
     estCostMonthly: 11,
+    scaleToZeroMonthly: 1,
+    aiEstimatedMonthly: 11,
     homepage: 'https://stirlingpdf.com',
     repo: 'https://github.com/Stirling-Tools/Stirling-PDF',
     glyph: '📄',
@@ -451,6 +475,8 @@ export const APPS_CATALOG: ReadonlyArray<CatalogApp> = [
     ],
     memoryMB: 128,
     estCostMonthly: 5,
+    scaleToZeroMonthly: 0,
+    aiEstimatedMonthly: 5,
     homepage: 'https://payloadcms.com',
     repo: 'https://github.com/payloadcms/payload',
     glyph: '🗂️',
