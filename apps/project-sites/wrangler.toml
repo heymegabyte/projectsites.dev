@@ -354,6 +354,24 @@ instance_type = "standard-1"
 [[env.production.durable_objects.bindings]]
 name = "SITE_BUILDER"
 class_name = "SiteBuilderContainer"
+
+# ─── psnotify inbox (feature: psnotify) ──────────────────────────────────────
+# PsNotifyDO is a SQLite-backed Durable Object, one instance per user
+# (getByName(userId)), storing the in-app notification inbox. The Worker code
+# ships LIVE (handlers + DO class + flag), and unlike the WATCHED-hazard classes
+# (EVENT_DISPATCHER / COLLAB_ROOM) this binding + migration are ACTIVE: the
+# handlers fail-soft (empty inbox, never 500) if the binding is somehow absent,
+# and `notifyUser()` no-ops the in-app write, so activation is safe. Activating a
+# NEW DO class REQUIRES the migration in the SAME deploy — tag `v_psnotify_do` is
+# fresh (not in remote history), so this applies cleanly on the next
+# `wrangler deploy --env production`. Flag `psnotify` stays DARK (404) until promoted.
+[[env.production.durable_objects.bindings]]
+name = "PSNOTIFY_DO"
+class_name = "PsNotifyDO"
+
+[[env.production.migrations]]
+tag = "v_psnotify_do"
+new_sqlite_classes = ["PsNotifyDO"]
 #
 ## AppRuntimeContainer — base "coming soon" placeholder. Catalog apps that
 ## don't yet have a dedicated per-image DO subclass route here and surface

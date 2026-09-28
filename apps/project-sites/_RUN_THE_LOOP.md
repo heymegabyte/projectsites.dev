@@ -134,3 +134,5 @@
 
 ## Done
 _(move a unit here when its Acceptance is fully met — with the closing commit SHA + prod proof)_
+
+- **psnotify DO inbox — first slice** (2026-09-28) — Replaced the `psnotify.ts` console.warn stub with a SQLite-backed Durable Object `PsNotifyDO` (one per user via `getByName(userId)`, zero D1 tables): `add`/`list`/`markRead`. `notifyUser()` now writes to the DO (signature unchanged). New feature module `libs/features/psnotify/` (manifest + schemas + do + handlers + `__tests__`). Authed `GET /api/notifications` + `POST /api/notifications/:id/read`, caller-scoped by authed userId (never a request id). Flag `psnotify` (registry + docs, DARK → 404). `wrangler.toml`: `PSNOTIFY_DO` binding + `[[env.production.migrations]]` tag `v_psnotify_do` (`new_sqlite_classes=["PsNotifyDO"]`). Verify: `tsc` 0 errors · `jest psnotify` 7/7 · `validate:features` exit 0 · existing `notify` suite 36/36. **NEEDS a `wrangler deploy --env production` to apply the DO migration (lead deploys)** — handlers + notifyUser fail-soft (empty inbox / no-op) until then. Follow-on slices: email/push fan-out, unify the existing bell feed.

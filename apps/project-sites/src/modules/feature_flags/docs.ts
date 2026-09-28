@@ -703,6 +703,23 @@ export const FLAG_DOCS: Record<string, FlagDocs> = {
       'Disable the flag → the routes 404 and the cron sweep is a no-op',
     ],
   },
+  psnotify: {
+    checklist: [
+      'SQLite-backed Durable Object (PsNotifyDO), one instance per user via getByName(userId) — zero D1 tables',
+      'DO API: add(notification) · list({unreadOnly,limit}) · markRead(id); id is a UUIDv7 (list sorts newest-first)',
+      'Authed GET /api/notifications (caller OWN inbox + unread count) + POST /api/notifications/:id/read (idempotent)',
+      'Caller-scoped by the AUTHED userId, never a request id (the psnotify analogue of assertSiteOwned); off → 404',
+      'notifyUser()/notifyEvent() write into the same per-user DO; needs a wrangler deploy to apply migration v_psnotify_do + bind PSNOTIFY_DO',
+    ],
+    explanation:
+      'The in-app notification bell backbone (first slice), replacing the console.warn psnotify stub. Each user gets their own SQLite-backed Durable Object (PsNotifyDO) storing notifications — add/list/markRead — with no D1 tables. The authed GET /api/notifications returns the caller OWN inbox (newest-first) + the unread count; POST /api/notifications/:id/read marks one read. The inbox is resolved with getByName(userId) from the authed session (never a client-supplied id), so a user can only reach their own inbox. notifyUser() writes into it. Requires a `wrangler deploy --env production` to apply the PsNotifyDO SQLite DO migration (v_psnotify_do) + bind PSNOTIFY_DO; until then the endpoints fail-soft to an empty inbox and the write no-ops (never a 500). Email/push fan-out + unifying the existing bell feed are follow-on slices. When off, the routes 404.',
+    smoke_test: [
+      'Enable the flag (after the DO-migration deploy). GET /api/notifications (authed) → 200 {notifications:[],unread:0} on a fresh account',
+      'Trigger an event via notifyUser(...) (e.g. publish a site) → GET /api/notifications shows the new row with read_at:null; unread increments',
+      'POST /api/notifications/:id/read → {ok:true,updated:true}; GET again shows read_at set + unread decremented; a second read → updated:false',
+      'Disable the flag → both routes 404',
+    ],
+  },
   durable_preview: {
     checklist: [
       'Per-site Preview working-tree record: main base SHA, MONOTONIC draft revision, tree digest, preview deploy revision, last error',

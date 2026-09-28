@@ -446,6 +446,15 @@ export const FLAG_REGISTRY: Record<string, FlagDefinition> = {
     owner_email: 'brian@megabyte.space',
     stage: 'experimental',
   },
+  psnotify: {
+    default_enabled: false,
+    default_rollout_percent: 0,
+    description:
+      'psnotify Notification Inbox (first slice): the in-app bell backbone — a SQLite-backed Durable Object (PsNotifyDO), one instance per user, storing notifications with zero D1 tables.\n\n• isFlagOn-gated — off 404, unauth 401. Caller-scoped: the inbox is resolved by getByName(userId) from the AUTHED session, never a request-supplied id, so a user can only ever read/mutate THEIR own inbox (the psnotify analogue of assertSiteOwned).\n• GET /api/notifications?unreadOnly&limit returns the caller OWN inbox (newest-first) + the unread count; POST /api/notifications/:id/read marks one read (idempotent). notifyUser()/notifyEvent() write into the same per-user DO.\n• Needs a `wrangler deploy --env production` to apply the PsNotifyDO SQLite DO migration (v_psnotify_do) + bind PSNOTIFY_DO. Until then the handlers fail-soft to an empty inbox and the in-app write no-ops (never a 500). Email/push fan-out + bell-feed unification are follow-on slices. Off → the routes 404.',
+    key: 'psnotify',
+    owner_email: 'brian@megabyte.space',
+    stage: 'experimental',
+  },
   durable_preview: {
     default_enabled: false,
     default_rollout_percent: 0,

@@ -193,6 +193,7 @@ import { promptStudio } from '../libs/features/prompt_studio/handlers.js'; // pr
 import { promptSchedule } from '../libs/features/prompt_schedule/handlers.js'; // time-windowed prompt-variant activation (flag: prompt_schedule)
 import { contentImport } from '../libs/features/content_import/handlers.js'; // parse platform exports → normalized items (flag: content_import)
 import { sitePublishSchedule } from '../libs/features/site_publish_schedule/handlers.js'; // scheduled site go-live (flag: scheduled_publish)
+import { psnotifyInbox } from '../libs/features/psnotify/handlers.js'; // psnotify DO inbox: GET /api/notifications + POST /api/notifications/:id/read (flag: psnotify)
 import { durablePreview } from '../libs/features/durable_preview/handlers.js'; // Preview working-tree + release records (flag: durable_preview)
 import { aiGatewayGuardrails } from '../libs/features/ai_gateway_guardrails/handlers.js'; // Llama Guard middleware (flag: ai_gateway_guardrails)
 import { wireframePlanning } from '../libs/features/wireframe_planning/handlers.js'; // pre-gen wireframe plan (flag: wireframe_planning)
@@ -241,6 +242,7 @@ export { SnapshotQualityWorkflow } from './workflows/snapshot-quality.js';
 export { SocialPublishWorkflow } from './workflows/social-publish.js';
 export { SiteBuilderContainer } from './container.js';
 export { TraceHub, ActivityHub } from './durable_objects/trace_hub.js';
+export { PsNotifyDO } from '../libs/features/psnotify/do.js'; // psnotify inbox DO (SQLite-backed; binding PSNOTIFY_DO, migration v_psnotify_do)
 export { AppRuntimeContainer } from './durable_objects/app_runtime.js';
 // Pulse Inbox deprecated 2026-05-25 — this 410-stub class is intentionally KEPT so the
 // `ConversationHub` class in Cloudflare's APPLIED DO-migration history stays defined. Removing it
@@ -1125,6 +1127,7 @@ app.route('/', promptStudio); // /api/prompt-studio/* (flag: prompt_studio)
 app.route('/', promptSchedule); // /api/prompt-schedules/* (flag: prompt_schedule) — time-windowed prompt-variant activation
 app.route('/', contentImport); // /api/content-import/parse (flag: content_import) — parse platform exports → normalized items
 app.route('/', sitePublishSchedule); // /api/sites/:id/publish-schedule (flag: scheduled_publish) — scheduled site go-live
+app.route('/', psnotifyInbox); // /api/notifications + /api/notifications/:id/read (flag: psnotify) — per-user psnotify DO inbox
 app.route('/', durablePreview); // /api/sites/:id/preview-state + /releases (flag: durable_preview) — Preview working-tree + release records
 app.route('/', aiGatewayGuardrails); // /api/guardrails/* (flag: ai_gateway_guardrails)
 app.route('/', wireframePlanning); // /api/wireframe/* (flag: wireframe_planning)
