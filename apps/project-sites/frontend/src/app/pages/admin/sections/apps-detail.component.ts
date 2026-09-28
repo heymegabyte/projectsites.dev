@@ -316,7 +316,6 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                     [pattern]="subdomainPattern"
                     [attr.aria-invalid]="(subdomainValid() === false || subdomainAvailable() === false)"
                     data-testid="apps-deploy-subdomain" />
-                  <span class="subdomain-suffix">{{ a.image?.startsWith('cf-native:') ? '.cms.projectsites.dev' : '.app.projectsites.dev' }}</span>
                   @if (subdomainChecking()) {
                     <span class="subdomain-check-icon subdomain-check-icon--checking" aria-hidden="true"></span>
                   } @else if (subdomainValid() === true && subdomainAvailable() === true) {
@@ -324,6 +323,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                   } @else if (subdomainValid() === false || subdomainAvailable() === false) {
                     <span class="subdomain-check-icon subdomain-check-icon--invalid" aria-hidden="true">✕</span>
                   }
+                  <span class="subdomain-suffix">{{ a.image?.startsWith('cf-native:') ? '.cms.projectsites.dev' : '.app.projectsites.dev' }}</span>
                 </div>
                 @if (subdomainChecking()) {
                   <span class="form-help" role="status" aria-live="polite">Checking availability…</span>
@@ -974,12 +974,11 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
 
     /* ─── Subdomain validity ─── */
-    .subdomain-input {
-      position: relative;
-    }
+    /* The check icon is a normal flex child sitting directly to the RIGHT of the input (before the
+       suffix) — never absolutely positioned over the suffix text, so it can't overlap. */
     .subdomain-check-icon {
-      position: absolute; right: 0.7rem; top: 50%; transform: translateY(-50%);
-      font-weight: 700; font-size: 0.9rem; margin-right: 4px;
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 0 0.5rem; font-weight: 700; font-size: 0.9rem; flex: 0 0 auto;
     }
     .subdomain-check-icon--valid { color: #34d399; }
     .subdomain-check-icon--invalid { color: #fca5a5; }

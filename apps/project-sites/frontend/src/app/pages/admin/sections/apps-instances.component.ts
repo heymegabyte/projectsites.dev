@@ -88,6 +88,13 @@ function adaptInstance(row: Record<string, unknown>): AppInstance {
     created_at: String(row['created_at'] ?? ''),
     last_activity_at: (row['last_started_at'] ?? row['last_activity_at'] ?? null) as string | null,
     env_keys: env && typeof env === 'object' ? Object.keys(env as object) : undefined,
+    // Carry the decrypted values through too — the detail GET returns them (admin-only) and the env
+    // editor loads them MASKED. Without this, env_keys renders the fields but every value is empty:
+    // a custom PAYLOAD_SECRET reads as "auto-generated" and a custom var shows a blank secret box.
+    env:
+      env && typeof env === 'object'
+        ? (env as Readonly<Record<string, string>>)
+        : undefined,
     costEstimate: adaptCostEstimate(row['costEstimate']),
     last_error: typeof row['last_error'] === 'string' ? (row['last_error'] as string) : null,
   };
