@@ -824,10 +824,30 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       white-space: pre;
     }
 
-    /* ─── Deploy panel ─── */
+    /* ─── Deploy panel (aside) ─── */
+    /* Round 1 — TRANSPARENT, frameless aside. The base .card fill/border/padding/shadow are
+       overridden away (later source order wins) so the page shows through; the content modules
+       below carry the structure + beauty. A soft ambient cyan glow gives cinematic depth. */
     .deploy-card {
-      position: sticky; top: 1rem;
-      display: flex; flex-direction: column; gap: 1.1rem;
+      position: sticky; top: 1rem; isolation: isolate;
+      display: flex; flex-direction: column; gap: 1.15rem;
+      background: transparent; border: none; box-shadow: none; padding: 0;
+    }
+    .deploy-card::before {
+      content: ''; position: absolute; inset: -22px -14px auto -14px; height: 240px;
+      z-index: -1; pointer-events: none;
+      background: radial-gradient(120% 80% at 80% 0%,
+        color-mix(in oklch, var(--ps-accent, #00E5FF) 13%, transparent) 0%, transparent 60%);
+    }
+    /* Gorgeous scoped Deploy header — gradient accent bar + tighter, larger ink. */
+    .deploy-card > .card-h {
+      display: flex; align-items: center; gap: 0.55rem;
+      font-size: 0.98rem; letter-spacing: -0.01em; margin: 0 0 0.15rem 0;
+    }
+    .deploy-card > .card-h::before {
+      content: ''; width: 3px; height: 0.95em; border-radius: 2px;
+      background: linear-gradient(180deg, var(--ps-accent, #00E5FF), #7c3aed);
+      box-shadow: 0 0 12px color-mix(in oklch, var(--ps-accent, #00E5FF) 55%, transparent);
     }
 
     /* Soon (catalog-placeholder) apps: no deploy form, an honest coming-soon note. */
@@ -859,16 +879,19 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     .form-help--err { color: #fca5a5; }
     .form-help--muted { color: rgba(255,255,255,0.4); }
 
+    /* Round 3 — glassy field with a soft top sheen + a cyan focus halo. */
     .subdomain-input {
       display: flex; align-items: stretch;
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: var(--ps-radius-sm, 8px);
-      background: rgba(0,0,0,0.32);
-      transition: border-color 140ms ease;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.035), transparent), rgba(0,0,0,0.35);
+      transition: border-color 160ms ease, box-shadow 160ms ease;
       overflow: hidden;
     }
     .subdomain-input:focus-within {
-      border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 50%, transparent);
+      border-color: color-mix(in oklch, var(--ps-accent, #00E5FF) 60%, transparent);
+      box-shadow: 0 0 0 3px color-mix(in oklch, var(--ps-accent, #00E5FF) 13%, transparent),
+                  0 8px 22px -14px color-mix(in oklch, var(--ps-accent, #00E5FF) 55%, transparent);
     }
     /* Live availability state — colors the whole field green/red from the get-go. */
     .subdomain-input--valid {
@@ -936,11 +959,21 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     }
 
     /* ─── Cost breakdown ─── */
+    /* Round 2 — premium glass cost module: layered accent wash over a translucent slab,
+       a soft cyan drop-glow, an inner top highlight, and backdrop blur. */
     .cost-breakdown {
-      padding: 0.85rem 1rem;
-      background: color-mix(in oklch, var(--ps-accent, #00E5FF) 4%, transparent);
-      border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 16%, transparent);
-      border-radius: var(--ps-radius-sm, 10px);
+      position: relative; padding: 0.95rem 1.05rem 1rem;
+      border-radius: 14px;
+      background:
+        linear-gradient(180deg,
+          color-mix(in oklch, var(--ps-accent, #00E5FF) 8%, transparent),
+          color-mix(in oklch, var(--ps-accent, #00E5FF) 2%, transparent)),
+        rgba(8, 8, 22, 0.5);
+      border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 20%, transparent);
+      box-shadow:
+        0 12px 34px -20px color-mix(in oklch, var(--ps-accent, #00E5FF) 65%, transparent),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(7px);
     }
     .cost-h {
       font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -966,25 +999,36 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       color: var(--ps-ink, #fff); font-weight: 600;
     }
     .cost-total-value {
-      font-family: 'Sora', system-ui, sans-serif; font-size: 1.15rem;
-      font-weight: 700; color: var(--ps-accent, #00E5FF);
+      font-family: 'Sora', system-ui, sans-serif; font-size: 1.4rem;
+      font-weight: 800; color: var(--ps-accent, #00E5FF); letter-spacing: -0.01em;
+      text-shadow: 0 0 24px color-mix(in oklch, var(--ps-accent, #00E5FF) 48%, transparent);
     }
     .cost-unit { font-size: 0.62rem; color: rgba(255,255,255,0.5); font-weight: 500; margin-left: 2px; }
 
     /* ─── Buttons ─── */
+    /* Round 3 — richer tri-stop gradient, inner top-light, and a shine sweep on hover. */
     .btn-deploy {
+      position: relative; overflow: hidden;
       display: inline-flex; align-items: center; justify-content: center; gap: 8px;
       width: 100%;
-      padding: 0.85rem 1.2rem;
-      border-radius: var(--ps-radius-sm, 10px);
-      background: linear-gradient(135deg, var(--ps-accent, #00E5FF) 0%, color-mix(in oklch, var(--ps-accent, #00E5FF) 70%, #7c3aed) 100%);
+      padding: 0.9rem 1.2rem;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--ps-accent, #00E5FF) 0%, #22d3ee 42%, #7c3aed 100%);
       color: #060610;
       font-family: 'Sora', system-ui, sans-serif;
-      font-size: 0.82rem; font-weight: 700;
+      font-size: 0.84rem; font-weight: 800; letter-spacing: 0.01em;
       border: none; cursor: pointer;
-      box-shadow: 0 8px 24px -10px color-mix(in oklch, var(--ps-accent, #00E5FF) 55%, transparent);
-      transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+      box-shadow: 0 12px 30px -12px color-mix(in oklch, var(--ps-accent, #00E5FF) 65%, transparent),
+                  inset 0 1px 0 rgba(255, 255, 255, 0.4);
+      transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
     }
+    .btn-deploy::after {
+      content: ''; position: absolute; inset: 0; pointer-events: none;
+      background: linear-gradient(100deg, transparent 32%, rgba(255, 255, 255, 0.42) 50%, transparent 68%);
+      transform: translateX(-130%); transition: transform 640ms ease;
+    }
+    .btn-deploy:hover:not(:disabled)::after { transform: translateX(130%); }
+    @media (prefers-reduced-motion: reduce) { .btn-deploy::after { display: none; } }
     .btn-deploy:hover:not(:disabled) {
       transform: translateY(-1px);
       filter: brightness(1.08);
@@ -1016,6 +1060,27 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     @media (prefers-reduced-motion: reduce) { .subdomain-check-icon--checking { animation: none; } }
     .form-help--ok { color: #34d399; }
 
+    /* Round 5 — cinematic cohesion across the transparent aside: cyan-tinted section
+       eyebrows, a gradient hairline under the Deploy title, a managed-glyph glow, and a
+       glassier subdomain suffix — so the frameless modules read as one refined system. */
+    .deploy-card .form-label,
+    .deploy-card .checklist-h,
+    .deploy-card .cost-h,
+    .deploy-card .instances-h {
+      color: color-mix(in oklch, var(--ps-accent, #00E5FF) 40%, rgba(255, 255, 255, 0.72));
+      letter-spacing: 0.14em;
+    }
+    .deploy-card > .card-h { position: relative; padding-bottom: 0.6rem; }
+    .deploy-card > .card-h::after {
+      content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+      background: linear-gradient(90deg,
+        color-mix(in oklch, var(--ps-accent, #00E5FF) 45%, transparent), transparent 70%);
+    }
+    .deploy-card .check-glyph.is-managed { box-shadow: 0 0 12px -3px rgba(52, 211, 153, 0.5); }
+    .deploy-card .subdomain-suffix {
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+    }
+
     /* ─── Instances table ─── */
     .instances-section {
       display: flex; flex-direction: column; gap: 0.6rem; margin-top: 1.1rem;
@@ -1035,9 +1100,15 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     }
     .instances-manage:hover { text-decoration: underline; opacity: 0.85; }
     .instances-manage:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
+    /* Round 4 — glass instances table with per-row hover glow. */
     .instances-table {
       display: flex; flex-direction: column; gap: 0; overflow: hidden;
-      border: 1px solid rgba(255,255,255,0.06); border-radius: var(--ps-radius-sm, 8px);
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+      background: rgba(8,8,22,0.4); backdrop-filter: blur(6px);
+    }
+    .instances-row:not(.instances-row-head) { transition: background 150ms ease; }
+    .instances-row:not(.instances-row-head):hover {
+      background: color-mix(in oklch, var(--ps-accent, #00E5FF) 6%, transparent);
     }
     .instances-row {
       display: grid;
@@ -1068,9 +1139,10 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       padding: 2px 7px; border-radius: 999px;
       font-family: 'JetBrains Mono', ui-monospace, monospace;
       font-size: 0.6rem; font-weight: 600; white-space: nowrap;
-      background: rgba(52,211,153,0.1); color: #34d399; border: 1px solid rgba(52,211,153,0.28);
+      background: rgba(52,211,153,0.12); color: #34d399; border: 1px solid rgba(52,211,153,0.32);
+      box-shadow: 0 0 14px -4px rgba(52,211,153,0.55);
     }
-    .instances-pill--error { background: rgba(248,113,113,0.1); color: #fecaca; border-color: rgba(248,113,113,0.3); }
+    .instances-pill--error { background: rgba(248,113,113,0.1); color: #fecaca; border-color: rgba(248,113,113,0.3); box-shadow: 0 0 14px -4px rgba(248,113,113,0.5); }
     .instances-menu-btn {
       background: none; border: none; color: rgba(255,255,255,0.6); cursor: pointer;
       font-size: 1.2rem; padding: 4px 8px; border-radius: 6px;
@@ -1093,8 +1165,10 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     .instances-menu-item:hover { background: rgba(255,255,255,0.08); color: var(--ps-accent, #00E5FF); }
     .instances-menu-item--danger:hover { background: rgba(248,113,113,0.15); color: #fecaca; }
     .instances-empty {
-      font-size: 0.74rem; color: rgba(255,255,255,0.5); padding: 0.8rem 1rem;
-      text-align: center; font-style: italic;
+      font-size: 0.76rem; color: rgba(255,255,255,0.55); padding: 1.05rem 1rem;
+      text-align: center; font-style: normal; letter-spacing: 0.01em;
+      border: 1px dashed rgba(255,255,255,0.1); border-radius: 12px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.025), transparent);
     }
 
     .notice {
