@@ -380,3 +380,32 @@ describe('AppDetailComponent (customize env vars before deploy)', () => {
     expect(post).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Screenshot carousel — regression for the Apps visual-sweep rework: single full-width
+ * snap frames with pagination dots whose active index tracks the live scroll position,
+ * and dot clicks that jump the track to exactly that frame. Uses make() WITHOUT ngOnInit,
+ * so no api.get fires — the carousel logic is independent of app resolution.
+ */
+describe('AppDetailComponent (screenshot carousel)', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('onShotsScroll derives the active frame index from scrollLeft / clientWidth', () => {
+    const { c } = make();
+    c.onShotsScroll({ scrollLeft: 0, clientWidth: 320 } as HTMLElement);
+    expect(c.activeShot()).withContext('frame 0 at rest').toBe(0);
+    c.onShotsScroll({ scrollLeft: 640, clientWidth: 320 } as HTMLElement);
+    expect(c.activeShot()).withContext('two frames scrolled').toBe(2);
+  });
+
+  it('goToShot scrolls the track to exactly frame i (i × clientWidth)', () => {
+    const { c } = make();
+    const calls: Array<{ left: number }> = [];
+    const track = {
+      clientWidth: 300,
+      scrollTo: (o: { left: number }) => calls.push(o),
+    } as unknown as HTMLElement;
+    c.goToShot(track, 2);
+    expect(calls[0]?.left).withContext('frame 2 = 2 × clientWidth').toBe(600);
+  });
+});
