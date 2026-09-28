@@ -37,11 +37,7 @@ import { minifyCssCached } from './css_minify.js';
 import { parseBranchHost } from './site_branches.js';
 import { buildAnalyticsTracker } from './analytics_tracker.js';
 import { log } from '../lib/log.js';
-import {
-  isWfpConfigured,
-  siteFunctionsScriptName,
-  dispatchToUserWorker,
-} from './wfp_dispatch.js';
+import { isWfpConfigured, siteFunctionsScriptName, dispatchToUserWorker } from './wfp_dispatch.js';
 
 const serveLog = log.child('site_serving');
 
@@ -123,8 +119,7 @@ export async function serveSiteViaWfpIfPreferred(
     // Dispatch to the per-site User Worker. Use the slot's recorded script when present,
     // else the deterministic SSOT name (defense-in-depth; they agree).
     const scriptName =
-      slot.userWorkerScript ??
-      siteFunctionsScriptName(site.site_id, { preview: isPreviewHost });
+      slot.userWorkerScript ?? siteFunctionsScriptName(site.site_id, { preview: isPreviewHost });
     const res = await dispatchToUserWorker(env, scriptName, request);
 
     // A user-worker 5xx (script error / dispatch-layer failure) is NOT better than R2 —
