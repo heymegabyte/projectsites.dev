@@ -13,9 +13,10 @@
  * calls (`GET/POST …/time_travel/bookmark|restore`) bound to the site's SERVER-RESOLVED D1 id (this panel never
  * sees a DB id it could tamper with — SECURITY-INVARIANTS INV-1). Restore is DESTRUCTIVE (whole-DB revert) and
  * is BOTH type-confirmed in the UI AND sent with `confirm:true`; the honest "restores your entire database to
- * <time>" copy names the exact target so it's never a blind click (INV-9/INV-11). If Cloudflare can't expose the
- * bookmark (a rare CF error, or the surface's `per_site_data` flag is dark), the panel shows an honest
- * "not available" state — never a fabricated bookmark, never a scary error.
+ * <time>" copy names the exact target so it's never a blind click (INV-9/INV-11). The panel is NEVER a dead end:
+ * it ALWAYS shows at least one "Current state" entry (the live CF bookmark when available, else a plain "Now"
+ * representing the database as it is right now). Point-in-time save/restore controls appear only once Cloudflare
+ * Time Travel is active for the database — never a fabricated bookmark, never a scary error.
  *
  * Style matches the editor conventions exactly (UnoCSS `bolt-elements-*` tokens, phosphor `i-ph:*` icons).
  */
@@ -362,6 +363,10 @@ export const TimeTravelPanel = memo(() => {
   const restoreIso = useMemo(() => datetimeLocalToIso(restoreAt), [restoreAt]);
   const restoreAtValid = restoreIso !== null && isWithinWindow(restoreIso);
 
+  // Point-in-time save/restore is possible only when CF Time Travel exposed a live bookmark.
+  // The panel still ALWAYS renders (never a dead end) — this only gates the save/restore controls.
+  const canTimeTravel = info.ok !== false && info.available !== false && !!info.bookmark;
+
   return (
     <div
       className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary"
@@ -379,14 +384,12 @@ export const TimeTravelPanel = memo(() => {
           <div className="i-ph:circle-notch text-2xl text-bolt-elements-item-contentAccent animate-spin" />
           <p className="text-xs text-bolt-elements-textSecondary">Reading your database history…</p>
         </div>
-      ) : !info.ok || info.available === false ? (
-        <NotAvailableState message={info.error} onRetry={() => void loadInfo()} />
       ) : (
         <div className="flex-1 overflow-auto modern-scrollbar p-4 space-y-5 max-w-[640px]">
-          {/* Current point */}
+          {/* Current state — ALWAYS present; the live CF bookmark when available, else a plain "Now". */}
           <section className="space-y-2">
             <div className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary flex items-center gap-1.5">
-              <div className="i-ph:map-pin" /> Current point
+              <div className="i-ph:map-pin" /> Current state
             </div>
             <div
               className="rounded-lg border border-bolt-elements-item-contentAccent/30 bg-bolt-elements-item-contentAccent/[0.05] p-3 flex items-center gap-3 shadow-[inset_2px_0_0_var(--bolt-elements-item-contentAccent)]"
@@ -395,32 +398,36 @@ export const TimeTravelPanel = memo(() => {
               <div className="i-ph:git-commit-duotone text-lg text-bolt-elements-item-contentAccent shrink-0" aria-hidden />
               <div className="min-w-0">
                 <p className="text-[12px] text-bolt-elements-textPrimary font-mono truncate">
-                  {shortBookmark(info.bookmark)}
+                  {info.bookmark ? shortBookmark(info.bookmark) : 'Now'}
                 </p>
                 <p className="text-[10px] text-bolt-elements-textTertiary">
-                  Live database bookmark · {info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS}-day recovery window
+                  {info.bookmark
+                    ? `Live database bookmark · ${info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS}-day recovery window`
+                    : 'Your database as it is right now'}
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)}
-                placeholder="Label this point (e.g. before big import)"
-                data-testid="tt-label-input"
-                className="flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
-              />
-              <button
-                type="button"
-                onClick={saveCurrentPoint}
-                disabled={!info.bookmark}
-                data-testid="tt-save-point"
-                className="min-h-[24px] text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-              >
-                <div className="i-ph:bookmark-simple" /> Save point
-              </button>
-            </div>
+            {canTimeTravel && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newLabel}
+                  onChange={(e) => setNewLabel(e.target.value)}
+                  placeholder="Label this point (e.g. before big import)"
+                  data-testid="tt-label-input"
+                  className="flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-[12px] text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
+                />
+                <button
+                  type="button"
+                  onClick={saveCurrentPoint}
+                  disabled={!info.bookmark}
+                  data-testid="tt-save-point"
+                  className="min-h-[24px] text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-bolt-elements-item-contentAccent text-bolt-elements-background-depth-1 enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                >
+                  <div className="i-ph:bookmark-simple" /> Save point
+                </button>
+              </div>
+            )}
           </section>
 
           {/* Saved points */}
@@ -469,41 +476,50 @@ export const TimeTravelPanel = memo(() => {
             )}
           </section>
 
-          {/* Restore to a date-time */}
-          <section className="space-y-2">
-            <div className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary flex items-center gap-1.5">
-              <div className="i-ph:calendar-blank" /> Restore to a date &amp; time
-            </div>
-            <p className="text-[11px] text-bolt-elements-textTertiary">
-              Pick any moment in the last {info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS} days. Your database returns
-              to exactly how it was then.
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                type="datetime-local"
-                value={restoreAt}
-                min={minLocal}
-                max={nowLocal}
-                onChange={(e) => setRestoreAt(e.target.value)}
-                data-testid="tt-restore-datetime"
-                className="flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-[12px] text-bolt-elements-textPrimary focus:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
-              />
-              <button
-                type="button"
-                onClick={() => restoreIso && openRestore({ kind: 'timestamp', timestamp: restoreIso })}
-                disabled={!restoreAtValid}
-                data-testid="tt-restore-at"
-                className="min-h-[24px] text-[12px] font-semibold px-3 py-1.5 rounded-lg border border-amber-400/50 bg-amber-400/10 text-amber-300 enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer"
-              >
-                <div className="i-ph:clock-counter-clockwise" /> Restore to this time
-              </button>
-            </div>
-            {restoreAt && !restoreAtValid && (
-              <p className="text-[10px] text-amber-400" role="status">
-                That time is outside the {info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS}-day recovery window.
+          {/* Restore to a date-time — only once CF Time Travel is active. */}
+          {canTimeTravel && (
+            <section className="space-y-2">
+              <div className="text-[10px] uppercase tracking-wider text-bolt-elements-textTertiary flex items-center gap-1.5">
+                <div className="i-ph:calendar-blank" /> Restore to a date &amp; time
+              </div>
+              <p className="text-[11px] text-bolt-elements-textTertiary">
+                Pick any moment in the last {info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS} days. Your database
+                returns to exactly how it was then.
               </p>
-            )}
-          </section>
+              <div className="flex items-center gap-2">
+                <input
+                  type="datetime-local"
+                  value={restoreAt}
+                  min={minLocal}
+                  max={nowLocal}
+                  onChange={(e) => setRestoreAt(e.target.value)}
+                  data-testid="tt-restore-datetime"
+                  className="flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-[12px] text-bolt-elements-textPrimary focus:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
+                />
+                <button
+                  type="button"
+                  onClick={() => restoreIso && openRestore({ kind: 'timestamp', timestamp: restoreIso })}
+                  disabled={!restoreAtValid}
+                  data-testid="tt-restore-at"
+                  className="min-h-[24px] text-[12px] font-semibold px-3 py-1.5 rounded-lg border border-amber-400/50 bg-amber-400/10 text-amber-300 enabled:hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 cursor-pointer"
+                >
+                  <div className="i-ph:clock-counter-clockwise" /> Restore to this time
+                </button>
+              </div>
+              {restoreAt && !restoreAtValid && (
+                <p className="text-[10px] text-amber-400" role="status">
+                  That time is outside the {info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS}-day recovery window.
+                </p>
+              )}
+            </section>
+          )}
+
+          {!canTimeTravel && (
+            <p className="text-[11px] text-bolt-elements-textTertiary">
+              Point-in-time restore turns on once Cloudflare Time Travel is active for your database — your current
+              state is shown above, and any saved points below still list here.
+            </p>
+          )}
 
           {/* Last restore result (with undo handle) */}
           {restoreResult && (
@@ -600,29 +616,6 @@ const DisabledState = memo(() => (
 ));
 
 DisabledState.displayName = 'TimeTravelPanel.DisabledState';
-
-const NotAvailableState = memo(({ message, onRetry }: { message?: string; onRetry: () => void }) => (
-  <div
-    className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center"
-    data-testid="tt-not-available"
-  >
-    <div className="i-ph:clock-afternoon text-3xl text-bolt-elements-textTertiary" />
-    <p className="text-sm font-medium text-bolt-elements-textSecondary">History isn't available right now</p>
-    <p className="text-[11px] text-bolt-elements-textTertiary max-w-[300px]">
-      {message ||
-        'Cloudflare Time Travel could not be reached for your database. It usually becomes available shortly after your database is first used.'}
-    </p>
-    <button
-      type="button"
-      onClick={onRetry}
-      className="min-h-[24px] mt-1 text-[11px] font-medium px-3 py-1.5 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-item-contentAccent hover:bg-bolt-elements-background-depth-3 transition-colors flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
-    >
-      <div className="i-ph:arrow-clockwise" /> Try again
-    </button>
-  </div>
-));
-
-NotAvailableState.displayName = 'TimeTravelPanel.NotAvailableState';
 
 // ── Restore confirm modal ────────────────────────────────────────────────────
 

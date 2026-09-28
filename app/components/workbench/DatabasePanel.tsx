@@ -218,9 +218,9 @@ const TABLE_ACTIONS: readonly { value: TableAction; label: string; icon: string;
   },
   {
     value: 'history',
-    label: 'Time-travel',
+    label: 'History',
     icon: 'i-ph:clock-counter-clockwise-duotone',
-    title: 'Time-travel — restore your database to an earlier point (snapshots / history)',
+    title: 'History — restore your database to an earlier point in time',
   },
 ] as const;
 
@@ -261,7 +261,7 @@ TablesToolbar.displayName = 'DatabasePanel.TablesToolbar';
 
 const ACTION_META: Record<TableAction, { title: string; icon: string }> = {
   import: { title: 'Import data', icon: 'i-ph:upload-simple-duotone' },
-  history: { title: 'History — time travel', icon: 'i-ph:clock-counter-clockwise-duotone' },
+  history: { title: 'History', icon: 'i-ph:clock-counter-clockwise-duotone' },
   schema: { title: 'New table — schema builder', icon: 'i-ph:blueprint-duotone' },
   seed: { title: 'Seed with AI', icon: 'i-ph:sparkle-duotone' },
 };
