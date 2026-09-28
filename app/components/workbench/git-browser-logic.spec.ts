@@ -16,10 +16,12 @@ import {
   summarizePreviewSync,
   syncLabel,
   releaseOutcomeLabel,
+  promoteGate,
   type CodeFileEntry,
   type WorkingFile,
   type PreviewWorkingTree,
   type ReleaseRecord,
+  type SyncSummary,
 } from './git-browser-logic';
 
 /** Minimal file-entry factory for tree tests. */
@@ -288,5 +290,63 @@ describe('git-browser-logic · summarizePreviewSync (Preview ↔ Production)', (
     expect(releaseOutcomeLabel('success')).toBe('Deployed');
     expect(releaseOutcomeLabel('commit_ok_deploy_failed')).toBe('Deploy failed');
     expect(releaseOutcomeLabel('failed')).toBe('Failed');
+  });
+});
+
+describe('git-browser-logic · promoteGate (Promote → Production offer + reason)', () => {
+  const ahead: SyncSummary = {
+    state: 'preview_ahead',
+    previewSha: 'sha2',
+    productionSha: 'sha1',
+    lastOutcome: 'success',
+    deployFailed: false,
+  };
+  const inSync: SyncSummary = {
+    state: 'in_sync',
+    previewSha: 'sha1',
+    productionSha: 'sha1',
+    lastOutcome: 'success',
+    deployFailed: false,
+  };
+
+  it('offers Promote when Preview is ahead of Production', () => {
+    const g = promoteGate(true, true, false, tree(), ahead);
+    expect(g.canPromote).toBe(true);
+    expect(g.reason).toBe('');
+  });
+
+  it('disables WITH a reason when not embedded (never a dead control)', () => {
+    const g = promoteGate(false, true, false, tree(), ahead);
+    expect(g.canPromote).toBe(false);
+    expect(g.reason).toMatch(/admin/i);
+  });
+
+  it('disables WITH a reason while state is still loading', () => {
+    const g = promoteGate(true, false, false, null, null);
+    expect(g.canPromote).toBe(false);
+    expect(g.reason).toMatch(/loading/i);
+  });
+
+  it('disables WITH a reason when the durable_preview flag is dark', () => {
+    const g = promoteGate(true, true, true, tree(), ahead);
+    expect(g.canPromote).toBe(false);
+    expect(g.reason).toMatch(/coming soon/i);
+  });
+
+  it('disables WITH a reason when nothing is saved in Preview yet', () => {
+    const g = promoteGate(true, true, false, null, null);
+    expect(g.canPromote).toBe(false);
+    expect(g.reason).toMatch(/save an edit/i);
+  });
+
+  it('disables WITH a reason when Production already matches Preview', () => {
+    const g = promoteGate(true, true, false, tree(), inSync);
+    expect(g.canPromote).toBe(false);
+    expect(g.reason).toMatch(/already matches/i);
+  });
+
+  it('OFFERS Promote even when in sync IF the last deploy failed (retry path)', () => {
+    const g = promoteGate(true, true, false, tree(), { ...inSync, deployFailed: true });
+    expect(g.canPromote).toBe(true);
   });
 });

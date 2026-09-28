@@ -1288,6 +1288,67 @@ export interface ReleasesResponseMessage {
 }
 
 /**
+ * Child → Parent (Source Control — Promote, Slice 5): PROMOTE the site's current Preview working tree to
+ * Production. Unlike the read-only preview-state/releases bridges, this is a WRITE: the admin (which holds
+ * `selectedSite` + the bearer) calls `POST /api/sites/:id/promote` with the frozen draft revision + tree
+ * digest, the worker REALLY freezes the Preview artifact → publishes a new production version → points
+ * Production at it → records the ACTUAL outcome, and the admin replies with {@link PromoteResponseMessage}.
+ * The child NEVER supplies a site id (the admin injects the selected site's id). DARK behind the
+ * `durable_preview` flag (a 404 whose message includes "not enabled" → `enabled:false`).
+ */
+export interface PromoteRequestMessage {
+  type: 'PS_PROMOTE_REQUEST';
+  correlationId: string;
+
+  /** The Preview working-tree draft revision being promoted (the idempotency key). */
+  draftRevision: number;
+
+  /** The digest of the working tree being promoted (recorded on the release for byte-equality proof). */
+  treeDigest: string;
+
+  /** Optional commit SHA associated with this draft. */
+  commitSha?: string | null;
+}
+
+/** One immutable release record as the promote bridge returns it (mirrors the worker `Release`). */
+export interface PromoteReleaseRecord {
+  id: string;
+  commit_sha: string | null;
+  artifact_digest: string | null;
+  deployment_id: string | null;
+  actor: string | null;
+  draft_revision: number | null;
+  outcome: 'success' | 'commit_ok_deploy_failed' | 'failed';
+  created_at: string;
+}
+
+/**
+ * Parent → Child (Source Control — Promote): the admin's reply to {@link PromoteRequestMessage} (mirrors
+ * the worker's `{ release, outcome, idempotent }` envelope). `outcome` is HONEST — `success` ONLY when
+ * Production actually serves the promoted revision; `commit_ok_deploy_failed` when the artifact committed
+ * but isn't servable; `failed` when nothing was promoted. `enabled:false` when the `durable_preview` flag
+ * is dark (the 404 "not enabled"); `error` carries any transport failure (no site selected, network, 4xx).
+ */
+export interface PromoteResponseMessage {
+  type: 'PS_PROMOTE_RESPONSE';
+  correlationId?: string;
+  ok: boolean;
+
+  /** The recorded (or idempotently-returned) release row. */
+  release?: PromoteReleaseRecord;
+
+  /** The HONEST promotion outcome. */
+  outcome?: 'success' | 'commit_ok_deploy_failed' | 'failed';
+
+  /** True when an existing release for this draft was returned unchanged (idempotent replay). */
+  idempotent?: boolean;
+
+  /** `false` when the `durable_preview` flag is off (the dark-flag 404) → the control stays honest. */
+  enabled?: boolean;
+  error?: string;
+}
+
+/**
  * Child → Parent (Danger Zone — FIRE 8): the embedded editor asks the admin (which holds the bearer +
  * `selectedSite`) to PREVIEW or EXECUTE a per-site greenfield reset. The child NEVER supplies a site
  * id — the admin injects the currently-selected site's id server-side, and the worker resolves the
@@ -1835,6 +1896,7 @@ export type ParentToChildMessage =
   | CodeHistoryResponseMessage
   | PreviewStateResponseMessage
   | ReleasesResponseMessage
+  | PromoteResponseMessage
   | ResetResponseMessage
   | DbLoadSampleResponseMessage
   | DbAiSeedResponseMessage
@@ -1870,6 +1932,7 @@ export type ChildToParentMessage =
   | CodeHistoryRequestMessage
   | PreviewStateRequestMessage
   | ReleasesRequestMessage
+  | PromoteRequestMessage
   | ResetRequestMessage
   | DbLoadSampleRequestMessage
   | DbAiSeedRequestMessage

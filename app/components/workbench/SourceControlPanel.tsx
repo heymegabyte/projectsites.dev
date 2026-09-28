@@ -48,6 +48,7 @@ import {
   type CodeFileResponseMessage,
   type PreviewStateResponseMessage,
   type ReleasesResponseMessage,
+  type PromoteResponseMessage,
 } from '~/lib/embed/embedded-mode';
 import {
   diffWorkingTree,
@@ -57,6 +58,7 @@ import {
   summarizePreviewSync,
   syncLabel,
   releaseOutcomeLabel,
+  promoteGate as computePromoteGate,
   shortSha,
   formatCommitDate,
   formatBytes,
@@ -98,6 +100,7 @@ const RESPONSE_FOR: Record<string, ParentToChildMessage['type']> = {
   PS_CODE_FILE_REQUEST: 'PS_CODE_FILE_RESPONSE',
   PS_PREVIEW_STATE_REQUEST: 'PS_PREVIEW_STATE_RESPONSE',
   PS_RELEASES_REQUEST: 'PS_RELEASES_RESPONSE',
+  PS_PROMOTE_REQUEST: 'PS_PROMOTE_RESPONSE',
 };
 
 /**
@@ -237,6 +240,18 @@ type HistoryState =
   | { status: 'error'; message: string }
   | { status: 'ready'; releases: ReleaseRecord[]; previewTree: PreviewWorkingTree | null; disabled: boolean };
 
+/**
+ * Promote → Production state machine (Slice 5). `idle` (ready or nothing-to-promote) → `submitting` →
+ * a terminal `success` | `failed` | `commit_ok_deploy_failed`. The terminal outcome mirrors the honest
+ * server outcome so the retry affordance only shows for the two recoverable failures.
+ */
+type PromoteState =
+  | { status: 'idle' }
+  | { status: 'submitting' }
+  | { status: 'success'; idempotent: boolean }
+  | { status: 'failed'; message: string }
+  | { status: 'commit_ok_deploy_failed'; message: string };
+
 // ── Per-status color tokens for the change badges (cyan/green/red/purple — no raw hex) ─────────────
 
 const STATUS_TONE: Record<ChangeStatus, string> = {
@@ -272,6 +287,9 @@ export const SourceControlPanel = memo(() => {
 
   /** Transient "restored" confirmation path (optimistic feedback). */
   const [restored, setRestored] = useState<string | null>(null);
+
+  /** Promote → Production state machine (idle → submitting → success|failed|commit_ok_deploy_failed). */
+  const [promote, setPromote] = useState<PromoteState>({ status: 'idle' });
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -502,6 +520,88 @@ export const SourceControlPanel = memo(() => {
     [request],
   );
 
+  /**
+   * Whether Promote is offered right now, and — when NOT — the plain-language reason (so the control is
+   * disabled WITH a reason, never a dead/doomed button per embarrassingly-easy-to-use). Promotable only
+   * when: embedded + the durable_preview flag is on + a Preview working tree exists + Production is
+   * behind Preview (or the last release's deploy failed → retry). Otherwise disabled with a reason.
+   */
+  const promoteGate = useMemo((): { canPromote: boolean; reason: string; previewTree: PreviewWorkingTree | null } => {
+    const ready = history.status === 'ready';
+    const previewTree = ready ? history.previewTree : null;
+    const disabled = ready && history.disabled;
+    const gate = computePromoteGate(isEmbedded, ready, disabled, previewTree, sync);
+
+    return { ...gate, previewTree };
+  }, [history, sync]);
+
+  /**
+   * PROMOTE the current Preview working tree to Production. Sends the frozen draft revision + tree digest
+   * over the `PS_PROMOTE_REQUEST` bridge (the admin makes the authed `POST /api/sites/:id/promote` call —
+   * same parent-session pattern as releases). The button is only enabled when {@link promoteGate} allows,
+   * so we always have a Preview tree here. The terminal state mirrors the HONEST server outcome: `success`
+   * only when Production actually serves it; `failed` / `commit_ok_deploy_failed` show a retry.
+   */
+  const doPromote = useCallback(async () => {
+    const tree = promoteGate.previewTree;
+
+    if (!tree) {
+      return;
+    }
+
+    setPromote({ status: 'submitting' });
+
+    try {
+      const reply = (await request({
+        type: 'PS_PROMOTE_REQUEST',
+        correlationId: nextCorrelationId(),
+        draftRevision: tree.draft_revision,
+        treeDigest: tree.tree_digest ?? `r${tree.draft_revision}`,
+        commitSha: tree.base_main_sha ?? null,
+      })) as PromoteResponseMessage;
+
+      if (!mounted.current) {
+        return;
+      }
+
+      // A dark flag is an honest "not available", surfaced as a failed state the user can dismiss/retry.
+      if (reply.enabled === false) {
+        setPromote({ status: 'failed', message: 'Publishing to Production is not enabled yet for your site.' });
+        return;
+      }
+
+      if (!reply.ok) {
+        setPromote({ status: 'failed', message: reply.error || 'Could not publish to Production. Please retry.' });
+        return;
+      }
+
+      const outcome = reply.outcome ?? reply.release?.outcome ?? 'failed';
+
+      if (outcome === 'success') {
+        setPromote({ status: 'success', idempotent: reply.idempotent ?? false });
+      } else if (outcome === 'commit_ok_deploy_failed') {
+        setPromote({
+          status: 'commit_ok_deploy_failed',
+          message: 'Your changes were committed but the deploy did not go live. Retry to finish publishing.',
+        });
+      } else {
+        setPromote({ status: 'failed', message: 'The promotion did not complete. Please retry.' });
+      }
+
+      // Refresh the timeline + sync badge so the new release + Preview↔Production state show immediately.
+      void loadHistory();
+    } catch (err) {
+      if (!mounted.current) {
+        return;
+      }
+
+      setPromote({
+        status: 'failed',
+        message: err instanceof Error ? err.message : 'Could not publish to Production. Please retry.',
+      });
+    }
+  }, [promoteGate, request, loadHistory]);
+
   const counts = useMemo(() => (changes.status === 'ready' ? countChanges(changes.changes) : null), [changes]);
 
   return (
@@ -516,6 +616,12 @@ export const SourceControlPanel = memo(() => {
         version={changes.status === 'ready' ? changes.version : null}
         sync={sync}
         onRefresh={() => (tab === 'changes' ? void loadChanges() : void loadHistory())}
+        promote={promote}
+        canPromote={promoteGate.canPromote}
+        promoteReason={promoteGate.reason}
+        onPromote={() => void doPromote()}
+        onPromoteRetry={() => void doPromote()}
+        onPromoteDismiss={() => setPromote({ status: 'idle' })}
       />
 
       {tab === 'changes' ? (
@@ -560,6 +666,12 @@ const Header = memo(
     version,
     sync,
     onRefresh,
+    promote,
+    canPromote,
+    promoteReason,
+    onPromote,
+    onPromoteRetry,
+    onPromoteDismiss,
   }: {
     tab: Tab;
     onTab: (t: Tab) => void;
@@ -567,6 +679,12 @@ const Header = memo(
     version: string | null;
     sync: SyncSummary | null;
     onRefresh: () => void;
+    promote: PromoteState;
+    canPromote: boolean;
+    promoteReason: string;
+    onPromote: () => void;
+    onPromoteRetry: () => void;
+    onPromoteDismiss: () => void;
   }) => (
     <div
       className={classNames(
@@ -623,16 +741,154 @@ const Header = memo(
               </button>
             ))}
           </div>
+          <PromoteButton
+            promote={promote}
+            canPromote={canPromote}
+            promoteReason={promoteReason}
+            onPromote={onPromote}
+          />
           <IconButton icon="i-ph:arrows-clockwise" label="Refresh" variant="secondary" onClick={onRefresh} />
         </div>
       </div>
 
       <SyncIndicator sync={sync} />
+      <PromoteStatus promote={promote} onRetry={onPromoteRetry} onDismiss={onPromoteDismiss} />
     </div>
   ),
 );
 
 Header.displayName = 'SourceControl.Header';
+
+/**
+ * The cyan "Promote to Production" button (Slice 5). One obvious primary action; disabled WITH a reason
+ * (title + aria) when nothing is promotable — never a dead/doomed control (embarrassingly-easy-to-use).
+ * The label reserves its widest width so it never resizes between idle/submitting.
+ */
+const PromoteButton = memo(
+  ({
+    promote,
+    canPromote,
+    promoteReason,
+    onPromote,
+  }: {
+    promote: PromoteState;
+    canPromote: boolean;
+    promoteReason: string;
+    onPromote: () => void;
+  }) => {
+    const submitting = promote.status === 'submitting';
+    const disabled = submitting || !canPromote;
+
+    // Disabled → surface WHY (title + aria) so the control is never a silent dead end.
+    const reason = submitting
+      ? 'Publishing to Production…'
+      : canPromote
+        ? 'Publish your Preview to Production'
+        : promoteReason;
+
+    return (
+      <Button
+        variant="primary"
+        icon={submitting ? 'i-svg-spinners:90-ring-with-bg' : 'i-ph:rocket-launch-bold'}
+        onClick={onPromote}
+        disabled={disabled}
+        aria-disabled={disabled}
+        title={reason}
+        aria-label={reason}
+        data-testid="promote-to-production"
+        className="min-h-[26px] px-2.5 text-[11px]"
+      >
+        {/* Reserve the widest label ("Promote" | "Publishing…") so the button never resizes. */}
+        <span className="min-w-[9ch] text-center">{submitting ? 'Publishing…' : 'Promote'}</span>
+      </Button>
+    );
+  },
+);
+
+PromoteButton.displayName = 'SourceControl.PromoteButton';
+
+/**
+ * The Promote status region (Slice 5) — the honest terminal outcome. Success is a quiet confirmation;
+ * `failed` / `commit_ok_deploy_failed` show an inline Retry (per the honest-outcome retry surface).
+ * Renders nothing while idle. `role="status"` + `aria-live` so screen readers announce the result.
+ */
+const PromoteStatus = memo(
+  ({ promote, onRetry, onDismiss }: { promote: PromoteState; onRetry: () => void; onDismiss: () => void }) => {
+    if (promote.status === 'idle') {
+      return null;
+    }
+
+    const submitting = promote.status === 'submitting';
+    const success = promote.status === 'success';
+    const retryable = promote.status === 'failed' || promote.status === 'commit_ok_deploy_failed';
+
+    const tone = submitting
+      ? 'border-bolt-elements-item-contentAccent/40 bg-bolt-elements-item-contentAccent/10 text-bolt-elements-item-contentAccent'
+      : success
+        ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-300'
+        : promote.status === 'commit_ok_deploy_failed'
+          ? 'border-amber-400/40 bg-amber-400/10 text-amber-200'
+          : 'border-red-400/40 bg-red-400/10 text-red-300';
+
+    const icon = submitting
+      ? 'i-svg-spinners:90-ring-with-bg'
+      : success
+        ? 'i-ph:check-circle-fill'
+        : promote.status === 'commit_ok_deploy_failed'
+          ? 'i-ph:warning-fill'
+          : 'i-ph:x-circle-fill';
+
+    const message = submitting
+      ? 'Publishing your Preview to Production…'
+      : success
+        ? promote.idempotent
+          ? 'Already live — Production is up to date.'
+          : 'Published! Production is now serving your Preview.'
+        : promote.message;
+
+    return (
+      <div
+        data-testid="promote-status"
+        role="status"
+        aria-live="polite"
+        className={classNames(
+          'flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium',
+          'animate-[sc-fade-in_0.2s_ease-out] motion-reduce:animate-none',
+          tone,
+        )}
+      >
+        <div className={classNames(icon, 'shrink-0 text-sm')} aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">{message}</span>
+        {retryable && (
+          <button
+            type="button"
+            onClick={onRetry}
+            data-testid="promote-retry"
+            className={classNames(
+              'shrink-0 inline-flex items-center gap-1 rounded-md border border-current/40 px-1.5 py-0.5',
+              'text-[10px] font-semibold uppercase tracking-wide cursor-pointer',
+              'hover:bg-current/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current',
+              'transition-[background-color] duration-150 motion-reduce:transition-none',
+            )}
+          >
+            <div className="i-ph:arrow-clockwise-bold text-[10px]" aria-hidden="true" /> Retry
+          </button>
+        )}
+        {success && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="Dismiss"
+            title="Dismiss"
+            className="shrink-0 i-ph:x text-sm opacity-70 hover:opacity-100 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current rounded"
+          />
+        )}
+      </div>
+    );
+  },
+);
+
+PromoteStatus.displayName = 'SourceControl.PromoteStatus';
 
 /** Preview↔Production sync badge — always honest (never a false "in sync"), + a deploy-failed retry hint. */
 const SyncIndicator = memo(({ sync }: { sync: SyncSummary | null }) => {

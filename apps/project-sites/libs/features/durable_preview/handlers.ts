@@ -3,14 +3,17 @@ import { zValidator } from '@hono/zod-validator';
 import type { Env, Variables } from '../../../src/types/env.js';
 import { unauthorized, notFound } from '../../../src/lib/feature_guard.js';
 import { isFlagOn } from '../../../src/modules/feature_flags/services.js';
-import { assertSiteOwned } from '../../../src/services/site_ownership.js';
+import { assertSiteOwned, requireOwnedSite } from '../../../src/services/site_ownership.js';
 import {
   FLAG_KEY,
   getWorkingTree,
   listReleases,
+  promoteToProduction,
   upsertWorkingTree,
 } from './service.js';
 import {
+  PromoteRequestSchema,
+  PromoteResponseSchema,
   ReleaseListResponseSchema,
   UpsertWorkingTreeSchema,
   WorkingTreeResponseSchema,
@@ -109,3 +112,67 @@ durablePreview.get('/api/sites/:id/releases', async (c) => {
   const releases = await listReleases(c.env, siteId, orgId);
   return c.json(ReleaseListResponseSchema.parse({ releases, count: releases.length }));
 });
+
+// POST /api/sites/:id/promote — REALLY promote the Preview working tree to Production (Slice 5).
+// Idempotent on draft_revision; freezes the current Preview artifact → publishes a new production
+// version → points Production at it → records the ACTUAL outcome (never a fabricated success).
+durablePreview.post(
+  '/api/sites/:id/promote',
+  zValidator('json', PromoteRequestSchema),
+  async (c) => {
+    const blocked = await guard(c);
+    if (blocked) return blocked;
+    const orgId = c.get('orgId');
+    if (!orgId) return unauthorized(c);
+    const siteId = c.req.param('id');
+    // Multi-tenant ownership gate (IDOR): 404 (never 403) a site that isn't the caller's org's, and
+    // resolve the slug + current version in the SAME query the guard uses (no second lookup).
+    const site = await requireOwnedSite<{ id: string; slug: string; current_build_version: string | null }>(
+      c.env,
+      orgId,
+      siteId,
+      'id, slug, current_build_version',
+    ).catch(() => null);
+    if (!site) return notFound(c);
+
+    const body = c.req.valid('json');
+    try {
+      const result = await promoteToProduction(
+        c.env,
+        { id: site.id, slug: site.slug, currentBuildVersion: site.current_build_version ?? null },
+        orgId,
+        {
+          draftRevision: body.draft_revision,
+          treeDigest: body.tree_digest,
+          commitSha: body.commit_sha ?? null,
+          actor: c.get('userId') ?? null,
+        },
+      );
+      log(c, 'promote.recorded', {
+        siteId,
+        draftRevision: body.draft_revision,
+        outcome: result.outcome,
+        idempotent: result.idempotent,
+        releaseId: result.release.id,
+      });
+      return c.json(
+        PromoteResponseSchema.parse({
+          release: result.release,
+          outcome: result.outcome,
+          idempotent: result.idempotent,
+        }),
+        200,
+      );
+    } catch (err) {
+      log(c, 'promote.error', {
+        siteId,
+        draftRevision: body.draft_revision,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return c.json(
+        { error: { code: 'INTERNAL_ERROR', message: 'Could not promote to Production' } },
+        500,
+      );
+    }
+  },
+);

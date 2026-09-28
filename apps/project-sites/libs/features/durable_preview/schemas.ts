@@ -71,3 +71,32 @@ export const ReleaseListResponseSchema = z
   .object({ releases: z.array(ReleaseSchema), count: z.number().int() })
   .strict();
 export type ReleaseListResponse = z.infer<typeof ReleaseListResponseSchema>;
+
+/**
+ * Request body for a Promote → Production (Slice 5). The caller names the frozen draft revision (the
+ * idempotency key — one draft promotes to at most one release) + the digest of the tree being promoted
+ * (recorded on the release for byte-equality proof) + an optional commit SHA. `.strict()` so an unknown
+ * field is a 400, never a silent drop.
+ */
+export const PromoteRequestSchema = z
+  .object({
+    draft_revision: z.number().int().nonnegative(),
+    tree_digest: z.string().min(1).max(256),
+    commit_sha: z.string().max(64).nullable().optional(),
+  })
+  .strict();
+export type PromoteRequest = z.infer<typeof PromoteRequestSchema>;
+
+/**
+ * Response for a Promote → Production — the recorded (or idempotently-returned) release + the HONEST
+ * outcome (`success` ONLY when Production actually serves the promoted revision) + whether an existing
+ * release was returned unchanged (idempotent replay).
+ */
+export const PromoteResponseSchema = z
+  .object({
+    release: ReleaseSchema,
+    outcome: ReleaseOutcome,
+    idempotent: z.boolean(),
+  })
+  .strict();
+export type PromoteResponse = z.infer<typeof PromoteResponseSchema>;

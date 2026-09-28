@@ -585,3 +585,56 @@ export function releaseOutcomeLabel(outcome: ReleaseRecord['outcome']): string {
       return 'Unknown';
   }
 }
+
+/** Whether the Promote → Production button is offered, and — when not — the plain-language reason. */
+export interface PromoteGate {
+  canPromote: boolean;
+
+  /** Empty when `canPromote`; else a plain-language reason shown on the disabled control (never a dead end). */
+  reason: string;
+}
+
+/**
+ * Decide whether Promote → Production is offered right now (Slice 5). A control that would fail must be
+ * disabled WITH a reason, never a dead/doomed button (embarrassingly-easy-to-use). Promotable ONLY when:
+ * embedded + the `durable_preview` flag is on + a Preview working tree exists + Production is behind
+ * Preview (or the last release's deploy failed → retry). Otherwise disabled with the reason.
+ *
+ * @param embedded - Whether the editor is running inside the ProjectSites admin (the authed bridge exists).
+ * @param ready - Whether the release/preview state has finished loading.
+ * @param disabled - Whether the `durable_preview` flag is dark (feature not available yet).
+ * @param previewTree - The Preview working-tree record (null when nothing saved yet).
+ * @param sync - The computed Preview↔Production sync summary (null while unknown).
+ * @returns Whether Promote is offered + the reason to show when it isn't.
+ */
+export function promoteGate(
+  embedded: boolean,
+  ready: boolean,
+  disabled: boolean,
+  previewTree: PreviewWorkingTree | null,
+  sync: SyncSummary | null,
+): PromoteGate {
+  if (!embedded) {
+    return { canPromote: false, reason: 'Open from the ProjectSites admin to publish.' };
+  }
+
+  if (!ready) {
+    return { canPromote: false, reason: 'Loading your Preview state…' };
+  }
+
+  if (disabled) {
+    return { canPromote: false, reason: 'Publishing to Production is coming soon for your site.' };
+  }
+
+  if (!previewTree) {
+    return { canPromote: false, reason: 'Save an edit first — nothing in Preview to publish yet.' };
+  }
+
+  // In sync AND the last deploy succeeded → nothing new to promote.
+  if (sync?.state === 'in_sync' && !sync.deployFailed) {
+    return { canPromote: false, reason: 'Production already matches your Preview.' };
+  }
+
+  // Preview ahead, never published, a failed last deploy, or a present-but-unknown tree → promotable.
+  return { canPromote: true, reason: '' };
+}
