@@ -8,7 +8,7 @@ import { useMessageParser, usePromptEnhancer, useShortcuts } from '~/lib/hooks';
 import { description, useChatHistory } from '~/lib/persistence';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
-import { setSiteSlug } from '~/lib/stores/site-context';
+import { setPrimaryHost, setSiteSlug } from '~/lib/stores/site-context';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROMPT_COOKIE_KEY, PROVIDER_LIST } from '~/utils/constants';
 import { cubicEasingFn } from '~/utils/easings';
 import { createScopedLogger, renderLogger } from '~/utils/logger';
@@ -614,6 +614,15 @@ export const ChatImpl = memo(
       // Publish the slug so the Preview address bar shows the site's real URL.
       if (slug) {
         setSiteSlug(slug);
+      }
+
+      // Publish the site's ACTUAL primary host (a custom/attached domain) the admin opens the
+      // editor with, so the Preview address bar reflects the REAL public URL instead of the
+      // default slug host. Mirrors the `?slug` read above (same guard, same place).
+      const primaryHost = searchParams.get('primaryHost');
+
+      if (primaryHost) {
+        setPrimaryHost(primaryHost);
       }
 
       const importUrl =

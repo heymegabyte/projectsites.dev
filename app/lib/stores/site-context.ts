@@ -35,10 +35,32 @@ export function setSiteSlug(slug: string | null | undefined): void {
  * primarySiteUrl('russ-and-daughters'); // "https://russ-and-daughters.projectsites.dev"
  * primarySiteUrl(undefined);            // undefined
  */
-export function primarySiteUrl(slug: string | undefined): string | undefined {
+export function primarySiteUrl(slug: string | undefined, primaryHost?: string | undefined): string | undefined {
+  // Prefer the site's ACTUAL primary hostname (a custom/attached domain) when the admin supplies it, so
+  // the Preview address bar reflects the REAL public URL instead of always the default slug host. Falls
+  // back to `{slug}.projectsites.dev` when no primary host is known yet.
+  const host = primaryHost?.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+
+  if (host) {
+    return `https://${host}`;
+  }
+
   if (!slug) {
     return undefined;
   }
 
   return `https://${slug}.projectsites.dev`;
+}
+
+/**
+ * The site's ACTUAL primary hostname (a custom/attached domain), published by the admin over the
+ * `?primaryHost=` bootstrap / PS bridge. Undefined until the admin supplies it — {@link primarySiteUrl}
+ * then falls back to the default slug host. Keeps the Preview address bar honest to the real URL.
+ */
+export const primaryHostAtom = atom<string | undefined>(undefined);
+
+/** Publish (or clear) the site's primary hostname (strips scheme + trailing slash; blank → undefined). */
+export function setPrimaryHost(host: string | null | undefined): void {
+  const next = (host ?? '').trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  primaryHostAtom.set(next.length > 0 ? next : undefined);
 }

@@ -200,7 +200,7 @@ export function Search() {
           </div>
         )}
         {!isSearching && hasSearched && searchResults.length === 0 && searchQuery.trim() !== '' && (
-          <div className="flex items-center justify-center h-32 text-gray-500">No results found.</div>
+          <div className="flex items-center justify-center h-32 text-bolt-elements-textTertiary">No results found.</div>
         )}
         {!isSearching &&
           Object.keys(groupedResults).map((file) => (

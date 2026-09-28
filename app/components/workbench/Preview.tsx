@@ -6,7 +6,7 @@ import { PortDropdown } from './PortDropdown';
 import { ScreenshotSelector } from './ScreenshotSelector';
 import { expoUrlAtom } from '~/lib/stores/qrCodeStore';
 import { ExpoQrModal } from '~/components/workbench/ExpoQrModal';
-import { primarySiteUrl, siteSlugAtom } from '~/lib/stores/site-context';
+import { primaryHostAtom, primarySiteUrl, siteSlugAtom } from '~/lib/stores/site-context';
 import type { ElementInfo } from './Inspector';
 
 type ResizeSide = 'left' | 'right' | null;
@@ -159,7 +159,13 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
       setPinnedSlug(next);
     }
   }, [siteSlug, querySlug, pinnedSlug]);
-  const primaryUrl = primarySiteUrl(pinnedSlug);
+  /*
+   * The site's ACTUAL primary hostname (a custom/attached domain), published by the admin over the
+   * `?primaryHost=` bootstrap / PS bridge. When present it wins over the default slug host so the
+   * address bar reflects the REAL public URL the finished site is served at.
+   */
+  const primaryHostFromStore = useStore(primaryHostAtom);
+  const primaryUrl = primarySiteUrl(pinnedSlug, primaryHostFromStore);
   const primaryHost = primaryUrl?.replace(/^https?:\/\//, '');
 
   /*

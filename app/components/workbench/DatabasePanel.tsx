@@ -218,9 +218,9 @@ const TABLE_ACTIONS: readonly { value: TableAction; label: string; icon: string;
   },
   {
     value: 'history',
-    label: 'History',
+    label: 'Time-travel',
     icon: 'i-ph:clock-counter-clockwise-duotone',
-    title: 'Time-travel: restore your database to an earlier point',
+    title: 'Time-travel — restore your database to an earlier point (snapshots / history)',
   },
 ] as const;
 

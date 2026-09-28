@@ -67,6 +67,12 @@ export interface BoltEmbedSite {
    * (`published` + null build) has NO manifest, so importing its chat would 404.
    */
   readonly current_build_version?: string | number | null;
+  /**
+   * The site's ACTIVE primary hostname (a custom/attached domain), when set. Forwarded to the editor
+   * as `?primaryHost=` so the Preview address bar reflects the REAL public URL instead of the default
+   * `{slug}.projectsites.dev` host. Same source `admin-state.service.ts` uses for the site's public URL.
+   */
+  readonly primary_hostname?: string;
 }
 
 interface PsMessage {
@@ -642,6 +648,9 @@ export class BoltEmbedService {
     if (opts.file) params.set('file', opts.file);
     if (opts.line && Number.isFinite(opts.line) && opts.line > 0)
       params.set('line', String(opts.line));
+    // Forward the site's real primary hostname so the editor Preview address bar shows the actual
+    // public URL (custom/attached domain) rather than always the default slug host.
+    if (site.primary_hostname) params.set('primaryHost', site.primary_hostname);
     this.iframeUrl.set(
       this.sanitizer.bypassSecurityTrustResourceUrl(`${EDITOR_BASE}/?${params.toString()}`),
     );
