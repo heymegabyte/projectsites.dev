@@ -662,7 +662,9 @@ export function buildInsertRowSql(
   columns: SiteTableColumn[],
   values: Record<string, unknown>,
 ): { sql: string; params: unknown[] } | null {
-  const insertable = new Set(columns.filter((c) => isSafeIdent(c.name) && c.pk !== 1).map((c) => c.name));
+  const insertable = new Set(
+    columns.filter((c) => isSafeIdent(c.name) && c.pk !== 1).map((c) => c.name),
+  );
   const used = Object.keys(values).filter((k) => insertable.has(k));
   if (used.length === 0) return null;
   const cols = used.map(quoteIdent).join(', ');
@@ -685,7 +687,9 @@ export function buildUpdateRowSql(
   values: Record<string, unknown>,
   rowid: number,
 ): { sql: string; params: unknown[] } | null {
-  const updatable = new Set(columns.filter((c) => isSafeIdent(c.name) && c.pk !== 1).map((c) => c.name));
+  const updatable = new Set(
+    columns.filter((c) => isSafeIdent(c.name) && c.pk !== 1).map((c) => c.name),
+  );
   const used = Object.keys(values).filter((k) => updatable.has(k));
   if (used.length === 0) return null;
   const assignments = used.map((k) => `${quoteIdent(k)} = ?`).join(', ');

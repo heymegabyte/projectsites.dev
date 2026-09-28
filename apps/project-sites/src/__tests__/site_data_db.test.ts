@@ -460,7 +460,9 @@ describe('buildRenameColumnSql', () => {
 
 describe('buildDropColumnSql', () => {
   it('builds a DROP COLUMN with quoted identifiers', () => {
-    expect(buildDropColumnSql('customers', 'city')).toBe('ALTER TABLE "customers" DROP COLUMN "city"');
+    expect(buildDropColumnSql('customers', 'city')).toBe(
+      'ALTER TABLE "customers" DROP COLUMN "city"',
+    );
   });
   it('returns null on a hostile identifier', () => {
     expect(buildDropColumnSql('t', 'drop; --')).toBeNull();
@@ -476,7 +478,12 @@ describe('buildInsertRowSql', () => {
   ];
 
   it('binds only real, non-PK columns present in the payload (drops PK + hallucinated keys)', () => {
-    const built = buildInsertRowSql('people', cols, { age: 30, id: 999, injected: 'x', name: 'Ada' });
+    const built = buildInsertRowSql('people', cols, {
+      age: 30,
+      id: 999,
+      injected: 'x',
+      name: 'Ada',
+    });
     expect(built).not.toBeNull();
     expect(built!.sql).toBe('INSERT INTO "people" ("age", "name") VALUES (?, ?)');
     expect(built!.params).toEqual([30, 'Ada']); // order follows the payload keys
