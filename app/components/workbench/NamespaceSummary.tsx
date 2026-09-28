@@ -73,10 +73,19 @@ interface KindSpec {
   /** Substrings that map a raw `resource_kind` into this bucket. */
   match: string[];
   /**
-   * Kinds Cloudflare structurally cannot expose on this deployment (per CAPABILITY-MATRIX.md) — shown
-   * with an honest "unsupported" treatment when the inventory has none, never a fake count.
+   * A caveat about what Cloudflare can expose for this kind (per CAPABILITY-MATRIX.md) — shown as the
+   * tile title/hover. INFORMATIONAL only: a kind can carry a note AND still be a reachable surface
+   * (e.g. Durable Objects — the drill-in honestly shows namespaces/ids, never state). Use
+   * {@link KindSpec.unsupported} for a kind that genuinely cannot be surfaced on this deployment.
    */
   platformNote?: string;
+  /**
+   * TRUE when this deployment structurally cannot surface the kind at all (per CAPABILITY-MATRIX.md +
+   * the adapter's `UNSUPPORTED_KINDS`) — e.g. Queues, which has NO `QUEUE` binding here. Such a tile
+   * shows an honest "Not available" and is NEVER an actionable drill-in (never a doomed control per
+   * `action-button-must-gate-on-server-precondition`). Distinct from a mere `platformNote` caveat.
+   */
+  unsupported?: boolean;
 }
 
 const KIND_SPECS: KindSpec[] = [
@@ -97,6 +106,7 @@ const KIND_SPECS: KindSpec[] = [
     icon: 'i-ph:queue-duotone',
     match: ['queue'],
     platformNote: 'No queue binding on this account yet',
+    unsupported: true,
   },
   { key: 'vectorize', label: 'Vectorize', icon: 'i-ph:graph-duotone', match: ['vectorize', 'vector', 'index'] },
   { key: 'binding', label: 'Bindings', icon: 'i-ph:plugs-connected-duotone', match: ['binding', 'ai', 'browser'] },
@@ -115,6 +125,21 @@ const OTHER_SPEC: KindSpec = { key: 'other', label: 'Other Resources', icon: 'i-
 // ── Availability (mirrors ResourceOverviewPanel's server-driven classification) ──
 
 type Availability = 'connected' | 'available' | 'unsupported';
+
+/**
+ * What a kind-tile click hands back to the Resources tab so it can open that kind's per-kind
+ * drill-in — NEVER a Cloudflare id (the summary only knows kinds/counts; every real id stays
+ * server-resolved). `availability` lets the detail panel lead with the right action: `connected`
+ * → read + per-action writes; `available` → provision-first; a tile that is `unsupported` never
+ * opens (it's not a button). This is the bridge that makes the dark per-site KV / Durable Objects /
+ * Queues / Connections / Observability surfaces REACHABLE from the at-a-glance rollup.
+ */
+export interface OpenKindTarget {
+  /** Canonical kind key (`kv` | `durable_object` | `queue` | `connection` | `observability` | …). */
+  kind: string;
+  /** The kind's availability verdict, so the detail panel leads with the right primary action. */
+  availability: Extract<Availability, 'connected' | 'available'>;
+}
 
 function availabilityFor(entry: ResourceOverviewEntry): Availability {
   const s = (entry.lifecycle_state || '').toLowerCase();
@@ -272,6 +297,7 @@ export const NamespaceSummary = memo(
     environment,
     onReconcile,
     reconciling,
+    onOpenKind,
   }: {
     resources: ResourceOverviewEntry[];
     environment: string;
@@ -279,6 +305,13 @@ export const NamespaceSummary = memo(
     onReconcile?: () => void;
     /** True while the parent's reconcile is in flight — drives the quiet "Syncing…" affordance. */
     reconciling?: boolean;
+    /**
+     * Open a kind's per-kind drill-in. When provided, every SUPPORTED kind tile (including
+     * zero-count ones) becomes a keyboard-operable button — so the dark per-site KV / Durable
+     * Objects / Queues / Connections / Observability surfaces are reachable, never orphaned tiles.
+     * Omit to keep the summary purely presentational (backward compatible).
+     */
+    onOpenKind?: (target: OpenKindTarget) => void;
   }) => {
     const rollup = useMemo(() => computeRollup(resources), [resources]);
     const envLabel = environment.charAt(0).toUpperCase() + environment.slice(1);
@@ -443,7 +476,7 @@ export const NamespaceSummary = memo(
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
               {rollup.kinds.map((row) => (
-                <KindTile key={row.spec.key} row={row} />
+                <KindTile key={row.spec.key} row={row} onOpen={onOpenKind} />
               ))}
             </div>
 
@@ -521,11 +554,21 @@ HeroStat.displayName = 'NamespaceSummary.HeroStat';
 
 // ── Per-kind tile ────────────────────────────────────────────────────────────
 
-const KindTile = memo(({ row }: { row: KindRollup }) => {
+const KindTile = memo(({ row, onOpen }: { row: KindRollup; onOpen?: (target: OpenKindTarget) => void }) => {
   const has = row.total > 0;
   const drifted = row.drifted > 0;
-  // A kind CF can't expose AND that has nothing → honest "unsupported" treatment (never a fake 0-count).
-  const platformUnsupported = !has && Boolean(row.spec.platformNote);
+  // A kind this deployment genuinely cannot surface (Queues — no binding) AND that has nothing → honest
+  // "Not available" treatment (never a fake 0-count). A mere `platformNote` caveat (e.g. Durable Objects)
+  // is NOT unsupported — that surface is still reachable.
+  const platformUnsupported = !has && Boolean(row.spec.unsupported);
+  // `other` is a catch-all bucket, not a real drill-in target — never make it actionable.
+  const isOther = row.spec.key === 'other';
+  // A tile is a REACHABLE button when a handler exists AND the kind is a genuine, supported surface
+  // (never a doomed control per `action-button-must-gate-on-server-precondition`): a genuinely
+  // unsupported kind + the `other` bucket stay presentational. A zero-count-but-supported kind IS
+  // clickable — that is exactly how the dark per-site KV / DO / Connections / Observability surfaces
+  // are reached (their FLAG gates the server; the drill-in renders the honest not-enabled/empty state).
+  const actionable = Boolean(onOpen) && !row.spec.unsupported && !isOther;
 
   // The status dot: warn on drift, ok when connected, muted when only "available", amber when unsupported.
   const dot = drifted
@@ -538,19 +581,23 @@ const KindTile = memo(({ row }: { row: KindRollup }) => {
           ? 'bg-bolt-elements-item-contentAccent'
           : 'bg-bolt-elements-borderColor';
 
-  return (
-    <div
-      data-testid="ns-kind-tile"
-      data-kind={row.spec.key}
-      data-count={row.total}
-      title={row.spec.platformNote || `${row.total} ${row.spec.label}`}
-      className={classNames(
-        'group relative rounded-xl border p-3 transition-colors',
-        has
-          ? 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 hover:border-bolt-elements-item-contentAccent/50'
-          : 'border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-1/40',
-      )}
-    >
+  // Availability hint handed to the detail panel: a connected kind leads with read, everything else
+  // (zero-count OR only "available") leads with Provision.
+  const availability: OpenKindTarget['availability'] = row.connected > 0 ? 'connected' : 'available';
+
+  const open = () => onOpen?.({ kind: row.spec.key, availability });
+
+  const innerClassName = classNames(
+    'group relative w-full text-left rounded-xl border p-3 transition-colors',
+    has
+      ? 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 hover:border-bolt-elements-item-contentAccent/50'
+      : 'border-bolt-elements-borderColor/60 bg-bolt-elements-background-depth-1/40',
+    actionable &&
+      'cursor-pointer hover:border-bolt-elements-item-contentAccent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bolt-elements-background-depth-2 focus-visible:ring-bolt-elements-item-contentAccent',
+  );
+
+  const body = (
+    <>
       <div className="flex items-start justify-between gap-2">
         <div
           className={classNames(
@@ -560,10 +607,7 @@ const KindTile = memo(({ row }: { row: KindRollup }) => {
           )}
           aria-hidden="true"
         />
-        <span
-          className={classNames('mt-1 h-1.5 w-1.5 rounded-full shrink-0', dot)}
-          aria-hidden="true"
-        />
+        <span className={classNames('mt-1 h-1.5 w-1.5 rounded-full shrink-0', dot)} aria-hidden="true" />
       </div>
 
       <div className="mt-2 flex items-baseline gap-1.5">
@@ -594,8 +638,45 @@ const KindTile = memo(({ row }: { row: KindRollup }) => {
           {row.available > 0 && `${row.available} available`}
         </p>
       ) : (
-        <p className="mt-1 text-[9px] text-bolt-elements-textTertiary/70 leading-tight">None yet</p>
+        <p className="mt-1 text-[9px] text-bolt-elements-textTertiary/70 leading-tight">
+          {actionable ? 'Open to set up' : 'None yet'}
+        </p>
       )}
+
+      {/* A subtle "open" affordance on the actionable tiles, so the drill-in is discoverable. */}
+      {actionable && (
+        <div
+          className="i-ph:arrow-right pointer-events-none absolute bottom-2.5 right-2.5 text-[11px] text-bolt-elements-textTertiary opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          aria-hidden="true"
+        />
+      )}
+    </>
+  );
+
+  const shared = {
+    'data-testid': 'ns-kind-tile',
+    'data-kind': row.spec.key,
+    'data-count': row.total,
+    title: row.spec.platformNote || `${row.total} ${row.spec.label}`,
+  } as const;
+
+  if (actionable) {
+    return (
+      <button
+        type="button"
+        {...shared}
+        onClick={open}
+        aria-label={`Open ${row.spec.label}${row.connected > 0 ? '' : ' — set up'}`}
+        className={innerClassName}
+      >
+        {body}
+      </button>
+    );
+  }
+
+  return (
+    <div {...shared} className={innerClassName}>
+      {body}
     </div>
   );
 });

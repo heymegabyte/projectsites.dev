@@ -17,9 +17,12 @@
  *   5. Real-time reconcile (per `real-time-data-no-manual-refresh`) — NO manual Reconcile button;
  *      drift auto-reconciles via a DEBOUNCED `onReconcile` call, and a quiet "synced" affordance
  *      stands in for the removed button.
+ *   6. Drill-in — when `onOpenKind` is provided, every kind tile is a keyboard-operable button that
+ *      opens that kind's per-kind surface (even at zero count, so the dark per-site KV / Durable
+ *      Objects / Queues / Connections / Observability surfaces are REACHABLE, not orphaned tiles).
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, act, within } from '@testing-library/react';
+import { render, screen, cleanup, act, fireEvent, within } from '@testing-library/react';
 import React from 'react';
 import { NamespaceSummary } from './NamespaceSummary';
 import type { ResourceOverviewEntry } from '~/lib/embed/embedded-mode';
@@ -159,5 +162,66 @@ describe('NamespaceSummary', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('makes every kind tile a keyboard-operable button that drills into that kind when onOpenKind is set', () => {
+    const onOpenKind = vi.fn();
+    // Only a D1 exists; KV / Durable Objects / Connections / Observability have ZERO resources but MUST
+    // still be reachable (their per-kind surfaces are dark-flagged, not absent).
+    render(
+      <NamespaceSummary
+        resources={[entry({ id: '1', resource_kind: 'd1', lifecycle_state: 'connected' })]}
+        environment="production"
+        onOpenKind={onOpenKind}
+      />,
+    );
+
+    const tiles = screen.getAllByTestId('ns-kind-tile');
+    // Reachability: every non-platform-unsupported kind renders as a real <button> (role=button).
+    const kv = tiles.find((t) => t.getAttribute('data-kind') === 'kv') as HTMLElement;
+    const durable = tiles.find((t) => t.getAttribute('data-kind') === 'durable_object') as HTMLElement;
+    const connection = tiles.find((t) => t.getAttribute('data-kind') === 'connection') as HTMLElement;
+    const observability = tiles.find((t) => t.getAttribute('data-kind') === 'observability') as HTMLElement;
+
+    for (const tile of [kv, durable, connection, observability]) {
+      expect(tile).toBeTruthy();
+      expect(tile.tagName).toBe('BUTTON');
+      expect(tile.getAttribute('aria-label')).toBeTruthy();
+    }
+
+    // Clicking a zero-count KV tile opens the KV per-kind surface with an `available` (provisionable) hint.
+    fireEvent.click(kv);
+    expect(onOpenKind).toHaveBeenCalledTimes(1);
+    expect(onOpenKind).toHaveBeenCalledWith(expect.objectContaining({ kind: 'kv', availability: 'available' }));
+
+    // A connected kind opens with a `connected` hint (leads with read, not provision).
+    onOpenKind.mockClear();
+    const d1 = tiles.find((t) => t.getAttribute('data-kind') === 'd1') as HTMLElement;
+    fireEvent.click(d1);
+    expect(onOpenKind).toHaveBeenCalledWith(expect.objectContaining({ kind: 'd1', availability: 'connected' }));
+  });
+
+  it('does NOT make a platform-unsupported (Queues, no binding) tile an actionable button', () => {
+    const onOpenKind = vi.fn();
+    render(
+      <NamespaceSummary
+        resources={[entry({ id: '1', resource_kind: 'd1' })]}
+        environment="production"
+        onOpenKind={onOpenKind}
+      />,
+    );
+
+    const tiles = screen.getAllByTestId('ns-kind-tile');
+    const queue = tiles.find((t) => t.getAttribute('data-kind') === 'queue') as HTMLElement;
+    // Never a doomed control: an unsupported kind is a non-button tile (no click, honest "Not available").
+    expect(queue.tagName).not.toBe('BUTTON');
+    expect(within(queue).getByText('Not available')).toBeTruthy();
+  });
+
+  it('stays presentational (no buttons) when onOpenKind is omitted — backward compatible', () => {
+    render(<NamespaceSummary resources={[entry({ id: '1', resource_kind: 'd1' })]} environment="production" />);
+    const tiles = screen.getAllByTestId('ns-kind-tile');
+    // Without a handler, tiles are plain divs (the original presentational behavior).
+    expect(tiles.every((t) => t.tagName !== 'BUTTON')).toBe(true);
   });
 });

@@ -38,7 +38,17 @@ import {
   type ResourceOverviewEntry,
 } from '~/lib/embed/embedded-mode';
 import { ResourceDetailPanel, type ResourceDetailTarget } from './ResourceDetailPanel';
-import { NamespaceSummary } from './NamespaceSummary';
+import { NamespaceSummary, type OpenKindTarget } from './NamespaceSummary';
+
+/**
+ * Map a NamespaceSummary kind KEY to the canonical adapter `ResourceKind` the detail panel + worker
+ * understand. The summary buckets observability under `observability`, but the adapter/registry kind
+ * is `analytics_engine`; everything else is 1:1. Keeps the summary's human taxonomy decoupled from
+ * the server contract while the drill-in still speaks the exact kind the adapters key on.
+ */
+const SUMMARY_KIND_TO_RESOURCE_KIND: Record<string, string> = {
+  observability: 'analytics_engine',
+};
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -279,6 +289,25 @@ export const ResourceOverviewPanel = memo(() => {
         environment: env,
         concept: entry.resource_concept || undefined,
         bindingName: entry.binding_name || undefined,
+      });
+    },
+    [environment],
+  );
+
+  /**
+   * Open a kind's per-kind drill-in from a summary tile — the entry point that makes the dark per-site
+   * KV / Durable Objects / Connections / Observability surfaces REACHABLE even at zero count (their
+   * flags gate the SERVER; the detail panel renders the honest "not enabled yet" / empty / provision
+   * states). Only SUPPORTED kinds reach here — a genuinely unsupported kind (Queues, no binding) is a
+   * non-actionable tile upstream, so it never opens. Maps the summary key to the canonical adapter kind
+   * and passes the tile's availability so the detail panel leads with the right action. No CF id ever.
+   */
+  const openKind = useCallback(
+    (target: OpenKindTarget) => {
+      setSelected({
+        kind: SUMMARY_KIND_TO_RESOURCE_KIND[target.kind] ?? target.kind,
+        environment,
+        availability: target.availability,
       });
     },
     [environment],
@@ -570,8 +599,13 @@ export const ResourceOverviewPanel = memo(() => {
           <div className="flex-1 overflow-auto modern-scrollbar px-4 py-4 space-y-6" data-testid="resources-groups">
             {/* Per-site WfP-namespace SUMMARY — a prominent rollup of every resource in the namespace,
                 derived from the SAME inventory (no extra fetch). The at-a-glance accounting sits above
-                the per-kind cards. Reconcile runs automatically + silently, so no button is passed. */}
-            <NamespaceSummary resources={overview.resources} environment={overview.environment} />
+                the per-kind cards. Reconcile runs automatically + silently, so no button is passed;
+                `onOpenKind` makes every supported kind tile a drill-in into its per-kind surface. */}
+            <NamespaceSummary
+              resources={overview.resources}
+              environment={overview.environment}
+              onOpenKind={openKind}
+            />
 
             {groups.map((group) => (
               <ResourceGroupSection key={group.key} group={group} onComingSoon={setNotice} onOpen={openDetail} />
