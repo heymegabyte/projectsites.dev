@@ -162,13 +162,14 @@ export const routes: Routes = [
           ),
       },
       {
-        // Bare `/admin/sites` has no list page of its own — the dashboard ('') is the
-        // sites hub (recent-sites widgets + selected-site context) and drill-in is
-        // `/admin/sites/:id`. A user typing `/admin/sites` (a natural guess given the
-        // `:id` route) previously hit the styled admin 404; redirect it to the dashboard,
-        // mirroring the `dashboard → ''` alias above. (loop item-6, 2026-09-03)
+        // `/admin/sites` — the org's sites GRID: a searchable / filterable / sortable
+        // card grid of every site, live-updated from AdminStateService (visibility-
+        // aware poll; NO manual refresh button). Each card opens `/admin/sites/:id`.
+        // Replaces the former redirect-to-dashboard (a natural URL guess that dead-
+        // ended at the getting-started hub). Empty state = the "Create Site" launchpad.
         path: 'sites',
-        redirectTo: '',
+        loadComponent: () =>
+          import('./pages/admin/sections/sites.component').then((m) => m.AdminSitesComponent),
         pathMatch: 'full',
       },
       {
