@@ -103,7 +103,7 @@ import {
 } from './data-panel-logic';
 import { FIELD_TYPES, fieldTypeFor, type FieldKind } from './field-types';
 import { classifyCell } from './data-cell-format';
-import { buildAddColumn, buildDropColumn, quoteIdent, type ColumnSpec } from './schema-ddl';
+import { buildAddColumn, buildDropColumn, buildRenameColumn, quoteIdent, type ColumnSpec } from './schema-ddl';
 import { formatSchemaForPrompt, extractSqlFromModel } from './sql-ask-logic';
 import { CellEditor } from './CellEditor';
 
@@ -1341,13 +1341,25 @@ export const SiteTablesPanel = memo(
     const [addColOpen, setAddColOpen] = useState(false);
 
     const addColumn = useCallback(
-      async (name: string, kind: FieldKind) => {
+      async (name: string, kind: FieldKind, defaultValue?: string) => {
         if (rows.status !== 'ready') {
           return { ok: false, error: 'No table open.' };
         }
 
+        // Guard duplicates client-side (the worker would reject too, but this is instant + friendlier).
+        const existing = rows.page.columns.map((c) => c.name.toLowerCase());
+
+        if (existing.includes(name.toLowerCase())) {
+          return { ok: false, error: `A column named “${name}” already exists.` };
+        }
+
         const table = rows.page.table;
-        const spec: ColumnSpec = { name, type: FIELD_TYPES[kind].sqliteType };
+        const trimmedDefault = defaultValue?.trim();
+        const spec: ColumnSpec = {
+          name,
+          type: FIELD_TYPES[kind].sqliteType,
+          defaultValue: trimmedDefault ? trimmedDefault : null,
+        };
 
         let sql: string;
 
@@ -1389,6 +1401,54 @@ export const SiteTablesPanel = memo(
         postToastToParent('success', `Dropped column “${col}”.`);
         await loadGeneratedCols(table);
         await loadRows(table);
+      },
+      [rows, execSql, loadGeneratedCols, loadRows],
+    );
+
+    const renameColumn = useCallback(
+      async (from: string, to: string) => {
+        if (rows.status !== 'ready') {
+          return { ok: false, error: 'No table open.' };
+        }
+
+        const next = to.trim();
+
+        if (!next) {
+          return { ok: false, error: 'Enter a new name.' };
+        }
+
+        if (next === from) {
+          return { ok: true };
+        }
+
+        // Duplicate guard (case-insensitive) — SQLite would error, but this is instant + clearer.
+        const existing = rows.page.columns.map((c) => c.name.toLowerCase());
+
+        if (existing.includes(next.toLowerCase())) {
+          return { ok: false, error: `A column named “${next}” already exists.` };
+        }
+
+        const table = rows.page.table;
+
+        let sql: string;
+
+        try {
+          sql = buildRenameColumn(table, from, next);
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : 'Invalid column name.' };
+        }
+
+        const res = await execSql(sql, [], true);
+
+        if (!res.ok) {
+          return { ok: false, error: res.error };
+        }
+
+        postToastToParent('success', `Renamed “${from}” to “${next}”.`);
+        await loadGeneratedCols(table);
+        await loadRows(table);
+
+        return { ok: true };
       },
       [rows, execSql, loadGeneratedCols, loadRows],
     );
@@ -1805,6 +1865,7 @@ export const SiteTablesPanel = memo(
             onCloseAddCol={() => setAddColOpen(false)}
             onAddColumn={addColumn}
             onDropColumn={dropColumn}
+            onRenameColumn={renameColumn}
             onExport={exportData}
             onOpenAi={(which) => {
               setAiError('');
@@ -2851,8 +2912,9 @@ interface BrowseViewProps extends EditProps {
   onAddRow: () => void;
   onOpenAddCol: () => void;
   onCloseAddCol: () => void;
-  onAddColumn: (name: string, kind: FieldKind) => Promise<{ ok: boolean; error?: string }>;
+  onAddColumn: (name: string, kind: FieldKind, defaultValue?: string) => Promise<{ ok: boolean; error?: string }>;
   onDropColumn: (col: string) => void;
+  onRenameColumn: (from: string, to: string) => Promise<{ ok: boolean; error?: string }>;
   onExport: (format: 'csv' | 'tsv' | 'json') => void;
   onOpenAi: (which: 'filter' | 'column' | 'fill') => void;
   onCloseAi: () => void;
@@ -2926,6 +2988,7 @@ const BrowseView = memo((props: BrowseViewProps) => {
     onCloseAddCol,
     onAddColumn,
     onDropColumn,
+    onRenameColumn,
     onExport,
     onOpenAi,
     onCloseAi,
@@ -3286,9 +3349,32 @@ const BrowseView = memo((props: BrowseViewProps) => {
                       ) : (
                         <div className="i-ph:arrows-down-up ml-auto text-[9px] text-bolt-elements-textTertiary/0 group-hover/hdr:text-bolt-elements-textTertiary/50 shrink-0 transition-colors" />
                       )}
+                      {canMutateRows && (
+                        <ColumnHeaderMenu
+                          column={col}
+                          onRename={onRenameColumn}
+                          onDrop={onDropColumn}
+                        />
+                      )}
                     </div>
                   );
                 })}
+                {/* Trailing add-column affordance — a discoverable "+" cell at the end of the header row. */}
+                {canMutateRows && (
+                  <button
+                    type="button"
+                    onClick={onOpenAddCol}
+                    aria-label="Add a column"
+                    title="Add a column"
+                    data-testid="sitedb-add-column-header"
+                    className={classNames(
+                      'group/addcol shrink-0 w-[44px] flex items-center justify-center border-r border-bolt-elements-borderColor/40 text-bolt-elements-textTertiary hover:text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent/[0.07] cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent',
+                      densityCellClass(density),
+                    )}
+                  >
+                    <div className="i-ph:plus text-[12px]" />
+                  </button>
+                )}
               </div>
 
               {/* Virtualized body */}
@@ -3804,23 +3890,256 @@ const AiPanel = memo(
 
 AiPanel.displayName = 'SiteTablesPanel.AiPanel';
 
-// ── Add-column form ───────────────────────────────────────────────────────────
+// ── Per-column header menu (rename · delete) ────────────────────────────────────
 
-const AddColumnForm = memo(
-  ({ onAdd, onClose }: { onAdd: (name: string, kind: FieldKind) => Promise<{ ok: boolean; error?: string }>; onClose: () => void }) => {
-    const [name, setName] = useState('');
-    const [kind, setKind] = useState<FieldKind>('text');
+/** SQLite identifier rule mirrored from schema-ddl's `SAFE_IDENT_RE` — used only for instant UI feedback. */
+const SAFE_IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * The hover-revealed "⋮" menu on each column header. Rename edits inline; delete is a two-step
+ * click-to-confirm (mirrors the row-delete affordance, never `window.confirm`). Delete is disabled
+ * for a primary-key column (SQLite can't drop it) with the reason surfaced as a tooltip.
+ */
+const ColumnHeaderMenu = memo(
+  ({
+    column,
+    onRename,
+    onDrop,
+  }: {
+    column: ColumnInfo;
+    onRename: (from: string, to: string) => Promise<{ ok: boolean; error?: string }>;
+    onDrop: (col: string) => void;
+  }) => {
+    const [open, setOpen] = useState(false);
+    const [mode, setMode] = useState<'menu' | 'rename' | 'confirmDelete'>('menu');
+    const [nextName, setNextName] = useState(column.name);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
+    const wrapRef = useRef<HTMLDivElement | null>(null);
 
-    const submit = async () => {
-      if (!name.trim() || busy) {
+    const isPk = column.pk === 1;
+
+    const close = useCallback(() => {
+      setOpen(false);
+      setMode('menu');
+      setError('');
+      setNextName(column.name);
+    }, [column.name]);
+
+    useEffect(() => {
+      if (!open) {
+        return;
+      }
+
+      const onDoc = (e: MouseEvent) => {
+        if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+          close();
+        }
+      };
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          close();
+        }
+      };
+
+      document.addEventListener('mousedown', onDoc);
+      document.addEventListener('keydown', onKey);
+
+      return () => {
+        document.removeEventListener('mousedown', onDoc);
+        document.removeEventListener('keydown', onKey);
+      };
+    }, [open, close]);
+
+    const trimmed = nextName.trim();
+    const renameValid = trimmed.length > 0 && trimmed !== column.name && SAFE_IDENT_RE.test(trimmed);
+
+    const submitRename = async () => {
+      if (!renameValid || busy) {
         return;
       }
 
       setBusy(true);
       setError('');
-      const res = await onAdd(name.trim(), kind);
+      const res = await onRename(column.name, trimmed);
+      setBusy(false);
+
+      if (res.ok) {
+        close();
+      } else {
+        setError(res.error || 'Could not rename the column.');
+      }
+    };
+
+    return (
+      <div ref={wrapRef} className="relative ml-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((o) => !o);
+            setMode('menu');
+          }}
+          aria-label={`Column options for ${column.name}`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          data-testid={`sitedb-col-menu-${column.name}`}
+          className={classNames(
+            'min-h-[20px] min-w-[20px] flex items-center justify-center rounded text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3/60 cursor-pointer transition-opacity focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-bolt-elements-item-contentAccent',
+            open ? 'opacity-100' : 'opacity-0 group-hover/hdr:opacity-100 focus-visible:opacity-100',
+          )}
+        >
+          <div className="i-ph:dots-three-vertical text-[12px]" />
+        </button>
+
+        {open && (
+          <div
+            role="menu"
+            data-testid={`sitedb-col-menu-panel-${column.name}`}
+            className="absolute right-0 top-full mt-1 z-50 w-52 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 shadow-xl shadow-black/40 p-1 normal-case tracking-normal font-normal"
+          >
+            {mode === 'menu' && (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMode('rename');
+                    setNextName(column.name);
+                    setError('');
+                  }}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-[11px] text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3 cursor-pointer"
+                >
+                  <div className="i-ph:pencil-simple text-[13px] text-bolt-elements-textTertiary" /> Rename column
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={isPk}
+                  title={isPk ? 'The primary-key column can’t be deleted.' : undefined}
+                  onClick={() => !isPk && setMode('confirmDelete')}
+                  data-testid={`sitedb-col-delete-${column.name}`}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-[11px] text-red-300 enabled:hover:bg-red-400/10 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <div className="i-ph:trash text-[13px]" /> Delete column
+                  {isPk && <div className="i-ph:key ml-auto text-[11px] text-bolt-elements-textTertiary" />}
+                </button>
+              </>
+            )}
+
+            {mode === 'rename' && (
+              <div className="p-1 space-y-1.5">
+                <input
+                  type="text"
+                  autoFocus
+                  value={nextName}
+                  onChange={(e) => setNextName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void submitRename();
+                    }
+                  }}
+                  aria-label={`New name for ${column.name}`}
+                  data-testid={`sitedb-col-rename-input-${column.name}`}
+                  className="w-full min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1 text-[11px] font-mono text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-item-contentAccent"
+                />
+                {trimmed.length > 0 && !SAFE_IDENT_RE.test(trimmed) && (
+                  <p className="text-[10px] text-bolt-elements-textTertiary">Letters, numbers, and underscores only.</p>
+                )}
+                {error && (
+                  <p className="text-[10px] text-red-400" role="alert">
+                    {error}
+                  </p>
+                )}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => void submitRename()}
+                    disabled={!renameValid || busy}
+                    data-testid={`sitedb-col-rename-save-${column.name}`}
+                    className="min-h-[24px] flex-1 text-[11px] font-semibold px-2 py-1 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <div className={busy ? 'i-ph:circle-notch animate-spin' : 'i-ph:check'} /> Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('menu');
+                      setError('');
+                    }}
+                    className="min-h-[24px] text-[11px] px-2 py-1 rounded text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {mode === 'confirmDelete' && (
+              <div className="p-1 space-y-1.5">
+                <p className="text-[11px] text-bolt-elements-textSecondary px-1">
+                  Delete <span className="font-mono text-bolt-elements-textPrimary">{column.name}</span> and all its
+                  values?
+                </p>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onDrop(column.name);
+                      close();
+                    }}
+                    data-testid={`sitedb-col-delete-confirm-${column.name}`}
+                    className="min-h-[24px] flex-1 text-[11px] font-semibold px-2 py-1 rounded border border-red-400/50 bg-red-400/10 text-red-300 hover:bg-red-400/20 transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <div className="i-ph:trash" /> Delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode('menu')}
+                    className="min-h-[24px] text-[11px] px-2 py-1 rounded text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-background-depth-3 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  },
+);
+
+ColumnHeaderMenu.displayName = 'SiteTablesPanel.ColumnHeaderMenu';
+
+// ── Add-column form ───────────────────────────────────────────────────────────
+
+const AddColumnForm = memo(
+  ({
+    onAdd,
+    onClose,
+  }: {
+    onAdd: (name: string, kind: FieldKind, defaultValue?: string) => Promise<{ ok: boolean; error?: string }>;
+    onClose: () => void;
+  }) => {
+    const [name, setName] = useState('');
+    const [kind, setKind] = useState<FieldKind>('text');
+    const [defaultValue, setDefaultValue] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+
+    const trimmed = name.trim();
+    const identValid = trimmed.length > 0 && SAFE_IDENT_RE.test(trimmed);
+
+    const submit = async () => {
+      if (!identValid || busy) {
+        return;
+      }
+
+      setBusy(true);
+      setError('');
+      const res = await onAdd(trimmed, kind, defaultValue);
       setBusy(false);
 
       if (res.ok) {
@@ -3876,16 +4195,36 @@ const AddColumnForm = memo(
               </option>
             ))}
           </select>
+          <input
+            type="text"
+            value={defaultValue}
+            onChange={(e) => setDefaultValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                void submit();
+              }
+            }}
+            placeholder="default (optional)"
+            aria-label="Default value (optional)"
+            data-testid="sitedb-add-column-default"
+            className="w-[120px] min-h-[24px] rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1 text-[11px] font-mono text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-item-contentAccent"
+          />
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={busy || !name.trim()}
+            disabled={busy || !identValid}
             data-testid="sitedb-add-column-submit"
             className="min-h-[24px] text-[11px] font-semibold px-2.5 py-1 rounded border border-bolt-elements-item-contentAccent/50 bg-bolt-elements-item-backgroundAccent/15 text-bolt-elements-item-contentAccent enabled:hover:bg-bolt-elements-item-backgroundAccent/25 disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer"
           >
             <div className={busy ? 'i-ph:circle-notch animate-spin' : 'i-ph:check'} /> Add
           </button>
         </div>
+        {trimmed.length > 0 && !identValid && (
+          <p className="text-[10px] text-bolt-elements-textTertiary">
+            Name must start with a letter or underscore — letters, numbers, and underscores only.
+          </p>
+        )}
         {error && (
           <p className="text-[10px] text-red-400" role="alert" data-testid="sitedb-add-column-error">
             {error}

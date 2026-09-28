@@ -7,7 +7,7 @@
  */
 
 import { classNames } from '~/utils/classNames';
-import { CELL_INPUT_KIND_OPTIONS, nullabilityHint, type CellInputKind } from './data-panel-logic';
+import { nullabilityHint, type CellInputKind } from './data-panel-logic';
 import { TypedValueField } from './TypedValueField';
 
 export interface CellEditorProps {
@@ -50,7 +50,7 @@ export interface CellEditorProps {
   onCancel: () => void;
 }
 
-/** The typed cell editor: type-select + value input + live SQL preview + error + Save/Cancel. */
+/** The cell editor: value input + live SQL preview + error + Save/Cancel (type is set per-column, not per-edit). */
 export function CellEditor({
   label,
   editKind,
@@ -77,19 +77,12 @@ export function CellEditor({
   return (
     <div className="flex w-full flex-col gap-1" data-testid="data-edit-cell">
       <div className="flex items-start gap-1.5">
-        <select
-          value={editKind}
-          onChange={(e) => onKindChange(e.target.value as CellInputKind)}
-          data-testid="data-edit-kind"
-          aria-label={`Type for ${label}`}
-          className="shrink-0 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-1 py-0.5 text-[10px] text-bolt-elements-textPrimary focus:outline-none"
-        >
-          {CELL_INPUT_KIND_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        {/*
+         * VALUE-ONLY: the per-edit data-type <select> was removed (Brian 2026-09-28) — a cell editor
+         * shows the VALUE, not the type. The input KIND is inferred from the column's declared type
+         * (editorKindForColumn) and the column's type is changed at the COLUMN level (header edit menu
+         * / add-column), never mid-edit. The NULL toggle below is a value affordance, not a type.
+         */}
         <TypedValueField
           kind={editKind}
           value={editValue}

@@ -154,8 +154,8 @@ export interface ColumnSpec {
   /** Raw column name — must match `SAFE_IDENT_RE`. */
   readonly name: string;
 
-  /** SQLite storage class. */
-  readonly type: 'TEXT' | 'INTEGER' | 'REAL' | 'BLOB';
+  /** SQLite storage class. TEXT/INTEGER/REAL/BLOB are the four affinity roots; NUMERIC covers BOOLEAN/DATE. */
+  readonly type: 'TEXT' | 'INTEGER' | 'REAL' | 'BLOB' | 'NUMERIC';
 
   /** Emit `NOT NULL` when `true`. Primary-key columns always carry NOT NULL implicitly. */
   readonly notNull?: boolean;

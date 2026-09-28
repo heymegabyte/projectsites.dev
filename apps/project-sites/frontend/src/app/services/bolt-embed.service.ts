@@ -829,7 +829,7 @@ export class BoltEmbedService {
           break;
         case 'PS_OPEN_DOMAIN_MENU':
           // The editor's Preview URL-bar button asked to open the site's domain menu. Flip the
-          // shared signal — DomainMenuPopupComponent (mounted in the admin shell) renders the
+          // shared signal — the rich app-domain-picker (navbar) opens for the
           // popup over the editor for the currently-selected site.
           this.domainMenu.open();
           break;

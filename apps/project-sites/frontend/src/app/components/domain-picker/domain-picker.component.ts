@@ -61,6 +61,7 @@ import { BillingService, type PurchaseResult, type WalletState } from '../../ser
 import { TelemetryService } from '../../services/telemetry.service';
 import { ToastService } from '../../services/toast.service';
 import { DomainSuggestionsCache } from './domain-suggestions-cache.service';
+import { DomainMenuService } from '../domain-menu/domain-menu.service';
 
 interface PickerHostname extends Hostname {
   /** Convenience flag — `true` for the row that matches `site.primary_hostname`. */
@@ -1086,6 +1087,7 @@ export class DomainPickerComponent implements OnDestroy {
   private toast = inject(ToastService);
   private router = inject(Router);
   private suggestionsCache = inject(DomainSuggestionsCache);
+  private domainMenu = inject(DomainMenuService);
 
   /** Clears the in-flight wallet-checkout popup poll + listener, if any. Set by startWalletViaCheckout. */
   private walletPopupCleanup: (() => void) | null = null;
@@ -1245,6 +1247,20 @@ export class DomainPickerComponent implements OnDestroy {
         this.refreshHostnames(site.id);
       }
     });
+
+    /*
+     * Editor Preview URL-bar button → open THIS rich picker (the ONE canonical URL component),
+     * not a separate popup. `PS_OPEN_DOMAIN_MENU` (Preview.tsx) → BoltEmbedService →
+     * DomainMenuService.open() flips `isOpen`; we mirror it into the panel so the editor's
+     * URL button gets every domain feature (your-domains, set-default, copy, open-in-tab,
+     * per-domain ⋯, AI picks, buy, wallet). `close()` resets the trigger so a second click
+     * re-opens. (Brian 2026-09-28 — "all the features of the standard URL component".)
+     */
+    effect(() => {
+      if (this.domainMenu.isOpen() && !this.open()) {
+        this.openPanel();
+      }
+    });
   }
 
   /**
@@ -1291,6 +1307,7 @@ export class DomainPickerComponent implements OnDestroy {
 
   close(): void {
     this.open.set(false);
+    this.domainMenu.close(); // reset the editor-bridge trigger so a later PS_OPEN_DOMAIN_MENU re-opens
     this.query.set('');
     this.queryModel = '';
     this.liveResults.set([]);

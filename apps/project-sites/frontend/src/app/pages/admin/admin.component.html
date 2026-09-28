@@ -1180,10 +1180,9 @@
      contract so a workflow's postAskUser card can appear on any admin route. -->
   <app-task-tray />
 
-  <!-- URL / domain menu popup — renders nothing until opened via DomainMenuService
-     (flipped by the editor Preview URL-bar button through the PS_OPEN_DOMAIN_MENU
-     bridge, or any admin trigger). Controls the selected site's URL + domains. -->
-  <app-domain-menu-popup />
+  <!-- Editor Preview URL-bar button opens the rich <app-domain-picker> (navbar) via
+     DomainMenuService + the PS_OPEN_DOMAIN_MENU bridge — the ONE canonical URL component.
+     (The simpler <app-domain-menu-popup> was retired 2026-09-28 so there's no 3rd URL UI.) -->
 
   <!-- Share-link dialog — opened from the navbar Actions menu or the Cmd+K palette
      (via ShareLinkService). Replaces the removed /admin/review-links page. -->
