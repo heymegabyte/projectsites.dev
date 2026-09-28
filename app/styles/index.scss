@@ -1635,3 +1635,148 @@ button:not(:disabled):not([class*='ResizeHandle']):not([data-panel-resize-handle
     cursor: not-allowed;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   WHITE-IMPOSSIBLE CATCH-ALL — native elements + scrollbars + placeholders
+   ────────────────────────────────────────────────────────────────────────
+   The token remaps above cover every SURFACE that reads a `--bolt-elements-*`
+   var. This block closes the remaining paths a white/light pixel slips through
+   even when NO brand token is involved:
+
+     • a raw `<input>/<select>/<textarea>/<table>` styled by the UA (white fill,
+       black text, light borders) — the vendor never themed native form/table
+       chrome, so the browser default leaks white,
+     • native `::-webkit-scrollbar` (the `.modern-scrollbar` class themes only
+       opted-in scrollers; a plain overflow container shows the OS-white bar),
+     • `::placeholder` (UA gray that reads as dim-white on #060610),
+     • checkbox/radio `accent-color` (UA blue),
+     • any residual `bg-white` / light Tailwind utility on a NON-button element.
+
+   Scoped to `[data-theme]` (the editor <html> always carries it — root.tsx
+   forces data-theme='dark'), so it wraps the whole editor yet touches nothing
+   outside. Kept BEAUTIFUL, not merely dark: glass fills, hairline cyan borders,
+   cyan focus ring, refined inset shadow. (Brian 2026-09-27 — make white
+   structurally impossible; comprehensive pass.) */
+
+/* ── Native form controls — dark glass surface + brand ink + cyan-tint edge ── */
+[data-theme] input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='button']):not([type='submit']):not([type='reset']):not(.ps-allow-surface),
+[data-theme] textarea:not(.ps-allow-surface),
+[data-theme] select:not(.ps-allow-surface) {
+  background-color: var(--bolt-elements-bg-depth-2, #0a0a18);
+  color: var(--bolt-elements-textPrimary, #f4f4ff);
+  border-color: var(--bolt-elements-borderColor, rgba(0, 229, 255, 0.14));
+  caret-color: var(--ps-accent, #00e5ff);
+  color-scheme: dark;
+}
+
+[data-theme] input:not([type='checkbox']):not([type='radio']):not([type='range']):not(.ps-allow-surface):focus-visible,
+[data-theme] textarea:not(.ps-allow-surface):focus-visible,
+[data-theme] select:not(.ps-allow-surface):focus-visible {
+  outline: 2px solid var(--ps-accent, #00e5ff);
+  outline-offset: 1px;
+  border-color: var(--bolt-elements-borderColorActive, #00e5ff);
+}
+
+/* Placeholder — muted cool gray, never a faint white smudge */
+[data-theme] ::placeholder {
+  color: var(--bolt-elements-textTertiary, #737a93);
+  opacity: 1;
+}
+
+/* Checkboxes, radios, range, progress — tint UA chrome brand-cyan */
+[data-theme] input[type='checkbox'],
+[data-theme] input[type='radio'],
+[data-theme] input[type='range'],
+[data-theme] progress {
+  accent-color: var(--ps-accent, #00e5ff);
+}
+
+/* Native <table> chrome — the vendor never themed tables; UA paints white.
+   Give the grid a dark surface + hairline cyan rules + brand ink. */
+[data-theme] table:not(.ps-allow-surface) {
+  background-color: transparent;
+  color: var(--bolt-elements-textPrimary, #f4f4ff);
+  border-color: var(--bolt-elements-borderColor, rgba(0, 229, 255, 0.14));
+}
+
+[data-theme] th:not(.ps-allow-surface) {
+  background-color: var(--bolt-elements-bg-depth-2, #0a0a18);
+  color: var(--bolt-elements-textSecondary, #9aa0b6);
+  border-color: var(--bolt-elements-borderColor, rgba(0, 229, 255, 0.14));
+}
+
+[data-theme] td:not(.ps-allow-surface) {
+  background-color: transparent;
+  color: var(--bolt-elements-textPrimary, #f4f4ff);
+  border-color: var(--bolt-elements-borderColor, rgba(0, 229, 255, 0.1));
+}
+
+[data-theme] tr:nth-child(even) td:not(.ps-allow-surface) {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* Native option list (select dropdown) — dark surface, not UA white */
+[data-theme] option,
+[data-theme] optgroup {
+  background-color: var(--bolt-elements-bg-depth-2, #0a0a18);
+  color: var(--bolt-elements-textPrimary, #f4f4ff);
+}
+
+/* ── Native scrollbars everywhere (not just `.modern-scrollbar`) ──────────
+   A plain overflow container shows the OS scrollbar (white/light on macOS
+   light appearance). Paint a dark track + cyan-tinted pill thumb globally. */
+[data-theme] {
+  scrollbar-color: rgba(0, 229, 255, 0.32) transparent;
+  scrollbar-width: thin;
+}
+
+[data-theme] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+[data-theme] ::-webkit-scrollbar-track,
+[data-theme] ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+[data-theme] ::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 229, 255, 0.22);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  transition: background-color var(--ps-dur-fast, 140ms) ease;
+}
+
+[data-theme] ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 229, 255, 0.45);
+}
+
+/* ── Generic white/light Tailwind utility neutralizer (NON-button elements) ──
+   The button block above catches interactive controls; this catches a stray
+   `bg-white` / `bg-gray-50/100` / near-white arbitrary fill on any panel, card,
+   or wrapper. Repaint to an elevated brand surface so no container flashes
+   white. Buttons are excluded (already handled) to avoid double-application. */
+[data-theme] :is(div, section, aside, header, footer, nav, ul, li, span, p, article, main, dl, dt, dd):is(.bg-white, [class*='bg-gray-5'], [class*='bg-gray-1'], [class*='bg-neutral-5'], [class*='bg-neutral-1'], [class*='bg-slate-5'], [class*='bg-slate-1'], [class*='bg-zinc-5'], [class*='bg-zinc-1'], [class*='bg-\[\#fff'], [class*='bg-\[\#FFF'], [class*='bg-\[\#fafafa'], [class*='bg-\[\#f5f5f5']):not(.ps-allow-surface) {
+  background-color: var(--bolt-elements-bg-depth-2, #0a0a18) !important;
+  color: var(--bolt-elements-textPrimary, #f4f4ff);
+}
+
+/* Near-black text utilities on any element read invisible on #060610 → brand ink */
+[data-theme] :is(.text-black, [class*='text-gray-9'], [class*='text-neutral-9'], [class*='text-slate-9'], [class*='text-zinc-9'], [class*='text-\[\#000'], [class*='text-\[\#111'], [class*='text-\[\#1a1a']):not(.ps-allow-surface):not(button):not([role='button']) {
+  color: var(--bolt-elements-textPrimary, #f4f4ff) !important;
+}
+
+/* ── CodeMirror surface belt-and-braces ──────────────────────────────────
+   The editor tokens are now dark at :root, but pin the mounted CM surface +
+   gutters directly too, in case a scoped inline CM theme wins specificity. */
+[data-theme] .cm-editor,
+[data-theme] .cm-scroller,
+[data-theme] .cm-gutters {
+  background-color: var(--bolt-elements-editor-backgroundColor, #0a0a18);
+  color: var(--bolt-elements-editor-textColor, #f4f4ff);
+}
+
+[data-theme] .cm-gutters {
+  border-right-color: var(--bolt-elements-borderColor, rgba(0, 229, 255, 0.14));
+}

@@ -15,7 +15,8 @@
 
   /* Active Line */
 
-  --cm-activeLineBackgroundColor: var(--bolt-elements-editor-activeLineBackgroundColor, rgb(224 231 235 / 30%));
+  /* Fallback darkened (was light `rgb(224 231 235/30%)`) so even a token miss stays dark. */
+  --cm-activeLineBackgroundColor: var(--bolt-elements-editor-activeLineBackgroundColor, rgba(0, 229, 255, 0.06));
 
   /* Cursor */
 
@@ -26,12 +27,12 @@
 
   --cm-matching-bracket: var(--bolt-elements-editor-matchingBracketBackgroundColor, rgb(50 140 130 / 0.3));
 
-  /* Selection */
+  /* Selection — fallbacks darkened to brand cyan (were light blue #42b4ff / #c9e9ff). */
 
-  --cm-selection-backgroundColorFocused: var(--bolt-elements-editor-selection-backgroundColor, #42b4ff);
-  --cm-selection-backgroundOpacityFocused: var(--bolt-elements-editor-selection-backgroundOpacity, 0.3);
-  --cm-selection-backgroundColorBlured: var(--bolt-elements-editor-selection-inactiveBackgroundColor, #c9e9ff);
-  --cm-selection-backgroundOpacityBlured: var(--bolt-elements-editor-selection-inactiveBackgroundOpacity, 0.3);
+  --cm-selection-backgroundColorFocused: var(--bolt-elements-editor-selection-backgroundColor, #00e5ff);
+  --cm-selection-backgroundOpacityFocused: var(--bolt-elements-editor-selection-backgroundOpacity, 0.24);
+  --cm-selection-backgroundColorBlured: var(--bolt-elements-editor-selection-inactiveBackgroundColor, #50aae3);
+  --cm-selection-backgroundOpacityBlured: var(--bolt-elements-editor-selection-inactiveBackgroundOpacity, 0.18);
 
   /* Panels */
 
@@ -112,14 +113,20 @@
   --cm-searchMatch-backgroundColor: var(--bolt-elements-editor-searchMatch-backgroundColor, rgba(234, 92, 0, 0.33));
 }
 
+/* The editor is dark-first + the theme toggle is hidden (root.tsx forces
+   data-theme='dark'), but a stale `bolt_theme='light'` in localStorage could
+   still flip <html> to data-theme='light' AFTER hydration — and this selector
+   (specificity 0,1,1) would beat the brand `:root` block (0,1,0), re-leaking the
+   vendor LIGHT gutter (#237893) + gray-100 search buttons. Pin these to brand
+   DARK values so even a light data-theme paints dark. (Brian 2026-09-27 white-fix.) */
 html[data-theme='light'] {
-  --bolt-elements-editor-gutter-textColor: #237893;
-  --bolt-elements-editor-gutter-activeLineTextColor: var(--bolt-elements-textPrimary);
-  --bolt-elements-editor-foldGutter-textColorHover: var(--bolt-elements-textPrimary);
-  --bolt-elements-editor-activeLineBackgroundColor: rgb(50 53 63 / 5%);
-  --bolt-elements-editor-tooltip-backgroundColorSelected: theme('colors.alpha.accent.20');
-  --bolt-elements-editor-search-button-backgroundColor: theme('colors.gray.100');
-  --bolt-elements-editor-search-button-backgroundColorHover: theme('colors.alpha.gray.10');
+  --bolt-elements-editor-gutter-textColor: #737a93;
+  --bolt-elements-editor-gutter-activeLineTextColor: #00e5ff;
+  --bolt-elements-editor-foldGutter-textColorHover: #f4f4ff;
+  --bolt-elements-editor-activeLineBackgroundColor: rgba(0, 229, 255, 0.06);
+  --bolt-elements-editor-tooltip-backgroundColorSelected: rgba(0, 229, 255, 0.16);
+  --bolt-elements-editor-search-button-backgroundColor: rgba(255, 255, 255, 0.04);
+  --bolt-elements-editor-search-button-backgroundColorHover: rgba(0, 229, 255, 0.14);
 }
 
 html[data-theme='dark'] {

@@ -349,4 +349,79 @@
   /* Loader rail */
   --bolt-elements-loader-background: rgba(0, 229, 255, 0.12);
   --bolt-elements-loader-progress: #00e5ff;
+
+  /* ── CodeMirror editor tokens (`--bolt-elements-editor-*`) — THE biggest white
+     leak the prior blanket block missed. `components/editor.scss` only re-themes
+     these under `html[data-theme='dark']` and every `--cm-*` fallback resolves
+     LIGHT (`#42b4ff` selection, `#c9e9ff`, `rgb(224 231 235/30%)` active line,
+     `#237893` gutter, `theme('colors.gray.100')` search buttons). Pinning them at
+     :root for ALL variants means the code editor gutters, search panel, tooltip,
+     selection + active-line can NEVER paint a light surface. (Brian 2026-09-27
+     white-fix — comprehensive pass.) */
+  --bolt-elements-editor-backgroundColor: #0a0a18;
+  --bolt-elements-editor-textColor: #f4f4ff;
+  --bolt-elements-editor-cursorColor: #00e5ff;
+  --bolt-elements-editor-activeLineBackgroundColor: rgba(0, 229, 255, 0.06);
+  --bolt-elements-editor-matchingBracketBackgroundColor: rgba(0, 229, 255, 0.28);
+
+  /* Gutter — muted cool ink on the editor surface, cyan on the active line */
+  --bolt-elements-editor-gutter-backgroundColor: #0a0a18;
+  --bolt-elements-editor-gutter-textColor: #737a93;
+  --bolt-elements-editor-gutter-activeLineTextColor: #00e5ff;
+  --bolt-elements-editor-foldGutter-textColor: #737a93;
+  --bolt-elements-editor-foldGutter-textColorHover: #f4f4ff;
+
+  /* Selection — brand-cyan wash (never the vendor blue #42b4ff / #c9e9ff) */
+  --bolt-elements-editor-selection-backgroundColor: #00e5ff;
+  --bolt-elements-editor-selection-backgroundOpacity: 0.24;
+  --bolt-elements-editor-selection-inactiveBackgroundColor: #50aae3;
+  --bolt-elements-editor-selection-inactiveBackgroundOpacity: 0.18;
+  --bolt-elements-editor-searchMatch-backgroundColor: rgba(0, 229, 255, 0.28);
+
+  /* Editor panels + search — dark glass surface, brand ink, cyan-tinted edges */
+  --bolt-elements-editor-panels-borderColor: rgba(0, 229, 255, 0.14);
+  --bolt-elements-editor-search-backgroundColor: #0b0b1e;
+  --bolt-elements-editor-search-textColor: #9aa0b6;
+  --bolt-elements-editor-search-input-backgroundColor: rgba(255, 255, 255, 0.03);
+  --bolt-elements-editor-search-input-textColor: #f4f4ff;
+  --bolt-elements-editor-search-input-borderColor: rgba(0, 229, 255, 0.14);
+  --bolt-elements-editor-search-input-borderColorFocused: #00e5ff;
+  --bolt-elements-editor-search-button-backgroundColor: rgba(255, 255, 255, 0.04);
+  --bolt-elements-editor-search-button-backgroundColorHover: rgba(0, 229, 255, 0.14);
+  --bolt-elements-editor-search-button-textColor: #9aa0b6;
+  --bolt-elements-editor-search-button-textColorHover: #f4f4ff;
+  --bolt-elements-editor-search-button-borderColor: rgba(0, 229, 255, 0.14);
+  --bolt-elements-editor-search-button-borderColorHover: rgba(0, 229, 255, 0.28);
+  --bolt-elements-editor-search-button-borderColorFocused: #00e5ff;
+  --bolt-elements-editor-search-closeButton-backgroundColor: transparent;
+  --bolt-elements-editor-search-closeButton-backgroundColorHover: rgba(0, 229, 255, 0.14);
+  --bolt-elements-editor-search-closeButton-textColor: #9aa0b6;
+  --bolt-elements-editor-search-closeButton-textColorHover: #f4f4ff;
+
+  /* Autocomplete / hover tooltip — dark card, brand ink, cyan-selected row */
+  --bolt-elements-editor-tooltip-backgroundColor: #0e0e28;
+  --bolt-elements-editor-tooltip-textColor: #f4f4ff;
+  --bolt-elements-editor-tooltip-backgroundColorSelected: rgba(0, 229, 255, 0.16);
+  --bolt-elements-editor-tooltip-textColorSelected: #f4f4ff;
+  --bolt-elements-editor-tooltip-borderColor: rgba(0, 229, 255, 0.14);
+
+  /* ── Items / dividers the prior block left on vendor light values ───────── */
+  --bolt-elements-item-contentDanger: #ff5c79;
+  --bolt-elements-item-backgroundDefault: transparent;
+  --bolt-elements-item-backgroundDanger: rgba(255, 92, 121, 0.16);
+  --bolt-elements-button-secondary-backgroundActive: rgba(0, 229, 255, 0.16);
+  --bolt-elements-button-danger-background: rgba(255, 92, 121, 0.16);
+  --bolt-elements-button-danger-backgroundHover: rgba(255, 92, 121, 0.28);
+  --bolt-elements-button-danger-text: #ff5c79;
+  --bolt-elements-icon-success: #5af78e;
+  --bolt-elements-icon-error: #ff5c79;
+  --bolt-elements-artifacts-borderColor: rgba(0, 229, 255, 0.14);
+  --bolt-elements-artifacts-inlineCode-text: #00e5ff;
+  --bolt-elements-actions-code-background: #0b0b1e;
+  --bolt-elements-messages-linkColor: #00e5ff;
+  --bolt-elements-messages-code-background: #060610;
+  --bolt-elements-messages-inlineCode-background: rgba(0, 229, 255, 0.08);
+  --bolt-elements-messages-inlineCode-text: #00e5ff;
+  --bolt-elements-sidebar-dropdownShadow: rgba(0, 0, 0, 0.55);
+  --bolt-elements-preview-addressBar-textActive: #f4f4ff;
 }
