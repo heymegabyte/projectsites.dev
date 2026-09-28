@@ -140,26 +140,34 @@ export function LockManager() {
       : false;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    // `[color-scheme:dark]` keeps the native <select> popup + its <option> list dark, never white.
+    <div className="flex flex-col h-full overflow-hidden bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark]">
       {/* Controls */}
-      <div className="flex items-center gap-1 px-2 py-1 border-b border-bolt-elements-borderColor">
+      <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-bolt-elements-borderColor">
         {/* Search Input */}
-        <div className="relative flex-1">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-bolt-elements-textTertiary i-ph:magnifying-glass text-xs pointer-events-none" />
+        <div className="relative flex-1 group">
+          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-bolt-elements-textTertiary group-focus-within:text-bolt-elements-item-contentAccent transition-colors i-ph:magnifying-glass text-xs pointer-events-none" />
           <input
             type="text"
-            placeholder="Search..."
-            className="w-full text-xs pl-6 pr-2 py-0.5 h-6 bg-bolt-elements-background-depth-2 text-bolt-elements-textPrimary rounded border border-bolt-elements-borderColor focus:outline-none"
+            placeholder="Search…"
+            className="w-full text-xs pl-6 pr-2 py-0.5 h-6 bg-bolt-elements-background-depth-2 text-bolt-elements-textPrimary placeholder:text-bolt-elements-textTertiary rounded border border-bolt-elements-borderColor transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:border-bolt-elements-item-contentAccent/50"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             style={{ minWidth: 0 }}
           />
         </div>
-        {/* Filter Select */}
+        {/* Filter Select — appearance-none + cyan SVG chevron so no OS-gray arrow leaks. */}
         <select
-          className="text-xs px-1 py-0.5 h-6 bg-bolt-elements-background-depth-2 text-bolt-elements-textPrimary rounded border border-bolt-elements-borderColor focus:outline-none"
+          className={classNames(
+            'text-xs h-6 appearance-none pl-2 pr-6 py-0.5 bg-bolt-elements-background-depth-2 text-bolt-elements-textPrimary rounded border border-bolt-elements-borderColor cursor-pointer transition-colors',
+            'hover:border-bolt-elements-item-contentAccent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+            "bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2300e5ff%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22/%3E%3C/svg%3E')]",
+            'bg-[length:12px] bg-[right_0.45rem_center] bg-no-repeat',
+            '[&>option]:bg-bolt-elements-background-depth-2 [&>option]:text-bolt-elements-textPrimary',
+          )}
           value={filter}
           onChange={(e) => setFilter(e.target.value as any)}
+          aria-label="Filter locked items by type"
         >
           <option value="all">All</option>
           <option value="files">Files</option>

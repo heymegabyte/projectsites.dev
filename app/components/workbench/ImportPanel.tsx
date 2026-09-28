@@ -75,6 +75,23 @@ const TYPE_OPTIONS: ReadonlyArray<{ value: DetectedType; label: string }> = [
   { value: 'REAL', label: 'Decimal' },
 ];
 
+/**
+ * One dark, branded <select> style — `appearance-none` strips the OS chevron (a light-gray glyph on
+ * a white field) and paints a cyan SVG chevron via `background-image`, so the control is 100% on-brand
+ * black+cyan with a cyan focus ring. Paired with `[color-scheme:dark]` on the shell, the popped-open
+ * <option> list is dark too. Reused by every native <select> in this panel.
+ */
+const SELECT_CLASS = classNames(
+  'w-full appearance-none rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1',
+  'px-3 py-1.5 pr-8 text-[12px] text-bolt-elements-textPrimary cursor-pointer transition-colors',
+  'hover:border-bolt-elements-item-contentAccent/50',
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:border-bolt-elements-item-contentAccent/60',
+  "bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2300e5ff%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22/%3E%3C/svg%3E')]",
+  'bg-[length:14px] bg-[right_0.6rem_center] bg-no-repeat',
+  // Belt-and-braces: paint the popped <option> list dark too (Linux/Windows Chrome can still white it out under color-scheme:dark).
+  '[&>option]:bg-bolt-elements-background-depth-1 [&>option]:text-bolt-elements-textPrimary',
+);
+
 type Stage = 'pick' | 'map';
 type TargetMode = 'new' | 'existing';
 
@@ -591,7 +608,7 @@ export const ImportPanel = memo(() => {
                     value={existingTable}
                     onChange={(e) => setExistingTable(e.target.value)}
                     data-testid="import-existing-table"
-                    className="w-full rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-3 py-1.5 text-[12px] text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+                    className={SELECT_CLASS}
                   >
                     <option value="">Pick a table…</option>
                     {tables.map((t) => (
@@ -652,7 +669,7 @@ export const ImportPanel = memo(() => {
                         disabled={!m.include}
                         aria-label={`Type for ${m.sourceHeader}`}
                         data-testid={`import-col-type-${i}`}
-                        className="rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 py-1 text-[11px] text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer disabled:opacity-40"
+                        className={classNames(SELECT_CLASS, 'text-[11px] py-1 disabled:opacity-40')}
                       >
                         {TYPE_OPTIONS.map((o) => (
                           <option key={o.value} value={o.value}>
@@ -794,7 +811,9 @@ ImportPanel.displayName = 'ImportPanel';
 // ── Small presentational helpers (kept local — mirror SchemaBuilder's inline sub-components) ───────────
 
 const PanelShell = memo(({ children }: { children: React.ReactNode }) => (
-  <div className="h-full overflow-auto p-4" data-testid="import-panel">
+  // `[color-scheme:dark]` forces native chrome (the <select> popup + <option> list, checkboxes,
+  // scrollbars, autofill) to render dark instead of the browser's white default — no white leaks.
+  <div className="h-full overflow-auto modern-scrollbar p-4 [color-scheme:dark] bg-bolt-elements-background-depth-1" data-testid="import-panel">
     <div className="max-w-[720px]">{children}</div>
   </div>
 ));

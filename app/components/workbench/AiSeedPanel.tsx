@@ -414,7 +414,7 @@ export const AiSeedPanel = memo(() => {
               value={selectedTable}
               onChange={(e) => onSelectTable(e.target.value)}
               data-testid="seed-table"
-              className="mt-1 w-full rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-3 py-1.5 text-[12px] text-bolt-elements-textPrimary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent cursor-pointer"
+              className={SEED_SELECT_CLASS}
             >
               <option value="">Pick a table…</option>
               {tables.map((t) => (
@@ -628,11 +628,27 @@ function mapSqliteType(type: string | undefined): SeedColumn['type'] {
 // ── Local presentational helpers ──────────────────────────────────────────────────────────────────────
 
 const Shell = memo(({ children }: { children: React.ReactNode }) => (
-  <div className="h-full overflow-auto p-4" data-testid="ai-seed-panel">
+  // `[color-scheme:dark]` forces the native <select> popup, <option> list, and number-input spinners
+  // to render dark — otherwise they show the browser's white default and break the black+cyan theme.
+  <div className="h-full overflow-auto modern-scrollbar p-4 [color-scheme:dark] bg-bolt-elements-background-depth-1" data-testid="ai-seed-panel">
     <div className="max-w-[720px]">{children}</div>
   </div>
 ));
 Shell.displayName = 'AiSeedPanel.Shell';
+
+/**
+ * Branded dark <select> — `appearance-none` removes the OS chevron (a gray glyph) and a cyan SVG
+ * chevron is painted via background-image; cyan focus ring; on-brand black+cyan at every state.
+ */
+const SEED_SELECT_CLASS = classNames(
+  'mt-1 w-full appearance-none rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1',
+  'px-3 py-1.5 pr-8 text-[12px] text-bolt-elements-textPrimary cursor-pointer transition-colors',
+  'hover:border-bolt-elements-item-contentAccent/50',
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:border-bolt-elements-item-contentAccent/60',
+  "bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2300e5ff%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22/%3E%3C/svg%3E')]",
+  'bg-[length:14px] bg-[right_0.6rem_center] bg-no-repeat',
+  '[&>option]:bg-bolt-elements-background-depth-1 [&>option]:text-bolt-elements-textPrimary',
+);
 
 const EmptyNote = memo(({ icon, title, children }: { icon: string; title: string; children: React.ReactNode }) => (
   <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">

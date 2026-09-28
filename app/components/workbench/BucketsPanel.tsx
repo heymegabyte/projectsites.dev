@@ -288,7 +288,7 @@ export const BucketsPanel = memo(() => {
 
   if (buckets.status === 'disabled') {
     return (
-      <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary">
+      <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark]">
         <BucketsHeader buckets={[]} objectOpsAvailable={false} onCreate={() => {}} onRefresh={() => void loadBuckets()} createDisabled />
         <DisabledCard />
       </div>
@@ -296,7 +296,7 @@ export const BucketsPanel = memo(() => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary" data-testid="buckets-panel">
+    <div className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark]" data-testid="buckets-panel">
       <BucketsHeader
         buckets={buckets.status === 'ready' ? buckets.buckets : []}
         objectOpsAvailable={objectOpsAvailable}
@@ -868,7 +868,14 @@ const ObjectBrowser = memo(
               value={sort}
               onChange={(e) => setSort(e.target.value as SortKey)}
               aria-label="Sort objects"
-              className="min-h-[26px] px-2 py-1 text-[11px] rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
+              className={classNames(
+                'min-h-[26px] appearance-none pl-2.5 pr-7 py-1 text-[11px] rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary cursor-pointer transition-colors',
+                'hover:border-bolt-elements-item-contentAccent/50 hover:text-bolt-elements-textPrimary',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent',
+                "bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2300e5ff%22%20stroke-width%3D%222.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22/%3E%3C/svg%3E')]",
+                'bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat',
+                '[&>option]:bg-bolt-elements-background-depth-2 [&>option]:text-bolt-elements-textPrimary',
+              )}
             >
               <option value="name">Name</option>
               <option value="size">Size</option>

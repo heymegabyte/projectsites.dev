@@ -382,7 +382,9 @@ export const TimeTravelPanel = memo(() => {
 
   return (
     <div
-      className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary"
+      // `[color-scheme:dark]` renders the native <input type=datetime-local> calendar picker + its
+      // spin fields and the <input type=range> track dark, instead of the browser's white chrome.
+      className="h-full flex flex-col bg-bolt-elements-background-depth-1 text-bolt-elements-textPrimary [color-scheme:dark]"
       data-testid="time-travel-panel"
     >
       <Header retentionDays={info.retentionDays ?? TIME_TRAVEL_RETENTION_DAYS} onRefresh={() => void loadInfo()} />
@@ -555,7 +557,9 @@ export const TimeTravelPanel = memo(() => {
                   step={60}
                   onChange={(e) => setRestoreAt(e.target.value)}
                   data-testid="tt-restore-datetime"
-                  className="flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-[12px] text-bolt-elements-textPrimary focus:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent"
+                  // `[&::-webkit-calendar-picker-indicator]:invert` makes the native picker glyph a
+                  // bright cyan-ish icon (it defaults to a dark, near-invisible glyph on the dark field).
+                  className="flex-1 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-1.5 text-[12px] text-bolt-elements-textPrimary transition-colors hover:border-bolt-elements-item-contentAccent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-item-contentAccent focus-visible:border-bolt-elements-item-contentAccent/60 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-70 [&::-webkit-calendar-picker-indicator]:invert hover:[&::-webkit-calendar-picker-indicator]:opacity-100"
                 />
                 <button
                   type="button"
