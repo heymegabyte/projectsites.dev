@@ -198,7 +198,12 @@ import { wireframePlanning } from '../libs/features/wireframe_planning/handlers.
 import { cmdkAiActionsRouter } from '../libs/features/cmdk_ai_actions/handlers.js'; // Cmd+K AI actions (flag: cmdk_ai_actions)
 import { proxyToContainer } from './services/container_dispatcher.js';
 import { resolveAppHost } from './services/app_host_resolver.js';
-import { getContentType, resolveSite, serveSiteFromR2 } from './services/site_serving.js';
+import {
+  getContentType,
+  resolveSite,
+  serveSiteFromR2,
+  serveSiteViaWfpIfPreferred,
+} from './services/site_serving.js';
 import { maybeDispatchFunctions } from './services/functions_dispatch.js'; // Stage 3.1: child-host /api/* → site's WfP functions worker (ADR-0035 §30)
 import { dispatchToUserWorker } from './services/wfp_dispatch.js'; // CF-native app instances ({slug}.app.projectsites.dev → USER_DISPATCH user Worker)
 
@@ -2113,6 +2118,14 @@ app.all('*', async (c) => {
   c.executionCtx.waitUntil(
     recordPageviewFromRequest(c.env, { orgId: site.org_id, siteId: site.site_id }, c.req.raw, path),
   );
+
+  // WfP Site Hosting preference (docs/wfp-site-hosting.md Unit 3): when the
+  // `site_wfp_hosting` flag is ON for this site AND a live WfP slot is recorded
+  // (Unit 2), serve by DISPATCHING to the per-site User Worker. This is additive +
+  // fail-soft — for the flag-off majority it returns null in ~one flag read and the
+  // R2 path below runs byte-identically; any WfP miss/error also returns null → R2.
+  const wfpServed = await serveSiteViaWfpIfPreferred(c.env, site, c.req.raw, hostname);
+  if (wfpServed) return wfpServed;
 
   // Serve static site from R2 (host passed for the AL-394 edge-cache key: per-host
   // canonical/OG correctness + version-invalidation).

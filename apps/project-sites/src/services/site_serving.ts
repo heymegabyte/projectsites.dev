@@ -37,8 +37,122 @@ import { minifyCssCached } from './css_minify.js';
 import { parseBranchHost } from './site_branches.js';
 import { buildAnalyticsTracker } from './analytics_tracker.js';
 import { log } from '../lib/log.js';
+import {
+  isWfpConfigured,
+  siteFunctionsScriptName,
+  dispatchToUserWorker,
+} from './wfp_dispatch.js';
 
 const serveLog = log.child('site_serving');
+
+/**
+ * WfP Site Hosting — Work Unit 3 serving preference (docs/wfp-site-hosting.md §Work units 3).
+ *
+ * The ADDITIVE, flag-gated preference branch in the site request path. When the
+ * `site_wfp_hosting` flag is ON for this specific site AND a live Workers-for-Platforms
+ * slot is recorded for the resolved environment (Unit-2 registry row:
+ * `resourceConcept='wfp_namespace'`, `lifecycleState='active'`, with a `userWorkerScript`),
+ * the request is DISPATCHED to the per-site User Worker (`env.USER_DISPATCH` via
+ * {@link dispatchToUserWorker}) and its response returned. In EVERY other case this returns
+ * `null` so the caller falls through to the existing R2 serving path — which stays
+ * byte-identical for the flag-off majority (this function is the only new work, and it does
+ * nothing observable until BOTH the flag is on AND a slot exists).
+ *
+ * Fail-soft (doc §Interpretation): any miss, unconfigured WfP, a non-real org (bolt-community),
+ * a dispatch throw, OR a 5xx from the user worker → returns `null` (fall back to R2). A
+ * WfP-hosted site is NEVER worse than R2 — a dispatch failure degrades, never 5xx's the visitor.
+ *
+ * Isolation (doc §Work units 3): a PREVIEW host (`{branch}--{slug}.projectsites.dev`, detected by
+ * {@link parseBranchHost}) resolves the `preview` env + the `-preview` slot; a normal host resolves
+ * `production`. A preview request can never dispatch a production slot because it never resolves one.
+ *
+ * Reuse, not reimplementation (doc §Reuse): `isWfpConfigured` + `siteFunctionsScriptName` +
+ * `dispatchToUserWorker` from `wfp_dispatch.ts`, `listResources` (Unit-1 registry), `isFlagOn`.
+ * No internal ids leak — the dispatched slot name is a deterministic `site-<id>` (public serve path).
+ *
+ * @param env - Worker env (needs `DB`, `USER_DISPATCH`, WfP creds for `isWfpConfigured`).
+ * @param site - The resolved site (from {@link resolveSite}) — carries `org_id` for the flag scope.
+ * @param request - The inbound Request to dispatch verbatim to the user worker.
+ * @param host - The request `Host` (drives preview-vs-production slot selection).
+ * @returns A dispatched `Response` when WfP hosting is preferred + healthy, else `null`.
+ *
+ * @remarks Impure: reads a flag (KV/D1), reads the registry (D1), and may dispatch a subrequest.
+ * @example
+ * const wfp = await serveSiteViaWfpIfPreferred(env, site, c.req.raw, host);
+ * if (wfp) return wfp; // else fall through to serveSiteFromR2 (byte-identical R2 path)
+ */
+export async function serveSiteViaWfpIfPreferred(
+  env: Env,
+  site: { site_id: string; slug: string; org_id: string; plan: string },
+  request: Request,
+  host: string,
+): Promise<Response | null> {
+  // Fail-soft wrapper: this branch must NEVER throw into the serving hot path — any
+  // unexpected error degrades to R2 (return null), never a 5xx to the visitor.
+  try {
+    // Bolt-community / R2-only sites have no real org (no flag scope, no owned registry
+    // row) — skip WfP entirely, exactly as today's R2 path handles them.
+    if (!site.org_id || site.org_id === 'bolt-community' || site.site_id.startsWith('bolt-')) {
+      return null;
+    }
+
+    // Gate 1 (FIRST — keeps the flag-off path byte-identical): the per-site flag.
+    const { isFlagOn } = await import('../modules/feature_flags/services.js');
+    if (!(await isFlagOn(env, 'site_wfp_hosting', { orgId: site.org_id, siteId: site.site_id }))) {
+      return null;
+    }
+
+    // Gate 2: WfP must be provisioned on this deployment (binding + namespace + creds).
+    if (!isWfpConfigured(env)) return null;
+
+    // Preview hosts serve the `-preview` slot; every other host serves production.
+    const isPreviewHost = parseBranchHost(host) !== null;
+    const environment: 'preview' | 'production' = isPreviewHost ? 'preview' : 'production';
+
+    // Gate 3: a WfP slot must actually be recorded (Unit 2) for THIS site + env.
+    const { listResources } = await import('../../libs/features/data_resource_registry/service.js');
+    const rows = await listResources(env, site.site_id, environment);
+    const slot = rows.find(
+      (r) =>
+        r.resourceConcept === 'wfp_namespace' &&
+        r.lifecycleState === 'active' &&
+        !!r.userWorkerScript,
+    );
+    if (!slot) return null;
+
+    // Dispatch to the per-site User Worker. Use the slot's recorded script when present,
+    // else the deterministic SSOT name (defense-in-depth; they agree).
+    const scriptName =
+      slot.userWorkerScript ??
+      siteFunctionsScriptName(site.site_id, { preview: isPreviewHost });
+    const res = await dispatchToUserWorker(env, scriptName, request);
+
+    // A user-worker 5xx (script error / dispatch-layer failure) is NOT better than R2 —
+    // degrade to R2 rather than pass a broken 5xx to the visitor. 2xx/3xx/4xx (incl. the
+    // worker's own styled 404) are the worker's authoritative response — serve them.
+    if (res.status >= 500) {
+      serveLog.warn('wfp_dispatch_5xx_fallback_r2', {
+        slug: site.slug,
+        environment,
+        status: res.status,
+      });
+      return null;
+    }
+
+    // Tag the served response so a prod-verify can prove it came via dispatch (not R2).
+    const tagged = new Response(res.body, res);
+    tagged.headers.set('x-ps-serve', 'wfp');
+    serveLog.debug('serve_via_wfp', { slug: site.slug, environment, scriptName });
+    return tagged;
+  } catch (err) {
+    // Fail-soft: log + degrade to R2. Never let the WfP branch break serving.
+    serveLog.warn('wfp_serve_preference_error', {
+      slug: site.slug,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
 
 /**
  * Whether a generated site is served cookie-free — i.e. neither GA4 nor GTM

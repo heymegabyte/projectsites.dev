@@ -82,9 +82,23 @@ lone 200.
    record fail) — never throws into the serving path. Unit test `src/__tests__/wfp_site_hosting.test.ts`
    (7 cases: ownership reject, unconfigured, prod slot upload+record, preview slot, version fallback,
    empty build, CF PUT reject). tsc + jest green. **coupled**
-3. **Serving preference** — additive branch in `serveSiteFromR2`/`index.ts`: flag ON + WfP prod script
-   present → `dispatchToUserWorker('site-<id>', req)`; preview hosts → `-preview`; **else unchanged R2**;
-   fail-soft to R2 on any dispatch error. **coupled**
+3. ✅ **Serving preference** — DONE (2026-09-28). `serveSiteViaWfpIfPreferred(env, site, req, host)`
+   (`src/services/site_serving.ts`) is the additive, flag-gated preference branch, wired into the site
+   request path in `index.ts` right BEFORE the (untouched, byte-identical) `serveSiteFromR2` call:
+   `const w = await serveSiteViaWfpIfPreferred(...); if (w) return w;` else the existing R2 path runs
+   verbatim. Order of gates (flag FIRST so the flag-off majority is byte-identical — one flag read then
+   `null` → R2): skip non-real orgs (`bolt-community`/`bolt-*`) → `isFlagOn('site_wfp_hosting', {orgId,
+   siteId})` → `isWfpConfigured` → resolve env from the host (`parseBranchHost` → `preview`|`production`)
+   → `listResources(siteId, env)` finds a live `wfp_namespace` slot with a `userWorkerScript` →
+   `dispatchToUserWorker(env, slot.userWorkerScript, req)`. Preview hosts dispatch the `-preview` slot,
+   prod the prod slot (isolation preserved — a preview never resolves a production slot). **Fail-soft**:
+   any miss / unconfigured / dispatch throw / user-worker 5xx → returns `null` → R2 (never worse than R2,
+   never a 5xx to the visitor). Served WfP responses carry `x-ps-serve: wfp` so a prod-verify can prove
+   dispatch. REUSES `wfp_dispatch.{isWfpConfigured,siteFunctionsScriptName,dispatchToUserWorker}` +
+   Unit-1 `listResources` + `isFlagOn` — no dispatch reimplemented. Unit test
+   `src/__tests__/wfp_serve_preference.test.ts` (8 cases: flag-off no-dispatch, flag-on+slot→dispatch prod,
+   preview host→`-preview`, no slot→R2, dispatch throw→R2, unconfigured→R2, worker-5xx→R2, bolt-community→R2).
+   tsc + full Jest (864 suites) green. **coupled**
 4. **Wire lifecycle** — deploy the **preview** slot after `upload-final`; deploy the **production** slot
    on publish/promote. **coupled**
 5. **Teardown** — on site delete/archive, delete BOTH slots + clear the registry row (reuse
