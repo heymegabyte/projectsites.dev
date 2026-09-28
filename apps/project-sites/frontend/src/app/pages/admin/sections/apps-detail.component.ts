@@ -302,7 +302,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
           </section>
 
           <!-- ─── RIGHT: deploy panel ─── -->
-          <aside class="space-y-5">
+          <aside class="space-y-5 deploy-aside">
             <article class="card deploy-card" appReveal>
               <h2 class="card-h">Deploy</h2>
 
@@ -438,34 +438,23 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
                             ⋮
                           </button>
                           @if (openMenuInstanceId() === inst.id) {
-                            <div class="instances-menu" role="menu"
-                                 [style.top.px]="menuPos().top" [style.right.px]="menuPos().right">
-                              <a
-                                class="instances-menu-item"
-                                [routerLink]="['/admin/apps/instances', inst.id]"
-                                role="menuitem">
-                                Manage
+                            <div class="instances-menu" role="menu" (click)="$event.stopPropagation()">
+                              <a class="instances-menu-item" [routerLink]="['/admin/apps/instances', inst.id]" role="menuitem">
+                                <svg class="mi-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <span>Manage</span>
                               </a>
-                              <button
-                                class="instances-menu-item"
-                                (click)="openInstanceLive(inst)"
-                                type="button"
-                                role="menuitem">
-                                Open
+                              <button class="instances-menu-item" (click)="openInstanceLive(inst)" type="button" role="menuitem">
+                                <svg class="mi-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                                <span>Open</span>
                               </button>
-                              <button
-                                class="instances-menu-item instances-menu-item--danger"
-                                (click)="deleteInstance(inst.id)"
-                                type="button"
-                                role="menuitem">
-                                Delete
+                              <button class="instances-menu-item" (click)="cloneInstance(inst)" type="button" role="menuitem">
+                                <svg class="mi-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                                <span>Clone</span>
                               </button>
-                              <button
-                                class="instances-menu-item"
-                                (click)="cloneInstance(inst)"
-                                type="button"
-                                role="menuitem">
-                                Clone
+                              <div class="instances-menu-divider" role="separator"></div>
+                              <button class="instances-menu-item instances-menu-item--danger" (click)="deleteInstance(inst.id)" type="button" role="menuitem">
+                                <svg class="mi-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                                <span>Delete</span>
                               </button>
                             </div>
                           }
@@ -830,6 +819,15 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
       white-space: pre;
     }
 
+    /* The global admin-aside rule (app-admin aside, _admin-polish.scss) paints EVERY admin aside
+       with a DARK bg + backdrop-filter — meant for the sidebar, but it over-matches this Deploy
+       aside, making it read as a dark frosted panel. Force it truly transparent here. */
+    aside.deploy-aside {
+      background: transparent !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+
     /* ─── Deploy panel (aside) ─── */
     /* Round 1 — TRANSPARENT, frameless aside. The base .card fill/border/padding/shadow are
        overridden away (later source order wins) so the page shows through; the content modules
@@ -974,7 +972,7 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
         linear-gradient(180deg,
           color-mix(in oklch, var(--ps-accent, #00E5FF) 8%, transparent),
           color-mix(in oklch, var(--ps-accent, #00E5FF) 2%, transparent)),
-        rgba(8, 8, 22, 0.5);
+        rgba(255, 255, 255, 0.035);
       border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 20%, transparent);
       box-shadow:
         0 12px 34px -20px color-mix(in oklch, var(--ps-accent, #00E5FF) 65%, transparent),
@@ -1106,12 +1104,16 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     }
     .instances-manage:hover { text-decoration: underline; opacity: 0.85; }
     .instances-manage:focus-visible { outline: 2px solid var(--ps-accent, #00e5ff); outline-offset: 2px; }
-    /* Round 4 — glass instances table with per-row hover glow. */
+    /* Light translucent instances table with per-row hover glow. overflow:visible (NOT hidden)
+       so the position:absolute .instances-menu dropdown isn't clipped; the first/last rows carry
+       the rounding instead. NO backdrop-filter (it would create a containing block). */
     .instances-table {
-      display: flex; flex-direction: column; gap: 0; overflow: hidden;
+      display: flex; flex-direction: column; gap: 0; overflow: visible;
       border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
-      background: rgba(8,8,22,0.4); backdrop-filter: blur(6px);
+      background: rgba(255,255,255,0.02);
     }
+    .instances-row:first-child { border-top-left-radius: 12px; border-top-right-radius: 12px; }
+    .instances-row:last-child { border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }
     .instances-row:not(.instances-row-head) { transition: background 150ms ease; }
     .instances-row:not(.instances-row-head):hover {
       background: color-mix(in oklch, var(--ps-accent, #00E5FF) 6%, transparent);
@@ -1156,20 +1158,44 @@ const INFRA_META: Readonly<Record<InfraDep, { glyph: string; label: string }>> =
     }
     .instances-menu-btn:hover { color: var(--ps-accent, #00E5FF); background: rgba(255,255,255,0.04); }
     .instances-menu-btn:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: 2px; }
+    /* Gorgeous ⋮ dropdown — frosted glass, accent-tinted border, layered depth, pop-in. */
     .instances-menu {
-      position: fixed; z-index: 99950;
-      background: var(--ps-surface-1, rgba(13,13,40,0.92)); border: 1px solid rgba(255,255,255,0.1);
-      border-radius: var(--ps-radius-sm, 8px); box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-      min-width: 120px; overflow: hidden;
+      position: absolute; top: calc(100% + 8px); right: 0; z-index: 40;
+      min-width: 172px; padding: 5px;
+      background: linear-gradient(180deg, rgba(20,20,44,0.98), rgba(10,10,26,0.98));
+      border: 1px solid color-mix(in oklch, var(--ps-accent, #00E5FF) 20%, rgba(255,255,255,0.09));
+      border-radius: 13px;
+      box-shadow:
+        0 20px 46px -14px rgba(0,0,0,0.72),
+        0 0 0 1px rgba(255,255,255,0.03) inset,
+        0 1px 0 rgba(255,255,255,0.07) inset;
+      backdrop-filter: blur(16px) saturate(140%);
+      -webkit-backdrop-filter: blur(16px) saturate(140%);
+      overflow: hidden; transform-origin: top right;
+      animation: menuPop 170ms cubic-bezier(0.22, 1, 0.36, 1);
     }
+    @keyframes menuPop {
+      from { opacity: 0; transform: scale(0.94) translateY(-5px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) { .instances-menu { animation: none; } }
+    .instances-menu-divider { height: 1px; margin: 4px 6px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent); }
     .instances-menu-item {
-      display: block; width: 100%; text-align: left;
-      padding: 0.6rem 0.85rem; background: none; border: none;
-      font-size: 0.74rem; color: rgba(255,255,255,0.8); cursor: pointer;
+      display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+      padding: 0.5rem 0.65rem; border-radius: 8px; background: none; border: none;
+      font-family: 'Sora', system-ui, sans-serif;
+      font-size: 0.76rem; font-weight: 500; color: rgba(255,255,255,0.82); cursor: pointer;
+      text-decoration: none;
       transition: background 140ms ease, color 140ms ease;
     }
-    .instances-menu-item:hover { background: rgba(255,255,255,0.08); color: var(--ps-accent, #00E5FF); }
+    .instances-menu-item .mi-icon { flex-shrink: 0; color: rgba(255,255,255,0.5); transition: color 140ms ease, transform 140ms ease; }
+    .instances-menu-item:hover { background: color-mix(in oklch, var(--ps-accent, #00E5FF) 13%, transparent); color: #fff; }
+    .instances-menu-item:hover .mi-icon { color: var(--ps-accent, #00E5FF); transform: translateX(1px); }
+    .instances-menu-item:focus-visible { outline: 2px solid var(--ps-accent, #00E5FF); outline-offset: -2px; }
+    .instances-menu-item--danger { color: #fca5a5; }
+    .instances-menu-item--danger .mi-icon { color: rgba(248,113,113,0.7); }
     .instances-menu-item--danger:hover { background: rgba(248,113,113,0.15); color: #fecaca; }
+    .instances-menu-item--danger:hover .mi-icon { color: #fca5a5; }
     .instances-empty {
       font-size: 0.76rem; color: rgba(255,255,255,0.55); padding: 1.05rem 1rem;
       text-align: center; font-style: normal; letter-spacing: 0.01em;
@@ -1300,6 +1326,10 @@ export class AppDetailComponent implements OnInit {
   /** ←/→ navigate prev/next app — ignored while typing in a form control. */
   @HostListener('window:keydown', ['$event'])
   onArrowNav(e: KeyboardEvent): void {
+    if (e.key === 'Escape' && this.openMenuInstanceId()) {
+      this.openMenuInstanceId.set(null);
+      return;
+    }
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     const tag = (e.target as HTMLElement | null)?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
@@ -1329,22 +1359,21 @@ export class AppDetailComponent implements OnInit {
   subdomainChecking = signal<boolean>(false);
   instances = signal<Array<{ id: string; app_id: string; app_slug?: string; subdomain: string; host: string; status: string; created_at: string }>>([]);
   openMenuInstanceId = signal<string | null>(null);
-  /** Fixed-overlay coords for the open ⋮ menu — captured from the button so the instances
-   *  table's `overflow:hidden` (rounded corners) never crops the dropdown. */
-  menuPos = signal<{ top: number; right: number }>({ top: 0, right: 0 });
 
   /** Toggle a row's ⋮ menu; anchor it as a viewport-fixed overlay under the button. */
+  /** Toggle the ⋮ row menu. The menu is position:absolute relative to its cell, so it needs
+   *  NO viewport math and is immune to the aside's containing blocks (transform / backdrop-filter
+   *  / will-change on ancestors — which is why a position:fixed menu opened off-screen).
+   *  stopPropagation keeps this opening click from reaching the document:click closer below. */
   toggleInstanceMenu(id: string, ev: Event): void {
-    if (this.openMenuInstanceId() === id) {
-      this.openMenuInstanceId.set(null);
-      return;
-    }
-    const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
-    this.menuPos.set({
-      top: Math.round(rect.bottom + 4),
-      right: Math.round(window.innerWidth - rect.right),
-    });
-    this.openMenuInstanceId.set(id);
+    ev.stopPropagation();
+    this.openMenuInstanceId.set(this.openMenuInstanceId() === id ? null : id);
+  }
+
+  /** Any click outside the menu closes it (the opening click stopPropagation-s past this). */
+  @HostListener('document:click')
+  closeInstanceMenuOnOutsideClick(): void {
+    if (this.openMenuInstanceId()) this.openMenuInstanceId.set(null);
   }
 
   /** Per-line cost breakdown — container + every infra provider. */
@@ -1518,15 +1547,8 @@ export class AppDetailComponent implements OnInit {
     // A fixed-position ⋮ menu detaches from its button on scroll — close it on ANY
     // scroll (capture phase catches the inner scrollable panel too, not just window)
     // or resize so it never floats orphaned. Cleaned up on destroy.
-    const closeInstanceMenu = () => {
-      if (this.openMenuInstanceId()) this.openMenuInstanceId.set(null);
-    };
-    document.addEventListener('scroll', closeInstanceMenu, true);
-    window.addEventListener('resize', closeInstanceMenu);
-    this.destroyRef.onDestroy(() => {
-      document.removeEventListener('scroll', closeInstanceMenu, true);
-      window.removeEventListener('resize', closeInstanceMenu);
-    });
+    // The ⋮ row menu is position:absolute (anchored to its cell), so it follows the button on
+    // scroll/resize automatically — no manual re-tracking or fixed-overlay coords needed.
 
     // Subscribe (not snapshot) so prev/next nav — which re-uses THIS component
     // with a new `:id` — re-resolves the app instead of showing the old one.
