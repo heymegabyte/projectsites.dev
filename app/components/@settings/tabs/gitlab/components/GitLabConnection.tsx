@@ -183,7 +183,7 @@ export default function GitLabConnection({ connectionTest, onTestConnection }: G
                   onClick={() =>
                     console.log('Manual test:', { token: token ? `${token.substring(0, 10)}...` : 'empty', gitlabUrl })
                   }
-                  className="px-4 py-2 rounded-lg text-sm bg-gray-500 text-white hover:bg-gray-600"
+                  className="px-4 py-2 rounded-lg text-sm bg-bolt-elements-background-depth-3 text-bolt-elements-textPrimary border border-bolt-elements-borderColor hover:bg-bolt-elements-background-depth-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00E5FF]/50"
                 >
                   Test Values
                 </button>

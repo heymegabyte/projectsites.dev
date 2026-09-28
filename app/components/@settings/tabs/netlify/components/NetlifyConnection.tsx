@@ -901,8 +901,8 @@ export default function NetlifyConnection() {
               placeholder="Enter your Netlify API token"
               className={classNames(
                 'w-full px-3 py-2 rounded-lg text-sm',
-                'bg-[#F8F8F8] dark:bg-[#1A1A1A]',
-                'border border-[#E5E5E5] dark:border-[#333333]',
+                'bg-bolt-elements-background-depth-3',
+                'border border-bolt-elements-borderColor',
                 'text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary',
                 'focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive',
                 'disabled:opacity-50',
@@ -920,7 +920,7 @@ export default function NetlifyConnection() {
               </a>
             </div>
             {/* Debug info - remove this later */}
-            <div className="mt-2 text-xs text-gray-500">
+            <div className="mt-2 text-xs text-bolt-elements-textTertiary">
               <p>Debug: Token present: {connection.token ? '✅' : '❌'}</p>
               <p>Debug: User present: {connection.user ? '✅' : '❌'}</p>
               <p>Debug: Env token: {import.meta.env?.VITE_NETLIFY_ACCESS_TOKEN ? '✅' : '❌'}</p>
@@ -956,7 +956,7 @@ export default function NetlifyConnection() {
                   console.log('Manual Netlify auto-connect test');
                   await initializeNetlifyConnection();
                 }}
-                className="px-3 py-2 rounded-lg text-xs bg-blue-500 text-white hover:bg-blue-600"
+                className="px-3 py-2 rounded-lg text-xs bg-[#00E5FF]/15 text-bolt-elements-item-contentAccent hover:bg-[#00E5FF]/25 transition-colors"
               >
                 Test Auto-Connect
               </button>

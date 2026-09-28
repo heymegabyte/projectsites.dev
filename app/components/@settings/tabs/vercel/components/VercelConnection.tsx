@@ -112,7 +112,7 @@ export default function VercelConnection() {
 
   return (
     <motion.div
-      className="bg-[#FFFFFF] dark:bg-[#0A0A0A] rounded-lg border border-[#E5E5E5] dark:border-[#1A1A1A]"
+      className="bg-bolt-elements-background-depth-2 rounded-lg border border-bolt-elements-borderColor"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.3 }}
@@ -143,8 +143,8 @@ export default function VercelConnection() {
                 placeholder="Enter your Vercel personal access token"
                 className={classNames(
                   'w-full px-3 py-2 rounded-lg text-sm',
-                  'bg-[#F8F8F8] dark:bg-[#1A1A1A]',
-                  'border border-[#E5E5E5] dark:border-[#333333]',
+                  'bg-bolt-elements-background-depth-3',
+                  'border border-bolt-elements-borderColor',
                   'text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary',
                   'focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive',
                   'disabled:opacity-50',
@@ -171,7 +171,7 @@ export default function VercelConnection() {
                   </p>
                 </div>
                 {/* Debug info - remove this later */}
-                <div className="mt-2 text-xs text-gray-500">
+                <div className="mt-2 text-xs text-bolt-elements-textTertiary">
                   <p>Debug: Token present: {connection.token ? '✅' : '❌'}</p>
                   <p>Debug: User present: {connection.user ? '✅' : '❌'}</p>
                   <p>Debug: Env token: {import.meta.env?.VITE_VERCEL_ACCESS_TOKEN ? '✅' : '❌'}</p>
@@ -217,7 +217,7 @@ export default function VercelConnection() {
                     toast.error(`Manual auto-connect failed: ${result.error}`);
                   }
                 }}
-                className="px-3 py-2 rounded-lg text-xs bg-blue-500 text-white hover:bg-blue-600"
+                className="px-3 py-2 rounded-lg text-xs bg-[#00E5FF]/15 text-bolt-elements-item-contentAccent hover:bg-[#00E5FF]/25 transition-colors"
               >
                 Test Auto-Connect
               </button>
@@ -245,7 +245,7 @@ export default function VercelConnection() {
               </div>
             </div>
 
-            <div className="flex items-center gap-4 p-4 bg-[#F8F8F8] dark:bg-[#1A1A1A] rounded-lg">
+            <div className="flex items-center gap-4 p-4 bg-bolt-elements-background-depth-2 rounded-lg">
               {/* Debug output */}
               <pre className="hidden">{JSON.stringify(connection.user, null, 2)}</pre>
 
@@ -341,7 +341,7 @@ export default function VercelConnection() {
                             </div>
                           </div>
                           {project.framework && (
-                            <div className="text-xs text-bolt-elements-textSecondary px-2 py-1 rounded-md bg-[#F0F0F0] dark:bg-[#252525]">
+                            <div className="text-xs text-bolt-elements-textSecondary px-2 py-1 rounded-md bg-bolt-elements-background-depth-3">
                               <span className="flex items-center gap-1">
                                 <div className="i-ph:code w-3 h-3" />
                                 {project.framework}

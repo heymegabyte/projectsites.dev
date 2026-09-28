@@ -774,9 +774,9 @@ export default function NetlifyTab() {
                         label: 'SSL Enabled',
                         value: sslEnabled,
                         icon: 'i-ph:lock',
-                        color: 'text-blue-500',
-                        bgColor: 'bg-blue-100 dark:bg-blue-900/20',
-                        textColor: 'text-blue-800 dark:text-blue-400',
+                        color: 'text-bolt-elements-item-contentAccent',
+                        bgColor: 'bg-[#00E5FF]/10',
+                        textColor: 'text-bolt-elements-item-contentAccent',
                       },
                       {
                         label: 'Custom Domain',
@@ -1255,7 +1255,7 @@ export default function NetlifyTab() {
             'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-700':
               connectionTest.status === 'success',
             'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-700': connectionTest.status === 'error',
-            'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-700': connectionTest.status === 'testing',
+            'bg-[#00E5FF]/10 border-[#00E5FF]/30': connectionTest.status === 'testing',
           })}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1268,20 +1268,22 @@ export default function NetlifyTab() {
               <div className="i-ph:warning-circle w-5 h-5 text-red-600 dark:text-red-400" />
             )}
             {connectionTest.status === 'testing' && (
-              <div className="i-ph:spinner-gap w-5 h-5 animate-spin text-blue-600 dark:text-blue-400" />
+              <div className="i-ph:spinner-gap w-5 h-5 animate-spin text-bolt-elements-item-contentAccent" />
             )}
             <span
               className={classNames('text-sm font-medium', {
                 'text-green-800 dark:text-green-200': connectionTest.status === 'success',
                 'text-red-800 dark:text-red-200': connectionTest.status === 'error',
-                'text-blue-800 dark:text-blue-200': connectionTest.status === 'testing',
+                'text-bolt-elements-item-contentAccent': connectionTest.status === 'testing',
               })}
             >
               {connectionTest.message}
             </span>
           </div>
           {connectionTest.timestamp && (
-            <p className="text-xs text-gray-500 mt-1">{new Date(connectionTest.timestamp).toLocaleString()}</p>
+            <p className="text-xs text-bolt-elements-textTertiary mt-1">
+              {new Date(connectionTest.timestamp).toLocaleString()}
+            </p>
           )}
         </motion.div>
       )}
@@ -1318,8 +1320,8 @@ export default function NetlifyTab() {
                   placeholder="Enter your Netlify API token"
                   className={classNames(
                     'w-full px-3 py-2 rounded-lg text-sm',
-                    'bg-[#F8F8F8] dark:bg-[#1A1A1A]',
-                    'border border-[#E5E5E5] dark:border-[#333333]',
+                    'bg-bolt-elements-background-depth-3',
+                    'border border-bolt-elements-borderColor',
                     'text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary',
                     'focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive',
                     'disabled:opacity-50',

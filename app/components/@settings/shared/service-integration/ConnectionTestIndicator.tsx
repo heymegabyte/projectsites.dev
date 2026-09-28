@@ -25,7 +25,7 @@ export function ConnectionTestIndicator({ testResult, className }: ConnectionTes
         {
           'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-700': testResult.status === 'success',
           'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-700': testResult.status === 'error',
-          'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-700': testResult.status === 'testing',
+          'bg-[#00E5FF]/15 border-[#00E5FF]/30': testResult.status === 'testing',
         },
         className,
       )}
@@ -40,20 +40,20 @@ export function ConnectionTestIndicator({ testResult, className }: ConnectionTes
           <div className="i-ph:warning-circle w-5 h-5 text-red-600 dark:text-red-400" />
         )}
         {testResult.status === 'testing' && (
-          <div className="i-ph:spinner-gap w-5 h-5 animate-spin text-blue-600 dark:text-blue-400" />
+          <div className="i-ph:spinner-gap w-5 h-5 animate-spin text-bolt-elements-item-contentAccent" />
         )}
         <span
           className={classNames('text-sm font-medium', {
             'text-green-800 dark:text-green-200': testResult.status === 'success',
             'text-red-800 dark:text-red-200': testResult.status === 'error',
-            'text-blue-800 dark:text-blue-200': testResult.status === 'testing',
+            'text-bolt-elements-item-contentAccent': testResult.status === 'testing',
           })}
         >
           {testResult.message}
         </span>
       </div>
       {testResult.timestamp && (
-        <p className="text-xs text-gray-500 mt-1">{new Date(testResult.timestamp).toLocaleString()}</p>
+        <p className="text-xs text-bolt-elements-textTertiary mt-1">{new Date(testResult.timestamp).toLocaleString()}</p>
       )}
     </motion.div>
   );

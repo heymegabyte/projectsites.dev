@@ -186,7 +186,7 @@ export function InformationState({
 
   return (
     <div className={classNames('flex flex-col items-center justify-center py-8 text-center', className)}>
-      {React.createElement(icon, { className: classNames('text-blue-500 mb-2', sizeClasses[size]) })}
+      {React.createElement(icon, { className: classNames('text-bolt-elements-item-contentAccent mb-2', sizeClasses[size]) })}
       <h3 className={classNames('font-medium text-bolt-elements-textPrimary mb-1', textSizeClasses[size])}>{title}</h3>
       <p className={classNames('text-bolt-elements-textSecondary mb-4', textSizeClasses[size])}>{message}</p>
       {onAction && (
@@ -220,9 +220,9 @@ export function ConnectionTestIndicator({ status, message, timestamp, className 
       case 'error':
         return 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-700';
       case 'testing':
-        return 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-700';
+        return 'bg-[#00E5FF]/10 border-[#00E5FF]/30';
       default:
-        return 'bg-gray-50 border-gray-200 dark:bg-gray-900/20 dark:border-gray-700';
+        return 'bg-bolt-elements-background-depth-3 border-bolt-elements-borderColor';
     }
   };
 
@@ -233,9 +233,9 @@ export function ConnectionTestIndicator({ status, message, timestamp, className 
       case 'error':
         return <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />;
       case 'testing':
-        return <Loader2 className="w-5 h-5 animate-spin text-blue-600 dark:text-blue-400" />;
+        return <Loader2 className="w-5 h-5 animate-spin text-bolt-elements-item-contentAccent" />;
       default:
-        return <Info className="w-5 h-5 text-gray-600 dark:text-gray-400" />;
+        return <Info className="w-5 h-5 text-bolt-elements-textTertiary" />;
     }
   };
 
@@ -246,9 +246,9 @@ export function ConnectionTestIndicator({ status, message, timestamp, className 
       case 'error':
         return 'text-red-800 dark:text-red-200';
       case 'testing':
-        return 'text-blue-800 dark:text-blue-200';
+        return 'text-bolt-elements-item-contentAccent';
       default:
-        return 'text-gray-800 dark:text-gray-200';
+        return 'text-bolt-elements-textSecondary';
     }
   };
 
@@ -258,7 +258,7 @@ export function ConnectionTestIndicator({ status, message, timestamp, className 
         {getStatusIcon()}
         <span className={classNames('text-sm font-medium', getStatusTextColor())}>{message || status}</span>
       </div>
-      {timestamp && <p className="text-xs text-gray-500 mt-1">{new Date(timestamp).toLocaleString()}</p>}
+      {timestamp && <p className="text-xs text-bolt-elements-textTertiary mt-1">{new Date(timestamp).toLocaleString()}</p>}
     </div>
   );
 }

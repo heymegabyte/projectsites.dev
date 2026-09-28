@@ -305,7 +305,7 @@ export default function LocalProvidersTab() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500/20 to-blue-500/20 flex items-center justify-center ring-1 ring-purple-500/30">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500/20 to-[#00E5FF]/20 flex items-center justify-center ring-1 ring-purple-500/30">
               <Cpu className="w-6 h-6 text-purple-500" />
             </div>
             <div>
@@ -446,7 +446,7 @@ export default function LocalProvidersTab() {
                   <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Monitor className="w-5 h-5 text-blue-500" />
+                        <Monitor className="w-5 h-5 text-bolt-elements-item-contentAccent" />
                         <h3 className="text-lg font-semibold text-bolt-elements-textPrimary">Available Models</h3>
                       </div>
                       <Button
@@ -482,7 +482,7 @@ export default function LocalProvidersTab() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="bg-gradient-to-r from-blue-500/8 to-blue-600/8 hover:from-blue-500/15 hover:to-blue-600/15 border-blue-500/25 hover:border-blue-500/40 transition-all duration-300 gap-2 group shadow-sm hover:shadow-md font-medium"
+                          className="bg-gradient-to-r from-[#00E5FF]/8 to-[#00E5FF]/4 hover:from-[#00E5FF]/15 hover:to-[#00E5FF]/8 border-[#00E5FF]/25 hover:border-[#00E5FF]/40 transition-all duration-300 gap-2 group shadow-sm hover:shadow-md font-medium"
                           _asChild
                         >
                           <a
@@ -506,7 +506,7 @@ export default function LocalProvidersTab() {
                                   <h4 className="text-sm font-medium text-bolt-elements-textPrimary font-mono">
                                     {model.id}
                                   </h4>
-                                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-500">
+                                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-[#00E5FF]/10 text-bolt-elements-item-contentAccent">
                                     Available
                                   </span>
                                 </div>

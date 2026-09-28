@@ -46,11 +46,11 @@ function SetupGuide({ onBack }: { onBack: () => void }) {
       </div>
 
       {/* Hardware Requirements Overview */}
-      <Card className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20 shadow-sm">
+      <Card className="bg-gradient-to-r from-[#00E5FF]/10 to-purple-500/10 border border-[#00E5FF]/20 shadow-sm">
         <CardContent className="p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
-              <Shield className="w-5 h-5 text-blue-500" />
+            <div className="w-10 h-10 rounded-lg bg-[#00E5FF]/20 flex items-center justify-center">
+              <Shield className="w-5 h-5 text-bolt-elements-item-contentAccent" />
             </div>
             <div>
               <h3 className="text-lg font-semibold text-bolt-elements-textPrimary">System Requirements</h3>
@@ -67,7 +67,7 @@ function SetupGuide({ onBack }: { onBack: () => void }) {
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <Database className="w-4 h-4 text-blue-500" />
+                <Database className="w-4 h-4 text-bolt-elements-item-contentAccent" />
                 <span className="font-medium text-bolt-elements-textPrimary">RAM</span>
               </div>
               <p className="text-bolt-elements-textSecondary">16GB minimum, 32GB+ recommended</p>
@@ -166,10 +166,10 @@ function SetupGuide({ onBack }: { onBack: () => void }) {
                   </Button>
                 </div>
               </div>
-              <div className="mt-3 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20">
+              <div className="mt-3 p-3 rounded-lg bg-[#00E5FF]/5 border border-[#00E5FF]/20">
                 <div className="flex items-center gap-2 mb-1">
-                  <Globe className="w-4 h-4 text-blue-500" />
-                  <span className="font-medium text-blue-500 text-sm">Built-in Web Interface</span>
+                  <Globe className="w-4 h-4 text-bolt-elements-item-contentAccent" />
+                  <span className="font-medium text-bolt-elements-item-contentAccent text-sm">Built-in Web Interface</span>
                 </div>
                 <p className="text-xs text-bolt-elements-textSecondary">
                   Desktop app includes a web interface at{' '}
@@ -238,7 +238,7 @@ function SetupGuide({ onBack }: { onBack: () => void }) {
               </div>
               <div className="p-4 rounded-lg bg-bolt-elements-background-depth-3">
                 <h5 className="font-medium text-bolt-elements-textPrimary mb-3 flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-blue-500" />
+                  <Terminal className="w-4 h-4 text-bolt-elements-item-contentAccent" />
                   General Purpose & Chat
                 </h5>
                 <div className="space-y-2 text-xs bg-bolt-elements-background-depth-4 p-3 rounded font-mono text-bolt-elements-textPrimary">
@@ -284,10 +284,10 @@ function SetupGuide({ onBack }: { onBack: () => void }) {
               <Monitor className="w-4 h-4" />
               3. Desktop App Features
             </h4>
-            <div className="p-4 rounded-lg bg-blue-500/5 border border-blue-500/20">
+            <div className="p-4 rounded-lg bg-[#00E5FF]/5 border border-[#00E5FF]/20">
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
-                  <h5 className="font-medium text-blue-500 mb-3">🖥️ User Interface</h5>
+                  <h5 className="font-medium text-bolt-elements-item-contentAccent mb-3">🖥️ User Interface</h5>
                   <ul className="text-sm text-bolt-elements-textSecondary space-y-1">
                     <li>• Model library browser</li>
                     <li>• One-click model downloads</li>
@@ -296,7 +296,7 @@ function SetupGuide({ onBack }: { onBack: () => void }) {
                   </ul>
                 </div>
                 <div>
-                  <h5 className="font-medium text-blue-500 mb-3">🔧 Management Tools</h5>
+                  <h5 className="font-medium text-bolt-elements-item-contentAccent mb-3">🔧 Management Tools</h5>
                   <ul className="text-sm text-bolt-elements-textSecondary space-y-1">
                     <li>• Automatic updates</li>
                     <li>• Model size optimization</li>
@@ -350,8 +350,8 @@ function SetupGuide({ onBack }: { onBack: () => void }) {
       <Card className="bg-bolt-elements-background-depth-2 shadow-sm">
         <CardHeader className="pb-6">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500/20 to-blue-600/20 flex items-center justify-center ring-1 ring-blue-500/30">
-              <Monitor className="w-6 h-6 text-blue-500" />
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#00E5FF]/20 to-[#00E5FF]/5 flex items-center justify-center ring-1 ring-[#00E5FF]/30">
+              <Monitor className="w-6 h-6 text-bolt-elements-item-contentAccent" />
             </div>
             <div className="flex-1">
               <h3 className="text-xl font-semibold text-bolt-elements-textPrimary">LM Studio Setup</h3>
@@ -375,7 +375,7 @@ function SetupGuide({ onBack }: { onBack: () => void }) {
               <Button
                 variant="outline"
                 size="sm"
-                className="bg-gradient-to-r from-blue-500/10 to-blue-600/10 hover:from-blue-500/20 hover:to-blue-600/20 border-blue-500/30 hover:border-blue-500/50 transition-all duration-300 gap-2 group shadow-sm hover:shadow-lg hover:shadow-blue-500/20 font-medium"
+                className="bg-gradient-to-r from-[#00E5FF]/10 to-[#00E5FF]/5 hover:from-[#00E5FF]/20 hover:to-[#00E5FF]/10 border-[#00E5FF]/30 hover:border-[#00E5FF]/50 transition-all duration-300 gap-2 group shadow-sm hover:shadow-lg hover:shadow-[#00E5FF]/20 font-medium"
                 _asChild
               >
                 <a
@@ -433,10 +433,10 @@ function SetupGuide({ onBack }: { onBack: () => void }) {
           </div>
 
           {/* Advantages */}
-          <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+          <div className="p-4 rounded-lg bg-[#00E5FF]/10 border border-[#00E5FF]/20">
             <div className="flex items-center gap-2 mb-2">
-              <CheckCircle className="w-4 h-4 text-blue-500" />
-              <span className="font-medium text-blue-500">LM Studio Advantages</span>
+              <CheckCircle className="w-4 h-4 text-bolt-elements-item-contentAccent" />
+              <span className="font-medium text-bolt-elements-item-contentAccent">LM Studio Advantages</span>
             </div>
             <ul className="text-xs text-bolt-elements-textSecondary space-y-1 list-disc list-inside">
               <li>Built-in model downloader with search</li>
@@ -567,19 +567,19 @@ function SetupGuide({ onBack }: { onBack: () => void }) {
               <h4 className="font-medium text-bolt-elements-textPrimary">Software Optimizations</h4>
               <ul className="text-sm text-bolt-elements-textSecondary space-y-2">
                 <li className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                  <CheckCircle className="w-4 h-4 text-bolt-elements-item-contentAccent mt-0.5 flex-shrink-0" />
                   <span>Use smaller models for faster responses</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                  <CheckCircle className="w-4 h-4 text-bolt-elements-item-contentAccent mt-0.5 flex-shrink-0" />
                   <span>Enable quantization (4-bit, 8-bit models)</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                  <CheckCircle className="w-4 h-4 text-bolt-elements-item-contentAccent mt-0.5 flex-shrink-0" />
                   <span>Reduce context length for chat applications</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <CheckCircle className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                  <CheckCircle className="w-4 h-4 text-bolt-elements-item-contentAccent mt-0.5 flex-shrink-0" />
                   <span>Use streaming responses for better UX</span>
                 </li>
               </ul>
@@ -610,7 +610,7 @@ function SetupGuide({ onBack }: { onBack: () => void }) {
               <div className="space-y-3">
                 <div className="p-3 rounded-lg bg-bolt-elements-background-depth-3">
                   <div className="flex items-center gap-2 mb-1">
-                    <Package className="w-4 h-4 text-blue-500" />
+                    <Package className="w-4 h-4 text-bolt-elements-item-contentAccent" />
                     <span className="font-medium text-bolt-elements-textPrimary">Jan.ai</span>
                   </div>
                   <p className="text-xs text-bolt-elements-textSecondary">

@@ -146,9 +146,10 @@ export function ConnectionForm({
                 disabled={isConnecting || !token.trim()}
                 className={classNames(
                   'px-4 py-2 rounded-lg text-sm flex items-center gap-2',
-                  'bg-[#303030] text-white',
-                  'hover:bg-[#5E41D0] hover:text-white',
-                  'disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
+                  'bg-[#00E5FF] text-[#060610]',
+                  'hover:bg-[#00E5FF]/90',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-[#00E5FF]/50',
+                  'disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-200',
                   'transform active:scale-95',
                 )}
               >

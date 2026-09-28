@@ -497,9 +497,9 @@ export default function VercelTab() {
                         label: 'Custom Domain',
                         value: withCustomDomain,
                         icon: 'i-ph:globe',
-                        color: 'text-blue-500',
-                        bgColor: 'bg-blue-100 dark:bg-blue-900/20',
-                        textColor: 'text-blue-800 dark:text-blue-400',
+                        color: 'text-bolt-elements-item-contentAccent',
+                        bgColor: 'bg-[#00E5FF]/10',
+                        textColor: 'text-bolt-elements-item-contentAccent',
                       },
                       {
                         label: 'Building',
@@ -756,8 +756,8 @@ export default function VercelTab() {
                   placeholder="Enter your Vercel personal access token"
                   className={classNames(
                     'w-full px-3 py-2 rounded-lg text-sm',
-                    'bg-[#F8F8F8] dark:bg-[#1A1A1A]',
-                    'border border-[#E5E5E5] dark:border-[#333333]',
+                    'bg-bolt-elements-background-depth-3',
+                    'border border-bolt-elements-borderColor',
                     'text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary',
                     'focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive',
                     'disabled:opacity-50',

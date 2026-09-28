@@ -27,8 +27,8 @@ function HealthStatusBadge({ status, responseTime, className }: HealthStatusBadg
         };
       case 'checking':
         return {
-          color: 'text-blue-500',
-          bgColor: 'bg-blue-500/10 border-blue-500/20',
+          color: 'text-bolt-elements-item-contentAccent',
+          bgColor: 'bg-[#00E5FF]/10 border-[#00E5FF]/20',
           Icon: Loader2,
           label: 'Checking',
         };

@@ -155,7 +155,7 @@ export default function GitLabTab() {
               ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
               : connectionTest.status === 'error'
                 ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
-                : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+                : 'bg-[#00E5FF]/10 dark:bg-[#00E5FF]/15 border-[#00E5FF]/30'
           }`}
         >
           <div className="flex items-center gap-2">
@@ -165,7 +165,7 @@ export default function GitLabTab() {
                   ? 'text-green-600'
                   : connectionTest.status === 'error'
                     ? 'text-red-600'
-                    : 'text-blue-600'
+                    : 'text-bolt-elements-item-contentAccent'
               }`}
             >
               {connectionTest.status === 'success' ? (
@@ -182,7 +182,7 @@ export default function GitLabTab() {
                   ? 'text-green-800 dark:text-green-200'
                   : connectionTest.status === 'error'
                     ? 'text-red-800 dark:text-red-200'
-                    : 'text-blue-800 dark:text-blue-200'
+                    : 'text-bolt-elements-item-contentAccent'
               }`}
             >
               {connectionTest.message}

@@ -49,7 +49,9 @@ const FeatureCard = memo(
             <div className="flex items-center gap-2">
               <h4 className="font-medium text-bolt-elements-textPrimary">{feature.title}</h4>
               {feature.beta && (
-                <span className="px-2 py-0.5 text-xs rounded-full bg-blue-500/10 text-blue-500 font-medium">Beta</span>
+                <span className="px-2 py-0.5 text-xs rounded-full bg-[#00E5FF]/15 text-bolt-elements-item-contentAccent font-medium">
+                  Beta
+                </span>
               )}
               {feature.experimental && (
                 <span className="px-2 py-0.5 text-xs rounded-full bg-orange-500/10 text-orange-500 font-medium">
